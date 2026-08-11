@@ -36,6 +36,37 @@ namespace Parsek
     {
         public MonoBehaviour emitter;
         public System.Reflection.FieldInfo emitField;
+        // S1 (plume magnitude): the emitter's own particle-rate / velocity fields at BUILD time,
+        // captured once by GhostVisualBuilder.CaptureFxMagnitudeBaselines AFTER every build-time
+        // mutation has run (the #383 size boost, the world-space velocity floor, the per-part
+        // overrides). Runtime throttle scaling writes `baseline * ratio` into these same fields,
+        // so it composes with those fixes instead of fighting them and never drifts across
+        // repeated events. FieldInfos are resolved once at capture: KSPParticleEmitter is
+        // compile-time reachable but these particular fields are read reflectively so a KSP
+        // version that renames one degrades to "no scaling" rather than failing the build.
+        // magnitudeBaselineCaptured == false means every scaling write is skipped for this
+        // emitter, which is exactly the pre-S1 boolean behaviour.
+        public System.Reflection.FieldInfo minEmissionField;
+        public System.Reflection.FieldInfo maxEmissionField;
+        public System.Reflection.FieldInfo localVelocityField;
+        public float baselineMinEmission;
+        public float baselineMaxEmission;
+        public Vector3 baselineLocalVelocity;
+        public bool magnitudeBaselineCaptured;
+    }
+
+    /// <summary>
+    /// S1 per-<see cref="ParticleSystem"/> magnitude baseline, captured in the same pass as
+    /// <see cref="KspEmitterRef"/>'s and stored INDEX-PARALLEL to
+    /// <c>EngineGhostInfo.particleSystems</c> / <c>RcsGhostInfo.particleSystems</c>. Both lists are
+    /// appended to only during the build and only through the same two sinks, so the indices stay
+    /// aligned for the ghost's whole lifetime; the applier still bounds-checks.
+    /// </summary>
+    internal struct GhostFxMagnitudeBaseline
+    {
+        public float startSpeedMultiplier;
+        public float startSizeMultiplier;
+        public bool captured;
     }
 
     internal class EngineGhostInfo
@@ -44,6 +75,8 @@ namespace Parsek
         public int moduleIndex;
         public List<ParticleSystem> particleSystems = new List<ParticleSystem>();
         public List<KspEmitterRef> kspEmitters = new List<KspEmitterRef>();
+        /// <summary>S1 baselines, index-parallel to <see cref="particleSystems"/>. Empty until captured.</summary>
+        public List<GhostFxMagnitudeBaseline> particleBaselines = new List<GhostFxMagnitudeBaseline>();
         public FloatCurve emissionCurve;
         public FloatCurve speedCurve;
         public float currentPower;
@@ -64,6 +97,101 @@ namespace Parsek
     {
         public uint partPersistentId;
         public List<DeployableTransformState> transforms;
+        // S2 (deployable interpolation). The prefab animation clip's own length, read at build time
+        // by GhostVisualBuilder.SampleAnimationStates and clamped by
+        // GhostPlaybackLogic.ClampDeployableClipSeconds. Unreadable clip -> the 3 s default, which
+        // still animates rather than snapping.
+        public float clipLengthSeconds = 3f;
+        /// <summary>Where the transforms are RIGHT NOW along stowed(0) -&gt; deployed(1).</summary>
+        public float deployFraction;
+        /// <summary>True once the family has reached / is heading to the deployed end. The sun-tracking gate reads this.</summary>
+        public bool currentDeployed;
+        /// <summary>True while an interpolated stow&lt;-&gt;deploy transition is in flight.</summary>
+        public bool transitionActive;
+        /// <summary>The RECORDED EVENT UT the in-flight transition started at — never wall time.</summary>
+        public double transitionStartUT;
+        /// <summary>The fraction the in-flight transition started FROM. Non-0/1 after a mid-clip reversal.</summary>
+        public float transitionStartFraction;
+        /// <summary>The fraction the in-flight transition is heading to (0 or 1).</summary>
+        public float transitionTargetFraction;
+    }
+
+    /// <summary>
+    /// S3 gimbal synthesis: one engine gimbal ring driven from the ghost's own applied world-rotation
+    /// derivative. Neutral is the ghost transform's build-time localRotation, so a part whose prefab
+    /// ships a pre-canted gimbal deflects around ITS pose, not around identity.
+    /// </summary>
+    internal class GimbalGhostInfo
+    {
+        public uint partPersistentId;
+        public List<Transform> gimbalTransforms = new List<Transform>();
+        public List<Quaternion> neutralRotations = new List<Quaternion>();
+        public float gimbalRangeDegrees;
+        /// <summary>Smoothed applied deflection, degrees, about the two gimbal axes. Eased, not snapped.</summary>
+        public Vector2 currentDeflection;
+    }
+
+    /// <summary>
+    /// S3 control-surface synthesis: an aero surface deflected from the same attitude derivative,
+    /// gated on atmosphere. Suppressed while the part's deployable pose is DEPLOYED (an extended
+    /// airbrake is a brake pose, and S2 owns that transform then — risk 4's explicit precedence).
+    /// </summary>
+    internal class ControlSurfaceGhostInfo
+    {
+        public uint partPersistentId;
+        public List<Transform> surfaceTransforms = new List<Transform>();
+        public List<Quaternion> neutralRotations = new List<Quaternion>();
+        public float rangeDegrees;
+        public bool ignorePitch;
+        public bool ignoreYaw;
+        public bool ignoreRoll;
+        public float currentDeflection;
+    }
+
+    /// <summary>
+    /// S3 sun tracking: a deployed tracking solar panel / antenna pivot slewed toward the Sun.
+    /// Only ever driven while the owning part's deployable pose is DEPLOYED and no S2 transition is
+    /// running (transition &gt; tracking, risk 4).
+    /// </summary>
+    internal class SunTrackingGhostInfo
+    {
+        public uint partPersistentId;
+        public Transform pivotTransform;
+        public Quaternion neutralRotation;
+        /// <summary>The pivot's rotation axis, in the pivot's own local frame.</summary>
+        public Vector3 axisLocal = Vector3.up;
+        /// <summary>Current slewed angle in degrees about <see cref="axisLocal"/> from neutral.</summary>
+        public float currentAngleDegrees;
+        public bool hasAimed;
+    }
+
+    /// <summary>
+    /// S3 launch dust: ONE Parsek-owned particle system per ghost (the reentry <c>fireParticles</c>
+    /// template — Parsek authored it, so its emission/size multipliers are driven directly).
+    /// </summary>
+    internal class LaunchDustInfo
+    {
+        public GameObject dustObject;
+        public ParticleSystem particles;
+        public Material material;
+        public Texture2D generatedTexture;
+        public float lastIntensity;
+    }
+
+    /// <summary>
+    /// The three S3 synthesis families a single part can contribute. One container so the ghost
+    /// build's already-14-wide out-parameter list grows by one rather than by three.
+    /// </summary>
+    internal class SynthesizedMotionGhostInfos
+    {
+        public List<GimbalGhostInfo> gimbals;
+        public List<ControlSurfaceGhostInfo> controlSurfaces;
+        public List<SunTrackingGhostInfo> sunTrackers;
+
+        internal bool IsEmpty =>
+            (gimbals == null || gimbals.Count == 0)
+            && (controlSurfaces == null || controlSurfaces.Count == 0)
+            && (sunTrackers == null || sunTrackers.Count == 0);
     }
 
     internal struct HeatTransformState
@@ -125,6 +253,8 @@ namespace Parsek
         public int moduleIndex;
         public List<ParticleSystem> particleSystems = new List<ParticleSystem>();
         public List<KspEmitterRef> kspEmitters = new List<KspEmitterRef>();
+        /// <summary>S1 baselines, index-parallel to <see cref="particleSystems"/>. Empty until captured.</summary>
+        public List<GhostFxMagnitudeBaseline> particleBaselines = new List<GhostFxMagnitudeBaseline>();
         public FloatCurve emissionCurve;
         public FloatCurve speedCurve;
         public float emissionScale = 1f;
@@ -162,7 +292,12 @@ namespace Parsek
         // horizontal ground speed each frame, not read from a recorded event. Recorded wheel-motor
         // events (old recordings still carry them) are ignored in this mode. See
         // FlightRecorder.IsWheelMotorSpinModuleName and GhostPlaybackLogic.UpdateActiveRobotics.
-        WheelGroundSpeed
+        WheelGroundSpeed,
+        // S3 wheel steering: caliper heading DERIVED from the rate of change of the ghost's own
+        // ground-track heading, not read from a recorded event. Recorded ModuleWheelSteering
+        // scalars (old recordings carry them, and they were an unsigned steering INPUT rather than
+        // an angle) are ignored in this mode, the same contract WheelGroundSpeed has.
+        WheelSteeringHeading
     }
 
     internal class RoboticGhostInfo
@@ -194,6 +329,10 @@ namespace Parsek
         // sizes the wheel collider. Falls back to
         // GhostPlaybackLogic.DefaultWheelRadiusMeters when the module or field is unreachable.
         public float wheelRadius;
+        // WheelSteeringHeading mode only: the eased steering angle currently APPLIED, in degrees
+        // about axisLocal from stowedRot. Eased rather than snapped so a noisy heading derivative
+        // cannot make the calipers judder. Reset to 0 on a loop cycle alongside currentValue.
+        public float steeringAngleDegrees;
     }
 
     internal struct FxModelDefinition
@@ -296,6 +435,8 @@ namespace Parsek
         public List<FairingGhostInfo> fairingInfos = new List<FairingGhostInfo>();
         public List<RcsGhostInfo> rcsInfos = new List<RcsGhostInfo>();
         public List<RoboticGhostInfo> roboticInfos = new List<RoboticGhostInfo>();
+        /// <summary>S3: accumulated across parts, merged into one container at CompleteTimelineGhostBuild.</summary>
+        public SynthesizedMotionGhostInfos synthesizedMotionInfos = new SynthesizedMotionGhostInfos();
         public List<ColorChangerGhostInfo> colorChangerInfos = new List<ColorChangerGhostInfo>();
         public List<CompoundPartGhostInfo> compoundPartInfos = new List<CompoundPartGhostInfo>();
         public List<AudioGhostInfo> audioInfos = new List<AudioGhostInfo>();
@@ -326,6 +467,8 @@ namespace Parsek
         public List<FairingGhostInfo> fairingInfos;
         public List<RcsGhostInfo> rcsInfos;
         public List<RoboticGhostInfo> roboticInfos;
+        /// <summary>S3: the per-part gimbal / control-surface / sun-tracking containers, flattened.</summary>
+        public SynthesizedMotionGhostInfos synthesizedMotionInfos;
         public List<ColorChangerGhostInfo> colorChangerInfos;
         public List<CompoundPartGhostInfo> compoundPartInfos;
         public List<AudioGhostInfo> audioInfos;

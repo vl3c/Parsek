@@ -1747,6 +1747,17 @@ namespace Parsek
                     result.Add(info);
             }
 
+            // S1: one magnitude-baseline capture per finished engine module, AFTER every FX branch
+            // above (model / prefab / legacy / pristine / ReStock) has cloned, size-boosted and
+            // velocity-floored its systems. Capturing inside StripKspFxControllers instead would
+            // pin the PRE-size-boost values and runtime scaling would undo #383.
+            for (int i = 0; i < result.Count; i++)
+            {
+                GhostVisualBuilder.CaptureFxMagnitudeBaselines(
+                    result[i].kspEmitters, result[i].particleSystems, result[i].particleBaselines,
+                    partName, result[i].moduleIndex);
+            }
+
             return result.Count > 0 ? result : null;
         }
 

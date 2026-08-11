@@ -432,6 +432,15 @@ namespace Parsek
             PopulateRcsInfos(state, result);
             PopulateRoboticInfos(state, result);
 
+            // S3: no dictionary — every family is walked whole each frame and the lists are short
+            // (a craft with 40 control surfaces is an outlier). The per-frame entry short-circuits
+            // on null, so a ghost with no synthesis families pays a single reference compare.
+            state.synthesizedMotionInfos = result.synthesizedMotionInfos;
+            state.prevSynthUT = double.NaN;
+            state.smoothedAngularVelocity = Vector3.zero;
+            state.prevGroundHeadingUT = double.NaN;
+            state.smoothedHeadingRateDegPerSec = 0f;
+
             if (result.colorChangerInfos != null)
                 state.colorChangerInfos = GhostVisualBuilder.GroupColorChangersByPartId(result.colorChangerInfos);
 
@@ -781,6 +790,22 @@ namespace Parsek
             info.currentValue = info.spawnValue;
             if (info.visualMode == RoboticVisualMode.RotorRpm)
             {
+                info.active = false;
+                info.lastUpdateUT = double.NaN;
+                return;
+            }
+
+            // S3 WHEEL STEERING PARKS STRAIGHT. ApplyRoboticPose only writes a transform for the
+            // Linear and Rotational modes, so without this branch a caliper left turned 30 degrees
+            // at the end of a cycle would still be turned at the start of the next one while
+            // steeringAngleDegrees claimed zero — the M4 carry-over class this whole reset exists
+            // for. WheelGroundSpeed deliberately keeps falling through: a wheel's SPIN PHASE is not
+            // observable, so there is nothing to park.
+            if (info.visualMode == RoboticVisualMode.WheelSteeringHeading)
+            {
+                info.steeringAngleDegrees = 0f;
+                if (info.servoTransform != null)
+                    info.servoTransform.localRotation = info.stowedRot;
                 info.active = false;
                 info.lastUpdateUT = double.NaN;
                 return;
@@ -1238,8 +1263,54 @@ namespace Parsek
                     info.currentValue = 0f;
                     info.active = false;
                     info.lastUpdateUT = double.NaN;
+                    // S3 wheel steering: the eased caliper angle is per-cycle state like
+                    // currentValue. RestoreRoboticSpawnBaselines puts the TRANSFORM back.
+                    info.steeringAngleDegrees = 0f;
                 }
             }
+
+            // S2: drop every in-flight deployable transition. A panel caught mid-clip at the loop
+            // boundary must RE-STOW (Reapply... step 2) and then replay the new cycle's own events
+            // from their own UTs — resuming against a rewound clock would run the clip backwards.
+            ClearActiveDeployableTransitions(state);
+
+            // S3: the attitude / heading derivatives and every synthesized deflection are per-cycle
+            // state. Clearing prevSynthUT / prevGroundHeadingUT (rather than leaving a stale
+            // sample) is what stops the loop boundary's backwards UT jump from being read as an
+            // enormous angular velocity on the first frame of the new cycle.
+            state.prevSynthRotation = Quaternion.identity;
+            state.prevSynthUT = double.NaN;
+            state.smoothedAngularVelocity = Vector3.zero;
+            state.prevGroundHeading = Vector3.zero;
+            state.prevGroundHeadingUT = double.NaN;
+            state.smoothedHeadingRateDegPerSec = 0f;
+            if (state.synthesizedMotionInfos != null)
+            {
+                var synth = state.synthesizedMotionInfos;
+                if (synth.gimbals != null)
+                    for (int i = 0; i < synth.gimbals.Count; i++)
+                        if (synth.gimbals[i] != null) synth.gimbals[i].currentDeflection = Vector2.zero;
+                if (synth.controlSurfaces != null)
+                    for (int i = 0; i < synth.controlSurfaces.Count; i++)
+                        if (synth.controlSurfaces[i] != null) synth.controlSurfaces[i].currentDeflection = 0f;
+                if (synth.sunTrackers != null)
+                {
+                    for (int i = 0; i < synth.sunTrackers.Count; i++)
+                    {
+                        if (synth.sunTrackers[i] == null) continue;
+                        synth.sunTrackers[i].currentAngleDegrees = 0f;
+                        synth.sunTrackers[i].hasAimed = false;
+                    }
+                }
+            }
+
+            // S3 launch dust: the intensity bookkeeping resets here; the particle system itself is
+            // stopped by ReapplySpawnTimeModuleBaselinesForLoopCycle (a Unity call). The latched
+            // ground reference is NOT cleared — it is a property of the recording's launch site,
+            // not of the cycle, and re-latching would cost a section scan for no behaviour change.
+            if (state.launchDustInfo != null)
+                state.launchDustInfo.lastIntensity = 0f;
+
             if (state.colorChangerInfos != null)
             {
                 foreach (var list in state.colorChangerInfos.Values)
@@ -1414,6 +1485,16 @@ namespace Parsek
             //     mesh stayed wherever the previous cycle left it. A rover replay's second
             //     cycle began with its arm already unfolded.
             int roboticsRestored = RestoreRoboticSpawnBaselines(state);
+
+            // 3g. S3 synthesis: put every gimbal ring, control surface and sun-tracking pivot back
+            //     to the NEUTRAL pose captured at build time. Same failure mode step 3e exists for:
+            //     ResetForLoopCycle zeroes the deflection numbers but cannot touch a Transform, so
+            //     without this the mesh would keep the previous cycle's last deflection while the
+            //     numbers claimed neutral — and for the sun pivot that is a panel frozen aimed at
+            //     where the Sun was an orbit ago. Launch dust stops here for the same reason.
+            RestoreSynthesizedMotionNeutralPoses(state);
+            if (state.launchDustInfo?.particles != null && state.launchDustInfo.particles.isPlaying)
+                state.launchDustInfo.particles.Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
 
             // 3f. Re-apply the M1 snapshot baselines the stow/cold/off steps above just
             //     reverted, so cycle N+1 restarts from the RECORDED look rather than the
@@ -1707,11 +1788,15 @@ namespace Parsek
                         if (SetEngineAudio(state, evt, evt.value, enforcePlaybackCap: false))
                             audioPowerTouched = true;
                         break;
+                    // S2: the four deployable-family event pairs take the ANIMATED path
+                    // (immediate: false). Every BASELINE caller keeps the snap overload; the
+                    // distinction is "the recording says this moved now" vs "put the ghost into
+                    // the state it spawned in".
                     case PartEventType.DeployableExtended:
-                        ApplyDeployableState(state, evt, deployed: true);
+                        ApplyDeployableState(state, evt, deployed: true, immediate: false);
                         break;
                     case PartEventType.DeployableRetracted:
-                        ApplyDeployableState(state, evt, deployed: false);
+                        ApplyDeployableState(state, evt, deployed: false, immediate: false);
                         break;
                     case PartEventType.ThermalAnimationHot:
                         ApplyHeatState(state, evt, HeatLevel.Hot);
@@ -1738,16 +1823,16 @@ namespace Parsek
                         ApplyLightBlinkRateEvent(state, evt.partPersistentId, evt.value);
                         break;
                     case PartEventType.GearDeployed:
-                        ApplyDeployableState(state, evt, deployed: true);
+                        ApplyDeployableState(state, evt, deployed: true, immediate: false);
                         break;
                     case PartEventType.GearRetracted:
-                        ApplyDeployableState(state, evt, deployed: false);
+                        ApplyDeployableState(state, evt, deployed: false, immediate: false);
                         break;
                     case PartEventType.CargoBayOpened:
-                        ApplyCargoBayState(state, evt, open: true);
+                        ApplyCargoBayState(state, evt, open: true, immediate: false);
                         break;
                     case PartEventType.CargoBayClosed:
-                        ApplyCargoBayState(state, evt, open: false);
+                        ApplyCargoBayState(state, evt, open: false, immediate: false);
                         break;
                     case PartEventType.FairingJettisoned:
                         if (state.fairingInfos != null)
@@ -2698,6 +2783,25 @@ namespace Parsek
             if (!state.engineInfos.TryGetValue(key, out info)) return;
 
             info.currentPower = power;
+
+            // S1: MAGNITUDE. Scale the plume to the throttle before flipping the boolean gate.
+            // Only on the way UP (power > 0): the fields are persistent, and the one caller that
+            // does NOT route through here — RestoreAllRcsEmissions' sibling for RCS, and
+            // RestoreActiveEngineFx here — relies on the last active scale still being written
+            // when it re-enables emitters directly. Writing a zero-scale at power 0 would restore
+            // an invisible plume.
+            if (power > 0f)
+            {
+                ApplyFxMagnitudeScale(
+                    info.kspEmitters, info.particleSystems, info.particleBaselines,
+                    ComputeFxMagnitudeRatio(
+                        ComputeEngineEmissionRate(info.emissionCurve, power),
+                        ComputeEngineEmissionRate(info.emissionCurve, 1f), power),
+                    ComputeFxMagnitudeRatio(
+                        ComputeEngineSpeed(info.speedCurve, power),
+                        ComputeEngineSpeed(info.speedCurve, 1f), power),
+                    "engine", info.partPersistentId, info.moduleIndex, power);
+            }
 
             // Control KSPParticleEmitter.emit via reflection — this is the ONLY particle
             // creation source. Unity's emission module is permanently disabled (bug #105).
@@ -3827,6 +3931,26 @@ namespace Parsek
 
             info.currentPower = power;
 
+            // S1: MAGNITUDE. Same choke point as the engine side, but the ratio runs through
+            // ComputeScaledRcsEmissionRate / ComputeScaledRcsSpeed so the showcase visibility
+            // FLOORS survive: at low power the floor lifts the numerator, which lifts the ratio,
+            // which is exactly what "stays visible on a showcase rig" means once the write is
+            // relative rather than absolute.
+            if (power > 0f)
+            {
+                ApplyFxMagnitudeScale(
+                    info.kspEmitters, info.particleSystems, info.particleBaselines,
+                    ComputeFxMagnitudeRatio(
+                        ComputeScaledRcsEmissionRate(info.emissionCurve, power, info.emissionScale),
+                        ComputeScaledRcsEmissionRate(info.emissionCurve, 1f, info.emissionScale),
+                        power),
+                    ComputeFxMagnitudeRatio(
+                        ComputeScaledRcsSpeed(info.speedCurve, power, info.speedScale),
+                        ComputeScaledRcsSpeed(info.speedCurve, 1f, info.speedScale),
+                        power),
+                    "rcs", info.partPersistentId, info.moduleIndex, power);
+            }
+
             // Control KSPParticleEmitter.emit via reflection — this is the ONLY particle
             // creation source. Unity's emission module is permanently disabled (bug #105).
             SetKspEmittersEnabled(info.kspEmitters, power > 0f);
@@ -3870,6 +3994,137 @@ namespace Parsek
             }
 
         }
+
+        #region S1 — plume magnitude (ratio of captured baseline)
+
+        /// <summary>
+        /// The lowest fraction of the full-power baseline a LIT plume is allowed to shrink to.
+        /// A plume at 5% throttle must still read as "this engine is running" at playback speed —
+        /// the binary on/off it replaces was at least legible. Also the floor that keeps a curve
+        /// with a near-zero low end from producing a plume made of nothing.
+        /// </summary>
+        internal const float FxMagnitudeMinVisibleRatio = 0.2f;
+
+        /// <summary>
+        /// The engine siblings of <see cref="ComputeScaledRcsEmissionRate"/> /
+        /// <see cref="ComputeScaledRcsSpeed"/>: same curve-else-linear fallback, no showcase scale
+        /// and therefore no floor (engine FX carry no per-asset scale field). Kept as named
+        /// functions rather than inlined curve reads so the RATIO's numerator and denominator are
+        /// provably the same expression evaluated at two powers.
+        /// </summary>
+        internal static float ComputeEngineEmissionRate(FloatCurve emissionCurve, float power)
+        {
+            if (power <= 0f) return 0f;
+            return emissionCurve != null ? emissionCurve.Evaluate(power) : power * 100f;
+        }
+
+        internal static float ComputeEngineSpeed(FloatCurve speedCurve, float power)
+        {
+            if (power <= 0f) return 0f;
+            return speedCurve != null ? speedCurve.Evaluate(power) : power * 10f;
+        }
+
+        /// <summary>
+        /// Turns a magnitude at the current power and the same magnitude at FULL power into the
+        /// fraction of the captured build-time baseline to write. Pure floats in, pure float out —
+        /// no Unity call, no FloatCurve — so the whole decision is headless-testable and the
+        /// callers own the (KSP-side) curve evaluation.
+        ///
+        /// Degradation is deliberate and one-directional: anything that makes the ratio
+        /// unknowable (no usable full-power reference, a non-finite reading, a negative magnitude)
+        /// answers 1.0, i.e. "write the baseline back unchanged", which is byte-for-byte the
+        /// pre-S1 boolean behaviour. It never answers 0 for a lit engine.
+        /// </summary>
+        internal static float ComputeFxMagnitudeRatio(
+            float magnitudeAtPower, float magnitudeAtFullPower, float power)
+        {
+            if (power <= 0f) return 0f;
+            if (power >= 1f) return 1f;
+
+            if (float.IsNaN(magnitudeAtPower) || float.IsInfinity(magnitudeAtPower)
+                || float.IsNaN(magnitudeAtFullPower) || float.IsInfinity(magnitudeAtFullPower)
+                || magnitudeAtFullPower <= 0f || magnitudeAtPower < 0f)
+            {
+                return 1f;
+            }
+
+            float ratio = magnitudeAtPower / magnitudeAtFullPower;
+            if (ratio >= 1f) return 1f;
+            return Math.Max(ratio, FxMagnitudeMinVisibleRatio);
+        }
+
+        /// <summary>
+        /// Writes <c>baseline * ratio</c> into the two magnitude surfaces a ghost plume actually
+        /// has: the <c>KSPParticleEmitter</c> clone's own rate / velocity fields (the ONLY particle
+        /// creation source on a ghost — Unity's emission module is permanently off, bug #105), and
+        /// the <c>ParticleSystem</c>'s speed / size multipliers.
+        ///
+        /// Ratio-of-baseline rather than absolute writes is what makes this composable: the #383
+        /// size boost, the per-part FX tunings and the world-space velocity floor are all already
+        /// baked into the captured baseline, so scaling multiplies them instead of overwriting
+        /// them, and repeated events at the same power are idempotent instead of compounding.
+        /// An uncaptured baseline (build failed, or a KSP version renamed a field) writes nothing.
+        /// </summary>
+        internal static void ApplyFxMagnitudeScale(
+            List<KspEmitterRef> emitters, List<ParticleSystem> systems,
+            List<GhostFxMagnitudeBaseline> baselines,
+            float emissionRatio, float speedRatio,
+            string kind, uint partPersistentId, int moduleIndex, float power)
+        {
+            int scaledEmitters = 0;
+            int scaledSystems = 0;
+
+            if (emitters != null)
+            {
+                for (int i = 0; i < emitters.Count; i++)
+                {
+                    KspEmitterRef r = emitters[i];
+                    if (!r.magnitudeBaselineCaptured || r.emitter == null) continue;
+                    try
+                    {
+                        r.minEmissionField?.SetValue(r.emitter, r.baselineMinEmission * emissionRatio);
+                        r.maxEmissionField?.SetValue(r.emitter, r.baselineMaxEmission * emissionRatio);
+                        r.localVelocityField?.SetValue(r.emitter, r.baselineLocalVelocity * speedRatio);
+                        scaledEmitters++;
+                    }
+                    catch (Exception ex)
+                    {
+                        ParsekLog.VerboseRateLimited("GhostVisual",
+                            $"fx-magnitude-write-fail-{kind}-{partPersistentId}-{moduleIndex}",
+                            $"FX magnitude write failed ({kind} pid={partPersistentId} " +
+                            $"midx={moduleIndex}): {ex.Message}; plume stays at its baseline", 60.0);
+                    }
+                }
+            }
+
+            if (systems != null && baselines != null)
+            {
+                int count = Math.Min(systems.Count, baselines.Count);
+                for (int i = 0; i < count; i++)
+                {
+                    ParticleSystem ps = systems[i];
+                    GhostFxMagnitudeBaseline b = baselines[i];
+                    if (ps == null || !b.captured) continue;
+                    var main = ps.main;
+                    main.startSpeedMultiplier = b.startSpeedMultiplier * speedRatio;
+                    main.startSizeMultiplier = b.startSizeMultiplier * speedRatio;
+                    scaledSystems++;
+                }
+            }
+
+            if (scaledEmitters == 0 && scaledSystems == 0)
+                return;
+
+            ParsekLog.VerboseRateLimited("GhostVisual",
+                $"fx-magnitude-{kind}-{partPersistentId}-{moduleIndex}",
+                $"FX magnitude ({kind}) pid={partPersistentId} midx={moduleIndex} " +
+                $"power={power.ToString("F3", CultureInfo.InvariantCulture)} " +
+                $"emissionRatio={emissionRatio.ToString("F3", CultureInfo.InvariantCulture)} " +
+                $"speedRatio={speedRatio.ToString("F3", CultureInfo.InvariantCulture)} " +
+                $"emitters={scaledEmitters} systems={scaledSystems}", 10.0);
+        }
+
+        #endregion
 
         internal static float ComputeScaledRcsEmissionRate(
             FloatCurve emissionCurve, float power, float emissionScale)
@@ -4345,13 +4600,22 @@ namespace Parsek
             // The event family itself is NOT retired: RoboticMotionStarted / RoboticPositionSample /
             // RoboticMotionStopped are still the live signal for hinges, pistons, rotation servos,
             // rotors, wheel suspension and wheel steering. Only the wheel-motor producer is gone.
-            if (info.visualMode == RoboticVisualMode.WheelGroundSpeed)
+            //
+            // S3 adds the same contract for ModuleWheelSteering: recordings carry
+            // RoboticMotion* events whose value came from a steering INPUT field
+            // (steeringInput / currentSteering, unsigned on several stock rovers), not from a
+            // caliper ANGLE. Replaying it as an angle was the same class of mistake the wheel-motor
+            // scalar was, so the derived heading rate replaces it outright rather than falling back
+            // to it — the derivation reads the trajectory, which every recording has.
+            if (info.visualMode == RoboticVisualMode.WheelGroundSpeed
+                || info.visualMode == RoboticVisualMode.WheelSteeringHeading)
             {
                 ParsekLog.VerboseRateLimited("Flight",
                     $"wheel-motor-event-ignored-{evt.partPersistentId}-{evt.moduleIndex}",
-                    $"Ignoring legacy wheel-motor robotic event {evt.eventType} pid={evt.partPersistentId} " +
-                    $"midx={evt.moduleIndex} value={evt.value.ToString("F3", CultureInfo.InvariantCulture)}; " +
-                    $"spin is derived from ghost ground speed",
+                    $"Ignoring legacy wheel robotic event {evt.eventType} pid={evt.partPersistentId} " +
+                    $"midx={evt.moduleIndex} mode={info.visualMode} " +
+                    $"value={evt.value.ToString("F3", CultureInfo.InvariantCulture)}; " +
+                    $"the visual is derived from ghost ground motion",
                     60.0);
                 return;
             }
@@ -4393,6 +4657,10 @@ namespace Parsek
             bool wheelInputsUsable = false;
             Vector3 wheelUp = Vector3.zero;
             Vector3 wheelHorizontalVelocity = Vector3.zero;
+            // S3 wheel steering shares those same once-per-ghost inputs; the heading rate on top of
+            // them is also once-per-ghost (every steered wheel on a craft turns off one heading).
+            bool steeringRateResolved = false;
+            float steeringHeadingRate = 0f;
 
             foreach (var kv in state.roboticInfos)
             {
@@ -4466,9 +4734,102 @@ namespace Parsek
                         }
                     }
                 }
+                else if (info.visualMode == RoboticVisualMode.WheelSteeringHeading)
+                {
+                    if (!wheelInputsResolved)
+                    {
+                        wheelInputsResolved = true;
+                        bool onGroundForSteering = ResolveWheelGroundContact(
+                            trackSections, currentUT, ref state.wheelGroundContact);
+                        wheelInputsUsable = onGroundForSteering
+                            && TryResolveWheelGroundSpeedInputs(
+                                state, out wheelUp, out wheelHorizontalVelocity);
+                        LogWheelGroundContactDecision(state, currentUT, onGroundForSteering);
+                    }
+
+                    if (!steeringRateResolved)
+                    {
+                        steeringRateResolved = true;
+                        steeringHeadingRate = ResolveGhostHeadingRateDegPerSec(
+                            state, currentUT, wheelInputsUsable, wheelUp, wheelHorizontalVelocity);
+                    }
+
+                    // Off the ground, parked, or below the crawl threshold: heading rate is 0 and
+                    // this eases the calipers back to straight rather than freezing them mid-turn.
+                    //
+                    // The rate is negated on the way IN because ComputeSynthDeflectionDegrees
+                    // inverts (a control deflection OPPOSES the body rate it produced). Steering is
+                    // the one family where the deflection and the rate share a sign — the wheels
+                    // point INTO the turn — so the two negations cancel. Shared clamp/deadband/NaN
+                    // handling is worth the one confusing sign.
+                    float targetSteering = ComputeSynthDeflectionDegrees(
+                        -steeringHeadingRate, WheelSteeringGainDegPerDegPerSec, MaxWheelSteeringDegrees);
+                    info.steeringAngleDegrees = SlewTowardDegrees(
+                        info.steeringAngleDegrees, targetSteering,
+                        WheelSteeringSlewDegPerSec, deltaSeconds);
+
+                    Vector3 steerAxis = info.axisLocal.sqrMagnitude > 0.0001f
+                        ? info.axisLocal.normalized
+                        : Vector3.up;
+                    info.servoTransform.localRotation =
+                        info.stowedRot * Quaternion.AngleAxis(info.steeringAngleDegrees, steerAxis);
+                }
 
                 info.lastUpdateUT = currentUT;
             }
+        }
+
+        /// <summary>Degrees of caliper angle per deg/s of ground-track heading change.</summary>
+        internal const float WheelSteeringGainDegPerDegPerSec = 1.5f;
+        /// <summary>Stock rover calipers top out near 30 degrees; clamp there.</summary>
+        internal const float MaxWheelSteeringDegrees = 30f;
+        internal const float WheelSteeringSlewDegPerSec = 60f;
+        /// <summary>Below this ground speed the heading of a velocity vector is noise, not a direction.</summary>
+        internal const float MinWheelSteeringGroundSpeed = 0.2f;
+        internal const float WheelSteeringHeadingEmaAlpha = 0.3f;
+
+        /// <summary>
+        /// Once-per-ghost-per-frame heading rate for wheel steering, EMA-smoothed. Returns 0 (wheels
+        /// straight) whenever the wheel inputs are unusable or the ghost is below a crawl, and
+        /// re-seeds the heading memo so the next moving frame differences against a fresh sample
+        /// rather than one from before a stop.
+        /// </summary>
+        private static float ResolveGhostHeadingRateDegPerSec(
+            GhostPlaybackState state, double currentUT,
+            bool inputsUsable, Vector3 up, Vector3 horizontalVelocity)
+        {
+            if (!inputsUsable || horizontalVelocity.magnitude < MinWheelSteeringGroundSpeed)
+            {
+                state.prevGroundHeadingUT = double.NaN;
+                state.prevGroundHeading = Vector3.zero;
+                state.smoothedHeadingRateDegPerSec = 0f;
+                return 0f;
+            }
+
+            Vector3 heading = horizontalVelocity.normalized;
+            if (double.IsNaN(state.prevGroundHeadingUT) || double.IsInfinity(state.prevGroundHeadingUT))
+            {
+                state.prevGroundHeading = heading;
+                state.prevGroundHeadingUT = currentUT;
+                return 0f;
+            }
+
+            double dt = currentUT - state.prevGroundHeadingUT;
+            if (dt <= 0.0)
+            {
+                state.prevGroundHeading = heading;
+                state.prevGroundHeadingUT = currentUT;
+                return state.smoothedHeadingRateDegPerSec;
+            }
+            dt = Math.Min(dt, 1.0);
+
+            float sample = ComputeHeadingRateDegPerSec(state.prevGroundHeading, heading, up, dt);
+            state.smoothedHeadingRateDegPerSec =
+                state.smoothedHeadingRateDegPerSec * (1f - WheelSteeringHeadingEmaAlpha)
+                + sample * WheelSteeringHeadingEmaAlpha;
+            state.prevGroundHeading = heading;
+            state.prevGroundHeadingUT = currentUT;
+            return state.smoothedHeadingRateDegPerSec;
         }
 
         /// <summary>
@@ -4545,6 +4906,583 @@ namespace Parsek
                 $"section={(state.wheelGroundContact.hasValue ? "resolved" : "none")}" +
                 (onGround ? "" : "; wheels hold still"),
                 60.0);
+        }
+
+        #endregion
+
+        #region S3 — synthesized motion (gimbal, control surfaces, sun tracking)
+
+        /// <summary>EMA weight on the newest angular-velocity sample. Low = smooth, laggy.</summary>
+        internal const float SynthAngularEmaAlpha = 0.25f;
+        /// <summary>Angular rates below this are noise, not manoeuvring; everything decays to neutral.</summary>
+        internal const float SynthAngularDeadbandDegPerSec = 0.5f;
+        /// <summary>Degrees of gimbal per deg/s of body rate. A 5 deg/s pitch buys a 5 deg gimbal.</summary>
+        internal const float GimbalGainDegPerDegPerSec = 1.0f;
+        /// <summary>Degrees of control-surface deflection per deg/s of body rate.</summary>
+        internal const float ControlSurfaceGainDegPerDegPerSec = 2.0f;
+        /// <summary>Fallback surface range when the module carries no readable authority.</summary>
+        internal const float DefaultControlSurfaceRangeDegrees = 15f;
+        internal const float DefaultGimbalRangeDegrees = 4f;
+        /// <summary>How fast a synthesized deflection is allowed to move toward its target.</summary>
+        internal const float SynthDeflectionSlewDegPerSec = 90f;
+        /// <summary>Stock tracking panels slew slowly; this is the visual cap, deg/s.</summary>
+        internal const float SunTrackingSlewDegPerSec = 20f;
+
+        /// <summary>
+        /// The ghost's body-frame angular velocity in deg/s, from two APPLIED world rotations.
+        ///
+        /// Every quaternion operation here is written out by hand. <c>Quaternion.Inverse</c>,
+        /// <c>operator*</c> and <c>ToAngleAxis</c> are all Unity native calls that throw outside a
+        /// Unity runtime, and this decision has to be provable in a headless xUnit process. The
+        /// struct itself is safe — only its static math is native.
+        ///
+        /// The inputs are APPLIED WORLD ROTATIONS, read off the ghost transform after positioning.
+        /// They are never <c>TrajectoryPoint.rotation</c> values pulled from a flat Points list: in
+        /// a RELATIVE track section that field holds an ANCHOR-LOCAL rotation rather than
+        /// srfRelRotation, so differencing two of them across a section boundary mixes frames and
+        /// invents a rotation that never happened.
+        /// </summary>
+        internal static Vector3 ComputeLocalAngularVelocityDegPerSec(
+            Quaternion previous, Quaternion current, double deltaSeconds)
+        {
+            if (deltaSeconds <= 0.0 || double.IsNaN(deltaSeconds) || double.IsInfinity(deltaSeconds))
+                return Vector3.zero;
+
+            // delta = conjugate(previous) * current, i.e. the rotation applied in previous's frame.
+            float px = -previous.x, py = -previous.y, pz = -previous.z, pw = previous.w;
+            float dx = pw * current.x + px * current.w + py * current.z - pz * current.y;
+            float dy = pw * current.y - px * current.z + py * current.w + pz * current.x;
+            float dz = pw * current.z + px * current.y - py * current.x + pz * current.w;
+            float dw = pw * current.w - px * current.x - py * current.y - pz * current.z;
+
+            // Shortest arc: q and -q are the same rotation, and only one of them has a small angle.
+            if (dw < 0f) { dx = -dx; dy = -dy; dz = -dz; dw = -dw; }
+
+            double sinHalf = Math.Sqrt((double)dx * dx + (double)dy * dy + (double)dz * dz);
+            if (sinHalf <= 1e-7)
+                return Vector3.zero;
+            if (dw > 1f) dw = 1f;
+
+            double angleDeg = 2.0 * Math.Atan2(sinHalf, dw) * (180.0 / Math.PI);
+            double scale = angleDeg / deltaSeconds / sinHalf;
+            if (double.IsNaN(scale) || double.IsInfinity(scale))
+                return Vector3.zero;
+
+            return new Vector3((float)(dx * scale), (float)(dy * scale), (float)(dz * scale));
+        }
+
+        /// <summary>Exponential moving average of a vector. Pure; <c>Vector3.Lerp</c> is managed but this is explicit.</summary>
+        internal static Vector3 ComputeEmaVector(Vector3 previous, Vector3 sample, float alpha)
+        {
+            if (float.IsNaN(alpha) || alpha <= 0f) return previous;
+            if (alpha >= 1f) return sample;
+            float keep = 1f - alpha;
+            return new Vector3(
+                previous.x * keep + sample.x * alpha,
+                previous.y * keep + sample.y * alpha,
+                previous.z * keep + sample.z * alpha);
+        }
+
+        /// <summary>
+        /// Maps a body rate (deg/s) to a control deflection (deg): opposite sign (a control surface
+        /// or gimbal that produces a nose-up rate is itself deflected the other way), gain-scaled,
+        /// deadbanded, and hard-clamped to the module's own authority. Rates below the deadband
+        /// answer exactly 0 so the surface settles instead of shimmering on sampling noise.
+        /// </summary>
+        internal static float ComputeSynthDeflectionDegrees(
+            float bodyRateDegPerSec, float gain, float rangeDegrees)
+        {
+            if (float.IsNaN(bodyRateDegPerSec) || float.IsInfinity(bodyRateDegPerSec))
+                return 0f;
+            if (Math.Abs(bodyRateDegPerSec) < SynthAngularDeadbandDegPerSec)
+                return 0f;
+
+            float range = float.IsNaN(rangeDegrees) || rangeDegrees <= 0f
+                ? DefaultControlSurfaceRangeDegrees
+                : rangeDegrees;
+            float raw = -bodyRateDegPerSec * gain;
+            return Math.Min(Math.Max(raw, -range), range);
+        }
+
+        /// <summary>
+        /// Rate-limited move of a synthesized angle toward its target. Pure. Without this a
+        /// deflection would jump the full clamp width on the first frame a manoeuvre starts, and a
+        /// derivative spike at a trajectory sample boundary would show up as a visible twitch.
+        /// </summary>
+        internal static float SlewTowardDegrees(
+            float currentDegrees, float targetDegrees, float maxRateDegPerSec, double deltaSeconds)
+        {
+            if (double.IsNaN(deltaSeconds) || double.IsInfinity(deltaSeconds) || deltaSeconds <= 0.0)
+                return currentDegrees;
+            if (float.IsNaN(targetDegrees) || float.IsInfinity(targetDegrees))
+                return currentDegrees;
+
+            float maxStep = (float)(maxRateDegPerSec * Math.Min(deltaSeconds, 1.0));
+            float delta = targetDegrees - currentDegrees;
+            if (Math.Abs(delta) <= maxStep)
+                return targetDegrees;
+            return currentDegrees + (delta > 0f ? maxStep : -maxStep);
+        }
+
+        /// <summary>
+        /// Signed rate of change of a ground-track heading, degrees per second, measured about the
+        /// local up. Pure: <c>Vector3.Dot</c> / <c>Vector3.Cross</c> and the struct's own magnitude
+        /// are managed C#, not native calls.
+        /// </summary>
+        internal static float ComputeHeadingRateDegPerSec(
+            Vector3 previousHeading, Vector3 currentHeading, Vector3 up, double deltaSeconds)
+        {
+            if (deltaSeconds <= 0.0 || double.IsNaN(deltaSeconds) || double.IsInfinity(deltaSeconds))
+                return 0f;
+            if (previousHeading.sqrMagnitude <= 1e-8f || currentHeading.sqrMagnitude <= 1e-8f
+                || up.sqrMagnitude <= 1e-8f)
+            {
+                return 0f;
+            }
+
+            Vector3 axis = up.normalized;
+            Vector3 a = (previousHeading - axis * Vector3.Dot(previousHeading, axis)).normalized;
+            Vector3 b = (currentHeading - axis * Vector3.Dot(currentHeading, axis)).normalized;
+            if (a.sqrMagnitude <= 1e-8f || b.sqrMagnitude <= 1e-8f)
+                return 0f;
+
+            double cos = Math.Min(Math.Max(Vector3.Dot(a, b), -1f), 1f);
+            double sin = Vector3.Dot(Vector3.Cross(a, b), axis);
+            double angleDeg = Math.Atan2(sin, cos) * (180.0 / Math.PI);
+            return (float)(angleDeg / deltaSeconds);
+        }
+
+        /// <summary>
+        /// The angle (degrees, about <paramref name="axis"/>) that would point
+        /// <paramref name="referenceForward"/> at <paramref name="towardTarget"/>, both projected
+        /// onto the plane perpendicular to the axis. Returns false when either projection collapses
+        /// (target along the axis, or an unusable axis) — the caller HOLDS its current angle rather
+        /// than snapping to an arbitrary one. Pure.
+        /// </summary>
+        internal static bool TryComputeAimAngleDegrees(
+            Vector3 towardTarget, Vector3 axis, Vector3 referenceForward, out float angleDegrees)
+        {
+            angleDegrees = 0f;
+            if (towardTarget.sqrMagnitude <= 1e-8f || axis.sqrMagnitude <= 1e-8f
+                || referenceForward.sqrMagnitude <= 1e-8f)
+            {
+                return false;
+            }
+
+            Vector3 n = axis.normalized;
+            Vector3 target = towardTarget - n * Vector3.Dot(towardTarget, n);
+            Vector3 reference = referenceForward - n * Vector3.Dot(referenceForward, n);
+            if (target.sqrMagnitude <= 1e-8f || reference.sqrMagnitude <= 1e-8f)
+                return false;
+
+            target = target.normalized;
+            reference = reference.normalized;
+            double cos = Math.Min(Math.Max(Vector3.Dot(reference, target), -1f), 1f);
+            double sin = Vector3.Dot(Vector3.Cross(reference, target), n);
+            angleDegrees = (float)(Math.Atan2(sin, cos) * (180.0 / Math.PI));
+            return true;
+        }
+
+        /// <summary>
+        /// Restores every synthesized transform to the neutral pose captured at build time. Called
+        /// on a loop cycle (step 3g) — <see cref="ResetForLoopCycle"/> can zero the numbers but not
+        /// touch a Transform, and a pivot left aimed at last orbit's Sun is the M4 bug class.
+        /// </summary>
+        internal static int RestoreSynthesizedMotionNeutralPoses(GhostPlaybackState state)
+        {
+            SynthesizedMotionGhostInfos synth = state?.synthesizedMotionInfos;
+            if (synth == null) return 0;
+
+            int restored = 0;
+
+            if (synth.gimbals != null)
+            {
+                for (int i = 0; i < synth.gimbals.Count; i++)
+                {
+                    GimbalGhostInfo g = synth.gimbals[i];
+                    if (g?.gimbalTransforms == null) continue;
+                    g.currentDeflection = Vector2.zero;
+                    for (int t = 0; t < g.gimbalTransforms.Count && t < g.neutralRotations.Count; t++)
+                    {
+                        if (g.gimbalTransforms[t] == null) continue;
+                        g.gimbalTransforms[t].localRotation = g.neutralRotations[t];
+                        restored++;
+                    }
+                }
+            }
+
+            if (synth.controlSurfaces != null)
+            {
+                for (int i = 0; i < synth.controlSurfaces.Count; i++)
+                {
+                    ControlSurfaceGhostInfo c = synth.controlSurfaces[i];
+                    if (c?.surfaceTransforms == null) continue;
+                    c.currentDeflection = 0f;
+                    for (int t = 0; t < c.surfaceTransforms.Count && t < c.neutralRotations.Count; t++)
+                    {
+                        if (c.surfaceTransforms[t] == null) continue;
+                        c.surfaceTransforms[t].localRotation = c.neutralRotations[t];
+                        restored++;
+                    }
+                }
+            }
+
+            if (synth.sunTrackers != null)
+            {
+                for (int i = 0; i < synth.sunTrackers.Count; i++)
+                {
+                    SunTrackingGhostInfo s = synth.sunTrackers[i];
+                    if (s?.pivotTransform == null) continue;
+                    s.currentAngleDegrees = 0f;
+                    s.hasAimed = false;
+                    s.pivotTransform.localRotation = s.neutralRotation;
+                    restored++;
+                }
+            }
+
+            if (restored > 0)
+                ParsekLog.VerboseRateLimited("GhostVisual", "loop-synth-restore",
+                    $"Loop cycle: restored {restored} synthesized transform(s) to neutral " +
+                    $"(vessel='{state.vesselName ?? "unknown"}')", 1.0);
+            return restored;
+        }
+
+        /// <summary>
+        /// The single S3 per-frame entry, called from <c>ApplyFrameVisuals</c> beside
+        /// <c>UpdateActiveRobotics</c>. Everything below the first two guards is gated: a ghost with
+        /// no gimbal, no control surface and no tracking pivot pays one null check and one
+        /// <c>IsEmpty</c> check per frame.
+        /// </summary>
+        internal static void UpdateSynthesizedMotion(GhostPlaybackState state, double currentUT)
+        {
+            if (state?.ghost == null) return;
+            SynthesizedMotionGhostInfos synth = state.synthesizedMotionInfos;
+            if (synth == null || synth.IsEmpty) return;
+
+            // The APPLIED world rotation — post-positioning, post-frame-resolution, correct on
+            // Absolute and RELATIVE sections alike because it is the transform, not stored data.
+            Quaternion currentRotation = state.ghost.transform.rotation;
+
+            if (double.IsNaN(state.prevSynthUT) || double.IsInfinity(state.prevSynthUT))
+            {
+                state.prevSynthRotation = currentRotation;
+                state.prevSynthUT = currentUT;
+                return;
+            }
+
+            double deltaSeconds = currentUT - state.prevSynthUT;
+            if (deltaSeconds <= 0.0)
+            {
+                // Paused, same-frame double call, or a backwards scrub. Re-seed and wait: a
+                // negative dt would invert the derivative's sign.
+                state.prevSynthRotation = currentRotation;
+                state.prevSynthUT = currentUT;
+                return;
+            }
+            deltaSeconds = Math.Min(deltaSeconds, 1.0);
+
+            Vector3 sample = ComputeLocalAngularVelocityDegPerSec(
+                state.prevSynthRotation, currentRotation, deltaSeconds);
+            state.smoothedAngularVelocity =
+                ComputeEmaVector(state.smoothedAngularVelocity, sample, SynthAngularEmaAlpha);
+            state.prevSynthRotation = currentRotation;
+            state.prevSynthUT = currentUT;
+
+            Vector3 rate = state.smoothedAngularVelocity;
+
+            DriveSynthesizedGimbals(state, synth, rate, deltaSeconds);
+            DriveSynthesizedControlSurfaces(state, synth, rate, deltaSeconds);
+            DriveSunTracking(state, synth, deltaSeconds);
+        }
+
+        private static void DriveSynthesizedGimbals(
+            GhostPlaybackState state, SynthesizedMotionGhostInfos synth,
+            Vector3 rate, double deltaSeconds)
+        {
+            if (synth.gimbals == null || synth.gimbals.Count == 0) return;
+
+            for (int i = 0; i < synth.gimbals.Count; i++)
+            {
+                GimbalGhostInfo g = synth.gimbals[i];
+                if (g?.gimbalTransforms == null || g.gimbalTransforms.Count == 0) continue;
+
+                // A gimbal only steers while its engine is LIT. A cold engine's bell hangs neutral;
+                // easing there rather than snapping keeps a shutdown from popping the nozzle.
+                bool lit = IsAnyEnginePowerOnPart(state, g.partPersistentId);
+                float targetX = lit
+                    ? ComputeSynthDeflectionDegrees(rate.x, GimbalGainDegPerDegPerSec, g.gimbalRangeDegrees)
+                    : 0f;
+                float targetY = lit
+                    ? ComputeSynthDeflectionDegrees(rate.y, GimbalGainDegPerDegPerSec, g.gimbalRangeDegrees)
+                    : 0f;
+
+                g.currentDeflection = new Vector2(
+                    SlewTowardDegrees(g.currentDeflection.x, targetX, SynthDeflectionSlewDegPerSec, deltaSeconds),
+                    SlewTowardDegrees(g.currentDeflection.y, targetY, SynthDeflectionSlewDegPerSec, deltaSeconds));
+
+                Quaternion offset =
+                    Quaternion.AngleAxis(g.currentDeflection.x, Vector3.right)
+                    * Quaternion.AngleAxis(g.currentDeflection.y, Vector3.up);
+
+                for (int t = 0; t < g.gimbalTransforms.Count && t < g.neutralRotations.Count; t++)
+                {
+                    Transform tr = g.gimbalTransforms[t];
+                    if (tr == null) continue;
+                    tr.localRotation = g.neutralRotations[t] * offset;
+                }
+            }
+        }
+
+        private static void DriveSynthesizedControlSurfaces(
+            GhostPlaybackState state, SynthesizedMotionGhostInfos synth,
+            Vector3 rate, double deltaSeconds)
+        {
+            if (synth.controlSurfaces == null || synth.controlSurfaces.Count == 0) return;
+
+            // Aero surfaces only work in air. Vacuum (or an unresolvable body) drives them to
+            // neutral rather than leaving them cocked from the last atmospheric frame.
+            bool inAtmosphere = IsGhostInAtmosphere(state);
+
+            for (int i = 0; i < synth.controlSurfaces.Count; i++)
+            {
+                ControlSurfaceGhostInfo c = synth.controlSurfaces[i];
+                if (c?.surfaceTransforms == null || c.surfaceTransforms.Count == 0) continue;
+
+                // PRECEDENCE (risk 4): a DEPLOYED deployable pose on the same part owns this
+                // transform. An extended airbrake is a brake pose, and S2 is mid-clip or holding
+                // it; deflecting on top would fight the transition.
+                if (IsDeployablePoseHeldForPart(state, c.partPersistentId))
+                    continue;
+
+                float bodyRate = 0f;
+                if (!c.ignorePitch) bodyRate += rate.x;
+                if (!c.ignoreYaw) bodyRate += rate.y;
+                if (!c.ignoreRoll) bodyRate += rate.z;
+
+                float target = inAtmosphere
+                    ? ComputeSynthDeflectionDegrees(
+                        bodyRate, ControlSurfaceGainDegPerDegPerSec, c.rangeDegrees)
+                    : 0f;
+                c.currentDeflection = SlewTowardDegrees(
+                    c.currentDeflection, target, SynthDeflectionSlewDegPerSec, deltaSeconds);
+
+                Quaternion offset = Quaternion.AngleAxis(c.currentDeflection, Vector3.right);
+                for (int t = 0; t < c.surfaceTransforms.Count && t < c.neutralRotations.Count; t++)
+                {
+                    Transform tr = c.surfaceTransforms[t];
+                    if (tr == null) continue;
+                    tr.localRotation = c.neutralRotations[t] * offset;
+                }
+            }
+        }
+
+        private static void DriveSunTracking(
+            GhostPlaybackState state, SynthesizedMotionGhostInfos synth, double deltaSeconds)
+        {
+            if (synth.sunTrackers == null || synth.sunTrackers.Count == 0) return;
+
+            CelestialBody sun = Planetarium.fetch?.Sun;
+            if (sun == null) return;
+            Vector3d sunPosition = sun.position;
+
+            for (int i = 0; i < synth.sunTrackers.Count; i++)
+            {
+                SunTrackingGhostInfo s = synth.sunTrackers[i];
+                if (s?.pivotTransform == null) continue;
+
+                // PRECEDENCE (risk 4): transition > tracking. A panel only tracks once it is fully
+                // deployed and nothing is animating it.
+                if (!IsDeployablePoseFullyDeployedForPart(state, s.partPersistentId))
+                {
+                    if (s.hasAimed)
+                    {
+                        s.currentAngleDegrees = SlewTowardDegrees(
+                            s.currentAngleDegrees, 0f, SunTrackingSlewDegPerSec, deltaSeconds);
+                        ApplySunTrackingAngle(s);
+                        if (Math.Abs(s.currentAngleDegrees) <= 0.01f) s.hasAimed = false;
+                    }
+                    continue;
+                }
+
+                Transform pivot = s.pivotTransform;
+                Vector3 axisWorld = pivot.parent != null
+                    ? pivot.parent.TransformDirection(s.axisLocal)
+                    : pivot.TransformDirection(s.axisLocal);
+                Vector3 referenceForward = pivot.parent != null
+                    ? pivot.parent.rotation * (s.neutralRotation * Vector3.forward)
+                    : pivot.forward;
+                Vector3 toSun = (Vector3)(sunPosition - (Vector3d)pivot.position);
+
+                if (!TryComputeAimAngleDegrees(toSun, axisWorld, referenceForward, out float aim))
+                    continue;   // sun along the pivot axis: hold, do not snap
+
+                s.currentAngleDegrees = SlewTowardDegrees(
+                    s.currentAngleDegrees, aim, SunTrackingSlewDegPerSec, deltaSeconds);
+                s.hasAimed = true;
+                ApplySunTrackingAngle(s);
+            }
+        }
+
+        private static void ApplySunTrackingAngle(SunTrackingGhostInfo s)
+        {
+            if (s?.pivotTransform == null) return;
+            Vector3 axis = s.axisLocal.sqrMagnitude > 0.0001f ? s.axisLocal.normalized : Vector3.up;
+            s.pivotTransform.localRotation =
+                s.neutralRotation * Quaternion.AngleAxis(s.currentAngleDegrees, axis);
+        }
+
+        /// <summary>True when any engine module on the part is currently commanded above zero.</summary>
+        private static bool IsAnyEnginePowerOnPart(GhostPlaybackState state, uint partPersistentId)
+        {
+            if (state?.engineInfos == null) return false;
+            foreach (var kvp in state.engineInfos)
+            {
+                EngineGhostInfo info = kvp.Value;
+                if (info != null && info.partPersistentId == partPersistentId && info.currentPower > 0f)
+                    return true;
+            }
+            return false;
+        }
+
+        /// <summary>
+        /// True when the part carries a deployable family that is deployed or mid-transition, i.e.
+        /// S2 owns its transforms this frame.
+        /// </summary>
+        private static bool IsDeployablePoseHeldForPart(GhostPlaybackState state, uint partPersistentId)
+        {
+            if (state?.deployableInfos == null) return false;
+            if (!state.deployableInfos.TryGetValue(partPersistentId, out DeployableGhostInfo d) || d == null)
+                return false;
+            return d.transitionActive || d.currentDeployed;
+        }
+
+        /// <summary>
+        /// True when the part is safe for sun tracking: fully deployed with nothing animating. A
+        /// part with NO deployable family at all counts as deployed — a fixed tracking panel has no
+        /// stow pose to be caught in.
+        /// </summary>
+        private static bool IsDeployablePoseFullyDeployedForPart(
+            GhostPlaybackState state, uint partPersistentId)
+        {
+            if (state?.deployableInfos == null) return true;
+            if (!state.deployableInfos.TryGetValue(partPersistentId, out DeployableGhostInfo d) || d == null)
+                return true;
+            return d.currentDeployed && !d.transitionActive && d.deployFraction >= 1f - 1e-4f;
+        }
+
+        /// <summary>
+        /// Resolves the ghost's current body through the same name-keyed cache the audio, wheel and
+        /// watch-camera paths use (a string compare on a steady frame; a Find only on an SOI change).
+        /// </summary>
+        internal static CelestialBody ResolveCachedGhostBody(GhostPlaybackState state)
+        {
+            if (state == null) return null;
+            string bodyName = state.lastInterpolatedBodyName;
+            if (string.IsNullOrEmpty(bodyName)) return null;
+
+            if (state.cachedAudioBody == null || state.cachedAudioBodyName != bodyName)
+            {
+                state.cachedAudioBody = FlightGlobals.Bodies?.Find(b => b.name == bodyName);
+                state.cachedAudioBodyName = bodyName;
+            }
+            return state.cachedAudioBody;
+        }
+
+        private static bool IsGhostInAtmosphere(GhostPlaybackState state)
+        {
+            CelestialBody body = ResolveCachedGhostBody(state);
+            if (body == null || !body.atmosphere) return false;
+            double altitude = state.lastInterpolatedAltitude;
+            if (double.IsNaN(altitude) || double.IsInfinity(altitude)) return false;
+            return altitude < body.atmosphereDepth;
+        }
+
+        #endregion
+
+        #region S3 — launch dust
+
+        /// <summary>Above this height above ground level no dust is raised at all.</summary>
+        internal const float LaunchDustMaxAglMeters = 40f;
+        internal const float LaunchDustEmissionMax = 260f;
+        internal const float LaunchDustSizeMin = 1.5f;
+        internal const float LaunchDustSizeMax = 5f;
+        /// <summary>Below this the plume is not moving enough air to be worth a particle system.</summary>
+        internal const float LaunchDustMinIntensity = 0.02f;
+        /// <summary>How far into the recording to look for a usable ground reference before giving up.</summary>
+        internal const int LaunchDustGroundLatchScanCap = 2000;
+
+        /// <summary>
+        /// Sum of every engine module's commanded power on a ghost. Used as the dust driver's
+        /// cheapest-first gate: no lit engine, no dust, and nothing below this is evaluated.
+        /// </summary>
+        internal static float SumEnginePower(GhostPlaybackState state)
+        {
+            if (state?.engineInfos == null) return 0f;
+            float total = 0f;
+            foreach (var kvp in state.engineInfos)
+            {
+                EngineGhostInfo info = kvp.Value;
+                if (info == null || info.currentPower <= 0f) continue;
+                total += info.currentPower;
+            }
+            return total;
+        }
+
+        /// <summary>
+        /// Latches the sea-level altitude of the ground under the recording's launch site, from the
+        /// first trajectory point that carries a finite <c>recordedGroundClearance</c>.
+        ///
+        /// SCALARS ONLY. <c>altitude</c> and <c>recordedGroundClearance</c> are both plain
+        /// altitudes-above-datum in every reference frame; <c>latitude</c> / <c>longitude</c> are
+        /// NEVER read here, because in a RELATIVE track section those fields hold anchor-local
+        /// METRES rather than a body-fixed position, and treating them as one puts the answer
+        /// inside the planet.
+        ///
+        /// NaN clearance everywhere (the recorder only populates it on surface sections) answers
+        /// false, and the caller emits no dust. That is the honest degradation: an invented ground
+        /// reference would put a dust cloud around a ghost in orbit.
+        /// </summary>
+        internal static bool TryLatchLaunchDustGroundReference(
+            List<TrajectoryPoint> points, out double groundRefAltitude)
+        {
+            groundRefAltitude = double.NaN;
+            if (points == null || points.Count == 0) return false;
+
+            int scanned = Math.Min(points.Count, LaunchDustGroundLatchScanCap);
+            for (int i = 0; i < scanned; i++)
+            {
+                double clearance = points[i].recordedGroundClearance;
+                double altitude = points[i].altitude;
+                if (double.IsNaN(clearance) || double.IsInfinity(clearance)) continue;
+                if (double.IsNaN(altitude) || double.IsInfinity(altitude)) continue;
+                groundRefAltitude = altitude - clearance;
+                return true;
+            }
+            return false;
+        }
+
+        /// <summary>
+        /// The dust intensity (0..1) for one frame. Gate order is cheapest-first by design: engine
+        /// power (a dictionary walk over a handful of entries), then the latched ground reference
+        /// (one NaN test), then the AGL window.
+        /// </summary>
+        internal static bool TryComputeLaunchDustIntensity(
+            float totalEnginePower, double altitude, double groundRefAltitude, out float intensity)
+        {
+            intensity = 0f;
+            if (float.IsNaN(totalEnginePower) || totalEnginePower <= 0f) return false;
+            if (double.IsNaN(groundRefAltitude) || double.IsInfinity(groundRefAltitude)) return false;
+            if (double.IsNaN(altitude) || double.IsInfinity(altitude)) return false;
+
+            double agl = altitude - groundRefAltitude;
+            // A modest negative AGL is terrain-model disagreement between record and playback, not
+            // a ghost underground; a large one means the reference belongs to somewhere else.
+            if (agl < -50.0 || agl >= LaunchDustMaxAglMeters) return false;
+            if (agl < 0.0) agl = 0.0;
+
+            float proximity = (float)(1.0 - agl / LaunchDustMaxAglMeters);
+            intensity = Math.Min(1f, totalEnginePower * proximity);
+            return intensity > LaunchDustMinIntensity;
         }
 
         #endregion
@@ -4662,21 +5600,103 @@ namespace Parsek
 
         #region Deployables / Jettison
 
-        internal static bool ApplyDeployableState(GhostPlaybackState state, PartEvent evt, bool deployed)
-        {
-            if (state.deployableInfos == null) return false;
+        #region S2 — deployable / gear / bay / ladder interpolation
 
-            DeployableGhostInfo info;
-            if (!state.deployableInfos.TryGetValue(evt.partPersistentId, out info)) return false;
+        /// <summary>Fallback clip length when the prefab animation's own length is unreadable.</summary>
+        internal const float DefaultDeployableClipSeconds = 3f;
+        internal const float MinDeployableClipSeconds = 0.25f;
+        internal const float MaxDeployableClipSeconds = 30f;
+
+        /// <summary>
+        /// Clamps a prefab <c>AnimationState.length</c> into a plausible deployable-clip duration.
+        /// A zero / NaN / negative length means the clip was unreadable (no Animation component on
+        /// the model clone, a stripped state) and answers the 3 s default — which still ANIMATES,
+        /// because the failure mode we are replacing is the snap, not a wrong duration.
+        /// </summary>
+        internal static float ClampDeployableClipSeconds(float rawLengthSeconds)
+        {
+            if (float.IsNaN(rawLengthSeconds) || float.IsInfinity(rawLengthSeconds)
+                || rawLengthSeconds <= 0f)
+            {
+                return DefaultDeployableClipSeconds;
+            }
+            return Math.Min(Math.Max(rawLengthSeconds, MinDeployableClipSeconds), MaxDeployableClipSeconds);
+        }
+
+        /// <summary>
+        /// Where along stowed(0) -> deployed(1) an in-flight transition is at <paramref name="currentUT"/>.
+        ///
+        /// PURE FUNCTION OF THE EVENT UT, which is the whole design: a prefix catch-up, a scrub, a
+        /// warp change and a loop cycle all evaluate the same expression and land on the same pose,
+        /// with no accumulated per-frame state to drift or to reset. Wall time would need all four
+        /// to be special-cased.
+        ///
+        /// Duration scales with the DISTANCE travelled (<c>|target - start|</c>), so a reversal at
+        /// mid-clip takes half a clip back rather than a full one — an animation played backwards
+        /// from where it got to, not a fresh clip from the far end.
+        /// </summary>
+        internal static float ComputeDeployableTransitionFraction(
+            double currentUT, double transitionStartUT,
+            float startFraction, float targetFraction, float clipLengthSeconds,
+            out bool complete)
+        {
+            complete = true;
+            startFraction = Math.Min(Math.Max(startFraction, 0f), 1f);
+            targetFraction = Math.Min(Math.Max(targetFraction, 0f), 1f);
+
+            float span = Math.Abs(targetFraction - startFraction);
+            if (span <= 1e-4f)
+                return targetFraction;
+
+            if (double.IsNaN(currentUT) || double.IsInfinity(currentUT)
+                || double.IsNaN(transitionStartUT) || double.IsInfinity(transitionStartUT))
+            {
+                return targetFraction;
+            }
+
+            double duration = ClampDeployableClipSeconds(clipLengthSeconds) * span;
+            double elapsed = currentUT - transitionStartUT;
+            if (elapsed <= 0.0)
+            {
+                // Playback UT is at or before the event that started this transition (a backwards
+                // scrub, or the same frame the event fired). Hold the start pose; the next frame
+                // with a positive elapsed advances it.
+                complete = false;
+                return startFraction;
+            }
+            if (elapsed >= duration)
+                return targetFraction;
+
+            complete = false;
+            return startFraction + (targetFraction - startFraction) * (float)(elapsed / duration);
+        }
+
+        /// <summary>
+        /// Writes one interpolated pose into every transform of a deployable family. Endpoint
+        /// fractions take the exact stored endpoint pose rather than a lerp result, so the snap
+        /// path and the animated path agree bit-for-bit at 0 and 1.
+        /// </summary>
+        private static bool ApplyDeployableFraction(DeployableGhostInfo info, float fraction)
+        {
+            if (info?.transforms == null) return false;
 
             bool applied = false;
+            bool atStowed = fraction <= 1e-4f;
+            bool atDeployed = fraction >= 1f - 1e-4f;
 
             for (int i = 0; i < info.transforms.Count; i++)
             {
                 var ts = info.transforms[i];
                 if (ts.t == null) continue;
                 applied = true;
-                if (deployed)
+
+                if (atStowed)
+                {
+                    ts.t.localPosition = ts.stowedPos;
+                    ts.t.localRotation = ts.stowedRot;
+                    ts.t.localScale = ts.stowedScale;
+                }
+                else if (atDeployed)
                 {
                     ts.t.localPosition = ts.deployedPos;
                     ts.t.localRotation = ts.deployedRot;
@@ -4684,13 +5704,138 @@ namespace Parsek
                 }
                 else
                 {
-                    ts.t.localPosition = ts.stowedPos;
-                    ts.t.localRotation = ts.stowedRot;
-                    ts.t.localScale = ts.stowedScale;
+                    ts.t.localPosition = Vector3.Lerp(ts.stowedPos, ts.deployedPos, fraction);
+                    ts.t.localRotation = Quaternion.Slerp(ts.stowedRot, ts.deployedRot, fraction);
+                    ts.t.localScale = Vector3.Lerp(ts.stowedScale, ts.deployedScale, fraction);
                 }
             }
 
+            if (applied)
+                info.deployFraction = fraction;
             return applied;
+        }
+
+        /// <summary>
+        /// Advances every in-flight deployable transition to <paramref name="currentUT"/> and drops
+        /// the ones that finished. Called from <c>ApplyFrameVisuals</c> beside
+        /// <c>UpdateActiveRobotics</c>. Cost is O(active transitions x transforms) and the active
+        /// list is empty on every frame where nothing is opening or closing, which is almost all
+        /// of them.
+        /// </summary>
+        internal static void UpdateActiveDeployables(GhostPlaybackState state, double currentUT)
+        {
+            List<DeployableGhostInfo> active = state?.activeDeployableTransitions;
+            if (active == null || active.Count == 0) return;
+
+            for (int i = active.Count - 1; i >= 0; i--)
+            {
+                DeployableGhostInfo info = active[i];
+                if (info == null || !info.transitionActive)
+                {
+                    active.RemoveAt(i);
+                    continue;
+                }
+
+                float fraction = ComputeDeployableTransitionFraction(
+                    currentUT, info.transitionStartUT,
+                    info.transitionStartFraction, info.transitionTargetFraction,
+                    info.clipLengthSeconds, out bool complete);
+
+                if (!ApplyDeployableFraction(info, fraction))
+                {
+                    // Every transform went null (part decoupled / destroyed mid-clip). Retire the
+                    // entry rather than re-walking a dead list every frame.
+                    info.transitionActive = false;
+                    active.RemoveAt(i);
+                    continue;
+                }
+
+                if (complete)
+                {
+                    info.transitionActive = false;
+                    info.deployFraction = info.transitionTargetFraction;
+                    info.currentDeployed = info.transitionTargetFraction >= 0.5f;
+                    active.RemoveAt(i);
+                }
+            }
+        }
+
+        /// <summary>Drops every in-flight transition. Loop cycles re-stow and replay from their own UTs.</summary>
+        internal static void ClearActiveDeployableTransitions(GhostPlaybackState state)
+        {
+            if (state?.deployableInfos != null)
+            {
+                foreach (var kvp in state.deployableInfos)
+                {
+                    if (kvp.Value == null) continue;
+                    kvp.Value.transitionActive = false;
+                }
+            }
+            state?.activeDeployableTransitions?.Clear();
+        }
+
+        #endregion
+
+        /// <summary>
+        /// The IMMEDIATE (snap) path, unchanged in behaviour and still what every baseline caller
+        /// takes: <c>ApplySnapshotBaselines</c>, the split-seed stow, and loop-reset step 2. A pose
+        /// that was APPLIED as a baseline must never animate — the ghost is being put into the
+        /// state it spawned in, not shown opening a bay.
+        /// </summary>
+        internal static bool ApplyDeployableState(GhostPlaybackState state, PartEvent evt, bool deployed)
+            => ApplyDeployableState(state, evt, deployed, immediate: true);
+
+        /// <summary>
+        /// Applies a deployable target pose, either immediately or as an interpolated transition
+        /// keyed on <c>evt.ut</c> (the RECORDED event UT, never wall time — see
+        /// <see cref="ComputeDeployableTransitionFraction"/>).
+        /// </summary>
+        internal static bool ApplyDeployableState(
+            GhostPlaybackState state, PartEvent evt, bool deployed, bool immediate)
+        {
+            if (state.deployableInfos == null) return false;
+
+            DeployableGhostInfo info;
+            if (!state.deployableInfos.TryGetValue(evt.partPersistentId, out info)) return false;
+            if (info?.transforms == null) return false;
+
+            float target = deployed ? 1f : 0f;
+
+            if (immediate)
+            {
+                info.transitionActive = false;
+                info.currentDeployed = deployed;
+                bool snapped = ApplyDeployableFraction(info, target);
+                if (snapped)
+                    state.activeDeployableTransitions?.Remove(info);
+                return snapped;
+            }
+
+            // Already there and not mid-clip: nothing to animate, and re-arming would restart a
+            // finished clip every time a duplicate event replays.
+            if (!info.transitionActive && Math.Abs(info.deployFraction - target) <= 1e-4f)
+            {
+                info.currentDeployed = deployed;
+                return info.transforms.Count > 0;
+            }
+
+            info.transitionActive = true;
+            info.transitionStartUT = evt.ut;
+            info.transitionStartFraction = info.deployFraction;
+            info.transitionTargetFraction = target;
+            info.currentDeployed = deployed;
+
+            if (state.activeDeployableTransitions == null)
+                state.activeDeployableTransitions = new List<DeployableGhostInfo>();
+            if (!state.activeDeployableTransitions.Contains(info))
+                state.activeDeployableTransitions.Add(info);
+
+            // Apply the first frame straight away so a transition that starts on a frame where
+            // UpdateActiveDeployables already ran is not a frame late.
+            float first = ComputeDeployableTransitionFraction(
+                evt.ut, info.transitionStartUT, info.transitionStartFraction, target,
+                info.clipLengthSeconds, out _);
+            return ApplyDeployableFraction(info, first);
         }
 
         /// <summary>
@@ -4700,8 +5845,16 @@ namespace Parsek
         /// CargoBayClosed events take exactly the same path.
         /// </summary>
         internal static bool ApplyCargoBayState(GhostPlaybackState state, PartEvent evt, bool open)
+            => ApplyCargoBayState(state, evt, open, immediate: true);
+
+        /// <summary>
+        /// S2: the jettison-panel arm of the cascade stays a SetActive snap — a panel that is a
+        /// jettisoned object has no stowed/deployed pose pair to interpolate between.
+        /// </summary>
+        internal static bool ApplyCargoBayState(
+            GhostPlaybackState state, PartEvent evt, bool open, bool immediate)
         {
-            if (ApplyDeployableState(state, evt, deployed: open))
+            if (ApplyDeployableState(state, evt, deployed: open, immediate: immediate))
                 return true;
             return ApplyJettisonPanelState(state, evt, jettisoned: open);
         }

@@ -471,12 +471,14 @@ namespace Parsek
                         FairingGhostInfo fairingInfo;
                         List<RcsGhostInfo> partRcsInfos;
                         List<RoboticGhostInfo> partRoboticInfos;
+                        SynthesizedMotionGhostInfos partSynthesizedMotionInfos;
                         List<ColorChangerGhostInfo> partColorChangerInfos;
                         CompoundPartGhostInfo compoundPartInfo;
                         bool partVisualAdded = AddPartVisuals(build.visualsRoot, partNode, ap.partPrefab,
                             persistentId, partName, out meshCount, out parachuteInfo, out jettisonInfo,
                             out partEngineInfos, out deployableInfo, out heatInfo, out lightInfo, out fairingInfo,
-                            out partRcsInfos, out partRoboticInfos, out partColorChangerInfos, out compoundPartInfo,
+                            out partRcsInfos, out partRoboticInfos, out partSynthesizedMotionInfos,
+                            out partColorChangerInfos, out compoundPartInfo,
                             build.raiseLightVisualOnly, build.raiseRcsVisualOnly);
                         if (partVisualAdded)
                             build.visualCount++;
@@ -502,6 +504,8 @@ namespace Parsek
                             build.rcsInfos.AddRange(partRcsInfos);
                         if (partRoboticInfos != null)
                             build.roboticInfos.AddRange(partRoboticInfos);
+                        if (partSynthesizedMotionInfos != null)
+                            MergeSynthesizedMotionInfos(build.synthesizedMotionInfos, partSynthesizedMotionInfos);
                         if (partColorChangerInfos != null)
                             build.colorChangerInfos.AddRange(partColorChangerInfos);
                         if (compoundPartInfo != null)
@@ -550,6 +554,28 @@ namespace Parsek
             return true;
         }
 
+        /// <summary>S3: folds one part's discovered synthesis families into the whole-ghost container.</summary>
+        private static void MergeSynthesizedMotionInfos(
+            SynthesizedMotionGhostInfos sink, SynthesizedMotionGhostInfos part)
+        {
+            if (sink == null || part == null) return;
+            if (part.gimbals != null)
+            {
+                if (sink.gimbals == null) sink.gimbals = new List<GimbalGhostInfo>();
+                sink.gimbals.AddRange(part.gimbals);
+            }
+            if (part.controlSurfaces != null)
+            {
+                if (sink.controlSurfaces == null) sink.controlSurfaces = new List<ControlSurfaceGhostInfo>();
+                sink.controlSurfaces.AddRange(part.controlSurfaces);
+            }
+            if (part.sunTrackers != null)
+            {
+                if (sink.sunTrackers == null) sink.sunTrackers = new List<SunTrackingGhostInfo>();
+                sink.sunTrackers.AddRange(part.sunTrackers);
+            }
+        }
+
         internal static GhostBuildResult CompleteTimelineGhostBuild(
             PendingGhostVisualBuild build, IPlaybackTrajectory rec)
         {
@@ -582,6 +608,9 @@ namespace Parsek
                 fairingInfos = build.fairingInfos.Count > 0 ? build.fairingInfos : null,
                 rcsInfos = build.rcsInfos.Count > 0 ? build.rcsInfos : null,
                 roboticInfos = build.roboticInfos.Count > 0 ? build.roboticInfos : null,
+                synthesizedMotionInfos =
+                    build.synthesizedMotionInfos != null && !build.synthesizedMotionInfos.IsEmpty
+                        ? build.synthesizedMotionInfos : null,
                 colorChangerInfos = build.colorChangerInfos.Count > 0 ? build.colorChangerInfos : null,
                 compoundPartInfos = build.compoundPartInfos.Count > 0 ? build.compoundPartInfos : null,
                 audioInfos = build.audioInfos.Count > 0 ? build.audioInfos : null,
@@ -1042,6 +1071,93 @@ namespace Parsek
             }
         }
 
+        /// <summary>
+        /// S1 (plume magnitude): capture the build-time magnitude of every emitter and particle
+        /// system on one finished engine / RCS FX info, so playback can write
+        /// <c>baseline * throttleRatio</c> instead of an absolute value.
+        ///
+        /// ONE capture point per info, called after the whole FX build for that module has run.
+        /// That placement is load-bearing: <c>ApplyGhostEngineFxSizeBoost</c> (#383) and
+        /// <c>ApplyWorldSpaceEmitterVelocityFloor</c> both mutate exactly the fields captured here
+        /// and both run AFTER <c>StripKspFxControllers</c>, so capturing at strip time would pin a
+        /// pre-fix baseline and runtime scaling would quietly undo those fixes.
+        ///
+        /// The three emitter fields are resolved reflectively even though <c>KSPParticleEmitter</c>
+        /// is compile-time reachable: a KSP build that renames one then degrades that emitter to
+        /// "not captured" (no scaling, today's boolean behaviour) instead of failing to build.
+        /// </summary>
+        internal static void CaptureFxMagnitudeBaselines(
+            List<KspEmitterRef> emitters, List<ParticleSystem> systems,
+            List<GhostFxMagnitudeBaseline> baselineSink, string partName, int moduleIndex)
+        {
+            int capturedEmitters = 0;
+
+            if (emitters != null)
+            {
+                for (int i = 0; i < emitters.Count; i++)
+                {
+                    KspEmitterRef r = emitters[i];
+                    if (r.emitter == null || r.magnitudeBaselineCaptured) continue;
+
+                    System.Type t = r.emitter.GetType();
+                    r.minEmissionField = t.GetField("minEmission");
+                    r.maxEmissionField = t.GetField("maxEmission");
+                    r.localVelocityField = t.GetField("localVelocity");
+
+                    try
+                    {
+                        if (r.minEmissionField != null)
+                            r.baselineMinEmission = System.Convert.ToSingle(r.minEmissionField.GetValue(r.emitter));
+                        if (r.maxEmissionField != null)
+                            r.baselineMaxEmission = System.Convert.ToSingle(r.maxEmissionField.GetValue(r.emitter));
+                        if (r.localVelocityField != null)
+                            r.baselineLocalVelocity = (Vector3)r.localVelocityField.GetValue(r.emitter);
+                        r.magnitudeBaselineCaptured =
+                            r.minEmissionField != null || r.maxEmissionField != null
+                            || r.localVelocityField != null;
+                    }
+                    catch (System.Exception ex)
+                    {
+                        r.magnitudeBaselineCaptured = false;
+                        ParsekLog.VerboseRateLimited("GhostVisual",
+                            $"fx-baseline-fail-{partName}-{moduleIndex}",
+                            $"FX magnitude baseline capture failed for '{partName}' " +
+                            $"midx={moduleIndex}: {ex.Message}; plume stays boolean", 60.0);
+                    }
+
+                    emitters[i] = r;
+                    if (r.magnitudeBaselineCaptured) capturedEmitters++;
+                }
+            }
+
+            if (systems != null && baselineSink != null)
+            {
+                baselineSink.Clear();
+                for (int i = 0; i < systems.Count; i++)
+                {
+                    ParticleSystem ps = systems[i];
+                    if (ps == null)
+                    {
+                        baselineSink.Add(default);
+                        continue;
+                    }
+                    var main = ps.main;
+                    baselineSink.Add(new GhostFxMagnitudeBaseline
+                    {
+                        startSpeedMultiplier = main.startSpeedMultiplier,
+                        startSizeMultiplier = main.startSizeMultiplier,
+                        captured = true
+                    });
+                }
+            }
+
+            ParsekLog.VerboseRateLimited("GhostVisual",
+                $"fx-baseline-{partName}-{moduleIndex}",
+                $"FX magnitude baselines: '{partName}' midx={moduleIndex} " +
+                $"emitters={capturedEmitters}/{emitters?.Count ?? 0} " +
+                $"systems={baselineSink?.Count ?? 0}", 30.0);
+        }
+
         internal static void StripKspFxControllers(GameObject fxClone, List<KspEmitterRef> kspEmitterSink)
         {
             if (fxClone == null) return;
@@ -1498,6 +1614,15 @@ namespace Parsek
                     return null;
                 }
 
+                // S2: the ONE place a real KSP AnimationState is in hand for every deployable
+                // family (gear, bays, panels, ladders, drills all route through here), so the clip
+                // length is captured once, here, rather than at four call sites. Stored in its own
+                // dictionary rather than widened into the existing sample tuple: that tuple's shape
+                // is repeated in six signatures and a 7-element -> 8-element change would touch all
+                // of them for one float.
+                animationClipLengthCache[partKey] =
+                    GhostPlaybackLogic.ClampDeployableClipSeconds(state.length);
+
                 var allTransforms = tempClone.GetComponentsInChildren<Transform>(true);
 
                 if (useScoring)
@@ -1603,6 +1728,31 @@ namespace Parsek
         internal static void ClearAnimateHeatCache()
         {
             animateHeatCache.Clear();
+        }
+
+        // S2: partKey -> the prefab deployable clip's own length in seconds, already clamped.
+        // Populated by SampleAnimationStates; read by the deployable-info builders.
+        private static readonly Dictionary<string, float> animationClipLengthCache =
+            new Dictionary<string, float>();
+
+        internal static void ClearAnimationClipLengthCache()
+        {
+            animationClipLengthCache.Clear();
+        }
+
+        /// <summary>
+        /// The sampled clip length for a part, or the default when the part's animation was never
+        /// sampled (surface-deployable families synthesise their poses without an Animation
+        /// component, so they legitimately have none).
+        /// </summary>
+        internal static float ResolveDeployableClipSeconds(string partKey)
+        {
+            if (!string.IsNullOrEmpty(partKey)
+                && animationClipLengthCache.TryGetValue(partKey, out float seconds))
+            {
+                return seconds;
+            }
+            return GhostPlaybackLogic.DefaultDeployableClipSeconds;
         }
 
         private static List<(string path, Vector3 sPos, Quaternion sRot, Vector3 sScale,
@@ -2882,6 +3032,16 @@ namespace Parsek
                 }
             }
 
+            // S1: one magnitude-baseline capture per finished RCS module — same placement rule as
+            // the engine side (after every clone / override branch, so the baseline is the look the
+            // ghost actually spawned with).
+            for (int i = 0; i < result.Count; i++)
+            {
+                CaptureFxMagnitudeBaselines(
+                    result[i].kspEmitters, result[i].particleSystems, result[i].particleBaselines,
+                    partName, result[i].moduleIndex);
+            }
+
             return result.Count > 0 ? result : null;
         }
 
@@ -3455,6 +3615,13 @@ namespace Parsek
             if (FlightRecorder.IsWheelMotorSpinModuleName(moduleName))
                 return RoboticVisualMode.WheelGroundSpeed;
 
+            // S3: steering calipers are derived from the ghost's own ground-track heading rate for
+            // the same reason wheel spin is — the recorded scalar was a steering INPUT, not an
+            // angle. ModuleWheelMotorSteering is already claimed above by the motor test; its
+            // caliper is not separately driven (one transform, one visual).
+            if (string.Equals(moduleName, "ModuleWheelSteering", System.StringComparison.Ordinal))
+                return RoboticVisualMode.WheelSteeringHeading;
+
             return RoboticVisualMode.Rotational;
         }
 
@@ -3655,6 +3822,201 @@ namespace Parsek
 
             return false;
         }
+
+        /// <summary>
+        /// Resolves one prefab model transform onto the ghost, through the clone map first and the
+        /// mirrored chain as a fallback — the same two-step every other family uses. Returns null
+        /// when the source transform lives outside the model subtree (nothing to mirror against).
+        /// </summary>
+        private static Transform ResolveGhostTransformForPrefabTransform(
+            Transform sourceTransform, Transform modelRoot, Transform modelNode,
+            Dictionary<Transform, Transform> cloneMap)
+        {
+            if (sourceTransform == null) return null;
+            if (cloneMap != null && cloneMap.TryGetValue(sourceTransform, out Transform ghostT) && ghostT != null)
+                return ghostT;
+            if (IsDescendantOf(sourceTransform, modelRoot))
+                return MirrorTransformChain(sourceTransform, modelRoot, modelNode, cloneMap);
+            return null;
+        }
+
+        /// <summary>
+        /// S3 discovery: the gimbal rings, control surfaces and sun-tracking pivots one part
+        /// contributes. All three are read from prefab PartModules exactly as the robotic family is
+        /// — named transform field, resolve on the ghost, capture the NEUTRAL localRotation — and
+        /// all three are inert (never added) when their transform or authority cannot be read, so a
+        /// craft made entirely of unreadable parts costs one empty container.
+        ///
+        /// Returned as one container rather than three out-parameters because
+        /// <c>AddPartVisuals</c> already carries fourteen.
+        /// </summary>
+        private static SynthesizedMotionGhostInfos TryBuildSynthesizedMotionInfos(
+            Part prefab,
+            uint persistentId,
+            string partName,
+            Transform modelRoot,
+            Transform modelNode,
+            Dictionary<Transform, Transform> cloneMap)
+        {
+            if (prefab?.Modules == null || modelRoot == null || modelNode == null)
+                return null;
+
+            var result = new SynthesizedMotionGhostInfos();
+
+            for (int i = 0; i < prefab.Modules.Count; i++)
+            {
+                PartModule module = prefab.Modules[i];
+                if (module == null) continue;
+                string moduleName = module.moduleName;
+
+                if (string.Equals(moduleName, "ModuleGimbal", System.StringComparison.Ordinal))
+                {
+                    GimbalGhostInfo gimbal = TryBuildGimbalInfo(
+                        prefab, module, persistentId, modelRoot, modelNode, cloneMap);
+                    if (gimbal != null)
+                    {
+                        if (result.gimbals == null) result.gimbals = new List<GimbalGhostInfo>();
+                        result.gimbals.Add(gimbal);
+                    }
+                    continue;
+                }
+
+                if (module is ModuleControlSurface)
+                {
+                    ControlSurfaceGhostInfo surface = TryBuildControlSurfaceInfo(
+                        prefab, module, persistentId, modelRoot, modelNode, cloneMap);
+                    if (surface != null)
+                    {
+                        if (result.controlSurfaces == null)
+                            result.controlSurfaces = new List<ControlSurfaceGhostInfo>();
+                        result.controlSurfaces.Add(surface);
+                    }
+                    continue;
+                }
+
+                if (module is ModuleDeployablePart)
+                {
+                    SunTrackingGhostInfo tracker = TryBuildSunTrackingInfo(
+                        prefab, module, persistentId, modelRoot, modelNode, cloneMap);
+                    if (tracker != null)
+                    {
+                        if (result.sunTrackers == null)
+                            result.sunTrackers = new List<SunTrackingGhostInfo>();
+                        result.sunTrackers.Add(tracker);
+                    }
+                }
+            }
+
+            if (result.IsEmpty)
+                return null;
+
+            ParsekLog.VerboseRateLimited("GhostVisual", $"synth-motion-{partName}",
+                $"Synthesized motion for '{partName}' pid={persistentId}: " +
+                $"gimbals={(result.gimbals != null ? result.gimbals.Count : 0)} " +
+                $"surfaces={(result.controlSurfaces != null ? result.controlSurfaces.Count : 0)} " +
+                $"sunTrackers={(result.sunTrackers != null ? result.sunTrackers.Count : 0)}", 30.0);
+            return result;
+        }
+
+        private static GimbalGhostInfo TryBuildGimbalInfo(
+            Part prefab, PartModule module, uint persistentId,
+            Transform modelRoot, Transform modelNode, Dictionary<Transform, Transform> cloneMap)
+        {
+            if (!TryGetModuleStringField(module, "gimbalTransformName", out string transformName))
+                return null;
+
+            var info = new GimbalGhostInfo { partPersistentId = persistentId };
+            info.gimbalRangeDegrees =
+                TryGetModuleFloatField(module, "gimbalRange", out float range) && range > 0f
+                    ? range
+                    : GhostPlaybackLogic.DefaultGimbalRangeDegrees;
+
+            // FindTransformsRecursive, not FindModelTransform: a multi-nozzle engine (Vector,
+            // Mammoth) carries several transforms with the same name and all of them gimbal.
+            List<Transform> sources = FindTransformsRecursive(prefab.transform, transformName);
+            for (int i = 0; i < sources.Count; i++)
+            {
+                Transform ghostT = ResolveGhostTransformForPrefabTransform(
+                    sources[i], modelRoot, modelNode, cloneMap);
+                if (ghostT == null) continue;
+                info.gimbalTransforms.Add(ghostT);
+                // NEUTRAL is the ghost transform's own build pose, not identity: a prefab that
+                // ships a pre-canted bell must deflect around ITS pose or the engine snaps
+                // straight on the first synthesis frame.
+                info.neutralRotations.Add(ghostT.localRotation);
+            }
+
+            return info.gimbalTransforms.Count > 0 ? info : null;
+        }
+
+        private static ControlSurfaceGhostInfo TryBuildControlSurfaceInfo(
+            Part prefab, PartModule module, uint persistentId,
+            Transform modelRoot, Transform modelNode, Dictionary<Transform, Transform> cloneMap)
+        {
+            if (!TryGetModuleStringField(module, "transformName", out string transformName))
+                return null;
+
+            var info = new ControlSurfaceGhostInfo { partPersistentId = persistentId };
+            info.rangeDegrees =
+                TryGetModuleFloatField(module, "ctrlSurfaceRange", out float range) && range > 0f
+                    ? range
+                    : GhostPlaybackLogic.DefaultControlSurfaceRangeDegrees;
+            info.ignorePitch = TryGetModuleBoolFieldOrDefault(module, "ignorePitch");
+            info.ignoreYaw = TryGetModuleBoolFieldOrDefault(module, "ignoreYaw");
+            info.ignoreRoll = TryGetModuleBoolFieldOrDefault(module, "ignoreRoll");
+
+            List<Transform> sources = FindTransformsRecursive(prefab.transform, transformName);
+            for (int i = 0; i < sources.Count; i++)
+            {
+                Transform ghostT = ResolveGhostTransformForPrefabTransform(
+                    sources[i], modelRoot, modelNode, cloneMap);
+                if (ghostT == null) continue;
+                info.surfaceTransforms.Add(ghostT);
+                info.neutralRotations.Add(ghostT.localRotation);
+            }
+
+            return info.surfaceTransforms.Count > 0 ? info : null;
+        }
+
+        private static SunTrackingGhostInfo TryBuildSunTrackingInfo(
+            Part prefab, PartModule module, uint persistentId,
+            Transform modelRoot, Transform modelNode, Dictionary<Transform, Transform> cloneMap)
+        {
+            // Only TRACKING deployables get a pivot driver. A fixed panel carries a pivotName field
+            // too (stock defaults it to "suntransform"), and slewing that would rotate geometry
+            // which never moves in game.
+            if (!TryGetModuleBoolField(module, "isTracking", out bool isTracking) || !isTracking)
+                return null;
+            if (!TryGetModuleStringField(module, "pivotName", out string pivotName))
+                return null;
+
+            Transform sourcePivot = prefab.FindModelTransform(pivotName);
+            Transform ghostPivot = ResolveGhostTransformForPrefabTransform(
+                sourcePivot, modelRoot, modelNode, cloneMap);
+            if (ghostPivot == null)
+                return null;
+
+            return new SunTrackingGhostInfo
+            {
+                partPersistentId = persistentId,
+                pivotTransform = ghostPivot,
+                neutralRotation = ghostPivot.localRotation,
+                // Stock ModuleDeployableSolarPanel rotates its pivot about the pivot's local up.
+                axisLocal = Vector3.up
+            };
+        }
+
+        private static bool TryGetModuleBoolField(PartModule module, string fieldName, out bool value)
+        {
+            value = false;
+            object raw = TryGetModuleFieldValue(module, fieldName);
+            if (raw == null) return false;
+            if (raw is bool b) { value = b; return true; }
+            return bool.TryParse(raw.ToString(), out value);
+        }
+
+        private static bool TryGetModuleBoolFieldOrDefault(PartModule module, string fieldName)
+            => TryGetModuleBoolField(module, fieldName, out bool value) && value;
 
         private static List<RoboticGhostInfo> TryBuildRoboticInfos(
             Part prefab,
@@ -4354,7 +4716,10 @@ namespace Parsek
                 return new DeployableGhostInfo
                 {
                     partPersistentId = persistentId,
-                    transforms = resolvedTransforms
+                    transforms = resolvedTransforms,
+                    // S2: the prefab clip's own length, so a 1.2 s gear cycle and a 12 s solar
+                    // array each animate at their real pace instead of a shared guess.
+                    clipLengthSeconds = ResolveDeployableClipSeconds(partName)
                 };
             }
 
@@ -4587,7 +4952,10 @@ namespace Parsek
                 return new DeployableGhostInfo
                 {
                     partPersistentId = persistentId,
-                    transforms = resolvedTransforms
+                    transforms = resolvedTransforms,
+                    // S2: the prefab clip's own length, so a 1.2 s gear cycle and a 12 s solar
+                    // array each animate at their real pace instead of a shared guess.
+                    clipLengthSeconds = ResolveDeployableClipSeconds(partName)
                 };
             }
 
@@ -4972,10 +5340,12 @@ namespace Parsek
             out HeatGhostInfo heatInfo,
             out LightGhostInfo lightInfo, out FairingGhostInfo fairingInfo,
             out List<RcsGhostInfo> rcsInfos, out List<RoboticGhostInfo> roboticInfos,
+            out SynthesizedMotionGhostInfos synthesizedMotionInfos,
             out List<ColorChangerGhostInfo> colorChangerInfos, out CompoundPartGhostInfo compoundPartInfo,
             bool raiseLightVisualOnly, bool raiseRcsVisualOnly)
         {
             meshCount = 0;
+            synthesizedMotionInfos = null;
             parachuteInfo = null;
             jettisonInfo = null;
             engineInfos = null;
@@ -5326,6 +5696,12 @@ namespace Parsek
             if (hasRoboticModules)
                 roboticInfos = TryBuildRoboticInfos(
                     prefab, persistentId, partName, modelRoot, modelNode.transform, cloneMap);
+
+            // S3: discovered right after the robotic family and against the SAME resolved
+            // hierarchy — needsFullHierarchy above already covers control surfaces and deployable
+            // parts, and a gimbal transform lives on an engine bell that is always cloned.
+            synthesizedMotionInfos = TryBuildSynthesizedMotionInfos(
+                prefab, persistentId, partName, modelRoot, modelNode.transform, cloneMap);
 
             // Detect deployable parts via animation cascade (solar panels, gear, ladders, etc.)
             deployableInfo = TryBuildDeployableInfo(prefab, persistentId, partName,
@@ -6424,6 +6800,115 @@ namespace Parsek
         /// Creates a soft-circle texture at runtime for additive particle rendering.
         /// White center fading to transparent edges — avoids sprite sheet issues.
         /// </summary>
+        /// <summary>
+        /// S3: builds the ONE Parsek-owned launch-dust particle system a ghost gets, parented at
+        /// the ghost root and pointed downward. Parsek authors this system outright — exactly like
+        /// the reentry <c>fireParticles</c> — which is why the driver may write
+        /// <c>emission.rateOverTimeMultiplier</c> and <c>main.startSizeMultiplier</c> directly
+        /// instead of going through the captured-baseline machinery S1 needs for CLONED KSP assets.
+        ///
+        /// Returns null when the additive particle shader is unavailable, which is the same
+        /// condition that makes reentry FX unbuildable; the caller then never re-tries.
+        /// </summary>
+        internal static LaunchDustInfo TryBuildLaunchDust(GameObject ghostRoot, string vesselName)
+        {
+            if (ghostRoot == null) return null;
+
+            Shader particleShader = Shader.Find("KSP/Particles/Additive");
+            if (particleShader == null)
+            {
+                ParsekLog.VerboseRateLimited("GhostVisual", "launch-dust-noshader",
+                    $"Launch dust unavailable for '{vesselName}': KSP/Particles/Additive not found", 60.0);
+                return null;
+            }
+
+            var dustObj = new GameObject("ParsekLaunchDust");
+            dustObj.transform.SetParent(ghostRoot.transform, false);
+            dustObj.transform.localPosition = Vector3.zero;
+            dustObj.transform.localRotation = Quaternion.identity;
+
+            ParticleSystem ps = dustObj.AddComponent<ParticleSystem>();
+
+            var main = ps.main;
+            main.playOnAwake = false;
+            main.prewarm = false;
+            main.loop = true;
+            main.startLifetime = 2.5f;
+            main.startSpeed = 6f;
+            main.startSize = 2.5f;
+            main.maxParticles = 400;
+            main.simulationSpace = ParticleSystemSimulationSpace.World;
+            main.startColor = new Color(0.65f, 0.60f, 0.52f, 0.35f);
+
+            // A flat disc at the ghost's base spraying outward: the ground-bounce plume, not a
+            // downward jet (which the engine FX already draws).
+            var shape = ps.shape;
+            shape.enabled = true;
+            shape.shapeType = ParticleSystemShapeType.Circle;
+            shape.radius = 4f;
+            shape.radiusThickness = 1f;
+
+            var emission = ps.emission;
+            emission.enabled = true;
+            emission.rateOverTimeMultiplier = 0f;
+
+            var sizeOverLifetime = ps.sizeOverLifetime;
+            sizeOverLifetime.enabled = true;
+            sizeOverLifetime.size = new ParticleSystem.MinMaxCurve(1f,
+                new AnimationCurve(new Keyframe(0f, 0.5f), new Keyframe(1f, 2.2f)));
+
+            var colorOverLifetime = ps.colorOverLifetime;
+            colorOverLifetime.enabled = true;
+            var gradient = new Gradient();
+            gradient.SetKeys(
+                new GradientColorKey[]
+                {
+                    new GradientColorKey(new Color(0.72f, 0.66f, 0.56f), 0f),
+                    new GradientColorKey(new Color(0.55f, 0.51f, 0.45f), 1f)
+                },
+                new GradientAlphaKey[]
+                {
+                    new GradientAlphaKey(0f, 0f),
+                    new GradientAlphaKey(0.5f, 0.2f),
+                    new GradientAlphaKey(0f, 1f)
+                });
+            colorOverLifetime.color = gradient;
+
+            var psRenderer = dustObj.GetComponent<ParticleSystemRenderer>();
+            psRenderer.renderMode = ParticleSystemRenderMode.Billboard;
+            psRenderer.maxParticleSize = 6f;
+
+            Texture2D softCircle = CreateSoftCircleTexture(32);
+            var dustMat = new Material(particleShader) { mainTexture = softCircle };
+            dustMat.SetColor("_TintColor", new Color(0.7f, 0.65f, 0.55f, 0.4f));
+            psRenderer.material = dustMat;
+
+            ps.Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
+            ps.Clear(true);
+
+            ParsekLog.Verbose("GhostVisual", $"Launch dust built for '{vesselName}'");
+            return new LaunchDustInfo
+            {
+                dustObject = dustObj,
+                particles = ps,
+                material = dustMat,
+                generatedTexture = softCircle
+            };
+        }
+
+        /// <summary>Destroys a ghost's launch-dust system and the two assets it owns.</summary>
+        internal static void DestroyLaunchDust(LaunchDustInfo info)
+        {
+            if (info == null) return;
+            if (info.material != null) Object.Destroy(info.material);
+            if (info.generatedTexture != null) Object.Destroy(info.generatedTexture);
+            if (info.dustObject != null) Object.Destroy(info.dustObject);
+            info.material = null;
+            info.generatedTexture = null;
+            info.particles = null;
+            info.dustObject = null;
+        }
+
         private static Texture2D CreateSoftCircleTexture(int size)
         {
             var tex = new Texture2D(size, size, TextureFormat.ARGB32, false);

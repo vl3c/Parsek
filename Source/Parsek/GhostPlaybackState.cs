@@ -56,6 +56,36 @@ namespace Parsek
         public string cachedAudioBodyName;                   // body name the cache was built for
         public Dictionary<ulong, RoboticGhostInfo> roboticInfos; // key = EncodeEngineKey(pid, moduleIndex)
         public Dictionary<uint, DeployableGhostInfo> deployableInfos;
+        // S2: the deployable families with an interpolated stow<->deploy transition in flight this
+        // frame. Entries are appended by ApplyDeployableState's animated path and dropped by
+        // UpdateActiveDeployables at progress >= 1, so a ghost with nothing moving pays one
+        // null/Count check per frame. Cleared wholesale on a loop cycle (a mid-transition panel
+        // must re-stow, not resume against the new cycle's clock).
+        internal List<DeployableGhostInfo> activeDeployableTransitions;
+        // S3: gimbals / control surfaces / sun-tracking pivots discovered at build time. Null when
+        // the craft carries none, which is the common case and costs one null check per frame.
+        internal SynthesizedMotionGhostInfos synthesizedMotionInfos;
+        // S3 attitude derivative. The ghost's APPLIED world rotation on the previous synthesis
+        // frame, and the UT it was applied at. Deliberately the applied TRANSFORM and never a
+        // TrajectoryPoint.rotation read out of a flat Points list: in a RELATIVE track section that
+        // field is an anchor-local rotation, not srfRelRotation, and differencing the two would be
+        // frame-mixing. The transform is post-resolution on every playback path.
+        internal Quaternion prevSynthRotation = Quaternion.identity;
+        internal double prevSynthUT = double.NaN;
+        /// <summary>EMA-smoothed body-axis angular velocity, deg/s, in the ghost's own local frame.</summary>
+        internal Vector3 smoothedAngularVelocity;
+        // S3 wheel steering: the ghost's previous ground-track heading (unit vector, world) and the
+        // UT it was sampled at. One per ghost, shared by every steered wheel.
+        internal Vector3 prevGroundHeading;
+        internal double prevGroundHeadingUT = double.NaN;
+        internal float smoothedHeadingRateDegPerSec;
+        // S3 launch dust. Built lazily on the first frame the gate chain opens, under the same
+        // per-frame build cap the lazy reentry build uses. groundRefAltitude is the latched
+        // sea-level altitude of the ground under the launch site, derived from a surface section's
+        // recordedGroundClearance; NaN means "never latched" and no dust is ever emitted.
+        internal LaunchDustInfo launchDustInfo;
+        internal bool launchDustPendingBuild;
+        internal double launchDustGroundRefAltitude = double.NaN;
         public Dictionary<uint, HeatGhostInfo> heatInfos;
         public Dictionary<uint, LightGhostInfo> lightInfos;
         public Dictionary<uint, LightPlaybackState> lightPlaybackStates;
@@ -146,6 +176,19 @@ namespace Parsek
             wheelGroundContact = default;
             roboticInfos = null;
             deployableInfos = null;
+            activeDeployableTransitions = null;
+            synthesizedMotionInfos = null;
+            prevSynthRotation = Quaternion.identity;
+            prevSynthUT = double.NaN;
+            smoothedAngularVelocity = Vector3.zero;
+            prevGroundHeading = Vector3.zero;
+            prevGroundHeadingUT = double.NaN;
+            smoothedHeadingRateDegPerSec = 0f;
+            // launchDustInfo holds Unity objects; the engine destroys them (GhostPlaybackEngine
+            // .DestroyLaunchDust) before calling this, exactly as it does for reentryFxInfo.
+            launchDustInfo = null;
+            launchDustPendingBuild = false;
+            launchDustGroundRefAltitude = double.NaN;
             heatInfos = null;
             lightInfos = null;
             lightPlaybackStates = null;
