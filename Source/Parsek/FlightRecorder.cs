@@ -132,6 +132,13 @@ namespace Parsek
         private HashSet<ulong> deployedRobotArmScannerModules = new HashSet<ulong>();
         private Dictionary<ulong, HeatLevel> animateHeatLevels = new Dictionary<ulong, HeatLevel>();
 
+        /// <summary>
+        /// Minimum change in recorded engine power that emits an <see cref="PartEventType.EngineThrottle"/>.
+        /// Shared by the per-frame transition check and the background rails-span diff so both
+        /// halves quantise the same way.
+        /// </summary>
+        internal const float EngineThrottleDeadband = 0.05f;
+
         // Engine state tracking (key = EncodeEngineKey(pid, moduleIndex))
         private List<(Part part, ModuleEngines engine, int moduleIndex)> cachedEngines;
         private HashSet<ulong> activeEngineKeys;
@@ -3435,7 +3442,7 @@ namespace Parsek
                     lastT = 0f;
 
                 float delta = throttle - lastT;
-                if (delta > 0.05f || delta < -0.05f)
+                if (delta > EngineThrottleDeadband || delta < -EngineThrottleDeadband)
                 {
                     lastThrottleMap[key] = throttle;
                     events.Add(new PartEvent

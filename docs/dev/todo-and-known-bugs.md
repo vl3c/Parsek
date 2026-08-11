@@ -989,9 +989,23 @@ Open items, highest leverage first:
     the split), which also closes the inverse hole: a welded-on EVA-construction
     engine or a newly docked module was absent from a cache built at
     `StartRecording` and emitted nothing at all for the rest of the flight.
-  - The background rails transition ERASES state instead of deferring:
-    `BackgroundRecorder.cs:2316-2336` drops `loadedStates` with no terminal emit,
-    so a BG ghost's plume latches on for the whole rails span.
+  - ~~FIXED 2026-08-11 (M6)~~ **The background rails transition ERASED state
+    instead of deferring it.** `OnBackgroundVesselGoOnRails` dropped `loadedStates`
+    with no terminal emit (BG ghost's plume latched on for the whole rails span),
+    and on re-entry `SeedBackgroundPartStates` re-synced every tracking set to live
+    truth while `TrySeedLoadedPartEvents` declined to write (`PartEvents.Count > 0`),
+    so a change during the warp was erased rather than deferred. Fix, two halves:
+    `EmitBackgroundRailsTerminalEvents` runs the same
+    `FlightRecorder.EmitTerminalEngineAndRcsEvents` the foreground already ran at
+    ITS rails transition (a vessel that packs with nothing running still emits
+    nothing, so a parked rover's boring tail is not extended), and
+    `CaptureRailsSpanPartStates` deep-copies the now-quiet tracking sets into
+    `railsSpanPartStates`. On re-entry `TryEmitRailsSpanDiff` feeds them to the pure
+    `PartStateSeeder.EmitDiffEvents` (all 16 families; one-way shroud/fairing emit on
+    ARRIVAL only; parachutes route through the shared 4-state
+    `ClassifyParachuteTransitionEvent`; `EngineThrottle` quantises on the shared
+    `FlightRecorder.EngineThrottleDeadband`). Snapshot is consumed once and dropped
+    at every BG teardown site.
 - **Continuous motion to SYNTHESIZE, never sample:** gimbal (`ModuleGimbal`, 243
   stock parts, ZERO Parsek references) and control-surface deflection from the
   recorded `srfRelRotation` derivative; wheel steering from heading change; sun
