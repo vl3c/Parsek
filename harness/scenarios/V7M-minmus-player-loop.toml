@@ -689,7 +689,16 @@ trees          = { min = 1, max = 2 }
 #       everything, which is exactly what V6M / V6T / V7T emit; this token is what
 #       separates the two populations. Pinned under the two-consecutive-flights rule -
 #       `_1018` and `_1031` both read `evaluated=1 outsideSoi=0`, bit-identical, no skip
-#       bucket - and not before it.
+#       bucket - and not before it. A THIRD census flight, `_1036` (PASS attempt 1), read
+#       the same thing bit-identically, and a FOURTH, `_1159` (PASS attempt 1, wall 55 s),
+#       re-flew the lane AFTER the capture gained the re-timed-arrival refusal and still
+#       read `evaluated=1 outsideSoi=0` - so the refusal cost this lane nothing.
+#       READ `_1036` CAREFULLY: V4 carries a run stamped `_1036` too. That is not the same
+#       run and not a typo - run ids are scenario-qualified, and the tier flew the two
+#       lanes back to back inside one minute (`2026-08-09_1036_V4-player-loop-workflow`
+#       10:36:03-10:36:54, then `2026-08-09_1036_V7M-minmus-player-loop` 10:36:54-10:37:49).
+#       Quote the full run id, not the `_HHMM` stub, whenever the two lanes are cited side
+#       by side.
 #       WHY IT IS DETERMINISTIC HERE: the summary rides a shared 5 s rate-limited key, so
 #       the first pass to clear the guard owns the window, and here that is the ghost's
 #       creation frame at a FIXED jump epoch (currentUT 1,345,035 -> driveUT 267,563.741,

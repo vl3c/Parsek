@@ -306,29 +306,37 @@ ANOMALY_TOKENS: Tuple[str, ...] = (
 #     ZERO raises across all five. So the "stays SILENT on real geometry" reading
 #     that every token promoted on 2026-08-04 earned its gate from now EXISTS here
 #     too, and this entry is no longer blocked on the lens being unflown.
-#     WHAT STILL BLOCKS PROMOTION, and it is three things, not none. (1) The RAISE
-#     itself has never fired, so nothing has yet demonstrated the token behaves
-#     when the geometry is actually bad - a gate whose failing side is untested is
-#     a gate on trust. (2) The first known benign population is STILL unmeasured: a
-#     FAITHFUL loop replay of an INTERPLANETARY transfer, whose destination has
-#     moved on in inertial space by the loop shift, should light this up by design
-#     rather than by defect, and V7M's healthy same-parent reading does not speak
-#     to it (a phase-locked moon replay has no such drift). (3) A SECOND benign
-#     population exists and was missed when this entry was first written: a RE-AIMED
-#     member whose producer RE-TIMED its arrival. The F2 parking-departure path
-#     searches transfer times around the geometric Hohmann time (deliberately NOT
-#     seeded from the recorded tof - the s15 fixture's recorded tof is ~1.44x
-#     Hohmann) and trims the render span to the new, EARLIER arrival, so the arc
-#     reaches the destination days before the RECORDED seam the lens samples at.
-#     Measuring there is WRONG, not merely uncalibrated, and the miss is orders of
-#     magnitude past the 1.005 tolerance. The C# capture now REFUSES that sample
-#     rather than reporting it (`skip.reaimed-seam-instant-unknown`, keyed on the
-#     driven seed's own end disagreeing with the recorded seam), so the population
-#     currently produces no raise - but the refusal is a decision taken on the
-#     seed's provenance, and it must be re-examined, not assumed, before the token
-#     is gated. NOTE the asymmetry with (2): the parking path is exercised by NO
-#     committed lane, so nothing has flown it either way. mapRenderTracing-gated, so
-#     only specs that arm that tracer can raise it at all.
+#     WHAT STILL BLOCKS PROMOTION. Three blockers were recorded here; the Eve
+#     lanes (2026-08-11, branch eve-loop-lanes) MEASURED the first two, and the
+#     measurement is what now blocks gating, harder than the ignorance did:
+#     (1) ~~The RAISE has never fired~~ MEASURED: the raise fired for the first
+#     time on V8-eve-player-loop (ratio 4.6216, Sun->Eve, reproduced
+#     bit-identically on five consecutive runs) - and the route was an ENGAGED
+#     unit whose cycle-0 window TILT-DECLINED to a faithful window, i.e. a
+#     genuine missing-encounter rendering (the 2026-06-15 defect class; see
+#     that todo entry's first-raise paragraph). The detection path works.
+#     (2) ~~The benign FAITHFUL-interplanetary population is unmeasured~~
+#     MEASURED AND PINNED on V8F-eve-loop-faithful: a deliberate
+#     forceFaithfulLoopPlayback loop raises five times per run - four Sun->Eve
+#     arrival seams (one per self-overlap instance, ratios 52.70 / 47.51 /
+#     138.21 / 203.20) plus a Kerbin->Mun TRANSIT seam (4.80; a moon encounter
+#     recorded inside the span does not recur at shifted epochs - a benign
+#     shape this entry had not catalogued). V8F REQUIRES outsideSoi=[1-9]:
+#     on that lane the raise IS the designed reading.
+#     THE CALIBRATION FACT THAT NOW BLOCKS GATING OUTRIGHT: the benign ratios
+#     (4.80-203.2) STRADDLE the defect reading (4.6216). Ratio cannot separate
+#     the populations; any gate must discriminate on unit MODE and seed
+#     provenance (engaged-with-declined-window vs deliberate-faithful vs
+#     re-aimed), which the raise line only carries as context fields today.
+#     (3) UNCHANGED: the RE-TIMED re-aimed population (the F2 parking-departure
+#     path searches transfer times around the geometric Hohmann time, NOT the
+#     recorded tof - the s15 fixture's recorded tof is ~1.44x Hohmann - and
+#     trims the render span to the new EARLIER arrival, so measuring at the
+#     recorded seam is WRONG, not merely uncalibrated). The C# capture REFUSES
+#     that sample (`skip.reaimed-seam-instant-unknown`, keyed on the driven
+#     seed's own end disagreeing with the recorded seam); the parking path is
+#     still exercised by NO committed lane, so nothing has flown it either way.
+#     mapRenderTracing-gated, so only specs that arm that tracer can raise it.
 #
 # Promoting any of them later needs the same thing the seven needed: a measurement
 # that it stays silent on real geometry, plus a reason to call a raise a defect.

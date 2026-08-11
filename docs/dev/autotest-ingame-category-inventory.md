@@ -131,7 +131,7 @@ Two limits of this table, stated so nobody over-reads it:
 | `Optimizer` | 2 | 0 | 2 | 0 | 0 | 2 | - | B |
 | `PartEventFX` | 6 | 6 | 0 | 0 | 0 | 6 | - | B |
 | `PartEventTiming` | 2 | 2 | 0 | 0 | 0 | 0 | - | B |
-| `Periodicity` | 11 | 1 | 7 | 0 | 3 | 5 | M2 | B |
+| `Periodicity` | 12 | 1 | 8 | 0 | 3 | 5 | M2 | B |
 | `Pipeline-Anchor` | 7 | 7 | 0 | 0 | 0 | 0 | H11 | A |
 | `Pipeline-Anchor-BubbleEntry` | 2 | 2 | 0 | 0 | 0 | 0 | - | B |
 | `Pipeline-AnchorPropagate` | 1 | 1 | 0 | 0 | 0 | 0 | - | B |
@@ -190,13 +190,13 @@ Two limits of this table, stated so nobody over-reads it:
 
 ## Triage
 
-Totals, re-derived: **100 categories / 555 declarations**. Buckets **A 28 categories
-(198 declarations)**, **B 72 categories (357 declarations)**, **C 0 categories (0
+Totals, re-derived: **100 categories / 556 declarations**. Buckets **A 28 categories
+(198 declarations)**, **B 72 categories (358 declarations)**, **C 0 categories (0
 declarations)**. Driven by a committed spec: **36 of 100 categories**, up from 35
 (the S4.2 world-preservation wave; before that 34 with the S1.8 SoiCrossingPlayback
 wave, 28 the wave before, and 8 two waves earlier).
-Measured against declarations rather than categories, that is 323 of 555 inside a
-driven category (was 317; 314 and 263 the two waves before).
+Measured against declarations rather than categories, that is 324 of 556 inside a
+driven category (was 318 after the Eve wave's one declaration; 317, 314 and 263 the waves before).
 
 `ReFlyWorldPreservation` (6, driven by `S4.2-refly-world-preservation`) is the
 newest row and arrived with its driver rather than as an undriven category: it was

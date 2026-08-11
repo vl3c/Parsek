@@ -215,6 +215,41 @@ namespace Parsek.InGameTests
             };
         }
 
+        // Eve: the INCLINED-TARGET RETENTION fixture (docs/dev/plans/reaim-inclined-target-tilt-retention.md).
+        // Eve is inclined 2.1 deg with a near-circular orbit (ecc ~0.01) INSIDE Kerbin's, so a Kerbin->Eve
+        // Hohmann sweeps ~180 deg and plane(r1,r2) - the only plane a single conic through both endpoints can
+        // use - picks up a large amplified tilt (10-18 deg measured at the V8 cycle-0 geometry) against a
+        // target-derived bound of just max(0, 2.1) + 0.5 = 2.6 deg. Meanwhile the achievability gate's inputs
+        // (r1 at departure, Eve's plane normal) are candidate-INVARIANT, so at an off-node departure every tof
+        // candidate gets the identical "target plane unreachable from r1" verdict. That combination is what
+        // made this the measured defect: pre-2026-08-11 the gate's unsafe verdict killed every candidate and
+        // the whole window fell to the faithful recorded transfer.
+        //
+        // RecordedTofOffsetFraction = 0 DELIBERATELY, and this fixture does NOT route through
+        // RunEccentricTargetWindows. That driver asserts base < |offset| < HalfWidthFraction(eTarget); with
+        // Eve's ecc ~0.01 the scaled band is ~0.065 against a 0.06 base, so no offset can satisfy it. The
+        // retention contract is about the TILT seam, not the stage-B tof band, so the fixture stays on the
+        // geometric Hohmann center (like Duna) and the Eve cell drives the windows itself.
+        //
+        // The leg elements are placement stand-ins as everywhere else, but the heliocentric ones are taken
+        // from the committed eve-orbit-recorded fixture's own broken-plane Sun leg (sma 1.1769e10, ecc 0.1552)
+        // so a reader tracing this cell back to the V8 lane sees the same numbers.
+        private static ReaimFixture KerbinToEve()
+        {
+            return new ReaimFixture
+            {
+                LaunchBodyName = "Kerbin",
+                TargetBodyName = "Eve",
+                ParkingSma = 700000.0,
+                ParkingEcc = 0.0,
+                HeliocentricSma = 1.1769e10,
+                HeliocentricEcc = 0.1552,
+                ArrivalSma = 900000.0,
+                ArrivalEcc = 0.1,
+                RecordedTofOffsetFraction = 0.0,
+            };
+        }
+
         // A HELIOCENTRIC-PARKING-DEPARTURE fixture (Kerbin->Duna two-burn): ascend + park in Kerbin orbit,
         // escape into a near-circular co-orbital heliocentric PARK, coast the park, then a 2nd burn onto the
         // transfer to Duna, then capture. Unlike the direct fixtures this carries a Sun PARK sub-coast ENDING
@@ -306,6 +341,7 @@ namespace Parsek.InGameTests
             long firedBefore = ReaimTransferSynthesizer.FiredCorrectionCount;
             long declinedBefore = ReaimTransferSynthesizer.DeclinedCorrectionCount;
             long unreachableBefore = ReaimTransferSynthesizer.UnreachablePlaneDeclineCount;
+            long retainedBefore = ReaimTransferSynthesizer.RetainedTiltCount;
             double firstEcc = double.NaN, firstSma = double.NaN;
             double firstInc = double.NaN, lastInc = double.NaN;
             double firstLan = double.NaN, lastLan = double.NaN;
@@ -314,14 +350,19 @@ namespace Parsek.InGameTests
             {
                 // A synthetic live UT inside window k's recorded span (phaseAnchor + k*cadence + mid-span).
                 double currentUT = sched.PhaseAnchorUT + k * sched.CadenceSeconds + 0.5 * span;
+                // Per-window retain snapshot (see AssertSaneWindowSegments). For Duna this MUST stay 0 in
+                // every window - the loop-level assert below states that as its own contract - so the
+                // fired/noop tilt bound is what actually runs here, unchanged.
+                long retainedBeforeWindow = ReaimTransferSynthesizer.RetainedTiltCount;
                 bool ok = resolver.TryResolveWindowSegments(
                     memberId, memberSegments, plan, sched,
                     sched.PhaseAnchorUT, spanStart, spanEnd, sched.CadenceSeconds, currentUT,
                     out List<OrbitSegment> segs, out long windowIndex);
+                long retainedInWindow = ReaimTransferSynthesizer.RetainedTiltCount - retainedBeforeWindow;
 
                 InGameAssert.IsTrue(ok, $"window k={k} must resolve a re-aimed transfer (congruent-window model, mid-band departure)");
                 InGameAssert.AreEqual(k, windowIndex, $"resolved window index must equal k={k}");
-                AssertSaneWindowSegments(ctx, segs, plan, goodDep, spanEnd, k);
+                AssertSaneWindowSegments(ctx, segs, plan, goodDep, spanEnd, k, retainedInWindow);
 
                 OrbitSegment transfer = segs[1];
                 if (k == 0)
@@ -341,16 +382,32 @@ namespace Parsek.InGameTests
             long firedDelta = ReaimTransferSynthesizer.FiredCorrectionCount - firedBefore;
             long declinedDelta = ReaimTransferSynthesizer.DeclinedCorrectionCount - declinedBefore;
             long unreachableDelta = ReaimTransferSynthesizer.UnreachablePlaneDeclineCount - unreachableBefore;
-            // Bug A NEVER-UNREACHABLE invariant: a re-aimed Duna window must never hit the achievability gate's
-            // "unreachable-plane" decline. Duna's gate always passes (nTarget ~ ecliptic => the achievable plane
+            long retainedDelta = ReaimTransferSynthesizer.RetainedTiltCount - retainedBefore;
+            // Bug A NEVER-UNREACHABLE invariant: a re-aimed Duna window must never HIT the achievability gate's
+            // "unreachable-plane" branch. Duna's gate always passes (nTarget ~ ecliptic => the achievable plane
             // through the fixed r1 lands within tol of the target plane at EVERY r1 phase), so a window FIRES
-            // (spurious near-180 tilt) or NO-OPs (already in-plane) - never unreachable. An unreachable decline
-            // means the gate is mis-measuring the target plane (the .z-vs-.y world-frame bug: incAch ~90 deg),
-            // flying the stale faithful transfer and missing Duna. unreachableDelta>0 is the precise regression
-            // tell (firedDelta is informational; the well-conditioned harness may be entirely in-plane).
+            // (spurious near-180 tilt) or NO-OPs (already in-plane) - never unreachable. A hit means the gate is
+            // mis-measuring the target plane (the .z-vs-.y world-frame bug: incAch ~90 deg), so Duna's transfer
+            // is not re-pinned onto Duna's plane. unreachableDelta>0 is the precise regression tell (firedDelta
+            // is informational; the well-conditioned harness may be entirely in-plane).
+            //
+            // THE INVARIANT'S MEANING SURVIVED THE 2026-08-11 RETENTION CHANGE UNCHANGED, and that is deliberate.
+            // The branch's DISPOSITION moved from decline to retain, but UnreachablePlaneDeclineCount was kept
+            // incrementing on it precisely so this counter still measures the GATE EVENT rather than the
+            // disposition (see the field's doc comment in ReaimTransferSynthesizer). So a Duna gate hit still
+            // trips this assert whether it retains or declines - the tell did not weaken. What DID change is the
+            // consequence of a hit: it used to fly the stale faithful transfer, it would now render a tilted
+            // conic; either way it is the same frame bug and the same stop-the-line signal.
             InGameAssert.IsTrue(unreachableDelta == 0L,
-                $"a re-aimed Duna window must never hit the unreachable-plane gate decline (fired={firedDelta.ToString(ic)} declined={declinedDelta.ToString(ic)} unreachable={unreachableDelta.ToString(ic)}); " +
-                "a Duna decline means the achievability gate is mis-measuring the target plane and the transfer falls back to the stale faithful geometry (it misses Duna)");
+                $"a re-aimed Duna window must never hit the unreachable-plane gate branch (fired={firedDelta.ToString(ic)} declined={declinedDelta.ToString(ic)} unreachable={unreachableDelta.ToString(ic)} retained={retainedDelta.ToString(ic)}); " +
+                "a Duna hit means the achievability gate is mis-measuring the target plane, so the transfer is not re-pinned onto Duna's plane (it misses Duna)");
+            // The retention change's own Duna floor, stated separately from the gate-hit invariant above so a red
+            // names the right thing. retainedDelta <= unreachableDelta ALWAYS (RecordRetainedTilt bumps both), so
+            // this is implied by the assert above - it is here because "Duna must never RETAIN a tilted conic" is
+            // the claim Phase 2 of the plan owes, and an implied claim nobody asserts is one nobody reads.
+            InGameAssert.IsTrue(retainedDelta == 0L,
+                $"a re-aimed Duna window must never RETAIN an un-corrected tilted conic (retained={retainedDelta.ToString(ic)} unreachable={unreachableDelta.ToString(ic)}); " +
+                "Duna's achievability gate passes at every r1 phase, so the retain arm is unreachable for Duna BY ARITHMETIC - a nonzero delta means the gate arithmetic moved, not just the disposition");
 
             double firstLpe = TransferWindowMath.LongitudeOfPeriapsisDegrees(firstLan, firstAop);
             double lastLpe = TransferWindowMath.LongitudeOfPeriapsisDegrees(lastLan, lastAop);
@@ -401,11 +458,14 @@ namespace Parsek.InGameTests
             // mid-band departure.
             DriveWindowsResolveOrDeclineCleanly(ctx, edgeDep, "reaim-e2e-edge-" + edgeIdx.ToString(ic),
                 requireWindow0Resolve: false, requireAllWindowsResolve: false,
-                out string map, out int resolvedCount, out int declinedCount);
+                out string map, out int resolvedCount, out int declinedCount, out long retainedTiltTotal);
 
+            // retained is reported, NOT asserted, at the band edge: this is a Duna departure, so the retain arm
+            // is unreachable by the same arithmetic the strict test asserts on - the number is here so a
+            // surprise shows up in the log of the cell whose contract is deliberately weak.
             ParsekLog.Info("ReaimE2E",
                 $"{ctx.LaunchBodyName}->{ctx.TargetBodyName} band-edge windows (pinned): scanIdx={edgeIdx} edgeDep={edgeDep.ToString("F1", ic)} " +
-                $"map={map} resolved={resolvedCount} declined={declinedCount} of {WindowsToCheck} " +
+                $"map={map} resolved={resolvedCount} declined={declinedCount} of {WindowsToCheck} retainedTilt={retainedTiltTotal.ToString(ic)} " +
                 $"(decline = clean faithful fall-back; all-decline is a valid fail-closed outcome)");
         }
 
@@ -438,11 +498,11 @@ namespace Parsek.InGameTests
             //    confirmed and this can be promoted to requireAllWindowsResolve:true.
             DriveWindowsResolveOrDeclineCleanly(ctx, ObservedEdgeDepartureUT, "reaim-e2e-observed-20260611",
                 requireWindow0Resolve: true, requireAllWindowsResolve: false,
-                out string map, out int resolvedCount, out int declinedCount);
+                out string map, out int resolvedCount, out int declinedCount, out long retainedTiltTotal);
 
             ParsekLog.Info("ReaimE2E",
                 $"{ctx.LaunchBodyName}->{ctx.TargetBodyName} observed-failure departure (pinned 2026-06-11): depUT={ObservedEdgeDepartureUT.ToString("R", ic)} " +
-                $"map={map} resolved={resolvedCount} declined={declinedCount} of {WindowsToCheck} " +
+                $"map={map} resolved={resolvedCount} declined={declinedCount} of {WindowsToCheck} retainedTilt={retainedTiltTotal.ToString(ic)} " +
                 $"(near-180 handedness fix: the nominal-departure inc=180 retrograde-branch decline is now resolved prograde; " +
                 $"map expected all-R, a later 'd' is the separate M-MIS-3 eccentric-drift mode falling back cleanly, not a handedness regression)");
         }
@@ -468,6 +528,24 @@ namespace Parsek.InGameTests
         //    SANE conic + prograde + render-span only. They DO NOT assert sma/ecc recur across windows -
         //    varying sma/ecc per window is CORRECT for an eccentric target (the congruent-window premise is
         //    shape-congruent only for circular targets). The per-window sma/ecc are LOGGED, never asserted.
+        //
+        // RE-BASELINED 2026-08-11 for the tilt-retention change (docs/dev/plans/
+        // reaim-inclined-target-tilt-retention.md, Phase 2). NOTHING WAS DELETED and no assertion was weakened
+        // at the structural level - what moved is a POPULATION, not a contract:
+        //  - Both targets are genuinely inclined (Moho ~7.0 deg, Eeloo ~6.15 deg), so their adverse-phase
+        //    windows hit the achievability gate that used to kill the candidate. Those windows previously had
+        //    only one possible reading here - 'd', a clean decline to faithful, with no segments to assert on.
+        //    They can now RESOLVE instead, carrying a retained conic whose inclination is deliberately ABOVE the
+        //    target-derived bound, which is precisely the case AssertSaneWindowSegments' re-scoped tilt block
+        //    now routes to the retention contract (finite + prograde + resolved) instead of the fired/noop bound.
+        //    Had the bound been left un-scoped, a legal retained resolve would have red this cell.
+        //  - The contract these cells declare is UNCHANGED in both directions: 'R' and 'd' were both legal
+        //    before and are both legal now (requireAllWindowsResolve stays false), window 0 is still a HARD
+        //    resolve, determinism is still asserted, and the R/d map is still the observational artifact.
+        //  - What is NOT claimed: any statement that the new population is better, larger, or correct. Per the
+        //    plan's open question 3 the retention change's claim scope is EVE ONLY; Moho/Eeloo are unmeasured
+        //    collateral and their retainedTilt count is logged report-only. Do not promote it to an assertion
+        //    without a measured A/B, and do not cite these cells as evidence in a lane spec.
 
         [InGameTest(Category = "Periodicity", Scene = GameScenes.SPACECENTER,
             Description = "Re-aim end-to-end (Moho, eccentric + inclined + near-180): structural contract holds + window 0 resolves; the per-window R/d map is the measure-first stage-B + stage-A-inclination artifact (eccentric-window pass/fail is the user's in-game gate)")]
@@ -483,6 +561,200 @@ namespace Parsek.InGameTests
         {
             RunEccentricTargetWindows(KerbinToEeloo(), "reaim-e2e-eeloo",
                 combinedInclinationCase: false);
+        }
+
+        // ----- Inclined-target RETENTION cell (Kerbin->Eve): the 2026-08-11 disposition change, in-game. -----
+        //
+        // WHAT THIS PROVES that no other cell here does. The Duna cells prove the tilt correction FIRES and the
+        // gate never reports unreachable; the Moho/Eeloo cells accept resolve-or-decline and claim nothing about
+        // which. None of them can distinguish "the gate said unreachable and we kept the conic" from "the gate
+        // said unreachable and we threw the window away" - which is exactly the disposition that changed. This
+        // cell drives a geometry where the gate REALLY DOES report unreachable (Eve at an off-node departure)
+        // and asserts all four halves of the retention contract on it:
+        //   1. the retain arm actually executed (RetainedTiltCount delta >= 1) - the premise check, without
+        //      which the rest is vacuous. If the pinned band contains no retaining departure the cell SKIPS
+        //      rather than asserting against an assumed geometry;
+        //   2. it emitted the grep-stable `state=retained reason=unreachable-plane` line (the log surface the
+        //      harness and the V8 lane read; asserted through a scoped observer so a Verbose setting cannot
+        //      silently make the claim untestable);
+        //   3. the retained conic still ENCOUNTERS Eve - the encounter check remained the arbiter. Asserted as
+        //      metres-vs-SOI distances rather than inferred from the boolean, at BOTH instants: the ARRIVAL
+        //      (the premise - it would fail if the change's premise were wrong) and the REPORTED SOI ENTRY
+        //      (the downstream handoff instant - it DID fail on run 2026-08-11_1213, which is how finding
+        //      SYNTH-SOI-ENTRY-FASTPATH-LAUNCH-TRANSITION was caught and fixed in this branch);
+        //   4. at least one driven window RESOLVES rather than falling back faithful - the product-visible
+        //      outcome the whole change exists for.
+        // Read together, 1+3 are the statement "an unreachable-plane verdict no longer costs the window".
+        [InGameTest(Category = "Periodicity", Scene = GameScenes.SPACECENTER,
+            Description = "Re-aim end-to-end (Eve, inclined target at an off-node departure): the unreachable-plane tilt gate RETAINS the un-corrected conic instead of killing the candidate - the retain arm fires, logs state=retained reason=unreachable-plane, the retained transfer still arrives inside Eve's SOI, and the window resolves instead of falling back faithful")]
+        public void Reaim_KerbinToEve_UnreachablePlaneRetainsTiltAndStillEncounters()
+        {
+            var ic = CultureInfo.InvariantCulture;
+            ScanContext ctx = BuildPinnedScanOrSkip(KerbinToEve());
+            if (ctx == null)
+                return;
+
+            // Find a departure in the pinned band that actually EXERCISES the retain arm. Deliberately NOT the
+            // mid-band pick the sibling cells use: whether the achievability gate reports unreachable depends on
+            // where r1 sits relative to Eve's node line, so the mid-band departure is not guaranteed to be a
+            // retaining one and asserting >=1 retain on it would be a bet on the pinned scan base rather than a
+            // test of the disposition. Re-running TrySynthesizeTransfer per feasible step is the same call the
+            // scan already made (deterministic within a frame - see the header) and stops at the first hit, so
+            // this normally costs one extra solve.
+            int retainIdx = -1;
+            int feasible = 0;
+            long probeRetains = 0L;
+            double probeSoiEntryUT = double.NaN;
+            Orbit probeTransfer = null;
+            CelestialBody probeEncounter = null;
+            for (int i = 0; i < ScanSteps; i++)
+            {
+                if (!ctx.Scan[i])
+                    continue;
+                feasible++;
+                long retainedBeforeProbe = ReaimTransferSynthesizer.RetainedTiltCount;
+                bool probeOk = ReaimTransferSynthesizer.TrySynthesizeTransfer(
+                    ctx.LaunchBody, ctx.TargetBody, ctx.ScanDepartureUTs[i], ctx.TofSeconds, prograde: true,
+                    out Orbit transfer, out double soiEntryUT, out CelestialBody enc, out _);
+                long retainsHere = ReaimTransferSynthesizer.RetainedTiltCount - retainedBeforeProbe;
+                if (probeOk && retainsHere > 0L)
+                {
+                    retainIdx = i;
+                    probeRetains = retainsHere;
+                    probeSoiEntryUT = soiEntryUT;
+                    probeTransfer = transfer;
+                    probeEncounter = enc;
+                    break;
+                }
+            }
+            if (retainIdx < 0)
+            {
+                // Self-set-up failed: no departure in this pinned synodic period both retains AND encounters, so
+                // there is no retention to observe. SKIP rather than assert against an assumed geometry - the
+                // required context is a Kerbin->Eve departure OFF Eve's node line (near the nodes the gate is
+                // safe and the correction simply fires, which is the Duna cells' contract, not this one).
+                // Re-pin PinnedScanBaseUT if a stock rebalance ever empties the band.
+                InGameAssert.Skip(
+                    $"no {ctx.LaunchBodyName}->{ctx.TargetBodyName} departure in the pinned scan both RETAINS an unreachable-plane conic and encounters " +
+                    $"(feasible={feasible.ToString(ic)}/{ScanSteps.ToString(ic)} of the band); the retain arm needs an off-node departure geometry - re-pin PinnedScanBaseUT");
+                return;
+            }
+            double retainDep = ctx.ScanDepartureUTs[retainIdx];
+
+            // (2) THE LOG SURFACE. Re-run the same solve with a scoped observer + a forced Verbose gate, so the
+            // assertion measures the EMISSION rather than the runtime verboseLogging setting. TestObserverForTesting
+            // (not TestSinkForTesting) is used on purpose: it observes the rendered line and STILL lets Debug.Log
+            // run, so the evidence also lands in KSP.log for the flight reading. Both fields are restored to their
+            // previous values in a finally - never ResetTestOverrides, which would clear unrelated state the batch
+            // runner owns.
+            bool sawRetainedLine = false;
+            string retainedLine = null;
+            System.Action<string> previousObserver = ParsekLog.TestObserverForTesting;
+            bool? previousVerbose = ParsekLog.VerboseOverrideForTesting;
+            try
+            {
+                ParsekLog.VerboseOverrideForTesting = true;
+                ParsekLog.TestObserverForTesting = line =>
+                {
+                    if (!sawRetainedLine && line != null
+                        && line.Contains("tilt-correction") && line.Contains("state=retained reason=unreachable-plane"))
+                    {
+                        sawRetainedLine = true;
+                        retainedLine = line;
+                    }
+                };
+                ReaimTransferSynthesizer.TrySynthesizeTransfer(
+                    ctx.LaunchBody, ctx.TargetBody, retainDep, ctx.TofSeconds, prograde: true,
+                    out _, out _, out _, out _);
+            }
+            finally
+            {
+                ParsekLog.TestObserverForTesting = previousObserver;
+                ParsekLog.VerboseOverrideForTesting = previousVerbose;
+            }
+            InGameAssert.IsTrue(sawRetainedLine,
+                $"the retain disposition must emit the grep-stable tilt-correction line at the departure that retained " +
+                $"(scanIdx={retainIdx.ToString(ic)} depUT={retainDep.ToString("F1", ic)}); " +
+                "expected a `tilt-correction ... state=retained reason=unreachable-plane` line - the harness and the V8 lane read that token");
+
+            // (3) THE ENCOUNTER, measured on BOTH instants. The synthesizer only returns true when patched
+            // conics promote the target encounter or the proximity sweep finds the SOI, but assert the geometry
+            // directly rather than trusting the boolean. TWO SEPARATE CLAIMS, kept separate because they failed
+            // separately once (harness run 2026-08-11_1213):
+            //   3a. THE PREMISE - at arrivalUT the conic is at the target's CENTRE. This is what tilt retention
+            //       rests on (plane(r1,r2) is the unique plane through both endpoints, so the un-flattened conic
+            //       hits r2 exactly), and it measured 0 m on all 34 successful Eve syntheses of that run,
+            //       including every retained one, up to 43.5 deg of retained tilt.
+            //   3b. THE REPORTED HANDOFF INSTANT is genuinely a target SOI entry - strictly after departure and
+            //       inside the SOI. This is the one that red: stock's patched-conic fast path reported
+            //       `UTsoi == departureUT` (the LAUNCH-body transition, since r1 sits at Kerbin's centre) while
+            //       the transfer was 23.4 Gm from Eve. Fixed in the same branch by
+            //       ReaimTransferSynthesizer.IsGenuineTargetSoiEntry + fall-through to the proximity sweep
+            //       (finding SYNTH-SOI-ENTRY-FASTPATH-LAUNCH-TRANSITION); this cell is the in-game guard that
+            //       the fix holds. Asserting only 3a would let the bad instant keep shipping to the seam
+            //       machinery; asserting only 3b would never state the premise at all.
+            // All positions are parent-relative from the same orbit API (no swizzle on either side), so every
+            // difference below is frame-consistent.
+            InGameAssert.AreEqual(ctx.TargetBody, probeEncounter,
+                $"the retained conic's encounter body must be {ctx.TargetBodyName}");
+            InGameAssert.IsTrue(probeTransfer != null, "the retained conic must be returned for inspection");
+            double targetSoi = ctx.TargetBody.sphereOfInfluence;
+            InGameAssert.IsTrue(targetSoi > 0.0 && !double.IsNaN(targetSoi),
+                $"{ctx.TargetBodyName} must report a finite positive SOI radius (got {targetSoi.ToString("R", ic)})");
+
+            // 3a - the premise, at the ARRIVAL instant (deliberately not the reported entry).
+            double retainArrivalUT = retainDep + ctx.TofSeconds;
+            double arrivalMiss = (probeTransfer.getRelativePositionAtUT(retainArrivalUT)
+                - ctx.TargetBody.orbit.getRelativePositionAtUT(retainArrivalUT)).magnitude;
+            InGameAssert.IsTrue(arrivalMiss <= targetSoi,
+                $"THE PREMISE: the RETAINED (un-flattened) transfer must reach {ctx.TargetBodyName} at arrivalUT - " +
+                $"arrivalMiss={arrivalMiss.ToString("F0", ic)}m vs SOI={targetSoi.ToString("F0", ic)}m at arrivalUT={retainArrivalUT.ToString("R", ic)}. " +
+                "plane(r1,r2) passes through the target's centre at arrival BY CONSTRUCTION, while the flatten the gate refused " +
+                "would have missed by several SOI radii. A failure HERE means the retention premise itself is wrong, not the reporting");
+
+            // 3b - the reported handoff instant, post-fix.
+            InGameAssert.IsTrue(!double.IsNaN(probeSoiEntryUT) && !double.IsInfinity(probeSoiEntryUT)
+                    && probeSoiEntryUT > retainDep && probeSoiEntryUT <= retainArrivalUT + 1.0,
+                $"the reported SOI-entry UT must be finite and STRICTLY inside the transfer span " +
+                $"(soiEntryUT={probeSoiEntryUT.ToString("R", ic)} span=({retainDep.ToString("R", ic)},{retainArrivalUT.ToString("R", ic)}]); " +
+                "soiEntryUT == departureUT is the launch-SOI transition leaking out of stock's patched-conic fast path " +
+                "(SYNTH-SOI-ENTRY-FASTPATH-LAUNCH-TRANSITION) - the synthesizer must reject it and fall through to the proximity sweep");
+            double soiEntryMiss = (probeTransfer.getRelativePositionAtUT(probeSoiEntryUT)
+                - ctx.TargetBody.orbit.getRelativePositionAtUT(probeSoiEntryUT)).magnitude;
+            InGameAssert.IsTrue(
+                ReaimTransferSynthesizer.IsGenuineTargetSoiEntry(probeSoiEntryUT, retainDep, soiEntryMiss, targetSoi),
+                $"the reported SOI-entry instant must be a GENUINE {ctx.TargetBodyName} entry: " +
+                $"miss={soiEntryMiss.ToString("F0", ic)}m vs SOI={targetSoi.ToString("F0", ic)}m at soiEntryUT={probeSoiEntryUT.ToString("R", ic)} " +
+                $"(dep={retainDep.ToString("R", ic)}). Shares the production predicate so test and code agree on 'genuine'; " +
+                "this instant is what the arrival seam / capture re-time consume downstream");
+
+            // (4) THE PRODUCT-VISIBLE OUTCOME. Drive the real per-window resolver at that departure under the
+            // same structural contract the sibling cells use (window 0 HARD - the probe just proved it
+            // synthesizes; all-windows SOFT - a later window's own geometry may legitimately decline).
+            long retainedTiltBeforeDrive = ReaimTransferSynthesizer.RetainedTiltCount;
+            DriveWindowsResolveOrDeclineCleanly(ctx, retainDep, "reaim-e2e-eve-" + retainIdx.ToString(ic),
+                requireWindow0Resolve: true, requireAllWindowsResolve: false,
+                out string map, out int resolvedCount, out int declinedCount, out long retainedTiltTotal);
+
+            double launchInc = ctx.LaunchBody.orbit.inclination;
+            double targetInc = ctx.TargetBody.orbit.inclination;
+            ParsekLog.Info("ReaimE2E",
+                $"{ctx.LaunchBodyName}->{ctx.TargetBodyName} inclined-target retention (pinned): scanIdx={retainIdx} depUT={retainDep.ToString("F1", ic)} " +
+                $"feasible={feasible}/{ScanSteps} probeRetains={probeRetains.ToString(ic)} " +
+                $"targetInc={targetInc.ToString("F4", ic)} bound={ReaimTransferSynthesizer.InclinationBoundDegrees(launchInc, targetInc).ToString("F4", ic)} " +
+                $"probeInc={probeTransfer.inclination.ToString("F4", ic)} arrivalMiss={arrivalMiss.ToString("F0", ic)}m " +
+                $"soiEntryMiss={soiEntryMiss.ToString("F0", ic)}m soi={targetSoi.ToString("F0", ic)}m " +
+                $"arrivalUT={retainArrivalUT.ToString("R", ic)} soiEntryUT={probeSoiEntryUT.ToString("R", ic)} " +
+                $"| map={map} resolved={resolvedCount} declined={declinedCount} of {WindowsToCheck} " +
+                $"retainedTilt={retainedTiltTotal.ToString(ic)} (drive base={retainedTiltBeforeDrive.ToString(ic)}) | " +
+                $"retainedLine={(retainedLine ?? "<none>")}");
+
+            InGameAssert.IsTrue(resolvedCount >= 1,
+                $"at least one {ctx.LaunchBodyName}->{ctx.TargetBodyName} window must RESOLVE rather than fall back to the faithful recorded transfer " +
+                $"(map={map} resolved={resolvedCount} declined={declinedCount}); before the retention change every candidate of an unreachable-plane window died and the whole window went faithful");
+            InGameAssert.IsTrue(retainedTiltTotal >= 1L,
+                $"the driven windows must exercise the retain arm at least once (retainedTilt={retainedTiltTotal.ToString(ic)}); " +
+                "a zero here means this departure no longer reaches the unreachable-plane branch through the resolver's own tof band, so the cell would be asserting the resolve of a fired/noop window and proving nothing about retention");
         }
 
         // The shared eccentric-target driver. Picks the band CENTER departure (the stable mid-band pick, like
@@ -543,23 +815,37 @@ namespace Parsek.InGameTests
             // HARD: structural contract + window 0 resolves. SOFT: all-windows (requireAllWindowsResolve:false).
             DriveWindowsResolveOrDeclineCleanly(ctx, midDep, memberIdPrefix + "-mid-" + midIdx.ToString(ic),
                 requireWindow0Resolve: true, requireAllWindowsResolve: false,
-                out string map, out int resolvedCount, out int declinedCount);
+                out string map, out int resolvedCount, out int declinedCount, out long retainedTiltTotal);
 
             // The measurement artifact (SOFT/observational): the R/d map + the recorded/geom tof centers + the
             // offset, so the live-run reader can see whether stage B's ecc band pulled the drifted windows from
             // 'd' to 'R'. The eccentric-window pass/fail is the USER's in-game gate, NOT an assertion here.
+            //
+            // retainedTilt is the SAME KIND of number for the 2026-08-11 retention change, and it is REPORT-ONLY
+            // for exactly the reason the plan's open question 3 settles: the claim scope of that change is EVE
+            // ONLY (measured + lane-re-pinned). Moho (inc ~7 deg) and Eeloo (inc ~6.15 deg) are inclined enough
+            // that their adverse-phase windows hit the same achievability gate, so windows that previously
+            // declined to faithful may now RESOLVE carrying a retained tilt above the target-derived bound. That
+            // is the intended collateral, but it is UNMEASURED collateral - no lane pins it, no A/B run has read
+            // it - so nothing here asserts a count, a direction, or an improvement. Both outcomes stay legal:
+            // 'R' with retainedTilt>0 (a retained conic that genuinely encounters) and 'd' (a retained conic that
+            // still missed the SOI, or any other fail-closed branch), and a 'd' now co-occurs with the Phase-1
+            // `reaim window fell back faithful:` Warn in KSP.log naming the window and its failReason. Read those
+            // two numbers together off a live run before anyone promotes this to a claim.
             double offsetSeconds = ctx.TofSeconds - ctx.GeomTofSeconds;
             ParsekLog.Info("ReaimE2E",
                 $"{ctx.LaunchBodyName}->{ctx.TargetBodyName} eccentric windows (pinned mid-band, stage-B measure-first): " +
                 $"scanIdx={midIdx} midDep={midDep.ToString("F1", ic)} eTarget={eTarget.ToString("F4", ic)} " +
+                $"targetInc={ctx.TargetBody.orbit.inclination.ToString("F4", ic)} " +
                 $"recordedTof={ctx.TofSeconds.ToString("F0", ic)} geomTof={ctx.GeomTofSeconds.ToString("F0", ic)} " +
                 $"offset={fixture.RecordedTofOffsetFraction.ToString("F4", ic)}({offsetSeconds.ToString("F0", ic)}s) " +
                 $"scaledHalfWidth={scaledHalfWidth.ToString("F4", ic)} synodic={ctx.SynodicSeconds.ToString("F0", ic)} | " +
-                $"map={map} resolved={resolvedCount} declined={declinedCount} of {WindowsToCheck} | " +
+                $"map={map} resolved={resolvedCount} declined={declinedCount} of {WindowsToCheck} retainedTilt={retainedTiltTotal.ToString(ic)} | " +
                 (combinedInclinationCase
                     ? "COMBINED case: also validates stage A's un-projection inclination lift (transfer aims at the target's actual out-of-plane position, prograde inc carried). "
                     : "clean high-ecc isolate. ") +
                 "OBSERVATIONAL: a 'd' on a drifted window pre-stage-B should flip to 'R' under stage B - that delta is the user's in-game gate, not asserted; " +
+                "retainedTilt is the 2026-08-11 tilt-retention collateral on an inclined target - REPORT-ONLY, unmeasured, no lane-grade claim (plan open question 3); " +
                 "per-window sma/ecc EXPECTED to vary (requirement 3, never asserted congruent)");
         }
 
@@ -673,10 +959,14 @@ namespace Parsek.InGameTests
         // false at both call sites, pending a live in-game Periodicity batch confirming the observed-pin
         // R/d map reads all-R (a later 'd' can be the separate, still-open M-MIS-3 eccentric-drift mode,
         // not a handedness regression). Promote to true only after that live confirmation.
+        // retainedTiltTotal reports the RetainedTiltCount delta summed over the windows' FIRST resolve (the
+        // determinism re-solve is deliberately excluded - it would double-count the same dispositions). It is
+        // the measurement surface the inclined-target cells read: for Duna it must stay 0, for Eve it is the
+        // hard >=1 proof that the retain arm actually fired, and for Moho/Eeloo it is report-only collateral.
         private static void DriveWindowsResolveOrDeclineCleanly(
             ScanContext ctx, double departureUT, string memberId, bool requireWindow0Resolve,
             bool requireAllWindowsResolve,
-            out string outcomeMap, out int resolvedCount, out int declinedCount)
+            out string outcomeMap, out int resolvedCount, out int declinedCount, out long retainedTiltTotal)
         {
             BuildMemberAndPlan(ctx, departureUT,
                 out List<OrbitSegment> memberSegments, out ReaimMissionPlan plan,
@@ -690,18 +980,22 @@ namespace Parsek.InGameTests
             double span = spanEnd - spanStart;
             resolvedCount = 0;
             declinedCount = 0;
+            retainedTiltTotal = 0L;
             var map = new StringBuilder(WindowsToCheck);
             for (long k = 0; k < WindowsToCheck; k++)
             {
                 double currentUT = sched.PhaseAnchorUT + k * sched.CadenceSeconds + 0.5 * span;
+                long retainedBeforeWindow = ReaimTransferSynthesizer.RetainedTiltCount;
                 bool ok = resolver.TryResolveWindowSegments(
                     memberId, memberSegments, plan, sched,
                     sched.PhaseAnchorUT, spanStart, spanEnd, sched.CadenceSeconds, currentUT,
                     out List<OrbitSegment> segs, out long windowIndex);
+                long retainedInWindow = ReaimTransferSynthesizer.RetainedTiltCount - retainedBeforeWindow;
+                retainedTiltTotal += retainedInWindow;
                 InGameAssert.AreEqual(k, windowIndex, $"window index must equal k={k} on resolve AND on decline");
                 if (ok)
                 {
-                    AssertSaneWindowSegments(ctx, segs, plan, departureUT, spanEnd, k);
+                    AssertSaneWindowSegments(ctx, segs, plan, departureUT, spanEnd, k, retainedInWindow);
                     resolvedCount++;
                     map.Append('R');
                 }
@@ -1290,8 +1584,14 @@ namespace Parsek.InGameTests
         // The shared per-window sanity assertions: 3 segments (launch parking / re-aimed
         // common-ancestor transfer / target arrival), sane elliptic transfer conic, recorded-span
         // placement. Reads the launch/target body names from the fixture so it is target-agnostic.
+        //
+        // retainedTiltDelta is the RetainedTiltCount delta measured by the CALLER across THIS window's
+        // resolve (see the tilt-bound block below for why the assertion depends on it). 0 == no candidate
+        // in this window took the retain disposition, so every conic the resolver considered was
+        // fired-or-noop and the historical bound applies unchanged.
         private static void AssertSaneWindowSegments(
-            ScanContext ctx, List<OrbitSegment> segs, ReaimMissionPlan plan, double departureUT, double spanEnd, long k)
+            ScanContext ctx, List<OrbitSegment> segs, ReaimMissionPlan plan, double departureUT, double spanEnd, long k,
+            long retainedTiltDelta)
         {
             var ic = CultureInfo.InvariantCulture;
             string launchName = ctx.LaunchBodyName;
@@ -1313,19 +1613,63 @@ namespace Parsek.InGameTests
                 !ReaimTransferSynthesizer.IsRetrogradeTransfer(transfer.inclination),
                 $"window k={k} transfer must be prograde (inc={transfer.inclination.ToString("F2", ic)} deg < 90; a retrograde result declines to faithful, never resolves)");
 
-            // Bug A (heliocentric plane tilt) UPPER BOUND: a resolved window's rendered inclination must NOT
-            // exceed the TARGET-DERIVED bound (max(launchInc, targetInc) + tol). Reads the RENDERED quantity
-            // (segs[1].inclination, populated from orbit.inclination), NOT the tilt-blind endpoint-proximity
-            // diagnostic. For Duna the loop1/loop2 consecutive synodic windows (pre-fix 2.36 -> 5.06 deg) must
-            // now both fall under the ~0.56 deg Duna bound; the post-solve achievability-gated plane re-pin
-            // collapses the spurious near-antiparallel tilt onto the target's own plane. The same bound applies
-            // to Eeloo (max(launchInc, Eeloo ~6.15) + tol) through this shared assertion.
+            // Bug A (heliocentric plane tilt) UPPER BOUND, SCOPED BY THE WINDOW'S OWN TILT DISPOSITION.
+            //
+            // The bound is max(launchInc, targetInc) + tol, read off the RENDERED quantity (segs[1].inclination,
+            // populated from orbit.inclination), NOT the tilt-blind endpoint-proximity diagnostic. It is the
+            // correct assertion for a window whose candidates all FIRED the plane re-pin or NO-OPed: for Duna the
+            // loop1/loop2 consecutive synodic windows (pre-fix 2.36 -> 5.06 deg) must both fall under the
+            // ~0.56 deg Duna bound, because the achievability-gated re-pin collapses the spurious
+            // near-antiparallel tilt onto the target's own plane.
+            //
+            // It is the WRONG assertion for a RETAINED window. Since 2026-08-11
+            // (docs/dev/plans/reaim-inclined-target-tilt-retention.md, Phase 1) an excessive tilt whose
+            // achievability gate says the target plane is UNREACHABLE from r1 no longer kills the candidate: the
+            // synthesizer KEEPS the un-corrected conic - deliberately above this bound - and lets CalculatePatch
+            // plus the proximity encounter check arbitrate. plane(r1,r2) is the only plane a single conic through
+            // both endpoints can use, so for an inclined target at an off-node departure the tilt is LOAD-BEARING:
+            // flattening it onto the target plane arrives multiple target-SOI radii away (measured for Eve cycle 0:
+            // 271-290 Mm flatten miss vs an 85.1 Mm SOI). Asserting the old bound on such a window would demand the
+            // exact geometry that misses.
+            //
+            // So: retainedTiltDelta == 0 => the historical bound, byte-identical. retainedTiltDelta > 0 => the
+            // RETENTION contract instead (finite, prograde, and RESOLVED). CONSERVATIVE BY CONSTRUCTION: the delta
+            // counts retains across ALL of the window's tof candidates, so it can be > 0 while the candidate that
+            // ultimately won was fired/noop and sits under the bound anyway - that case is LOGGED below rather
+            // than asserted, because the resolver does not report which candidate won and a bound assert keyed on
+            // a guess would red on a legal retained resolve.
             double launchInc = ctx.LaunchBody.orbit.inclination;
             double targetInc = ctx.TargetBody.orbit.inclination;
             double tiltBound = ReaimTransferSynthesizer.InclinationBoundDegrees(launchInc, targetInc);
-            InGameAssert.IsTrue(transfer.inclination <= tiltBound,
-                $"window k={k} transfer inc ({transfer.inclination.ToString("F4", ic)} deg) must be <= the target-derived plane-tilt bound " +
-                $"({tiltBound.ToString("F4", ic)} deg = max({launchName}={launchInc.ToString("F4", ic)}, {targetName}={targetInc.ToString("F4", ic)}) + tol); the post-solve tilt correction collapses the spurious near-antiparallel tilt onto the target plane");
+            if (retainedTiltDelta == 0L)
+            {
+                InGameAssert.IsTrue(transfer.inclination <= tiltBound,
+                    $"window k={k} transfer inc ({transfer.inclination.ToString("F4", ic)} deg) must be <= the target-derived plane-tilt bound " +
+                    $"({tiltBound.ToString("F4", ic)} deg = max({launchName}={launchInc.ToString("F4", ic)}, {targetName}={targetInc.ToString("F4", ic)}) + tol); the post-solve tilt correction collapses the spurious near-antiparallel tilt onto the target plane " +
+                    "(no candidate in this window took the retain disposition, so this is the fired/noop contract)");
+            }
+            else
+            {
+                // THE RETENTION CONTRACT. A retained conic exists ONLY because it passed every downstream guard:
+                // the sane + direction guards run BEFORE the tilt seam, and CalculatePatch + the proximity
+                // encounter check run AFTER it and remain the arbiter - a retained conic that never enters the
+                // target SOI declines to faithful and produces no segments at all. So reaching this helper with
+                // retainedTiltDelta > 0 is itself the encounter proof; what is left to assert is that the conic
+                // handed to the renderer is well-formed rather than tilt-bounded.
+                InGameAssert.IsTrue(!double.IsNaN(transfer.inclination) && !double.IsInfinity(transfer.inclination),
+                    $"window k={k} RETAINED transfer inc must be finite (got {transfer.inclination.ToString("R", ic)})");
+                InGameAssert.IsTrue(!ReaimTransferSynthesizer.IsRetrogradeTransfer(transfer.inclination),
+                    $"window k={k} RETAINED transfer must still be prograde (inc={transfer.inclination.ToString("F4", ic)} deg < 90); " +
+                    "the retain disposition skips the plane re-pin, it does NOT bypass the direction guard - a retained conic past 90 deg " +
+                    "must fail closed there instead of rendering a retrograde transfer");
+                InGameAssert.IsTrue(segs != null && segs.Count == 3,
+                    $"window k={k} RETAINED window must have RESOLVED (3 segments); a retained conic that misses the target SOI declines to faithful and returns null");
+                ParsekLog.Info("ReaimE2E",
+                    $"{launchName}->{targetName} window k={k} RETAINED tilt: retains={retainedTiltDelta.ToString(ic)} " +
+                    $"renderedInc={transfer.inclination.ToString("F4", ic)} bound={tiltBound.ToString("F4", ic)} " +
+                    $"aboveBound={(transfer.inclination > tiltBound ? "yes" : "no (the winning candidate was fired/noop; another candidate retained)")} " +
+                    "(retention contract: finite + prograde + resolved; the encounter check already arbitrated)");
+            }
 
             // Bug A: NO lower inclination bound is asserted for inclined targets (intentional). The post-solve
             // correction fixes only EXCESS tilt (inc > bound); it does NOT touch a window whose near-antiparallel
@@ -1333,11 +1677,13 @@ namespace Parsek.InGameTests
             // inclined target (Moho/Eeloo) CAN render below its real inclination - that is the inherent near-180
             // ill-conditioning (present before this fix too), NOT the correction over-flattening: a FIRED
             // correction lands within tol of the target plane by the achievability gate (proven headless in
-            // ReaimTransferSynthesizerTests #4), and an unreachable window DECLINES to faithful (no segments to
-            // assert on). Asserting inc >= targetInc - tol here wrongly fails on that inherent under-tilt
-            // (observed in-game: Eeloo ~2.55 deg, Moho ~4.72 deg under-tilts that the correction correctly
-            // no-ops). Full inclined-target re-aim (handling the under-tilt half) is out of scope for this
-            // Duna-focused over-tilt fix; the upper bound above still guards the over-tilt collapse.
+            // ReaimTransferSynthesizerTests #4), and an unreachable-plane window now RETAINS its un-corrected
+            // conic and is asserted under the retention contract above (before 2026-08-11 it declined to faithful
+            // and there were no segments to assert on). Asserting inc >= targetInc - tol here wrongly fails on
+            // that inherent under-tilt (observed in-game: Eeloo ~2.55 deg, Moho ~4.72 deg under-tilts that the
+            // correction correctly no-ops). Full inclined-target re-aim (handling the under-tilt half) is out of
+            // scope for this Duna-focused over-tilt fix; the fired/noop upper bound above still guards the
+            // over-tilt collapse.
             // Per-member: only the heliocentric leg is re-aimed (placed at [departure, recordedArrival]);
             // the launch parking + target arrival legs keep their recorded UTs + bodies.
             InGameAssert.AreEqual(launchName, segs[0].bodyName, $"window k={k} must keep the {launchName} parking leg");
