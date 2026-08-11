@@ -4247,6 +4247,39 @@ namespace Parsek
         }
 
         /// <summary>
+        /// THE marker-clearing helper: drops <see cref="ActiveReFlySessionMarker"/> and, in the
+        /// same breath, the transient <see cref="ReFlyProvisionalRetirement"/> hand-over note.
+        ///
+        /// <para>
+        /// The note is a same-process slot naming a provisional a prune pass retired, meant to be
+        /// consumed by that session's conclusion. Its own session gate cannot protect it once the
+        /// marker is gone: a later marker can legitimately carry the SAME SessionId (an F9 re-arms
+        /// it), so a note left behind by a session that ENDED is adoptable by the next one. Two
+        /// clear sites paired the drop by hand and the remaining nine did not, so the pairing
+        /// lives here and every session-ending clear routes through it. The residual was a leaked
+        /// reference rather than a wrong decision on any established route - this is hardening,
+        /// not a bug fix.
+        /// </para>
+        /// <para>
+        /// Deliberately NOT routed through here: <c>LoadRewindStagingState</c>'s reset. That runs
+        /// on every OnLoad and the marker is repopulated from the just-loaded node immediately
+        /// after, while the note is SUPPOSED to survive the scene change between the scene-exit
+        /// finalize that wrote it and the merge-dialog answer that consumes it. Clearing it there
+        /// would break the one route the note exists for.
+        /// </para>
+        /// </summary>
+        internal void ClearActiveReFlySessionMarker(string reason)
+        {
+            ActiveReFlySessionMarker = null;
+            // The T4 pairing (every marker clear also clears the render session's anchor
+            // epsilon map, or stale epsilons leak into post-session renders) now lives here
+            // too, so one helper owns everything that dies with the session and no site can
+            // half-remember. Callers pass the reason both logs carry.
+            Parsek.Rendering.RenderSessionState.Clear(reason);
+            ReFlyProvisionalRetirement.Clear(reason);
+        }
+
+        /// <summary>
         /// Clears a loaded active Re-Fly marker while the plain rewind OnLoad branch resumes replay.
         /// </summary>
         internal bool ClearActiveReFlyMarkerForPlainRewind()
@@ -4262,8 +4295,7 @@ namespace Parsek
 
             // This discards only stale session state; supersede caches do not
             // depend on the marker and should not be bumped for this cleanup.
-            ActiveReFlySessionMarker = null;
-            Parsek.Rendering.RenderSessionState.Clear("plain-rewind");
+            ClearActiveReFlySessionMarker("plain-rewind");
             // Plain rewind loads before FlightDriver state is ready, so Apply is
             // normally a logged no-op here. Keep it paired with marker clears.
             ReFlyRevertButtonGate.Apply("PlainRewind:clear-refly-marker");

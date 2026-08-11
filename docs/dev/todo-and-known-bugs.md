@@ -1171,6 +1171,52 @@ the `BackgroundRecorder` split-detection pid snapshots are same-frame
 `FlightGlobals` diffs whose pids are session-scoped. Live-spawned ghost map pids are
 KSP-unique and were left alone per the #573 contract.
 
+*Not an identity problem at all.* `VesselSpawner.RemoveDuplicateCrewFromSnapshot`
+stays NAME-GLOBAL, argued from the roster model rather than from launch identity:
+KSP's `KerbalRoster` holds ONE `ProtoCrewMember` per name for the whole save, and
+loading a snapshot that seats a kerbal already aboard a live vessel does not copy
+them - it points a second part at the same roster entry, which is corrupt state. So
+"this kerbal is somewhere else" genuinely means "cannot be here" whichever launch the
+somewhere-else vessel belongs to, and the EMPTY SEAT IS THE CORRECT OUTCOME. What the
+preserved fleet changed is how often it happens (the recorded crew are aboard a craft
+the rewind left flying), so what was owed was the log: the removal Warn now names
+which live vessel holds the kerbal, and a pure `DescribeCrewDedupOutcome` summary
+calls out an all-seats-empty materialization explicitly instead of leaving it
+inferable by counting Warns.
+
+*Two guards the one-vessel world was silently carrying.* `RewindInvoker.IsFlightReady`
+now asserts the SELECTED SLOT's vessel (by vessel pid or root-part pid, the same two
+keys `ClassifySlotAffinity` uses) instead of `Vessels.Count > 0`, which the preserved
+population makes true before the slot's own vessel exists - the old proxy let Strip
+run early and bail "selected vessel not present on reload". An RP whose selected slot
+maps no pid keeps the count-only answer (nothing to assert, and refusing would burn
+the whole deferral budget). And the partially-populated RP: a slot disabled at author
+time (`DisabledReason="no-live-vessel"`) has no `PidSlotMap` entry, so
+`PostLoadStripper` cannot see its craft, which the old strict strip removed as
+collateral and the preserved world now leaves standing as a real vessel AND a
+replaying ghost (the #587 third facet). FIX CHOSEN: strip it, via the new pure
+`ResolveDisabledSlotVesselsToStrip` + `StripDisabledSlotVessels`. Rationale for
+choosing that over blocking the invoke or documenting it: a disabled slot is one whose
+vessel the author FAILED TO CORRELATE, not one excluded from the split, and the invoke
+contract for every OTHER non-selected slot is "vessel stripped, recording continues as
+history" - so this restores an existing invariant rather than inventing a rule, and
+blocking the invoke would make a perfectly usable RP unusable over one lost sibling.
+The pass is narrow by construction: it matches on `VesselLaunchIdentity`
+(never on name, which is the #587 pass's key and would delete an unrelated same-named
+craft), walks to the slot's EFFECTIVE tip so a re-flown slot resolves to the recording
+that stands, skips any pid the RP maps to a slot, and never considers the selected
+slot. Cells: `ReFlyPreservedFleetGuardTests` (13).
+
+Guarded by `AnchorDetectorTests` (+6 `LiveAnchorLaunchMatches` cells),
+`ChainGhostSkipTests` (+4), `SpawnStateReconciliationTests` (ported to the guid-aware
+surface, +5 adoption-stamp / plain-rewind-shape cells),
+`RewindSpawnSuppressionTests` (+2 pid-only-verdict cells), `CrewDedupTests` (+4),
+`ReFlyPreservedFleetGuardTests` (13, new) and `ReFlyConclusionRouteTests` (+3
+marker-clear cells). No in-game category was added: every decision in this batch is a
+pure predicate over data a headless cell can build, and the live halves are the
+existing Unity walks that feed them (a new FLIGHT cell would assert the walk, not the
+decision).
+
 **PRE-INVOKE ADVISORY (audit item C2) - ADDRESSED 2026-08-11.** The world-state
 half of this entry was always going to survive the vessel-preservation fix: a
 Re-Fly still reverts everything outside the seven `KspStatePatcher.PatchAll`
@@ -1350,7 +1396,19 @@ and both remaining session-ending marker clears (`FlipMergeStateAndClearTransien
 `TryTake`'s session gate cannot see an F9 that re-arms a marker with the SAME
 SessionId; the prune evaluates identity before payload; and the unreachable
 "refusal did not hold" guard rolls its rows back rather than bailing on top of
-them.
+them. ~~The other ~9 marker-clear sites (`MergeJournalOrchestrator` x3,
+`RevertInterceptor` x3, `TreeDiscardPurge`, `RewindInvoker`'s arm-rollback,
+`ParsekScenario`'s plain-rewind clear, `SupersedeCommit`'s concluded-no-supersede)
+still leak the reference~~ - CENTRALIZED 2026-08-12 (branch `identity-hardening`):
+`ParsekScenario.ClearActiveReFlySessionMarker(reason)` is now THE clear, dropping the
+marker and the note together, and every production session-ending site routes through
+it (the three hand-written pairings became comments pointing at it). One deliberate
+non-route: `LoadRewindStagingState`'s reset, which runs on every OnLoad and is
+followed immediately by repopulating the marker from the loaded node - the note is
+SUPPOSED to survive that scene change, since the route it exists for spans the
+scene-exit finalize that writes it and the merge-dialog answer that consumes it.
+Pinned by three `ReFlyConclusionRouteTests` cells, including the end-to-end
+same-SessionId re-arm the residual was actually about.
 
 **Spotted in passing, NOT fixed (two items):**
 
