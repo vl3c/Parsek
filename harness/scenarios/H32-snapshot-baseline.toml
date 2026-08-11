@@ -1,0 +1,109 @@
+schema = 1
+id = "H32-snapshot-baseline"
+tier = "nightly"
+# BATCH-ONLY scenario, S1.4 / H6 pattern, for the NEW SnapshotBaseline category that
+# arrives with the M1 ghost snapshot-baseline fix (branch `ghost-snapshot-baseline`).
+#
+# WHY THE CATEGORY EXISTS AT ALL. The M1 parse is covered headlessly
+# (SnapshotBaselineParserTests, 42 cells) and so is the pure action resolution in front
+# of the appliers (SnapshotBaselineApplicationTests, 32 cells). What xUnit STRUCTURALLY
+# cannot reach is the appliers themselves: they touch Unity components, and calling
+# GhostPlaybackLogic.SetLightState or a canopy applier from a headless test throws
+# SecurityException ("ECall methods must be packaged into a system module") before it
+# runs a line. So "does a snapshot that says EXTENDED actually move the ghost's
+# transforms off the prefab stow pose" has no headless answer. These seven cells answer
+# it against a live PartLoader and live transforms.
+#
+# FIXTURE-INDEPENDENT BY CONSTRUCTION. Every cell authors its own one-part snapshot
+# ConfigNode over a stock part it discovers through PartLoader, so none of them reads
+# the recording store - which is why this spec injects NO corpus and pins a zero
+# recordings count (a leak into the save must red).
+#
+# PIN IS INTERIM ON PURPOSE, AND THIS SPEC IS THE ONE MEMBER OF
+# IngameBatchWiringGroupTests.INTERIM_PIN_IDS. total=7 is attribute-exact. passed= and
+# skipped= are NOT derivable here and are deliberately left loose until a live run
+# measures them, for a stated reason per cell:
+#   * SnapshotServoAngle_PosesTheGhostServo requires a NON-WHEEL robotic module
+#     (ModuleRoboticServoHinge / RotationServo / ServoPiston / ServoRotor), i.e. the
+#     Breaking Ground expansion. The stock-minimal profile does not ship it, so this
+#     cell is EXPECTED to InGameAssert.Skip naming that requirement. It is kept in the
+#     category rather than deleted because it is the only end-to-end proof of the
+#     recorder-field-plan -> parser -> ordinal-name-check -> ApplyRoboticPose path, and
+#     it will execute the moment a profile with the expansion exists.
+#   * The three deployState cells and the gear cell each require a part whose ghost
+#     build yields deployable transforms with a MEASURABLY separated stowed-vs-deployed
+#     pose (>1 cm or >0.5 deg). That is a property of the prefab's animation clip
+#     sampled at build time, not of any attribute, so whether a stock install satisfies
+#     it is a measurement. They skip - naming the requirement - rather than pass
+#     vacuously over a part whose animation moves nothing, which is exactly the trap
+#     H15's header documents for its own category.
+#   * LoopRestore_ReturnsTheServoTransformToItsSpawnPose and
+#     SnapshotWithoutModules_ProducesNoBaseline are expected to EXECUTE on a stock-only
+#     install: the first deliberately accepts ANY robotic-classified module (the wheel
+#     suspension / steering / motor families included, which stock landing gear carry)
+#     because it is about the restore putting the transform back, not about where the
+#     spawn value came from; the second needs only a part with renderers.
+# So `passed=[1-9][0-9]*` is the anti-vacuity floor the interim form is for: a batch in
+# which EVERY cell skipped reds, and any real assertion failure reds on failed=0.
+# WHEN THIS FLIES: replace the loose tokens with the measured split, record the run id
+# here, and drop the id from INTERIM_PIN_IDS in harness/lib/test_hlib.py.
+description = "Run the in-game SnapshotBaseline category unattended: a snapshot saying deployState=EXTENDED / gear Deployed / a non-zero servo pose really moves the ghost's live transforms off the prefab stow pose, a mid-travel state deliberately does not, the loop-cycle restore puts a displaced servo transform back, and a MODULE-less snapshot produces no baseline at all."
+instanceProfile = "stock-minimal"
+tags = ["ingame-batch", "ghost-visuals", "snapshot-baseline", "H32"]
+
+[fixture]
+# gloops-airshow SANDBOX pod host, the family's FLIGHT boot. No injected recordings:
+# nothing in this category reads the recording store.
+saveTemplate = "fixtures/saves/gloops-airshow"
+injectedRecordings = "none"
+craft = []
+
+[driver]
+kind = "seam"
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "verboseLogging", value = "true" }, expect = "OK" },
+  { cmd = "RunTests",   args = { category = "SnapshotBaseline" },              expect = "OK", budget = 540 },
+  { cmd = "FlushAndQuit",                                                      expect = "OK" },
+]
+
+[dimensionsCovered]
+# HONEST: the subject is the ghost BUILD + spawn-baseline application over authored
+# snapshots, in a SANDBOX FLIGHT host. No D6 playback token - nothing is positioned or
+# played back here; no D16 sidecar token - the snapshots are authored in-memory rather
+# than read from a recording's sidecars.
+D14 = ["sandbox", "scene-flight"]
+
+[expectations]
+# PLACEMENT IS LOAD-BEARING (see H7): a bare allowedAnomalies written after a
+# [expectations.<sub>] header is TOML-scoped to that sub-table and never read.
+allowedAnomalies = []
+
+[expectations.recordings]
+# Nothing here records, and the batch-isolation contract reverts persistent.sfs, so a
+# non-zero count means a leak.
+count = { min = 0, max = 0 }
+
+[expectations.logContracts]
+# The verboseLogging pin above is what makes the baseline summary line available; the
+# BATCH_COMPLETE pin is the gate. "Snapshot baseline applied" is the ApplySnapshotBaselines
+# summary (Verbose) and proves the spawn pass actually ran during the batch rather than
+# the cells only inspecting build output.
+required  = ["BATCH_COMPLETE v1 total=7 passed=[1-9][0-9]* failed=0 skipped=[0-9]+ category=SnapshotBaseline scene=FLIGHT",
+             "Snapshot baseline applied"]
+forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
+
+[runtime]
+# 720, the family default. The heaviest cell builds up to 16 candidate part-mesh
+# hierarchies in one frame (bounded by MaxCandidateParts) and holds them via
+# runner.TrackForCleanup until the cell ends - the same shape H15 measured at 70 s wall
+# while building 272 of them, so the budget has ample headroom. RE-MEASURE on the first
+# live run rather than trusting this note.
+budgetSeconds = 720
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

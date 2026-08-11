@@ -2735,6 +2735,7 @@ class IngameBatchWiringGroupTests(unittest.TestCase):
         "H29-localized-name":        ("LocalizedName", 3, "FLIGHT"),
         "H30-ghost-audio":           ("GhostAudio", 9, "FLIGHT"),
         "H31-crew-reservation":      ("CrewReservation", 15, "FLIGHT"),
+        "H32-snapshot-baseline":     ("SnapshotBaseline", 7, "FLIGHT"),
     }
 
     # Declared MEASURED run-time skips per member: InGameAssert.Skip firings the
@@ -2805,7 +2806,15 @@ class IngameBatchWiringGroupTests(unittest.TestCase):
     # guard on whether KSP built a Vectrosity orbit line for a synthetic ghost that
     # session, which no attribute predicts. The 2026-07-30 flight measured all three
     # satisfied.
-    INTERIM_PIN_IDS = set()
+    # H32-snapshot-baseline is the ONE declared interim-pin member, and unlike H20 it
+    # has never flown: it arrives with the M1 snapshot-baseline fix, and its passed /
+    # skipped split is genuinely unmeasured. Its spec header states the per-cell reason
+    # (one cell needs the Breaking Ground expansion the stock-minimal profile does not
+    # ship; four need a part whose animation clip actually separates the stowed and
+    # deployed poses, which is a build-time measurement no attribute predicts). The pin
+    # keeps total= literal and `passed=[1-9][0-9]*`, so an all-skipped batch still reds.
+    # DROP THIS ENTRY once a live run measures the split and the spec pins it whole.
+    INTERIM_PIN_IDS = {"H32-snapshot-baseline"}
 
     # Every committed spec whose id matches this is an H-SERIES batch spec.
     # Membership is DISCOVERED from disk and then compared for set equality against
@@ -2850,8 +2859,8 @@ class IngameBatchWiringGroupTests(unittest.TestCase):
         # cell below cannot catch either, because it compares two sets that shrink
         # together. Same shape as CommittedBatchTallySourceSyncTests's
         # test_the_source_tree_is_actually_readable.
-        self.assertEqual(24, len(self.GROUP),
-                         "the H7-H20 + H22-H31 group is 24 specs; if it genuinely changed "
+        self.assertEqual(25, len(self.GROUP),
+                         "the H7-H20 + H22-H32 group is 25 specs; if it genuinely changed "
                          "size, update this floor AND the counts in "
                          "docs/dev/autotest-ingame-category-inventory.md and "
                          "docs/dev/autotest-status.md in the same commit")
@@ -5274,7 +5283,7 @@ class IngameCategoryInventoryDocTests(unittest.TestCase):
     def test_the_stated_totals_match_the_table(self):
         stated_decls = sum(r[0] for r in self.rows.values())
         body = "\n".join(self.lines)
-        self.assertIn("**99 categories / %d declarations**" % stated_decls, body,
+        self.assertIn("**100 categories / %d declarations**" % stated_decls, body,
                       "the triage totals line disagrees with the table it summarises "
                       "(table sums to %d declarations across %d categories)"
                       % (stated_decls, len(self.rows)))

@@ -1,4 +1,4 @@
-# In-game test category inventory (all 99 categories)
+# In-game test category inventory (all 100 categories)
 
 Machine-derived from `Source/Parsek` by `hlib.parse_ingame_test_declarations` +
 `hlib.derive_batch_tally`. Do NOT hand-edit the table: re-derive it. The generator
@@ -161,6 +161,7 @@ Two limits of this table, stated so nobody over-reads it:
 | `SceneExitMerge` | 2 | 0 | 0 | 0 | 2 | 2 | H21 | A |
 | `Serialization` | 4 | 4 | 4 | 4 | 0 | 1 | H25 | A |
 | `Settings` | 3 | 2 | 2 | 3 | 0 | 0 | - | B |
+| `SnapshotBaseline` | 7 | 7 | 0 | 0 | 0 | 7 | H32 | A |
 | `SoiCrossingPlayback` | 3 | 3 | 0 | 0 | 0 | 3 | S1.8 | A |
 | `SpawnCollision` | 2 | 2 | 0 | 0 | 0 | 2 | - | B |
 | `SpawnHealth` | 3 | 3 | 3 | 3 | 0 | 0 | H16 | A |
@@ -189,12 +190,20 @@ Two limits of this table, stated so nobody over-reads it:
 
 ## Triage
 
-Totals, re-derived: **99 categories / 549 declarations**. Buckets **A 27 categories
-(192 declarations)**, **B 72 categories (357 declarations)**, **C 0 categories (0
-declarations)**. Driven by a committed spec: **35 of 99 categories**, up from 34
-(the S1.8 SoiCrossingPlayback wave; before that 28, and 8 two waves earlier).
-Measured against declarations rather than categories, that is 317 of 549 inside a
-driven category (was 314; 263 the wave before).
+Totals, re-derived: **100 categories / 556 declarations**. Buckets **A 28 categories
+(199 declarations)**, **B 72 categories (357 declarations)**, **C 0 categories (0
+declarations)**. Driven by a committed spec: **36 of 100 categories**, up from 35
+(the M1 `SnapshotBaseline` wave, H32; before that the S1.8 SoiCrossingPlayback wave
+at 35, 28 before that, and 8 two waves earlier).
+Measured against declarations rather than categories, that is 324 of 556 inside a
+driven category (was 317; 314 the wave before).
+
+`SnapshotBaseline` arrives ALREADY in bucket A (driven by `H32-snapshot-baseline`)
+rather than as a bucket-B backlog row: the category was authored together with its
+scenario, for the M1 ghost snapshot-baseline fix. It is also the only bucket-A row
+whose spec carries an INTERIM tally pin - all seven of its cells can
+`InGameAssert.Skip`, and the split has not been measured on a live flight yet. See
+the spec header and `IngameBatchWiringGroupTests.INTERIM_PIN_IDS`.
 
 The 2026-08-05 wave (`wire-wave-2`, H26-H31) wired exactly the list the previous
 revision of this doc named as "the honest next wave": all five B6 members that
