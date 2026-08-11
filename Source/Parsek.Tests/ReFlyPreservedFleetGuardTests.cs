@@ -228,6 +228,33 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void ResolveDisabledSlotVesselsToStrip_TheResolvedSelectedVesselIsProtectedOutright()
+        {
+            // Not redundant with the mapped-pid skip: the stripper can resolve the selected
+            // vessel through RootPartPidMap when KSP regenerated its vessel pid on load, so
+            // that pid is absent from PidSlotMap. If it then collided (craft-baked) with a
+            // disabled sibling's recording, the pass would name the vessel the player is
+            // about to fly. selectedVesselPid closes that outright.
+            var recordings = MakeRecordings();
+            const uint regeneratedSelectedPid = 8888u;
+            // The collision: the disabled sibling's recording carries the pid the selected
+            // vessel now has, with no conclusive guid disagreement.
+            recordings[1].VesselPersistentId = regeneratedSelectedPid;
+            recordings[1].RecordedVesselGuid = null;
+
+            var withoutProtection = RewindInvoker.ResolveDisabledSlotVesselsToStrip(
+                MakeRewindPoint(), selectedSlotIndex: 0, recordings, supersedes: null,
+                liveVessels: new List<(uint pid, string guid)> { (regeneratedSelectedPid, null) });
+            Assert.Contains(regeneratedSelectedPid, withoutProtection);
+
+            var withProtection = RewindInvoker.ResolveDisabledSlotVesselsToStrip(
+                MakeRewindPoint(), selectedSlotIndex: 0, recordings, supersedes: null,
+                liveVessels: new List<(uint pid, string guid)> { (regeneratedSelectedPid, null) },
+                selectedVesselPid: regeneratedSelectedPid);
+            Assert.Empty(withProtection);
+        }
+
+        [Fact]
         public void ResolveDisabledSlotVesselsToStrip_SelectedSlotIsNeverACandidate()
         {
             // Even if the selected slot is itself flagged Disabled, the vessel the player is

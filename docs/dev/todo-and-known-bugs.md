@@ -1204,8 +1204,19 @@ blocking the invoke would make a perfectly usable RP unusable over one lost sibl
 The pass is narrow by construction: it matches on `VesselLaunchIdentity`
 (never on name, which is the #587 pass's key and would delete an unrelated same-named
 craft), walks to the slot's EFFECTIVE tip so a re-flown slot resolves to the recording
-that stands, skips any pid the RP maps to a slot, and never considers the selected
-slot. Cells: `ReFlyPreservedFleetGuardTests` (13).
+that stands, skips any pid the RP maps to a slot, never considers the selected slot,
+and protects `stripResult.SelectedPid` OUTRIGHT. That last exclusion is not redundant
+and was added in self-review: the stripper can resolve the selected vessel through
+`RootPartPidMap` when KSP regenerated its vessel pid on load, so that pid is absent
+from `PidSlotMap`, and a craft-baked collision with a disabled sibling's recording
+could otherwise have named the vessel the player was about to fly. Two ordering
+decisions from the same pass: it runs AFTER `SetActiveVessel` (so no `Die()` can land
+on the active vessel even if a future refactor loosens the exclusions), and its kills
+are appended to `stripResult.StrippedPids` - `Vessel.Die()` does not remove the
+matching `ProtoVessel`, so without that the disabled slot's recording would keep
+reading as "still spawned" through the very reconcile that exists to catch it (and the
+#587 survey / left-alone warn correctly treat the appended pids as already-removed).
+Cells: `ReFlyPreservedFleetGuardTests` (14).
 
 Guarded by `AnchorDetectorTests` (+6 `LiveAnchorLaunchMatches` cells),
 `ChainGhostSkipTests` (+4), `SpawnStateReconciliationTests` (ported to the guid-aware

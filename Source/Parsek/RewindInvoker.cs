@@ -1144,25 +1144,6 @@ namespace Parsek
                     return;
                 }
 
-                // Step 2b (#16 item 7): a DISABLED slot's vessel is still in the world.
-                // PostLoadStripper keys on PidSlotMap, and a slot disabled at author time
-                // ("no-live-vessel") has no entry there, so the strip cannot see its craft
-                // even though the RP's own topology says that sibling belongs to this split.
-                // The old strict strip removed it as collateral; with the fleet preserved it
-                // now stays, and it is BOTH a real vessel and a replaying ghost. Every other
-                // non-selected slot has its vessel removed and its recording continued as
-                // history, so this restores that invariant for the disabled ones - narrowly,
-                // via the launch-identity gate, so no unrelated preserved craft is touched.
-                try
-                {
-                    StripDisabledSlotVessels(rp, slotIdx);
-                }
-                catch (Exception ex)
-                {
-                    ParsekLog.Warn(InvokeTag,
-                        $"Disabled-slot strip supplement threw (non-fatal): {ex.Message}");
-                }
-
                 // Step 3: activate selected child's vessel (§6.4 step 5).
                 try
                 {
@@ -1174,6 +1155,35 @@ namespace Parsek
                         $"Activate failed: SetActiveVessel threw: {ex.Message}");
                     ShowUserError($"Rewind failed: could not activate vessel ({ex.Message})");
                     return;
+                }
+
+                // Step 3a (#16 item 7): a DISABLED slot's vessel is still in the world.
+                // PostLoadStripper keys on PidSlotMap, and a slot disabled at author time
+                // ("no-live-vessel") has no entry there, so the strip cannot see its craft
+                // even though the RP's own topology says that sibling belongs to this split.
+                // The old strict strip removed it as collateral; with the fleet preserved it
+                // now stays, and it is BOTH a real vessel and a replaying ghost. Every other
+                // non-selected slot has its vessel removed and its recording continued as
+                // history, so this restores that invariant for the disabled ones - narrowly,
+                // via the launch-identity gate, so no unrelated preserved craft is touched.
+                //
+                // Runs AFTER Activate deliberately: the selected vessel is the active one by
+                // then, so no Die() here can land on the vessel the player is about to fly
+                // even if some future refactor loosened the pid exclusions. Its kills are
+                // appended to stripResult.StrippedPids so the reconcile below subtracts them
+                // too - Vessel.Die() does not remove the matching ProtoVessel, so a disabled
+                // slot's recording would otherwise keep reading as "still spawned".
+                try
+                {
+                    var disabledSlotKills = StripDisabledSlotVessels(
+                        rp, slotIdx, stripResult.SelectedPid);
+                    if (disabledSlotKills.Count > 0 && stripResult.StrippedPids != null)
+                        stripResult.StrippedPids.AddRange(disabledSlotKills);
+                }
+                catch (Exception ex)
+                {
+                    ParsekLog.Warn(InvokeTag,
+                        $"Disabled-slot strip supplement threw (non-fatal): {ex.Message}");
                 }
 
                 // Reconcile committed recordings whose SpawnedVesselPersistentId
@@ -1641,10 +1651,12 @@ namespace Parsek
         /// pure <see cref="ResolveDisabledSlotVesselsToStrip"/> names and <c>Die()</c>s them.
         /// The Unity walk stays here; the decision is pure and unit-tested.
         /// </summary>
-        private static void StripDisabledSlotVessels(RewindPoint rp, int selectedSlotIndex)
+        private static List<uint> StripDisabledSlotVessels(
+            RewindPoint rp, int selectedSlotIndex, uint selectedVesselPid)
         {
+            var killed = new List<uint>();
             var liveVessels = FlightGlobals.Vessels;
-            if (rp == null || liveVessels == null) return;
+            if (rp == null || liveVessels == null) return killed;
 
             var identities = new List<(uint pid, string guid)>();
             for (int i = 0; i < liveVessels.Count; i++)
@@ -1660,45 +1672,48 @@ namespace Parsek
                 ? null : scenario.RecordingSupersedes;
             var kill = ResolveDisabledSlotVesselsToStrip(
                 rp, selectedSlotIndex,
-                RecordingStore.CommittedRecordings, supersedes, identities);
-            if (kill.Count == 0) return;
+                RecordingStore.CommittedRecordings, supersedes, identities,
+                selectedVesselPid);
+            if (kill.Count == 0) return killed;
 
             var killSet = new HashSet<uint>(kill);
             var killTargets = SnapshotKillTargets(
                 liveVessels, killSet, v => v == null ? 0u : v.persistentId);
 
-            int killed = 0;
             var killedNames = new List<string>();
             for (int i = 0; i < killTargets.Count; i++)
             {
                 Vessel v = killTargets[i];
                 if (v == null) continue;
                 string name = v.vesselName ?? "<unnamed>";
+                uint pid = v.persistentId;
                 try
                 {
                     using (SuppressionGuard.Crew())
                     {
                         v.Die();
                     }
-                    killed++;
+                    killed.Add(pid);
                     killedNames.Add(name);
                 }
                 catch (Exception ex)
                 {
                     ParsekLog.Warn(InvokeTag,
-                        $"Disabled-slot strip: Die() threw for v={v.persistentId} " +
+                        $"Disabled-slot strip: Die() threw for v={pid} " +
                         $"name='{name}': {ex.Message}");
                 }
             }
 
-            if (killed > 0)
+            if (killed.Count > 0)
             {
                 ParsekLog.Warn(InvokeTag,
-                    $"Disabled-slot strip: removed {killed} vessel(s) belonging to DISABLED " +
+                    $"Disabled-slot strip: removed {killed.Count} vessel(s) belonging to DISABLED " +
                     $"child slot(s) of rp={rp.RewindPointId}: [{string.Join(", ", killedNames.ToArray())}] " +
                     "(no PidSlotMap entry, so PostLoadStripper could not see them; they would " +
                     "otherwise be present as a real vessel AND a replaying ghost)");
             }
+
+            return killed;
         }
 
         /// <summary>
@@ -1717,9 +1732,15 @@ namespace Parsek
         /// would delete a player's unrelated same-named craft here.
         /// </para>
         /// <para>
-        /// Two exclusions keep the pass narrow: a pid the RP maps to ANY slot is left to the
-        /// normal strip (it is either the selected vessel or an already-handled sibling), and
-        /// the selected slot itself is never a candidate even if it is somehow marked disabled.
+        /// Three exclusions keep the pass narrow: a pid the RP maps to ANY slot is left to the
+        /// normal strip (it is either the selected vessel or an already-handled sibling), the
+        /// selected slot itself is never a candidate even if it is somehow marked disabled, and
+        /// <paramref name="selectedVesselPid"/> - the pid the strip actually RESOLVED as the
+        /// re-fly target - is protected outright. That last one is not redundant: the stripper
+        /// can resolve the selected vessel through <c>RootPartPidMap</c> when KSP regenerated its
+        /// vessel pid on load, in which case that pid is absent from <c>PidSlotMap</c>, and a
+        /// craft-baked pid collision with a disabled sibling's recording could otherwise name
+        /// the vessel the player is about to fly.
         /// </para>
         /// </summary>
         internal static List<uint> ResolveDisabledSlotVesselsToStrip(
@@ -1727,7 +1748,8 @@ namespace Parsek
             int selectedSlotIndex,
             IReadOnlyList<Recording> recordings,
             IReadOnlyList<RecordingSupersedeRelation> supersedes,
-            IReadOnlyList<(uint pid, string guid)> liveVessels)
+            IReadOnlyList<(uint pid, string guid)> liveVessels,
+            uint selectedVesselPid = 0u)
         {
             var kill = new List<uint>();
             if (rp == null || rp.ChildSlots == null
@@ -1761,6 +1783,8 @@ namespace Parsek
                 {
                     uint pid = liveVessels[i].pid;
                     if (pid == 0u) continue;
+                    // Never the vessel the strip resolved as the re-fly target.
+                    if (selectedVesselPid != 0u && pid == selectedVesselPid) continue;
                     // A mapped pid is the normal strip's business (selected or enabled sibling).
                     if (rp.PidSlotMap != null && rp.PidSlotMap.ContainsKey(pid)) continue;
                     if (kill.Contains(pid)) continue;
