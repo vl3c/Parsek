@@ -164,8 +164,8 @@ account and `persistentId` is craft-baked and reused on every launch.
 **Bundle.** Anchor = the recording's `FundsEarning` with `FundsSource == Recovery` and UT
 strictly after the Rec-1 retire cutoff (hoisted out of `ConsumePostLoad` and threaded in,
 so both consumers use the identical value rather than recomputing it after the
-`onFlightReady` deferral). Bundled = same-recording `ScienceEarning` within
-`RecoveryBundleUtWindow` of an anchor, plus same-recording `KerbalAssignment` rows with
+`onFlightReady` deferral). Bundled = same-recording `ScienceEarning` rows carrying
+`Method == ScienceMethod.Recovered`, plus same-recording `KerbalAssignment` rows with
 `KerbalEndState.Recovered` (matched by END STATE rather than UT, because the crew's
 disposition IS the recovery), plus every same-recording `KerbalExperience` row (such a row
 exists only because a recovery archived the crew's flight log, so recording membership
@@ -173,17 +173,36 @@ alone is the right match). Stock awards no reputation for a plain vessel recover
 nothing reputation-shaped is bundled. A zero-value recovery (a pod recovered at the pad)
 has no funds anchor and falls back to `Recording.EndUT`.
 
-**The window is 5 s, not the planned 60 s, and the reason is measured.** The obvious
-discriminator for "is this recovery science?" would be
-`GameAction.Method == ScienceMethod.Recovered`. It does not exist in the data: **no
-production path assigns `GameAction.Method` at all** (measured 2026-08-11 - the only
-writer in the whole repo is one in-game test fixture), so the field defaults to
-`Transmitted = 0` on every real row and keying on it would silently bundle nothing. The UT
-window is the only signal available, so it is kept tight: stock awards recovery funds and
-science from one callback, and at 5 s a mid-flight transmit can only collide if the player
-transmits within five seconds of the recovery completing. Pinned, with this reasoning, by
-`ScienceWindowIsTightBecauseScienceMethodIsUnusable`. Widening it means teaching the
-recorder to stamp `Method` first.
+**The science key is `Method`, and the UT window this shipped with first was a false
+measurement.** The first cut claimed "no production path assigns `GameAction.Method` at
+all" and fell back to a 5 s window around the funds anchor. That claim was WRONG and the
+window was broken in both directions. Reproduced 2026-08-11:
+`GameStateEventConverter.ConvertScienceSubjects` stamps
+`Method = ResolveScienceMethod(subj.reasonKey)` on every `ScienceEarning` row it emits
+(reason key `VesselRecovery` -> `Recovered`, populated by `GameStateRecorder`'s
+`OnScienceChanged`); the field round-trips through the `method` serialized value; and
+`LedgerOrchestrator.GetScienceChangedReasonKey` already reads it back. All three lines
+predate this branch. The real `c1` career ledger carries **76 `method = 1` rows and 18
+`method = 0` rows** - the discriminator not only exists, it is populated.
+
+The same converter stamps `UT = endUT` on EVERY science row of a recording, which is what
+made the window wrong. In `c1`, recording `255973462dd7448a93cdbf8897af7a20` carries a
+`method = 1` row at `ut = 217.475890` and a `method = 0` row at `ut = 217.475890` - the
+same instant. So any window that admits the recovery science admits the mid-flight
+transmit too: pre-rewind transmitted science, still owned and banked in the RP quicksave's
+R&D, got bundled and the Step-5 authoritative recalc subtracted it (OVER-retire). And when
+the recovery-funds UT sat further than the window from `endUT`, the recovery science was
+left banked and the double-count survived (UNDER-retire). Recording membership plus
+`Method` has neither failure and needs no tolerance. Pinned by
+`ScienceBundleIsKeyedOnMethodAndIgnoresTheUtEntirely` plus the two directional cells
+`PreRewindTransmittedScience_IsNotRetired_EvenAtTheAnchorUt` and
+`RecoveryScience_IsRetired_EvenWhenTheFundsAnchorIsFarFromEndUt`, all on
+production-shaped fixtures (every science row at `UT = endUT`).
+
+Residual, deliberate and pro-player: `reasonKey` is empty when the recorder's
+`ScienceChanged` capture fails to match the `OnScienceReceived` callback, so such a row
+reads `Transmitted` and stays banked. Leaving science the player might own is the safe
+direction.
 
 **Two deviations from the plan, both forced.**
 (1) `RetiringRecordingId` is the REWOUND ORIGIN child recording, not the session's

@@ -31,33 +31,6 @@ namespace Parsek
     internal static class ResurrectionRetirementEligibility
     {
         /// <summary>
-        /// Maximum |UT delta| between a recovery's <see cref="GameActionType.FundsEarning"/>
-        /// anchor and a <see cref="GameActionType.ScienceEarning"/> row on the same recording
-        /// for the science to count as part of the same recovery bundle.
-        ///
-        /// <para>
-        /// KSP's recovery dialog awards funds and science from one callback path, so the real
-        /// delta is at or near zero; the window is a tolerance for sampling jitter, not a
-        /// semantic span. Science TRANSMITTED during the flight is not recovery science and
-        /// must not be retired with it.
-        /// </para>
-        ///
-        /// <para>
-        /// <b>Why a UT window and not <see cref="GameAction.Method"/>.</b> The obvious
-        /// discriminator would be <c>Method == ScienceMethod.Recovered</c>, and it does not
-        /// exist in the data: <b>no production path assigns <c>GameAction.Method</c> at
-        /// all</b> — measured 2026-08-11, the only writer in the whole repo is one in-game
-        /// test fixture, so the field defaults to <c>Transmitted = 0</c> on every real row and
-        /// keying on it would silently bundle nothing. The UT window is the only signal
-        /// available, so it is kept TIGHT rather than generous: at 5 s a mid-flight transmit
-        /// can only collide if the player transmits within five seconds of the recovery
-        /// completing, by which point the craft is already home. Widening this without first
-        /// making the recorder stamp Method would start retiring science the player owns.
-        /// </para>
-        /// </summary>
-        internal const double RecoveryBundleUtWindow = 5.0;
-
-        /// <summary>
         /// One resurrected recording and the actions its resurrection retires.
         /// </summary>
         internal sealed class ResurrectedRecovery
@@ -110,8 +83,8 @@ namespace Parsek
         /// <para>
         /// The retired set per recording: the recovery <see cref="GameActionType.FundsEarning"/>
         /// anchor(s) with <see cref="FundsEarningSource.Recovery"/>, plus same-recording
-        /// <see cref="GameActionType.ScienceEarning"/> rows within
-        /// <see cref="RecoveryBundleUtWindow"/> of an anchor, plus same-recording
+        /// <see cref="GameActionType.ScienceEarning"/> rows carrying
+        /// <see cref="ScienceMethod.Recovered"/>, plus same-recording
         /// <see cref="GameActionType.KerbalAssignment"/> rows whose end state is
         /// <see cref="KerbalEndState.Recovered"/> (matched by end state rather than UT — the
         /// crew's disposition IS the recovery, whenever it was stamped), plus every
@@ -119,6 +92,32 @@ namespace Parsek
         /// only because a recovery archived the crew's flight log, so recording membership
         /// alone is the right match). Stock awards no reputation for a plain vessel recovery,
         /// so no reputation row is bundled.
+        /// </para>
+        ///
+        /// <para>
+        /// <b>Science is keyed on <see cref="GameAction.Method"/>, and a UT window would be
+        /// wrong in BOTH directions.</b> <c>GameStateEventConverter.ConvertScienceSubjects</c>
+        /// stamps <c>Method = ResolveScienceMethod(subj.reasonKey)</c> on every
+        /// <see cref="GameActionType.ScienceEarning"/> row it emits, mapping the recorder's
+        /// <c>TransactionReasons.VesselRecovery</c> reason key to
+        /// <see cref="ScienceMethod.Recovered"/>; the field round-trips through the
+        /// <c>method</c> serialized value, and <c>LedgerOrchestrator</c> already reads it back
+        /// to reconstruct the reason key. So the discriminator EXISTS and is exact. A UT window
+        /// is not merely weaker, it is actively broken here, because that same converter stamps
+        /// <c>UT = endUT</c> on EVERY science row of a recording: transmitted science the
+        /// player banked mid-flight and still owns carries the same UT as the recovery, so any
+        /// window that admits the recovery science admits the transmit too (OVER-retire, funds
+        /// and research clawed back from the player), while a recovery whose funds anchor was
+        /// sampled away from <c>endUT</c> falls outside the window and keeps its science
+        /// banked (UNDER-retire). Recording membership plus <c>Method</c> has neither failure.
+        /// </para>
+        ///
+        /// <para>
+        /// The residual is a pro-player UNDER-retire: <c>reasonKey</c> is empty when the
+        /// recorder's <c>ScienceChanged</c> capture does not match the
+        /// <c>OnScienceReceived</c> callback, and such a row reads
+        /// <see cref="ScienceMethod.Transmitted"/> and stays banked. Leaving science the
+        /// player might own is the safe direction; taking it away is not.
         /// </para>
         ///
         /// <para>
@@ -190,7 +189,8 @@ namespace Parsek
                     usedFallbackAnchor = true;
                 }
 
-                // Bundled science: same recording, within the window of any anchor.
+                // Bundled science: same recording, and RECOVERED rather than transmitted.
+                // See the Method remarks on Classify for why the UT is not consulted.
                 for (int a = 0; a < ledgerActions.Count; a++)
                 {
                     var action = ledgerActions[a];
@@ -198,17 +198,9 @@ namespace Parsek
                     if (!string.Equals(action.RecordingId, rec.RecordingId, StringComparison.Ordinal))
                         continue;
                     if (action.Type != GameActionType.ScienceEarning) continue;
+                    if (action.Method != ScienceMethod.Recovered) continue;
 
-                    bool inWindow = false;
-                    for (int k = 0; k < anchorUTs.Count; k++)
-                    {
-                        if (Math.Abs(action.UT - anchorUTs[k]) <= RecoveryBundleUtWindow)
-                        {
-                            inWindow = true;
-                            break;
-                        }
-                    }
-                    if (inWindow && !retired.Contains(action.ActionId))
+                    if (!retired.Contains(action.ActionId))
                         retired.Add(action.ActionId);
                 }
 

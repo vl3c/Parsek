@@ -51,17 +51,43 @@ namespace Parsek.Tests
             };
         }
 
-        private static GameAction Science(string actionId, string recId, double ut)
+        /// <summary>
+        /// A production-shaped <see cref="GameActionType.ScienceEarning"/> row.
+        ///
+        /// <para>
+        /// The shape is load-bearing and the earlier fixtures got it wrong.
+        /// <c>GameStateEventConverter.ConvertScienceSubjects</c> stamps <c>UT = endUT</c> on
+        /// EVERY science row of a recording and stamps <c>Method</c> from the recorder's
+        /// reason key, so the ONLY thing distinguishing recovery science from mid-flight
+        /// transmitted science on a real row is <c>Method</c> — never the UT. A fixture that
+        /// gives science rows distinct per-row UTs describes data production cannot emit,
+        /// and a classifier keyed on a UT window passes against it while over-retiring in
+        /// the real save.
+        /// </para>
+        /// </summary>
+        private static GameAction Science(
+            string actionId, string recId, double endUt, ScienceMethod method)
         {
             return new GameAction
             {
                 ActionId = actionId,
                 RecordingId = recId,
-                UT = ut,
+                UT = endUt,
                 Type = GameActionType.ScienceEarning,
                 ScienceAwarded = 12f,
+                Method = method,
+                StartUT = (float)(endUt - 200.0),
+                EndUT = (float)endUt,
             };
         }
+
+        /// <summary>Science the recovery awarded — reason key <c>VesselRecovery</c>.</summary>
+        private static GameAction RecoveredScience(string actionId, string recId, double endUt)
+            => Science(actionId, recId, endUt, ScienceMethod.Recovered);
+
+        /// <summary>Science transmitted mid-flight — reason key <c>ScienceTransmission</c>.</summary>
+        private static GameAction TransmittedScience(string actionId, string recId, double endUt)
+            => Science(actionId, recId, endUt, ScienceMethod.Transmitted);
 
         private static GameAction CrewRecovered(string actionId, string recId, double ut)
         {
@@ -211,14 +237,16 @@ namespace Parsek.Tests
         // ================================================================
 
         [Fact]
-        public void RecoveryScienceInsideTheWindow_IsBundled()
+        public void RecoveryScience_IsBundled()
         {
+            // Production shape: BOTH rows carry UT = the recording's endUT, because that is
+            // what ConvertScienceSubjects stamps. Only Method tells them apart.
             var rec = RecoveredRecording("rec-1", 42u, GuidA, 100.0, 500.0);
             var actions = new List<GameAction>
             {
                 RecoveryFunds("act-funds", "rec-1", 500.0, 8000f),
-                Science("act-sci-at-recovery", "rec-1", 500.0),
-                Science("act-sci-just-after", "rec-1", 503.0),
+                RecoveredScience("act-sci-recovered-a", "rec-1", 500.0),
+                RecoveredScience("act-sci-recovered-b", "rec-1", 500.0),
             };
 
             var result = ResurrectionRetirementEligibility.Classify(
@@ -226,8 +254,8 @@ namespace Parsek.Tests
 
             Assert.Single(result);
             Assert.Equal(3, result[0].RetiredActionIds.Count);
-            Assert.Contains("act-sci-at-recovery", result[0].RetiredActionIds);
-            Assert.Contains("act-sci-just-after", result[0].RetiredActionIds);
+            Assert.Contains("act-sci-recovered-a", result[0].RetiredActionIds);
+            Assert.Contains("act-sci-recovered-b", result[0].RetiredActionIds);
         }
 
         [Fact]
@@ -235,40 +263,71 @@ namespace Parsek.Tests
         {
             // Science TRANSMITTED mid-mission is not recovery science: the player has it
             // whether or not the craft was ever recovered, and retiring it would take away
-            // research the rewind did not undo. This is why the window is 60s and not the
-            // whole recording. Fails if the window widens to the recording span.
+            // research the rewind did not undo.
+            //
+            // The fixture is deliberately the WORST case for a UT-keyed classifier and the
+            // ONLY case production emits: the transmitted row sits at exactly the same UT as
+            // the recovery anchor, because ConvertScienceSubjects stamps endUT on both. Any
+            // |UT delta| window at all bundles this row. Method does not.
             var rec = RecoveredRecording("rec-1", 42u, GuidA, 100.0, 500.0);
             var actions = new List<GameAction>
             {
                 RecoveryFunds("act-funds", "rec-1", 500.0, 8000f),
-                Science("act-sci-transmitted", "rec-1", 250.0),
+                TransmittedScience("act-sci-transmitted", "rec-1", 500.0),
+                RecoveredScience("act-sci-recovered", "rec-1", 500.0),
             };
 
             var result = ResurrectionRetirementEligibility.Classify(
                 Survivors((42u, GuidA)), new List<Recording> { rec }, actions, 200.0);
 
             Assert.Single(result);
-            Assert.Equal(new List<string> { "act-funds" }, result[0].RetiredActionIds);
+            Assert.Equal(
+                new List<string> { "act-funds", "act-sci-recovered" },
+                result[0].RetiredActionIds);
         }
 
         [Fact]
-        public void ScienceWindowBoundaryIsInclusive()
+        public void PreRewindTransmittedScience_IsNotRetired_EvenAtTheAnchorUt()
         {
+            // Directional cell (a): science TRANSMITTED before the rewind point is already
+            // banked in the RP quicksave's R&D and the player still owns it after the
+            // resurrection. It carries UT = endUT like every other science row, so it lands
+            // right on top of the recovery-funds anchor. Retiring it makes the Step-5
+            // authoritative recalc subtract research the rewind never undid.
             var rec = RecoveredRecording("rec-1", 42u, GuidA, 100.0, 500.0);
             var actions = new List<GameAction>
             {
                 RecoveryFunds("act-funds", "rec-1", 500.0, 8000f),
-                Science("act-sci-edge",
-                    "rec-1", 500.0 + ResurrectionRetirementEligibility.RecoveryBundleUtWindow),
-                Science("act-sci-past-edge",
-                    "rec-1", 500.0 + ResurrectionRetirementEligibility.RecoveryBundleUtWindow + 0.5),
+                TransmittedScience("act-sci-pre-rewind-transmit", "rec-1", 500.0),
             };
 
             var result = ResurrectionRetirementEligibility.Classify(
                 Survivors((42u, GuidA)), new List<Recording> { rec }, actions, 200.0);
 
-            Assert.Contains("act-sci-edge", result[0].RetiredActionIds);
-            Assert.DoesNotContain("act-sci-past-edge", result[0].RetiredActionIds);
+            Assert.Single(result);
+            Assert.DoesNotContain("act-sci-pre-rewind-transmit", result[0].RetiredActionIds);
+            Assert.Equal(new List<string> { "act-funds" }, result[0].RetiredActionIds);
+        }
+
+        [Fact]
+        public void RecoveryScience_IsRetired_EvenWhenTheFundsAnchorIsFarFromEndUt()
+        {
+            // Directional cell (b): the funds anchor's UT is sampled from the live
+            // FundsChanged event and need not coincide with the recording's endUT, while
+            // every science row is stamped at endUT. A tight |UT delta| window UNDER-retires
+            // here — the recovery science stays banked and the double-count survives.
+            var rec = RecoveredRecording("rec-1", 42u, GuidA, 100.0, 500.0);
+            var actions = new List<GameAction>
+            {
+                RecoveryFunds("act-funds", "rec-1", 620.0, 8000f),   // 120 s from endUT
+                RecoveredScience("act-sci-recovered", "rec-1", 500.0),
+            };
+
+            var result = ResurrectionRetirementEligibility.Classify(
+                Survivors((42u, GuidA)), new List<Recording> { rec }, actions, 200.0);
+
+            Assert.Single(result);
+            Assert.Contains("act-sci-recovered", result[0].RetiredActionIds);
         }
 
         [Fact]
@@ -316,7 +375,7 @@ namespace Parsek.Tests
             var actions = new List<GameAction>
             {
                 RecoveryFunds("act-funds", "rec-1", 500.0, 8000f),
-                Science("act-sci-other-rec", "rec-OTHER", 500.0),
+                RecoveredScience("act-sci-other-rec", "rec-OTHER", 500.0),
                 CrewRecovered("act-crew-other-rec", "rec-OTHER", 500.0),
             };
 
@@ -382,30 +441,29 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void ScienceWindowIsTightBecauseScienceMethodIsUnusable()
+        public void ScienceBundleIsKeyedOnMethodAndIgnoresTheUtEntirely()
         {
-            // Pins the window value AND the measured reason it has to carry the whole
-            // decision: GameAction.Method would be the obvious discriminator, but NO
-            // production path assigns it (measured 2026-08-11 — the only writer in the repo is
-            // an in-game test fixture), so every real ScienceEarning row reads Transmitted and
-            // keying on it would bundle nothing. A tight window is what keeps a mid-flight
-            // transmit out. Fails if someone widens it back toward a mission-length span
-            // without first making the recorder stamp Method.
-            Assert.Equal(5.0, ResurrectionRetirementEligibility.RecoveryBundleUtWindow);
-
+            // Pins the KEY, not a tolerance. Every row below sits at the same UT (production
+            // stamps endUT on all of them), so a classifier that consults the UT at all can
+            // only answer "all four" or "none" — both wrong. Fails the moment someone
+            // re-introduces a |UT delta| window as the discriminator.
             var rec = RecoveredRecording("rec-1", 42u, GuidA, 100.0, 500.0);
             var actions = new List<GameAction>
             {
                 RecoveryFunds("act-funds", "rec-1", 500.0, 8000f),
-                Science("act-sci-transmit-30s-before", "rec-1", 470.0),
-                Science("act-sci-at-recovery", "rec-1", 500.0),
+                TransmittedScience("act-sci-transmit-1", "rec-1", 500.0),
+                RecoveredScience("act-sci-recovered-1", "rec-1", 500.0),
+                TransmittedScience("act-sci-transmit-2", "rec-1", 500.0),
+                RecoveredScience("act-sci-recovered-2", "rec-1", 500.0),
             };
 
             var result = ResurrectionRetirementEligibility.Classify(
                 Survivors((42u, GuidA)), new List<Recording> { rec }, actions, 200.0);
 
-            Assert.Contains("act-sci-at-recovery", result[0].RetiredActionIds);
-            Assert.DoesNotContain("act-sci-transmit-30s-before", result[0].RetiredActionIds);
+            Assert.Single(result);
+            Assert.Equal(
+                new List<string> { "act-funds", "act-sci-recovered-1", "act-sci-recovered-2" },
+                result[0].RetiredActionIds);
         }
 
         // ================================================================
@@ -423,7 +481,7 @@ namespace Parsek.Tests
             var actions = new List<GameAction>
             {
                 CrewRecovered("act-crew", "rec-1", 500.0),
-                Science("act-sci", "rec-1", 495.0),
+                RecoveredScience("act-sci", "rec-1", 500.0),
             };
 
             var result = ResurrectionRetirementEligibility.Classify(
@@ -452,7 +510,7 @@ namespace Parsek.Tests
             // No funds, no science, no crew rows: there is nothing to tombstone, so the
             // classifier must not emit an empty entry the caller would log as a retirement.
             var rec = RecoveredRecording("rec-1", 42u, GuidA, 100.0, 500.0);
-            var actions = new List<GameAction> { Science("act-sci-unrelated", "rec-OTHER", 500.0) };
+            var actions = new List<GameAction> { RecoveredScience("act-sci-unrelated", "rec-OTHER", 500.0) };
 
             Assert.Empty(ResurrectionRetirementEligibility.Classify(
                 Survivors((42u, GuidA)), new List<Recording> { rec }, actions, 200.0));
@@ -529,7 +587,7 @@ namespace Parsek.Tests
             var actions = new List<GameAction>
             {
                 RecoveryFunds("act-funds", "rec-1", 500.0, 8000f),
-                Science("act-sci", "rec-1", 500.0),
+                RecoveredScience("act-sci", "rec-1", 500.0),
                 CrewRecovered("act-crew", "rec-1", 500.0),
             };
 
@@ -549,7 +607,7 @@ namespace Parsek.Tests
             {
                 RecoveryFunds("act-funds-1", "rec-1", 500.0, 8000f),
                 RecoveryFunds("act-funds-2", "rec-1", 900.0, 200f),
-                Science("act-sci-near-second", "rec-1", 898.0),
+                RecoveredScience("act-sci-at-end", "rec-1", 900.0),
             };
 
             var result = ResurrectionRetirementEligibility.Classify(
