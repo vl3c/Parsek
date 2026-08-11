@@ -115,9 +115,62 @@ namespace Parsek
             string description,
             string summarySuffix = null)
         {
+            // REFLY-CONCLUSION-SKIPS-APPENDRELATIONS: the live Re-Fly session's
+            // provisional is a leaf whose durable marker names it by id. Deleting
+            // it here behind the session's back is what turned a designed,
+            // grep-stable refusal into a WARN cascade plus a cross-load zombie
+            // sweep (S4.2's first flight, 2026-08-11). Two cases, decided by the
+            // pure ReFlyConclusionRoute.ClassifyProvisionalPrune:
+            //   - the provisional would validate as a supersede target: KEEP it,
+            //     the session's own conclusion owns its fate;
+            //   - it would not: prune exactly as before, but hand the object to
+            //     ReFlyProvisionalRetirement so MergeDialog.TryCommitReFlySupersede
+            //     can conclude through SupersedeCommit.AppendRelations' named
+            //     refusal in-session instead of leaving a zombie marker behind.
+            var reFlyMarker = ResolveActiveReFlySessionMarkerForPrune();
+            int keptProvisional = 0;
+            int retiredProvisional = 0;
+
             for (int i = 0; i < toPrune.Count; i++)
             {
                 string id = toPrune[i];
+
+                Recording candidate;
+                tree.Recordings.TryGetValue(id, out candidate);
+                if (reFlyMarker != null && candidate != null)
+                {
+                    string ignoredReason;
+                    var action = ReFlyConclusionRoute.ClassifyProvisionalPrune(
+                        reFlyMarker,
+                        id,
+                        SupersedeCommit.ValidateSupersedeTarget(candidate, out ignoredReason));
+
+                    if (action == ReFlyProvisionalPruneAction.KeepOwesSupersede)
+                    {
+                        keptProvisional++;
+                        ParsekLog.Info("Flight",
+                            $"{logTag}: keeping active Re-Fly provisional rec={id} " +
+                            $"sess={reFlyMarker.SessionId ?? "<no-id>"} " +
+                            "outcome=refly-provisional-prune-kept reason=owes-supersede " +
+                            "— it validates as a supersede target, so the session's own " +
+                            "conclusion decides its fate, not this hygiene pass");
+                        continue;
+                    }
+
+                    if (action == ReFlyProvisionalPruneAction.RetireEmpty)
+                    {
+                        retiredProvisional++;
+                        ReFlyProvisionalRetirement.Note(reFlyMarker, candidate, logTag);
+                        ParsekLog.Info("ReFlySession",
+                            $"outcome=retired-empty-provisional rec={id} " +
+                            $"sess={reFlyMarker.SessionId ?? "<no-id>"} " +
+                            $"origin={reFlyMarker.OriginChildRecordingId ?? "<none>"} " +
+                            $"prune={logTag} — the session's provisional carries no payload " +
+                            "the merge could accept; handing it to the conclusion so it " +
+                            "concludes in-session instead of leaving a zombie marker");
+                    }
+                }
+
                 tree.Recordings.Remove(id);
 
                 // Remove from parent branch point's children list
@@ -126,6 +179,8 @@ namespace Parsek
                     tree.BranchPoints[b].ChildRecordingIds.Remove(id);
                 }
             }
+
+            int removedCount = toPrune.Count - keptProvisional;
 
             // Clean up branch points with no remaining children
             int prunedBPs = 0;
@@ -146,10 +201,28 @@ namespace Parsek
             }
 
             ParsekLog.Info("Flight",
-                $"{logTag}: removed {toPrune.Count} {description}" +
+                $"{logTag}: removed {removedCount} {description}" +
                 (string.IsNullOrEmpty(summarySuffix) ? "" : summarySuffix) +
                 (prunedBPs > 0 ? $" and {prunedBPs} empty branch point(s)" : "") +
-                $" from tree '{tree.TreeName}'");
+                $" from tree '{tree.TreeName}'" +
+                (keptProvisional > 0 || retiredProvisional > 0
+                    ? $" (reFlyProvisionalKept={keptProvisional} " +
+                      $"reFlyProvisionalRetired={retiredProvisional})"
+                    : string.Empty));
+        }
+
+        /// <summary>
+        /// Resolves the live Re-Fly session marker for the prune guard, tolerating
+        /// the no-scenario case (unit tests, non-flight callers). ReferenceEquals
+        /// bypasses Unity's Object == null override so a plain-CLR test scenario
+        /// still resolves.
+        /// </summary>
+        private static ReFlySessionMarker ResolveActiveReFlySessionMarkerForPrune()
+        {
+            var scenario = ParsekScenario.Instance;
+            if (object.ReferenceEquals(null, scenario))
+                return null;
+            return scenario.ActiveReFlySessionMarker;
         }
 
         /// <summary>

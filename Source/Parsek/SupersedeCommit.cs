@@ -252,7 +252,8 @@ namespace Parsek
                     $"provisional={provisional?.RecordingId ?? "<null>"} " +
                     $"reason={invariantReason} sess={marker.SessionId ?? "<no-id>"} " +
                     $"origin={originId ?? "<none>"} supersedeTarget={closureRoot ?? "<none>"} " +
-                    $"subtreeCount={subtreeCount.ToString(ic)} -- the re-fly attempt has no " +
+                    $"subtreeCount={subtreeCount.ToString(ic)} " +
+                    $"{DescribeSupersedePayload(provisional)} -- the re-fly attempt has no " +
                     $"playable trajectory, so it cannot replace the origin; writing 0 supersede " +
                     $"rows and completing the merge (origin stays effective)");
                 return new List<string>();
@@ -2516,6 +2517,39 @@ namespace Parsek
         /// state. Returns true iff the target satisfies both clauses;
         /// otherwise <paramref name="reason"/> carries one of "null recording",
         /// "null Points", "empty Points", or "null TerminalState".
+        ///
+        /// <para>
+        /// WHAT THIS MEASURES, precisely (REFLY-CONCLUSION-SKIPS-APPENDRELATIONS,
+        /// 2026-08-11). This is a PLAYABLE-PAYLOAD test, not a literal "was it
+        /// flown" test, and the two are different predicates:
+        /// </para>
+        /// <list type="bullet">
+        ///   <item><description>
+        ///     A provisional CAN be flown and still fail here. S4.2's run flew the
+        ///     re-fly vessel for ~0.4 s of game time and attributed GameState
+        ///     events (a crew status change, an Orbit milestone) to the recording,
+        ///     yet the sampler never emitted a point — <c>points=0</c>, refused.
+        ///     "Unflown" in the outcome token is shorthand for "carries nothing the
+        ///     timeline could play", which is the property that actually matters.
+        ///   </description></item>
+        ///   <item><description>
+        ///     The pre-Re-Fly anchor trajectory is NOT payload. A refused
+        ///     provisional commonly logs <c>PRE_REFLY_ANCHOR written: points=4</c>
+        ///     while <c>Points.Count == 0</c>: the anchor is a COPY of the origin's
+        ///     pre-rewind tail, held in <c>PreReFlyAnchorPoints</c> for rendering,
+        ///     not the attempt's own flight. Reading that 4 as "it flew" is the
+        ///     exact misread the finding warned about, which is why the refusal
+        ///     line now prints both numbers side by side.
+        ///   </description></item>
+        ///   <item><description>
+        ///     This test and <c>ParsekFlight.IsZeroPointLeaf</c> (Points +
+        ///     OrbitSegments + SurfacePos) DISAGREE in both directions: sections
+        ///     count here and not there, SurfacePos counts there and not here. Any
+        ///     prune that removes a recording the merge would accept must defer to
+        ///     this predicate — see
+        ///     <c>ReFlyConclusionRoute.ClassifyProvisionalPrune</c>.
+        ///   </description></item>
+        /// </list>
         /// </summary>
         internal static bool ValidateSupersedeTarget(Recording rec, out string reason)
         {
@@ -2541,6 +2575,171 @@ namespace Parsek
                 return false;
             }
             reason = null;
+            return true;
+        }
+
+        /// <summary>
+        /// Grep-stable measured evidence for a supersede-target decision: exactly
+        /// the surfaces <see cref="ValidateSupersedeTarget"/> reads, plus the
+        /// pre-Re-Fly anchor point count that is easy to mistake for flight data.
+        /// Pure and allocation-light; safe on a null recording.
+        /// </summary>
+        internal static string DescribeSupersedePayload(Recording rec)
+        {
+            var ic = CultureInfo.InvariantCulture;
+            if (rec == null)
+                return "points=<null-rec>";
+
+            int points = rec.Points != null ? rec.Points.Count : 0;
+            int orbitSegments = rec.OrbitSegments != null ? rec.OrbitSegments.Count : 0;
+            int trackSections = rec.TrackSections != null ? rec.TrackSections.Count : 0;
+            int playableSections = 0;
+            if (rec.TrackSections != null)
+            {
+                for (int i = 0; i < rec.TrackSections.Count; i++)
+                {
+                    if (PlaybackTrajectoryBoundsResolver.HasPlayablePayload(rec.TrackSections[i]))
+                        playableSections++;
+                }
+            }
+            int anchorPoints = rec.PreReFlyAnchorPoints != null
+                ? rec.PreReFlyAnchorPoints.Count
+                : 0;
+
+            return $"points={points.ToString(ic)} " +
+                   $"orbitSegments={orbitSegments.ToString(ic)} " +
+                   $"trackSections={trackSections.ToString(ic)} " +
+                   $"playableSections={playableSections.ToString(ic)} " +
+                   $"preReFlyAnchorPoints={anchorPoints.ToString(ic)} " +
+                   $"terminal={(rec.TerminalStateValue.HasValue ? rec.TerminalStateValue.Value.ToString() : "<null>")}";
+        }
+
+        /// <summary>
+        /// REFLY-CONCLUSION-SKIPS-APPENDRELATIONS: the INTENTIONAL conclusion for a
+        /// Re-Fly session whose provisional was retired by a leaf-prune pass
+        /// because it carried nothing the merge could accept.
+        ///
+        /// <para>
+        /// It runs the same machinery the journaled merge runs — the caller has
+        /// already established, through <c>ReFlyConclusionRoute.Classify</c>, that
+        /// <paramref name="retired"/> cannot pass
+        /// <see cref="ValidateSupersedeTarget"/>, so
+        /// <see cref="AppendRelations"/> takes its named
+        /// <c>outcome=refused-unflown-provisional</c> branch and returns before
+        /// touching a single row, and <see cref="CommitTombstones"/> then scans an
+        /// empty subtree. The point of routing through them anyway is that the log
+        /// tells the truth: the supersede/tombstone decision was MADE, and made the
+        /// same way it would have been made had the recording survived the prune.
+        /// </para>
+        ///
+        /// <para>
+        /// NO merge journal, deliberately. <see cref="MergeJournalOrchestrator"/>'s
+        /// checkpoints exist to make a multi-step DURABLE mutation atomic
+        /// (migrate → split → rows → tombstones → MergeState flip → RP reap). This
+        /// route writes none of those: its only mutation is clearing the marker,
+        /// and a crash before the next save leaves exactly the pre-fix state, which
+        /// <see cref="LoadTimeSweep"/> already reconciles. Opening a journal for it
+        /// would add five synchronous saves and a Begin-rollback window around a
+        /// no-op — and the origin split it performs at step 1.5 would carve HEAD /
+        /// TIP out of a recording that nothing is going to supersede.
+        /// </para>
+        ///
+        /// <para>
+        /// RewindPoints are deliberately left untouched: nothing was flown, so the
+        /// separation is exactly as re-flyable as it was before the attempt, and
+        /// this route must not delete a quicksave the player never spent.
+        /// </para>
+        ///
+        /// <para>
+        /// Returns false without clearing the marker if the refusal did NOT hold
+        /// (rows were written) — that would mean the classification was wrong, and
+        /// leaving the marker sends the session back to the load-time sweep rather
+        /// than half-concluding it.
+        /// </para>
+        /// </summary>
+        internal static bool ConcludeRetiredProvisional(
+            ReFlySessionMarker marker, Recording retired, string retireReason)
+        {
+            if (marker == null || retired == null)
+            {
+                ParsekLog.Warn(Tag,
+                    "ConcludeRetiredProvisional: null marker or retired provisional — nothing to conclude");
+                return false;
+            }
+
+            var scenario = ParsekScenario.Instance;
+            if (ReferenceEquals(null, scenario))
+            {
+                ParsekLog.Warn(Tag,
+                    "ConcludeRetiredProvisional: no ParsekScenario instance — nothing to conclude");
+                return false;
+            }
+
+            string sessionId = marker.SessionId ?? "<no-id>";
+            string retiredId = retired.RecordingId ?? "<no-id>";
+            var ic = CultureInfo.InvariantCulture;
+
+            // Refuse BEFORE AppendRelations, not after: a retired recording that
+            // validates would have rows written for it, and there is no clean way
+            // to unwind those outside the merge journal. The caller's
+            // ReFlyConclusionRoute.Classify already screens this; the duplicate
+            // check is what makes "this route never writes a row" a property of
+            // this method rather than of its call site.
+            string validationReason;
+            if (ValidateSupersedeTarget(retired, out validationReason))
+            {
+                ParsekLog.Warn(Tag,
+                    $"ConcludeRetiredProvisional: refusing the no-op route — provisional " +
+                    $"{retiredId} validates as a supersede target ({DescribeSupersedePayload(retired)}) " +
+                    $"sess={sessionId}; leaving the marker in place for the load-time sweep");
+                return false;
+            }
+
+            if (scenario.RecordingSupersedes == null)
+                scenario.RecordingSupersedes = new List<RecordingSupersedeRelation>();
+            if (scenario.LedgerTombstones == null)
+                scenario.LedgerTombstones = new List<LedgerTombstone>();
+
+            int rowsBefore = scenario.RecordingSupersedes.Count;
+            int tombstonesBefore = scenario.LedgerTombstones.Count;
+
+            IReadOnlyCollection<string> subtree = AppendRelations(marker, retired, scenario);
+            int rowsWritten = scenario.RecordingSupersedes.Count - rowsBefore;
+            if (rowsWritten != 0 || (subtree != null && subtree.Count != 0))
+            {
+                ParsekLog.Warn(Tag,
+                    $"ConcludeRetiredProvisional: expected a refusal but AppendRelations wrote " +
+                    $"{rowsWritten.ToString(ic)} row(s) over subtree={(subtree?.Count ?? 0).ToString(ic)} " +
+                    $"sess={sessionId} provisional={retiredId} — leaving the marker in place for " +
+                    "the load-time sweep instead of concluding");
+                return false;
+            }
+
+            double ut = SafeNow();
+            string nowIso = DateTime.UtcNow.ToString("o");
+            CommitTombstones(marker, subtree, retiredId, ut, nowIso, scenario);
+            int tombstonesWritten = scenario.LedgerTombstones.Count - tombstonesBefore;
+
+            ClearPreReFlyAnchorSnapshotsForSession(marker.SessionId);
+            scenario.ActiveReFlySessionMarker = null;
+            Parsek.Rendering.RenderSessionState.Clear("marker-cleared");
+            scenario.BumpSupersedeStateVersion();
+            ReFlyRevertButtonGate.Apply("SupersedeCommit:concluded-no-supersede");
+
+            ParsekLog.Info(Tag,
+                $"ConcludeRetiredProvisional outcome=concluded-no-supersede " +
+                $"sess={sessionId} provisional={retiredId} " +
+                $"origin={marker.OriginChildRecordingId ?? "<none>"} " +
+                $"supersedeTarget={marker.SupersedeTargetId ?? "<none>"} " +
+                $"retireReason={retireReason ?? "<none>"} " +
+                $"rows={rowsWritten.ToString(ic)} " +
+                $"tombstones={tombstonesWritten.ToString(ic)} " +
+                $"{DescribeSupersedePayload(retired)} — the attempt produced nothing the " +
+                "timeline could play, so the origin stays effective and the session is " +
+                "concluded here rather than left for the load-time sweep");
+            ParsekLog.Info("ReFlySession",
+                $"End reason=concluded-no-supersede sess={sessionId} provisional={retiredId} " +
+                $"origin={marker.OriginChildRecordingId ?? "<none>"}");
             return true;
         }
 
