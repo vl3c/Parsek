@@ -4605,6 +4605,28 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
                                        "reset need a career fixture the sandbox host lacks; the "
                                        "self-authored RewindPoint needs a multi-controllable "
                                        "split plus a seam channel. No unattended run discharges them.",
+        # Landed UNFLOWN with the world-preservation coverage wave. The tag is here on
+        # S4.1's OWN stated rule, quoted verbatim from its tier note: "The
+        # pending-operator TAG stays until that first green run; the tag alone is
+        # non-gating." The original derivation debt is PAID: run 2026-08-11_1057 flew,
+        # the batch line matched the derived tally token for token, and the pin is
+        # re-stamped MEASURED. The entry's old drop rule ("when the tally is re-pinned
+        # from a measured line") is deliberately NOT taken, because S4.1's quoted rule
+        # is "until that first GREEN run" and that run classified
+        # PARSEK-FAIL(expectations) on the AppendRelations token - the standing
+        # RED-BY-FINDING (REFLY-CONCLUSION-SKIPS-APPENDRELATIONS). What the operator
+        # still owes: the standing-red disposition (fix the finding, or set
+        # [expectedFail] bugId to quiet nightlies) and the save-structure arming
+        # decision the spec deliberately leaves report-only. DROP THIS ENTRY on the
+        # first green run after the finding is resolved.
+        "S4.2-refly-world-preservation.toml":
+                                       "flown RED-BY-FINDING 2026-08-11: tally measured (matched "
+                                       "the derivation token for token) but the run classified "
+                                       "PARSEK-FAIL on REFLY-CONCLUSION-SKIPS-APPENDRELATIONS, "
+                                       "so the tag stays until the first green run. Operator "
+                                       "owes the standing-red disposition + the report-only "
+                                       "arming decision. NOT tier=operator: a nightly spec can "
+                                       "owe operator work, exactly as S1.5 and EVA-1 do.",
     }
 
     # Untagged specs that are CANDIDATES - they MENTION the token, or they are
@@ -5294,7 +5316,11 @@ class IngameCategoryInventoryDocTests(unittest.TestCase):
     def test_the_stated_totals_match_the_table(self):
         stated_decls = sum(r[0] for r in self.rows.values())
         body = "\n".join(self.lines)
-        self.assertIn("**99 categories / %d declarations**" % stated_decls, body,
+        # The category COUNT is hardcoded here on purpose: it is the one token the
+        # table cannot self-check (a row added AND the totals line updated by hand
+        # would agree with each other while both drifted from the source). 99 -> 100
+        # with the `ReFlyWorldPreservation` category (S4.2).
+        self.assertIn("**100 categories / %d declarations**" % stated_decls, body,
                       "the triage totals line disagrees with the table it summarises "
                       "(table sums to %d declarations across %d categories)"
                       % (stated_decls, len(self.rows)))

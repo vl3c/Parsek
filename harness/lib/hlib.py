@@ -93,8 +93,9 @@ TIERS: Tuple[str, ...] = ("perpr", "daily", "nightly", "weekly", "pending-fixtur
 INSTANCE_PROFILES: Tuple[str, ...] = ("stock-minimal", "modded-compat")
 
 # v1 injectedRecordings value set (design S4). Any other value is rejected;
-# broad preset/corpus-scoped injection is DEFERRED to M-A4 / M-B5. Two named fixture
-# presets are added ahead of that, and they are SIBLINGS - same shape, one difference:
+# broad preset/corpus-scoped injection is DEFERRED to M-A4 / M-B5. Three named fixture
+# presets are added ahead of that, and they are SIBLINGS - same rewindable shape, one
+# difference each:
 #   "rewind-b9"        - the B9 rewindable-tree fixture (committed tree with a
 #                        CREWLESS crashed booster sibling + a Rewind-to-Separation
 #                        RewindPoint), `--filter InjectRewindB9`, for S4.1 / S1.5 / R1.
@@ -103,10 +104,21 @@ INSTANCE_PROFILES: Tuple[str, ...] = ("stock-minimal", "modded-compat")
 #                        crew is what puts a KerbalAssignment+KerbalEndState.Dead row
 #                        in the supersede subtree, which is the only way a merge can
 #                        be observed tombstoning a kerbal death.
+#   "refly-world-preservation" - the same shape with an UNRELATED FLEET inside the RP
+#                        quicksave (a Station, the host save's own asteroids/comets
+#                        re-admitted verbatim, a Flag, and a Probe + Debris pair both
+#                        name-colliding with the re-flown craft),
+#                        `--filter InjectReFlyWorldPreservation`, for
+#                        S4.2-refly-world-preservation. Every OTHER rewind fixture's
+#                        sidecar holds one vessel per slot and nothing else, which is
+#                        the exact shape REFLY-DELETES-NON-SLOT-WORLD hid under: with
+#                        no fleet in the fixture, a re-fly that deletes the fleet reds
+#                        nothing.
 # Keep in step with run.py's RP_SIDECAR_BY_PRESET (the fail-closed inject
 # postcondition) and scripts/inject-recordings.ps1's $injectFilterByPreset.
 INJECTED_RECORDINGS: Tuple[str, ...] = ("none", "all-synthetic", "rewind-b9",
                                         "rewind-crew-loss",
+                                        "refly-world-preservation",
                                         "looped-interplanetary")
 
 # Retry policies (design [retry].policy).

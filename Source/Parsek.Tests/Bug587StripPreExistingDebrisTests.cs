@@ -1343,15 +1343,18 @@ namespace Parsek.Tests
         // user's escalated review noted that the kill-set protection
         // alone (BuildProtectedPidsForInPlaceContinuation) is fragile.
         // A future refactor that loosens protectedPids would silently
-        // regress flag preservation because the survey loop in
-        // StripPreExistingDebrisForInPlaceContinuation still admits
-        // VesselType.Flag entries into leftAlonePidNames. The fix
-        // factors the survey step into
-        // BuildLeftAlonePidNamesForInPlaceContinuation + adds a
-        // VesselType-keyed skip via ShouldSkipFromLeftAloneSurvey, so
-        // a preserved flag never even enters the kill-set construction.
+        // regress preservation because the survey loop in
+        // StripPreExistingDebrisForInPlaceContinuation admits entries
+        // into leftAlonePidNames. The survey step is factored into
+        // BuildLeftAlonePidNamesForInPlaceContinuation with a
+        // VesselType-keyed eligibility gate — originally a Flag-only
+        // skip (ShouldSkipFromLeftAloneSurvey), tightened to
+        // IsDebrisKillSurveyCandidate (ONLY VesselType.Debris is
+        // kill-eligible) when the Re-Fly scrub started preserving the
+        // player's fleet: a real craft must never enter the kill-set
+        // construction, name collision or not.
         //
-        // Both layers (survey skip + protectedPids) coexist as
+        // Both layers (survey gate + protectedPids) coexist as
         // belt-and-suspenders. The tests below pin EACH layer
         // independently with a regression-guard companion that proves
         // it is load-bearing.
@@ -1384,59 +1387,81 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void ShouldSkipFromLeftAloneSurvey_FlagVessel_ReturnsTrue()
+        public void IsDebrisKillSurveyCandidate_DebrisVessel_ReturnsTrue()
         {
-            var flag = new StrippableStub
+            var debris = new StrippableStub
             {
                 PersistentId = 7001u,
                 VesselName = "Kerbal X Debris",
-                VesselType = VesselType.Flag,
+                VesselType = VesselType.Debris,
             };
 
-            Assert.True(RewindInvoker.ShouldSkipFromLeftAloneSurvey(flag));
+            Assert.True(RewindInvoker.IsDebrisKillSurveyCandidate(debris));
         }
 
         [Fact]
-        public void ShouldSkipFromLeftAloneSurvey_NonFlagVesselTypes_ReturnFalse()
+        public void IsDebrisKillSurveyCandidate_EveryNonDebrisType_ReturnsFalse()
         {
-            // Spot-check the common stock VesselType values that must NOT
-            // be skipped: Ship/Probe/Debris/EVA/Plane/Lander etc. all share
-            // the "not a planted flag, kill if name matches" contract.
-            foreach (var t in new[]
+            // The load-bearing cell for the debris-only narrowing. Before it, the
+            // predicate skipped only VesselType.Flag and surveyed everything else,
+            // which was harmless only while the Re-Fly scrub left a single vessel
+            // in scene. With unrelated vessels preserved, "everything else" is the
+            // player's fleet, and the kill matches on EXACT vessel name against a
+            // set that includes the active recording's parent chain - so a
+            // prior-career craft sharing the re-flown craft's name would be
+            // silently Die()d. Every one of these must now be ineligible.
+            //
+            // Enumerated via Enum.GetValues rather than a hand-written list: the
+            // first cut of this cell listed 12 members while KSP 1.12.5 declares
+            // 17, so DeployedScienceController / DeployedSciencePart / DroppedPart /
+            // DeployedGroundPart were silently uncovered by the very cell that
+            // exists to prove the gate is exhaustive. Reflection cannot
+            // under-cover, and a future KSP that adds a member is covered the day
+            // it adds it.
+            var allTypes = (VesselType[])Enum.GetValues(typeof(VesselType));
+            int checkedCount = 0;
+            foreach (var t in allTypes)
             {
-                VesselType.Ship, VesselType.Probe, VesselType.Debris,
-                VesselType.EVA, VesselType.Plane, VesselType.Lander,
-                VesselType.Rover, VesselType.Base, VesselType.Station,
-                VesselType.Relay, VesselType.SpaceObject, VesselType.Unknown,
-            })
-            {
+                if (t == VesselType.Debris) continue;
+
                 var v = new StrippableStub
                 {
                     PersistentId = 101u,
+                    // Name deliberately collides with a kill-eligible recording.
                     VesselName = "Kerbal X Debris",
                     VesselType = t,
                 };
                 Assert.False(
-                    RewindInvoker.ShouldSkipFromLeftAloneSurvey(v),
-                    $"VesselType.{t} must NOT be skipped from leftAlone survey");
+                    RewindInvoker.IsDebrisKillSurveyCandidate(v),
+                    $"VesselType.{t} must NOT be kill-eligible even on a name collision");
+                checkedCount++;
             }
+
+            // Anti-vacuity floor: an enum walk that returned nothing (or only
+            // Debris) would make every assertion above unreachable while the cell
+            // still reported PASSED. 16 is KSP 1.12.5's non-Debris member count;
+            // assert the floor rather than equality so a KSP that ADDS a member
+            // still passes, while one that loses the enum surface does not.
+            Assert.True(
+                checkedCount >= 16,
+                $"expected at least 16 non-Debris VesselType members, walked {checkedCount} " +
+                $"(total enumerated {allTypes.Length}) - the exhaustiveness claim is vacuous");
         }
 
         [Fact]
-        public void ShouldSkipFromLeftAloneSurvey_NullVessel_ReturnsFalse()
+        public void IsDebrisKillSurveyCandidate_NullVessel_ReturnsFalse()
         {
             // Defensive: a null entry must not crash the predicate.
-            Assert.False(RewindInvoker.ShouldSkipFromLeftAloneSurvey(null));
+            Assert.False(RewindInvoker.IsDebrisKillSurveyCandidate(null));
         }
 
         [Fact]
-        public void ShouldSkipFromLeftAloneSurvey_VesselTypeThrows_FailsClosed_ReturnsFalse()
+        public void IsDebrisKillSurveyCandidate_VesselTypeThrows_FailsClosed_ReturnsFalse()
         {
-            // Mirrors LiveVesselAdapter.VesselType's defensive try/catch:
-            // a half-destroyed Unity GameObject can throw on the property
-            // getter. The predicate must fail closed (don't skip) so the
-            // kill-set protection layer still has the chance to defend the
-            // pid downstream.
+            // Mirrors LiveVesselAdapter.VesselType's defensive try/catch: a
+            // half-destroyed Unity GameObject can throw on the property getter.
+            // Fails CLOSED, which under debris-only means "not a candidate" -
+            // including a vessel of unknown type risks killing a real craft.
             var v = new StrippableStub
             {
                 PersistentId = 7001u,
@@ -1444,11 +1469,11 @@ namespace Parsek.Tests
                 ThrowOnVesselType = true,
             };
 
-            Assert.False(RewindInvoker.ShouldSkipFromLeftAloneSurvey(v));
+            Assert.False(RewindInvoker.IsDebrisKillSurveyCandidate(v));
         }
 
         [Fact]
-        public void BuildLeftAlone_FlagSkipped_ShipKept_EvenWhenNamesCollide()
+        public void BuildLeftAlone_NonDebrisSkipped_DebrisKept_EvenWhenNamesCollide()
         {
             // Primary survey-level test: three live vessels post-strip --
             //  - Probe (Selected, VesselType.Ship) -- excluded by SelectedPid
@@ -1470,7 +1495,7 @@ namespace Parsek.Tests
                 {
                     PersistentId = 101u,
                     VesselName = "Kerbal X Debris",
-                    VesselType = VesselType.Ship,
+                    VesselType = VesselType.Debris,
                 },
                 new StrippableStub
                 {
@@ -1500,10 +1525,10 @@ namespace Parsek.Tests
             // One-shot Verbose log surfaces the survey-level flag skip.
             Assert.Contains(logLines, l =>
                 l.Contains("[Parsek][VERBOSE][Rewind]") &&
-                l.Contains("Strip post-supplement: skipping flag") &&
+                l.Contains("Strip post-supplement: skipping non-debris") &&
                 l.Contains("v=7001") &&
                 l.Contains("name='Kerbal X Debris'") &&
-                l.Contains("totalFlagsSkipped=1") &&
+                l.Contains("totalNonDebrisSkipped=1") &&
                 l.Contains("included=1"));
         }
 
@@ -1534,7 +1559,7 @@ namespace Parsek.Tests
                 {
                     PersistentId = 101u,
                     VesselName = "Kerbal X Debris",
-                    VesselType = VesselType.Ship,
+                    VesselType = VesselType.Debris,
                 },
                 new StrippableStub
                 {
@@ -1567,6 +1592,97 @@ namespace Parsek.Tests
             Assert.Single(kill);
             Assert.Contains(101u, kill);
             Assert.DoesNotContain(7001u, kill);
+        }
+
+        [Fact]
+        public void BuildLeftAlone_PreservedRealFleetSharingTheReFlownName_IsNeverKilled()
+        {
+            // THE cell the debris-only narrowing exists for. Once the Re-Fly
+            // temp-save scrub was narrowed to preserve unrelated vessels, this
+            // pipeline started running against the player's whole fleet for the
+            // first time - previously only the selected slot survived the load, and
+            // it is excluded upstream, so the kill set was always empty in
+            // production.
+            //
+            // The kill matches on EXACT vessel name against a set that includes the
+            // active recording's PARENT CHAIN, and KSP names every launch of a craft
+            // identically - so a prior-career station/probe/lander sharing the
+            // re-flown craft's name was eligible to be silently Die()d inside a
+            // crew-suppression guard, with no ledger row. Debris-only makes every one
+            // of them ineligible while leaving genuine debris cleanup working.
+            var marker = new ReFlySessionMarker
+            {
+                ActiveReFlyRecordingId = "rec-booster",
+                OriginChildRecordingId = "rec-booster",
+                TreeId = "tree-1",
+                InPlaceContinuation = true,
+            };
+            var trees = new List<RecordingTree>
+            {
+                MakeTree("tree-1",
+                    ("rec-booster", "Kerbal X Probe", TerminalState.Orbiting, 200u),
+                    ("rec-debris", "Kerbal X Debris", TerminalState.Destroyed, 0u))
+            };
+
+            // Every one of these collides by name with a kill-eligible recording.
+            var live = new List<IStrippableVessel>
+            {
+                new StrippableStub
+                {
+                    PersistentId = 301u,
+                    VesselName = "Kerbal X Probe",   // the re-flown craft's own name
+                    VesselType = VesselType.Probe,
+                },
+                new StrippableStub
+                {
+                    PersistentId = 302u,
+                    VesselName = "Kerbal X Debris",
+                    VesselType = VesselType.Station,
+                },
+                new StrippableStub
+                {
+                    PersistentId = 303u,
+                    VesselName = "Kerbal X Debris",
+                    VesselType = VesselType.SpaceObject,
+                },
+                // Genuine debris with a matching name -- must STILL be killed, or
+                // the narrowing would have broken #587 rather than scoped it.
+                new StrippableStub
+                {
+                    PersistentId = 304u,
+                    VesselName = "Kerbal X Debris",
+                    VesselType = VesselType.Debris,
+                },
+            };
+            var stripResult = new PostLoadStripResult
+            {
+                SelectedPid = 200u,
+                StrippedPids = new List<uint>(),
+                LeftAlonePidNames = new List<(uint, string)>(),
+                PreservedFlagPids = new List<uint>(),
+            };
+
+            var leftAlone = RewindInvoker.BuildLeftAlonePidNamesForInPlaceContinuation(
+                live, stripResult, isGhostMapVessel: _ => false);
+
+            // Only the real debris reached the survey at all.
+            Assert.Single(leftAlone);
+            Assert.Equal(304u, leftAlone[0].pid);
+
+            // protectedPids deliberately EMPTY: the survey narrowing alone has to
+            // carry this, exactly as the flag layer is pinned above.
+            var leftAloneForResolver = new List<(uint, string)>();
+            for (int i = 0; i < leftAlone.Count; i++)
+                leftAloneForResolver.Add((leftAlone[i].pid, leftAlone[i].name));
+
+            var kill = RewindInvoker.ResolveInPlaceContinuationDebrisToKill(
+                marker, trees, leftAloneForResolver, protectedPids: null);
+
+            Assert.Single(kill);
+            Assert.Contains(304u, kill);
+            Assert.DoesNotContain(301u, kill);
+            Assert.DoesNotContain(302u, kill);
+            Assert.DoesNotContain(303u, kill);
         }
 
         [Fact]
@@ -1650,7 +1766,7 @@ namespace Parsek.Tests
                 {
                     PersistentId = 101u,
                     VesselName = "Kerbal X Debris",
-                    VesselType = VesselType.Ship,
+                    VesselType = VesselType.Debris,
                 },
             };
             var stripResult = new PostLoadStripResult
@@ -1692,7 +1808,7 @@ namespace Parsek.Tests
                 {
                     PersistentId = 101u,
                     VesselName = "Kerbal X Debris",
-                    VesselType = VesselType.Ship,
+                    VesselType = VesselType.Debris,
                 },
             };
             var stripResult = new PostLoadStripResult
@@ -1738,7 +1854,7 @@ namespace Parsek.Tests
                 {
                     PersistentId = 103u,
                     VesselName = "Kerbal X Debris",
-                    VesselType = VesselType.Ship,
+                    VesselType = VesselType.Debris,
                 },
             };
             var stripResult = new PostLoadStripResult

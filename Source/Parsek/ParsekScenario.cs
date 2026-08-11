@@ -6532,7 +6532,7 @@ namespace Parsek
         /// outside KSP, but the PID-level subtraction logic can be.
         ///
         /// <para>
-        /// The Re-Fly post-load contract requires this subtraction:
+        /// Every post-strip reconcile requires this subtraction:
         /// <see cref="PostLoadStripper.Strip"/> removes vessels via
         /// <see cref="Vessel.Die"/> but does NOT remove the matching
         /// <see cref="ProtoVessel"/> from
@@ -6541,6 +6541,14 @@ namespace Parsek
         /// <c>Vessel.Die()</c>. Without subtracting <c>StrippedPids</c>, a
         /// recording's stale <c>SpawnedVesselPersistentId</c> still appears
         /// "alive" and the reconcile silently leaves <c>VesselSpawned=true</c>.
+        /// </para>
+        /// <para>
+        /// No production caller today: the Re-Fly load path performs the same
+        /// subtraction over (pid, launch-guid) IDENTITIES inside
+        /// <see cref="RewindInvoker.ReconcilePostStripSpawnState"/> (a bare pid
+        /// is craft-baked, so a preserved relaunch of the recorded craft is not
+        /// proof of same-launch identity). Retained as the pure, directly
+        /// testable statement of the subtraction contract both paths obey.
         /// </para>
         /// </summary>
         internal static HashSet<uint> ComputeSurvivorsFromProtoVesselPids(
