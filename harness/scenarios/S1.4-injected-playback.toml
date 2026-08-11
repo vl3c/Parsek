@@ -51,13 +51,13 @@ D16 = ["sidecar-prec", "sidecar-pcrf"]
 allowedAnomalies = []
 
 [expectations.recordings]
-# Pinned to the InjectAllRecordings corpus size at this commit (272) ON the
+# Pinned to the InjectAllRecordings corpus size at this commit (274) ON the
 # stock-minimal profile; the corpus conditionally appends ReStock+ showcase
 # rows on modded installs, so a profile change moves this number too. A load
 # losing recordings reds. Update alongside corpus or profile changes.
 # (REC-rule suppression keys on live-recording expectation, not this count -
 # see the harness design revision note.)
-count = { min = 272, max = 272 }
+count = { min = 274, max = 274 }
 
 [expectations.logContracts]
 # ERROR is UPPERCASE in ParsekLog.Write and the patterns are case-sensitive.

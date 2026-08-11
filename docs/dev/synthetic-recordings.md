@@ -90,6 +90,16 @@ Jeb's FleaRocket landed very near KSC. **Vessel spawns** at EndUT, offset ~250m 
 
 Val's FleaRocket flies southeast to the island airfield, cruising at ~1000m. **Vessel spawns** landed at the island (lat=-1.52, lon=-71.97).
 
+### Recorded-signal fixtures (2026-08-09 part-action audit)
+
+Two rows added by `recorded-signal-fixes` for the two signals that audit found wrong at the source. Both are also the subject of the `H32-recorded-signals` harness scenario, whose `[expectations.recordings] count` pin is what asserts they landed.
+
+**Parachute Repack Mk16** (showcase row 242, `parachuteSingle`, static, +30 for 24 s, looping). Two full `ParachuteDeployed` -> `ParachuteCut` -> `ParachuteRepacked` cycles. Deliberately NOT folded into the existing parachute showcase family: that family cycles semi-deployed -> deployed -> **cut** and stops there, which is exactly the sequence that looked correct while the bug was live. The transition this row exists for is the one the old three-state encoding could not represent at all (`CUT -> STOWED`), and the visual it exists to expose is the CAP coming back on. If the repack handler is ever regressed to a no-op, this ghost renders as an empty can from the first cut onward and never recovers - visible on a single loop.
+
+**Surface Rover Drive** (row 243, `probeCoreOcto` + 4x `roverWheel1`, driving due east at 8 m/s for 30 s, looping). Not a "Part Showcase" row and deliberately so: the existing wheel families are STATIC single parts driven by recorded `RoboticMotion*` events, and wheel spin is no longer read from an event at all - the only thing that can drive it now is MOTION, so the fixture has to move. Two properties are load-bearing and neither was producible before. It carries **zero part events**, which is precisely the case that used to reach no `UpdateActiveRobotics` call at all (`ApplyPartEvents` early-returns on it), so the spin has to appear from the trajectory alone. And it carries a **`SurfaceMobile` TrackSection** over the whole span, which is what OPENS the ground-contact gate: without a Surface section the gate correctly holds the wheels still, so a fixture with no sections would look exactly like the bug it exists to rule out.
+
+**Corpus-size discipline.** Each of these adds exactly one `.prec` row, so the all-synthetic corpus moved 272 -> 274 and every harness `[expectations.recordings] count` pin moved with it in the same commit (H5 / H14-H17 / H27 / H28 / H30 / S0.6 / S1.4 / S1.6 / S1.7), along with H5's `recordings=308 trees=278` walk pin. `run.py`'s `count_recordings` counts `.prec` files, `ScenarioWriter.WriteSidecarFiles` writes one per v3 builder, and `AddRecordingAsTree` adds one builder - so the mapping is 1:1. Adding a row without re-deriving those pins reds every corpus-backed spec on the next nightly.
+
 ### Tree Recordings (RECORDING_TREE)
 
 The following 3 recordings are injected as `RECORDING_TREE` nodes. Each tree contains multiple recordings connected by branch points.

@@ -165,7 +165,7 @@ tier = "daily"
 #   fidelity (rendered == the seed the producer fed the drive). Whether the
 #   producer's re-aimed seed is the RIGHT arc is a separate question this cell
 #   does not ask.
-# - NOTHING about the 272-recording corpus rendering correctly. The corpus is
+# - NOTHING about the 274-recording corpus rendering correctly. The corpus is
 #   staged (and its survival is pinned) but the parity tests build their own
 #   synthetic ghosts; they do not replay corpus recordings on the map.
 #
@@ -186,7 +186,7 @@ tags = ["playback", "render-parity", "S1.6", "ghost", "map"]
 # LaunchPad), so TestCommandLoadGame.DecideLoadRoute takes the FOCUSABLE route
 # (FlightDriver.StartAndFocusVessel) and the batch runs in FLIGHT with a live
 # active vessel - the precondition every GhostMap FLIGHT test needs.
-# injectedRecordings = "all-synthetic" seeds the same 272-tree corpus.
+# injectedRecordings = "all-synthetic" seeds the same 274-tree corpus.
 saveTemplate = "fixtures/saves/gloops-airshow"
 injectedRecordings = "all-synthetic"
 craft = []
@@ -266,11 +266,11 @@ D14 = ["sandbox", "scene-flight"]
 allowedAnomalies = []
 
 [expectations.recordings]
-# The injected corpus, unchanged. Same 272 pin as S1.4 / H5 on stock-minimal: the
+# The injected corpus, unchanged. Same 274 pin as S1.4 / H5 on stock-minimal: the
 # GhostMap parity tests swap RecordingStore's committed list for their own
 # synthetic recording and restore it in a finally, so a count drift here means a
 # test leaked a recording into the save or the corpus failed to load.
-count = { min = 272, max = 272 }
+count = { min = 274, max = 274 }
 
 [expectations.logContracts]
 # 1. The gate (mirrors S1.4/H5): the driven category's batch reported no failures.

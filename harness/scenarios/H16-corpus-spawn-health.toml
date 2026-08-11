@@ -11,7 +11,7 @@ tier = "nightly"
 # DISCOVERED LATER. SpawnedPidConsistency only counts violations among recordings
 # with SpawnedVesselPersistentId != 0, and the injected corpus contains none. So that
 # cell runs, passes, and asserts over an empty subset. The other two are genuinely
-# exercised across all 272 recordings.
+# exercised across all 274 recordings.
 #
 # WHY THE CORPUS HAS NONE - the ACTUAL invariant, not the one first written here. An
 # earlier draft of this comment blamed
@@ -65,7 +65,7 @@ D14 = ["sandbox", "scene-flight"]
 allowedAnomalies = []
 
 [expectations.recordings]
-count = { min = 272, max = 272 }
+count = { min = 274, max = 274 }
 
 [expectations.logContracts]
 # ANTI-VACUITY: tally pinned WHOLE, plus the count pin above for the two cells that

@@ -135,7 +135,7 @@ tier = "daily"
 # - NOTHING about re-aim SOLVE correctness. Arm (b) proves the DRAW is faithful to
 #   the seed it was driven from and that the two lenses disagree as designed;
 #   whether the producer's re-aimed seed is the RIGHT arc is a different question.
-# - NOTHING about the 272-recording corpus rendering correctly. The corpus is
+# - NOTHING about the 274-recording corpus rendering correctly. The corpus is
 #   staged and its survival is pinned, but every parity test builds its own
 #   synthetic ghosts.
 # - NOTHING across TIME. Every parity assertion samples ONE frame.
@@ -212,11 +212,11 @@ D14 = ["sandbox", "scene-flight"]
 allowedAnomalies = []
 
 [expectations.recordings]
-# The injected corpus, unchanged. Same 272 pin as S1.4 / S1.6 / H5 on
+# The injected corpus, unchanged. Same 274 pin as S1.4 / S1.6 / H5 on
 # stock-minimal: the MapRender parity tests swap RecordingStore's committed list
 # for their own synthetic recordings and restore it in a finally, so a count drift
 # here means a test leaked a recording into the save or the corpus failed to load.
-count = { min = 272, max = 272 }
+count = { min = 274, max = 274 }
 
 [expectations.logContracts]
 # 1. The gate (mirrors S1.4 / S1.6 / H5): the driven category's batch reported no

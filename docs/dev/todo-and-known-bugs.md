@@ -214,20 +214,80 @@ surface-section samples - i.e. it presupposes the answer the gate is asking for.
 
 ### Verification
 
-Full suite `19876 -> 19947` passing (+71 cells in
-`Source/Parsek.Tests/RecordedSignalFixTests.cs`: 63 from the original commit, plus
+Full suite `19876 -> 19949` passing, 0 failures, 1 pre-existing skip, no existing
+test needed changing. That is +71 cells in
+`Source/Parsek.Tests/RecordedSignalFixTests.cs` (63 from the original commit, plus
 7 for the ground-contact gate and 1 pinning the binary reader's raw-cast
-tolerance), 0 failures, 1 pre-existing skip, no existing test needed changing.
-`harness/lib` 1284 tests OK.
+tolerance) and +2 fixture-shape cells in `SyntheticRecordingTests.cs` for the two
+new synthetic recordings. `harness/lib` 1284 OK, `harness/provision` 237 OK,
+`harness/missions/lib` 1476 OK - `CommittedBatchTallySourceSyncTests` and
+`IngameBatchWiringGroupTests` both agree with the new `RecordedSignals` category
+at `total=3`. Three in-game cells added; the `H32-recorded-signals` scenario is
+AUTHORED, NOT YET FLOWN.
 
-**One step is unverified and cannot be unit-tested.** The absolute visual spin
-direction rests on Unity's left-handed `AngleAxis` identity
+**One step cannot be unit-tested, and is now covered IN GAME instead.** The
+absolute visual spin direction rests on Unity's left-handed `AngleAxis` identity
 (`AngleAxis(90, up) * forward == right`); `Quaternion.AngleAxis` is a native call
 that throws outside a Unity runtime, so no headless test can pin it. Magnitude,
 sign-relative-to-roll-direction, stationary-below-threshold and
-no-roll-on-sideways-slide are all proven. If wheels visibly spin backwards while
-driving forwards in game, negate the single cross product in
-`ComputeWheelRollForward` and nothing else - noted at that call site.
+no-roll-on-sideways-slide are all proven headlessly. The identity itself is now
+pinned by `RecordedSignalsInGameTests.WheelRollForwardMatchesUnityHandedness`
+(below), which asserts both the bare identity AND the composed rolling-without-slip
+consequence. If wheels visibly spin backwards while driving forwards in game -
+or if that cell reds - negate the single cross product in
+`ComputeWheelRollForward` and nothing else; noted at that call site.
+
+### In-game + harness coverage (added 2026-08-11 alongside the D1 gate)
+
+**New `[InGameTest]` category `RecordedSignals`** -
+`Source/Parsek/InGameTests/RecordedSignalsInGameTests.cs`, 3 cells, each making a
+claim the headless suite cannot:
+
+1. `WheelRollForwardMatchesUnityHandedness` (AnyScene) - **the star cell.** The
+   bare Unity identity plus the composed proof: under the rotation
+   `UpdateActiveRobotics` would apply for forward motion, the TOP of the wheel must
+   travel ALONG `rollForward` and the contact patch AGAINST it (rolling without
+   slip). A negated cross product reverses both signs, which is exactly the
+   "wheels spin backwards" symptom. Pure math; cannot skip.
+2. `ParachuteRepackRestoresTheCapAtTransformLevel` (FLIGHT) - Deploy -> Cut ->
+   Repacked through `ApplyPartEvents` on a ghost built from a real PartLoader
+   prefab; asserts cap OFF after the cut (the contrast that stops a no-op repack
+   handler passing) and cap ON plus the captured stowed canopy pose after the
+   repack. Skips naming the context when no loaded part has a `ModuleParachute`
+   whose canopy AND cap both resolve on the prefab.
+3. `WheelSpinNeedsGroundContactAndGroundMotion` (FLIGHT) - three arms against a
+   real wheel prefab's own axis and radius, through the live
+   `CelestialBody.getRFrmVel` subtraction: Surface section + ground motion spins
+   it, parked does not, and a NON-Surface section at ~2100 m/s does not either
+   (the D1 regression). Skips naming the context when no loaded part carries a
+   wheel motor module or the ghost builder cannot resolve its spin transform.
+
+World-position assertions size their tolerance from
+`InGameFixtureMath.SceneFloatGridToleranceMeters` and refuse via
+`ToleranceResolvesSignal` rather than passing vacuously. Both FLIGHT fixtures are
+DISCOVERED from `PartLoader` at run time, not hardcoded, so the batch does not
+depend on which craft the save is flying.
+
+**Two synthetic recordings** (`docs/dev/synthetic-recordings.md` has the full
+rows): a chute-repack showcase carrying the `CUT -> STOWED` transition the old
+encoding could not represent, and a surface rover driving at 8 m/s with ZERO part
+events and a `SurfaceMobile` TrackSection - the two properties that make it a real
+test of the derivation rather than of the event stream. Each adds one `.prec` row,
+so the all-synthetic corpus moved 272 -> 274; every corpus count pin and H5's
+`recordings=308 trees=278` walk pin moved in the same commit. Those are DERIVED
+(+2), NOT re-measured, and the next flight of each spec confirms them.
+
+**Harness scenario `H32-recorded-signals`** (nightly, `ingame-batch`,
+gloops-airshow + all-synthetic) drives the category through the H-series
+`RunTests` seam step - NOT `[driver.autorun]`, which no committed spec uses
+because `PARSEK_AUTORUN_EXIT` quits KSP as soon as the first scene settles and
+races the driver's remaining steps. **AUTHORED, NOT YET FLOWN**: `total=3` is
+attribute-exact, but `passed=` / `skipped=` are left as regex classes because two
+cells self-skip on what the install loaded, so the spec is registered in
+`IngameBatchWiringGroupTests.INTERIM_PIN_IDS` - the first interim member since H20
+in July. Its `passed=[1-9][0-9]*` still rejects the whole vacuous family. First
+flight: pin all four numbers literally, record any real skip in `RUNTIME_SKIPS`
+with its reason, and remove the id.
 
 ---
 

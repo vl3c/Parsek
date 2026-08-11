@@ -2735,6 +2735,7 @@ class IngameBatchWiringGroupTests(unittest.TestCase):
         "H29-localized-name":        ("LocalizedName", 3, "FLIGHT"),
         "H30-ghost-audio":           ("GhostAudio", 9, "FLIGHT"),
         "H31-crew-reservation":      ("CrewReservation", 15, "FLIGHT"),
+        "H32-recorded-signals":      ("RecordedSignals", 3, "FLIGHT"),
     }
 
     # Declared MEASURED run-time skips per member: InGameAssert.Skip firings the
@@ -2777,17 +2778,30 @@ class IngameBatchWiringGroupTests(unittest.TestCase):
         "H31-crew-reservation": 3,
     }
 
-    # EMPTY, and deliberately kept rather than deleted. H20 was the one member that
-    # carried the loose interim pin, because both its cells have run-time
-    # InGameAssert.Skip guards and one of them (the walkback endpoint-overlap probe,
-    # a live Physics.OverlapBox) is not decidable from source. It was re-flown ALONE
-    # on 2026-07-27 so its log would survive the sweep, measured
-    # `total=2 passed=2 failed=0 skipped=0`, and is now pinned whole like the rest.
-    # So every member of the group pins its tally whole, and
-    # test_the_interim_pin_member_is_declared_and_deliberately_loose now asserts that
-    # NONE of them is loose - which is the guard worth having, because the interim
-    # form accepts 1-of-N by design and re-introducing one silently would be a real
-    # weakening. Add an id back here only alongside a written reason in the spec.
+    # ONE MEMBER, and it is the AUTHORED-NOT-YET-FLOWN one. The set was empty from
+    # 2026-07-27 (H20, the previous holder, was re-flown ALONE that day so its log
+    # would survive the sweep, measured `total=2 passed=2 failed=0 skipped=0`, and
+    # pinned whole like the rest) until H32 arrived on 2026-08-11.
+    #
+    # H32-recorded-signals: authored by `recorded-signal-fixes` and never flown. Its
+    # total=3 is attribute-exact, but two of the three cells carry run-time
+    # InGameAssert.Skip guards over what the provisioned install actually LOADED - a
+    # part whose ModuleParachute has both a canopy and a cap transform resolvable on
+    # the prefab, and a part carrying a wheel MOTOR module whose spin transform the
+    # ghost builder resolves. Both are expected to hold on stock-minimal
+    # (parachuteSingle, roverWheel1) and "expected to hold" is not a measurement, so
+    # the pin leaves passed= / skipped= loose and says so in the spec header. Its
+    # `passed=[1-9][0-9]*` still rejects the whole vacuous family, and cell 1 (the
+    # Unity AngleAxis handedness proof) is pure math and cannot skip, which is what
+    # makes a floor of 1 rather than 0 honest. FIRST FLIGHT: pin all four numbers
+    # literally off the collected log, record any real skip in RUNTIME_SKIPS with its
+    # reason, and remove the id from this set.
+    #
+    # The guard this set provides runs in both directions: the interim form accepts
+    # 1-of-N by design, so an ACCIDENTAL interim pin is a real weakening.
+    # test_the_interim_pin_member_is_declared_and_deliberately_loose asserts the set
+    # and the loose-pin state agree exactly. Add an id here only alongside a written
+    # reason in the spec.
     #
     # NOTE the asymmetry this leaves: for 13 of the 16, the skipped= floor is
     # DERIVABLE from the attributes plus a reachable-Skip scan. For H20 it is MEASURED only - the
@@ -2805,7 +2819,7 @@ class IngameBatchWiringGroupTests(unittest.TestCase):
     # guard on whether KSP built a Vectrosity orbit line for a synthetic ghost that
     # session, which no attribute predicts. The 2026-07-30 flight measured all three
     # satisfied.
-    INTERIM_PIN_IDS = set()
+    INTERIM_PIN_IDS = {"H32-recorded-signals"}
 
     # Every committed spec whose id matches this is an H-SERIES batch spec.
     # Membership is DISCOVERED from disk and then compared for set equality against
@@ -2850,8 +2864,8 @@ class IngameBatchWiringGroupTests(unittest.TestCase):
         # cell below cannot catch either, because it compares two sets that shrink
         # together. Same shape as CommittedBatchTallySourceSyncTests's
         # test_the_source_tree_is_actually_readable.
-        self.assertEqual(24, len(self.GROUP),
-                         "the H7-H20 + H22-H31 group is 24 specs; if it genuinely changed "
+        self.assertEqual(25, len(self.GROUP),
+                         "the H7-H20 + H22-H32 group is 25 specs; if it genuinely changed "
                          "size, update this floor AND the counts in "
                          "docs/dev/autotest-ingame-category-inventory.md and "
                          "docs/dev/autotest-status.md in the same commit")
@@ -3031,9 +3045,19 @@ class IngameBatchWiringGroupTests(unittest.TestCase):
         # cells bail through a SILENT return on an empty ghost-map pid set -
         # exactly the fourth-trap shape this cell exists for) and H30 (the
         # engine-level pause/unpause cell iterates the live ghost set).
+        # H32 is in this set for a DIFFERENT reason than the other seven, and the
+        # difference is worth stating: its three cells do NOT walk RecordingStore
+        # (each builds its own single-part ghost from a PartLoader prefab), so
+        # injection is not an anti-vacuity guard for the cells. It injects because
+        # its subject IS the two corpus rows `recorded-signal-fixes` added (the
+        # chute-repack showcase and the surface rover drive), and its count pin is
+        # the only committed assertion that those two land through the sidecar /
+        # schema-gate load path. Same requirement either way: inject AND pin
+        # non-zero, so a corpus that silently stopped landing reds.
         corpus_backed = {"H14-corpus-data-health", "H15-corpus-ghost-visuals",
                          "H16-corpus-spawn-health", "H17-flight-integration",
-                         "H27-diagnostics", "H28-map-presence", "H30-ghost-audio"}
+                         "H27-diagnostics", "H28-map-presence", "H30-ghost-audio",
+                         "H32-recorded-signals"}
         for sid, spec in sorted(self.specs.items()):
             with self.subTest(spec=sid):
                 fixture = spec.get("fixture", {}) or {}
@@ -5274,7 +5298,7 @@ class IngameCategoryInventoryDocTests(unittest.TestCase):
     def test_the_stated_totals_match_the_table(self):
         stated_decls = sum(r[0] for r in self.rows.values())
         body = "\n".join(self.lines)
-        self.assertIn("**99 categories / %d declarations**" % stated_decls, body,
+        self.assertIn("**100 categories / %d declarations**" % stated_decls, body,
                       "the triage totals line disagrees with the table it summarises "
                       "(table sums to %d declarations across %d categories)"
                       % (stated_decls, len(self.rows)))

@@ -13,7 +13,7 @@ tier = "nightly"
 # `yield break`s with a Verbose log rather than an InGameAssert.Skip - so over an
 # empty store it is reported PASSED having asserted nothing. This is the
 # silently-vacuous variant the batch tally structurally cannot detect (the test ran,
-# it passed, it measured nothing). The 272-recording corpus is what gives it a
+# it passed, it measured nothing). The 274-recording corpus is what gives it a
 # recording to check, and the count pin below is what proves the corpus was there.
 description = "Run the in-game FlightIntegration category over the injected corpus: recorded lat/lon/alt matches GetWorldSurfacePosition, ParsekFlight is live, the surface API answers, and the Harmony patch is operational."
 instanceProfile = "stock-minimal"
@@ -49,7 +49,7 @@ D16 = ["sidecar-prec"]
 allowedAnomalies = []
 
 [expectations.recordings]
-count = { min = 272, max = 272 }
+count = { min = 274, max = 274 }
 
 [expectations.logContracts]
 # ANTI-VACUITY: tally pinned WHOLE, plus the count pin above for the silently-

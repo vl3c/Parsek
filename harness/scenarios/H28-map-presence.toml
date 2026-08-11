@@ -19,7 +19,7 @@ tier = "nightly"
 # GhostMapPresence.ghostMapVesselPids was EMPTY at batch time on the measured
 # run, with the corpus injected, so both cells honestly Skip. See the fixture
 # note for what that means for the injection rationale.
-description = "Run the in-game MapPresence category unattended over the 272-recording injected corpus: synthetic same-body ghost map targeting and the chain-ghost reverse map execute; the two live-lifecycle cells (pid->ProtoVessel resolution, pid collision vs real vessels) Skip on an empty ghost-map pid set, as measured."
+description = "Run the in-game MapPresence category unattended over the 274-recording injected corpus: synthetic same-body ghost map targeting and the chain-ghost reverse map execute; the two live-lifecycle cells (pid->ProtoVessel resolution, pid collision vs real vessels) Skip on an empty ghost-map pid set, as measured."
 instanceProfile = "stock-minimal"
 tags = ["ingame-batch", "map-presence", "B6", "H28"]
 
@@ -39,15 +39,16 @@ tags = ["ingame-batch", "map-presence", "B6", "H28"]
 # the driven FLIGHT batch, so nothing repopulates the set that
 # PerformBetweenRunCleanup emptied. (The same-session evidence that the corpus
 # genuinely landed: AntennaSpecsProduceRelayPower's skip message reports it
-# walked 306 committed recordings, and the produced save carries the pinned 272.)
+# walked 306 committed recordings, and the produced save carried the then-pinned 272;
+# both are +2 as of 2026-08-11 - see the count pin's derivation note.)
 # The old passed=5 pin was itself the vacuous-pass evidence - it was green
 # BECAUSE the two cells returned silently, which is exactly the fourth trap the
 # W2-VACUOUS-CELLS conversion turned into honest Skips.
 #
-# WHAT THE INJECTION STILL BUYS, so it is not reverted to "none": the 272-row
+# WHAT THE INJECTION STILL BUYS, so it is not reverted to "none": the 274-row
 # corpus loads through the sidecar path under the schema gate (the count pin
 # below, and the D16 claim that rests on it), and AntennaSpecsProduceRelayPower
-# walks all 306 committed recordings for antenna specs rather than an empty
+# walks all 308 committed recordings for antenna specs rather than an empty
 # store - a real, if negative, sweep. What it does NOT buy is ghost map presence.
 # Making cells 1-2 REAL needs whatever creates ghost map presence in a driven
 # batch (deferred follow-up in todo-and-known-bugs.md, W2-VACUOUS-CELLS), not a
@@ -105,7 +106,7 @@ allowedAnomalies = []
 [expectations.recordings]
 # The corpus pin, exactly as H14-H17 carry it. If the corpus size moves,
 # re-derive here AND in H5 / H14 / H15 / H16 / H17 / H27 / S1.4 in one commit.
-count = { min = 272, max = 272 }
+count = { min = 274, max = 274 }
 
 [expectations.logContracts]
 # ANTI-VACUITY: tally pinned WHOLE.
@@ -127,7 +128,8 @@ count = { min = 272, max = 272 }
 # `logContracts.required not matched` against the stale passed=5 pin above -
 # batchComplete PASS, testResults PASS (0 failures), analyzer PASS (red=0),
 # logValidate PASS, anomalySweep PASS with zero hits, expectations' observed
-# recordings.count=272 on the nose, ledgerOracle SKIPPED, saveParse/unityExceptions
+# recordings.count=272 on the nose (274 as of 2026-08-11 - see the count pin),
+# ledgerOracle SKIPPED, saveParse/unityExceptions
 # REPORT with zero exceptions. So the flight was clean and the NUMBER was stale;
 # this commit moves the number to what was measured, and does NOT adjust it by
 # prediction. CONFIRMED GREEN against the new pin the same day: run
@@ -147,7 +149,8 @@ count = { min = 272, max = 272 }
 #        driven batch even under the injected corpus (see the fixture note).
 #      * NoPidCollisionWithRealVessels - same empty set; its collision walk
 #        would compare every real vessel against nothing.
-#      * AntennaSpecsProduceRelayPower - walked all 306 committed recordings and
+#      * AntennaSpecsProduceRelayPower - walked all 306 committed recordings (308 as of
+#        2026-08-11) and
 #        none carries AntennaSpecs, because no generator ever sets it. Corpus-
 #        INDEPENDENT, so no injectedRecordings value fixes it (see the fixture
 #        note); D6 commnet-relay stays unclaimed.

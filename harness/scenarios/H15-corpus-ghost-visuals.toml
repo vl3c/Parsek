@@ -50,7 +50,7 @@ allowedAnomalies = []
 [expectations.recordings]
 # The injected corpus, unchanged. This count is the anti-vacuity guard for the two
 # silently-bailing cells named in the header.
-count = { min = 272, max = 272 }
+count = { min = 274, max = 274 }
 
 [expectations.logContracts]
 # ANTI-VACUITY: tally pinned WHOLE, plus the fixture-level guard above.
@@ -81,7 +81,7 @@ forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
 [runtime]
 # 720, the same as the rest of the group. This spec briefly carried 1200 on a
 # pre-flight worry that AllSnapshotsBuildWithoutCrash - a `void` cell, so SINGLE
-# FRAME - would be slow because it builds up to 272 full part-mesh hierarchies in one
+# FRAME - would be slow because it builds up to 274 full part-mesh hierarchies in one
 # frame and holds them all via runner.TrackForCleanup until the cell ends. The worry
 # was reasonable (its failure mode is not a red: the watchdog kills the tree, the
 # verdict is KILLED, no BATCH_COMPLETE is printed, and retry-once burns a second full

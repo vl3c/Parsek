@@ -24,7 +24,7 @@ tier = "nightly"
 # cell's "playing before the part is hidden" assertion means the instance was
 # provisioned with the OLD profile - re-provision before reading it as a
 # product defect.
-description = "Run the in-game GhostAudio category unattended over the 272-recording injected corpus: pause/unpause lifecycle, decoupled-subtree audio stop, watch-pivot anchoring, part-visibility source sync after reanchor, and camera-pivot recentring."
+description = "Run the in-game GhostAudio category unattended over the 274-recording injected corpus: pause/unpause lifecycle, decoupled-subtree audio stop, watch-pivot anchoring, part-visibility source sync after reanchor, and camera-pivot recentring."
 instanceProfile = "stock-minimal"
 tags = ["ingame-batch", "ghost-audio", "B6", "H30"]
 
@@ -69,7 +69,7 @@ allowedAnomalies = []
 # The corpus pin, exactly as H14-H17 carry it. If the corpus size moves,
 # re-derive here AND in H5 / H14 / H15 / H16 / H17 / H27 / H28 / S1.4 in one
 # commit.
-count = { min = 272, max = 272 }
+count = { min = 274, max = 274 }
 
 [expectations.logContracts]
 # ANTI-VACUITY: tally pinned WHOLE.

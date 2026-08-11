@@ -14,7 +14,7 @@ tags = ["recording", "commit", "live-recording", "D5"]
 
 [fixture]
 # gloops-airshow SANDBOX pod (see S0.5). injectedRecordings="all-synthetic" seeds
-# the full InjectAllRecordings corpus (272 committed recordings on stock-minimal,
+# the full InjectAllRecordings corpus (274 committed recordings on stock-minimal,
 # pinned to the same count S1.4 uses) BEFORE launch, so the commit lands as an
 # ADDITION to a real store.
 saveTemplate = "fixtures/saves/gloops-airshow"
@@ -40,7 +40,7 @@ steps = [
 [dimensionsCovered]
 # HONEST: the committed live recording is a single-node tree of one pod (D5). The
 # run is SANDBOX / FLIGHT / Kerbin (D14). The commit persists the recording's
-# .prec trajectory sidecar, and the 272-recording corpus is loaded from its own
+# .prec trajectory sidecar, and the 274-recording corpus is loaded from its own
 # .prec sidecars (D16). Not claimed: a D1 commit token - the seam CommitTree does
 # not map to commit-scene-exit / commit-revert-merge / commit-abort, which are the
 # only D1 commit values, so none is asserted.
@@ -57,13 +57,19 @@ D16 = ["sidecar-prec"]
 allowedAnomalies = []
 
 [expectations.recordings]
-# The corpus floor (272) is the STRONG assertion: a commit that dropped or
+# The corpus floor (274) is the STRONG assertion: a commit that dropped or
 # corrupted the injected corpus would sink below it and red. The +1 ceiling is
 # TOLERANT of the stationary-pod sub-2-point-drop: a near-instant start/stop on a
 # motionless PRELAUNCH pod (default max sample interval 3.0s Medium) may finalize
-# to <2 points and be dropped, leaving the count at 272; if it survives, 273.
+# to <2 points and be dropped, leaving the count at 274; if it survives, 275.
+# recorded-signal-fixes 2026-08-11: the corpus grew by TWO rows (the chute-repack
+# showcase + the surface rover drive, both added to InjectAllRecordings). Every number
+# in this spec that counts the corpus is therefore DERIVED (+2), not re-measured:
+# run.py's count_recordings counts .prec files, ScenarioWriter.WriteSidecarFiles
+# writes one per v3 builder, and each AddRecordingAsTree adds exactly one builder /
+# one tree / one recording. The next flight of this spec is what confirms it.
 # Either outcome keeps the corpus intact, which is the point.
-count = { min = 272, max = 273 }
+count = { min = 274, max = 275 }
 
 [expectations.logContracts]
 # REC markers UNSUPPRESSED (paired start + stop). committree committed=true

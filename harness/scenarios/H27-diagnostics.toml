@@ -13,7 +13,7 @@ tier = "nightly"
 # guards, not runtime discriminators, and this spec does not pretend otherwise.
 # The value of the boot is the other four walking REAL data (see the injection
 # note) plus the report/format contract that the offline tooling greps.
-description = "Run the in-game Diagnostics category unattended over the 272-recording injected corpus: report token set, ghost counter sanity, storage breakdown, diagnostics log path, store-count snapshot, and engine observability mirror."
+description = "Run the in-game Diagnostics category unattended over the 274-recording injected corpus: report token set, ghost counter sanity, storage breakdown, diagnostics log path, store-count snapshot, and engine observability mirror."
 instanceProfile = "stock-minimal"
 tags = ["ingame-batch", "diagnostics", "B6", "H27"]
 
@@ -21,7 +21,7 @@ tags = ["ingame-batch", "diagnostics", "B6", "H27"]
 # gloops-airshow + all-synthetic, the exact H5 / H14 / H15 / H16 / H17 host.
 # Injection is what makes this batch non-vacuous: no Diagnostics assertion is a
 # shape contract over recording CONTENTS (everything is >= 0, token-presence, or
-# tautological), so a 272-recording corpus cannot introduce a fail mode - while
+# tautological), so a 274-recording corpus cannot introduce a fail mode - while
 # without it StorageBreakdownNonNegative and the report's storage/memory arm walk
 # an empty store and measure nothing (the fourth-trap shape). The corpus count
 # pin below is the proof the walk had something to walk.
@@ -53,10 +53,10 @@ D16 = ["sidecar-prec", "schema-gate"]
 allowedAnomalies = []
 
 [expectations.recordings]
-# The corpus pin, exactly as H14-H17 carry it: proves the store walks had 272
+# The corpus pin, exactly as H14-H17 carry it: proves the store walks had 274
 # recordings to walk. If the corpus size moves, re-derive here AND in H5 / H14 /
 # H15 / H16 / H17 / S1.4 in the same commit.
-count = { min = 272, max = 272 }
+count = { min = 274, max = 274 }
 
 [expectations.logContracts]
 # ANTI-VACUITY: tally pinned WHOLE.
