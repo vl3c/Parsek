@@ -42,14 +42,16 @@ id = "B19-dres-orbit"
 # with nothing commanded, so the watchdog is structurally blind to it. There was
 # no clean pre-transfer staging hook in the B5 machine -- I looked; the phase
 # list ran CIRCULARIZE -> ORBIT -> PLAN-TRANSFER with no seam between them --
-# so JETTISON is a NEW phase, added default-off (`jettisonActivations = 0` leaves
+# so JETTISON is a NEW phase, added default-off (`jettisonMaxActivations = 0` leaves
 # every existing lane byte-identical, guarded by its own regression cell).
 #
 # THE CONTRACT, in B-DOCK's proven two-step SEPARATE shape (and reusing its
 # SHARED pure `separation_evidence` counter, not a copy):
-#   step 1 POP  -- one ACTION_ACTIVATE_STAGE per frame, at most
-#                  jettisonActivations for the phase, each gated THRUST-SAFE
-#                  (throttle at zero AND no node pending).
+#   step 1 POP  -- ONE ACTION_ACTIVATE_STAGE at a time, re-observing between
+#                  pops, capped at jettisonMaxActivations for the phase. Each pop
+#                  is gated THRUST-SAFE (throttle at zero AND no node pending)
+#                  and OBSERVED (K frames since the previous pop, so the
+#                  post-pop state is read before another pop is judged needed).
 #   step 2 CERTIFY -- vessel_count above the phase-entry baseline (the spent
 #                  stack really became its own vessel) AND live thrust strictly
 #                  positive, both debounced K frames, AND the live thrust at or
@@ -57,15 +59,29 @@ id = "B19-dres-orbit"
 # Both channels FAIL CLOSED (vessel_count defaults 0 unread, available_thrust
 # defaults NaN), and the give-up names which of the three failures happened.
 #
-# WHY 4 POPS, EXACTLY, read off the craft's own staging list (B18's parse):
+# WHY 4 IS A CAP AND NOT A COUNT -- corrected by FLIGHT 1 (2026-08-11_2215),
+# which is the single most useful thing that run produced. The craft's staging
+# list says four stages separate the park from the LV-N:
 #   istg 5  Decoupler.2  -> drops the core Mainsail + 2x Rockomax64 + fairing
 #   istg 4  Skipper      -> ignites (harmlessly, at throttle 0)
 #   istg 3  Decoupler.1  -> drops the Skipper + its tanks
 #   istg 2  nuclearEngine-> IGNITES THE LV-N            <- the intended end state
-#   istg 1  (NOT FIRED)  -> would drop the LV-N's OWN four radial LF drop tanks
-# The count is exact in BOTH directions and the cap is hard: a 5th pop would shed
-# the transfer propellant. This is why the parameter is a COUNT and not a
-# watchdog -- it is a property of the craft file, which a human reads once.
+#   istg 1  (MUST NOT FIRE) -> the LV-N's OWN four radial LF drop tanks
+#   istg 0  (MUST NOT FIRE) -> Decoupler.1 under the pod, chutes, solar, antenna
+# But that count is only right FROM B18's 80 km park, where the core Mainsail was
+# still live. Flight 1 climbed to 700 km, which ran the core dry, so MechJeb
+# autostage had ALREADY popped istg 5 and istg 4 and the flight reached its park
+# with the SKIPPER live -- measured directly, `avThr=650000.000` (the Skipper's
+# 650 kN) in the CIRCULARIZE telemetry. Four blind pops from that state would
+# have fired istg 3, 2, 1 and 0: shedding the transfer propellant AND separating
+# the pod. The run was killed before the jettison for exactly that reason.
+#
+# So the phase is EVIDENCE-DRIVEN: it pops one stage at a time, re-observes, and
+# STOPS the moment the live-thrust signature says the LV-N is lit -- two pops
+# from the Skipper-live state, four from the Mainsail-live state, with the same
+# parameter. 4 remains as the CAP because it is the worst case; reaching it means
+# the signature was never satisfied, which is a named give-up rather than a
+# silent walk down the staging list.
 #
 # HOW "THE LIVE ENGINE IS THE NERV" IS ACTUALLY VERIFIED, since no part-level
 # telemetry exists: by THRUST SIGNATURE. The craft's three engines differ by an
@@ -173,7 +189,7 @@ circularizeTimeoutSeconds  = 12000
 parkTrimEccMax             = 0.02
 
 # --- THE JETTISON (see the header for the full derivation).
-jettisonActivations           = 4
+jettisonMaxActivations        = 4
 # GAME seconds, spanning the pops AND the certification. The pops are one per
 # frame and the debounce is a handful more, so this is ~2 orders above the
 # expected cost; it bounds a craft that never splits, which the named give-up

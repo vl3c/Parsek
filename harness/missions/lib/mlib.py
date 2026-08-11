@@ -3379,20 +3379,31 @@ class B5Params:
                                            # Spec key landedTimeoutSeconds.
     # --- PRE-TRANSFER JETTISON (armed by B19; default-off everywhere else) -----
     # > 0 ARMS a JETTISON phase between the ORBIT waypoint and PLAN-TRANSFER:
-    # pop exactly this many stages, thrust-safe, to shed a spent chemical stack
-    # and light the intended transfer engine BEFORE any transfer node is planned.
-    # 0 (the default) leaves every existing lane byte-identical -- the ORBIT
-    # waypoint hands straight to PLAN-TRANSFER exactly as it always has.
+    # pop stages, thrust-safe, until the INTENDED transfer engine is the one
+    # that is live, then hand on. 0 (the default) leaves every existing lane
+    # byte-identical -- the ORBIT waypoint hands straight to PLAN-TRANSFER
+    # exactly as it always has.
     #
-    # WHY AN EXACT COUNT AND NOT A WATCHDOG. The count is a property of the
-    # CRAFT's staging list, which the spec author reads off the .craft file, and
-    # it must be exact in BOTH directions: too few leaves the wrong engine live,
-    # too many sheds payload (on the B19 craft the very next stage drops the
-    # transfer stage's own drop tanks). `_b5_flameout_stage` cannot do this job -
-    # it fires only on OBSERVED zero thrust under a COMMANDED burn, and this
+    # THIS IS A CAP, NOT A COUNT, AND THAT IS A MEASURED CORRECTION. The first
+    # B19 flight (2026-08-11_2215) proved a fixed count cannot be right: the
+    # number of stages between the park and the transfer engine is NOT a
+    # property of the craft file alone, it depends on how far MechJeb's autostage
+    # already walked the list during the ascent. B18 measured the craft reaching
+    # an 80 km park with the core Mainsail still live (4 stages to go); the 700 km
+    # ascent ran the core dry, so autostage had already popped it and the flight
+    # reached its park with the SKIPPER live (2 stages to go). A blind 4 pops
+    # from that state would have shed the transfer stage's own drop tanks and
+    # fired the pod decoupler.
+    #
+    # So the phase is EVIDENCE-DRIVEN: pop one stage, observe, and STOP the
+    # moment the live-thrust signature says the intended engine is lit. The cap
+    # only bounds a craft that never reaches its signature -- it is the safety
+    # rail, not the plan. `_b5_flameout_stage` cannot do this job either: it
+    # fires only on OBSERVED zero thrust under a COMMANDED burn, and this
     # jettison happens at throttle 0 with nothing commanded.
-    jettison_activations: int = 0          # exact stage pops; 0 = phase absent.
-                                           # Spec key jettisonActivations.
+    jettison_activations: int = 0          # MAX stage pops (safety cap); 0 =
+                                           # phase absent. Spec key
+                                           # jettisonMaxActivations.
     jettison_timeout: float = 600.0        # JETTISON budget (GAME s). Spec key
                                            # jettisonTimeoutSeconds.
     jettison_max_live_thrust: float = 0.0  # NEWTONS. > 0 arms the "the engine
@@ -3530,7 +3541,7 @@ def b5_params_from_dict(params: Dict) -> B5Params:
         landed_debounce=int(params.get("landedDebounceFrames", 3)),
         landed_timeout=float(params.get("landedTimeoutSeconds", 600.0)),
         # Pre-transfer jettison: absent (0) unless a spec arms it.
-        jettison_activations=int(params.get("jettisonActivations", 0)),
+        jettison_activations=int(params.get("jettisonMaxActivations", 0)),
         jettison_timeout=float(params.get("jettisonTimeoutSeconds", 600.0)),
         jettison_max_live_thrust=float(
             params.get("jettisonMaxLiveThrustNewtons", 0.0)),
@@ -7650,6 +7661,10 @@ class B5State:
     jettison_split_streak: int = 0
     jettison_thrust_streak: int = 0
     jettison_split_confirmed: bool = False
+    # Frames observed since the last pop. The phase must SEE the post-pop state
+    # before deciding whether another pop is needed, or it would fire the whole
+    # cap in consecutive frames and overshoot the intended stage.
+    jettison_frames_since_pop: int = 0
     # Impact-certain early-terminal debounce (TARGET-FLYBY): consecutive
     # frames the impact-warp guard condition held.
     impact_certain_streak: int = 0
@@ -7852,23 +7867,33 @@ def _b5_jettison_step(state: B5State, snapshot: TelemetrySnapshot,
     """One JETTISON frame: pop EXACTLY ``jettison_activations`` stages,
     thrust-safe, then certify the result before any transfer node is planned.
 
-    THE PROBLEM THIS SOLVES (B18's measurement, on the B19 craft): MechJeb's
-    autostage fires only on EMPTY stages, and the ascent ends with the core
-    chemical stage still part-fuelled, so the craft reaches its park carrying
-    20.775 t of spent chemical hardware and with a CHEMICAL engine live. The
+    THE PROBLEM THIS SOLVES (B18's measurement, on the B19 craft): the craft
+    reaches its park carrying ~20 t of spent chemical hardware with a CHEMICAL
+    engine live, because MechJeb's autostage fires only on EMPTY stages. The
     transfer stage's own engine is several stages down the list. Planning a
-    transfer against that stack would size a burn for a vehicle that is about to
-    be four times lighter, and would fly it on the wrong engine.
+    transfer against that stack would size the burn for a vehicle about to be
+    four times lighter, and would fly it on the wrong engine.
+
+    WHY THE COUNT IS A CAP AND THE PHASE IS EVIDENCE-DRIVEN -- a MEASURED
+    correction, not a preference. How many stages separate the park from the
+    transfer engine is NOT a property of the craft file: it depends on how far
+    autostage already walked the list during the ascent, which depends on the
+    park altitude. B18's 80 km park left the core Mainsail live (4 stages to
+    go); B19's 700 km ascent ran the core dry, so the flight reached its park
+    with the SKIPPER live (2 stages to go). A blind 4 pops from THAT state would
+    have shed the transfer stage's own drop tanks and fired the pod decoupler.
+    So the phase pops one stage at a time and STOPS on the live-thrust
+    signature; the cap only bounds a craft that never reaches it.
 
     THE CONTRACT, in the two-step shape B-DOCK's SEPARATE established
     (``separation_evidence`` is the SAME shared pure counter):
 
-      step 1  POP. One ACTION_ACTIVATE_STAGE per frame, at most
-              ``jettison_activations`` for the whole phase -- a HARD CAP, because
-              the pops are irreversible and the stage after the intended last one
-              sheds payload. Each pop is gated THRUST-SAFE: throttle at zero and
-              no maneuver node pending. A frame that is not thrust-safe simply
-              does not pop (the budget bounds a stall).
+      step 1  POP, one at a time, re-observing between pops. Each pop is gated
+              THRUST-SAFE (throttle at zero, no maneuver node pending) and
+              OBSERVED (K frames since the previous pop, so the post-pop state
+              is actually read before another pop is judged necessary).
+              ``jettison_activations`` is the MAX, a safety rail -- the phase
+              normally stops earlier, on evidence.
       step 2  CERTIFY. ``vessel_count`` above the phase-entry baseline by
               ``jettison_min_splits``, debounced -> the spent stack really did
               become its own vessel; AND available thrust strictly positive,
@@ -7892,36 +7917,52 @@ def _b5_jettison_step(state: B5State, snapshot: TelemetrySnapshot,
         state.jettison_split_confirmed)
     st = replace(state, jettison_split_streak=settle,
                  jettison_thrust_streak=thrust_streak,
-                 jettison_split_confirmed=split_confirmed)
+                 jettison_split_confirmed=split_confirmed,
+                 jettison_frames_since_pop=state.jettison_frames_since_pop + 1)
 
-    # The live engine must be the INTENDED one, not merely some engine. Read on
-    # the same debounced thrust streak; a NaN never satisfies `ignited`, so this
-    # only ever narrows an already-positive reading.
+    # THE STOP CONDITION. The live engine must be the INTENDED one, not merely
+    # some engine: a positive reading alone is satisfied by the Skipper. A NaN
+    # never satisfies `ignited`, so the ceiling only ever narrows an
+    # already-positive, already-debounced reading.
     thrust_ok = ignited and (p.jettison_max_live_thrust <= 0.0
                              or snapshot.available_thrust <= p.jettison_max_live_thrust)
 
+    # EARLY STOP, and it is what makes the cap safe: the moment the signature
+    # says the intended engine is lit AND a stack has separated, the phase is
+    # done. It is checked BEFORE the pop branch, so a satisfied signature can
+    # never be followed by one more pop.
+    if split_confirmed and thrust_ok:
+        return _b5_enter_plan_transfer(st, snapshot, peak)
+
     if st.jettison_activations_done < p.jettison_activations:
-        # Step 1: still popping. THRUST-SAFE gate -- never stage under thrust or
-        # with a node pending (the B-DOCK prox-ops rule, applied to staging).
+        # POP, one at a time. Two gates:
+        #   THRUST-SAFE -- never stage under thrust or with a node pending
+        #     (the B-DOCK prox-ops rule, applied to staging).
+        #   OBSERVED    -- at least DEFAULT_DEBOUNCE_K frames since the previous
+        #     pop, so the post-pop thrust/vessel state has actually been read
+        #     before deciding another pop is needed. Without this the whole cap
+        #     would fire in consecutive frames and overshoot.
         thrust_safe = ((not _is_finite(snapshot.throttle) or snapshot.throttle <= 0.0)
                        and snapshot.node_count <= 0)
-        if thrust_safe:
-            return (replace(st, jettison_activations_done=st.jettison_activations_done + 1),
+        observed = st.jettison_frames_since_pop >= DEFAULT_DEBOUNCE_K
+        if thrust_safe and observed:
+            return (replace(st,
+                            jettison_activations_done=st.jettison_activations_done + 1,
+                            jettison_frames_since_pop=0),
                     [Action(ACTION_ACTIVATE_STAGE)])
         stayed = _b5_stay_or_flake(st, snapshot, peak)
         if stayed.done:
             reason = ("jettison: never became thrust-safe (throttle %r, nodes "
-                      "%d) so %d of %d stage pops were never issued"
+                      "%d) so %d of the %d permitted stage pops were never "
+                      "issued"
                       % (snapshot.throttle, snapshot.node_count,
                          p.jettison_activations - st.jettison_activations_done,
                          p.jettison_activations))
             return replace(stayed, loss_reason=reason), []
         return stayed, []
 
-    # All pops issued -> certify.
-    if split_confirmed and thrust_ok:
-        return _b5_enter_plan_transfer(st, snapshot, peak)
-
+    # The cap is spent and the signature is still unsatisfied -> bounded give-up,
+    # naming which of the three failures happened.
     stayed = _b5_stay_or_flake(st, snapshot, peak)
     if stayed.done:
         if not split_confirmed:
@@ -7936,8 +7977,10 @@ def _b5_jettison_step(state: B5State, snapshot: TelemetrySnapshot,
         else:
             why = ("separated and lit, but the LIVE ENGINE IS THE WRONG ONE: "
                    "available_thrust %r exceeds the intended stage's signature "
-                   "ceiling %.0f N -- a heavier engine is still staged"
-                   % (snapshot.available_thrust, p.jettison_max_live_thrust))
+                   "ceiling %.0f N after all %d permitted pops -- a heavier "
+                   "engine is still staged"
+                   % (snapshot.available_thrust, p.jettison_max_live_thrust,
+                      p.jettison_activations))
         return replace(stayed, loss_reason="jettison: " + why), []
     return stayed, []
 
@@ -9750,7 +9793,12 @@ def b5_decide(state: B5State, snapshot: TelemetrySnapshot) -> Tuple[B5State, Lis
                 jettison_activations_done=0,
                 jettison_split_streak=0,
                 jettison_thrust_streak=0,
-                jettison_split_confirmed=False)
+                jettison_split_confirmed=False,
+                # PRIMED, not zero: the observe-between-pops gate exists to see
+                # the state a PREVIOUS pop produced, and on entry there is no
+                # previous pop. Starting at zero would idle K frames before the
+                # first pop for no reason.
+                jettison_frames_since_pop=DEFAULT_DEBOUNCE_K)
             return entered, [Action(ACTION_CUT_THROTTLE, value=0.0)]
         return _b5_enter_plan_transfer(state, snapshot, peak)
 

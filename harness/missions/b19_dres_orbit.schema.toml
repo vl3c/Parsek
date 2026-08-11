@@ -472,13 +472,17 @@ min = 30.0
 max = 3600.0
 
 # --- PRE-TRANSFER JETTISON (B19's one machine addition) ----------------------
-# EXACT number of stages to pop between the ORBIT waypoint and PLAN-TRANSFER.
-# Omitted / 0 = the phase does not exist and the machine is byte-identical to
-# every other B5 lane. It is an EXACT count, not a watchdog, because the pops
-# are irreversible in both directions: too few leaves a chemical engine live,
-# too many sheds the transfer stage's own drop tanks. Read it off the .craft
-# staging list, never guess it.
-[params.jettisonActivations]
+# MAXIMUM stage pops between the ORBIT waypoint and PLAN-TRANSFER -- a SAFETY
+# CAP, not a plan. Omitted / 0 = the phase does not exist and the machine is
+# byte-identical to every other B5 lane.
+#
+# It is a cap rather than an exact count because B19 flight 1 MEASURED that an
+# exact count cannot be right: how many stages separate the park from the
+# transfer engine depends on how far MechJeb autostage already walked the list
+# during the ascent, which depends on the park altitude. The phase therefore
+# pops ONE stage at a time and stops on the live-thrust signature below; the cap
+# only bounds a craft that never reaches it.
+[params.jettisonMaxActivations]
 required = false
 type = "int"
 min = 0

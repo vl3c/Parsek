@@ -10034,7 +10034,7 @@ B19_JETTISON_PARAMS = replace(
     B11_PARAMS,
     target_body="Dres",
     interplanetary_transfer=True,
-    jettison_activations=4,
+    jettison_activations=4,   # a CAP, not a plan
     jettison_timeout=600.0,
     jettison_max_live_thrust=120000.0,
     jettison_min_splits=1,
@@ -10075,22 +10075,89 @@ class B5PreTransferJettisonTests(unittest.TestCase):
         st = mlib.b5_initial_state(B19_JETTISON_PARAMS)
         return replace(st, phase=mlib.B5_JETTISON, phase_entry_ut=100.0,
                        jettison_baseline_vessel_count=baseline,
-                       jettison_activations_done=done, **over)
+                       jettison_activations_done=done,
+                       # mirrors the primed entry value in b5_decide
+                       jettison_frames_since_pop=mlib.DEFAULT_DEBOUNCE_K, **over)
 
-    def test_pops_exactly_the_requested_number_and_never_more(self):
-        """THE HARD CAP, and the reason the count is a parameter rather than a
-        watchdog: one pop past the intended last one sheds the transfer stage's
-        own drop tanks."""
+    def _drive(self, thrust_by_pop, vessel_count_by_pop=None, frames=60):
+        """Drive the phase with a thrust reading that DEPENDS on how many pops
+        have happened -- i.e. a fake staging stack. Returns (state, pops)."""
         st = self._in_jettison()
         pops = 0
-        for i in range(12):
+        for i in range(frames):
+            thr = thrust_by_pop[min(pops, len(thrust_by_pop) - 1)]
+            vc = 3
+            if vessel_count_by_pop is not None:
+                vc = vessel_count_by_pop[min(pops, len(vessel_count_by_pop) - 1)]
+            # apoapsis VARIES per frame on purpose: bit-identical orbit fields
+            # across 10 frames trip the frozen-telemetry vessel-lost watchdog,
+            # which would end the phase for a reason that has nothing to do with
+            # the jettison.
             st, actions = mlib.b5_decide(
-                st, snap(ut=200.0 + i, vessel_count=3, throttle=0.0,
-                         available_thrust=float("nan")))
+                st, snap(ut=200.0 + i, vessel_count=vc, throttle=0.0,
+                         apoapsis=700000.0 + i, periapsis=690000.0 + i,
+                         available_thrust=thr))
             pops += sum(1 for a in actions if a.kind == mlib.ACTION_ACTIVATE_STAGE)
-            if st.done:
-                break
+            if st.done or st.phase == mlib.B5_PLAN_TRANSFER:
+                return st, pops
+        # Trailing frame past the 600 s phase budget so a phase that can never
+        # certify reaches its bounded give-up instead of idling (the budget is
+        # GAME seconds; the frames above advance it one second at a time).
+        thr = thrust_by_pop[min(pops, len(thrust_by_pop) - 1)]
+        vc = 3 if vessel_count_by_pop is None else vessel_count_by_pop[
+            min(pops, len(vessel_count_by_pop) - 1)]
+        st, _ = mlib.b5_decide(
+            st, snap(ut=100.0 + 700.0, vessel_count=vc, throttle=0.0,
+                     apoapsis=700500.0, periapsis=690500.0,
+                     available_thrust=thr))
+        return st, pops
+
+    def test_stops_at_two_pops_when_the_skipper_is_already_live(self):
+        """THE REGRESSION THIS PHASE WAS REWRITTEN FOR (B19 flight 1,
+        2026-08-11_2215). The 700 km ascent ran the core dry, so autostage had
+        already popped it and the park was reached with the SKIPPER live -- only
+        TWO stages from the Nerv. The old fixed-count phase would have popped
+        four, shedding the transfer stage's own drop tanks and firing the pod
+        decoupler. Evidence-driven, it must stop at two.
+
+        Stack, by pops taken: 0 -> Skipper 650 kN (lit, too strong), 1 -> 0 N
+        (Skipper dropped), 2 -> Nerv 60 kN (in signature -> STOP)."""
+        st, pops = self._drive([650000.0, 0.0, 60000.0],
+                               vessel_count_by_pop=[3, 4, 4])
+        self.assertEqual(2, pops)
+        self.assertEqual(mlib.B5_PLAN_TRANSFER, st.phase)
+        self.assertFalse(st.done)
+
+    def test_takes_four_pops_when_the_mainsail_is_still_live(self):
+        """The OTHER measured state (B18's 80 km park): the core Mainsail is
+        live and four stages separate it from the Nerv. The SAME evidence-driven
+        phase must walk all four -- 0 -> Mainsail 1,500 kN, 1 -> 0, 2 -> Skipper
+        650 kN, 3 -> 0, 4 -> Nerv 60 kN."""
+        st, pops = self._drive([1500000.0, 0.0, 650000.0, 0.0, 60000.0],
+                               vessel_count_by_pop=[3, 4, 4, 5, 5])
         self.assertEqual(4, pops)
+        self.assertEqual(mlib.B5_PLAN_TRANSFER, st.phase)
+
+    def test_never_pops_past_the_cap(self):
+        """The safety rail: a stack that never reaches its signature stops at
+        the cap and flakes, rather than walking the whole staging list."""
+        st, pops = self._drive([650000.0], vessel_count_by_pop=[4])
+        self.assertEqual(4, pops)
+        self.assertTrue(st.done)
+        self.assertIn("WRONG ONE", st.loss_reason)
+
+    def test_pops_are_spaced_so_the_post_pop_state_is_observed(self):
+        """Without the observe-between-pops gate the whole cap would fire in
+        consecutive frames and overshoot the intended stage."""
+        st = self._in_jettison()
+        st, a0 = mlib.b5_decide(st, snap(ut=200.0, vessel_count=3, throttle=0.0,
+                                         apoapsis=700000.0, periapsis=690000.0,
+                                         available_thrust=650000.0))
+        self.assertEqual(1, sum(1 for a in a0 if a.kind == mlib.ACTION_ACTIVATE_STAGE))
+        st, a1 = mlib.b5_decide(st, snap(ut=201.0, vessel_count=3, throttle=0.0,
+                                         apoapsis=700001.0, periapsis=690001.0,
+                                         available_thrust=650000.0))
+        self.assertEqual([], [a.kind for a in a1])
 
     def test_a_pop_is_never_issued_under_thrust_or_with_a_node_pending(self):
         """Thrust-safe gate (the B-DOCK prox-ops rule applied to staging)."""
@@ -10113,11 +10180,13 @@ class B5PreTransferJettisonTests(unittest.TestCase):
         for i in range(frames):
             last, _ = mlib.b5_decide(
                 last, snap(ut=200.0 + i, vessel_count=vessel_count,
+                           apoapsis=700000.0 + i, periapsis=690000.0 + i,
                            throttle=0.0, available_thrust=thrust))
             if last.done or last.phase == mlib.B5_PLAN_TRANSFER:
                 return last
         last, _ = mlib.b5_decide(
             last, snap(ut=100.0 + 700.0, vessel_count=vessel_count,
+                       apoapsis=700099.0, periapsis=690099.0,
                        throttle=0.0, available_thrust=thrust))
         return last
 
