@@ -1911,6 +1911,14 @@ namespace Parsek
             // zero-event recording early-returns above before reaching here. Both are acceptable:
             // KSC is a static parked-craft display, and preview is a scrubbing aid, not the replay.
             UpdateActiveRobotics(state, currentUT, rec.TrackSections);
+            // S2, and retained here for exactly the reason UpdateActiveRobotics is: the flight
+            // engine ALSO calls this from ApplyFrameVisuals, but the KSC-scene and flight-PREVIEW
+            // ghost paths reach ApplyPartEvents and nothing else. Without this call a panel whose
+            // deploy event just fired on one of those paths would arm a transition and then sit at
+            // its stowed pose forever, which is worse than the snap S2 replaces. Calling it twice
+            // in one frame is a no-op: the progress is a pure function of the event UT, so the
+            // second pass recomputes the same fraction and writes the same pose.
+            UpdateActiveDeployables(state, currentUT);
         }
 
         private static void ApplyDecoupledPartEvent(
