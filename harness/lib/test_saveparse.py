@@ -768,6 +768,51 @@ class CommittedFixtureSweepTests(unittest.TestCase):
                              "ce180cdd0d794a83ba2bc4430ca29056"],
             "schemaGeneration": 4,
         },
+        # --- THE EVE (INWARD-TRANSFER) LOOP-VALIDATION FIXTURE ------------
+        # PROVENANCE: eve-orbit-recorded <- B16-eve-orbit, run
+        # 2026-08-11_0718, PASS attempt 1, wall 1843 s / mission 1769 s
+        # (result JSON archived in that worktree's harness/results/).
+        # Harvested --keep-parsek through the --expect-situation ORBITING
+        # gate from the produced b2-lko-craft save. Same stock Kerbal X /
+        # capture-enabled b5 machine as the moon pair, committed MID-MISSION
+        # while parked at Eve (pe 4,985,446 / ap 4,986,170 m alt, ecc ~0;
+        # capturedInTargetOrbit read 0.000, gate window pe>=500 km /
+        # ap<=13,000 km / ecc<=0.25, park below Gilly's 14,175 km shell).
+        #
+        # Orbiting 2 = the Eve-parked committed craft (75a6ab25,
+        # terminalOrbitBody=Eve on the run's own CommitTreeFlight terminal
+        # line) PLUS the flameout-staged remnant left in KERBIN orbit
+        # (081b06e8, terminalOrbitBody=Kerbin; recording start
+        # 11,830,586.218 = the TRANSFER-BURN Mainsail flameout at the
+        # ejection). The Minmus-shaped map, not the Mun one - the remnant's
+        # class is profile-dependent; pin what each fixture MEASURED.
+        # Destroyed 6 = the six radial boosters.
+        #
+        # SPAN (measured off this fixture's .prec.txt mirrors, min/max over
+        # all ut/startUT/endUT keys): spanStart 34.680, spanEnd
+        # 15,764,030.825, span 15,763,996.145 s = 1.0733 Kerbin-Eve
+        # synodic periods (14,687,035.419 s). This fixture's loop unit
+        # therefore sits in the span>synodic regime (cadence != synodic,
+        # PadAlignLaunch declines) - the consumer lane must measure the
+        # schedule off the MissionConfig echo, never assume the moon/duna
+        # lanes' cadence == synodic shape.
+        "eve-orbit-recorded": {
+            "trees": 1, "committedTrees": 1, "recordings": 8,
+            "supersedes": 0, "tombstones": 0, "rewind_points": 0,
+            "rewind_retirements": 0,
+            "terminalStates": {"Orbiting": 2, "Destroyed": 6},
+            "branchPoints": {"JointBreak": 5},
+            "minSidecars": 56,
+            "recordingIds": ["081b06e81737471fb5d85f3e0e92d49b",
+                             "0b4193a0540e4fa7af9890fe4ba5c10d",
+                             "2f3bf43348534202b226afbb6ae00ce9",
+                             "75a6ab25a0f445219a82b7b841e44ba8",
+                             "7d373f22d0a04ff2a58d43bbcca47757",
+                             "8eda6186afcd46db81551ada10dcef9a",
+                             "c5403bf4a1144815bfa0d8691e38a587",
+                             "fbc705e91fcd4b5a8176cf5493807a0b"],
+            "schemaGeneration": 4,
+        },
     }
 
     def test_fixture_set_is_exactly_the_committed_set(self):
