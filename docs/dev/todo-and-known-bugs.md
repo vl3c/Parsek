@@ -14,6 +14,128 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## ROUTE-CANDIDACY-GATED-ON-SEAL-NO-SEAM-PATH: a green two-vessel docking flight cannot produce a route-candidate tree, and no seam verb can seal one [FOUND 2026-08-11 while wiring `H35-logistics-route-proof`. A CAPABILITY GAP in the automation surface, not a product defect - the seal policy itself is correct]
+
+**What was measured.** The `bdock-recorded` fixture is the produced save of a FULLY
+GREEN `BDOCK-1-station-interceptor` flight (run `2026-08-11_1606`, PASS attempt 1,
+wall 2,146 s) - the harness's most complete two-vessel mission: ascent, mid-mission
+commit, second launch, rendezvous, hard dock, LF/MP transfers both ways, undock,
+terminal. Parsed over the committed bytes with `saveparse`, it carries 2 committed
+trees / 19 recordings, and THREE of those recordings are
+`MergeState.CommittedProvisional` - `b07cfd6c` (tree `788554a9`), and `500c0ba9` +
+`4af6cfd7` in tree `8c677bba`, which is the tree that owns the save's single
+`ROUTE_CONNECTION_WINDOWS` node (on the docked-state recording `f049901e`). So the
+ROUTE-OWNING tree has two open provisionals.
+
+**Why that blocks candidacy.** `RouteCandidateFinder.IsTreeFullySealed`
+(`Source/Parsek/Logistics/RouteCandidateFinder.cs:83-96`) returns false unless EVERY
+non-null recording in the tree is `MergeState.Immutable`:
+
+```
+88:            foreach (Recording rec in tree.Recordings.Values)
+92:                if (rec.MergeState != MergeState.Immutable)
+93:                    return false;
+```
+
+and `DeriveCandidates` (`:157-196`) gates on it SECOND, before eligibility analysis
+and before the already-promoted check. The policy is right and should not be
+loosened: an open `CommittedProvisional` is a re-flyable Unfinished Flight, and a
+route built from one would flip to `RouteStatus.SourceChanged` the moment it was
+re-flown (the doc comment at `:65-71` says exactly this). The problem is not the
+gate; it is that a flight-class terminal - which is what an interceptor profile ends
+on - leaves provisionals behind BY DESIGN, so **no automated mission produces a
+sealed tree**. Sealing is a player action.
+
+**And the seam cannot perform it.** `SealSlot` is a RESERVED verb:
+`Source/Parsek/TestCommands/TestCommandVerbs.cs:100` lists it in `ReservedVerbs`,
+and `TestCommandDispatcher.cs:298-299` answers `Reject("not-implemented-v1")` for
+the whole reserved class. It is pinned reserved by
+`Source/Parsek.Tests/TestCommandDispatchTests.cs:65-66` and
+`TestCommandVerbTableTests.cs:47`. The only other "Seal" on the seam surface is
+`MergeAnswerChoice.Seal`, which ANSWERS an already-open merge dialog
+(`ParsekTestCommandAddon.cs:2187`) - it cannot seal a tree on demand.
+
+**Scope, stated honestly.** What is blocked is end-to-end route CREATION under
+automation: candidate detection -> promotion -> a live route driven by a REAL
+recorded tree. What is NOT blocked, and is now wired, is the PROOF surface those
+routes are built from - `H35-logistics-route-proof` walks the recorded
+`ROUTE_CONNECTION_WINDOWS` window and the `ROUTE_ORIGIN_PROOF` field with the
+in-game route-proof cells and pins two of them passing. The existing route-behavior
+coverage (H6's route-rewind timeline, H34's inter-body firing gate, the M3-M5 xUnit
+stack) all drives SYNTHETIC routes built in memory, which is what this gap keeps it
+doing.
+
+**Fix (either road, both real work, neither taken here):** (1) promote `SealSlot` out of
+`ReservedVerbs` and implement it against the same code path the UI's Seal action
+uses, which makes the whole candidate -> route pipeline drivable; or (2) add an
+in-game seal API a `[InGameTest]` can call, and wire a Logistics cell that seals a
+committed tree, derives candidates and asserts the promotion - cheaper, but it
+proves the pipeline rather than the player workflow. Until one lands, do NOT read
+"BDOCK-1 is green" as "routes are automated end to end".
+
+**D10 coverage, and why H35 claims NONE of it.** The obvious temptation on a spec
+whose subject is route proofs is to claim a D10 row. H35 claims none, deliberately.
+Its two passing cells are READ-SIDE walkers over surfaces `BDOCK-1`'s own flight
+produces and already claims (`dock-producer`, `ksc-origin`), and nothing in an H35
+run drives a production route emitter at all - `Route proof dock window captured:`
+(`ParsekFlight.cs:6246`) and `Route window delta:` (`RouteProofCapture.cs:728`) fire
+during RECORDING, and the reading run's log contains ZERO occurrences of either.
+Claiming a row off a token that is not in the log is the exact CLAIM-IS-NOT-GATE
+failure the registry discipline exists to prevent. None of the ten still
+zero-declarer D10 rows is evidenced either: `docked-depot-origin`, `claw-producer`,
+`inventory-cargo`, `harvest-provenance`, `multi-stop`, `multi-origin-escrow`,
+`round-trip-pair`, `hold-reasons`, `destination-full-gate`, `route-map-lines`
+(`harness/coverage/registry.toml:99-104`). Several of them - `multi-stop`,
+`multi-origin-escrow`, `round-trip-pair`, `hold-reasons`, `destination-full-gate` -
+have in-game cells that exist but carry `AllowBatchExecution = false`, so they are
+blocked by the B4 batch-wiring bucket rather than by this seal gap; the two
+route-CREATION-shaped ones are what the fix above would unblock.
+
+---
+
+## D10-INTERBODY-CELLS-NOW-DECLARED: the two inter-body coverage cells stop being zero-declarer, and what their gate does and does not prove [RECORDED 2026-08-11 by `H34-logistics-inter-body`. NOT A DEFECT - a coverage record, filed so the claim's exact scope survives the PR body]
+
+`D10 inter-body-nth-window` and `D10 dispatch-cadence` have been in
+`harness/coverage/registry.toml` with ZERO declarers. `H34-logistics-inter-body`
+claims both, and the claim rests on two REQUIRED tokens rather than on the spec's
+subject matter (CLAIM-IS-NOT-GATE). Both are production emissions from
+`RouteOrchestrator.ProcessLoopRoute`, measured identically on all three flights
+(`2026-08-11_1549` reading, `1553` / `1554` confirms):
+
+- `LoopRoute: route <id> window 1 SKIPPED by cadence modulo (N=2 anchor=0 basis=ReaimWindows) - marker advanced, nothing emitted`
+- `LoopRoute: route <id> cycle=cycle-0 FIRED full cycle (dispatch+debit+delivered) at ut=<UT>`
+
+WHAT THAT GATES, precisely. The skip line carries the basis, the residual N and the
+D4 skip-purity outcome in one string, so a unit that classified `FlatInterval` (the
+M5 review's silent-degrade mode, in which N is ignored) or that lost the residual
+cadence cannot emit it. The FIRED line carries the opposite half - a route that
+skipped EVERY window would satisfy a skip-only contract - and `cycle=cycle-0` pins
+the FIRST owed crossing, i.e. the D3 anchor adoption rather than an arbitrary later
+window. Together they gate the alternation from both sides at N=2.
+
+WHAT IT DOES NOT PROVE, stated so the cells are not over-read later. The delivery
+row is written through the cell's own `DeliveryRowEmitterForTesting` seam (the real
+`ApplyDelivery` and its per-window ELS guard run; only the live-Vessel row emission
+is faked), so NO production delivery path is gated here - `D10 delivery` and
+`ksc-origin` are deliberately NOT claimed. Nor is anything about RENDERING: this
+lane boots to the Space Center and draws nothing, so it says nothing about whether
+the drawn arc reaches the destination.
+
+ROUTE-LAYER CONTEXT, worth writing down because it is easy to conflate with the
+above. Per `docs/parsek-logistics-supply-routes-design.md:71-72` (§0.9), delivery
+fires when the loop clock reaches the RECORDED DOCK PHASE, not at cycle start
+(DEL-2), and under `ReaimWindows` the player's `N` is applied as a residual modulo
+on the WINDOW INDEX. This lane's measurements are consistent with both halves and
+evidence them directly at the dock-phase level: the fire landed at
+`phaseAnchor + 0*cadence + dockOffset` = `ut=28553075.77` (the recorded dock phase
+inside window 0), the cell's pre-dock tick at a quarter of that offset delivered
+nothing, and window 1's tick at the SAME dock phase one window later delivered
+nothing either. The stronger statement - that the delivery clock is decoupled from
+whether the RENDERED window's transfer actually arrives at the destination - is NOT
+evidenced by these tokens (no render surface is exercised here); it is a design
+property of the dock-phase trigger, and the lane that could evidence it would have
+to observe a render arrival and a delivery in the same run.
+
 ## ~~GHOST-INITIAL-STATE-FROM-PREFAB: ghosts spawned at the prefab pose because the recorded snapshot's module state was never read, and robotic poses were lost at every split and every loop cycle~~ [FOUND 2026-08-11 by a per-family read of the ghost build and playback paths. FIXED 2026-08-11, branch `ghost-snapshot-baseline`]
 
 Two defects, one branch, because the fix for the first is only safe once the

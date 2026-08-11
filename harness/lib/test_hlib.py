@@ -2737,6 +2737,24 @@ class IngameBatchWiringGroupTests(unittest.TestCase):
         "H31-crew-reservation":      ("CrewReservation", 15, "FLIGHT"),
         "H32-snapshot-baseline":     ("SnapshotBaseline", 7, "FLIGHT"),
         "H33-recorded-signals":      ("RecordedSignals", 3, "FLIGHT"),
+        # The first member whose category is only PARTLY reachable at its boot
+        # scene: 45 of the 47 Logistics declarations are FLIGHT-scoped and
+        # scene-skip at SPACECENTER, so its skip floor is 45 where every FLIGHT
+        # member's is 0 or 1. That floor is ATTRIBUTE-derived, so it needs no
+        # RUNTIME_SKIPS entry - the measured run skipped nothing at run time.
+        # (Flown as `H32-logistics-inter-body`; renamed H34 post-merge after a
+        # sibling lane landed a different H32 on main first. Nothing re-flown.)
+        "H34-logistics-inter-body":  ("Logistics", 47, "SPACECENTER"),
+        # The OTHER half of the SAME category, at the other scene - the first
+        # time two members share a category, and it needs nothing special: the
+        # tally is derived PER MEMBER from (category, scene), so H34's
+        # SPACECENTER slice (45 scene-skipped, 2 executable) and H35's FLIGHT
+        # slice (1 scene-skipped + 38 batch-skipped, 8 executable) each check
+        # against their own derivation off the same 47 declarations. Adding a
+        # Logistics [InGameTest] moves BOTH pins, in the same commit.
+        # (Flown as `H33-logistics-route-proof`; renamed H35 post-merge for the
+        # same collision.)
+        "H35-logistics-route-proof": ("Logistics", 47, "FLIGHT"),
     }
 
     # Declared MEASURED run-time skips per member: InGameAssert.Skip firings the
@@ -2777,6 +2795,26 @@ class IngameBatchWiringGroupTests(unittest.TestCase):
         # fixture x preset (ScenarioWriter.AddCrewReplacement has zero callers).
         # Fixture property, and the spec says so.
         "H31-crew-reservation": 3,
+        # H35: three, MEASURED identically on all three 2026-08-11 runs (flown
+        # under its pre-rename id `H33-logistics-route-proof`), on top
+        # of an attribute floor of 39 (1 scene-skip + 38 AllowBatchExecution=
+        # false) for a pinned skipped=42. All three are FIXTURE properties of
+        # bdock-recorded, stated in the spec's STATUS block:
+        #   * RouteProof_ActiveAsTargetDockWindow - the save's ONE route
+        #     connection window has TransferTargetVesselPid == the recording's
+        #     own pid (the same-craft-twice baked pid), so it satisfies the
+        #     INITIATOR predicate and the target predicate is its strict
+        #     complement.
+        #   * RouteProof_CrossTreeCommittedPartner - its predicate short-circuits
+        #     on the initiator case first (LogisticsRouteProofRuntimeTests.cs:
+        #     81-82, "covered by sibling test"), so the same one window can never
+        #     reach the cross-tree walk. NOT a claim that the fixture is
+        #     single-tree: BDOCK-1 genuinely docks two committed trees.
+        #   * RouteOriginProof_StartedDockedToNonKsc - the save carries ZERO
+        #     ROUTE_ORIGIN_PROOF nodes because both BDOCK-1 flights start
+        #     PRELAUNCH on the pad; the cell needs a mission that STARTS docked
+        #     to a non-PRELAUNCH partner, which no committed profile produces.
+        "H35-logistics-route-proof": 3,
     }
 
     # NOTE the asymmetry this leaves: for 13 of the 16, the skipped= floor is
@@ -2862,8 +2900,8 @@ class IngameBatchWiringGroupTests(unittest.TestCase):
         # cell below cannot catch either, because it compares two sets that shrink
         # together. Same shape as CommittedBatchTallySourceSyncTests's
         # test_the_source_tree_is_actually_readable.
-        self.assertEqual(26, len(self.GROUP),
-                         "the H7-H20 + H22-H33 group is 26 specs; if it genuinely changed "
+        self.assertEqual(28, len(self.GROUP),
+                         "the H7-H20 + H22-H35 group is 28 specs; if it genuinely changed "
                          "size, update this floor AND the counts in "
                          "docs/dev/autotest-ingame-category-inventory.md and "
                          "docs/dev/autotest-status.md in the same commit")
@@ -3056,6 +3094,29 @@ class IngameBatchWiringGroupTests(unittest.TestCase):
                          "H16-corpus-spawn-health", "H17-flight-integration",
                          "H27-diagnostics", "H28-map-presence", "H30-ghost-audio",
                          "H33-recorded-signals"}
+        # THE THIRD SHAPE (wave 3, the spec now called H35). A RECORDED-FIXTURE member injects
+        # NOTHING - `injectedRecordings = "none"`, same as the zero-pin majority -
+        # but its saveTemplate is a harvested save whose own COMMITTED recordings
+        # ARE the payload the batch walks. So the zero-pin rule is not merely
+        # wrong for it, it is backwards: pinning 0/0 would demand the fixture's
+        # entire point leak out of the produced save. It still owes the same
+        # anti-vacuity guarantee the corpus-backed set owes, discharged three
+        # ways: a nonzero count, an EXACT count (min == max - a range would let a
+        # fixture quietly shrink toward the vacuous end), and a template that
+        # really carries .prec sidecars on disk, checked mechanically below so a
+        # future re-harvest that dropped them reds HERE rather than as a batch of
+        # silent Skips on the next flight.
+        # NOTE (post-review cross-reference): this bucket's anti-vacuity
+        # guarantee is deliberately DISTRIBUTED - the on-disk check below only
+        # proves sidecars exist; the payload's IDENTITY and full shape are
+        # owned by test_saveparse.py's committed-fixture closure
+        # (test_fixture_set_is_exactly_the_committed_set forces every
+        # fixtures/saves/ dir into either the zero-recording set or the fully
+        # pinned RECORDED_FIXTURES). A wrong-but-present payload reds THERE.
+        recorded_fixture = {"H35-logistics-route-proof"}
+        self.assertEqual(set(), corpus_backed & recorded_fixture,
+                         "a member cannot be both corpus-backed and "
+                         "recorded-fixture; the two rules contradict")
         for sid, spec in sorted(self.specs.items()):
             with self.subTest(spec=sid):
                 fixture = spec.get("fixture", {}) or {}
@@ -3067,6 +3128,38 @@ class IngameBatchWiringGroupTests(unittest.TestCase):
                                        "%s must pin a non-zero corpus count - it is "
                                        "the only guard against a store walk over "
                                        "nothing" % sid)
+                elif sid in recorded_fixture:
+                    self.assertEqual("none", fixture.get("injectedRecordings"),
+                                     "%s carries its payload in the TEMPLATE; "
+                                     "injecting on top would make the pinned count "
+                                     "un-attributable" % sid)
+                    self.assertGreater(count.get("min", 0), 0,
+                                       "%s must pin a non-zero count - its whole "
+                                       "premise is that the batch walks recorded "
+                                       "state" % sid)
+                    self.assertEqual(count.get("min"), count.get("max"),
+                                     "%s must pin its count EXACTLY (min == max): a "
+                                     "range cannot tell a load-time optimizer split "
+                                     "from a leaked promotion stub" % sid)
+                    template = fixture.get("saveTemplate", "")
+                    self.assertTrue(template.startswith("fixtures/saves/"), sid)
+                    rec_dir = os.path.join(
+                        HARNESS_ROOT, template.replace("/", os.sep),
+                        "Parsek", "Recordings")
+                    self.assertTrue(os.path.isdir(rec_dir),
+                                    "%s: %s carries no Parsek/Recordings, so the "
+                                    "batch would walk nothing" % (sid, template))
+                    precs = [f for f in os.listdir(rec_dir) if f.endswith(".prec")]
+                    self.assertGreater(
+                        len(precs), 0,
+                        "%s: %s carries no .prec sidecars - the recorded payload is "
+                        "gone and every read-side cell would silently Skip"
+                        % (sid, template))
+                    self.assertGreaterEqual(
+                        count.get("min", 0), len(precs),
+                        "%s pins count=%s but its template stages %d .prec files; "
+                        "the pin must be at least the staged floor"
+                        % (sid, count.get("min"), len(precs)))
                 else:
                     self.assertEqual("none", fixture.get("injectedRecordings"))
                     self.assertEqual({"min": 0, "max": 0}, count,
@@ -4656,6 +4749,25 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
     # each classified by hand. A NEW one reds
     # `test_every_untagged_candidate_is_classified` until someone decides.
     REVIEWED_UNTAGGED = {
+        # tier=operator by PROMOTION POLICY, not debt. Flown three times on
+        # 2026-08-11 (one under-gated reading run, two confirms on the pinned
+        # shape), all PASS attempt 1, fully unattended - so nothing technical is
+        # outstanding and no human work is owed. What is open is the ordinary
+        # operator -> daily CADENCE call, which is a human decision on whether the
+        # largest in-game category belongs on the daily tier, exactly the shape
+        # recorded for GS-1 / GS-2 / GS-3 above. (Those runs flew under the
+        # pre-rename id `H32-logistics-inter-body`; the file is H34 since the
+        # post-merge id collision with the sibling lane's H32.)
+        "H34-logistics-inter-body.toml":    "FLOWN 3x 2026-08-11 (reading + two confirms, all PASS attempt 1) and PINNED WHOLE; operator tier is an open PROMOTION call, not debt",
+        # Same shape as H34 above, and for the same reason: the OTHER half of the
+        # Logistics split, flown three times on 2026-08-11 (one under-gated
+        # reading run, two confirms), all PASS attempt 1, fully unattended. The
+        # three run-time skips it pins are FIXTURE properties recorded in
+        # RUNTIME_SKIPS and in the spec's STATUS block, not outstanding work; the
+        # route-CANDIDACY gap they sit next to is a product finding with its own
+        # todo entry, not a debt this tag can carry. (Flown as
+        # `H33-logistics-route-proof`; renamed H35 for the same collision.)
+        "H35-logistics-route-proof.toml":   "FLOWN 3x 2026-08-11 (reading + two confirms, all PASS attempt 1) and PINNED WHOLE; operator tier is an open PROMOTION call, not debt",
         "H5-invariants-corpus.toml":        "discharged - 'resolving the former PENDING-OPERATOR check'",
         "H6-route-rewind-timeline.toml":    "discharged - 'The former PENDING-OPERATOR ...'",
         "M1-mission-loop-unit.toml":        "discharged - 'CLOSED by the 2026-07-26 flights'",

@@ -1,0 +1,259 @@
+schema = 1
+id = "H35-logistics-route-proof"
+tier = "operator"
+# ID PROVENANCE: this spec was authored and FLOWN as `H33-logistics-route-proof`
+# and was renamed to H35 post-merge, when a sibling lane landed a DIFFERENT
+# `H33-recorded-signals` on main first. Every run id cited below embeds the OLD
+# name (`2026-08-11_1704_H33-logistics-route-proof` and its two confirms); those
+# citations remain TRUE history - nothing was re-flown or re-measured by the
+# rename. Every pin here is id-INDEPENDENT: BATCH_COMPLETE carries no spec id,
+# and the tally / token pins are unchanged by it.
+#
+# The `Logistics` category's FLIGHT-eligible SLICE - 8 of its 47 declarations -
+# run unattended against a RECORDED docking fixture. H34 owns the other slice
+# (the 2 SPACECENTER-eligible cells); between them the two specs drive every
+# Logistics declaration that a batch can execute at all. The remaining 38 carry
+# `AllowBatchExecution = false` and are batch-skipped by attribute at any scene;
+# wiring them is the inventory doc's B4 bucket, untouched here.
+#
+# WHAT THIS BUYS, precisely. Five of the eight FLIGHT-eligible cells are the
+# ROUTE-PROOF READ SIDE: three `RouteProof_*` walkers over each recording's
+# ROUTE_CONNECTION_WINDOWS node, and two `RouteOriginProof_*` walkers over the
+# ROUTE_ORIGIN_PROOF field. All five are pure read-side cells - they assert on
+# state a PRIOR recording session produced, and `InGameAssert.Skip` when the
+# loaded save carries nothing to walk. Every previous Logistics-touching run
+# loaded a fixture with no recordings, so all five skipped and the proof-shape
+# asserts had never executed anywhere. This spec loads the BDOCK-1 harvest,
+# whose committed trees carry a real dock/undock connection window, so the
+# walkers find something.
+#
+# THIS FIXTURE IS DELIBERATELY NOT A ROUTE CANDIDATE, and that is the honest
+# scope of the lane. `RouteCandidateFinder.IsTreeFullySealed`
+# (Source/Parsek/Logistics/RouteCandidateFinder.cs:83-96) requires EVERY
+# recording in a tree to be `MergeState.Immutable`; the fixture's route-owning
+# tree carries two `CommittedProvisional` recordings (the interceptor profile
+# ends in flight-class terminals), so no tree here can be picked up as a
+# candidate, and the `SealSlot` seam verb that would seal one is RESERVED
+# (`TestCommandVerbs.cs:100`, dispatched `not-implemented-v1`). End-to-end route
+# CREATION therefore remains un-automatable; see the
+# ROUTE-CANDIDACY-GATED-ON-SEAL-NO-SEAM-PATH entry in todo-and-known-bugs.md.
+# What IS automatable is the PROOF surface those walkers read, and that is what
+# this spec gates.
+#
+# STATUS: LIVE-PROVEN 2026-08-11, three runs, all PASS attempt 1.
+#   1704 (52 s) - the deliberately under-gated READING run (tally split left as
+#                 `passed=[1-9][0-9]* skipped=[0-9]+`, no cell tokens, count
+#                 window 19-40). Measured everything the pins below now carry.
+#   1708 (51 s), 1709 (50 s) - two consecutive CONFIRM runs on the pinned shape.
+# All three logged the pinned tally line token for token and produced count=21.
+# The H34 header records the same discipline; H6's derived pin is the standing
+# lesson it comes from.
+#
+# WHAT THE READING RUN MEASURED, and the honest scope it fixes. TWO of the five
+# proof cells un-skip on this fixture; three still self-skip, for reasons that
+# are properties of the FIXTURE, not defects:
+#   PASS RouteProof_ActiveAsInitiatorDockWindow_HasEndpointProof - the window's
+#        TransferTargetVesselPid (3620499050) EQUALS the docked-state recording's
+#        own VesselPersistentId, so the initiator predicate holds and the full
+#        AssertEndpointProof shape (DockingPort kind, EndpointAtDock present,
+#        endpoint pid == target pid, finite in-range body/lat/lon/alt) executes.
+#   PASS RouteOriginProof_StartedOnRunway_ProducerSkipsProof - the negative-space
+#        half: a PRELAUNCH-started recording must carry NO RouteOriginProof, and
+#        the fixture has two Prelaunch roots and zero ROUTE_ORIGIN_PROOF nodes.
+#   SKIP RouteProof_ActiveAsTargetDockWindow_HasEndpointProof - "No active-as-
+#        target logistics dock route window found." Same single window, and the
+#        target predicate is the strict complement of the initiator one.
+#   SKIP RouteProof_CrossTreeCommittedPartner_HasEndpointProof - "No cross-tree-
+#        committed-partner dock route window found." Its predicate SHORT-CIRCUITS
+#        on the initiator case first (LogisticsRouteProofRuntimeTests.cs:81-82,
+#        "initiator case - covered by sibling test"), so the one window can never
+#        reach the cross-tree walk regardless of what is committed. Note this is
+#        NOT the fixture failing to be cross-tree - BDOCK-1 genuinely docks two
+#        separate committed trees - it is the pid coincidence of the same craft
+#        flown twice landing the window on the initiator branch.
+#   SKIP RouteOriginProof_StartedDockedToNonKsc_ProducerLandsProof - "No
+#        recording with a captured RouteOriginProof." Both BDOCK-1 flights start
+#        PRELAUNCH on the pad; a fixture for this cell must START docked to a
+#        non-PRELAUNCH partner, which no committed mission profile produces.
+# Those three are a FIXTURE-SHAPE gap, recorded in the inventory doc, not
+# something this spec should pin around.
+#
+# Unity exceptions read 11 / 14 / 9 across the three runs and are deliberately
+# left REPORT-only rather than armed: every one is a stock
+# `AudioMultiPooledFX+PooledAudioSource+<CheckEnd>` NRE in a single ~3 ms burst
+# at the campaign-isolation teardown reload - no Parsek frame anywhere in the
+# stacks - and the count VARIES run to run because it depends on how many pooled
+# audio sources happen to be mid-coroutine when the scene tears down. A ceiling
+# armed off readings that spread 9-14 would be a flake generator, and one clean
+# reading is not a mechanism argument either (H23's ceiling is pinned off n=29
+# plus its own mechanism bound - that is the bar).
+description = "Run the in-game Logistics category at FLIGHT over the BDOCK-1 recorded docking fixture, so the five route-proof read-side cells (3 RouteProof_* over ROUTE_CONNECTION_WINDOWS, 2 RouteOriginProof_* over ROUTE_ORIGIN_PROOF) walk real committed trees instead of an empty store: two of them un-skip and execute their proof-shape asserts against a real dock/undock window, and the three that still self-skip do so for measured fixture-shape reasons the pinned tally holds in the open."
+instanceProfile = "stock-minimal"
+# `flown`, not `pending-flight`: three green flights on 2026-08-11. `--tag` is a
+# REAL selector, so the tag has to track the record in both directions (the CL-3
+# precedent).
+tags = ["logistics", "route", "route-proof", "dock", "recorded-fixture", "H35", "flown"]
+
+[fixture]
+# The BDOCK-1-station-interceptor harvest (run 2026-08-11_1606, PASS attempt 1,
+# wall 2146 s, `--keep-parsek --expect-situation ORBITING`), pinned in
+# harness/lib/test_saveparse.py::RECORDED_FIXTURES - read that entry for the
+# measured shape. What matters here: TWO committed trees, 19 recordings, and ONE
+# ROUTE_CONNECTION_WINDOWS node (on the docked-state recording f049901e of tree
+# 8c677bba, dockUT 8949.268 -> undockUT 8950.588, transferKind=DockingPort,
+# transferTargetPid 3620499050). ZERO ROUTE_ORIGIN_PROOF nodes - both flights
+# started PRELAUNCH on the pad, never docked-to-a-partner - which is the state
+# the two producer cells are BUILT to discriminate between.
+# Its parked Kerbal X is the focusable vessel, so LoadGame with no `scene=`
+# takes the Focusable -> FLIGHT route, which is the scene the eight cells need.
+saveTemplate       = "fixtures/saves/bdock-recorded"
+injectedRecordings = "none"
+craft              = []
+
+[driver]
+kind = "seam"
+# THE KILL TRIPLE IS LOAD-BEARING, and it is what separates this driver from
+# H34's. H34 loads gloops-airshow, which carries no trees; this loads a RECORDED
+# save whose own parked craft is active, and the committed-tree restore path
+# resumes a promotion-stub recording ~1 s into the scene, BEFORE any step can
+# run (measured across the V corpus - V2 flight 4 / V5 run 1 - and structural,
+# not fixture-specific). StopRecording is idempotent-OK and DiscardTree answers
+# OK with nothing-discarded when no plain tree is live, so the pair is safe on
+# any entry state; the SetSetting stops a later one.
+#
+# verboseLogging=true: the three `RouteProof_*` cells' own echo lines are
+# Verbose (LogisticsRouteProofRuntimeTests.cs:198), as are the producer cells'
+# pre-Skip diagnostics, so without this step a PASS of the proof trio is
+# INVISIBLE in the log and the reading run could not tell a pass from a skip.
+# RunTests is the single BATCH owner; its 540 per-step budget is the deferred
+# cap (S8).
+steps = [
+  { cmd = "LoadGame",      args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  { cmd = "StopRecording",                                                      expect = "OK" },
+  { cmd = "DiscardTree",                                                        expect = "OK" },
+  { cmd = "SetSetting",    args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting",    args = { name = "verboseLogging",     value = "true" },  expect = "OK" },
+  { cmd = "RunTests",      args = { category = "Logistics" },                    expect = "OK", budget = 540 },
+  { cmd = "FlushAndQuit",                                                        expect = "OK" },
+]
+
+[dimensionsCovered]
+# CLAIM-IS-NOT-GATE, and the honest answer here is that only the boot facts are
+# earned. D14 `scene-flight` is gated by the loadgame line below (a fixture that
+# stopped being focusable would land at the KSC and red it); `sandbox` is the
+# fixture's own `Mode = SANDBOX`, riding the same line, exactly as H6 claims it
+# on the gloops host.
+#
+# NO D10 VALUE IS CLAIMED, deliberately. The two proof cells that pass are
+# READ-SIDE walkers over surfaces BDOCK-1's flight already produces and already
+# claims (`dock-producer`, `ksc-origin`); re-declaring those here would inflate
+# the coverage count without gating one new behavior, since nothing in THIS run
+# drives a production route emitter at all (`Route proof dock window captured:`
+# and `Route window delta:` fire during RECORDING, and this session records
+# nothing - measured: zero occurrences in the reading run's log). None of the ten
+# zero-declarer D10 rows (docked-depot-origin, claw-producer, inventory-cargo,
+# harvest-provenance, multi-stop, multi-origin-escrow, round-trip-pair,
+# hold-reasons, destination-full-gate, route-map-lines - registry.toml:99-104)
+# is evidenced by any token this spec pins either. What the lane buys is the
+# proof-SHAPE assertions executing at all, which is a test-surface fact rather
+# than a new coverage cell.
+D14 = ["sandbox", "scene-flight"]
+
+[expectations]
+# PLACEMENT IS LOAD-BEARING. run.py reads `expectations.allowedAnomalies`; a bare
+# `allowedAnomalies` written after an `[expectations.<sub>]` header is TOML-scoped
+# to that SUB-table and is never read. hlib.validate_spec REJECTS the misplaced
+# form, so this table must stay ahead of the sub-tables below. No tracer is armed
+# by this spec, so the empty list is the honest declaration (mirrors H6/H23/H34).
+allowedAnomalies = []
+
+[expectations.recordings]
+# MEASURED 21, PINNED EXACTLY. `count` counts `.prec` FILES in the produced save
+# (run.py::count_recordings); the staged fixture contributes 19 and the LOAD-TIME
+# OPTIMIZER SPLIT adds 2. That split is visible in the saveParse facets as well:
+# the fixture's 19 recordings / largest 1798 points / 2835 total become 21 /
+# 1616 / 2837 in the produced save. MECHANISM (corrected post-review from the
+# archived _1704 log - the first draft said "one recording cut into three",
+# which was the right count with the wrong story): TWO INDEPENDENT SINGLE
+# SPLITS on two different recordings - a32f62f5 at UT 196.26 (new rec
+# 359507a8) and 5157d655 at UT 568.23 (new rec 660405e3), each one recording
+# cut into two (+2 recordings, +2 boundary points). The split is a pure
+# function of the recording applied at load, so it is deterministic - V6M pins
+# mun-orbit-recorded's 8 -> 9 on exactly this reasoning, and both confirm runs
+# reproduced 21 here.
+# The tight window is what makes the number informative: 19 would mean the split
+# stopped happening, and 22+ would mean a scene-entry promotion stub survived the
+# StopRecording / DiscardTree pair. Both are findings.
+count = { min = 21, max = 21 }
+
+[expectations.logContracts]
+# EVERY LINE HERE IS MEASURED off the READING RUN
+# `2026-08-11_1704_H33-logistics-route-proof` (PASS attempt 1, 52 s wall, every
+# verifier PASS/SKIPPED/REPORT, analyzer red=0), and reproduced token for token
+# on both confirms.
+#
+# THE TALLY, measured verbatim:
+#   BATCH_COMPLETE v1 total=47 passed=5 failed=0 skipped=42 category=Logistics scene=FLIGHT
+# `total` is `allTests.Count(Status != NotRun)` over the single RunCategory
+# batch, which INCLUDES both filters' skips, so it is the count of
+# `[InGameTest(Category = "Logistics")]` methods in Source/Parsek - statically
+# derivable and cross-checked on every local suite run by
+# `CommittedBatchTallySourceSyncTests`. At scene=FLIGHT
+# `hlib.derive_batch_tally` decomposes it as 1 scene-skipped (the SPACECENTER
+# inter-body cell H34 owns) + 38 batch-skipped (`AllowBatchExecution = false`) +
+# 8 executable, so the ATTRIBUTE floor is skipped>=39 and the ceiling is
+# passed<=8. The measured split lands at passed=5 / skipped=42, i.e. THREE
+# run-time self-skips on top of the floor - the three named in the STATUS block
+# above. Pinning 5/42 rather than the floor is what makes a future change loud:
+# a fourth cell starting to skip reds here, and so does one of the three
+# starting to PASS (which would be good news arriving as a red, deliberately -
+# H34 pins its floor the same way).
+#
+# ANTI-VACUITY (hlib.batch_contract_vacuity_gap): the whole tally is pinned, so
+# no vacuous or wrong-scene batch can satisfy it. Pinning the landing scene ON
+# the tally line is the B10 fail-open guard - a SPACECENTER boot would run H34's
+# slice and report `passed=2 skipped=45`, which this pin rejects.
+#
+# THE TWO CELL TOKENS. Unlike H34's, these are TEST ECHOES rather than
+# production emissions, and that is forced rather than sloppy: all five proof
+# cells are READ-SIDE walkers over state a prior recording session wrote, so the
+# production emitters (`Route proof dock window captured:` from ParsekFlight,
+# `Route window delta:` from RouteProofCapture) fire during RECORDING and are
+# MEASURED ABSENT from this session's log (zero occurrences). The echoes carry
+# the load-bearing values anyway:
+#  - the initiator line pins the resolved endpoint proof - `body=Kerbin` and
+#    `situation=32` come out of `AssertEndpointProof`'s checked fields, so a
+#    window that lost its endpoint, its DockingPort kind or its
+#    endpoint-pid==target-pid identity cannot emit it. `childPid` == `targetPid`
+#    == 3620499050 is the same-craft-twice pid coincidence that puts this window
+#    on the initiator branch; both are pinned because the pair is what
+#    discriminates initiator from target. The lat/lon/alt are deliberately NOT
+#    pinned (full-precision doubles).
+#  - the prelaunch line is the negative-space half: `proof=null (expected)` on a
+#    `startSituation='Prelaunch'` recording is the producer's KSC-origin skip
+#    holding. A producer that started stamping origin proofs for pad launches
+#    would fail the cell, not merely change the line.
+# LEVELS: the initiator echo is VERBOSE (LogisticsRouteProofRuntimeTests.cs:198)
+# and the prelaunch echo is INFO (LogisticsRouteProducerRuntimeTests.cs:126), so
+# the driver's verboseLogging=true step is what makes the first pin matchable at
+# all - without it a PASS of the proof trio leaves no trace in the log.
+required  = [
+  "loadgame complete scene=FLIGHT save=.* game-loaded=true expected=Flight",
+  "RouteProof_active-as-initiator: tree=8c677bba0ec04e558c6ebec4ad8c3c9f recording=f049901e1f4641ffae490b2f52b1d55e childPid=3620499050 targetPid=3620499050 body=Kerbin .*situation=32",
+  "RouteOriginProof_Prelaunch: tree=788554a928324f148dd313dd26322638 rec=a32f62f52dc84d6a94daf93460ec6548 startSituation='Prelaunch' proof=null \\(expected\\)",
+  "BATCH_COMPLETE v1 total=47 passed=5 failed=0 skipped=42 category=Logistics scene=FLIGHT",
+]
+forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
+
+[runtime]
+# Budget arithmetic (M-A5 S8, mirrors H5/H6/H23/H34): 900 >= 300 LoadGame + 540
+# RunTests ceiling headroom. The LoadGame is the slow half here - unlike H34's
+# vessel-less KSC boot this one restores 19 recordings and their sidecars into a
+# FLIGHT scene - so the margin over H34's 720 is deliberate.
+budgetSeconds = 900
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""
