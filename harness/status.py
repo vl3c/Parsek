@@ -645,6 +645,9 @@ PHASE_BUDGET_KEYS = {
     # B17 pad-aligned ejection (the pre-launch epoch jump; PRELAUNCH itself
     # stays untimed).
     "PAD-ALIGN": "padAlignTimeoutSeconds",
+    # B19 pre-transfer stage jettison (armed by jettisonActivations > 0; the
+    # phase is absent from every lane that leaves it at the default 0).
+    "JETTISON": "jettisonTimeoutSeconds",
     # B5 / B6 / B7 / B11 / B12 transfer lane.
     "PLAN-TRANSFER": "planTimeoutSeconds",
     "PLAN-CORRECTION": "planTimeoutSeconds",

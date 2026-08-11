@@ -377,6 +377,11 @@ B5_PAD_ALIGN = "PAD-ALIGN"
 B5_MJ_ASCENT = "MJ-ASCENT"
 B5_CIRCULARIZE = "CIRCULARIZE"
 B5_ORBIT = "ORBIT"
+# Optional pre-transfer stage jettison (armed by jettisonActivations > 0; absent
+# from every lane that leaves it 0). Sits between the ORBIT waypoint and
+# PLAN-TRANSFER so the transfer node is planned against the vehicle that will
+# actually fly it. See B5Params.jettison_* and _b5_jettison_step.
+B5_JETTISON = "JETTISON"
 B5_PLAN_TRANSFER = "PLAN-TRANSFER"
 B5_TRANSFER_BURN = "TRANSFER-BURN"
 B5_PLAN_CORRECTION = "PLAN-CORRECTION"
@@ -425,6 +430,7 @@ B5_LANDED_SETTLE = "LANDED-SETTLE"
 B5_SURFACE_COMMIT = "SURFACE-COMMIT"
 B5_SURFACE_COMMITTED = "SURFACE-COMMITTED"
 B5_PHASES: Tuple[str, ...] = (B5_PRELAUNCH, B5_PAD_ALIGN, B5_MJ_ASCENT, B5_CIRCULARIZE, B5_ORBIT,
+                              B5_JETTISON,
                               B5_PLAN_TRANSFER, B5_TRANSFER_BURN, B5_PLAN_CORRECTION,
                               B5_CORRECTION_BURN, B5_COAST_TO_TARGET, B5_TARGET_FLYBY,
                               B5_RETURN, B5_PLAN_CAPTURE, B5_CAPTURE_BURN, B5_PARK,
@@ -3371,6 +3377,41 @@ class B5Params:
                                            # settled" from "settled but not
                                            # in-gate at the end of the dwell".
                                            # Spec key landedTimeoutSeconds.
+    # --- PRE-TRANSFER JETTISON (armed by B19; default-off everywhere else) -----
+    # > 0 ARMS a JETTISON phase between the ORBIT waypoint and PLAN-TRANSFER:
+    # pop exactly this many stages, thrust-safe, to shed a spent chemical stack
+    # and light the intended transfer engine BEFORE any transfer node is planned.
+    # 0 (the default) leaves every existing lane byte-identical -- the ORBIT
+    # waypoint hands straight to PLAN-TRANSFER exactly as it always has.
+    #
+    # WHY AN EXACT COUNT AND NOT A WATCHDOG. The count is a property of the
+    # CRAFT's staging list, which the spec author reads off the .craft file, and
+    # it must be exact in BOTH directions: too few leaves the wrong engine live,
+    # too many sheds payload (on the B19 craft the very next stage drops the
+    # transfer stage's own drop tanks). `_b5_flameout_stage` cannot do this job -
+    # it fires only on OBSERVED zero thrust under a COMMANDED burn, and this
+    # jettison happens at throttle 0 with nothing commanded.
+    jettison_activations: int = 0          # exact stage pops; 0 = phase absent.
+                                           # Spec key jettisonActivations.
+    jettison_timeout: float = 600.0        # JETTISON budget (GAME s). Spec key
+                                           # jettisonTimeoutSeconds.
+    jettison_max_live_thrust: float = 0.0  # NEWTONS. > 0 arms the "the engine
+                                           # that is live is the one I meant"
+                                           # check: after the pops, available
+                                           # thrust must be strictly positive AND
+                                           # at/below this. A SIGNATURE check -
+                                           # engines differ by an order of
+                                           # magnitude (B19's craft: Nerv 60 kN,
+                                           # Skipper 650 kN, Mainsail 1,500 kN) -
+                                           # so it separates "the nuclear stage is
+                                           # lit" from "a chemical stage is still
+                                           # lit" with no part-level telemetry.
+                                           # 0.0 = presence only. Spec key
+                                           # jettisonMaxLiveThrustNewtons.
+    jettison_min_splits: int = 1           # vessel_count must exceed the
+                                           # phase-entry baseline by at least this
+                                           # before the pops are believed. Spec
+                                           # key jettisonMinSplits.
 
 
 def b5_params_from_dict(params: Dict) -> B5Params:
@@ -3488,6 +3529,12 @@ def b5_params_from_dict(params: Dict) -> B5Params:
         landed_dwell=float(params.get("landedDwellSeconds", 120.0)),
         landed_debounce=int(params.get("landedDebounceFrames", 3)),
         landed_timeout=float(params.get("landedTimeoutSeconds", 600.0)),
+        # Pre-transfer jettison: absent (0) unless a spec arms it.
+        jettison_activations=int(params.get("jettisonActivations", 0)),
+        jettison_timeout=float(params.get("jettisonTimeoutSeconds", 600.0)),
+        jettison_max_live_thrust=float(
+            params.get("jettisonMaxLiveThrustNewtons", 0.0)),
+        jettison_min_splits=int(params.get("jettisonMinSplits", 1)),
     )
 
 
@@ -7594,6 +7641,15 @@ class B5State:
     # so the budget never resets between rounds/phases).
     flameout_streak: int = 0
     flameout_stages_done: int = 0
+    # Pre-transfer JETTISON evidence (absent unless jettison_activations > 0).
+    # baseline = vessel_count at phase entry; the two streaks are the shared
+    # K-consecutive settle idiom via `separation_evidence`; split_confirmed
+    # LATCHES so a later count blip cannot un-confirm a real split.
+    jettison_baseline_vessel_count: int = 0
+    jettison_activations_done: int = 0
+    jettison_split_streak: int = 0
+    jettison_thrust_streak: int = 0
+    jettison_split_confirmed: bool = False
     # Impact-certain early-terminal debounce (TARGET-FLYBY): consecutive
     # frames the impact-warp guard condition held.
     impact_certain_streak: int = 0
@@ -7770,6 +7826,122 @@ def _b5_seam_payload(snapshot: TelemetrySnapshot, tag: str, key: str) -> str:
     return ""
 
 
+def _b5_enter_plan_transfer(state: B5State, snapshot: TelemetrySnapshot,
+                            peak: float) -> Tuple[B5State, List[Action]]:
+    """Hand off into PLAN-TRANSFER: set the transfer target and ask the
+    ManeuverPlanner for the transfer (moon Hohmann, or the B7 interplanetary
+    window plan when ``interplanetary_transfer``), then wait for the node.
+
+    EXTRACTED VERBATIM from the ORBIT branch when the optional pre-transfer
+    JETTISON phase landed, because there are now TWO predecessors (ORBIT
+    directly, or ORBIT -> JETTISON -> here) and the hand-off must be identical
+    on both. Behaviour is unchanged for every lane that leaves
+    ``jettison_activations`` at 0."""
+    entered = _b5_enter(state, B5_PLAN_TRANSFER, snapshot.ut, peak)
+    entered = replace(entered,
+                      last_plan_ut=snapshot.ut if _is_finite(snapshot.ut) else 0.0,
+                      plan_attempts=1)
+    return entered, [
+        Action(ACTION_SET_TARGET_BODY, text=state.params.target_body),
+        _b5_transfer_plan_action(state.params),
+    ]
+
+
+def _b5_jettison_step(state: B5State, snapshot: TelemetrySnapshot,
+                      peak: float) -> Tuple[B5State, List[Action]]:
+    """One JETTISON frame: pop EXACTLY ``jettison_activations`` stages,
+    thrust-safe, then certify the result before any transfer node is planned.
+
+    THE PROBLEM THIS SOLVES (B18's measurement, on the B19 craft): MechJeb's
+    autostage fires only on EMPTY stages, and the ascent ends with the core
+    chemical stage still part-fuelled, so the craft reaches its park carrying
+    20.775 t of spent chemical hardware and with a CHEMICAL engine live. The
+    transfer stage's own engine is several stages down the list. Planning a
+    transfer against that stack would size a burn for a vehicle that is about to
+    be four times lighter, and would fly it on the wrong engine.
+
+    THE CONTRACT, in the two-step shape B-DOCK's SEPARATE established
+    (``separation_evidence`` is the SAME shared pure counter):
+
+      step 1  POP. One ACTION_ACTIVATE_STAGE per frame, at most
+              ``jettison_activations`` for the whole phase -- a HARD CAP, because
+              the pops are irreversible and the stage after the intended last one
+              sheds payload. Each pop is gated THRUST-SAFE: throttle at zero and
+              no maneuver node pending. A frame that is not thrust-safe simply
+              does not pop (the budget bounds a stall).
+      step 2  CERTIFY. ``vessel_count`` above the phase-entry baseline by
+              ``jettison_min_splits``, debounced -> the spent stack really did
+              become its own vessel; AND available thrust strictly positive,
+              debounced -> an engine is live. When
+              ``jettison_max_live_thrust`` > 0 the live thrust must ALSO be at or
+              below it, which is the "and it is the engine I meant" check: the
+              craft's engines differ by an order of magnitude, so the thrust
+              SIGNATURE identifies the stage without any part-level telemetry.
+
+    Fails CLOSED on both channels, the B-DOCK discipline verbatim:
+    ``vessel_count`` defaults 0 (unread) so an unread count never clears a
+    baseline, and ``available_thrust`` defaults NaN so an unread thrust is never
+    "lit". Bounded by ``jettison_timeout`` with a reason that distinguishes the
+    three failures a human would act on differently: never split, split but
+    nothing lit, and lit-but-too-strong (the wrong engine)."""
+    p = state.params
+    settle, thrust_streak, split_confirmed, ignited = separation_evidence(
+        snapshot.vessel_count, snapshot.available_thrust,
+        state.jettison_baseline_vessel_count + (p.jettison_min_splits - 1),
+        state.jettison_split_streak, state.jettison_thrust_streak,
+        state.jettison_split_confirmed)
+    st = replace(state, jettison_split_streak=settle,
+                 jettison_thrust_streak=thrust_streak,
+                 jettison_split_confirmed=split_confirmed)
+
+    # The live engine must be the INTENDED one, not merely some engine. Read on
+    # the same debounced thrust streak; a NaN never satisfies `ignited`, so this
+    # only ever narrows an already-positive reading.
+    thrust_ok = ignited and (p.jettison_max_live_thrust <= 0.0
+                             or snapshot.available_thrust <= p.jettison_max_live_thrust)
+
+    if st.jettison_activations_done < p.jettison_activations:
+        # Step 1: still popping. THRUST-SAFE gate -- never stage under thrust or
+        # with a node pending (the B-DOCK prox-ops rule, applied to staging).
+        thrust_safe = ((not _is_finite(snapshot.throttle) or snapshot.throttle <= 0.0)
+                       and snapshot.node_count <= 0)
+        if thrust_safe:
+            return (replace(st, jettison_activations_done=st.jettison_activations_done + 1),
+                    [Action(ACTION_ACTIVATE_STAGE)])
+        stayed = _b5_stay_or_flake(st, snapshot, peak)
+        if stayed.done:
+            reason = ("jettison: never became thrust-safe (throttle %r, nodes "
+                      "%d) so %d of %d stage pops were never issued"
+                      % (snapshot.throttle, snapshot.node_count,
+                         p.jettison_activations - st.jettison_activations_done,
+                         p.jettison_activations))
+            return replace(stayed, loss_reason=reason), []
+        return stayed, []
+
+    # All pops issued -> certify.
+    if split_confirmed and thrust_ok:
+        return _b5_enter_plan_transfer(st, snapshot, peak)
+
+    stayed = _b5_stay_or_flake(st, snapshot, peak)
+    if stayed.done:
+        if not split_confirmed:
+            why = ("no separation observed (vessel_count %d never exceeded the "
+                   "phase-entry baseline %d by %d)"
+                   % (snapshot.vessel_count, st.jettison_baseline_vessel_count,
+                      p.jettison_min_splits))
+        elif not ignited:
+            why = ("separated but nothing is lit (available_thrust %r stayed at "
+                   "or below zero after %d stage pops)"
+                   % (snapshot.available_thrust, p.jettison_activations))
+        else:
+            why = ("separated and lit, but the LIVE ENGINE IS THE WRONG ONE: "
+                   "available_thrust %r exceeds the intended stage's signature "
+                   "ceiling %.0f N -- a heavier engine is still staged"
+                   % (snapshot.available_thrust, p.jettison_max_live_thrust))
+        return replace(stayed, loss_reason="jettison: " + why), []
+    return stayed, []
+
+
 def _b5_phase_budget(params: B5Params, phase: str) -> Optional[float]:
     """The bounded game-time budget for a timed B5 phase, or None for the
     untimed PRELAUNCH / one-frame ORBIT waypoint / terminal RETURN."""
@@ -7779,6 +7951,8 @@ def _b5_phase_budget(params: B5Params, phase: str) -> Optional[float]:
         return params.ascent_timeout
     if phase == B5_CIRCULARIZE:
         return params.circularize_timeout
+    if phase == B5_JETTISON:
+        return params.jettison_timeout
     if phase in (B5_PLAN_TRANSFER, B5_PLAN_CORRECTION):
         return params.plan_timeout
     if phase in (B5_TRANSFER_BURN, B5_CORRECTION_BURN):
@@ -9562,18 +9736,26 @@ def b5_decide(state: B5State, snapshot: TelemetrySnapshot) -> Tuple[B5State, Lis
         return _b5_stay_or_flake(state, snapshot, peak), []
 
     if state.phase == B5_ORBIT:
-        # One-frame waypoint (reachedOrbit evidence): set the transfer target and
-        # ask the ManeuverPlanner for the transfer (moon Hohmann, or the B7
-        # interplanetary window plan when interplanetary_transfer), then wait
-        # for the node.
-        entered = _b5_enter(state, B5_PLAN_TRANSFER, snapshot.ut, peak)
-        entered = replace(entered,
-                          last_plan_ut=snapshot.ut if _is_finite(snapshot.ut) else 0.0,
-                          plan_attempts=1)
-        return entered, [
-            Action(ACTION_SET_TARGET_BODY, text=state.params.target_body),
-            _b5_transfer_plan_action(state.params),
-        ]
+        # One-frame waypoint (reachedOrbit evidence). Normally it hands straight
+        # to PLAN-TRANSFER; when the pre-transfer jettison is ARMED it hands to
+        # JETTISON first, so the transfer node is planned against the vehicle
+        # that will actually fly it rather than against a stack that is about to
+        # lose two thirds of its mass. CUT_THROTTLE is the thrust-safe entry: the
+        # pops must never happen under thrust.
+        if state.params.jettison_activations > 0:
+            entered = _b5_enter(state, B5_JETTISON, snapshot.ut, peak)
+            entered = replace(
+                entered,
+                jettison_baseline_vessel_count=snapshot.vessel_count,
+                jettison_activations_done=0,
+                jettison_split_streak=0,
+                jettison_thrust_streak=0,
+                jettison_split_confirmed=False)
+            return entered, [Action(ACTION_CUT_THROTTLE, value=0.0)]
+        return _b5_enter_plan_transfer(state, snapshot, peak)
+
+    if state.phase == B5_JETTISON:
+        return _b5_jettison_step(state, snapshot, peak)
 
     if state.phase == B5_PLAN_TRANSFER:
         # PAD-ALIGN window guard. What it CAN catch: the ASAP selector
