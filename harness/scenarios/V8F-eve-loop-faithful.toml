@@ -31,7 +31,8 @@
 # ARMING LEDGER:
 #   READING  2026-08-11_0853 and _0854, both PASS attempt 1 - two
 #            consecutive clean runs of the bracketed shape; the five-raise
-#            set and every ratio reproduced to four decimals; saveParse
+#            set reproduced (four of five ratios to four decimals; the fifth
+#            wobbles 1 ulp: 138.2108/138.2109); saveParse
 #            REPORT all-zero rewind facets, committedTrees 1, trees 1.
 #   ARMED    2026-08-11_0857 PASS attempt 1, wall 51 s - gating=True on
 #            both blocks, mismatches=0, all fourteen required tokens met.

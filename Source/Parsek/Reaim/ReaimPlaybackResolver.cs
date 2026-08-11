@@ -482,7 +482,9 @@ namespace Parsek.Reaim
                     $"synth failed across {candidateTofs.Count} tof candidates (recordedTof={schedule.TofSeconds.ToString("R", ic)} " +
                     $"geomTof={geomTofSeconds.ToString("R", ic)} eTarget={eTarget.ToString("F4", ic)} halfWidthFraction={halfWidthFraction.ToString("F4", ic)}) " +
                     $"({failReason}) - faithful this window");
-                // And say it at WARN, once per window, on a grep-stable token of its OWN. The line above stays
+                // And say it at WARN - once per (member, window) per CACHE GENERATION (Clear() on committed-set
+                // changes and the eviction band re-emit on rebuilds; never per-frame, misses are cached) -
+                // on a grep-stable token of its OWN. The line above stays
                 // Verbose and its text is untouched (armed lane specs pin it verbatim). Why the second line:
                 // an ENGAGED unit degrading one window to the recorded transfer is silent today, and it is the
                 // measured route into the no-continuous-encounter class (docs/dev/todo-and-known-bugs.md,

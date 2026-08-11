@@ -51,7 +51,9 @@
 #     DROPS THE DEBRIS terminalState KEYS. V8's FLIGHT-flushed save carries
 #     terminals {Orbiting 2, Destroyed 6}; this lane's TRACKSTATION-flushed
 #     save carries {Orbiting 2} with the six Destroyed keys ABSENT from the
-#     RECORDING nodes (verified on the produced-save bytes). Not gated here
+#     RECORDING nodes (byte-verified on the produced save AT HARVEST TIME;
+#     that save is since overwritten - the archived result-JSON parser
+#     record is the durable evidence). Not gated here
 #     (the armed structure block pins committedTrees/trees, which are
 #     unaffected); the finding entry owns the question.
 #

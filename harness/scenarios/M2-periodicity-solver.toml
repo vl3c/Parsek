@@ -104,7 +104,7 @@ count = { min = 0, max = 0 }
 # skipped stays 4: the new cell declares neither Scene = FLIGHT nor
 # AllowBatchExecution = false, so it survives both runner filters. Its only skip route is
 # an InGameAssert.Skip when the pinned scan band contains no retaining departure - which
-# would move passed 8 -> 7 and leave total at 12, not change skipped.
+# would move passed 8 -> 7 AND skipped 4 -> 5 (InGameTestRunner.RecordSkip sets TestStatus.Skipped; total stays 12). Either way the pinned line mismatches and the gate reds.
 #
 # The pre-flight derivation below was written from the [InGameTest] attributes and the
 # live line confirmed it token for token. This category is the one where a naive

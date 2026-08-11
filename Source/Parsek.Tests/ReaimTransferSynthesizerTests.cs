@@ -749,7 +749,7 @@ namespace Parsek.Tests
         // (loop 2) deg; and Duna's gate passes at EVERY r1 phase (nTarget ~ ecliptic => the achievable
         // plane through the fixed r1 lands within tol of the target plane), so the disposition is Fire.
         // The Retain arm is UNREACHABLE for Duna by arithmetic - which is what keeps the in-game
-        // NEVER-UNREACHABLE invariant (ReaimEndToEndInGameTest.cs:299-353) meaning what it always meant.
+        // NEVER-UNREACHABLE invariant (ReaimEndToEndInGameTest.cs:~384-417 (the Duna NEVER-UNREACHABLE invariant; anchor updated post-review)) meaning what it always meant.
         [Theory]
         [InlineData(2.36, 0.56)]     // the reported loop-1 Duna tilt
         [InlineData(5.06, 0.56)]     // the reported loop-2 Duna tilt (more than doubled across one synodic)

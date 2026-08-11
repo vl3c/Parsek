@@ -122,7 +122,7 @@ the SOI still declines exactly as today.
 - **Why Duna cannot regress:** for Duna the gate passes at every r1 phase (achievable inc ~
   target inc ~ 0.06 at all phases), so the fired-correction path is byte-identical; the changed
   branch is unreachable for Duna, and the in-game NEVER-UNREACHABLE invariant
-  (`ReaimEndToEndInGameTest.cs:299-353`) keeps guarding the .z-vs-.y frame bug unchanged (any
+  (`ReaimEndToEndInGameTest.cs:~384-417 (the Duna NEVER-UNREACHABLE invariant; anchor updated post-review)`) keeps guarding the .z-vs-.y frame bug unchanged (any
   Duna unreachable hit, retained or declined, is still the tell).
 - **Blast radius:** ~20 lines in one method + one pure decision helper + log vocabulary +
   counters. No resolver, assembler, converter, solver, or render-path change. Fail-closed
@@ -176,7 +176,7 @@ the bound barely moves and Eve still declines. Also fragile per-fixture. Rejecte
 
 ## 4. Phased implementation
 
-- **Phase 0 - pin the measurement (tests + docs only, no behavior change).** Commit E1 + E2 + E3
+- **Phase 0 - pin the measurement (tests + docs only, no behavior change). LANDED 2026-08-11** (f923c91fd + the 210bc84cf builder correction). Commit E1 + E2 + E3
   cells; update the 2026-06-15 first-raise paragraph with the settled diagnosis; this plan doc.
   Full `dotnet test` green.
 - **Phase 1 - the disposition change. LANDED 2026-08-11** (`DecideTiltDisposition` + `TiltDisposition`
@@ -214,7 +214,7 @@ the bound barely moves and Eve still declines. Also fragile per-fixture. Rejecte
     (strictly-after-departure AND within-SOI) plus fall-through to the existing proximity sweep -
     never a new decline. Full evidence, measured tables and guard inventory:
     `docs/dev/todo-and-known-bugs.md` -> SYNTH-SOI-ENTRY-FASTPATH-LAUNCH-TRANSITION.
-- **Phase 3 - V8/V8T re-pin choreography (reading -> armed -> negative control).** The fix reds
+- **Phase 3 - V8/V8T re-pin choreography (reading -> armed -> negative control). LANDED 2026-08-11** (86eb484c2; V8 _1242 baseline red by design -> _1244/_1245 readings -> _1246 control; V8T _1247 -> _1252/_1253; V8F _1250 byte-identical). The fix reds
   V8 BY DESIGN. V8 READING: trio to report-only, two consecutive clean runs, read the new tokens
   (`re-aimed transfer ready`, `state=retained reason=unreachable-plane`,
   `seam-endpoint summary evaluated=[1-9]` with `outsideSoi=0`); ARM those + FORBID
@@ -223,7 +223,7 @@ the bound barely moves and Eve still declines. Also fragile per-fixture. Rejecte
   reading -> re-pin. V8F: NO spec change (forced faithful bypasses the synth at
   `MissionLoopUnitBuilder.cs:627`); one confirm flight - any V8F drift = the change leaked past
   the knob -> stop.
-- **Phase 4 - Duna-lane sweep + full suite.** Full `dotnet test`; fly V2/V4/V5/V6M/V6T/V7M; any
+- **Phase 4 - Duna-lane sweep + full suite. LANDED 2026-08-11** (all six lanes PASS attempt 1; dotnet test 19,923/0). Full `dotnet test`; fly V2/V4/V5/V6M/V6T/V7M; any
   Duna red is stop-and-revert.
 - **Phase 5 (optional, separate PR) - census `maxRatio`.** Deferred: a sampler edit invalidates
   every census-pinned lane (2026-08-09 precedent).

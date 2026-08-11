@@ -78,7 +78,7 @@ namespace Parsek.Reaim
         // invariant built on it does not silently change what it measures. The name is deliberately NOT
         // changed: it is the PRECISE tell of the .z-vs-.y world-frame bug (incAch ~90 deg => gate fails =>
         // Duna's transfer is not re-pinned onto Duna's plane), and the in-game Duna NEVER-UNREACHABLE
-        // invariant (ReaimEndToEndInGameTest.cs:299-353) relies on it staying ZERO for Duna - a Duna hit is
+        // invariant (ReaimEndToEndInGameTest.cs:~384-417 (the Duna NEVER-UNREACHABLE invariant; anchor updated post-review)) relies on it staying ZERO for Duna - a Duna hit is
         // still the regression tell whether it retains or declines.
         internal static long FiredCorrectionCount;
         internal static long DeclinedCorrectionCount;
@@ -545,7 +545,10 @@ namespace Parsek.Reaim
 
             // Gate inputs (two live orbit evaluations) are only computed - and only meaningful - on the
             // excessive branch; DecideTiltDisposition returns Noop regardless of the flag when the tilt is not
-            // excessive. The degenerate-target plane stays a DECLINE (an unusable target normal is not a
+            // excessive. NOTE the unsafe-gate arm covers "plane unreachable OR incAch uncomputable (NaN)":
+            // a NaN incAch (r-hat parallel to the target normal / degenerate r1 - geometrically
+            // unreachable past the upstream sane guard) now RETAINS rather than declines, and the
+            // encounter check arbitrates. The degenerate-target plane stays a DECLINE (an unusable target normal is not a
             // "cannot reach the plane" verdict; there is no plane to reach).
             Vector3d nTarget = Vector3d.zero;
             double incAch = double.NaN;
