@@ -1280,23 +1280,128 @@ Open items, highest leverage first:
   `:3354`/`:3367` with ZERO production call sites (only
   `RuntimePolicyTests.cs:210,219,228,230`). Worst on Waterfall installs, whose
   premise is a throttle-continuous plume.
-- **Five dead reflection probes**, four of them documented as shipped at
-  `done/next-parts-event-support-priority.md:43-47`. `module.Fields` is
-  `[KSPField]`-only (`FlightRecorder.cs:3733-3748`); `ModuleControlSurface`'s
-  real field is `deploy` and the table lists `deployed`; the piston probe latches
-  `traverseVelocity`, a `[KSPAxisField]` SPEED SLIDER that resolves and is
-  constant during a stroke, shadowing the working `servoTransformPosition`
-  fallback; `ModuleAnimateHeat`'s live scalars are plain public fields whose
-  accessor is the `IScalarModule.GetScalar` property - ONE cast lights up the
-  complete already-built Hot/Medium/Cold playback path
-  (`GhostPlaybackLogic.cs:3693-3770`).
-- **Recorder cache and rails holes.** `cachedEngines` is assigned only in
-  `ResetPartEventTrackingState` (sole caller `StartRecording`) and
-  `CheckEngineState` guards only `part == null`, so a staged-away booster that
-  keeps burning writes into the PARENT recording. The background rails
-  transition ERASES state instead of deferring: `BackgroundRecorder.cs:2316-2336`
-  drops `loadedStates` with no terminal emit, so a BG ghost's plume latches on
-  for the whole rails span.
+- ~~FIXED 2026-08-11 (S5)~~ **Dead reflection probes**, documented as shipped at
+  `done/next-parts-event-support-priority.md` (that section is now corrected in
+  place, per-bullet, with the decompiled reason). `module.Fields` is
+  `[KSPField]`-only, so a plain public field is invisible however obvious its
+  name. Four real fixes and one audit correction:
+  - `ModuleControlSurface` / `ModuleAeroSurface`: the real field is `deploy`
+    (`[KSPField(isPersistant)]`), added at the HEAD of
+    `AeroSurfaceDeployedFieldNames`. `deployAngle` / `aeroDeployAngle` are a
+    separate VETO table, not deflection candidates - they are `[KSPAxisField]`
+    tweakables that `OnStart` resolves from `NaN` to `ctrlSurfaceRange`, so
+    treating them as "non-zero means deployed" would have classified every
+    control surface in the game as permanently out. `aeroDeployAngle` leads
+    because an airbrake carries BOTH and deactivates the inherited one.
+  - `ModuleAnimateHeat`: not fixable by names. New non-name-keyed
+    `IModuleFieldValues.TryGetScalarModuleScalar` → one `as IScalarModule` cast
+    (`ModuleAnimationSetter.GetScalar => inputState`), consulted BEFORE the name
+    table. Lights up the complete already-built Hot/Medium/Cold recorder +
+    playback path.
+  - `ModuleRoboticServoPiston`: `currentExtension` + `targetExtension` prepended;
+    `traverseVelocity` (a `[KSPAxisField]` SPEED slider, constant during a
+    stroke) and `targetPosition` (`private float`, never reachable) removed. Note
+    the DELIBERATE divergence from the snapshot-side ghost baseline, which reads
+    `targetExtension`: only that one is `isPersistant`, so it is the only one a
+    saved craft carries, while only `currentExtension` sweeps live.
+  - `ModuleWheelSuspension`: `suspensionOffset` (a config constant applied once to
+    the wheel collider) dropped so the live `suspensionPos` vector fallback wins.
+  - `ModuleRobotArmScanner`: **the audit claim was wrong; nothing changed.** It
+    derives from `ModuleDeployablePart`, whose `[KSPEvent] Extend()`/`Retract()`
+    the scanner actively toggles, so the probe's event-activity stage resolves.
+    Its `ArmDeployState` is behind a `new` property over a private unattributed
+    `_deployState` (unreachable by name) AND redundant - that setter mirrors every
+    arm state onto the base `deployState` that `CheckDeployableState` polls, so an
+    accessor would emit a duplicate `DeployableExtended` under a second key.
+- **Recorder cache and rails holes.**
+  - ~~FIXED 2026-08-11 (M5)~~ **Cached engine/RCS/robotic modules were polled
+    without a vessel-identity check.** `cachedEngines` was assigned only in
+    `ResetPartEventTrackingState` (sole caller `StartRecording`) and
+    `CheckEngineState` guarded only `part == null`, so a staged-away booster that
+    kept burning wrote into the PARENT recording. Fix: the pure
+    `FlightRecorder.DecideCachedModulePoll` gates every per-frame read on
+    `ReferenceEquals(part.vessel, recordedVessel)` - a LIVE object comparison, not
+    a pid or guid one, so the craft-baked-pid identity rule does not apply - across
+    the foreground engine/RCS/robotic polls AND their background mirrors in
+    `BackgroundRecorder.PartEventPolling.cs`. `FlightRecorder.OnVesselWasModified`,
+    wired from the already-subscribed `ParsekFlight.OnVesselWasModified`, rebuilds
+    the three cache LISTS, which also closes the inverse hole: a welded-on
+    EVA-construction engine or a newly docked module was absent from a cache built
+    at `StartRecording` and emitted nothing at all for the rest of the flight.
+    **Rebuild is FOREGROUND-ONLY, deliberately.** `BackgroundRecorder` assigns its
+    per-vessel caches once in `InitializeLoadedState` and has no
+    `onVesselWasModified` hook, so a module ARRIVING on a BG-loaded vessel still
+    records nothing until that vessel next re-enters loaded state. Accepted, not
+    overlooked: the BG half of the ownership guard stops the POLLING direction (a
+    departed part writing into the wrong recording), and the missing direction
+    needs a per-BG-vessel subscription whose cost scales with the background
+    fleet. The M5b re-review sharpened the residual: the D1 key-rot shape itself
+    also survives on the BG side - a BG-loaded vessel that sheds a burning part
+    with NO detected split keeps the departed key in
+    `loadedState.activeEngineKeys` (guard skips polls, no prune hook), and
+    `EmitBackgroundRailsTerminalEvents` writes a stale `EngineShutdown` for that
+    pid at the next rails transition. Bounded differently from the FG case:
+    DETECTED sheds route through `CloseParentRecording`, which discards the
+    parent's `loadedState` so the stale key dies unemitted; the residual
+    manifests only for undetected sheds, and becomes a genuine tail artifact
+    only when the vessel then stays on rails until commit.
+  - ~~FIXED 2026-08-11 (M5b)~~ **Departed-part keys rotted in the tracking sets.**
+    The M5 guard makes a departed booster's burnout UNOBSERVABLE, so its key never
+    left `activeEngineKeys` - and the terminal emit
+    (`EmitTerminalEventsAndClearActiveState` at the rails transition,
+    `FinalizeRecordingState` at stop) walks the ACTIVE sets, writing an
+    EngineShutdown / RCSStopped into the PARENT recording for a pid that left
+    minutes earlier. It landed at the TAIL, where
+    `RecordingOptimizer.IsInertPartEventForTailTrim` counts EngineShutdown as
+    interesting, so the #263 boring-tail trim was defeated. Fix: the pure
+    `FlightRecorder.PruneDepartedTrackingKeys`, called from `OnVesselWasModified`
+    (which the `ContinueOnEva` rebuild also routes through), silently drops keys
+    for departed pids across all eight cache-fed collections - `activeEngineKeys` /
+    `lastThrottle` / `allEngineKeys`, `activeRcsKeys` / `lastRcsThrottle` /
+    `rcsActiveFrameCount`, `activeRoboticKeys` / `lastRoboticPosition` /
+    `lastRoboticSampleUT`. No synthetic event: the Decoupled event already hides
+    the subtree and the child recording owns the burn. Two subtleties. (1)
+    Survival is measured against `Vessel.parts` UNIONED with the rebuilt caches,
+    not the caches alone, so a part whose module list momentarily reads empty (the
+    dock/undock shuffle window) is not pruned into losing a continuing burn; an
+    all-empty read prunes nothing at all (`CanPruneAgainstSurvivingPids`). (2)
+    Engine/RCS state is MOVED to `DepartedEngineThrottles` /
+    `DepartedRcsThrottles`, not dropped: `InheritedEngineState.FromRecorder` (the
+    #298 parent-to-child snapshot) is taken from `ProcessBreakupEvent`, a whole
+    crash-coalescer window AFTER `onVesselWasModified` fires, so an unconditional
+    prune would delete "the booster was at full throttle when it came off" before
+    the child debris recording could inherit it. `MergeInheritedEngineState`
+    filters by the child's own part pids, so a carry-over entry only ever reaches
+    the child that holds that part; an entry is dropped the moment its pid returns.
+  - ~~FIXED 2026-08-11 (M6)~~ **The background rails transition ERASED state
+    instead of deferring it.** `OnBackgroundVesselGoOnRails` dropped `loadedStates`
+    with no terminal emit (BG ghost's plume latched on for the whole rails span),
+    and on re-entry `SeedBackgroundPartStates` re-synced every tracking set to live
+    truth while `TrySeedLoadedPartEvents` declined to write (`PartEvents.Count > 0`),
+    so a change during the warp was erased rather than deferred. Fix, two halves:
+    `EmitBackgroundRailsTerminalEvents` runs the same
+    `FlightRecorder.EmitTerminalEngineAndRcsEvents` the foreground already ran at
+    ITS rails transition (a vessel that packs with nothing running still emits
+    nothing, so a parked rover's boring tail is not extended), and
+    `CaptureRailsSpanPartStates` deep-copies the now-quiet tracking sets into
+    `railsSpanPartStates`. On re-entry `TryEmitRailsSpanDiff` feeds them to the pure
+    `PartStateSeeder.EmitDiffEvents` (all 17 families - six pid-keyed boolean sets,
+    blinking lights, parachutes, six module-keyed deployable sets, thermal, engines,
+    RCS; one-way shroud/fairing emit on ARRIVAL only; parachutes route through the
+    shared 4-state `ClassifyParachuteTransitionEvent`; `EngineThrottle` quantises on
+    the shared `FlightRecorder.EngineThrottleDeadband`). Snapshot is consumed once
+    and dropped at every BG teardown site - `OnBackgroundVesselWillDestroy` was
+    missing its drop and got one, since `persistentId` is craft-baked and an orphan
+    would be handed to the next launch of the same craft. Both invariants are now
+    drift-proofed by reflection/source sweeps rather than hand-enumerated lists:
+    `PartTrackingSetsFieldSweepTests` asserts the deep clone copies every field to a
+    distinct instance and the reconciler is SENSITIVE to every field (explicit
+    exempt-list with reasons; `allEngineKeys` is the only entry), and
+    `RailsSpanSnapshotTeardownGateTests` asserts every `loadedStates.Remove` method
+    also drops `railsSpanPartStates` (sole exemption: the go-on-rails capture site).
+    The `FlushLoadedStateForOnRailsTransitionForTesting` seam now runs the terminal
+    emit and the snapshot capture too, so injected fixtures exercise the product
+    transition rather than the pre-M6 one.
 - **Continuous motion to SYNTHESIZE, never sample:** gimbal (`ModuleGimbal`, 243
   stock parts, ZERO Parsek references) and control-surface deflection from the
   recorded `srfRelRotation` derivative; wheel steering from heading change; sun

@@ -9,7 +9,7 @@ namespace Parsek
     /// part state. Eliminates duplication between FlightRecorder.SeedExistingPartStates
     /// and BackgroundRecorder.SeedBackgroundPartStates.
     /// </summary>
-    internal static class PartStateSeeder
+    internal static partial class PartStateSeeder
     {
         /// <summary>
         /// Pre-populates all part-event tracking sets with the current state of

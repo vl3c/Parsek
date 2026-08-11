@@ -22,22 +22,39 @@ namespace Parsek
         /// Creates a snapshot from a FlightRecorder's active engine/RCS state.
         /// Returns null if no engines or RCS are active. Defensively copies all
         /// collections (the recorder's fields are live mutable references).
+        ///
+        /// <para>
+        /// The departed-part carry-over is unioned in. This snapshot is taken from
+        /// <c>ParsekFlight.ProcessBreakupEvent</c>, which runs a whole crash-coalescer window AFTER
+        /// the split — by then <c>FlightRecorder.OnVesselWasModified</c> has already pruned the
+        /// separated stack's keys out of the ACTIVE sets (so they cannot rot into a stale terminal
+        /// EngineShutdown on the parent). Without the union, the child debris recording would lose
+        /// the one fact #298 exists to carry: the booster was at full throttle when it came off.
+        /// <c>MergeInheritedEngineState</c> filters the result by the child's own part pids, so a
+        /// carry-over key can only ever reach the child that actually holds that part.
+        /// </para>
         /// </summary>
         internal static InheritedEngineState? FromRecorder(FlightRecorder rec)
         {
             if (rec == null) return null;
-            bool hasEngines = rec.ActiveEngineKeys != null && rec.ActiveEngineKeys.Count > 0;
-            bool hasRcs = rec.ActiveRcsKeys != null && rec.ActiveRcsKeys.Count > 0;
-            if (!hasEngines && !hasRcs) return null;
+
+            HashSet<ulong> engineKeys, rcsKeys;
+            Dictionary<ulong, float> engineThrottles, rcsThrottles;
+            FlightRecorder.UnionDepartedIntoInheritedState(
+                rec.ActiveEngineKeys, rec.LastEngineThrottles, rec.DepartedEngineThrottles,
+                out engineKeys, out engineThrottles);
+            FlightRecorder.UnionDepartedIntoInheritedState(
+                rec.ActiveRcsKeys, rec.LastRcsThrottles, rec.DepartedRcsThrottles,
+                out rcsKeys, out rcsThrottles);
+
+            if (engineKeys == null && rcsKeys == null) return null;
 
             return new InheritedEngineState
             {
-                activeEngineKeys = hasEngines ? new HashSet<ulong>(rec.ActiveEngineKeys) : null,
-                engineThrottles = hasEngines && rec.LastEngineThrottles != null
-                    ? new Dictionary<ulong, float>(rec.LastEngineThrottles) : null,
-                activeRcsKeys = hasRcs ? new HashSet<ulong>(rec.ActiveRcsKeys) : null,
-                rcsThrottles = hasRcs && rec.LastRcsThrottles != null
-                    ? new Dictionary<ulong, float>(rec.LastRcsThrottles) : null
+                activeEngineKeys = engineKeys,
+                engineThrottles = engineThrottles,
+                activeRcsKeys = rcsKeys,
+                rcsThrottles = rcsThrottles
             };
         }
 
@@ -74,6 +91,24 @@ namespace Parsek
         // Per-vessel on-rails tracking
         private Dictionary<uint, BackgroundOnRailsState> onRailsStates
             = new Dictionary<uint, BackgroundOnRailsState>();
+
+        /// <summary>
+        /// M6: the part-tracking state a BG vessel carried into its rails span, snapshotted (as a
+        /// DEEP copy — the originals die with <c>loadedStates</c>) at the loaded→on-rails
+        /// transition, after the terminal engine/RCS/robotic events were emitted. Consumed once by
+        /// the matching off-rails re-entry, which diffs the freshly seeded live state against it so
+        /// a change that happened across the warp is RECORDED rather than silently re-synced.
+        /// Bounded by the number of BG members; dropped on consume and at every BG teardown site.
+        ///
+        /// <para>
+        /// Deliberately NOT serialized. A save/load or scene change tears this recorder down and
+        /// rebuilds it, so a span that straddles one finds no snapshot and degrades to the old
+        /// skip-the-seed behaviour — a missed reconcile, never a wrong one. Persisting it would put
+        /// a second copy of every tracking set in the `.sfs` to buy back one edge case.
+        /// </para>
+        /// </summary>
+        private Dictionary<uint, PartTrackingSets> railsSpanPartStates
+            = new Dictionary<uint, PartTrackingSets>();
 
         /// <summary>
         /// True when this recorder is tracking any LOADED (physics-bubble)
@@ -932,6 +967,7 @@ namespace Parsek
             tree.BackgroundMap.Remove(parentPid);
             onRailsStates.Remove(parentPid);
             loadedStates.Remove(parentPid);
+            railsSpanPartStates.Remove(parentPid);
             debrisTTLExpiry.Remove(parentPid);
             finalizationCaches.Remove(parentPid);
         }
@@ -2176,6 +2212,7 @@ namespace Parsek
             }
             onRailsStates.Remove(vesselPid);
             loadedStates.Remove(vesselPid);
+            railsSpanPartStates.Remove(vesselPid);
 
             // Look up the vessel
             Vessel v = FlightRecorder.FindVesselByPid(vesselPid);
@@ -2269,6 +2306,7 @@ namespace Parsek
             pendingInitialEnvironmentOverrides.Remove(vesselPid);
             pendingInitialTrajectoryPoints.Remove(vesselPid);
             pendingDebrisSeedParentAnchorPoints.Remove(vesselPid);
+            railsSpanPartStates.Remove(vesselPid);
             finalizationCaches.Remove(vesselPid);
             ParsekLog.Info("BgRecorder", $"Vessel removed from background: pid={vesselPid}");
         }
@@ -2331,6 +2369,16 @@ namespace Parsek
                         ut);
                 }
 
+                // M6: the foreground recorder emits terminal EngineShutdown / RCSStopped /
+                // RoboticMotionStopped at its own rails transition
+                // (FlightRecorder.EmitTerminalEventsAndClearActiveState). The background half did
+                // trajectory work and then dropped loadedStates outright, so a BG ghost that packed
+                // mid-burn kept its plume lit for the entire rails span. Emit the same terminals,
+                // then snapshot the (now engine-quiet) tracking state so the off-rails re-entry can
+                // diff against it instead of silently re-syncing.
+                EmitBackgroundRailsTerminalEvents(loadedState, ut);
+                CaptureRailsSpanPartStates(pid, loadedState);
+
                 loadedStates.Remove(pid);
                 ParsekLog.Info("BgRecorder", $"Mode transition loaded→on-rails: pid={pid}");
             }
@@ -2365,6 +2413,73 @@ namespace Parsek
             InitializeOnRailsState(v, pid, recordingId);
             RefreshFinalizationCacheForVessel(v, recordingId, FinalizationCacheOwner.BackgroundOnRails,
                 "background_go_on_rails", force: true);
+        }
+
+        /// <summary>
+        /// M6 half one: emits the terminal EngineShutdown / RCSStopped / RoboticMotionStopped events
+        /// a BG vessel owes its recording when it packs onto rails, then clears the corresponding
+        /// active-state tracking so the snapshot taken immediately afterwards agrees with what the
+        /// recording now says.
+        ///
+        /// <para>
+        /// This is the exact counterpart of <c>FlightRecorder.EmitTerminalEventsAndClearActiveState</c>,
+        /// which the foreground recorder has always run at its own on-rails transition. Without it a
+        /// BG ghost that packed mid-burn replayed with its plume lit for the whole rails span,
+        /// because nothing ever told the recording the burn ended.
+        /// </para>
+        /// <para>
+        /// A vessel that packs with nothing running emits nothing at all, so a parked rover's
+        /// boring tail is not extended: <c>EmitTerminalEngineAndRcsEvents</c> iterates the ACTIVE
+        /// sets, and EngineShutdown is non-inert for <c>FindLastInterestingUT</c> only when one is
+        /// actually written.
+        /// </para>
+        /// </summary>
+        private void EmitBackgroundRailsTerminalEvents(BackgroundVesselState loadedState, double ut)
+        {
+            if (loadedState == null) return;
+
+            Recording rec;
+            if (tree?.Recordings == null
+                || string.IsNullOrEmpty(loadedState.recordingId)
+                || !tree.Recordings.TryGetValue(loadedState.recordingId, out rec)
+                || rec == null)
+                return;
+
+            var terminalEvents = FlightRecorder.EmitTerminalEngineAndRcsEvents(
+                loadedState.activeEngineKeys, loadedState.activeRcsKeys, loadedState.activeRoboticKeys,
+                loadedState.lastRoboticPosition, ut, "BgRecorder");
+
+            if (terminalEvents.Count > 0)
+            {
+                rec.PartEvents.AddRange(terminalEvents);
+                rec.MarkFilesDirty();
+                ParsekLog.Info("BgRecorder",
+                    $"Emitted {terminalEvents.Count} terminal FX event(s) at bg on-rails transition " +
+                    $"(pid={loadedState.vesselPid} rec={loadedState.recordingId} " +
+                    $"UT={ut.ToString("F1", CultureInfo.InvariantCulture)})");
+            }
+
+            loadedState.activeEngineKeys.Clear();
+            loadedState.activeRcsKeys.Clear();
+            loadedState.activeRoboticKeys.Clear();
+            loadedState.lastThrottle.Clear();
+            loadedState.lastRcsThrottle.Clear();
+            loadedState.lastRoboticPosition.Clear();
+            loadedState.rcsActiveFrameCount.Clear();
+        }
+
+        /// <summary>
+        /// M6 half two (capture side): deep-copies the loaded state's part-tracking sets so the
+        /// off-rails re-entry can diff against what the recording believes, rather than declining to
+        /// write anything because the recording already has events.
+        /// </summary>
+        private void CaptureRailsSpanPartStates(uint pid, BackgroundVesselState loadedState)
+        {
+            if (loadedState == null) return;
+            railsSpanPartStates[pid] = PartStateSeeder.ClonePartTrackingSets(
+                BuildPartTrackingSetsFromState(loadedState));
+            ParsekLog.Verbose("BgRecorder",
+                $"Captured rails-span part state for pid={pid} rec={loadedState.recordingId}");
         }
 
         /// <summary>
@@ -2425,6 +2540,7 @@ namespace Parsek
             tree.BackgroundMap.Remove(pid);
             onRailsStates.Remove(pid);
             loadedStates.Remove(pid);
+            railsSpanPartStates.Remove(pid);
             finalizationCaches.Remove(pid);
             // Drain the deferred-split detection dicts keyed on this parent pid so
             // ProcessPendingSplitChecks → HandleBackgroundVesselSplit cannot fire
@@ -2630,6 +2746,11 @@ namespace Parsek
 
             pendingInitialEnvironmentOverrides.Remove(pid);
             pendingInitialTrajectoryPoints.Remove(pid);
+            // The rails-span snapshot dies with the vessel. It is keyed on the vessel pid, and
+            // persistentId is craft-baked rather than launch-unique — a later launch of the SAME
+            // craft reuses the pid verbatim, so an orphan left here would be handed to that launch's
+            // first off-rails re-entry and diffed as though it were the same continuous flight.
+            railsSpanPartStates.Remove(pid);
             // Keep the finalization cache until DeferredDestructionCheck confirms
             // whether this was true destruction or a false unload signal.
         }
@@ -4050,12 +4171,25 @@ namespace Parsek
             }
             else if (treeRecForSeed.PartEvents.Count > 0)
             {
-                ParsekLog.Verbose("BgRecorder",
-                    $"InitializeLoadedState: skipping seed events for pid={vesselPid} recId={recordingId} " +
-                    $"— recording already has {treeRecForSeed.PartEvents.Count} part event(s)");
+                // M6 half two (consume side). A recording that already has events used to mean
+                // "seeding would poison FindLastInterestingUT, write nothing" — which was right for
+                // the seed, and wrong for a rails round trip: SeedBackgroundPartStates had just
+                // re-synced every tracking set to live truth, so any change that happened across
+                // the warp was ERASED rather than deferred. If this vessel packed onto rails and is
+                // now unpacking, reconcile against the state it carried in.
+                if (!TryEmitRailsSpanDiff(v, vesselPid, recordingId, state, treeRecForSeed))
+                {
+                    ParsekLog.Verbose("BgRecorder",
+                        $"InitializeLoadedState: skipping seed events for pid={vesselPid} recId={recordingId} " +
+                        $"— recording already has {treeRecForSeed.PartEvents.Count} part event(s)");
+                }
             }
             else
             {
+                // A full seed supersedes any stale rails-span snapshot: an empty PartEvents list
+                // means this is not the same continuous recording the snapshot was taken against.
+                railsSpanPartStates.Remove(vesselPid);
+
                 var partNamesByPid = new Dictionary<uint, string>();
                 if (v.parts != null)
                 {
@@ -4081,6 +4215,54 @@ namespace Parsek
             }
 
             return hasTreeRecording;
+        }
+
+        /// <summary>
+        /// M6 half two: reconciles a re-entering BG vessel's freshly seeded tracking state against
+        /// the snapshot taken when it packed onto rails, appending only the events that actually
+        /// changed across the span. Returns false (writing nothing) when no rails-span snapshot is
+        /// pending for this pid, which is every path other than a loaded→rails→loaded round trip.
+        ///
+        /// <para>
+        /// The snapshot is consumed either way: a stale one must not survive to be diffed against a
+        /// later, unrelated re-entry.
+        /// </para>
+        /// </summary>
+        private bool TryEmitRailsSpanDiff(
+            Vessel v, uint vesselPid, string recordingId,
+            BackgroundVesselState state, Recording treeRec)
+        {
+            PartTrackingSets preRails;
+            if (!railsSpanPartStates.TryGetValue(vesselPid, out preRails) || preRails == null)
+                return false;
+
+            railsSpanPartStates.Remove(vesselPid);
+
+            var partNamesByPid = new Dictionary<uint, string>();
+            if (v?.parts != null)
+            {
+                for (int i = 0; i < v.parts.Count; i++)
+                {
+                    Part p = v.parts[i];
+                    if (p != null && !partNamesByPid.ContainsKey(p.persistentId))
+                        partNamesByPid[p.persistentId] = p.partInfo?.name ?? "unknown";
+                }
+            }
+
+            double diffUT = Planetarium.GetUniversalTime();
+            var diffEvents = PartStateSeeder.EmitDiffEvents(
+                preRails, BuildPartTrackingSetsFromState(state), partNamesByPid, diffUT, "BgRecorder");
+
+            if (diffEvents.Count > 0)
+            {
+                treeRec.PartEvents.AddRange(diffEvents);
+                treeRec.MarkFilesDirty();
+            }
+
+            ParsekLog.Info("BgRecorder",
+                $"Rails-span reconcile for pid={vesselPid} rec={recordingId}: " +
+                $"{diffEvents.Count} event(s) at UT={diffUT.ToString("F1", CultureInfo.InvariantCulture)}");
+            return true;
         }
 
         /// <summary>

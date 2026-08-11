@@ -132,6 +132,13 @@ namespace Parsek
         private HashSet<ulong> deployedRobotArmScannerModules = new HashSet<ulong>();
         private Dictionary<ulong, HeatLevel> animateHeatLevels = new Dictionary<ulong, HeatLevel>();
 
+        /// <summary>
+        /// Minimum change in recorded engine power that emits an <see cref="PartEventType.EngineThrottle"/>.
+        /// Shared by the per-frame transition check and the background rails-span diff so both
+        /// halves quantise the same way.
+        /// </summary>
+        internal const float EngineThrottleDeadband = 0.05f;
+
         // Engine state tracking (key = EncodeEngineKey(pid, moduleIndex))
         private List<(Part part, ModuleEngines engine, int moduleIndex)> cachedEngines;
         private HashSet<ulong> activeEngineKeys;
@@ -148,6 +155,32 @@ namespace Parsek
         internal HashSet<ulong> ActiveRcsKeys => activeRcsKeys;
         internal Dictionary<ulong, float> LastRcsThrottles => lastRcsThrottle;
 
+        /// <summary>
+        /// Last observed throttle for engine / RCS modules whose part LEFT the recorded vessel,
+        /// moved here by <see cref="OnVesselWasModified"/>'s departed-key prune.
+        ///
+        /// <para>
+        /// Read by exactly one consumer: <c>InheritedEngineState.FromRecorder</c>, the #298
+        /// parent-to-child breakup snapshot. That snapshot is taken from
+        /// <c>ParsekFlight.ProcessBreakupEvent</c>, which runs a whole crash-coalescer window AFTER
+        /// <c>onVesselWasModified</c> has already fired for the split — so without this carry-over a
+        /// prune would delete the "the booster was at full throttle when it came off" fact before
+        /// the child debris recording could inherit it. Nothing polls these, and the terminal emit
+        /// deliberately does not see them: that is the whole point of the prune.
+        /// </para>
+        /// <para>
+        /// Lifetime matches <see cref="ActiveEngineKeys"/>: cleared only by
+        /// <c>ResetPartEventTrackingState</c> (a new recording), never by
+        /// <c>FinalizeRecordingState</c>, so a chain-boundary stop keeps it. Bounded by the number of
+        /// engine/RCS modules that leave the vessel during one recording, and an entry is dropped
+        /// the moment its pid comes back.
+        /// </para>
+        /// </summary>
+        private readonly Dictionary<ulong, float> departedEngineThrottles = new Dictionary<ulong, float>();
+        private readonly Dictionary<ulong, float> departedRcsThrottles = new Dictionary<ulong, float>();
+        internal Dictionary<ulong, float> DepartedEngineThrottles => departedEngineThrottles;
+        internal Dictionary<ulong, float> DepartedRcsThrottles => departedRcsThrottles;
+
         // RCS state tracking (separate dicts from engines — keys can overlap for same part)
         private List<(Part part, ModuleRCS rcs, int moduleIndex)> cachedRcsModules;
         private HashSet<ulong> activeRcsKeys;
@@ -162,6 +195,10 @@ namespace Parsek
         private Dictionary<ulong, float> lastRoboticPosition;
         private Dictionary<ulong, double> lastRoboticSampleUT;
         private HashSet<ulong> loggedRoboticModuleKeys;
+        /// <summary>One-shot log guard for the cached-module ownership guard (M5): a cached engine /
+        /// RCS / robotic entry whose part has left the recorded vessel is reported once per key,
+        /// not once per physics frame.</summary>
+        private HashSet<ulong> loggedForeignCachedModuleKeys = new HashSet<ulong>();
         private HashSet<ulong> loggedLadderClassificationMisses = new HashSet<ulong>();
         private HashSet<ulong> loggedAnimationGroupClassificationMisses = new HashSet<ulong>();
         private HashSet<ulong> loggedAnimateGenericClassificationMisses = new HashSet<ulong>();
@@ -3431,7 +3468,7 @@ namespace Parsek
                     lastT = 0f;
 
                 float delta = throttle - lastT;
-                if (delta > 0.05f || delta < -0.05f)
+                if (delta > EngineThrottleDeadband || delta < -EngineThrottleDeadband)
                 {
                     lastThrottleMap[key] = throttle;
                     events.Add(new PartEvent
@@ -3447,6 +3484,181 @@ namespace Parsek
             }
         }
 
+        /// <summary>
+        /// Live half of the cached-module ownership guard: reads the four observable booleans off
+        /// the KSP objects and hands them to the pure
+        /// <see cref="DecideCachedModulePoll(bool, bool, bool, bool)"/> core.
+        ///
+        /// <para>
+        /// <c>ReferenceEquals</c> is deliberate. Unity's overloaded <c>==</c> on
+        /// <c>UnityEngine.Object</c> treats a destroyed-but-not-collected vessel as equal to
+        /// <c>null</c>, which would make a destroyed recorded vessel compare equal to a destroyed
+        /// foreign one. Identity here is instance identity, nothing more; the
+        /// <paramref name="part"/>/<paramref name="module"/> null checks use Unity's operator
+        /// because there "destroyed" genuinely means "nothing to read".
+        /// </para>
+        /// </summary>
+        internal static CachedModulePollDecision DecideCachedModulePoll(
+            Part part, PartModule module, Vessel recordedVessel)
+        {
+            bool hasPart = part != null;
+            Vessel partVessel = hasPart ? part.vessel : null;
+            return DecideCachedModulePoll(
+                hasPart,
+                module != null,
+                hasPart && partVessel != null,
+                hasPart && ReferenceEquals(partVessel, recordedVessel));
+        }
+
+        /// <summary>
+        /// Logs (once per cached key) that a cached module entry was skipped because its part no
+        /// longer belongs to the recorded vessel. Returns true when the entry should be polled.
+        /// </summary>
+        private bool ShouldPollCachedModule(
+            Part part, PartModule module, Vessel recordedVessel, ulong key, string family)
+        {
+            var decision = DecideCachedModulePoll(part, module, recordedVessel);
+            if (decision == CachedModulePollDecision.Poll)
+                return true;
+
+            if (decision == CachedModulePollDecision.SkipForeignVessel
+                && loggedForeignCachedModuleKeys.Add(key))
+            {
+                uint pid; int midx;
+                DecodeEngineKey(key, out pid, out midx);
+                ParsekLog.Info("Recorder",
+                    $"Cached {family} module dropped from poll: pid={pid} midx={midx} " +
+                    $"'{part?.partInfo?.name ?? "unknown"}' is no longer on the recorded vessel " +
+                    $"(recordedPid={recordedVessel?.persistentId ?? 0}) — events for it would have " +
+                    $"landed in this recording");
+            }
+
+            return false;
+        }
+
+        /// <summary>
+        /// Rebuilds the engine / RCS / robotic module caches from the live part list after KSP
+        /// reports the recorded vessel's structure changed (staging, decouple, undock, dock,
+        /// EVA-construction weld), then prunes the tracking-set keys belonging to parts that left.
+        /// Keys for parts that STAYED are untouched, so an engine that was burning before the change
+        /// is still known to be burning and no spurious transition is emitted.
+        ///
+        /// <para>
+        /// Three defects this closes. (1) Parts that left keep live <c>PartModule</c> references in
+        /// the cache; the per-poll ownership guard already refuses to read them, and this drops
+        /// them entirely so the guard has nothing to do. (2) Parts that ARRIVED (an EVA-construction
+        /// welded-on engine, a docked-on tug's RCS) were absent from a cache built at
+        /// <c>StartRecording</c> and therefore emitted nothing at all for the rest of the flight.
+        /// (3) Because the guard makes a departed booster's burnout unobservable, its key never left
+        /// <c>activeEngineKeys</c> — so the terminal emit at the rails transition or at stop wrote an
+        /// EngineShutdown into the PARENT recording for a pid that departed minutes earlier, landing
+        /// at the TAIL where <c>RecordingOptimizer.IsInertPartEventForTailTrim</c> counts it as
+        /// interesting and the #263 boring-tail trim is defeated.
+        /// </para>
+        /// <para>
+        /// The prune is silent — no synthetic event for a departed pid. See
+        /// <see cref="PruneDepartedTrackingKeys"/> for why it measures survival against
+        /// <c>Vessel.parts</c> as well as the rebuilt caches, and why engine/RCS state is moved to
+        /// <see cref="DepartedEngineThrottles"/> rather than dropped.
+        /// </para>
+        /// </summary>
+        public void OnVesselWasModified(Vessel v)
+        {
+            if (!IsRecording || v == null) return;
+            if (v.persistentId != RecordingVesselId) return;
+
+            int engineCountBefore = cachedEngines?.Count ?? 0;
+            int rcsCountBefore = cachedRcsModules?.Count ?? 0;
+            int roboticCountBefore = cachedRoboticModules?.Count ?? 0;
+
+            cachedEngines = CacheEngineModules(v);
+            cachedRcsModules = CacheRcsModules(v);
+            cachedRoboticModules = CacheRoboticModules(v);
+
+            // allEngineKeys drives the #298 EngineShutdown-sentinel seeding, so a welded-on engine
+            // has to join it or a later split/promotion seed would omit its sentinel.
+            int newEngineKeys = 0;
+            if (cachedEngines != null && allEngineKeys != null)
+            {
+                for (int i = 0; i < cachedEngines.Count; i++)
+                {
+                    var (part, engine, moduleIndex) = cachedEngines[i];
+                    if (part == null || engine == null) continue;
+                    if (allEngineKeys.Add(EncodeEngineKey(part.persistentId, moduleIndex)))
+                        newEngineKeys++;
+                }
+            }
+
+            var pruned = PruneDepartedTrackingKeys(
+                CollectSurvivingTrackedPartPids(v),
+                activeEngineKeys, lastThrottle, allEngineKeys,
+                activeRcsKeys, lastRcsThrottle, rcsActiveFrameCount,
+                activeRoboticKeys, lastRoboticPosition, lastRoboticSampleUT,
+                departedEngineThrottles, departedRcsThrottles);
+
+            // onVesselWasModified fires in bursts (staging, docking, part death, crew moves), and
+            // most of them do not change the module counts at all. Report a real change at Info so
+            // it is greppable, and the no-op rebuilds at rate-limited Verbose so they stay visible
+            // without flooding.
+            string summary =
+                $"Module caches rebuilt after vessel modification: pid={v.persistentId} " +
+                $"engines={engineCountBefore}->{cachedEngines?.Count ?? 0} " +
+                $"rcs={rcsCountBefore}->{cachedRcsModules?.Count ?? 0} " +
+                $"robotics={roboticCountBefore}->{cachedRoboticModules?.Count ?? 0} " +
+                $"newEngineKeys={newEngineKeys} " +
+                $"prunedDepartedKeys={pruned.Total} " +
+                $"(engine={pruned.engineKeys} rcs={pruned.rcsKeys} robotic={pruned.roboticKeys}) " +
+                $"departedCarryOver={departedEngineThrottles.Count + departedRcsThrottles.Count}";
+            bool countsChanged =
+                engineCountBefore != (cachedEngines?.Count ?? 0)
+                || rcsCountBefore != (cachedRcsModules?.Count ?? 0)
+                || roboticCountBefore != (cachedRoboticModules?.Count ?? 0)
+                || newEngineKeys > 0
+                || pruned.Total > 0;
+            if (countsChanged)
+                ParsekLog.Info("Recorder", summary);
+            else
+                ParsekLog.VerboseRateLimited("Recorder", "module-cache-rebuild-unchanged", summary, 5.0);
+        }
+
+        /// <summary>
+        /// The pids the departed-key prune treats as still ours: every pid on the live
+        /// <c>Vessel.parts</c> list UNIONED with every pid in the freshly rebuilt cache lists.
+        ///
+        /// <para>
+        /// <c>Vessel.parts</c> is the load-bearing half. The cache lists only contain parts that
+        /// currently expose an engine / RCS / robotic module, so a part whose module list reads empty
+        /// for one frame (a module destroyed and re-added, a reflection probe that momentarily
+        /// resolves nothing) drops out of them while the part itself never left the vessel. Pruning
+        /// against the caches alone would turn that transient into a permanently forgotten burn —
+        /// exactly the "momentarily vesselless during a dock/undock shuffle" hazard, resolved by
+        /// asking the vessel's own part list rather than trusting the narrower derived view.
+        /// </para>
+        /// <para>
+        /// The cache half is kept anyway so the union stays correct if <c>CacheEngineModules</c> and
+        /// friends ever learn to include a part the vessel list does not.
+        /// </para>
+        /// </summary>
+        private HashSet<uint> CollectSurvivingTrackedPartPids(Vessel v)
+        {
+            var pids = new HashSet<uint>();
+            if (v?.parts != null)
+            {
+                for (int i = 0; i < v.parts.Count; i++)
+                    if (v.parts[i] != null) pids.Add(v.parts[i].persistentId);
+            }
+            if (cachedEngines != null)
+                for (int i = 0; i < cachedEngines.Count; i++)
+                    if (cachedEngines[i].part != null) pids.Add(cachedEngines[i].part.persistentId);
+            if (cachedRcsModules != null)
+                for (int i = 0; i < cachedRcsModules.Count; i++)
+                    if (cachedRcsModules[i].part != null) pids.Add(cachedRcsModules[i].part.persistentId);
+            if (cachedRoboticModules != null)
+                for (int i = 0; i < cachedRoboticModules.Count; i++)
+                    if (cachedRoboticModules[i].part != null) pids.Add(cachedRoboticModules[i].part.persistentId);
+            return pids;
+        }
+
         private void CheckEngineState(Vessel v)
         {
             if (cachedEngines == null) return;
@@ -3458,6 +3670,7 @@ namespace Parsek
                 if (part == null || engine == null) continue;
 
                 ulong key = EncodeEngineKey(part.persistentId, moduleIndex);
+                if (!ShouldPollCachedModule(part, engine, v, key, "engine")) continue;
                 bool ignited = ShouldRecordEngineAsIgnited(
                     engine.EngineIgnited, engine.isOperational, engine.finalThrust);
                 float recordedPower = ComputeRecordedEnginePower(
@@ -3695,6 +3908,7 @@ namespace Parsek
                 if (part == null || rcs == null) continue;
 
                 ulong key = EncodeEngineKey(part.persistentId, moduleIndex);
+                if (!ShouldPollCachedModule(part, rcs, v, key, "rcs")) continue;
                 bool active = rcs.rcs_active && rcs.rcsEnabled;
                 if (loggedRcsModuleKeys.Add(key))
                 {
@@ -4155,6 +4369,7 @@ namespace Parsek
                 if (part == null || module == null) continue;
 
                 ulong key = EncodeEngineKey(part.persistentId, moduleIndex);
+                if (!ShouldPollCachedModule(part, module, v, key, "robotic")) continue;
 
                 // Wheel motor spin is derived from ground speed at playback, not recorded. The
                 // module stays in cachedRoboticModules so moduleIndex numbering matches the ghost
@@ -6619,6 +6834,9 @@ namespace Parsek
             lastRoboticPosition = new Dictionary<ulong, float>();
             lastRoboticSampleUT = new Dictionary<ulong, double>();
             loggedRoboticModuleKeys = new HashSet<ulong>();
+            loggedForeignCachedModuleKeys.Clear();
+            departedEngineThrottles.Clear();
+            departedRcsThrottles.Clear();
             RebuildHarvestConverterCache(v, "start");
             ParsekLog.Info("Recorder",
                 $"Module caches seeded for vessel pid={v.persistentId}: engines={cachedEngines?.Count ?? 0}, " +
@@ -7724,6 +7942,15 @@ namespace Parsek
             if (decision == VesselSwitchDecision.ContinueOnEva)
             {
                 RecordingVesselId = v.persistentId;
+                // The recording now follows the kerbal, so the craft's cached engine/RCS/robotic
+                // modules are foreign from here on. Rebuilding drops them outright rather than
+                // leaving the per-poll ownership guard to reject each one (and log each rejection)
+                // every frame for the rest of the EVA. The same call also prunes the tracking-set
+                // keys for every part left behind on the craft, so the EVA's own recording does not
+                // close with terminal EngineShutdown / RCSStopped events for the craft's engines —
+                // events the kerbal's ghost has no part to play them on, and which would pin the
+                // tail-trim to the end of the EVA.
+                OnVesselWasModified(v);
                 SamplePosition(v);
                 RefreshBackupSnapshot(v, "eva_switch", force: true);
                 ParsekLog.Verbose("Recorder", $"Recording switched to EVA vessel (pid={v.persistentId})");
