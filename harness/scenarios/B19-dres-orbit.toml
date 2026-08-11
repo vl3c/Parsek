@@ -230,10 +230,34 @@ returnBodyName             = "Sun"
 # 32,832 km so there is enormous room above, and the capture cost curve is nearly
 # flat across that band (~1,136 m/s at 300 km, ~1,238 at 1,000 km).
 courseCorrectPeriapsisMeters = 300000
-maxCorrectionDvMps         = 450
+# RAISED from B16's 450. On this lane the correction has to CREATE the encounter
+# rather than refine one (the flight-2 measurement: MechJeb's transfer put the
+# craft on a heliocentric ellipse reaching Dres's perihelion band with no
+# intercept), and an encounter-creating correction on a 13M game-second Dres
+# transfer is a bigger burn than the 378.5 m/s B15 measured refining an Eve one.
+# B15's own lesson is that a cap BELOW the needed burn silently discards the node
+# and the coast flies the raw intercept. AFFORDABLE by a wide margin: the LV-N
+# stage has ~6,146 m/s left after the measured 1,337.5 m/s ejection, against a
+# ~1,136 m/s capture, so even both rounds landing on this ceiling leaves ~2,700.
+maxCorrectionDvMps         = 1200
 correctionTriggerAltsMeters       = []
 correctionTriggerTimeToSoiSeconds = [20000000, 500000]
-planTimeoutSeconds         = 300
+# RAISED FROM B7/B16's 300 BY FLIGHT 2's MEASUREMENT, and this is a real defect
+# in copying that number rather than a tolerance choice. planTimeoutSeconds is
+# GAME seconds, and PLAN-CORRECTION is entered from a coast running at
+# coastWarpFactor 7 = RAILS x100,000. Flight 2 measured what that means: both
+# correction rounds entered at `warp=RAILSx100000.000`, and the phase advanced
+# 39,001 and 41,001 GAME seconds respectively -- i.e. ONE poll frame -- so a 300
+# game-second budget expired before MechJeb was given a single real frame to
+# produce a node. Both rounds returned to the coast with `nodeDv=nan`, no
+# encounter was ever created, and COAST-TO-TARGET then ran out its own budget.
+# The lanes this value was copied from do not hit it because their correction
+# rounds fire on time-to-SOI, which only exists once an encounter is already
+# there and warp has come down.
+# 300,000 game s is ~7 frames at x100,000, which comfortably spans the warp-down
+# to the commanded factor 2 plus the plan itself. It bounds SLOW; the named
+# no-node give-up still bounds BROKEN.
+planTimeoutSeconds         = 300000
 planRetrySeconds           = 10
 # GAME seconds. B16 uses 18,000,000 to carry its ejection-window wait inside the
 # NodeExecutor's autowarp; the Kerbin->Dres synodic period is ~2.4x Kerbin's year
