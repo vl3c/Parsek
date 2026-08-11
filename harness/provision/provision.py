@@ -351,8 +351,11 @@ def _ensure_git_source(ctx: ProvisionContext, comp: str,
         memo[comp] = None
         return None
     if decision.action == "reuse-cache":
-        # fetch=False: the cache clone already carries the pinned commit, so a
-        # warm-cache live run stays fully offline (no clone, no refetch).
+        # fetch=False: the cache clone already carries the pinned commit, so
+        # source resolution makes no network round-trip (no clone, no refetch).
+        # Trade-off: a same-origin cache holding the commit but missing the
+        # pinned TAG no longer self-heals via the old always-fetch; PIN then
+        # aborts EC-PIN - delete .cache/<comp>-src to recover.
         memo[comp] = decision.source_dir
         return decision.source_dir
     if decision.action == "clone":
