@@ -51,8 +51,21 @@ tier = "nightly"
 # snapshot persists (hinge / rotation servo -> `targetAngle`, piston ->
 # `targetExtension`) and skips rotors, which have no persisted spin key at all. Cell
 # COUNT is unchanged at 7 and a hinge/piston candidate is present on this profile, so
-# the measured tally below still holds; the servo cell needs a RE-FLY to re-measure
+# the measured tally below still holds; the servo cell needed a RE-FLY to re-measure
 # its own pass, not a new pin.
+#
+# THAT RE-FLY IS FLOWN: **2026-08-11, run `2026-08-11_1643`, PASS attempt 1, wall
+# 53 s**, against the corrected code (branch tip `aee854e03`). The pin printed token
+# for token - `BATCH_COMPLETE v1 total=7 passed=7 failed=0 skipped=0
+# category=SnapshotBaseline scene=FLIGHT` - so no pin moved, and all seven cells
+# PASSED individually. The servo cell EXECUTED (it did NOT skip) and now proves the
+# pose path over a key production actually writes, logging `SnapshotBaseline:
+# 'hinge.01' servo 'ModuleRoboticServoHinge' posed to 37.5 via persisted key
+# 'targetAngle' at spawn (mode=Rotational)` alongside `Snapshot baseline applied:
+# parts=1 deployables=0 parachutes=0 lights=0 servos=1 servosSkipped=0`. The
+# candidate the resolver picked is a Breaking Ground hinge, which re-confirms the
+# SquadExpansion-junction finding above from the other direction. This flight also
+# read `unityExceptions total=0`, where the first flight reported 3 NREs.
 #
 # The four deployable cells were an honest measurement rather than a guess (whether a
 # stock prefab's animation clip separates stow from deploy by >1 cm / >0.5 deg is a

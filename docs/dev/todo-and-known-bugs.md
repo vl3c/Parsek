@@ -209,7 +209,10 @@ moves nothing. The servo cell asks
 `GhostVisualBuilder.TryResolveSnapshotRoboticPoseKey` which key to author rather than
 deriving one: it used to author the LIVE probe plan's primary key, which production
 snapshots never contain, so it proved the pose path over a key shape that does not
-exist. Cell count is unchanged at 7, so H32's measured tally pin still holds.
+exist. Cell count is unchanged at 7, so H32's measured tally pin still holds - MEASURED,
+not predicted: the re-fly against the corrected code (run `2026-08-11_1643`, PASS attempt
+1, 53 s) printed the pin token for token and the servo cell passed over `hinge.01` /
+`targetAngle`.
 
 ### Known limits of the fix
 
