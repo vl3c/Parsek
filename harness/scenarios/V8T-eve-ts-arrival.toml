@@ -77,6 +77,20 @@
 #     told-from-blindness accounting is exactly what the census exists for.
 #     The raise is V8's claim, not this lane's.
 #
+# FIX-ERA RE-PIN LEDGER (2026-08-11, branch reaim-inclined-targets): on the
+# tilt-retention-fixed DLL the TS chain became genuinely re-aimed.
+#   BASELINE _1247 PARSEK-FAIL(expectation) BY DESIGN - single mismatch, the
+#            old reaimed=False pin; live line: reaimed=True phases=11.
+#            (_1249 and _1249_run2 are accidental repeats of the same
+#            baseline - an edit had not landed - same single mismatch.)
+#   READING  _1252 and _1253, both PASS attempt 1 on the re-pinned shape.
+#   CONTROL  shared with V8's _1246 (same evaluator; the V-corpus
+#            precedent), and V8T's own baseline red is the direction proof
+#            for this specific token.
+# The header sections below describing reaimed=False / the faithful-window
+# shape are the PRE-FIX record, kept as history; the pins now encode the
+# fixed behavior.
+#
 # V5's OWN RE-KILL LESSON (V5:165-175, measured on its run-1 attempt-1
 # death): the scene-entry promotion recorder can RE-ARM a second time on
 # some entry orderings, and the LoadGame dispatch guard REJECTS
@@ -149,7 +163,13 @@ required  = [
   "loadgame complete scene=TRACKSTATION save=.* game-loaded=true expected=TrackingStation",
   "ParsekTrackingStation initialized: created [1-9][0-9]* ghost vessel\\(s\\)",
   "phase=GhostCreated surface=ProtoIcon pid=\\d+ .*body=Eve scene=TRACKSTATION",
-  "factory chain rec=\\w+ idx=\\d+ inst=\\d+ phases=\\d+ reaimed=False",
+  # RE-PINNED AFTER THE TILT-RETENTION FIX (plan: docs/dev/plans/
+  # reaim-inclined-target-tilt-retention.md): the tilt-declined faithful
+  # chain (reaimed=False, phases=15) became a genuinely re-aimed chain
+  # (reaimed=True, phases=11) on the fixed DLL - baseline flights
+  # 2026-08-11 red on exactly this token, live line carrying reaimed=True.
+  # V5's Duna form restored, now for the honest reason.
+  "factory chain rec=\\w+ idx=\\d+ inst=\\d+ phases=\\d+ reaimed=True",
   "seam-endpoint summary evaluated=\\d+ outsideSoi=\\d+",
   "faithful-parity summary sampled=\\d+ overTolerance=\\d+",
 ]
@@ -158,6 +178,10 @@ forbidden = [
   "timejump refused reason=backward-jump",
   "FORCED FAITHFUL",
   "faithful-parity summary sampled=\\d+ overTolerance=[1-9][0-9]*",
+  # The inverted pre-fix shape: a faithful fallback re-appearing on this
+  # ENGAGED unit is the closed defect returning.
+  "faithful this window",
+  "reaim window fell back faithful",
 ]
 
 # ARMED off the _0836 reading measurements (all-zero rewind facets,
