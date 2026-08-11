@@ -4720,39 +4720,7 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
                                        "reset need a career fixture the sandbox host lacks; the "
                                        "self-authored RewindPoint needs a multi-controllable "
                                        "split plus a seam channel. No unattended run discharges them.",
-        # Landed UNFLOWN with the world-preservation coverage wave. The tag is here on
-        # S4.1's OWN stated rule, quoted verbatim from its tier note: "The
-        # pending-operator TAG stays until that first green run; the tag alone is
-        # non-gating." The original derivation debt is PAID: run 2026-08-11_1057 flew,
-        # the batch line matched the derived tally token for token, and the pin is
-        # re-stamped MEASURED. The entry's old drop rule ("when the tally is re-pinned
-        # from a measured line") is deliberately NOT taken, because S4.1's quoted rule
-        # is "until that first GREEN run" and that run classified
-        # PARSEK-FAIL(expectations) on the AppendRelations token.
-        #
-        # UPDATED 2026-08-11 (branch `refly-conclusion-route`): the finding
-        # REFLY-CONCLUSION-SKIPS-APPENDRELATIONS is FIXED, and the spec's pin is
-        # re-derived to the post-fix contract (the original refusal token, which now
-        # fires on this shape, plus the two new seam tokens, plus the pre-fix cascade
-        # moved to `forbidden`). The entry is deliberately NOT dropped: the fix is
-        # unit-covered but UNFLOWN, and this spec's whole drop rule is "the first
-        # GREEN run", which has not happened. Dropping it on a landed fix would swap
-        # a measured debt for an assumed one. What the operator still owes, narrowed:
-        # the confirming re-fly of S4.2 (which also re-measures the three DERIVED
-        # conclusion tokens) and the save-structure arming decision the spec
-        # deliberately leaves report-only. DROP THIS ENTRY on that green run.
-        "S4.2-refly-world-preservation.toml":
-                                       "flown RED-BY-FINDING 2026-08-11, fix landed the same day "
-                                       "and AWAITING THE CONFIRMING RE-FLY: tally measured "
-                                       "(matched the derivation token for token); the run "
-                                       "classified PARSEK-FAIL on "
-                                       "REFLY-CONCLUSION-SKIPS-APPENDRELATIONS, now fixed with "
-                                       "the spec re-pinned to the post-fix contract, but the "
-                                       "three conclusion tokens are DERIVED and unflown so the "
-                                       "tag stays until the first green run. Operator owes that "
-                                       "re-fly + the report-only arming decision. NOT "
-                                       "tier=operator: a nightly spec can owe operator work, "
-                                       "exactly as S1.5 and EVA-1 do.",
+        # S4.2-refly-world-preservation DROPPED 2026-08-12 - see DROPPED_2026_08_12.
     }
 
     # Untagged specs that are CANDIDATES - they MENTION the token, or they are
@@ -4947,8 +4915,21 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
         "L1-upgrade-facility-career.toml",    # proven live at -150,000, hardDivergences=0
     )
 
+    # The 2026-08-12 drop, on the entry's OWN written rule ("DROP THIS ENTRY on that
+    # green run") and S4.1's quoted rule that the tag "stays until that first green
+    # run". Discharged by run `2026-08-11_2111` attempt 2 (PASS, wall 62 s): the three
+    # post-fix conclusion tokens the entry was still holding for
+    # (`outcome=retired-empty-provisional`, `AppendRelations
+    # outcome=refused-unflown-provisional`, `outcome=concluded-no-supersede`) all fired
+    # verbatim, both pre-fix `forbidden` cascade lines stayed absent, and expectations
+    # read mismatches=0. Attempt 1 was INVALID(driver, seam-timeout) and is recorded as
+    # a driver flake in the spec header - an INVALID is not a failed green run.
+    DROPPED_2026_08_12 = (
+        "S4.2-refly-world-preservation.toml",  # own rule: "DROP THIS ENTRY on that green run"
+    )
+
     def test_the_specs_promoted_out_stay_out(self):
-        for name in self.DROPPED_2026_07_31:
+        for name in self.DROPPED_2026_07_31 + self.DROPPED_2026_08_12:
             tags = load_spec(name).get("tags") or []
             self.assertNotIn("pending-operator", tags,
                              "%s was live-proven and owes no operator work" % name)

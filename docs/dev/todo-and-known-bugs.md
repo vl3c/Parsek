@@ -942,7 +942,7 @@ preserved, `activeVessel` indexing the selected slot past a preserved
 predecessor, a `[Theory]` over SpaceObject / Flag / Station / Probe, preserved
 throttle untouched, and the selected-absent refusal.
 
-## ~~REFLY-CONCLUSION-SKIPS-APPENDRELATIONS: a rewind-then-conclude-without-flying retires through the zombie-provisional sweep, never through the `refused-unflown-provisional` refusal~~ [FOUND 2026-08-11 by `S4.2-refly-world-preservation`'s FIRST flight, run `2026-08-11_1057`. ~~FIXED 2026-08-11~~ on branch `refly-conclusion-route`; the confirming re-fly of S4.2 is still owed]
+## ~~REFLY-CONCLUSION-SKIPS-APPENDRELATIONS: a rewind-then-conclude-without-flying retires through the zombie-provisional sweep, never through the `refused-unflown-provisional` refusal~~ [FOUND 2026-08-11 by `S4.2-refly-world-preservation`'s FIRST flight, run `2026-08-11_1057`. ~~FIXED 2026-08-11~~ on branch `refly-conclusion-route`. ~~CONFIRMED LIVE 2026-08-12~~ by the S4.2 re-fly, run `2026-08-11_2111`, attempt 2, PASS: all three post-fix conclusion tokens fired verbatim, both pre-fix cascade lines absent (0 occurrences each), expectations mismatches=0, zero `[Parsek][ERROR]` lines. CLOSED - nothing owed]
 
 ### FIXED 2026-08-11 - the route map, the cause, and what changed
 
@@ -1169,6 +1169,58 @@ what the fixed route now emits on this fixture. The caveat was right that
 flown, for ~0.4 s, and carried GameState events - so the fix keeps the PAYLOAD
 predicate (the invariant that actually protects ERS) and prints both counts on
 the refusal line so the distinction is legible instead of reconstructed.
+
+## REFLY-BATCH-BASELINE-DISCARDS-LIVE-SESSION: an in-game batch's baseline restore ends a live Re-Fly session, and the merge dialog never appears [OBSERVED 2026-08-12 by `S4.2-refly-world-preservation` attempt 1 of run `2026-08-11_2111`. REPORT-ONLY - not diagnosed, not fixed. Attempt 2 of the same spec ran clean, so it is INTERMITTENT]
+
+S4.2's driver note called this out in advance as "the one step of this sequence
+with no committed precedent" - a quicksave taken WHILE a Re-Fly session is live,
+which is what `InGameTestRunner.CaptureBatchBaseline` does when it classifies a
+FLIGHT scene with a live active vessel as `InMemoryAndDisk`. The note asked for
+any resulting finding to land here rather than in a relaxed contract. This is it.
+
+**What was measured**, from the collected `KSP.log` of attempt 1:
+
+```
+00:09:17.280 [ReFlySession] Started sess=sess_acab275b... rp=rp_wp_root slot=1 ... inPlaceContinuation=True
+00:09:17.837 [TestCommands] runtests start category=ReFlyWorldPreservation isolated=false
+00:09:17.931 [TestRunner] Final batch baseline restore (batch-complete-final-restore) from slot 'parsek-test-batch-baseline-...' scene=FLIGHT
+00:09:17.971 [Scenario] Preparing save-scoped state for isolated FLIGHT batch baseline restore
+00:09:18.439 [ReFlySession] End reason=treeDiscarded sess=sess_acab275b... tree=tree-wp-stack-root
+...
+00:09:20.819 [TestCommands] dispatch id=0005 -> DEFER reason=no-refly-dialog   (x24, then)
+00:11:20.826 [TestCommands] timeout id=0005 cmd=AnswerMergeDialog deferred=120.0s reason=no-refly-dialog
+```
+
+The session ended `reason=treeDiscarded` ~1.2 s after it started, inside the
+batch's baseline handling, so by the time the driver reached `AnswerMergeDialog`
+there was no dialog to answer and the step timed out. The run classified
+`INVALID(driver) subkind=seam-timeout`, which is the correct classification - a
+driver-INVALID, never a PARSEK-FAIL.
+
+**Why it is filed as an observation and not a defect.** Three things are true and
+none of them has been separated yet:
+- the batch is green either way (`BATCH_COMPLETE v1 total=6 passed=6 failed=0
+  skipped=0`), and all six preservation cells passed on the discarded-session
+  attempt too, so nothing about the world-preservation claim depends on this;
+- none of the three conclusion tokens fired on that attempt, which is consistent
+  with "the session was already gone", not with a conclusion-route regression;
+- attempt 2 flew the identical spec clean, all three tokens present. `flake.json`
+  quarantines the scenario at `rate=0.50 over 7d`.
+
+**The open question** is whether this is harness-only or reaches a player. The
+batch path is test-runner-specific, but the underlying act - a quicksave during a
+live Re-Fly session - is what any F5 does, and `R7-SESSION-BATCH-ISOLATION` above
+already records that running a category beside a live session breaks tests. If a
+player F5/F9 can drive `End reason=treeDiscarded` the same way, that is a product
+bug and this entry is its head; if only the batch's save-scoped-state preparation
+does it, this is harness isolation and belongs with R7. Deciding needs one
+deliberate experiment (quicksave mid-Re-Fly outside a batch), which was NOT run
+here.
+
+**Discriminator for the next occurrence**, so nobody re-derives it: on a repeat
+`AnswerMergeDialog` timeout, check whether `[ReFlySession] End
+reason=treeDiscarded` precedes the first `DEFER reason=no-refly-dialog`. If it
+does, this entry; if it does not, the conclusion route.
 
 ## PART-ACTION-RECORDING-COVERAGE: audit backlog for what Parsek records vs the stock part-action surface [OPEN 2026-08-09]
 
