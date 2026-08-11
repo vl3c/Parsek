@@ -242,6 +242,12 @@ exist. Cell count is unchanged at 7, so H32's measured tally pin still holds.
   `RecordingOptimizer.CanAutoMerge` from re-merging that split. Deliberate and
   consistent with the pre-existing engine-shutdown sentinel, which has exactly the same
   effect; noted because it is a merge-eligibility change, not a rendering one.
+  The inactive-direction reversible seeds widen that by exactly one case, in the same
+  shape: `GearRetracted` / `DeployableRetracted` / `CargoBayClosed` / `ParachuteCut`
+  are trigger-positive (their ACTIVE counterparts already were and were already
+  seeded), so a TIP whose head span carried ONLY closing transitions now becomes
+  trigger-positive where it previously carried no events at all. `LightOff` /
+  `LightBlinkDisabled` are trigger-NEGATIVE and change nothing here.
 
 - Robotic ordinals can drift if the mod set changes between record and replay. The
   application site name-checks the module at each ordinal and degrades to
