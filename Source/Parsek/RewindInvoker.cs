@@ -3105,12 +3105,13 @@ namespace Parsek
         ///     from <c>FlightGlobals</c> yet).</description></item>
         ///   <item><description><see cref="PostLoadStripResult.SelectedPid"/>
         ///     (#573 contract: the actively re-flown vessel).</description></item>
-        ///   <item><description><see cref="VesselType.Flag"/> vessels
-        ///     (<see cref="ShouldSkipFromLeftAloneSurvey"/>): the user-requested
-        ///     belt-and-suspenders that resolves the original review note at
-        ///     the source — a preserved flag must never enter the leftAlone
-        ///     survey, even if its <c>vesselName</c> happens to collide with a
-        ///     Destroyed-terminal / session-suppressed / parent-chain
+        ///   <item><description>Every non-debris vessel
+        ///     (<see cref="IsDebrisKillSurveyCandidate"/>): only
+        ///     <see cref="VesselType.Debris"/> may become a kill candidate. This
+        ///     subsumes the old Flag-only skip and is what keeps the preserved
+        ///     fleet out of the name-matched kill — a real craft must never enter
+        ///     the leftAlone survey, even if its <c>vesselName</c> collides with
+        ///     a Destroyed-terminal / session-suppressed / parent-chain
         ///     recording.</description></item>
         /// </list>
         /// Returns an empty list (never null) on null/empty input. Pure /

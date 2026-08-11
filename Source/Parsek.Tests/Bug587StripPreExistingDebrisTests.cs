@@ -1343,15 +1343,18 @@ namespace Parsek.Tests
         // user's escalated review noted that the kill-set protection
         // alone (BuildProtectedPidsForInPlaceContinuation) is fragile.
         // A future refactor that loosens protectedPids would silently
-        // regress flag preservation because the survey loop in
-        // StripPreExistingDebrisForInPlaceContinuation still admits
-        // VesselType.Flag entries into leftAlonePidNames. The fix
-        // factors the survey step into
-        // BuildLeftAlonePidNamesForInPlaceContinuation + adds a
-        // VesselType-keyed skip via ShouldSkipFromLeftAloneSurvey, so
-        // a preserved flag never even enters the kill-set construction.
+        // regress preservation because the survey loop in
+        // StripPreExistingDebrisForInPlaceContinuation admits entries
+        // into leftAlonePidNames. The survey step is factored into
+        // BuildLeftAlonePidNamesForInPlaceContinuation with a
+        // VesselType-keyed eligibility gate — originally a Flag-only
+        // skip (ShouldSkipFromLeftAloneSurvey), tightened to
+        // IsDebrisKillSurveyCandidate (ONLY VesselType.Debris is
+        // kill-eligible) when the Re-Fly scrub started preserving the
+        // player's fleet: a real craft must never enter the kill-set
+        // construction, name collision or not.
         //
-        // Both layers (survey skip + protectedPids) coexist as
+        // Both layers (survey gate + protectedPids) coexist as
         // belt-and-suspenders. The tests below pin EACH layer
         // independently with a regression-guard companion that proves
         // it is load-bearing.
