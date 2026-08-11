@@ -3552,12 +3552,25 @@ namespace Parsek
                 }
             }
 
-            ParsekLog.Info("Recorder",
+            // onVesselWasModified fires in bursts (staging, docking, part death, crew moves), and
+            // most of them do not change the module counts at all. Report a real change at Info so
+            // it is greppable, and the no-op rebuilds at rate-limited Verbose so they stay visible
+            // without flooding.
+            string summary =
                 $"Module caches rebuilt after vessel modification: pid={v.persistentId} " +
                 $"engines={engineCountBefore}->{cachedEngines?.Count ?? 0} " +
                 $"rcs={rcsCountBefore}->{cachedRcsModules?.Count ?? 0} " +
                 $"robotics={roboticCountBefore}->{cachedRoboticModules?.Count ?? 0} " +
-                $"newEngineKeys={newEngineKeys}");
+                $"newEngineKeys={newEngineKeys}";
+            bool countsChanged =
+                engineCountBefore != (cachedEngines?.Count ?? 0)
+                || rcsCountBefore != (cachedRcsModules?.Count ?? 0)
+                || roboticCountBefore != (cachedRoboticModules?.Count ?? 0)
+                || newEngineKeys > 0;
+            if (countsChanged)
+                ParsekLog.Info("Recorder", summary);
+            else
+                ParsekLog.VerboseRateLimited("Recorder", "module-cache-rebuild-unchanged", summary, 5.0);
         }
 
         private void CheckEngineState(Vessel v)

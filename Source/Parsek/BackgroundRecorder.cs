@@ -81,7 +81,14 @@ namespace Parsek
         /// transition, after the terminal engine/RCS/robotic events were emitted. Consumed once by
         /// the matching off-rails re-entry, which diffs the freshly seeded live state against it so
         /// a change that happened across the warp is RECORDED rather than silently re-synced.
-        /// Bounded by the number of BG members; dropped on consume and on destroyed-remnant retire.
+        /// Bounded by the number of BG members; dropped on consume and at every BG teardown site.
+        ///
+        /// <para>
+        /// Deliberately NOT serialized. A save/load or scene change tears this recorder down and
+        /// rebuilds it, so a span that straddles one finds no snapshot and degrades to the old
+        /// skip-the-seed behaviour — a missed reconcile, never a wrong one. Persisting it would put
+        /// a second copy of every tracking set in the `.sfs` to buy back one edge case.
+        /// </para>
         /// </summary>
         private Dictionary<uint, PartTrackingSets> railsSpanPartStates
             = new Dictionary<uint, PartTrackingSets>();
