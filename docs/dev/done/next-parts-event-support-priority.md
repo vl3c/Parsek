@@ -40,17 +40,61 @@ These are the next visual-transform systems not yet supported or not yet showcas
 
 ### Completed Since Last Refresh
 
-- `ModuleAeroSurface` (`airbrake1`) is now recorded and showcased.
-- `ModuleRobotArmScanner` (`RobotArmScanner_S1/S2/S3`) is now recorded and showcased.
-- `ModuleControlSurface` (24 stock/DLC control-surface parts) is now recorded and showcased.
-- `ModuleAnimateHeat` (13 stock thermal-animation parts) is now recorded and showcased for hot/cold endpoint transitions.
-- Dynamic wheel/leg motion (`ModuleWheelSuspension`, `ModuleWheelSteering`, `ModuleWheelMotor`, `ModuleWheelMotorSteering`) is now recorded and showcased for:
+> **CORRECTED 2026-08-11.** The five bullets below read "now recorded and showcased" for the whole
+> of 2026. That was true of the SYNTHETIC showcase path only. On real stock parts four of the five
+> probes resolved nothing, because `module.Fields` is `[KSPField]`-only
+> (`FlightRecorder.FindModuleField` → `module.Fields[name]`) and every probed name was absent,
+> private, or a config constant. The audit
+> (`docs/dev/research/part-action-recording-audit-2026-08-09.md` §3) found them; P7 fixed them. Each
+> bullet now states the true post-fix position with its decompiled reason (KSP 1.12.5).
+
+- `ModuleAeroSurface` (`airbrake1`) — **was dead on stock, fixed 2026-08-11.** The probe table
+  listed `isDeployed` / `deployed` / `isExtended` / `isBraking` / …; the real field is
+  `[KSPField(isPersistant = true)] public bool deploy` on `ModuleControlSurface`, which
+  `ModuleAeroSurface` inherits. The type exposes no deploy/retract `[KSPEvent]` either (only
+  `[KSPAction]`s, which `module.Events` never sees), so the event stage found nothing and the
+  deflection stage found nothing. Now classified from `deploy`, with a veto when the commanded
+  deploy angle (`aeroDeployAngle`, then `deployAngle`) is ~0 and the surface therefore does not
+  visibly move.
+- `ModuleRobotArmScanner` (`RobotArmScanner_S1/S2/S3`) — **genuinely recorded; the audit's
+  dead-probe claim was wrong here, and nothing was changed.**
+  `ModuleRobotArmScanner : ModuleDeployablePart`, whose `[KSPEvent] Extend()` / `Retract()` the
+  scanner actively toggles (`Events["Extend"].active = …`), and `BaseEvent.name` is the method name,
+  so the probe's event-activity stage resolves. Its own `ArmDeployState` sits behind a `new`
+  property over a private unattributed `_deployState` and is unreachable by name — and an accessor
+  would be redundant anyway, since that setter mirrors every arm state onto the base `deployState`
+  which `CheckDeployableState` already polls.
+- `ModuleControlSurface` (24 stock/DLC control-surface parts) — **was dead on stock, fixed
+  2026-08-11.** Same single missing field as the airbrake above; `TryClassifyControlSurfaceState`
+  delegates to the aero core.
+- `ModuleAnimateHeat` (13 stock thermal-animation parts) — **was dead on stock, fixed 2026-08-11.**
+  Not fixable by names at all: `ModuleAnimateHeat : ModuleAnimationSetter`, whose live scalars
+  `animState` / `inputState` are plain public fields carrying no `[KSPField]`. The accessor is the
+  interface property `IScalarModule.GetScalar => inputState` — the already-normalized 0..1 ratio
+  `UpdateHeatEffect` writes through `SetScalar` every frame. One typed cast in the reader now feeds
+  the complete, already-built `ThermalAnimationHot/Medium/Cold` recorder + playback path, so
+  re-entry glow is recorded for the first time.
+- Dynamic wheel/leg motion (`ModuleWheelSuspension`, `ModuleWheelSteering`, `ModuleWheelMotor`,
+  `ModuleWheelMotorSteering`) — **suspension was dead on stock, fixed 2026-08-11; motor spin is a
+  deliberate non-recording.** `suspensionOffset` is a plain `[KSPField]` read once in `OnStart` to
+  configure the wheel collider — a config constant that never moves, and because it resolved it
+  shadowed `suspensionPos`, the `[KSPField(isPersistant)] Vector3` assigned from
+  `suspensionTransform.localPosition` as the wheel compresses. Dropping it lets the live vector win.
+  Wheel MOTOR spin is separately and deliberately not recorded: it is derived from the ghost's own
+  ground speed at playback (see `FlightRecorder.IsWheelMotorSpinModuleName`). Showcased parts:
   - `GearFixed`
   - `GearFree`
   - `roverWheel1`
   - `roverWheel2`
   - `roverWheel3`
   - `wheelMed`
+
+Robotic servo pistons were never on this list but had the same shape and were fixed in the same
+pass: `ModuleRoboticServoPiston`'s probe latched `traverseVelocity`, a `[KSPAxisField]` SPEED slider
+constant for the whole stroke, shadowing the working `servoTransformPosition` fallback. The live
+field is `[KSPField(guiActive)] public float currentExtension`, recomputed from the transform
+geometry each frame; `targetExtension` (the persistent `[KSPAxisField]` setpoint) backs it up. The
+probed `targetPosition` was `private float` with no attribute and was never resolvable at all.
 
 ### Priority 1: `ModuleControlSurface` continuous deflection values
 

@@ -963,16 +963,39 @@ Open items, highest leverage first:
   `:3354`/`:3367` with ZERO production call sites (only
   `RuntimePolicyTests.cs:210,219,228,230`). Worst on Waterfall installs, whose
   premise is a throttle-continuous plume.
-- **Five dead reflection probes**, four of them documented as shipped at
-  `done/next-parts-event-support-priority.md:43-47`. `module.Fields` is
-  `[KSPField]`-only (`FlightRecorder.cs:3733-3748`); `ModuleControlSurface`'s
-  real field is `deploy` and the table lists `deployed`; the piston probe latches
-  `traverseVelocity`, a `[KSPAxisField]` SPEED SLIDER that resolves and is
-  constant during a stroke, shadowing the working `servoTransformPosition`
-  fallback; `ModuleAnimateHeat`'s live scalars are plain public fields whose
-  accessor is the `IScalarModule.GetScalar` property - ONE cast lights up the
-  complete already-built Hot/Medium/Cold playback path
-  (`GhostPlaybackLogic.cs:3693-3770`).
+- ~~FIXED 2026-08-11 (S5)~~ **Dead reflection probes**, documented as shipped at
+  `done/next-parts-event-support-priority.md` (that section is now corrected in
+  place, per-bullet, with the decompiled reason). `module.Fields` is
+  `[KSPField]`-only, so a plain public field is invisible however obvious its
+  name. Four real fixes and one audit correction:
+  - `ModuleControlSurface` / `ModuleAeroSurface`: the real field is `deploy`
+    (`[KSPField(isPersistant)]`), added at the HEAD of
+    `AeroSurfaceDeployedFieldNames`. `deployAngle` / `aeroDeployAngle` are a
+    separate VETO table, not deflection candidates - they are `[KSPAxisField]`
+    tweakables that `OnStart` resolves from `NaN` to `ctrlSurfaceRange`, so
+    treating them as "non-zero means deployed" would have classified every
+    control surface in the game as permanently out. `aeroDeployAngle` leads
+    because an airbrake carries BOTH and deactivates the inherited one.
+  - `ModuleAnimateHeat`: not fixable by names. New non-name-keyed
+    `IModuleFieldValues.TryGetScalarModuleScalar` → one `as IScalarModule` cast
+    (`ModuleAnimationSetter.GetScalar => inputState`), consulted BEFORE the name
+    table. Lights up the complete already-built Hot/Medium/Cold recorder +
+    playback path.
+  - `ModuleRoboticServoPiston`: `currentExtension` + `targetExtension` prepended;
+    `traverseVelocity` (a `[KSPAxisField]` SPEED slider, constant during a
+    stroke) and `targetPosition` (`private float`, never reachable) removed. Note
+    the DELIBERATE divergence from the snapshot-side ghost baseline, which reads
+    `targetExtension`: only that one is `isPersistant`, so it is the only one a
+    saved craft carries, while only `currentExtension` sweeps live.
+  - `ModuleWheelSuspension`: `suspensionOffset` (a config constant applied once to
+    the wheel collider) dropped so the live `suspensionPos` vector fallback wins.
+  - `ModuleRobotArmScanner`: **the audit claim was wrong; nothing changed.** It
+    derives from `ModuleDeployablePart`, whose `[KSPEvent] Extend()`/`Retract()`
+    the scanner actively toggles, so the probe's event-activity stage resolves.
+    Its `ArmDeployState` is behind a `new` property over a private unattributed
+    `_deployState` (unreachable by name) AND redundant - that setter mirrors every
+    arm state onto the base `deployState` that `CheckDeployableState` polls, so an
+    accessor would emit a duplicate `DeployableExtended` under a second key.
 - **Recorder cache and rails holes.**
   - ~~FIXED 2026-08-11 (M5)~~ **Cached engine/RCS/robotic modules were polled
     without a vessel-identity check.** `cachedEngines` was assigned only in
