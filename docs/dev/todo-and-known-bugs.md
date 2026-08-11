@@ -249,6 +249,91 @@ preserved, `activeVessel` indexing the selected slot past a preserved
 predecessor, a `[Theory]` over SpaceObject / Flag / Station / Probe, preserved
 throttle untouched, and the selected-absent refusal.
 
+## REFLY-CONCLUSION-SKIPS-APPENDRELATIONS: a rewind-then-conclude-without-flying retires through the zombie-provisional sweep, never through the `refused-unflown-provisional` refusal [FOUND 2026-08-11 by `S4.2-refly-world-preservation`'s FIRST flight, run `2026-08-11_1057`. REPORT-ONLY: the end state is benign and convergent. NOT FIXED - the call is which of the two routes is the intended one]
+
+### What was expected
+
+`S4.2-refly-world-preservation` pins `AppendRelations
+outcome=refused-unflown-provisional` as a required log contract, on the reading
+that a conclusion with no re-flight between rewind and merge reaches
+`SupersedeCommit.AppendRelations`, fails `ValidateSupersedeTarget` (a
+trajectory-less provisional cannot validly replace a real origin - the
+placeholder-redirect class that shipped twice in 2026-04, items 5 and 568), and
+takes the NAMED REFUSAL branch at `SupersedeCommit.cs:248-259`. That branch's own
+comment names the route: "Rewind-then-conclude (rewind, then end the session
+without flying) reaches it in normal play". Requiring the token is what stops a
+silent regression to the pre-2026 `#if DEBUG throw`, whose non-convergent reload
+loop is documented in the same comment block.
+
+### What actually happened, in order
+
+The token never appeared, because `AppendRelations` was never called. Measured
+from the collected `KSP.log` of run `2026-08-11_1057`:
+
+1. `CommitTreeSceneExit (autoMerge off): stashed tree 'WP Stack'` - the
+   `AnswerMergeDialog choice=merge` tail takes the ORDINARY whole-tree merge.
+2. `Merger MergeTree: starting merge for tree='WP Stack' recordings=3` over
+   `wp-stack-root` / `wp-upper-b` / `wp-booster-a`. The re-fly provisional is
+   NOT among them - `ERS Rebuilt: 2 entries from 3 committed ...
+   skippedSuppressed=1`.
+3. `[Parsek][WARN][MergeDialog] TryCommitReFlySupersede: provisional
+   rec=rec_cf0ed609... not found in committed list after tree commit; leaving
+   marker in place for load-time sweep` - the re-fly tail bails ONE STEP ABOVE
+   the refusal, so `SupersedeCommit` is never entered.
+4. On the next load: `[Parsek][WARN][ReFlySession] Marker invalid
+   field=ActiveReFlyRecordingId; cleared ... rejected because active recording
+   was not found in RecordingStore.CommittedRecordings`, then `LoadTimeSweep`.
+5. Final state `marker=False ... supersedes=0 tombstones=0`.
+
+### Why it is report-only, and what the actual question is
+
+The END STATE IS THE SAME as the refusal branch's: zero supersede rows, the
+origin stays effective, no non-convergent reload loop, nothing corrupted. So this
+is a ROUTE difference, not a defect in the outcome, which is why nothing is being
+fixed off one flight and why the spec's pin was deliberately LEFT IN PLACE rather
+than widened away.
+
+The question to settle: is retiring the session through the load-time
+zombie sweep the INTENDED conclusion path for rewind-then-conclude (in which case
+`SupersedeCommit`'s comment about that route is stale, and the spec's pin is the
+wrong contract), or should `TryCommitReFlySupersede` reach `AppendRelations` and
+take the named refusal (in which case the "not found in committed list after tree
+commit" bail is a gap that hides a designed, logged decision behind a generic
+sweep)? The second reading is the reason the refusal was given a grep-stable
+token in the first place.
+
+### The bonus finding: R1-EMPTY-PROVISIONAL's route is no longer unestablished
+
+The same flight fired `ReFlyProvisionalBinding`'s observation-only raise on a
+real driven run:
+
+```
+[Parsek][WARN][ReFlySession] outcome=unbound-refly-provisional
+reason=refly-provisional-has-no-trajectory-at-save sess=sess_599866f5...
+provisional=rec_cf0ed609... markerTree=tree-wp-stack-root origin=wp-booster-a
+treeKind=pending tree -- this session's provisional is being saved with no
+trajectory sidecar, so nothing has recorded into it. If the session concludes in
+this state the merge writes 0 supersede rows and the origin branch stays
+effective
+```
+
+Its prediction came true to the letter. `.claude/CLAUDE.md` records that raise as
+OBSERVATION ONLY because "the route to that state is not established; the only
+demonstrated route was fixture-shaped" - this is a driven flight over a
+production-shaped RP sidecar reaching it, so that sentence now has a
+counter-example. The standing instruction NOT to relax
+`ReFlySessionMarker.ResolveInPlaceContinuationTarget`'s tree-id gate to "fix" it
+is untouched by this.
+
+ONE TIMING SUBTLETY that probably matters to whoever takes this: the provisional
+is trajectory-less at the mid-session save (the raise above, 13:58:16.540) but
+carries FOUR points by the tail (`PRE_REFLY_ANCHOR written: rec=rec_cf0ed609...
+points=4`, 13:58:19.479), accumulated while the six-cell batch ran. So "unflown"
+and "trajectory-less" are NOT the same predicate on this timeline, and
+`ValidateSupersedeTarget` might not have refused even if it had been reached.
+Do not assume the refusal branch was merely bypassed - check whether it would
+still have fired.
+
 ## PART-ACTION-RECORDING-COVERAGE: audit backlog for what Parsek records vs the stock part-action surface [OPEN 2026-08-09]
 
 Full matrix and reasoning:

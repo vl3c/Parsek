@@ -173,6 +173,14 @@ steps = [
 # the same limit S4.1 states, and the reason its own rewind block pins max = 0);
 # terminal-kind-classify (S4.1 owns it on the identical tail and a second claim
 # adds no coverage); tombstones (uncrewed booster, no kerbal death).
+#
+# MEASURED CAVEAT ON `merge-journal` (2026-08-11, run `2026-08-11_1057`): this
+# flight's conclusion never OPENED a merge journal - every OnSave/OnLoad line read
+# `journal=False` and `MergeJournal Journal saved: none`, because the tail bailed
+# out of `TryCommitReFlySupersede` before the orchestrator (see the logContracts
+# banner). So the claim is currently carried by the SEAM SHAPE, not by an observed
+# journal phase, and it is left standing rather than silently dropped so the call
+# is a human one. Re-read it when the `AppendRelations` finding is resolved.
 D9  = ["rewind-to-separation", "refly-gate", "reconciliation-bundle", "read-back-guard",
        "merge-journal", "world-preservation"]
 D8  = ["recalc-engine"]
@@ -197,11 +205,36 @@ count = { min = 1 }
 [expectations.logContracts]
 # ANTI-VACUITY: the tally is pinned WHOLE, as house style requires.
 #
-# EVIDENCE STANDING: **DERIVED, NOT MEASURED.** This spec has never flown; its first
-# run is its reading run. Read that before treating a tally mismatch as a Parsek
-# defect, and do NOT widen the pattern to make a run green - read the skip messages
-# out of the log and correct the derivation below, the protocol R7a used (whose
-# pre-flight derivation then held token for token).
+# EVIDENCE STANDING: **MEASURED 2026-08-11**, run `2026-08-11_1057`, attempt 1,
+# wall 63 s. THE TALLY DERIVATION HELD TOKEN FOR TOKEN: the log printed
+# `BATCH_COMPLETE v1 total=6 passed=6 failed=0 skipped=0
+# category=ReFlyWorldPreservation scene=FLIGHT` verbatim, so the per-cell
+# derivation below is now measurement and the one derivation flagged as able to
+# move (a placeholder, non-in-place marker skipping the #587 positive control for
+# `passed=5 skipped=1`) did NOT move - the session was in-place
+# (`Marker valid ... inPlace=True`) exactly as derived. The scrub line and the
+# advisory line also matched verbatim, including `preserved=5 removed=1
+# activeVessel=0` and `siblingSlotsPutAway=1`.
+#
+# THE RUN NEVERTHELESS CLASSIFIED `PARSEK-FAIL(expectations)` ON ONE TOKEN, and it
+# is the LAST required line below, not the tally: `AppendRelations
+# outcome=refused-unflown-provisional` NEVER APPEARED. Do NOT relax or delete that
+# pin to make the spec green - the mismatch is a real reading about which path a
+# rewind-then-conclude-without-flying takes, and it is written up in
+# `docs/dev/autotest-status.md` (Flown, RED BY FINDING) and
+# `docs/dev/todo-and-known-bugs.md`. In one line: the merge tail did NOT reach
+# `SupersedeCommit.AppendRelations` at all. `MergeDialog.TryCommitReFlySupersede`
+# bailed one step earlier with
+# `WARN ... provisional rec=... not found in committed list after tree commit;
+# leaving marker in place for load-time sweep`, the conclusion ran as an ORDINARY
+# whole-tree merge over 3 recordings with the provisional excluded
+# (`skippedSuppressed=1`), and the session was retired on the NEXT load by the
+# marker validator (`Marker invalid field=ActiveReFlyRecordingId; cleared ...
+# rejected because active recording was not found in
+# RecordingStore.CommittedRecordings`) plus LoadTimeSweep. End state is benign and
+# CONVERGENT (0 supersede rows, origin stays effective, marker=False), which is
+# what the refusal branch would also have produced - but by a different route, so
+# the pinned token is not merely mis-worded.
 #
 # WHAT EACH TOKEN RESTS ON:
 #  - total=6 is ATTRIBUTE-EXACT and the only statically certain token: six
