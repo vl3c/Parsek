@@ -2597,6 +2597,61 @@ namespace Parsek.Tests
             Assert.Empty(dupes);
         }
 
+        // ------------------------------------------------------------------
+        // #16 item 5 verdict: the dedup stays NAME-GLOBAL (not scoped to the
+        // recording's own launch), because a kerbal is ONE KerbalRoster entry
+        // for the whole save and cannot be in two places - so "already aboard
+        // something live" really does mean "cannot be here", whichever launch
+        // that something belongs to, and the empty seat is the correct outcome.
+        // What the preserved fleet changed is how OFTEN that happens, so what
+        // was actually owed is diagnosability: the summary line below, plus a
+        // Warn that now names the holding vessel.
+        // ------------------------------------------------------------------
+
+        [Fact]
+        public void DescribeCrewDedupOutcome_PartialRemoval_ReportsRemainingSeats()
+        {
+            string line = VesselSpawner.DescribeCrewDedupOutcome(3, 1);
+
+            Assert.Contains("removed 1 of 3", line);
+            Assert.Contains("2 seat(s) still filled", line);
+            Assert.DoesNotContain("EVERY seat empty", line);
+        }
+
+        [Fact]
+        public void DescribeCrewDedupOutcome_AllSeatsVacated_CallsOutTheEmptyMaterialization()
+        {
+            // The line that stops "my rewound craft came back with no crew" reading as a
+            // Parsek bug: it names the reason (they are aboard other live vessels).
+            string line = VesselSpawner.DescribeCrewDedupOutcome(2, 2);
+
+            Assert.Contains("removed 2 of 2", line);
+            Assert.Contains("0 seat(s) still filled", line);
+            Assert.Contains("EVERY seat empty", line);
+        }
+
+        [Fact]
+        public void DescribeCrewDedupOutcome_NothingRemoved_IsNotAnEmptySeatCallout()
+        {
+            // A crewless snapshot (probe) removes nothing: 0 of 0 must not read as the
+            // all-seats-empty anomaly.
+            string line = VesselSpawner.DescribeCrewDedupOutcome(0, 0);
+
+            Assert.Contains("removed 0 of 0", line);
+            Assert.DoesNotContain("EVERY seat empty", line);
+        }
+
+        [Fact]
+        public void DescribeCrewDedupOutcome_RemovedExceedingCount_ClampsRemainingAtZero()
+        {
+            // Defensive: a kerbal seated in two PART nodes of one snapshot is counted per
+            // removal, so removedCount can exceed the extracted crew count.
+            string line = VesselSpawner.DescribeCrewDedupOutcome(1, 2);
+
+            Assert.Contains("0 seat(s) still filled", line);
+            Assert.DoesNotContain("-1", line);
+        }
+
         #region IsStructuralJointBreak
 
         [Fact]
