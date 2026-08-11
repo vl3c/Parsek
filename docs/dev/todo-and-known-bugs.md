@@ -1117,14 +1117,59 @@ double-pay, because the world reverts to `rp.UT` while the ledger is deliberatel
 kept and re-applied (`RecalculateAndPatch(double.MaxValue)`, "career state
 sticks") - a vessel recovered after the RP is resurrected with its payout still
 banked. And a family of pid-only live-vessel resolutions that were safe when only
-one vessel existed: `FlightRecorder.TryResolveLivePeerRecordingId` (a preserved
+one vessel existed: ~~`FlightRecorder.TryResolveLivePeerRecordingId` (a preserved
 stranger can become a RELATIVE anchor at a bogus position - silent trajectory
-corruption), `GhostPlaybackLogic.AnyLiveRealVesselSharesRecordedCraft` (latches the
-`#573` rewind suppression), plus `VesselSpawner.RemoveDuplicateCrewFromSnapshot`
-emptying seats, `SpawnCollisionDetector` blocking spawns against preserved
-stations, `IsFlightReady`'s `Vessels.Count > 0` no longer implying the selected slot
-is present, and a partially-populated RP now leaving the sibling stage in scene as
-a real vessel AND a ghost. See the P1-FOLLOWUP task entries.
+corruption)~~, ~~`GhostPlaybackLogic.AnyLiveRealVesselSharesRecordedCraft` (latches the
+`#573` rewind suppression)~~, plus ~~`VesselSpawner.RemoveDuplicateCrewFromSnapshot`
+emptying seats~~, `SpawnCollisionDetector` blocking spawns against preserved
+stations, ~~`IsFlightReady`'s `Vessels.Count > 0` no longer implying the selected slot
+is present~~, and ~~a partially-populated RP now leaving the sibling stage in scene as
+a real vessel AND a ghost~~. The pid-only family is TRIAGED AND CLOSED - see
+"PID-ONLY LIVE-VESSEL RESOLUTION FAMILY" below. `SpawnCollisionDetector` is the one
+item left open there (a proximity/physics test that is correctly identity-blind).
+
+**PID-ONLY LIVE-VESSEL RESOLUTION FAMILY - TRIAGED AND CLOSED 2026-08-12** (branch
+`identity-hardening`). Every named site was re-verified against current HEAD
+(several had moved) and given a per-site verdict rather than a blanket gate,
+because a blanket gate would have broken two sites whose pid is genuinely the right
+key.
+
+*Gated (a stranger-bind had a real consequence).*
+`FlightRecorder.TryResolveLivePeerRecordingId` and the background recorder's
+`AddBackgroundLiveAnchorCandidates` now take the live vessel's `Vessel.id` and
+reject a conclusive launch-Guid mismatch through the new pure
+`AnchorDetector.LiveAnchorLaunchMatches`; the sharpest failure in the whole family
+was this one - a stranger anchor writes `ReferenceFrame.Relative` metre offsets
+against the wrong body, so the recording is corrupted with no downstream signal.
+The three recording->live-vessel POSE lookups in `BackgroundRecorder` (debris TTL
+parent check, live parent anchor candidate, debris proximity tier) route through the
+new `FlightRecorder.FindLaunchMatchedVesselForRecording`, whose null result is the
+"parent not live" case those sites already handle, so the failure mode degrades to
+the recorded-anchor fallback instead of a bogus frame.
+`GhostPlaybackLogic.ShouldSkipExternalVesselGhost` gained a production overload
+taking the `Recording`, so "the real vessel is already its own visual" is decided by
+the guid-gated `RealVesselExistsForRecording`; `GhostMapPresence.IsMaterializedForMapPresence`
+likewise. The last pid-only `ReconcileSpawnStateAfterStrip` caller (the plain
+Rewind-to-Launch OnLoad path) now collects `(pid, launch-guid)` identities, and the
+pid-only overloads plus `CollectSurvivingPids` / `ComputeSurvivorsFromProtoVesselPids`
+were DELETED so no future caller can pick the unsafe one (their cells were ported
+onto the guid-aware surface, adoption-stamp fixture rules included).
+
+*Deliberately pid-only, documented in code.*
+`GhostPlaybackLogic.AnyLiveRealVesselSharesRecordedCraft` (the #573 rewind
+suppression scan) must NOT be gated: the live re-flight it protects against is a
+same-craft stranger BY CONSTRUCTION (fresh launch of the rewound craft = baked pid,
+new Guid), so a Guid gate would lift the block during exactly the re-fly it exists
+for and resurrect the #573 duplicate. The accepted cost is that a preserved
+unrelated launch of the same craft also holds the block; the held decision now emits
+a `same-recording spawn suppression HELD` line so that case is diagnosable rather
+than silent, and two new `RewindSpawnSuppressionTests` cells pin the verdict.
+`GhostPlaybackLogic.RealVesselExists` stays the pid-level PRIMITIVE (its guid-aware
+caller is `RealVesselExistsForRecording`), `ValidateLoopAnchor` is pid-only by the
+loop-anchor live-PID contract (a loop anchor has no recorded Guid to compare), and
+the `BackgroundRecorder` split-detection pid snapshots are same-frame
+`FlightGlobals` diffs whose pids are session-scoped. Live-spawned ghost map pids are
+KSP-unique and were left alone per the #573 contract.
 
 **PRE-INVOKE ADVISORY (audit item C2) - ADDRESSED 2026-08-11.** The world-state
 half of this entry was always going to survive the vessel-preservation fix: a

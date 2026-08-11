@@ -18192,7 +18192,7 @@ namespace Parsek
                     RecordingStore.IsChainLooping(rec.ChainId);
 
                 bool externalVesselSuppressed = GhostPlaybackLogic.ShouldSkipExternalVesselGhost(
-                    rec.TreeId, rec.VesselPersistentId, IsActiveTreeRecording(rec));
+                    rec, IsActiveTreeRecording(rec));
                 // Loop-membership term, mirroring the map side's loopMemberInWindow gate.
                 // Computed here (the later BUG-B dormancy block reuses it) so the Step-2
                 // suppression below can scope itself to loop members only.
