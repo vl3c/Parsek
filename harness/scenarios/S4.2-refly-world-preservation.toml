@@ -8,10 +8,11 @@ id = "S4.2-refly-world-preservation"
 # precedent), and reason (b) needs EXPENSIVE, which a ~2-boot seam run with no
 # autopilot is not.
 #
-# NOT YET FLOWN. Its first scheduled run IS its live-prove, and a failure there
-# classifies driver-INVALID (retryable) or PARSEK-FAIL(expectation) with the numbers
-# to re-derive from - never a silent green. Read the DERIVED-NOT-MEASURED banner on
-# the batch tally below before treating a tally mismatch as a product defect.
+# LIVE-PROVEN 2026-08-12, run `2026-08-11_2111`, attempt 2, wall 62 s (attempt 1
+# INVALID(driver, seam-timeout) - see the FLAKE note on the AnswerMergeDialog step).
+# Its first flight (`2026-08-11_1057`) measured the tally and went RED on the
+# conclusion route; the confirming re-fly of the fix measured all three conclusion
+# tokens. Every token below is now MEASURED - nothing in this spec is derived.
 tier = "nightly"
 #
 # WHAT THIS SPEC IS FOR, and why S4.1 cannot be extended to cover it.
@@ -57,8 +58,7 @@ tier = "nightly"
 # makes the cells SKIP with a named reason rather than pass.
 description = "World-preservation re-fly: InvokeRewind a crashed-booster slot whose RP quicksave carries an unrelated fleet (station / asteroid / flag / name-colliding probe + debris), then run the ReFlyWorldPreservation in-game batch against the LIVE post-load scene while the session is still open."
 instanceProfile = "stock-minimal"
-tags = ["rewind", "refly", "world-preservation", "ingame-batch", "S4.2", "D9",
-        "pending-operator"]
+tags = ["rewind", "refly", "world-preservation", "ingame-batch", "S4.2", "D9"]
 
 [fixture]
 # gloops-airshow for TWO reasons, both load-bearing.
@@ -218,23 +218,78 @@ count = { min = 1 }
 #
 # THE RUN NEVERTHELESS CLASSIFIED `PARSEK-FAIL(expectations)` ON ONE TOKEN, and it
 # is the LAST required line below, not the tally: `AppendRelations
-# outcome=refused-unflown-provisional` NEVER APPEARED. Do NOT relax or delete that
-# pin to make the spec green - the mismatch is a real reading about which path a
-# rewind-then-conclude-without-flying takes, and it is written up in
-# `docs/dev/autotest-status.md` (Flown, RED BY FINDING) and
-# `docs/dev/todo-and-known-bugs.md`. In one line: the merge tail did NOT reach
-# `SupersedeCommit.AppendRelations` at all. `MergeDialog.TryCommitReFlySupersede`
-# bailed one step earlier with
+# outcome=refused-unflown-provisional` NEVER APPEARED. That pin was deliberately
+# left standing rather than relaxed, and the reading it forced is now FIXED in the
+# product - see POST-FIX CONTRACT below. What the red measured: the merge tail did
+# NOT reach `SupersedeCommit.AppendRelations` at all.
+# `MergeDialog.TryCommitReFlySupersede` bailed one step earlier with
 # `WARN ... provisional rec=... not found in committed list after tree commit;
 # leaving marker in place for load-time sweep`, the conclusion ran as an ORDINARY
 # whole-tree merge over 3 recordings with the provisional excluded
 # (`skippedSuppressed=1`), and the session was retired on the NEXT load by the
 # marker validator (`Marker invalid field=ActiveReFlyRecordingId; cleared ...
 # rejected because active recording was not found in
-# RecordingStore.CommittedRecordings`) plus LoadTimeSweep. End state is benign and
+# RecordingStore.CommittedRecordings`) plus LoadTimeSweep. End state was benign and
 # CONVERGENT (0 supersede rows, origin stays effective, marker=False), which is
 # what the refusal branch would also have produced - but by a different route, so
-# the pinned token is not merely mis-worded.
+# the pinned token was not merely mis-worded.
+#
+# POST-FIX CONTRACT (2026-08-11, branch `refly-conclusion-route`) - **CONFIRMED
+# MEASURED 2026-08-12, run `2026-08-11_2111`, attempt 2, wall 62 s.** The three
+# conclusion tokens below were DERIVED-PENDING-REFLY off unit coverage
+# (`Source/Parsek.Tests/ReFlyConclusionRouteTests.cs`, 20 cells); the confirming
+# re-fly flew them and ALL THREE MATCHED, with both pre-fix `forbidden` cascade
+# lines absent and zero `[Parsek][ERROR]` lines. No token text moved, so the
+# derivation is now measurement. Verbatim, in the order the run emitted them:
+#   `[ReFlySession] outcome=retired-empty-provisional rec=rec_a410c2b9... sess=...
+#    origin=wp-booster-a prune=PruneZeroPointLeaves - the session's provisional
+#    carries no payload the merge could accept; handing it to the conclusion ...`
+#   `[Supersede] AppendRelations outcome=refused-unflown-provisional
+#    provisional=rec_a410c2b9... reason=empty Points ... subtreeCount=1 points=0
+#    orbitSegments=0 trackSections=0 playableSections=0 preReFlyAnchorPoints=4
+#    terminal=Landed`
+#   `[Supersede] ConcludeRetiredProvisional outcome=concluded-no-supersede sess=...
+#    retireReason=PruneZeroPointLeaves rows=0 tombstones=0 ... terminal=Landed`
+# Note `reason=empty Points` with `preReFlyAnchorPoints=4`: the refusal fires on the
+# attempt's OWN zero points, not on the origin's copied anchor tail - the timing
+# subtlety the pre-fix reading could not resolve, now settled by a live line.
+#
+# FLAKE, recorded because it cost an attempt and is NOT the product: attempt 1 came
+# back INVALID(driver) `subkind=seam-timeout` on step 4, `AnswerMergeDialog` deferring
+# 120 s on `reason=no-refly-dialog`. Its batch was green (`total=6 passed=6`) and its
+# preservation cells all passed, but the session had already ended - `[ReFlySession]
+# End reason=treeDiscarded` fired ~1.2 s after `Started`, during the batch's own
+# baseline restore (`Final batch baseline restore (batch-complete-final-restore)
+# ... scene=FLIGHT` + `Preparing save-scoped state for isolated FLIGHT batch baseline
+# restore`), so no merge dialog existed to answer and none of the three conclusion
+# tokens fired. That is the race this spec's driver note predicted ("the one step of
+# this sequence with no committed precedent" - a quicksave WHILE a Re-Fly session is
+# live). It reproduced on 1 of 2 attempts here; `flake.json` quarantines the scenario
+# at rate=0.50 over 7d. Attempt 2 ran the identical spec clean. TREAT A REPEAT AS
+# THE SAME DRIVER RACE, not as a conclusion-route regression - the discriminator is
+# whether `End reason=treeDiscarded` precedes the AnswerMergeDialog defer.
+#
+# The established cause was a two-surface miss, not a policy call. The session's
+# provisional enters the flat committed list once, via `RewindInvoker.AddProvisional`
+# at invoke. Any quicksave/quickload between the rewind and the conclusion (here:
+# the in-game batch's isolation revert; for a player, any F5/F9) re-hydrates it into
+# `tree.Recordings` ONLY - this very run logs `ReconcileInPlaceForkIntoTreeIfNeeded:
+# fork rec=... absent from committed list but present in tree.Recordings`. The
+# scene-exit leaf prune then removed it from the tree too (`PruneZeroPointLeaves:
+# removed 1 zero-point leaf`), leaving BOTH surfaces empty at merge time. S4.1 runs
+# the SAME prune on the SAME kind of empty provisional and still reaches the
+# refusal, purely because nothing reloaded in between. So the two routes were
+# separated by load history, not by anything about the session - which is why this
+# is a plain player sequence, not a fixture artefact.
+#
+# The fix: the leaf prune refuses to delete a provisional the merge would accept,
+# and HANDS OVER one it would refuse; the conclusion classifies the absence and
+# runs `AppendRelations` on the handed-over recording, so the SAME refusal token
+# fires, in-session, with no zombie marker for the next load. Three tokens pin the
+# fixed route - the original refusal (unchanged, now expected to FIRE on this
+# shape) plus the two new seam lines - and both lines of the pre-fix cascade move
+# to `forbidden`, which is what turns "the sweep route is not taken" into an
+# assertion instead of a hope.
 #
 # WHAT EACH TOKEN RESTS ON:
 #  - total=6 is ATTRIBUTE-EXACT and the only statically certain token: six
@@ -298,6 +353,24 @@ count = { min = 1 }
 # `outcome=refused-unflown-provisional` is the correct behaviour for a conclusion
 # with no re-flight between rewind and merge (this spec flies none), and requiring
 # it is what stops a silent regression to the old throw.
+#
+# THE THREE CONCLUSION TOKENS, and what each one alone would fail to catch:
+#  - `outcome=retired-empty-provisional` is the PRUNE seam: the leaf prune found
+#    the live session's provisional, measured it as carrying nothing the merge
+#    could accept, and handed it to the conclusion instead of dropping it. Without
+#    this token a fix that merely stopped pruning would also pass, and that fix
+#    would commit a zero-point recording into the tree.
+#  - `AppendRelations outcome=refused-unflown-provisional` is the DECISION: the
+#    supersede machinery ran and refused, in the same code and for the same reason
+#    it would have on S4.1's shape. This is the token the finding was filed on.
+#  - `outcome=concluded-no-supersede` is the CONCLUSION: rows=0, tombstones=0,
+#    marker cleared HERE rather than by the next load's sweep. Without it the run
+#    could still emit the refusal and then strand the marker.
+# The two `forbidden` additions are the pre-fix cascade, verbatim from run
+# 2026-08-11_1057: the bail WARN and the next-load marker rejection. This fixture
+# runs exactly one Re-Fly session, so neither line has an innocent source here. If
+# a confirming re-fly reds on the marker-invalid line ALONE, that is a real reading
+# (the session concluded and something re-armed a marker), not a wording bug.
 required  = [
   "BATCH_COMPLETE v1 total=6 passed=6 failed=0 skipped=0 category=ReFlyWorldPreservation scene=FLIGHT",
   "runtests start category=ReFlyWorldPreservation isolated=false",
@@ -306,9 +379,15 @@ required  = [
   "Re-Fly \\(Rewind-to-Separation\\) StartInvoke", "Invocation complete",
   "ConsumePostLoad: restoring bundle with route-retire cutoffUT=",
   "Restored: recs=.* pendingScience=",
+  "outcome=retired-empty-provisional",
   "AppendRelations outcome=refused-unflown-provisional",
+  "outcome=concluded-no-supersede",
 ]
-forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "not found in committed list after tree commit",
+  "Marker invalid field=ActiveReFlyRecordingId",
+]
 
 [runtime]
 # Budget arithmetic (M-A5 S8), sized so the WORST DEFER path surfaces a clean
