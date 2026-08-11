@@ -160,8 +160,10 @@ a genuine Parsek spawn has a KSP-unique pid and stays pid-only by contract
 did exactly that and read as a product failure.
 
 **Side effect worth knowing:** `WarnOnLeftAloneNameCollisions`
-(`RewindInvoker.cs:1009`, wired and unit-tested) becomes reachable for the first
-time. It was built for exactly this mode.
+(`RewindInvoker.cs:1233`, wired and unit-tested) becomes reachable for the first
+time. It was built for exactly this mode. (The other `RewindInvoker.cs:NNN`
+references in this entry - `:1975`, `:805`, `:877` - point at the PRE-FIX file
+and describe the code as it was; only this one is a current-HEAD line.)
 
 **STILL OPEN, filed rather than fixed** (both newly REACHABLE because the fleet now
 survives, neither introduced by the narrowing itself): post-RP recoveries can
@@ -177,6 +179,32 @@ emptying seats, `SpawnCollisionDetector` blocking spawns against preserved
 stations, `IsFlightReady`'s `Vessels.Count > 0` no longer implying the selected slot
 is present, and a partially-populated RP now leaving the sibling stage in scene as
 a real vessel AND a ghost. See the P1-FOLLOWUP task entries.
+
+**PRE-INVOKE ADVISORY (audit item C2) - ADDRESSED 2026-08-11.** The world-state
+half of this entry was always going to survive the vessel-preservation fix: a
+Re-Fly still reverts everything outside the seven `KspStatePatcher.PatchAll`
+facets (`KspStatePatcher.cs:87-93`) to `rp.UT`, and that was silent. The Re-Fly
+confirmation dialog's body now carries three statements before the player commits:
+what is carried forward (the seven facets, in plain English), what goes back with
+the clock (named concretely - kerbal experience, resource-survey unlocks, contract
+waypoint progress, deployed-science accrual since `rp.UT`), and which of this RP's
+OTHER slot craft are put away as replays (named from their origin recordings,
+capped at 8 with a `(+N more)` overflow per the batch-logging convention). It
+closes with the post-P1 reassurance that unrelated vessels, stations, asteroids,
+comets and flags are preserved - deliberately NOT a fleet-deletion warning, which
+would now be false. Same facts emitted as one grep-stable `[Rewind]` Info line
+(`Pre-invoke advisory: rp=... siblingSlotsPutAway=N ...`) so a session record
+shows what the player was told even on Cancel. Informational only: no new button,
+no new refusal, no control-flow change, and the whole block is wrapped so a broken
+slot map costs the advisory rather than the dialog. Composition is pure
+(`ResolveReFlySiblingSlotNames` / `ComposeReFlyAdvisoryBody` /
+`FormatReFlyAdvisoryLogLine` / `FormatCappedNameList`), pinned by
+`ReFlyPreInvokeAdvisoryTests` (24 cells, including the exact player-facing
+strings, exclusion by `SlotIndex` rather than list index, and the omission of an
+UNMAPPED slot - the scrub cannot match its vessel, so promising the player it
+leaves would be a false statement). Note the audit ranks this **C2**, second in
+its MUST table behind C1 (the vessel preservation this entry closed); it is not
+ranked #3 anywhere in the doc.
 
 Guarded by `ReFlySaveScrubTests` (11 cells), plus
 `Bug587StripPreExistingDebrisTests.BuildLeftAlone_PreservedRealFleetSharingTheReFlownName_IsNeverKilled`
@@ -198,6 +226,13 @@ Full matrix and reasoning:
 values, 22 `GameStateEventType` values, 59 subscribed `GameEvents`, the playback
 dispatch and the Re-Fly restore path. That doc is the authority; this entry is
 the index so the items are not lost.
+
+**Both MUST-table `C` items are now closed.** `C1` (restore non-slot vessels,
+asteroids/comets, flags) shipped 2026-08-09 - see the
+REFLY-DELETES-NON-SLOT-WORLD entry above. `C2` (pre-invoke advisory naming what
+the revert takes back) shipped 2026-08-11 into the Re-Fly confirmation dialog +
+one `[Rewind]` Info line; details in that same entry. The `M` / `S` items below
+are untouched.
 
 **Establish the restore model before reasoning about any "world desyncs" claim.**
 The RP quicksave is a full `GamePersistence.SaveGame`, so the whole `GAME` node
