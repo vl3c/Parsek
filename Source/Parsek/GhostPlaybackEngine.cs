@@ -3640,7 +3640,10 @@ namespace Parsek
                 // recorded event, so a rover recording that happens to carry zero part events must
                 // still roll its wheels — under the old call site it silently would not. Rotors are
                 // unaffected: with no events their `active` flag is false and this is a no-op.
-                GhostPlaybackLogic.UpdateActiveRobotics(state, ut);
+                //
+                // The sections are the wheel-spin ground-contact gate's only input; a null / empty
+                // list holds the wheels still (see GhostPlaybackLogic.ResolveWheelGroundContact).
+                GhostPlaybackLogic.UpdateActiveRobotics(state, ut, traj?.TrackSections);
             }
 
             bool priorVisualFxSuppressed = state.visualFxSuppressed;

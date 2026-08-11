@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using UnityEngine;
 using Xunit;
 
@@ -21,14 +22,34 @@ namespace Parsek.Tests
     [Collection("Sequential")]
     public class RecordedSignalFixTests : IDisposable
     {
+        private readonly string tempDir;
+
         public RecordedSignalFixTests()
         {
             ParsekLog.SuppressLogging = true;
+            RecordingStore.SuppressLogging = true;
+
+            tempDir = Path.Combine(
+                Path.GetTempPath(),
+                "parsek-recorded-signal-fix-tests-" + Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(tempDir);
         }
 
         public void Dispose()
         {
             ParsekLog.ResetTestOverrides();
+            RecordingStore.SuppressLogging = true;
+
+            if (Directory.Exists(tempDir))
+            {
+                try
+                {
+                    Directory.Delete(tempDir, recursive: true);
+                }
+                catch
+                {
+                }
+            }
         }
 
         // ------------------------------------------------------------------
@@ -318,6 +339,107 @@ namespace Parsek.Tests
             // The values it must not have disturbed.
             Assert.Equal(3, (int)PartEventType.ParachuteCut);
             Assert.Equal(34, (int)PartEventType.ThermalAnimationMedium);
+        }
+
+        // WHY NO SCHEMA-GENERATION BUMP — the real mechanism, corrected 2026-08-11.
+        //
+        // Adding member 35 did not bump RecordingStore.CurrentRecordingSchemaGeneration, and the
+        // reason is UNDEFINED-ENUM TOLERANCE ACROSS EVERY CONSUMER, not "an older build skips the
+        // unknown event". Skipping is what the LEGACY TEXT reader does
+        // (TrajectoryTextSidecarCodec.DeserializePartEvents gates on
+        // Enum.IsDefined and `continue`s). The SHIPPING BINARY reader does not gate at all:
+        // TrajectorySidecarBinary.ReadPartEventList does a bare
+        // `eventType = (PartEventType)reader.ReadInt32()`, so an older build reading a newer .prec
+        // MATERIALISES an undefined (PartEventType)35 into its PartEvents list and carries it.
+        //
+        // That is still safe, because every reachable consumer of an unrecognised member degrades
+        // gracefully, and the cell below pins each one:
+        //   ApplyPartEvents          - switch with no matching case, no default: silently unhandled.
+        //   IsPermanentVisualStateEvent / IsInertPartEventForTailTrim  -> false.
+        //   SwitchSegmentNoOpClassifier.IsMeaningfulPartEvent          -> true  (keeps the segment).
+        //   GhostingTriggerClassifier.IsGhostingTrigger                -> true  + a Verbose
+        //                                                                 "unknown PartEventType".
+        //   Re-serialisation preserves the raw int (the writer casts back to int).
+        // So the outcome the commit claimed holds — the bump is correctly avoided — but the stated
+        // mechanism did not. This comment and the todo entry are the correction of record; the
+        // commit message is immutable and overstates it.
+        [Fact]
+        public void BinarySidecar_RawCastsAnUndefinedPartEventType_AndEveryConsumerDegradesGracefully()
+        {
+            // A value no PartEventType member has, standing in for "member added by a future build".
+            const int futureTypeInt = 9977;
+            var futureType = (PartEventType)futureTypeInt;
+            Assert.False(Enum.IsDefined(typeof(PartEventType), futureTypeInt));
+
+            var original = new Recording
+            {
+                RecordingId = "undefined-part-event-type",
+                RecordingFormatVersion = RecordingStore.CurrentRecordingFormatVersion,
+                RecordingSchemaGeneration = RecordingStore.CurrentRecordingSchemaGeneration
+            };
+            original.Points.Add(new TrajectoryPoint
+            {
+                ut = 100,
+                latitude = -0.1,
+                longitude = -74.5,
+                altitude = 120,
+                rotation = new Quaternion(0f, 0f, 0f, 1f),
+                velocity = new Vector3(0f, 50f, 0f),
+                bodyName = "Kerbin"
+            });
+            original.Points.Add(new TrajectoryPoint
+            {
+                ut = 110,
+                latitude = -0.09,
+                longitude = -74.49,
+                altitude = 300,
+                rotation = new Quaternion(0f, 0f, 0f, 1f),
+                velocity = new Vector3(0f, 75f, 0f),
+                bodyName = "Kerbin"
+            });
+            original.PartEvents.Add(new PartEvent
+            {
+                ut = 105.0,
+                partPersistentId = 4242u,
+                eventType = futureType,
+                partName = "parachuteSingle",
+                value = 0f,
+                moduleIndex = 0
+            });
+
+            string path = Path.Combine(tempDir, "undefined-part-event-type.prec");
+            TrajectorySidecarBinary.Write(path, original, sidecarEpoch: 1);
+
+            Assert.True(TrajectorySidecarBinary.TryProbe(path, out TrajectorySidecarProbe probe));
+            Assert.True(probe.Supported);
+
+            var restored = new Recording();
+            TrajectorySidecarBinary.Read(path, restored, probe);
+
+            // (1) The reader raw-casts: the undefined int SURVIVES verbatim. It is neither skipped
+            //     (the text reader's behaviour) nor coerced to a defined member.
+            Assert.Single(restored.PartEvents);
+            PartEvent roundTripped = restored.PartEvents[0];
+            Assert.Equal(futureTypeInt, (int)roundTripped.eventType);
+            Assert.Equal(4242u, roundTripped.partPersistentId);
+            Assert.Equal(105.0, roundTripped.ut);
+            Assert.False(Enum.IsDefined(typeof(PartEventType), (int)roundTripped.eventType));
+
+            // (2) Re-serialising the materialised event preserves the int rather than dropping it,
+            //     so a round trip through an older build does not silently erase the newer signal.
+            string rewritePath = Path.Combine(tempDir, "undefined-part-event-type-rewrite.prec");
+            TrajectorySidecarBinary.Write(rewritePath, restored, sidecarEpoch: 2);
+            Assert.True(TrajectorySidecarBinary.TryProbe(rewritePath, out TrajectorySidecarProbe reprobe));
+            var reread = new Recording();
+            TrajectorySidecarBinary.Read(rewritePath, reread, reprobe);
+            Assert.Single(reread.PartEvents);
+            Assert.Equal(futureTypeInt, (int)reread.PartEvents[0].eventType);
+
+            // (3) Every consumer reachable headless takes its safe branch.
+            Assert.False(RecordingOptimizer.IsPermanentVisualStateEvent(roundTripped.eventType));
+            Assert.False(RecordingOptimizer.IsInertPartEventForTailTrim(roundTripped));
+            Assert.True(SwitchSegmentNoOpClassifier.IsMeaningfulPartEvent(roundTripped));
+            Assert.True(GhostingTriggerClassifier.IsGhostingTrigger(roundTripped.eventType));
         }
 
         #endregion
@@ -734,6 +856,167 @@ namespace Parsek.Tests
         {
             Assert.True(GhostPlaybackLogic.DefaultWheelRadiusMeters
                 > GhostPlaybackLogic.MinWheelRadiusMeters);
+        }
+
+        #endregion
+
+        #region Ground-contact gate — the derivation must not spin wheels off the ground
+
+        // Review finding D1. Speed/radius is only a wheel rate while the wheel is ON something. A
+        // rover carried to orbit on a launch vehicle keeps the recording's orbital velocity
+        // (~2100 m/s on a Kerbin parking orbit), which ungated turns into thousands of degrees per
+        // frame — visible strobing for the whole ascent and coast. The OLD recorded signal was right
+        // here by accident (driveOutput is 0 with no motor input), so an ungated derivation is a NEW
+        // artifact, and it appears on already-recorded flights too.
+
+        [Fact]
+        public void IsWheelSpinGroundContactEnvironment_OnlyTheTwoSurfaceClassesAreContact()
+        {
+            Assert.True(GhostPlaybackLogic.IsWheelSpinGroundContactEnvironment(
+                SegmentEnvironment.SurfaceMobile));
+            Assert.True(GhostPlaybackLogic.IsWheelSpinGroundContactEnvironment(
+                SegmentEnvironment.SurfaceStationary));
+
+            Assert.False(GhostPlaybackLogic.IsWheelSpinGroundContactEnvironment(
+                SegmentEnvironment.Atmospheric));
+            Assert.False(GhostPlaybackLogic.IsWheelSpinGroundContactEnvironment(
+                SegmentEnvironment.Approach));
+            Assert.False(GhostPlaybackLogic.IsWheelSpinGroundContactEnvironment(
+                SegmentEnvironment.ExoPropulsive));
+            Assert.False(GhostPlaybackLogic.IsWheelSpinGroundContactEnvironment(
+                SegmentEnvironment.ExoBallistic));
+        }
+
+        [Fact]
+        public void ResolveWheelGroundContact_TheAscentCase_HoldsTheWheelsStillOffTheGround()
+        {
+            // The reviewer's fixture: a rover riding a launch vehicle. Pad -> ascent -> orbit.
+            List<TrackSection> sections = AscentSections();
+            var memo = default(WheelGroundContactMemo);
+
+            // On the pad: contact.
+            Assert.True(GhostPlaybackLogic.ResolveWheelGroundContact(sections, 105.0, ref memo));
+            // Climbing through atmosphere: no contact.
+            Assert.False(GhostPlaybackLogic.ResolveWheelGroundContact(sections, 250.0, ref memo));
+            // Powered above the atmosphere: no contact.
+            Assert.False(GhostPlaybackLogic.ResolveWheelGroundContact(sections, 450.0, ref memo));
+            // Coasting in orbit at ~2100 m/s — the strobing case: no contact.
+            Assert.False(GhostPlaybackLogic.ResolveWheelGroundContact(sections, 900.0, ref memo));
+        }
+
+        [Fact]
+        public void ResolveWheelGroundContact_DrivingOnTheSurface_OpensTheGate()
+        {
+            List<TrackSection> sections = RoverSurfaceSections();
+            var memo = default(WheelGroundContactMemo);
+
+            Assert.True(GhostPlaybackLogic.ResolveWheelGroundContact(sections, 1050.0, ref memo));  // parked
+            Assert.True(GhostPlaybackLogic.ResolveWheelGroundContact(sections, 1500.0, ref memo));  // driving
+        }
+
+        [Fact]
+        public void ResolveWheelGroundContact_TouchdownBoundary_FlipsExactlyAtTheSectionSeam()
+        {
+            // Atmospheric [1000, 2000) then SurfaceMobile [2000, 3000]: an aircraft landing. The
+            // recorder's own LANDED->Surface classification IS the wheels-on-ground boundary.
+            var sections = new List<TrackSection>
+            {
+                Section(SegmentEnvironment.Atmospheric, 1000.0, 2000.0),
+                Section(SegmentEnvironment.SurfaceMobile, 2000.0, 3000.0)
+            };
+            var memo = default(WheelGroundContactMemo);
+
+            Assert.False(GhostPlaybackLogic.ResolveWheelGroundContact(sections, 1999.999, ref memo));
+            Assert.True(GhostPlaybackLogic.ResolveWheelGroundContact(sections, 2000.0, ref memo));
+            // ...and back the other way, which is what proves the memo invalidates on a section change
+            // rather than pinning the first answer for the ghost's life.
+            Assert.False(GhostPlaybackLogic.ResolveWheelGroundContact(sections, 1500.0, ref memo));
+        }
+
+        [Fact]
+        public void ResolveWheelGroundContact_NoCoveringSection_FailsClosed()
+        {
+            List<TrackSection> sections = RoverSurfaceSections();
+            var memo = default(WheelGroundContactMemo);
+
+            // Before the recorded span, after it, and the empty / null lists a BG on-rails recording
+            // and a re-aimed trajectory present by contract. Every one holds the wheels still.
+            Assert.False(GhostPlaybackLogic.ResolveWheelGroundContact(sections, 1.0, ref memo));
+            Assert.False(GhostPlaybackLogic.ResolveWheelGroundContact(sections, 99999.0, ref memo));
+            Assert.False(GhostPlaybackLogic.ResolveWheelGroundContact(
+                new List<TrackSection>(), 1500.0, ref memo));
+            Assert.False(GhostPlaybackLogic.ResolveWheelGroundContact(null, 1500.0, ref memo));
+        }
+
+        [Fact]
+        public void ResolveWheelGroundContact_MemoIsWindowedToTheResolvedSection_AndClearedOnAMiss()
+        {
+            List<TrackSection> sections = RoverSurfaceSections();  // [1000,1200) stationary, [1200,2000] mobile
+            var memo = default(WheelGroundContactMemo);
+
+            Assert.True(GhostPlaybackLogic.ResolveWheelGroundContact(sections, 1050.0, ref memo));
+            Assert.True(memo.hasValue);
+            Assert.Equal(1000.0, memo.startUT);
+            Assert.Equal(1200.0, memo.endUT);
+            Assert.True(memo.onGround);
+
+            // A UT outside every section clears the memo rather than leaving a stale window that a
+            // later probe inside it could read.
+            Assert.False(GhostPlaybackLogic.ResolveWheelGroundContact(sections, 5.0, ref memo));
+            Assert.False(memo.hasValue);
+        }
+
+        [Fact]
+        public void ResolveWheelGroundContact_CachedWindowAnswersWithoutRescanning()
+        {
+            // The per-frame budget claim: a steady-state frame must not re-walk the section list.
+            // Proven by mutating the list underneath a valid memo — a cached read cannot see the
+            // change; a rescan would.
+            var sections = new List<TrackSection>
+            {
+                Section(SegmentEnvironment.SurfaceMobile, 1000.0, 2000.0)
+            };
+            var memo = default(WheelGroundContactMemo);
+            Assert.True(GhostPlaybackLogic.ResolveWheelGroundContact(sections, 1500.0, ref memo));
+
+            sections[0] = Section(SegmentEnvironment.ExoBallistic, 1000.0, 2000.0);
+            Assert.True(GhostPlaybackLogic.ResolveWheelGroundContact(sections, 1600.0, ref memo));
+
+            // Stepping outside the window rescans and now sees the mutated class.
+            Assert.False(GhostPlaybackLogic.ResolveWheelGroundContact(sections, 2000.0, ref memo));
+        }
+
+        private static TrackSection Section(SegmentEnvironment env, double startUT, double endUT)
+        {
+            return new TrackSection
+            {
+                environment = env,
+                referenceFrame = ReferenceFrame.Absolute,
+                startUT = startUT,
+                endUT = endUT,
+                minAltitude = float.NaN,
+                maxAltitude = float.NaN
+            };
+        }
+
+        private static List<TrackSection> AscentSections()
+        {
+            return new List<TrackSection>
+            {
+                Section(SegmentEnvironment.SurfaceStationary, 100.0, 200.0),  // on the pad
+                Section(SegmentEnvironment.Atmospheric, 200.0, 400.0),        // ascent
+                Section(SegmentEnvironment.ExoPropulsive, 400.0, 500.0),      // circularisation burn
+                Section(SegmentEnvironment.ExoBallistic, 500.0, 1000.0)       // parking orbit
+            };
+        }
+
+        private static List<TrackSection> RoverSurfaceSections()
+        {
+            return new List<TrackSection>
+            {
+                Section(SegmentEnvironment.SurfaceStationary, 1000.0, 1200.0),
+                Section(SegmentEnvironment.SurfaceMobile, 1200.0, 2000.0)
+            };
         }
 
         #endregion

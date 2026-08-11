@@ -1426,7 +1426,15 @@ namespace Parsek
             // PartEvents at all and wheel spin must not depend on that. Calling it twice in one
             // frame is a no-op: each pass stamps info.lastUpdateUT = currentUT, so the second sees
             // deltaSeconds == 0 and skips.
-            UpdateActiveRobotics(state, currentUT);
+            //
+            // DELIBERATE ASYMMETRY, do not "fix" by adding a second call to the other scenes: only
+            // the flight engine drives wheel spin unconditionally. A KSC-scene ghost never spins its
+            // wheels at all (ParsekKSC never calls SetInterpolated, so lastInterpolatedVelocity
+            // stays zero and TryResolveWheelGroundSpeedInputs declines), and the flight PREVIEW
+            // ghost spins only for a recording that carries at least one part event, because a
+            // zero-event recording early-returns above before reaching here. Both are acceptable:
+            // KSC is a static parked-craft display, and preview is a scrubbing aid, not the replay.
+            UpdateActiveRobotics(state, currentUT, rec.TrackSections);
         }
 
         private static void ApplyDecoupledPartEvent(
@@ -3808,6 +3816,75 @@ namespace Parsek
             return signedSpeed / wheelRadius * Mathf.Rad2Deg * (float)deltaSeconds;
         }
 
+        /// <summary>
+        /// Ground-contact test for a single recorded environment classification: only the two
+        /// SURFACE classes mean the wheels are touching something they can roll on.
+        ///
+        /// Why this is the whole test, and why the altitude classes are not on the list: the
+        /// recorder's own classifier (<see cref="EnvironmentDetector.Classify"/>) resolves
+        /// LANDED / SPLASHED / PRELAUNCH straight to
+        /// <see cref="SegmentEnvironment.SurfaceMobile"/> / <see cref="SegmentEnvironment.SurfaceStationary"/>
+        /// before it ever looks at altitude, and it debounces the jitter (#246). So a rover driving,
+        /// a plane on its takeoff roll, and a plane that has just touched down are all Surface; the
+        /// instant the wheels leave the ground KSP reports FLYING and the section becomes
+        /// Atmospheric. That boundary IS the wheels-on-ground boundary, already measured by the
+        /// recorder, at no per-frame cost here.
+        ///
+        /// <see cref="SegmentEnvironment.Atmospheric"/> is deliberately NOT ground contact even
+        /// though a wheel would keep freewheeling for a second after liftoff: holding still is the
+        /// honest answer when nothing in the recording says the wheel is loaded, and it is the answer
+        /// that keeps a rover riding a launch vehicle from spinning its wheels up the whole ascent.
+        /// <see cref="SegmentEnvironment.Approach"/> is likewise excluded — on an airless body the
+        /// classifier already promotes anything under 100 m AGL to Surface, so Approach means "not
+        /// near the ground yet".
+        /// </summary>
+        internal static bool IsWheelSpinGroundContactEnvironment(SegmentEnvironment env)
+        {
+            return env == SegmentEnvironment.SurfaceMobile
+                || env == SegmentEnvironment.SurfaceStationary;
+        }
+
+        /// <summary>
+        /// Resolves whether a ghost's wheels are on the ground at <paramref name="playbackUT"/>, via
+        /// the recorded <see cref="TrackSection"/> environment covering that UT, memoised in
+        /// <paramref name="memo"/> for the resolved section's own span.
+        ///
+        /// FAILS CLOSED (returns false, wheels hold still) when no section covers the UT. That
+        /// covers every "we do not actually know" shape and each of them is a case where spinning
+        /// would be wrong, not right: a BG on-rails recording emits no env-classified per-frame
+        /// sections at all (it is in orbit); a re-aimed trajectory presents an empty section list by
+        /// contract (it is on a heliocentric transfer); an endpoint / loop-pause hold sits outside
+        /// the recorded span (and zeroes the interpolated velocity anyway).
+        ///
+        /// The memo window is the resolved section's [startUT, endUT). That is only a correct cache
+        /// because sections partition the recorded timeline without overlapping — each section's
+        /// endUT is the next one's startUT — so no other section can be the answer inside the window.
+        /// A malformed overlapping list could return the wrong cached class for the overlap; nothing
+        /// produces that shape, and <see cref="TrajectoryMath.FindTrackSectionForUT"/> would already
+        /// resolve it first-match-wins.
+        /// </summary>
+        internal static bool ResolveWheelGroundContact(
+            List<TrackSection> sections, double playbackUT, ref WheelGroundContactMemo memo)
+        {
+            if (memo.hasValue && playbackUT >= memo.startUT && playbackUT < memo.endUT)
+                return memo.onGround;
+
+            int idx = TrajectoryMath.FindTrackSectionForUT(sections, playbackUT);
+            if (idx < 0)
+            {
+                memo.hasValue = false;
+                return false;
+            }
+
+            TrackSection section = sections[idx];
+            bool onGround = IsWheelSpinGroundContactEnvironment(section.environment);
+            memo.hasValue = true;
+            memo.startUT = section.startUT;
+            memo.endUT = section.endUT;
+            memo.onGround = onGround;
+            return onGround;
+        }
+
         #endregion
 
         private static void ApplyRoboticPose(RoboticGhostInfo info, float value)
@@ -3878,15 +3955,23 @@ namespace Parsek
             }
         }
 
-        internal static void UpdateActiveRobotics(GhostPlaybackState state, double currentUT)
+        /// <param name="trackSections">
+        /// The trajectory's recorded track sections, used ONLY by the wheel-spin ground-contact gate
+        /// (<see cref="ResolveWheelGroundContact"/>). Null / empty means "no proof of ground contact",
+        /// which holds the wheels still; every other robotic visual mode ignores it.
+        /// </param>
+        internal static void UpdateActiveRobotics(
+            GhostPlaybackState state, double currentUT, List<TrackSection> trackSections)
         {
             if (state == null || state.roboticInfos == null || state.roboticInfos.Count == 0)
                 return;
 
-            // Wheel-spin inputs are resolved ONCE per ghost per frame, not once per wheel: the body
-            // lookup, the surface normal and the ground-speed vector are identical for every wheel
-            // on the craft. Only the per-wheel roll direction and radius vary below. Resolution is
-            // also lazy — a ghost with no WheelGroundSpeed wheels pays nothing.
+            // Wheel-spin inputs are resolved ONCE per ghost per frame, not once per wheel: the
+            // ground-contact gate, the body lookup, the surface normal and the ground-speed vector
+            // are identical for every wheel on the craft. Only the per-wheel roll direction and
+            // radius vary below. Resolution is also lazy — a ghost with no WheelGroundSpeed wheels
+            // pays nothing, and a ghost whose wheels are off the ground pays only the memoised
+            // section lookup (two double compares on a steady-state frame).
             bool wheelInputsResolved = false;
             bool wheelInputsUsable = false;
             Vector3 wheelUp = Vector3.zero;
@@ -3931,8 +4016,20 @@ namespace Parsek
                     if (!wheelInputsResolved)
                     {
                         wheelInputsResolved = true;
-                        wheelInputsUsable = TryResolveWheelGroundSpeedInputs(
-                            state, out wheelUp, out wheelHorizontalVelocity);
+                        // GROUND-CONTACT GATE first, before the body lookup / getRFrmVel work. A
+                        // rover carried to orbit by a launch vehicle keeps its recorded orbital
+                        // velocity (~2100 m/s on a Kerbin parking orbit); ungated, speed/radius
+                        // turns that into thousands of degrees per frame and the wheels strobe for
+                        // the whole ascent and coast. The old recorded signal never showed this
+                        // because driveOutput was 0 with no motor input — it was right here by
+                        // accident, which makes an ungated derivation a NEW artifact, on old
+                        // recordings too. Nothing below the gate is reached off the ground.
+                        bool onGround = ResolveWheelGroundContact(
+                            trackSections, currentUT, ref state.wheelGroundContact);
+                        wheelInputsUsable = onGround
+                            && TryResolveWheelGroundSpeedInputs(
+                                state, out wheelUp, out wheelHorizontalVelocity);
+                        LogWheelGroundContactDecision(state, currentUT, onGround);
                     }
 
                     if (wheelInputsUsable)
@@ -4010,6 +4107,27 @@ namespace Parsek
             Vector3 bodyFrameVelocity = (Vector3)body.getRFrmVel(ghostWorldPos);
             horizontalVelocity = ComputeSurfaceHorizontalVelocity(worldVelocity, bodyFrameVelocity, up);
             return true;
+        }
+
+        /// <summary>
+        /// One Verbose line per ghost per ground-contact ANSWER, so a "wheels spun in orbit" or
+        /// "wheels never turned" report is decidable from KSP.log. The rate-limit key carries the
+        /// decision, so a flip emits immediately (new key, no prior timestamp) and a steady answer
+        /// re-affirms at most once a minute rather than every frame.
+        /// </summary>
+        private static void LogWheelGroundContactDecision(
+            GhostPlaybackState state, double currentUT, bool onGround)
+        {
+            string id = !string.IsNullOrEmpty(state.recordingId)
+                ? state.recordingId
+                : state.vesselName ?? "?";
+            ParsekLog.VerboseRateLimited("Flight",
+                $"wheel-ground-contact-{id}-{(onGround ? 1 : 0)}",
+                $"Wheel spin ground-contact gate {(onGround ? "OPEN" : "CLOSED")} for \"{state.vesselName}\" " +
+                $"rec={id} ut={currentUT.ToString("F1", CultureInfo.InvariantCulture)} " +
+                $"section={(state.wheelGroundContact.hasValue ? "resolved" : "none")}" +
+                (onGround ? "" : "; wheels hold still"),
+                60.0);
         }
 
         #endregion

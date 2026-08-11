@@ -811,7 +811,20 @@ namespace Parsek
 
                 // Mirrors the foreground gate: wheel motor spin is derived from the ghost's ground
                 // speed at playback, not recorded. See FlightRecorder.IsWheelMotorSpinModuleName.
-                if (FlightRecorder.IsWheelMotorSpinModuleName(moduleName)) continue;
+                // Logged once per key, exactly as FlightRecorder.CheckRoboticState does — a silent
+                // skip here would leave the BG half of the gate invisible in KSP.log, and the BG
+                // half is the one a rover-on-a-background-vessel report lands on.
+                if (FlightRecorder.IsWheelMotorSpinModuleName(moduleName))
+                {
+                    if (state.loggedRoboticModuleKeys.Add(key))
+                    {
+                        ParsekLog.Verbose("BgRecorder", $"Robotics: wheel-motor spin not recorded for " +
+                            $"'{part.partInfo?.name}' pid={part.persistentId} midx={moduleIndex} " +
+                            $"module={moduleName} (bg vessel {state.vesselPid}); " +
+                            $"derived from ghost ground speed at playback");
+                    }
+                    continue;
+                }
 
                 bool hasPosition = FlightRecorder.TryGetRoboticPositionValue(
                     module, moduleName, out float positionValue, out float deadband, out string sourceField);

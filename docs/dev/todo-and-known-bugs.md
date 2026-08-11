@@ -71,6 +71,41 @@ Points worth keeping:
   kerbal doing the repacking is the active vessel and the craft being repacked is
   a *loaded background* vessel. Both recorders now share the classifier.
 
+#### Why adding member 35 needed no schema-generation bump - MECHANISM CORRECTED 2026-08-11
+
+**This subsection is the correction of record.** The commit message for
+`f5cf6fba0` (and the first version of this entry) said an older build "skips the
+unknown event". That is true only of the **legacy TEXT reader**:
+`TrajectoryTextSidecarCodec.DeserializePartEvents` gates on
+`Enum.IsDefined(typeof(PartEventType), typeInt)` and `continue`s past a value it
+does not know. The **shipping BINARY reader does not gate at all** -
+`TrajectorySidecarBinary.ReadPartEventList` does a bare
+`eventType = (PartEventType)reader.ReadInt32()` - so an older build reading a
+newer `.prec` **materialises an undefined `(PartEventType)35`** into its
+`PartEvents` list and carries it around. The commit message is immutable and
+overstates this; this entry is the correction.
+
+**The outcome is unchanged: avoiding the bump remains correct.** The real reason
+is *undefined-enum tolerance across every consumer*, audited one by one:
+
+| consumer | behaviour on an unrecognised member |
+| --- | --- |
+| `GhostPlaybackLogic.ApplyPartEvents` | `switch` with no matching case and no `default` - silently unhandled, no visual change |
+| `RecordingOptimizer.IsPermanentVisualStateEvent` | `false` (no seed forwarded) |
+| `RecordingOptimizer.IsInertPartEventForTailTrim` | `false` (not trimmed away) |
+| `SwitchSegmentNoOpClassifier.IsMeaningfulPartEvent` | `true` (the segment is kept, never auto-discarded) |
+| `GhostingTriggerClassifier.IsGhostingTrigger` | `true`, plus a Verbose `unknown PartEventType` line |
+| re-serialisation (both codecs' writers) | preserves the raw int, so a round trip through an older build does not erase the newer signal |
+| `Parsek.Analyzer` rules | only stringify the type; no rule branches on the member set |
+
+Every branch is the safe one, so a mixed-version read degrades gracefully rather
+than corrupting or dropping data. Pinned by
+`RecordedSignalFixTests.BinarySidecar_RawCastsAnUndefinedPartEventType_AndEveryConsumerDegradesGracefully`,
+which round-trips a deliberately-undefined int through
+`TrajectorySidecarBinary` and asserts it survives verbatim *and* that each
+headless-reachable consumer above takes the branch listed. If a future consumer
+grows a `default:` that throws or mutates state, that cell is where it reds.
+
 ### 2. Wheel spin recorded percent-of-torque, replayed as RPM
 
 `ModuleWheelMotor` carries no RPM `[KSPField]` at all, so every RPM-shaped
@@ -115,13 +150,75 @@ from the ghost's own horizontal ground speed over the wheel radius.
   spin no longer depends on any event. It is retained inside `ApplyPartEvents`
   too so the KSC-scene and flight-preview callers keep their behaviour; calling it
   twice in a frame is a no-op (the second pass sees `deltaSeconds == 0`).
+- **The KSC / preview no-spin asymmetry is deliberate and documented in place.**
+  Only the flight engine drives wheel spin unconditionally. A KSC-scene ghost
+  never spins at all (`ParsekKSC` never calls `SetInterpolated`, so
+  `lastInterpolatedVelocity` stays zero and `TryResolveWheelGroundSpeedInputs`
+  declines); a flight-PREVIEW ghost spins only for a recording carrying at least
+  one part event, because a zero-event recording early-returns before the retained
+  call. KSC is a static parked-craft display and preview is a scrubbing aid, so
+  neither warrants a second unconditional per-frame call site.
+
+#### The ground-contact gate (review finding D1, fixed 2026-08-11)
+
+The first version of the derivation gated only on
+`WheelStationarySpeedMetersPerSecond` (0.05 m/s) - **never on ground contact**. So
+a rover riding a launch vehicle to orbit kept the recording's orbital velocity
+(~2100 m/s on a Kerbin parking orbit), and `speed / radius` turned that into
+thousands of degrees per frame: visible strobing for the whole ascent and coast.
+The OLD recorded signal was accidentally right about this exact case
+(`driveOutput` is 0 with no motor input), which makes an ungated derivation a
+**NEW** artifact - and one that appears on already-recorded flights too, since the
+derivation applies to them.
+
+**Gate: the recorded `TrackSection` environment covering the playback UT must be a
+SURFACE class** (`SurfaceMobile` / `SurfaceStationary`), resolved by
+`GhostPlaybackLogic.ResolveWheelGroundContact` /
+`IsWheelSpinGroundContactEnvironment`.
+
+Why the section environment rather than an altitude test:
+`EnvironmentDetector.Classify` resolves LANDED / SPLASHED / PRELAUNCH straight to
+a Surface class **before** it ever looks at altitude, and debounces the jitter
+(#246). So a rover driving, a plane on its takeoff roll and a plane that has just
+touched down are all Surface, and the instant the wheels leave the ground KSP
+reports FLYING and the section becomes `Atmospheric`. **That boundary already IS
+the wheels-on-ground boundary**, measured by the recorder, at no per-frame cost at
+the playback site. An altitude test would have needed a threshold: raw
+`lastInterpolatedAltitude` is ASL, not AGL, so any fixed number is wrong in the
+mountains, and `TrajectoryPoint.recordedGroundClearance` is populated only for
+surface-section samples - i.e. it presupposes the answer the gate is asking for.
+
+- `Atmospheric` and `Approach` are deliberately NOT contact. A real wheel keeps
+  freewheeling for a second after liftoff; holding still is the honest answer when
+  nothing recorded says the wheel is loaded, and on an airless body the classifier
+  already promotes anything under 100 m AGL to Surface, so `Approach` means "not
+  near the ground yet".
+- **Fails closed.** No section covering the UT means no spin. That covers a BG
+  on-rails recording (emits no env-classified per-frame sections - it is in orbit),
+  a re-aimed trajectory (`ReaimedTrajectory.TrackSections` is empty by contract -
+  it is on a heliocentric transfer), and an endpoint / loop-pause hold outside the
+  recorded span (which zeroes the interpolated velocity anyway).
+- **Per-frame budget.** Resolved once per ghost per frame, not once per wheel, and
+  memoised in `GhostPlaybackState.wheelGroundContact` over the resolved section's
+  own `[startUT, endUT)`, so a steady-state frame is two `double` compares instead
+  of an O(sections) scan. The window invalidates itself at every section change and
+  at a loop restart (the UT jumps backwards out of it). The gate runs BEFORE the
+  body lookup / `getRFrmVel` work, so an off-the-ground ghost pays only the memo
+  read. `UpdateActiveRobotics` therefore takes the section list as a third
+  parameter; both call sites pass the live trajectory's.
+- The gate touches ONLY `RoboticVisualMode.WheelGroundSpeed`. `RotorRpm` is
+  untouched - a helicopter's rotors must still spin in the air.
+- One Verbose line per ghost per ANSWER (`wheel-ground-contact-<recId>-<0|1>`,
+  rate-limited at 60 s), so a flip logs immediately and "wheels spun in orbit" /
+  "wheels never turned" is decidable from KSP.log.
 
 ### Verification
 
-Full suite `19876 -> 19939` passing (+63 new cells in
-`Source/Parsek.Tests/RecordedSignalFixTests.cs`), 0 failures, no existing test
-needed changing. `harness/lib` 1284 tests OK. No `[InGameTest]` added, so no
-harness batch tally moved.
+Full suite `19876 -> 19947` passing (+71 cells in
+`Source/Parsek.Tests/RecordedSignalFixTests.cs`: 63 from the original commit, plus
+7 for the ground-contact gate and 1 pinning the binary reader's raw-cast
+tolerance), 0 failures, 1 pre-existing skip, no existing test needed changing.
+`harness/lib` 1284 tests OK.
 
 **One step is unverified and cannot be unit-tested.** The absolute visual spin
 direction rests on Unity's left-handed `AngleAxis` identity
