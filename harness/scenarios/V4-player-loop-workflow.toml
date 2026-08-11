@@ -471,9 +471,12 @@ trees          = { min = 1, max = 2 }
 # the SUN heliocentric transfer ending 9,128,108.76 and the successor is the Duna
 # approach: THE ARRIVAL SEAM OF AN INTERPLANETARY TRANSFER, which is exactly the geometry
 # class the 2026-06-15 defect (ratio 1.027) lived in. It read inside the sphere.
-# THE LENS OUT-REACHED ITS SIBLING ON THE SAME FRAME, as designed: the parity line one
-# millisecond earlier reads `sampled=0 skip.reaimed-or-foreign-seed=1` (the Director seed
-# there is `epoch+shift=NaN seedBody=-`), while the encounter lens - which reads the
+# THE LENS OUT-REACHED ITS SIBLING ON THE SAME FRAME, as designed: the parity line sits
+# immediately above it IN THE SAME MILLISECOND - both stamped 13:15:57.665, `_1015`
+# KSP.log:12446 / :12447; an earlier draft said "one millisecond earlier" and the log does
+# not - and reads `sampled=0 skip.reaimed-or-foreign-seed=1` (the Director seed there is
+# `epoch+shift=NaN seedBody=-`, off that frame's own `8a director-drive ... curFrame=6464`
+# line at 13:15:57.643), while the encounter lens - which reads the
 # RENDERED conic and is deliberately NOT re-aim-gated - still measured. This lane and V7M
 # are the two of the five that buy the instrument; V6M / V6T / V7T read `evaluated=0
 # skip.no-cross-body-successor=1` and confirm the old derivation for THEMSELVES.
@@ -493,7 +496,17 @@ trees          = { min = 1, max = 2 }
 #       is also satisfied by a pass that skipped everything, which is precisely what the
 #       other three census lanes emit. Pinned under the two-consecutive-flights rule -
 #       `_1015` and `_1028` both read `evaluated=1 outsideSoi=0`, bit-identical, with no
-#       skip bucket - and NOT before it: a one-off would have been a coincidence.
+#       skip bucket - and NOT before it: a one-off would have been a coincidence. A THIRD
+#       census flight, `_1036` (PASS attempt 1), read the same thing bit-identically, and
+#       a FOURTH, `_1158` (PASS attempt 1, wall 76 s), re-flew the lane AFTER the capture
+#       gained the re-timed-arrival refusal and still read `evaluated=1 outsideSoi=0` -
+#       which is how we know that refusal did not cost this lane its measurement.
+#       READ `_1036` CAREFULLY: V7M carries a run stamped `_1036` too. That is not the
+#       same run and not a typo - run ids are scenario-qualified, and the tier flew the
+#       two lanes back to back inside one minute (`2026-08-09_1036_V4-player-loop-workflow`
+#       10:36:03-10:36:54, then `2026-08-09_1036_V7M-minmus-player-loop` 10:36:54-10:37:49).
+#       Quote the full run id, not the `_HHMM` stub, whenever the two lanes are cited side
+#       by side.
 #       WHY IT IS DETERMINISTIC HERE, so a future red is diagnosable rather than mysterious:
 #       the summary rides a shared 5 s rate-limited key, so the FIRST pass to clear the
 #       guard owns the window, and on this lane that pass is the frame the ghost is created

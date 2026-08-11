@@ -564,8 +564,12 @@ trees          = { min = 1, max = 2 }
 # ghost had its drive clock inside the recording's LAST segment (raw 10,
 # [16450.59, 20939.02]), so the instrument's forward scan finds no different-body
 # successor and returns `Skip("no-cross-body-successor")`. The pre-seam bracket epochs
-# never produced a resolved rendered orbit for the lens (`8a director-drive ...
-# fresh=False ... epoch+shift=NaN` at effDriveUT 16,225.0). What used to be a derivation
+# never produced a resolved rendered orbit for the lens: BOTH cycles' `8a director-drive
+# ... fresh=False ... epoch+shift=NaN seedBody=-` lines land pre-seam, at effDriveUT
+# 16,227.5 (cycle 1, liveDriveUT 296,370.0) and 16,224.9 (cycle 2, liveDriveUT 576,510.0),
+# and the log carries no other pre-seam drive line - an earlier draft cited a single
+# "effDriveUT 16,225.0", which appears in no run of this lane (`_0928`, `_1016` and `_1029`
+# all read the same two values). What used to be a derivation
 # from covering-segment lines plus the fixture's ORBIT_SEGMENT chain is now a tally the
 # lens prints about itself - which is the difference between an instrument you can argue
 # with and one you can read.
