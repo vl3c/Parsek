@@ -4728,20 +4728,31 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
         # re-stamped MEASURED. The entry's old drop rule ("when the tally is re-pinned
         # from a measured line") is deliberately NOT taken, because S4.1's quoted rule
         # is "until that first GREEN run" and that run classified
-        # PARSEK-FAIL(expectations) on the AppendRelations token - the standing
-        # RED-BY-FINDING (REFLY-CONCLUSION-SKIPS-APPENDRELATIONS). What the operator
-        # still owes: the standing-red disposition (fix the finding, or set
-        # [expectedFail] bugId to quiet nightlies) and the save-structure arming
-        # decision the spec deliberately leaves report-only. DROP THIS ENTRY on the
-        # first green run after the finding is resolved.
+        # PARSEK-FAIL(expectations) on the AppendRelations token.
+        #
+        # UPDATED 2026-08-11 (branch `refly-conclusion-route`): the finding
+        # REFLY-CONCLUSION-SKIPS-APPENDRELATIONS is FIXED, and the spec's pin is
+        # re-derived to the post-fix contract (the original refusal token, which now
+        # fires on this shape, plus the two new seam tokens, plus the pre-fix cascade
+        # moved to `forbidden`). The entry is deliberately NOT dropped: the fix is
+        # unit-covered but UNFLOWN, and this spec's whole drop rule is "the first
+        # GREEN run", which has not happened. Dropping it on a landed fix would swap
+        # a measured debt for an assumed one. What the operator still owes, narrowed:
+        # the confirming re-fly of S4.2 (which also re-measures the three DERIVED
+        # conclusion tokens) and the save-structure arming decision the spec
+        # deliberately leaves report-only. DROP THIS ENTRY on that green run.
         "S4.2-refly-world-preservation.toml":
-                                       "flown RED-BY-FINDING 2026-08-11: tally measured (matched "
-                                       "the derivation token for token) but the run classified "
-                                       "PARSEK-FAIL on REFLY-CONCLUSION-SKIPS-APPENDRELATIONS, "
-                                       "so the tag stays until the first green run. Operator "
-                                       "owes the standing-red disposition + the report-only "
-                                       "arming decision. NOT tier=operator: a nightly spec can "
-                                       "owe operator work, exactly as S1.5 and EVA-1 do.",
+                                       "flown RED-BY-FINDING 2026-08-11, fix landed the same day "
+                                       "and AWAITING THE CONFIRMING RE-FLY: tally measured "
+                                       "(matched the derivation token for token); the run "
+                                       "classified PARSEK-FAIL on "
+                                       "REFLY-CONCLUSION-SKIPS-APPENDRELATIONS, now fixed with "
+                                       "the spec re-pinned to the post-fix contract, but the "
+                                       "three conclusion tokens are DERIVED and unflown so the "
+                                       "tag stays until the first green run. Operator owes that "
+                                       "re-fly + the report-only arming decision. NOT "
+                                       "tier=operator: a nightly spec can owe operator work, "
+                                       "exactly as S1.5 and EVA-1 do.",
     }
 
     # Untagged specs that are CANDIDATES - they MENTION the token, or they are
