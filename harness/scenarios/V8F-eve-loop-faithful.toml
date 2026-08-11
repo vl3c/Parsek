@@ -1,0 +1,183 @@
+# V8F-eve-loop-faithful - the DELIBERATE-faithful half of the Eve A/B: the
+# same fixture and workflow as V8, with `forceFaithfulLoopPlayback = true`
+# flipped BEFORE the arm, so the re-aim-SUPPORTED member is forced onto the
+# faithful path by the product knob rather than by the tilt-decline.
+#
+# WHY THIS LANE EXISTS (three reasons, in order of weight):
+#   1. It is the population `hlib.ANOMALY_REASONS_RAISED_UNGATED`'s
+#      promotion blocker (2) names as UNMEASURED: "a FAITHFUL loop replay
+#      of an INTERPLANETARY transfer, whose destination has moved on in
+#      inertial space by the loop shift" - the benign-by-design raise
+#      class. No committed lane has ever driven the seam-endpoint lens over
+#      a user-chosen faithful interplanetary loop. This one does, with the
+#      census pinned.
+#   2. The A/B discriminator the program has wanted since V2 measured
+#      "faithful mode UNREACHABLE at flight time": FORCED FAITHFUL required
+#      + ENGAGED forbidden here, the exact inverse of V8, on the same
+#      fixture - while the per-member classify verdicts still emit
+#      unconditionally (`supported=True` on a forced build is the designed
+#      discriminator, MissionLoopUnitBuilder:623-626).
+#   3. The faithful clock is a DIFFERENT geometry from V8's tilt-declined
+#      faithful window: a forced-faithful unit anchors at
+#      Math.Max(LoopAnchorUT, spanEndUT) with NO synodic phase-lock, no
+#      loiter cuts, no launch hold - so its cycle-0 shift is ~the span
+#      (~1.0733 synodic), not V8's exact 1 synodic, and the destination
+#      displacement at the arrival seam differs. Whether the lens raises
+#      here, and at what ratio, is this lane's measurement - do not assume
+#      V8's 4.6216 carries over.
+#
+# ARMED REVISION (2026-08-11).
+#
+# ARMING LEDGER:
+#   READING  2026-08-11_0853 and _0854, both PASS attempt 1 - two
+#            consecutive clean runs of the bracketed shape; the five-raise
+#            set and every ratio reproduced to four decimals; saveParse
+#            REPORT all-zero rewind facets, committedTrees 1, trees 1.
+#   ARMED    2026-08-11_0857 PASS attempt 1, wall 51 s - gating=True on
+#            both blocks, mismatches=0, all fourteen required tokens met.
+#   CONTROL  shared with V8's 2026-08-11_0830 (the shared-evaluator
+#            precedent; single inverted window, PARSEK-FAIL(save-structure)).
+#
+# ITERATION HISTORY: iteration 1 (run 2026-08-11_0850, PARSEK-FAIL on ONE
+# expectations mismatch - the FORCED FAITHFUL required pattern's UNESCAPED
+# PARENTHESES regex-compiled as groups and could never match the literal
+# line; every step OK, every other token matched; fixed below by escaping)
+# MEASURED the faithful unit:
+#   phaseAnchorUt = 15,764,033.785 = Math.Max(LoopAnchorUT, spanEndUT), as
+#     the knob's design states - no synodic phase-lock (PhaseLock SKIPPED
+#     UnsupportedCrossParent, same as V8), no loiter cuts, no launch hold.
+#   unit summary: cadence=15,763,996.145 (= the span), overlaps=yes with
+#     overlapCadence=788,199.807 = EXACTLY span/20 - the forced-faithful
+#     unit is SELF-OVERLAPPING, where V8's ENGAGED unit read overlaps=no.
+#     A structural A/B difference nobody had measured.
+#   relaunchUt = 16,552,233.592 = phaseAnchor + overlapCadence: the
+#     product's "next relaunch" rides the OVERLAP cadence on this unit.
+#   Faithful clock arithmetic (NO loiter cut - the whole 11.83M-s LKO wait
+#     replays verbatim, which is itself the A/B's point): replayUT =
+#     phaseAnchor + (recordedUT - 34.68). Instance-0 Sun->Eve arrival seam
+#     = 15,764,033.785 + 15,673,148.69 = 31,437,182.48.
+# This iteration adds the arrival bracket on that clock (with the pacing
+# spacers V8's line-blink finding requires between straddling jumps) and
+# the census pins land after it measures.
+
+schema = 1
+id = "V8F-eve-loop-faithful"
+tier = "operator"
+instanceProfile = "stock-minimal"
+tags = ["V8F", "player-loop", "loop-playback", "faithful", "force-faithful",
+        "interplanetary", "eve", "inward-transfer", "reading-iteration"]
+
+[fixture]
+saveTemplate       = "fixtures/saves/eve-orbit-recorded"
+injectedRecordings = "none"
+craft              = []
+
+[driver]
+kind = "seam"
+
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  { cmd = "StopRecording",                                                   expect = "OK" },
+  { cmd = "DiscardTree",                                                     expect = "OK" },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "ghostRenderTracing", value = "true" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "mapRenderTracing",   value = "true" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "verboseLogging",     value = "true" }, expect = "OK" },
+  # THE KNOB, before the arm - the whole point of this lane. Strict bool
+  # parse; the unit-rebuild signature folds the flag, so the arm below
+  # builds the forced-faithful unit directly.
+  { cmd = "SetSetting", args = { name = "forceFaithfulLoopPlayback", value = "true" }, expect = "OK" },
+  { cmd = "MissionConfig", args = { tree = "16af6b5e546a4bef86fcd8cde1ddc924", loop = "true" }, expect = "OK" },
+  { cmd = "StartLoopPlayback", args = { tree = "16af6b5e546a4bef86fcd8cde1ddc924" }, expect = "OK", budget = 300 },
+  # Instance-0 Sun->Eve arrival bracket on the measured faithful clock
+  # (-182 / -62 / +158 around 31,437,182.5), paced per V8's line-blink
+  # finding: RecordingState spacers separate the seam-straddling pair.
+  { cmd = "TimeJump", args = { ut = "31437000" }, expect = "OK", budget = 300 },
+  { cmd = "TimeJump", args = { ut = "31437120" }, expect = "OK", budget = 300 },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "TimeJump", args = { ut = "31437340" }, expect = "OK", budget = 300 },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "FlushAndQuit",                                                    expect = "OK" },
+]
+
+# D11 self-overlap is claimed AS OF THE ARMING REVISION, gated by the
+# measured forced-faithful unit shape (`overlaps=yes` + the exact
+# `overlapCadence=788199.8072` = span/20) plus the two distinct-instance
+# arrival-raise pins below (seamUT prefixes 322253xx and 345899xx - two
+# different overlap instances' seams, proving multiple instances RENDER).
+[dimensionsCovered]
+D11 = ["self-overlap"]
+D14 = ["scene-flight", "sandbox"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+count = { min = 9, max = 9 }
+
+[expectations.logContracts]
+# ARMED-REVISION tokens; everything below the plumbing was measured
+# bit-identically on TWO consecutive runs (the ratios to four decimals):
+#   * the A/B discriminators: knob echo, FORCED FAITHFUL required, ENGAGED
+#     forbidden - V8's exact inverse on the same fixture.
+#   * THE BLOCKER-(2) MEASUREMENT, pinned: the census `outsideSoi=[1-9]`
+#     is REQUIRED here - the first lane ever to pin a non-zero outsideSoi,
+#     because on a DELIBERATE faithful interplanetary loop the raise class
+#     is the designed benign behavior (the destination has moved on), and
+#     this lane's job is to prove the lens MEASURES it. Five raises per
+#     run: four Sun->Eve arrival seams (one per overlap instance, ratios
+#     52.6957 / 47.5095 / 138.2108 / 203.2006) and one Kerbin->Mun
+#     transit seam (4.8024 - the recorded Mun encounter does not recur at
+#     shifted epochs; a benign shape nobody had catalogued). Two distinct
+#     instances pinned by seamUT prefix; the Mun-seam class pinned by its
+#     from/to pair. CALIBRATION FACT for the promotion discussion, filed
+#     in todo: the benign ratios (4.80-203.2) STRADDLE V8's defect
+#     reading (4.6216), so ratio alone cannot separate the classes - the
+#     discriminator is mode/seed context.
+required  = [
+  "setting name=forceFaithfulLoopPlayback old=false new=true",
+  "missionconfig applied:",
+  "SetLoopEnabled: loop ON",
+  "startloopplayback initiated:",
+  "FORCED FAITHFUL \\(re-aim supported Kerbin->Eve but forceFaithfulLoopPlayback is on\\)",
+  "overlaps=yes",
+  "overlapCadence=788199.8072",
+  "seam-endpoint summary evaluated=\\d+ outsideSoi=\\d+",
+  "seam-endpoint summary evaluated=[1-9]",
+  "seam-endpoint summary evaluated=\\d+ outsideSoi=[1-9]",
+  "faithful-parity summary sampled=\\d+ overTolerance=\\d+",
+  "reason=seam-endpoint-outside-soi fromBody=Sun toBody=Eve seamUT=322253",
+  "reason=seam-endpoint-outside-soi fromBody=Sun toBody=Eve seamUT=345899",
+  "reason=seam-endpoint-outside-soi fromBody=Kerbin toBody=Mun",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "timejump refused reason=backward-jump",
+  "ENGAGED re-aim",
+  "faithful-parity summary sampled=\\d+ overTolerance=[1-9][0-9]*",
+]
+
+# ARMED off the two consecutive clean runs (all-zero rewind facets,
+# committedTrees 1, trees 1 - the armed run re-proves them under gating).
+# Windows follow the corpus shape; negative control shared with V8's _0830.
+[expectations.rewind]
+gating = true
+rewindPoints  = { max = 0 }
+supersedeRows = { max = 0 }
+tombstones    = { max = 0 }
+
+[expectations.recordings.structure]
+gating = true
+committedTrees = { min = 1, max = 1 }
+trees          = { min = 1, max = 2 }
+
+[runtime]
+budgetSeconds = 2400
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""
