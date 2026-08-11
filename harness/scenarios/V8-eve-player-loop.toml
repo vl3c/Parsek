@@ -25,6 +25,21 @@
 #            mismatch`. Reverted immediately. Red in the red direction: the
 #            gate is load-bearing, not decorative.
 #
+# FIX-ERA RE-PIN LEDGER (2026-08-11, branch reaim-inclined-targets - the
+# tilt-retention fix, plan docs/dev/plans/reaim-inclined-target-tilt-
+# retention.md):
+#   BASELINE 2026-08-11_1242 PARSEK-FAIL(expectation) BY DESIGN on the fixed
+#            DLL: EXACTLY the three old required failure tokens mismatched,
+#            every other verifier green; the log instead carries the healthy
+#            state (re-aimed transfer ready devFromRecorded=0s,
+#            state=retained inc-before=18.5369, census evaluated=1
+#            outsideSoi=0). The regression floor did its job.
+#   READING  _1244 and _1245, both PASS attempt 1 - two consecutive greens
+#            of the re-pinned healthy shape below.
+#   CONTROL  _1246 PARSEK-FAIL(expectation), single mismatch, on a
+#            temporarily re-required dead token ("faithful this window");
+#            reverted. Red in the red direction.
+#
 # ITERATION HISTORY: _0802 iteration 1 (under-gated arm-and-read); _0807
 # iteration 2 (brackets; the instrument's FIRST RAISE); _0810/_0814
 # PARSEK-FAIL(anomaly) on the line-blink jump-straddle detector gap (filed,
@@ -292,6 +307,18 @@ count = { min = 9, max = 9 }
 #   * the D11 gate: loiterCuts=1 cutSeconds=11819849, exact - the cut is a
 #     pure function of the fixture and the compressor; a different number
 #     means the compressor changed and this lane wants to know.
+# RE-PINNED AFTER THE TILT-RETENTION FIX (branch reaim-inclined-targets,
+# plan docs/dev/plans/reaim-inclined-target-tilt-retention.md). The former
+# regression-floor trio (`tilt correction: unreachable target plane`,
+# `faithful this window`, the Sun->Eve raise line) red this lane BY DESIGN on
+# the fixed DLL - baseline run 2026-08-11_1242, PARSEK-FAIL with EXACTLY
+# those three mismatches and every other verifier green: the collected log
+# instead carries `re-aimed transfer ready` with devFromRecorded=0s (the
+# step-0 candidate won), `tilt-correction ... state=retained
+# reason=unreachable-plane` at the modeled inc-before=18.5369, and the
+# census flipped to evaluated=1 outsideSoi=0 - the replayed transfer now
+# ARRIVES. The required set below pins the HEALTHY state; the old trio moves
+# to forbidden so a regression to decline-to-faithful reds legibly.
 required  = [
   "missionconfig applied:",
   "SetLoopEnabled: loop ON",
@@ -301,10 +328,10 @@ required  = [
   "loiterCuts=1 cutSeconds=11819849",
   "seam-endpoint summary evaluated=\\d+ outsideSoi=\\d+",
   "seam-endpoint summary evaluated=[1-9]",
+  "seam-endpoint summary evaluated=[1-9] outsideSoi=0",
   "faithful-parity summary sampled=\\d+ overTolerance=\\d+",
-  "tilt correction: unreachable target plane",
-  "faithful this window",
-  "reason=seam-endpoint-outside-soi fromBody=Sun toBody=Eve",
+  "re-aimed transfer ready: departUT=",
+  "tilt-correction inc-before=\\d+\\.\\d+ bound=2.6000 targetInc=2.1000 incAch=1.2358 inc-after=NaN state=retained reason=unreachable-plane",
 ]
 forbidden = [
   "\\[Parsek\\]\\[ERROR\\]",
@@ -316,6 +343,14 @@ forbidden = [
   # Any parity sample OVER tolerance is a rendered-vs-recorded drift (the
   # S1.6/S1.7 pin verbatim; measured 0 on all six runs of this lane).
   "faithful-parity summary sampled=\\d+ overTolerance=[1-9][0-9]*",
+  # THE INVERTED REGRESSION FLOOR: the pre-fix failure trio. Any of these
+  # re-appearing means the Eve window fell back to decline-to-faithful (or
+  # the arrival stopped reaching the sphere) - the exact defect the
+  # tilt-retention fix closed. Measured absent on the fixed DLL.
+  "tilt correction: unreachable target plane",
+  "faithful this window",
+  "reason=seam-endpoint-outside-soi fromBody=Sun toBody=Eve",
+  "reaim window fell back faithful",
 ]
 
 # ARMED (this revision) off the two consecutive clean reading runs of the

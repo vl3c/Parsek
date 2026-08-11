@@ -482,6 +482,19 @@ namespace Parsek.Reaim
                     $"synth failed across {candidateTofs.Count} tof candidates (recordedTof={schedule.TofSeconds.ToString("R", ic)} " +
                     $"geomTof={geomTofSeconds.ToString("R", ic)} eTarget={eTarget.ToString("F4", ic)} halfWidthFraction={halfWidthFraction.ToString("F4", ic)}) " +
                     $"({failReason}) - faithful this window");
+                // And say it at WARN, once per window, on a grep-stable token of its OWN. The line above stays
+                // Verbose and its text is untouched (armed lane specs pin it verbatim). Why the second line:
+                // an ENGAGED unit degrading one window to the recorded transfer is silent today, and it is the
+                // measured route into the no-continuous-encounter class (docs/dev/todo-and-known-bugs.md,
+                // 2026-06-15 entry; the V8 lane's 2026-08-11 first raise, where the recorded transfer rendered
+                // one synodic late missed the moved Eve by 4.62 SOI radii). The tilt-retention change removes
+                // the MEASURED route into this fallback, not the class - Lambert non-convergence and the other
+                // fail-closed decline branches still reach it - so any remaining occurrence must be loud rather
+                // than inferred from a Verbose line nobody grepped.
+                ParsekLog.Warn("ReaimPlayback",
+                    $"reaim window fell back faithful: member={memberId} window={windowIndex.ToString(ic)} " +
+                    $"candidates={candidateTofs.Count.ToString(ic)} " +
+                    $"reason={(string.IsNullOrEmpty(failReason) ? "<none>" : failReason)}");
                 return null;
             }
 

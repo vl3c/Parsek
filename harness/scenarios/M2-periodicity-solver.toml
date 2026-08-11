@@ -58,7 +58,10 @@ steps = [
 #    finite future SOI-entry UT.
 #  - eccentric-inclined-targets: the Moho (eccentric + inclined + near-180) and Eeloo
 #    (high eccentricity) structural-contract tests, including the stage-B
-#    eccentricity-scaled band and stage-A's inclination lift.
+#    eccentricity-scaled band and stage-A's inclination lift; and, since 2026-08-11,
+#    the Kerbin->Eve cell, which is the only one that drives the achievability gate's
+#    UNREACHABLE-PLANE branch and asserts the retain disposition (an inclined target at
+#    an off-node departure keeps its un-flattened conic and still encounters).
 #  - heliocentric-parking-departure: Reaim_KerbinToDuna_ParkingDeparture_... pins
 #    r1 == park-end (the transfer starts at the ghost's re-phased parking position, not
 #    the launch body's center) over both an identity and a non-identity window.
@@ -86,20 +89,32 @@ allowedAnomalies = []
 count = { min = 0, max = 0 }
 
 [expectations.logContracts]
-# The batch tally is pinned WHOLE (hlib.batch_contract_vacuity_gap). Every number is
+# The batch tally is pinned WHOLE (hlib.batch_contract_vacuity_gap). Every number was
 # MEASURED off the first live run, 2026-07-26:
 #
 #   BATCH_COMPLETE v1 total=11 passed=7 failed=0 skipped=4 category=Periodicity scene=SPACECENTER
+#
+# RE-PINNED 2026-08-11 (+1 total, +1 passed) for the inclined-target tilt-retention
+# branch's Phase 2, which adds ONE batch-eligible SPACECENTER cell:
+# Reaim_KerbinToEve_UnreachablePlaneRetainsTiltAndStillEncounters. It drives the
+# achievability gate's unreachable-plane branch at a Kerbin->Eve off-node departure and
+# asserts the RETAIN disposition end to end (the retain arm fires, it logs
+# `state=retained reason=unreachable-plane`, the retained un-flattened conic still
+# arrives inside Eve's SOI, and the window resolves instead of falling back faithful).
+# skipped stays 4: the new cell declares neither Scene = FLIGHT nor
+# AllowBatchExecution = false, so it survives both runner filters. Its only skip route is
+# an InGameAssert.Skip when the pinned scan band contains no retaining departure - which
+# would move passed 8 -> 7 and leave total at 12, not change skipped.
 #
 # The pre-flight derivation below was written from the [InGameTest] attributes and the
 # live line confirmed it token for token. This category is the one where a naive
 # "total=N passed=N skipped=0" pin would be WRONG, so the derivation is kept as the
 # explanation of WHY each number is what it is:
-#  - total=11: exactly 11 [InGameTest(Category = "Periodicity")] methods exist
-#    (ReaimEndToEndInGameTest 9, CrossParentReaimCanaryInGameTest 1,
+#  - total=12: exactly 12 [InGameTest(Category = "Periodicity")] methods exist
+#    (ReaimEndToEndInGameTest 10, CrossParentReaimCanaryInGameTest 1,
 #    ReaimLandingCoincidenceInGameTest 1 - and that last one is FLIGHT-scene).
 #    Re-derive with `grep -c 'Category = "Periodicity"'` over those three files; the
-#    9 + 1 + 1 must equal the pinned total. BATCH_COMPLETE's total is
+#    10 + 1 + 1 must equal the pinned total. BATCH_COMPLETE's total is
 #    `allTests.Count(Status != NotRun)`, which counts every filtered test too.
 #  - skipped=4, from TWO different filters applied in order by RunCategory:
 #      * FilterSceneEligibleBatchCandidates first drops the 1 Scene = GameScenes.FLIGHT
@@ -107,23 +122,25 @@ count = { min = 0, max = 0 }
 #        real landing site);
 #      * PrepareBatchExecution then drops the 3 that declare AllowBatchExecution = false
 #        (Reaim_KerbinTo{Moho,Eeloo,Duna}_FeasibilitySweep_Diagnostic at
-#        ReaimEndToEndInGameTest.cs:572/581/752 - measurement artifacts, single-run-only
+#        ReaimEndToEndInGameTest.cs:827/836/1015 - measurement artifacts, single-run-only
 #        by design).
 #    Both filters mark the test Skipped, so all 4 land in the skipped tally.
-#  - passed=7: the remaining 7 batch-eligible SPACECENTER tests execute - the other 6 of
-#    ReaimEndToEndInGameTest's 9 (EveryWindowResolvesSaneTransfer, BandEdgeWindows,
+#  - passed=8: the remaining 8 batch-eligible SPACECENTER tests execute - the other 7 of
+#    ReaimEndToEndInGameTest's 10 (EveryWindowResolvesSaneTransfer, BandEdgeWindows,
 #    ObservedEdgeDeparture, KerbinToMoho / KerbinToEeloo StructuralContract,
-#    ParkingDeparture) plus the CrossParentReaimCanary. Their
+#    KerbinToEve UnreachablePlaneRetainsTiltAndStillEncounters, ParkingDeparture) plus
+#    the CrossParentReaimCanary. Their
 #    InGameAssert.Skip guards fire only on a non-stock body graph, degenerate live orbit
-#    data, or a fixture offset that stock eccentricity drift has pushed outside the
-#    stage-B band - none of which the stock-minimal profile produces (the tests' own
+#    data, a fixture offset that stock eccentricity drift has pushed outside the
+#    stage-B band, or (the Eve cell) a pinned scan band with no retaining departure -
+#    none of which the stock-minimal profile produces (the tests' own
 #    comments say "unexpected on stock").
 #  - scene=SPACECENTER: the vessel-less fixture's LoadGame route.
 # The former PENDING-OPERATOR is CLOSED by the 2026-07-26 flight. A stock rebalance
 # tripping one of those guards now reds here with the exact number to re-derive from.
 # That is the intended behavior. Do NOT relax this back to a bare failed=0 - the whole
 # point of the scenario is that these solvers actually ran.
-required  = ["BATCH_COMPLETE v1 total=11 passed=7 failed=0 skipped=4 category=Periodicity scene=SPACECENTER"]
+required  = ["BATCH_COMPLETE v1 total=12 passed=8 failed=0 skipped=4 category=Periodicity scene=SPACECENTER"]
 forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
 
 [runtime]
