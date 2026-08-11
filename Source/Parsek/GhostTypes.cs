@@ -53,6 +53,13 @@ namespace Parsek
         public float baselineMaxEmission;
         public Vector3 baselineLocalVelocity;
         public bool magnitudeBaselineCaptured;
+        // Whether this emitter simulates in WORLD space. Captured with the baseline because the
+        // baseline VALUE may be the world-space minimum-flow floor
+        // (GhostVisualBuilder.ApplyWorldSpaceEmitterVelocityFloor), and a low throttle ratio applied
+        // to it would scale the flow back under the pooling threshold the floor exists to clear.
+        // Only ReStock's world-space SRB smoke rigs are affected; every stock FX asset is
+        // local-space and this flag stays false.
+        public bool baselineUseWorldSpace;
     }
 
     /// <summary>
@@ -295,8 +302,9 @@ namespace Parsek
         WheelGroundSpeed,
         // S3 wheel steering: caliper heading DERIVED from the rate of change of the ghost's own
         // ground-track heading, not read from a recorded event. Recorded ModuleWheelSteering
-        // scalars (old recordings carry them, and they were an unsigned steering INPUT rather than
-        // an angle) are ignored in this mode, the same contract WheelGroundSpeed has.
+        // scalars (LEGACY recordings only — the recorder stopped emitting them, see
+        // FlightRecorder.IsDerivedWheelVisualModuleName; and they were an unsigned steering INPUT
+        // rather than an angle) are ignored in this mode, the same contract WheelGroundSpeed has.
         WheelSteeringHeading
     }
 

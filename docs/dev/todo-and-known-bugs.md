@@ -1093,7 +1093,14 @@ Open items, highest leverage first:
   are the ratio's numerator and denominator, which gives them production callers with
   their showcase visibility floors intact. Degradation is one-directional: an unreadable
   baseline answers ratio 1.0, i.e. today's boolean behaviour, never a zero plume. Audio
-  untouched (it already consumed the magnitude; touching it would double-apply).
+  untouched (it already consumed the magnitude; touching it would double-apply). Review
+  follow-up: the one baseline the ratio cannot scale freely is a WORLD-SPACE emitter's
+  `localVelocity`, because that baseline may BE the minimum-flow floor
+  (`ApplyWorldSpaceEmitterVelocityFloor`, 6 m/s) rather than a magnitude — a 0.2 ratio would
+  write 1.2 m/s, back under the 4 m/s pooling threshold the floor exists to clear.
+  `GhostPlaybackLogic.ScaleEmitterLocalVelocity` re-clamps that one write to the floor (never
+  above the baseline's own magnitude) and leaves every other write a plain ratio; reachable only
+  on ReStock's world-space SRB smoke at genuine partial throttle.
 - **Five dead reflection probes**, four of them documented as shipped at
   `done/next-parts-event-support-priority.md:43-47`. `module.Fields` is
   `[KSPField]`-only (`FlightRecorder.cs:3733-3748`); `ModuleControlSurface`'s
@@ -1121,7 +1128,12 @@ Open items, highest leverage first:
   of them across a section boundary mixes frames and invents a rotation that never happened.
   Wheel steering became a new `RoboticVisualMode.WheelSteeringHeading` that IGNORES the
   recorded `ModuleWheelSteering` scalar for the same reason wheel spin ignores
-  `driveOutput`: it was an unsigned steering INPUT, not a caliper angle. Launch dust is
+  `driveOutput`: it was an unsigned steering INPUT, not a caliper angle. Review follow-up: the
+  PRODUCER is gone too, following the #1445 precedent exactly — once playback discards every
+  `RoboticMotion*` event in that mode the scalar is a write-only surface, so the recorder gate
+  widened from `IsWheelMotorSpinModuleName` to `IsDerivedWheelVisualModuleName` (foreground and
+  background). Storage-negative, playback stays tolerant of legacy events, nothing retired in
+  `PartEventType` (hinges, pistons, rotation servos, rotors and wheel SUSPENSION still use it). Launch dust is
   narrower than written — Parsek owns its own particle system (the reentry `fireParticles`
   template) instead of driving `ModuleSurfaceFX`, is built lazily under the existing
   per-frame build cap, and is gated on a ground reference latched from
@@ -1131,9 +1143,17 @@ Open items, highest leverage first:
   `ReapplySpawnTimeModuleBaselinesForLoopCycle` (the transforms), including a new
   `WheelSteeringHeading` branch in `ApplyRoboticSpawnBaseline` — `ApplyRoboticPose` writes
   nothing for that mode, so without it a caliper left turned would carry across a loop
-  boundary while the numbers claimed straight. Live coverage: the new `PlaybackFidelity`
-  in-game category (7 cells) driven by `harness/scenarios/H36-playback-fidelity.toml`
-  (AUTHORED, NOT YET FLOWN; interim tally pin).
+  boundary while the numbers claimed straight. Also review follow-up: under SUSTAINED warp the
+  steering rate now DECAYS toward zero on every re-seed frame instead of holding its last value
+  (`DecayRateTowardZero`), so a warping rover eases its calipers straight rather than freezing
+  mid-turn; the same re-seed hold is left in place for gimbals and control surfaces on purpose
+  (bounded by the clamp, invisible at warp's visual scale, self-correcting on the first
+  sub-second frame). Live coverage: the `PlaybackFidelity` in-game category (7 cells) driven by
+  `harness/scenarios/H36-playback-fidelity.toml` (AUTHORED, NOT YET FLOWN; interim tally pin).
+  The gimbal cell additionally carries the SIGN/HANDEDNESS pin for the hand-rolled quaternion
+  product — the headless cells build their inputs in the convention the product assumes, which
+  is circular, so the only non-circular authority is Unity's own
+  `Inverse(prev) * cur -> ToAngleAxis`, compared by axis dot rather than by unsigned angle.
 - **Career-bearing modules with a modest visual, which fell through both the "is
   it visible" and "does the quicksave restore it" sieves:**
   `ModuleScienceExperiment` (158 parts, ONE reference and it is a comment at

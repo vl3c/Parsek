@@ -1104,6 +1104,12 @@ namespace Parsek
                     r.maxEmissionField = t.GetField("maxEmission");
                     r.localVelocityField = t.GetField("localVelocity");
 
+                    // World-space-ness rides along with the baseline: the captured localVelocity may
+                    // BE the minimum-flow floor applied just above, and the playback scaler has to
+                    // know not to scale it back under the pooling threshold the floor cleared.
+                    r.baselineUseWorldSpace =
+                        r.emitter is KSPParticleEmitter kspEmitter && kspEmitter.useWorldSpace;
+
                     try
                     {
                         if (r.minEmissionField != null)

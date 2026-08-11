@@ -268,7 +268,10 @@ confidently wrong.
   recording cost.
   - ~~**Corollary: re-derive wheel spin from ground speed**~~ **DONE 2026-08-11** (PR #1445), and
     wheel STEERING joined it on `playback-fidelity` for the same reason: the recorded
-    `ModuleWheelSteering` scalar was a steering INPUT, not a caliper angle. Original text: delete
+    `ModuleWheelSteering` scalar was a steering INPUT, not a caliper angle — and, on the review
+    pass, its producer was deleted alongside the motor one (the recorder emission gate is now
+    `FlightRecorder.IsDerivedWheelVisualModuleName`), so both derived wheel visuals cost zero
+    bytes rather than one being ignored at read time. Original text: delete
     the `driveOutput` family. It is
     storage-*negative* and strictly more correct than the signal it replaces.
 - **S4. EVA jetpack deploy/thrust + ragdoll.** EVA vessels **are** recorded — the `VesselType.EVA`

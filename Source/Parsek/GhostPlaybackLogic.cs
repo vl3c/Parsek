@@ -4062,6 +4062,44 @@ namespace Parsek
         }
 
         /// <summary>
+        /// The emitter <c>localVelocity</c> to write for one throttle ratio: <c>baseline * ratio</c>,
+        /// except that a WORLD-SPACE emitter never drops below the minimum-flow floor its baseline
+        /// was given at build time.
+        ///
+        /// Why the special case. <c>GhostVisualBuilder.ApplyWorldSpaceEmitterVelocityFloor</c> lifts a
+        /// near-static world-space emitter to <c>WorldSpaceEmitterFloorSpeed</c> (6 m/s) precisely
+        /// because such an asset paints its trail by MOTION, and a ghost that is standing still would
+        /// otherwise pool every particle at the nozzle. <c>CaptureFxMagnitudeBaselines</c> captures
+        /// AFTER that lift, so the floored 6 m/s IS the baseline — and a plain ratio write at, say,
+        /// 0.2 throttle would put 1.2 m/s back on the emitter, under the 4 m/s threshold the floor
+        /// exists to clear, re-creating the pooling at partial throttle. Narrow but real: ReStock's
+        /// world-space SRB smoke rigs at genuine partial throttle.
+        ///
+        /// The clamp is a floor, never a boost: the result is capped at the baseline's own magnitude,
+        /// so an emitter whose real velocity was already above the floor keeps its exact ratio down to
+        /// the floor and no further. Local-space emitters (every stock FX asset) are untouched, and a
+        /// zero / negative ratio is left alone — the callers only scale a LIT engine, and the one
+        /// place a zero would arrive is a shutdown, where the emitters are being gated off anyway.
+        /// </summary>
+        internal static Vector3 ScaleEmitterLocalVelocity(
+            Vector3 baselineLocalVelocity, float speedRatio, bool useWorldSpace)
+        {
+            Vector3 scaled = baselineLocalVelocity * speedRatio;
+            if (!useWorldSpace) return scaled;
+            if (float.IsNaN(speedRatio) || float.IsInfinity(speedRatio) || speedRatio <= 0f)
+                return scaled;
+
+            float baselineMagnitude = baselineLocalVelocity.magnitude;
+            if (baselineMagnitude <= 0.001f) return scaled;
+
+            float floor = Math.Min(
+                baselineMagnitude, GhostVisualBuilder.WorldSpaceEmitterFloorSpeed);
+            if (scaled.magnitude >= floor) return scaled;
+
+            return baselineLocalVelocity * (floor / baselineMagnitude);
+        }
+
+        /// <summary>
         /// Writes <c>baseline * ratio</c> into the two magnitude surfaces a ghost plume actually
         /// has: the <c>KSPParticleEmitter</c> clone's own rate / velocity fields (the ONLY particle
         /// creation source on a ghost — Unity's emission module is permanently off, bug #105), and
@@ -4072,6 +4110,10 @@ namespace Parsek
         /// baked into the captured baseline, so scaling multiplies them instead of overwriting
         /// them, and repeated events at the same power are idempotent instead of compounding.
         /// An uncaptured baseline (build failed, or a KSP version renamed a field) writes nothing.
+        ///
+        /// The one composition the ratio cannot express is the world-space minimum-flow floor, which
+        /// is a THRESHOLD rather than a magnitude; <see cref="ScaleEmitterLocalVelocity"/> owns that
+        /// exception and every other write here stays a plain ratio.
         /// </summary>
         internal static void ApplyFxMagnitudeScale(
             List<KspEmitterRef> emitters, List<ParticleSystem> systems,
@@ -4092,7 +4134,8 @@ namespace Parsek
                     {
                         r.minEmissionField?.SetValue(r.emitter, r.baselineMinEmission * emissionRatio);
                         r.maxEmissionField?.SetValue(r.emitter, r.baselineMaxEmission * emissionRatio);
-                        r.localVelocityField?.SetValue(r.emitter, r.baselineLocalVelocity * speedRatio);
+                        r.localVelocityField?.SetValue(r.emitter, ScaleEmitterLocalVelocity(
+                            r.baselineLocalVelocity, speedRatio, r.baselineUseWorldSpace));
                         scaledEmitters++;
                     }
                     catch (Exception ex)
@@ -4612,14 +4655,17 @@ namespace Parsek
             //
             // The event family itself is NOT retired: RoboticMotionStarted / RoboticPositionSample /
             // RoboticMotionStopped are still the live signal for hinges, pistons, rotation servos,
-            // rotors, wheel suspension and wheel steering. Only the wheel-motor producer is gone.
+            // rotors and wheel SUSPENSION.
             //
-            // S3 adds the same contract for ModuleWheelSteering: recordings carry
+            // S3 adds the same contract for ModuleWheelSteering: LEGACY recordings carry
             // RoboticMotion* events whose value came from a steering INPUT field
             // (steeringInput / currentSteering, unsigned on several stock rovers), not from a
             // caliper ANGLE. Replaying it as an angle was the same class of mistake the wheel-motor
             // scalar was, so the derived heading rate replaces it outright rather than falling back
-            // to it — the derivation reads the trajectory, which every recording has.
+            // to it — the derivation reads the trajectory, which every recording has. The producer
+            // is gone as well (FlightRecorder.IsDerivedWheelVisualModuleName gates the emission for
+            // both wheel families), so only pre-existing recordings can reach this branch: it is
+            // the tolerance for them, not a live path.
             if (info.visualMode == RoboticVisualMode.WheelGroundSpeed
                 || info.visualMode == RoboticVisualMode.WheelSteeringHeading)
             {
@@ -4833,8 +4879,17 @@ namespace Parsek
                 // Same reasoning as UpdateSynthesizedMotion: re-seed rather than cap the
                 // denominator, so a warp gap cannot manufacture a huge heading rate and lock the
                 // calipers at full lock on a rover that is barely turning.
+                //
+                // But DECAY the smoothed rate instead of returning it verbatim. Under sustained warp
+                // every frame lands in this branch, and a held rate would hold the calipers at
+                // whatever angle the last pre-warp turn commanded — a rover frozen mid-turn for as
+                // long as the warp lasts, which is the one state a player is most likely to see.
+                // Decaying by the same EMA weight a real zero sample would carry lets the existing
+                // slew ease them straight, and the first sub-second frame re-acquires the true rate.
                 state.prevGroundHeading = heading;
                 state.prevGroundHeadingUT = currentUT;
+                state.smoothedHeadingRateDegPerSec = DecayRateTowardZero(
+                    state.smoothedHeadingRateDegPerSec, WheelSteeringHeadingEmaAlpha);
                 return state.smoothedHeadingRateDegPerSec;
             }
 
@@ -4992,6 +5047,24 @@ namespace Parsek
                 return Vector3.zero;
 
             return new Vector3((float)(dx * scale), (float)(dy * scale), (float)(dz * scale));
+        }
+
+        /// <summary>
+        /// One gap-frame decay of a smoothed scalar rate toward zero, weighted exactly as an EMA
+        /// against a zero sample would be. Used where a frame carries no differentiable sample (a
+        /// warp gap) but holding the last rate would freeze a visual: decaying answers "we no longer
+        /// know that this is still happening" instead of "it is still happening". Snaps to exactly 0
+        /// once the residue is below a ten-thousandth of a degree per second so the value settles
+        /// rather than asymptoting forever.
+        /// </summary>
+        internal static float DecayRateTowardZero(float rate, float alpha)
+        {
+            if (float.IsNaN(rate) || float.IsInfinity(rate)) return 0f;
+            if (float.IsNaN(alpha) || alpha <= 0f) return rate;
+            if (alpha >= 1f) return 0f;
+
+            float decayed = rate * (1f - alpha);
+            return Math.Abs(decayed) < 1e-4f ? 0f : decayed;
         }
 
         /// <summary>Exponential moving average of a vector. Pure; <c>Vector3.Lerp</c> is managed but this is explicit.</summary>
@@ -5202,6 +5275,13 @@ namespace Parsek
                 // dt does not GUARD the rate, it INFLATES it - a 10 s gap over-reports by 10x, so
                 // a slowly-coasting ghost under warp would sit pinned at full deflection while its
                 // true rate is under the deadband. A negative dt would invert the sign outright.
+                //
+                // Accepted: under SUSTAINED warp every frame re-seeds here, so a gimbal or surface
+                // holds its last deflection instead of easing to neutral. Left as-is deliberately —
+                // the hold is bounded by the clamp, invisible at warp's own visual scale, and
+                // self-correcting on the first sub-second frame. Wheel steering does NOT get the same
+                // pass (see ResolveGhostHeadingRateDegPerSec): its held state is a caliper angle a
+                // player reads directly off a parked rover, so that one decays.
                 state.prevSynthRotation = currentRotation;
                 state.prevSynthUT = currentUT;
                 return;
@@ -5480,15 +5560,19 @@ namespace Parsek
         /// Latches the sea-level altitude of the ground under the recording's launch site, from the
         /// first trajectory point that carries a finite <c>recordedGroundClearance</c>.
         ///
-        /// SCALARS ONLY. <c>altitude</c> and <c>recordedGroundClearance</c> are both plain
-        /// altitudes-above-datum in every reference frame; <c>latitude</c> / <c>longitude</c> are
-        /// NEVER read here, because in a RELATIVE track section those fields hold anchor-local
-        /// METRES rather than a body-fixed position, and treating them as one puts the answer
-        /// inside the planet.
+        /// SCALARS ONLY, and the RECORDER GATE is what makes reading them off a flat
+        /// <c>Recording.Points</c> list safe. <c>FlightRecorder.ShouldEmitSurfaceClearance</c> only
+        /// populates <c>recordedGroundClearance</c> on an ABSOLUTE, surface-environment, PQS-backed
+        /// sample, so the finite-clearance test below is simultaneously the "this point's
+        /// <c>altitude</c> is a real altitude-above-datum" test: a RELATIVE-section point, whose
+        /// altitude field holds anchor-local METRES, carries NaN clearance and is skipped. That is
+        /// the invariant to preserve if the gate ever widens — it is not true a priori that these two
+        /// fields mean the same thing in every frame. <c>latitude</c> / <c>longitude</c> are NEVER
+        /// read here at all, for the same reason in its sharper form: treating anchor-local metres as
+        /// a body-fixed position puts the answer inside the planet.
         ///
-        /// NaN clearance everywhere (the recorder only populates it on surface sections) answers
-        /// false, and the caller emits no dust. That is the honest degradation: an invented ground
-        /// reference would put a dust cloud around a ghost in orbit.
+        /// NaN clearance everywhere answers false, and the caller emits no dust. That is the honest
+        /// degradation: an invented ground reference would put a dust cloud around a ghost in orbit.
         /// </summary>
         internal static bool TryLatchLaunchDustGroundReference(
             List<TrajectoryPoint> points, out double groundRefAltitude)

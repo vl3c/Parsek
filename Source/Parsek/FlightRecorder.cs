@@ -3740,8 +3740,12 @@ namespace Parsek
 
         /// <summary>
         /// The wheel MOTOR modules, whose spin is derived at playback from the ghost's own ground
-        /// speed instead of being recorded. Returns false for ModuleWheelSuspension and
-        /// ModuleWheelSteering, whose scalars are still recorded normally.
+        /// speed instead of being recorded. This is the VISUAL-MODE test (it maps to
+        /// <c>RoboticVisualMode.WheelGroundSpeed</c>); the recorder's emission gate is the wider
+        /// <see cref="IsDerivedWheelVisualModuleName"/>, which also covers ModuleWheelSteering.
+        /// Returns false for ModuleWheelSuspension, whose scalars are still recorded normally, and
+        /// for ModuleWheelSteering, whose caliper angle is a DIFFERENT derived visual
+        /// (<c>WheelSteeringHeading</c>) and must not be spun like a motor.
         ///
         /// Why these two stopped being recorded: the only field on <c>ModuleWheelMotor</c> that the
         /// probe list could resolve is <c>driveOutput</c>, and <c>module.Fields</c> is
@@ -3774,6 +3778,38 @@ namespace Parsek
         {
             return string.Equals(moduleName, "ModuleWheelMotor", StringComparison.Ordinal) ||
                    string.Equals(moduleName, "ModuleWheelMotorSteering", StringComparison.Ordinal);
+        }
+
+        /// <summary>
+        /// The wheel modules whose visual is DERIVED from the ghost's own ground motion at playback,
+        /// so recording a scalar for them is pure storage cost. This is the RECORDER EMISSION GATE
+        /// (foreground <see cref="CheckRoboticState"/> and its background mirror); it is deliberately
+        /// wider than <see cref="IsWheelMotorSpinModuleName"/>, which stays the visual-mode test.
+        ///
+        /// ModuleWheelSteering joins the motors for the same reason they left: what the field plan
+        /// resolves on stock rovers is a steering INPUT (<c>steeringInput</c> / <c>currentSteering</c>,
+        /// unsigned on several of them), not a caliper ANGLE, and playback replayed it as an angle.
+        /// <c>GhostPlaybackLogic.ApplyRoboticEvent</c> now discards every RoboticMotion* event whose
+        /// visual mode is <c>WheelSteeringHeading</c> and derives the caliper from the ghost's
+        /// ground-track heading rate instead — a signal every recording carries, old ones included.
+        /// So the producer had become a write-only surface: bytes on disk that no playback path can
+        /// ever read. Deleting the emission is storage-NEGATIVE and behaviour-neutral.
+        ///
+        /// Nothing is retired in <c>PartEventType</c>: RoboticMotionStarted / RoboticPositionSample /
+        /// RoboticMotionStopped are still the live signal for hinges, pistons, rotation servos, rotors
+        /// and wheel SUSPENSION. Legacy recordings keep their steering events on disk and playback
+        /// stays tolerant of them (it logs and ignores), so there is nothing to migrate.
+        ///
+        /// Like the motor gate, this one gates EMISSION ONLY. It must not be folded into
+        /// <see cref="IsRoboticModuleName"/> — that predicate assigns the sequential
+        /// <c>roboticModuleIndex</c> that the playback key <c>EncodeEngineKey(pid, moduleIndex)</c>
+        /// is built from, in both <see cref="CacheRoboticModules"/> and the ghost builder, and the two
+        /// numberings have to stay in lockstep.
+        /// </summary>
+        internal static bool IsDerivedWheelVisualModuleName(string moduleName)
+        {
+            return IsWheelMotorSpinModuleName(moduleName) ||
+                   string.Equals(moduleName, "ModuleWheelSteering", StringComparison.Ordinal);
         }
 
         internal static List<(Part part, PartModule module, int moduleIndex, string moduleName)> CacheRoboticModules(Vessel v)
@@ -4156,16 +4192,17 @@ namespace Parsek
 
                 ulong key = EncodeEngineKey(part.persistentId, moduleIndex);
 
-                // Wheel motor spin is derived from ground speed at playback, not recorded. The
-                // module stays in cachedRoboticModules so moduleIndex numbering matches the ghost
-                // builder's; only the emission is skipped. See IsWheelMotorSpinModuleName.
-                if (IsWheelMotorSpinModuleName(moduleName))
+                // Wheel motor spin AND wheel steering deflection are derived from the ghost's own
+                // ground motion at playback, not recorded. The module stays in cachedRoboticModules
+                // so moduleIndex numbering matches the ghost builder's; only the emission is
+                // skipped. See IsDerivedWheelVisualModuleName.
+                if (IsDerivedWheelVisualModuleName(moduleName))
                 {
                     if (loggedRoboticModuleKeys.Add(key))
                     {
-                        ParsekLog.Verbose("Recorder", $"Robotics: wheel-motor spin not recorded for " +
+                        ParsekLog.Verbose("Recorder", $"Robotics: derived wheel visual not recorded for " +
                             $"'{part.partInfo?.name}' pid={part.persistentId} midx={moduleIndex} " +
-                            $"module={moduleName}; derived from ghost ground speed at playback");
+                            $"module={moduleName}; derived from ghost ground motion at playback");
                     }
                     continue;
                 }

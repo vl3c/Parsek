@@ -651,11 +651,48 @@ namespace Parsek.Tests
             Assert.True(FlightRecorder.IsWheelMotorSpinModuleName("ModuleWheelMotor"));
             Assert.True(FlightRecorder.IsWheelMotorSpinModuleName("ModuleWheelMotorSteering"));
 
-            // Suspension and steering scalars are still recorded normally.
+            // This one is the VISUAL-MODE test, so steering must stay out of it: a caliper is a
+            // WheelSteeringHeading visual, not a continuously spinning wheel.
             Assert.False(FlightRecorder.IsWheelMotorSpinModuleName("ModuleWheelSuspension"));
             Assert.False(FlightRecorder.IsWheelMotorSpinModuleName("ModuleWheelSteering"));
             Assert.False(FlightRecorder.IsWheelMotorSpinModuleName("ModuleRoboticServoRotor"));
             Assert.False(FlightRecorder.IsWheelMotorSpinModuleName("ModuleEngines"));
+        }
+
+        [Fact]
+        public void IsDerivedWheelVisualModuleName_CoversSteeringToo_ButNotSuspension()
+        {
+            // The recorder emission gate is wider than the visual-mode test: playback discards every
+            // RoboticMotion* event for BOTH derived wheel modes, so emitting either scalar is a
+            // write-only surface. Suspension is still a genuine recorded signal.
+            Assert.True(FlightRecorder.IsDerivedWheelVisualModuleName("ModuleWheelMotor"));
+            Assert.True(FlightRecorder.IsDerivedWheelVisualModuleName("ModuleWheelMotorSteering"));
+            Assert.True(FlightRecorder.IsDerivedWheelVisualModuleName("ModuleWheelSteering"));
+
+            Assert.False(FlightRecorder.IsDerivedWheelVisualModuleName("ModuleWheelSuspension"));
+            Assert.False(FlightRecorder.IsDerivedWheelVisualModuleName("ModuleRoboticServoRotor"));
+            Assert.False(FlightRecorder.IsDerivedWheelVisualModuleName("ModuleRoboticServoHinge"));
+            Assert.False(FlightRecorder.IsDerivedWheelVisualModuleName("ModuleEngines"));
+            Assert.False(FlightRecorder.IsDerivedWheelVisualModuleName(null));
+        }
+
+        [Fact]
+        public void IsDerivedWheelVisualModuleName_IsASupersetOfTheMotorSpinTest()
+        {
+            // Structural: the emission gate must never be NARROWER than the visual-mode test, or a
+            // module would be recorded and then ignored at playback — the exact write-only surface
+            // this gate exists to delete.
+            string[] names =
+            {
+                "ModuleWheelMotor", "ModuleWheelMotorSteering", "ModuleWheelSteering",
+                "ModuleWheelSuspension", "ModuleRoboticServoHinge", "ModuleRoboticServoPiston",
+                "ModuleRoboticRotationServo", "ModuleRoboticServoRotor", "ModuleEngines"
+            };
+            foreach (string name in names)
+            {
+                if (FlightRecorder.IsWheelMotorSpinModuleName(name))
+                    Assert.True(FlightRecorder.IsDerivedWheelVisualModuleName(name), name);
+            }
         }
 
         [Fact]

@@ -601,6 +601,117 @@ namespace Parsek.Tests
                 1f, ground - 900.0, ground, out _));
         }
 
+        // ------------------------------------ S1: world-space emitters keep their minimum flow
+
+        [Fact]
+        public void EmitterVelocity_LocalSpaceIsAPlainRatio()
+        {
+            Vector3 scaled = GhostPlaybackLogic.ScaleEmitterLocalVelocity(
+                new Vector3(0f, 0f, -20f), 0.25f, useWorldSpace: false);
+            AssertClose(-5f, scaled.z, 4);
+            AssertClose(0f, scaled.x, 4);
+        }
+
+        [Fact]
+        public void EmitterVelocity_WorldSpaceNeverScalesBelowTheMinimumFlowFloor()
+        {
+            // The captured baseline IS the floor (6 m/s): ApplyWorldSpaceEmitterVelocityFloor runs
+            // before the capture. A plain 0.2 ratio would write 1.2 m/s — under the 4 m/s threshold
+            // the floor exists to clear — and pool the ReStock SRB smoke at the nozzle again.
+            Vector3 baseline = new Vector3(0f, -6f, 0f);
+            Vector3 scaled = GhostPlaybackLogic.ScaleEmitterLocalVelocity(
+                baseline, 0.2f, useWorldSpace: true);
+
+            AssertClose(6f, scaled.magnitude, 3);
+            Assert.True(scaled.y < 0f, "the flow must keep its exhaust-ward direction");
+        }
+
+        [Fact]
+        public void EmitterVelocity_WorldSpaceKeepsTheRatioWhileItStaysAboveTheFloor()
+        {
+            // A world-space emitter carrying real velocity (never floored at build time) throttles
+            // like any other until it reaches the floor, then stops.
+            Vector3 baseline = new Vector3(0f, 0f, -40f);
+
+            Vector3 half = GhostPlaybackLogic.ScaleEmitterLocalVelocity(baseline, 0.5f, true);
+            AssertClose(20f, half.magnitude, 3);
+
+            Vector3 tenth = GhostPlaybackLogic.ScaleEmitterLocalVelocity(baseline, 0.1f, true);
+            AssertClose(GhostVisualBuilder.WorldSpaceEmitterFloorSpeed, tenth.magnitude, 3);
+        }
+
+        [Fact]
+        public void EmitterVelocity_TheClampIsAFloorNeverABoost()
+        {
+            // A world-space emitter whose whole baseline is under the floor must not be inflated
+            // past its own build-time magnitude by the clamp.
+            Vector3 baseline = new Vector3(0f, -2f, 0f);
+            Vector3 scaled = GhostPlaybackLogic.ScaleEmitterLocalVelocity(baseline, 0.25f, true);
+            AssertClose(2f, scaled.magnitude, 3);
+        }
+
+        [Theory]
+        [InlineData(0f)]
+        [InlineData(-1f)]
+        public void EmitterVelocity_NonPositiveRatioIsLeftAloneEvenInWorldSpace(float ratio)
+        {
+            // Zero is a shutdown, where the emitters are being gated off anyway; re-flooring there
+            // would write a live flow onto a plume that is supposed to be going out.
+            Vector3 scaled = GhostPlaybackLogic.ScaleEmitterLocalVelocity(
+                new Vector3(0f, -6f, 0f), ratio, useWorldSpace: true);
+            AssertClose(-6f * ratio, scaled.y, 4);
+        }
+
+        [Fact]
+        public void EmitterVelocity_AZeroBaselineStaysZero()
+        {
+            Vector3 scaled = GhostPlaybackLogic.ScaleEmitterLocalVelocity(
+                Vector3.zero, 0.5f, useWorldSpace: true);
+            AssertClose(0f, scaled.magnitude, 5);
+        }
+
+        // ------------------------------------------------ S3: warp-gap decay of a smoothed rate
+
+        [Fact]
+        public void DecayRateTowardZero_ShrinksByTheEmaWeightPerGapFrame()
+        {
+            float once = GhostPlaybackLogic.DecayRateTowardZero(
+                10f, GhostPlaybackLogic.WheelSteeringHeadingEmaAlpha);
+            AssertClose(7f, once, 4);
+
+            float twice = GhostPlaybackLogic.DecayRateTowardZero(
+                once, GhostPlaybackLogic.WheelSteeringHeadingEmaAlpha);
+            AssertClose(4.9f, twice, 4);
+        }
+
+        [Fact]
+        public void DecayRateTowardZero_KeepsTheSignAndSettlesExactlyAtZero()
+        {
+            float rate = -12f;
+            for (int i = 0; i < 60; i++)
+            {
+                float next = GhostPlaybackLogic.DecayRateTowardZero(
+                    rate, GhostPlaybackLogic.WheelSteeringHeadingEmaAlpha);
+                Assert.True(Math.Abs(next) <= Math.Abs(rate), $"step {i} grew: {rate} -> {next}");
+                Assert.True(next <= 0f, $"step {i} flipped sign: {rate} -> {next}");
+                rate = next;
+            }
+            AssertClose(0f, rate, 6);
+        }
+
+        [Fact]
+        public void DecayRateTowardZero_DegradesSafelyOnNonFiniteInputs()
+        {
+            AssertClose(0f, GhostPlaybackLogic.DecayRateTowardZero(float.NaN, 0.3f), 6);
+            AssertClose(0f, GhostPlaybackLogic.DecayRateTowardZero(
+                float.PositiveInfinity, 0.3f), 6);
+
+            // A non-positive alpha means "no decay defined"; hold rather than invent one.
+            AssertClose(10f, GhostPlaybackLogic.DecayRateTowardZero(10f, 0f), 4);
+            AssertClose(10f, GhostPlaybackLogic.DecayRateTowardZero(10f, float.NaN), 4);
+            AssertClose(0f, GhostPlaybackLogic.DecayRateTowardZero(10f, 1f), 4);
+        }
+
         // ---------------------------------------------------------------------- regression
 
         [Fact]

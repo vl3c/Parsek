@@ -407,11 +407,20 @@ namespace Parsek.InGameTests
         /// Absolute and RELATIVE track sections; this cell drives it by rotating the real transform.
         /// The clamp arm injects a deliberately absurd rate so a missing clamp would show up as a
         /// nozzle swinging far past its authority.
+        ///
+        /// It ALSO carries the sign/handedness pin for the hand-rolled quaternion product
+        /// (<see cref="AssertAngularVelocityAgreesWithUnity"/>), run first so it holds even on a rig
+        /// with no gimballing engine to build. That check cannot live headless: the only independent
+        /// authority on the convention is Unity's own native rotation math.
         /// </summary>
         [InGameTest(Category = "PlaybackFidelity", Scene = GameScenes.FLIGHT,
-            Description = "A gimbal deflects with the ghost's applied attitude change and clamps to the module's range")]
+            Description = "A gimbal deflects with the ghost's applied attitude change and clamps to the module's range, and the attitude derivative agrees with Unity's own quaternion convention in sign and axis")]
         public void GimbalDeflectsWithAttitudeAndClampsToRange()
         {
+            // Convention pin FIRST: it needs no fixture, so it still runs (and still reds on a
+            // mirrored product) on a scene where no engine prefab yields a gimbal transform.
+            AssertAngularVelocityAgreesWithUnity();
+
             GhostBuildResult build = null;
             try
             {
@@ -489,6 +498,72 @@ namespace Parsek.InGameTests
             {
                 DestroyBuild(ref build);
             }
+        }
+
+        /// <summary>
+        /// THE CONVENTION PIN. <c>GhostPlaybackLogic.ComputeLocalAngularVelocityDegPerSec</c>
+        /// multiplies quaternions BY HAND (Unity's <c>Quaternion.Inverse</c> / <c>operator*</c> /
+        /// <c>ToAngleAxis</c> are native ECalls that throw headless), and a hand-rolled Hamilton
+        /// product is exactly the kind of code that can be self-consistently MIRRORED: flip the sign
+        /// of the vector part, or swap the operand order, and every magnitude in the system stays
+        /// identical while every gimbal and control surface deflects the wrong way.
+        ///
+        /// The headless cells cannot catch that — they build their inputs from raw components in the
+        /// same convention the product assumes, which is circular — and the gimbal arm above only
+        /// reads <c>Quaternion.Angle</c>, an UNSIGNED magnitude. So this is the one assertion that
+        /// compares the product against an INDEPENDENT authority: Unity's own
+        /// <c>Inverse(previous) * current</c> → <c>ToAngleAxis</c>, which is the definition the
+        /// production math is a hand transcription of.
+        ///
+        /// The fixture pair is deliberately NON-COMMUTING (a yaw, then a pitch about the rotated
+        /// frame). For a single-axis pair the local delta <c>conj(p)*c</c> and the world delta
+        /// <c>c*conj(p)</c> share an axis, so an operand-order mirror would slip through; here the
+        /// world-order axis is tilted ~50 degrees off the local-order one and the dot test rejects it.
+        /// A pure negation is rejected by the same test at dot = -1.
+        /// </summary>
+        private static void AssertAngularVelocityAgreesWithUnity()
+        {
+            const double dt = 0.5;
+            Quaternion previous = Quaternion.AngleAxis(50f, Vector3.up);
+            Quaternion current = previous * Quaternion.AngleAxis(30f, Vector3.right);
+
+            Vector3 product = GhostPlaybackLogic.ComputeLocalAngularVelocityDegPerSec(
+                previous, current, dt);
+
+            // Ground truth, in native Unity math the production code is not allowed to call.
+            Quaternion delta = Quaternion.Inverse(previous) * current;
+            delta.ToAngleAxis(out float truthAngle, out Vector3 truthAxis);
+            if (truthAngle > 180f)
+            {
+                // ToAngleAxis reports in [0, 360]; the production math takes the shortest arc.
+                truthAngle = 360f - truthAngle;
+                truthAxis = -truthAxis;
+            }
+            Vector3 truth = truthAxis.normalized * (float)(truthAngle / dt);
+
+            InGameAssert.IsGreaterThan(product.magnitude, 1e-3f,
+                "S3 CONVENTION: the product answered a zero rate for a 30-degree rotation over " +
+                dt + " s; expected ~" + truth.magnitude + " deg/s about " + truthAxis + ".");
+
+            float dot = Vector3.Dot(product.normalized, truth.normalized);
+            InGameAssert.IsGreaterThan(dot, 0.999f,
+                "S3 CONVENTION (SIGN / HANDEDNESS): the hand-rolled quaternion product's axis must " +
+                "match Unity's Inverse(previous)*current -> ToAngleAxis. Got " + product +
+                " against ground truth " + truth + " (dot=" + dot + "). A dot near -1 means the " +
+                "vector part is NEGATED — every gimbal and control surface would deflect the wrong " +
+                "way at identical magnitude. A dot near " + Mathf.Cos(50f * Mathf.Deg2Rad) +
+                " means the operands are the wrong way round (world delta c*conj(p) instead of the " +
+                "local delta conj(p)*c).");
+
+            float error = (product - truth).magnitude;
+            InGameAssert.IsLessThan(error, truth.magnitude * 0.01f + 0.05f,
+                "S3 CONVENTION: the product must equal Unity's ground truth componentwise, not just " +
+                "in direction. Got " + product + " against " + truth + " (error " + error +
+                " deg/s).");
+
+            ParsekLog.Info("TestRunner",
+                "PlaybackFidelity attitude-derivative convention: product=" + product +
+                " unityTruth=" + truth + " dot=" + dot.ToString("R") + " err=" + error.ToString("R"));
         }
 
         /// <summary>
