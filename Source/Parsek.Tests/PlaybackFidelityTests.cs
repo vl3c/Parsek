@@ -1,5 +1,7 @@
 using System;
 using System.Collections.Generic;
+using System.Reflection;
+using System.Runtime.Serialization;
 using Parsek;
 using UnityEngine;
 using Xunit;
@@ -710,6 +712,191 @@ namespace Parsek.Tests
             AssertClose(10f, GhostPlaybackLogic.DecayRateTowardZero(10f, 0f), 4);
             AssertClose(10f, GhostPlaybackLogic.DecayRateTowardZero(10f, float.NaN), 4);
             AssertClose(0f, GhostPlaybackLogic.DecayRateTowardZero(10f, 1f), 4);
+        }
+
+        // ------------------------------------------- S1: the reflective write's TYPE contract
+
+        /// <summary>
+        /// The three emitter fields <c>ApplyFxMagnitudeScale</c> writes, named exactly as it names
+        /// them. Kept as one list so a cell cannot silently cover fewer fields than the writer
+        /// touches.
+        /// </summary>
+        private static readonly string[] WrittenEmitterFieldNames =
+            { "minEmission", "maxEmission", "localVelocity" };
+
+        /// <summary>
+        /// THE CELL THE 2026-08-11 H36 FLIGHT NEEDED AND THREE REVIEW PASSES DID NOT HAVE.
+        ///
+        /// Every headless cell above pins the ratio ARITHMETIC — pure floats in, pure float out —
+        /// and every one of them stayed green while the actual write threw on every emitter in the
+        /// game, because none of them ever met the REAL field types. <c>FieldInfo.SetValue</c>
+        /// performs no numeric conversion: it demands an instance of the field's declared type, and
+        /// <c>KSPParticleEmitter.minEmission</c> / <c>maxEmission</c> are declared <c>int</c>.
+        ///
+        /// This cell reflects over the real <c>KSPParticleEmitter</c> (compile-time reachable
+        /// through the Assembly-CSharp reference; reflection over a TYPE is metadata, not a Unity
+        /// ECall, so it is headless-safe) and drives the production conversion for every field the
+        /// writer touches, asserting the result is something SetValue would accept.
+        /// </summary>
+        [Fact]
+        public void FxMagnitudeWrite_ConvertsForEveryRealKspParticleEmitterFieldTypeItTouches()
+        {
+            Type emitterType = typeof(KSPParticleEmitter);
+
+            foreach (string fieldName in WrittenEmitterFieldNames)
+            {
+                FieldInfo field = emitterType.GetField(fieldName);
+                Assert.True(field != null,
+                    $"KSPParticleEmitter has no public field '{fieldName}'. Either KSP renamed it " +
+                    "(the applier degrades to no scaling, which is fine) or this cell has gone " +
+                    "stale against the applier — check ApplyFxMagnitudeScale.");
+
+                if (field.FieldType == typeof(Vector3))
+                {
+                    Assert.True(
+                        GhostPlaybackLogic.IsSupportedMagnitudeVectorFieldType(field.FieldType),
+                        $"'{fieldName}' is a Vector3 the writer refuses to write");
+                    continue;
+                }
+
+                // The scaled magnitudes the applier actually produces: a full-power write, a
+                // throttled write, and a write small enough to quantise.
+                foreach (float scaled in new[] { 100f, 30.4f, 0.4f })
+                {
+                    bool converted = GhostPlaybackLogic.TryConvertMagnitudeForField(
+                        field.FieldType, scaled, out object boxed);
+
+                    Assert.True(converted,
+                        $"the writer cannot express {scaled} as '{fieldName}' " +
+                        $"({field.FieldType.Name}); that field would silently stay at its baseline");
+                    Assert.True(field.FieldType.IsInstanceOfType(boxed),
+                        $"'{fieldName}' is {field.FieldType.Name} but the write would hand " +
+                        $"SetValue a {boxed.GetType().Name} — this is EXACTLY the H36 defect " +
+                        "(\"Object of type 'System.Single' cannot be converted to type " +
+                        "'System.Int32'\"). IsInstanceOfType is the same check SetValue makes.");
+                }
+            }
+        }
+
+        /// <summary>
+        /// The same claim one step stronger: an ACTUAL <c>FieldInfo.SetValue</c> against a real
+        /// <c>KSPParticleEmitter</c> instance, and a read-back proving the value landed.
+        ///
+        /// The instance comes from <c>FormatterServices.GetUninitializedObject</c>, which allocates
+        /// the managed object without running any constructor — so no Unity native call is made and
+        /// this stays headless. That is the only way to touch a MonoBehaviour-derived type outside a
+        /// player, and it is enough: SetValue's type check and the field store are pure managed
+        /// runtime behaviour, which is the whole of what the defect broke.
+        /// </summary>
+        [Fact]
+        public void FxMagnitudeWrite_ActuallyLandsOnARealKspParticleEmitterInstance()
+        {
+            object emitter = FormatterServices.GetUninitializedObject(typeof(KSPParticleEmitter));
+            Type emitterType = typeof(KSPParticleEmitter);
+
+            // Scalars: a throttled magnitude that must quantise correctly on an int field.
+            foreach (string fieldName in new[] { "minEmission", "maxEmission" })
+            {
+                FieldInfo field = emitterType.GetField(fieldName);
+                Assert.True(field != null, $"no field '{fieldName}'");
+
+                Assert.True(GhostPlaybackLogic.TryConvertMagnitudeForField(
+                    field.FieldType, 30.4f, out object boxed));
+                field.SetValue(emitter, boxed);   // would throw pre-fix
+
+                Assert.Equal(30.0, Convert.ToDouble(field.GetValue(emitter)), 6);
+            }
+
+            FieldInfo velocity = emitterType.GetField("localVelocity");
+            Assert.True(velocity != null, "no field 'localVelocity'");
+            Assert.True(GhostPlaybackLogic.IsSupportedMagnitudeVectorFieldType(velocity.FieldType));
+            var scaledVelocity = new Vector3(0f, 3f, 0f);
+            velocity.SetValue(emitter, scaledVelocity);
+            Assert.Equal(scaledVelocity, (Vector3)velocity.GetValue(emitter));
+        }
+
+        [Fact]
+        public void MagnitudeConversion_RoundsToTheNearestIntegerRatherThanTruncating()
+        {
+            Assert.True(GhostPlaybackLogic.TryConvertMagnitudeForField(
+                typeof(int), 30.6f, out object boxed));
+            Assert.Equal(31, (int)boxed);
+
+            Assert.True(GhostPlaybackLogic.TryConvertMagnitudeForField(
+                typeof(int), 30.4f, out boxed));
+            Assert.Equal(30, (int)boxed);
+        }
+
+        [Fact]
+        public void MagnitudeConversion_NeverQuantisesALitPlumeDownToZero()
+        {
+            // ComputeFxMagnitudeRatio's contract is that it never answers zero for a lit engine.
+            // Truncating (or even rounding) 0.4 particles/s to 0 would break that contract at the
+            // integer boundary, for exactly the low-rate dense assets the ratio was tuned around.
+            Assert.True(GhostPlaybackLogic.TryConvertMagnitudeForField(
+                typeof(int), 0.4f, out object boxed));
+            Assert.Equal(1, (int)boxed);
+
+            Assert.True(GhostPlaybackLogic.TryConvertMagnitudeForField(
+                typeof(int), 0.0001f, out boxed));
+            Assert.Equal(1, (int)boxed);
+
+            // A genuine zero stays zero: that is a gate-off, not a quantisation artefact.
+            Assert.True(GhostPlaybackLogic.TryConvertMagnitudeForField(
+                typeof(int), 0f, out boxed));
+            Assert.Equal(0, (int)boxed);
+        }
+
+        [Fact]
+        public void MagnitudeConversion_KeepsTheNegativeMaxEmissionSentinelNegative()
+        {
+            // KSPParticleEmitter.Update early-returns on `maxEmission < 0` — it is stock's "this
+            // emitter does not emit" flag. Rounding a scaled -0.4 up to 0 (or to +1) would light a
+            // deliberately dead emitter on a ghost.
+            Assert.True(GhostPlaybackLogic.TryConvertMagnitudeForField(
+                typeof(int), -0.4f, out object boxed));
+            Assert.Equal(-1, (int)boxed);
+        }
+
+        [Fact]
+        public void MagnitudeConversion_PassesFloatsThroughUnchanged()
+        {
+            Assert.True(GhostPlaybackLogic.TryConvertMagnitudeForField(
+                typeof(float), 12.5f, out object boxed));
+            Assert.IsType<float>(boxed);
+            Assert.Equal(12.5f, (float)boxed);
+
+            Assert.True(GhostPlaybackLogic.TryConvertMagnitudeForField(
+                typeof(double), 12.5f, out boxed));
+            Assert.IsType<double>(boxed);
+        }
+
+        [Theory]
+        [InlineData(float.NaN)]
+        [InlineData(float.PositiveInfinity)]
+        public void MagnitudeConversion_RefusesNonFiniteMagnitudes(float value)
+        {
+            Assert.False(GhostPlaybackLogic.TryConvertMagnitudeForField(typeof(int), value, out _));
+            Assert.False(GhostPlaybackLogic.TryConvertMagnitudeForField(typeof(float), value, out _));
+        }
+
+        [Fact]
+        public void MagnitudeConversion_RefusesTypesItCannotExpressRatherThanGuessing()
+        {
+            // A refusal degrades to "leave the field at its baseline" — the pre-S1 boolean plume.
+            Assert.False(GhostPlaybackLogic.TryConvertMagnitudeForField(typeof(string), 1f, out _));
+            Assert.False(GhostPlaybackLogic.TryConvertMagnitudeForField(typeof(Vector3), 1f, out _));
+            Assert.False(GhostPlaybackLogic.TryConvertMagnitudeForField(null, 1f, out _));
+
+            // Out of range, and negative-into-unsigned, both refuse rather than wrap around.
+            Assert.False(GhostPlaybackLogic.TryConvertMagnitudeForField(typeof(byte), 5000f, out _));
+            Assert.False(GhostPlaybackLogic.TryConvertMagnitudeForField(typeof(uint), -5f, out _));
+
+            Assert.False(GhostPlaybackLogic.IsSupportedMagnitudeScalarFieldType(typeof(string)));
+            Assert.True(GhostPlaybackLogic.IsSupportedMagnitudeScalarFieldType(typeof(int)));
+            Assert.True(GhostPlaybackLogic.IsSupportedMagnitudeScalarFieldType(typeof(float)));
+            Assert.True(GhostPlaybackLogic.IsSupportedMagnitudeVectorFieldType(typeof(Vector3)));
+            Assert.False(GhostPlaybackLogic.IsSupportedMagnitudeVectorFieldType(typeof(Vector2)));
         }
 
         // ---------------------------------------------------------------------- regression

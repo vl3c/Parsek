@@ -1071,6 +1071,40 @@ namespace Parsek
             }
         }
 
+        /// <summary>A named emitter field, but only if <c>GhostPlaybackLogic</c> can actually WRITE a
+        /// scaled scalar back into it. A field of an unexpressible type answers null (no scaling for
+        /// that field) instead of being cached for the applier to fail on every frame.</summary>
+        private static System.Reflection.FieldInfo ResolveScalarMagnitudeField(
+            System.Type emitterType, string fieldName, string partName, int moduleIndex)
+        {
+            System.Reflection.FieldInfo field = emitterType?.GetField(fieldName);
+            if (field == null) return null;
+            if (GhostPlaybackLogic.IsSupportedMagnitudeScalarFieldType(field.FieldType))
+                return field;
+
+            ParsekLog.VerboseRateLimited("GhostVisual",
+                $"fx-baseline-unwritable-{fieldName}-{partName}-{moduleIndex}",
+                $"FX magnitude field '{fieldName}' on '{partName}' midx={moduleIndex} is " +
+                $"{field.FieldType.Name}, which cannot hold a scaled magnitude; that field stays " +
+                "at its baseline", 60.0);
+            return null;
+        }
+
+        private static System.Reflection.FieldInfo ResolveVectorMagnitudeField(
+            System.Type emitterType, string fieldName, string partName, int moduleIndex)
+        {
+            System.Reflection.FieldInfo field = emitterType?.GetField(fieldName);
+            if (field == null) return null;
+            if (GhostPlaybackLogic.IsSupportedMagnitudeVectorFieldType(field.FieldType))
+                return field;
+
+            ParsekLog.VerboseRateLimited("GhostVisual",
+                $"fx-baseline-unwritable-{fieldName}-{partName}-{moduleIndex}",
+                $"FX magnitude field '{fieldName}' on '{partName}' midx={moduleIndex} is " +
+                $"{field.FieldType.Name}, not a Vector3; that field stays at its baseline", 60.0);
+            return null;
+        }
+
         /// <summary>
         /// S1 (plume magnitude): capture the build-time magnitude of every emitter and particle
         /// system on one finished engine / RCS FX info, so playback can write
@@ -1084,7 +1118,9 @@ namespace Parsek
         ///
         /// The three emitter fields are resolved reflectively even though <c>KSPParticleEmitter</c>
         /// is compile-time reachable: a KSP build that renames one then degrades that emitter to
-        /// "not captured" (no scaling, today's boolean behaviour) instead of failing to build.
+        /// "not captured" (no scaling, today's boolean behaviour) instead of failing to build. They
+        /// are also TYPE-CHECKED here rather than at write time — see
+        /// <see cref="ResolveScalarMagnitudeField"/>.
         /// </summary>
         internal static void CaptureFxMagnitudeBaselines(
             List<KspEmitterRef> emitters, List<ParticleSystem> systems,
@@ -1100,9 +1136,16 @@ namespace Parsek
                     if (r.emitter == null || r.magnitudeBaselineCaptured) continue;
 
                     System.Type t = r.emitter.GetType();
-                    r.minEmissionField = t.GetField("minEmission");
-                    r.maxEmissionField = t.GetField("maxEmission");
-                    r.localVelocityField = t.GetField("localVelocity");
+                    // Resolved AND type-checked here, once, so the per-event applier never has to
+                    // discover at write time that a field it cached cannot hold what it computed.
+                    // The check is not academic: minEmission / maxEmission are declared INT on
+                    // KSPParticleEmitter, and the 2026-08-11 H36 flight caught the applier throwing
+                    // on every one of them. A field whose type the applier cannot express is
+                    // dropped to null here — the emitter still captures its other fields and simply
+                    // does not scale that one.
+                    r.minEmissionField = ResolveScalarMagnitudeField(t, "minEmission", partName, moduleIndex);
+                    r.maxEmissionField = ResolveScalarMagnitudeField(t, "maxEmission", partName, moduleIndex);
+                    r.localVelocityField = ResolveVectorMagnitudeField(t, "localVelocity", partName, moduleIndex);
 
                     // World-space-ness rides along with the baseline: the captured localVelocity may
                     // BE the minimum-flow floor applied just above, and the playback scaler has to
@@ -1112,10 +1155,16 @@ namespace Parsek
 
                     try
                     {
+                        // Convert.ToSingle, not a cast: the emission fields are int on stock KSP and
+                        // an unboxing cast to float would throw on the very first one. The baseline
+                        // is kept as a float on purpose — the RATIO is float arithmetic, and the
+                        // applier re-quantises to the field's own type at write time.
                         if (r.minEmissionField != null)
-                            r.baselineMinEmission = System.Convert.ToSingle(r.minEmissionField.GetValue(r.emitter));
+                            r.baselineMinEmission = System.Convert.ToSingle(
+                                r.minEmissionField.GetValue(r.emitter), CultureInfo.InvariantCulture);
                         if (r.maxEmissionField != null)
-                            r.baselineMaxEmission = System.Convert.ToSingle(r.maxEmissionField.GetValue(r.emitter));
+                            r.baselineMaxEmission = System.Convert.ToSingle(
+                                r.maxEmissionField.GetValue(r.emitter), CultureInfo.InvariantCulture);
                         if (r.localVelocityField != null)
                             r.baselineLocalVelocity = (Vector3)r.localVelocityField.GetValue(r.emitter);
                         r.magnitudeBaselineCaptured =

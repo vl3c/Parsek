@@ -95,6 +95,8 @@ namespace Parsek.InGameTests
                     moduleIndex = engine.moduleIndex
                 };
 
+                GhostPlaybackLogic.ResetFxMagnitudeWriteFailureCountForTesting();
+
                 GhostPlaybackLogic.SetEngineEmission(state, evt, 1f);
                 float fullSpeed = SumStartSpeed(engine.particleSystems);
                 float fullEmission = SumEmitterMaxEmission(engine.kspEmitters);
@@ -105,6 +107,21 @@ namespace Parsek.InGameTests
 
                 GhostPlaybackLogic.SetEngineEmission(state, evt, 1f);
                 float backToFullSpeed = SumStartSpeed(engine.particleSystems);
+
+                // THE 2026-08-11 REGRESSION GUARD. Every emitter write threw
+                // ("Object of type 'System.Single' cannot be converted to type 'System.Int32'")
+                // and S1 was a total no-op in game, while the ParticleSystem arm below still passed
+                // and the log line that reported it was rate-limited to one per minute per module.
+                // A hard zero on the counter is the assertion that failure mode cannot come back
+                // quietly, and quoting the count makes the next diagnosis a single read.
+                int writeFailures = GhostPlaybackLogic.FxMagnitudeWriteFailureCount;
+                InGameAssert.AreEqual(0, writeFailures,
+                    "S1: " + writeFailures + " FX magnitude field write(s) were refused or threw " +
+                    "while driving '" + usedPart + "' through 1.0 -> 0.3 -> 1.0. Any nonzero count " +
+                    "means part of the plume is silently stuck at its baseline; grep " +
+                    "'FX magnitude write failed' in KSP.log for the field name and its declared " +
+                    "type (KSPParticleEmitter.minEmission / maxEmission are int, localVelocity is " +
+                    "Vector3 — a reflective write must convert to the FieldInfo's own FieldType).");
 
                 InGameAssert.IsTrue(fullSpeed > 0f,
                     "fixture is vacuous: '" + usedPart + "' produced a ghost whose particle systems " +
@@ -120,20 +137,28 @@ namespace Parsek.InGameTests
                     "current value instead of the stored baseline — the bug ratio-of-baseline exists " +
                     "to prevent.");
 
-                if (fullEmission > 0f)
+                // The emitter's rate fields are INTEGER, and an integer baseline of 1 quantises back
+                // to 1 at every ratio (the nonzero floor is deliberate — a lit engine never goes to
+                // zero particles). So a strict inequality is only sound when at least one emitter
+                // has room to move; a rig of all-1 baselines would red on perfectly correct code.
+                // One emitter with baseline >= 2 is exactly enough, because the others can only
+                // stay equal and the sum is then strictly smaller.
+                if (AnyEmitterBaselineAtLeast(engine.kspEmitters, 2f))
                 {
                     InGameAssert.IsLessThan(lowEmission, fullEmission,
                         "S1: the cloned KSPParticleEmitter's own emission rate must fall with " +
                         "throttle too — it is the ONLY particle creation source on a ghost " +
                         "(Unity's emission module is permanently disabled, bug #105), so scaling " +
-                        "the ParticleSystem alone would leave the particle COUNT unchanged.");
+                        "the ParticleSystem alone would leave the particle COUNT unchanged. " +
+                        "Measured " + lowEmission + " at 0.3 against " + fullEmission + " at full.");
                 }
 
                 ParsekLog.Info("TestRunner",
                     "PlaybackFidelity engine plume: part='" + usedPart + "' fullSpeed=" +
                     fullSpeed.ToString("R") + " lowSpeed=" + lowSpeed.ToString("R") +
                     " fullEmission=" + fullEmission.ToString("R") + " lowEmission=" +
-                    lowEmission.ToString("R") + " restored=" + backToFullSpeed.ToString("R"));
+                    lowEmission.ToString("R") + " restored=" + backToFullSpeed.ToString("R") +
+                    " writeFailures=" + writeFailures);
             }
             finally
             {
@@ -185,6 +210,15 @@ namespace Parsek.InGameTests
                     moduleIndex = rcs.moduleIndex
                 };
 
+                // THE BASELINE, read BEFORE anything is scaled. Without it this cell was VACUOUS:
+                // the H36 flight of 2026-08-11 passed it green while every emitter write was
+                // throwing, because "unchanged baseline in, unchanged baseline out" satisfies a
+                // round trip perfectly. The round trip only means something once the value going
+                // into it is PROVABLY not the baseline.
+                GhostPlaybackLogic.ResetFxMagnitudeWriteFailureCountForTesting();
+                float baselineSpeed = SumBaselineStartSpeed(rcs.particleBaselines);
+                float baselineEmission = SumBaselineMaxEmission(rcs.kspEmitters);
+
                 GhostPlaybackLogic.SetRcsEmission(state, evt, 0.25f);
                 float scaledSpeed = SumStartSpeed(rcs.particleSystems);
                 float scaledEmission = SumEmitterMaxEmission(rcs.kspEmitters);
@@ -195,9 +229,48 @@ namespace Parsek.InGameTests
                 float afterSpeed = SumStartSpeed(rcs.particleSystems);
                 float afterEmission = SumEmitterMaxEmission(rcs.kspEmitters);
 
+                int writeFailures = GhostPlaybackLogic.FxMagnitudeWriteFailureCount;
+                InGameAssert.AreEqual(0, writeFailures,
+                    "S1: " + writeFailures + " FX magnitude field write(s) were refused or threw " +
+                    "while driving '" + usedPart + "' to 25% power. Any nonzero count means part " +
+                    "of the plume is silently stuck at its baseline; grep 'FX magnitude write " +
+                    "failed' in KSP.log for the field name and its declared type.");
+
                 InGameAssert.IsTrue(scaledSpeed > 0f,
                     "fixture is vacuous: '" + usedPart + "' produced zero total startSpeedMultiplier " +
                     "at 25% power, so the round-trip assertion could not fail");
+                InGameAssert.IsTrue(baselineSpeed > 0f,
+                    "fixture is vacuous: '" + usedPart + "' captured a zero total baseline " +
+                    "startSpeedMultiplier, so 'scaled differs from baseline' could not fail");
+
+                // NON-VACUITY, arm 1: the value the round trip is about must actually BE a scaled
+                // one. This is a HARD assertion rather than a skip, and that is grounded in a
+                // measurement of the fixture population rather than in hope: every stock RCS
+                // MODEL_MULTI_PARTICLE in GameData/Squad declares `speed = 0.0 0.8` / `speed = 1.0
+                // 1.0` (RV-105 and its small variant, the linear port, the Vernor, the Mk1-3 pod),
+                // so a 0.25-power write reads ~0.85 of baseline; and a part whose curve failed to
+                // scan falls back to `power * 10f`, i.e. 0.25 of baseline. Neither can land on 1.0.
+                // The showcase floors cannot lift it either — they are gated on a `parsek-rcs-...`
+                // vessel-name prefix this fixture does not use, and RcsShowcaseSpeedScale is 1f.
+                InGameAssert.IsLessThan(scaledSpeed, baselineSpeed * 0.999f,
+                    "S1 NON-VACUITY: at 25% power the plume must be strictly BELOW the captured " +
+                    "baseline before the suppress/restore round trip is worth asserting. '" +
+                    usedPart + "' scaled to " + scaledSpeed + " against a baseline of " +
+                    baselineSpeed + " — an equal reading means nothing was scaled at all, which is " +
+                    "exactly the state that passed this cell vacuously in the H36 flight.");
+
+                // NON-VACUITY, arm 2: the same on the emitter's own rate field, which is where the
+                // write actually threw. Same integer-quantisation guard as the engine cell.
+                if (AnyEmitterBaselineAtLeast(rcs.kspEmitters, 2f))
+                {
+                    InGameAssert.IsLessThan(scaledEmission, baselineEmission * 0.999f,
+                        "S1 NON-VACUITY: the cloned KSPParticleEmitter's own emission rate must be " +
+                        "below its captured baseline at 25% power. '" + usedPart + "' read " +
+                        scaledEmission + " against a baseline of " + baselineEmission + ".");
+                }
+
+                // ...and only now does the round trip mean "the SCALED value survived", not "the
+                // baseline survived".
                 InGameAssert.ApproxEqual(scaledSpeed, afterSpeed, scaledSpeed * 0.001f + 0.0001f,
                     "S1 SUPPRESS/RESTORE: RestoreAllRcsEmissions re-enables emitters without calling " +
                     "SetRcsEmission, so the scaled magnitude must still be sitting in the persistent " +
@@ -209,9 +282,12 @@ namespace Parsek.InGameTests
                     "trip for the same reason.");
 
                 ParsekLog.Info("TestRunner",
-                    "PlaybackFidelity RCS plume: part='" + usedPart + "' scaledSpeed=" +
-                    scaledSpeed.ToString("R") + " afterRestore=" + afterSpeed.ToString("R") +
-                    " scaledEmission=" + scaledEmission.ToString("R"));
+                    "PlaybackFidelity RCS plume: part='" + usedPart + "' baselineSpeed=" +
+                    baselineSpeed.ToString("R") + " scaledSpeed=" + scaledSpeed.ToString("R") +
+                    " afterRestore=" + afterSpeed.ToString("R") + " baselineEmission=" +
+                    baselineEmission.ToString("R") + " scaledEmission=" +
+                    scaledEmission.ToString("R") + " afterEmission=" + afterEmission.ToString("R") +
+                    " writeFailures=" + writeFailures);
             }
             finally
             {
@@ -847,6 +923,50 @@ namespace Parsek.InGameTests
                     // A field we captured but can no longer read is not a test failure — the
                     // production applier degrades the same way. The ParticleSystem arm still holds.
                 }
+            }
+            return total;
+        }
+
+        /// <summary>The CAPTURED build-time magnitude, summed the same way
+        /// <see cref="SumStartSpeed"/> sums the live one — so the two are directly comparable and a
+        /// "scaled differs from baseline" assertion has a real reference to stand on.</summary>
+        private static float SumBaselineStartSpeed(List<GhostFxMagnitudeBaseline> baselines)
+        {
+            if (baselines == null) return 0f;
+            float total = 0f;
+            for (int i = 0; i < baselines.Count; i++)
+            {
+                GhostFxMagnitudeBaseline b = baselines[i];
+                if (!b.captured) continue;
+                total += b.startSpeedMultiplier + b.startSizeMultiplier;
+            }
+            return total;
+        }
+
+        /// <summary>True when at least one captured emitter's baseline rate has room to quantise
+        /// DOWN — the precondition for a strict "scaled &lt; baseline" assertion on an integer
+        /// field. See the call sites for why one such emitter is enough.</summary>
+        private static bool AnyEmitterBaselineAtLeast(List<KspEmitterRef> emitters, float threshold)
+        {
+            if (emitters == null) return false;
+            for (int i = 0; i < emitters.Count; i++)
+            {
+                KspEmitterRef r = emitters[i];
+                if (!r.magnitudeBaselineCaptured || r.maxEmissionField == null) continue;
+                if (r.baselineMaxEmission >= threshold) return true;
+            }
+            return false;
+        }
+
+        private static float SumBaselineMaxEmission(List<KspEmitterRef> emitters)
+        {
+            if (emitters == null) return 0f;
+            float total = 0f;
+            for (int i = 0; i < emitters.Count; i++)
+            {
+                KspEmitterRef r = emitters[i];
+                if (!r.magnitudeBaselineCaptured || r.maxEmissionField == null) continue;
+                total += r.baselineMaxEmission;
             }
             return total;
         }

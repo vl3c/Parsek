@@ -4062,6 +4062,140 @@ namespace Parsek
         }
 
         /// <summary>
+        /// How many individual FX magnitude field writes have been REFUSED or have thrown since the
+        /// process started (or since <see cref="ResetFxMagnitudeWriteFailureCountForTesting"/>).
+        /// Zero is the only healthy value: a nonzero count means some part of the plume magnitude
+        /// scaling is silently degrading to the pre-S1 boolean plume.
+        ///
+        /// This exists because the H36 flight of 2026-08-11 red'd with the write throwing on EVERY
+        /// engine and RCS emitter while the log line that reported it was rate-limited to one line
+        /// per minute per module — the log undercounted a total no-op as a curiosity.
+        /// </summary>
+        internal static int FxMagnitudeWriteFailureCount;
+
+        internal static void ResetFxMagnitudeWriteFailureCountForTesting()
+            => FxMagnitudeWriteFailureCount = 0;
+
+        /// <summary>
+        /// Boxes a scaled magnitude as the EXACT type of the field it is about to be written to.
+        ///
+        /// THE 2026-08-11 DEFECT. <c>KSPParticleEmitter.minEmission</c> and <c>maxEmission</c> are
+        /// declared <c>int</c> (verified by decompiling Assembly-CSharp: <c>minSize</c>/<c>maxSize</c>
+        /// are float, <c>localVelocity</c> is Vector3, but the two EMISSION-RATE fields are int).
+        /// <c>FieldInfo.SetValue</c> does no numeric conversion — it demands an instance of the
+        /// field's own type — so handing it a boxed <c>float</c> threw
+        /// "Object of type 'System.Single' cannot be converted to type 'System.Int32'" on every
+        /// emitter of every engine and thruster, making the whole of S1 a silent no-op in game.
+        ///
+        /// Rounding is nearest-with-a-NONZERO-FLOOR rather than a truncation, and that floor is the
+        /// contract, not a nicety: <see cref="ComputeFxMagnitudeRatio"/> guarantees it never answers
+        /// zero for a lit engine, and truncating 0.4 particles/s to 0 would break that guarantee at
+        /// the quantisation boundary for exactly the low-rate dense assets (ReStock SRB smoke) the
+        /// ratio was tuned around. The floor keeps the SIGN, because stock reads a negative
+        /// <c>maxEmission</c> as "this emitter does not emit" (<c>KSPParticleEmitter.Update</c>
+        /// early-returns on it) and flipping that sentinel positive would light a dead emitter.
+        ///
+        /// Returns false for a type this cannot express (and for a non-finite value), which the
+        /// callers degrade into "leave the field at its baseline" — the pre-S1 boolean plume.
+        /// </summary>
+        internal static bool TryConvertMagnitudeForField(
+            Type fieldType, float value, out object converted)
+        {
+            converted = null;
+            if (fieldType == null || float.IsNaN(value) || float.IsInfinity(value))
+                return false;
+
+            if (fieldType == typeof(float)) { converted = value; return true; }
+            if (fieldType == typeof(double)) { converted = (double)value; return true; }
+
+            if (fieldType == typeof(int) || fieldType == typeof(uint)
+                || fieldType == typeof(long) || fieldType == typeof(ulong)
+                || fieldType == typeof(short) || fieldType == typeof(ushort)
+                || fieldType == typeof(byte) || fieldType == typeof(sbyte))
+            {
+                double rounded = Math.Round((double)value, MidpointRounding.AwayFromZero);
+                if (rounded == 0.0 && value > 0f) rounded = 1.0;
+                else if (rounded == 0.0 && value < 0f) rounded = -1.0;
+
+                try
+                {
+                    converted = Convert.ChangeType(rounded, fieldType, CultureInfo.InvariantCulture);
+                }
+                catch (Exception)
+                {
+                    // Out of the target type's range, or a negative into an unsigned field. Both
+                    // degrade to "no scaling" rather than to a wrapped-around magnitude.
+                    converted = null;
+                    return false;
+                }
+                return true;
+            }
+
+            return false;
+        }
+
+        /// <summary>True when <see cref="TryConvertMagnitudeForField"/> can express a scaled scalar
+        /// magnitude as <paramref name="fieldType"/>. Used at CAPTURE time so an unwritable field is
+        /// dropped before it ever reaches the applier.</summary>
+        internal static bool IsSupportedMagnitudeScalarFieldType(Type fieldType)
+            => TryConvertMagnitudeForField(fieldType, 1f, out _);
+
+        /// <summary>The vector magnitude surface is exactly one type; anything else is a KSP version
+        /// having changed the field out from under us and degrades to "no scaling".</summary>
+        internal static bool IsSupportedMagnitudeVectorFieldType(Type fieldType)
+            => fieldType == typeof(Vector3);
+
+        private static bool TryWriteMagnitudeScalarField(
+            System.Reflection.FieldInfo field, object target, float value, ref string failure)
+        {
+            if (field == null) return false;
+            if (!TryConvertMagnitudeForField(field.FieldType, value, out object boxed))
+            {
+                failure = AppendFailure(failure,
+                    $"{field.Name} ({field.FieldType.Name}) cannot hold " +
+                    value.ToString("R", CultureInfo.InvariantCulture));
+                return false;
+            }
+            try
+            {
+                field.SetValue(target, boxed);
+                return true;
+            }
+            catch (Exception ex)
+            {
+                failure = AppendFailure(failure,
+                    $"{field.Name} ({field.FieldType.Name}) write threw: {ex.Message}");
+                return false;
+            }
+        }
+
+        private static bool TryWriteMagnitudeVectorField(
+            System.Reflection.FieldInfo field, object target, Vector3 value, ref string failure)
+        {
+            if (field == null) return false;
+            if (!IsSupportedMagnitudeVectorFieldType(field.FieldType))
+            {
+                failure = AppendFailure(failure,
+                    $"{field.Name} ({field.FieldType.Name}) is not a Vector3");
+                return false;
+            }
+            try
+            {
+                field.SetValue(target, value);
+                return true;
+            }
+            catch (Exception ex)
+            {
+                failure = AppendFailure(failure,
+                    $"{field.Name} ({field.FieldType.Name}) write threw: {ex.Message}");
+                return false;
+            }
+        }
+
+        private static string AppendFailure(string existing, string addition)
+            => string.IsNullOrEmpty(existing) ? addition : existing + "; " + addition;
+
+        /// <summary>
         /// The emitter <c>localVelocity</c> to write for one throttle ratio: <c>baseline * ratio</c>,
         /// except that a WORLD-SPACE emitter never drops below the minimum-flow floor its baseline
         /// was given at build time.
@@ -4114,6 +4248,9 @@ namespace Parsek
         /// The one composition the ratio cannot express is the world-space minimum-flow floor, which
         /// is a THRESHOLD rather than a magnitude; <see cref="ScaleEmitterLocalVelocity"/> owns that
         /// exception and every other write here stays a plain ratio.
+        ///
+        /// EVERY write goes through <see cref="TryConvertMagnitudeForField"/>, because the emitter's
+        /// fields are NOT all floats — see that method's contract.
         /// </summary>
         internal static void ApplyFxMagnitudeScale(
             List<KspEmitterRef> emitters, List<ParticleSystem> systems,
@@ -4130,20 +4267,37 @@ namespace Parsek
                 {
                     KspEmitterRef r = emitters[i];
                     if (!r.magnitudeBaselineCaptured || r.emitter == null) continue;
-                    try
+
+                    // Each field is written INDEPENDENTLY. The pre-fix code wrote all three inside
+                    // one try, so the first failure (minEmission, always) skipped the other two as
+                    // collateral — the localVelocity write was never even attempted.
+                    string failure = null;
+                    bool wrote = TryWriteMagnitudeScalarField(
+                        r.minEmissionField, r.emitter,
+                        r.baselineMinEmission * emissionRatio, ref failure);
+                    wrote |= TryWriteMagnitudeScalarField(
+                        r.maxEmissionField, r.emitter,
+                        r.baselineMaxEmission * emissionRatio, ref failure);
+                    wrote |= TryWriteMagnitudeVectorField(
+                        r.localVelocityField, r.emitter,
+                        ScaleEmitterLocalVelocity(
+                            r.baselineLocalVelocity, speedRatio, r.baselineUseWorldSpace),
+                        ref failure);
+
+                    if (wrote) scaledEmitters++;
+
+                    if (failure != null)
                     {
-                        r.minEmissionField?.SetValue(r.emitter, r.baselineMinEmission * emissionRatio);
-                        r.maxEmissionField?.SetValue(r.emitter, r.baselineMaxEmission * emissionRatio);
-                        r.localVelocityField?.SetValue(r.emitter, ScaleEmitterLocalVelocity(
-                            r.baselineLocalVelocity, speedRatio, r.baselineUseWorldSpace));
-                        scaledEmitters++;
-                    }
-                    catch (Exception ex)
-                    {
+                        // COUNTED as well as logged. The log line is rate-limited (a per-frame,
+                        // per-emitter failure would otherwise drown the log), so the count is the
+                        // only faithful measure of how wide the breakage is — and it is what the
+                        // in-game plume cell quotes in its own failure message, so a red there is
+                        // one read rather than a log hunt.
+                        FxMagnitudeWriteFailureCount++;
                         ParsekLog.VerboseRateLimited("GhostVisual",
                             $"fx-magnitude-write-fail-{kind}-{partPersistentId}-{moduleIndex}",
                             $"FX magnitude write failed ({kind} pid={partPersistentId} " +
-                            $"midx={moduleIndex}): {ex.Message}; plume stays at its baseline", 60.0);
+                            $"midx={moduleIndex}): {failure}; plume stays at its baseline", 60.0);
                     }
                 }
             }

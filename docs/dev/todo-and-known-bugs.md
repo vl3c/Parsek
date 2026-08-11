@@ -1101,6 +1101,30 @@ Open items, highest leverage first:
   `GhostPlaybackLogic.ScaleEmitterLocalVelocity` re-clamps that one write to the floor (never
   above the baseline's own magnitude) and leaves every other write a plain ratio; reachable only
   on ReStock's world-space SRB smoke at genuine partial throttle.
+  **FLIGHT FOLLOW-UP 2026-08-12: the whole of the above was a SILENT NO-OP in the live game
+  until now.** The H36 run of 2026-08-11 logged, for engine midx=0, engine midx=1 AND rcs
+  midx=0, `FX magnitude write failed ... Object of type 'System.Single' cannot be converted to
+  type 'System.Int32'.; plume stays at its baseline`. `KSPParticleEmitter.minEmission` and
+  `maxEmission` are declared **int** (`minSize`/`maxSize` are float, `localVelocity` is Vector3
+  — verified by decompiling Assembly-CSharp, not assumed); `FieldInfo.SetValue` performs no
+  numeric conversion, so a boxed float threw on the FIRST of the three writes and, because all
+  three shared one `try`, took the other two with it. **Fix:** every write converts to the
+  `FieldInfo`'s own `FieldType` (`GhostPlaybackLogic.TryConvertMagnitudeForField`) and each
+  field is written independently; integral fields round to nearest with a NONZERO floor, which
+  keeps `ComputeFxMagnitudeRatio`'s "never zero for a lit engine" contract at the quantisation
+  boundary, and the floor keeps the SIGN so stock's negative-`maxEmission` "does not emit"
+  sentinel survives. `CaptureFxMagnitudeBaselines` now type-checks each field at capture and
+  drops an unwritable one to null instead of caching it for the applier to fail on every frame.
+  **Why three review passes and 66 headless cells missed it:** every headless cell pinned the
+  ratio ARITHMETIC (floats in, float out) and none ever met the real field types; and the
+  in-game suppress/restore cell passed VACUOUSLY, because "unchanged baseline in, unchanged
+  baseline out" satisfies a round trip perfectly. Both holes are now closed — headless cells
+  reflect over the real `KSPParticleEmitter` type and perform a real `SetValue` against an
+  uninitialised instance (`FormatterServices.GetUninitializedObject`, no ctor, no ECall), and
+  the RCS cell asserts the scaled value differs from the captured baseline BEFORE asserting the
+  round trip preserves it. `FxMagnitudeWriteFailureCount` is a hard-zero assertion in both
+  plume cells, because the failure LOG line is rate-limited to one per minute per module and so
+  undercounted a total no-op as a curiosity.
 - **Five dead reflection probes**, four of them documented as shipped at
   `done/next-parts-event-support-priority.md:43-47`. `module.Fields` is
   `[KSPField]`-only (`FlightRecorder.cs:3733-3748`); `ModuleControlSurface`'s
