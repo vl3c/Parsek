@@ -307,6 +307,37 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void PruneZeroPointLeaves_KeepingTheProvisionalAlsoDropsAnyStaleHandOver()
+        {
+            // TryTake's session gate cannot see an F9 that re-arms a marker with
+            // the SAME SessionId, so a note describing a pre-quickload object
+            // could otherwise be adopted as this session's conclusion. A prune
+            // pass that finds the recording alive AND validating is proof the
+            // note is stale.
+            var marker = Marker();
+            InstallScenario(marker);
+
+            var stale = Rec("rec_provisional", state: MergeState.NotCommitted);
+            ReFlyProvisionalRetirement.Note(marker, stale, "PruneZeroPointLeaves");
+
+            var provisional = Rec("rec_provisional",
+                state: MergeState.NotCommitted, terminal: TerminalState.Landed);
+            provisional.TrackSections.Add(new TrackSection
+            {
+                frames = new List<TrajectoryPoint> { new TrajectoryPoint { ut = 0.0 } },
+            });
+            var tree = TreeWith(Rec("rec_origin", terminal: TerminalState.Destroyed), provisional);
+            tree.Recordings["rec_origin"].Points.Add(new TrajectoryPoint { ut = 0.0 });
+
+            ParsekFlight.PruneZeroPointLeaves(tree);
+
+            Assert.True(tree.Recordings.ContainsKey("rec_provisional"));
+            Recording taken;
+            string reason;
+            Assert.False(ReFlyProvisionalRetirement.TryTake(marker, out taken, out reason));
+        }
+
+        [Fact]
         public void PruneZeroPointLeaves_OrdinaryEmptyLeafIsUntouchedByTheGuard()
         {
             var marker = Marker();

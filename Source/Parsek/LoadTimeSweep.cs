@@ -77,6 +77,12 @@ namespace Parsek
                 LogMarkerInvalid(marker, validation.Reason, validation.Details);
                 scenario.ActiveReFlySessionMarker = null;
                 Parsek.Rendering.RenderSessionState.Clear("marker-cleared");
+                // Session-scoped prune hand-over dies with the session it
+                // belonged to (see ReFlyProvisionalRetirement): reaching this
+                // clear means the SWEEP ended the session rather than a
+                // conclusion, so any leftover note must never be adopted by
+                // whatever arms the next marker.
+                ReFlyProvisionalRetirement.Clear("loadtime-sweep-invalid-marker");
                 // Sweep runs during OnLoad before flight-scene Start, so
                 // FlightDriver state is unset and Apply is a logged no-op.
                 // Defensive: keep the call symmetric with other clear sites

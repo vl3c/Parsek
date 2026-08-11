@@ -137,7 +137,12 @@ namespace Parsek
 
                 Recording candidate;
                 tree.Recordings.TryGetValue(id, out candidate);
-                if (reFlyMarker != null && candidate != null)
+                // Identity first, payload second: ValidateSupersedeTarget walks
+                // TrackSections, and only the one id the marker names can ever
+                // change this loop's behaviour.
+                if (candidate != null
+                    && ReFlyConclusionRoute.ClassifyProvisionalPrune(reFlyMarker, id, false)
+                        != ReFlyProvisionalPruneAction.NotTheProvisional)
                 {
                     string ignoredReason;
                     var action = ReFlyConclusionRoute.ClassifyProvisionalPrune(
@@ -148,6 +153,11 @@ namespace Parsek
                     if (action == ReFlyProvisionalPruneAction.KeepOwesSupersede)
                     {
                         keptProvisional++;
+                        // Any note from an earlier prune of this same id is now
+                        // provably stale: the recording is alive and validating,
+                        // so the conclusion must resolve it normally, never adopt
+                        // a hand-over describing a pre-quickload object.
+                        ReFlyProvisionalRetirement.Clear("provisional-kept-owes-supersede");
                         ParsekLog.Info("Flight",
                             $"{logTag}: keeping active Re-Fly provisional rec={id} " +
                             $"sess={reFlyMarker.SessionId ?? "<no-id>"} " +

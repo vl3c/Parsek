@@ -862,6 +862,14 @@ namespace Parsek
             string sessionId = marker.SessionId;
             scenario.ActiveReFlySessionMarker = null;
             Parsek.Rendering.RenderSessionState.Clear("marker-cleared");
+            // The prune's hand-over slot is session-scoped state, so it dies
+            // with the marker. The S4.1 shape reaches here WITH a live note
+            // (the prune retired the provisional, but it was still in the flat
+            // committed list so this normal route resolved it and never
+            // consumed the note), and a note outliving its own session is
+            // exactly the stale-adoption hazard TryTake's session gate cannot
+            // see across an F9 that re-arms the same SessionId.
+            ReFlyProvisionalRetirement.Clear("supersede-marker-cleared");
             scenario.BumpSupersedeStateVersion();
             // Drop any forced CanRevertToPostInit override now that the
             // session is committed. Normally this commit happens at scene
@@ -2707,11 +2715,19 @@ namespace Parsek
             int rowsWritten = scenario.RecordingSupersedes.Count - rowsBefore;
             if (rowsWritten != 0 || (subtree != null && subtree.Count != 0))
             {
+                // Unreachable given the pre-check above validates the same
+                // object with the same deterministic predicate and nothing
+                // mutates it in between. If it ever fires, the rows point at a
+                // recording that is detached from every tree, which is exactly
+                // the ERS-poisoning shape ValidateSupersedeTarget exists to
+                // stop — so undo them rather than bailing on top of them.
+                if (rowsWritten > 0)
+                    scenario.RecordingSupersedes.RemoveRange(rowsBefore, rowsWritten);
                 ParsekLog.Warn(Tag,
                     $"ConcludeRetiredProvisional: expected a refusal but AppendRelations wrote " +
                     $"{rowsWritten.ToString(ic)} row(s) over subtree={(subtree?.Count ?? 0).ToString(ic)} " +
-                    $"sess={sessionId} provisional={retiredId} — leaving the marker in place for " +
-                    "the load-time sweep instead of concluding");
+                    $"sess={sessionId} provisional={retiredId} — rolled the rows back and left the " +
+                    "marker in place for the load-time sweep instead of concluding");
                 return false;
             }
 

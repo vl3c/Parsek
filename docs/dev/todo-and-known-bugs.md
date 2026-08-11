@@ -1030,13 +1030,14 @@ exactly as re-flyable as it was, and this route must not delete a quicksave the
 player never spent. `ReFlySessionMarker`'s tree-id gate is untouched, and the
 hand-over is transient in-memory state rather than a seventh durable marker field.
 
-**Coverage:** `Source/Parsek.Tests/ReFlyConclusionRouteTests.cs`, 19 cells - the
+**Coverage:** `Source/Parsek.Tests/ReFlyConclusionRouteTests.cs`, 20 cells - the
 two pure classifiers (including the 4-case prune theory), the hand-over slot's
 session-scoping and single-shot take, three prune-integration cells (retire /
 keep-because-it-validates / ordinary leaf untouched), the named conclusion and
 its refuse-when-it-would-validate guard, both end-to-end commit-branch routes,
-and the payload-evidence cell that pins anchor points apart from trajectory
-points. Full suite 20192 passed / 1 skipped; `harness/lib` 1284 OK.
+the payload-evidence cell that pins anchor points apart from trajectory points,
+and the stale-hand-over cell from the review pass. Full suite 20193 passed /
+1 skipped; `harness/lib` 1284 OK.
 
 **Still owed:** the confirming re-fly of S4.2. Its spec is re-pinned to the
 post-fix contract (`outcome=retired-empty-provisional` +
@@ -1045,11 +1046,34 @@ post-fix contract (`outcome=retired-empty-provisional` +
 `forbidden`), marked DERIVED-PENDING-REFLY, and the honesty-ledger entry in
 `harness/lib/test_hlib.py` is narrowed to that re-fly rather than dropped.
 
-**Spotted in passing, NOT fixed:** `ParsekFlight.IsZeroPointLeaf` ignores
-`TrackSections` entirely, so a section-authoritative recording with zero flat
-Points reads as a "zero-point leaf" and is pruned even though it carries playable
-data. The Re-Fly case is covered by the guard above; the general case is a
-separate call about the prune's payload test and is left alone here.
+**Review follow-ups applied in the same branch:** the `KeepOwesSupersede` branch
+and both remaining session-ending marker clears (`FlipMergeStateAndClearTransient`,
+`LoadTimeSweep`'s invalid-marker clear) now drop the hand-over note, because
+`TryTake`'s session gate cannot see an F9 that re-arms a marker with the SAME
+SessionId; the prune evaluates identity before payload; and the unreachable
+"refusal did not hold" guard rolls its rows back rather than bailing on top of
+them.
+
+**Spotted in passing, NOT fixed (two items):**
+
+1. `ParsekFlight.IsZeroPointLeaf` ignores `TrackSections` entirely, so a
+   section-authoritative recording with zero flat Points reads as a "zero-point
+   leaf" and is pruned even though it carries playable data. The Re-Fly case is
+   covered by the guard above; the general case is a separate call about the
+   prune's payload test.
+2. A pruned recording leaves BOTH its `GameStateStore` events (tagged with its
+   id) and its sidecar files (`<id>.prec`, `<id>_vessel.craft`) behind - the
+   prune never purged either, and neither does the new conclusion. On the
+   retired-empty route those events become phantoms attributed to a recording
+   that exists nowhere, and `EffectiveState.ComputeELS` filters only TOMBSTONED
+   ActionIds, so they stay effective. This is behaviour-equal to pre-fix (the
+   sweep could not purge them either - the recording was already gone), and it
+   is NOT fixed here on purpose: the discard path pairs its purge with
+   `LedgerOrchestrator.PreserveIrreversibleLiveGameplayOnDiscard` because KSP
+   applied some of those effects irreversibly, and adding a bare purge would
+   diverge the ledger the OTHER way, which is worse than a phantom. Whoever
+   takes it must settle the irreversible-live-gameplay question first. Expect
+   these to surface as report-only phantoms in the ledger ground-truth harness.
 
 ### What was expected
 
