@@ -199,7 +199,7 @@ no new refusal, no control-flow change, and the whole block is wrapped so a brok
 slot map costs the advisory rather than the dialog. Composition is pure
 (`ResolveReFlySiblingSlotNames` / `ComposeReFlyAdvisoryBody` /
 `FormatReFlyAdvisoryLogLine` / `FormatCappedNameList`), pinned by
-`ReFlyPreInvokeAdvisoryTests` (24 cells, including the exact player-facing
+`ReFlyPreInvokeAdvisoryTests` (26 cells, including the exact player-facing
 strings, exclusion by `SlotIndex` rather than list index, and the omission of an
 UNMAPPED slot - the scrub cannot match its vessel, so promising the player it
 leaves would be a false statement). Note the audit ranks this **C2**, second in
