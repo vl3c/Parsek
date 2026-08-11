@@ -3079,6 +3079,13 @@ class IngameBatchWiringGroupTests(unittest.TestCase):
         # really carries .prec sidecars on disk, checked mechanically below so a
         # future re-harvest that dropped them reds HERE rather than as a batch of
         # silent Skips on the next flight.
+        # NOTE (post-review cross-reference): this bucket's anti-vacuity
+        # guarantee is deliberately DISTRIBUTED - the on-disk check below only
+        # proves sidecars exist; the payload's IDENTITY and full shape are
+        # owned by test_saveparse.py's committed-fixture closure
+        # (test_fixture_set_is_exactly_the_committed_set forces every
+        # fixtures/saves/ dir into either the zero-recording set or the fully
+        # pinned RECORDED_FIXTURES). A wrong-but-present payload reds THERE.
         recorded_fixture = {"H33-logistics-route-proof"}
         self.assertEqual(set(), corpus_backed & recorded_fixture,
                          "a member cannot be both corpus-backed and "

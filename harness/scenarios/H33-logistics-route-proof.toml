@@ -164,8 +164,12 @@ allowedAnomalies = []
 # (run.py::count_recordings); the staged fixture contributes 19 and the LOAD-TIME
 # OPTIMIZER SPLIT adds 2. That split is visible in the saveParse facets as well:
 # the fixture's 19 recordings / largest 1798 points / 2835 total become 21 /
-# 1616 / 2837 in the produced save, i.e. the 1798-point interceptor recording was
-# cut into three pieces (+2 recordings, +2 boundary points). The split is a pure
+# 1616 / 2837 in the produced save. MECHANISM (corrected post-review from the
+# archived _1704 log - the first draft said "one recording cut into three",
+# which was the right count with the wrong story): TWO INDEPENDENT SINGLE
+# SPLITS on two different recordings - a32f62f5 at UT 196.26 (new rec
+# 359507a8) and 5157d655 at UT 568.23 (new rec 660405e3), each one recording
+# cut into two (+2 recordings, +2 boundary points). The split is a pure
 # function of the recording applied at load, so it is deterministic - V6M pins
 # mun-orbit-recorded's 8 -> 9 on exactly this reasoning, and both confirm runs
 # reproduced 21 here.
@@ -222,7 +226,7 @@ count = { min = 21, max = 21 }
 #    holding. A producer that started stamping origin proofs for pad launches
 #    would fail the cell, not merely change the line.
 # LEVELS: the initiator echo is VERBOSE (LogisticsRouteProofRuntimeTests.cs:198)
-# and the prelaunch echo is INFO (LogisticsRouteProducerRuntimeTests.cs:125), so
+# and the prelaunch echo is INFO (LogisticsRouteProducerRuntimeTests.cs:126), so
 # the driver's verboseLogging=true step is what makes the first pin matchable at
 # all - without it a PASS of the proof trio leaves no trace in the log.
 required  = [
