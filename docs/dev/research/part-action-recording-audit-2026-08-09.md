@@ -309,5 +309,8 @@ remaining rewind bugs will be.
 - ~~`docs/dev/done/parsek-rewind-separation-design.md:593` step 4 ("leave alone") is contradicted
   by the shipped scrub.~~ **Resolved 2026-08-09 by changing the code, not the doc** — step 4 was
   right and the two production overrides were the divergence. The design doc needs no edit.
-- The rewind design doc §7.13 still claims v1 never un-completes a contract; `PatchContracts` can
-  remove a tombstoned finished row.
+- ~~The rewind design doc §7.13 still claims v1 never un-completes a contract; `PatchContracts` can
+  remove a tombstoned finished row.~~ **Resolved 2026-08-11 by correcting the doc.** §7.13 and the
+  matching stale "v1 does NOT un-fail" sentence in §7.14 now describe shipped behavior:
+  `ContractAccept`/`Complete`/`Fail`/`Cancel` are all tombstone-eligible, and `PatchContracts`
+  removes the tombstoned finished row and reinstates the contract as Active from its snapshot.
