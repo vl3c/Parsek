@@ -64,14 +64,26 @@ namespace Parsek.Reaim
         // Diagnostic counters for the tilt correction, snapshotted before/after a resolve by the in-game
         // canary. Process-wide statics (single-threaded synth path). FiredCorrectionCount = re-pins that
         // passed all re-validation; DeclinedCorrectionCount = every fail-closed decline of any reason.
-        // UnreachablePlaneDeclineCount = ONLY the achievability-gate "unreachable-plane" decline - the
-        // PRECISE tell of the .z-vs-.y world-frame bug (incAch ~90 deg => gate fails => Duna declined to
-        // faithful). The other decline reasons (degenerate / sane-fail / handedness-flip / residual-tilt) are
-        // legitimate per-candidate fail-closes that can fire transiently during the resolver's tof-candidate
-        // sweep even on a window that ultimately resolves, so the canary keys on the unreachable-plane count.
+        // RetainedTiltCount = the RETAIN disposition (gate unsafe => skip the correction, keep the
+        // un-corrected conic, continue to the downstream guards); a retain is NOT a decline, so it does NOT
+        // bump DeclinedCorrectionCount. The other decline reasons (degenerate / sane-fail / handedness-flip /
+        // residual-tilt) are legitimate per-candidate fail-closes that can fire transiently during the
+        // resolver's tof-candidate sweep even on a window that ultimately resolves.
+        //
+        // UnreachablePlaneDeclineCount counts every achievability-gate "unreachable-plane" HIT - retained or
+        // declined. Its MEANING WIDENED with the inclined-target retention change (docs/dev/plans/
+        // reaim-inclined-target-tilt-retention.md, Phase 1): before that change the gate's only disposition
+        // was a decline, so hits == declines and the name was literal; now an unreachable plane RETAINS the
+        // conic instead of killing the candidate, and this counter keeps counting the same GATE EVENT so the
+        // invariant built on it does not silently change what it measures. The name is deliberately NOT
+        // changed: it is the PRECISE tell of the .z-vs-.y world-frame bug (incAch ~90 deg => gate fails =>
+        // Duna's transfer is not re-pinned onto Duna's plane), and the in-game Duna NEVER-UNREACHABLE
+        // invariant (ReaimEndToEndInGameTest.cs:299-353) relies on it staying ZERO for Duna - a Duna hit is
+        // still the regression tell whether it retains or declines.
         internal static long FiredCorrectionCount;
         internal static long DeclinedCorrectionCount;
         internal static long UnreachablePlaneDeclineCount;
+        internal static long RetainedTiltCount;
 
         /// <summary>
         /// The target-derived inclination bound (degrees): the inclination a CORRECT re-aimed transfer
@@ -164,6 +176,63 @@ namespace Parsek.Reaim
                 return false;
             double t = double.IsNaN(targetInc) ? 0.0 : targetInc;
             return Math.Abs(incAch - t) <= tol;
+        }
+
+        /// <summary>
+        /// What <see cref="TrySynthesizeTransfer"/> does with a solved conic at the tilt seam.
+        /// <c>Noop</c> = the tilt is not excessive, leave the conic alone. <c>Fire</c> = excessive AND the
+        /// achievability gate is safe, re-pin the plane onto the target's. <c>Retain</c> = excessive but the
+        /// gate is UNSAFE: skip the correction and KEEP the un-corrected conic (see
+        /// <see cref="DecideTiltDisposition"/>).
+        /// </summary>
+        internal enum TiltDisposition
+        {
+            Noop,
+            Fire,
+            Retain,
+        }
+
+        /// <summary>
+        /// The tilt seam's whole decision, pure: <c>!IsExcessiveTiltTransfer</c> =&gt;
+        /// <see cref="TiltDisposition.Noop"/>; excessive + gate safe =&gt; <see cref="TiltDisposition.Fire"/>;
+        /// excessive + gate UNSAFE =&gt; <see cref="TiltDisposition.Retain"/>.
+        ///
+        /// THE RETAIN ARM IS THE 2026-08-11 CHANGE (docs/dev/plans/reaim-inclined-target-tilt-retention.md,
+        /// Design A). It used to be a decline, which killed the candidate and - when every candidate died -
+        /// dropped the whole window to the FAITHFUL recorded transfer. Measured consequence: an ENGAGED
+        /// Kerbin-&gt;Eve loop unit whose cycle-0 window declined on all 27 tof candidates (incAch constant
+        /// 1.2358 vs Eve's 2.1, so no tof choice could ever pass the gate) rendered the recorded transfer one
+        /// synodic late, missing the moved Eve by 4.62 SOI radii. The gate answered its OWN question
+        /// correctly - flattening at that geometry misses Eve by ~271-290 Mm vs an 85.1 Mm SOI - so the defect
+        /// was the disposition, not the arithmetic: the un-corrected conic in hand was already sane, already
+        /// prograde, and passes through the target's centre at arrival BY CONSTRUCTION.
+        ///
+        /// <paramref name="planeGateSafe"/> is <see cref="ConstrainTransferPlaneIsSafe"/>'s verdict; it is
+        /// only consulted on the excessive branch, so a caller that has not evaluated the gate may pass
+        /// false when the tilt is not excessive. Pure.
+        /// </summary>
+        internal static TiltDisposition DecideTiltDisposition(
+            double incBeforeDeg, double boundDeg, bool planeGateSafe)
+        {
+            if (!IsExcessiveTiltTransfer(incBeforeDeg, boundDeg))
+                return TiltDisposition.Noop;
+            return planeGateSafe ? TiltDisposition.Fire : TiltDisposition.Retain;
+        }
+
+        /// <summary>
+        /// Records the RETAIN disposition: the grep-stable
+        /// <c>tilt-correction ... state=retained reason=unreachable-plane</c> line plus BOTH counters
+        /// (<see cref="RetainedTiltCount"/> and <see cref="UnreachablePlaneDeclineCount"/>, whose widened
+        /// meaning is documented on the field). Split out of the Unity-bound
+        /// <see cref="TrySynthesizeTransfer"/> so that contract is headless-testable. Does NOT touch
+        /// <see cref="DeclinedCorrectionCount"/>: a retain is not a decline.
+        /// </summary>
+        internal static void RecordRetainedTilt(
+            double incBefore, double bound, double targetInc, double incAch)
+        {
+            LogTiltCorrection(incBefore, bound, targetInc, incAch, double.NaN, "retained", "unreachable-plane");
+            RetainedTiltCount++;
+            UnreachablePlaneDeclineCount++;
         }
 
         /// <summary>
@@ -402,18 +471,44 @@ namespace Parsek.Reaim
             // near a ~180 deg transfer carries an amplified projection of the target's out-of-plane z-offset as
             // a 2-5 deg tilt (vs Duna's real 0.06 deg). If the inclination exceeds the TARGET-DERIVED bound,
             // re-pin the plane onto the target body's own well-conditioned orbital plane - but ONLY when holding
-            // r1 fixed can actually reach that plane (the achievability gate); otherwise decline to faithful
-            // rather than over-flatten an inclined target. Inserted AFTER the sane+direction guards so it only
-            // ever runs on an already-prograde, already-sane conic. See the plan doc for the full mechanism.
+            // r1 fixed can actually reach that plane (the achievability gate); otherwise RETAIN the un-corrected
+            // conic rather than over-flatten an inclined target. Inserted AFTER the sane+direction guards so it
+            // only ever runs on an already-prograde, already-sane conic. See the plan doc for the full mechanism.
+            //
+            // THE THREE DISPOSITIONS are decided by the pure DecideTiltDisposition; this block only ACTS on the
+            // verdict (the geometry stays here, where the live orbits are).
+            //   Noop   - not excessive: nothing to do.
+            //   Fire   - excessive + gate safe: re-pin, then re-validate sane -> direction -> tilt.
+            //   Retain - excessive + gate UNSAFE: skip the correction and KEEP the un-corrected conic, then
+            //            FALL THROUGH to exactly the validation a Noop conic takes. This is the 2026-08-11
+            //            inclined-target change (docs/dev/plans/reaim-inclined-target-tilt-retention.md);
+            //            it used to `return false`, which dropped whole windows (every Eve cycle-0 candidate)
+            //            to the faithful recorded transfer.
+            // FAIL-CLOSED IS PRESERVED BY THE DOWNSTREAM GUARDS, NOT BY A SPECIAL CASE HERE. A retained conic
+            // still faces, in this order: the direction guard already run above (so a retained conic at
+            // inc >= 90 deg was ALREADY declined as retrograde before reaching this block - the measured Eve
+            // band tops out at 87.48 deg, only ~2.5 deg under that line, and a nearby window crossing it fails
+            // closed through that OTHER, unchanged branch), the IsSaneTransferConic check already run above,
+            // and - below - CalculatePatch plus the proximity encounter check, which remains the arbiter: a
+            // retained conic that never enters the target SOI declines exactly as it does today. Deliberately
+            // NO near-90 special-casing lives here.
             double launchInc = launchBody.orbit.inclination;
             double targetInc = targetBody.orbit.inclination;
             double tiltBound = InclinationBoundDegrees(launchInc, targetInc);
             double incBefore = transfer.inclination;
+
+            // Gate inputs (two live orbit evaluations) are only computed - and only meaningful - on the
+            // excessive branch; DecideTiltDisposition returns Noop regardless of the flag when the tilt is not
+            // excessive. The degenerate-target plane stays a DECLINE (an unusable target normal is not a
+            // "cannot reach the plane" verdict; there is no plane to reach).
+            Vector3d nTarget = Vector3d.zero;
+            double incAch = double.NaN;
+            bool planeGateSafe = false;
             if (IsExcessiveTiltTransfer(incBefore, tiltBound))
             {
                 // v2Target in the SAME .xzy-unswizzled Lambert frame as r1/r2.
                 Vector3d v2Target = targetBody.orbit.getOrbitalVelocityAtUT(arrivalUT).xzy;
-                Vector3d nTarget = ComputeIntendedPlaneNormal(r2, v2Target);
+                nTarget = ComputeIntendedPlaneNormal(r2, v2Target);
                 if (nTarget == Vector3d.zero)
                 {
                     LogTiltCorrection(incBefore, tiltBound, targetInc, double.NaN, double.NaN,
@@ -423,19 +518,24 @@ namespace Parsek.Reaim
                     return false;
                 }
 
-                double incAch = AchievablePlaneInclinationDegrees(r1, nTarget);
-                if (!ConstrainTransferPlaneIsSafe(r1, nTarget, targetInc, InclinationToleranceDegrees))
-                {
-                    // The Moho-adverse-phase exit (for Duna it never trips): holding r1 fixed cannot reach the
-                    // target plane, so re-pinning would over-flatten the inclined target. Decline to faithful.
-                    LogTiltCorrection(incBefore, tiltBound, targetInc, incAch, double.NaN,
-                        "declined", "unreachable-plane");
-                    DeclinedCorrectionCount++;
-                    UnreachablePlaneDeclineCount++; // the precise .z-vs-.y frame-bug tell (Duna never trips this)
-                    failReason = $"tilt correction: unreachable target plane (incAch={incAch.ToString("F4", CultureInfo.InvariantCulture)} targetInc={targetInc.ToString("F4", CultureInfo.InvariantCulture)} tol={InclinationToleranceDegrees.ToString("F2", CultureInfo.InvariantCulture)})";
-                    return false;
-                }
+                incAch = AchievablePlaneInclinationDegrees(r1, nTarget);
+                planeGateSafe = ConstrainTransferPlaneIsSafe(r1, nTarget, targetInc, InclinationToleranceDegrees);
+            }
 
+            TiltDisposition disposition = DecideTiltDisposition(incBefore, tiltBound, planeGateSafe);
+            if (disposition == TiltDisposition.Retain)
+            {
+                // The gate says holding r1 fixed cannot reach the target plane (Eve at an off-node departure;
+                // Moho at adverse phase), so re-pinning would over-flatten the inclined target - the flatten
+                // would arrive ~3.4 target-SOI radii away and die at the encounter check below anyway. KEEP the
+                // conic the solver already produced: it is the unique plane through both endpoints, and it
+                // passes through the target's centre at arrivalUT by construction. No correction is applied,
+                // nothing is rebuilt, and control falls through to the same CalculatePatch + proximity
+                // encounter validation a Noop conic takes.
+                RecordRetainedTilt(incBefore, tiltBound, targetInc, incAch);
+            }
+            else if (disposition == TiltDisposition.Fire)
+            {
                 if (!ConstrainTransferPlane(r1, v1, nTarget, out Vector3d v1Corrected))
                 {
                     LogTiltCorrection(incBefore, tiltBound, targetInc, incAch, double.NaN,

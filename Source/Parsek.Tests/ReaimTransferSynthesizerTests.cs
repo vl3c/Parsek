@@ -10,8 +10,28 @@ namespace Parsek.Tests
     // The pure decision in ReaimTransferSynthesizer (the rest is Unity-bound live glue exercised by
     // the in-game canary CrossParentReaimCanaryInGameTest). IsSaneTransferConic is the plan-review-M3
     // validate-and-skip guard that rejects a degenerate Lambert result before it reaches CalculatePatch.
-    public class ReaimTransferSynthesizerTests
+    //
+    // Sequential + log capture because the Phase 1 cells at the bottom of this file touch PROCESS-WIDE
+    // state: the tilt-disposition counters (plain statics, not [ThreadStatic]) and ParsekLog's sink.
+    [Collection("Sequential")]
+    public class ReaimTransferSynthesizerTests : IDisposable
     {
+        private readonly List<string> logLines = new List<string>();
+
+        public ReaimTransferSynthesizerTests()
+        {
+            ParsekLog.ResetTestOverrides();
+            ParsekLog.SuppressLogging = false;
+            ParsekLog.VerboseOverrideForTesting = true;   // the tilt-correction line is Verbose
+            ParsekLog.TestSinkForTesting = line => logLines.Add(line);
+        }
+
+        public void Dispose()
+        {
+            ParsekLog.ResetTestOverrides();
+            ParsekLog.SuppressLogging = true;
+        }
+
         [Theory]
         [InlineData(0.0, 1.0e10, true)]    // circular elliptic transfer - sane
         [InlineData(0.4, 1.7e10, true)]    // typical Hohmann-ish ellipse - sane
@@ -650,6 +670,193 @@ namespace Parsek.Tests
                 EveCycleZeroGeometry.KerbinInclinationDegrees, firstInc);
             Assert.True(designDBound < 1.0,
                 $"a recorded-inclination bound would be {designDBound.ToString("F4", CultureInfo.InvariantCulture)} deg - BELOW today's 2.6, so Design D cannot rescue the window");
+        }
+
+        // ============ PHASE 1: the tilt seam's DISPOSITION (Retain replaces the decline) ============
+        //
+        // WHAT CHANGED (docs/dev/plans/reaim-inclined-target-tilt-retention.md, Design A). The tilt seam
+        // used to have two outcomes: correct the plane (fire) or KILL the candidate (decline). It now has
+        // three, decided by the pure DecideTiltDisposition:
+        //   Noop   - the tilt is not excessive.
+        //   Fire   - excessive AND the achievability gate is safe: re-pin onto the target's plane.
+        //   Retain - excessive but the gate is UNSAFE: skip the correction, KEEP the un-corrected conic,
+        //            and fall through to the same downstream validation a Noop conic takes.
+        // The E1 cells above prove WHY the third arm had to exist: for Kerbin->Eve at cycle 0 the gate is
+        // unsafe on every one of the 27 candidates by forced arithmetic, so the old disposition dropped the
+        // whole window to the faithful recorded transfer - which, rendered one synodic late, missed the
+        // moved Eve by 4.62 SOI radii. The gate's own question was answered correctly (flattening there
+        // misses by ~271-290 Mm vs an 85.1 Mm SOI); only the disposition was wrong.
+
+        // The Eve cycle-0 band, through the REAL helpers end to end: for every one of the 27 candidates,
+        // compute the conic's inclination (plane(r1,r2), which IS the solved conic's plane) and the gate's
+        // verdict from production code, then assert the seam's disposition is Retain. This is the cell that
+        // says "the measured window now retains instead of declining" without hardcoding a single number.
+        [Fact]
+        public void DecideTiltDisposition_EveCycleZeroBand_RetainsEveryCandidate()
+        {
+            EveCycleZeroGeometry.StateAt(EveCycleZeroGeometry.Kerbin, EveCycleZeroGeometry.DepartureUT,
+                out Vector3d r1, out _);
+            double tol = ReaimTransferSynthesizer.InclinationToleranceDegrees;
+            double bound = ReaimTransferSynthesizer.InclinationBoundDegrees(
+                EveCycleZeroGeometry.KerbinInclinationDegrees, EveCycleZeroGeometry.EveInclinationDegrees);
+            IReadOnlyList<double> tofs = EveCycleZeroGeometry.CandidateTofs();
+            Assert.Equal(27, tofs.Count);
+
+            double minInc = double.MaxValue, maxInc = double.MinValue;
+            for (int i = 0; i < tofs.Count; i++)
+            {
+                EveCycleZeroGeometry.StateAt(EveCycleZeroGeometry.Eve,
+                    EveCycleZeroGeometry.DepartureUT + tofs[i], out Vector3d r2, out Vector3d v2);
+                double conicInc = EveCycleZeroGeometry.InclinationOfNormalDegrees(
+                    EveCycleZeroGeometry.PlaneNormalOfEndpoints(r1, r2));
+                bool gateSafe = ReaimTransferSynthesizer.ConstrainTransferPlaneIsSafe(
+                    r1, ReaimTransferSynthesizer.ComputeIntendedPlaneNormal(r2, v2),
+                    EveCycleZeroGeometry.EveInclinationDegrees, tol);
+                Assert.False(gateSafe, $"candidate {i.ToString(CultureInfo.InvariantCulture)}: the Eve cycle-0 gate is unsafe (E1)");
+
+                Assert.Equal(
+                    ReaimTransferSynthesizer.TiltDisposition.Retain,
+                    ReaimTransferSynthesizer.DecideTiltDisposition(conicInc, bound, gateSafe));
+
+                if (conicInc < minInc) minInc = conicInc;
+                if (conicInc > maxInc) maxInc = conicInc;
+            }
+
+            // The band the retain now covers, from the live-matched sequence: 3.3128 - 87.4793 deg.
+            Assert.True(Math.Abs(minInc - 3.3128) < 0.01,
+                $"the band minimum must be the live 3.3128 deg, got {minInc.ToString("F4", CultureInfo.InvariantCulture)}");
+            Assert.True(Math.Abs(maxInc - 87.4793) < 0.01,
+                $"the band maximum must be the live 87.4793 deg, got {maxInc.ToString("F4", CultureInfo.InvariantCulture)}");
+        }
+
+        // The same verdict stated over the pinned live numbers directly, so the contract is readable
+        // without running the geometry model: excessive tilt + UNSAFE gate = Retain, at the recorded-tof
+        // candidate (18.5369), at the band minimum (3.3128), and at the band maximum (87.4793).
+        [Theory]
+        [InlineData(18.5369, 2.6)]   // step 0 - the recorded tof, the plan's appendix A value
+        [InlineData(14.7147, 2.6)]   // candidate 1
+        [InlineData(3.3128, 2.6)]    // band minimum - still above the 2.6 bound, so still a gate hit
+        [InlineData(87.4793, 2.6)]   // band maximum - see the ORDER cell below for the near-90 edge
+        public void DecideTiltDisposition_ExcessiveTiltWithUnsafeGate_Retains(double incBefore, double bound)
+        {
+            Assert.Equal(
+                ReaimTransferSynthesizer.TiltDisposition.Retain,
+                ReaimTransferSynthesizer.DecideTiltDisposition(incBefore, bound, planeGateSafe: false));
+        }
+
+        // Duna's shape - the population the correction was BUILT for, byte-identical after this change.
+        // Kerbin 0 / Duna ~0.06 => bound ~0.56; the reported spurious tilts are 2.36 (loop 1) and 5.06
+        // (loop 2) deg; and Duna's gate passes at EVERY r1 phase (nTarget ~ ecliptic => the achievable
+        // plane through the fixed r1 lands within tol of the target plane), so the disposition is Fire.
+        // The Retain arm is UNREACHABLE for Duna by arithmetic - which is what keeps the in-game
+        // NEVER-UNREACHABLE invariant (ReaimEndToEndInGameTest.cs:299-353) meaning what it always meant.
+        [Theory]
+        [InlineData(2.36, 0.56)]     // the reported loop-1 Duna tilt
+        [InlineData(5.06, 0.56)]     // the reported loop-2 Duna tilt (more than doubled across one synodic)
+        [InlineData(0.57, 0.56)]     // just over the bound
+        [InlineData(89.9, 0.56)]     // steep but still prograde: a safe gate still fires
+        public void DecideTiltDisposition_ExcessiveTiltWithSafeGate_Fires(double incBefore, double bound)
+        {
+            Assert.Equal(
+                ReaimTransferSynthesizer.TiltDisposition.Fire,
+                ReaimTransferSynthesizer.DecideTiltDisposition(incBefore, bound, planeGateSafe: true));
+        }
+
+        // Not excessive => Noop, regardless of the gate flag (the gate is not even evaluated on this path,
+        // so the caller may pass either value; the decision must not depend on it).
+        [Theory]
+        [InlineData(0.13, 0.56)]     // the reported already-in-plane Duna window
+        [InlineData(0.56, 0.56)]     // exactly at the bound - not excessive (the predicate is strict >)
+        [InlineData(2.6, 2.6)]       // Eve's bound, exactly
+        [InlineData(0.0, 0.56)]
+        [InlineData(double.NaN, 2.6)] // NaN inclination is not excessive (IsExcessiveTiltTransfer's guard)
+        public void DecideTiltDisposition_NotExcessive_IsNoopEitherWay(double incBefore, double bound)
+        {
+            Assert.Equal(
+                ReaimTransferSynthesizer.TiltDisposition.Noop,
+                ReaimTransferSynthesizer.DecideTiltDisposition(incBefore, bound, planeGateSafe: false));
+            Assert.Equal(
+                ReaimTransferSynthesizer.TiltDisposition.Noop,
+                ReaimTransferSynthesizer.DecideTiltDisposition(incBefore, bound, planeGateSafe: true));
+        }
+
+        // THE ORDER CELL (the near-90 edge, stated honestly). The Eve band's maximum is 87.4793 deg, only
+        // ~2.5 deg under the 90-deg line at which IsRetrogradeTransfer flips. Two facts, and nothing in
+        // between them:
+        //   (1) at 87.4793 the seam says RETAIN - the conic is kept and rendered,
+        //   (2) past 90 the seam is NEVER CONSULTED: IsExcessiveTiltTransfer's `inc <= 90` clause makes
+        //       DecideTiltDisposition return Noop, because the DIRECTION guard has already declined that
+        //       conic upstream (TrySynthesizeTransfer runs the sane + direction guards BEFORE the tilt
+        //       block). A retained conic therefore cannot smuggle a retrograde transfer through.
+        // There is deliberately NO near-90 special case in the retain path: a candidate that crosses the
+        // line fails closed through that OTHER, unchanged branch. Downstream of Retain the conic still
+        // faces CalculatePatch + the proximity encounter check, which remains the arbiter - a retained
+        // conic that never enters the target SOI declines exactly as it does today (Unity-bound, so that
+        // last leg is the in-game canary's assertion, not this cell's).
+        [Fact]
+        public void DecideTiltDisposition_NearNinetyEdge_RetainsUnderNinetyAndDefersToTheDirectionGuardOver()
+        {
+            const double bound = 2.6;
+
+            // (1) The band maximum retains, and it is prograde - the direction guard passes it through.
+            Assert.False(ReaimTransferSynthesizer.IsRetrogradeTransfer(87.4793));
+            Assert.Equal(
+                ReaimTransferSynthesizer.TiltDisposition.Retain,
+                ReaimTransferSynthesizer.DecideTiltDisposition(87.4793, bound, planeGateSafe: false));
+
+            // (2) Past 90 the direction guard owns the outcome, and the tilt seam stands down.
+            foreach (double retro in new[] { 90.1, 120.0, 179.14, 180.0 })
+            {
+                Assert.True(ReaimTransferSynthesizer.IsRetrogradeTransfer(retro),
+                    $"inc {retro.ToString("F2", CultureInfo.InvariantCulture)} must be retrograde (the direction guard declines it upstream)");
+                Assert.Equal(
+                    ReaimTransferSynthesizer.TiltDisposition.Noop,
+                    ReaimTransferSynthesizer.DecideTiltDisposition(retro, bound, planeGateSafe: false));
+            }
+
+            // Exactly 90 is classified prograde by IsRetrogradeTransfer's strict `> 90`, and
+            // IsExcessiveTiltTransfer's `inc <= 90` still admits it - so it retains rather than falling
+            // into a gap between the two predicates.
+            Assert.False(ReaimTransferSynthesizer.IsRetrogradeTransfer(90.0));
+            Assert.Equal(
+                ReaimTransferSynthesizer.TiltDisposition.Retain,
+                ReaimTransferSynthesizer.DecideTiltDisposition(90.0, bound, planeGateSafe: false));
+        }
+
+        // THE WIDENED-MEANING CONTRACT. A retain bumps BOTH RetainedTiltCount (new) and
+        // UnreachablePlaneDeclineCount (kept, deliberately un-renamed): the latter now counts
+        // unreachable-plane GATE HITS - retained or declined - so the in-game Duna NEVER-UNREACHABLE
+        // invariant keeps measuring the same event (a Duna hit is the .z-vs-.y frame-bug tell whichever
+        // disposition follows it). It does NOT bump DeclinedCorrectionCount: a retain is not a decline,
+        // and the candidate survives.
+        [Fact]
+        public void RecordRetainedTilt_BumpsBothCountersButNotTheDeclineCount()
+        {
+            long retainedBefore = ReaimTransferSynthesizer.RetainedTiltCount;
+            long unreachableBefore = ReaimTransferSynthesizer.UnreachablePlaneDeclineCount;
+            long declinedBefore = ReaimTransferSynthesizer.DeclinedCorrectionCount;
+            long firedBefore = ReaimTransferSynthesizer.FiredCorrectionCount;
+
+            ReaimTransferSynthesizer.RecordRetainedTilt(18.5369, 2.6, 2.1, 1.2358);
+
+            Assert.Equal(retainedBefore + 1, ReaimTransferSynthesizer.RetainedTiltCount);
+            Assert.Equal(unreachableBefore + 1, ReaimTransferSynthesizer.UnreachablePlaneDeclineCount);
+            Assert.Equal(declinedBefore, ReaimTransferSynthesizer.DeclinedCorrectionCount);
+            Assert.Equal(firedBefore, ReaimTransferSynthesizer.FiredCorrectionCount);
+        }
+
+        // The retained line's VERBATIM grammar: the existing tilt-correction fields with the new state
+        // token, and inc-after=NaN (nothing was rebuilt, so there is no "after"). Phase 3 arms
+        // `state=retained reason=unreachable-plane` as a required token on the V8 lane, so the text is a
+        // contract from here on - this cell is what reds if it drifts.
+        [Fact]
+        public void RecordRetainedTilt_EmitsTheGrepStableRetainedLine()
+        {
+            ReaimTransferSynthesizer.RecordRetainedTilt(18.5369, 2.6, 2.1, 1.2358);
+
+            Assert.Contains(logLines, l => l.Contains("[ReaimSeam]") && l.Contains(
+                "tilt-correction inc-before=18.5369 bound=2.6000 targetInc=2.1000 incAch=1.2358 " +
+                "inc-after=NaN state=retained reason=unreachable-plane"));
         }
 
         // Minimal ORBIT_SEGMENT reader for the .prec.txt fixture: the recording format is a flat

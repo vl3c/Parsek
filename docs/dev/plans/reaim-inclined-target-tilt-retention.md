@@ -179,7 +179,12 @@ the bound barely moves and Eve still declines. Also fragile per-fixture. Rejecte
 - **Phase 0 - pin the measurement (tests + docs only, no behavior change).** Commit E1 + E2 + E3
   cells; update the 2026-06-15 first-raise paragraph with the settled diagnosis; this plan doc.
   Full `dotnet test` green.
-- **Phase 1 - the disposition change.** Pure `internal static`
+- **Phase 1 - the disposition change. LANDED 2026-08-11** (`DecideTiltDisposition` + `TiltDisposition`
+  + `RecordRetainedTilt` + `RetainedTiltCount` in `ReaimTransferSynthesizer.cs`; the new
+  `reaim window fell back faithful:` Warn in `ReaimPlaybackResolver.cs`; 8 headless cells; CHANGELOG +
+  todo). `DeclinedCorrectionCount` is deliberately NOT incremented on a retain - a retain is not a
+  decline - while `UnreachablePlaneDeclineCount` keeps counting the gate HIT so the Duna invariant's
+  meaning is preserved. Pure `internal static`
   `DecideTiltDisposition(incBefore, bound, gateSafe) -> Fire | Retain | Decline`; wire
   unreachable-plane to Retain (skip correction, keep conic, continue to encounter validation);
   add `RetainedTiltCount`; keep `UnreachablePlaneDeclineCount` incrementing on the branch
