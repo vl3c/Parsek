@@ -1,0 +1,284 @@
+# V8-eve-player-loop - the player-side loop workflow on the EVE recorded
+# fixture: the program's first ENGAGED re-aim observation of an INWARD
+# (negative-phase-angle) interplanetary transfer, and its first loop unit in
+# the span>synodic regime.
+#
+# READING ITERATION 2 (this revision). Iteration 1 (run 2026-08-11_0802,
+# PASS attempt 1, wall 51 s) was the under-gated arm-and-read; its MEASURED
+# ledger is below and every number in this revision's steps derives from it.
+# This iteration adds the cycle-0 bracket TimeJumps and gates only what
+# iteration 1 measured as deterministic (the ENGAGED mode line, the product
+# jump line, the 9-count). The census/parity pins and the arming ledger land
+# with the ARM step after this iteration measures them (reading -> armed ->
+# negative control, the V4/V5 discipline).
+#
+# ITERATION-1 MEASURED LEDGER (run 2026-08-11_0802, KSP.log archived in
+# results/2026-08-11_0802_V8-eve-player-loop_shots/):
+#   ENGAGED re-aim Kerbin->Eve via Sun (x3, deterministic at unit build).
+#   D0=26,616,878.032  synodic=14,687,035.4516 (live; mlib's committed-
+#     constants derivation gives 14,687,035.4192 - 32 ms apart)
+#   tof=3,743,340.7888 = EXACTLY the recorded escape->entry transfer time
+#     (15,673,183.369 - 11,929,842.581)
+#   schedule anchor=14,687,070.132 = D0 - (recordedDeparture 11,929,842.581
+#     - spanStart 34.68); recordedDeparture IS the Kerbin escape (the LAUNCH
+#     HOLD line's soiExit echoes it verbatim)
+#   schedCadence = effectiveCadence = 29,374,070.903 = EXACTLY 2*synodic
+#     (the ceil(span/synodic) prediction CONFIRMED; span 15,763,996.145 =
+#     1.0733 synodic)
+#   PadAlignLaunch DECLINED -> LAUNCH HOLD engaged (per-loop launch advance
+#     / SOI-exit repay), siderealDay=21,549.4
+#   loiterCuts=1 cutSeconds=11,819,849 cut#0 start=2492 len=11819849
+#     end=11822341 compressedSpan=3,944,147/15,763,996 - THE FIRST
+#     loiterCuts>0 MEASUREMENT IN THE PROGRAM (the D11 loiter-compression
+#     cell was recorded as uncoverable by any committed fixture; this
+#     fixture's 11.82M-s LKO ejection-window wait is exactly the missing
+#     shape)
+#   phaseAnchorUt=26,506,918.973 = schedule anchor + cutSeconds
+#   PhaseLock SKIPPED support=UnsupportedCrossParent; scheduled=no;
+#     members=2 (main 75a6ab25 + the Kerbin-orbit remnant 081b06e8)
+#   relaunchUt=26,505,827.655 (phaseAnchor - 1,091.3, the LAUNCH HOLD
+#     per-loop launch advance); reachedUt=26,505,812.715 (the 15 s lead)
+#   EnterWatchMode REJECTED no-watchable-ghost committed=9 - as predicted
+#     (cross-body: observer parked at Eve, cycle-0 ghost at Kerbin ascent)
+#   observed recordings.count=9 (fixture 8 + the load-time optimizer split;
+#     the V6M mechanism, now measured on this fixture)
+#   tilt-correction lines: ZERO, and no resolver "re-aimed transfer ready"/
+#     "synth failed" line either - THE WINDOW SOLVE IS LAZY and iteration 1
+#     quit ~0.3 s after relaunch. The tilt histogram and the synth verdict
+#     are what THIS iteration's bracket jumps exist to buy.
+#
+# CYCLE-0 REPLAY-CLOCK MAP (from the measured anchor + cut; recorded UTs
+# past the cut end map as replayUT = phaseAnchor + (recordedUT - 34.68) -
+# 11,819,849):
+#   Mun-transit slice   26,525,975.71 -> 26,529,219.99
+#   Kerbin->Sun escape  26,616,877.87 (= D0 - 0.16)
+#   Sun->Eve arrival    30,360,218.66 recorded-map; re-aimed arrival is
+#     D0 + usedTof = 30,360,218.82 if usedTof == recorded tof - the bracket
+#     below covers both candidates
+#   RENDERED WINDOW END 30,450,249.6 (MEASURED off run _0810's own orbit-line
+#     decision: the phase window is [30,360,218.8, 30,450,249.6], i.e. the
+#     mapped LAST ORBIT-SEGMENT end 15,763,214.13 - NOT the mapped spanEnd
+#     30,451,066.1; the recording's final ~816 s commit tail has no orbit
+#     segment and does not render). A jump PAST that end retires the ghost
+#     (GuardSkip mission-loop-unit-inactive) and run _0810 measured a 4-frame
+#     past-window line-blink there (PARSEK-FAIL, filed as a finding in
+#     todo-and-known-bugs.md; the _0810 result JSON + collected logs are the
+#     artifact). The parked-tail step below therefore sits INSIDE the window
+#     at 30,450,100, which also makes the tail watch attempt a REAL same-body
+#     proximity measurement instead of a vacuous no-ghost rejection.
+#
+# WHY EVE IS NEW GEOMETRY, precisely:
+#   * Cross-parent (Kerbin->Eve via Sun) => ReaimClassifier is expected to
+#     report Supported and the unit to ENGAGE re-aim - unlike the V6/V7 moon
+#     lanes, which are phase-locked and never reach ApplyReaim's engaged
+#     branch. The transfer is INWARD: mlib's committed ephemeris gives the
+#     Kerbin->Eve Hohmann phase angle -54.125 deg and the synodic
+#     14,687,035.419 s. A code audit (this branch) found NO direction-
+#     dependent site in the live re-aim path - the window model is congruent
+#     D0 + k*synodic with abs() everywhere, the Lambert branch rides
+#     launch-plane handedness, and the one signed phase-angle helper
+#     (TransferWindowMath.HohmannPhaseAngleTargetDegrees) has no production
+#     caller - so the EXPECTED reading is that engagement looks exactly like
+#     Duna's. This run is the measurement that claim stands on.
+#   * The Eve-SPECIFIC unknown is the plane-tilt achievability gate
+#     (ReaimTransferSynthesizer, [ReaimSeam] `tilt-correction` VERBOSE
+#     line): Eve's 2.1 deg inclination sits between Duna's 0.06 ("always
+#     safe" per the code's own comments) and Moho's 7 (the documented
+#     unreachable-plane failure). A declined window falls back to faithful
+#     for that window with failReason "tilt correction: unreachable target
+#     plane". READ the tilt-correction state=/reason= histogram off this
+#     run.
+#   * THE REGIME. The fixture's measured span is 15,763,996.145 s = 1.0733
+#     synodic (the B15/B16 profile waits out the ejection window in LKO for
+#     11.83M s; see the fixture's provenance block in
+#     harness/lib/test_saveparse.py). ReaimWindowPlanner.Plan sets
+#     CadenceSeconds = ceil(span/synodic)*synodic, so the PREDICTED schedule
+#     cadence is 2*synodic = 29,374,070.838 s, and PadAlignLaunch declines
+#     whenever |cadence - synodic| > 1.0 (ReaimWindowPlanner.cs:230). This
+#     is the "#1166-engages-but-#1167-Increment-2-not-built span-greater-
+#     than-synodic gap" population (todo-and-known-bugs.md, looped re-aim
+#     entry) that no committed lane has ever driven. Derivation (verify off
+#     this run's ENGAGED line, then pin in iteration 2): the window-index/
+#     departure divergence is zero at cycle 0 and grows by (cadence -
+#     synodic) per cycle, so CYCLE 0 is expected coherent and k>=1 is the
+#     known-broken territory. This lane observes cycle 0; what k>=1 does is
+#     REPORT-ONLY evidence for the #1167 entry, not a gate.
+#
+# FIXTURE FACTS this spec is authored against (measured, commit 52f1e5406):
+#   tree id 16af6b5e546a4bef86fcd8cde1ddc924 (single committed tree)
+#   8 recordings; main 75a6ab25 spans [34.68, 15,764,030.825]
+#   recorded seams (off the main recording's ORBIT_SEGMENT chain):
+#     Kerbin park 2,492 -> 11,829,978 (the loiter, one segment)
+#     ejection burn ~11,830,065 -> 11,830,625
+#     MUN SOI TRANSIT 11,838,940.42 -> 11,842,184.70 (viaBodyNames admitted
+#       it; the replay renders a Mun-frame slice INSIDE the span - watch
+#       for it in the reading, do not assume it is invisible)
+#     Kerbin->Sun escape 11,929,842.58
+#     Sun->Eve SOI entry 15,673,183.37
+#     Eve park + commit tail to 15,764,030.83
+#   Window arithmetic for iteration 2's brackets:
+#     windowUT(recordedUT) = phaseAnchorUt + (recordedUT - 34.68)
+#   with phaseAnchorUt READ off this run's `missionconfig applied:` echo
+#   (never derived - loiter-compression cuts shift it after the planner).
+#
+# WATCH PREDICTIONS (two attempts): the post-warp one is deterministic
+# REJECTED (measured on iteration 1: observer parked at Eve, cycle-0 ghost
+# at Kerbin ascent, cross-body). The parked-tail one is PREDICTED REJECTED
+# on phase-separation grounds (see the step comment); docs/dev/
+# todo-and-known-bugs.md -> WATCH-ENTRY-REFUSED-INSIDE-QUOTED-RANGE is the
+# single authority on the entry boundary.
+#
+# WHY kind=seam: every step verdict gates driver validity (the V4/V5/V6/V7
+# choice); a missed arm or a surprise watch verdict reads INVALID(retryable),
+# never a silent green. The missionOutcome row is inert on a seam driver by
+# construction - every claim this lane will ever make is carried by
+# logContract tokens, the anomaly sweep, and the recordings/save-structure
+# blocks.
+
+schema = 1
+id = "V8-eve-player-loop"
+tier = "operator"
+instanceProfile = "stock-minimal"
+tags = ["V8", "player-loop", "loop-playback", "reaim", "interplanetary",
+        "eve", "inward-transfer", "reading-iteration"]
+
+[fixture]
+saveTemplate       = "fixtures/saves/eve-orbit-recorded"
+injectedRecordings = "none"
+craft              = []
+
+[driver]
+kind = "seam"
+
+# Stub-kill triple is steps 2-4 (the fixture's own parked craft is active, so
+# the committed-tree restore path resumes a promotion-stub recording ~1 s into
+# the scene - V2/V4's measured behaviour, same entry path). Tracer pins are
+# steps 5-7, all BEFORE MissionConfig: verboseLogging is LOAD-BEARING (the
+# probe/trace summaries and every [ReaimDiag]/[ReaimSeam]/PhaseLock line this
+# reading run exists to collect are VERBOSE).
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  { cmd = "StopRecording",                                                   expect = "OK" },
+  { cmd = "DiscardTree",                                                     expect = "OK" },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "ghostRenderTracing", value = "true" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "mapRenderTracing",   value = "true" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "verboseLogging",     value = "true" }, expect = "OK" },
+  { cmd = "MissionConfig", args = { tree = "16af6b5e546a4bef86fcd8cde1ddc924", loop = "true" }, expect = "OK" },
+  { cmd = "StartLoopPlayback", args = { tree = "16af6b5e546a4bef86fcd8cde1ddc924" }, expect = "OK", budget = 300 },
+  # Cross-body watch attempt at the cycle-0 relaunch: REJECTED is
+  # deterministic (measured on iteration 1) - observer parked at Eve, ghost
+  # at Kerbin ascent.
+  { cmd = "EnterWatchMode",                                                  expect = "REJECTED" },
+  # PACING SPACERS between boundary-straddling jump pairs, and they are
+  # LOAD-BEARING: MapRenderTrace.IsLineBlink raises when a proto line's
+  # ON/OFF toggle pair lands within LineBlinkFrameWindow = 8 visual frames,
+  # and two back-to-back seam TimeJumps execute ~4-7 frames apart in WALL
+  # time regardless of the game-seconds between them - so any leg line whose
+  # window boundary falls between two adjacent jumps toggles ON at one
+  # rebind and OFF at the next, inside the detector window. Runs _0810
+  # (Eve-leg line, jump past the rendered window end, sinceFrames=4) and
+  # _0814 (Sun-leg line, arrival-seam straddle, sinceFrames=7) both
+  # PARSEK-FAILed on exactly that shape; both artifacts are archived and
+  # the detector gap is filed in todo-and-known-bugs.md (the bodyChanged
+  # exemption's own comment describes these as "two legitimate transitions
+  # at a real geometry seam", but the flag does not trip when the line goes
+  # dark because the CLOCK left its window rather than its body changing).
+  # The RecordingState pairs below add wall frames between the straddling
+  # jumps - pacing the seam like a player-scale clock instead of slamming
+  # epoch shifts inside one detector window. allowedAnomalies stays [].
+  #
+  # Mid-Mun-transit observation point: the replay's Mun-frame slice
+  # (recorded 11,838,940 -> 11,842,185; no other committed loop lane renders
+  # a moon transit inside an interplanetary replay).
+  { cmd = "TimeJump", args = { ut = "26527600" }, expect = "OK", budget = 300 },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  # Kerbin->Sun escape bracket (-188 / -58 / +152 around 26,616,877.9).
+  { cmd = "TimeJump", args = { ut = "26616690" }, expect = "OK", budget = 300 },
+  { cmd = "TimeJump", args = { ut = "26616820" }, expect = "OK", budget = 300 },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "TimeJump", args = { ut = "26617030" }, expect = "OK", budget = 300 },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  # Sun->Eve arrival bracket (-189 / -59 / +181 around the recorded-map
+  # 30,360,218.7; the re-aimed candidate 30,360,218.8 sits inside it too).
+  { cmd = "TimeJump", args = { ut = "30360030" }, expect = "OK", budget = 300 },
+  { cmd = "TimeJump", args = { ut = "30360160" }, expect = "OK", budget = 300 },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "TimeJump", args = { ut = "30360400" }, expect = "OK", budget = 300 },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  # Parked tail, INSIDE the rendered window (which ends 30,450,249.6 - see
+  # the header's RENDERED WINDOW END note and the _0810 line-blink finding
+  # for why this deliberately does NOT jump past it).
+  { cmd = "TimeJump", args = { ut = "30450100" }, expect = "OK", budget = 300 },
+  # Same-body watch attempt at the parked tail. PREDICTED REJECTED: the
+  # observer's park phase after ~10.7M s of free drift is effectively random
+  # against the ghost's, on an ~11,400 km-diameter orbit, vs the measured
+  # (51.5 km, 144.3 km) watch-entry boundary (todo ->
+  # WATCH-ENTRY-REFUSED-INSIDE-QUOTED-RANGE is the authority; V4's Duna
+  # analogue measured REJECTED at 644 km). An OK here would read
+  # INVALID(driver-verdict-mismatch) and would itself be a measurement worth
+  # having - record the separation either way.
+  { cmd = "EnterWatchMode",                                                  expect = "REJECTED" },
+  { cmd = "FlushAndQuit",                                                    expect = "OK" },
+]
+
+# D9 fast-forward is claimed AS OF ITERATION 2: the product's own jump line
+# (FastForwardToEventUT, emitted by ParsekFlight on the StartLoopPlayback
+# path, measured x1 on iteration 1) is now a required token below - the same
+# gate V4/V6M/V7M carry. D14 eve is NOT claimed yet: no body=Eve token gates
+# it in this revision; it lands at ARM time if the bracket dwells measure a
+# stable body=Eve render line. D11 loiter-compression is NOT claimed yet
+# either, despite iteration 1's measured loiterCuts=1 - the claim belongs to
+# the arming commit that pins a cut token, together with the todo entry
+# update it obligates (CLAIM-IS-NOT-GATE, both directions).
+[dimensionsCovered]
+D9  = ["fast-forward"]
+D14 = ["scene-flight", "sandbox"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+# PINNED AT EXACTLY 9, measured on iteration 1 (observed.recordings.count=9)
+# with the mechanism understood: the fixture's 8 plus the deterministic
+# load-time optimizer split of the main recording (the V6M "9-not-8" note,
+# now measured on this fixture too). An 8 means the split stopped happening;
+# a 10 means a scene-entry promotion stub survived the kill triple. Both are
+# findings, which is what a tight window is for.
+count = { min = 9, max = 9 }
+
+[expectations.logContracts]
+# Iteration-2 tokens: the plumbing trio, plus what iteration 1 measured as
+# deterministic - the ENGAGED mode line (x3 at unit build) and the product's
+# own jump line (x1, the D9 gate). The census/parity pins wait for this
+# iteration's measurements (two consecutive flights before any =[1-9] pin,
+# the V4 rule).
+required  = [
+  "missionconfig applied:",
+  "SetLoopEnabled: loop ON",
+  "startloopplayback initiated:",
+  "ENGAGED re-aim Kerbin->Eve via Sun",
+  "FastForwardToEventUT: jumping to UT=",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "timejump refused reason=backward-jump",
+  # No knob step in this spec, so a faithful-mode fallback would be a silent
+  # change of subject (V4's rationale, safe to gate now that iteration 1
+  # measured ENGAGED).
+  "FORCED FAITHFUL",
+]
+
+[runtime]
+budgetSeconds = 2400
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""
