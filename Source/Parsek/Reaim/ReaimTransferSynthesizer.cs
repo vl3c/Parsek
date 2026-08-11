@@ -311,6 +311,52 @@ namespace Parsek.Reaim
         }
 
         /// <summary>
+        /// Relative slack allowed on the target SOI radius when validating a patched-conic SOI-entry instant
+        /// (<see cref="IsGenuineTargetSoiEntry"/>). A GENUINE entry sits exactly ON the SOI sphere by
+        /// definition, so the measured distance is the radius up to double rounding through the Kepler solve
+        /// - the in-game genuine entries read the SOI radius to the metre. This absorbs that rounding without
+        /// coming remotely close to admitting the failure mode: 1e-6 of Eve's 85.1 Mm SOI is ~85 m, against
+        /// the 4.6-23.4 Gm the launch-transition instant misses by (a margin of 54x-274x in ORDERS, not
+        /// percent). Do not widen it to "be safe" - a wide tolerance is how a launch-SOI instant sneaks back
+        /// in on a body with a large SOI.
+        /// </summary>
+        internal const double SoiEntryRadiusRelativeTolerance = 1e-6;
+
+        /// <summary>
+        /// Whether a patched-conic-reported SOI-entry instant is genuinely the TARGET's entry, rather than
+        /// the launch-body transition that <c>Orbit.UTsoi</c> reports when the transfer starts inside the
+        /// launch SOI (finding SYNTH-SOI-ENTRY-FASTPATH-LAUNCH-TRANSITION). Two independent conditions, both
+        /// required:
+        /// <list type="number">
+        /// <item>the instant is finite and STRICTLY AFTER departure - the measured pathology reports
+        /// <c>soiEntryUT == departureUT</c> exactly, and an "arrival" at the departure instant is not an
+        /// arrival on any reading (this is also the in-game canary's own long-standing bar); and</item>
+        /// <item>the transfer is actually WITHIN the target's SOI at that instant, within
+        /// <see cref="SoiEntryRadiusRelativeTolerance"/> - the condition that makes the check about the
+        /// target rather than about the clock.</item>
+        /// </list>
+        /// A false verdict is NOT a decline: the caller falls through to the proximity sweep, which derives a
+        /// genuine instant from the same conic. NaN/Infinity in any argument, and a non-positive SOI radius,
+        /// are all false (fail closed onto the sweep). Pure.
+        /// </summary>
+        internal static bool IsGenuineTargetSoiEntry(
+            double soiEntryUT, double departureUT, double distanceAtSoiEntry, double targetSoiRadius)
+        {
+            if (double.IsNaN(soiEntryUT) || double.IsInfinity(soiEntryUT))
+                return false;
+            if (double.IsNaN(departureUT) || double.IsInfinity(departureUT))
+                return false;
+            if (soiEntryUT <= departureUT)
+                return false;
+            if (double.IsNaN(distanceAtSoiEntry) || double.IsInfinity(distanceAtSoiEntry)
+                || distanceAtSoiEntry < 0.0)
+                return false;
+            if (double.IsNaN(targetSoiRadius) || double.IsInfinity(targetSoiRadius) || targetSoiRadius <= 0.0)
+                return false;
+            return distanceAtSoiEntry <= targetSoiRadius * (1.0 + SoiEntryRadiusRelativeTolerance);
+        }
+
+        /// <summary>
         /// True when a synthesized transfer is RETROGRADE relative to the parent's reference plane
         /// (inclination &gt; 90 deg). A transfer between two prograde planets must be prograde; a
         /// retrograde solution (inclination ~180 deg) connects the endpoints but travels the wrong way and
@@ -603,12 +649,34 @@ namespace Parsek.Reaim
             if (transfer.patchEndTransition == Orbit.PatchTransitionType.ENCOUNTER
                 && transfer.closestEncounterBody == targetBody)
             {
-                transferOrbit = transfer;
-                soiEntryUT = transfer.UTsoi;
-                encounterBody = targetBody;
-                LogSynthGeometry(transfer, launchBody, targetBody, departureUT, arrivalUT, soiEntryUT,
-                    "patched-conic", hasDepartureOverride, r1);
-                return true;
+                // VALIDATE THE REPORTED INSTANT BEFORE TRUSTING IT (2026-08-11, finding
+                // SYNTH-SOI-ENTRY-FASTPATH-LAUNCH-TRANSITION in docs/dev/todo-and-known-bugs.md). The two
+                // conditions above say stock PROMOTED an encounter and the closest one is our target - they do
+                // NOT say `UTsoi` is that encounter's ENTRY. r1 sits at the launch body's CENTRE (or a park-end
+                // right beside it), i.e. deep inside the launch SOI, so the transfer's FIRST SOI transition is
+                // the launch-body one at departureUT. Measured in-game (run 2026-08-11_1213), `UTsoi` comes back
+                // EXACTLY EQUAL to departureUT on a substantial fraction of Kerbin->Eve windows, where the
+                // transfer is 4.6-23.4 Gm from the target against an 85.1 Mm SOI. Trusting that instant is not
+                // cosmetic: it is the handoff UT the arrival seam / capture re-time consume downstream.
+                double fastPathSoiUT = transfer.UTsoi;
+                double fastPathDistance = TargetDistanceAtUT(transfer, targetBody, fastPathSoiUT);
+                if (IsGenuineTargetSoiEntry(
+                        fastPathSoiUT, departureUT, fastPathDistance, targetBody.sphereOfInfluence))
+                {
+                    transferOrbit = transfer;
+                    soiEntryUT = fastPathSoiUT;
+                    encounterBody = targetBody;
+                    LogSynthGeometry(transfer, launchBody, targetBody, departureUT, arrivalUT, soiEntryUT,
+                        "patched-conic", hasDepartureOverride, r1);
+                    return true;
+                }
+
+                // NOT A DECLINE, and deliberately so: the conic itself is untouched and still passes through
+                // the target's position at arrivalUT by construction - only the REPORTED INSTANT is unusable.
+                // Fall through to the proximity sweep below, which derives its own genuine entry from the same
+                // conic. Failing the candidate here would re-introduce exactly the window-killing this branch
+                // spent Phase 1 removing.
+                LogSoiEntryFastPathRejected(fastPathSoiUT, departureUT, fastPathDistance, targetBody);
             }
 
             // CalculatePatch resolved to the LAUNCH body instead (or did not promote an encounter): the
@@ -631,6 +699,38 @@ namespace Parsek.Reaim
                          $"closest={(transfer.closestEncounterBody != null ? transfer.closestEncounterBody.bodyName : "<none>")}; " +
                          $"proximity check also failed)";
             return false;
+        }
+
+        // The transfer's distance to the target body at one UT, both parent-relative in the orbit API's
+        // native (swizzled) frame - no swizzle on either side, so the difference is frame-consistent. NaN in
+        // (NaN UT / null target) gives NaN out, which IsGenuineTargetSoiEntry treats as "not genuine" and
+        // LogSynthGeometry prints as NaN. Shared by the fast-path validation and the geometry diagnostic.
+        private static double TargetDistanceAtUT(Orbit transfer, CelestialBody targetBody, double ut)
+        {
+            if (transfer == null || targetBody == null || targetBody.orbit == null
+                || double.IsNaN(ut) || double.IsInfinity(ut))
+                return double.NaN;
+            return (transfer.getRelativePositionAtUT(ut)
+                - targetBody.orbit.getRelativePositionAtUT(ut)).magnitude;
+        }
+
+        // Diagnostic: the patched-conic fast path reported an encounter whose SOI-entry instant did not
+        // survive IsGenuineTargetSoiEntry, so the candidate falls through to the proximity sweep. Grep
+        // `soi-entry fastpath rejected`. NOT a Warn: the fall-through is the designed, fail-closed recovery
+        // and the candidate normally still resolves through the sweep on the very next lines - a Warn here
+        // would cry wolf on a working path. The COUNT of these lines against the count of `synth geometry
+        // (proximity)` lines is the measurement surface if the balance ever needs re-reading.
+        private static void LogSoiEntryFastPathRejected(
+            double soiEntryUT, double departureUT, double distanceAtSoiEntry, CelestialBody targetBody)
+        {
+            var ic = CultureInfo.InvariantCulture;
+            double soi = targetBody != null ? targetBody.sphereOfInfluence : double.NaN;
+            ParsekLog.Verbose("ReaimSeam",
+                $"soi-entry fastpath rejected: soiUT={soiEntryUT.ToString("R", ic)} dep={departureUT.ToString("R", ic)} " +
+                $"dist={(double.IsNaN(distanceAtSoiEntry) ? "NaN" : distanceAtSoiEntry.ToString("F0", ic))}m " +
+                $"soi={(double.IsNaN(soi) ? "NaN" : soi.ToString("F0", ic))}m " +
+                $"target={(targetBody != null ? targetBody.bodyName : "<null>")} " +
+                $"afterDeparture={(soiEntryUT > departureUT ? "yes" : "no")} - proximity fallback");
         }
 
         // Diagnostic: one-shot Verbose line on the tilt-correction decision (plan 3.3). state is
@@ -676,9 +776,11 @@ namespace Parsek.Reaim
             string depAnchorLabel = hasDepartureOverride ? "parkEnd" : launchBody.bodyName;
             double arrMiss = (transfer.getRelativePositionAtUT(arrivalUT)
                 - targetBody.orbit.getRelativePositionAtUT(arrivalUT)).magnitude;
-            double soiMiss = double.IsNaN(soiEntryUT) ? double.NaN
-                : (transfer.getRelativePositionAtUT(soiEntryUT)
-                    - targetBody.orbit.getRelativePositionAtUT(soiEntryUT)).magnitude;
+            // SAME computation the fast-path validation runs (TargetDistanceAtUT), deliberately shared: this
+            // diagnostic's stated contract is "xfer-vs-target@soi must be <= the target SOI", and the
+            // validation is that contract turned into a guard. Two copies could drift apart and let the
+            // diagnostic vouch for an instant the guard rejects.
+            double soiMiss = TargetDistanceAtUT(transfer, targetBody, soiEntryUT);
             double inc = transfer.inclination;
             double bound = InclinationBoundDegrees(launchBody.orbit.inclination, targetBody.orbit.inclination);
             ParsekLog.Verbose("ReaimSeam",

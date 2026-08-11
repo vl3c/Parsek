@@ -194,13 +194,26 @@ the bound barely moves and Eve still declines. Also fragile per-fixture. Rejecte
   Fire). NEW (supervisor addition, open question 1 resolved): one grep-stable Warn when an
   ENGAGED unit falls back faithful for a window - a NEW token, so no lane contract moves.
   CHANGELOG + todo same commit.
-- **Phase 2 - in-game validation cells.** Re-scope `AssertSaneWindowSegments`' tilt upper bound
-  to the new contract (per-window against correction state; do NOT loosen the Duna bound); add a
-  `KerbinToEve()` driver; re-baseline Moho/Eeloo. HARNESS TRAP: these land in the `Periodicity`
-  category counted by `CommittedBatchTallySourceSyncTests` - re-pin the affected specs'
-  `BATCH_COMPLETE v1 total=N` tallies in the same commit. Deploy via
+- **Phase 2 - in-game validation cells. LANDED 2026-08-11.** Re-scope `AssertSaneWindowSegments`'
+  tilt upper bound to the new contract (per-window against correction state; do NOT loosen the Duna
+  bound); add a `KerbinToEve()` driver; re-baseline Moho/Eeloo. HARNESS TRAP: these land in the
+  `Periodicity` category counted by `CommittedBatchTallySourceSyncTests` - re-pin the affected specs'
+  `BATCH_COMPLETE v1 total=N` tallies in the same commit (`M2-periodicity-solver` 11/7 -> 12/8; a
+  SECOND gate, `IngameCategoryInventoryDocTests`, also pins the same count in
+  `docs/dev/autotest-ingame-category-inventory.md`). Deploy via
   `harness/provision/provision.py --profile stock-minimal`; verify the automation DLL, then fly
   the category.
+  - **ADDENDUM (supervisor ruling, same phase): the Eve cell's first flight found a PRE-EXISTING
+    defect and it was fixed here.** `TrySynthesizeTransfer`'s patched-conic fast path trusted
+    `Orbit.UTsoi` unconditionally once stock promoted a target encounter; because r1 sits at the
+    launch body's centre, `UTsoi` is often the LAUNCH SOI transition at `departureUT` - measured on
+    six Kerbin->Eve windows at 4.6-23.4 Gm from Eve against an 85.1 Mm SOI, five of them plain
+    `state=noop` candidates, i.e. orthogonal to this branch's disposition change and merely made
+    reachable by it. `soiEntryUT` is the instant the seam/capture re-time consume, so leaving it
+    would have poisoned Phase 3's V8 rendering read. Fixed by the pure `IsGenuineTargetSoiEntry`
+    (strictly-after-departure AND within-SOI) plus fall-through to the existing proximity sweep -
+    never a new decline. Full evidence, measured tables and guard inventory:
+    `docs/dev/todo-and-known-bugs.md` -> SYNTH-SOI-ENTRY-FASTPATH-LAUNCH-TRANSITION.
 - **Phase 3 - V8/V8T re-pin choreography (reading -> armed -> negative control).** The fix reds
   V8 BY DESIGN. V8 READING: trio to report-only, two consecutive clean runs, read the new tokens
   (`re-aimed transfer ready`, `state=retained reason=unreachable-plane`,

@@ -859,6 +859,103 @@ namespace Parsek.Tests
                 "inc-after=NaN state=retained reason=unreachable-plane"));
         }
 
+        // ----- SYNTH-SOI-ENTRY-FASTPATH-LAUNCH-TRANSITION (2026-08-11): IsGenuineTargetSoiEntry. -----
+        //
+        // The tuples below are MEASURED, not invented: they are Kerbin->Eve windows the new in-game Eve cell
+        // drove on harness run 2026-08-11_1213 (KSP.log `synth geometry (patched-conic)` lines). On each of
+        // the rejected ones stock promoted `patchEndTransition == ENCOUNTER` with
+        // `closestEncounterBody == Eve` and then reported `UTsoi` EXACTLY EQUAL to departureUT - the
+        // launch-body SOI transition, because r1 sits at Kerbin's centre - while the transfer was 4.6 to
+        // 23.4 Gm from Eve against an 85,109,365 m SOI.
+        private const double EveSoiRadiusMetres = 85109365.0;
+
+        [Theory]
+        // (departureUT, measured distance at the reported instant, which equalled departureUT)
+        [InlineData(5000000.0, 22007265609.0)]   // inc 2.1842, state=noop  - NOT a retained candidate
+        [InlineData(6223920.0, 23360941041.0)]   // inc 3.0868, state=retained (the instant the cell red on)
+        [InlineData(8365779.0, 21974016315.0)]   // inc 1.5002, state=noop
+        [InlineData(8671759.0, 21393787527.0)]   // inc 1.9324, state=noop
+        [InlineData(10507638.0, 16327637727.0)]  // inc 0.1772, state=noop
+        [InlineData(13567437.0, 4666476460.0)]   // inc 0.9267, state=noop
+        public void IsGenuineTargetSoiEntry_TheMeasuredLaunchTransitionInstants_AreRejected(
+            double departureUT, double distanceAtSoiEntry)
+        {
+            // Both failing conditions hold at once on the real data (the instant IS the departure AND the
+            // distance is orders outside the SOI), so assert the verdict and then each condition alone, or a
+            // future one-sided regression could pass on the other condition's coattails.
+            Assert.False(ReaimTransferSynthesizer.IsGenuineTargetSoiEntry(
+                departureUT, departureUT, distanceAtSoiEntry, EveSoiRadiusMetres));
+            // Clock alone: even at a plausible distance, an "arrival" at the departure instant is not an
+            // arrival (also the in-game canary's own long-standing soiEntryUT > departureUT bar).
+            Assert.False(ReaimTransferSynthesizer.IsGenuineTargetSoiEntry(
+                departureUT, departureUT, 0.0, EveSoiRadiusMetres));
+            // Distance alone: a later instant does not rescue a position that far outside the SOI.
+            Assert.False(ReaimTransferSynthesizer.IsGenuineTargetSoiEntry(
+                departureUT + 1000.0, departureUT, distanceAtSoiEntry, EveSoiRadiusMetres));
+        }
+
+        // The genuine half of the same measured population: patched-conic entries whose instant is strictly
+        // inside the flight and whose distance reads the SOI radius (an entry sits ON the sphere by
+        // definition). These are the windows the fast path must KEEP serving - a guard that rejected them
+        // would silently demote every good fast-path window to the proximity sweep.
+        [Theory]
+        [InlineData(7753819.0, 11422451.0, 85109365.0)]  // measured genuine entry, distance == SOI exactly
+        [InlineData(8059799.0, 11727370.0, 85109365.0)]  // ditto
+        [InlineData(10813618.0, 14454951.0, 76734313.0)] // comfortably inside
+        [InlineData(11425578.0, 15071728.0, 85109365.0)] // a RETAINED candidate (inc 10.7427) - genuine entry
+        public void IsGenuineTargetSoiEntry_TheMeasuredGenuineEntries_AreAccepted(
+            double departureUT, double soiEntryUT, double distanceAtSoiEntry)
+        {
+            Assert.True(ReaimTransferSynthesizer.IsGenuineTargetSoiEntry(
+                soiEntryUT, departureUT, distanceAtSoiEntry, EveSoiRadiusMetres));
+        }
+
+        // BOUNDARIES, stated because both are load-bearing. (1) distance == the SOI radius is INSIDE: a
+        // genuine entry is exactly on the sphere and the measured ones read it to the metre, so a strict `<`
+        // would reject real entries. (2) The relative tolerance absorbs Kepler-solve rounding at that
+        // crossing and nothing more - one part in a million of Eve's SOI is ~85 m, while the failure mode
+        // misses by gigametres.
+        [Fact]
+        public void IsGenuineTargetSoiEntry_OnTheSoiSphere_IsInsideAndTheToleranceIsHairline()
+        {
+            const double dep = 1000.0, entry = 2000.0;
+            Assert.True(ReaimTransferSynthesizer.IsGenuineTargetSoiEntry(
+                entry, dep, EveSoiRadiusMetres, EveSoiRadiusMetres));
+            // Just inside the tolerance band (rounding at the crossing) - still an entry.
+            Assert.True(ReaimTransferSynthesizer.IsGenuineTargetSoiEntry(
+                entry, dep,
+                EveSoiRadiusMetres * (1.0 + 0.5 * ReaimTransferSynthesizer.SoiEntryRadiusRelativeTolerance),
+                EveSoiRadiusMetres));
+            // Just outside it - rejected. The band is ~85 m wide on Eve, not a licence to be near the SOI.
+            Assert.False(ReaimTransferSynthesizer.IsGenuineTargetSoiEntry(
+                entry, dep,
+                EveSoiRadiusMetres * (1.0 + 10.0 * ReaimTransferSynthesizer.SoiEntryRadiusRelativeTolerance),
+                EveSoiRadiusMetres));
+            // One second after departure is strictly after - the clock condition is `>`, not a window.
+            Assert.True(ReaimTransferSynthesizer.IsGenuineTargetSoiEntry(
+                dep + 1.0, dep, 0.0, EveSoiRadiusMetres));
+        }
+
+        // FAIL CLOSED ONTO THE SWEEP on any degenerate input. False here costs nothing - the caller falls
+        // through to TryFindTargetEncounterByProximity, which derives its own instant - whereas a true would
+        // hand a NaN/garbage arrival UT to the seam machinery.
+        [Theory]
+        [InlineData(double.NaN, 1000.0, 0.0, 85109365.0)]              // NaN instant
+        [InlineData(double.PositiveInfinity, 1000.0, 0.0, 85109365.0)] // infinite instant
+        [InlineData(2000.0, double.NaN, 0.0, 85109365.0)]              // NaN departure
+        [InlineData(2000.0, 1000.0, double.NaN, 85109365.0)]           // NaN distance (null target / NaN UT upstream)
+        [InlineData(2000.0, 1000.0, double.PositiveInfinity, 85109365.0)]
+        [InlineData(2000.0, 1000.0, -1.0, 85109365.0)]                 // negative distance is nonsense
+        [InlineData(2000.0, 1000.0, 0.0, double.NaN)]                  // NaN SOI radius
+        [InlineData(2000.0, 1000.0, 0.0, 0.0)]                         // zero SOI radius
+        [InlineData(2000.0, 1000.0, 0.0, -1.0)]                        // negative SOI radius
+        public void IsGenuineTargetSoiEntry_DegenerateInput_FailsClosed(
+            double soiEntryUT, double departureUT, double distanceAtSoiEntry, double targetSoiRadius)
+        {
+            Assert.False(ReaimTransferSynthesizer.IsGenuineTargetSoiEntry(
+                soiEntryUT, departureUT, distanceAtSoiEntry, targetSoiRadius));
+        }
+
         // Minimal ORBIT_SEGMENT reader for the .prec.txt fixture: the recording format is a flat
         // ConfigNode text dump, and the cell only needs the key/value pairs of segments whose `body`
         // matches. Deliberately local (no ConfigNode dependency, no production reader) so the cell
