@@ -11,12 +11,15 @@ namespace Parsek.Tests
     // ReaimTransferSynthesizerTests (E1 + E3) and UvLambertTests (E2); it lives in its own file so the
     // two cell groups share ONE ephemeris model rather than two copies that can drift apart.
     //
-    // WHAT THIS MODELS AND WHAT IT DOES NOT. It is a two-body Kepler ephemeris over the stock element
-    // set - enough to reproduce the three quantities the tilt gate and the Lambert solve consume (r1 at
-    // the departure UT, Eve's r2/v2 at each candidate arrival, and the launch-plane handedness axis).
-    // It is NOT the live resolver: the live path departs from a re-phased heliocentric PARK-END, not
-    // Kerbin's center, so the modelled plane(r1,r2) inclinations run wider than the live 10.20-14.71
-    // band (see the E1 cell comment). Every claim the cells assert is invariant to that difference.
+    // WHAT THIS MODELS. A two-body Kepler ephemeris over the stock element set - enough to reproduce the
+    // three quantities the tilt gate and the Lambert solve consume (r1 at the departure UT, Eve's r2/v2
+    // at each candidate arrival, and the launch-plane handedness axis). It is FAITHFUL to the live
+    // population rather than an analogue of it: V8's Eve unit departs DIRECT (`parking=False`,
+    // LaunchCenter anchor), so r1 IS the launch body's center at departureUT, and the model reproduces
+    // the live per-candidate transfer-plane inclinations TERM BY TERM - see
+    // EveCycleZero_PlaneInclinationSequence_MatchesTheLiveV8Run, which is the strongest cell in the set.
+    // What it does NOT model is the pipeline downstream of the solve (Orbit.UpdateFromStateVectors /
+    // PatchedConics), which is Unity-bound and stays the in-game canary's job.
     //
     // FRAME (load-bearing, and the reason this helper exists at all). The production helpers measure
     // inclination against world +Y (KSP is Y-up; ReaimTransferSynthesizer.cs:128-131 records the
@@ -105,12 +108,23 @@ namespace Parsek.Tests
 
         /// <summary>
         /// The ORDERED candidate time-of-flight list for this window, built by the PRODUCT'S OWN band
-        /// law (<see cref="ReaimTofSearch.BuildParkingCandidateTofs"/>) rather than a re-derivation:
-        /// centered on <see cref="GeomTofSeconds"/>, half-width
-        /// <c>HalfWidthFraction(0.01) = 0.065</c>, step 0.005 => 27 candidates, the count the V8 runs
-        /// logged (`synth failed across 27 tof candidates`).
+        /// law rather than a re-derivation, and by the builder the DIRECT departure path actually
+        /// selects: <c>ReaimPlaybackResolver.cs:456-458</c> dispatches on <c>hasDepartureOverride</c>,
+        /// and V8's Eve unit departs direct (`parking=False`, LaunchCenter anchor), so the band is
+        /// <see cref="ReaimTofSearch.BuildCandidateTofs"/> - centered on the RECORDED tof, base +-6% in
+        /// +k,-k order, then the eccentricity expansion step (k=13, since HalfWidthFraction(0.01) =
+        /// 0.065) probing the geomTof side first. 27 candidates, the count the V8 runs logged
+        /// (`synth failed across 27 tof candidates`), in the order those runs logged them.
         /// </summary>
         internal static IReadOnlyList<double> CandidateTofs()
+            => ReaimTofSearch.BuildCandidateTofs(RecordedTofSeconds, GeomTofSeconds, EveEccentricity);
+
+        /// <summary>
+        /// The band the PARKING departure path would use (<see cref="ReaimTofSearch.BuildParkingCandidateTofs"/>,
+        /// centered on geomTof). NOT this window's band - kept only so a cell can show that the gate's
+        /// candidate-invariance is a property of the gate's inputs, not of which builder ran.
+        /// </summary>
+        internal static IReadOnlyList<double> ParkingCandidateTofs()
             => ReaimTofSearch.BuildParkingCandidateTofs(GeomTofSeconds, EveEccentricity);
 
         /// <summary>

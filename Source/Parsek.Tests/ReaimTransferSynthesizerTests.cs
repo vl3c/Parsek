@@ -360,9 +360,57 @@ namespace Parsek.Tests
             Assert.True(Math.Abs(eveOrbitInc - EveCycleZeroGeometry.EveInclinationDegrees) < 1e-6,
                 $"the modelled Eve plane must read back its declared 2.1 deg, got {eveOrbitInc.ToString("F6", CultureInfo.InvariantCulture)} deg");
 
-            // And the modelled band must be the product's own: 27 candidates, the count the V8 resolver
-            // logged (`synth failed across 27 tof candidates`).
-            Assert.Equal(27, EveCycleZeroGeometry.CandidateTofs().Count);
+            // And the modelled band must be the product's own, from the builder the DIRECT departure
+            // path selects (ReaimPlaybackResolver.cs:456-458): 27 candidates, the count the V8 resolver
+            // logged (`synth failed across 27 tof candidates`), with step 0 = the RECORDED tof.
+            IReadOnlyList<double> tofs = EveCycleZeroGeometry.CandidateTofs();
+            Assert.Equal(27, tofs.Count);
+            Assert.Equal(EveCycleZeroGeometry.RecordedTofSeconds, tofs[0], 6);
+        }
+
+        // THE STRONGEST CELL IN THIS SET: the model, the production helpers and the LIVE PRODUCT agree
+        // on the whole 27-candidate sequence to four decimals - the precision the log prints.
+        //
+        // Source: run 2026-08-11_0818 (V8-eve-player-loop), whose 27 `tilt-correction` lines open
+        //   `tilt-correction inc-before=18.5369 bound=2.6000 targetInc=2.1000 incAch=1.2358
+        //    inc-after=NaN state=declined reason=unreachable-plane`
+        // and continue 14.7147, 24.5768, 12.0979, ... in the order pinned below. All 27 carry the SAME
+        // incAch=1.2358 and the same state/reason: the decline is total and identical.
+        //
+        // What the agreement buys: it proves this model IS the live geometry rather than an analogue of
+        // it, so every other E1 number (incAch, the flatten miss, the bound comparison) is a statement
+        // about the shipped product's arithmetic. It also pins the band ORDER - the +k/-k alternation
+        // around the recorded tof, ending on the k=13 expansion pair probed geomTof-side first (9.9512
+        // then 3.3128) - which is exactly what BuildCandidateTofs emits for the direct path, and which
+        // is the observable that distinguishes the two builders.
+        [Fact]
+        public void EveCycleZero_PlaneInclinationSequence_MatchesTheLiveV8Run()
+        {
+            // The `inc-before` column of run 2026-08-11_0818's 27 tilt-correction lines, in log order.
+            double[] live =
+            {
+                18.5369, 14.7147, 24.5768, 12.0979, 35.1882,
+                10.1997, 55.9682, 8.7616, 87.4793, 7.6348,
+                53.4426, 6.7281, 35.1785, 5.9825, 25.7082,
+                5.3582, 20.1999, 4.8275, 16.6559, 4.3706,
+                14.2000, 3.9727, 12.4025, 3.6230, 11.0313,
+                9.9512, 3.3128,
+            };
+
+            EveCycleZeroGeometry.StateAt(EveCycleZeroGeometry.Kerbin, EveCycleZeroGeometry.DepartureUT,
+                out Vector3d r1, out _);
+            IReadOnlyList<double> tofs = EveCycleZeroGeometry.CandidateTofs();
+            Assert.Equal(live.Length, tofs.Count);
+
+            for (int i = 0; i < tofs.Count; i++)
+            {
+                EveCycleZeroGeometry.StateAt(EveCycleZeroGeometry.Eve,
+                    EveCycleZeroGeometry.DepartureUT + tofs[i], out Vector3d r2, out _);
+                double modelled = EveCycleZeroGeometry.InclinationOfNormalDegrees(
+                    EveCycleZeroGeometry.PlaneNormalOfEndpoints(r1, r2));
+                Assert.True(Math.Abs(modelled - live[i]) < 0.01,
+                    $"candidate {i.ToString(CultureInfo.InvariantCulture)}: modelled plane(r1,r2) inc {modelled.ToString("F4", CultureInfo.InvariantCulture)} must match the live 2026-08-11_0818 inc-before {live[i].ToString("F4", CultureInfo.InvariantCulture)}");
+            }
         }
 
         // E1 (i) - THE decisive arithmetic. incAch is 1.2358 deg and is IDENTICAL for every one of the
@@ -391,12 +439,25 @@ namespace Parsek.Tests
                 if (incAch > maxInc) maxInc = incAch;
             }
 
-            // Measured live (V8, 5/5 runs): incAch=1.2358. Modelled here: 1.2358263809.
+            // Measured live (V8, all 27 lines of all 5 runs): incAch=1.2358. Modelled: 1.2358263809.
             Assert.True(Math.Abs(incAtStep0 - 1.2358) < 0.01,
                 $"step-0 incAch must be the measured 1.2358 deg, got {incAtStep0.ToString("F6", CultureInfo.InvariantCulture)}");
             // Candidate-INVARIANCE is the finding: band edges must equal step 0 to double precision.
             Assert.True(maxInc - minInc < 1e-9,
                 $"incAch must be candidate-invariant (the gate cannot see r2): spread over {tofs.Count.ToString(CultureInfo.InvariantCulture)} candidates was {(maxInc - minInc).ToString("E3", CultureInfo.InvariantCulture)} deg");
+
+            // And the invariance is a property of the GATE'S INPUTS, not of which band builder ran: the
+            // parking path's geomTof-centered band (a different 27 tofs entirely) yields the same single
+            // value. No tof search of any shape reaches a different verdict.
+            foreach (double tof in EveCycleZeroGeometry.ParkingCandidateTofs())
+            {
+                EveCycleZeroGeometry.StateAt(EveCycleZeroGeometry.Eve,
+                    EveCycleZeroGeometry.DepartureUT + tof, out Vector3d r2, out Vector3d v2);
+                double incAch = ReaimTransferSynthesizer.AchievablePlaneInclinationDegrees(
+                    r1, ReaimTransferSynthesizer.ComputeIntendedPlaneNormal(r2, v2));
+                Assert.True(Math.Abs(incAch - incAtStep0) < 1e-9,
+                    $"incAch must be builder-independent too, got {incAch.ToString("F12", CultureInfo.InvariantCulture)} vs {incAtStep0.ToString("F12", CultureInfo.InvariantCulture)}");
+            }
         }
 
         // E1 (ii) - the gate's verdict, from the real predicate: |1.2358 - 2.1| = 0.864 > 0.5, so
@@ -435,15 +496,15 @@ namespace Parsek.Tests
 
         // E1 (iii) - the gate's verdict is CORRECT as a correction-safety question, which is why the fix
         // is Design A (retain the un-corrected conic) and not Design B (re-tune the gate). Had the
-        // correction fired, the flattened conic would have passed |dot(r2, n_ach)| ~ 278-290 Mm away
-        // from Eve - 3.3-3.4x its 85.1 Mm SOI - and died at the downstream encounter check anyway.
+        // correction fired, the flattened conic would have passed |dot(r2, n_ach)| ~ 271-290 Mm away
+        // from Eve - 3.2-3.4x its 85.1 Mm SOI - and died at the downstream encounter check anyway.
         [Fact]
         public void EveCycleZero_FlattenMiss_ExceedsThreeEveSoiRadii()
         {
             EveCycleZeroGeometry.StateAt(EveCycleZeroGeometry.Kerbin, EveCycleZeroGeometry.DepartureUT,
                 out Vector3d r1, out _);
             IReadOnlyList<double> tofs = EveCycleZeroGeometry.CandidateTofs();
-            const double Floor = 2.5e8; // metres; the plan's asserted floor (measured band 277.8-289.6 Mm)
+            const double Floor = 2.5e8; // metres; the plan's asserted floor (measured band 270.7-289.6 Mm)
 
             double minMiss = double.MaxValue;
             for (int i = 0; i < tofs.Count; i++)
@@ -474,12 +535,16 @@ namespace Parsek.Tests
         // candidate. So the 2.6 bound structurally excludes every conic that can encounter Eve at this
         // window - no tof choice inside the band rescues it.
         //
-        // BAND NOTE (deliberate, do not "fix" by tightening): the modelled inclinations run 4.65-72.51
-        // deg across the 27 candidates, wider than the 10.20-14.71 deg band the V8 runs logged, because
-        // the live path departs from a re-phased heliocentric PARK-END while this model departs from
-        // Kerbin's center, and inclination is violently amplified as the transfer angle approaches 180
-        // deg. The claim asserted here is the one that is invariant to that difference (> bound for
-        // every candidate); the recorded-tof value is pinned separately against the plan's appendix A.
+        // BAND NOTE: the inclinations run 3.3128-87.4794 deg across the 27 candidates - the SAME band
+        // the live run logged (2026-08-11_0818's inc-before column spans 3.3128-87.4793), pinned term by
+        // term in EveCycleZero_PlaneInclinationSequence_MatchesTheLiveV8Run. The huge spread is the
+        // near-180 amplification: a candidate whose transfer angle sits closest to 180 deg reads the
+        // steepest plane. Two things worth keeping in view. (1) The MINIMUM is 3.3128, still above the
+        // 2.6 bound - so every candidate really does reach the gate, which is why the log carries 27
+        // tilt-correction lines and not fewer. (2) The MAXIMUM is 87.4793, only ~2.5 deg under the 90-deg
+        // line at which IsRetrogradeTransfer would classify the conic retrograde and the DIRECTION guard
+        // would decline it upstream of the tilt gate; a nearby window could cross that line, and such a
+        // candidate is declined by a different branch than the one Phase 1 changes.
         [Fact]
         public void EveCycleZero_PlaneOfEndpointsInclination_ExceedsTheBoundForEveryCandidate()
         {

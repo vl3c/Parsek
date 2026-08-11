@@ -266,6 +266,17 @@ namespace Parsek.Tests
         // These are also the cells that pin hypothesis H1's MECHANISM: v1 comes back in span(r1, r2)
         // (UvLambert.cs:218), so the conic's plane IS plane(r1, r2) by construction - the double-digit
         // tilt the gate rejects is the geometry, not solver error.
+        //
+        // BRANCH NOTE (two different "transfer angles" live here; do not conflate them). Step 0 is the
+        // RECORDED tof - the direct departure path's band center (ReaimPlaybackResolver.cs:456-458 ->
+        // ReaimTofSearch.BuildCandidateTofs) - where the UNSIGNED geometric angle between r1 and r2 is
+        // 174.9920 deg, just short of antiparallel. The solver nevertheless sweeps the LONG way there
+        // (dnu = 185.0080 = 360 - 174.9920): dot(r1 x r2, launchPlaneNormal) is negative at this
+        // geometry, so the short arc would run retrograde and the prograde branch must take the long one.
+        // Both statements describe the same conic. The mix varies across the band - the longest-tof edge
+        // is long-way as well (dnu 200.4958) while the shortest-tof edge is short-way (dnu 168.9306) -
+        // and all three come back PROGRADE with respect to the supplied normal, which is what (b) asserts
+        // and what keeps the synth's direction guard from being the thing that declines these candidates.
 
         [Fact]
         public void Solve_EveCycleZeroEndpoints_ConvergeProgradeAndReachR2()
