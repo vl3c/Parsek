@@ -14,6 +14,259 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## ~~REWIND-ERASES-SURVIVING-KERBAL-XP: a rewind rolls the crew roster back, silently deleting experience earned by flights the rewind does not touch~~ [P9a, FIXED 2026-08-11, branch `ledger-facets`]
+
+Kerbal XP is DERIVED, not stored - decompile-verified against KSP 1.12.5
+`Assembly-CSharp`: `ProtoCrewMember.UpdateExperience()` recomputes `experience` from
+`KerbalRoster.CalculateExperience(careerLog)`, which walks `FlightLog.GetFlights()`
+(entries GROUPED BY their `flight` number, scored per group, deduped across groups).
+A Re-Fly restores the roster from the rewind-point quicksave, which erases every
+career-log entry archived after it - including entries archived by crews on flights
+the merge KEEPS. Those kerbals lost levels with nothing to put them back.
+
+**Recorded unit: the CAREER-LOG ENTRY, not a number.** Because the flight number is
+part of the scoring, an entry is `(flight, type, target)` - `KerbalCareerLogEntry`.
+A numeric XP could not be safely re-asserted; a set of entries can.
+
+**DECOMPILE VERDICTS (the mandatory Step-0 gate).**
+- `GameEvents.OnExperienceRecorded` - the plan's FIRST candidate - **DOES NOT EXIST**.
+  The decompiled `GameEvents` in KSP 1.12.5 carries no experience-named member at all.
+  (`onKerbalLevelUp` exists but fires only on a level CHANGE, so it cannot observe
+  every archived flight.) Plan error; candidate 1 is dead.
+- **The seam that fired is candidate 2, `GameEvents.onVesselRecoveryProcessing`**, and
+  the ordering is favourable and verified: inside `VesselRecovery`,
+  `recoverVesselCrew` (which calls `ProtoCrewMember.ArchiveFlightLog()` once per crew
+  member) runs IMMEDIATELY BEFORE `onVesselRecoveryProcessing.Fire`. By the time the
+  handler runs the archive is a completed fact. No stock patch needed.
+- The stock XP-recompute API the plan asked to verify is `ProtoCrewMember.UpdateExperience()`
+  (public). `careerLog` / `flightLog` are public `FlightLog`; `FlightLog.Entry(int, string, string)`
+  and `AddEntry(Entry)` are public.
+- CAREER_LOG node shape for the Layer-A parser: a log-level `flight` counter, then ONE
+  VALUE PER ENTRY whose KEY is the entry's flight number and whose VALUE is `type` or
+  `type,target`. Repeating keys are the norm, so the parser walks `node.values`
+  positionally rather than using `GetValue`.
+
+**Spine.** `GameStateEventType.ExperienceGained = 22` (explicitly numbered, append-only;
+an older build WARNs and drops it) -> `GameActionType.KerbalExperience = 31` carrying
+`KerbalName` + the encoded entry set -> `KerbalsModule` set-union accumulator ->
+MONOTONE re-assert in `ApplyToRoster` inside `SuppressionGuard.Crew()`.
+
+**The monotone argument, which is the whole safety case.** The accumulator's only
+mutating operation is a union; the facade exposes `AppendCareerLogEntries` with NO
+remove counterpart; and `ResolveMissingCareerEntries` is a one-directional set
+difference that never reports an entry the roster has and the ledger does not. The
+quicksave load has already removed superseded flights' XP - anything further would be
+taking away XP the player still owns (a stand-in's own career, a pre-Parsek flight,
+mod-written entries). `KerbalExperience` is added EXPLICITLY to
+`TombstoneEligibility.IsSupersedeTombstoneEligible` (the default preserves unknowns,
+which would let a superseded branch's XP be re-asserted forever) and EXPLICITLY
+excluded from `IsWorldStateChangingRecordingAction` (a new type inherits nothing and
+would otherwise fall through to `return true`).
+
+**Ground truth.** Layer A gains `CareerSaveSnapshot.KerbalCareerLog` parsed from
+ROSTER > KERBAL > CAREER_LOG, and `DivergenceFacet.KerbalXp` - REPORT-ONLY, absent
+from `IsAlwaysHard`, matching the SubjectScience posture, because a real career's log
+legitimately carries entries the ledger never saw. The diff is one-directional for the
+same reason the patcher is, so the facet measures exactly what the patcher would act on.
+
+**Review-driven hardening (same branch, before the PR).**
+- **The re-assert is DEFERRED while a Re-Fly session marker is live.** This is the whole
+  correctness argument for an irreversible write. `ComputeELS` is ledger-minus-tombstones
+  only; the session-suppressed subtree is a playback concept the recalc never consults. So
+  during the provisional window the rewound origin branch's `KerbalExperience` rows are
+  STILL effective, and the Step-5 post-load recalc would append the just-erased entries
+  straight back - which the merge-time tombstone written minutes later could not undo,
+  because the facade has no remove. Gated on `KerbalsModule.IsReFlySessionActive()`; both
+  merge and discard bump the tombstone state version and recalc, so the re-assert then runs
+  against a settled ELS. Pinned by `Reassert_IsDeferredWhileAReFlySessionIsActive`.
+- **The recorder handler now carries the same guards its sibling on the same event does**
+  (`SuppressCrewEvents`, `GhostMapPresence.IsGhostMapVessel`, `RewindContext.IsRewinding`).
+  Without them it fires on Parsek's OWN programmatic recoveries:
+  `ShipConstruction.RecoverVesselFromFlight` (the #112 duplicate-blocker cleanup,
+  `CleanupOrphanedSpawnedVessels`, `RecoverTimelineSpawnedVessel`) runs stock
+  `VesselRecovery`, which archives every crew member's flight log and fires
+  `onVesselRecoveryProcessing` UNCONDITIONALLY - so a spawn cleanup would have credited
+  career XP for a recovery the player never performed.
+- **...and those three call sites now actually SET `SuppressCrewEvents`.** The guard above
+  shipped guarding nothing: none of `ParsekFlight.CleanupOrphanedSpawnedVessels`,
+  `ParsekFlight.RecoverTimelineSpawnedVessel` or `VesselSpawner`'s #112 duplicate-blocker
+  cleanup wrapped its `ShipConstruction.RecoverVesselFromFlight` call, and the only two
+  `SuppressionGuard.Crew()` uses in either file were on unrelated paths. There is no way to
+  discriminate at the handler - stock fires the event identically for both - so the
+  discrimination has to be at the call site. All three are now wrapped. The handler's guard
+  set is extracted as the pure `GameStateRecorder.ShouldSkipExperienceCapture`, and
+  `ProgrammaticRecoveryCrewSuppressionGateTests` holds both halves: a behavioural cell that
+  a suppressed recovery skips the capture, and a source gate over every production
+  `RecoverVesselFromFlight` call site (with an exact count, so a new one cannot be added
+  unwrapped).
+- **The deferred re-assert now has a recalc to land on after a MERGE.** The deferral gate
+  is the correctness argument above, but the merge path had nothing to re-trigger it: the
+  merge's only recalc runs from `SupersedeCommit.CommitTombstones` at the Tombstone step,
+  four phases BEFORE `MergeJournalOrchestrator` clears the marker at step 7, and no recalc
+  follows the clear. (The DISCARD path was fine - `MergeDialog.ReFlyDiscard` clears the
+  marker and then recalcs.) So a merged re-fly left the crew carrying the pre-merge XP
+  until some unrelated event happened to recalc. `RecalcAfterMarkerCleared` now runs on
+  both merge routes - `RunMerge` after the `MarkerCleared` advance and before Durable Save
+  #2, so the re-asserted roster is what the save captures, and the same step inside
+  `CompleteFromPostDurable`'s `MarkerCleared` block, because `ParsekScenario.OnLoad`'s own
+  recalc runs BEFORE `RunFinisher` and cannot stand in for it. Idempotent under the
+  journal's re-run contract (a recalc re-derives from ELS; the re-assert appends only what
+  the roster is missing). Four cells in `MergeCrashRecoveryMatrixTests`.
+- **No death-group appends.** Decompile-verified: `KerbalRoster.ExperienceAddFlight` RESETS
+  the XP accumulator when a flight group's LAST entry is `Die`, and `FlightLog.GetFlights`
+  groups by contiguous runs of the same flight number. A rewind rolls the flight counter
+  back, so a post-rewind death can archive a Die-terminated group reusing an erased
+  flight's number; appending there would land after the `Die`, un-terminate the group and
+  cancel the death reset. `ResolveMissingCareerEntries` now skips any flight the roster
+  already terminated with a death.
+- **#15 now bundles the recovery's `KerbalExperience` row too** - the crew are back in
+  flight in a world where that recovery has not happened.
+
+## KERBAL-XP-UNTAGGED-RECOVERY-HAS-NO-LEDGER-ROW: a tracking-station or KSC recovery records the XP event but no ledger action [OPEN, filed 2026-08-11 with the P9a facet]
+
+`GameStateRecorder.OnVesselRecoveryProcessingForExperience` deliberately does NOT forward
+an untagged `ExperienceGained` event to the ledger. The Bail-Out Grant carve-out can
+forward an untagged event because a null-scoped FUNDS row is still correct in the pools;
+an XP row is not. Tombstones are scoped by `RecordingId`, so a null-scoped
+`KerbalExperience` row could never be retired by any merge, and the monotone re-assert
+would put that recovery's XP back forever - exactly the failure the tombstone eligibility
+exists to prevent. Recording the EVENT and skipping the ACTION is the fail-safe choice.
+
+**Cost:** a recovery performed from the tracking station or KSC (rather than with a live
+recorder in FLIGHT) contributes no XP row, so a later rewind across it does not re-assert
+that crew's experience. That is the pre-P9a behavior for those recoveries, not a
+regression. **Fix:** correlate the committed recording the way the recovery-FUNDS path
+does, through `LedgerRecoveryFundsPairing` / `RecoveryPayoutContextStore`, and tag the
+event before forwarding. Counted per recovery as `untaggedNoLedgerRow=` in the handler's
+summary line, so the frequency is measurable before anyone builds the correlation.
+
+**Three deviations from the plan.**
+(1) NOT added to `IsRecoverableEventType`. The plan said yes, but that predicate is the
+BROKEN-SAVE migration list, scoped by its own comment to a specific historical repair
+class; a brand-new event type has no legacy broken saves to recover from, so the entry
+would be inert at best and a duplicate-synthesis source at worst.
+(2) `ScenarioGameEventHandlerContractTests` needs no change: it scans `ParsekScenario.cs`
+only, and the new subscription pair lives in `GameStateRecorder.cs`. A dedicated
+symmetry + instance-method pair is added in `KerbalExperienceFacetTests` instead.
+(3) The in-game cell is filed under the `LedgerGroundTruth` category, NOT `Rewind`. No
+committed harness spec pins `LedgerGroundTruth`, whereas `Rewind` is pinned at
+`total=37` by both `R7a-rewind-session-absent` and `R7c-rewind-spacecenter`; adding a
+cell there would move a pinned tally whose `passed=`/`skipped=` split cannot be
+re-derived without flying it. The `autotest-ingame-category-inventory.md` row and the
+566 -> 567 declaration total moved in the same commit.
+
+## ~~REFLY-RESURRECTS-RECOVERED-CRAFT-KEEPS-REWARDS: a Re-Fly puts a recovered vessel back in the world while its recovery funds, science and crew rows stay banked~~ [#15, user-decided 2026-08-11. FIXED 2026-08-11, branch `ledger-facets`]
+
+Direct consequence of the `REFLY-DELETES-NON-SLOT-WORLD` fix below. Once the strip
+started PRESERVING unrelated vessels, a Re-Fly stopped deleting the craft the player had
+recovered after the rewind point - correct, that craft was flying at the rewind point -
+but nothing retired the recovery's career rewards. The player ended up with the craft AND
+its recovery funds, its recovery science, and a crew whose ledger row still said "safely
+home". Double-counted, unbounded, and with no player-facing way to give any of it back.
+
+**Seam.** `RewindInvoker.RunStripActivateMarker`, immediately after the post-strip
+spawn-state reconcile (so `CollectSurvivingVesselIdentities` has already settled) and
+BEFORE `AtomicMarkerWrite` and the Step-5 `RecalculateAndPatch(double.MaxValue)` with
+`authoritativeReduction=true` - the reduction must not be clamp-blocked by the drawdown
+guard. `ReconciliationBundle.Restore` is the wrong seam (it runs before `FlightGlobals`
+populates and doubles as the failed-load rollback); `LoadTimeSweep` is the wrong seam
+(later loads only, and classification rather than economy mutation).
+
+**Mechanism: tombstones, not removal.** Append-only `LedgerTombstone` rows, the
+codebase's retirement semantics (ELS = ledger minus tombstones, idempotent under the "at
+least one tombstone exists" rule). NOT physical row removal - that is Rec-1's path for
+free-standing route rows - and NOT `RecordingRewindRetirement`, which is
+recording-level.
+
+**Identity is guid-positive, and pid-only is FORBIDDEN.** New pure classifier
+`ResurrectionRetirementEligibility` (`Source/Parsek/GameActions/`). It deliberately does
+NOT use `VesselLaunchIdentity.LiveVesselIsRecordedLaunch`: that predicate degrades to
+pid-only when either launch guid is unknown, which is right for a visibility or dedup
+decision and wrong here, because the consequence is taking funds out of the player's
+account and `persistentId` is craft-baked and reused on every launch.
+`IsPositivelySameLaunch` requires pid equality AND both guids known AND equal.
+
+**Bundle.** Anchor = the recording's `FundsEarning` with `FundsSource == Recovery` and UT
+strictly after the Rec-1 retire cutoff (hoisted out of `ConsumePostLoad` and threaded in,
+so both consumers use the identical value rather than recomputing it after the
+`onFlightReady` deferral). Bundled = same-recording `ScienceEarning` rows carrying
+`Method == ScienceMethod.Recovered`, plus same-recording `KerbalAssignment` rows with
+`KerbalEndState.Recovered` (matched by END STATE rather than UT, because the crew's
+disposition IS the recovery), plus every same-recording `KerbalExperience` row (such a row
+exists only because a recovery archived the crew's flight log, so recording membership
+alone is the right match). Stock awards no reputation for a plain vessel recovery, so
+nothing reputation-shaped is bundled. A zero-value recovery (a pod recovered at the pad)
+has no funds anchor and falls back to `Recording.EndUT`.
+
+**The science key is `Method`, and the UT window this shipped with first was a false
+measurement.** The first cut claimed "no production path assigns `GameAction.Method` at
+all" and fell back to a 5 s window around the funds anchor. That claim was WRONG and the
+window was broken in both directions. Reproduced 2026-08-11:
+`GameStateEventConverter.ConvertScienceSubjects` stamps
+`Method = ResolveScienceMethod(subj.reasonKey)` on every `ScienceEarning` row it emits
+(reason key `VesselRecovery` -> `Recovered`, populated by `GameStateRecorder`'s
+`OnScienceChanged`); the field round-trips through the `method` serialized value; and
+`LedgerOrchestrator.GetScienceChangedReasonKey` already reads it back. All three lines
+predate this branch. The real `c1` career ledger carries **76 `method = 1` rows and 18
+`method = 0` rows** - the discriminator not only exists, it is populated.
+
+The same converter stamps `UT = endUT` on EVERY science row of a recording, which is what
+made the window wrong. In `c1`, recording `255973462dd7448a93cdbf8897af7a20` carries a
+`method = 1` row at `ut = 217.475890` and a `method = 0` row at `ut = 217.475890` - the
+same instant. So any window that admits the recovery science admits the mid-flight
+transmit too: pre-rewind transmitted science, still owned and banked in the RP quicksave's
+R&D, got bundled and the Step-5 authoritative recalc subtracted it (OVER-retire). And when
+the recovery-funds UT sat further than the window from `endUT`, the recovery science was
+left banked and the double-count survived (UNDER-retire). Recording membership plus
+`Method` has neither failure and needs no tolerance. Pinned by
+`ScienceBundleIsKeyedOnMethodAndIgnoresTheUtEntirely` plus the two directional cells
+`PreRewindTransmittedScience_IsNotRetired_EvenAtTheAnchorUt` and
+`RecoveryScience_IsRetired_EvenWhenTheFundsAnchorIsFarFromEndUt`, all on
+production-shaped fixtures (every science row at `UT = endUT`).
+
+Residual, deliberate and pro-player: `reasonKey` is empty when the recorder's
+`ScienceChanged` capture fails to match the `OnScienceReceived` callback, so such a row
+reads `Transmitted` and stays banked. Leaving science the player might own is the safe
+direction.
+
+**Two deviations from the plan, both forced.**
+(1) `RetiringRecordingId` is the REWOUND ORIGIN child recording, not the session's
+provisional re-fly recording, and ONE reason decides it: the provisional does not exist yet
+at the chosen seam (`AtomicMarkerWrite` creates it), so there is no id to write.
+`Inv7TreeTopology` also requires the id to resolve to a real recording, so a synthetic
+placeholder would raise a `badlink ... kind=dangling` analyzer finding. The
+discard-durability argument first written here alongside it was OVERSTATED and is
+withdrawn: `TreeDiscardPurge.PurgeLedgerTombstones` classifies primarily by the RETIRED
+ACTION's owning recording (indexed from `Ledger.Actions`) and falls back to
+`RetiringRecordingId` only when the target action is no longer in the ledger. These
+tombstones target actions owned by the origin recording, which a Re-Fly discard does not
+purge, so the primary path leaves them alone whichever id is written.
+(2) No `CL-4` harness scenario. The plan asked for one, but every `required` regex in an
+un-flown spec is a guess, and the harness's own committed-spec gates (anti-vacuity,
+`CommittedBatchTallySourceSyncTests`, the coverage registry) exist to reject exactly that.
+Filed as the named next step instead: **fly a CL-4 that recovers a second vessel after the
+RP, invokes the Re-Fly, and asserts the vessel is alive AND the funds pool is lowered** -
+the `LedgerGroundTruth` pool facet is HARD, so a regression to the double-count reds there
+rather than needing a bespoke assertion. hlib expectations per the CL-3 precedent. Nothing
+may be armed gating until that reading run exists.
+
+**Crew note.** Retiring a `KerbalAssignment(Recovered)` also removes the Parsek reservation
+it implied. Not a protection gap: the crew are aboard the resurrected vessel in the loaded
+world, so the LIVE roster (Assigned to that vessel) protects them from there, exactly as
+for any other crew in flight.
+
+**Residual, stated deliberately.** A recording whose launch guid is unknown (legacy /
+pre-guid recordings, where `Recording.RecordedVesselGuid` was never captured) never matches
+`IsPositivelySameLaunch` and so keeps its recovery double-count after a resurrection. That
+is the intended trade: the alternative is a pid-only match, and `persistentId` is
+craft-baked and reused on every launch, so pid-only would eventually take funds back for a
+recovery that genuinely happened on a different launch of the same design. Leaving a stale
+double-count is the pro-player direction; clawing back funds the player earned is not.
+
+**Advisory.** `ComposeReFlyAdvisoryBody` gains the sentence "Craft you recovered after this
+point are back in flight, and their recovery rewards are returned to the ledger." Pinned by
+a new `ReFlyPreInvokeAdvisoryTests` cell.
+
 ## ROUTE-CANDIDACY-GATED-ON-SEAL-NO-SEAM-PATH: a green two-vessel docking flight cannot produce a route-candidate tree, and no seam verb can seal one [FOUND 2026-08-11 while wiring `H35-logistics-route-proof`. A CAPABILITY GAP in the automation surface, not a product defect - the seal policy itself is correct]
 
 **What was measured.** The `bdock-recorded` fixture is the produced save of a FULLY

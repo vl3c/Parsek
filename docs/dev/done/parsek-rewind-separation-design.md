@@ -779,11 +779,11 @@ CreatingSessionId on nested RP = discarded-session's id. Load-sweep spare-set lo
 ### 7.12 F5 mid-re-fly + quit + load
 Marker validates; all session-tagged recordings AND RPs spared; re-fly resumes. Atomic phase 1+2 means no save can capture an intermediate state. Handled.
 
-### 7.13 Contract supersede is a no-op on career state
-BG-crash completed contract X. Player re-flies, merges. ContractComplete action is NOT tombstoned (not v1-eligible). Contract remains complete in KSP's `ContractSystem`. Rep bonus stays. Player keeps their win. Handled with documented v1 behavior.
+### 7.13 Contract supersede rewinds the contract outcome
+BG-crash completed contract X. Player re-flies, merges. `ContractComplete` IS tombstone-eligible (`TombstoneEligibility.IsSupersedeTombstoneEligible` — `ContractAccept`/`Complete`/`Fail`/`Cancel` all return true), so the merge retires the completion row along with its funds/science/reputation rewards. `PatchContracts` then removes the tombstoned finished row from `ContractSystem.ContractsFinished` and, if the surviving ledger still carries the accept, reinstates X as Active from its `CONTRACT_SNAPSHOT`. The player's win from the superseded branch does not stand; the re-fly gets to earn it again. (Historical note: the original v1 shipped this as a no-op — "ContractComplete is NOT tombstoned". That statement was already false at the time this section was corrected; the eligibility switch and the `PatchContracts` removal/reinstate path are the current behavior.)
 
 ### 7.14 Contract failed by BG-crash; re-fly succeeds
-BG-crash failed contract X. v1 does NOT un-fail. Contract stays failed. Documented limitation; re-fly is a visual replay, not a contract rescue.
+BG-crash failed contract X. `ContractFail` is tombstone-eligible on the same switch, so the merge retires the failure and `PatchContracts` removes the tombstoned finished row; the surviving accept reinstates X as Active from snapshot and the re-fly can complete it. The un-fail is scoped to the superseded subtree — a failure whose action is outside the supersede scope (or null-scoped, §7.41) is untouched.
 
 ### 7.15 Milestone earned by superseded recording
 First-time flag is KSP-owned and sticky. v1 never un-sets. Handled.

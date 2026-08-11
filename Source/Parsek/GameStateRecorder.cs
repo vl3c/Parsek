@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Reflection;
@@ -336,6 +336,10 @@ namespace Parsek
             // Progress milestones
             GameEvents.OnProgressComplete.Add(OnProgressComplete);
 
+            // Kerbal experience: fires immediately AFTER VesselRecovery archives each crew
+            // member's flight log into their career log (decompile-verified ordering).
+            GameEvents.onVesselRecoveryProcessing.Add(OnVesselRecoveryProcessingForExperience);
+
             // Facility upgrades (event-driven). The scene-load PollFacilityState below only
             // catches upgrades across a scene change; subscribing to OnKSCFacilityUpgrading
             // captures an in-scene upgrade (UI or seam) immediately, without a seeded
@@ -387,6 +391,9 @@ namespace Parsek
 
             // Progress milestones
             GameEvents.OnProgressComplete.Remove(OnProgressComplete);
+
+            // Kerbal experience
+            GameEvents.onVesselRecoveryProcessing.Remove(OnVesselRecoveryProcessingForExperience);
 
             // Facility upgrades (event-driven)
             GameEvents.OnKSCFacilityUpgrading.Remove(OnFacilityUpgrading);

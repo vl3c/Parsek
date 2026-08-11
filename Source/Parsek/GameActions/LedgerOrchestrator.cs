@@ -2132,6 +2132,142 @@ namespace Parsek
             return contractIds.Count == 0 ? null : contractIds;
         }
 
+        /// <summary>
+        /// Pure core of <see cref="BuildContractReinstateCutoffsForPatch"/>: folds one
+        /// (contract guid, retiring-recording StartUT) pair into the running per-guid
+        /// MINIMUM. The minimum is correct because a contract retired by two different
+        /// merges must be rebuilt at the EARLIEST point the timeline rewound to — a later
+        /// cutoff would reinstate progress a subsequent rewind already discarded.
+        /// </summary>
+        internal static void FoldContractReinstateCutoff(
+            Dictionary<Guid, double> cutoffs, Guid contractGuid, double retiringStartUt)
+        {
+            if (cutoffs == null || double.IsNaN(retiringStartUt))
+                return;
+
+            double existing;
+            if (cutoffs.TryGetValue(contractGuid, out existing))
+            {
+                if (retiringStartUt < existing)
+                    cutoffs[contractGuid] = retiringStartUt;
+            }
+            else
+            {
+                cutoffs[contractGuid] = retiringStartUt;
+            }
+        }
+
+        /// <summary>
+        /// Per-contract "rebuild it as of THIS UT" cutoffs for
+        /// <c>KspStatePatcher.PatchContracts</c>.
+        ///
+        /// <para>
+        /// A contract reaches the rebuild loop because a merge tombstoned its terminal
+        /// action while its accept survives. The state it should come back as is the state
+        /// it had when the timeline rewound — the StartUT of the recording whose merge
+        /// wrote the tombstone, which IS the rewind point. Without this the rebuild fell
+        /// back to the zero-progress accept-time snapshot, so a half-finished contract came
+        /// back from a merge with all of its parameter progress erased.
+        /// </para>
+        ///
+        /// Returns null when no tombstone maps to a contract, which selects the historical
+        /// accept-time behavior everywhere.
+        ///
+        /// <para>
+        /// [ERS-exempt] Reads the RAW ledger and the RAW committed list for the same reason
+        /// <see cref="BuildTombstonedContractGuidsForPatch"/> does: tombstones ARE the ELS
+        /// filter, so routing this scan through ELS would hide exactly the actions it exists
+        /// to find, and the retiring recording is resolved by id (a data lookup, not a
+        /// visibility walk).
+        /// </para>
+        /// </summary>
+        internal static Dictionary<Guid, double> BuildContractReinstateCutoffsForPatch()
+        {
+            var scenario = ParsekScenario.Instance;
+            if (object.ReferenceEquals(null, scenario) ||
+                scenario.LedgerTombstones == null ||
+                scenario.LedgerTombstones.Count == 0)
+            {
+                return null;
+            }
+
+            // actionId -> contract guid, for contract-shaped actions only.
+            var contractGuidByActionId = new Dictionary<string, Guid>(StringComparer.Ordinal);
+            var source = Ledger.Actions;
+            for (int i = 0; i < source.Count; i++)
+            {
+                var action = source[i];
+                if (action == null ||
+                    string.IsNullOrEmpty(action.ActionId) ||
+                    string.IsNullOrEmpty(action.ContractId))
+                {
+                    continue;
+                }
+
+                switch (action.Type)
+                {
+                    case GameActionType.ContractAccept:
+                    case GameActionType.ContractComplete:
+                    case GameActionType.ContractFail:
+                    case GameActionType.ContractCancel:
+                        Guid parsed;
+                        if (Guid.TryParse(action.ContractId, out parsed))
+                            contractGuidByActionId[action.ActionId] = parsed;
+                        break;
+                }
+            }
+
+            if (contractGuidByActionId.Count == 0)
+                return null;
+
+            var startUtByRecordingId = new Dictionary<string, double>(StringComparer.Ordinal);
+            var cutoffs = new Dictionary<Guid, double>();
+            for (int i = 0; i < scenario.LedgerTombstones.Count; i++)
+            {
+                var tombstone = scenario.LedgerTombstones[i];
+                if (tombstone == null ||
+                    string.IsNullOrEmpty(tombstone.ActionId) ||
+                    string.IsNullOrEmpty(tombstone.RetiringRecordingId))
+                {
+                    continue;
+                }
+
+                Guid contractGuid;
+                if (!contractGuidByActionId.TryGetValue(tombstone.ActionId, out contractGuid))
+                    continue;
+
+                double startUt;
+                if (!startUtByRecordingId.TryGetValue(tombstone.RetiringRecordingId, out startUt))
+                {
+                    startUt = double.NaN;
+                    var committed = RecordingStore.CommittedRecordings;
+                    for (int r = 0; r < committed.Count; r++)
+                    {
+                        var rec = committed[r];
+                        if (rec != null &&
+                            string.Equals(rec.RecordingId, tombstone.RetiringRecordingId, StringComparison.Ordinal))
+                        {
+                            startUt = rec.StartUT;
+                            break;
+                        }
+                    }
+                    startUtByRecordingId[tombstone.RetiringRecordingId] = startUt;
+                }
+
+                if (double.IsNaN(startUt))
+                {
+                    // The retiring recording is gone (discarded tree, pruned attempt). Fall
+                    // back to the tombstone's own UT — the merge clock, which is at or after
+                    // the rewind in every production path, so the selection stays bounded.
+                    startUt = tombstone.UT;
+                }
+
+                FoldContractReinstateCutoff(cutoffs, contractGuid, startUt);
+            }
+
+            return cutoffs.Count == 0 ? null : cutoffs;
+        }
+
         private static HashSet<string> BuildTombstonedScienceSpendingNodeIds()
         {
             var tombstonedActionIds = BuildTombstonedActionIds();

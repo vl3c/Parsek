@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Linq;
 using Xunit;
@@ -92,6 +92,11 @@ namespace Parsek.Tests
         // RouteResumed (route-timeline events): a scheduler state flip like
         // RoutePaused; moves no resource pool.
         [InlineData(GameActionType.RouteResumed,         false)]
+        // KerbalExperience (P9a): kerbal XP is DERIVED from the career log, not paid
+        // out of any pool, so it moves no funds/science/reputation and never enters a
+        // resource reconciliation. It IS supersede-tombstone eligible - a different
+        // axis - so this false is not "the merge ignores it".
+        [InlineData(GameActionType.KerbalExperience,     false)]
         public void IsResourceImpactingAction_Theory(GameActionType type, bool expected)
         {
             Assert.Equal(expected, LedgerOrchestrator.IsResourceImpactingAction(type));

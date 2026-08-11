@@ -16315,8 +16315,15 @@ namespace Parsek
                         $"CleanupOrphanedSpawnedVessels: recovering '{vessel.vesselName}' " +
                         $"pid={vessel.persistentId} guid={candidateGuid ?? "(none)"} — matched recording " +
                         $"'{matched?.VesselName ?? "(unknown)"}' (recordedGuid={matched?.RecordedVesselGuid ?? "(none)"}); {reason}");
-                    ShipConstruction.RecoverVesselFromFlight(
-                        vessel.protoVessel, HighLogic.CurrentGame.flightState, true);
+                    // Parsek's OWN recovery, not the player's. Stock VesselRecovery archives
+                    // every crew member's flight log and fires onVesselRecoveryProcessing
+                    // unconditionally, so without this guard the P9a experience handler
+                    // credits career XP for a recovery the player never performed.
+                    using (SuppressionGuard.Crew())
+                    {
+                        ShipConstruction.RecoverVesselFromFlight(
+                            vessel.protoVessel, HighLogic.CurrentGame.flightState, true);
+                    }
                     recovered++;
                 }
                 else
@@ -16375,7 +16382,13 @@ namespace Parsek
                         ParsekLog.Info("Flight",
                             $"RecoverTimelineSpawnedVessel: recovering '{vesselName}' pid={rec.SpawnedVesselPersistentId} " +
                             $"guid={vGuid ?? "(none)"} (from recording #{i}) to make room for tree leaf spawn");
-                        ShipConstruction.RecoverVesselFromFlight(vessel.protoVessel, HighLogic.CurrentGame.flightState, true);
+                        // Parsek's OWN recovery — suppress the crew events stock fires from
+                        // VesselRecovery so the P9a experience handler does not credit career
+                        // XP for a recovery the player never performed.
+                        using (SuppressionGuard.Crew())
+                        {
+                            ShipConstruction.RecoverVesselFromFlight(vessel.protoVessel, HighLogic.CurrentGame.flightState, true);
+                        }
                     }
                     else
                     {

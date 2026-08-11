@@ -378,5 +378,97 @@ namespace Parsek.Tests
             Assert.Contains(logLines, l =>
                 l.Contains("[ReFlySession]") && l.Contains("End reason=merged"));
         }
+
+        // ================================================================
+        // Post-marker-clear recalc. Reuses this file's fixture because the
+        // property under test is a step of the same phase machine.
+        //
+        // The merge's ONLY recalc used to run at the Tombstone step, four
+        // phases before the marker clears — so anything gated on "no Re-Fly
+        // session is active" (the P9a monotone career-log re-assert, which
+        // defers while the marker is armed because a career-log append is
+        // irreversible) never landed on a merge. The DISCARD path already
+        // cleared-then-recalced; these cells hold the merge path symmetric.
+        // ================================================================
+
+        private List<bool> CaptureMarkerStateAtRecalc(ParsekScenario scenario)
+        {
+            var markerClearedAtRecalc = new List<bool>();
+            MergeJournalOrchestrator.RecalcAfterMarkerClearedForTesting =
+                _ => markerClearedAtRecalc.Add(scenario.ActiveReFlySessionMarker == null);
+            return markerClearedAtRecalc;
+        }
+
+        [Fact]
+        public void RunMerge_RecalcsExactlyOnceAfterTheMarkerIsCleared()
+        {
+            var scenario = BuildFixture(out var provisional, out _);
+            var markerClearedAtRecalc = CaptureMarkerStateAtRecalc(scenario);
+
+            Assert.True(MergeJournalOrchestrator.RunMerge(
+                scenario.ActiveReFlySessionMarker, provisional));
+
+            // Fires, exactly once, and the marker was already null when it did —
+            // which is the whole point: the re-assert's deferral gate reads that
+            // marker, so a recalc with it still armed re-defers and lands nothing.
+            Assert.Single(markerClearedAtRecalc);
+            Assert.True(markerClearedAtRecalc[0],
+                "The post-merge recalc must run AFTER the Re-Fly marker is cleared, "
+                + "or the career-log re-assert defers again and never lands.");
+        }
+
+        [Fact]
+        public void RunMerge_PostMarkerClearRecalc_PrecedesDurableSaveTwo()
+        {
+            // Ordering matters: the re-asserted roster has to be what Durable
+            // Save #2 captures, not something a later save happens to pick up.
+            var scenario = BuildFixture(out var provisional, out _);
+            var checkpointsAtRecalc = new List<string[]>();
+            MergeJournalOrchestrator.RecalcAfterMarkerClearedForTesting =
+                _ => checkpointsAtRecalc.Add(durableSaveCheckpoints.ToArray());
+
+            Assert.True(MergeJournalOrchestrator.RunMerge(
+                scenario.ActiveReFlySessionMarker, provisional));
+
+            Assert.Single(checkpointsAtRecalc);
+            Assert.Contains("durable1", checkpointsAtRecalc[0]);
+            Assert.DoesNotContain("durable2", checkpointsAtRecalc[0]);
+            Assert.Contains("durable2", durableSaveCheckpoints);
+        }
+
+        [Fact]
+        public void CrashedMerge_Finisher_AlsoRecalcsAfterTheMarkerIsCleared()
+        {
+            // The crash-recovery route must carry the same step: ParsekScenario's
+            // OnLoad recalc runs BEFORE RunFinisher, so it cannot stand in for it.
+            var scenario = BuildFixture(out var provisional, out _);
+            RunUntil(MergeJournalOrchestrator.Phase.RpReap, scenario, provisional);
+            Assert.NotNull(scenario.ActiveReFlySessionMarker);
+
+            var markerClearedAtRecalc = CaptureMarkerStateAtRecalc(scenario);
+            MergeJournalOrchestrator.RunFinisher();
+
+            Assert.Null(scenario.ActiveReFlySessionMarker);
+            Assert.Single(markerClearedAtRecalc);
+            Assert.True(markerClearedAtRecalc[0]);
+        }
+
+        [Fact]
+        public void PostMarkerClearRecalc_RunsForRealWithoutThrowing()
+        {
+            // The cells above stub the recalc to assert ordering. This one lets the
+            // real LedgerOrchestrator call run so a signature/readiness regression
+            // cannot hide behind the seam. Planetarium is absent headless, so the
+            // entry point falls back to a full replay rather than a cutoff walk.
+            var scenario = BuildFixture(out var provisional, out _);
+            MergeJournalOrchestrator.RecalcAfterMarkerClearedForTesting = null;
+
+            Assert.True(MergeJournalOrchestrator.RunMerge(
+                scenario.ActiveReFlySessionMarker, provisional));
+
+            Assert.Null(scenario.ActiveReFlySessionMarker);
+            Assert.Contains(logLines, l =>
+                l.Contains("[MergeJournal]") && l.Contains("Post-marker-clear recalc"));
+        }
     }
 }
