@@ -85,7 +85,7 @@ id = "FORGE-b18-dres-pad"
 tier = "operator"
 description = "FIXTURE-FORGE: boot the committed forge base, launch the stock Duna Rocket onto the pad with one named crew, settle PRELAUNCH, SaveGame -- stamps the b18-dres-pad fixture (harvest_bdock_station.py --target-name b18-dres-pad)."
 instanceProfile = "stock-minimal"
-tags = ["FORGE", "fixture", "B18", "dres", "pending-flight"]
+tags = ["FORGE", "fixture", "B18", "dres", "flown"]
 
 [fixture]
 # The SAME committed bootable base the other five forges use. This change ADDS

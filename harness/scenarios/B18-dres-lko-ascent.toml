@@ -1,0 +1,228 @@
+schema = 1
+id = "B18-dres-lko-ascent"
+# =====================================================================================
+# B18: the ASCENT-WORKS PROOF for the Dres-orbit program, step 1.
+#
+# WHY THIS LANE EXISTS. The Dres program needs a high-dv crewed vehicle that a
+# MACHINE can fly, and the candidate is a downloaded human-built craft (KerbalX
+# `Duna Rocket`, Steltuck), not one authored against the harness. Before any
+# interplanetary lane is written against it, TWO things must be established, and
+# neither can be established off the craft file:
+#
+#   (a) MechJeb can fly THIS stack from the pad through circularization -- a
+#       92-part, ~260 t, three-Mainsail asparagus-ish liftoff is a different
+#       animal from the two-stage Kerbal X every existing ascent lane flies; and
+#   (b) how much delta-v is actually LEFT in the LV-N transfer stage once it is
+#       in LKO, measured from the produced save rather than estimated from a
+#       stage readout.
+#
+# This spec is (a), and its produced save is the measurement surface for (b): the
+# post-mission SaveGame persists the parked state so the resource amounts can be
+# read out of `persistent.sfs` directly. That SaveGame is this lane's ONE
+# deliberate deviation from B2's step list (see the steps block).
+#
+# NO NEW MISSION, deliberately. `b2_lko_ascent` already is "MechJeb
+# AscentAutopilot to a circular park, then assert the orbit windows", which is
+# exactly and entirely what an ascent-works proof is. Writing a b18_* machine
+# would have forked the live-proven B2 phase machine to change nothing but the
+# numbers, and the numbers are what missionParams are for.
+#
+# THE CRAFT + THE FIXTURE: `Duna Rocket` sits PRELAUNCH on the pad with one named
+# crew in the committed `b18-dres-pad` fixture, stamped by FORGE-b18-dres-pad +
+# harvest_bdock_station.py (see that spec's header for the exact command and for
+# the craft's full staging breakdown). Crew is load-bearing: the single mk1pod.v2
+# is the stack's only ModuleCommand and carries minimumCrew = 1.
+#
+# THE STAGING RISK THIS LANE IS SIZED AGAINST -- and which the green flight then
+# showed does not bite on this profile. The prediction was: MechJeb autostage
+# fires on EMPTY stages, so the ascent walks istg 7 (3x Mainsail liftoff) -> 6
+# (radial booster sep) -> 5 (core drop) -> 4 (Skipper) by itself, and the hazard
+# is the NEXT step -- if the Skipper runs dry mid-circularization, autostage drops
+# it and lights the LV-N Nerv, whose TWR is ~0.33, so the remaining
+# circularization takes minutes of burn instead of seconds. `b2_decide` has no
+# flameout watchdog of its own (it never reaches `_b5_flameout_stage`), so the
+# only thing standing between that and a MISSION-FLAKE is
+# circularizeTimeoutSeconds.
+#
+# WHAT ACTUALLY HAPPENED: autostage fired ONCE, at istg 6, and stopped there. The
+# core Mainsail never emptied, so istg 5 and istg 4 never fired either -- the
+# whole ascent AND the circularization were flown on the three original Mainsails
+# with ~40% of the core/Skipper LFO left over, and the Skipper was never even lit.
+# The budget is kept well above the measurement anyway, because it is priced
+# against the path that did not happen (see circularizeTimeoutSeconds below).
+#
+# FLOWN GREEN 2026-08-11 (run 2026-08-11_2138, PASS attempt 1, 334 s wall, every
+# verifier PASS/SKIPPED). The unpinned windows this spec was committed with are now
+# RE-PINNED FROM THE MEASUREMENT; what the flight measured, and what it changed:
+#
+#   ORBIT      82,927 x 76,893 m, ecc 0.00444, inc 0.090 deg -- a clean circular
+#              park, ~3 km off an 80 km target on both apsides.
+#   STAGING    exactly ONE shed event: the two radial booster stacks at istg 6
+#              (34 parts leave, 58 remain). MechJeb autostage never fired istg 5
+#              or istg 3, because the core Mainsail never ran dry -- the ascent
+#              ENDED with ~40% of the core/Skipper LFO still aboard. The predicted
+#              core-drop / fairing / Skipper-drop children never happened.
+#   RECORDINGS 3 = 1 main + 2 booster debris children, and the log carries
+#              `ProcessBreakupEvent: debris child created` exactly TWICE (the
+#              FOREGROUND site, the same one B2's 60-log grep established).
+#   PROPELLANT the 6 Mk1 fuselages' 2,240 units of pure LiquidFuel are UNTOUCHED
+#              (measured pure-LF residual 2,240.00 against the craft file's
+#              2,240): the ascent spends zero nuclear propellant, which is the
+#              precondition the whole Dres program rests on.
+#
+# The count window and the debris token are therefore no longer "pending
+# measurement" -- both are pinned below. RE-PIN CONTRACT (the EVA-4 / B2
+# precedent): if a later run legitimately differs, RE-PIN to the newly measured
+# value and record which recordings it produced; do NOT widen back toward 1.
+# =====================================================================================
+tier = "operator"
+description = "Dres program step 1: MechJeb flies the stock Duna Rocket (92 parts, ~260 t, 3x Mainsail) from the pad to an 80 km circular LKO -- the ascent-works proof, whose produced save is the surface the remaining LV-N transfer-stage delta-v is measured from."
+instanceProfile = "stock-minimal"
+tags = ["B18", "dres", "mechjeb", "ascent", "flown"]
+
+[fixture]
+# Stamped by FORGE-b18-dres-pad + harvest_bdock_station.py --target-name
+# b18-dres-pad --expect-situation PRELAUNCH. The Duna Rocket sits PRELAUNCH on
+# the LaunchPad with Valentina aboard, in a sandbox save. NOT Jebediah, and that
+# is load-bearing rather than cosmetic -- see the forge spec's header for why
+# naming an already-Assigned kerbal silently produces an uncontrollable rocket.
+saveTemplate       = "fixtures/saves/b18-dres-pad"
+injectedRecordings = "none"
+craft              = []
+
+[driver]
+kind    = "autopilot"
+# UNCHANGED mission: the live-proven B2 LKO-ascent machine, retuned by params only.
+mission = "b2_lko_ascent"
+
+# `steps` MUST stay in the [driver] table, ABOVE the [driver.missionParams] header
+# (a key after the sub-table header would be TOML-scoped to
+# driver.missionParams.steps and the spec would validate as having zero steps).
+#
+# B2's list plus ONE step: `SaveGame` before FlushAndQuit. B2 does not save because
+# B2's product is the verifier chain's verdict; THIS lane's product is additionally
+# the parked state itself -- the remaining-delta-v measurement reads the LV-N
+# stage's LiquidFuel out of the produced `persistent.sfs`, and without the save the
+# produced save would carry the pad state the run started from. It also leaves the
+# state harvestable if the Dres program later wants an LKO fixture without
+# re-flying the ascent (the FORGE-eva2-lko pattern).
+#
+# CommitTree is post-mission and single (the B2 shape): the B2 machine does not
+# commit mid-mission, so there is exactly one live tree for it to close.
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 240 },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "true" }, expect = "OK" },
+  { phase = "mission",  expect = "MISSION-OK", budget = 1200 },
+  { cmd = "CommitTree",                                        expect = "OK" },
+  { cmd = "SaveGame",   args = { name = "persistent" },        expect = "OK" },
+  { cmd = "FlushAndQuit",                                      expect = "OK" },
+]
+
+[driver.missionParams]
+# --- The park. 80 km is B2's target and the standard LKO the Dres program's
+# ejection would leave from.
+targetApoapsisMeters      = 80000
+targetPeriapsisMeters     = 80000
+# RE-PINNED FROM THE GREEN FLIGHT. Committed at 15,000 (unmeasured craft); the
+# flight then measured 2,927 m of apoapsis error and 3,107 m of periapsis error,
+# so 10,000 is ~3.2x the measured error -- a real gate rather than a formality,
+# with room for the sloppier circularization a Nerv-flown finish would give.
+# NOT tightened to B2's 5,000: that would sit only 1.6x off a single observation.
+# Two things ride apoErrorMeters and they want opposite things: it is the
+# AND-guard floor for leaving MJ-ASCENT (at 10,000 the autopilot's completion
+# latch is only honoured above 70 km apoapsis, which no spurious early latch
+# reaches) AND the half-width of the apoapsis assertion window.
+apoErrorMeters            = 10000
+periErrorMeters           = 10000
+# The actual "it circularized" claim, and the ROUNDNESS contract (the apsis
+# windows are not). Measured 0.00444, so B2's own 0.02 is 4.5x the observation
+# and there is no reason for this lane to assert anything looser than B2 does.
+eccentricityMax           = 0.02
+# 3.0 vs B2's 2.0: a due-east KSC launch targets ~0 deg, and the extra degree is
+# margin for a heavy stack's gravity turn, not a claim about inclination control.
+inclinationErrorDeg       = 3.0
+# --- Budgets, in GAME seconds (the machine measures phase age off snapshot.ut;
+# the WALL budget is the mission step above).
+# Ascent: this stack lifts at TWR ~1.63 (3x Mainsail ASL ~4,137 kN against the
+# MEASURED 258.365 t of weight, ~2,534 kN) so its ascent is NORMAL, not slow.
+# MEASURED: the MJ-ASCENT phase ran ~255 game-seconds pad-to-latch (ut 25.9 ->
+# ~281), so 900 is ~3.5x the observation. B2 gives the lighter Kerbal X 420.
+ascentTimeoutSeconds      = 900
+# THE FLAMEOUT-RISK BUDGET (header). MEASURED, this flight: the circularization
+# was flown ON THE SKIPPER with fuel to spare and cost ~25 game-seconds of burn,
+# so the hazard this budget exists for DID NOT OCCUR. It is kept far above the
+# observation on purpose, because it is priced against the path that did not
+# happen: if a later run's Skipper dries mid-burn and autostage lights the Nerv,
+# the remainder is flown at ~1.2 m/s^2 and a ~800 m/s circularization takes ~700
+# game-seconds. 6,000 is ~8x THAT, and 240x the measured Skipper finish. It
+# cannot mask a real stall -- the WALL budget on the mission step is the backstop,
+# and a genuinely stuck MechJeb burns that at 1x long before 6,000 game-seconds.
+# (Committed at 24,000 before the lane had flown; reduced to the sized number.)
+circularizeTimeoutSeconds = 6000
+
+[dimensionsCovered]
+# Only what this lane's own gates back. D1 auto-record-launch rides the SetSetting
+# step + the Recording-started token; D4 atmospheric / exo-propulsive is the ascent
+# profile itself. D3 parent-anchored-debris is claimed ON THE SAME TERMS AS B2 and
+# only now that the token below is pinned: the FOREGROUND creation site
+# (ProcessBreakupEvent -> CreateBreakupChildRecording) calls
+# Recording.ApplyParentAnchorContract unconditionally, so "a debris child was
+# created" implies "parent-anchored" on this path. Measured here: the token fires
+# exactly twice, once per radial booster stack.
+D1  = ["auto-record-launch"]
+D3  = ["orbital-checkpoint", "parent-anchored-debris"]
+D4  = ["atmospheric", "exo-propulsive"]
+D14 = ["kerbin", "scene-flight", "sandbox"]
+
+[expectations]
+# PLACEMENT IS LOAD-BEARING. run.py reads `expectations.allowedAnomalies`; a bare
+# `allowedAnomalies` written after an `[expectations.<sub>]` header is TOML-scoped
+# to that SUB-table and is never read (hlib.validate_spec REJECTS the misplaced
+# form), so this table must stay ahead of the sub-tables below.
+allowedAnomalies = []
+
+[expectations.recordings]
+# PINNED FROM THE GREEN FLIGHT (run 2026-08-11_2138): observed count = 3, and the
+# population is named rather than merely counted -- 1 main ascent recording + 2
+# radial-booster debris children (`Duna Rocket Debris`, pids 930011225 and
+# 3857189828 in that run's log).
+#
+# The pin is TIGHT because the topology is STRUCTURAL on this profile, not a
+# lucky sample: the flight sheds exactly once (istg 6, the two radial boosters),
+# and the core-drop / fairing / Skipper-drop events that could have added children
+# never fire, because MechJeb autostage only fires on EMPTY stages and the core
+# Mainsail still held ~40% of its LFO at orbit insertion. The earlier {1,12}
+# window was a first-flight placeholder for an uncounted population; it is now
+# counted. RE-PIN, do not re-widen, if a later run differs.
+count = { min = 3, max = 3 }
+
+[expectations.logContracts]
+# The lifecycle pair every flown scenario asserts, PLUS the debris-creation token
+# now that the green run says which site fires. MEASURED: `ProcessBreakupEvent:
+# debris child created` appears exactly twice, and the broader substring `Child
+# recording created` (the BACKGROUND sibling site) appears zero times -- the same
+# foreground-only result B2's 60-log grep established, for the same structural
+# reason (the stack sheds its boosters while it is the ACTIVE focused vessel, so
+# RecordingTree.IsBackgroundMapEligible excludes it and the background path is
+# never reached). This token is the POPULATION gate the count window cannot be:
+# a count of 3 with zero debris children would be a different, wrong topology.
+required  = ["Recording started",
+             "ProcessBreakupEvent: debris child created",
+             "Recording stopped"]
+forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
+
+[runtime]
+# 240 LoadGame + 1200 mission + CommitTree / SaveGame / FlushAndQuit + margin.
+# MEASURED: the green run took 334 s wall END TO END (mission phase ~290 s), so
+# the mission step's 1,200 is ~4x the observation and the run budget ~5x. Sized
+# down from the pre-flight 2,400 / 3,000, which were guesses for an unflown craft.
+budgetSeconds = 1800
+
+[retry]
+# The staging risk in the header is a per-attempt hazard (a Skipper flameout at an
+# unlucky moment), not a deterministic property of the craft, so one retry is
+# worth having on a first-flight lane.
+policy = "once"
+
+[expectedFail]
+bugId = ""

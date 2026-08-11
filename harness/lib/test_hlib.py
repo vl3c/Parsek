@@ -4818,6 +4818,18 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
         # build_dd1_craft.py) onto the pad UNCREWED. Flown + harvested
         # 2026-08-06; the tier is the forge mechanism, not a review debt.
         "FORGE-b17-duna-pad.toml":          "forge-mechanism - manual by design; FLOWN 2026-08-06 (PASS attempt 1 after the UInt32 uid finding), fixture b17-duna-pad committed + registered",
+        # The SIXTH forge, same mechanism argument as the five above: it launches
+        # the committed stock `Duna Rocket` (KerbalX, Steltuck) onto the pad with
+        # one named crew for the Dres program. Flown + harvested 2026-08-11.
+        "FORGE-b18-dres-pad.toml":          "forge-mechanism - manual by design; FLOWN 2026-08-11 (PASS attempt 1, 105 s wall), fixture b18-dres-pad committed + registered",
+        # B18 is operator BY THE CALIBRATION DISCIPLINE (the V1/V2 precedent), and
+        # for a reason particular to it: it is the FIRST flight of a DOWNLOADED
+        # human-built craft, so its recordings-count window and its debris
+        # logContract token are deliberately unpinned on the first run and the
+        # run's job is to measure them. Promotion is the post-measurement
+        # re-pinning call, which is a recorded human decision and not a debt this
+        # tag would name.
+        "B18-dres-lko-ascent.toml":         "calibration-discipline - the first flight of an unmeasured downloaded craft is a READING run by construction (count window min=1/max=12 and the debris token are unpinned on purpose); promotion waits on the re-pin, not on outstanding work",
         # The V2 dwell is operator BY THE CALIBRATION DISCIPLINE (V1 precedent):
         # its first flight is a deliberately under-gated READING run whose red,
         # if any, is evidence; promotion is the post-reading arming call, not a
