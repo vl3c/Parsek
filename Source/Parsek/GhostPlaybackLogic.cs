@@ -439,8 +439,308 @@ namespace Parsek
 
             PopulateAudioInfos(state, result);
 
+            // M1: the snapshot-read module baselines. Kept on the state so a loop cycle
+            // can restore the same baseline, and applied LAST so it layers over the
+            // stow/cold baselines the Populate* helpers above just laid down — while
+            // still preceding the prefix event replay, which owns the final word.
+            state.snapshotBaselines = result.snapshotBaselines;
+            ApplySnapshotBaselines(state);
+
             if (ShouldEvaluateOrphanEnginePlayback(state, traj))
                 AutoStartOrphanEnginePlayback(state, traj);
+        }
+
+        /// <summary>
+        /// M1: applies the per-part module state read out of the ghost snapshot, so a
+        /// ghost spawns looking the way the craft actually looked instead of at the
+        /// prefab / all-stowed pose (gear up, panels folded, servos at rest).
+        ///
+        /// Ordering is the whole contract. This runs AFTER the stow/cold spawn baselines
+        /// (PopulateDeployableInfos, PopulateHeatInfos) and BEFORE the prefix replay in
+        /// <see cref="ApplyPartEvents"/>, which replays every recorded event at or before
+        /// the playback cursor. So: prefab pose, then snapshot baseline, then recorded
+        /// truth — a stale split-tip snapshot is always corrected by the forwarded seeds,
+        /// never fighting them. All appliers here are absolute-state and idempotent, which
+        /// is what makes a baseline + a start-UT seed for the same state harmless.
+        ///
+        /// Every family no-ops when the snapshot said nothing about it, so a recording
+        /// whose snapshot carries none of these keys behaves exactly as before M1.
+        /// </summary>
+        internal static void ApplySnapshotBaselines(GhostPlaybackState state)
+        {
+            if (state == null) return;
+            Dictionary<uint, SnapshotPartBaseline> baselines = state.snapshotBaselines;
+            if (baselines == null || baselines.Count == 0) return;
+
+            int deployableApplied = 0;
+            int parachuteApplied = 0;
+            int lightApplied = 0;
+            int servoApplied = 0;
+            int servoSkipped = 0;
+
+            foreach (var kvp in baselines)
+            {
+                SnapshotPartBaseline baseline = kvp.Value;
+                if (baseline == null) continue;
+                uint pid = kvp.Key;
+                var evt = new PartEvent { partPersistentId = pid };
+                SnapshotBaselineActions actions = ResolveSnapshotBaselineActions(baseline);
+
+                if (actions.deployableTarget.HasValue)
+                {
+                    bool applied = actions.deployableThroughCargoBayCascade
+                        ? ApplyCargoBayState(state, evt, actions.deployableTarget.Value)
+                        : ApplyDeployableState(state, evt, actions.deployableTarget.Value);
+                    if (applied)
+                        deployableApplied++;
+                }
+
+                if (ApplySnapshotParachuteBaseline(state, pid, actions.parachuteAction))
+                    parachuteApplied++;
+
+                // Blink mode BEFORE power: ApplyLightPowerEvent consults blinkEnabled to
+                // decide whether to switch the lamp on immediately or leave it to the
+                // blink pass, so the reverse order would flash a blinking lamp fully on
+                // for the frames before UpdateBlinkingLights next runs.
+                if (actions.blinkEnabled.HasValue)
+                {
+                    ApplyLightBlinkModeEvent(
+                        state, pid, actions.blinkEnabled.Value,
+                        actions.blinkRateHz.HasValue ? actions.blinkRateHz.Value : 0f);
+                }
+                else if (actions.blinkRateHz.HasValue)
+                {
+                    ApplyLightBlinkRateEvent(state, pid, actions.blinkRateHz.Value);
+                }
+
+                if (actions.lightPower.HasValue)
+                {
+                    ApplyLightPowerEvent(state, pid, actions.lightPower.Value);
+                    lightApplied++;
+                }
+
+                ApplySnapshotRoboticBaseline(
+                    state, pid, baseline, ref servoApplied, ref servoSkipped);
+            }
+
+            ParsekLog.Verbose("GhostVisual",
+                $"Snapshot baseline applied: parts={baselines.Count} " +
+                $"deployables={deployableApplied} parachutes={parachuteApplied} " +
+                $"lights={lightApplied} servos={servoApplied} servosSkipped={servoSkipped} " +
+                $"(vessel='{state.vesselName ?? "unknown"}')");
+        }
+
+        /// <summary>
+        /// The per-part actions one snapshot baseline resolves to. Separated from the
+        /// application pass because the interesting decisions — which single deployable
+        /// opinion wins, whether the cargo cascade is needed, which light source drives
+        /// power, which parachute states are actionable — are pure and must be testable;
+        /// the appliers themselves reach into Unity components and cannot run in xUnit.
+        /// </summary>
+        internal struct SnapshotBaselineActions
+        {
+            /// <summary>The single deployable-family target, or null for "no opinion".</summary>
+            public bool? deployableTarget;
+            /// <summary>True when the target must route through the cargo-bay cascade (deployable, else jettison panels).</summary>
+            public bool deployableThroughCargoBayCascade;
+            public bool? lightPower;
+            public bool? blinkEnabled;
+            public float? blinkRateHz;
+            public SnapshotParachuteAction parachuteAction;
+        }
+
+        internal enum SnapshotParachuteAction
+        {
+            None,
+            SemiDeployed,
+            Deployed,
+            Cut,
+        }
+
+        /// <summary>
+        /// Pure resolution of one part's snapshot baseline into at most one action per
+        /// ghost surface.
+        ///
+        /// The deployable families all collapse onto the SINGLE
+        /// <c>DeployableGhostInfo</c> a part owns (the singular out-param of
+        /// <c>AddPartVisuals</c>), so exactly one opinion may be applied or they would
+        /// silently overwrite each other in dictionary order. Precedence mirrors the
+        /// recorder's dedicated-handler order: explicit deploy state, then gear, then
+        /// cargo bay, then animation group, then the generic animation (which the parser
+        /// already suppresses whenever a dedicated handler exists).
+        /// </summary>
+        internal static SnapshotBaselineActions ResolveSnapshotBaselineActions(
+            SnapshotPartBaseline baseline)
+        {
+            var actions = new SnapshotBaselineActions();
+            if (baseline == null) return actions;
+
+            if (baseline.deployableExtended.HasValue)
+                actions.deployableTarget = baseline.deployableExtended;
+            else if (baseline.gearDeployed.HasValue)
+                actions.deployableTarget = baseline.gearDeployed;
+            else if (baseline.cargoBayOpen.HasValue)
+            {
+                actions.deployableTarget = baseline.cargoBayOpen;
+                actions.deployableThroughCargoBayCascade = true;
+            }
+            else if (baseline.animationGroupDeployed.HasValue)
+                actions.deployableTarget = baseline.animationGroupDeployed;
+            else if (baseline.animateGenericDeployed.HasValue)
+                actions.deployableTarget = baseline.animateGenericDeployed;
+
+            // A ColorChanger cabin light only stands in for a ModuleLight the part does
+            // not have (the parser enforces that), so at most one of these is ever set and
+            // they share one power action.
+            actions.lightPower = baseline.lightOn ?? baseline.colorChangerOn;
+            actions.blinkEnabled = baseline.lightBlinking;
+            actions.blinkRateHz = baseline.lightBlinkRate;
+
+            actions.parachuteAction = ClassifySnapshotParachuteAction(
+                baseline.parachutePersistentState);
+
+            return actions;
+        }
+
+        /// <summary>
+        /// Maps a persisted <c>ModuleParachute.persistentState</c> onto the canopy
+        /// appliers. STOWED / ACTIVE resolve to None: the build-time canopy pose IS stowed
+        /// (localScale zero) and ACTIVE means armed-but-not-open. An unrecognised state is
+        /// also None — no opinion beats a guess.
+        /// </summary>
+        internal static SnapshotParachuteAction ClassifySnapshotParachuteAction(
+            string persistentState)
+        {
+            if (string.IsNullOrEmpty(persistentState)) return SnapshotParachuteAction.None;
+
+            switch (persistentState)
+            {
+                case "SEMIDEPLOYED": return SnapshotParachuteAction.SemiDeployed;
+                case "DEPLOYED": return SnapshotParachuteAction.Deployed;
+                case "CUT": return SnapshotParachuteAction.Cut;
+                default: return SnapshotParachuteAction.None;
+            }
+        }
+
+        private static bool ApplySnapshotParachuteBaseline(
+            GhostPlaybackState state, uint pid, SnapshotParachuteAction action)
+        {
+            switch (action)
+            {
+                case SnapshotParachuteAction.SemiDeployed:
+                    ApplyParachuteSemiDeployedEvent(state, pid);
+                    return true;
+                case SnapshotParachuteAction.Deployed:
+                    // Re-invocation-safe: the real-canopy branch is an absolute pose
+                    // assignment, and the fake-canopy fallback routes through
+                    // TrackFakeCanopy, which destroys any existing canopy for this pid
+                    // before storing the new one. So a DEPLOYED baseline followed by a
+                    // ParachuteDeployed seed at startUT leaves exactly one canopy.
+                    ApplyParachuteDeployedEvent(state, state.ghost, pid);
+                    return true;
+                case SnapshotParachuteAction.Cut:
+                    ApplyParachuteCutEvent(state, pid);
+                    return true;
+                default:
+                    return false;
+            }
+        }
+
+        /// <summary>
+        /// Stamps each servo's snapshot pose onto its <see cref="RoboticGhostInfo"/> as
+        /// the spawn baseline and applies it. The module name is verified against the
+        /// ordinal on the ghost side: if a different mod set shifted the robotic ordinals
+        /// between record and replay, the mismatch degrades to no-baseline (today's
+        /// behaviour) rather than posing the wrong servo.
+        /// </summary>
+        private static void ApplySnapshotRoboticBaseline(
+            GhostPlaybackState state, uint pid, SnapshotPartBaseline baseline,
+            ref int applied, ref int skipped)
+        {
+            if (baseline.roboticPoses == null || baseline.roboticPoses.Count == 0) return;
+            if (state.roboticInfos == null || state.roboticInfos.Count == 0)
+            {
+                skipped += baseline.roboticPoses.Count;
+                return;
+            }
+
+            for (int i = 0; i < baseline.roboticPoses.Count; i++)
+            {
+                SnapshotRoboticPose pose = baseline.roboticPoses[i];
+                ulong key = FlightRecorder.EncodeEngineKey(pid, pose.ordinal);
+                RoboticGhostInfo info;
+                if (!state.roboticInfos.TryGetValue(key, out info) || info == null)
+                {
+                    skipped++;
+                    continue;
+                }
+
+                if (!string.Equals(info.moduleName, pose.moduleName, StringComparison.Ordinal))
+                {
+                    skipped++;
+                    ParsekLog.VerboseRateLimited("GhostVisual", $"servo-ordinal-drift-{pid}",
+                        $"Snapshot baseline: servo ordinal {pose.ordinal} on pid={pid} is " +
+                        $"'{pose.moduleName}' in the snapshot but '{info.moduleName ?? "(null)"}' " +
+                        $"on the ghost — baseline skipped for this servo (mod-set drift)");
+                    continue;
+                }
+
+                info.spawnValue = pose.value;
+                info.hasSnapshotBaseline = true;
+                ApplyRoboticSpawnBaseline(info);
+                applied++;
+            }
+        }
+
+        /// <summary>
+        /// Puts one servo at its spawn baseline (<see cref="RoboticGhostInfo.spawnValue"/>
+        /// — the snapshot pose when M1 read one, else 0f = the prefab pose). Rotors are
+        /// RPM-driven rather than posed, so they only get their rate back and re-arm when
+        /// that rate is a real non-zero reading from the snapshot; a rotor with no
+        /// snapshot baseline stays parked exactly as before.
+        /// </summary>
+        internal static void ApplyRoboticSpawnBaseline(RoboticGhostInfo info)
+        {
+            if (info == null) return;
+
+            info.currentValue = info.spawnValue;
+            if (info.visualMode == RoboticVisualMode.RotorRpm)
+            {
+                info.active = info.hasSnapshotBaseline
+                    && Mathf.Abs(info.spawnValue) > 0.0001f;
+                info.lastUpdateUT = double.NaN;
+                return;
+            }
+
+            ApplyRoboticPose(info, info.spawnValue);
+            info.active = false;
+            info.lastUpdateUT = double.NaN;
+        }
+
+        /// <summary>
+        /// Loop-cycle counterpart of the spawn robotic baseline: puts every servo back to
+        /// its spawn pose so cycle N+1 does not inherit cycle N's end pose.
+        /// <see cref="ResetForLoopCycle"/> zeroes the bookkeeping fields but cannot touch
+        /// <c>servoTransform</c> (it must stay Unity-free), which is exactly the
+        /// carry-over: the numbers said "at rest" while the mesh stayed where the last
+        /// cycle left it. Split out of
+        /// <see cref="ReapplySpawnTimeModuleBaselinesForLoopCycle"/> so it is testable
+        /// without a live ghost GameObject.
+        /// </summary>
+        internal static int RestoreRoboticSpawnBaselines(GhostPlaybackState state)
+        {
+            if (state?.roboticInfos == null || state.roboticInfos.Count == 0) return 0;
+
+            int restored = 0;
+            foreach (var kvp in state.roboticInfos)
+            {
+                RoboticGhostInfo info = kvp.Value;
+                if (info == null) continue;
+                ApplyRoboticSpawnBaseline(info);
+                restored++;
+            }
+
+            return restored;
         }
 
         internal static bool ShouldEvaluateOrphanEnginePlayback(
@@ -1259,19 +1559,7 @@ namespace Parsek
                             ref visibilityChanged);
                         break;
                     case PartEventType.ParachuteSemiDeployed:
-                        if (state.parachuteInfos != null)
-                        {
-                            ParachuteGhostInfo semiInfo;
-                            if (state.parachuteInfos.TryGetValue(evt.partPersistentId, out semiInfo) &&
-                                semiInfo.canopyTransform != null && semiInfo.semiDeployedSampled)
-                            {
-                                semiInfo.canopyTransform.localScale = semiInfo.semiDeployedCanopyScale;
-                                semiInfo.canopyTransform.localPosition = semiInfo.semiDeployedCanopyPos;
-                                semiInfo.canopyTransform.localRotation = semiInfo.semiDeployedCanopyRot;
-                                if (semiInfo.capTransform != null)
-                                    semiInfo.capTransform.gameObject.SetActive(false);
-                            }
-                        }
+                        ApplyParachuteSemiDeployedEvent(state, evt.partPersistentId);
                         break;
                     case PartEventType.ParachuteDeployed:
                         ApplyParachuteDeployedEvent(state, ghost, evt.partPersistentId);
@@ -1337,12 +1625,10 @@ namespace Parsek
                         ApplyDeployableState(state, evt, deployed: false);
                         break;
                     case PartEventType.CargoBayOpened:
-                        if (!ApplyDeployableState(state, evt, deployed: true))
-                            ApplyJettisonPanelState(state, evt, jettisoned: true);
+                        ApplyCargoBayState(state, evt, open: true);
                         break;
                     case PartEventType.CargoBayClosed:
-                        if (!ApplyDeployableState(state, evt, deployed: false))
-                            ApplyJettisonPanelState(state, evt, jettisoned: false);
+                        ApplyCargoBayState(state, evt, open: false);
                         break;
                     case PartEventType.FairingJettisoned:
                         if (state.fairingInfos != null)
@@ -1677,6 +1963,32 @@ namespace Parsek
                     30.0);
                 return null;
             }
+        }
+
+        /// <summary>
+        /// Applies the semi-deployed (drogue-stage) canopy pose. Extracted from the
+        /// ApplyPartEvents switch so the M1 snapshot baseline can reach the same code —
+        /// a pack whose snapshot says SEMIDEPLOYED must render half-open at spawn, not
+        /// stowed. No-ops unless the build sampled a semi-deployed pose for this pack.
+        /// </summary>
+        private static void ApplyParachuteSemiDeployedEvent(
+            GhostPlaybackState state,
+            uint partPersistentId)
+        {
+            if (state?.parachuteInfos == null) return;
+
+            ParachuteGhostInfo semiInfo;
+            if (!state.parachuteInfos.TryGetValue(partPersistentId, out semiInfo)
+                || semiInfo == null
+                || semiInfo.canopyTransform == null
+                || !semiInfo.semiDeployedSampled)
+                return;
+
+            semiInfo.canopyTransform.localScale = semiInfo.semiDeployedCanopyScale;
+            semiInfo.canopyTransform.localPosition = semiInfo.semiDeployedCanopyPos;
+            semiInfo.canopyTransform.localRotation = semiInfo.semiDeployedCanopyRot;
+            if (semiInfo.capTransform != null)
+                semiInfo.capTransform.gameObject.SetActive(false);
         }
 
         private static void ApplyParachuteCutEvent(
@@ -3830,6 +4142,19 @@ namespace Parsek
             }
 
             return applied;
+        }
+
+        /// <summary>
+        /// The cargo/service-bay cascade: most bays animate a DeployableGhostInfo, but
+        /// some (e.g. bays whose doors are jettison-style panels) only have jettison
+        /// transforms. Extracted so the M1 snapshot baseline and the CargoBayOpened /
+        /// CargoBayClosed events take exactly the same path.
+        /// </summary>
+        internal static bool ApplyCargoBayState(GhostPlaybackState state, PartEvent evt, bool open)
+        {
+            if (ApplyDeployableState(state, evt, deployed: open))
+                return true;
+            return ApplyJettisonPanelState(state, evt, jettisoned: open);
         }
 
         internal static bool ApplyJettisonPanelState(GhostPlaybackState state, PartEvent evt, bool jettisoned)

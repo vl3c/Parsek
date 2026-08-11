@@ -61,6 +61,12 @@ namespace Parsek
         public Dictionary<uint, LightPlaybackState> lightPlaybackStates;
         public Dictionary<uint, List<ColorChangerGhostInfo>> colorChangerInfos;
         public Dictionary<uint, FairingGhostInfo> fairingInfos;
+        // M1 build-time module baselines read from the ghost snapshot, keyed by
+        // persistentId. Applied once at spawn (after the stow/cold baselines, before the
+        // prefix event replay) and re-applied on every loop cycle, so cycle N+1 restarts
+        // from the recorded look instead of the all-stowed prefab look. Null when the
+        // snapshot carried nothing readable.
+        public Dictionary<uint, SnapshotPartBaseline> snapshotBaselines;
         public List<CompoundPartGhostInfo> compoundPartInfos;
         public Dictionary<uint, GameObject> fakeCanopies;
         public ReentryFxInfo reentryFxInfo;
@@ -141,6 +147,7 @@ namespace Parsek
             lightPlaybackStates = null;
             colorChangerInfos = null;
             fairingInfos = null;
+            snapshotBaselines = null;
             compoundPartInfos = null;
             fakeCanopies = null;
             reentryFxInfo = null;

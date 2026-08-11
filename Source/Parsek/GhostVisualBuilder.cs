@@ -499,6 +499,25 @@ namespace Parsek
                         var partAudioInfos = TryBuildAudioFX(ap.partPrefab, persistentId, partName, build.root);
                         if (partAudioInfos != null)
                             build.audioInfos.AddRange(partAudioInfos);
+
+                        // M1: read the part's persisted module state so the ghost spawns
+                        // looking the way the craft actually looked, instead of at the
+                        // prefab/all-stowed pose. Prefab-sourced cargo-bay pairing is
+                        // resolved here because the animTime -> open/closed mapping is
+                        // per-part config, not snapshot data. pid 0 is skipped: the
+                        // baseline dictionary is pid-keyed and every applier looks up by
+                        // pid, so a pid-less part could only collide.
+                        if (persistentId != 0)
+                        {
+                            ResolvePrefabCargoBayPairing(
+                                ap.partPrefab,
+                                out float? cargoClosedPosition,
+                                out int cargoDeployModuleIndex);
+                            SnapshotPartBaseline baseline = TryParseSnapshotPartBaseline(
+                                partNode, cargoClosedPosition, cargoDeployModuleIndex);
+                            if (baseline != null)
+                                build.snapshotBaselines[persistentId] = baseline;
+                        }
                     }
                 }
 
@@ -551,7 +570,44 @@ namespace Parsek
                 colorChangerInfos = build.colorChangerInfos.Count > 0 ? build.colorChangerInfos : null,
                 compoundPartInfos = build.compoundPartInfos.Count > 0 ? build.compoundPartInfos : null,
                 audioInfos = build.audioInfos.Count > 0 ? build.audioInfos : null,
+                snapshotBaselines =
+                    build.snapshotBaselines.Count > 0 ? build.snapshotBaselines : null,
             };
+        }
+
+        /// <summary>
+        /// Reads the prefab's cargo-bay pairing for the M1 baseline: which end of the
+        /// paired animation counts as "shut" (<c>closedPosition</c>) and which module
+        /// index carries that animation (<c>DeployModuleIndex</c>). Both are prefab
+        /// config, not snapshot data, which is why the pure parser takes them as inputs.
+        /// No cargo bay → no closedPosition, which is also the signal that routes the
+        /// part's ModuleAnimateGeneric to the standalone family.
+        /// </summary>
+        private static void ResolvePrefabCargoBayPairing(
+            Part prefab, out float? closedPosition, out int deployModuleIndex)
+        {
+            closedPosition = null;
+            deployModuleIndex = -1;
+            if (prefab == null)
+                return;
+
+            try
+            {
+                ModuleCargoBay cargo = prefab.FindModuleImplementing<ModuleCargoBay>();
+                if (cargo == null)
+                    return;
+                closedPosition = cargo.closedPosition;
+                deployModuleIndex = cargo.DeployModuleIndex;
+            }
+            catch (System.Exception ex)
+            {
+                ParsekLog.VerboseRateLimited("GhostVisual", "cargo-pairing-probe",
+                    $"ModuleCargoBay pairing probe threw {ex.GetType().Name} on prefab " +
+                    $"'{prefab.partInfo?.name ?? "unknown"}': {ex.Message}; " +
+                    $"cargo-bay baseline skipped for this part", 30.0);
+                closedPosition = null;
+                deployModuleIndex = -1;
+            }
         }
 
         internal static void DestroyPendingTimelineGhostBuild(PendingGhostVisualBuild build)
