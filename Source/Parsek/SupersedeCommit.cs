@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Globalization;
 using Parsek.Logistics;
@@ -1928,6 +1928,14 @@ namespace Parsek
                 // marker, scheduler-emitted like RoutePaused; carries no world
                 // mutation, so supersede must not strict-block or retry-block on it.
                 case GameActionType.RouteResumed:
+                // KerbalExperience (P9a): a RECORD of career-log entries stock already
+                // archived, not a world mutation this predicate should block on. The
+                // recovery that produced it already strict-blocks through its own
+                // KerbalAssignment(Recovered) row, and the roster re-assert is monotone and
+                // re-derives from the surviving ELS on every recalc, so a retry has nothing
+                // to undo here. A NEW type does not inherit the exclusions above - with no
+                // case it falls through to `return true`.
+                case GameActionType.KerbalExperience:
                     return false;
             }
 

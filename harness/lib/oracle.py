@@ -96,6 +96,14 @@ KINDS: Tuple[str, ...] = (
     # `stockReason` as a tightener. `kind` survives only on the FILL path
     # (`funds_fill` below), where both sides are captured-shaped.
     "stock-funds-award", "stock-reputation-award",
+    #
+    # DELIBERATELY OUT OF SCOPE v1: kerbal experience. The P9a facet records the
+    # CAREER-LOG ENTRIES a recovery archives, and stock recomputes XP from those
+    # entries rather than storing a number - so there is no scalar for the oracle's
+    # expected-vs-parsed diff to compare, and no currency facet it belongs to. The
+    # in-game LedgerGroundTruth harness carries it instead, as the report-only
+    # DivergenceFacet.KerbalXp. Do not add a `kerbal-experience` kind here without
+    # first deciding what a numeric expectation for it would even mean.
 )
 
 # Contract-guid set transitions (report-only facet, design ~439).

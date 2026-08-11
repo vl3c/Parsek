@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 
 namespace Parsek
@@ -67,6 +67,12 @@ namespace Parsek
                 case GameActionType.KerbalHire:
                 case GameActionType.KerbalRescue:
                 case GameActionType.KerbalStandIn:
+                // P9a: explicitly listed rather than left to the default. The default
+                // PRESERVES unknown types, so a KerbalExperience row from a superseded
+                // branch would survive the merge and the monotone roster re-assert would
+                // put that branch's XP back on the next recalc - re-earning experience for
+                // a flight the merge deleted.
+                case GameActionType.KerbalExperience:
                 case GameActionType.FacilityUpgrade:
                 case GameActionType.FacilityDestruction:
                 case GameActionType.FacilityRepair:

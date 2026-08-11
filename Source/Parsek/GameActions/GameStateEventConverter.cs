@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Globalization;
 
@@ -273,6 +273,9 @@ namespace Parsek
 
                 case GameStateEventType.KerbalRescued:
                     return ConvertKerbalRescued(evt, recordingId);
+
+                case GameStateEventType.ExperienceGained:
+                    return ConvertExperienceGained(evt, recordingId);
 
                 case GameStateEventType.StrategyActivated:
                     return ConvertStrategyActivated(evt, recordingId);
@@ -894,6 +897,40 @@ namespace Parsek
                 RecordingId = recordingId,
                 KerbalName = evt.key,
                 KerbalRole = trait
+            };
+        }
+
+        /// <summary>
+        /// ExperienceGained -> KerbalExperience. <c>evt.key</c> is the kerbal name and the
+        /// <c>entries</c> detail field carries the encoded career-log entry set.
+        ///
+        /// <para>
+        /// Returns null when the row carries no entries: an XP action with an empty set has
+        /// nothing to re-assert, and emitting it would put a permanently inert row in every
+        /// recovery's ledger slice.
+        /// </para>
+        /// </summary>
+        private static GameAction ConvertExperienceGained(GameStateEvent evt, string recordingId)
+        {
+            if (string.IsNullOrEmpty(evt.key))
+            {
+                ParsekLog.Warn(Tag,
+                    "ExperienceGained event has no kerbal name — skipping");
+                return null;
+            }
+
+            string entries = ExtractDetail(evt.detail, "entries");
+            if (string.IsNullOrEmpty(entries))
+                return null;
+
+            return new GameAction
+            {
+                UT = evt.ut,
+                Type = GameActionType.KerbalExperience,
+                RecordingId = recordingId,
+                KerbalName = evt.key,
+                KerbalRole = ExtractDetail(evt.detail, "trait"),
+                KerbalCareerEntries = entries
             };
         }
 

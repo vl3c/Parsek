@@ -1,3 +1,4 @@
+﻿using System;
 using System.Collections.Generic;
 using System.Globalization;
 
@@ -37,6 +38,17 @@ namespace Parsek
         private Dictionary<string, HashSet<string>> rawRecordingCrew
             = new Dictionary<string, HashSet<string>>();
         private HashSet<string> ledgerCreatedKerbals = new HashSet<string>();
+
+        /// <summary>
+        /// P9a: per-kerbal accumulator of the career-log entries the surviving ledger says
+        /// were archived. Rebuilt from scratch each walk (cleared in <see cref="Reset"/>) and
+        /// only ever set-UNIONED in <see cref="ProcessAction"/>, which is what makes the
+        /// roster re-assert monotone BY CONSTRUCTION: it can add entries the roster is
+        /// missing and has no operation that could remove one.
+        /// </summary>
+        private readonly Dictionary<string, KerbalCareerEntries> careerEntriesByKerbal
+            = new Dictionary<string, KerbalCareerEntries>(StringComparer.Ordinal);
+
         private readonly HashSet<string> pendingTombstonedRosterKerbals =
             new HashSet<string>();
 
@@ -155,6 +167,7 @@ namespace Parsek
             ledgerCreatedKerbals.Clear();
             recordingMeta.Clear();
             loopingChainIds.Clear();
+            careerEntriesByKerbal.Clear();
         }
 
         /// <summary>
@@ -245,6 +258,12 @@ namespace Parsek
                 ledgerCreatedKerbals.Add(rosterKerbalName);
                 ParsekLog.Verbose(Tag,
                     $"Roster-created kerbal retained by ledger: '{rosterKerbalName}' type={action.Type}");
+                return;
+            }
+
+            if (action.Type == GameActionType.KerbalExperience)
+            {
+                AccumulateCareerEntries(action);
                 return;
             }
 
@@ -1121,6 +1140,58 @@ namespace Parsek
         // ApplyToRoster — KSP state mutations
         // ────────────────────────────────────────────────────────
 
+        /// <summary>
+        /// Unions a <see cref="GameActionType.KerbalExperience"/> row's career-log entries
+        /// into the per-kerbal accumulator. Set-union only - see
+        /// <see cref="careerEntriesByKerbal"/> for why that is the whole safety argument.
+        /// </summary>
+        private void AccumulateCareerEntries(GameAction action)
+        {
+            if (action == null || string.IsNullOrEmpty(action.KerbalName))
+                return;
+            if (string.IsNullOrEmpty(action.KerbalCareerEntries))
+                return;
+
+            var parsed = KerbalCareerLogEntry.ParseSet(action.KerbalCareerEntries);
+            if (parsed.Count == 0)
+                return;
+
+            KerbalCareerEntries accumulator;
+            if (!careerEntriesByKerbal.TryGetValue(action.KerbalName, out accumulator))
+            {
+                accumulator = new KerbalCareerEntries();
+                careerEntriesByKerbal[action.KerbalName] = accumulator;
+            }
+            accumulator.UnionWith(parsed);
+        }
+
+        /// <summary>
+        /// Snapshot of every kerbal's accumulated career-log entries. Read by the
+        /// LedgerGroundTruth harness to build the KerbalXp reconstruction facet.
+        /// </summary>
+        internal Dictionary<string, HashSet<KerbalCareerLogEntry>> SnapshotCareerEntries()
+        {
+            var result = new Dictionary<string, HashSet<KerbalCareerLogEntry>>(StringComparer.Ordinal);
+            foreach (var kvp in careerEntriesByKerbal)
+            {
+                if (kvp.Value == null || kvp.Value.Count == 0) continue;
+                result[kvp.Key] = new HashSet<KerbalCareerLogEntry>(kvp.Value.Entries);
+            }
+            return result;
+        }
+
+        /// <summary>
+        /// The accumulated career-log entries for one kerbal, or null. Test/diagnostic seam.
+        /// </summary>
+        internal KerbalCareerEntries GetCareerEntriesForTesting(string kerbalName)
+        {
+            if (string.IsNullOrEmpty(kerbalName)) return null;
+            KerbalCareerEntries accumulator;
+            return careerEntriesByKerbal.TryGetValue(kerbalName, out accumulator)
+                ? accumulator
+                : null;
+        }
+
         internal interface IKerbalRosterFacade
         {
             bool TryGetStatus(string name, out ProtoCrewMember.RosterStatus status);
@@ -1159,6 +1230,26 @@ namespace Parsek
             /// </para>
             /// </summary>
             bool IsKerbalOnVesselWithPid(string kerbalName, ulong vesselPersistentId);
+
+            /// <summary>
+            /// The kerbal's current career-log entries, or null when the kerbal is not on the
+            /// roster. Read-only snapshot; the caller diffs against the ledger accumulator.
+            /// </summary>
+            List<KerbalCareerLogEntry> GetCareerLogEntries(string kerbalName);
+
+            /// <summary>
+            /// APPENDS the given career-log entries to the kerbal and triggers stock's XP
+            /// recompute. Returns the number appended, or -1 when the kerbal is absent.
+            ///
+            /// <para>
+            /// Append-only by contract - there is deliberately no remove counterpart, so no
+            /// caller can turn the re-assert into a subtraction. The quicksave load has
+            /// already removed the XP of superseded flights; this only puts back what a
+            /// SURVIVING flight earned.
+            /// </para>
+            /// </summary>
+            int AppendCareerLogEntries(
+                string kerbalName, IReadOnlyList<KerbalCareerLogEntry> entries);
         }
 
         private sealed class KerbalRosterFacade : IKerbalRosterFacade
@@ -1184,6 +1275,63 @@ namespace Parsek
                 }
 
                 return false;
+            }
+
+            /// <summary>
+            /// Finds a roster member by name across the WHOLE roster, not just
+            /// <c>roster.Crew</c>: a recovered kerbal is Available, and the XP re-assert must
+            /// reach them there.
+            /// </summary>
+            private ProtoCrewMember FindMember(string name)
+            {
+                if (roster == null || string.IsNullOrEmpty(name)) return null;
+                try { return roster[name]; }
+                catch { return null; }
+            }
+
+            public List<KerbalCareerLogEntry> GetCareerLogEntries(string kerbalName)
+            {
+                var member = FindMember(kerbalName);
+                if (member == null || member.careerLog == null) return null;
+
+                var result = new List<KerbalCareerLogEntry>();
+                var log = member.careerLog;
+                for (int i = 0; i < log.Count; i++)
+                {
+                    var entry = log[i];
+                    if (entry == null || string.IsNullOrEmpty(entry.type)) continue;
+                    result.Add(new KerbalCareerLogEntry(entry.flight, entry.type, entry.target));
+                }
+                return result;
+            }
+
+            public int AppendCareerLogEntries(
+                string kerbalName, IReadOnlyList<KerbalCareerLogEntry> entries)
+            {
+                var member = FindMember(kerbalName);
+                if (member == null || member.careerLog == null) return -1;
+                if (entries == null || entries.Count == 0) return 0;
+
+                int appended = 0;
+                for (int i = 0; i < entries.Count; i++)
+                {
+                    var entry = entries[i];
+                    if (string.IsNullOrEmpty(entry.Type)) continue;
+                    member.careerLog.AddEntry(new FlightLog.Entry(
+                        entry.Flight,
+                        entry.Type,
+                        string.IsNullOrEmpty(entry.Target) ? null : entry.Target));
+                    appended++;
+                }
+
+                if (appended > 0)
+                {
+                    // Decompile-verified stock recompute: UpdateExperience re-derives
+                    // `experience` via KerbalRoster.CalculateExperience(careerLog) and fires
+                    // GameEvents.onKerbalLevelUp when the level actually changes.
+                    member.UpdateExperience();
+                }
+                return appended;
             }
 
             public bool TryCreateGeneratedStandIn(string trait, out string generatedName)
@@ -1678,6 +1826,10 @@ namespace Parsek
                     }
                 }
 
+                // Step 4 (P9a): MONOTONE career-log re-assert. Runs inside the same
+                // SuppressionGuard.Crew() as everything else here.
+                ReassertCareerLogEntries(roster);
+
                 ParsekLog.Info(Tag,
                     $"ApplyToRoster complete: {slots.Count} slots, " +
                     $"{retiredKerbals.Count} retired, " +
@@ -1685,6 +1837,103 @@ namespace Parsek
                     $"{standInsCreated} created, {standInsRecreated} recreated, " +
                     $"{deletedUnused} deleted, {retiredDisplaced} displaced, " +
                     $"{retainedLive} retained-live");
+            }
+        }
+
+        /// <summary>
+        /// Pure decision core for the P9a re-assert: the entries the ledger credits that the
+        /// roster's career log does not already carry. Returns an empty list when there is
+        /// nothing to add.
+        ///
+        /// <para>
+        /// This is a SET DIFFERENCE in one direction only. It never reports an entry the
+        /// roster has but the ledger does not - the quicksave load has already removed the XP
+        /// of superseded flights, and removing more would take away XP the player still owns
+        /// (a stand-in's career, a kerbal recovered before the rewind point, or anything a
+        /// mod wrote). The re-assert exists solely to put back what a SURVIVING flight earned
+        /// and the rewind erased.
+        /// </para>
+        /// </summary>
+        internal static List<KerbalCareerLogEntry> ResolveMissingCareerEntries(
+            KerbalCareerEntries ledgerEntries, IReadOnlyList<KerbalCareerLogEntry> rosterEntries)
+        {
+            var missing = new List<KerbalCareerLogEntry>();
+            if (ledgerEntries == null || ledgerEntries.Count == 0)
+                return missing;
+
+            var present = new HashSet<KerbalCareerLogEntry>();
+            if (rosterEntries != null)
+            {
+                for (int i = 0; i < rosterEntries.Count; i++)
+                    present.Add(rosterEntries[i]);
+            }
+
+            var ordered = ledgerEntries.ToOrderedList();
+            for (int i = 0; i < ordered.Count; i++)
+            {
+                if (!present.Contains(ordered[i]))
+                    missing.Add(ordered[i]);
+            }
+            return missing;
+        }
+
+        /// <summary>
+        /// Appends every ledger-credited career-log entry the roster is missing, per kerbal,
+        /// and lets stock recompute the XP. Never removes.
+        ///
+        /// <para>
+        /// A kerbal the ledger credits but the roster does not have is SKIPPED with a counter,
+        /// not created: this facet re-asserts experience, and manufacturing a roster member
+        /// from an XP row would be a different (and much larger) claim.
+        /// </para>
+        /// </summary>
+        private void ReassertCareerLogEntries(IKerbalRosterFacade roster)
+        {
+            if (roster == null || careerEntriesByKerbal.Count == 0)
+                return;
+
+            int kerbalsPatched = 0;
+            int entriesAppended = 0;
+            int alreadyComplete = 0;
+            int absentKerbals = 0;
+            foreach (var kvp in careerEntriesByKerbal)
+            {
+                var rosterEntries = roster.GetCareerLogEntries(kvp.Key);
+                if (rosterEntries == null)
+                {
+                    absentKerbals++;
+                    continue;
+                }
+
+                var missing = ResolveMissingCareerEntries(kvp.Value, rosterEntries);
+                if (missing.Count == 0)
+                {
+                    alreadyComplete++;
+                    continue;
+                }
+
+                int appended = roster.AppendCareerLogEntries(kvp.Key, missing);
+                if (appended < 0)
+                {
+                    absentKerbals++;
+                    continue;
+                }
+                kerbalsPatched++;
+                entriesAppended += appended;
+            }
+
+            if (kerbalsPatched > 0 || absentKerbals > 0)
+            {
+                ParsekLog.Info(Tag,
+                    $"Career-log re-assert: kerbals={careerEntriesByKerbal.Count} " +
+                    $"patched={kerbalsPatched} entriesAppended={entriesAppended} " +
+                    $"alreadyComplete={alreadyComplete} absent={absentKerbals}");
+            }
+            else
+            {
+                ParsekLog.Verbose(Tag,
+                    $"Career-log re-assert: kerbals={careerEntriesByKerbal.Count} " +
+                    $"all already complete");
             }
         }
 
@@ -2059,6 +2308,7 @@ namespace Parsek
             pendingTombstonedRosterKerbals.Clear();
             recordingMeta.Clear();
             loopingChainIds.Clear();
+            careerEntriesByKerbal.Clear();
         }
     }
 }

@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Linq;
 using Parsek.Logistics;
@@ -175,6 +175,11 @@ namespace Parsek.Tests
             // RouteResumed (route-timeline events): the durable player-resume marker,
             // scheduler-emitted like RoutePaused; no world mutation, same exclusion.
             yield return new object[] { GameActionType.RouteResumed, false, false };
+            // KerbalExperience (P9a): a recorded archive of career-log entries. It
+            // mutates no world state a retry would have to undo - the roster re-assert
+            // is monotone and re-derives from the surviving ELS on every recalc - so it
+            // neither strict-blocks nor retry-blocks an auto-seal.
+            yield return new object[] { GameActionType.KerbalExperience, false, false };
         }
 
         [Fact]

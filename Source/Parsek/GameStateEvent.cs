@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Globalization;
 
@@ -27,7 +27,15 @@ namespace Parsek
         MilestoneAchieved,   // 18
         KerbalRescued,       // 19
         StrategyActivated,   // 20
-        StrategyDeactivated  // 21
+        StrategyDeactivated, // 21
+
+        /// <summary>
+        /// A recovered kerbal's flight log was archived into their career log, which is what
+        /// stock derives experience from. Explicitly numbered and append-only: an older build
+        /// loading a save with this row WARNs and drops it, which costs the XP re-assert on
+        /// that build and nothing else.
+        /// </summary>
+        ExperienceGained = 22
     }
 
     public struct GameStateEvent

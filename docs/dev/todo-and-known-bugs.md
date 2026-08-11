@@ -14,6 +14,76 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## ~~REWIND-ERASES-SURVIVING-KERBAL-XP: a rewind rolls the crew roster back, silently deleting experience earned by flights the rewind does not touch~~ [P9a, FIXED 2026-08-11, branch `ledger-facets`]
+
+Kerbal XP is DERIVED, not stored - decompile-verified against KSP 1.12.5
+`Assembly-CSharp`: `ProtoCrewMember.UpdateExperience()` recomputes `experience` from
+`KerbalRoster.CalculateExperience(careerLog)`, which walks `FlightLog.GetFlights()`
+(entries GROUPED BY their `flight` number, scored per group, deduped across groups).
+A Re-Fly restores the roster from the rewind-point quicksave, which erases every
+career-log entry archived after it - including entries archived by crews on flights
+the merge KEEPS. Those kerbals lost levels with nothing to put them back.
+
+**Recorded unit: the CAREER-LOG ENTRY, not a number.** Because the flight number is
+part of the scoring, an entry is `(flight, type, target)` - `KerbalCareerLogEntry`.
+A numeric XP could not be safely re-asserted; a set of entries can.
+
+**DECOMPILE VERDICTS (the mandatory Step-0 gate).**
+- `GameEvents.OnExperienceRecorded` - the plan's FIRST candidate - **DOES NOT EXIST**.
+  The decompiled `GameEvents` in KSP 1.12.5 carries no experience-named member at all.
+  (`onKerbalLevelUp` exists but fires only on a level CHANGE, so it cannot observe
+  every archived flight.) Plan error; candidate 1 is dead.
+- **The seam that fired is candidate 2, `GameEvents.onVesselRecoveryProcessing`**, and
+  the ordering is favourable and verified: inside `VesselRecovery`,
+  `recoverVesselCrew` (which calls `ProtoCrewMember.ArchiveFlightLog()` once per crew
+  member) runs IMMEDIATELY BEFORE `onVesselRecoveryProcessing.Fire`. By the time the
+  handler runs the archive is a completed fact. No stock patch needed.
+- The stock XP-recompute API the plan asked to verify is `ProtoCrewMember.UpdateExperience()`
+  (public). `careerLog` / `flightLog` are public `FlightLog`; `FlightLog.Entry(int, string, string)`
+  and `AddEntry(Entry)` are public.
+- CAREER_LOG node shape for the Layer-A parser: a log-level `flight` counter, then ONE
+  VALUE PER ENTRY whose KEY is the entry's flight number and whose VALUE is `type` or
+  `type,target`. Repeating keys are the norm, so the parser walks `node.values`
+  positionally rather than using `GetValue`.
+
+**Spine.** `GameStateEventType.ExperienceGained = 22` (explicitly numbered, append-only;
+an older build WARNs and drops it) -> `GameActionType.KerbalExperience = 31` carrying
+`KerbalName` + the encoded entry set -> `KerbalsModule` set-union accumulator ->
+MONOTONE re-assert in `ApplyToRoster` inside `SuppressionGuard.Crew()`.
+
+**The monotone argument, which is the whole safety case.** The accumulator's only
+mutating operation is a union; the facade exposes `AppendCareerLogEntries` with NO
+remove counterpart; and `ResolveMissingCareerEntries` is a one-directional set
+difference that never reports an entry the roster has and the ledger does not. The
+quicksave load has already removed superseded flights' XP - anything further would be
+taking away XP the player still owns (a stand-in's own career, a pre-Parsek flight,
+mod-written entries). `KerbalExperience` is added EXPLICITLY to
+`TombstoneEligibility.IsSupersedeTombstoneEligible` (the default preserves unknowns,
+which would let a superseded branch's XP be re-asserted forever) and EXPLICITLY
+excluded from `IsWorldStateChangingRecordingAction` (a new type inherits nothing and
+would otherwise fall through to `return true`).
+
+**Ground truth.** Layer A gains `CareerSaveSnapshot.KerbalCareerLog` parsed from
+ROSTER > KERBAL > CAREER_LOG, and `DivergenceFacet.KerbalXp` - REPORT-ONLY, absent
+from `IsAlwaysHard`, matching the SubjectScience posture, because a real career's log
+legitimately carries entries the ledger never saw. The diff is one-directional for the
+same reason the patcher is, so the facet measures exactly what the patcher would act on.
+
+**Three deviations from the plan.**
+(1) NOT added to `IsRecoverableEventType`. The plan said yes, but that predicate is the
+BROKEN-SAVE migration list, scoped by its own comment to a specific historical repair
+class; a brand-new event type has no legacy broken saves to recover from, so the entry
+would be inert at best and a duplicate-synthesis source at worst.
+(2) `ScenarioGameEventHandlerContractTests` needs no change: it scans `ParsekScenario.cs`
+only, and the new subscription pair lives in `GameStateRecorder.cs`. A dedicated
+symmetry + instance-method pair is added in `KerbalExperienceFacetTests` instead.
+(3) The in-game cell is filed under the `LedgerGroundTruth` category, NOT `Rewind`. No
+committed harness spec pins `LedgerGroundTruth`, whereas `Rewind` is pinned at
+`total=37` by both `R7a-rewind-session-absent` and `R7c-rewind-spacecenter`; adding a
+cell there would move a pinned tally whose `passed=`/`skipped=` split cannot be
+re-derived without flying it. The `autotest-ingame-category-inventory.md` row and the
+566 -> 567 declaration total moved in the same commit.
+
 ## ~~REFLY-RESURRECTS-RECOVERED-CRAFT-KEEPS-REWARDS: a Re-Fly puts a recovered vessel back in the world while its recovery funds, science and crew rows stay banked~~ [#15, user-decided 2026-08-11. FIXED 2026-08-11, branch `ledger-facets`]
 
 Direct consequence of the `REFLY-DELETES-NON-SLOT-WORLD` fix below. Once the strip

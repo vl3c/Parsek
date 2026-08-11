@@ -117,7 +117,7 @@ Two limits of this table, stated so nobody over-reads it:
 | `KSP` | 6 | 6 | 4 | 4 | 0 | 0 | H13 | A |
 | `KspApiSanity` | 5 | 5 | 3 | 3 | 0 | 3 | H24 | A |
 | `Ledger` | 4 | 0 | 4 | 0 | 0 | 4 | - | B |
-| `LedgerGroundTruth` | 1 | 1 | 0 | 0 | 0 | 1 | - | B |
+| `LedgerGroundTruth` | 2 | 2 | 0 | 0 | 0 | 1 | - | B |
 | `LocalizedName` | 3 | 3 | 3 | 3 | 0 | 0 | H29 | A |
 | `LogContracts` | 10 | 10 | 8 | 8 | 0 | 2 | H26 | A |
 | `Logistics` | 47 | 8 | 2 | 1 | 38 | 46 | H34 (SPACECENTER slice), H35 (FLIGHT slice) | B |
@@ -192,8 +192,8 @@ Two limits of this table, stated so nobody over-reads it:
 
 ## Triage
 
-Totals, re-derived: **102 categories / 566 declarations**. Buckets **A 30 categories
-(208 declarations)**, **B 72 categories (358 declarations)**, **C 0 categories (0
+Totals, re-derived: **102 categories / 567 declarations**. Buckets **A 30 categories
+(208 declarations)**, **B 72 categories (359 declarations)**, **C 0 categories (0
 declarations)**. Driven by a committed spec: **39 of 102 categories**, up from 35
 across four waves that landed together in this merge - `ReFlyWorldPreservation` via
 S4.2, `RecordedSignals` via H33, `SnapshotBaseline` via H32, and `Logistics` via
@@ -579,7 +579,7 @@ deliberately.
 `ContinuationIntegrity` (2), `MissionPhasing` (2), `PartEventTiming` (2),
 `Pipeline-Frame` (1), `Pipeline-Outlier` (1), `Pipeline-Terrain` (1),
 `Pipeline-AnchorPropagate` (1), `ForwardRender` (1), `ResourceManifest` (1),
-`StockWarpLimits` (1), `RouteLiveAnchor` (1), `LedgerGroundTruth` (1) and similar.
+`StockWarpLimits` (1), `RouteLiveAnchor` (1), `LedgerGroundTruth` (2) and similar.
 Several are zero-self-skip and would pass immediately; they are simply not worth a
 KSP boot each at one or two tests. They are the strongest argument for a future
 multi-category batch contract, and the honest answer today is "not worth wiring",

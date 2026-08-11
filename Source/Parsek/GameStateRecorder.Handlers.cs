@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Reflection;
@@ -1448,6 +1448,141 @@ namespace Parsek
                 default:
                     return false;
             }
+        }
+
+        #endregion
+
+        #region Kerbal Experience Handlers
+
+        /// <summary>
+        /// Captures the career-log entries a recovery just archived for each crew member.
+        ///
+        /// <para>
+        /// <b>Why this seam.</b> Decompile-verified against KSP 1.12.5: there is NO
+        /// <c>GameEvents.OnExperienceRecorded</c> - the <c>GameEvents</c> class carries no
+        /// experience-named member at all. What DOES exist is the ordering inside
+        /// <c>VesselRecovery</c>: <c>recoverVesselCrew</c> (which calls
+        /// <c>ProtoCrewMember.ArchiveFlightLog()</c> once per crew member) runs IMMEDIATELY
+        /// BEFORE <c>GameEvents.onVesselRecoveryProcessing.Fire</c>. So by the time this
+        /// handler runs, every crew member's <c>careerLog</c> already carries the entries the
+        /// recovery archived and <c>flightLog</c> has been cleared. This is the only seam that
+        /// sees the archive as a completed fact without patching stock.
+        /// </para>
+        ///
+        /// <para>
+        /// The facet records the ARCHIVED ENTRIES, not a numeric XP: stock recomputes
+        /// <c>experience</c> from the career log every time it is asked, and the flight NUMBER
+        /// is part of the scoring (entries are grouped by flight and deduped across groups). A
+        /// number could not be safely re-asserted; a set of entries can.
+        /// </para>
+        /// </summary>
+        internal void OnVesselRecoveryProcessingForExperience(
+            ProtoVessel pv, KSP.UI.Screens.MissionRecoveryDialog dialog, float recoveryFactor)
+        {
+            if (IsReplayingActions)
+                return;
+            if (pv == null)
+                return;
+
+            List<ProtoCrewMember> crew;
+            try
+            {
+                crew = pv.GetVesselCrew();
+            }
+            catch (Exception ex)
+            {
+                ParsekLog.Warn("GameStateRecorder",
+                    $"ExperienceGained: GetVesselCrew threw: {ex.Message} - skipping");
+                return;
+            }
+
+            if (crew == null || crew.Count == 0)
+                return;
+
+            double ut = Planetarium.GetUniversalTime();
+            int emitted = 0;
+            int skippedNoEntries = 0;
+            for (int i = 0; i < crew.Count; i++)
+            {
+                var member = crew[i];
+                if (member == null || string.IsNullOrEmpty(member.name))
+                    continue;
+
+                List<KerbalCareerLogEntry> archived;
+                try
+                {
+                    archived = ExtractJustArchivedCareerEntries(member);
+                }
+                catch (Exception ex)
+                {
+                    ParsekLog.Warn("GameStateRecorder",
+                        $"ExperienceGained: reading career log for '{member.name}' threw: {ex.Message}");
+                    continue;
+                }
+
+                if (archived.Count == 0)
+                {
+                    skippedNoEntries++;
+                    continue;
+                }
+
+                string encoded = KerbalCareerLogEntry.FormatSet(archived);
+                string trait = member.trait ?? "";
+                var evt = new GameStateEvent
+                {
+                    ut = ut,
+                    eventType = GameStateEventType.ExperienceGained,
+                    key = member.name,
+                    detail = $"flight={archived[0].Flight.ToString(CultureInfo.InvariantCulture)}" +
+                             $";entries={encoded}" +
+                             (trait.Length > 0 ? $";trait={trait}" : string.Empty)
+                };
+                Emit(ref evt, "ExperienceGained");
+                emitted++;
+
+                // A recovery at KSC has no live recorder to carry the event through a commit,
+                // so forward straight to the ledger - the same shape the Bail-Out Grant
+                // carve-out uses. With a live recorder the event flows through the commit-time
+                // ConvertEvents path instead.
+                if (ShouldForwardDirectLedgerEvent(evt.recordingId, HasLiveRecorder()))
+                    LedgerOrchestrator.OnKscSpending(evt);
+            }
+
+            ParsekLog.Info("GameStateRecorder",
+                $"Game state: ExperienceGained crew={crew.Count.ToString(CultureInfo.InvariantCulture)} " +
+                $"emitted={emitted.ToString(CultureInfo.InvariantCulture)} " +
+                $"noEntries={skippedNoEntries.ToString(CultureInfo.InvariantCulture)}");
+        }
+
+        /// <summary>
+        /// The entries <c>ArchiveFlightLog</c> just appended to <paramref name="member"/>'s
+        /// career log: the run sharing the LAST entry's flight number.
+        ///
+        /// <para>
+        /// <c>FlightLog.AddEntry(Entry)</c> copies the source entry's own <c>flight</c>, and a
+        /// mission's flight-log entries all share one flight number (only <c>AddFlight()</c>,
+        /// called at archive time, advances it). So the last entry's flight number IS the
+        /// flight that just archived, and the entries carrying it are exactly what was added.
+        /// </para>
+        /// </summary>
+        internal static List<KerbalCareerLogEntry> ExtractJustArchivedCareerEntries(
+            ProtoCrewMember member)
+        {
+            var result = new List<KerbalCareerLogEntry>();
+            if (member == null) return result;
+
+            var careerLog = member.careerLog;
+            if (careerLog == null || careerLog.Count == 0) return result;
+
+            int archivedFlight = careerLog[careerLog.Count - 1].flight;
+            for (int i = 0; i < careerLog.Count; i++)
+            {
+                var entry = careerLog[i];
+                if (entry == null || entry.flight != archivedFlight) continue;
+                if (string.IsNullOrEmpty(entry.type)) continue;
+                result.Add(new KerbalCareerLogEntry(entry.flight, entry.type, entry.target));
+            }
+            return result;
         }
 
         #endregion
