@@ -2755,9 +2755,9 @@ class IngameBatchWiringGroupTests(unittest.TestCase):
         # (Flown as `H33-logistics-route-proof`; renamed H35 post-merge for the
         # same collision.)
         "H35-logistics-route-proof": ("Logistics", 47, "FLIGHT"),
-        # P5/P6's live half. Authored, not yet flown - the INTERIM member (see
-        # INTERIM_PIN_IDS above), so its pinned total is attribute-exact while its
-        # passed / skipped split waits on a measurement.
+        # P5/P6's live half. Flown twice (PARSEK-FAIL 5/7 on two product defects,
+        # then PASS 7/7 after both fixes), so its tally is now pinned WHOLE and it
+        # has left INTERIM_PIN_IDS - see that set's comment for the measurement.
         "H36-playback-fidelity":     ("PlaybackFidelity", 7, "FLIGHT"),
     }
 
@@ -2839,7 +2839,7 @@ class IngameBatchWiringGroupTests(unittest.TestCase):
     # satisfied.
     # EMPTY, and that is the healthy state: an interim pin is a temporary weakening
     # (the form accepts 1-of-N by design), so it should exist only between a spec
-    # landing and its first flight. Two members passed through it and both are gone:
+    # landing and its first PASSING flight. Three members passed through it, all gone:
     #
     #   H32-snapshot-baseline FLEW 2026-08-11 (run `2026-08-11_1111`, PASS) reading
     #   `total=7 passed=7 failed=0 skipped=0`. BOTH pre-flight reasons for leaving it
@@ -2858,17 +2858,21 @@ class IngameBatchWiringGroupTests(unittest.TestCase):
     #   body-relative surface normal, and a spin axis not parallel to it) - so no
     #   RUNTIME_SKIPS entry is owed for either.
     #
-    # Both specs now pin their tallies whole, so the set is empty again.
-    # H36 is the interim member: EVERY one of its seven cells carries a run-time
-    # InGameAssert.Skip keyed on what the provisioned install loaded and on what the
-    # ghost builder resolved (an engine whose FX clone yields a captured magnitude
-    # baseline, an RCS block ditto, a deployable whose sampled poses differ, a
-    # resolvable ModuleGimbal / ModuleWheelSteering transform, a tracking pivot). All
-    # seven are expected to hold on stock-minimal, but no attribute predicts any of
-    # them, so total= is pinned literally and passed= / skipped= stay regex classes
-    # until the first flight measures them. passed=[1-9][0-9]* still rejects the whole
-    # vacuous family. Reason restated in the spec header.
-    INTERIM_PIN_IDS = {"H36-playback-fidelity"}
+    #   H36-playback-fidelity took TWO flights. EVERY one of its seven cells carries a
+    #   run-time InGameAssert.Skip keyed on what the provisioned install loaded and on
+    #   what the ghost builder resolved (an engine whose FX clone yields a captured
+    #   magnitude baseline, an RCS block ditto, a deployable whose sampled poses
+    #   differ, a resolvable ModuleGimbal / ModuleWheelSteering transform, a tracking
+    #   pivot), so no attribute predicted the split. The first flight (2026-08-11, run
+    #   `2026-08-12_0015`) was PARSEK-FAIL 5/7 on two PRODUCT defects, NOT on any of
+    #   those guards - which is worth recording, because a red is not a measurement and
+    #   the id stayed interim through it. The RE-FLY after both fixes (2026-08-12, run
+    #   `2026-08-11_2211`, PASS attempt 1) read `total=7 passed=7 failed=0 skipped=0`:
+    #   all seven guards were satisfied on stock-minimal, so no RUNTIME_SKIPS entry is
+    #   owed and the pin is now whole.
+    #
+    # All three specs now pin their tallies whole, so the set is empty again.
+    INTERIM_PIN_IDS: set = set()
 
     # Every committed spec whose id matches this is an H-SERIES batch spec.
     # Membership is DISCOVERED from disk and then compared for set equality against

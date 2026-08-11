@@ -1125,6 +1125,16 @@ Open items, highest leverage first:
   round trip preserves it. `FxMagnitudeWriteFailureCount` is a hard-zero assertion in both
   plume cells, because the failure LOG line is rate-limited to one per minute per module and so
   undercounted a total no-op as a curiosity.
+  **CONFIRMED IN FLIGHT 2026-08-12** (H36 re-fly, run `2026-08-11_2211`, PASS 7/7). The write
+  LANDS on the real cloned emitters and the scaled values are genuinely off the baseline:
+  engine `part='ionEngine' fullSpeed=6.5 lowSpeed=1.95 fullEmission=350 lowEmission=105
+  restored=6.5 writeFailures=0` — the int-typed `maxEmission` scaled 350 -> 105 at reduced
+  throttle and came back EXACTLY to 350 at full, which is the ratio-not-rewrite property — and
+  RCS `part='mk1-3pod' baselineSpeed=48 scaledSpeed=12 afterRestore=12 baselineEmission=400
+  scaledEmission=104 afterEmission=104 writeFailures=0`, where the scaled value DIFFERS from the
+  baseline (the anti-vacuity assertion) and then survives the `RestoreAllRcsEmissions` round
+  trip unchanged. ZERO `FX magnitude write failed` lines anywhere in that run's KSP.log, against
+  three (engine midx=0, engine midx=1, rcs midx=0) on the first flight.
 - **Five dead reflection probes**, four of them documented as shipped at
   `done/next-parts-event-support-priority.md:43-47`. `module.Fields` is
   `[KSPField]`-only (`FlightRecorder.cs:3733-3748`); `ModuleControlSurface`'s
@@ -1173,8 +1183,10 @@ Open items, highest leverage first:
   mid-turn; the same re-seed hold is left in place for gimbals and control surfaces on purpose
   (bounded by the clamp, invisible at warp's visual scale, self-correcting on the first
   sub-second frame). Live coverage: the `PlaybackFidelity` in-game category (7 cells) driven by
-  `harness/scenarios/H36-playback-fidelity.toml` (FLOWN 2026-08-11, PARSEK-FAIL 5/7; both
-  defects fixed 2026-08-12, re-fly pending; interim tally pin unchanged).
+  `harness/scenarios/H36-playback-fidelity.toml` (FLOWN twice: 2026-08-11 PARSEK-FAIL 5/7, then
+  LIVE-PROVEN on the 2026-08-12 re-fly after both fixes — run `2026-08-11_2211`, PASS attempt 1,
+  `total=7 passed=7 failed=0 skipped=0`; the tally pin is now whole and the id has left
+  `INTERIM_PIN_IDS`).
   **FLIGHT FOLLOW-UP 2026-08-12, the sun-tracking red.** `SunTrackingPivotAimsOnlyWhenFully-
   Deployed` red with `solarPanelOX10C` never resolving an aim angle. It was NOT the deployed
   gate — the same run's `Spawn baseline: stowed 1/1 deployable(s)` line proves the part's
@@ -1200,6 +1212,15 @@ Open items, highest leverage first:
   cell pastes `GhostPlaybackLogic.DescribeSunTrackingState` into its own failure message — a
   near-zero `targetPerp` is the legitimate hold, a near-zero `referencePerp` is a frame bug,
   and `gate=closed` is a deployable-path bug.
+  **CONFIRMED IN FLIGHT 2026-08-12** (H36 re-fly, run `2026-08-11_2211`, PASS 7/7). The cell's
+  own state line now reads `part='solarPanelOX10C' stowedDrift=0 aimed=90 holdDelta=0 gate=open
+  deployable=present currentDeployed=True transitionActive=False deployFraction=1 transforms=13
+  aimResolved=True aim=89.99999 targetPerp=1.04331008E+10 referencePerp=1 currentAngle=89.99999
+  hasAimed=True` — an angle RESOLVES on the very pivot that declined every frame before, and the
+  discriminating numbers read exactly as designed: `referencePerp=1` (the orthogonalised
+  reference is now unit-length in the aim plane, where the frame bug drove it to zero) beside a
+  large `targetPerp`, with `stowedDrift=0` proving the deployed gate still holds the pivot still
+  and `holdDelta=0` proving it holds once aimed.
   The gimbal cell additionally carries the SIGN/HANDEDNESS pin for the hand-rolled quaternion
   product — the headless cells build their inputs in the convention the product assumes, which
   is circular, so the only non-circular authority is Unity's own

@@ -104,39 +104,64 @@ count = { min = 0, max = 0 }
 # `passed=[1-9][0-9]*` rejects the whole vacuous family (every vacuous BATCH_COMPLETE
 # carries passed=0), so hlib.batch_contract_vacuity_gap answers None.
 #
-# EVIDENCE STANDING: **AUTHORED, NOT YET FLOWN.** total=7 is ATTRIBUTE-EXACT (7
+# EVIDENCE STANDING: **MEASURED 2026-08-12**, run `2026-08-11_2211`, PASS attempt 1,
+# wall 51 s. The batch printed
+# `BATCH_COMPLETE v1 total=7 passed=7 failed=0 skipped=0 category=PlaybackFidelity
+# scene=FLIGHT`, so all four numbers are now pinned literally and this id has been
+# REMOVED from IngameBatchWiringGroupTests.INTERIM_PIN_IDS. No RUNTIME_SKIPS entry is
+# owed: the measured split equals the attribute derivation (`hlib.derive_batch_tally`
+# -> total 7, attribute_skipped 0). total=7 remains ATTRIBUTE-EXACT (7
 # [InGameTest(Category = "PlaybackFidelity")] declarations in
 # Source/Parsek/InGameTests/PlaybackFidelityInGameTests.cs, all Scene = FLIGHT, all
 # AllowBatchExecution), kept in sync by CommittedBatchTallySourceSyncTests; failed=0 is
 # the ASSERTION; scene=FLIGHT is the gloops-airshow Focusable route, measured by H13 /
 # H5 / S1.4 / H33 on this exact fixture.
 #
-# passed= and skipped= are DELIBERATELY LOOSE, and this id is registered in
-# IngameBatchWiringGroupTests.INTERIM_PIN_IDS with that reason, because EVERY cell here
-# carries a run-time InGameAssert.Skip keyed on what the provisioned install actually
-# loaded and on what the ghost builder resolved - and "expected to hold" is not a
-# measurement:
-#  - EnginePlumeMagnitudeScalesWithThrottle needs a loaded engine part whose EFFECTS (or
-#    legacy fx_* children) clone into a ghost AND whose emitters yield a captured
-#    magnitude baseline.
-#  - RcsPlumeMagnitudeSurvivesSuppressAndRestore needs the same for an RCS block's
-#    running effect group.
-#  - DeployableAnimatesOnEventAndSnapsOnBaseline and
-#    LoopCycleResetReStowsAMidTransitionDeployable both need a deployable part whose
-#    sampled stowed and deployed poses actually DIFFER on this install.
-#  - GimbalDeflectsWithAttitudeAndClampsToRange needs a ModuleGimbal whose
-#    gimbalTransformName resolves on the cloned model.
-#  - WheelSteeringIsDerivedAndParksOnLoopCycle needs a ModuleWheelSteering whose
-#    caliperTransformName resolves.
-#  - SunTrackingPivotAimsOnlyWhenFullyDeployed needs a tracking ModuleDeployablePart
-#    (isTracking = true) whose pivotName resolves, plus a live Planetarium.fetch.Sun.
+# THIS IS THE SECOND FLIGHT. The FIRST (run `2026-08-12_0015`) was PARSEK-FAIL 5/7, and
+# both reds were PRODUCT defects, not fixture ones: S1's reflective magnitude write
+# threw `Object of type 'System.Single' cannot be converted to type 'System.Int32'` on
+# every emitter (KSPParticleEmitter.minEmission/maxEmission are int, and one shared try
+# took all three writes down), and DriveSunTracking measured its aim about the PARENT's
+# up from the pivot's neutral world forward while ApplySunTrackingAngle applies it about
+# the PIVOT's own local axis. Both are fixed on branch `playback-fidelity` (448634865,
+# 87aa58ace) and this run is their live proof - see the per-cell lines quoted below.
 #
-# All seven are expected to hold on stock-minimal, but the first flight is what settles
-# it. AFTER THAT FLIGHT: pin all four numbers literally, remove this id from
-# INTERIM_PIN_IDS, and if a cell skipped, record it in
-# IngameBatchWiringGroupTests.RUNTIME_SKIPS with its verbatim skip message as the
-# reason, exactly as H26 / H28 / H31 do.
-required  = ["BATCH_COMPLETE v1 total=7 passed=[1-9][0-9]* failed=0 skipped=[0-9]+ category=PlaybackFidelity scene=FLIGHT"]
+# WHAT THE MEASUREMENT SETTLED. The interim form existed because EVERY one of the seven
+# cells carries a run-time InGameAssert.Skip keyed on what the provisioned install
+# actually loaded and on what the ghost builder resolved, and "expected to hold" is not
+# a measurement. All seven EXECUTED on stock-minimal; each resolved the fixture it
+# needed:
+#  - EnginePlumeMagnitudeScalesWithThrottle needed a loaded engine part whose EFFECTS
+#    (or legacy fx_* children) clone into a ghost AND whose emitters yield a captured
+#    magnitude baseline. Resolved 'ionEngine' (19.1 ms), and the write LANDED:
+#    `fullSpeed=6.5 lowSpeed=1.95 fullEmission=350 lowEmission=105 restored=6.5
+#    writeFailures=0` - scaled values genuinely off the baseline, with the int-typed
+#    emission fields written through TryConvertMagnitudeForField and not one failure.
+#  - RcsPlumeMagnitudeSurvivesSuppressAndRestore needed the same for an RCS block's
+#    running effect group. Resolved 'mk1-3pod' (5.2 ms): `baselineSpeed=48
+#    scaledSpeed=12 afterRestore=12 baselineEmission=400 scaledEmission=104
+#    afterEmission=104 writeFailures=0` - the scaled value DIFFERS from the baseline
+#    (the anti-vacuity assertion added after the first flight) and survives the
+#    RestoreAllRcsEmissions round trip unchanged.
+#  - DeployableAnimatesOnEventAndSnapsOnBaseline and
+#    LoopCycleResetReStowsAMidTransitionDeployable both needed a deployable part whose
+#    sampled stowed and deployed poses actually DIFFER on this install. Resolved
+#    'solarPanelOX10C' (26.3 ms / 3.0 ms), span 0.0215 m with the event pose landing
+#    strictly between the endpoints (midToStowed == midToDeployed == 0.01074466).
+#  - GimbalDeflectsWithAttitudeAndClampsToRange needed a ModuleGimbal whose
+#    gimbalTransformName resolves on the cloned model. Resolved 'turboJet' (9.8 ms):
+#    `range=10 peak=9.99997 settled=0` - clamped at the declared range, decayed to
+#    neutral.
+#  - WheelSteeringIsDerivedAndParksOnLoopCycle needed a ModuleWheelSteering whose
+#    caliperTransformName resolves. Resolved 'GearFree' (4.9 ms):
+#    `mode=WheelSteeringHeading parked=(0.0, 0.0, 0.0, 1.0)` - identity, i.e. straight.
+#  - SunTrackingPivotAimsOnlyWhenFullyDeployed needed a tracking ModuleDeployablePart
+#    (isTracking = true) whose pivotName resolves, plus a live Planetarium.fetch.Sun.
+#    Resolved 'solarPanelOX10C' (2.6 ms) and, with the frame fix, an angle RESOLVED:
+#    `stowedDrift=0 aimed=90 holdDelta=0 gate=open deployFraction=1 aimResolved=True
+#    aim=89.99999 currentAngle=89.99999 hasAimed=True` - no drift while stowed, a real
+#    aim once fully deployed, and a hold once aimed.
+required  = ["BATCH_COMPLETE v1 total=7 passed=7 failed=0 skipped=0 category=PlaybackFidelity scene=FLIGHT"]
 forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
 
 [runtime]
