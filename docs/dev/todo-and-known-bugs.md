@@ -87,6 +87,31 @@ same reason the patcher is, so the facet measures exactly what the patcher would
   `VesselRecovery`, which archives every crew member's flight log and fires
   `onVesselRecoveryProcessing` UNCONDITIONALLY - so a spawn cleanup would have credited
   career XP for a recovery the player never performed.
+- **...and those three call sites now actually SET `SuppressCrewEvents`.** The guard above
+  shipped guarding nothing: none of `ParsekFlight.CleanupOrphanedSpawnedVessels`,
+  `ParsekFlight.RecoverTimelineSpawnedVessel` or `VesselSpawner`'s #112 duplicate-blocker
+  cleanup wrapped its `ShipConstruction.RecoverVesselFromFlight` call, and the only two
+  `SuppressionGuard.Crew()` uses in either file were on unrelated paths. There is no way to
+  discriminate at the handler - stock fires the event identically for both - so the
+  discrimination has to be at the call site. All three are now wrapped. The handler's guard
+  set is extracted as the pure `GameStateRecorder.ShouldSkipExperienceCapture`, and
+  `ProgrammaticRecoveryCrewSuppressionGateTests` holds both halves: a behavioural cell that
+  a suppressed recovery skips the capture, and a source gate over every production
+  `RecoverVesselFromFlight` call site (with an exact count, so a new one cannot be added
+  unwrapped).
+- **The deferred re-assert now has a recalc to land on after a MERGE.** The deferral gate
+  is the correctness argument above, but the merge path had nothing to re-trigger it: the
+  merge's only recalc runs from `SupersedeCommit.CommitTombstones` at the Tombstone step,
+  four phases BEFORE `MergeJournalOrchestrator` clears the marker at step 7, and no recalc
+  follows the clear. (The DISCARD path was fine - `MergeDialog.ReFlyDiscard` clears the
+  marker and then recalcs.) So a merged re-fly left the crew carrying the pre-merge XP
+  until some unrelated event happened to recalc. `RecalcAfterMarkerCleared` now runs on
+  both merge routes - `RunMerge` after the `MarkerCleared` advance and before Durable Save
+  #2, so the re-asserted roster is what the save captures, and the same step inside
+  `CompleteFromPostDurable`'s `MarkerCleared` block, because `ParsekScenario.OnLoad`'s own
+  recalc runs BEFORE `RunFinisher` and cannot stand in for it. Idempotent under the
+  journal's re-run contract (a recalc re-derives from ELS; the re-assert appends only what
+  the roster is missing). Four cells in `MergeCrashRecoveryMatrixTests`.
 - **No death-group appends.** Decompile-verified: `KerbalRoster.ExperienceAddFlight` RESETS
   the XP accumulator when a flight group's LAST entry is `Die`, and `FlightLog.GetFlights`
   groups by contiguous runs of the same flight number. A rewind rolls the flight counter

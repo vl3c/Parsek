@@ -2307,8 +2307,14 @@ namespace Parsek
                         $"Duplicate blocker detected for #{index} ({rec.VesselName}): " +
                         $"recovering '{blockerName}' (pid={blockerVessel.persistentId}) at {overlapDist:F0}m — " +
                         $"likely quicksave-loaded duplicate (#112)");
-                    ShipConstruction.RecoverVesselFromFlight(
-                        blockerVessel.protoVessel, HighLogic.CurrentGame.flightState, true);
+                    // Parsek's OWN recovery — suppress the crew events stock fires from
+                    // VesselRecovery so the P9a experience handler does not credit career
+                    // XP for a recovery the player never performed.
+                    using (SuppressionGuard.Crew())
+                    {
+                        ShipConstruction.RecoverVesselFromFlight(
+                            blockerVessel.protoVessel, HighLogic.CurrentGame.flightState, true);
+                    }
                     rec.DuplicateBlockerRecovered = true;
                     rec.CollisionBlockCount = 0;
 

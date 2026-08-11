@@ -1476,26 +1476,44 @@ namespace Parsek
         /// number could not be safely re-asserted; a set of entries can.
         /// </para>
         /// </summary>
+        /// <summary>
+        /// Pure guard set for <see cref="OnVesselRecoveryProcessingForExperience"/>: the SAME
+        /// set <c>ParsekScenario.OnVesselRecoveryProcessing</c> carries on this event, plus
+        /// the crew-suppression flag.
+        ///
+        /// <para>
+        /// <b><paramref name="suppressCrewEvents"/> is what makes Parsek's OWN recoveries
+        /// invisible here.</b> Stock <c>VesselRecovery</c> archives every crew member's flight
+        /// log and fires <c>onVesselRecoveryProcessing</c> UNCONDITIONALLY, and Parsek calls
+        /// <c>ShipConstruction.RecoverVesselFromFlight</c> from three places that are
+        /// housekeeping rather than a player recovery: the #112 duplicate-blocker cleanup in
+        /// <c>VesselSpawner</c>, and <c>CleanupOrphanedSpawnedVessels</c> /
+        /// <c>RecoverTimelineSpawnedVessel</c> in <c>ParsekFlight</c>. All three wrap the call
+        /// in <c>SuppressionGuard.Crew()</c> so this returns true and no career XP is credited
+        /// for a recovery the player never performed;
+        /// <c>ProgrammaticRecoveryCrewSuppressionGateTests</c> holds that wrapping in place.
+        /// </para>
+        /// </summary>
+        internal static bool ShouldSkipExperienceCapture(
+            bool isReplayingActions,
+            bool suppressCrewEvents,
+            bool isGhostMapVessel,
+            bool isRewinding)
+        {
+            return isReplayingActions || suppressCrewEvents || isGhostMapVessel || isRewinding;
+        }
+
         internal void OnVesselRecoveryProcessingForExperience(
             ProtoVessel pv, KSP.UI.Screens.MissionRecoveryDialog dialog, float recoveryFactor)
         {
-            if (IsReplayingActions)
-                return;
             if (pv == null)
                 return;
 
-            // The SAME guard set ParsekScenario.OnVesselRecoveryProcessing carries on this
-            // event, plus the crew-suppression flag. Without them this fires on Parsek's OWN
-            // programmatic recoveries: ShipConstruction.RecoverVesselFromFlight (used by the
-            // #112 duplicate-blocker cleanup, CleanupOrphanedSpawnedVessels and
-            // RecoverTimelineSpawnedVessel) runs stock VesselRecovery, which archives every
-            // crew member's flight log and fires this event UNCONDITIONALLY - so a Parsek
-            // spawn-cleanup would credit career XP for a recovery the player never performed.
-            if (SuppressCrewEvents)
-                return;
-            if (GhostMapPresence.IsGhostMapVessel(pv.persistentId))
-                return;
-            if (RewindContext.IsRewinding)
+            if (ShouldSkipExperienceCapture(
+                    IsReplayingActions,
+                    SuppressCrewEvents,
+                    GhostMapPresence.IsGhostMapVessel(pv.persistentId),
+                    RewindContext.IsRewinding))
                 return;
 
             List<ProtoCrewMember> crew;
