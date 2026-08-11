@@ -99,34 +99,34 @@ count = { min = 274, max = 274 }
 # BATCH_COMPLETE carries passed=0), so hlib.batch_contract_vacuity_gap answers
 # None.
 #
-# EVIDENCE STANDING: AUTHORED, NOT YET FLOWN. This is an INTERIM pin and the spec
-# is registered in IngameBatchWiringGroupTests.INTERIM_PIN_IDS for exactly that
-# reason. What is and is not derivable:
-#  - total=3 is ATTRIBUTE-EXACT: 3 [InGameTest(Category = "RecordedSignals")]
-#    declarations in Source/Parsek/InGameTests/RecordedSignalsInGameTests.cs
-#    (1 AnyScene + 2 FLIGHT), so scene-skipped=0 and batch-skipped=0 at FLIGHT.
-#    Kept in sync by CommittedBatchTallySourceSyncTests.
-#  - failed=0 is the ASSERTION.
-#  - passed= / skipped= are NOT DERIVABLE and are deliberately left loose. Two of
-#    the three cells carry run-time InGameAssert.Skip guards that depend on what
-#    the provisioned install actually loaded: cell 2 needs a part whose
+# EVIDENCE STANDING: **MEASURED 2026-08-11**, run `2026-08-11_1118`, PASS attempt 1,
+# wall 70 s. The batch printed
+# `BATCH_COMPLETE v1 total=3 passed=3 failed=0 skipped=0 category=RecordedSignals
+# scene=FLIGHT`, so all four numbers are now pinned literally and this id has been
+# REMOVED from IngameBatchWiringGroupTests.INTERIM_PIN_IDS. No RUNTIME_SKIPS entry
+# is owed: the measured split equals the attribute derivation
+# (`hlib.derive_batch_tally` -> total 3, attribute_skipped 0).
+#
+# WHAT THE MEASUREMENT SETTLED. The interim form existed because two of the three
+# cells carry run-time InGameAssert.Skip guards keyed on what the provisioned
+# install actually loaded, and "expected to hold" is not a measurement:
+#  - ParachuteRepackRestoresTheCapAtTransformLevel needs a part whose
 #    ModuleParachute has BOTH a canopy and a cap transform resolvable on the
-#    prefab, cell 3 needs a part carrying a wheel MOTOR module and a ghost build
-#    that resolves its spin transform. Both are expected to hold on
-#    stock-minimal (parachuteSingle and roverWheel1 are stock), but "expected to
-#    hold" is not a measurement, and the honest interim form is what says so.
-#    Cell 1 is pure math over local vectors and deterministically does not skip
-#    (it carries a tolerance-resolution Skip path, unreachable with the committed
-#    constants: ~0.199 m rim travel vs the 0.02 m floor), so passed= floors at 1
-#    rather than 0.
-#  - scene=FLIGHT is the gloops-airshow Focusable route, MEASURED by H13 / H5 /
-#    S1.4 on this exact fixture.
-# ON THE FIRST FLIGHT: read the actual tally off the collected KSP.log, pin all
-# four numbers literally, and remove this id from INTERIM_PIN_IDS. If a cell
-# skipped, its skip message names the missing context verbatim - record it in
-# IngameBatchWiringGroupTests.RUNTIME_SKIPS with the reason, exactly as H26 /
-# H28 / H31 do.
-required  = ["BATCH_COMPLETE v1 total=3 passed=[1-9][0-9]* failed=0 skipped=[0-9]+ category=RecordedSignals scene=FLIGHT"]
+#    prefab. It EXECUTED (2.4 ms) - the stock chute prefab resolves both.
+#  - WheelSpinNeedsGroundContactAndGroundMotion needs a part carrying a wheel MOTOR
+#    module AND a ghost build that resolves its spin transform, a body-relative
+#    surface normal, and a spin axis not parallel to that normal (four separate
+#    Skip paths). It EXECUTED (4.8 ms), so all four were satisfied.
+#  - WheelRollForwardMatchesUnityHandedness was expected not to skip (pure math over
+#    local vectors; its tolerance-resolution Skip path is unreachable with the
+#    committed constants - ~0.199 m rim travel against the 0.02 m floor) and did not
+#    (0.8 ms).
+# total=3 remains ATTRIBUTE-EXACT (3 [InGameTest(Category = "RecordedSignals")]
+# declarations in Source/Parsek/InGameTests/RecordedSignalsInGameTests.cs, 1 AnyScene
+# + 2 FLIGHT), kept in sync by CommittedBatchTallySourceSyncTests; failed=0 is the
+# ASSERTION; scene=FLIGHT is the gloops-airshow Focusable route, measured by H13 /
+# H5 / S1.4 on this exact fixture and now by this run too.
+required  = ["BATCH_COMPLETE v1 total=3 passed=3 failed=0 skipped=0 category=RecordedSignals scene=FLIGHT"]
 forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
 
 [runtime]

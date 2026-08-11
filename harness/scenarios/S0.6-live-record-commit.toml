@@ -64,10 +64,17 @@ allowedAnomalies = []
 # to <2 points and be dropped, leaving the count at 274; if it survives, 275.
 # recorded-signal-fixes 2026-08-11: the corpus grew by TWO rows (the chute-repack
 # showcase + the surface rover drive, both added to InjectAllRecordings). Every number
-# in this spec that counts the corpus is therefore DERIVED (+2), not re-measured:
-# run.py's count_recordings counts .prec files, ScenarioWriter.WriteSidecarFiles
-# writes one per v3 builder, and each AddRecordingAsTree adds exactly one builder /
-# one tree / one recording. The next flight of this spec is what confirms it.
+# in this spec that counts the corpus was DERIVED (+2) when it landed and is now
+# MEASURED 2026-08-11: H5-invariants-corpus flew that day (run `2026-08-11_1119`,
+# PASS attempt 1) and the harness counted exactly 274 .prec sidecars
+# (`expectations.observed.recordings.count = 274`, mismatches 0), with the same
+# count independently re-read by H33-recorded-signals (run `2026-08-11_1118`,
+# PASS). The derivation it rested on held exactly - run.py's count_recordings
+# counts .prec files, ScenarioWriter.WriteSidecarFiles writes one per v3 builder,
+# and each AddRecordingAsTree adds exactly one builder / one tree / one recording -
+# and H5's in-game walk confirmed the hydrated pair at `recordings=308 trees=278`
+# in that same run. THIS SPEC has still not re-flown since the bump; what is
+# measured is the shared corpus it pins, not this spec's own flight.
 # Either outcome keeps the corpus intact, which is the point.
 count = { min = 274, max = 275 }
 

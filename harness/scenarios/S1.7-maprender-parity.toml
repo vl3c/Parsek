@@ -217,8 +217,14 @@ allowedAnomalies = []
 # for their own synthetic recordings and restore it in a finally, so a count drift
 # here means a test leaked a recording into the save or the corpus failed to load.
 # NOTE 2026-08-11 (recorded-signal-fixes): the shared InjectAllRecordings corpus
-# grew 272 -> 274 (chute-repack + surface-rover showcase rows). This pin moved by
-# DERIVATION (+2), not re-measurement; if it reds on the next flight, read the
+# grew 272 -> 274 (chute-repack + surface-rover showcase rows). MEASURED
+# 2026-08-11 - the +2 was a derivation when it landed and is now confirmed:
+# H5-invariants-corpus flew that day (run `2026-08-11_1119`, PASS attempt 1) and
+# the harness counted exactly 274 .prec sidecars
+# (`expectations.observed.recordings.count = 274`, mismatches 0), with the same
+# count independently re-read by H33-recorded-signals (run `2026-08-11_1118`,
+# PASS). H5's in-game walk measured the hydrated pair in the same run at
+# `recordings=308 trees=278`, also as derived. If this pin ever reds, read the
 # actual count off the collected KSP.log before touching anything else.
 count = { min = 274, max = 274 }
 

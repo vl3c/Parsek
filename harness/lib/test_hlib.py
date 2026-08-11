@@ -2819,7 +2819,17 @@ class IngameBatchWiringGroupTests(unittest.TestCase):
     # guard on whether KSP built a Vectrosity orbit line for a synthetic ghost that
     # session, which no attribute predicts. The 2026-07-30 flight measured all three
     # satisfied.
-    INTERIM_PIN_IDS = {"H33-recorded-signals"}
+    # EMPTY, and that is the healthy state: an interim pin is a temporary weakening
+    # (the form accepts 1-of-N by design), so it should exist only between a spec
+    # landing and its first flight. H33-recorded-signals was the one member; it FLEW
+    # 2026-08-11 (run `2026-08-11_1118`, PASS attempt 1) reading
+    # `total=3 passed=3 failed=0 skipped=0`, its spec now pins that whole, and the
+    # entry is dropped. Both cells whose run-time Skip guards motivated the loose form
+    # EXECUTED on stock-minimal - the stock chute prefab resolves both a canopy and a
+    # cap transform, and the stock rover wheel satisfied all four of its guards
+    # (motor module, resolved spin transform, a body-relative surface normal, and a
+    # spin axis not parallel to it) - so no RUNTIME_SKIPS entry is owed either.
+    INTERIM_PIN_IDS = set()
 
     # Every committed spec whose id matches this is an H-SERIES batch spec.
     # Membership is DISCOVERED from disk and then compared for set equality against

@@ -69,12 +69,23 @@ count = { min = 274, max = 274 }
 # THAT 306/276 PAIR WAS THE PRE-2026-08-11 CORPUS; the numbers pinned above are the
 # corpus THIS commit produces. recorded-signal-fixes grew the corpus by TWO rows
 # (the chute-repack showcase + the surface rover drive, both added to
-# InjectAllRecordings), so 272/276/306 -> 274/278/308. All three are DERIVED (+2),
-# NOT re-measured: run.py's count_recordings counts .prec files,
-# ScenarioWriter.WriteSidecarFiles writes one per v3 builder, and each
-# AddRecordingAsTree adds exactly one builder / one tree / one recording. The next
-# flight of this spec is what confirms it; if it reds on this pin, read the ACTUAL
-# pair off the collected KSP.log and re-pin here plus recordings.count above.
+# InjectAllRecordings), so 272/276/306 -> 274/278/308.
+#
+# ALL THREE WERE DERIVED (+2) WHEN THEY LANDED AND ARE NOW **MEASURED 2026-08-11**,
+# run `2026-08-11_1119`, PASS attempt 1, wall 71 s - this spec's own flight is the
+# one that converted them, which is what its header said would happen. The log read
+# `RecordingInvariants walk: recordings=308 trees=278` TOKEN FOR TOKEN, and the
+# harness counted exactly 274 .prec sidecars for the count pin above
+# (`expectations.observed.recordings.count = 274`, mismatches 0). So the derivation
+# held on all three axes at once and nothing needed re-pinning. The reasoning it
+# rested on is therefore confirmed rather than merely plausible: run.py's
+# count_recordings counts .prec files, ScenarioWriter.WriteSidecarFiles writes one
+# per v3 builder, and each AddRecordingAsTree adds exactly one builder / one tree /
+# one recording. NOTE the run ALSO emits an `RecordingInvariants walk: recordings=0
+# trees=0 (empty-store pass check)` line first - that is the empty-store cell, not a
+# failed load, and the pinned pattern is anchored with `\b` so it cannot match it.
+# If this pin ever reds, read the ACTUAL pair off the collected KSP.log and re-pin
+# here plus recordings.count above.
 #
 # If a synthetic recording is deliberately degenerate, quarantine it via
 # expectedFail keyed to a todo-doc bug id rather than weakening failed=0. Update
