@@ -1079,12 +1079,21 @@ Open items, highest leverage first:
   (`GhostPlaybackLogic.cs:3588`), with `Mathf.Abs` making reverse identical to
   forward and a coasting rover showing stationary wheels. Re-deriving spin from
   trajectory ground speed is storage-NEGATIVE.
-- **Recorded magnitude that playback discards.** `SetEngineEmission`
-  (`:2172-2204`) branches only on `power > 0f`; only `:2405`/`:2423` (audio
-  curves) read the magnitude. `ComputeScaledRcsEmissionRate`/`...Speed` exist at
-  `:3354`/`:3367` with ZERO production call sites (only
-  `RuntimePolicyTests.cs:210,219,228,230`). Worst on Waterfall installs, whose
-  premise is a throttle-continuous plume.
+- ~~FIXED 2026-08-11 (branch `playback-fidelity`)~~ **Recorded magnitude that playback discards.**
+  `SetEngineEmission` branched only on `power > 0f`; only the audio curves read the
+  magnitude, and `ComputeScaledRcsEmissionRate`/`...Speed` had ZERO production call
+  sites. **Fix:** both `Set*Emission` choke points now scale the plume as a RATIO of a
+  baseline captured once at build time (`GhostVisualBuilder.CaptureFxMagnitudeBaselines`,
+  run AFTER the #383 size boost and the world-space velocity floor so scaling composes
+  with them rather than overwriting them), written into the cloned `KSPParticleEmitter`'s
+  own persistent fields plus the `ParticleSystem` multipliers. Persistent fields, not a
+  per-event computation, because `RestoreAllRcsEmissions` re-enables emitters WITHOUT
+  going through `SetRcsEmission` — a per-event scale would restore a full-magnitude plume
+  on a quarter-throttle thruster after every high-warp suppression. The two RCS helpers
+  are the ratio's numerator and denominator, which gives them production callers with
+  their showcase visibility floors intact. Degradation is one-directional: an unreadable
+  baseline answers ratio 1.0, i.e. today's boolean behaviour, never a zero plume. Audio
+  untouched (it already consumed the magnitude; touching it would double-apply).
 - **Five dead reflection probes**, four of them documented as shipped at
   `done/next-parts-event-support-priority.md:43-47`. `module.Fields` is
   `[KSPField]`-only (`FlightRecorder.cs:3733-3748`); `ModuleControlSurface`'s
@@ -1102,12 +1111,29 @@ Open items, highest leverage first:
   transition ERASES state instead of deferring: `BackgroundRecorder.cs:2316-2336`
   drops `loadedStates` with no terminal emit, so a BG ghost's plume latches on
   for the whole rails span.
-- **Continuous motion to SYNTHESIZE, never sample:** gimbal (`ModuleGimbal`, 243
-  stock parts, ZERO Parsek references) and control-surface deflection from the
-  recorded `srfRelRotation` derivative; wheel steering from heading change; sun
-  tracking from `Planetarium.fetch.Sun`; launch dust (`ModuleSurfaceFX`, 183
-  parts, zero references) from engine power + altitude. Precedent:
-  `ApplyAblationChar` already synthesizes reentry char from live physics.
+- ~~FIXED 2026-08-11 (branch `playback-fidelity`)~~ **Continuous motion to SYNTHESIZE, never
+  sample:** gimbal and control-surface deflection, wheel steering, sun tracking, launch dust.
+  **Fix:** one new per-frame entry, `GhostPlaybackLogic.UpdateSynthesizedMotion`, beside
+  `UpdateActiveRobotics`, everything gated so a craft with none of these families pays a
+  reference compare. ONE CORRECTION TO THE ORIGINAL PRESCRIPTION: the attitude derivative
+  reads the ghost's APPLIED WORLD ROTATION, never `TrajectoryPoint.rotation` from a flat
+  Points list — that field is anchor-local in a RELATIVE track section, so differencing two
+  of them across a section boundary mixes frames and invents a rotation that never happened.
+  Wheel steering became a new `RoboticVisualMode.WheelSteeringHeading` that IGNORES the
+  recorded `ModuleWheelSteering` scalar for the same reason wheel spin ignores
+  `driveOutput`: it was an unsigned steering INPUT, not a caliper angle. Launch dust is
+  narrower than written — Parsek owns its own particle system (the reentry `fireParticles`
+  template) instead of driving `ModuleSurfaceFX`, is built lazily under the existing
+  per-frame build cap, and is gated on a ground reference latched from
+  `recordedGroundClearance`; no clearance anywhere in the trajectory means no dust,
+  permanently, rather than an invented reference that would put a dust cloud around a ghost
+  in orbit. Every new mutable visual resets in BOTH `ResetForLoopCycle` (the numbers) and
+  `ReapplySpawnTimeModuleBaselinesForLoopCycle` (the transforms), including a new
+  `WheelSteeringHeading` branch in `ApplyRoboticSpawnBaseline` — `ApplyRoboticPose` writes
+  nothing for that mode, so without it a caliper left turned would carry across a loop
+  boundary while the numbers claimed straight. Live coverage: the new `PlaybackFidelity`
+  in-game category (7 cells) driven by `harness/scenarios/H36-playback-fidelity.toml`
+  (AUTHORED, NOT YET FLOWN; interim tally pin).
 - **Career-bearing modules with a modest visual, which fell through both the "is
   it visible" and "does the quicksave restore it" sieves:**
   `ModuleScienceExperiment` (158 parts, ONE reference and it is a comment at

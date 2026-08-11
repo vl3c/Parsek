@@ -138,6 +138,14 @@ fields are however broken as metadata: `Docked` carries the **merged vessel** pi
 rest of the pipeline treats as a part pid, and `Undocked` hard-codes pid `0`
 (`ParsekFlight.cs:12193`, `:12206`).
 
+> **STATUS: FIXED 2026-08-11** on branch `playback-fidelity` (P5/P6 S1). Both
+> `SetEngineEmission` and `SetRcsEmission` now scale the plume as a RATIO of a build-time
+> captured baseline, so it composes with the #383 size boost and the world-space velocity
+> floor instead of overwriting them; `ComputeScaledRcsEmissionRate` / `ComputeScaledRcsSpeed`
+> are that ratio's numerator and denominator, which is how they got production callers with
+> their showcase floors intact. The audio path is deliberately untouched — it already read the
+> magnitude, and touching it would double-apply. Line numbers below are pre-fix.
+
 **Recorded magnitude that playback throws away.** `EngineThrottle` is recorded with a 0.05 deadband
 and `SetEngineEmission` (`GhostPlaybackLogic.cs:2172-2204`) branches only on `power > 0f`. Every
 reader of `currentPower` was enumerated: only `:2405` and `:2423` (audio volume/pitch curves)
@@ -237,18 +245,31 @@ confidently wrong.
 
 ### SHOULD — real fidelity, modest cost
 
-- **S1. Consume the throttle magnitude already on disk.** Wire emission rate, start size and start
+- ~~**S1. Consume the throttle magnitude already on disk.**~~ **DONE 2026-08-11** (`playback-fidelity`), as a ratio of a captured baseline rather than absolute writes. Wire emission rate, start size and start
   speed to `power` on both engine and RCS paths; the RCS helpers already exist. Zero storage,
   largest fidelity-per-line ratio in the audit, and the fix Waterfall users will notice.
-- **S2. Interpolate the two-pose deployables** instead of snapping (solar/gear/bays). Zero storage;
+- ~~**S2. Interpolate the two-pose deployables**~~ **DONE 2026-08-11** (`playback-fidelity`). Progress is a pure function of the RECORDED EVENT UT rather than wall time, so prefix catch-up, scrubs, warp and loop cycles all land correct with no extra state; the clip length is the prefab's own. Original text: interpolate instead of snapping (solar/gear/bays). Zero storage;
   per-frame cost bounded by transition duration, not flight duration.
-- **S3. Synthesize continuous motion at playback rather than recording it** — gimbal deflection and
+- ~~**S3. Synthesize continuous motion at playback rather than recording it**~~ **DONE 2026-08-11**
+  (`playback-fidelity`), with ONE correction to the prescription below: the attitude derivative is
+  taken from the ghost's APPLIED WORLD ROTATION (`state.ghost.transform.rotation`), never from
+  `TrajectoryPoint.rotation` read out of a flat Points list. In a RELATIVE track section that field
+  holds an anchor-local rotation rather than `srfRelRotation`, so differencing two of them across a
+  section boundary mixes frames and invents a rotation that never happened. The transform is
+  post-resolution on every playback path, which makes it the one reading that is frame-correct
+  everywhere. Launch dust is also narrower than written: Parsek owns its particle system outright
+  (the reentry `fireParticles` template) rather than driving `ModuleSurfaceFX`, and it is gated on a
+  ground reference latched from `recordedGroundClearance` — no clearance, no dust, permanently.
+  Original text — gimbal deflection and
   control-surface deflection from the frame-to-frame derivative of recorded `srfRelRotation`; wheel
   steering from heading change over ground; solar/antenna tracking by aiming at
   `Planetarium.fetch.Sun`; launch dust (`ModuleSurfaceFX`) from engine power + altitude.
   **Precedent: `ApplyAblationChar` already does exactly this** for reentry char. Zero storage, zero
   recording cost.
-  - **Corollary: re-derive wheel spin from ground speed** and delete the `driveOutput` family. It is
+  - ~~**Corollary: re-derive wheel spin from ground speed**~~ **DONE 2026-08-11** (PR #1445), and
+    wheel STEERING joined it on `playback-fidelity` for the same reason: the recorded
+    `ModuleWheelSteering` scalar was a steering INPUT, not a caliper angle. Original text: delete
+    the `driveOutput` family. It is
     storage-*negative* and strictly more correct than the signal it replaces.
 - **S4. EVA jetpack deploy/thrust + ragdoll.** EVA vessels **are** recorded — the `VesselType.EVA`
   filters at `FlightRecorder.cs:4911`/`:5100` are docking-**anchor candidate** filters, not
