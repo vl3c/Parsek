@@ -115,7 +115,9 @@ count = { min = 274, max = 274 }
 #    that resolves its spin transform. Both are expected to hold on
 #    stock-minimal (parachuteSingle and roverWheel1 are stock), but "expected to
 #    hold" is not a measurement, and the honest interim form is what says so.
-#    Cell 1 is pure math and cannot skip, which is why passed= has a floor of 1
+#    Cell 1 is pure math over local vectors and deterministically does not skip
+#    (it carries a tolerance-resolution Skip path, unreachable with the committed
+#    constants: ~0.199 m rim travel vs the 0.02 m floor), so passed= floors at 1
 #    rather than 0.
 #  - scene=FLIGHT is the gloops-airshow Focusable route, MEASURED by H13 / H5 /
 #    S1.4 on this exact fixture.

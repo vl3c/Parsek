@@ -248,7 +248,9 @@ claim the headless suite cannot:
    `UpdateActiveRobotics` would apply for forward motion, the TOP of the wheel must
    travel ALONG `rollForward` and the contact patch AGAINST it (rolling without
    slip). A negated cross product reverses both signs, which is exactly the
-   "wheels spin backwards" symptom. Pure math; cannot skip.
+   "wheels spin backwards" symptom. Pure math over local vectors; its tolerance
+   Skip path is deterministically unreachable with the committed constants, so
+   the batch passed= count floors at 1.
 2. `ParachuteRepackRestoresTheCapAtTransformLevel` (FLIGHT) - Deploy -> Cut ->
    Repacked through `ApplyPartEvents` on a ghost built from a real PartLoader
    prefab; asserts cap OFF after the cut (the contrast that stops a no-op repack

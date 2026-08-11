@@ -50,6 +50,10 @@ allowedAnomalies = []
 [expectations.recordings]
 # The injected corpus, unchanged. This count is the anti-vacuity guard for the two
 # silently-bailing cells named in the header.
+# NOTE 2026-08-11 (recorded-signal-fixes): the shared InjectAllRecordings corpus
+# grew 272 -> 274 (chute-repack + surface-rover showcase rows). This pin moved by
+# DERIVATION (+2), not re-measurement; if it reds on the next flight, read the
+# actual count off the collected KSP.log before touching anything else.
 count = { min = 274, max = 274 }
 
 [expectations.logContracts]

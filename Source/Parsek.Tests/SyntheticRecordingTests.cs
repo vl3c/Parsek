@@ -1340,8 +1340,10 @@ namespace Parsek.Tests
         private const uint EngineShowcasePidBase = 99200000;
         private const uint ColorChangerShowcasePidBase = 99300000;
         // Recorded-signal fixtures (2026-08-09 part-action audit): the chute-REPACK showcase and the
-        // moving surface rover. 99400000 is the one free band between ColorChanger (99300000) and
-        // RestockPlus (99500000).
+        // moving surface rover. The 99400000 band is SHARED with FlagPlantShowcasePid below: the
+        // flag showcase uses 99400000 exactly, and these rows offset from the base by
+        // 242/243 * 1111, so no actual pid collides. A new band would have been cleaner but the
+        // next one (99500000) is taken by RestockPlus.
         private const uint RecordedSignalShowcasePidBase = 99400000;
         private const uint FlagPlantShowcasePid = 99400000;
         private const uint RestockPlusShowcasePidBase = 99500000;
@@ -1359,8 +1361,9 @@ namespace Parsek.Tests
         // Keep showcases close to the launchpad centerline without overlapping pad geometry.
         private const double ShowcaseDistanceFromPadMeters = 200.0;
         // Recorded-signal fixture row indices. Both sit inside the existing 0..ShowcaseRowCount-1
-        // band (242 / 243 were free; the highest previously used index is 241), so no existing row's
-        // lat/lon moves - bumping ShowcaseRowCount would reshuffle every one of them.
+        // band; 242 and 243 were the free gap (rows through 241 are the stock showcases and 244 is
+        // already taken), so no existing row's lat/lon moves - bumping ShowcaseRowCount would
+        // reshuffle every one of them.
         private const int ChuteRepackShowcaseRowIndex = 242;
         private const int SurfaceRoverRowIndex = 243;
         // The rover's ground speed and clip length. 8 m/s is a realistic rover cruise and, over the

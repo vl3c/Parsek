@@ -366,7 +366,11 @@ namespace Parsek.InGameTests
                 // same treatment for a sharper reason: Quaternion.Angle wraps into [0, 180], so a
                 // broken gate spinning the wheel by thousands of degrees could land near zero by
                 // coincidence and read as "held still". A closed gate does not write
-                // servoTransform.localRotation at all, so bitwise-unchanged is the exact statement.
+                // servoTransform.localRotation at all. NOTE Unity's Quaternion.operator== is a
+                // dot-product threshold (~0.16 deg), not bitwise equality, so a runaway spin
+                // landing within ~0.16 deg of a full-turn multiple could still slip through -
+                // a ~0.1% residual blind spot per arm, categorically tighter than an
+                // angle-epsilon assert but not the exact no-write statement.
                 state.lastInterpolatedVelocity = bodyFrameVelocity;
                 SpinOneFrame(state, wheel, surfaceSections, t0 + 20.0, frameSeconds,
                     out Quaternion parkedBefore, out Quaternion parkedAfter);
