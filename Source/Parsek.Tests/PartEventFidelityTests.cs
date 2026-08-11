@@ -543,5 +543,108 @@ namespace Parsek.Tests
         }
 
         #endregion
+
+        // ------------------------------------------------------------------
+        // Step 4 — S6 playback (the pure half; the appliers touch Transforms
+        // and are proven by the H37 in-game cells)
+        // ------------------------------------------------------------------
+
+        #region S6 snapshot baseline resolution
+
+        [Fact]
+        public void ABrokenSnapshotBaseline_ResolvesToTheBrokenActionAndNoPoseAction()
+        {
+            var baseline = new SnapshotPartBaseline { deployableBroken = true };
+
+            GhostPlaybackLogic.SnapshotBaselineActions actions =
+                GhostPlaybackLogic.ResolveSnapshotBaselineActions(baseline);
+
+            Assert.True(actions.deployableBroken);
+            // No pose: the two drive different ghost surfaces and the panel is not on the
+            // stowed<->deployed axis at all.
+            Assert.False(actions.deployableTarget.HasValue);
+            Assert.False(actions.deployableThroughCargoBayCascade);
+        }
+
+        [Fact]
+        public void AnOrdinaryDeployableBaseline_ResolvesWithTheBrokenActionOff()
+        {
+            // Regression guard: the new flag must default false for every pre-P8 baseline shape,
+            // or every ghost would spawn with its panels hidden.
+            var extended = new SnapshotPartBaseline { deployableExtended = true };
+            Assert.False(GhostPlaybackLogic.ResolveSnapshotBaselineActions(extended).deployableBroken);
+            Assert.True(GhostPlaybackLogic.ResolveSnapshotBaselineActions(extended).deployableTarget);
+
+            var gear = new SnapshotPartBaseline { gearDeployed = false };
+            Assert.False(GhostPlaybackLogic.ResolveSnapshotBaselineActions(gear).deployableBroken);
+
+            var empty = new SnapshotPartBaseline();
+            Assert.False(GhostPlaybackLogic.ResolveSnapshotBaselineActions(empty).deployableBroken);
+        }
+
+        [Fact]
+        public void ABrokenBaseline_SurvivesTheParseToResolveRoundTrip()
+        {
+            // The two halves joined: a real snapshot MODULE node through the parser and out of the
+            // resolver as an actionable hide. This is the path a station recorded after losing an
+            // array actually takes.
+            SnapshotPartBaseline parsed =
+                GhostVisualBuilder.TryParseSnapshotPartBaseline(PartNodeWithDeployState("BROKEN"));
+            Assert.NotNull(parsed);
+
+            GhostPlaybackLogic.SnapshotBaselineActions actions =
+                GhostPlaybackLogic.ResolveSnapshotBaselineActions(parsed);
+            Assert.True(actions.deployableBroken);
+        }
+
+        #endregion
+
+        #region S6 playback applier guards
+
+        // WHY THERE IS NO HEADLESS CELL FOR ApplyDeployableBrokenState ITSELF, measured rather
+        // than assumed. It was written, and it threw:
+        //
+        //   System.Security.SecurityException : ECall methods must be packaged into a system module
+        //     at Parsek.GhostPlaybackLogic.ApplyDeployableBrokenState
+        //
+        // The applier compares `info.breakSubtreeRoot != null`, and UnityEngine.Object's overloaded
+        // == routes through a native ECall that xUnit cannot host. That is the same wall every
+        // Unity-touching applier in this file's neighbours hits (see the SnapshotBaseline category's
+        // rationale: "the appliers that actually MOVE something are Unity-coupled"). Using
+        // ReferenceEquals to dodge it would be worse than the gap — it would let the applier write
+        // to a DESTROYED transform, which is exactly what the Unity null check exists to prevent.
+        //
+        // So the division of proof is deliberate: the pure DECISIONS are pinned here (the parser,
+        // the resolver, the gate's report), and the ACT of hiding and re-showing a real subtree is
+        // pinned by the H37 in-game cell, which has a live ghost to hide.
+
+        [Fact]
+        public void TheSunTrackingGateReportsTheBrokenFlag_SoARedNamesItsOwnCause()
+        {
+            // The gate's diagnostic string is what an in-game red pastes into its failure message.
+            // A panel held because it is BROKEN must be distinguishable from one held because it
+            // is stowed, or the next investigation starts by re-flying.
+            var info = new DeployableGhostInfo
+            {
+                partPersistentId = PanelPid,
+                transforms = new List<DeployableTransformState>(),
+                currentDeployed = true,
+                deployFraction = 1f,
+                breakSubtreeHidden = true,
+            };
+            var state = new GhostPlaybackState
+            {
+                deployableInfos = new Dictionary<uint, DeployableGhostInfo> { { PanelPid, info } }
+            };
+
+            string described = GhostPlaybackLogic.DescribeDeployableGateForPart(state, PanelPid);
+            Assert.Contains("breakSubtreeHidden=True", described);
+
+            info.breakSubtreeHidden = false;
+            Assert.Contains("breakSubtreeHidden=False",
+                GhostPlaybackLogic.DescribeDeployableGateForPart(state, PanelPid));
+        }
+
+        #endregion
     }
 }

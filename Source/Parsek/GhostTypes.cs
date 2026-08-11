@@ -121,6 +121,24 @@ namespace Parsek
         public float transitionStartFraction;
         /// <summary>The fraction the in-flight transition is heading to (0 or 1).</summary>
         public float transitionTargetFraction;
+
+        /// <summary>
+        /// S6: the ghost-side clone of the part's <c>panelBreakTransform</c> subtree — what stock
+        /// hides when a ModuleDeployablePart goes BROKEN. Resolved at build time from
+        /// <c>breakName</c>, falling back to <c>pivotName</c> exactly as stock's own OnStart does
+        /// (the prefab has not run OnStart, so the empty-breakName default has not been applied
+        /// yet and we must apply it ourselves). Null when the part is not breakable or the
+        /// transform could not be resolved onto the ghost — in which case a DeployableBroken
+        /// event degrades to no visual rather than to a wrong one.
+        /// </summary>
+        public Transform breakSubtreeRoot;
+
+        /// <summary>
+        /// True while <see cref="breakSubtreeRoot"/> is hidden. Tracked rather than read back off
+        /// the GameObject so the loop-cycle re-show and the sun-tracking gate are pure state
+        /// reads, and so a null transform still carries a truthful "this part is broken" answer.
+        /// </summary>
+        public bool breakSubtreeHidden;
     }
 
     /// <summary>

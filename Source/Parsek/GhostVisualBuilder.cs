@@ -4585,6 +4585,26 @@ namespace Parsek
                 var sampledStates = SampleDeployableStates(prefab, deployable);
                 deployableInfo = ResolveSampledStatesToDeployableInfo(
                     sampledStates, modelNodeTransform, persistentId, partName, "Deployable", logUnresolved: true);
+
+                // S6: the break subtree, resolved INDEPENDENTLY of the animation cascade above.
+                // A fixed (non-retractable) panel has no animationName and so produces no
+                // deployableInfo, but it can still break — so when the animation path found
+                // nothing we materialise a transforms-only-empty info to carry the break root.
+                Transform breakRoot = TryResolveDeployableBreakSubtreeRoot(
+                    prefab, deployable, modelRoot, modelNodeTransform, cloneMap, partName, persistentId);
+                if (breakRoot != null)
+                {
+                    if (deployableInfo == null)
+                    {
+                        deployableInfo = new DeployableGhostInfo
+                        {
+                            partPersistentId = persistentId,
+                            transforms = new List<DeployableTransformState>(),
+                            clipLengthSeconds = ResolveDeployableClipSeconds(partName)
+                        };
+                    }
+                    deployableInfo.breakSubtreeRoot = breakRoot;
+                }
             }
 
             // Detect landing gear / legs (ModuleWheels.ModuleWheelDeployment) — reuses DeployableGhostInfo
@@ -4722,6 +4742,66 @@ namespace Parsek
             }
 
             return deployableInfo;
+        }
+
+        /// <summary>
+        /// S6: resolves the ghost-side clone of the transform stock hides when a
+        /// ModuleDeployablePart breaks.
+        ///
+        /// THE NAME, and why the fallback is not optional. Stock reads
+        /// <c>panelBreakTransform = part.FindModelTransform(breakName)</c> in OnStart, having
+        /// first defaulted <c>breakName</c> to <c>pivotName</c> when the config left it empty
+        /// (ModuleDeployablePart, KSP 1.12.5). We read a PREFAB, whose OnStart has not run, so
+        /// <c>breakName</c> is still the raw config value — usually empty, because almost no stock
+        /// part sets it. Reading it without the fallback would resolve nothing for nearly every
+        /// breakable part in the game, i.e. the feature would silently do nothing.
+        ///
+        /// Returns null when neither name resolves on the prefab or the transform cannot be
+        /// mapped onto the ghost. A DeployableBroken event then degrades to no visual, which is
+        /// the pre-P8 behaviour, rather than to hiding the wrong subtree.
+        /// </summary>
+        private static Transform TryResolveDeployableBreakSubtreeRoot(
+            Part prefab, ModuleDeployablePart deployable,
+            Transform modelRoot, Transform modelNodeTransform,
+            Dictionary<Transform, Transform> cloneMap,
+            string partName, uint persistentId)
+        {
+            if (prefab == null || deployable == null || modelRoot == null || modelNodeTransform == null)
+                return null;
+
+            string breakName = deployable.breakName;
+            string resolvedFrom = "breakName";
+            if (string.IsNullOrEmpty(breakName))
+            {
+                breakName = deployable.pivotName;
+                resolvedFrom = "pivotName (stock OnStart default)";
+            }
+            if (string.IsNullOrEmpty(breakName))
+                return null;
+
+            Transform sourceBreak = prefab.FindModelTransform(breakName);
+            if (sourceBreak == null)
+            {
+                ParsekLog.VerboseRateLimited("GhostVisual", $"break-subtree-miss-{partName}",
+                    $"    Deployable '{partName}' pid={persistentId}: break transform '{breakName}' " +
+                    $"({resolvedFrom}) not found on the prefab — DeployableBroken will have no visual", 60.0);
+                return null;
+            }
+
+            Transform ghostBreak = ResolveGhostTransformForPrefabTransform(
+                sourceBreak, modelRoot, modelNodeTransform, cloneMap);
+            if (ghostBreak == null)
+            {
+                ParsekLog.VerboseRateLimited("GhostVisual", $"break-subtree-unmapped-{partName}",
+                    $"    Deployable '{partName}' pid={persistentId}: break transform '{breakName}' " +
+                    $"({resolvedFrom}) did not map onto the ghost — DeployableBroken will have no visual", 60.0);
+                return null;
+            }
+
+            ParsekLog.VerboseRateLimited("GhostVisual", $"break-subtree-{partName}",
+                $"    Deployable '{partName}' pid={persistentId}: break subtree '{breakName}' " +
+                $"resolved from {resolvedFrom}", 30.0);
+            return ghostBreak;
         }
 
         /// <summary>

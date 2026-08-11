@@ -495,6 +495,7 @@ namespace Parsek
             if (baselines == null || baselines.Count == 0) return;
 
             int deployableApplied = 0;
+            int brokenApplied = 0;
             int parachuteApplied = 0;
             int lightApplied = 0;
             int servoApplied = 0;
@@ -515,6 +516,18 @@ namespace Parsek
                         : ApplyDeployableState(state, evt, actions.deployableTarget.Value);
                     if (applied)
                         deployableApplied++;
+                }
+
+                // S6, applied AFTER any pose so the hide is not undone by ApplyDeployableState's
+                // own un-hide. The two are mutually exclusive on a well-formed snapshot (the
+                // parser sets at most one), but ordering it this way makes a malformed node that
+                // somehow carried both resolve to BROKEN, which is the safer reading: a hidden
+                // panel that should have been posed is a smaller lie than a posed panel that
+                // should have been gone.
+                if (actions.deployableBroken
+                    && ApplyDeployableBrokenState(state, pid, broken: true))
+                {
+                    brokenApplied++;
                 }
 
                 if (ApplySnapshotParachuteBaseline(state, pid, actions.parachuteAction))
@@ -547,7 +560,8 @@ namespace Parsek
 
             string summary =
                 $"Snapshot baseline applied: parts={baselines.Count} " +
-                $"deployables={deployableApplied} parachutes={parachuteApplied} " +
+                $"deployables={deployableApplied} brokenDeployables={brokenApplied} " +
+                $"parachutes={parachuteApplied} " +
                 $"lights={lightApplied} servos={servoApplied} servosSkipped={servoSkipped} " +
                 $"(vessel='{state.vesselName ?? "unknown"}')";
             if (rateLimitLog)
@@ -569,6 +583,13 @@ namespace Parsek
             public bool? deployableTarget;
             /// <summary>True when the target must route through the cargo-bay cascade (deployable, else jettison panels).</summary>
             public bool deployableThroughCargoBayCascade;
+            /// <summary>
+            /// S6: the snapshot said this part's deployable is BROKEN, so the ghost must spawn with
+            /// its break subtree hidden. Independent of <see cref="deployableTarget"/> rather than
+            /// folded into it: broken is not a point on the stowed&lt;-&gt;deployed axis, and the two
+            /// drive different ghost surfaces (a pose vs a SetActive).
+            /// </summary>
+            public bool deployableBroken;
             public bool? lightPower;
             public bool? blinkEnabled;
             public float? blinkRateHz;
@@ -614,6 +635,11 @@ namespace Parsek
         {
             var actions = new SnapshotBaselineActions();
             if (baseline == null) return actions;
+
+            // S6 first, and NOT in the else-if chain below: a broken panel has no pose opinion
+            // to compete with (the parser leaves deployableExtended unset for BROKEN), so this is
+            // an independent flag rather than another arm of the single-opinion cascade.
+            actions.deployableBroken = baseline.deployableBroken;
 
             if (baseline.deployableExtended.HasValue)
                 actions.deployableTarget = baseline.deployableExtended;
@@ -1397,10 +1423,19 @@ namespace Parsek
 
             // 2. Deployables: re-stow every panel. Events during the new
             //    cycle re-deploy on their original UT.
+            //
+            //    S6: the break subtree is RE-SHOWN here too, and it has to be explicit. A loop
+            //    cycle restarts from the craft's pre-launch look, and a panel that broke during
+            //    the prior cycle must be whole again at the top of the next one — otherwise the
+            //    first cycle of a looping replay shows the break and every cycle after it starts
+            //    with the panel already missing. The un-hide runs BEFORE the re-stow so the
+            //    re-stow's own broken-check (in ApplyDeployableState) is a no-op rather than a
+            //    second write.
             if (state.deployableInfos != null)
             {
                 foreach (var kvp in state.deployableInfos)
                 {
+                    ApplyDeployableBrokenState(state, kvp.Key, broken: false);
                     var stowedEvt = new PartEvent { partPersistentId = kvp.Key };
                     ApplyDeployableState(state, stowedEvt, deployed: false);
                 }
@@ -1797,6 +1832,12 @@ namespace Parsek
                         break;
                     case PartEventType.DeployableRetracted:
                         ApplyDeployableState(state, evt, deployed: false, immediate: false);
+                        break;
+                    // S6: a break is a SNAP, never an animation. The panel is gone in the frame it
+                    // broke (stock flings the subtree off as debris), so there is no pose to
+                    // interpolate toward and no `immediate` distinction to make.
+                    case PartEventType.DeployableBroken:
+                        ApplyDeployableBrokenState(state, evt.partPersistentId, broken: true);
                         break;
                     case PartEventType.ThermalAnimationHot:
                         ApplyHeatState(state, evt, HeatLevel.Hot);
@@ -5717,6 +5758,7 @@ namespace Parsek
                 return "deployable=absent (treated as deployed)";
             }
             return "deployable=present"
+                + $" breakSubtreeHidden={d.breakSubtreeHidden}"
                 + $" currentDeployed={d.currentDeployed}"
                 + $" transitionActive={d.transitionActive}"
                 + $" deployFraction={d.deployFraction.ToString("R", CultureInfo.InvariantCulture)}"
@@ -5808,6 +5850,13 @@ namespace Parsek
             if (state?.deployableInfos == null) return true;
             if (!state.deployableInfos.TryGetValue(partPersistentId, out DeployableGhostInfo d) || d == null)
                 return true;
+            // S6: a BROKEN panel closes the gate unconditionally. The pivot may still carry a
+            // fully-deployed pose from before the break (the recorder does not retract it - that is
+            // rule 1), so without this the ghost would slew the pivot of a panel it has just hidden
+            // toward the Sun for the rest of the recording. On a part whose break transform did not
+            // resolve, the hidden flag is still set, so the gate still closes: aiming a panel we
+            // could not remove is worse than leaving it still.
+            if (d.breakSubtreeHidden) return false;
             return d.currentDeployed && !d.transitionActive && d.deployFraction >= 1f - 1e-4f;
         }
 
@@ -6231,6 +6280,41 @@ namespace Parsek
             => ApplyDeployableState(state, evt, deployed, immediate: true);
 
         /// <summary>
+        /// S6: hides or re-shows the break subtree — the ghost-side equivalent of what stock does
+        /// to a ModuleDeployablePart that goes BROKEN (<c>panelBreakTransform.gameObject
+        /// .SetActive(false)</c>) and of what a repair undoes.
+        ///
+        /// Stock's own repair path (<c>DoRepair</c>) re-instantiates a fresh subtree off the part
+        /// prefab rather than re-activating the old one, because the live break DETACHED the panel
+        /// into its own physics object and flung it away. Our ghost never detached anything — it
+        /// only ever hid its own clone — so a plain SetActive(true) is the faithful inverse, and
+        /// the simpler one.
+        ///
+        /// Absolute-state and idempotent, which is what lets a snapshot baseline, a start-UT seed
+        /// and a recorded event all target the same pid without fighting.
+        ///
+        /// Returns true when an info existed for the pid, whether or not it had a resolvable
+        /// transform: the STATE flag is set either way, because "this panel is broken" still has
+        /// to gate sun tracking on a part whose break transform could not be resolved.
+        /// </summary>
+        internal static bool ApplyDeployableBrokenState(
+            GhostPlaybackState state, uint partPersistentId, bool broken)
+        {
+            if (state?.deployableInfos == null) return false;
+
+            DeployableGhostInfo info;
+            if (!state.deployableInfos.TryGetValue(partPersistentId, out info) || info == null)
+                return false;
+
+            info.breakSubtreeHidden = broken;
+
+            if (info.breakSubtreeRoot != null)
+                info.breakSubtreeRoot.gameObject.SetActive(!broken);
+
+            return true;
+        }
+
+        /// <summary>
         /// Applies a deployable target pose, either immediately or as an interpolated transition
         /// keyed on <c>evt.ut</c> (the RECORDED event UT, never wall time — see
         /// <see cref="ComputeDeployableTransitionFraction"/>).
@@ -6243,6 +6327,14 @@ namespace Parsek
             DeployableGhostInfo info;
             if (!state.deployableInfos.TryGetValue(evt.partPersistentId, out info)) return false;
             if (info?.transforms == null) return false;
+
+            // S6: ANY extend/retract opinion on a panel currently rendered broken un-hides it
+            // first. The recorder emits DeployableRetracted on a repair precisely so this fires,
+            // and putting it here rather than only in the Retracted arm means a recording whose
+            // repair was followed immediately by a re-deploy (so the tail's first deployable
+            // event is Extended) still gets the panel back.
+            if (info.breakSubtreeHidden)
+                ApplyDeployableBrokenState(state, evt.partPersistentId, broken: false);
 
             float target = deployed ? 1f : 0f;
 
