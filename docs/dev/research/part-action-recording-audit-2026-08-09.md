@@ -1,0 +1,313 @@
+# Part-action recording audit — what exists, what we record, what we should record
+
+**Date:** 2026-08-09. **Method:** 103 distinct stock `PartModule` types enumerated from
+`Squad/Parts` + `SquadExpansion` cfgs; each module's `[KSPEvent]` / `[KSPAction]` /
+`[KSPField(isPersistant)]` surface decompiled from `Assembly-CSharp.dll` (KSP 1.12.5, ilspycmd);
+cross-matched against Parsek's 35 `PartEventType` values, 22 `GameStateEventType` values, the
+59 subscribed `GameEvents`, the playback dispatch in `GhostPlaybackLogic.ApplyPartEvents`, and the
+Re-Fly restore path. 167 cross-matched rows. Static read only — no KSP run, no harness flight.
+
+---
+
+## 0. The restore model, first — it reclassifies most of the audit
+
+Before any "the world desyncs after a rewind" claim can be evaluated, what the Rewind Point
+quicksave actually reloads has to be established. It is a **full KSP save**, not a vessel snapshot:
+`FlightRecorder.cs:4489` writes it with `GamePersistence.SaveGame(...)`, so the file carries the
+entire `GAME` node — `ResearchAndDevelopment`, `ProgressTracking`, `ContractSystem`,
+`ResourceScenario`, `DeployedScience`, `ROCManager`, `KerbalRoster`, `ScenarioUpgradeableFacilities`.
+
+That yields a clean four-way rule for any world-state facet `F`:
+
+| Where `F` lives | Outcome |
+| --- | --- |
+| `GAME` node **and** in the seven-facet patch set (`KspStatePatcher.cs:87-93`) | Correct both directions. Nothing to do. |
+| `GAME` node but **not** patched | Reverted to rewind UT and never rolled forward. Correct for the superseded branch, **silent regression** for every surviving branch. |
+| A `PART`/`MODULE` node on the **selected slot** | Restored verbatim. **Benign.** |
+| On a **non-selected vessel** | **Destroyed** — see §1. |
+
+**What this makes benign** (restored byte-for-byte, no work needed): `ModuleScienceExperiment`
+`Deployed`/`Inoperable` + held `ScienceData`; `ModuleScienceContainer` contents; MPL
+`dataStored`/`storedScience`; ISRU-converted tank contents; per-part resource amounts;
+`PartResource._flowState`/`_flowMode`; crossfeed; the `ACTIONGROUPS` bitmask; `referenceTransformId`;
+`activeControlPointName`; `vesselType`; crew seat assignment; `ModuleInventoryPart` slots;
+`ModuleDeployablePart.BROKEN`; `ModuleWheelDamage.isDamaged`; ablator remaining; gimbal /
+control-surface / robotic persistent positions.
+
+Two claims that looked like MUSTs and are **not**: **ore depletion** and **biome/planet unlock**.
+`grep ResourceMap Source/` returns 0 hits — the grep is right, the conclusion drawn from it was
+wrong. `ResourceMap.DepletionInfo` is populated from `ResourceScenario`, a `ScenarioModule` inside
+the `GAME` node the quicksave restores. Undone for free.
+
+Recording any of the above buys **divergence detection** between the recorded branch and a re-fly.
+That is a diagnostic goal, not a save-consistency one, and it should not be funded from the
+ghost-visual budget.
+
+---
+
+## 1. The finding that outranks everything else: Re-Fly deletes the fleet
+
+> **STATUS: FIXED 2026-08-09** on branch `refly-world-preservation`. Removal is now scoped to
+> this RP's other slots; unrelated vessels, `SpaceObject` asteroids/comets and flags are
+> preserved, and `stripUnmatchedVessels` is `false` so the `LeftAlone` branch is live. The
+> `#587` name-matched debris kill is a separate pass and was not touched. See
+> `docs/dev/todo-and-known-bugs.md` → `REFLY-DELETES-NON-SLOT-WORLD`. Everything below is the
+> pre-fix record.
+
+`RewindInvoker.ScrubQuicksaveToSelectedSlotForReFly` walks `FLIGHTSTATE`'s `VESSEL` nodes with
+
+```
+bool keep = (vesselPid != 0u && selectedVesselPids.Contains(vesselPid))
+         || (rootPartPid != 0u && selectedRootPartPids.Contains(rootPartPid));
+```
+
+(`RewindInvoker.cs:1975-1976`) and `RemoveNode`s everything else (`:2000-2001`). The scrub is
+mandatory — `RequireSelectedSlotScrubApplied` throws rather than load an unscrubbed save
+(`:1901-1912`) — and `PostLoadStripper` then runs with `stripUnmatchedVessels: true`
+(`RewindInvoker.cs:805`) as a second net. There is no repopulation path anywhere.
+
+This directly contradicts the binding design doc.
+`docs/dev/done/parsek-rewind-separation-design.md:593`, step 4:
+
+> **Else: leave alone.** The vessel does not belong to this RP's slot set (pre-existing stock
+> vessel, different tree, debris, etc.)
+
+`CHANGELOG.md:1089` shows the scrub was added deliberately ("every real vessel except the selected
+Re-Fly vessel is removed"), so this is a shipped intent that diverged from the design without the
+design being updated. **Whether the current behavior is wanted is a call only you can make** — but
+these are its consequences:
+
+**1a. The career fleet.** Rewinding one booster separation on mission 12 removes the Mun station,
+relay satellites, rovers, deployed-science clusters and every other vessel from the loaded game.
+The ledger still carries their recovery credits and contract completions, so the economy claims a
+fleet that no longer exists, and `DeployedScience` / `ROCManager` rows point at destroyed vessels.
+
+**1b. Asteroids and comets — strictly worse.** Every `VesselType.SpaceObject` node is a `VESSEL`
+node, so every discovered asteroid and tracked comet is deleted too, including active
+grapple-contract targets. A station can be relaunched; a procedurally-spawned, discovery-timed
+asteroid cannot. A narrow "keep player-controlled vessels" fix would still destroy them.
+
+**1c. Planted flags — a fix already coded at the wrong layer.**
+`PostLoadStripper.ShouldPreserveVesselType` returns true for `VesselType.Flag`
+(`PostLoadStripper.cs:238-241`) and bypasses before the slot match (`:118-131`). But the scrub
+already removed the flag `VESSEL` nodes from the .sfs, so no flag vessel exists in `FlightGlobals`
+when the bypass is consulted. **That branch is dead in production.** The `MilestoneAchievement` row
+survives in the ELS; the marker does not.
+
+**Fix site for all three: the scrub keep-predicate.** Not the ledger, not a `PartEventType`.
+If the deletion is load-bearing for stock patched-conic sanity (the `#587` pre-existing-debris
+rationale), the minimum coherent version is: keep everything, strip only debris and Parsek-tracked
+slot siblings, and log the removals.
+
+---
+
+## 2. The second structural miss: career-bearing actions with a modest visual
+
+The audit was organized around two sieves — "is it visible to a bystander" and "does the quicksave
+restore it". An action that is career-bearing but visually modest falls through **both**. That is
+how these reached the end of a full audit unnamed, with production reference counts measured:
+
+| Module | Stock declarations | Parsek production refs | What it does |
+| --- | --- | --- | --- |
+| `ModuleScienceExperiment` | 158 | **1** (a comment at `VesselSpawner.cs:744`) | 8 `[KSPEvent]`s incl. `DeployExperiment`, EVA collect, reset, clean. `Deployed` is persistent and gates the deploy animation (Goo canister, Science Jr doors). |
+| `ModuleDataTransmitter` | 201 | 6 (all static `AntennaSpec`) | `StartTransmission` / `StopTransmission`. Multi-second animated sequence that converts stored data into career science. Read only as a CommNet spec, never as a timeline. |
+| `ModuleTestSubject` | **709** (2nd-most-declared module in the game) | **0** | `RunTestEvent`, armed by part-test contracts. Completes contract parameters → funds + rep. A whole contract genre with no representation. |
+| `ModuleOrbitalSurveyor` | 2 | **0** | `PerformSurvey` — the module that produces the planet-unlock facet. |
+| `ModuleToggleCrossfeed` | 158 | **0** | `ToggleEvent` + 3 actions. Standalone crossfeed, distinct from the docking-node field. |
+| `ModuleGenerator` / `ModuleReactionWheel` | 94 / 90 | **0** / **0** | Activate/Shutdown; reaction-wheel authority is a direct re-fly trajectory input. |
+| `ModuleGimbal` | 243 | **0** | The most common continuous visual motion in the game. |
+| `ModuleSurfaceFX` | 183 | **0** | Launch dust/water plume — the most conspicuous thing about a rocket leaving the pad. |
+
+`ModuleSurfaceFX` is the sharpest of these because it is **free**: synthesizable at playback from
+recorded engine power + recorded altitude, exactly the way `ApplyAblationChar` already synthesizes
+reentry char.
+
+---
+
+## 3. Where the current 35 event types actually stand
+
+**Well covered, recorded and played:** decouple, dock/undock (as tree topology), destroyed,
+shroud jettison, fairing deploy, parachute semi/full/cut/destroyed, engine ignite/shutdown,
+RCS start/stop, deployable extend/retract, gear deploy/retract, cargo bay open/close, lights +
+blink + rate, thermal 3-state *(playback path only — see below)*, inventory place/remove.
+
+**Recorded but with no playback effect at all:** `Docked` (21) and `Undocked` (22) are the only two
+members with no `case` in `ApplyPartEvents` (`GhostPlaybackLogic.cs:1220-1392`). Correctly so —
+there is no visual to render and the vessel-level truth is the chain-segment tree. Their *identity*
+fields are however broken as metadata: `Docked` carries the **merged vessel** pid in a field the
+rest of the pipeline treats as a part pid, and `Undocked` hard-codes pid `0`
+(`ParsekFlight.cs:12193`, `:12206`).
+
+**Recorded magnitude that playback throws away.** `EngineThrottle` is recorded with a 0.05 deadband
+and `SetEngineEmission` (`GhostPlaybackLogic.cs:2172-2204`) branches only on `power > 0f`. Every
+reader of `currentPower` was enumerated: only `:2405` and `:2423` (audio volume/pitch curves)
+consume the magnitude; `:1812, :2298, :2344, :2378, :2872, :2894, :3453, :3485` are all boolean
+gates. **A 1.0 → 0.3 throttle sweep is audible only.** The RCS scaling helpers
+`ComputeScaledRcsEmissionRate` / `ComputeScaledRcsSpeed` (`:3354`, `:3367`) exist and are called
+from **nothing in production** — the only call sites in the solution are
+`Source/Parsek.Tests/RuntimePolicyTests.cs:210,219,228,230`.
+
+> This is worst on the install Parsek went to the most trouble to support. `WaterfallCompat.cs`,
+> `ReStockPatchFxIndex.cs` and `PristinePartFxResolver.cs` exist so ghost plumes reproduce
+> Waterfall FX — and Waterfall's whole premise is a plume that is a continuous function of throttle.
+
+**Five probes that are documented as shipped and are inert on 100% of stock parts.**
+`docs/dev/done/next-parts-event-support-priority.md:43-47` claims `ModuleAeroSurface`,
+`ModuleRobotArmScanner`, `ModuleControlSurface`, `ModuleAnimateHeat` and dynamic wheel/leg motion
+are "now recorded and showcased". True of the synthetic showcase path only. Root causes:
+
+- `module.Fields` is `[KSPField]`-only by construction (`FlightRecorder.cs:3733-3748`).
+- `ModuleControlSurface`'s real field is `deploy`; the probe table lists `deployed`
+  (`FlightRecorder.ReflectionClassifiers.cs:238-249`). **One missing string.**
+- `ModuleAnimateHeat`'s live scalars `animState`/`inputState` are plain public fields with no
+  attribute; the usable accessor is the `IScalarModule.GetScalar` **property**. Not fixable by
+  adding names — needs a typed cast.
+- Piston: `traverseVelocity` is a `[KSPAxisField]` **speed slider, constant during a stroke**. It
+  resolves, so the working `servoTransformPosition` fallback at `:876-881` is never reached. Same
+  shape for wheel suspension (`suspensionOffset` is a config constant shadowing live `suspensionPos`).
+
+**A confidently wrong signal that playback faithfully renders.** Two cases, and they are correctness
+bugs rather than fidelity gaps:
+
+- **Parachute repack replays as a cut.** `CheckParachuteState` (`FlightRecorder.cs:1665-1690`)
+  collapses STOWED, ACTIVE and CUT into state `0`, so a repack emits `ParachuteCut`, and
+  `ApplyParachuteCutEvent` zeroes the canopy *and hides the cap* — a repacked chute renders as an
+  empty can.
+- **Wheel spin is percent-of-torque replayed as RPM.** The probe reads `driveOutput`, which
+  decompiles to `Mathf.Abs(driveInput * maxDriveTorque / maxTorque) * 100 * resourceFraction`,
+  replayed at `value * 6` deg/s (`GhostPlaybackLogic.cs:3588`). A coasting rover shows stationary
+  wheels and reverse is indistinguishable from forward.
+
+---
+
+## 4. Initial state: the answer, and the one structural hole
+
+**Parsek is not delta-only.** There are three layers:
+
+1. The recorded snapshot **is** a full `ProtoVessel` serialization (`VesselSpawner.TryBackupSnapshot`
+   → `vessel.BackupVessel()` + `pv.Save(node)`), captured at every `StartRecording`
+   (`FlightRecorder.cs:6080-6082`). `deployState`, `currentRotation`, `ACTIONGROUPS`, `flowState`,
+   docking FSM state and robotics positions are all physically on disk in `<id>_vessel.craft`.
+2. **The ghost builder throws almost all of it away.** `AdvanceTimelineGhostBuild` reads only
+   `name`/`part`, `persistentId` and pos/rot from each PART node (`GhostVisualBuilder.cs:431-441`),
+   then builds from `ap.partPrefab` (`:446`, `:464`). Exactly **three** module states are read from
+   the snapshot: `ModuleJettison.isJettisoned`, `ModuleProceduralFairing` fsm + XSECTION, and
+   `ModulePartVariants` selection.
+3. **Everything else rides synthetic seed events.** `PartStateSeeder.SeedPartStates` probes a
+   **16-family whitelist** and `EmitSeedEvents` converts each non-default state into a PartEvent at
+   start UT. Only the ON/EXTENDED/DEPLOYED direction is seeded; the stowed default is the ghost's
+   build-time prefab pose.
+
+**The structural hole is the promotion gate** (`FlightRecorder.cs:6544-6581`). Every
+chain-continuation segment — dock, undock, quickload-resume, BG→FG promote, **Re-Fly fork**,
+`CreateSplitBranch`, `CreateMergeBranch`, switch/Fly continuation — deliberately emits **engine
+seeds only**, to protect the `#263` `FindLastInterestingUT` boring-tail-trim invariant. That
+rationale is sound. Its consequence is that the post-rewind half of every re-fly renders gear up,
+panels folded, lights off and bays closed for its whole span, and nothing self-corrects because a
+ghost only ever replays its own recording's events.
+
+The three snapshot-read families (shrouds, fairings, variants) are the only ones immune — which is
+also the shape of the cheapest fix, and the existence proof that it works.
+
+**Additional hole:** robotic events are in **neither** split-seed family —
+`IsPermanentVisualStateEvent` (5 members) nor `IsReversibleVisualStateEvent` (18 members) — and
+`ReapplySpawnTimeModuleBaselinesForLoopCycle` never calls `ApplyRoboticPose`. So a HEAD/TIP split
+drops servo pose for the tail, and a looped ghost starts cycle N+1 wherever cycle N ended.
+
+---
+
+## 5. Recommendations
+
+### MUST — correctness; do these first
+
+| # | Item | Site | Cost |
+| --- | --- | --- | --- |
+| **C1** | Restore non-slot vessels (fleet, **asteroids/comets**, flags) to the loaded save | `RewindInvoker.cs:1975` keep-predicate | small |
+| **C2** | Pre-invoke advisory naming what the revert will drop | `CanInvoke` | small |
+| **M1** | Read the initial-state baseline from the snapshot at **build time**, not as seed events | `GhostVisualBuilder.AddPartVisuals` (already receives `partNode`) | **zero storage** |
+| **M4** | Add robotic events to both split-seed families + loop-restart | `RecordingOptimizer.SeedEvents.cs` | **zero storage** |
+| **M3** | 4-state parachute classifier + `ParachuteRepacked` | `FlightRecorder.cs:1665-1690` | zero net |
+| **M5** | Vessel guard on the engine/RCS caches + rebuild from `OnVesselWasModified` | `FlightRecorder.cs:3417`, `:6520` | **negative** |
+| **M6** | Emit terminal events on the **background** rails transition | `BackgroundRecorder.cs:2316-2336` | ~2-4/round trip |
+
+**M1 and M4 must land together.** A `RecordingTreeSplitter` HEAD/TIP cut produces a TIP that
+inherits the *parent's* snapshot, taken at the original launch UT — so M1 alone would give every
+post-rewind fork a **pre-launch** baseline, which is worse than no baseline because it is
+confidently wrong.
+
+### SHOULD — real fidelity, modest cost
+
+- **S1. Consume the throttle magnitude already on disk.** Wire emission rate, start size and start
+  speed to `power` on both engine and RCS paths; the RCS helpers already exist. Zero storage,
+  largest fidelity-per-line ratio in the audit, and the fix Waterfall users will notice.
+- **S2. Interpolate the two-pose deployables** instead of snapping (solar/gear/bays). Zero storage;
+  per-frame cost bounded by transition duration, not flight duration.
+- **S3. Synthesize continuous motion at playback rather than recording it** — gimbal deflection and
+  control-surface deflection from the frame-to-frame derivative of recorded `srfRelRotation`; wheel
+  steering from heading change over ground; solar/antenna tracking by aiming at
+  `Planetarium.fetch.Sun`; launch dust (`ModuleSurfaceFX`) from engine power + altitude.
+  **Precedent: `ApplyAblationChar` already does exactly this** for reentry char. Zero storage, zero
+  recording cost.
+  - **Corollary: re-derive wheel spin from ground speed** and delete the `driveOutput` family. It is
+    storage-*negative* and strictly more correct than the signal it replaces.
+- **S4. EVA jetpack deploy/thrust + ragdoll.** EVA vessels **are** recorded — the `VesselType.EVA`
+  filters at `FlightRecorder.cs:4911`/`:5100` are docking-**anchor candidate** filters, not
+  recording gates (the surrounding comment says "not valid anchor candidates", and `:5100` also
+  excludes LANDED/SPLASHED/PRELAUNCH, which no recording gate would). 2-6 events per EVA.
+- **S5. Fix the dead probes.** `deploy` + `deployAngle` strings for aero/control surfaces;
+  `currentExtension`/`targetExtension` prepended for pistons; drop `suspensionOffset`;
+  `(module as IScalarModule).GetScalar` for `ModuleAnimateHeat` — **one cast unlocks a complete,
+  already-implemented recorder + playback path** (`GhostPlaybackLogic.cs:3693-3770`).
+- **S6. Deployable `BROKEN`.** `CheckDeployableState` explicitly `continue`s past it
+  (`FlightRecorder.cs:1861`). Permanent, dramatic, silhouette-changing. ~0-2 events/flight.
+- **S7. Drill/ISRU running animation.** The window is already computed by `PollHarvestActivity`
+  (`:6293-6317`) and emits no PartEvent. 2 events per mining session.
+- **S8. Kerbal XP as a ledger facet.** Monotone, so the patcher is a re-assert not a diff.
+  `ModuleTripLogger` (101 parts) is the mechanism that writes it; zero references today.
+- **S9. Contract re-snapshot at RP capture** rather than at accept — fixes the rebuild branch
+  returning a contract at 0/5 waypoints.
+
+### WON'T — explicit non-goals
+
+- **Continuous sampling** of gimbal / control-surface deflection / steering / suspension. A 10-50 Hz
+  float stream per surface per part across every simultaneous ghost is exactly what the design
+  principle forbids. Synthesize (S3) or leave it.
+- **Every persistent-but-invisible configuration flag** — thrust limiter, the 11 `ModuleRCS`
+  actuation flags, docking `crossfeed`/`targetAngle`, Control From Here, SAS mode, target selection,
+  hibernation, stage lock, `flowState`/`flowMode`. All `visibleToBystander: none`, all restored
+  verbatim by the quicksave. *Caveat worth recording:* reaction-wheel authority and crossfeed **are**
+  genuine re-fly trajectory inputs, so the verdict rests on the restore model, not on "they don't
+  matter". If the restore model is ever revised, revisit this row.
+- **Per-part science module state**, `RouteCargo*` tombstone eligibility, ore depletion, biome
+  unlock — all benign per §0.
+- **Playback cases for `Docked`/`Undocked`** — no visual exists. Fix their identity fields as
+  metadata hygiene only.
+- **Fairing clamshell**, **wheel damage meshes** (reversing the strip reintroduces a fixed bug),
+  **light RGB / steerable head** (free rider on M1), **KAL-1000 controller state** (its fidelity is
+  the union of M4 + S5).
+
+---
+
+## 6. One untested interaction worth tracing next
+
+`ScienceChanged` is a career-level aggregate that **is** in the seven-facet patch set, while the
+`ResearchAndDevelopment` node — including each subject's decayed `scientificValue` — is a `GAME`-node
+facet reverted to rewind UT. After a Re-Fly, a surviving branch's post-rewind `ScienceChanged` rows
+are re-applied against a subject-value table that has been rolled back. If `PatchScience` recomputes
+from subject state rather than replaying deltas, the payouts will not reconcile.
+
+Stated as an untested interaction, not a finding — `PatchScience` was not traced. The boundary
+between a restored `GAME`-node scenario and a patched ledger facet that reads from it is where the
+remaining rewind bugs will be.
+
+---
+
+## 7. Documentation defects found in passing
+
+- `docs/dev/done/next-parts-event-support-priority.md:43-47` claims five families are "now recorded
+  and showcased"; all five are dead probes on stock parts.
+- ~~`docs/dev/done/parsek-rewind-separation-design.md:593` step 4 ("leave alone") is contradicted
+  by the shipped scrub.~~ **Resolved 2026-08-09 by changing the code, not the doc** — step 4 was
+  right and the two production overrides were the divergence. The design doc needs no edit.
+- The rewind design doc §7.13 still claims v1 never un-completes a contract; `PatchContracts` can
+  remove a tombstoned finished row.

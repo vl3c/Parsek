@@ -131,7 +131,7 @@ Two limits of this table, stated so nobody over-reads it:
 | `Optimizer` | 2 | 0 | 2 | 0 | 0 | 2 | - | B |
 | `PartEventFX` | 6 | 6 | 0 | 0 | 0 | 6 | - | B |
 | `PartEventTiming` | 2 | 2 | 0 | 0 | 0 | 0 | - | B |
-| `Periodicity` | 11 | 1 | 7 | 0 | 3 | 5 | M2 | B |
+| `Periodicity` | 12 | 1 | 8 | 0 | 3 | 5 | M2 | B |
 | `Pipeline-Anchor` | 7 | 7 | 0 | 0 | 0 | 0 | H11 | A |
 | `Pipeline-Anchor-BubbleEntry` | 2 | 2 | 0 | 0 | 0 | 0 | - | B |
 | `Pipeline-AnchorPropagate` | 1 | 1 | 0 | 0 | 0 | 0 | - | B |
@@ -141,7 +141,9 @@ Two limits of this table, stated so nobody over-reads it:
 | `Pipeline-Terrain` | 1 | 1 | 0 | 0 | 0 | 1 | - | B |
 | `PlaybackControl` | 1 | 0 | 0 | 0 | 1 | 1 | - | B |
 | `QuickloadResume` | 3 | 1 | 0 | 0 | 2 | 1 | - | B |
+| `ReFlyWorldPreservation` | 6 | 6 | 0 | 0 | 0 | 6 | S4.2 | A |
 | `ReStockCompat` | 9 | 9 | 0 | 0 | 0 | 9 | - | B |
+| `RecordedSignals` | 3 | 3 | 1 | 1 | 0 | 2 | H33 | A |
 | `Recording` | 1 | 0 | 1 | 0 | 0 | 0 | - | B |
 | `RecordingFinalization` | 3 | 3 | 0 | 0 | 0 | 0 | H19 | A |
 | `RecordingInvariants` | 2 | 2 | 0 | 0 | 0 | 0 | H5 | B |
@@ -190,20 +192,42 @@ Two limits of this table, stated so nobody over-reads it:
 
 ## Triage
 
-Totals, re-derived: **100 categories / 556 declarations**. Buckets **A 28 categories
-(199 declarations)**, **B 72 categories (357 declarations)**, **C 0 categories (0
-declarations)**. Driven by a committed spec: **36 of 100 categories**, up from 35
-(the M1 `SnapshotBaseline` wave, H32; before that the S1.8 SoiCrossingPlayback wave
-at 35, 28 before that, and 8 two waves earlier).
-Measured against declarations rather than categories, that is 324 of 556 inside a
-driven category (was 317; 314 the wave before).
+Totals, re-derived: **102 categories / 566 declarations**. Buckets **A 30 categories
+(208 declarations)**, **B 72 categories (358 declarations)**, **C 0 categories (0
+declarations)**. Driven by a committed spec: **38 of 102 categories**, up from 36
+across this pair of waves (`RecordedSignals` via H33 and `SnapshotBaseline` via H32;
+before them the S4.2 world-preservation wave took it to 37 -- counting from the
+36 that the S1.8 SoiCrossingPlayback wave reached, 28 the wave before, and 8 two
+waves earlier).
+Measured against declarations rather than categories, that is 334 of 566 inside a
+driven category (was 327 after H33; 324 after S4.2, and 317, 314 and 263 the waves
+before).
 
-`SnapshotBaseline` arrives ALREADY in bucket A (driven by `H32-snapshot-baseline`)
-rather than as a bucket-B backlog row: the category was authored together with its
-scenario, for the M1 ghost snapshot-baseline fix. It is also the only bucket-A row
-whose spec carries an INTERIM tally pin - all seven of its cells can
-`InGameAssert.Skip`, and the split has not been measured on a live flight yet. See
-the spec header and `IngameBatchWiringGroupTests.INTERIM_PIN_IDS`.
+`ReFlyWorldPreservation` (6, driven by `S4.2-refly-world-preservation`) arrived with
+its driver rather than as an undriven category: it was authored for the
+REFLY-DELETES-NON-SLOT-WORLD fix, whose xUnit coverage is ConfigNode-level and
+pure-predicate and therefore cannot observe the live post-load scene where the bug's
+second deleting layer lived. All six members are Scene = FLIGHT and batch-allowed,
+and all six self-skip with a named requirement when no Re-Fly session is live, so the
+category is safe in any batch and vacuous in none.
+
+`RecordedSignals` (3 declarations, wired as `H33-recorded-signals`) exists for the
+live half of the 2026-08-09 part-action recording audit - the one step of the
+wheel-spin fix (Unity's `AngleAxis` handedness) that no headless cell can reach, the
+parachute cap restore at transform level, and the ground-contact gate that keeps a
+rover riding a launch vehicle from spinning its wheels at orbital speed. Two of its
+three cells carry run-time self-skips (its row's "Members with self-skip" column
+reads 2), which is why its spec was pinned interim when it landed; the 2026-08-11
+flight measured `total=3 passed=3 failed=0 skipped=0` and the pin is now whole.
+
+`SnapshotBaseline` (7, driven by `H32-snapshot-baseline`) likewise arrived ALREADY in
+bucket A rather than as a bucket-B backlog row: the category was authored together
+with its scenario, for the M1 ghost snapshot-baseline fix. Its spec was also pinned
+interim on landing, on the expectation that the stock-minimal profile might carry
+neither Breaking Ground robotics nor deployable prefabs whose clips separate stow
+from deploy; the 2026-08-11 flight measured `total=7 passed=7 failed=0 skipped=0` and
+disproved both, so that pin is whole too. `IngameBatchWiringGroupTests.INTERIM_PIN_IDS`
+is empty again.
 
 The 2026-08-05 wave (`wire-wave-2`, H26-H31) wired exactly the list the previous
 revision of this doc named as "the honest next wave": all five B6 members that

@@ -2736,6 +2736,7 @@ class IngameBatchWiringGroupTests(unittest.TestCase):
         "H30-ghost-audio":           ("GhostAudio", 9, "FLIGHT"),
         "H31-crew-reservation":      ("CrewReservation", 15, "FLIGHT"),
         "H32-snapshot-baseline":     ("SnapshotBaseline", 7, "FLIGHT"),
+        "H33-recorded-signals":      ("RecordedSignals", 3, "FLIGHT"),
     }
 
     # Declared MEASURED run-time skips per member: InGameAssert.Skip firings the
@@ -2778,18 +2779,6 @@ class IngameBatchWiringGroupTests(unittest.TestCase):
         "H31-crew-reservation": 3,
     }
 
-    # EMPTY, and deliberately kept rather than deleted. H20 was the one member that
-    # carried the loose interim pin, because both its cells have run-time
-    # InGameAssert.Skip guards and one of them (the walkback endpoint-overlap probe,
-    # a live Physics.OverlapBox) is not decidable from source. It was re-flown ALONE
-    # on 2026-07-27 so its log would survive the sweep, measured
-    # `total=2 passed=2 failed=0 skipped=0`, and is now pinned whole like the rest.
-    # So every member of the group pins its tally whole, and
-    # test_the_interim_pin_member_is_declared_and_deliberately_loose now asserts that
-    # NONE of them is loose - which is the guard worth having, because the interim
-    # form accepts 1-of-N by design and re-introducing one silently would be a real
-    # weakening. Add an id back here only alongside a written reason in the spec.
-    #
     # NOTE the asymmetry this leaves: for 13 of the 16, the skipped= floor is
     # DERIVABLE from the attributes plus a reachable-Skip scan. For H20 it is MEASURED only - the
     # attributes put a floor of 0 on it and nothing more, and a fixture change that
@@ -2807,17 +2796,27 @@ class IngameBatchWiringGroupTests(unittest.TestCase):
     # session, which no attribute predicts. The 2026-07-30 flight measured all three
     # satisfied.
     # EMPTY, and that is the healthy state: an interim pin is a temporary weakening
-    # (it accepts 1-of-N by design), so it should exist only between a spec landing
-    # and its first flight. H32-snapshot-baseline was the one member; it FLEW
-    # 2026-08-11 (run `2026-08-11_1111`, PASS) reading
-    # `total=7 passed=7 failed=0 skipped=0`, its spec now pins that whole, and the
-    # entry is dropped. Worth keeping from its removal: BOTH pre-flight reasons for
-    # leaving it loose turned out not to hold - the stock-minimal profile DOES carry
-    # Breaking Ground (the Clone phase junctions the dev install's whole
-    # `GameData/SquadExpansion`, Serenity robotics included), and the four deployable
-    # cells found stock prefabs whose animation clips do separate stow from deploy.
-    # So a future interim pin justified by "the profile lacks X" should CHECK the
-    # provisioned instance rather than reason from the profile's name.
+    # (the form accepts 1-of-N by design), so it should exist only between a spec
+    # landing and its first flight. Two members passed through it and both are gone:
+    #
+    #   H32-snapshot-baseline FLEW 2026-08-11 (run `2026-08-11_1111`, PASS) reading
+    #   `total=7 passed=7 failed=0 skipped=0`. BOTH pre-flight reasons for leaving it
+    #   loose turned out not to hold - the stock-minimal profile DOES carry Breaking
+    #   Ground (the Clone phase junctions the dev install's whole
+    #   `GameData/SquadExpansion`, Serenity robotics included), and the four
+    #   deployable cells found stock prefabs whose animation clips do separate stow
+    #   from deploy. So a future interim pin justified by "the profile lacks X" should
+    #   CHECK the provisioned instance rather than reason from the profile's name.
+    #
+    #   H33-recorded-signals FLEW 2026-08-11 (run `2026-08-11_1118`, PASS attempt 1)
+    #   reading `total=3 passed=3 failed=0 skipped=0`. Both cells whose run-time Skip
+    #   guards motivated the loose form EXECUTED on stock-minimal - the stock chute
+    #   prefab resolves both a canopy and a cap transform, and the stock rover wheel
+    #   satisfied all four of its guards (motor module, resolved spin transform, a
+    #   body-relative surface normal, and a spin axis not parallel to it) - so no
+    #   RUNTIME_SKIPS entry is owed for either.
+    #
+    # Both specs now pin their tallies whole, so the set is empty again.
     INTERIM_PIN_IDS = set()
 
     # Every committed spec whose id matches this is an H-SERIES batch spec.
@@ -2863,8 +2862,8 @@ class IngameBatchWiringGroupTests(unittest.TestCase):
         # cell below cannot catch either, because it compares two sets that shrink
         # together. Same shape as CommittedBatchTallySourceSyncTests's
         # test_the_source_tree_is_actually_readable.
-        self.assertEqual(25, len(self.GROUP),
-                         "the H7-H20 + H22-H32 group is 25 specs; if it genuinely changed "
+        self.assertEqual(26, len(self.GROUP),
+                         "the H7-H20 + H22-H33 group is 26 specs; if it genuinely changed "
                          "size, update this floor AND the counts in "
                          "docs/dev/autotest-ingame-category-inventory.md and "
                          "docs/dev/autotest-status.md in the same commit")
@@ -3044,9 +3043,19 @@ class IngameBatchWiringGroupTests(unittest.TestCase):
         # cells bail through a SILENT return on an empty ghost-map pid set -
         # exactly the fourth-trap shape this cell exists for) and H30 (the
         # engine-level pause/unpause cell iterates the live ghost set).
+        # H33 is in this set for a DIFFERENT reason than the other seven, and the
+        # difference is worth stating: its three cells do NOT walk RecordingStore
+        # (each builds its own single-part ghost from a PartLoader prefab), so
+        # injection is not an anti-vacuity guard for the cells. It injects because
+        # its subject IS the two corpus rows `recorded-signal-fixes` added (the
+        # chute-repack showcase and the surface rover drive), and its count pin is
+        # the only committed assertion that those two land through the sidecar /
+        # schema-gate load path. Same requirement either way: inject AND pin
+        # non-zero, so a corpus that silently stopped landing reds.
         corpus_backed = {"H14-corpus-data-health", "H15-corpus-ghost-visuals",
                          "H16-corpus-spawn-health", "H17-flight-integration",
-                         "H27-diagnostics", "H28-map-presence", "H30-ghost-audio"}
+                         "H27-diagnostics", "H28-map-presence", "H30-ghost-audio",
+                         "H33-recorded-signals"}
         for sid, spec in sorted(self.specs.items()):
             with self.subTest(spec=sid):
                 fixture = spec.get("fixture", {}) or {}
@@ -4618,6 +4627,28 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
                                        "reset need a career fixture the sandbox host lacks; the "
                                        "self-authored RewindPoint needs a multi-controllable "
                                        "split plus a seam channel. No unattended run discharges them.",
+        # Landed UNFLOWN with the world-preservation coverage wave. The tag is here on
+        # S4.1's OWN stated rule, quoted verbatim from its tier note: "The
+        # pending-operator TAG stays until that first green run; the tag alone is
+        # non-gating." The original derivation debt is PAID: run 2026-08-11_1057 flew,
+        # the batch line matched the derived tally token for token, and the pin is
+        # re-stamped MEASURED. The entry's old drop rule ("when the tally is re-pinned
+        # from a measured line") is deliberately NOT taken, because S4.1's quoted rule
+        # is "until that first GREEN run" and that run classified
+        # PARSEK-FAIL(expectations) on the AppendRelations token - the standing
+        # RED-BY-FINDING (REFLY-CONCLUSION-SKIPS-APPENDRELATIONS). What the operator
+        # still owes: the standing-red disposition (fix the finding, or set
+        # [expectedFail] bugId to quiet nightlies) and the save-structure arming
+        # decision the spec deliberately leaves report-only. DROP THIS ENTRY on the
+        # first green run after the finding is resolved.
+        "S4.2-refly-world-preservation.toml":
+                                       "flown RED-BY-FINDING 2026-08-11: tally measured (matched "
+                                       "the derivation token for token) but the run classified "
+                                       "PARSEK-FAIL on REFLY-CONCLUSION-SKIPS-APPENDRELATIONS, "
+                                       "so the tag stays until the first green run. Operator "
+                                       "owes the standing-red disposition + the report-only "
+                                       "arming decision. NOT tier=operator: a nightly spec can "
+                                       "owe operator work, exactly as S1.5 and EVA-1 do.",
     }
 
     # Untagged specs that are CANDIDATES - they MENTION the token, or they are
@@ -4723,6 +4754,9 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
         "V6T-mun-ts-arrival.toml":          "FLOWN GREEN 2026-08-08 (2026-08-08_1559 reading, PASS attempt 1, 50 s) - the TS host materialized the looped faithful moon member (`created 1 ghost vessel(s)`, Mun-framed hyperbola, `factory chain ... reaimed=False`, V5's token inverted). ARMED on both save-structure blocks (armed run 2026-08-08_1641 PASS attempt 1; negative control shared with V6M's 1644). Operator tier is now an open PROMOTION call, not debt",
         "V7M-minmus-player-loop.toml":      "FLOWN GREEN 2026-08-08 after one falsification and one calibration (_1600 INVALID: the pinned watch OK was wrong because being inside the 300 km figure V4 quotes is NOT sufficient for entry - refused at 144-199 km, entered at 51.5 km, so the entry boundary brackets in (51.5 km, 144.3 km); the MECHANISM behind that boundary is UNESTABLISHED and the 120 km render-zone explanation first written for it was retracted 2026-08-09, see docs/dev/todo-and-known-bugs.md -> WATCH-ENTRY-REFUSED-INSIDE-QUOTED-RANGE; _1607 calibration located an in-boundary epoch; _1613 PASS attempt 1, 53 s, with the suite's FIRST watch-mode entry). ARMED on both save-structure blocks (armed run 2026-08-08_1642 PASS attempt 1; negative control shared with V6M's 1644). Carries one report-only product finding (a teardown NRE in WatchModeController.RestoreCameraAfterWatchExit when a run ends inside watch mode) which is FILED, not owed by this spec - and deliberately NOT armed as a unityExceptions ceiling, since the two green flights of the identical shape counted 1 and 5 raw NREs. Operator tier is now an open PROMOTION call, not debt",
         "V7T-minmus-ts-arrival.toml":       "FLOWN 2026-08-08, RED BY FINDING and deliberately kept red (2026-08-08_1614 and _1616, both PARSEK-FAIL(anomaly), both `icon-off-orbit angleIconVsOrbitEff=131.22` to the decimal - deterministic, not a flake). Every other verifier green, all 16 steps met. The V1-map-dwell-mun-orbit precedent applies: a red-by-finding lane is an outcome, not a debt this tag would name. What a human owns here is the icon question itself, and it is written up in the spec header with a named discriminating experiment; report-only, nothing armed",
+        "V8-eve-player-loop.toml":          "FLOWN GREEN 2026-08-11 through four reading iterations on the new eve-orbit-recorded fixture - the program's first ENGAGED inward transfer and its first span>synodic loop unit (_0802 arm-and-read; _0807 brackets, PASS, and the FIRST-EVER seam-endpoint-outside-soi raise, ratio 4.6216 on the Sun->Eve seam after the tilt gate declined all 27 tof candidates to a faithful window; _0810 and _0814 PARSEK-FAIL(anomaly) on a line-blink detector gap at back-to-back seam-straddling TimeJumps, both filed with artifacts in todo-and-known-bugs.md, spec re-paced with RecordingState spacers rather than any anomaly exemption; _0818 and _0819 both PASS attempt 1 with clean sweeps - two consecutive flights of the final shape, the raise reproducing bit-identically at ratio=4.6216 on every bracketed run). ARMED on both save-structure blocks (armed run 2026-08-11_0828 PASS attempt 1, gating=True mismatches=0; negative control _0830 PARSEK-FAIL(save-structure) on the single inverted window `rewind.supersedeRows 0 < min 1`, reverted). The finding trio (tilt-decline, faithful window, the seam-endpoint raise) plus the D11 cut token are REQUIRED - the GS-3-style regression floor: a change that un-declines Eve's windows or moves the arrival geometry reds this lane and forces a re-read. FIX ERA (2026-08-11, branch reaim-inclined-targets): the tilt-retention fix red the floor BY DESIGN (_1242, exactly the three trio mismatches) and the lane was re-pinned to the healthy state (re-aimed transfer ready devFromRecorded=0s, state=retained, census outsideSoi=0; readings _1244/_1245, control _1246) with the old trio inverted into forbidden. Operator tier is calibration discipline, not debt",
+        "V8T-eve-ts-arrival.toml":          "FLOWN GREEN 2026-08-11 (reading _0835 a1 INVALID on the TS-LOADGAME-RECORDING-ACTIVE-RACE, sighting 3, filed; _0836 a2 PASS clean; armed _0843 PASS attempt 1, gating=True mismatches=0; control shared with V8's _0830). First TS observation of a looped inward-transfer arrival: Eve-framed inbound materialized (created 1 ghost vessel(s), body=Eve TS token gates the D14 eve claim), factory reaimed=False (V5's Duna pin inverted - the tilt-declined faithful-window shape), census structural zero told from blindness, and the parity pair V5 omitted carried here. Surfaced + filed TS-FLUSHED-SAVE-DROPS-DEBRIS-TERMINALSTATE (byte-verified). FIX ERA (2026-08-11): the tilt-retention fix flipped the TS chain to genuinely re-aimed (baseline _1247 red on the reaimed=False pin; live reaimed=True phases=11); re-pinned to reaimed=True with fallback tokens forbidden (readings _1252/_1253). Operator tier is calibration discipline, not debt",
+        "V8F-eve-loop-faithful.toml":       "FLOWN GREEN 2026-08-11 (iteration 1 PARSEK-FAIL on the author's own unescaped-parens regex, fixed; then two consecutive PASS runs with the five-raise set reproducing (four of five ratios to four decimals, the fifth 1 ulp: 138.2108/138.2109); armed same day, control shared with V8's _0830). The deliberate-faithful A/B half: FORCED FAITHFUL required + ENGAGED forbidden, the forced unit measured SELF-OVERLAPPING (overlapCadence = span/20, where the ENGAGED unit reads overlaps=no), and the hlib promotion blocker (2) population measured and PINNED - the first outsideSoi=[1-9] census pin, four per-instance Sun->Eve arrival raises (52.70-203.20) plus a Kerbin->Mun transit-seam raise (4.80). Calibration fact filed: benign ratios straddle V8's 4.6216 defect reading, so ratio cannot separate the classes. FIX ERA (2026-08-11): confirmed BYTE-IDENTICAL on the tilt-retention-fixed DLL (_1250 PASS - forced faithful bypasses the synth, the knob isolation held). Operator tier is calibration discipline, not debt",
     }
 
     def _specs(self):
@@ -5041,7 +5075,24 @@ class SaveStructureVerifierWiringTests(unittest.TestCase):
                        # second gate armed on top of it.
                        "V6M-mun-player-loop.toml",
                        "V6T-mun-ts-arrival.toml",
-                       "V7M-minmus-player-loop.toml"}
+                       "V7M-minmus-player-loop.toml",
+                       # V8: armed 2026-08-11 off the two consecutive clean
+                       # reading runs of the final paced shape (_0818/_0819,
+                       # saveParse REPORT all-zero rewind facets, trees=1,
+                       # committedTrees=1); armed + negative-control run ids
+                       # on the spec header's ARMING LEDGER and the status
+                       # row.
+                       "V8-eve-player-loop.toml",
+                       # V8T: armed 2026-08-11 off its reading run (_0836
+                       # a2, all-zero rewind facets, trees=1,
+                       # committedTrees=1); negative control shared with
+                       # V8's _0830 (the shared-evaluator precedent).
+                       "V8T-eve-ts-arrival.toml",
+                       # V8F: armed 2026-08-11 off its two consecutive
+                       # clean runs (_0853/_0854, the five-raise set; four
+                       # of five ratios to four decimals, fifth 1 ulp; armed run
+                       # _0857); control shared with V8's _0830.
+                       "V8F-eve-loop-faithful.toml"}
 
     def test_no_committed_spec_arms_gating(self):
         armed = []
@@ -5287,7 +5338,12 @@ class IngameCategoryInventoryDocTests(unittest.TestCase):
     def test_the_stated_totals_match_the_table(self):
         stated_decls = sum(r[0] for r in self.rows.values())
         body = "\n".join(self.lines)
-        self.assertIn("**100 categories / %d declarations**" % stated_decls, body,
+        # The category COUNT is hardcoded here on purpose: it is the one token the
+        # table cannot self-check (a row added AND the totals line updated by hand
+        # would agree with each other while both drifted from the source). 99 -> 100
+        # with the `ReFlyWorldPreservation` category (S4.2), 100 -> 101 with
+        # `RecordedSignals` (H33), 101 -> 102 with `SnapshotBaseline` (H32).
+        self.assertIn("**102 categories / %d declarations**" % stated_decls, body,
                       "the triage totals line disagrees with the table it summarises "
                       "(table sums to %d declarations across %d categories)"
                       % (stated_decls, len(self.rows)))

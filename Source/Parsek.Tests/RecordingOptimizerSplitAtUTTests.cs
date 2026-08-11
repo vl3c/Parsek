@@ -1466,6 +1466,118 @@ namespace Parsek.Tests
             Assert.Equal(PartEventType.ParachuteDestroyed, tip.PartEvents[0].eventType);
         }
 
+        /// <summary>
+        /// MERGED-BEHAVIOR CELL (bidirectional seed emission x the four-state parachute
+        /// machine). Neither branch could state this alone: the four-state machine gave
+        /// Repacked its own event type and its own cap-restoring pose, and bidirectional
+        /// emission is what makes an INACTIVE terminal state reach the tail as a seed at
+        /// all. Composed, the pair has to carry the terminal state ACROSS the cut with its
+        /// identity intact — a repacked chute and a cut chute are both "not flying" and
+        /// were both once seeded as nothing, but they render differently, so collapsing
+        /// them to one inactive type (or to no seed) is now a visible defect on the TIP.
+        ///
+        /// Deployed -> Cut -> Repacked is the ordering that makes it discriminating: it is
+        /// the full EVA repack story, and every intermediate state is one the reducer must
+        /// discard in favour of the last.
+        /// </summary>
+        [Fact]
+        public void SplitAtUT_HeadEndsRepacked_TipSeedsRepacked_AndRendersStowedWithCap()
+        {
+            var rec = MakeSimpleRecording(8.0, 53.0, "rec-chute-repacked", midUT: 34.0);
+            rec.PartEvents.Add(VisualEvent(10.0, PartEventType.ParachuteDeployed));
+            rec.PartEvents.Add(VisualEvent(20.0, PartEventType.ParachuteCut));
+            rec.PartEvents.Add(VisualEvent(25.0, PartEventType.ParachuteRepacked));
+
+            var tip = RecordingOptimizer.SplitAtUT(rec, 34.0);
+
+            Assert.NotNull(tip);
+            PartEvent seed = Assert.Single(tip.PartEvents);
+            // The seed TYPE is the terminal state verbatim, not a shared inactive token.
+            Assert.Equal(PartEventType.ParachuteRepacked, seed.eventType);
+            Assert.Equal(34.0, seed.ut);
+            // ...and the type the seed carries is the one that puts the cap BACK, which is
+            // what "stowed with cap" means at the transform level. Asserting the render
+            // decision off the SEED (rather than restating the table) is the whole point:
+            // it closes the loop from the optimizer's choice to the ghost's pose.
+            Assert.True(GhostPlaybackLogic.TryResolveParachuteCapActive(
+                seed.eventType, out bool capActive));
+            Assert.True(capActive);
+        }
+
+        /// <summary>
+        /// The CUT-terminal variant of the cell above, and the reason that one is not
+        /// vacuous: same reducer, same emitter, same head prefix — only the last event
+        /// differs — and the tail must render the OPPOSITE cap state. If the merge had
+        /// collapsed the parachute family to a single inactive seed type, these two cells
+        /// would disagree with each other rather than both passing.
+        /// </summary>
+        [Fact]
+        public void SplitAtUT_HeadEndsCut_TipSeedsCut_AndRendersWithCapHidden()
+        {
+            var rec = MakeSimpleRecording(8.0, 53.0, "rec-chute-cut", midUT: 34.0);
+            rec.PartEvents.Add(VisualEvent(10.0, PartEventType.ParachuteDeployed));
+            rec.PartEvents.Add(VisualEvent(20.0, PartEventType.ParachuteCut));
+
+            var tip = RecordingOptimizer.SplitAtUT(rec, 34.0);
+
+            Assert.NotNull(tip);
+            PartEvent seed = Assert.Single(tip.PartEvents);
+            Assert.Equal(PartEventType.ParachuteCut, seed.eventType);
+            Assert.Equal(34.0, seed.ut);
+            Assert.True(GhostPlaybackLogic.TryResolveParachuteCapActive(
+                seed.eventType, out bool capActive));
+            Assert.False(capActive);
+        }
+
+        /// <summary>
+        /// A repack UNDOES a cut for seeding purposes, so the two must not both survive the
+        /// reducer: the parachute family is latest-state-wins on ONE key, and a TIP holding
+        /// both a Cut and a Repacked seed would apply them in list order and land on
+        /// whichever happened to be last. Guards the family-9 collapse itself rather than
+        /// the type carried out of it.
+        /// </summary>
+        [Fact]
+        public void BuildTransientStateSeeds_CutThenRepacked_CollapsesToOneRepackedSeed()
+        {
+            var events = new List<PartEvent>
+            {
+                VisualEvent(10.0, PartEventType.ParachuteDeployed),
+                VisualEvent(20.0, PartEventType.ParachuteCut),
+                VisualEvent(25.0, PartEventType.ParachuteRepacked),
+            };
+
+            List<PartEvent> seeds = RecordingOptimizer.BuildTransientStateSeeds(events, 34.0);
+
+            PartEvent seed = Assert.Single(seeds);
+            Assert.Equal(PartEventType.ParachuteRepacked, seed.eventType);
+            Assert.Contains(logLines, l => l.Contains("[Optimizer]")
+                && l.Contains("visualStatesOff=1"));
+        }
+
+        /// <summary>
+        /// The other half of the composition: family-9 (parachute, main's ParachuteRepacked)
+        /// and family-10 (robotics, this branch's servo poses) must keep DISTINCT ids, or the
+        /// boundary dedupe would let a chute event at the split suppress a servo seed for the
+        /// same part — the two families are keyed differently (parachutes pid-collapsed,
+        /// robotics module-scoped), so a collision is silent rather than loud.
+        /// </summary>
+        [Fact]
+        public void SplitAtUT_ParachuteAndRoboticSeeds_BothSurviveOnTheSamePart()
+        {
+            var rec = MakeSimpleRecording(8.0, 53.0, "rec-chute-and-servo", midUT: 34.0);
+            rec.PartEvents.Add(VisualEvent(20.0, PartEventType.ParachuteRepacked));
+            rec.PartEvents.Add(VisualEvent(25.0, PartEventType.RoboticPositionSample, value: 37.5f));
+
+            var tip = RecordingOptimizer.SplitAtUT(rec, 34.0);
+
+            Assert.NotNull(tip);
+            Assert.Equal(2, tip.PartEvents.Count);
+            Assert.Contains(tip.PartEvents, e => e.eventType == PartEventType.ParachuteRepacked);
+            PartEvent servo = Assert.Single(
+                tip.PartEvents.Where(e => e.eventType == PartEventType.RoboticMotionStopped));
+            Assert.Equal(37.5f, servo.value);
+        }
+
         [Fact]
         public void BuildTransientStateSeeds_BlinkRateOnly_NoBlinkDisabledSeed()
         {

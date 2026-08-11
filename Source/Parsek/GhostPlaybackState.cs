@@ -112,6 +112,9 @@ namespace Parsek
         public Vector3 lastInterpolatedVelocity;
         public string lastInterpolatedBodyName;
         public double lastInterpolatedAltitude;
+        // Ground-contact gate memo for RoboticVisualMode.WheelGroundSpeed spin. See
+        // WheelGroundContactMemo and GhostPlaybackLogic.ResolveWheelGroundContact.
+        internal WheelGroundContactMemo wheelGroundContact;
         public Vector3 lastValidHorizonForward; // fallback forward direction when velocity near zero
         public RenderingZone currentZone = RenderingZone.Physics; // distance-based rendering zone
         public double lastDistance; // meters from active vessel, updated per frame in ApplyZonePolicy
@@ -140,6 +143,7 @@ namespace Parsek
             audioPaused = false;
             cachedAudioBody = null;
             cachedAudioBodyName = null;
+            wheelGroundContact = default;
             roboticInfos = null;
             deployableInfos = null;
             heatInfos = null;
@@ -206,5 +210,25 @@ namespace Parsek
             bodyName = body;
             altitude = alt;
         }
+    }
+
+    /// <summary>
+    /// Per-ghost memo of the last resolved wheel ground-contact answer, so the ground-contact gate
+    /// costs one pair of double compares on a steady-state frame instead of an O(sections) scan.
+    /// Owned by <see cref="GhostPlaybackState.wheelGroundContact"/>; resolved and updated only by
+    /// <see cref="GhostPlaybackLogic.ResolveWheelGroundContact"/>.
+    ///
+    /// The window is the resolved <see cref="TrackSection"/>'s own [startUT, endUT) span, so it
+    /// invalidates itself at every section change (and at a loop restart, where the UT jumps
+    /// backwards out of the window). Half-open on purpose: <c>FindTrackSectionForUT</c> treats the
+    /// LAST section's end as inclusive, so a probe at exactly that endUT re-resolves rather than
+    /// reading a cached answer — a miss, never a wrong answer.
+    /// </summary>
+    internal struct WheelGroundContactMemo
+    {
+        public bool hasValue;
+        public double startUT;
+        public double endUT;
+        public bool onGround;
     }
 }

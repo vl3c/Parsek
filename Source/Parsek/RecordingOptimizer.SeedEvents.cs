@@ -10,6 +10,26 @@ namespace Parsek
         /// <summary>
         /// Checks if a part event represents a permanent one-way visual state change
         /// that must be seeded in subsequent segments after a split.
+        ///
+        /// ParachuteRepacked is deliberately NOT here, and neither is ParachuteCut — both belong to
+        /// the reversible family. The reasoning, since a repack undoing a cut is exactly the case
+        /// that makes "is a cut permanent?" a live question:
+        ///
+        /// A cut was never in this family to begin with. ParachuteDestroyed is (the part is gone for
+        /// good and the tail must keep it hidden), but a cut leaves the part present, and a stock EVA
+        /// Repack turns it back into a stowed chute — so cut is not one-way and a repack has no
+        /// permanence to revoke. Both stay in the reversible family, where the parachute state
+        /// machine collapses a per-part run of events to its last state and
+        /// <see cref="AppendReversibleStateSeeds"/> emits that last state VERBATIM, in either
+        /// direction: a head ending Cut seeds ParachuteCut, a head ending Repacked seeds
+        /// ParachuteRepacked, and the two render differently (cut = canopy gone AND cap hidden;
+        /// repacked = canopy gone WITH the cap back on). Only ParachuteDestroyed is skipped by the
+        /// inactive emitter, because ForwardPermanentStateEvents copies it instead.
+        ///
+        /// Before the bidirectional emitter, both inactive states fell through to "no seed at all",
+        /// which happened to render correctly ONLY because the tail's ghost spawned at the stowed
+        /// prefab pose. That is no longer true once a TIP spawns from a snapshot baseline, so the
+        /// terminal state now has to be stated rather than implied.
         /// </summary>
         internal static bool IsPermanentVisualStateEvent(PartEventType type)
         {
@@ -180,6 +200,14 @@ namespace Parsek
                         break;
                     case PartEventType.ParachuteCut:
                     case PartEventType.ParachuteDestroyed:
+                    // All three are "canopy not flying", but they are NOT interchangeable poses, so
+                    // the seed carries `evt.eventType` verbatim rather than one shared inactive
+                    // type: Cut renders canopy-gone-and-cap-hidden, Repacked renders
+                    // canopy-gone-with-cap-on (stock Repack() restores the cap), Destroyed hides the
+                    // whole part. `Active=false` only routes them past the active-direction emitter;
+                    // AppendReversibleStateSeeds still emits Cut and Repacked, and skips only
+                    // Destroyed (ForwardPermanentStateEvents owns that one).
+                    case PartEventType.ParachuteRepacked:
                         parachuteStates[key] = BuildTransientState(
                             evt, active: false, value: 0f, seedEventType: evt.eventType);
                         break;
@@ -427,6 +455,7 @@ namespace Parsek
                 case PartEventType.ParachuteDeployed:
                 case PartEventType.ParachuteCut:
                 case PartEventType.ParachuteDestroyed:
+                case PartEventType.ParachuteRepacked:
                 // Robotic servo poses are many-valued AND reversible, so they belong to the
                 // latest-state-wins reducer, never to ForwardPermanentStateEvents (which
                 // copies every matching event verbatim and would dump every position sample
@@ -483,6 +512,7 @@ namespace Parsek
                 case PartEventType.ParachuteDeployed:
                 case PartEventType.ParachuteCut:
                 case PartEventType.ParachuteDestroyed:
+                case PartEventType.ParachuteRepacked:
                     return 9;
                 case PartEventType.RoboticMotionStarted:
                 case PartEventType.RoboticPositionSample:

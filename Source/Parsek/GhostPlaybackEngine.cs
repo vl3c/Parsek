@@ -958,6 +958,7 @@ namespace Parsek
                 case PartEventType.ParachuteDeployed:
                 case PartEventType.ParachuteSemiDeployed:
                 case PartEventType.ParachuteCut:
+                case PartEventType.ParachuteRepacked:
                 case PartEventType.ParachuteDestroyed:
                 case PartEventType.ShroudJettisoned:
                 case PartEventType.DeployableExtended:
@@ -3632,6 +3633,17 @@ namespace Parsek
             {
                 GhostPlaybackLogic.ApplyPartEvents(index, traj, ut, state, allowTransientEffects);
                 // Flag events are applied earlier in RenderInRangeGhost, before zone check (#249).
+
+                // Continuous robotic motion (rotor RPM, and wheel spin derived from ground speed)
+                // is driven from HERE rather than from inside ApplyPartEvents, which early-returns
+                // when a recording has no PartEvents at all. Wheel spin no longer depends on any
+                // recorded event, so a rover recording that happens to carry zero part events must
+                // still roll its wheels — under the old call site it silently would not. Rotors are
+                // unaffected: with no events their `active` flag is false and this is a no-op.
+                //
+                // The sections are the wheel-spin ground-contact gate's only input; a null / empty
+                // list holds the wheels still (see GhostPlaybackLogic.ResolveWheelGroundContact).
+                GhostPlaybackLogic.UpdateActiveRobotics(state, ut, traj?.TrackSections);
             }
 
             bool priorVisualFxSuppressed = state.visualFxSuppressed;

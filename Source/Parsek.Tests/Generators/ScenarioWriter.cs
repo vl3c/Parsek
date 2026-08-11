@@ -38,6 +38,31 @@ namespace Parsek.Tests.Generators
         /// </para>
         /// </summary>
         public string RewindSlotVesselNamePrefix { get; set; } = "B9 Slot ";
+
+        /// <summary>
+        /// Optional hook invoked once per RP quicksave sidecar, AFTER the per-slot
+        /// VESSEL nodes are authored and <c>activeVessel</c> is set, so a fixture can
+        /// add the UNRELATED world the re-fly must preserve (a pre-existing station, a
+        /// discovered <c>SpaceObject</c>, a planted flag, prior-career debris).
+        ///
+        /// <para>
+        /// A HOOK RATHER THAN A DATA FIELD because the interesting inputs are the
+        /// nodes <see cref="BuildRewindPointQuicksave"/> already has in hand and no
+        /// caller can rebuild: the donor VESSEL it clones per slot (real PART nodes,
+        /// so a clone resolves in <c>PartLoader</c>) and the donor's own vessels it
+        /// removed (a real asteroid with its <c>DISCOVERY</c> node is worth far more
+        /// than a hand-authored one). Ordering is load-bearing: extras are APPENDED,
+        /// so the focus slot's ordinal - which <c>activeVessel</c> already indexes -
+        /// cannot shift.
+        /// </para>
+        ///
+        /// <para>
+        /// Null on every existing fixture, so the committed B9 / crew-loss sidecars
+        /// are byte-identical.
+        /// </para>
+        /// </summary>
+        public Action<RewindPointQuicksaveWorld> RewindPointWorldAuthor { get; set; }
+
         // One-shot guard: InjectRewindB9 calls InjectIntoSaveFile once per target
         // file (persistent.sfs AND the run target), but the RP quicksave sidecar is a
         // single shared artifact under Parsek/RewindPoints/ that does not depend on
@@ -575,7 +600,7 @@ namespace Parsek.Tests.Generators
                     Directory.CreateDirectory(destDir);
 
                 BuildRewindPointQuicksave(donorRoot, rp, destPath, trees,
-                    RewindSlotVesselNamePrefix);
+                    RewindSlotVesselNamePrefix, RewindPointWorldAuthor);
             }
         }
 
@@ -587,11 +612,18 @@ namespace Parsek.Tests.Generators
         /// vessel (first non-asteroid VESSEL) is cloned per slot when present so its
         /// parts resolve in PartLoader; otherwise a minimal stock-pod VESSEL is
         /// synthesized. <c>activeVessel</c> is set to the focus slot's ordinal.
+        /// <para>
+        /// <paramref name="worldAuthor"/> (see
+        /// <see cref="RewindPointWorldAuthor"/>) is the optional seam for adding the
+        /// UNRELATED world a preservation fixture needs; it runs last and appends, so
+        /// the focus slot's ordinal is unaffected.
+        /// </para>
         /// </summary>
         internal static void BuildRewindPointQuicksave(
             ConfigNode donorRoot, RewindPoint rp, string destPath,
             IEnumerable<ConfigNode> treeNodes = null,
-            string slotVesselNamePrefix = "B9 Slot ")
+            string slotVesselNamePrefix = "B9 Slot ",
+            Action<RewindPointQuicksaveWorld> worldAuthor = null)
         {
             var ic = CultureInfo.InvariantCulture;
 
@@ -607,6 +639,16 @@ namespace Parsek.Tests.Generators
             // Pick a donor VESSEL template BEFORE clearing (first controllable, i.e.
             // non-asteroid, vessel). When absent we synthesize a minimal stock pod.
             ConfigNode donorVessel = SelectDonorVessel(flightState);
+
+            // Snapshot the donor's own vessels before clearing so a world author can
+            // re-admit real ones (an asteroid with its DISCOVERY node beats any
+            // hand-authored SpaceObject). Copies, because RemoveNodes drops the
+            // originals from the tree we are rewriting.
+            var removedDonorVessels = new List<ConfigNode>();
+            foreach (ConfigNode existing in flightState.GetNodes("VESSEL"))
+            {
+                if (existing != null) removedDonorVessels.Add(existing.CreateCopy());
+            }
 
             flightState.RemoveNodes("VESSEL");
 
@@ -640,6 +682,14 @@ namespace Parsek.Tests.Generators
             }
 
             SetOrAddValue(flightState, "activeVessel", activeOrdinal.ToString(ic));
+
+            // The UNRELATED world, appended AFTER activeVessel is set so the focus
+            // slot's ordinal cannot move (see RewindPointWorldAuthor).
+            if (worldAuthor != null)
+            {
+                worldAuthor(new RewindPointQuicksaveWorld(
+                    rp, flightState, donorVessel, removedDonorVessels));
+            }
 
             // R1-EMPTY-PROVISIONAL discriminating experiment. A PRODUCTION
             // RewindPoint is a full GamePersistence.SaveGame taken mid-flight, so its
@@ -870,6 +920,25 @@ namespace Parsek.Tests.Generators
             rootPart.SetValue("persistentId", rootPid.ToString(ic), true);
         }
 
+        /// <summary>
+        /// Stamps a donor clone as an UNRELATED world vessel: fresh identity (name,
+        /// vessel pid, root-part pid, and a launch guid derived from
+        /// <paramref name="identitySeed"/> - the caller's per-vessel ROLE key, never
+        /// the display name, which two fleet members may deliberately share) plus a
+        /// <c>type</c> token. Deliberately does NOT take a slot: the whole point of
+        /// these vessels is that no slot map references them.
+        /// </summary>
+        internal static void StampUnrelatedVesselIdentity(
+            ConfigNode vessel, uint vesselPid, uint rootPid, string vesselName,
+            string typeToken, string identitySeed)
+        {
+            if (vessel == null) return;
+            StampVesselIdentity(vessel, vesselPid, rootPid, vesselName,
+                DeriveVesselLaunchGuid("unrelated:" + (identitySeed ?? vesselName ?? "")));
+            if (!string.IsNullOrEmpty(typeToken))
+                vessel.SetValue("type", typeToken, true);
+        }
+
         // Reverse map lookup: the (unique) pid whose slot == slotIndex, else 0.
         private static uint ReverseLookupPid(Dictionary<uint, int> map, int slotIndex)
         {
@@ -1050,6 +1119,137 @@ namespace Parsek.Tests.Generators
             Recording.ApplyParentAnchorContract(rec, builder.GetParentAnchorRecordingId());
 
             return rec;
+        }
+    }
+
+    /// <summary>
+    /// The mutable RP-quicksave scene handed to
+    /// <see cref="ScenarioWriter.RewindPointWorldAuthor"/>: the
+    /// <c>FLIGHTSTATE</c> being written, the donor VESSEL the slots were cloned
+    /// from, and copies of the donor save's own vessels that the slot rewrite
+    /// removed.
+    ///
+    /// <para>
+    /// Exists so a preservation fixture can add UNRELATED vessels without
+    /// reaching into <see cref="ScenarioWriter"/>'s private stamping helpers, and
+    /// without hand-authoring a loadable KSP <c>VESSEL</c> node from nothing -
+    /// which is precisely the fixture heroics that produce a save KSP silently
+    /// refuses to instantiate. Everything it adds is a CLONE of a real vessel from
+    /// the host save, re-stamped.
+    /// </para>
+    /// </summary>
+    public sealed class RewindPointQuicksaveWorld
+    {
+        private readonly ConfigNode flightState;
+        private readonly ConfigNode donorVessel;
+        private readonly List<ConfigNode> removedDonorVessels;
+
+        internal RewindPointQuicksaveWorld(
+            RewindPoint rewindPoint, ConfigNode flightState, ConfigNode donorVessel,
+            List<ConfigNode> removedDonorVessels)
+        {
+            RewindPoint = rewindPoint;
+            this.flightState = flightState;
+            this.donorVessel = donorVessel;
+            this.removedDonorVessels = removedDonorVessels ?? new List<ConfigNode>();
+        }
+
+        /// <summary>The rewind point whose quicksave is being written.</summary>
+        public RewindPoint RewindPoint { get; }
+
+        /// <summary>
+        /// Copies of the donor save's own <c>VESSEL</c> nodes, in save order, as
+        /// they stood before the slot rewrite removed them.
+        /// </summary>
+        public IReadOnlyList<ConfigNode> RemovedDonorVessels => removedDonorVessels;
+
+        /// <summary>
+        /// Re-admits a donor vessel verbatim (identity, orbit, parts, and any
+        /// <c>DISCOVERY</c> node intact). Returns the node actually added, or null
+        /// when <paramref name="donor"/> is null.
+        /// </summary>
+        public ConfigNode ReadmitDonorVessel(ConfigNode donor)
+        {
+            if (donor == null) return null;
+            return flightState.AddNode(donor.CreateCopy());
+        }
+
+        /// <summary>
+        /// Every re-admitted donor vessel whose <c>type</c> value equals
+        /// <paramref name="typeToken"/>. Returns the count admitted.
+        /// </summary>
+        public int ReadmitDonorVesselsOfType(string typeToken)
+        {
+            int admitted = 0;
+            for (int i = 0; i < removedDonorVessels.Count; i++)
+            {
+                ConfigNode donor = removedDonorVessels[i];
+                if (donor == null) continue;
+                if (!string.Equals(donor.GetValue("type"), typeToken, StringComparison.Ordinal))
+                    continue;
+                if (ReadmitDonorVessel(donor) != null) admitted++;
+            }
+            return admitted;
+        }
+
+        /// <summary>
+        /// Clones the donor command vessel into an unrelated vessel of
+        /// <paramref name="typeToken"/> under a fresh identity, parked in a circular
+        /// orbit of <paramref name="orbitSemiMajorAxis"/> metres about the donor's own
+        /// reference body when that is positive, otherwise left in the donor's
+        /// situation.
+        ///
+        /// <para>
+        /// The pid pair must be OUTSIDE the rewind point's
+        /// <see cref="RewindPoint.PidSlotMap"/> / <see cref="RewindPoint.RootPartPidMap"/>
+        /// - that is what makes the vessel "unrelated" to the classifier under test.
+        /// Callers derive them from a ROLE key so the fixture and its assertions share
+        /// one source.
+        /// </para>
+        ///
+        /// <para>
+        /// <paramref name="identitySeed"/> seeds the KSP vessel-level <c>pid</c> guid
+        /// and MUST be unique per vessel. It is a separate parameter from
+        /// <paramref name="name"/> on purpose: a name-seeded guid collides the moment
+        /// two fleet members deliberately share a name, which is exactly the shape a
+        /// name-collision regression fixture wants (a Probe and a Debris both called
+        /// after the re-flown craft), and two VESSEL nodes carrying one guid is a save
+        /// KSP resolves by regenerating one of them.
+        /// </para>
+        /// </summary>
+        public ConfigNode AddUnrelatedClonedVessel(
+            string name, string typeToken, string identitySeed,
+            uint persistentId, uint rootPartPersistentId,
+            double orbitSemiMajorAxis = 0.0)
+        {
+            if (donorVessel == null) return null;
+            var ic = CultureInfo.InvariantCulture;
+
+            ConfigNode vessel = flightState.AddNode(donorVessel.CreateCopy());
+            ScenarioWriter.StampUnrelatedVesselIdentity(
+                vessel, persistentId, rootPartPersistentId, name, typeToken, identitySeed);
+
+            if (orbitSemiMajorAxis > 0.0)
+            {
+                // ORBITING + a circular ORBIT keeps the clone well outside the
+                // physics bubble, so a co-located landed pile can never kraken the
+                // very scene the preservation cells are reading.
+                vessel.SetValue("sit", "ORBITING", true);
+                vessel.SetValue("landed", "False", true);
+                vessel.SetValue("splashed", "False", true);
+                vessel.SetValue("landedAt", "", true);
+                vessel.SetValue("displaylandedAt", "", true);
+                vessel.SetValue("launchedFrom", "", true);
+                ConfigNode orbit = vessel.GetNode("ORBIT") ?? vessel.AddNode("ORBIT");
+                orbit.SetValue("SMA", orbitSemiMajorAxis.ToString("R", ic), true);
+                orbit.SetValue("ECC", "0.001", true);
+                orbit.SetValue("INC", "0", true);
+                orbit.SetValue("LPE", "0", true);
+                orbit.SetValue("LAN", "0", true);
+                orbit.SetValue("MNA", "0", true);
+                orbit.SetValue("EPH", "0", true);
+            }
+            return vessel;
         }
     }
 }

@@ -18,7 +18,7 @@ namespace Parsek
         /// Part Event Coverage Audit (BackgroundRecorder vs FlightRecorder):
         ///
         ///   POLLED (per-physics-frame, in PollPartEvents):
-        ///     [x] CheckParachuteState        - ParachuteDeployed / ParachuteCut / ParachuteSemiDeployed
+        ///     [x] CheckParachuteState        - ParachuteDeployed / ParachuteCut / ParachuteSemiDeployed / ParachuteRepacked
         ///     [x] CheckJettisonState          - ShroudJettisoned
         ///     [x] CheckEngineState            - EngineIgnited / EngineShutdown / EngineThrottle
         ///     [x] CheckRcsState               - RCSActivated / RCSStopped / RCSThrottle
@@ -35,6 +35,7 @@ namespace Parsek
         ///     [x] CheckCargoBayState          - CargoBayOpened / CargoBayClosed
         ///     [x] CheckFairingState           - FairingJettisoned
         ///     [x] CheckRoboticState           - RoboticMotionStarted / RoboticPositionSample / RoboticMotionStopped
+        ///                                       (wheel MOTOR spin excluded — derived from ground speed at playback)
         ///
         ///   GAME-EVENT DRIVEN (via SubscribePartEvents):
         ///     [x] onPartDie                   - Destroyed / ParachuteDestroyed (OnBackgroundPartDie)
@@ -90,9 +91,17 @@ namespace Parsek
                 var chute = p.FindModuleImplementing<ModuleParachute>();
                 if (chute == null) continue;
 
-                int chuteState = chute.deploymentState == ModuleParachute.deploymentStates.DEPLOYED ? 2
-                    : chute.deploymentState == ModuleParachute.deploymentStates.SEMIDEPLOYED ? 1
-                    : 0;
+                // Same four-state classifier the foreground recorder uses, so a repack observed on
+                // a background vessel emits ParachuteRepacked rather than ParachuteCut.
+                //
+                // This path is not theoretical — it is the LIKELIER of the two. Stock
+                // ModuleParachute.Repack is [KSPEvent(externalToEVAOnly = true, unfocusedRange = 4f)],
+                // so a repack is performed BY an EVA kerbal ON another craft. The kerbal is the
+                // active vessel; the craft whose chute is being repacked is a loaded vessel in the
+                // background map, i.e. exactly this poll. (Background polling early-returns on
+                // packed/on-rails vessels, and a repack requires a loaded one, so the gate and the
+                // action agree.)
+                int chuteState = FlightRecorder.ClassifyParachuteState(chute.deploymentState);
 
                 var evt = FlightRecorder.CheckParachuteTransition(
                     p.persistentId, p.partInfo?.name ?? "unknown", chuteState, state.parachuteStates, ut);
@@ -799,6 +808,23 @@ namespace Parsek
                 if (part == null || module == null) continue;
 
                 ulong key = FlightRecorder.EncodeEngineKey(part.persistentId, moduleIndex);
+
+                // Mirrors the foreground gate: wheel motor spin is derived from the ghost's ground
+                // speed at playback, not recorded. See FlightRecorder.IsWheelMotorSpinModuleName.
+                // Logged once per key, exactly as FlightRecorder.CheckRoboticState does — a silent
+                // skip here would leave the BG half of the gate invisible in KSP.log, and the BG
+                // half is the one a rover-on-a-background-vessel report lands on.
+                if (FlightRecorder.IsWheelMotorSpinModuleName(moduleName))
+                {
+                    if (state.loggedRoboticModuleKeys.Add(key))
+                    {
+                        ParsekLog.Verbose("BgRecorder", $"Robotics: wheel-motor spin not recorded for " +
+                            $"'{part.partInfo?.name}' pid={part.persistentId} midx={moduleIndex} " +
+                            $"module={moduleName} (bg vessel {state.vesselPid}); " +
+                            $"derived from ghost ground speed at playback");
+                    }
+                    continue;
+                }
 
                 bool hasPosition = FlightRecorder.TryGetRoboticPositionValue(
                     module, moduleName, out float positionValue, out float deadband, out string sourceField);
