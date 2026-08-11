@@ -1,6 +1,10 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
+using System.Reflection;
+using System.Text;
+using System.Text.RegularExpressions;
 using Xunit;
 
 namespace Parsek.Tests
@@ -429,6 +433,326 @@ namespace Parsek.Tests
             var events = Diff(before, after);
             Assert.Equal(3, events.Count);
             Assert.All(events, e => Assert.Equal(1000.0, e.ut));
+        }
+    }
+
+    /// <summary>
+    /// Drift proofing for the M6 reconciler. The hand-written cells above enumerate families by
+    /// name, which is exactly the thing that goes stale when a 22nd field lands on
+    /// <see cref="PartTrackingSets"/>: the clone silently aliases it, or the diff silently ignores
+    /// it, and the only symptom is state quietly erased across a rails span again.
+    ///
+    /// <para>
+    /// Both sweeps reflect over the real field list, so adding a field to
+    /// <see cref="PartTrackingSets"/> without teaching the clone and the diff about it reds HERE
+    /// rather than in a playtest.
+    /// </para>
+    /// </summary>
+    [Collection("Sequential")]
+    public class PartTrackingSetsFieldSweepTests : IDisposable
+    {
+        public PartTrackingSetsFieldSweepTests()
+        {
+            ParsekLog.ResetTestOverrides();
+            ParsekLog.SuppressLogging = true;
+        }
+
+        public void Dispose()
+        {
+            ParsekLog.ResetTestOverrides();
+            ParsekLog.SuppressLogging = true;
+        }
+
+        /// <summary>
+        /// Fields <see cref="PartStateSeeder.EmitDiffEvents"/> deliberately does NOT reconcile, with
+        /// the reason it is not a diffable state. Adding to this list is a deliberate act; a field
+        /// that lands here by accident is the defect the sweep exists to catch.
+        /// </summary>
+        private static readonly Dictionary<string, string> DiffExemptFields =
+            new Dictionary<string, string>(StringComparer.Ordinal)
+            {
+                {
+                    "allEngineKeys",
+                    "Not a state: it is the #298 roster of engines PRESENT on the vessel, the source " +
+                    "for EmitSeedEvents' EngineShutdown sentinels. Diffing it would emit a second " +
+                    "shutdown for every engine DiffEngines already reported, and its own membership " +
+                    "changes are part arrivals/departures, which the recorder covers via GameEvents."
+                },
+            };
+
+        private static FieldInfo[] Fields()
+        {
+            var fields = typeof(PartTrackingSets)
+                .GetFields(BindingFlags.Public | BindingFlags.Instance)
+                .OrderBy(f => f.Name, StringComparer.Ordinal)
+                .ToArray();
+            // A canary: if the reflection ever stops seeing the fields, every sweep below would
+            // vacuously pass.
+            Assert.True(fields.Length >= 21,
+                $"Expected PartTrackingSets to expose at least 21 tracking collections, saw {fields.Length}");
+            return fields;
+        }
+
+        // ---- sweep 1: the clone is deep for EVERY field ----
+
+        [Fact]
+        public void TheCloneCopiesEveryFieldIntoADistinctCollectionInstance()
+        {
+            foreach (FieldInfo f in Fields())
+            {
+                var live = new PartTrackingSets();
+                object liveCollection = f.GetValue(live);
+                Assert.True(liveCollection != null, $"{f.Name} is null on a fresh PartTrackingSets");
+                Populate(liveCollection, variantB: false);
+                Assert.Equal(1, Count(liveCollection));
+
+                var snapshot = PartStateSeeder.ClonePartTrackingSets(live);
+                object clonedCollection = f.GetValue(snapshot);
+
+                Assert.True(clonedCollection != null, $"{f.Name} came back null from the clone");
+                Assert.False(ReferenceEquals(liveCollection, clonedCollection),
+                    $"ClonePartTrackingSets aliases '{f.Name}' — the snapshot would track the live " +
+                    "sets for the whole rails span and diff to nothing on re-entry");
+                Assert.Equal(1, Count(clonedCollection));
+
+                // The live sets keep mutating for the rest of the flight; the snapshot must not.
+                Clear(liveCollection);
+                Assert.Equal(0, Count(liveCollection));
+                Assert.Equal(1, Count(clonedCollection));
+            }
+        }
+
+        [Fact]
+        public void TheCloneToleratesEveryFieldBeingNull()
+        {
+            var live = new PartTrackingSets();
+            foreach (FieldInfo f in Fields())
+                f.SetValue(live, null);
+
+            var snapshot = PartStateSeeder.ClonePartTrackingSets(live);
+
+            foreach (FieldInfo f in Fields())
+                Assert.True(f.GetValue(snapshot) != null,
+                    $"'{f.Name}' came back null from a clone of an all-null source");
+        }
+
+        // ---- sweep 2: the diff is SENSITIVE to every non-exempt field ----
+
+        [Fact]
+        public void TheReconcilerIsSensitiveToEveryNonExemptField()
+        {
+            // Probe: a diff from empty against a fully-populated state, versus the same diff with
+            // exactly one field perturbed. If the two outputs are identical, the reconciler is not
+            // reading that field at all — the family is silently missing.
+            string baseline = Render(DiffFrom(BuildPopulated(perturbField: null)));
+
+            foreach (FieldInfo f in Fields())
+            {
+                string perturbed = Render(DiffFrom(BuildPopulated(perturbField: f)));
+                bool sensitive = !string.Equals(baseline, perturbed, StringComparison.Ordinal);
+
+                if (DiffExemptFields.ContainsKey(f.Name))
+                {
+                    Assert.False(sensitive,
+                        $"'{f.Name}' is on the diff-exempt list but the reconciler now reads it. " +
+                        "Either the exemption is stale (drop it) or the new read is a double-emit.");
+                    continue;
+                }
+
+                Assert.True(sensitive,
+                    $"PartStateSeeder.EmitDiffEvents ignores '{f.Name}'. A change to it across a " +
+                    "rails span would be ERASED, not deferred — the exact M6 defect. Add it to the " +
+                    "reconciler, or to DiffExemptFields with a written reason.");
+            }
+        }
+
+        [Fact]
+        public void EveryDiffExemptionNamesARealField()
+        {
+            var names = new HashSet<string>(Fields().Select(f => f.Name), StringComparer.Ordinal);
+            foreach (var kvp in DiffExemptFields)
+            {
+                Assert.True(names.Contains(kvp.Key), $"Stale diff exemption for '{kvp.Key}'");
+                Assert.False(string.IsNullOrWhiteSpace(kvp.Value),
+                    $"Exemption for '{kvp.Key}' carries no reason");
+            }
+        }
+
+        // ---- helpers ----
+
+        private static List<PartEvent> DiffFrom(PartTrackingSets after)
+        {
+            return PartStateSeeder.EmitDiffEvents(
+                new PartTrackingSets(), after, new Dictionary<uint, string>(), 1000.0, "BgRecorder");
+        }
+
+        private static PartTrackingSets BuildPopulated(FieldInfo perturbField)
+        {
+            var sets = new PartTrackingSets();
+            foreach (FieldInfo f in Fields())
+            {
+                object collection = f.GetValue(sets);
+                if (perturbField != null && f.Name == perturbField.Name)
+                {
+                    // Sets perturb by going empty; maps perturb by carrying a different value under
+                    // the same key (an emptied map is indistinguishable from the implicit default
+                    // for several families, which would make the sweep vacuous).
+                    if (IsDictionary(collection)) Populate(collection, variantB: true);
+                    continue;
+                }
+                Populate(collection, variantB: false);
+            }
+            return sets;
+        }
+
+        private static string Render(List<PartEvent> events)
+        {
+            return string.Join("|", events
+                .Select(e => $"{e.eventType}:{e.partPersistentId}:{e.moduleIndex}:{e.value:R}")
+                .OrderBy(s => s, StringComparer.Ordinal));
+        }
+
+        private static bool IsDictionary(object collection)
+        {
+            return collection.GetType().GetGenericTypeDefinition() == typeof(Dictionary<,>);
+        }
+
+        private static void Populate(object collection, bool variantB)
+        {
+            Type t = collection.GetType();
+            Type[] args = t.GetGenericArguments();
+            if (t.GetGenericTypeDefinition() == typeof(HashSet<>))
+            {
+                t.GetMethod("Add").Invoke(collection, new[] { SampleKey(args[0]) });
+                return;
+            }
+            t.GetMethod("set_Item").Invoke(
+                collection, new[] { SampleKey(args[0]), SampleValue(args[1], variantB) });
+        }
+
+        private static void Clear(object collection)
+        {
+            collection.GetType().GetMethod("Clear").Invoke(collection, null);
+        }
+
+        private static int Count(object collection)
+        {
+            return (int)collection.GetType().GetProperty("Count").GetValue(collection, null);
+        }
+
+        private static object SampleKey(Type keyType)
+        {
+            // pid 7, module index 1 — the same shape the hand-written cells use.
+            if (keyType == typeof(uint)) return 7u;
+            if (keyType == typeof(ulong)) return FlightRecorder.EncodeEngineKey(7u, 1);
+            throw new NotSupportedException($"Unhandled PartTrackingSets key type {keyType}");
+        }
+
+        private static object SampleValue(Type valueType, bool variantB)
+        {
+            // Both variants must be non-default and mutually distinct, or a perturbation collapses
+            // onto the map's implicit default and the sweep reads as insensitive.
+            if (valueType == typeof(int))
+                return variantB
+                    ? FlightRecorder.ParachuteStateDeployed
+                    : FlightRecorder.ParachuteStateSemiDeployed;
+            if (valueType == typeof(float)) return variantB ? 2.0f : 0.5f;
+            if (valueType == typeof(double)) return variantB ? 200.0 : 100.0;
+            if (valueType == typeof(HeatLevel)) return variantB ? HeatLevel.Medium : HeatLevel.Hot;
+            throw new NotSupportedException($"Unhandled PartTrackingSets value type {valueType}");
+        }
+    }
+
+    /// <summary>
+    /// The rails-span snapshot is keyed on the vessel persistentId, which is craft-baked rather than
+    /// launch-unique: a later launch of the SAME craft reuses the pid verbatim. An orphan left
+    /// behind at a teardown site would therefore be handed to that launch's first off-rails
+    /// re-entry and diffed as though it were the same continuous flight.
+    ///
+    /// <para>
+    /// Source-text gate on the invariant, in the style of
+    /// <c>GhostOrbitLineCascadeDeleteGateTests</c>: any method of <c>BackgroundRecorder.cs</c> that
+    /// drops <c>loadedStates</c> must also drop <c>railsSpanPartStates</c>, with exactly one named
+    /// exemption — the go-on-rails transition, which is where the snapshot is CAPTURED.
+    /// </para>
+    /// </summary>
+    public class RailsSpanSnapshotTeardownGateTests
+    {
+        /// <summary>The one method that drops loadedStates by design without dropping the snapshot.</summary>
+        private static readonly HashSet<string> CaptureSites =
+            new HashSet<string>(StringComparer.Ordinal) { "OnBackgroundVesselGoOnRails" };
+
+        [Fact]
+        public void EveryLoadedStateTeardownAlsoDropsTheRailsSpanSnapshot()
+        {
+            string src = ReadParsekSource("BackgroundRecorder.cs");
+            var methods = SplitIntoMethods(src);
+
+            var sawTeardown = new List<string>();
+            foreach (var kvp in methods)
+            {
+                if (!kvp.Value.Contains("loadedStates.Remove(")) continue;
+                sawTeardown.Add(kvp.Key);
+
+                if (CaptureSites.Contains(kvp.Key))
+                {
+                    Assert.True(kvp.Value.Contains("CaptureRailsSpanPartStates("),
+                        $"'{kvp.Key}' is exempted as a capture site but no longer captures a snapshot");
+                    continue;
+                }
+
+                Assert.True(kvp.Value.Contains("railsSpanPartStates.Remove("),
+                    $"BackgroundRecorder.{kvp.Key} drops loadedStates but leaves railsSpanPartStates " +
+                    "behind. persistentId is craft-baked, so the orphan is handed to the next launch " +
+                    "of the same craft and diffed as if it were the same flight.");
+            }
+
+            // Canary: if the crude method split ever stops matching, the loop above would pass
+            // vacuously.
+            Assert.Contains("OnBackgroundVesselWillDestroy", sawTeardown);
+            Assert.Contains("RetireDestroyedBackgroundEntry", sawTeardown);
+            Assert.True(sawTeardown.Count >= 5,
+                $"Expected at least 5 loadedStates teardown sites, saw {sawTeardown.Count}");
+        }
+
+        private static Dictionary<string, string> SplitIntoMethods(string src)
+        {
+            // Crude but sufficient: a class-member-indent line carrying an access modifier and an
+            // opening paren starts a method; its body runs to the next such line.
+            var header = new Regex(
+                @"^\s{8}(?:public|private|internal|protected)[^=;]*?\b(\w+)\s*\(",
+                RegexOptions.Compiled);
+
+            var result = new Dictionary<string, string>(StringComparer.Ordinal);
+            string current = null;
+            var body = new StringBuilder();
+            foreach (string line in src.Split('\n'))
+            {
+                Match m = header.Match(line);
+                if (m.Success)
+                {
+                    if (current != null && !result.ContainsKey(current))
+                        result[current] = body.ToString();
+                    current = m.Groups[1].Value;
+                    body.Length = 0;
+                }
+                body.Append(line).Append('\n');
+            }
+            if (current != null && !result.ContainsKey(current))
+                result[current] = body.ToString();
+            return result;
+        }
+
+        private static string ReadParsekSource(string relPath)
+        {
+            string root = Path.GetFullPath(Path.Combine(
+                AppDomain.CurrentDomain.BaseDirectory, "..", "..", "..", "..", ".."));
+            string path = Path.Combine(
+                root, "Source", "Parsek", relPath.Replace('/', Path.DirectorySeparatorChar));
+            if (!File.Exists(path))
+                path = Path.Combine(root, "Parsek", relPath.Replace('/', Path.DirectorySeparatorChar));
+            Assert.True(File.Exists(path), "Source file not found at " + path);
+            return File.ReadAllText(path);
         }
     }
 }

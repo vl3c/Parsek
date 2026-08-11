@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Globalization;
 using KSP.UI.Screens;
@@ -22,22 +22,39 @@ namespace Parsek
         /// Creates a snapshot from a FlightRecorder's active engine/RCS state.
         /// Returns null if no engines or RCS are active. Defensively copies all
         /// collections (the recorder's fields are live mutable references).
+        ///
+        /// <para>
+        /// The departed-part carry-over is unioned in. This snapshot is taken from
+        /// <c>ParsekFlight.ProcessBreakupEvent</c>, which runs a whole crash-coalescer window AFTER
+        /// the split — by then <c>FlightRecorder.OnVesselWasModified</c> has already pruned the
+        /// separated stack's keys out of the ACTIVE sets (so they cannot rot into a stale terminal
+        /// EngineShutdown on the parent). Without the union, the child debris recording would lose
+        /// the one fact #298 exists to carry: the booster was at full throttle when it came off.
+        /// <c>MergeInheritedEngineState</c> filters the result by the child's own part pids, so a
+        /// carry-over key can only ever reach the child that actually holds that part.
+        /// </para>
         /// </summary>
         internal static InheritedEngineState? FromRecorder(FlightRecorder rec)
         {
             if (rec == null) return null;
-            bool hasEngines = rec.ActiveEngineKeys != null && rec.ActiveEngineKeys.Count > 0;
-            bool hasRcs = rec.ActiveRcsKeys != null && rec.ActiveRcsKeys.Count > 0;
-            if (!hasEngines && !hasRcs) return null;
+
+            HashSet<ulong> engineKeys, rcsKeys;
+            Dictionary<ulong, float> engineThrottles, rcsThrottles;
+            FlightRecorder.UnionDepartedIntoInheritedState(
+                rec.ActiveEngineKeys, rec.LastEngineThrottles, rec.DepartedEngineThrottles,
+                out engineKeys, out engineThrottles);
+            FlightRecorder.UnionDepartedIntoInheritedState(
+                rec.ActiveRcsKeys, rec.LastRcsThrottles, rec.DepartedRcsThrottles,
+                out rcsKeys, out rcsThrottles);
+
+            if (engineKeys == null && rcsKeys == null) return null;
 
             return new InheritedEngineState
             {
-                activeEngineKeys = hasEngines ? new HashSet<ulong>(rec.ActiveEngineKeys) : null,
-                engineThrottles = hasEngines && rec.LastEngineThrottles != null
-                    ? new Dictionary<ulong, float>(rec.LastEngineThrottles) : null,
-                activeRcsKeys = hasRcs ? new HashSet<ulong>(rec.ActiveRcsKeys) : null,
-                rcsThrottles = hasRcs && rec.LastRcsThrottles != null
-                    ? new Dictionary<ulong, float>(rec.LastRcsThrottles) : null
+                activeEngineKeys = engineKeys,
+                engineThrottles = engineThrottles,
+                activeRcsKeys = rcsKeys,
+                rcsThrottles = rcsThrottles
             };
         }
 
@@ -2729,6 +2746,11 @@ namespace Parsek
 
             pendingInitialEnvironmentOverrides.Remove(pid);
             pendingInitialTrajectoryPoints.Remove(pid);
+            // The rails-span snapshot dies with the vessel. It is keyed on the vessel pid, and
+            // persistentId is craft-baked rather than launch-unique — a later launch of the SAME
+            // craft reuses the pid verbatim, so an orphan left here would be handed to that launch's
+            // first off-rails re-entry and diffed as though it were the same continuous flight.
+            railsSpanPartStates.Remove(pid);
             // Keep the finalization cache until DeferredDestructionCheck confirms
             // whether this was true destruction or a false unload signal.
         }

@@ -256,5 +256,206 @@ namespace Parsek
                 ? CachedModulePollDecision.Poll
                 : CachedModulePollDecision.SkipForeignVessel;
         }
+
+        /// <summary>How many keys the departed-part prune removed, per family.</summary>
+        internal struct DepartedKeyPruneResult
+        {
+            public int engineKeys;
+            public int rcsKeys;
+            public int roboticKeys;
+            public int Total { get { return engineKeys + rcsKeys + roboticKeys; } }
+        }
+
+        /// <summary>
+        /// True when the surviving-pid set is trustworthy enough to prune against.
+        ///
+        /// <para>
+        /// A vessel that momentarily reads as having no parts at all is a transient mid-split read,
+        /// not proof that every tracked module left. Declining to prune on that frame costs nothing:
+        /// <c>onVesselWasModified</c> fires again on the settled structure.
+        /// </para>
+        /// </summary>
+        internal static bool CanPruneAgainstSurvivingPids(int survivingPartPidCount)
+        {
+            return survivingPartPidCount > 0;
+        }
+
+        /// <summary>
+        /// Pure core of the departed-part key prune.
+        ///
+        /// <para>
+        /// The ownership guard (<see cref="DecideCachedModulePoll(bool, bool, bool, bool)"/>) makes a
+        /// departed booster's burnout UNOBSERVABLE, so its key never leaves
+        /// <c>activeEngineKeys</c>. The terminal emit
+        /// (<c>EmitTerminalEventsAndClearActiveState</c> at the rails transition, and
+        /// <c>FinalizeRecordingState</c> at stop) walks the ACTIVE sets and would write an
+        /// EngineShutdown / RCSStopped / RoboticMotionStopped into the PARENT recording for a pid
+        /// that left minutes earlier — at the TAIL, where
+        /// <c>RecordingOptimizer.IsInertPartEventForTailTrim</c> treats EngineShutdown as non-inert
+        /// and the #263 boring-tail trim is therefore defeated.
+        /// </para>
+        /// <para>
+        /// The prune is SILENT: no synthetic event is written for the departed pid. The Decoupled
+        /// event already hides the subtree at playback, and the child recording owns the burn.
+        /// </para>
+        /// <para>
+        /// <paramref name="survivingPartPids"/> is the UNION of the rebuilt cache lists and the live
+        /// <c>Vessel.parts</c> pids, not the cache lists alone. The cache lists are the narrower set
+        /// (a part whose module list momentarily reads empty drops out of them while the part itself
+        /// is still on the vessel), and pruning against the narrower set would turn a transient
+        /// module read into a permanently forgotten burn.
+        /// </para>
+        /// <para>
+        /// Engine and RCS keys are MOVED, not dropped: their last observed throttle lands in
+        /// <paramref name="departedEngineThrottles"/> / <paramref name="departedRcsThrottles"/> so
+        /// the deferred #298 breakup snapshot (<c>InheritedEngineState.FromRecorder</c>, which runs a
+        /// whole coalescer window AFTER the split) can still tell the child debris recording that
+        /// its engine was burning when it came off. Nothing polls or terminal-emits from those maps.
+        /// Robotic keys have no inheritance path and are simply dropped. A pid that comes BACK
+        /// (re-dock) clears its own carry-over entries so a stale throttle cannot outlive the part's
+        /// return.
+        /// </para>
+        /// </summary>
+        internal static DepartedKeyPruneResult PruneDepartedTrackingKeys(
+            HashSet<uint> survivingPartPids,
+            HashSet<ulong> activeEngineKeys,
+            Dictionary<ulong, float> lastThrottle,
+            HashSet<ulong> allEngineKeys,
+            HashSet<ulong> activeRcsKeys,
+            Dictionary<ulong, float> lastRcsThrottle,
+            Dictionary<ulong, int> rcsActiveFrameCount,
+            HashSet<ulong> activeRoboticKeys,
+            Dictionary<ulong, float> lastRoboticPosition,
+            Dictionary<ulong, double> lastRoboticSampleUT,
+            Dictionary<ulong, float> departedEngineThrottles,
+            Dictionary<ulong, float> departedRcsThrottles)
+        {
+            var result = new DepartedKeyPruneResult();
+            if (survivingPartPids == null
+                || !CanPruneAgainstSurvivingPids(survivingPartPids.Count))
+                return result;
+
+            bool Departed(ulong key)
+            {
+                uint pid; int midx;
+                DecodeEngineKey(key, out pid, out midx);
+                return !survivingPartPids.Contains(pid);
+            }
+
+            List<ulong> DepartedKeysIn(IEnumerable<ulong> keys)
+            {
+                var found = new List<ulong>();
+                if (keys == null) return found;
+                foreach (ulong key in keys)
+                    if (Departed(key)) found.Add(key);
+                return found;
+            }
+
+            float ThrottleOf(Dictionary<ulong, float> map, ulong key)
+            {
+                float value;
+                return map != null && map.TryGetValue(key, out value) ? value : 0f;
+            }
+
+            // --- engines: move to carry-over, then drop from every live engine map ---
+            foreach (ulong key in DepartedKeysIn(activeEngineKeys))
+            {
+                if (departedEngineThrottles != null)
+                    departedEngineThrottles[key] = ThrottleOf(lastThrottle, key);
+                activeEngineKeys.Remove(key);
+                result.engineKeys++;
+            }
+            foreach (ulong key in DepartedKeysIn(lastThrottle != null ? lastThrottle.Keys : null))
+                lastThrottle.Remove(key);
+            // allEngineKeys is the #298 "engines present on this vessel" sentinel set. A departed
+            // engine is not present, and leaving it in makes a later seed emit an EngineShutdown
+            // sentinel under a pid this vessel no longer carries.
+            foreach (ulong key in DepartedKeysIn(allEngineKeys))
+                allEngineKeys.Remove(key);
+
+            // --- RCS: same shape ---
+            foreach (ulong key in DepartedKeysIn(activeRcsKeys))
+            {
+                if (departedRcsThrottles != null)
+                    departedRcsThrottles[key] = ThrottleOf(lastRcsThrottle, key);
+                activeRcsKeys.Remove(key);
+                result.rcsKeys++;
+            }
+            foreach (ulong key in DepartedKeysIn(lastRcsThrottle != null ? lastRcsThrottle.Keys : null))
+                lastRcsThrottle.Remove(key);
+            foreach (ulong key in DepartedKeysIn(rcsActiveFrameCount != null ? rcsActiveFrameCount.Keys : null))
+                rcsActiveFrameCount.Remove(key);
+
+            // --- robotics: no inheritance path, so no carry-over ---
+            foreach (ulong key in DepartedKeysIn(activeRoboticKeys))
+            {
+                activeRoboticKeys.Remove(key);
+                result.roboticKeys++;
+            }
+            foreach (ulong key in DepartedKeysIn(lastRoboticPosition != null ? lastRoboticPosition.Keys : null))
+                lastRoboticPosition.Remove(key);
+            foreach (ulong key in DepartedKeysIn(lastRoboticSampleUT != null ? lastRoboticSampleUT.Keys : null))
+                lastRoboticSampleUT.Remove(key);
+
+            // A part that came back owns its live state again; drop its carry-over so the deferred
+            // #298 snapshot cannot resurrect a throttle the live poll has since superseded.
+            if (departedEngineThrottles != null)
+                foreach (ulong key in new List<ulong>(departedEngineThrottles.Keys))
+                {
+                    uint pid; int midx;
+                    DecodeEngineKey(key, out pid, out midx);
+                    if (survivingPartPids.Contains(pid)) departedEngineThrottles.Remove(key);
+                }
+            if (departedRcsThrottles != null)
+                foreach (ulong key in new List<ulong>(departedRcsThrottles.Keys))
+                {
+                    uint pid; int midx;
+                    DecodeEngineKey(key, out pid, out midx);
+                    if (survivingPartPids.Contains(pid)) departedRcsThrottles.Remove(key);
+                }
+
+            return result;
+        }
+
+        /// <summary>
+        /// Merges the departed-part carry-over back into the #298 inheritance snapshot: an active
+        /// key wins over a carry-over key of the same id (the live poll is newer). Returns null
+        /// collections when the union is empty so <c>InheritedEngineState.FromRecorder</c> keeps its
+        /// "nothing was running" contract.
+        /// </summary>
+        internal static void UnionDepartedIntoInheritedState(
+            HashSet<ulong> activeKeys,
+            Dictionary<ulong, float> activeThrottles,
+            Dictionary<ulong, float> departedThrottles,
+            out HashSet<ulong> unionKeys,
+            out Dictionary<ulong, float> unionThrottles)
+        {
+            unionKeys = null;
+            unionThrottles = null;
+
+            var keys = new HashSet<ulong>();
+            var throttles = new Dictionary<ulong, float>();
+
+            if (departedThrottles != null)
+                foreach (var kvp in departedThrottles)
+                {
+                    keys.Add(kvp.Key);
+                    throttles[kvp.Key] = kvp.Value;
+                }
+
+            if (activeKeys != null)
+                foreach (ulong key in activeKeys)
+                {
+                    keys.Add(key);
+                    float t;
+                    throttles[key] = activeThrottles != null && activeThrottles.TryGetValue(key, out t)
+                        ? t
+                        : 0f;
+                }
+
+            if (keys.Count == 0) return;
+            unionKeys = keys;
+            unionThrottles = throttles;
+        }
     }
 }
