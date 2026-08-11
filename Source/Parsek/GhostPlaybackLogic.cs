@@ -963,13 +963,20 @@ namespace Parsek
                 }
             }
 
-            // 3b. Parachutes: re-stow canopies (localScale = Vector3.zero, the
-            //     spawn-time baseline from TryBuildParachuteInfo at
-            //     GhostVisualBuilder.cs line ~4539) and re-activate caps so
-            //     packs that cut / destroyed / deployed in the prior cycle
-            //     are back to their pre-launch pose. Destroy any fake canopy
-            //     left over from a prior ParachuteDeployed event so the new
-            //     cycle's event can re-create it fresh.
+            // 3b. Parachutes: re-stow canopies to the spawn-time pose captured by
+            //     TryBuildParachuteInfo and re-activate caps, so packs that cut /
+            //     repacked / destroyed / deployed in the prior cycle are back to
+            //     their pre-launch pose. Destroy any fake canopy left over from a
+            //     prior ParachuteDeployed event so the new cycle's event can
+            //     re-create it fresh.
+            //
+            //     This is already the full inverse of both ParachuteCut and
+            //     ParachuteRepacked, so adding the repack event needed no change
+            //     here: the baseline a cycle restarts from IS the repacked pose
+            //     (canopy hidden, cap on), and the new cycle replays whatever
+            //     cut / repack events it holds at their own UTs. It reads the
+            //     stored stowed pose rather than hardcoding Vector3.zero so the
+            //     builder stays the single source of that pose.
             if (state.parachuteInfos != null)
             {
                 foreach (var kvp in state.parachuteInfos)
@@ -977,7 +984,11 @@ namespace Parsek
                     ParachuteGhostInfo info = kvp.Value;
                     if (info == null) continue;
                     if (info.canopyTransform != null)
-                        info.canopyTransform.localScale = UnityEngine.Vector3.zero;
+                    {
+                        info.canopyTransform.localScale = info.stowedCanopyScale;
+                        info.canopyTransform.localPosition = info.stowedCanopyPos;
+                        info.canopyTransform.localRotation = info.stowedCanopyRot;
+                    }
                     if (info.capTransform != null)
                         info.capTransform.gameObject.SetActive(true);
                 }
@@ -1247,6 +1258,9 @@ namespace Parsek
                     case PartEventType.ParachuteCut:
                         ApplyParachuteCutEvent(state, evt.partPersistentId);
                         break;
+                    case PartEventType.ParachuteRepacked:
+                        ApplyParachuteRepackedEvent(state, evt.partPersistentId);
+                        break;
                     case PartEventType.ShroudJettisoned:
                         ApplyJettisonPanelState(state, evt, jettisoned: true);
                         break;
@@ -1406,7 +1420,21 @@ namespace Parsek
                 RecalculateCameraPivot(state);
             }
             UpdateBlinkingLights(state, currentUT);
-            UpdateActiveRobotics(state, currentUT);
+            // Retained so every caller (flight preview, the KSC-scene ghost paths) keeps driving
+            // continuous robotic motion exactly as before. The flight engine ALSO calls this from
+            // ApplyFrameVisuals, because this method early-returns when a recording has no
+            // PartEvents at all and wheel spin must not depend on that. Calling it twice in one
+            // frame is a no-op: each pass stamps info.lastUpdateUT = currentUT, so the second sees
+            // deltaSeconds == 0 and skips.
+            //
+            // DELIBERATE ASYMMETRY, do not "fix" by adding a second call to the other scenes: only
+            // the flight engine drives wheel spin unconditionally. A KSC-scene ghost never spins its
+            // wheels at all (ParsekKSC never calls SetInterpolated, so lastInterpolatedVelocity
+            // stays zero and TryResolveWheelGroundSpeedInputs declines), and the flight PREVIEW
+            // ghost spins only for a recording that carries at least one part event, because a
+            // zero-event recording early-returns above before reaching here. Both are acceptable:
+            // KSC is a static parked-craft display, and preview is a scrubbing aid, not the replay.
+            UpdateActiveRobotics(state, currentUT, rec.TrackSections);
         }
 
         private static void ApplyDecoupledPartEvent(
@@ -1679,6 +1707,38 @@ namespace Parsek
             }
         }
 
+        /// <summary>
+        /// The cap-visibility half of every parachute event's ghost pose, pulled out of the
+        /// Transform-touching handlers so it is assertable without a Unity scene. Returns false for
+        /// event types that say nothing about a cap.
+        ///
+        /// The cap is the whole bug this table exists to pin down. A stock chute's cap is the nose
+        /// cone that covers the packed canopy: DEPLOY blows it off, and stock <c>Repack()</c> puts it
+        /// back (<c>cap.gameObject.SetActive(true)</c>). Playback had a cut hide the cap with nothing
+        /// that ever re-showed it, so once the recorder mistook a repack for a cut the chute rendered
+        /// as an empty can for the rest of the recording — visually permanent, and faithfully
+        /// reproduced on every replay.
+        /// </summary>
+        internal static bool TryResolveParachuteCapActive(PartEventType type, out bool capActive)
+        {
+            switch (type)
+            {
+                case PartEventType.ParachuteSemiDeployed:
+                case PartEventType.ParachuteDeployed:
+                case PartEventType.ParachuteCut:
+                case PartEventType.ParachuteDestroyed:
+                    capActive = false;
+                    return true;
+                case PartEventType.ParachuteRepacked:
+                    // The only parachute event that puts the cap BACK.
+                    capActive = true;
+                    return true;
+                default:
+                    capActive = false;
+                    return false;
+            }
+        }
+
         private static void ApplyParachuteCutEvent(
             GhostPlaybackState state,
             uint partPersistentId)
@@ -1690,8 +1750,51 @@ namespace Parsek
                 {
                     if (cutInfo.canopyTransform != null)
                         cutInfo.canopyTransform.localScale = Vector3.zero;
-                    if (cutInfo.capTransform != null)
-                        cutInfo.capTransform.gameObject.SetActive(false);
+                    if (cutInfo.capTransform != null &&
+                        TryResolveParachuteCapActive(PartEventType.ParachuteCut, out bool cutCapActive))
+                    {
+                        cutInfo.capTransform.gameObject.SetActive(cutCapActive);
+                    }
+                }
+            }
+            DestroyFakeCanopy(state, partPersistentId);
+        }
+
+        /// <summary>
+        /// Applies a ParachuteRepacked event: the exact inverse of
+        /// <see cref="ApplyParachuteCutEvent"/>, and a faithful mirror of what stock
+        /// <c>ModuleParachute.Repack()</c> does to the real part
+        /// (<c>cap.gameObject.SetActive(true)</c> + <c>canopy.gameObject.SetActive(false)</c>).
+        ///
+        /// Canopy back to its captured stowed pose (hidden), and — the part that matters — the CAP
+        /// RESTORED. The cut hid the cap permanently, which is why a repack replayed as a cut left
+        /// the chute rendering as an empty can for the rest of the recording.
+        ///
+        /// The fake-canopy destroy is kept: a stowed chute has no canopy, so if the deploy fell back
+        /// to a fake canopy sphere it must be gone here too. DestroyFakeCanopy is idempotent, so
+        /// this is safe whether the preceding cut already removed it or the repack arrives without
+        /// one (the ordinary real-canopy path).
+        /// </summary>
+        private static void ApplyParachuteRepackedEvent(
+            GhostPlaybackState state,
+            uint partPersistentId)
+        {
+            if (state.parachuteInfos != null)
+            {
+                ParachuteGhostInfo repackInfo;
+                if (state.parachuteInfos.TryGetValue(partPersistentId, out repackInfo))
+                {
+                    if (repackInfo.canopyTransform != null)
+                    {
+                        repackInfo.canopyTransform.localScale = repackInfo.stowedCanopyScale;
+                        repackInfo.canopyTransform.localPosition = repackInfo.stowedCanopyPos;
+                        repackInfo.canopyTransform.localRotation = repackInfo.stowedCanopyRot;
+                    }
+                    if (repackInfo.capTransform != null &&
+                        TryResolveParachuteCapActive(PartEventType.ParachuteRepacked, out bool repackCapActive))
+                    {
+                        repackInfo.capTransform.gameObject.SetActive(repackCapActive);
+                    }
                 }
             }
             DestroyFakeCanopy(state, partPersistentId);
@@ -3596,6 +3699,194 @@ namespace Parsek
             return rpm * 6f * (float)deltaSeconds;
         }
 
+        #region Wheel spin derived from ground speed
+
+        /// <summary>
+        /// Fallback rolling radius used when <c>ModuleWheelBase.radius</c> cannot be read off the
+        /// prefab. 0.35 m sits in the middle of the stock rover-wheel range (RoveMax S2 is smaller,
+        /// XL3 larger) so a wheel that misses its radius spins at a plausible rate rather than a
+        /// wild one. Only the visual rate depends on it — nothing physical.
+        /// </summary>
+        internal const float DefaultWheelRadiusMeters = 0.35f;
+
+        /// <summary>Radii at or below this are treated as unusable (divide-by-zero guard).</summary>
+        internal const float MinWheelRadiusMeters = 0.01f;
+
+        /// <summary>
+        /// Ground speeds below this (m/s) count as stopped, so a parked ghost's wheels hold still
+        /// instead of creeping on interpolation noise.
+        /// </summary>
+        internal const float WheelStationarySpeedMetersPerSecond = 0.05f;
+
+        /// <summary>
+        /// Strips the body's rotation and the radial (climb/sink) component out of a ghost's
+        /// recorded world velocity, leaving velocity along the local surface — i.e. ground speed as
+        /// a vector.
+        ///
+        /// Both subtractions are load-bearing. <c>TrajectoryPoint.velocity</c> is recorded as
+        /// <c>rb_velocityD + Krakensbane.GetFrameVelocity()</c>, which is an ORBITAL/world velocity:
+        /// on Kerbin's equator a vessel parked on the pad carries ~175 m/s of the planet's own
+        /// rotation. Feeding that straight to a wheel would spin a stationary rover's wheels at
+        /// highway speed. <paramref name="bodyFrameVelocity"/> is the rotating-frame velocity at the
+        /// ghost's position (stock <c>CelestialBody.getRFrmVel</c>), which is exactly that term.
+        /// Removing the component along <paramref name="up"/> then drops vertical motion, so a
+        /// falling or hovering craft does not spin its wheels.
+        /// </summary>
+        internal static Vector3 ComputeSurfaceHorizontalVelocity(
+            Vector3 worldVelocity, Vector3 bodyFrameVelocity, Vector3 up)
+        {
+            Vector3 surfaceVelocity = worldVelocity - bodyFrameVelocity;
+            if (up.sqrMagnitude <= 1e-8f)
+                return surfaceVelocity;
+
+            Vector3 upUnit = up.normalized;
+            return surfaceVelocity - upUnit * Vector3.Dot(surfaceVelocity, upUnit);
+        }
+
+        /// <summary>
+        /// The world direction a wheel rolls toward when it spins POSITIVELY about
+        /// <paramref name="wheelSpinAxisWorld"/>, given the local surface normal
+        /// <paramref name="up"/>. Returns <see cref="Vector3.zero"/> when the axis is degenerate or
+        /// parallel to up (a wheel lying flat has no rolling direction).
+        ///
+        /// Derivation, in Unity's left-handed convention where
+        /// <c>Quaternion.AngleAxis(+t, a)</c> moves a point at offset <c>v</c> toward
+        /// <c>Cross(a, v)</c> (check: <c>AngleAxis(90, up) * forward == right</c>):
+        /// rolling without slip means the contact point, at offset <c>-up * R</c> from the hub, is
+        /// stationary against the ground, so the hub velocity is
+        /// <c>V = t' * Cross(a, up * R) = t' * R * Cross(axis, up)</c>. Hence the positive-spin
+        /// travel direction is <c>Cross(axis, up)</c>.
+        ///
+        /// Taking the sign from the wheel's OWN axis rather than a guessed vessel forward is what
+        /// makes reverse read as reverse, and it stays correct for wheels mirrored onto opposite
+        /// sides of a rover: their local axes point opposite ways, and both must counter-rotate to
+        /// travel the same way, which is exactly what the cross product yields.
+        ///
+        /// UNVERIFIED STEP — the one thing here that unit tests cannot settle. Everything else about
+        /// this path is proven headless (rate = speed/radius, reverse is the negative of forward,
+        /// sub-threshold speed holds still, sideways slide does not roll), but the ABSOLUTE visual
+        /// direction depends on the Unity handedness identity quoted above, and
+        /// <c>Quaternion.AngleAxis</c> is a native call that throws outside a Unity runtime, so the
+        /// identity cannot be pinned by a test. If wheels visibly spin BACKWARDS while a rover drives
+        /// forwards in game, the fix is to negate this one cross product —
+        /// <c>Cross(up, axis)</c> instead of <c>Cross(axis, up)</c> — and nothing else.
+        /// </summary>
+        internal static Vector3 ComputeWheelRollForward(Vector3 wheelSpinAxisWorld, Vector3 up)
+        {
+            if (wheelSpinAxisWorld.sqrMagnitude <= 1e-8f || up.sqrMagnitude <= 1e-8f)
+                return Vector3.zero;
+
+            Vector3 rollForward = Vector3.Cross(wheelSpinAxisWorld.normalized, up.normalized);
+            if (rollForward.sqrMagnitude <= 1e-8f)
+                return Vector3.zero;
+
+            return rollForward.normalized;
+        }
+
+        /// <summary>
+        /// Signed wheel rotation for this frame, in degrees, from horizontal ground velocity.
+        /// Magnitude is <c>speed / radius</c> (rad/s) converted to degrees; sign is the projection
+        /// of the velocity onto <paramref name="rollForward"/>, so driving backwards rotates
+        /// backwards. Returns 0 for a zero/invalid dt, an unusable radius, a degenerate roll
+        /// direction, or a speed under <see cref="WheelStationarySpeedMetersPerSecond"/> — the
+        /// stationary case, where a coasting-or-parked wheel must simply hold still.
+        ///
+        /// Replaces the recorded-<c>driveOutput</c> path, which produced the exact opposite
+        /// behaviour: zero (stationary wheels) whenever the rover was coasting with no motor input,
+        /// and an unsigned torque percent when it was not.
+        /// </summary>
+        internal static float ComputeWheelSpinDeltaDegrees(
+            Vector3 horizontalSurfaceVelocity, Vector3 rollForward, float wheelRadius, double deltaSeconds)
+        {
+            if (double.IsNaN(deltaSeconds) || double.IsInfinity(deltaSeconds) || deltaSeconds <= 0)
+                return 0f;
+            if (float.IsNaN(wheelRadius) || float.IsInfinity(wheelRadius) ||
+                wheelRadius <= MinWheelRadiusMeters)
+                return 0f;
+            if (rollForward.sqrMagnitude <= 1e-8f)
+                return 0f;
+
+            float signedSpeed = Vector3.Dot(horizontalSurfaceVelocity, rollForward);
+            if (float.IsNaN(signedSpeed) || float.IsInfinity(signedSpeed))
+                return 0f;
+            if (Mathf.Abs(signedSpeed) < WheelStationarySpeedMetersPerSecond)
+                return 0f;
+
+            // rad/s = v / r  ->  deg for this frame.
+            return signedSpeed / wheelRadius * Mathf.Rad2Deg * (float)deltaSeconds;
+        }
+
+        /// <summary>
+        /// Ground-contact test for a single recorded environment classification: only the two
+        /// SURFACE classes mean the wheels are touching something they can roll on.
+        ///
+        /// Why this is the whole test, and why the altitude classes are not on the list: the
+        /// recorder's own classifier (<see cref="EnvironmentDetector.Classify"/>) resolves
+        /// LANDED / SPLASHED / PRELAUNCH straight to
+        /// <see cref="SegmentEnvironment.SurfaceMobile"/> / <see cref="SegmentEnvironment.SurfaceStationary"/>
+        /// before it ever looks at altitude, and it debounces the jitter (#246). So a rover driving,
+        /// a plane on its takeoff roll, and a plane that has just touched down are all Surface; the
+        /// instant the wheels leave the ground KSP reports FLYING and the section becomes
+        /// Atmospheric. That boundary IS the wheels-on-ground boundary, already measured by the
+        /// recorder, at no per-frame cost here.
+        ///
+        /// <see cref="SegmentEnvironment.Atmospheric"/> is deliberately NOT ground contact even
+        /// though a wheel would keep freewheeling for a second after liftoff: holding still is the
+        /// honest answer when nothing in the recording says the wheel is loaded, and it is the answer
+        /// that keeps a rover riding a launch vehicle from spinning its wheels up the whole ascent.
+        /// <see cref="SegmentEnvironment.Approach"/> is likewise excluded — on an airless body the
+        /// classifier already promotes anything under 100 m AGL to Surface, so Approach means "not
+        /// near the ground yet".
+        /// </summary>
+        internal static bool IsWheelSpinGroundContactEnvironment(SegmentEnvironment env)
+        {
+            return env == SegmentEnvironment.SurfaceMobile
+                || env == SegmentEnvironment.SurfaceStationary;
+        }
+
+        /// <summary>
+        /// Resolves whether a ghost's wheels are on the ground at <paramref name="playbackUT"/>, via
+        /// the recorded <see cref="TrackSection"/> environment covering that UT, memoised in
+        /// <paramref name="memo"/> for the resolved section's own span.
+        ///
+        /// FAILS CLOSED (returns false, wheels hold still) when no section covers the UT. That
+        /// covers every "we do not actually know" shape and each of them is a case where spinning
+        /// would be wrong, not right: a BG on-rails recording emits no env-classified per-frame
+        /// sections at all (it is in orbit); a re-aimed trajectory presents an empty section list by
+        /// contract (it is on a heliocentric transfer); an endpoint / loop-pause hold sits outside
+        /// the recorded span (and zeroes the interpolated velocity anyway).
+        ///
+        /// The memo window is the resolved section's [startUT, endUT). That is only a correct cache
+        /// because sections partition the recorded timeline without overlapping — each section's
+        /// endUT is the next one's startUT — so no other section can be the answer inside the window.
+        /// A malformed overlapping list could return the wrong cached class for the overlap; nothing
+        /// produces that shape, and <see cref="TrajectoryMath.FindTrackSectionForUT"/> would already
+        /// resolve it first-match-wins.
+        /// </summary>
+        internal static bool ResolveWheelGroundContact(
+            List<TrackSection> sections, double playbackUT, ref WheelGroundContactMemo memo)
+        {
+            if (memo.hasValue && playbackUT >= memo.startUT && playbackUT < memo.endUT)
+                return memo.onGround;
+
+            int idx = TrajectoryMath.FindTrackSectionForUT(sections, playbackUT);
+            if (idx < 0)
+            {
+                memo.hasValue = false;
+                return false;
+            }
+
+            TrackSection section = sections[idx];
+            bool onGround = IsWheelSpinGroundContactEnvironment(section.environment);
+            memo.hasValue = true;
+            memo.startUT = section.startUT;
+            memo.endUT = section.endUT;
+            memo.onGround = onGround;
+            return onGround;
+        }
+
+        #endregion
+
         private static void ApplyRoboticPose(RoboticGhostInfo info, float value)
         {
             if (info == null || info.servoTransform == null)
@@ -3626,6 +3917,28 @@ namespace Parsek
             if (!state.roboticInfos.TryGetValue(key, out RoboticGhostInfo info) || info == null)
                 return;
 
+            // Old recordings still carry RoboticMotion* events for wheel MOTOR modules, whose value
+            // was an unsigned percent-of-max-torque. Ignore them entirely rather than using them as
+            // a fallback: the ground-speed derivation works for every recording, old ones included,
+            // because it reads the trajectory (which every recording has) instead of the event
+            // stream. Consuming the stale value would resurrect the exact bug this replaced — zero
+            // while coasting, unsigned when driving. The events stay harmless on disk; the schema
+            // generation already gates real incompatibilities, so there is nothing to migrate.
+            //
+            // The event family itself is NOT retired: RoboticMotionStarted / RoboticPositionSample /
+            // RoboticMotionStopped are still the live signal for hinges, pistons, rotation servos,
+            // rotors, wheel suspension and wheel steering. Only the wheel-motor producer is gone.
+            if (info.visualMode == RoboticVisualMode.WheelGroundSpeed)
+            {
+                ParsekLog.VerboseRateLimited("Flight",
+                    $"wheel-motor-event-ignored-{evt.partPersistentId}-{evt.moduleIndex}",
+                    $"Ignoring legacy wheel-motor robotic event {evt.eventType} pid={evt.partPersistentId} " +
+                    $"midx={evt.moduleIndex} value={evt.value.ToString("F3", CultureInfo.InvariantCulture)}; " +
+                    $"spin is derived from ghost ground speed",
+                    60.0);
+                return;
+            }
+
             info.currentValue = evt.value;
 
             if (info.visualMode == RoboticVisualMode.RotorRpm)
@@ -3642,10 +3955,27 @@ namespace Parsek
             }
         }
 
-        internal static void UpdateActiveRobotics(GhostPlaybackState state, double currentUT)
+        /// <param name="trackSections">
+        /// The trajectory's recorded track sections, used ONLY by the wheel-spin ground-contact gate
+        /// (<see cref="ResolveWheelGroundContact"/>). Null / empty means "no proof of ground contact",
+        /// which holds the wheels still; every other robotic visual mode ignores it.
+        /// </param>
+        internal static void UpdateActiveRobotics(
+            GhostPlaybackState state, double currentUT, List<TrackSection> trackSections)
         {
             if (state == null || state.roboticInfos == null || state.roboticInfos.Count == 0)
                 return;
+
+            // Wheel-spin inputs are resolved ONCE per ghost per frame, not once per wheel: the
+            // ground-contact gate, the body lookup, the surface normal and the ground-speed vector
+            // are identical for every wheel on the craft. Only the per-wheel roll direction and
+            // radius vary below. Resolution is also lazy — a ghost with no WheelGroundSpeed wheels
+            // pays nothing, and a ghost whose wheels are off the ground pays only the memoised
+            // section lookup (two double compares on a steady-state frame).
+            bool wheelInputsResolved = false;
+            bool wheelInputsUsable = false;
+            Vector3 wheelUp = Vector3.zero;
+            Vector3 wheelHorizontalVelocity = Vector3.zero;
 
             foreach (var kv in state.roboticInfos)
             {
@@ -3681,9 +4011,123 @@ namespace Parsek
                             info.servoTransform.localRotation * Quaternion.AngleAxis(deltaDegrees, axis);
                     }
                 }
+                else if (info.visualMode == RoboticVisualMode.WheelGroundSpeed)
+                {
+                    if (!wheelInputsResolved)
+                    {
+                        wheelInputsResolved = true;
+                        // GROUND-CONTACT GATE first, before the body lookup / getRFrmVel work. A
+                        // rover carried to orbit by a launch vehicle keeps its recorded orbital
+                        // velocity (~2100 m/s on a Kerbin parking orbit); ungated, speed/radius
+                        // turns that into thousands of degrees per frame and the wheels strobe for
+                        // the whole ascent and coast. The old recorded signal never showed this
+                        // because driveOutput was 0 with no motor input — it was right here by
+                        // accident, which makes an ungated derivation a NEW artifact, on old
+                        // recordings too. Nothing below the gate is reached off the ground.
+                        bool onGround = ResolveWheelGroundContact(
+                            trackSections, currentUT, ref state.wheelGroundContact);
+                        wheelInputsUsable = onGround
+                            && TryResolveWheelGroundSpeedInputs(
+                                state, out wheelUp, out wheelHorizontalVelocity);
+                        LogWheelGroundContactDecision(state, currentUT, onGround);
+                    }
+
+                    if (wheelInputsUsable)
+                    {
+                        Vector3 spinAxisWorld = info.servoTransform.TransformDirection(
+                            info.axisLocal.sqrMagnitude > 0.0001f ? info.axisLocal.normalized : Vector3.right);
+                        Vector3 rollForward = ComputeWheelRollForward(spinAxisWorld, wheelUp);
+                        float deltaDegrees = ComputeWheelSpinDeltaDegrees(
+                            wheelHorizontalVelocity, rollForward, info.wheelRadius, deltaSeconds);
+                        if (Mathf.Abs(deltaDegrees) > 0.0001f)
+                        {
+                            Vector3 axis = info.axisLocal.sqrMagnitude > 0.0001f
+                                ? info.axisLocal.normalized
+                                : Vector3.right;
+                            info.servoTransform.localRotation =
+                                info.servoTransform.localRotation * Quaternion.AngleAxis(deltaDegrees, axis);
+                        }
+                    }
+                }
 
                 info.lastUpdateUT = currentUT;
             }
+        }
+
+        /// <summary>
+        /// Resolves the two per-ghost inputs a wheel spin needs: the local surface normal and the
+        /// ghost's horizontal ground velocity. Returns false (wheels hold still) when the ghost has
+        /// no position, no resolved body, or no interpolated velocity yet.
+        ///
+        /// The body comes from <c>state.lastInterpolatedBodyName</c> through the same
+        /// name-keyed cache the audio and watch-mode camera paths already use, so an SOI change
+        /// re-resolves and steady flight costs a string compare rather than a scan of
+        /// <c>FlightGlobals.Bodies</c>. The steady-state path allocates nothing; only a cache MISS
+        /// pays for the <c>Find</c> predicate closure, and a miss happens once per body per ghost
+        /// (first frame and SOI changes), not per frame. This is the same trade
+        /// <c>ComputeAtmosphereFactor</c> already makes against the same cache fields.
+        ///
+        /// A zero <c>lastInterpolatedVelocity</c> is a legitimate state on several playback paths
+        /// (it is left at default rather than always written), and it lands on the honest answer
+        /// here: no known ground speed means stationary wheels — quiet, and still an improvement on
+        /// the recorded signal, which showed stationary wheels for every coasting rover.
+        /// </summary>
+        private static bool TryResolveWheelGroundSpeedInputs(
+            GhostPlaybackState state, out Vector3 up, out Vector3 horizontalVelocity)
+        {
+            up = Vector3.zero;
+            horizontalVelocity = Vector3.zero;
+
+            if (state.ghost == null)
+                return false;
+
+            Vector3 worldVelocity = state.lastInterpolatedVelocity;
+            if (worldVelocity.sqrMagnitude <= 1e-8f)
+                return false;
+
+            string bodyName = state.lastInterpolatedBodyName;
+            if (string.IsNullOrEmpty(bodyName))
+                return false;
+
+            CelestialBody body = state.cachedAudioBody;
+            if (body == null || state.cachedAudioBodyName != bodyName)
+            {
+                body = FlightGlobals.Bodies?.Find(b => b.name == bodyName);
+                state.cachedAudioBody = body;
+                state.cachedAudioBodyName = bodyName;
+            }
+            if (body == null)
+                return false;
+
+            Vector3d ghostWorldPos = state.ghost.transform.position;
+            up = (Vector3)(ghostWorldPos - body.position);
+            if (up.sqrMagnitude <= 1e-8f)
+                return false;
+
+            Vector3 bodyFrameVelocity = (Vector3)body.getRFrmVel(ghostWorldPos);
+            horizontalVelocity = ComputeSurfaceHorizontalVelocity(worldVelocity, bodyFrameVelocity, up);
+            return true;
+        }
+
+        /// <summary>
+        /// One Verbose line per ghost per ground-contact ANSWER, so a "wheels spun in orbit" or
+        /// "wheels never turned" report is decidable from KSP.log. The rate-limit key carries the
+        /// decision, so a flip emits immediately (new key, no prior timestamp) and a steady answer
+        /// re-affirms at most once a minute rather than every frame.
+        /// </summary>
+        private static void LogWheelGroundContactDecision(
+            GhostPlaybackState state, double currentUT, bool onGround)
+        {
+            string id = !string.IsNullOrEmpty(state.recordingId)
+                ? state.recordingId
+                : state.vesselName ?? "?";
+            ParsekLog.VerboseRateLimited("Flight",
+                $"wheel-ground-contact-{id}-{(onGround ? 1 : 0)}",
+                $"Wheel spin ground-contact gate {(onGround ? "OPEN" : "CLOSED")} for \"{state.vesselName}\" " +
+                $"rec={id} ut={currentUT.ToString("F1", CultureInfo.InvariantCulture)} " +
+                $"section={(state.wheelGroundContact.hasValue ? "resolved" : "none")}" +
+                (onGround ? "" : "; wheels hold still"),
+                60.0);
         }
 
         #endregion

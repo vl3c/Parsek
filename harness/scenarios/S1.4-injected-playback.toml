@@ -51,13 +51,23 @@ D16 = ["sidecar-prec", "sidecar-pcrf"]
 allowedAnomalies = []
 
 [expectations.recordings]
-# Pinned to the InjectAllRecordings corpus size at this commit (272) ON the
+# Pinned to the InjectAllRecordings corpus size at this commit (274) ON the
 # stock-minimal profile; the corpus conditionally appends ReStock+ showcase
 # rows on modded installs, so a profile change moves this number too. A load
 # losing recordings reds. Update alongside corpus or profile changes.
 # (REC-rule suppression keys on live-recording expectation, not this count -
 # see the harness design revision note.)
-count = { min = 272, max = 272 }
+# NOTE 2026-08-11 (recorded-signal-fixes): the shared InjectAllRecordings corpus
+# grew 272 -> 274 (chute-repack + surface-rover showcase rows). MEASURED
+# 2026-08-11 - the +2 was a derivation when it landed and is now confirmed:
+# H5-invariants-corpus flew that day (run `2026-08-11_1119`, PASS attempt 1) and
+# the harness counted exactly 274 .prec sidecars
+# (`expectations.observed.recordings.count = 274`, mismatches 0), with the same
+# count independently re-read by H33-recorded-signals (run `2026-08-11_1118`,
+# PASS). H5's in-game walk measured the hydrated pair in the same run at
+# `recordings=308 trees=278`, also as derived. If this pin ever reds, read the
+# actual count off the collected KSP.log before touching anything else.
+count = { min = 274, max = 274 }
 
 [expectations.logContracts]
 # ERROR is UPPERCASE in ParsekLog.Write and the patterns are case-sensitive.

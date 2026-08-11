@@ -14,6 +14,282 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## ~~RECORDED-SIGNAL-CONFIDENTLY-WRONG: two recorded part signals were wrong at the source and playback rendered them faithfully~~ [FOUND 2026-08-09 by the part-action recording audit (§3, "A confidently wrong signal that playback faithfully renders"). FIXED 2026-08-11, branch `recorded-signal-fixes`]
+
+Both were **correctness** bugs rather than fidelity gaps: the recorder wrote a
+wrong value and the playback path reproduced it exactly, every replay, with no
+self-correction. Both claims in the audit were re-verified against decompiled
+KSP 1.12.5 (`ilspycmd`, `Assembly-CSharp.dll`) before any code moved, and both
+held.
+
+### 1. Parachute repack replayed as a cut
+
+`FlightRecorder.CheckParachuteState` collapsed KSP's five
+`ModuleParachute.deploymentStates` into three, folding STOWED, ACTIVE **and
+CUT** into state `0`. `CheckParachuteTransition` emitted `ParachuteCut` on any
+`1->0` or `2->0`. A stock EVA `Repack()` is precisely `CUT -> STOWED`, so it
+recorded as a cut - and `ApplyParachuteCutEvent` zeroes the canopy *and hides
+the cap*, with nothing that ever restores it. A repacked chute rendered as an
+empty can for the remainder of the recording.
+
+Decompiled confirmation of what the correct visual is: stock `Repack()` requires
+`deploymentState == CUT`, then does `cap.gameObject.SetActive(true)` +
+`canopy.gameObject.SetActive(false)` + `deploymentState = STOWED`. The cap goes
+back on; that is the half playback was missing.
+
+**Fix.** A four-state classifier (`FlightRecorder.ClassifyParachuteState`:
+Stowed=0 / SemiDeployed=1 / Deployed=2 / Cut=3, ACTIVE still folded into Stowed
+because it has no distinct visual) as the single source of the encoding, a full
+transition table (`ClassifyParachuteTransitionEvent`), a new
+`PartEventType.ParachuteRepacked = 35`, and a playback handler that restores the
+captured stowed canopy pose **and re-activates the cap**.
+
+Points worth keeping:
+
+- **`STOWED -> CUT` deliberately emits nothing.** It is not a physical
+  transition; it is what the *first* observation of an already-cut chute looks
+  like, because an unseen pid defaults to Stowed. Emitting a cut there would put
+  a phantom event at segment start. `PartStateSeeder.SeedParachutes` also primes
+  the map with Cut now, which is what makes a later repack observable at all.
+- **`ClassifyPartDeath` had to change with it.** It tested `state > 0` to mean "a
+  canopy was out, so this is `ParachuteDestroyed`". Cut is now 3, so that test
+  would have misclassified a part dying with an already-cut chute. It routes
+  through `IsDeployedParachuteState` (semi or full only).
+- **Split-seed placement: reversible, NOT permanent.** A cut was never in the
+  permanent family and a repack undoes a cut, so there is no permanence to
+  revoke. Both mark the parachute state inactive, no seed is emitted, and the
+  tail renders the ghost's build-time pose - canopy hidden, cap on - which *is*
+  the repacked pose. Forwarding a permanent seed would hide the cap again.
+- **The loop-cycle restore needed no change.**
+  `ReapplySpawnTimeModuleBaselinesForLoopCycle` already reset to stowed + cap-on,
+  which is exactly the repacked pose; it now reads the stored stowed pose instead
+  of hardcoding `Vector3.zero` so the builder is the one source of it. (Its
+  comment also carried a stale `GhostVisualBuilder.cs line ~4539` reference,
+  corrected.)
+- **The background recorder is the LIKELIER observer, not a duplicate.** Stock
+  `Repack` is `[KSPEvent(externalToEVAOnly = true, unfocusedRange = 4f)]`, so the
+  kerbal doing the repacking is the active vessel and the craft being repacked is
+  a *loaded background* vessel. Both recorders now share the classifier.
+
+#### Why adding member 35 needed no schema-generation bump - MECHANISM CORRECTED 2026-08-11
+
+**This subsection is the correction of record.** The commit message for
+`f5cf6fba0` (and the first version of this entry) said an older build "skips the
+unknown event". That is true only of the **legacy TEXT reader**:
+`TrajectoryTextSidecarCodec.DeserializePartEvents` gates on
+`Enum.IsDefined(typeof(PartEventType), typeInt)` and `continue`s past a value it
+does not know. The **shipping BINARY reader does not gate at all** -
+`TrajectorySidecarBinary.ReadPartEventList` does a bare
+`eventType = (PartEventType)reader.ReadInt32()` - so an older build reading a
+newer `.prec` **materialises an undefined `(PartEventType)35`** into its
+`PartEvents` list and carries it around. The commit message is immutable and
+overstates this; this entry is the correction.
+
+**The outcome is unchanged: avoiding the bump remains correct.** The real reason
+is *undefined-enum tolerance across every consumer*, audited one by one:
+
+| consumer | behaviour on an unrecognised member |
+| --- | --- |
+| `GhostPlaybackLogic.ApplyPartEvents` | `switch` with no matching case and no `default` - silently unhandled, no visual change |
+| `RecordingOptimizer.IsPermanentVisualStateEvent` | `false` (no seed forwarded) |
+| `RecordingOptimizer.IsInertPartEventForTailTrim` | `false` (not trimmed away) |
+| `SwitchSegmentNoOpClassifier.IsMeaningfulPartEvent` | `true` (the segment is kept, never auto-discarded) |
+| `GhostingTriggerClassifier.IsGhostingTrigger` | `true`, plus a Verbose `unknown PartEventType` line |
+| re-serialisation (both codecs' writers) | preserves the raw int, so a round trip through an older build does not erase the newer signal |
+| `Parsek.Analyzer` rules | only stringify the type; no rule branches on the member set |
+
+Every branch is the safe one, so a mixed-version read degrades gracefully rather
+than corrupting or dropping data. Pinned by
+`RecordedSignalFixTests.BinarySidecar_RawCastsAnUndefinedPartEventType_AndEveryConsumerDegradesGracefully`,
+which round-trips a deliberately-undefined int through
+`TrajectorySidecarBinary` and asserts it survives verbatim *and* that each
+headless-reachable consumer above takes the branch listed. If a future consumer
+grows a `default:` that throws or mutates state, that cell is where it reds.
+
+### 2. Wheel spin recorded percent-of-torque, replayed as RPM
+
+`ModuleWheelMotor` carries no RPM `[KSPField]` at all, so every RPM-shaped
+candidate in the probe list (`currentRPM`, `rpm`, `wheelRPM`, `motorRPM`,
+`targetRPM`) resolved to nothing and `driveOutput` won. Decompiled, that is
+`Mathf.Abs(driveInput * wheel.maxDriveTorque / maxTorque) * 100f * resourceFraction`,
+declared `[UI_ProgressBar(minValue = 0, maxValue = 100)]` - an **unsigned percent
+of max torque**. Playback spun it at `value * 6` deg/s as RPM. All three audit
+consequences are real: a coasting rover recorded 0 and showed **stationary
+wheels**; reverse was byte-identical to forward (`Mathf.Abs`); the magnitude was
+a torque fraction, not a rate.
+
+**Fix.** Stop recording it (storage-negative) and derive the spin at playback
+from the ghost's own horizontal ground speed over the wheel radius.
+
+- Emission is gated by `FlightRecorder.IsWheelMotorSpinModuleName`, which must
+  **not** be folded into `IsRoboticModuleName`: that predicate assigns the
+  sequential `roboticModuleIndex` in *both* `CacheRoboticModules` and the ghost
+  builder's `TryBuildRoboticInfos`, and the playback key is
+  `EncodeEngineKey(pid, moduleIndex)`. Skipping wheel motors there would renumber
+  every later robotic module on the same part. Guarded by a test.
+- New `RoboticVisualMode.WheelGroundSpeed`; radius from
+  `ModuleWheelBase.radius * part.rescaleFactor` (the product stock uses for the
+  collider), falling back to `DefaultWheelRadiusMeters = 0.35f`.
+- The recorded world velocity is `rb_velocityD + Krakensbane.GetFrameVelocity()`,
+  i.e. **orbital**, so the derivation subtracts `body.getRFrmVel` and the radial
+  component. Without that a rover parked on Kerbin's equator would spin its
+  wheels at the planet's ~175 m/s rotation.
+- Direction comes from the wheel's own spin axis (`Cross(axis, up)`), not a
+  guessed vessel forward, so mirrored wheels counter-rotate correctly.
+- **Old recordings: ignored, not used as fallback.** They still carry
+  `RoboticMotion*` events on wheel-motor module indices; consuming the stale
+  value would resurrect the bug. The derivation reads the trajectory, which every
+  recording has, so it fixes old flights too.
+- **The event family is NOT retired.** `RoboticMotionStarted` /
+  `RoboticPositionSample` / `RoboticMotionStopped` remain the live signal for
+  hinges, pistons, rotation servos, rotors, wheel suspension and wheel steering.
+  Only the wheel-motor producer is gone, so no enum member became dead and none
+  was marked retired.
+- `UpdateActiveRobotics` is now also driven from `ApplyFrameVisuals`, because
+  `ApplyPartEvents` early-returns when a recording has no part events and wheel
+  spin no longer depends on any event. It is retained inside `ApplyPartEvents`
+  too so the KSC-scene and flight-preview callers keep their behaviour; calling it
+  twice in a frame is a no-op (the second pass sees `deltaSeconds == 0`).
+- **The KSC / preview no-spin asymmetry is deliberate and documented in place.**
+  Only the flight engine drives wheel spin unconditionally. A KSC-scene ghost
+  never spins at all (`ParsekKSC` never calls `SetInterpolated`, so
+  `lastInterpolatedVelocity` stays zero and `TryResolveWheelGroundSpeedInputs`
+  declines); a flight-PREVIEW ghost spins only for a recording carrying at least
+  one part event, because a zero-event recording early-returns before the retained
+  call. KSC is a static parked-craft display and preview is a scrubbing aid, so
+  neither warrants a second unconditional per-frame call site.
+
+#### The ground-contact gate (review finding D1, fixed 2026-08-11)
+
+The first version of the derivation gated only on
+`WheelStationarySpeedMetersPerSecond` (0.05 m/s) - **never on ground contact**. So
+a rover riding a launch vehicle to orbit kept the recording's orbital velocity
+(~2100 m/s on a Kerbin parking orbit), and `speed / radius` turned that into
+thousands of degrees per frame: visible strobing for the whole ascent and coast.
+The OLD recorded signal was accidentally right about this exact case
+(`driveOutput` is 0 with no motor input), which makes an ungated derivation a
+**NEW** artifact - and one that appears on already-recorded flights too, since the
+derivation applies to them.
+
+**Gate: the recorded `TrackSection` environment covering the playback UT must be a
+SURFACE class** (`SurfaceMobile` / `SurfaceStationary`), resolved by
+`GhostPlaybackLogic.ResolveWheelGroundContact` /
+`IsWheelSpinGroundContactEnvironment`.
+
+Why the section environment rather than an altitude test:
+`EnvironmentDetector.Classify` resolves LANDED / SPLASHED / PRELAUNCH straight to
+a Surface class **before** it ever looks at altitude, and debounces the jitter
+(#246). So a rover driving, a plane on its takeoff roll and a plane that has just
+touched down are all Surface, and the instant the wheels leave the ground KSP
+reports FLYING and the section becomes `Atmospheric`. **That boundary already IS
+the wheels-on-ground boundary**, measured by the recorder, at no per-frame cost at
+the playback site. An altitude test would have needed a threshold: raw
+`lastInterpolatedAltitude` is ASL, not AGL, so any fixed number is wrong in the
+mountains, and `TrajectoryPoint.recordedGroundClearance` is populated only for
+surface-section samples - i.e. it presupposes the answer the gate is asking for.
+
+- `Atmospheric` and `Approach` are deliberately NOT contact. A real wheel keeps
+  freewheeling for a second after liftoff; holding still is the honest answer when
+  nothing recorded says the wheel is loaded, and on an airless body the classifier
+  already promotes anything under 100 m AGL to Surface, so `Approach` means "not
+  near the ground yet".
+- **Fails closed.** No section covering the UT means no spin. That covers a BG
+  on-rails recording (emits no env-classified per-frame sections - it is in orbit),
+  a re-aimed trajectory (`ReaimedTrajectory.TrackSections` is empty by contract -
+  it is on a heliocentric transfer), and an endpoint / loop-pause hold outside the
+  recorded span (which zeroes the interpolated velocity anyway).
+- **Per-frame budget.** Resolved once per ghost per frame, not once per wheel, and
+  memoised in `GhostPlaybackState.wheelGroundContact` over the resolved section's
+  own `[startUT, endUT)`, so a steady-state frame is two `double` compares instead
+  of an O(sections) scan. The window invalidates itself at every section change and
+  at a loop restart (the UT jumps backwards out of it). The gate runs BEFORE the
+  body lookup / `getRFrmVel` work, so an off-the-ground ghost pays only the memo
+  read. `UpdateActiveRobotics` therefore takes the section list as a third
+  parameter; both call sites pass the live trajectory's.
+- The gate touches ONLY `RoboticVisualMode.WheelGroundSpeed`. `RotorRpm` is
+  untouched - a helicopter's rotors must still spin in the air.
+- One Verbose line per ghost per ANSWER (`wheel-ground-contact-<recId>-<0|1>`,
+  rate-limited at 60 s), so a flip logs immediately and "wheels spun in orbit" /
+  "wheels never turned" is decidable from KSP.log.
+
+### Verification
+
+Full suite `19876 -> 19949` passing, 0 failures, 1 pre-existing skip, no existing
+test needed changing. That is +71 cells in
+`Source/Parsek.Tests/RecordedSignalFixTests.cs` (63 from the original commit, plus
+7 for the ground-contact gate and 1 pinning the binary reader's raw-cast
+tolerance) and +2 fixture-shape cells in `SyntheticRecordingTests.cs` for the two
+new synthetic recordings. `harness/lib` 1284 OK, `harness/provision` 237 OK,
+`harness/missions/lib` 1476 OK - `CommittedBatchTallySourceSyncTests` and
+`IngameBatchWiringGroupTests` both agree with the new `RecordedSignals` category
+at `total=3`. Three in-game cells added; the `H33-recorded-signals` scenario is
+AUTHORED, NOT YET FLOWN.
+
+**One step cannot be unit-tested, and is now covered IN GAME instead.** The
+absolute visual spin direction rests on Unity's left-handed `AngleAxis` identity
+(`AngleAxis(90, up) * forward == right`); `Quaternion.AngleAxis` is a native call
+that throws outside a Unity runtime, so no headless test can pin it. Magnitude,
+sign-relative-to-roll-direction, stationary-below-threshold and
+no-roll-on-sideways-slide are all proven headlessly. The identity itself is now
+pinned by `RecordedSignalsInGameTests.WheelRollForwardMatchesUnityHandedness`
+(below), which asserts both the bare identity AND the composed rolling-without-slip
+consequence. If wheels visibly spin backwards while driving forwards in game -
+or if that cell reds - negate the single cross product in
+`ComputeWheelRollForward` and nothing else; noted at that call site.
+
+### In-game + harness coverage (added 2026-08-11 alongside the D1 gate)
+
+**New `[InGameTest]` category `RecordedSignals`** -
+`Source/Parsek/InGameTests/RecordedSignalsInGameTests.cs`, 3 cells, each making a
+claim the headless suite cannot:
+
+1. `WheelRollForwardMatchesUnityHandedness` (AnyScene) - **the star cell.** The
+   bare Unity identity plus the composed proof: under the rotation
+   `UpdateActiveRobotics` would apply for forward motion, the TOP of the wheel must
+   travel ALONG `rollForward` and the contact patch AGAINST it (rolling without
+   slip). A negated cross product reverses both signs, which is exactly the
+   "wheels spin backwards" symptom. Pure math over local vectors; its tolerance
+   Skip path is deterministically unreachable with the committed constants, so
+   the batch passed= count floors at 1.
+2. `ParachuteRepackRestoresTheCapAtTransformLevel` (FLIGHT) - Deploy -> Cut ->
+   Repacked through `ApplyPartEvents` on a ghost built from a real PartLoader
+   prefab; asserts cap OFF after the cut (the contrast that stops a no-op repack
+   handler passing) and cap ON plus the captured stowed canopy pose after the
+   repack. Skips naming the context when no loaded part has a `ModuleParachute`
+   whose canopy AND cap both resolve on the prefab.
+3. `WheelSpinNeedsGroundContactAndGroundMotion` (FLIGHT) - three arms against a
+   real wheel prefab's own axis and radius, through the live
+   `CelestialBody.getRFrmVel` subtraction: Surface section + ground motion spins
+   it, parked does not, and a NON-Surface section at ~2100 m/s does not either
+   (the D1 regression). Skips naming the context when no loaded part carries a
+   wheel motor module or the ghost builder cannot resolve its spin transform.
+
+World-position assertions size their tolerance from
+`InGameFixtureMath.SceneFloatGridToleranceMeters` and refuse via
+`ToleranceResolvesSignal` rather than passing vacuously. Both FLIGHT fixtures are
+DISCOVERED from `PartLoader` at run time, not hardcoded, so the batch does not
+depend on which craft the save is flying.
+
+**Two synthetic recordings** (`docs/dev/synthetic-recordings.md` has the full
+rows): a chute-repack showcase carrying the `CUT -> STOWED` transition the old
+encoding could not represent, and a surface rover driving at 8 m/s with ZERO part
+events and a `SurfaceMobile` TrackSection - the two properties that make it a real
+test of the derivation rather than of the event stream. Each adds one `.prec` row,
+so the all-synthetic corpus moved 272 -> 274; every corpus count pin and H5's
+`recordings=308 trees=278` walk pin moved in the same commit. Those are DERIVED
+(+2), NOT re-measured, and the next flight of each spec confirms them.
+
+**Harness scenario `H33-recorded-signals`** (nightly, `ingame-batch`,
+gloops-airshow + all-synthetic) drives the category through the H-series
+`RunTests` seam step - NOT `[driver.autorun]`, which no committed spec uses
+because `PARSEK_AUTORUN_EXIT` quits KSP as soon as the first scene settles and
+races the driver's remaining steps. **AUTHORED, NOT YET FLOWN**: `total=3` is
+attribute-exact, but `passed=` / `skipped=` are left as regex classes because two
+cells self-skip on what the install loaded, so the spec is registered in
+`IngameBatchWiringGroupTests.INTERIM_PIN_IDS` - the first interim member since H20
+in July. Its `passed=[1-9][0-9]*` still rejects the whole vacuous family. First
+flight: pin all four numbers literally, record any real skip in `RUNTIME_SKIPS`
+with its reason, and remove the id.
 ## ~~REFLY-DELETES-NON-SLOT-WORLD: a Re-Fly removed every vessel except the selected slot, including discovered asteroids and planted flags~~ [FIXED 2026-08-09]
 
 Found by the part-action recording audit

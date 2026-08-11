@@ -3,7 +3,7 @@ id = "H5-invariants-corpus"
 tier = "daily"
 # The in-game RecordingInvariants (M-A3 hook H5) category run over the FULL
 # injected synthetic corpus. B10 runs the same category over an EMPTY store (a
-# trivial edge-15 pass); this cell instead loads the 272-recording corpus and
+# trivial edge-15 pass); this cell instead loads the 274-recording corpus and
 # walks it through the M-A1 pure invariant core (RecordingInvariantsHold
 # OverLiveStore -> InvariantEvaluator over RecordingStore.CommittedRecordings), so
 # a Fail finding on any real recording reds. Two guards: the corpus LOADS INTACT
@@ -15,7 +15,7 @@ tags = ["invariants", "analyzer", "H5", "R21", "R22"]
 
 [fixture]
 # gloops-airshow SANDBOX pod host (see S0.5). injectedRecordings="all-synthetic"
-# seeds the 272-recording corpus that the H5 live-store walk then evaluates.
+# seeds the 274-recording corpus that the H5 live-store walk then evaluates.
 saveTemplate = "fixtures/saves/gloops-airshow"
 injectedRecordings = "all-synthetic"
 craft = []
@@ -34,7 +34,7 @@ steps = [
 ]
 
 [dimensionsCovered]
-# HONEST: loading the 272-recording corpus reads each recording from its .prec
+# HONEST: loading the 274-recording corpus reads each recording from its .prec
 # sidecar and runs the load-time schema-compatibility gate (D16). The run is
 # SANDBOX and the H5 category is FLIGHT-scoped (D14). Not claimed: a specific
 # invariant-family dimension - the invariant sweep is a structural regression
@@ -52,22 +52,44 @@ D16 = ["sidecar-prec", "schema-gate"]
 allowedAnomalies = []
 
 [expectations.recordings]
-# The injected corpus, unchanged (no live recording). Pinned to the same 272 S1.4
+# The injected corpus, unchanged (no live recording). Pinned to the same 274 S1.4
 # uses on stock-minimal; a load that lost recordings reds. Update alongside corpus
 # or profile changes.
-count = { min = 272, max = 272 }
+count = { min = 274, max = 274 }
 
 [expectations.logContracts]
-# The walk counts RECORDINGS, not injected trees: the 272-tree corpus hydrates
-# to 306 recordings across 276 walked trees (chain trees contain multiple
-# member recordings). The exact "recordings=306 trees=276" pair is the
+# The walk counts RECORDINGS, not injected trees: the 274-tree corpus hydrates
+# to 308 recordings across 278 walked trees (chain trees contain multiple
+# member recordings). The exact "recordings=308 trees=278" pair is the
 # HIGH-confidence guard that the full corpus hydrated into the store and was
 # walked - the R21/R22 index-integrity family. failed=0 is the invariant-clean
 # guard; the first live run (2026-07-19) confirmed fails=0 warns=0 over
-# recordings=306, resolving the former PENDING-OPERATOR check. If a synthetic
-# recording is deliberately degenerate, quarantine it via expectedFail keyed to
-# a todo-doc bug id rather than weakening failed=0. Update BOTH numbers here
-# and recordings.count above whenever the corpus changes.
+# recordings=306 / trees=276, resolving the former PENDING-OPERATOR check.
+#
+# THAT 306/276 PAIR WAS THE PRE-2026-08-11 CORPUS; the numbers pinned above are the
+# corpus THIS commit produces. recorded-signal-fixes grew the corpus by TWO rows
+# (the chute-repack showcase + the surface rover drive, both added to
+# InjectAllRecordings), so 272/276/306 -> 274/278/308.
+#
+# ALL THREE WERE DERIVED (+2) WHEN THEY LANDED AND ARE NOW **MEASURED 2026-08-11**,
+# run `2026-08-11_1119`, PASS attempt 1, wall 71 s - this spec's own flight is the
+# one that converted them, which is what its header said would happen. The log read
+# `RecordingInvariants walk: recordings=308 trees=278` TOKEN FOR TOKEN, and the
+# harness counted exactly 274 .prec sidecars for the count pin above
+# (`expectations.observed.recordings.count = 274`, mismatches 0). So the derivation
+# held on all three axes at once and nothing needed re-pinning. The reasoning it
+# rested on is therefore confirmed rather than merely plausible: run.py's
+# count_recordings counts .prec files, ScenarioWriter.WriteSidecarFiles writes one
+# per v3 builder, and each AddRecordingAsTree adds exactly one builder / one tree /
+# one recording. NOTE the run ALSO emits an `RecordingInvariants walk: recordings=0
+# trees=0 (empty-store pass check)` line first - that is the empty-store cell, not a
+# failed load, and the pinned pattern is anchored with `\b` so it cannot match it.
+# If this pin ever reds, read the ACTUAL pair off the collected KSP.log and re-pin
+# here plus recordings.count above.
+#
+# If a synthetic recording is deliberately degenerate, quarantine it via
+# expectedFail keyed to a todo-doc bug id rather than weakening failed=0. Update
+# BOTH numbers here and recordings.count above whenever the corpus changes.
 #
 # ANTI-VACUITY (hlib.batch_contract_vacuity_gap). The old pin was
 # `BATCH_COMPLETE v1 .* failed=0\b`, which a ZERO-EXECUTED batch satisfies
@@ -79,7 +101,7 @@ count = { min = 272, max = 272 }
 # both Scene = FLIGHT and AllowBatchExecution default-true; the gloops-airshow
 # fixture carries a focusable vessel so LoadGame takes the FLIGHT route). If a
 # test is added to the category, BOTH numbers move here in the same commit.
-required  = ["RecordingInvariants walk: recordings=306 trees=276\\b",
+required  = ["RecordingInvariants walk: recordings=308 trees=278\\b",
              "BATCH_COMPLETE v1 total=2 passed=2 failed=0 skipped=0 category=RecordingInvariants scene=FLIGHT"]
 forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
 

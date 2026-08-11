@@ -3342,13 +3342,50 @@ namespace Parsek
             if (string.Equals(moduleName, "ModuleRoboticServoRotor", System.StringComparison.Ordinal))
                 return RoboticVisualMode.RotorRpm;
 
-            if (string.Equals(moduleName, "ModuleWheelMotor", System.StringComparison.Ordinal) ||
-                string.Equals(moduleName, "ModuleWheelMotorSteering", System.StringComparison.Ordinal))
-            {
-                return RoboticVisualMode.RotorRpm;
-            }
+            // Wheel motors no longer replay a recorded scalar (which was an unsigned
+            // percent-of-max-torque masquerading as RPM). Their spin is derived from the ghost's
+            // ground speed each frame — see FlightRecorder.IsWheelMotorSpinModuleName.
+            if (FlightRecorder.IsWheelMotorSpinModuleName(moduleName))
+                return RoboticVisualMode.WheelGroundSpeed;
 
             return RoboticVisualMode.Rotational;
+        }
+
+        /// <summary>
+        /// Reads the wheel's rolling radius for the ghost, from <c>ModuleWheelBase.radius</c> (a
+        /// <c>[KSPField]</c>, so it is reachable through <c>module.Fields</c>) scaled by the part's
+        /// <c>rescaleFactor</c> — the same product stock uses when it sizes the wheel collider
+        /// (<c>wheel.wheelCollider.radius = radius * part.rescaleFactor</c>).
+        ///
+        /// A wheel motor submodule does not carry the radius itself; it hangs off
+        /// <c>ModuleWheelBase</c> on the same part, which is what
+        /// <see cref="TryGetWheelBaseModule"/> resolves. Returns
+        /// <see cref="GhostPlaybackLogic.DefaultWheelRadiusMeters"/> when the base module or the
+        /// field cannot be reached, or when the value is not a usable positive radius.
+        /// </summary>
+        private static float ResolveWheelRadius(Part prefab, PartModule module, string partName)
+        {
+            float radius = 0f;
+            bool resolved =
+                (TryGetWheelBaseModule(prefab, module, out PartModule wheelBase) &&
+                 TryGetModuleFloatField(wheelBase, "radius", out radius))
+                || TryGetModuleFloatField(module, "radius", out radius);
+
+            float rescale = prefab != null && prefab.rescaleFactor > 0f ? prefab.rescaleFactor : 1f;
+            float scaled = radius * rescale;
+
+            if (!resolved || scaled <= GhostPlaybackLogic.MinWheelRadiusMeters ||
+                float.IsNaN(scaled) || float.IsInfinity(scaled))
+            {
+                ParsekLog.Verbose("Ghost",
+                    $"Wheel radius unresolved for '{partName}' module={module?.moduleName}; " +
+                    $"raw={radius.ToString("F3", System.Globalization.CultureInfo.InvariantCulture)} " +
+                    $"rescale={rescale.ToString("F3", System.Globalization.CultureInfo.InvariantCulture)}; " +
+                    $"using default {GhostPlaybackLogic.DefaultWheelRadiusMeters.ToString("F3", System.Globalization.CultureInfo.InvariantCulture)}m");
+                return GhostPlaybackLogic.DefaultWheelRadiusMeters;
+            }
+
+            return scaled;
         }
 
         private static bool TryGetWheelBaseModule(
@@ -3566,6 +3603,8 @@ namespace Parsek
                 float currentValue = 0f;
                 TryGetRoboticCurrentValue(module, moduleName, out currentValue);
 
+                RoboticVisualMode visualMode = GetRoboticVisualMode(moduleName);
+
                 var info = new RoboticGhostInfo
                 {
                     partPersistentId = persistentId,
@@ -3575,9 +3614,12 @@ namespace Parsek
                     axisLocal = axis.sqrMagnitude > 0.0001f ? axis.normalized : Vector3.up,
                     stowedPos = ghostServo.localPosition,
                     stowedRot = ghostServo.localRotation,
-                    visualMode = GetRoboticVisualMode(moduleName),
+                    visualMode = visualMode,
                     currentValue = currentValue,
-                    active = false
+                    active = false,
+                    wheelRadius = visualMode == RoboticVisualMode.WheelGroundSpeed
+                        ? ResolveWheelRadius(prefab, module, partName)
+                        : 0f
                 };
 
                 infos.Add(info);
@@ -3895,6 +3937,13 @@ namespace Parsek
                     ghostCanopy.localPosition = Vector3.zero;
                     ghostCanopy.localRotation = Quaternion.identity;
                 }
+
+                // Capture the stowed pose LAST, after the EVA override and the outside-modelRoot
+                // reparent have both had their say, so ParachuteRepacked can restore the actual
+                // spawn pose on every part shape rather than an assumed one.
+                parachuteInfo.stowedCanopyScale = ghostCanopy.localScale;
+                parachuteInfo.stowedCanopyPos = ghostCanopy.localPosition;
+                parachuteInfo.stowedCanopyRot = ghostCanopy.localRotation;
 
                 return parachuteInfo;
             }

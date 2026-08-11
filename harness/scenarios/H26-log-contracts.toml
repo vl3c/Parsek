@@ -41,7 +41,7 @@ tags = ["ingame-batch", "log-contracts", "B6", "H26"]
 # injectedRecordings = "none" is a MEASURED choice with a known cost: REC-002
 # guards on RecordingStore.CommittedRecordings.Count == 0 -> Skip, and
 # career-pad-craft carries zero RECORDING nodes, so REC-002 is this spec's single
-# run-time skip. Injecting all-synthetic would flip it to EXECUTES over 272
+# run-time skip. Injecting all-synthetic would flip it to EXECUTES over 274
 # recordings, but its Points.Count >= 2 rule has NO analyzer counterpart, so the
 # corpus is not proven to satisfy it and a single 1-point non-debris synthetic
 # would red the batch on a fixture question. If REC-002 is worth executing

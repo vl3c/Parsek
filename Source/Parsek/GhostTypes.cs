@@ -21,6 +21,15 @@ namespace Parsek
         public Vector3 semiDeployedCanopyPos;
         public Quaternion semiDeployedCanopyRot;
         public bool semiDeployedSampled;
+        // The canopy's build-time (stowed) pose, captured by TryBuildParachuteInfo AFTER every
+        // reparent/override branch has run, so it is the true spawn pose for EVA chutes and for
+        // canopies that live outside modelRoot as well as for the ordinary case. Restored by
+        // ParachuteRepacked and by the loop-cycle baseline reset. Scale is Vector3.zero for stock
+        // prefabs (a stowed canopy mesh is scaled away rather than deactivated), but read it from
+        // here rather than hardcoding zero so there is one source of truth.
+        public Vector3 stowedCanopyScale;
+        public Vector3 stowedCanopyPos;
+        public Quaternion stowedCanopyRot;
     }
 
     internal struct KspEmitterRef
@@ -148,7 +157,12 @@ namespace Parsek
     {
         Rotational,
         Linear,
-        RotorRpm
+        RotorRpm,
+        // Wheel motor spin: continuous rotation whose rate is DERIVED from the ghost's own
+        // horizontal ground speed each frame, not read from a recorded event. Recorded wheel-motor
+        // events (old recordings still carry them) are ignored in this mode. See
+        // FlightRecorder.IsWheelMotorSpinModuleName and GhostPlaybackLogic.UpdateActiveRobotics.
+        WheelGroundSpeed
     }
 
     internal class RoboticGhostInfo
@@ -164,6 +178,11 @@ namespace Parsek
         public float currentValue;
         public bool active;
         public double lastUpdateUT = double.NaN;
+        // WheelGroundSpeed mode only: the wheel's rolling radius in metres, read at build time from
+        // ModuleWheelBase.radius (a [KSPField]) times the part's rescaleFactor, matching how stock
+        // sizes the wheel collider. Falls back to
+        // GhostPlaybackLogic.DefaultWheelRadiusMeters when the module or field is unreachable.
+        public float wheelRadius;
     }
 
     internal struct FxModelDefinition

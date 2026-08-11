@@ -1,0 +1,141 @@
+schema = 1
+id = "H33-recorded-signals"
+tier = "nightly"
+# BATCH-ONLY scenario, H7-H20 shape. Drives the NEW `RecordedSignals` category,
+# which exists for the live half of the 2026-08-09 part-action recording audit's
+# two fixes (parachute repack replayed as a cut; wheel spin recorded as
+# percent-of-torque and replayed as RPM).
+#
+# WHAT IT COVERS, and why every cell needs a real KSP:
+#  1. THE HANDEDNESS PROOF - the one step in the whole wheel fix that xUnit
+#     cannot verify. The absolute visual spin direction rests on Unity's
+#     left-handed identity `AngleAxis(90, up) * forward == right`, and
+#     `Quaternion.AngleAxis` is a native ECall that throws outside a Unity
+#     runtime. The cell asserts the bare identity AND the composed consequence
+#     (positive spin about the wheel's own axis carries the wheel's TOP along
+#     the roll direction and the contact patch against it - rolling without
+#     slip). If it reds, the documented single-line fix is negating the one
+#     Vector3.Cross in GhostPlaybackLogic.ComputeWheelRollForward.
+#  2. PARACHUTE CAP RESTORE AT TRANSFORM LEVEL - the repack visual is a
+#     GameObject.SetActive on a transform cloned out of a real PartLoader
+#     prefab. Headless cells pin the ENCODING (Cut=3 distinct from Stowed=0;
+#     CUT -> STOWED classifies as ParachuteRepacked) and the DECISION
+#     (TryResolveParachuteCapActive), and neither can touch a GameObject. The
+#     cell drives Deploy -> Cut -> Repacked and asserts cap OFF after the cut
+#     and back ON after the repack; the cut arm is the contrast that stops a
+#     no-op repack handler passing.
+#  3. WHEEL SPIN, THREE ARMS - a real wheel prefab's own spin axis and radius,
+#     through the live CelestialBody.getRFrmVel body-rotation subtraction.
+#     Surface section + ground motion spins it; parked does not; and - the D1
+#     regression - a NON-Surface section at ~2100 m/s does not either. The
+#     ground-contact gate is what stops a rover riding a launch vehicle from
+#     strobing its wheels for the whole ascent and coast.
+#
+# All three build their fixtures from PartLoader prefabs DISCOVERED at run time
+# (first part carrying a ModuleParachute with a resolvable cap; first part whose
+# module name satisfies FlightRecorder.IsWheelMotorSpinModuleName), so the batch
+# does not depend on which craft the save is flying, and a cell that cannot
+# self-set-up Skips naming the context it needed.
+description = "Run the in-game RecordedSignals category unattended: the Unity AngleAxis handedness proof behind the wheel-roll derivation, the parachute repack cap restore at transform level, and wheel spin gated on ground contact (spins driving, holds still parked, holds still at orbital speed off the ground)."
+instanceProfile = "stock-minimal"
+tags = ["ingame-batch", "recorded-signals", "H33"]
+
+[fixture]
+# gloops-airshow, the H5 / H14-H17 / H27 / H28 / H30 family host, for the shared
+# FLIGHT Focusable boot route.
+saveTemplate = "fixtures/saves/gloops-airshow"
+# all-synthetic, and the reason is NOT the usual one. The three cells do NOT walk
+# RecordingStore - each builds its own single-part ghost - so injection is not an
+# anti-vacuity guard for them the way it is for H14-H17 / H27 / H28 / H30. What it
+# buys here is the ONE thing no other committed spec asserts: that the TWO NEW
+# corpus rows this commit adds (the chute-repack showcase and the surface rover
+# drive) actually land through the sidecar / schema-gate load path. The count pin
+# below is that assertion, and this is the spec whose subject they belong to.
+injectedRecordings = "all-synthetic"
+craft = []
+
+[driver]
+# The H-series `RunTests` seam form, NOT [driver.autorun]. Zero committed specs
+# use the autorun block: run.py implements it, but PARSEK_AUTORUN_EXIT quits KSP
+# as soon as the first scene settles, which races the seam driver's remaining
+# steps, and hlib.validate_spec forbids owning a batch both ways. RunTests
+# produces the identical BATCH_COMPLETE line the logContract pin below needs.
+kind = "seam"
+# NO isolated arg: all 3 declarations are AllowBatchExecution (default) with no
+# restore flag, so the ordinary and isolated admission filters are identical here.
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "RunTests",   args = { category = "RecordedSignals" },             expect = "OK", budget = 540 },
+  { cmd = "FlushAndQuit",                                                   expect = "OK" },
+]
+
+[dimensionsCovered]
+# HONEST and minimal, the H13 / H29 shape: the value is the executed contract,
+# not a coverage token. D16 is claimed on the same ground H5 / H14 claim it -
+# loading the corpus reads every .prec sidecar through the load-time schema
+# compatibility gate. NOT claimed: any part-event or playback dimension - the
+# cells drive GhostPlaybackLogic directly on locally built ghosts rather than
+# through the engine's per-frame render path.
+D14 = ["sandbox", "scene-flight"]
+D16 = ["sidecar-prec", "schema-gate"]
+
+[expectations]
+# PLACEMENT IS LOAD-BEARING (see H7).
+allowedAnomalies = []
+
+[expectations.recordings]
+# 274 = the all-synthetic corpus AFTER this commit's two new rows (272 -> 274).
+# DERIVED, not measured: run.py's count_recordings counts .prec files,
+# ScenarioWriter.WriteSidecarFiles writes one per v3 builder, and each
+# AddRecordingAsTree adds exactly one builder. Every other spec pinning this
+# corpus moved in the same commit (H5 / H14-H17 / H27 / H28 / H30 / S0.6 / S1.4 /
+# S1.6 / S1.7); H5's `recordings=308 trees=278` logContract moved with them.
+count = { min = 274, max = 274 }
+
+[expectations.logContracts]
+# ANTI-VACUITY: the tally names a literal total / failed / category / scene, and
+# `passed=[1-9][0-9]*` rejects the whole vacuous family (every vacuous
+# BATCH_COMPLETE carries passed=0), so hlib.batch_contract_vacuity_gap answers
+# None.
+#
+# EVIDENCE STANDING: **MEASURED 2026-08-11**, run `2026-08-11_1118`, PASS attempt 1,
+# wall 70 s. The batch printed
+# `BATCH_COMPLETE v1 total=3 passed=3 failed=0 skipped=0 category=RecordedSignals
+# scene=FLIGHT`, so all four numbers are now pinned literally and this id has been
+# REMOVED from IngameBatchWiringGroupTests.INTERIM_PIN_IDS. No RUNTIME_SKIPS entry
+# is owed: the measured split equals the attribute derivation
+# (`hlib.derive_batch_tally` -> total 3, attribute_skipped 0).
+#
+# WHAT THE MEASUREMENT SETTLED. The interim form existed because two of the three
+# cells carry run-time InGameAssert.Skip guards keyed on what the provisioned
+# install actually loaded, and "expected to hold" is not a measurement:
+#  - ParachuteRepackRestoresTheCapAtTransformLevel needs a part whose
+#    ModuleParachute has BOTH a canopy and a cap transform resolvable on the
+#    prefab. It EXECUTED (2.4 ms) - the stock chute prefab resolves both.
+#  - WheelSpinNeedsGroundContactAndGroundMotion needs a part carrying a wheel MOTOR
+#    module AND a ghost build that resolves its spin transform, a body-relative
+#    surface normal, and a spin axis not parallel to that normal (four separate
+#    Skip paths). It EXECUTED (4.8 ms), so all four were satisfied.
+#  - WheelRollForwardMatchesUnityHandedness was expected not to skip (pure math over
+#    local vectors; its tolerance-resolution Skip path is unreachable with the
+#    committed constants - ~0.199 m rim travel against the 0.02 m floor) and did not
+#    (0.8 ms).
+# total=3 remains ATTRIBUTE-EXACT (3 [InGameTest(Category = "RecordedSignals")]
+# declarations in Source/Parsek/InGameTests/RecordedSignalsInGameTests.cs, 1 AnyScene
+# + 2 FLIGHT), kept in sync by CommittedBatchTallySourceSyncTests; failed=0 is the
+# ASSERTION; scene=FLIGHT is the gloops-airshow Focusable route, measured by H13 /
+# H5 / S1.4 on this exact fixture and now by this run too.
+required  = ["BATCH_COMPLETE v1 total=3 passed=3 failed=0 skipped=0 category=RecordedSignals scene=FLIGHT"]
+forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
+
+[runtime]
+# Budget arithmetic (M-A5 S8): 720 >= 300 LoadGame + 540 RunTests ceiling is the
+# family default; the three cells are short (no coroutines, no warp).
+budgetSeconds = 720
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

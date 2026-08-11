@@ -143,6 +143,7 @@ Two limits of this table, stated so nobody over-reads it:
 | `QuickloadResume` | 3 | 1 | 0 | 0 | 2 | 1 | - | B |
 | `ReFlyWorldPreservation` | 6 | 6 | 0 | 0 | 0 | 6 | S4.2 | A |
 | `ReStockCompat` | 9 | 9 | 0 | 0 | 0 | 9 | - | B |
+| `RecordedSignals` | 3 | 3 | 1 | 1 | 0 | 2 | H33 | A |
 | `Recording` | 1 | 0 | 1 | 0 | 0 | 0 | - | B |
 | `RecordingFinalization` | 3 | 3 | 0 | 0 | 0 | 0 | H19 | A |
 | `RecordingInvariants` | 2 | 2 | 0 | 0 | 0 | 0 | H5 | B |
@@ -190,12 +191,12 @@ Two limits of this table, stated so nobody over-reads it:
 
 ## Triage
 
-Totals, re-derived: **100 categories / 556 declarations**. Buckets **A 28 categories
-(198 declarations)**, **B 72 categories (358 declarations)**, **C 0 categories (0
-declarations)**. Driven by a committed spec: **36 of 100 categories**, up from 35
+Totals, re-derived: **101 categories / 559 declarations**. Buckets **A 29 categories
+(201 declarations)**, **B 72 categories (358 declarations)**, **C 0 categories (0
+declarations)**. Driven by a committed spec: **37 of 101 categories**, up from 36
 (the S4.2 world-preservation wave; before that 34 with the S1.8 SoiCrossingPlayback
 wave, 28 the wave before, and 8 two waves earlier).
-Measured against declarations rather than categories, that is 324 of 556 inside a
+Measured against declarations rather than categories, that is 327 of 559 inside a
 driven category (was 318 after the Eve wave's one declaration; 317, 314 and 263 the waves before).
 
 `ReFlyWorldPreservation` (6, driven by `S4.2-refly-world-preservation`) is the
@@ -206,6 +207,23 @@ post-load scene where the bug's second deleting layer lived. All six members are
 Scene = FLIGHT and batch-allowed, and all six self-skip with a named requirement
 when no Re-Fly session is live, so the category is safe in any batch and vacuous in
 none.
+
+`RecordedSignals` category, driven by `H33`; before
+that the S1.8 SoiCrossingPlayback wave took it to 35, before that 28, and 8 two
+waves earlier). Measured against declarations rather than categories, that is 320
+of 552 inside a driven category (was 317; 314 and 263 the waves before).
+
+`RecordedSignals` (3 declarations, wired as `H33-recorded-signals`) is the newest
+bucket-A member and the only one authored WITHOUT a flight behind it: its spec
+carries an interim `passed=` / `skipped=` pin, registered in
+`IngameBatchWiringGroupTests.INTERIM_PIN_IDS`, because two of its three cells
+self-skip on what the provisioned install actually loaded. Its row's
+"Members with self-skip" column reads 2 for exactly that reason. The category
+exists for the live half of the 2026-08-09 part-action recording audit - the one
+step of the wheel-spin fix (Unity's `AngleAxis` handedness) that no headless cell
+can reach, the parachute cap restore at transform level, and the ground-contact
+gate that keeps a rover riding a launch vehicle from spinning its wheels at
+orbital speed.
 
 The 2026-08-05 wave (`wire-wave-2`, H26-H31) wired exactly the list the previous
 revision of this doc named as "the honest next wave": all five B6 members that
