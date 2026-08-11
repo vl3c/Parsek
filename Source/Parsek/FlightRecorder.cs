@@ -7841,6 +7841,12 @@ namespace Parsek
             if (decision == VesselSwitchDecision.ContinueOnEva)
             {
                 RecordingVesselId = v.persistentId;
+                // The recording now follows the kerbal, so the craft's cached engine/RCS/robotic
+                // modules are foreign from here on. Rebuilding drops them outright rather than
+                // leaving the per-poll ownership guard to reject each one (and log each rejection)
+                // every frame for the rest of the EVA. Tracking sets are untouched, so anything
+                // still marked active gets its terminal event at recording end as before.
+                OnVesselWasModified(v);
                 SamplePosition(v);
                 RefreshBackupSnapshot(v, "eva_switch", force: true);
                 ParsekLog.Verbose("Recorder", $"Recording switched to EVA vessel (pid={v.persistentId})");
