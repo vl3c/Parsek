@@ -14,6 +14,49 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## D10-INTERBODY-CELLS-NOW-DECLARED: the two inter-body coverage cells stop being zero-declarer, and what their gate does and does not prove [RECORDED 2026-08-11 by `H32-logistics-inter-body`. NOT A DEFECT - a coverage record, filed so the claim's exact scope survives the PR body]
+
+`D10 inter-body-nth-window` and `D10 dispatch-cadence` have been in
+`harness/coverage/registry.toml` with ZERO declarers. `H32-logistics-inter-body`
+claims both, and the claim rests on two REQUIRED tokens rather than on the spec's
+subject matter (CLAIM-IS-NOT-GATE). Both are production emissions from
+`RouteOrchestrator.ProcessLoopRoute`, measured identically on all three flights
+(`2026-08-11_1549` reading, `1553` / `1554` confirms):
+
+- `LoopRoute: route <id> window 1 SKIPPED by cadence modulo (N=2 anchor=0 basis=ReaimWindows) - marker advanced, nothing emitted`
+- `LoopRoute: route <id> cycle=cycle-0 FIRED full cycle (dispatch+debit+delivered) at ut=<UT>`
+
+WHAT THAT GATES, precisely. The skip line carries the basis, the residual N and the
+D4 skip-purity outcome in one string, so a unit that classified `FlatInterval` (the
+M5 review's silent-degrade mode, in which N is ignored) or that lost the residual
+cadence cannot emit it. The FIRED line carries the opposite half - a route that
+skipped EVERY window would satisfy a skip-only contract - and `cycle=cycle-0` pins
+the FIRST owed crossing, i.e. the D3 anchor adoption rather than an arbitrary later
+window. Together they gate the alternation from both sides at N=2.
+
+WHAT IT DOES NOT PROVE, stated so the cells are not over-read later. The delivery
+row is written through the cell's own `DeliveryRowEmitterForTesting` seam (the real
+`ApplyDelivery` and its per-window ELS guard run; only the live-Vessel row emission
+is faked), so NO production delivery path is gated here - `D10 delivery` and
+`ksc-origin` are deliberately NOT claimed. Nor is anything about RENDERING: this
+lane boots to the Space Center and draws nothing, so it says nothing about whether
+the drawn arc reaches the destination.
+
+ROUTE-LAYER CONTEXT, worth writing down because it is easy to conflate with the
+above. Per `docs/parsek-logistics-supply-routes-design.md:71-72` (§0.9), delivery
+fires when the loop clock reaches the RECORDED DOCK PHASE, not at cycle start
+(DEL-2), and under `ReaimWindows` the player's `N` is applied as a residual modulo
+on the WINDOW INDEX. This lane's measurements are consistent with both halves and
+evidence them directly at the dock-phase level: the fire landed at
+`phaseAnchor + 0*cadence + dockOffset` = `ut=28553075.77` (the recorded dock phase
+inside window 0), the cell's pre-dock tick at a quarter of that offset delivered
+nothing, and window 1's tick at the SAME dock phase one window later delivered
+nothing either. The stronger statement - that the delivery clock is decoupled from
+whether the RENDERED window's transfer actually arrives at the destination - is NOT
+evidenced by these tokens (no render surface is exercised here); it is a design
+property of the dock-phase trigger, and the lane that could evidence it would have
+to observe a render arrival and a delivery in the same run.
+
 ## ~~SYNTH-SOI-ENTRY-FASTPATH-LAUNCH-TRANSITION: the re-aim synthesizer's patched-conic fast path can report the LAUNCH body's SOI transition as the target arrival instant~~ [FOUND 2026-08-11 by the new Kerbin->Eve in-game cell on its first flight (`M2-periodicity-solver` run `2026-08-11_1213`). FIXED the same day on branch `reaim-inclined-targets` (Phase 2 addendum), same-branch because the retention work made it newly reachable]
 
 **What was wrong.** `ReaimTransferSynthesizer.TrySynthesizeTransfer` propagates the solved conic through `PatchedConics.CalculatePatch` and takes a FAST PATH when stock promotes an encounter with the intended target:

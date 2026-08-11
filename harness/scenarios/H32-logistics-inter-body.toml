@@ -1,0 +1,185 @@
+schema = 1
+id = "H32-logistics-inter-body"
+tier = "operator"
+# The `Logistics` category's SPACECENTER-eligible SLICE - 2 of its 47 declarations
+# - run unattended. This is the first spec to own any part of the largest in-game
+# category, and the only automated driver of
+# `RouteInterBodyBuilderShapeInGameTest`, which until now had no spec at all. It
+# does NOT wire the category: the FLIGHT bulk (38 batch-disabled declarations plus
+# the self-skip-guarded remainder) is untouched and still needs the per-guard
+# fixture read the inventory doc's B4 bucket calls for.
+#
+# WHAT THIS BUYS, precisely. The M5 inter-body wave's xUnit cells
+# (`RouteWindowBasisTests`, `RouteInterBodyFireTests`) all drive HAND-BUILT
+# `LoopUnit` / `ReaimMissionPlan` / `ReaimWindowSchedule` structs, because re-aim
+# engages only on the `bodyInfo != null` path and the only non-degenerate
+# `IBodyInfo` in production is `FlightGlobalsBodyInfo.Instance`, which reads live
+# stock ephemerides. In xUnit `FlightGlobals` is empty, so the singleton degrades
+# to no-body-info and re-aim can NEVER engage. That leaves the REAL
+# `MissionLoopUnitBuilder.ApplyReaim`-produced unit shape - the one feeding
+# `RouteLoopClock.DeriveWindowBasis`, the firing gate and the countdown - with
+# zero automated coverage, and the failure mode is silent: an inter-body route
+# whose unit deviated would classify `FlatInterval` (N ignored, no windowed label,
+# no countdown) with nothing red anywhere. This spec runs that cell against LIVE
+# Kerbin / Duna / Sun geometry.
+#
+# WHY SPACECENTER. The cell is `Scene = GameScenes.SPACECENTER` (it needs no
+# vessel, only `FlightGlobals.Bodies`), so a FLIGHT boot scene-skips it. This
+# fixture WOULD fly - see the [fixture] note - so the `scene = "spacecenter"`
+# argument is doing real work here, exactly as H23's `scene = "trackstation"` does.
+#
+# TIER. `operator`, and the promotion to `daily` is an OPEN HUMAN CALL, not a debt
+# this lane can discharge: the run is fully automated and unattended, so nothing
+# technical blocks a cadence, but adding a category this large to the daily tier is
+# a cadence decision for a human. See REVIEWED_UNTAGGED in harness/lib/test_hlib.py.
+#
+# STATUS: LIVE-PROVEN 2026-08-11, three runs, all PASS attempt 1.
+#   1549 (73 s) - the deliberately under-gated READING run (tally split unpinned,
+#                 no route tokens). Measured everything the pins below now carry.
+#   1553 (50 s), 1554 (49 s) - two consecutive CONFIRM runs on the pinned shape.
+# All three logged the pinned tally line token for token.
+# Unity exceptions read 0 on all three; deliberately left REPORT-only rather than
+# armed at maxTotal=0, because one clean reading is not a mechanism argument and a
+# stock shutdown-race raise would then red a healthy run (H23's ceiling is pinned
+# off n=29 readings plus its own mechanism bound - that is the bar for arming).
+description = "Boot straight to the Space Center through LoadGame scene=spacecenter and run the in-game Logistics category unattended: the M5 inter-body builder-shape gate drives a REAL committed Kerbin->Duna transfer tree through the REAL RouteOrchestrator.ResolveLoopUnit + MissionLoopUnitBuilder against live stock ephemerides, asserts the unit classifies ReaimWindows (not the silent FlatInterval), and drives the live firing gate through a window-0 fire / window-1 modulo skip / window-2 fire alternation at N=2."
+instanceProfile = "stock-minimal"
+tags = ["logistics", "route", "inter-body", "reaim", "scene-routing", "H32", "R12"]
+
+[fixture]
+# gloops-airshow SANDBOX pod host (see S0.5 / H5 / H6 / H23). Its focusable
+# PRELAUNCH Ship is LOAD-BEARING rather than incidental, for the same reason H23
+# gives: with no `scene=` this save takes the Focusable -> FLIGHT route, so a
+# SPACECENTER landing on THIS fixture can only mean the requested scene OVERRODE
+# the save-derived route, and the production log names WHICH selector fired
+# (`requested` vs `no-vessel`). A vessel-less template would have made the pin
+# unfalsifiable. No injected recordings: the inter-body cell builds its OWN
+# synthetic committed tree + route and reverts every mutation in a `finally`
+# (including reaping the sidecars CommitTree flushed).
+saveTemplate = "fixtures/saves/gloops-airshow"
+injectedRecordings = "none"
+craft = []
+
+[driver]
+kind = "seam"
+# Non-live run: no StartRecording and autoRecordOnLaunch pinned false, so
+# spec_expects_live_recording is False and REC-001/REC-003 are correctly
+# suppressed. RunTests is the single BATCH owner; its 540 per-step budget is the
+# deferred cap (S8).
+#
+# verboseLogging=true is REQUIRED, not decoration: the modulo-skip producer
+# (RouteOrchestrator.ProcessLoopRoute, the D4 skip-purity branch) emits through
+# ParsekLog.VerboseRateLimited, so without this step the skip token is absent from
+# the log and the half of the alternation that proves N is APPLIED could not be
+# pinned at all. The FIRED counterpart is Info and would survive without it.
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent", scene = "spacecenter" }, expect = "OK", budget = 300 },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" },                    expect = "OK" },
+  { cmd = "SetSetting", args = { name = "verboseLogging",     value = "true" },                     expect = "OK" },
+  { cmd = "RunTests",   args = { category = "Logistics" },                                          expect = "OK", budget = 540 },
+  { cmd = "FlushAndQuit",                                                                           expect = "OK" },
+]
+
+[dimensionsCovered]
+# CLAIM-IS-NOT-GATE: each value below is earned by a REQUIRED token that would red
+# if the behavior stopped, never by the spec's subject matter.
+#
+# D10 `inter-body-nth-window` - the modulo-skip token pins `window 1 SKIPPED by
+# cadence modulo (N=2 anchor=0 basis=ReaimWindows)` and the FIRED token pins the
+# window-0 delivery, so the Nth-window alternation is gated from both sides: a unit
+# that stopped applying N would either fire window 1 (skip token absent) or fire
+# nothing (FIRED token absent). Both were zero-declarer values before this spec.
+# D10 `dispatch-cadence` - the same pair gates WHICH window dispatches: the FIRED
+# line is the full `dispatch+debit+delivered` triple, the skip line asserts
+# `nothing emitted` at the same dock phase one window later.
+# D14 - the two R12 scene-routing lines gate the SANDBOX host booting to the KSC.
+#
+# NOT claimed, though the cell touches them: D10 `delivery` / `ksc-origin` (the
+# delivery row is written through a test seam emitter, so no production delivery
+# path is gated here) and any D11 re-aim value (the re-aim PLAN is asserted inside
+# the cell, but the only re-aim token in this contract is the `basis=ReaimWindows`
+# field riding the skip line, which D10 already earns).
+D10 = ["inter-body-nth-window", "dispatch-cadence"]
+D14 = ["sandbox", "scene-ksc"]
+
+[expectations]
+# PLACEMENT IS LOAD-BEARING. run.py reads `expectations.allowedAnomalies`; a bare
+# `allowedAnomalies` written after an `[expectations.<sub>]` header is TOML-scoped
+# to that SUB-table and is never read. hlib.validate_spec REJECTS the misplaced
+# form, so this table must stay ahead of the sub-tables below. No tracer is armed
+# by this spec, so the empty list is the honest declaration (mirrors H6/H23).
+allowedAnomalies = []
+
+[expectations.recordings]
+# count.max == 0: the host carries no recordings, and the inter-body cell's
+# synthetic committed tree is removed in its `finally` AND its flushed sidecars
+# reaped by InGameTestSidecarReaper. A leak into the save reds. Also selects the
+# recording-rules log-validation suppression (a legitimately recording-free run
+# must not red on REC-001/REC-003).
+count = { min = 0, max = 0 }
+
+[expectations.logContracts]
+# EVERY LINE HERE IS MEASURED, not derived, off the READING RUN
+# `2026-08-11_1549_H32-logistics-inter-body` (PASS attempt 1, 73 s wall, every
+# verifier PASS/SKIPPED, analyzer red=0, zero Unity exceptions). The first flight
+# deliberately pinned only the plumbing - the two scene-routing lines plus
+# `total=47 passed=[1-9][0-9]* failed=0 skipped=[0-9]+` - so that the tally split
+# and the cell's own tokens could be READ rather than computed. H6's derived pin is
+# the standing lesson this discipline comes from (see autotest-status.md).
+#
+# THE TALLY, measured verbatim:
+#   BATCH_COMPLETE v1 total=47 passed=2 failed=0 skipped=45 category=Logistics scene=SPACECENTER
+# `total` is `allTests.Count(Status != NotRun)` over the single RunCategory batch,
+# which INCLUDES both filters' skips, so it is the count of
+# `[InGameTest(Category = "Logistics")]` methods in Source/Parsek - statically
+# derivable and cross-checked on every local suite run by
+# `CommittedBatchTallySourceSyncTests`. At scene=SPACECENTER it decomposes as 45
+# scene-skipped + 0 batch-skipped + 2 executable, and the measured split lands
+# exactly on that floor: passed=2, ZERO run-time skips. That is the informative
+# half of the reading - the cell carries THREE live guards that could each have
+# skipped it (a non-stock body pack, a live-classifier decline of the synthetic
+# Kerbin->Duna chain, and a loiter-cut / arrival-hold unit shape whose non-identity
+# within-cycle phase would make the firing-gate arithmetic target the wrong UT),
+# and on stock geometry none of them fired. If a future stock rebalance trips one,
+# `skipped=45` reds here rather than the cell quietly proving nothing.
+#
+# ANTI-VACUITY (hlib.batch_contract_vacuity_gap): the whole tally is pinned, so no
+# vacuous or wrong-scene batch can satisfy it. Pinning the landing scene ON the
+# tally line is the B10 fail-open guard - a FLIGHT boot would scene-skip the
+# inter-body cell and report `passed=1 skipped=46`, which this pin rejects.
+#
+# THE TWO ROUTE TOKENS ARE PRODUCTION EMISSIONS, not test echoes: both come from
+# `RouteOrchestrator.ProcessLoopRoute`, driven by the unit the REAL
+# `MissionLoopUnitBuilder` produced against live stock ephemerides. Together they
+# gate the exact failure mode the M5 review named - a silent degrade to
+# `FlatInterval` in which N is ignored:
+#  - the SKIP line carries `basis=ReaimWindows` AND `N=2` AND `nothing emitted`, so
+#    a unit that classified Flat, or that lost the residual cadence, cannot emit it;
+#  - the FIRED line proves the alternation's other half actually delivers, so a
+#    route that skipped EVERY window (the other way to satisfy a skip-only pin)
+#    reds. `cycle=cycle-0` pins the FIRST owed crossing, i.e. the D3 anchor
+#    adoption, not an arbitrary later window.
+# The route id is `.*`-matched: it is a fresh GUID per run (`m5-ingame-route-...`,
+# logged truncated to `m5-ingam` by ShortIdForLog), so pinning it would red every
+# run. The test's own `InterBodyBuilderShape:` echo lines are deliberately NOT
+# pinned - the cell's asserts plus `failed=0` are the gate on the unit shape.
+required  = [
+  "loadgame spacecenter route \\(requested\\): resuming to SPACECENTER save=",
+  "loadgame complete scene=SPACECENTER save=.* game-loaded=true expected=SpaceCenter",
+  "LoopRoute: route .* cycle=cycle-0 FIRED full cycle \\(dispatch\\+debit\\+delivered\\) at ut=",
+  "LoopRoute: route .* window 1 SKIPPED by cadence modulo \\(N=2 anchor=0 basis=ReaimWindows\\) - marker advanced, nothing emitted",
+  "BATCH_COMPLETE v1 total=47 passed=2 failed=0 skipped=45 category=Logistics scene=SPACECENTER",
+]
+forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
+
+[runtime]
+# Budget arithmetic (M-A5 S8, mirrors H5/H6/H23): 720 >= 300 LoadGame + 540
+# RunTests ceiling headroom. Two executable tests, both synchronous, so the real
+# batch runs far under the cap.
+budgetSeconds = 720
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

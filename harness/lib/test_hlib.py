@@ -2735,6 +2735,12 @@ class IngameBatchWiringGroupTests(unittest.TestCase):
         "H29-localized-name":        ("LocalizedName", 3, "FLIGHT"),
         "H30-ghost-audio":           ("GhostAudio", 9, "FLIGHT"),
         "H31-crew-reservation":      ("CrewReservation", 15, "FLIGHT"),
+        # The first member whose category is only PARTLY reachable at its boot
+        # scene: 45 of the 47 Logistics declarations are FLIGHT-scoped and
+        # scene-skip at SPACECENTER, so its skip floor is 45 where every FLIGHT
+        # member's is 0 or 1. That floor is ATTRIBUTE-derived, so it needs no
+        # RUNTIME_SKIPS entry - the measured run skipped nothing at run time.
+        "H32-logistics-inter-body":  ("Logistics", 47, "SPACECENTER"),
     }
 
     # Declared MEASURED run-time skips per member: InGameAssert.Skip firings the
@@ -2850,8 +2856,8 @@ class IngameBatchWiringGroupTests(unittest.TestCase):
         # cell below cannot catch either, because it compares two sets that shrink
         # together. Same shape as CommittedBatchTallySourceSyncTests's
         # test_the_source_tree_is_actually_readable.
-        self.assertEqual(24, len(self.GROUP),
-                         "the H7-H20 + H22-H31 group is 24 specs; if it genuinely changed "
+        self.assertEqual(25, len(self.GROUP),
+                         "the H7-H20 + H22-H32 group is 25 specs; if it genuinely changed "
                          "size, update this floor AND the counts in "
                          "docs/dev/autotest-ingame-category-inventory.md and "
                          "docs/dev/autotest-status.md in the same commit")
@@ -4612,6 +4618,14 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
     # each classified by hand. A NEW one reds
     # `test_every_untagged_candidate_is_classified` until someone decides.
     REVIEWED_UNTAGGED = {
+        # tier=operator by PROMOTION POLICY, not debt. Flown three times on
+        # 2026-08-11 (one under-gated reading run, two confirms on the pinned
+        # shape), all PASS attempt 1, fully unattended - so nothing technical is
+        # outstanding and no human work is owed. What is open is the ordinary
+        # operator -> daily CADENCE call, which is a human decision on whether the
+        # largest in-game category belongs on the daily tier, exactly the shape
+        # recorded for GS-1 / GS-2 / GS-3 above.
+        "H32-logistics-inter-body.toml":    "FLOWN 3x 2026-08-11 (reading + two confirms, all PASS attempt 1) and PINNED WHOLE; operator tier is an open PROMOTION call, not debt",
         "H5-invariants-corpus.toml":        "discharged - 'resolving the former PENDING-OPERATOR check'",
         "H6-route-rewind-timeline.toml":    "discharged - 'The former PENDING-OPERATOR ...'",
         "M1-mission-loop-unit.toml":        "discharged - 'CLOSED by the 2026-07-26 flights'",

@@ -120,7 +120,7 @@ Two limits of this table, stated so nobody over-reads it:
 | `LedgerGroundTruth` | 1 | 1 | 0 | 0 | 0 | 1 | - | B |
 | `LocalizedName` | 3 | 3 | 3 | 3 | 0 | 0 | H29 | A |
 | `LogContracts` | 10 | 10 | 8 | 8 | 0 | 2 | H26 | A |
-| `Logistics` | 47 | 8 | 2 | 1 | 38 | 46 | - | B |
+| `Logistics` | 47 | 8 | 2 | 1 | 38 | 46 | H32 (SPACECENTER slice) | B |
 | `LogisticsGrapple` | 4 | 3 | 0 | 0 | 1 | 2 | - | B |
 | `MapPresence` | 5 | 5 | 3 | 3 | 0 | 2 | H28 | A |
 | `MapRender` | 22 | 21 | 0 | 0 | 1 | 14 | S1.7 | B |
@@ -191,10 +191,21 @@ Two limits of this table, stated so nobody over-reads it:
 
 Totals, re-derived: **99 categories / 550 declarations**. Buckets **A 27 categories
 (192 declarations)**, **B 72 categories (358 declarations)**, **C 0 categories (0
-declarations)**. Driven by a committed spec: **35 of 99 categories**, up from 34
-(the S1.8 SoiCrossingPlayback wave; before that 28, and 8 two waves earlier).
-Measured against declarations rather than categories, that is 318 of 550 inside a
-driven category (was 317; 314 and 263 the waves before).
+declarations)**. Driven by a committed spec: **36 of 99 categories**, up from 35
+(`H32-logistics-inter-body`, 2026-08-11; before that the S1.8 SoiCrossingPlayback
+wave took it to 35 from 34, and 28 and 8 the waves before). Measured against
+declarations rather than categories, that is 365 of 550 inside a driven category
+(was 318; 317, 314 and 263 the waves before).
+
+READ THAT 365 CAREFULLY - it is the largest single-spec jump in this row's history
+and the least representative. `Logistics` contributes all 47 of its declarations to
+"inside a driven category" while H32 EXECUTES 2 of them; the other 45 scene-skip at
+its SPACECENTER boot. The declaration measure has always counted category
+membership rather than execution, so this is not a new distortion, but at 47
+declarations it is the first time the gap is big enough to mislead on its own. The
+bucket letters are unchanged: `Logistics` stays **B**, on the same footing as
+`GhostMap` (S1.6), `GhostPlayback` (S1.4) and `Missions` (M1) - driven, partially,
+without meeting bucket A1's whole-category admission shape.
 
 The 2026-08-05 wave (`wire-wave-2`, H26-H31) wired exactly the list the previous
 revision of this doc named as "the honest next wave": all five B6 members that
@@ -441,6 +452,20 @@ guarded), `TerrainClearance` (6, all 6), `PartEventFX` (6, all 6). These are exa
 where the "specs that all Skip" warning bites: wiring them now produces green-looking
 specs that execute nothing. Each needs its guard preconditions read and a fixture
 chosen to satisfy them - real work, one category at a time.
+
+`Logistics` IS NOW PARTLY WIRED, and the shape of that wiring is the worked example
+this paragraph asks for. `H32-logistics-inter-body` (2026-08-11) drives the category
+at SPACECENTER rather than FLIGHT, which is where its two scene-eligible members
+live: the `RouteInterBodyBuilderShapeInGameTest` inter-body builder-shape gate and
+the AnyScene tooltip cell. Measured tally `total=47 passed=2 failed=0 skipped=45`
+- so the 45 skips are entirely the ATTRIBUTE floor (FLIGHT-scoped or
+batch-disabled declarations) and ZERO members self-skipped at run time, despite the
+inter-body cell carrying three live guards. That is a narrow slice deliberately: the
+FLIGHT bulk (38 batch-disabled, most of the self-skip-guarded remainder) is still
+unwired and still needs the per-guard fixture read above. What the slice settles is
+that the guards this paragraph warns about are readable and satisfiable one spec at
+a time, and that a partial category can be wired honestly as long as the pin carries
+the skip floor rather than hiding it.
 
 An earlier revision of this paragraph opened the list with `Rewind` (37) and closed
 "the payoff is high for `Rewind` and `GhostLifecycle` in particular". Half of that
