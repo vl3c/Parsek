@@ -224,16 +224,22 @@ exist. Cell count is unchanged at 7, so H32's measured tally pin still holds.
   read once per build in `AdvanceTimelineGhostBuild`, with one Verbose line naming
   the suppression at `TryBeginTimelineGhostBuild`.
 - **The suppression is PARTIAL and the residual is not hypothetical.** It catches only
-  the node-level fallback in `GetGhostSnapshot`. Several sites STAMP
+  the node-level fallback in `GetGhostSnapshot`. SEVEN sites STAMP
   `GhostVisualSnapshot = VesselSnapshot.CreateCopy()`, and at build time that copy is
   indistinguishable from a genuine start snapshot: `FlightRecorder.BuildCaptureRecording`
   when the start capture was null, `RecordingOptimizer.SplitAtSection` step 8's #271
-  safety net, `MergeDialog.Commit`, `BackgroundRecorder`'s child promotion, and
-  `ParsekFlight.Finalization`. Those recordings still read module state out of an
-  end-state node. Closing it needs provenance carried on the recording (a schema field,
-  hence a generation bump) or stamped into the node at copy time, decided per site -
-  the copies are not all the same kind of stale, and a build-time inference cannot
-  recover the distinction because by then the information is gone.
+  safety net, `MergeDialog.Commit`, `BackgroundRecorder`'s child promotion,
+  `ParsekFlight.Finalization`, and - found by the fix batch's re-review, which showed
+  the original five-site list short - `ParsekFlight.StashActiveTreeAsPendingLimbo`
+  (~:14264, stamps a fresh late-flight snapshot into a null `GhostVisualSnapshot`) and
+  `CommitTreeSceneExit`'s ghost-only parity branch (~:14995, the same copy
+  `MergeDialog.Commit` makes, different file). Anyone closing this residual must work
+  from THIS seven-site list, not the fix commit's five. Those recordings still read
+  module state out of an end-state node. Closing it needs provenance carried on the
+  recording (a schema field, hence a generation bump) or stamped into the node at copy
+  time, decided per site - the copies are not all the same kind of stale, and a
+  build-time inference cannot recover the distinction because by then the information
+  is gone.
 - On a split tip, the families left uncovered are exactly the out-of-scope list
   above. This is not "tips fully fixed".
 - The robotic seeds have one effect beyond visuals: `GhostingTriggerClassifier`
