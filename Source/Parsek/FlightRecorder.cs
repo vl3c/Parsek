@@ -3686,7 +3686,7 @@ namespace Parsek
             }
         }
 
-        private static bool IsWheelRoboticModuleName(string moduleName)
+        internal static bool IsWheelRoboticModuleName(string moduleName)
         {
             return string.Equals(moduleName, "ModuleWheelSuspension", StringComparison.Ordinal) ||
                    string.Equals(moduleName, "ModuleWheelSteering", StringComparison.Ordinal) ||
