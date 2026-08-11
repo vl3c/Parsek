@@ -11,6 +11,34 @@ namespace Parsek
         #region Part Event Polling
 
         /// <summary>
+        /// Background mirror of <c>FlightRecorder.ShouldPollCachedModule</c> (M5). Returns true when
+        /// a cached engine / RCS / robotic entry is still on the BG vessel being polled; logs once
+        /// per key when it is not. The identity comparison is the same live-object one the
+        /// foreground uses — see <see cref="FlightRecorder.DecideCachedModulePoll(bool,bool,bool,bool)"/>.
+        /// </summary>
+        private static bool ShouldPollCachedBackgroundModule(
+            Part part, PartModule module, Vessel v, BackgroundVesselState state,
+            ulong key, string family)
+        {
+            var decision = FlightRecorder.DecideCachedModulePoll(part, module, v);
+            if (decision == FlightRecorder.CachedModulePollDecision.Poll)
+                return true;
+
+            if (decision == FlightRecorder.CachedModulePollDecision.SkipForeignVessel
+                && state != null && state.loggedForeignCachedModuleKeys.Add(key))
+            {
+                uint pid; int midx;
+                FlightRecorder.DecodeEngineKey(key, out pid, out midx);
+                ParsekLog.Info("BgRecorder",
+                    $"Cached {family} module dropped from poll: pid={pid} midx={midx} " +
+                    $"'{part?.partInfo?.name ?? "unknown"}' is no longer on bg vessel {state.vesselPid} " +
+                    $"— events for it would have landed in rec={state.recordingId}");
+            }
+
+            return false;
+        }
+
+        /// <summary>
         /// Polls all part event types for a background vessel in loaded/physics mode.
         /// Duplicates the Layer 2 wrapper methods from FlightRecorder, calling the
         /// same Layer 1 static transition methods.
@@ -387,6 +415,10 @@ namespace Parsek
                 if (part == null || engine == null) continue;
 
                 ulong key = FlightRecorder.EncodeEngineKey(part.persistentId, moduleIndex);
+                // M5 ownership guard, background mirror: a booster staged off a BG-loaded vessel
+                // keeps a live ModuleEngines in this cache and would otherwise write its burn into
+                // the parent's recording. Same pure core as the foreground poll.
+                if (!ShouldPollCachedBackgroundModule(part, engine, v, state, key, "engine")) continue;
                 bool ignited = FlightRecorder.ShouldRecordEngineAsIgnited(
                     engine.EngineIgnited, engine.isOperational, engine.finalThrust);
                 float recordedPower = FlightRecorder.ComputeRecordedEnginePower(
@@ -438,6 +470,7 @@ namespace Parsek
                 if (part == null || rcs == null) continue;
 
                 ulong key = FlightRecorder.EncodeEngineKey(part.persistentId, moduleIndex);
+                if (!ShouldPollCachedBackgroundModule(part, rcs, v, state, key, "rcs")) continue;
                 bool active = rcs.rcs_active && rcs.rcsEnabled;
                 uint pid = part.persistentId;
                 string partName = part.partInfo?.name ?? "unknown";
@@ -808,20 +841,22 @@ namespace Parsek
                 if (part == null || module == null) continue;
 
                 ulong key = FlightRecorder.EncodeEngineKey(part.persistentId, moduleIndex);
+                if (!ShouldPollCachedBackgroundModule(part, module, v, state, key, "robotic")) continue;
 
-                // Mirrors the foreground gate: wheel motor spin is derived from the ghost's ground
-                // speed at playback, not recorded. See FlightRecorder.IsWheelMotorSpinModuleName.
+                // Mirrors the foreground gate: wheel motor spin and wheel steering deflection are
+                // both derived from the ghost's own ground motion at playback, not recorded. See
+                // FlightRecorder.IsDerivedWheelVisualModuleName.
                 // Logged once per key, exactly as FlightRecorder.CheckRoboticState does — a silent
                 // skip here would leave the BG half of the gate invisible in KSP.log, and the BG
                 // half is the one a rover-on-a-background-vessel report lands on.
-                if (FlightRecorder.IsWheelMotorSpinModuleName(moduleName))
+                if (FlightRecorder.IsDerivedWheelVisualModuleName(moduleName))
                 {
                     if (state.loggedRoboticModuleKeys.Add(key))
                     {
-                        ParsekLog.Verbose("BgRecorder", $"Robotics: wheel-motor spin not recorded for " +
+                        ParsekLog.Verbose("BgRecorder", $"Robotics: derived wheel visual not recorded for " +
                             $"'{part.partInfo?.name}' pid={part.persistentId} midx={moduleIndex} " +
                             $"module={moduleName} (bg vessel {state.vesselPid}); " +
-                            $"derived from ghost ground speed at playback");
+                            $"derived from ghost ground motion at playback");
                     }
                     continue;
                 }

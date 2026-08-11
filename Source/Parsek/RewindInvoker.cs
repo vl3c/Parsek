@@ -1965,6 +1965,12 @@ namespace Parsek
                     $"AtomicMarkerWrite: quickload trim-scope refresh threw (non-fatal): {ex.Message}");
             }
 
+            // A new session owns the retirement hand-over slot: drop anything an
+            // earlier session left there so a stale Recording reference can never
+            // outlive its session (TryTake also gates on SessionId, so this is
+            // lifetime hygiene rather than correctness).
+            ReFlyProvisionalRetirement.Clear("new-refly-session");
+
             ParsekLog.Info(SessionTag,
                 $"Started sess={sessionId} rp={rp.RewindPointId} slot={selected.SlotIndex} " +
                 $"provisional={activeReFlyRecordingId} " +

@@ -306,6 +306,9 @@ namespace Parsek
             scenario.BumpSupersedeStateVersionLive();
             ReFlyRevertButtonGate.Apply("MergeDialog:discard-refly-attempt");
             SupersedeCommit.ClearPreReFlyAnchorSnapshotsForSession(sessionId);
+            // Discard is a terminal conclusion too: drop any prune hand-over so the
+            // retired Recording does not outlive the session that owned it.
+            ReFlyProvisionalRetirement.Clear("discard-refly-attempt");
 
             LedgerOrchestrator.RecalculateAndPatchForCurrentTimelineIfFutureActions(
                 ParsekScenario.GetCurrentTimelineUTForLedgerRecalc(),

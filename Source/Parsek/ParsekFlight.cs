@@ -10348,6 +10348,12 @@ namespace Parsek
             if (v == null || GhostMapPresence.IsGhostMapVessel(v.persistentId))
                 return;
 
+            // M5: the recorder's engine/RCS/robotic caches are built once at StartRecording and
+            // hold direct Part/PartModule references. Rebuild them here so a staged-away booster
+            // stops being polled into this recording and a welded-on / newly docked module starts
+            // being polled at all. No-ops unless v IS the recorded vessel.
+            recorder?.OnVesselWasModified(v);
+
             PostSwitchAutoRecordState state = postSwitchAutoRecord;
             if (state == null || state.VesselPid != v.persistentId)
                 return;

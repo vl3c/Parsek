@@ -395,6 +395,14 @@ namespace Parsek
             loadedStates[vesselPid] = state;
         }
 
+        /// <summary>
+        /// Injected loaded→on-rails transition. Mirrors the tail of
+        /// <c>OnBackgroundVesselGoOnRails</c> EXACTLY: flush, then the M6 terminal emit, then the
+        /// rails-span snapshot, then drop <c>loadedStates</c>. The seam ran only the flush until
+        /// 2026-08-11, so every injected fixture exercised the OLD transition — a fixture that
+        /// packs mid-burn would have shown a latched plume and a silently re-synced re-entry as
+        /// PASSING, which is the precise divergence M6 exists to close.
+        /// </summary>
         internal void FlushLoadedStateForOnRailsTransitionForTesting(
             uint vesselPid,
             SegmentEnvironment nextEnv,
@@ -417,6 +425,10 @@ namespace Parsek
                 willHavePlayableOnRailsPayload,
                 boundaryPoint,
                 ut);
+
+            EmitBackgroundRailsTerminalEvents(loadedState, ut);
+            CaptureRailsSpanPartStates(vesselPid, loadedState);
+
             loadedStates.Remove(vesselPid);
         }
 
