@@ -1274,6 +1274,152 @@ Open items, highest leverage first:
   (`GhostPlaybackLogic.cs:3588`), with `Mathf.Abs` making reverse identical to
   forward and a coasting rover showing stationary wheels. Re-deriving spin from
   trajectory ground speed is storage-NEGATIVE.
+- ~~FIXED 2026-08-11 (branch `playback-fidelity`)~~ **Recorded magnitude that playback discards.**
+  `SetEngineEmission` branched only on `power > 0f`; only the audio curves read the
+  magnitude, and `ComputeScaledRcsEmissionRate`/`...Speed` had ZERO production call
+  sites. **Fix:** both `Set*Emission` choke points now scale the plume as a RATIO of a
+  baseline captured once at build time (`GhostVisualBuilder.CaptureFxMagnitudeBaselines`,
+  run AFTER the #383 size boost and the world-space velocity floor so scaling composes
+  with them rather than overwriting them), written into the cloned `KSPParticleEmitter`'s
+  own persistent fields plus the `ParticleSystem` multipliers. Persistent fields, not a
+  per-event computation, because `RestoreAllRcsEmissions` re-enables emitters WITHOUT
+  going through `SetRcsEmission` — a per-event scale would restore a full-magnitude plume
+  on a quarter-throttle thruster after every high-warp suppression. The two RCS helpers
+  are the ratio's numerator and denominator, which gives them production callers with
+  their showcase visibility floors intact. Degradation is one-directional: an unreadable
+  baseline answers ratio 1.0, i.e. today's boolean behaviour, never a zero plume. Audio
+  untouched (it already consumed the magnitude; touching it would double-apply). Review
+  follow-up: the one baseline the ratio cannot scale freely is a WORLD-SPACE emitter's
+  `localVelocity`, because that baseline may BE the minimum-flow floor
+  (`ApplyWorldSpaceEmitterVelocityFloor`, 6 m/s) rather than a magnitude — a 0.2 ratio would
+  write 1.2 m/s, back under the 4 m/s pooling threshold the floor exists to clear.
+  `GhostPlaybackLogic.ScaleEmitterLocalVelocity` re-clamps that one write to the floor (never
+  above the baseline's own magnitude) and leaves every other write a plain ratio; reachable only
+  on ReStock's world-space SRB smoke at genuine partial throttle.
+  **FLIGHT FOLLOW-UP 2026-08-12: the whole of the above was a SILENT NO-OP in the live game
+  until now.** The H36 run of 2026-08-11 logged, for engine midx=0, engine midx=1 AND rcs
+  midx=0, `FX magnitude write failed ... Object of type 'System.Single' cannot be converted to
+  type 'System.Int32'.; plume stays at its baseline`. `KSPParticleEmitter.minEmission` and
+  `maxEmission` are declared **int** (`minSize`/`maxSize` are float, `localVelocity` is Vector3
+  — verified by decompiling Assembly-CSharp, not assumed); `FieldInfo.SetValue` performs no
+  numeric conversion, so a boxed float threw on the FIRST of the three writes and, because all
+  three shared one `try`, took the other two with it. **Fix:** every write converts to the
+  `FieldInfo`'s own `FieldType` (`GhostPlaybackLogic.TryConvertMagnitudeForField`) and each
+  field is written independently; integral fields round to nearest with a NONZERO floor, which
+  keeps `ComputeFxMagnitudeRatio`'s "never zero for a lit engine" contract at the quantisation
+  boundary, and the floor keeps the SIGN so stock's negative-`maxEmission` "does not emit"
+  sentinel survives. `CaptureFxMagnitudeBaselines` now type-checks each field at capture and
+  drops an unwritable one to null instead of caching it for the applier to fail on every frame.
+  **Why three review passes and 66 headless cells missed it:** every headless cell pinned the
+  ratio ARITHMETIC (floats in, float out) and none ever met the real field types; and the
+  in-game suppress/restore cell passed VACUOUSLY, because "unchanged baseline in, unchanged
+  baseline out" satisfies a round trip perfectly. Both holes are now closed — headless cells
+  reflect over the real `KSPParticleEmitter` type and perform a real `SetValue` against an
+  uninitialised instance (`FormatterServices.GetUninitializedObject`, no ctor, no ECall), and
+  the RCS cell asserts the scaled value differs from the captured baseline BEFORE asserting the
+  round trip preserves it. `FxMagnitudeWriteFailureCount` is a hard-zero assertion in both
+  plume cells, because the failure LOG line is rate-limited to one per minute per module and so
+  undercounted a total no-op as a curiosity.
+  **CONFIRMED IN FLIGHT 2026-08-12** (H36 re-fly, run `2026-08-11_2211`, PASS 7/7). The write
+  LANDS on the real cloned emitters and the scaled values are genuinely off the baseline:
+  engine `part='ionEngine' fullSpeed=6.5 lowSpeed=1.95 fullEmission=350 lowEmission=105
+  restored=6.5 writeFailures=0` — the int-typed `maxEmission` scaled 350 -> 105 at reduced
+  throttle and came back EXACTLY to 350 at full, which is the ratio-not-rewrite property — and
+  RCS `part='mk1-3pod' baselineSpeed=48 scaledSpeed=12 afterRestore=12 baselineEmission=400
+  scaledEmission=104 afterEmission=104 writeFailures=0`, where the scaled value DIFFERS from the
+  baseline (the anti-vacuity assertion) and then survives the `RestoreAllRcsEmissions` round
+  trip unchanged. ZERO `FX magnitude write failed` lines anywhere in that run's KSP.log, against
+  three (engine midx=0, engine midx=1, rcs midx=0) on the first flight.
+- **Five dead reflection probes**, four of them documented as shipped at
+  `done/next-parts-event-support-priority.md:43-47`. `module.Fields` is
+  `[KSPField]`-only (`FlightRecorder.cs:3733-3748`); `ModuleControlSurface`'s
+  real field is `deploy` and the table lists `deployed`; the piston probe latches
+  `traverseVelocity`, a `[KSPAxisField]` SPEED SLIDER that resolves and is
+  constant during a stroke, shadowing the working `servoTransformPosition`
+  fallback; `ModuleAnimateHeat`'s live scalars are plain public fields whose
+  accessor is the `IScalarModule.GetScalar` property - ONE cast lights up the
+  complete already-built Hot/Medium/Cold playback path
+  (`GhostPlaybackLogic.cs:3693-3770`).
+- **Recorder cache and rails holes.** `cachedEngines` is assigned only in
+  `ResetPartEventTrackingState` (sole caller `StartRecording`) and
+  `CheckEngineState` guards only `part == null`, so a staged-away booster that
+  keeps burning writes into the PARENT recording. The background rails
+  transition ERASES state instead of deferring: `BackgroundRecorder.cs:2316-2336`
+  drops `loadedStates` with no terminal emit, so a BG ghost's plume latches on
+  for the whole rails span.
+- ~~FIXED 2026-08-11 (branch `playback-fidelity`)~~ **Continuous motion to SYNTHESIZE, never
+  sample:** gimbal and control-surface deflection, wheel steering, sun tracking, launch dust.
+  **Fix:** one new per-frame entry, `GhostPlaybackLogic.UpdateSynthesizedMotion`, beside
+  `UpdateActiveRobotics`, everything gated so a craft with none of these families pays a
+  reference compare. ONE CORRECTION TO THE ORIGINAL PRESCRIPTION: the attitude derivative
+  reads the ghost's APPLIED WORLD ROTATION, never `TrajectoryPoint.rotation` from a flat
+  Points list — that field is anchor-local in a RELATIVE track section, so differencing two
+  of them across a section boundary mixes frames and invents a rotation that never happened.
+  Wheel steering became a new `RoboticVisualMode.WheelSteeringHeading` that IGNORES the
+  recorded `ModuleWheelSteering` scalar for the same reason wheel spin ignores
+  `driveOutput`: it was an unsigned steering INPUT, not a caliper angle. Review follow-up: the
+  PRODUCER is gone too, following the #1445 precedent exactly — once playback discards every
+  `RoboticMotion*` event in that mode the scalar is a write-only surface, so the recorder gate
+  widened from `IsWheelMotorSpinModuleName` to `IsDerivedWheelVisualModuleName` (foreground and
+  background). Storage-negative, playback stays tolerant of legacy events, nothing retired in
+  `PartEventType` (hinges, pistons, rotation servos, rotors and wheel SUSPENSION still use it). Launch dust is
+  narrower than written — Parsek owns its own particle system (the reentry `fireParticles`
+  template) instead of driving `ModuleSurfaceFX`, is built lazily under the existing
+  per-frame build cap, and is gated on a ground reference latched from
+  `recordedGroundClearance`; no clearance anywhere in the trajectory means no dust,
+  permanently, rather than an invented reference that would put a dust cloud around a ghost
+  in orbit. Every new mutable visual resets in BOTH `ResetForLoopCycle` (the numbers) and
+  `ReapplySpawnTimeModuleBaselinesForLoopCycle` (the transforms), including a new
+  `WheelSteeringHeading` branch in `ApplyRoboticSpawnBaseline` — `ApplyRoboticPose` writes
+  nothing for that mode, so without it a caliper left turned would carry across a loop
+  boundary while the numbers claimed straight. Also review follow-up: under SUSTAINED warp the
+  steering rate now DECAYS toward zero on every re-seed frame instead of holding its last value
+  (`DecayRateTowardZero`), so a warping rover eases its calipers straight rather than freezing
+  mid-turn; the same re-seed hold is left in place for gimbals and control surfaces on purpose
+  (bounded by the clamp, invisible at warp's visual scale, self-correcting on the first
+  sub-second frame). Live coverage: the `PlaybackFidelity` in-game category (7 cells) driven by
+  `harness/scenarios/H36-playback-fidelity.toml` (FLOWN twice: 2026-08-11 PARSEK-FAIL 5/7, then
+  LIVE-PROVEN on the 2026-08-12 re-fly after both fixes — run `2026-08-11_2211`, PASS attempt 1,
+  `total=7 passed=7 failed=0 skipped=0`; the tally pin is now whole and the id has left
+  `INTERIM_PIN_IDS`).
+  **FLIGHT FOLLOW-UP 2026-08-12, the sun-tracking red.** `SunTrackingPivotAimsOnlyWhenFully-
+  Deployed` red with `solarPanelOX10C` never resolving an aim angle. It was NOT the deployed
+  gate — the same run's `Spawn baseline: stowed 1/1 deployable(s)` line proves the part's
+  `DeployableGhostInfo` exists and that `ApplyDeployableFraction` applies, so the cell's
+  ARM-2 immediate deploy necessarily set `deployFraction = 1`. It was the AIM FRAME.
+  `DriveSunTracking` measured the angle about the PARENT's up and from the pivot's neutral
+  world FORWARD, while `ApplySunTrackingAngle` post-multiplies `neutralRotation *
+  AngleAxis(angle, axisLocal)` — i.e. applies it about the PIVOT'S OWN local axis. Two
+  consequences: the measured axis and the applied axis disagreed whenever the pivot's neutral
+  rotation was not identity, and on a pivot authored with a quarter-turn (OX-10C) the reference
+  landed PARALLEL to the parent's up, its projection into the aim plane vanished, and
+  `TryComputeAimAngleDegrees` declined every frame forever. **Fix:** both the axis and the
+  reference are now read in the pivot's own neutral frame
+  (`parentRotation * neutralRotation * axisLocal`), and the reference is ORTHOGONALISED against
+  the axis by construction (`ResolveSunTrackingReferenceLocal`), so the only surviving decline
+  is the legitimate one — the Sun lying along the rotation axis. This also matches stock, which
+  tracks with `Atan2(pivot.InverseTransformPoint(sun).x, ....z)` applied as
+  `pivot.rotation * Euler(0, y, 0)`: the pivot's own local +Y as axis, its own local +Z as the
+  zero-angle reference. **Diagnosis cost, now paid down:** the cell could only list the two
+  candidate causes. `DriveSunTracking` now emits two discriminating rate-limited lines
+  (`Sun tracking held (gate closed) ...` with the full deployable gate state, and
+  `Sun tracking held (aim unresolved) ...` with both aim-plane projection magnitudes), and the
+  cell pastes `GhostPlaybackLogic.DescribeSunTrackingState` into its own failure message — a
+  near-zero `targetPerp` is the legitimate hold, a near-zero `referencePerp` is a frame bug,
+  and `gate=closed` is a deployable-path bug.
+  **CONFIRMED IN FLIGHT 2026-08-12** (H36 re-fly, run `2026-08-11_2211`, PASS 7/7). The cell's
+  own state line now reads `part='solarPanelOX10C' stowedDrift=0 aimed=90 holdDelta=0 gate=open
+  deployable=present currentDeployed=True transitionActive=False deployFraction=1 transforms=13
+  aimResolved=True aim=89.99999 targetPerp=1.04331008E+10 referencePerp=1 currentAngle=89.99999
+  hasAimed=True` — an angle RESOLVES on the very pivot that declined every frame before, and the
+  discriminating numbers read exactly as designed: `referencePerp=1` (the orthogonalised
+  reference is now unit-length in the aim plane, where the frame bug drove it to zero) beside a
+  large `targetPerp`, with `stowedDrift=0` proving the deployed gate still holds the pivot still
+  and `holdDelta=0` proving it holds once aimed.
+  The gimbal cell additionally carries the SIGN/HANDEDNESS pin for the hand-rolled quaternion
+  product — the headless cells build their inputs in the convention the product assumes, which
+  is circular, so the only non-circular authority is Unity's own
+  `Inverse(prev) * cur -> ToAngleAxis`, compared by axis dot rather than by unsigned angle.
 - **Recorded magnitude that playback discards.** `SetEngineEmission`
   (`:2172-2204`) branches only on `power > 0f`; only `:2405`/`:2423` (audio
   curves) read the magnitude. `ComputeScaledRcsEmissionRate`/`...Speed` exist at

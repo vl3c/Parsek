@@ -2755,6 +2755,10 @@ class IngameBatchWiringGroupTests(unittest.TestCase):
         # (Flown as `H33-logistics-route-proof`; renamed H35 post-merge for the
         # same collision.)
         "H35-logistics-route-proof": ("Logistics", 47, "FLIGHT"),
+        # P5/P6's live half. Flown twice (PARSEK-FAIL 5/7 on two product defects,
+        # then PASS 7/7 after both fixes), so its tally is now pinned WHOLE and it
+        # has left INTERIM_PIN_IDS - see that set's comment for the measurement.
+        "H36-playback-fidelity":     ("PlaybackFidelity", 7, "FLIGHT"),
     }
 
     # Declared MEASURED run-time skips per member: InGameAssert.Skip firings the
@@ -2835,7 +2839,7 @@ class IngameBatchWiringGroupTests(unittest.TestCase):
     # satisfied.
     # EMPTY, and that is the healthy state: an interim pin is a temporary weakening
     # (the form accepts 1-of-N by design), so it should exist only between a spec
-    # landing and its first flight. Two members passed through it and both are gone:
+    # landing and its first PASSING flight. Three members passed through it, all gone:
     #
     #   H32-snapshot-baseline FLEW 2026-08-11 (run `2026-08-11_1111`, PASS) reading
     #   `total=7 passed=7 failed=0 skipped=0`. BOTH pre-flight reasons for leaving it
@@ -2854,8 +2858,21 @@ class IngameBatchWiringGroupTests(unittest.TestCase):
     #   body-relative surface normal, and a spin axis not parallel to it) - so no
     #   RUNTIME_SKIPS entry is owed for either.
     #
-    # Both specs now pin their tallies whole, so the set is empty again.
-    INTERIM_PIN_IDS = set()
+    #   H36-playback-fidelity took TWO flights. EVERY one of its seven cells carries a
+    #   run-time InGameAssert.Skip keyed on what the provisioned install loaded and on
+    #   what the ghost builder resolved (an engine whose FX clone yields a captured
+    #   magnitude baseline, an RCS block ditto, a deployable whose sampled poses
+    #   differ, a resolvable ModuleGimbal / ModuleWheelSteering transform, a tracking
+    #   pivot), so no attribute predicted the split. The first flight (2026-08-11, run
+    #   `2026-08-12_0015`) was PARSEK-FAIL 5/7 on two PRODUCT defects, NOT on any of
+    #   those guards - which is worth recording, because a red is not a measurement and
+    #   the id stayed interim through it. The RE-FLY after both fixes (2026-08-12, run
+    #   `2026-08-11_2211`, PASS attempt 1) read `total=7 passed=7 failed=0 skipped=0`:
+    #   all seven guards were satisfied on stock-minimal, so no RUNTIME_SKIPS entry is
+    #   owed and the pin is now whole.
+    #
+    # All three specs now pin their tallies whole, so the set is empty again.
+    INTERIM_PIN_IDS: set = set()
 
     # Every committed spec whose id matches this is an H-SERIES batch spec.
     # Membership is DISCOVERED from disk and then compared for set equality against
@@ -2900,8 +2917,8 @@ class IngameBatchWiringGroupTests(unittest.TestCase):
         # cell below cannot catch either, because it compares two sets that shrink
         # together. Same shape as CommittedBatchTallySourceSyncTests's
         # test_the_source_tree_is_actually_readable.
-        self.assertEqual(28, len(self.GROUP),
-                         "the H7-H20 + H22-H35 group is 28 specs; if it genuinely changed "
+        self.assertEqual(29, len(self.GROUP),
+                         "the H7-H20 + H22-H36 group is 29 specs; if it genuinely changed "
                          "size, update this floor AND the counts in "
                          "docs/dev/autotest-ingame-category-inventory.md and "
                          "docs/dev/autotest-status.md in the same commit")
@@ -5446,8 +5463,9 @@ class IngameCategoryInventoryDocTests(unittest.TestCase):
         # table cannot self-check (a row added AND the totals line updated by hand
         # would agree with each other while both drifted from the source). 99 -> 100
         # with the `ReFlyWorldPreservation` category (S4.2), 100 -> 101 with
-        # `RecordedSignals` (H33), 101 -> 102 with `SnapshotBaseline` (H32).
-        self.assertIn("**102 categories / %d declarations**" % stated_decls, body,
+        # `RecordedSignals` (H33), 101 -> 102 with `SnapshotBaseline` (H32),
+        # 102 -> 103 with `PlaybackFidelity` (H36).
+        self.assertIn("**103 categories / %d declarations**" % stated_decls, body,
                       "the triage totals line disagrees with the table it summarises "
                       "(table sums to %d declarations across %d categories)"
                       % (stated_decls, len(self.rows)))
