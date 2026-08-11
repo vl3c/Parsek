@@ -934,7 +934,7 @@ not correctness.
 
 Open items, highest leverage first:
 
-- **Ghost initial state is read from the part PREFAB, not the recorded
+- ~~FIXED 2026-08-11 (PR #1443)~~ **Ghost initial state is read from the part PREFAB, not the recorded
   snapshot.** The snapshot IS a full `ProtoVessel` backup
   (`FlightRecorder.cs:6080-6082`) but `GhostVisualBuilder` reads only
   name/pid/pos/rot (`:431-441`) and builds from `ap.partPrefab`. Exactly three
@@ -948,9 +948,9 @@ Open items, highest leverage first:
   the gate protects). MUST land with the robotic split-seed fix - a
   `RecordingTreeSplitter` TIP inherits the parent's LAUNCH-UT snapshot, so the
   snapshot read alone gives forks a confidently-wrong pre-launch pose.
-- **Robotic events are in neither split-seed family** and
+- ~~FIXED 2026-08-11 (PR #1443)~~ **Robotic events are in neither split-seed family** and
   `ReapplySpawnTimeModuleBaselinesForLoopCycle` never calls `ApplyRoboticPose`.
-- **Two confidently-wrong recorded signals** that playback faithfully renders:
+- ~~FIXED 2026-08-11 (PR #1445)~~ **Two confidently-wrong recorded signals** that playback faithfully renders:
   parachute REPACK is classified as CUT (`FlightRecorder.cs:1665-1690`) so a
   repacked chute renders as an empty can; and wheel spin records `driveOutput`
   (percent-of-max-torque) replayed at `value * 6` deg/s as if RPM
