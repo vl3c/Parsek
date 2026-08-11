@@ -1,3 +1,7 @@
+using System;
+using System.Collections.Generic;
+using System.Globalization;
+using System.IO;
 using Parsek.Reaim;
 using Xunit;
 
@@ -309,5 +313,309 @@ namespace Parsek.Tests
             // A negative launch inclination cannot drop the bound below tol (the max(...,0) clamp).
             Assert.Equal(tol, ReaimTransferSynthesizer.InclinationBoundDegrees(-5.0, 0.0), 6);
         }
+
+        // ================= E1: the Kerbin->Eve CYCLE-0 geometry, pinned in-repo =================
+        //
+        // WHY THESE CELLS EXIST (docs/dev/plans/reaim-inclined-target-tilt-retention.md section 3, E1).
+        // On 2026-08-11 the V8-eve-player-loop lane raised `seam-endpoint-outside-soi` for the first
+        // time in its existence, bit-identically on five bracketed runs. The route: an ENGAGED
+        // Kerbin->Eve loop unit whose cycle-0 window declined at the plane-tilt achievability gate on
+        // ALL 27 tof candidates -
+        //   `tilt-correction ... incAch=1.2358 targetInc=2.1000 tol=0.50 state=declined
+        //    reason=unreachable-plane` x27
+        // - so the window fell back to the FAITHFUL recorded transfer, rendered one synodic late, which
+        // misses the moved Eve by 4.6216 SOI radii. These cells drive the REAL helpers
+        // (AchievablePlaneInclinationDegrees / ConstrainTransferPlaneIsSafe / InclinationBoundDegrees)
+        // and the REAL band law (ReaimTofSearch.BuildParkingCandidateTofs) over a stock-constant model
+        // of that window, so the arithmetic behind the diagnosis is a repo fact rather than a log
+        // reading. They are PHASE 0: they assert what today's code does, and Phase 1's disposition
+        // change must leave every one of them green (it changes what the synth DOES with a failed gate,
+        // never what the gate computes).
+        //
+        // The decisive finding they pin: the gate's two inputs (r1 at departureUT, and the target's
+        // plane-invariant normal) are BOTH candidate-invariant, so the gate literally cannot see r2 -
+        // every candidate declines identically - while the flatten the correction would have applied
+        // misses Eve by ~3.4 SOI radii. So the gate answered its own question correctly (flattening
+        // here would miss); the defect is its DISPOSITION (kill the candidate rather than retain the
+        // un-corrected conic), which is what Phase 1 changes.
+
+        // Frame guard (the .z-vs-.y trap, ReaimTransferSynthesizer.cs:128-131). The production helpers
+        // measure inclination against world +Y; a textbook Z-up elements model reads ~90 deg for a flat
+        // orbit and would make every number below meaningless while still "passing" a naive threshold.
+        // Kerbin (i=0) must read ~0 and Eve must read back its declared 2.1 deg.
+        [Fact]
+        public void EveCycleZero_ModelFrameIsYUp_FlatOrbitReadsZeroInclination()
+        {
+            EveCycleZeroGeometry.StateAt(EveCycleZeroGeometry.Kerbin, EveCycleZeroGeometry.DepartureUT,
+                out Vector3d r1, out Vector3d v1Launch);
+            double kerbinPlaneInc = EveCycleZeroGeometry.InclinationOfNormalDegrees(Vector3d.Cross(r1, v1Launch));
+            Assert.True(kerbinPlaneInc < 1e-9,
+                $"a flat (i=0) orbit's plane normal must read inclination ~0 against world +Y, got {kerbinPlaneInc.ToString("F6", CultureInfo.InvariantCulture)} deg (a Z-up model reads ~90)");
+
+            EveCycleZeroGeometry.StateAt(EveCycleZeroGeometry.Eve,
+                EveCycleZeroGeometry.DepartureUT + EveCycleZeroGeometry.RecordedTofSeconds,
+                out Vector3d r2, out Vector3d v2);
+            double eveOrbitInc = EveCycleZeroGeometry.InclinationOfNormalDegrees(
+                ReaimTransferSynthesizer.ComputeIntendedPlaneNormal(r2, v2));
+            Assert.True(Math.Abs(eveOrbitInc - EveCycleZeroGeometry.EveInclinationDegrees) < 1e-6,
+                $"the modelled Eve plane must read back its declared 2.1 deg, got {eveOrbitInc.ToString("F6", CultureInfo.InvariantCulture)} deg");
+
+            // And the modelled band must be the product's own: 27 candidates, the count the V8 resolver
+            // logged (`synth failed across 27 tof candidates`).
+            Assert.Equal(27, EveCycleZeroGeometry.CandidateTofs().Count);
+        }
+
+        // E1 (i) - THE decisive arithmetic. incAch is 1.2358 deg and is IDENTICAL for every one of the
+        // 27 candidates, because AchievablePlaneInclinationDegrees consumes only r1 (fixed at
+        // departureUT) and the target's angular-momentum DIRECTION (plane-invariant for a Kepler
+        // orbit). The V8 logs' "incAch CONSTANT at 1.2358 x27" is forced arithmetic, not a numerical
+        // curiosity - which is why widening the tof search can never rescue this window.
+        [Fact]
+        public void EveCycleZero_AchievablePlaneInclination_Is1p2358AndCandidateInvariant()
+        {
+            EveCycleZeroGeometry.StateAt(EveCycleZeroGeometry.Kerbin, EveCycleZeroGeometry.DepartureUT,
+                out Vector3d r1, out _);
+            IReadOnlyList<double> tofs = EveCycleZeroGeometry.CandidateTofs();
+
+            double incAtStep0 = double.NaN;
+            double minInc = double.MaxValue, maxInc = double.MinValue;
+            for (int i = 0; i < tofs.Count; i++)
+            {
+                EveCycleZeroGeometry.StateAt(EveCycleZeroGeometry.Eve,
+                    EveCycleZeroGeometry.DepartureUT + tofs[i], out Vector3d r2, out Vector3d v2);
+                Vector3d nTarget = ReaimTransferSynthesizer.ComputeIntendedPlaneNormal(r2, v2);
+                Assert.True(nTarget.magnitude > 0.0, "the target plane normal must be non-degenerate");
+                double incAch = ReaimTransferSynthesizer.AchievablePlaneInclinationDegrees(r1, nTarget);
+                if (i == 0) incAtStep0 = incAch;
+                if (incAch < minInc) minInc = incAch;
+                if (incAch > maxInc) maxInc = incAch;
+            }
+
+            // Measured live (V8, 5/5 runs): incAch=1.2358. Modelled here: 1.2358263809.
+            Assert.True(Math.Abs(incAtStep0 - 1.2358) < 0.01,
+                $"step-0 incAch must be the measured 1.2358 deg, got {incAtStep0.ToString("F6", CultureInfo.InvariantCulture)}");
+            // Candidate-INVARIANCE is the finding: band edges must equal step 0 to double precision.
+            Assert.True(maxInc - minInc < 1e-9,
+                $"incAch must be candidate-invariant (the gate cannot see r2): spread over {tofs.Count.ToString(CultureInfo.InvariantCulture)} candidates was {(maxInc - minInc).ToString("E3", CultureInfo.InvariantCulture)} deg");
+        }
+
+        // E1 (ii) - the gate's verdict, from the real predicate: |1.2358 - 2.1| = 0.864 > 0.5, so
+        // ConstrainTransferPlaneIsSafe is false and TODAY that kills the candidate (the
+        // `unreachable-plane` decline at ReaimTransferSynthesizer.cs:427-437). Also pinned: the tilt
+        // that sends the window into the gate at all - IsExcessiveTiltTransfer against the 2.6 bound.
+        [Fact]
+        public void EveCycleZero_ConstrainTransferPlaneIsSafe_RefusesTheWindow()
+        {
+            EveCycleZeroGeometry.StateAt(EveCycleZeroGeometry.Kerbin, EveCycleZeroGeometry.DepartureUT,
+                out Vector3d r1, out _);
+            IReadOnlyList<double> tofs = EveCycleZeroGeometry.CandidateTofs();
+            double tol = ReaimTransferSynthesizer.InclinationToleranceDegrees;
+            double bound = ReaimTransferSynthesizer.InclinationBoundDegrees(
+                EveCycleZeroGeometry.KerbinInclinationDegrees, EveCycleZeroGeometry.EveInclinationDegrees);
+            Assert.Equal(2.6, bound, 9); // Kerbin 0 / Eve 2.1 + 0.5
+
+            for (int i = 0; i < tofs.Count; i++)
+            {
+                EveCycleZeroGeometry.StateAt(EveCycleZeroGeometry.Eve,
+                    EveCycleZeroGeometry.DepartureUT + tofs[i], out Vector3d r2, out Vector3d v2);
+                Vector3d nTarget = ReaimTransferSynthesizer.ComputeIntendedPlaneNormal(r2, v2);
+
+                // The conic's plane is plane(r1,r2) by construction (UvLambert returns v1 in span(r1,r2)),
+                // so its inclination is what IsExcessiveTiltTransfer sees. Every candidate is excessive...
+                double conicInc = EveCycleZeroGeometry.InclinationOfNormalDegrees(
+                    EveCycleZeroGeometry.PlaneNormalOfEndpoints(r1, r2));
+                Assert.True(ReaimTransferSynthesizer.IsExcessiveTiltTransfer(conicInc, bound),
+                    $"candidate {i.ToString(CultureInfo.InvariantCulture)}: inc={conicInc.ToString("F4", CultureInfo.InvariantCulture)} must exceed bound {bound.ToString("F2", CultureInfo.InvariantCulture)} (so the gate runs)");
+                // ...and every candidate then fails the achievability gate identically.
+                Assert.False(ReaimTransferSynthesizer.ConstrainTransferPlaneIsSafe(
+                        r1, nTarget, EveCycleZeroGeometry.EveInclinationDegrees, tol),
+                    $"candidate {i.ToString(CultureInfo.InvariantCulture)}: the Eve cycle-0 gate must be UNSAFE (|incAch-2.1| > 0.5) - this is the measured decline");
+            }
+        }
+
+        // E1 (iii) - the gate's verdict is CORRECT as a correction-safety question, which is why the fix
+        // is Design A (retain the un-corrected conic) and not Design B (re-tune the gate). Had the
+        // correction fired, the flattened conic would have passed |dot(r2, n_ach)| ~ 278-290 Mm away
+        // from Eve - 3.3-3.4x its 85.1 Mm SOI - and died at the downstream encounter check anyway.
+        [Fact]
+        public void EveCycleZero_FlattenMiss_ExceedsThreeEveSoiRadii()
+        {
+            EveCycleZeroGeometry.StateAt(EveCycleZeroGeometry.Kerbin, EveCycleZeroGeometry.DepartureUT,
+                out Vector3d r1, out _);
+            IReadOnlyList<double> tofs = EveCycleZeroGeometry.CandidateTofs();
+            const double Floor = 2.5e8; // metres; the plan's asserted floor (measured band 277.8-289.6 Mm)
+
+            double minMiss = double.MaxValue;
+            for (int i = 0; i < tofs.Count; i++)
+            {
+                EveCycleZeroGeometry.StateAt(EveCycleZeroGeometry.Eve,
+                    EveCycleZeroGeometry.DepartureUT + tofs[i], out Vector3d r2, out Vector3d v2);
+                Vector3d nTarget = ReaimTransferSynthesizer.ComputeIntendedPlaneNormal(r2, v2);
+                double miss = EveCycleZeroGeometry.FlattenMissMeters(r1, r2, nTarget);
+                Assert.True(miss > Floor,
+                    $"candidate {i.ToString(CultureInfo.InvariantCulture)} (tof={tofs[i].ToString("F0", CultureInfo.InvariantCulture)}): flatten miss {miss.ToString("F0", CultureInfo.InvariantCulture)} m must exceed the {Floor.ToString("E1", CultureInfo.InvariantCulture)} m floor");
+                Assert.True(miss > 3.0 * EveCycleZeroGeometry.EveSoiMeters,
+                    $"candidate {i.ToString(CultureInfo.InvariantCulture)}: flatten miss {miss.ToString("F0", CultureInfo.InvariantCulture)} m must exceed 3x Eve's SOI ({(3.0 * EveCycleZeroGeometry.EveSoiMeters).ToString("F0", CultureInfo.InvariantCulture)} m)");
+                if (miss < minMiss) minMiss = miss;
+            }
+
+            // The recorded-tof arrival is the one the plan's appendix A quotes (288.5 Mm); pin it.
+            EveCycleZeroGeometry.StateAt(EveCycleZeroGeometry.Eve,
+                EveCycleZeroGeometry.DepartureUT + EveCycleZeroGeometry.RecordedTofSeconds,
+                out Vector3d r2Rec, out Vector3d v2Rec);
+            double missAtRecorded = EveCycleZeroGeometry.FlattenMissMeters(
+                r1, r2Rec, ReaimTransferSynthesizer.ComputeIntendedPlaneNormal(r2Rec, v2Rec));
+            Assert.True(Math.Abs(missAtRecorded / 1e6 - 288.5) < 1.0,
+                $"the flatten miss at the recorded tof must be the independently-derived 288.5 Mm, got {(missAtRecorded / 1e6).ToString("F2", CultureInfo.InvariantCulture)} Mm");
+        }
+
+        // E1 (iv) - the tilt is LOAD-BEARING, not error to be corrected: plane(r1,r2) is the only plane
+        // a single conic through both endpoints can use, and it exceeds the 2.6-deg bound for EVERY
+        // candidate. So the 2.6 bound structurally excludes every conic that can encounter Eve at this
+        // window - no tof choice inside the band rescues it.
+        //
+        // BAND NOTE (deliberate, do not "fix" by tightening): the modelled inclinations run 4.65-72.51
+        // deg across the 27 candidates, wider than the 10.20-14.71 deg band the V8 runs logged, because
+        // the live path departs from a re-phased heliocentric PARK-END while this model departs from
+        // Kerbin's center, and inclination is violently amplified as the transfer angle approaches 180
+        // deg. The claim asserted here is the one that is invariant to that difference (> bound for
+        // every candidate); the recorded-tof value is pinned separately against the plan's appendix A.
+        [Fact]
+        public void EveCycleZero_PlaneOfEndpointsInclination_ExceedsTheBoundForEveryCandidate()
+        {
+            EveCycleZeroGeometry.StateAt(EveCycleZeroGeometry.Kerbin, EveCycleZeroGeometry.DepartureUT,
+                out Vector3d r1, out _);
+            double bound = ReaimTransferSynthesizer.InclinationBoundDegrees(
+                EveCycleZeroGeometry.KerbinInclinationDegrees, EveCycleZeroGeometry.EveInclinationDegrees);
+            IReadOnlyList<double> tofs = EveCycleZeroGeometry.CandidateTofs();
+
+            for (int i = 0; i < tofs.Count; i++)
+            {
+                EveCycleZeroGeometry.StateAt(EveCycleZeroGeometry.Eve,
+                    EveCycleZeroGeometry.DepartureUT + tofs[i], out Vector3d r2, out _);
+                double planeInc = EveCycleZeroGeometry.InclinationOfNormalDegrees(
+                    EveCycleZeroGeometry.PlaneNormalOfEndpoints(r1, r2));
+                Assert.True(planeInc > bound,
+                    $"candidate {i.ToString(CultureInfo.InvariantCulture)} (tof={tofs[i].ToString("F0", CultureInfo.InvariantCulture)}): plane(r1,r2) inc {planeInc.ToString("F4", CultureInfo.InvariantCulture)} must exceed the bound {bound.ToString("F2", CultureInfo.InvariantCulture)} - no candidate can satisfy it");
+                Assert.True(planeInc < 90.0,
+                    $"candidate {i.ToString(CultureInfo.InvariantCulture)}: and must stay prograde (inc {planeInc.ToString("F4", CultureInfo.InvariantCulture)} < 90), so the tilt gate - not the direction guard - is what declines it");
+            }
+
+            // The plan's appendix A value at the recorded tof (~18.5 deg).
+            EveCycleZeroGeometry.StateAt(EveCycleZeroGeometry.Eve,
+                EveCycleZeroGeometry.DepartureUT + EveCycleZeroGeometry.RecordedTofSeconds,
+                out Vector3d r2Rec, out _);
+            double incAtRecorded = EveCycleZeroGeometry.InclinationOfNormalDegrees(
+                EveCycleZeroGeometry.PlaneNormalOfEndpoints(r1, r2Rec));
+            Assert.True(Math.Abs(incAtRecorded - 18.5369) < 0.01,
+                $"plane(r1,r2) inc at the recorded tof must be the independently-derived 18.5369 deg, got {incAtRecorded.ToString("F4", CultureInfo.InvariantCulture)}");
+        }
+
+        // E1 (v) - the near-180 regime is what amplifies Eve's out-of-plane offset into a double-digit
+        // plane inclination (hypothesis H1's mechanism, CONFIRMED). Pinning the transfer angle keeps the
+        // model honest about which regime the numbers above were measured in.
+        [Fact]
+        public void EveCycleZero_TransferAngleAtRecordedTof_IsNear180()
+        {
+            EveCycleZeroGeometry.StateAt(EveCycleZeroGeometry.Kerbin, EveCycleZeroGeometry.DepartureUT,
+                out Vector3d r1, out _);
+            EveCycleZeroGeometry.StateAt(EveCycleZeroGeometry.Eve,
+                EveCycleZeroGeometry.DepartureUT + EveCycleZeroGeometry.RecordedTofSeconds,
+                out Vector3d r2, out _);
+
+            double angle = EveCycleZeroGeometry.TransferAngleDegrees(r1, r2);
+            Assert.True(Math.Abs(angle - 175.0) < 2.0,
+                $"the cycle-0 transfer angle at the recorded tof must be ~175 deg (Hohmann-class), got {angle.ToString("F4", CultureInfo.InvariantCulture)}");
+
+            // And Eve really is ~271 Mm out of the departure plane at arrival - the offset the near-180
+            // geometry amplifies (world +Y is the reference-plane normal, so r2.y IS that offset).
+            Assert.True(Math.Abs(Math.Abs(r2.y) / 1e6 - 271.1) < 1.0,
+                $"Eve's out-of-plane offset at the recorded arrival must be ~271.1 Mm, got {(Math.Abs(r2.y) / 1e6).ToString("F2", CultureInfo.InvariantCulture)} Mm");
+        }
+
+        // ============ E3: the committed Eve recording is a BROKEN-PLANE transfer (fixture fact) ============
+        //
+        // WHY THIS CELL EXISTS. It kills Design D and scopes Design C out of this branch (plan section 2).
+        // Design D would raise the tilt bound to the RECORDED transfer's own inclination - but the player
+        // did not fly one plane: they flew a FLAT Sun leg (inc 0.0021 deg), then a mid-course plane change
+        // onto Eve's own plane (2.0627), then approached at 2.0689. The resolver's
+        // RecordedHeliocentricInclination reads the FIRST in-window Sun segment, so a recorded-inclination
+        // bound would read 0.0021 and barely move the 2.6 bound - Eve would still decline. And a single
+        // center-to-center conic structurally cannot reproduce a two-conic broken-plane profile, so
+        // matching the recorded STYLE (Design C) is a multi-leg-synthesis feature, not this branch.
+        [Fact]
+        public void EveRecordedTransfer_SunLegInclinations_ShowABrokenPlaneTransfer()
+        {
+            // xUnit runs from Source/Parsek.Tests/bin/Debug/net472/ - five '..' segments reach the root.
+            string repoRoot = Path.GetFullPath(Path.Combine(
+                AppDomain.CurrentDomain.BaseDirectory, "..", "..", "..", "..", ".."));
+            string precPath = Path.Combine(repoRoot,
+                "harness", "fixtures", "saves", "eve-orbit-recorded", "Parsek", "Recordings",
+                "75a6ab25a0f445219a82b7b841e44ba8.prec.txt");
+            Assert.True(File.Exists(precPath), $"the committed Eve fixture recording must exist at {precPath}");
+
+            List<Dictionary<string, string>> sunSegments = ReadOrbitSegments(precPath, "Sun");
+            // The recorded Sun chain: flat leg (x2 across a bookkeeping seam), plane-changed leg (x2),
+            // final approach (x2). Six segments in three conic pairs.
+            Assert.True(sunSegments.Count >= 3,
+                $"expected the recorded Sun-leg chain, found {sunSegments.Count.ToString(CultureInfo.InvariantCulture)} Sun ORBIT_SEGMENTs");
+
+            double firstInc = ParseInvariant(sunSegments[0]["inc"]);
+            double lastInc = ParseInvariant(sunSegments[sunSegments.Count - 1]["inc"]);
+            double planeChangedInc = double.NaN;
+            foreach (Dictionary<string, string> seg in sunSegments)
+            {
+                double inc = ParseInvariant(seg["inc"]);
+                if (inc > 1.0) { planeChangedInc = inc; break; } // the first post-plane-change leg
+            }
+
+            // The three measured inclinations (2026-08-11 reading of the committed fixture).
+            Assert.True(Math.Abs(firstInc - 0.0021) < 0.01,
+                $"the first post-ejection Sun leg must be FLAT (~0.0021 deg), got {firstInc.ToString("F6", CultureInfo.InvariantCulture)}");
+            Assert.True(Math.Abs(planeChangedInc - 2.0627) < 0.01,
+                $"the post-plane-change Sun leg must sit on Eve's own plane (~2.0627 deg), got {planeChangedInc.ToString("F6", CultureInfo.InvariantCulture)}");
+            Assert.True(Math.Abs(lastInc - 2.0689) < 0.01,
+                $"the final approach Sun leg must be ~2.0689 deg, got {lastInc.ToString("F6", CultureInfo.InvariantCulture)}");
+
+            // The statement itself: the recorded transfer CHANGED PLANE mid-flight. A bound derived from
+            // the recorded inclination (Design D) would read the flat first leg and move nothing.
+            Assert.True(lastInc - firstInc > 2.0,
+                $"the recorded transfer must be broken-plane (last {lastInc.ToString("F4", CultureInfo.InvariantCulture)} - first {firstInc.ToString("F4", CultureInfo.InvariantCulture)} > 2 deg)");
+            double designDBound = ReaimTransferSynthesizer.InclinationBoundDegrees(
+                EveCycleZeroGeometry.KerbinInclinationDegrees, firstInc);
+            Assert.True(designDBound < 1.0,
+                $"a recorded-inclination bound would be {designDBound.ToString("F4", CultureInfo.InvariantCulture)} deg - BELOW today's 2.6, so Design D cannot rescue the window");
+        }
+
+        // Minimal ORBIT_SEGMENT reader for the .prec.txt fixture: the recording format is a flat
+        // ConfigNode text dump, and the cell only needs the key/value pairs of segments whose `body`
+        // matches. Deliberately local (no ConfigNode dependency, no production reader) so the cell
+        // states the fixture's contents, not the loader's behaviour.
+        private static List<Dictionary<string, string>> ReadOrbitSegments(string path, string bodyName)
+        {
+            var result = new List<Dictionary<string, string>>();
+            string[] lines = File.ReadAllLines(path);
+            for (int i = 0; i < lines.Length; i++)
+            {
+                if (lines[i].Trim() != "ORBIT_SEGMENT")
+                    continue;
+                var fields = new Dictionary<string, string>();
+                for (int j = i + 2; j < lines.Length; j++)  // +2 skips the opening brace
+                {
+                    string line = lines[j].Trim();
+                    if (line == "}")
+                        break;
+                    int eq = line.IndexOf('=');
+                    if (eq > 0)
+                        fields[line.Substring(0, eq).Trim()] = line.Substring(eq + 1).Trim();
+                }
+                if (fields.TryGetValue("body", out string body) && body == bodyName)
+                    result.Add(fields);
+            }
+            return result;
+        }
+
+        private static double ParseInvariant(string value)
+            => double.Parse(value, NumberStyles.Float, CultureInfo.InvariantCulture);
     }
 }
