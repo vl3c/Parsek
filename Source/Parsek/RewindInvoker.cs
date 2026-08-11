@@ -453,19 +453,34 @@ namespace Parsek
             // Pre-invoke advisory (audit C2). Wrapped: a broken RecordingStore /
             // slot map must not cost the player the whole Re-Fly dialog, so the
             // advisory degrades to absent rather than throwing out of ShowDialog.
-            try
-            {
-                var siblingNames = ResolveReFlySiblingSlotNames(
-                    rp, selectedSlotId, RecordingStore.CommittedRecordings);
-                message += "\n\n" + ComposeReFlyAdvisoryBody(siblingNames);
-                LogReFlyAdvisory(rp.RewindPointId, selectedSlotId, rp.UT, siblingNames);
-            }
-            catch (Exception ex)
+            //
+            // Skipped when the selected slot is null: selectedSlotId then falls
+            // back to the LIST index, which is not a SlotIndex, so the sibling
+            // resolver could not exclude the re-fly target and would name it as
+            // a craft being put away. StartInvoke refuses this shape anyway
+            // ("invalid slot"); a wrong advisory is worse than none.
+            if (selected == null)
             {
                 ParsekLog.Warn(InvokeTag,
                     $"Pre-invoke advisory: skipped rp={rp.RewindPointId ?? "<null>"} " +
-                    $"slot={selectedSlotId} exType={ex.GetType().Name} " +
-                    $"message={ex.Message ?? "<null>"} — dialog shown without the advisory");
+                    $"listIndex={selectedSlotListIndex} reason=null-selected-slot");
+            }
+            else
+            {
+                try
+                {
+                    var siblingNames = ResolveReFlySiblingSlotNames(
+                        rp, selectedSlotId, RecordingStore.CommittedRecordings);
+                    message += "\n\n" + ComposeReFlyAdvisoryBody(siblingNames);
+                    LogReFlyAdvisory(rp.RewindPointId, selectedSlotId, rp.UT, siblingNames);
+                }
+                catch (Exception ex)
+                {
+                    ParsekLog.Warn(InvokeTag,
+                        $"Pre-invoke advisory: skipped rp={rp.RewindPointId ?? "<null>"} " +
+                        $"slot={selectedSlotId} exType={ex.GetType().Name} " +
+                        $"message={ex.Message ?? "<null>"} — dialog shown without the advisory");
+                }
             }
 
             var capturedRp = rp;
