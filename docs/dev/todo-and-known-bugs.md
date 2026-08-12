@@ -308,6 +308,18 @@ predicted - zero references to any of the five remain, `InjectAllRecordings`
 still passes 3/3, and the count assertions are unchanged because the dropped
 term was always 0. Full suite green (20,642 passed / 0 failed).
 
+Two dangling references the deletion created were caught in review and fixed in
+the same branch: `H16-corpus-spawn-health.toml` and `H20-eva-spawn-position.toml`
+both stated their load-bearing "real invariant" in terms of
+`AddRealCareerRecordings`. That mattered more than a stale name - those comments
+are the only recorded justification for why H16's `SpawnedPidConsistency` cell is
+INERT over the corpus, and `autotest-status.md` records an earlier wrong version
+of the same mechanism as an "active trap" that nearly led to `-CleanStart` being
+added to the harness inject. Both now state the invariant in terms of what
+remains (the corpus writer injects no real-career recordings at all, so the
+guarantee holds by construction), keeping the historical name only in an
+explicitly past-tense clause that says it is gone.
+
 ## FIXTURE-AUDIT-DEFERRED: measured redundancy deliberately NOT acted on [OPEN, filed 2026-08-12 from the same audit. Each entry is a decision someone should make with the numbers in hand, not a defect]
 
 Recorded so the measurements are not lost and nobody re-derives them.
