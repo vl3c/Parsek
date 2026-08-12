@@ -720,7 +720,6 @@ GAME
 				startBiome = Shores
 				startSituation = Prelaunch
 				launchSiteName = Launch Pad
-				rewindSave = parsek_rw_183d6a
 				rewindResFunds = 0
 				rewindResSci = 0
 				rewindResRep = 0

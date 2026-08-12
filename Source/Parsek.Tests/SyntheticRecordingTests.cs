@@ -6894,12 +6894,16 @@ namespace Parsek.Tests
                 {
                     writer.InjectIntoSaveFile(savePath, tempPath);
 
-                    // Copy real recording sidecar files from frozen fixture
+                    // Copy real recording sidecar files from frozen fixture.
+                    // Unreachable since the DefaultCareer fixture was deleted
+                    // (realRecordingNodes is always empty), but the live-career
+                    // fallback is removed here too so this can never read a
+                    // machine-local save if the guard above is ever relaxed.
                     if (realRecordingNodes.Length > 0)
                     {
-                        string fixtureDir = ResolveDefaultCareerFixtureDir()
-                            ?? Path.Combine(kspRoot, "saves", "default");
-                        CopyRealRecordingFiles(fixtureDir, saveDir, realRecordingNodes);
+                        string fixtureDir = ResolveDefaultCareerFixtureDir();
+                        if (fixtureDir != null)
+                            CopyRealRecordingFiles(fixtureDir, saveDir, realRecordingNodes);
                     }
 
                     string content = File.ReadAllText(tempPath);
@@ -7393,9 +7397,30 @@ namespace Parsek.Tests
 
         private static ConfigNode[] AddRealCareerRecordings(ScenarioWriter writer, string kspRoot)
         {
-            // Use frozen fixture copy instead of live default career
+            // The DefaultCareer fixture is GONE (deleted 2026-08-12: 41 files,
+            // 73,945 lines by wc -l / 73,113 as git counts them, 15 of the 41
+            // being binary to git -- that this method had not been able to load since the
+            // 2026-05-11 v0 schema reset -- it carried recordingFormatVersion 0/3
+            // with no recordingSchemaGeneration at all, so the corpus-currency gate
+            // below rejected it on the first recording and returned empty every
+            // run). Everything downstream of here is consequently DEAD. It is left
+            // in place rather than excised because the excision spans ~230 lines
+            // across this file and could not be compiled in the environment that
+            // made the deletion; see FIXTURE-DEFAULTCAREER-DEAD-CODE in
+            // docs/dev/todo-and-known-bugs.md for the mapped removal.
+            //
+            // WHAT IS NOT LEFT ALONE: this used to fall back to the LIVE career at
+            // <kspRoot>/saves/default when the fixture was absent. With the fixture
+            // deleted that fallback becomes the normal path, and a dev instance
+            // whose default save carries current-schema recordings would silently
+            // inject uncommitted, machine-local, non-reproducible data into the test
+            // -- flipping the Assert.DoesNotContain branch on a machine-specific
+            // condition. A missing fixture now yields an empty corpus, which is what
+            // every run has effectively produced since the reset anyway.
             string fixtureDir = ResolveDefaultCareerFixtureDir();
-            string sourceCareerDir = fixtureDir ?? Path.Combine(kspRoot, "saves", "default");
+            if (fixtureDir == null)
+                return new ConfigNode[0];
+            string sourceCareerDir = fixtureDir;
             string defaultPersistent = Path.Combine(sourceCareerDir, "persistent.sfs");
             if (!File.Exists(defaultPersistent))
                 return new ConfigNode[0];

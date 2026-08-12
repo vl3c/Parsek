@@ -2445,6 +2445,186 @@ def evaluate_response_stream(
 
 
 # ---------------------------------------------------------------------------
+# Shared craft overlay (harness/fixtures/shared-ships.toml). Pure.
+# ---------------------------------------------------------------------------
+
+# A save fixture's craft must sit at `<save>/Ships/VAB/<name>.craft`, because that
+# is what kRPC's `SpaceCenter.launch_vessel("VAB", <name>, ...)` resolves against.
+# Satisfying that with a physical copy per save cost 180,799 duplicated lines over
+# 27 files (twelve byte-identical `Kerbal X.craft`), and every copy was its own
+# drift risk -- `build_dd1_craft.py` had grown a three-path gate to chase them.
+# One library copy under `fixtures/ships/` is now overlaid into the staged save
+# per `shared-ships.toml`. The manifest's rationale and invariants live in that
+# file's header; the enforcement lives in test_hlib's SharedShipsManifestTests.
+SHARED_SHIPS_DIRNAME = "ships"
+SHARED_SHIPS_MANIFEST_NAME = "shared-ships.toml"
+# Where the overlay lands inside a staged save, as path SEGMENTS (the shell joins
+# them with its own os.sep). KSP reads craft from the save's VAB subdirectory.
+SHARED_SHIPS_DEST_SEGMENTS = ("Ships", "VAB")
+SHARED_SHIP_SUFFIX = ".craft"
+
+# Ship names become filename leaves under fixtures/ships/ AND under the staged
+# save, so they take filename discipline: alphanumerics, dash, underscore, space
+# and DOT. `\Z` not `$`, because Python's `$` also matches before a trailing
+# newline -- `re.match(r"^[A-Za-z0-9 ]+$", "Kerbal X\n")` succeeds, and a name is
+# a path component where that is never wanted.
+#
+# Dots are ALLOWED, unlike `_SAVE_NAME_RE`'s stance for runSaveName, because real
+# KSP craft names carry them ("Mk1-3 Pod v2.1") and a blanket exclusion would
+# reject a perfectly good library craft while blaming its name. The traversal
+# tokens dots exist to smuggle are rejected explicitly instead, by
+# `_is_safe_ship_name`: no name that is "." or "..", starts with a dot, or
+# contains "..". That is a strictly smaller hole than the character class was
+# hiding, and it is the part that actually matters.
+_SHIP_NAME_RE = re.compile(r"^[A-Za-z0-9 ._-]+\Z")
+
+
+def _is_safe_ship_name(ship: str) -> bool:
+    """True when ``ship`` is safe to use as a path component (pure).
+
+    Character class plus the explicit dotted-token rejections; see `_SHIP_NAME_RE`.
+    A ship still has to exist in the library before anything is written, so this is
+    defence in depth rather than the only gate."""
+    if not ship or not _SHIP_NAME_RE.match(ship):
+        return False
+    if ship in (".", "..") or ship.startswith(".") or ".." in ship:
+        return False
+    return True
+
+
+@dataclass(frozen=True)
+class SharedShipOverlay:
+    """Plan for one staged save: which library craft to copy where.
+
+    ``entries`` are ``(library_leaf, dest_leaf)`` basename pairs -- the shell joins
+    the first under ``fixtures/ships/`` and the second under
+    ``<staged-save>/Ships/VAB/``. ``errors`` non-empty means DO NOT STAGE: the
+    fixture tree and the manifest disagree, and staging anyway would boot a save
+    whose `launch_vessel` cannot resolve its craft (a driver-INVALID discovered
+    minutes later, after a full KSP boot, instead of pre-boot with the cause named).
+
+    When ``errors`` is non-empty ``entries`` is PARTIAL, not empty: the rows that
+    did resolve are still listed, for the diagnostic. Gate on ``errors``, never on
+    ``entries`` being empty -- an unlisted save legitimately plans zero entries.
+    """
+    entries: Tuple[Tuple[str, str], ...]
+    errors: Tuple[str, ...]
+
+
+def parse_shared_ships_manifest(manifest: Optional[Dict]) -> Dict[str, Tuple[str, ...]]:
+    """Normalize the parsed `shared-ships.toml` into ``{save: (ship, ...)}`` (pure).
+
+    Accepts the whole parsed document (with its ``[ships]`` table) or the table
+    itself, so a caller that already descended does not have to care. A malformed
+    body yields ``{}`` rather than raising: the callers below turn an unresolved
+    save into a NAMED error, which is a better failure than a traceback out of
+    staging. Non-string ship entries are dropped here and re-reported as errors by
+    ``plan_shared_ship_overlay`` (via the name check) so there is exactly one place
+    that decides what a bad name looks like.
+    """
+    if not isinstance(manifest, dict):
+        return {}
+    table = manifest.get("ships") if isinstance(manifest.get("ships"), dict) else manifest
+    out: Dict[str, Tuple[str, ...]] = {}
+    for save, ships in table.items():
+        if not isinstance(save, str) or not isinstance(ships, (list, tuple)):
+            continue
+        out[save] = tuple(s for s in ships if isinstance(s, str))
+    return out
+
+
+def plan_shared_ship_overlay(run_save_name: str,
+                             manifest: Dict[str, Tuple[str, ...]],
+                             library_ships: Iterable[str],
+                             existing_vab_files: Iterable[str]) -> SharedShipOverlay:
+    """Resolve the craft overlay for one staged save (pure).
+
+    ``library_ships`` are the ship names present in `fixtures/ships/` (basenames
+    minus `.craft`); ``existing_vab_files`` are the basenames the template's own
+    `Ships/VAB/` already carries after the copytree. A save absent from the
+    manifest overlays nothing and is NOT an error -- most fixtures (the fresh-*
+    KSC templates, gloops-airshow's own `Auto-Saved Ship.craft`) need no shared
+    craft at all.
+
+    Three conditions are errors, all of them fixture-tree defects rather than
+    spec defects, and all caught before a KSP boot:
+      * a declared ship missing from the library (the manifest outlived the file);
+      * a name outside `_SHIP_NAME_RE` (traversal / empty);
+      * a declared ship the save ALSO carries physically -- ambiguous, and the
+        signal that the dedup regressed, so it fails loudly instead of letting
+        an overlay silently overwrite a divergent committed copy.
+    """
+    lib = set(library_ships)
+    present_lower = set(f.lower() for f in existing_vab_files)
+    entries: List[Tuple[str, str]] = []
+    errors: List[str] = []
+    seen: Set[str] = set()
+    for ship in manifest.get(run_save_name, ()):  # declaration order is the copy order
+        if ship in seen:
+            continue
+        seen.add(ship)
+        if not _is_safe_ship_name(ship):
+            errors.append("shared-ships[%s]: ship name %r not filename-safe "
+                          "(alphanumerics, dash, underscore, space, dot; no leading "
+                          "dot and no '..')" % (run_save_name, ship))
+            continue
+        leaf = ship + SHARED_SHIP_SUFFIX
+        if ship not in lib:
+            errors.append("shared-ships[%s]: %r not in the ship library "
+                          "(expected fixtures/%s/%s)"
+                          % (run_save_name, ship, SHARED_SHIPS_DIRNAME, leaf))
+            continue
+        # Case-insensitive, because Windows and macOS filesystems are: a committed
+        # `kerbal x.craft` beside a declared `Kerbal X` is the same collision, and
+        # overwriting it silently is what this branch exists to prevent.
+        if leaf.lower() in present_lower:
+            errors.append("shared-ships[%s]: %r is declared shared AND committed under "
+                          "the fixture's own Ships/VAB -- remove one (the shared-library "
+                          "copy is canonical)" % (run_save_name, ship))
+            continue
+        entries.append((leaf, leaf))
+    return SharedShipOverlay(tuple(entries), tuple(errors))
+
+
+def validate_shared_ships_manifest(manifest: Dict[str, Tuple[str, ...]],
+                                   library_ships: Iterable[str],
+                                   known_saves: Iterable[str]) -> Tuple[str, ...]:
+    """Repo-level manifest invariants (pure); the guard test's decision half.
+
+    Beyond the per-save resolution above this checks the two whole-tree
+    properties: every save named here exists as a fixture directory (a renamed or
+    deleted fixture leaves a row that resolves for nobody), and every library ship
+    has at least TWO consumers. The second is what keeps the library honest -- a
+    craft used once belongs in the fixture that uses it, where it is visible beside
+    the save it serves rather than indirected through a manifest row for nothing.
+    """
+    lib = set(library_ships)
+    saves = set(known_saves)
+    errors: List[str] = []
+    consumers: Dict[str, int] = {ship: 0 for ship in lib}
+    for save in sorted(manifest):
+        if save not in saves:
+            errors.append("shared-ships: %r is not a fixture directory under "
+                          "fixtures/saves/" % (save,))
+        for ship in manifest[save]:
+            if ship in consumers:
+                consumers[ship] += 1
+            elif not _is_safe_ship_name(ship):
+                errors.append("shared-ships[%s]: ship name %r not filename-safe" % (save, ship))
+            else:
+                errors.append("shared-ships[%s]: %r not in the ship library" % (save, ship))
+    for ship in sorted(consumers):
+        if consumers[ship] == 0:
+            errors.append("shared-ships: library craft %r has no consumer -- delete it or "
+                          "move it back into the one fixture that needs it" % (ship,))
+        elif consumers[ship] == 1:
+            errors.append("shared-ships: library craft %r has ONE consumer -- a craft used "
+                          "once belongs in that fixture's own Ships/VAB, not the library"
+                          % (ship,))
+    return tuple(errors)
+
+
+# ---------------------------------------------------------------------------
 # Spec validation (design Spec-validation rules / validate_spec). Pure.
 # ---------------------------------------------------------------------------
 

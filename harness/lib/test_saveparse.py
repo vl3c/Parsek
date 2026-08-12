@@ -674,7 +674,7 @@ class CommittedFixtureSweepTests(unittest.TestCase):
             "rewind_retirements": 0,
             "terminalStates": {"Orbiting": 1, "Destroyed": 1},
             "branchPoints": {"JointBreak": 1},
-            "minSidecars": 10,
+            "minAuthoritativeSidecars": 8,
             # The recorded payload's IDENTITY, not just its shape: a
             # re-harvest that swapped in a different flight with the same
             # topology would otherwise pass every cell in the suite.
@@ -735,7 +735,7 @@ class CommittedFixtureSweepTests(unittest.TestCase):
             # booster pair (998cc41e / a834e40a, same start UT 48.48).
             "terminalStates": {"Orbiting": 1, "Landed": 1, "Destroyed": 6},
             "branchPoints": {"JointBreak": 5},
-            "minSidecars": 56,
+            "minAuthoritativeSidecars": 32,
             "recordingIds": ["0fd603e389b94d6488d92f4e3c6b7957",
                              "10da441999fb4ff7a09bf6be0f068d48",
                              "595e99bfbba74b9990daa5f16bf786c6",
@@ -758,7 +758,7 @@ class CommittedFixtureSweepTests(unittest.TestCase):
             # Destroyed 6 = the six radial boosters.
             "terminalStates": {"Orbiting": 2, "Destroyed": 6},
             "branchPoints": {"JointBreak": 5},
-            "minSidecars": 56,
+            "minAuthoritativeSidecars": 32,
             "recordingIds": ["6daa39387478442dad20c1f7aeec3ec3",
                              "7304b9a00fc245349640367b051fbeb7",
                              "882cb2239abb49558599c3b1291f851d",
@@ -803,7 +803,7 @@ class CommittedFixtureSweepTests(unittest.TestCase):
             "rewind_retirements": 0,
             "terminalStates": {"Orbiting": 2, "Destroyed": 6},
             "branchPoints": {"JointBreak": 5},
-            "minSidecars": 56,
+            "minAuthoritativeSidecars": 32,
             "recordingIds": ["081b06e81737471fb5d85f3e0e92d49b",
                              "0b4193a0540e4fa7af9890fe4ba5c10d",
                              "2f3bf43348534202b226afbb6ae00ce9",
@@ -856,7 +856,7 @@ class CommittedFixtureSweepTests(unittest.TestCase):
             "rewind_retirements": 0,
             "terminalStates": {"Orbiting": 3, "Destroyed": 2},
             "branchPoints": {"JointBreak": 3},
-            "minSidecars": 35,
+            "minAuthoritativeSidecars": 20,
             "recordingIds": ["902b516ccc69491f9097d9c3dddd9e5d",
                              "a547f78a99f54d5d873b2f6c71ecc5e6",
                              "a6177cfb4e4c4c2ea43c0a02f20e28d1",
@@ -912,18 +912,22 @@ class CommittedFixtureSweepTests(unittest.TestCase):
         # Immutables here would be a DIFFERENT fixture and must re-pin the
         # finding too, not just these numbers.
         #
-        # minSidecars 131 is the MEASURED file count, not a family
-        # multiple: 19 .prec + 19 .pann + 19 _vessel.craft + 18
-        # _ghost.craft + 56 .txt mirrors. f049901e is the one recording
+        # minAuthoritativeSidecars 75 is the MEASURED authoritative file
+        # count, not a family multiple: 19 .prec + 19 .pann + 19
+        # _vessel.craft + 18 _ghost.craft. f049901e is the one recording
         # with no _ghost.craft (a 2-point docked-state row). All 19 ids
         # resolve to a non-empty .prec - checked, no orphans either way.
+        # The floor was 131 while the tree also carried 56 derived .txt
+        # mirrors; those are no longer committed (the two snapshot mirrors
+        # are regenerated from the binaries on demand), and the floor now
+        # counts ONLY authoritative sidecars so a mirror cannot pad it.
         "bdock-recorded": {
             "trees": 2, "committedTrees": 2, "recordings": 19,
             "supersedes": 0, "tombstones": 0, "rewind_points": 3,
             "rewind_retirements": 0,
             "terminalStates": {"Orbiting": 5, "Destroyed": 12, "Docked": 1},
             "branchPoints": {"JointBreak": 10, "Dock": 1, "Undock": 1},
-            "minSidecars": 131,
+            "minAuthoritativeSidecars": 75,
             "recordingIds": ["0821dac8ecae4eac8522d7e88cd76705",
                              "08d3217670d341de8c94cc0d9defea69",
                              "1cfb0ec7f90e4bdda580b348f142232c",
@@ -981,11 +985,20 @@ class CommittedFixtureSweepTests(unittest.TestCase):
                                  len(snap.rewind_retirements), name)
                 # The sidecars ARE the payload: metadata pointing at nothing
                 # is the failure --keep-parsek exists to prevent.
+                #
+                # Count only AUTHORITATIVE sidecars. Parsek writes a readable
+                # `.txt` mirror beside each one, and this floor used to count
+                # those too - which let derived data pad a payload floor, so a
+                # fixture could lose real sidecars and still clear it on mirror
+                # count alone. Mirrors are excluded here even though the
+                # trajectory one (`.prec.txt`) is still committed.
                 recordings_dir = os.path.join(FIXTURE_SAVES_DIR, name,
                                               "Parsek", "Recordings")
                 self.assertTrue(os.path.isdir(recordings_dir), name)
-                self.assertGreaterEqual(len(os.listdir(recordings_dir)),
-                                        want["minSidecars"], name)
+                authoritative = [f for f in os.listdir(recordings_dir)
+                                 if not f.endswith(".txt")]
+                self.assertGreaterEqual(len(authoritative),
+                                        want["minAuthoritativeSidecars"], name)
                 for rid in want["recordingIds"]:
                     prec = os.path.join(recordings_dir, rid + ".prec")
                     self.assertTrue(os.path.isfile(prec),
@@ -1025,15 +1038,31 @@ class CommittedFixtureSweepTests(unittest.TestCase):
                 self.assertEqual(0, len(snap.rewind_points), name)
                 self.assertEqual(0, len(snap.rewind_retirements), name)
 
-    def test_quicksave_sidecars_parse_too(self):
-        # Three fixtures also commit a quicksave.sfs; same pinned emptiness.
-        for name in ("b1-pad-craft", "b2-lko-craft", "gloops-airshow"):
-            path = os.path.join(FIXTURE_SAVES_DIR, name, "quicksave.sfs")
-            snap = saveparse.parse_parsek_scenario(_read(path))
-            with self.subTest(fixture=name):
-                self.assertTrue(snap.parsed, "%s: %s" % (name, snap.error))
-                self.assertTrue(snap.scenario_found, name)
-                self.assertEqual(0, len(snap.trees), name)
+    def test_no_fixture_commits_a_quicksave(self):
+        # Was `test_quicksave_sidecars_parse_too`, which asserted that the
+        # quicksave.sfs committed by b1-pad-craft / b2-lko-craft / gloops-airshow
+        # parsed and held zero trees. That test was self-referential: it existed
+        # because the files existed, and asserted nothing any scenario needs.
+        #
+        # The files were pre-convention harvest exhaust - each a near-copy of its
+        # own fixture's persistent.sfs (differing by 73 / 467 / 41 lines), 23,931
+        # lines over 6 files. Nothing reads them: no spec names one, no seam verb
+        # quickloads, and every in-game TriggerQuickload call site quicksaves to a
+        # NAMED test slot first, never the default "quicksave" slot.
+        # `harvest_bdock_station.py` already prunes "the stale quicksave.*" when
+        # normalizing a produced save (design-autotest-bdock-missions.md:186), so
+        # every fixture forged after that convention carries none; these three were
+        # the holdouts. This cell now pins the convention instead of the exhaust.
+        offenders = []
+        for name in sorted(os.listdir(FIXTURE_SAVES_DIR)):
+            fixture = os.path.join(FIXTURE_SAVES_DIR, name)
+            if not os.path.isdir(fixture):
+                continue
+            offenders.extend("%s/%s" % (name, f) for f in sorted(os.listdir(fixture))
+                             if f.startswith("quicksave."))
+        self.assertEqual([], offenders,
+                         "committed quicksave.* is harvest exhaust nothing reads; "
+                         "harvest_bdock_station.py prunes it")
 
     def test_observed_facets_for_a_fixture_are_all_zero(self):
         snap = saveparse.parse_parsek_scenario(

@@ -1,5 +1,11 @@
 # Career ledger fixtures (M-B3)
 
+> **Craft files:** a craft flown by two or more of these fixtures is committed once
+> in `../ships/` and overlaid into the staged save's `Ships/VAB/` per
+> `../shared-ships.toml`. Add a manifest row rather than copying a `.craft` into a
+> fixture; `SharedShipsManifestTests` reds on a re-introduced copy. See
+> `harness/README.md` -> "Fixture saves and the shared craft library".
+
 File-constructed, synthetic, pure-stock save templates for the L1 ledger-accuracy
 scripts and B10. Built headlessly (no KSP launch) by trimming the cleanest existing
 CAREER dev save down to a deterministic clean-slate KSC. Source template: the dev
