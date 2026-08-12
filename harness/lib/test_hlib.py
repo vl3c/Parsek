@@ -4830,6 +4830,12 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
         # re-pinning call, which is a recorded human decision and not a debt this
         # tag would name.
         "B18-dres-lko-ascent.toml":         "calibration-discipline - the first flight of an unmeasured downloaded craft is a READING run by construction (count window min=1/max=12 and the debris token are unpinned on purpose); promotion waits on the re-pin, not on outstanding work",
+        # B19 is operator by the SAME calibration discipline as B16 (whose first
+        # flight shape it copies) plus one reason of its own: it is the FIRST
+        # flight of the new pre-transfer JETTISON phase, so its recordings-count
+        # window stays unpinned until the jettison's debris topology has been
+        # measured once. Promotion is that post-measurement re-pinning call.
+        "B19-dres-orbit.toml":              "calibration-discipline - first flight of a new profile AND of the pre-transfer JETTISON phase; the recordings count window is unpinned pending the jettison debris topology, and promotion waits on that re-pin rather than on outstanding work",
         # The V2 dwell is operator BY THE CALIBRATION DISCIPLINE (V1 precedent):
         # its first flight is a deliberately under-gated READING run whose red,
         # if any, is evidence; promotion is the post-reading arming call, not a

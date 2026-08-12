@@ -283,7 +283,19 @@ coastWarpFactor            = 7
 # bounded and small: the in-SOI arrival is a few tens of thousands of game
 # seconds, so even at x100 it is tens of wall seconds, and flybyTimeoutSeconds
 # still bounds SLOW.
-# UNFLOWN AT THIS SETTING -- flight 4 is the first to test it.
+# FLOWN AT THIS SETTING (flight 4, 2026-08-11_2352) AND IT DID NOT FIX IT. The
+# give-up reproduced with barely-moved numbers -- ttPe=-10,421.8 against flight
+# 3's -9,119.0 -- so the ~10,000 game-second overshoot is NOT in-SOI warp
+# granularity. It is the COAST phase's final warp step: COAST-TO-TARGET runs at
+# coastWarpFactor 7 (x100,000), where ONE poll frame advances ~50,000 game
+# seconds, and Dres's whole SOI-entry -> periapsis coast is only ~25,000. The
+# coast blows through BOTH the SOI boundary and periapsis before TARGET-FLYBY
+# ever gets a frame, so lowering the flyby factors samples an arrival that is
+# already behind the craft. NEXT THING TO TRY (untested): raise soiLeadSeconds
+# from 30 far enough that the coast's warp target lands more than one x100,000
+# frame ahead of SOI entry, and/or drop coastWarpFactor for the final approach.
+# These finer factors are KEPT because they are correct on their own terms and
+# cost only tens of wall seconds; they are simply not the fix.
 flybyWarpFactor            = 3
 flybyMaxWarpFactor         = 4
 nodeArrivalMarginSeconds   = 15
@@ -372,7 +384,13 @@ D14 = ["kerbin", "dres", "soi-count", "warp-rails", "warp-high", "scene-flight",
 allowedAnomalies = []
 
 [expectations.recordings]
-# UNPINNED PENDING THE FIRST FLIGHT, and honestly so. B18 MEASURED the ascent
+# MEASURED 5 on both flights that got past the jettison (2026-08-11_2311 and
+# _2352, `verifiers.expectations.observed.recordings.count`), but DELIBERATELY
+# LEFT UNPINNED: both were driver-INVALID runs that never captured, committed or
+# saved, so 5 is the count of an INCOMPLETE flight's sidecars, not of the
+# topology this lane is meant to produce. Pin it from the first GREEN run.
+#
+# UNPINNED PENDING THE FIRST GREEN FLIGHT, and honestly so. B18 MEASURED the ascent
 # half at exactly 3 (1 main + 2 radial-booster debris children), but THIS lane
 # adds the jettison, which shears off two more stacks (the core Mainsail group
 # and the Skipper group) at a point no flight has yet recorded. Whether KSP
