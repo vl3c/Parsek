@@ -122,6 +122,154 @@ same reason the patcher is, so the facet measures exactly what the patcher would
 - **#15 now bundles the recovery's `KerbalExperience` row too** - the crew are back in
   flight in a world where that recovery has not happened.
 
+## ~~PHANTOM-ATTRIBUTION-RETIRE-TIME-REHOME: rows tagged with a retired provisional's id keep a dangling `RecordingId`~~ [FIXED 2026-08-12 on branch `provisional-ledger-hygiene`]
+
+**`GameAction.RecordingId` is NOT cosmetic — it is the tombstone SCOPING KEY at merge.**
+This is the correction that reshaped the whole fix, and both the investigation and the first
+cut of this branch got it wrong. `TombstoneAttributionHelper.InSupersedeScope` is a bare
+subtree-id containment test with **no UT guard**, `SupersedeCommit.CommitTombstones`
+tombstones every action tagged into the supersede subtree, and `FundsEarning` /
+`ScienceEarning` are tombstone-eligible (`TombstoneEligibility`). A tag is therefore
+load-bearing: point it at the wrong REAL recording and a genuine payout is tombstoned away.
+
+**Fix 1 — the picker rule is SESSION-AWARE, not a blanket skip.** The first cut skipped every
+`MergeState.NotCommitted` candidate, which was a regression in the ordinary successful re-fly:
+a payout earned mid-session (recovery UT past the origin child's `EndUT`) used to attribute to
+the provisional — which becomes the surviving fork at merge, is NOT in the supersede subtree,
+so the tag becomes VALID on commit. Skipping it redirected the payout to the origin child,
+whose post-rewind actions `RecordingTreeSplitter` (step 2.9) retags to the superseded TIP, and
+`CommitTombstones` then erased a real payout. `PickRecoveryRecordingId` now admits the ACTIVE
+session's provisional (matched by id against the live `ReFlySessionMarker`'s
+`ActiveReFlyRecordingId`) and skips only zombies awaiting `LoadTimeSweep`.
+
+`RewindInvoker.BuildProvisionalRecording` is still the sole production creator of a
+`NotCommitted` recording (`Recording.MergeState` defaults to `Immutable`), and it COPIES the
+origin child's `VesselName` — which is why such a recording matches the picker's name filter
+at all. Both consumers route through the picker: recovery funds via
+`TryAddVesselRecoveryFundsAction`, KSC science via `ResolveKscScienceRecordingId`.
+
+**Fix 2 — the retire-time re-home shipped here** rather than staying filed. New
+`Ledger.ClearRecordingTagForRecordings` / `ClearRecordingTagForRecording` clears `RecordingId`
+and KEEPS the row (the shape `PreserveIrreversibleLiveGameplayOnDiscard` produces: career
+effect preserved, dead attribution dropped). Wired into BOTH retire paths — the second was
+found while wiring the first and had the identical hole:
+- `SupersedeCommit.ConcludeRetiredProvisional`, after `CommitTombstones`.
+- `MergeDialog.TryDiscardActiveReFlyAttempt`, which already purged the attempt's store events
+  and files but never touched `Ledger.Actions`. Re-homes the whole `attemptIds` set.
+
+Accepted exposure, stated rather than hidden: an untagged row becomes eligible for
+`PruneOrphanActionsAfterUT`. That is the SAME exposure the existing discard re-home already
+accepts, and the better of the two failure modes — a row a later revert-to-launch may prune,
+versus a row whose stale tag can erase a real payout at the next merge.
+
+**Detection for what is already in saves.** `Inv8Ledger` part (a2) raises a WARN
+(`dangling-recording-ref ... kind=phantom-attribution`) per distinct unresolvable
+`RecordingId`, offline and in the in-game `RecordingInvariants` (H5) category. WARN is
+justified NARROWLY, and only for this finding: a DANGLING id is a member of no subtree, so it
+cannot scope a tombstone and the row's own career effect still applies — attribution-only.
+That reasoning does NOT generalise to a wrong-but-live tag (see the hazard below). WARN also
+never feeds the `.analysis.txt` terminal `RED` token (`ReportWriter`: `RED=1` iff
+`failNonBaselined + staleNonBaselined > 0`), so surfacing a pre-existing population cannot
+flip a gated run red.
+
+## TOMBSTONE-SCOPE-HAS-NO-UT-GUARD: a pre-rewind payout attributed to the origin child is tombstoned at merge [OPEN, filed 2026-08-12 on branch `provisional-ledger-hygiene`. PRE-EXISTING — predates that branch and is NOT caused by it]
+
+Exposed by the review of the phantom-attribution work, and deliberately out of that branch's
+scope: fixing it is a policy question, not a hygiene edit.
+
+A recovery payout whose UT is at or before the origin child's `EndUT` tier-1-BRACKETS to the
+origin child — before and after every change on that branch, so nothing there moves it. At
+merge the origin child (or the TIP carved from it) lands in the supersede subtree, and because
+`TombstoneAttributionHelper.InSupersedeScope` carries **no UT guard** while `FundsEarning` /
+`ScienceEarning` are tombstone-eligible, `CommitTombstones` tombstones the row.
+
+Two sub-shapes, and they need DIFFERENT remedies — do not conflate them:
+- **(A) pre-rewind**: `ut < rewindUT`. The payout was earned on the flight the merge
+  deliberately KEEPS, and the origin-child tag is correct.
+- **(B) bracket-tie, mid-session**: `rewindUT <= ut <= origin.EndUT`. The payout was earned
+  during the re-fly, but the origin child can still win the tier-1 tie (see below).
+
+Both are wrong to tombstone; only (A) is fixed by a UT guard.
+
+Needs its own investigation. The obvious-looking remedy is a UT-aware tombstone eligibility
+rule (tombstone only rows whose UT falls at/after the rewind UT — i.e. rows belonging to the
+part of the timeline actually being replaced), mirroring the guard
+`RecordingTreeSplitter`'s step-2.9 retag already applies on the OTHER side of the same seam.
+
+**A UT guard alone is NOT sufficient, and shipping one would leave a residual shape open while
+looking like a complete fix.** The bracket-TIE case defeats it by construction:
+
+- The splitter only runs when the origin genuinely SPANS the rewind UT
+  (`RecordingTreeSplitter` requires `actualStartUT < rewindUT < actualEndUT`, strictly), so
+  `origin.EndUT > rewindUT` always holds.
+- A mid-session recovery at `rewindUT <= ut <= origin.EndUT` is therefore bracketed by the
+  origin child — and also by the provisional, whose `StartUT` is ~`rewindUT`.
+- Tier 1's tie-break is **largest EndUT**. While the provisional has not yet flown past where
+  the original flight ended (`origin.EndUT > provisional.EndUT`), the ORIGIN CHILD wins that
+  tie and takes the tag — the session-aware rule added on this branch admits the provisional
+  as a CANDIDATE but does not make it win a tie.
+- That row's UT is `>= rewindUT` **by construction** (it happened during the session), so a
+  "tombstone only rows at/after rewindUT" guard passes it straight through to tombstoning.
+
+So the residual shape is a real payout, earned during the re-fly, tagged to the origin child by
+a legitimate bracket tie, which a UT guard does not save. The two options that actually address
+it:
+
+1. **Prefer the admitted session provisional on bracket ties** in `PickRecoveryRecordingId`:
+   when several candidates bracket the UT and one is the active session's provisional, pick it
+   rather than max-EndUT. Cheaper, and it lands where the session-aware rule already lives —
+   but it changes tier-1 semantics, so it wants its own read of the other tier-1 consumers.
+2. **Carve out session-window rows at tombstone time**: exclude rows whose UT falls inside the
+   live session's window from the supersede scope, whichever recording they are tagged to.
+   Costlier, but fixes the class rather than one attribution path.
+
+Do NOT approach the ORIGINAL (pre-rewind, `ut` before `rewindUT`) case by widening the picker:
+there the attribution is CORRECT — the payout does belong to the origin child — so the defect
+is in what the tombstone pass does with a correct tag. Options 1 and 2 are for the bracket-tie
+subset above, where the tag itself is the arguable part.
+
+## BODYFIXEDFRAMES-INVISIBLE-TO-BOTH-EMPTINESS-PREDICATES: a section carrying only `bodyFixedFrames` is payload to neither predicate, yet renderable coverage to the recorder [OPEN, filed 2026-08-12 on branch `provisional-ledger-hygiene`]
+
+`PlaybackTrajectoryBoundsResolver.HasPlayablePayload` reads `checkpoints` for an
+`OrbitalCheckpoint` section and `frames` for everything else. It never reads
+`bodyFixedFrames`. Both emptiness predicates are built on it — `SupersedeCommit.`
+`HasPlayableSupersedePayload` (merge) and, as of this branch,
+`ParsekFlight.IsZeroPointLeaf` (prune) — so a parent-anchored section whose ONLY authored
+surface is `bodyFixedFrames` reads as empty to both, while
+`DebrisRelativeRecorderPolicy` treats `bodyFixedFrames` as renderable coverage and the
+parent-anchored contract names it the PRIMARY playback surface.
+
+Deliberately NOT patched by widening `HasPlayablePayload`: that predicate is what the merge
+accepts as a supersede target, so widening it silently changes merge behavior for every
+parent-anchored recording. Cross-cutting — it touches the sidecar codec (whether a
+bodyFixedFrames-only section round-trips at all) and the recorder-persistence invariant that
+already governs how long a parent-anchored Relative section may outlive its authored
+coverage. Wants its own reading pass against
+`docs/dev/research/extending-rewind-to-stable-leaves.md` and the parent-anchored contract,
+not a term bolted onto a shared helper.
+
+Narrowed but not closed by this branch: the prune and the merge now AGREE on sections, so
+the previously documented both-directions divergence is down to one direction
+(`SurfacePos` counts as non-empty in the prune only, which fails safe: keep, don't
+supersede). The `ReFlyConclusionRoute.ClassifyProvisionalPrune` guard stays as
+belt-and-braces.
+
+The INVERSE nit, reviewed and accepted as-is: a section holding exactly ONE frame counts as
+merge-playable payload (`HasPlayablePayload` is a non-empty test, not a two-sample test) while
+playback needs two samples to interpolate, so a 1-frame section is now "not zero-point" in the
+prune too and such a recording is KEPT rather than pruned. That is the safe direction and is
+consistent with #447's existing single-point-debris policy (non-terminal single-point leaves
+are kept for diagnosis rather than silently deleted); the single-point-debris prune still
+handles the terminal debris shape on its own predicate. Not changed here — widening either
+emptiness predicate to a two-sample test would change what the merge accepts.
+
+A third site carried the same section-blind
+`Points + OrbitSegments + SurfacePos` triple and IS fixed here:
+`ParsekFlight.Finalization.cs`'s "leaf has no playback data" WARN, which mislabelled
+section-authoritative recordings in the log. Diagnostic only, no control flow — but a
+misleading WARN on exactly the recordings the prune fix now protects was worth closing in
+the same pass. That triple appearing in a fourth place is the smell to watch for.
+
 ## KERBAL-XP-UNTAGGED-RECOVERY-HAS-NO-LEDGER-ROW: a tracking-station or KSC recovery records the XP event but no ledger action [OPEN, filed 2026-08-11 with the P9a facet]
 
 `GameStateRecorder.OnVesselRecoveryProcessingForExperience` deliberately does NOT forward

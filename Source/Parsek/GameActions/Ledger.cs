@@ -382,6 +382,73 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Clears <see cref="GameAction.RecordingId"/> on every action tagged to one of
+        /// <paramref name="recordingIds"/>, KEEPING the rows. Returns the number cleared.
+        /// Null / empty input is a no-op.
+        /// <para>
+        /// This is the retire-time tag re-home. It exists because
+        /// <see cref="GameAction.RecordingId"/> is NOT cosmetic: it is the tombstone
+        /// scoping key at merge (<c>TombstoneAttributionHelper.InSupersedeScope</c> is a
+        /// bare subtree-id containment test with no UT guard, and FundsEarning /
+        /// ScienceEarning are tombstone-eligible). A row left tagged to a recording that
+        /// has been retired or discarded is therefore worse than untidy — the id can be
+        /// swept into a supersede subtree and the real payout tombstoned away. Clearing
+        /// the tag preserves the career effect while dropping the dead attribution, the
+        /// same SHAPE
+        /// <see cref="PreserveIrreversibleLiveGameplayOnDiscard"/> produces (recordingId
+        /// cleared, row kept).
+        /// </para>
+        /// <para>
+        /// ACCEPTED EXPOSURE: an untagged row becomes eligible for
+        /// <see cref="PruneOrphanActionsAfterUT"/>, which drops untagged non-seed rows
+        /// after a launch boundary. This is the SAME exposure the existing discard re-home
+        /// already accepts, and it is the better of the two failure modes: a row that may
+        /// be pruned by a later revert-to-launch, versus a row whose stale tag can erase a
+        /// real payout at the next merge.
+        /// </para>
+        /// </summary>
+        internal static int ClearRecordingTagForRecordings(ICollection<string> recordingIds)
+        {
+            if (recordingIds == null || recordingIds.Count == 0)
+                return 0;
+
+            int cleared = 0;
+            for (int i = 0; i < actions.Count; i++)
+            {
+                var action = actions[i];
+                if (action == null) continue;
+                if (string.IsNullOrEmpty(action.RecordingId)) continue;
+                if (!recordingIds.Contains(action.RecordingId)) continue;
+
+                action.RecordingId = null;
+                cleared++;
+            }
+
+            if (cleared > 0)
+            {
+                BumpStateVersion();
+                ParsekLog.Info("Ledger",
+                    $"ClearRecordingTagForRecordings: cleared={cleared} " +
+                    $"recordingIds={recordingIds.Count} total={actions.Count} " +
+                    "— rows KEPT, attribution dropped so a retired id cannot scope a tombstone");
+            }
+
+            return cleared;
+        }
+
+        /// <summary>
+        /// Single-id convenience wrapper over
+        /// <see cref="ClearRecordingTagForRecordings"/>.
+        /// </summary>
+        internal static int ClearRecordingTagForRecording(string recordingId)
+        {
+            if (string.IsNullOrEmpty(recordingId))
+                return 0;
+            return ClearRecordingTagForRecordings(
+                new[] { recordingId });
+        }
+
+        /// <summary>
         /// Removes the action at the given index. Used by maintenance passes that
         /// already iterated <see cref="Actions"/> to identify rows to drop (see
         /// <see cref="LedgerRolloutAdoption.RepairDuplicateRolloutActions"/>).

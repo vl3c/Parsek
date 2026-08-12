@@ -46,6 +46,8 @@ namespace Parsek
         /// </summary>
         internal static void PruneZeroPointLeaves(RecordingTree tree)
         {
+            ClearStaleReFlyHandOverIfProvisionalValidates(tree, "PruneZeroPointLeaves");
+
             var toPrune = CollectZeroPointLeafIds(tree);
             if (toPrune == null || toPrune.Count == 0)
                 return;
@@ -57,8 +59,54 @@ namespace Parsek
                 "zero-point leaf recording(s)");
         }
 
+        /// <summary>
+        /// Drops a stale Re-Fly hand-over note when the marker's own provisional is
+        /// alive in this tree AND validates as a supersede target.
+        /// <para>
+        /// <c>TryTake</c>'s session gate cannot see an F9 that re-arms a marker with the
+        /// SAME SessionId, so a note describing a pre-quickload object could otherwise
+        /// be adopted as this session's conclusion. A prune pass finding the recording
+        /// alive and validating is proof the note is stale.
+        /// </para>
+        /// <para>
+        /// This proof used to be an emergent SIDE EFFECT of the in-loop keep-guard: it
+        /// only fired when the provisional was first COLLECTED as a zero-point leaf.
+        /// Once <see cref="IsZeroPointLeaf"/> learned to count playable sections, a
+        /// section-authoritative provisional stopped being collected at all — the right
+        /// outcome for the prune, but it silently took the staleness proof with it and
+        /// let a stale note survive. The proof never actually depended on collection,
+        /// only on "alive and validating", so it is now its own explicit step that runs
+        /// before the collect / early-return. Keep the in-loop
+        /// <c>Clear</c> too: it is idempotent and covers the guard path directly.
+        /// </para>
+        /// </summary>
+        private static void ClearStaleReFlyHandOverIfProvisionalValidates(
+            RecordingTree tree, string logTag)
+        {
+            if (tree == null || tree.Recordings == null)
+                return;
+
+            var marker = ResolveActiveReFlySessionMarkerForPrune();
+            if (marker == null || string.IsNullOrEmpty(marker.ActiveReFlyRecordingId))
+                return;
+
+            Recording provisional;
+            if (!tree.Recordings.TryGetValue(marker.ActiveReFlyRecordingId, out provisional)
+                || provisional == null)
+                return;
+
+            string ignoredReason;
+            if (!SupersedeCommit.ValidateSupersedeTarget(provisional, out ignoredReason))
+                return;
+
+            ReFlyProvisionalRetirement.Clear("provisional-alive-and-validating:" + logTag);
+        }
+
         internal static void PruneSinglePointDebrisLeaves(RecordingTree tree)
         {
+            ClearStaleReFlyHandOverIfProvisionalValidates(
+                tree, "PruneSinglePointDebrisLeaves");
+
             var toPrune = CollectSinglePointDebrisLeafIds(tree);
             if (toPrune == null || toPrune.Count == 0)
                 return;
@@ -274,7 +322,19 @@ namespace Parsek
 
         /// <summary>
         /// Returns true if a recording is a leaf with no playback data (zero points,
-        /// no orbit segments, no surface position).
+        /// no orbit segments, no playable track section, no surface position).
+        /// <para>
+        /// The playable-section term closes the section-blind half of the documented
+        /// divergence against <c>SupersedeCommit.HasPlayableSupersedePayload</c>: a
+        /// section-authoritative recording (its trajectory lives in
+        /// <c>TrackSection.frames</c> / <c>checkpoints</c> rather than the flat
+        /// <c>Points</c> list) is renderable payload the merge predicate accepts, so
+        /// judging it empty here would prune a recording the merge would keep. Payload
+        /// is tested with the SAME per-section notion the merge uses
+        /// (<see cref="PlaybackTrajectoryBoundsResolver.HasPlayablePayload"/>) — this
+        /// narrows the divergence rather than inventing a third definition, and does
+        /// not change what counts as payload for the merge.
+        /// </para>
         /// </summary>
         internal static bool IsZeroPointLeaf(Recording rec)
         {
@@ -282,7 +342,24 @@ namespace Parsek
             if (rec.SidecarLoadFailed) return false; // keep explicit hydration failures for later recovery/inspection
             return rec.Points.Count == 0
                 && rec.OrbitSegments.Count == 0
+                && !HasPlayableTrackSection(rec)
                 && !rec.SurfacePos.HasValue;
+        }
+
+        /// <summary>
+        /// True when any track section carries renderable payload, per the merge
+        /// predicate's own per-section notion. Conservative: a null / empty section
+        /// list is no payload.
+        /// </summary>
+        private static bool HasPlayableTrackSection(Recording rec)
+        {
+            if (rec.TrackSections == null) return false;
+            for (int i = 0; i < rec.TrackSections.Count; i++)
+            {
+                if (PlaybackTrajectoryBoundsResolver.HasPlayablePayload(rec.TrackSections[i]))
+                    return true;
+            }
+            return false;
         }
 
         internal static bool IsSinglePointDebrisLeaf(Recording rec)

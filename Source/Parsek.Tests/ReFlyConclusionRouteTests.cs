@@ -272,11 +272,18 @@ namespace Parsek.Tests
         [Fact]
         public void PruneZeroPointLeaves_KeepsAProvisionalTheMergeWouldAccept()
         {
-            // IsZeroPointLeaf (Points + OrbitSegments + SurfacePos) and
-            // ValidateSupersedeTarget (Points + OrbitSegments + playable
-            // TrackSections) are NOT the same predicate: a section-authoritative
-            // provisional is zero-point AND a valid supersede target. The hygiene
-            // pass must defer to the merge's test, never delete real payload.
+            // A section-authoritative provisional must survive the hygiene pass and
+            // stay the session's to conclude. The OUTCOME is unchanged; the MECHANISM
+            // moved one step earlier. IsZeroPointLeaf now counts playable
+            // TrackSections, exactly as ValidateSupersedeTarget does, so this
+            // recording is never collected as a zero-point leaf in the first place
+            // and the in-loop keep-guard is never consulted for it. Previously the
+            // predicates disagreed, the recording WAS collected, and only the guard
+            // saved it — so the guard's "outcome=refly-provisional-prune-kept" line
+            // is deliberately no longer asserted here (see
+            // ZeroPointAndSupersedePayload_AreNowMutuallyExclusive for why it cannot
+            // fire on this path at all). The guard's own live coverage is the
+            // single-point-debris path, asserted below.
             var marker = Marker();
             InstallScenario(marker);
 
@@ -301,6 +308,58 @@ namespace Parsek.Tests
             Recording taken;
             string reason;
             Assert.False(ReFlyProvisionalRetirement.TryTake(marker, out taken, out reason));
+        }
+
+        [Fact]
+        public void ZeroPointAndSupersedePayload_AreNowMutuallyExclusive()
+        {
+            // The invariant the section term buys: a recording cannot simultaneously
+            // read as a zero-point leaf AND validate as a supersede target, because
+            // both now test payload through
+            // PlaybackTrajectoryBoundsResolver.HasPlayablePayload. IsZeroPointLeaf is
+            // strictly the stronger condition (it additionally requires no SurfacePos),
+            // so zero-point implies no payload implies the merge refuses. This is what
+            // makes the deletion-of-real-payload class structurally impossible on the
+            // zero-point path rather than merely guarded against. Fails if a future
+            // edit re-opens the gap by widening one predicate and not the other.
+            var sectionOnly = Rec("rec_sections", terminal: TerminalState.Landed);
+            sectionOnly.TrackSections.Add(new TrackSection
+            {
+                frames = new List<TrajectoryPoint> { new TrajectoryPoint { ut = 0.0 } },
+            });
+
+            var empty = Rec("rec_empty", terminal: TerminalState.Landed);
+
+            string reason;
+            Assert.False(ParsekFlight.IsZeroPointLeaf(sectionOnly));
+            Assert.True(SupersedeCommit.ValidateSupersedeTarget(sectionOnly, out reason));
+
+            Assert.True(ParsekFlight.IsZeroPointLeaf(empty));
+            Assert.False(SupersedeCommit.ValidateSupersedeTarget(empty, out reason));
+        }
+
+        [Fact]
+        public void PruneSinglePointDebrisLeaves_KeepGuardStillFiresForTheProvisional()
+        {
+            // The keep-guard is still live and load-bearing — on the OTHER prune path.
+            // A single-point debris leaf has Points.Count == 1, so it validates as a
+            // supersede target while still being collected for pruning; the guard is
+            // the only thing keeping it. This is the coverage the zero-point test above
+            // used to provide before the predicates were brought into agreement.
+            var marker = Marker();
+            InstallScenario(marker);
+
+            var provisional = Rec("rec_provisional",
+                state: MergeState.NotCommitted, terminal: TerminalState.Destroyed);
+            provisional.IsDebris = true;
+            provisional.Points.Add(new TrajectoryPoint { ut = 0.0 });
+
+            var tree = TreeWith(Rec("rec_origin", terminal: TerminalState.Destroyed), provisional);
+            tree.Recordings["rec_origin"].Points.Add(new TrajectoryPoint { ut = 0.0 });
+
+            ParsekFlight.PruneSinglePointDebrisLeaves(tree);
+
+            Assert.True(tree.Recordings.ContainsKey("rec_provisional"));
             Assert.Contains(logLines, l =>
                 l.Contains("outcome=refly-provisional-prune-kept")
                 && l.Contains("rec=rec_provisional"));
@@ -314,6 +373,15 @@ namespace Parsek.Tests
             // could otherwise be adopted as this session's conclusion. A prune
             // pass that finds the recording alive AND validating is proof the
             // note is stale.
+            //
+            // This staleness proof used to ride on the in-loop keep-guard, so it only
+            // fired when the provisional was COLLECTED as a zero-point leaf. Once
+            // IsZeroPointLeaf started counting playable sections, this fixture stopped
+            // being collected and the note silently survived — a real regression this
+            // cell caught. The proof is now an explicit step
+            // (ClearStaleReFlyHandOverIfProvisionalValidates) that runs before the
+            // collect, because it never depended on collection, only on the recording
+            // being alive and validating.
             var marker = Marker();
             InstallScenario(marker);
 

@@ -688,8 +688,13 @@ namespace Parsek
                 VesselSpawner.BackfillMaxDistance(rec);
             }
 
-            // Warn if leaf has no playback data
-            if (isLeaf && rec.Points.Count == 0 && rec.OrbitSegments.Count == 0 && !rec.SurfacePos.HasValue)
+            // Warn if leaf has no playback data. Reads the same playable-section term
+            // as IsZeroPointLeaf: the bare Points+OrbitSegments+SurfacePos triple is
+            // section-blind, so it mislabelled a section-authoritative recording (one
+            // whose trajectory lives in TrackSection.frames / .checkpoints) as having
+            // "no playback data" in the log. Diagnostic only — no control flow here.
+            if (isLeaf && rec.Points.Count == 0 && rec.OrbitSegments.Count == 0
+                && !HasPlayableTrackSection(rec) && !rec.SurfacePos.HasValue)
             {
                 if (rec.SidecarLoadFailed)
                 {

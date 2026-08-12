@@ -2558,11 +2558,28 @@ namespace Parsek
         ///   </description></item>
         ///   <item><description>
         ///     This test and <c>ParsekFlight.IsZeroPointLeaf</c> (Points +
-        ///     OrbitSegments + SurfacePos) DISAGREE in both directions: sections
-        ///     count here and not there, SurfacePos counts there and not here. Any
-        ///     prune that removes a recording the merge would accept must defer to
-        ///     this predicate — see
-        ///     <c>ReFlyConclusionRoute.ClassifyProvisionalPrune</c>.
+        ///     OrbitSegments + playable sections + SurfacePos) now agree on
+        ///     sections: both read playable payload through
+        ///     <c>PlaybackTrajectoryBoundsResolver.HasPlayablePayload</c>, so a
+        ///     section-authoritative recording can no longer be judged empty by the
+        ///     prune while the merge accepts it. The divergence is NARROWED, not
+        ///     gone, and remains one-directional: <c>SurfacePos</c> counts as
+        ///     "not empty" in the prune and is NOT payload here. A recording whose
+        ///     only surface is <c>SurfacePos</c> is therefore still kept by the prune
+        ///     and still refused by the merge — the safe direction (keep, don't
+        ///     supersede). Any prune that removes a recording the merge would accept
+        ///     must defer to this predicate — see
+        ///     <c>ReFlyConclusionRoute.ClassifyProvisionalPrune</c>, whose guard
+        ///     stays as belt-and-braces even now that the section term is shared.
+        ///   </description></item>
+        ///   <item><description>
+        ///     Both predicates share a blind spot: a section carrying ONLY
+        ///     <c>bodyFixedFrames</c> (no <c>frames</c>, no <c>checkpoints</c>) is
+        ///     payload to neither, while <c>DebrisRelativeRecorderPolicy</c> treats
+        ///     bodyFixedFrames as renderable coverage. Filed as a cross-cutting
+        ///     follow-up (it touches the sidecar codec); deliberately NOT patched by
+        ///     widening <c>HasPlayablePayload</c>, which would silently change what
+        ///     the merge accepts.
         ///   </description></item>
         /// </list>
         /// </summary>
@@ -2651,12 +2668,16 @@ namespace Parsek
         /// NO merge journal, deliberately. <see cref="MergeJournalOrchestrator"/>'s
         /// checkpoints exist to make a multi-step DURABLE mutation atomic
         /// (migrate → split → rows → tombstones → MergeState flip → RP reap). This
-        /// route writes none of those: its only mutation is clearing the marker,
-        /// and a crash before the next save leaves exactly the pre-fix state, which
-        /// <see cref="LoadTimeSweep"/> already reconciles. Opening a journal for it
-        /// would add five synchronous saves and a Begin-rollback window around a
-        /// no-op — and the origin split it performs at step 1.5 would carve HEAD /
-        /// TIP out of a recording that nothing is going to supersede.
+        /// route writes none of those. Its mutations are clearing the marker and
+        /// re-homing the retired provisional's ledger tags
+        /// (<see cref="Ledger.ClearRecordingTagForRecording"/>), and BOTH are
+        /// crash-safe without a journal: a crash before the next save leaves exactly
+        /// the pre-fix state, which <see cref="LoadTimeSweep"/> already reconciles,
+        /// and the re-home is idempotent (clearing an already-cleared tag is a no-op)
+        /// so re-running it after a crash converges rather than compounding. Opening
+        /// a journal for it would add five synchronous saves and a Begin-rollback
+        /// window around a no-op — and the origin split it performs at step 1.5 would
+        /// carve HEAD / TIP out of a recording that nothing is going to supersede.
         /// </para>
         ///
         /// <para>
@@ -2743,6 +2764,18 @@ namespace Parsek
             CommitTombstones(marker, subtree, retiredId, ut, nowIso, scenario);
             int tombstonesWritten = scenario.LedgerTombstones.Count - tombstonesBefore;
 
+            // Retire-time tag re-home. The provisional is being retired and will not exist
+            // after this, so any ledger row still tagged to it is untagged HERE. NOT cosmetic
+            // tidying: RecordingId is the tombstone scoping key
+            // (TombstoneAttributionHelper.InSupersedeScope — bare subtree-id containment, no UT
+            // guard) and FundsEarning / ScienceEarning are tombstone-eligible, so a row left
+            // pointing at a retired id can be swept into a later supersede subtree and a REAL
+            // payout tombstoned away. Clearing the tag keeps the row and its career effect —
+            // the same shape PreserveIrreversibleLiveGameplayOnDiscard produces. Accepted
+            // exposure: the untagged row becomes eligible for PruneOrphanActionsAfterUT,
+            // identical to the exposure the existing discard re-home already accepts.
+            int tagsCleared = Ledger.ClearRecordingTagForRecording(retired.RecordingId);
+
             ClearPreReFlyAnchorSnapshotsForSession(marker.SessionId);
             scenario.ClearActiveReFlySessionMarker("marker-cleared");
             scenario.BumpSupersedeStateVersion();
@@ -2756,6 +2789,7 @@ namespace Parsek
                 $"retireReason={retireReason ?? "<none>"} " +
                 $"rows={rowsWritten.ToString(ic)} " +
                 $"tombstones={tombstonesWritten.ToString(ic)} " +
+                $"ledgerTagsCleared={tagsCleared.ToString(ic)} " +
                 $"{DescribeSupersedePayload(retired)} — the attempt produced nothing the " +
                 "timeline could play, so the origin stays effective and the session is " +
                 "concluded here rather than left for the load-time sweep");
