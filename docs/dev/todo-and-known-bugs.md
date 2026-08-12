@@ -14,6 +14,44 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## ~~DOCK-PARTNER-STAMP-GATED-ON-ROUTE-ELIGIBILITY: a route-ineligible dock discarded the partner identity forever~~ [FOUND by the 2026-08-12 dock/loop-coherence analysis (I2-iii); FIXED 2026-08-12, branch `dock-partner-stamp` (design `docs/dev/design-dock-event-graph.md` 6.1, PR sequence step 1)]
+
+`BranchPoint.TargetVesselPersistentId` was fed by the route-eligibility-GATED
+partner pid (`ParsekFlight.cs` OnPartCouple eligibility gate ->
+`pendingDockRouteTargetPid`), so a dock whose partner had neither a pre-couple
+snapshot nor a known recording stamped 0 and every downstream derivation
+(`MissionCrossTreeDock.FindLinks`, `GhostChainWalker` claims) was permanently
+blind to it. Fix: a second ungated pending field (`pendingDockPartnerPid`, from
+the pure `ResolveBranchPartnerStampPid`: self/zero filtered, EVA-suppressed)
+threads to `BuildMergeBranchData`'s new `branchPartnerPid` parameter and feeds
+ONLY the branch-point stamp; route surfaces keep the gated pid. Old recordings
+keep their zeros and degrade to prior behavior. Pinned by
+`DockStampDecouplingTests`; contract added as invariant 7 in
+`docs/dev/dock-undock-recording-structure.md` section 9.
+
+## PHANTOM-SUPERSEDE-RIDES-GATED-PID: absorbed-vessel spawn suppression skips route-ineligible docks
+
+Noted during the stamp decoupling (design 6.1 step 3):
+`MarkTerminalSpawnSupersededByDockMerge` is called with the route-eligibility-
+gated pid (`ParsekFlight.cs` CreateMergeBranch, `routeTargetVesselPid != 0`
+gate), so a dock that absorbs a vessel Parsek recorded earlier but that fails
+route eligibility does not mark the absorbed leaf's terminal spawn superseded
+(possible phantom re-materialisation). The suppression is semantically a
+partner-identity concern, not a route concern; rewiring it to the ungated
+`branchPartnerPid` is a deliberate behavior change deferred out of the stamp PR.
+Decide after the dock-event-graph work soaks.
+
+## BDOCK-2-SAME-TREE-DOCK-COVERAGE: no harness scenario flies a same-tree cross-session dock
+
+`BDOCK-1-station-interceptor` covers the cross-tree dock recording pipeline; the
+same-tree cross-session shape (fly A, commit, switch-fly the offshoot D, dock
+A->D: records single-parent with a same-tree target, model extract section 1.5)
+is flown by no spec. Candidate `BDOCK-2`: fly, commit, switch-fly, dock, assert
+the recovered same-tree link derives. Not a merge gate for the dock-event-graph
+scope (the derivation is pinned by synthetic in-game cells); file when docking
+coverage next expands. Also missing per BDOCK-1's own header note: an
+orbital-rendezvous-dock D10 value and a same-craft-twice identity D18 value.
+
 ## ~~FORGE-CREW-SEATING-SILENT-FAILURE: kRPC launch_vessel seats NOBODY when a requested crew name is unseatable, and the pad forge stamped an empty-pod fixture without noticing~~ [FOUND 2026-08-11 by the first FORGE-b18-dres-pad run + B18 flight 1 (PR #1459 carries the measurement in that spec's header). GUARD SHIPPED 2026-08-12, branch `forge-crew-guard`: the forge_lko minCrew gate ported to forge_station. CLOSED 2026-08-12: fixture re-forged crewed (FORGE-gs1-two-stage run `2026-08-12_1552` PASS attempt 1, `crewAboard value=1` live) and GS-1 flew the re-stamp to a full PASS (run `2026-08-12_1556`, attempt 1, armed saveParse green)]
 
 **The trap.** kRPC 0.5.4 `launch_vessel(crew=[names])` does NOT fail when a name
