@@ -26,7 +26,8 @@ signature-cached via `DockEventGraphCache`; no ERS allowlist entry - the core
 never reads the store) whose `TryDescribePartner` names dock partners in BOTH
 tabs, controller side included. Same-tree recovered links mint no selection
 affordance by design (Q8). Remaining consumers (event digest, chapters, seam
-markers) are PR sequence steps 4-6.
+markers) are PR sequence steps 4-6; the event digest (step 4) shipped on branch
+`mission-event-digest`, chapters + seam markers (steps 5-6) remain.
 
 ## ~~FORGE-CREW-SEATING-SILENT-FAILURE: kRPC launch_vessel seats NOBODY when a requested crew name is unseatable, and the pad forge stamped an empty-pod fixture without noticing~~ [FOUND 2026-08-11 by the first FORGE-b18-dres-pad run + B18 flight 1 (PR #1459 carries the measurement in that spec's header). GUARD SHIPPED 2026-08-12, branch `forge-crew-guard`: the forge_lko minCrew gate ported to forge_station. CLOSED 2026-08-12: fixture re-forged crewed (FORGE-gs1-two-stage run `2026-08-12_1552` PASS attempt 1, `crewAboard value=1` live) and GS-1 flew the re-stamp to a full PASS (run `2026-08-12_1556`, attempt 1, armed saveParse green)]
 
