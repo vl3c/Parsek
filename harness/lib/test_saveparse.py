@@ -814,6 +814,56 @@ class CommittedFixtureSweepTests(unittest.TestCase):
                              "fbc705e91fcd4b5a8176cf5493807a0b"],
             "schemaGeneration": 4,
         },
+        # --- THE DRES PROGRAM'S ORBIT FIXTURE ----------------------------
+        # PROVENANCE: dres-orbit-recorded <- B19-dres-orbit, run
+        # 2026-08-12_0047, PASS attempt 1, wall 2981 s. Harvested with
+        # `harvest_bdock_station.py --keep-parsek --expect-situation
+        # ORBITING` from the produced b18-dres-pad save (the gate passed on
+        # 'Duna Rocket' ORBITING at Dres). NO fresh driven run was needed and
+        # NOTHING was hand-edited: the green run's produced save survived the
+        # step-3 re-provision untouched (provisioning rebuilds GameData, not
+        # saves), so the committed bytes ARE that flight's own output. Every
+        # number below was re-measured off THESE COMMITTED BYTES with
+        # saveparse.parse_parsek_scenario + observed_structure_facets and is
+        # identical to that run's saveParse verifier facets.
+        #
+        # WHAT THE FIVE RECORDINGS ARE, by measured span UT -- worth writing
+        # down because the count alone cannot distinguish them:
+        #   bc4a3a6d  main orbiter, ut 26.2 -> 20,393,407.1 (the 20.393M
+        #             game-second loop-unit span), 1,546 points, Orbiting/Dres
+        #   a6177cfb  ascent booster, ut 97.1 -> 111.9, Destroyed
+        #   902b516c  ascent booster, ut 97.1 -> 111.7, Destroyed
+        #   e3c055b7  core Mainsail stack dropped by MechJeb AUTOSTAGE during
+        #             ascent, ut 1,697.3 -> 1,703.3, Orbiting/Kerbin
+        #   a547f78a  Skipper stack dropped by the JETTISON phase, ut 2,699.5
+        #             -> 2,704.2 (exactly the JETTISON window), Orbiting/Kerbin
+        # So 3 of the terminals are Orbiting and only 2 are Destroyed, and two
+        # of the Orbiting three are parked DEBRIS at Kerbin rather than the
+        # Dres orbiter -- a consumer asserting "Orbiting == the payload" would
+        # be wrong on this fixture.
+        #
+        # THE POST-COMMIT FRESH TREE LEFT NOTHING. The flight's log shows
+        # Parsek opening a new recording after the commit
+        # (`Recording started: ... parts=40, promotion`), which is the hazard
+        # B16's spec flags as FIRST-FLIGHT-TO-CONFIRM. Measured here: the
+        # harvested save carries exactly ONE RECORDING_TREE, `isActive=False`,
+        # no second tree, no provisional, no orphan sixth recording, and zero
+        # activeTree/ReFlySession/SwitchSegment residue. Nothing was trimmed to
+        # make that true.
+        "dres-orbit-recorded": {
+            "trees": 1, "committedTrees": 1, "recordings": 5,
+            "supersedes": 0, "tombstones": 0, "rewind_points": 0,
+            "rewind_retirements": 0,
+            "terminalStates": {"Orbiting": 3, "Destroyed": 2},
+            "branchPoints": {"JointBreak": 3},
+            "minSidecars": 35,
+            "recordingIds": ["902b516ccc69491f9097d9c3dddd9e5d",
+                             "a547f78a99f54d5d873b2f6c71ecc5e6",
+                             "a6177cfb4e4c4c2ea43c0a02f20e28d1",
+                             "bc4a3a6d361549d2a7cdd9d4eb5574c1",
+                             "e3c055b7af8f4d9e8f9e8bf3b8aa0f1a"],
+            "schemaGeneration": 4,
+        },
         # --- THE ROUTE-PROOF (DOCKING) FIXTURE ---------------------------
         # PROVENANCE: bdock-recorded <- BDOCK-1-station-interceptor, run
         # 2026-08-11_1606, PASS attempt 1, wall 2146 s / mission 2093 s

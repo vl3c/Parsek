@@ -435,12 +435,19 @@ allowedAnomalies = []
 #   +1  the main recording -- terminal Orbiting, terminalOrbitBody=Dres
 #   +2  the two radial booster stacks shed at istg 6 during ascent (the exact
 #       population B18 measured on this craft), terminal Destroyed
-#   +2  the two stacks the JETTISON sheds at the 700 km park -- the core
-#       Mainsail group and the Skipper group -- terminal Orbiting with
-#       terminalOrbitBody=KERBIN, because they are left in the parking orbit
-# 5 = 3 (B18's measured ascent population) + 2 (this lane's jettison), so the
-# count is derived from two independently measured halves and every one of the
-# five is accounted for. saveParse agrees: trees 1, committedTrees 1,
+#   +1  the core Mainsail stack, dropped by MechJeb AUTOSTAGE during the ascent
+#       (recorded span ut 1,697.3 -> 1,703.3, i.e. before ORBIT at 2,698.4),
+#       terminal Orbiting / terminalOrbitBody=KERBIN
+#   +1  the Skipper stack, dropped by the JETTISON (recorded span ut 2,699.5 ->
+#       2,704.2, exactly the JETTISON phase window 2,698.9 -> 2,703.7), also
+#       Orbiting / KERBIN -- both are left in the 700 km parking orbit
+# CORRECTED FROM THE HARVESTED BYTES: an earlier draft of this note said the
+# jettison shed BOTH stacks. The per-recording span UTs say otherwise, and they
+# are the same fact the 2-pop jettison implies -- the core was ALREADY gone
+# (that is why the Skipper was the live engine at the park), so the jettison's
+# two pops dropped the Skipper stack and lit the Nerv, shedding exactly ONE new
+# stack. 5 = 3 (B18's measured ascent population) + 1 autostage core drop
+# + 1 jettison drop, and every one of the five is accounted for by UT. saveParse agrees: trees 1, committedTrees 1,
 # terminalStates {Orbiting 3, Destroyed 2}, branchPoints {JointBreak 3},
 # points total 1,729 (largest 1,546, smallest 21, trivial 0, unparsed 0),
 # supersedeRows 0, tombstones 0, rewindPoints 0.
