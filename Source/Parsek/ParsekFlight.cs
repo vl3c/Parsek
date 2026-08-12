@@ -10348,6 +10348,12 @@ namespace Parsek
             if (v == null || GhostMapPresence.IsGhostMapVessel(v.persistentId))
                 return;
 
+            // M5: the recorder's engine/RCS/robotic caches are built once at StartRecording and
+            // hold direct Part/PartModule references. Rebuild them here so a staged-away booster
+            // stops being polled into this recording and a welded-on / newly docked module starts
+            // being polled at all. No-ops unless v IS the recorded vessel.
+            recorder?.OnVesselWasModified(v);
+
             PostSwitchAutoRecordState state = postSwitchAutoRecord;
             if (state == null || state.VesselPid != v.persistentId)
                 return;
@@ -16309,8 +16315,15 @@ namespace Parsek
                         $"CleanupOrphanedSpawnedVessels: recovering '{vessel.vesselName}' " +
                         $"pid={vessel.persistentId} guid={candidateGuid ?? "(none)"} — matched recording " +
                         $"'{matched?.VesselName ?? "(unknown)"}' (recordedGuid={matched?.RecordedVesselGuid ?? "(none)"}); {reason}");
-                    ShipConstruction.RecoverVesselFromFlight(
-                        vessel.protoVessel, HighLogic.CurrentGame.flightState, true);
+                    // Parsek's OWN recovery, not the player's. Stock VesselRecovery archives
+                    // every crew member's flight log and fires onVesselRecoveryProcessing
+                    // unconditionally, so without this guard the P9a experience handler
+                    // credits career XP for a recovery the player never performed.
+                    using (SuppressionGuard.Crew())
+                    {
+                        ShipConstruction.RecoverVesselFromFlight(
+                            vessel.protoVessel, HighLogic.CurrentGame.flightState, true);
+                    }
                     recovered++;
                 }
                 else
@@ -16369,7 +16382,13 @@ namespace Parsek
                         ParsekLog.Info("Flight",
                             $"RecoverTimelineSpawnedVessel: recovering '{vesselName}' pid={rec.SpawnedVesselPersistentId} " +
                             $"guid={vGuid ?? "(none)"} (from recording #{i}) to make room for tree leaf spawn");
-                        ShipConstruction.RecoverVesselFromFlight(vessel.protoVessel, HighLogic.CurrentGame.flightState, true);
+                        // Parsek's OWN recovery — suppress the crew events stock fires from
+                        // VesselRecovery so the P9a experience handler does not credit career
+                        // XP for a recovery the player never performed.
+                        using (SuppressionGuard.Crew())
+                        {
+                            ShipConstruction.RecoverVesselFromFlight(vessel.protoVessel, HighLogic.CurrentGame.flightState, true);
+                        }
                     }
                     else
                     {
@@ -18173,7 +18192,7 @@ namespace Parsek
                     RecordingStore.IsChainLooping(rec.ChainId);
 
                 bool externalVesselSuppressed = GhostPlaybackLogic.ShouldSkipExternalVesselGhost(
-                    rec.TreeId, rec.VesselPersistentId, IsActiveTreeRecording(rec));
+                    rec, IsActiveTreeRecording(rec));
                 // Loop-membership term, mirroring the map side's loopMemberInWindow gate.
                 // Computed here (the later BUG-B dormancy block reuses it) so the Step-2
                 // suppression below can scope itself to loop members only.

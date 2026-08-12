@@ -381,6 +381,142 @@ namespace Parsek.Tests
         }
 
         // ================================================================
+        // ClearRecordingTagForRecording(s) - the retire-time tag re-home
+        // ================================================================
+        //
+        // Why this exists: RecordingId is the tombstone SCOPING KEY at merge
+        // (TombstoneAttributionHelper.InSupersedeScope is bare subtree-id containment
+        // with NO UT guard, and FundsEarning / ScienceEarning are tombstone-eligible).
+        // A row left tagged to a recording that has been retired or discarded can be
+        // swept into a later supersede subtree and its REAL payout tombstoned away.
+        // Clearing the tag keeps the row and its career effect while dropping the dead
+        // attribution - the same shape PreserveIrreversibleLiveGameplayOnDiscard makes.
+
+        [Fact]
+        public void ClearRecordingTagForRecording_KeepsRowsAndDropsOnlyTheTag()
+        {
+            Ledger.AddAction(new GameAction
+            {
+                UT = 150.0,
+                Type = GameActionType.FundsEarning,
+                RecordingId = "rec_retired",
+                FundsAwarded = 12000f,
+                FundsSource = FundsEarningSource.Recovery
+            });
+            Ledger.AddAction(new GameAction
+            {
+                UT = 151.0,
+                Type = GameActionType.ScienceEarning,
+                RecordingId = "rec_retired",
+                ScienceAwarded = 25f
+            });
+            Ledger.AddAction(new GameAction
+            {
+                UT = 152.0,
+                Type = GameActionType.FundsEarning,
+                RecordingId = "rec_other",
+                FundsAwarded = 500f,
+                FundsSource = FundsEarningSource.Recovery
+            });
+
+            int cleared = Ledger.ClearRecordingTagForRecording("rec_retired");
+
+            Assert.Equal(2, cleared);
+            // Rows KEPT - the career effect must survive the re-home.
+            Assert.Equal(3, Ledger.Actions.Count);
+            Assert.Equal(12000f, Ledger.Actions[0].FundsAwarded);
+            Assert.Null(Ledger.Actions[0].RecordingId);
+            Assert.Null(Ledger.Actions[1].RecordingId);
+            // An unrelated recording's tag is untouched.
+            Assert.Equal("rec_other", Ledger.Actions[2].RecordingId);
+
+            Assert.Contains(logLines, l =>
+                l.Contains("[Ledger]")
+                && l.Contains("ClearRecordingTagForRecordings")
+                && l.Contains("cleared=2"));
+        }
+
+        [Fact]
+        public void ClearRecordingTagForRecordings_ClearsAcrossASetOfIds()
+        {
+            // The discard path re-homes a whole attempt subtree at once.
+            Ledger.AddAction(new GameAction
+            {
+                UT = 150.0,
+                Type = GameActionType.FundsEarning,
+                RecordingId = "rec_attempt_a",
+                FundsAwarded = 100f
+            });
+            Ledger.AddAction(new GameAction
+            {
+                UT = 151.0,
+                Type = GameActionType.FundsEarning,
+                RecordingId = "rec_attempt_b",
+                FundsAwarded = 200f
+            });
+            Ledger.AddAction(new GameAction
+            {
+                UT = 152.0,
+                Type = GameActionType.FundsEarning,
+                RecordingId = "rec_keep",
+                FundsAwarded = 300f
+            });
+
+            int cleared = Ledger.ClearRecordingTagForRecordings(
+                new HashSet<string> { "rec_attempt_a", "rec_attempt_b" });
+
+            Assert.Equal(2, cleared);
+            Assert.Equal(3, Ledger.Actions.Count);
+            Assert.Null(Ledger.Actions[0].RecordingId);
+            Assert.Null(Ledger.Actions[1].RecordingId);
+            Assert.Equal("rec_keep", Ledger.Actions[2].RecordingId);
+        }
+
+        [Fact]
+        public void ClearRecordingTagForRecording_UntaggedRowIsOutOfSupersedeScope()
+        {
+            // The POINT of the re-home, asserted against the real scoping predicate: a
+            // cleared row can no longer be pulled into a supersede subtree, so it can no
+            // longer be tombstoned by a subtree that happens to contain the retired id.
+            var action = new GameAction
+            {
+                UT = 150.0,
+                Type = GameActionType.FundsEarning,
+                RecordingId = "rec_retired",
+                FundsAwarded = 12000f,
+                FundsSource = FundsEarningSource.Recovery
+            };
+            Ledger.AddAction(action);
+
+            var subtree = new HashSet<string> { "rec_retired" };
+            Assert.True(TombstoneAttributionHelper.InSupersedeScope(action, subtree));
+
+            Ledger.ClearRecordingTagForRecording("rec_retired");
+
+            Assert.False(TombstoneAttributionHelper.InSupersedeScope(action, subtree));
+        }
+
+        [Fact]
+        public void ClearRecordingTagForRecording_NullOrEmptyOrUnmatchedInputs_AreNoOp()
+        {
+            Ledger.AddAction(new GameAction
+            {
+                UT = 150.0,
+                Type = GameActionType.FundsEarning,
+                RecordingId = "rec_keep",
+                FundsAwarded = 100f
+            });
+
+            Assert.Equal(0, Ledger.ClearRecordingTagForRecording(null));
+            Assert.Equal(0, Ledger.ClearRecordingTagForRecording(""));
+            Assert.Equal(0, Ledger.ClearRecordingTagForRecording("rec_absent"));
+            Assert.Equal(0, Ledger.ClearRecordingTagForRecordings(null));
+            Assert.Equal(0, Ledger.ClearRecordingTagForRecordings(new HashSet<string>()));
+
+            Assert.Equal("rec_keep", Ledger.Actions[0].RecordingId);
+        }
+
+        // ================================================================
         // RetagActionsForRecordingRewrite (#441 round 2 P2)
         // ================================================================
 

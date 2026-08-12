@@ -140,6 +140,7 @@ namespace Parsek
             FaultInjectionPoint = null;
             DurableSaveForTesting = null;
             SaveGameForTesting = null;
+            RecalcAfterMarkerClearedForTesting = null;
         }
 
         /// <summary>
@@ -294,8 +295,7 @@ namespace Parsek
             MaybeInject(Phase.RpReap);
 
             // Step 7: clear marker (§6.6 step 11).
-            scenario.ActiveReFlySessionMarker = null;
-            Parsek.Rendering.RenderSessionState.Clear("marker-cleared");
+            scenario.ClearActiveReFlySessionMarker("marker-cleared");
             scenario.BumpSupersedeStateVersion();
             ReFlyRevertButtonGate.Apply("MergeJournal:marker-cleared");
             // #688 follow-up: drop the captured pre-Re-Fly anchor trajectory
@@ -308,6 +308,7 @@ namespace Parsek
             ParsekLog.Info("ReFlySession",
                 $"End reason=merged sess={sessionId} provisional={provisionalId}");
             AdvancePhase(scenario, MergeJournal.Phases.MarkerCleared);
+            RecalcAfterMarkerCleared(sessionId, "merge-journal-marker-cleared");
             MaybeInject(Phase.MarkerCleared);
 
             AdvancePhase(scenario, MergeJournal.Phases.Durable2Done);
@@ -455,8 +456,7 @@ namespace Parsek
             }
 
             bool hadMarker = scenario.ActiveReFlySessionMarker != null;
-            scenario.ActiveReFlySessionMarker = null;
-            Parsek.Rendering.RenderSessionState.Clear("marker-cleared");
+            scenario.ClearActiveReFlySessionMarker("marker-cleared");
             scenario.ActiveMergeJournal = null;
             scenario.BumpSupersedeStateVersion();
             ReFlyRevertButtonGate.Apply("MergeJournal:rollback");
@@ -613,8 +613,7 @@ namespace Parsek
                     ParsekLog.Info("ReFlySession",
                         $"End reason=merged sess={sessionId} provisional={provisionalId}");
                 }
-                scenario.ActiveReFlySessionMarker = null;
-                Parsek.Rendering.RenderSessionState.Clear("marker-cleared");
+                scenario.ClearActiveReFlySessionMarker("marker-cleared");
                 scenario.BumpSupersedeStateVersion();
                 ReFlyRevertButtonGate.Apply("MergeJournal:complete-marker-cleared");
                 // #688 follow-up: mirror the synchronous-merge cleanup so
@@ -627,6 +626,13 @@ namespace Parsek
 
             if (journal.Phase == MergeJournal.Phases.MarkerCleared)
             {
+                // Same post-marker-clear recalc RunMerge performs, for the same
+                // reason. Idempotent, so a re-entered CompleteFromPostDurable
+                // re-runs it harmlessly (the roster re-assert only ever APPENDS
+                // career-log entries the roster is missing, so a second pass
+                // finds nothing to append). ParsekScenario.OnLoad's own recalc
+                // runs BEFORE RunFinisher, so it cannot stand in for this one.
+                RecalcAfterMarkerCleared(sessionId, "merge-journal-finisher-marker-cleared");
                 AdvancePhase(scenario, MergeJournal.Phases.Durable2Done);
                 DurableSave("finisher-durable2", persistSynchronously: false);
                 stepsDriven++;
@@ -640,6 +646,66 @@ namespace Parsek
         // ------------------------------------------------------------------
         // Helpers.
         // ------------------------------------------------------------------
+
+        /// <summary>
+        /// Recalculates once AFTER the re-fly marker is cleared, on both merge routes.
+        ///
+        /// <para>
+        /// <b>Why the merge path needs its own recalc.</b> The only recalc inside the merge
+        /// runs from <c>SupersedeCommit.CommitTombstones</c> at the Tombstone step, which is
+        /// four phases BEFORE the marker clears. Anything whose apply is gated on "no Re-Fly
+        /// session is active" therefore never lands on a merge: the P9a monotone career-log
+        /// re-assert (<c>KerbalsModule.ReassertCareerLogEntries</c>) defers while the marker
+        /// is armed, deliberately, because a career-log append is irreversible and the
+        /// superseded branch's <c>KerbalExperience</c> rows are still ELS-effective until the
+        /// merge tombstones them. Without a recalc after the clear, the crew keep the XP the
+        /// merge just retired (or lose XP the merge just reinstated) until some unrelated
+        /// event happens to trigger a recalc. The DISCARD path already has this — it clears
+        /// the marker and then recalcs (<c>MergeDialog.ReFlyDiscard</c>) — so this makes the
+        /// two routes symmetric.
+        /// </para>
+        ///
+        /// <para>
+        /// Placed after the <c>MarkerCleared</c> phase advance and BEFORE Durable Save #2, so
+        /// the re-asserted roster is what the save captures. Idempotent under
+        /// <see cref="CompleteFromPostDurable"/>'s re-runs: a recalc re-derives KSP state from
+        /// the current ELS, and the career-log re-assert appends only entries the roster is
+        /// missing.
+        /// </para>
+        /// </summary>
+        private static void RecalcAfterMarkerCleared(string sessionId, string reason)
+        {
+            var hook = RecalcAfterMarkerClearedForTesting;
+            if (hook != null)
+            {
+                hook(reason);
+                return;
+            }
+
+            try
+            {
+                LedgerOrchestrator.RecalculateAndPatchForCurrentTimelineIfFutureActions(
+                    ParsekScenario.GetCurrentTimelineUTForLedgerRecalc(),
+                    reason);
+                ParsekLog.Info(Tag,
+                    $"Post-marker-clear recalc sess={sessionId ?? "<no-id>"} reason={reason}");
+            }
+            catch (Exception ex)
+            {
+                // Non-fatal: the merge itself has already committed and been made
+                // durable. A failed re-derive is repaired by the next recalc.
+                ParsekLog.Warn(Tag,
+                    $"Post-marker-clear recalc threw {ex.GetType().Name}: {ex.Message} " +
+                    $"— sess={sessionId ?? "<no-id>"} reason={reason}; merge stands, " +
+                    "next recalc repairs the derived state");
+            }
+        }
+
+        /// <summary>
+        /// Test seam for <see cref="RecalcAfterMarkerCleared"/>; receives the reason string.
+        /// Null = perform the real recalc.
+        /// </summary>
+        internal static Action<string> RecalcAfterMarkerClearedForTesting;
 
         private static void AdvancePhase(ParsekScenario scenario, string phase)
         {

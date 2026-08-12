@@ -22,6 +22,13 @@ namespace Parsek.Tests
             GameStateRecorder.ResetForTesting();
             RecordingStore.ResetForTesting();
             LedgerOrchestrator.ResetForTesting();
+            // This class exercises PickRecoveryRecordingId (via
+            // ResolveKscScienceRecordingId), which now reads the live Re-Fly marker off
+            // ParsekScenario.Instance. No fixture here creates a NotCommitted recording,
+            // so today the marker is inert for these cells — but owning both ends of that
+            // shared static means a future NotCommitted fixture cannot silently depend on
+            // a sibling test class having cleaned up after itself.
+            ParsekScenario.ResetInstanceForTesting();
         }
 
         public void Dispose()
@@ -32,6 +39,7 @@ namespace Parsek.Tests
             RecordingStore.SuppressLogging = false;
             GameStateRecorder.ResetForTesting();
             GameStateStore.ResetForTesting();
+            ParsekScenario.ResetInstanceForTesting();
             ParsekLog.ResetTestOverrides();
             ParsekLog.SuppressLogging = true;
         }

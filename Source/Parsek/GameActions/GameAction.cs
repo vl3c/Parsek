@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Globalization;
 
@@ -143,7 +143,16 @@ namespace Parsek
         /// row instead. Free-standing like every route row (no <c>RecordingId</c>);
         /// retired at rewind by <c>RouteLedgerRetire</c> alongside types 23-29.
         /// </summary>
-        RouteResumed = 30
+        RouteResumed = 30,
+
+        /// <summary>
+        /// A kerbal's career-log entries were archived by a recovery (design: the P9a
+        /// kerbal-XP facet). Carries <see cref="GameAction.KerbalName"/> and the encoded
+        /// entry set in <see cref="GameAction.KerbalCareerEntries"/>. Explicitly numbered and
+        /// append-only. Not resource-impacting: XP is derived from the career log, not paid
+        /// out of any pool, so it never enters a funds/science/reputation reconciliation.
+        /// </summary>
+        KerbalExperience = 31
     }
 
     /// <summary>How science was collected — transmitted from orbit or recovered on the ground.</summary>
@@ -392,6 +401,13 @@ namespace Parsek
 
         /// <summary>Kerbal's role/class (Pilot/Engineer/Scientist).</summary>
         public string KerbalRole;
+
+        /// <summary>
+        /// Encoded career-log entry set for a <see cref="GameActionType.KerbalExperience"/>
+        /// row: pipe-separated <c>flight,type,target</c> triples (see
+        /// <see cref="KerbalCareerLogEntry.FormatSet"/>). Null on every other action type.
+        /// </summary>
+        public string KerbalCareerEntries;
 
         /// <summary>Mission start UT.</summary>
         public float StartUT;
@@ -750,6 +766,9 @@ namespace Parsek
                 case GameActionType.KerbalStandIn:
                     SerializeKerbalStandIn(node);
                     break;
+                case GameActionType.KerbalExperience:
+                    SerializeKerbalExperience(node);
+                    break;
                 case GameActionType.FacilityUpgrade:
                     SerializeFacilityUpgrade(node);
                     break;
@@ -892,6 +911,9 @@ namespace Parsek
                     break;
                 case GameActionType.KerbalStandIn:
                     DeserializeKerbalStandIn(node, a);
+                    break;
+                case GameActionType.KerbalExperience:
+                    DeserializeKerbalExperience(node, a);
                     break;
                 case GameActionType.FacilityUpgrade:
                     DeserializeFacilityUpgrade(node, a);
@@ -1195,6 +1217,20 @@ namespace Parsek
             a.ReplacesKerbal = n.GetValue("replacesKerbal");
             TryParseFloat(n, "courage", out a.Courage);
             TryParseFloat(n, "stupidity", out a.Stupidity);
+        }
+
+        private void SerializeKerbalExperience(ConfigNode n)
+        {
+            if (KerbalName != null) n.AddValue("kerbalName", KerbalName);
+            if (KerbalRole != null) n.AddValue("kerbalRole", KerbalRole);
+            if (KerbalCareerEntries != null) n.AddValue("careerEntries", KerbalCareerEntries);
+        }
+
+        private static void DeserializeKerbalExperience(ConfigNode n, GameAction a)
+        {
+            a.KerbalName = n.GetValue("kerbalName");
+            a.KerbalRole = n.GetValue("kerbalRole");
+            a.KerbalCareerEntries = n.GetValue("careerEntries");
         }
 
         private void SerializeFacilityUpgrade(ConfigNode n)

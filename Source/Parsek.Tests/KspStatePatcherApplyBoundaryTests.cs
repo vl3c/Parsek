@@ -487,6 +487,156 @@ namespace Parsek.Tests
         }
 
         // ================================================================
+        // ResolveMissingSubjectCreation — the ledger-known / R&D-absent branch
+        // (P10 secondary defect, 2026-08-11)
+        // ================================================================
+
+        [Fact]
+        public void ResolveMissingSubjectCreation_LedgerCreditsSubjectRnDLacks_Creates()
+        {
+            // THE defect this fix closes: a subject first earned AFTER the rewind point by a
+            // branch that SURVIVES the merge is absent from the quicksave-restored R&D table
+            // while the surviving ledger still credits it. Skipping it (the pre-fix notFound
+            // path) lets the player re-earn it at full value and the drawdown guard then makes
+            // the over-award permanent. Fails if the create branch is removed.
+            var d = KspStatePatcher.ResolveMissingSubjectCreation(
+                "surfaceSample@MunSrfLandedEast", hasLedgerState: true,
+                creditedTotal: 18.5, maxValue: 30.0);
+
+            Assert.True(d.ShouldCreate);
+            Assert.Equal("create", d.Reason);
+            Assert.Equal(18.5f, d.TargetScience, 0.0001f);
+            Assert.Equal(30f, d.ScienceCap, 0.0001f);
+        }
+
+        [Fact]
+        public void ResolveMissingSubjectCreation_NoLedgerState_DoesNotCreate()
+        {
+            // A subject id that reached the patch set only via the previously-committed id
+            // list has target 0 — an absent live row already reads as un-earned. Fails if we
+            // start manufacturing empty Science Archive entries the player never earned.
+            var d = KspStatePatcher.ResolveMissingSubjectCreation(
+                "crewReport@KerbinSrfLandedKSC", hasLedgerState: false,
+                creditedTotal: 0.0, maxValue: 5.0);
+
+            Assert.False(d.ShouldCreate);
+            Assert.Equal("no-ledger-state", d.Reason);
+        }
+
+        [Fact]
+        public void ResolveMissingSubjectCreation_ZeroCreditedTotal_DoesNotCreate()
+        {
+            // Present in the ledger but fully retired to zero: same reasoning as above.
+            var d = KspStatePatcher.ResolveMissingSubjectCreation(
+                "crewReport@KerbinSrfLandedKSC", hasLedgerState: true,
+                creditedTotal: 0.0, maxValue: 5.0);
+
+            Assert.False(d.ShouldCreate);
+            Assert.Equal("zero-target", d.Reason);
+        }
+
+        [Fact]
+        public void ResolveMissingSubjectCreation_NegativeCreditedTotal_DoesNotCreate()
+        {
+            var d = KspStatePatcher.ResolveMissingSubjectCreation(
+                "x@y", hasLedgerState: true, creditedTotal: -3.0, maxValue: 5.0);
+
+            Assert.False(d.ShouldCreate);
+            Assert.Equal("zero-target", d.Reason);
+        }
+
+        [Fact]
+        public void ResolveMissingSubjectCreation_NonFiniteTarget_DoesNotCreate()
+        {
+            // NaN/Inf must never reach a ScienceSubject constructor. Fails if the finiteness
+            // guard is dropped — a NaN science value poisons every later Archive read.
+            Assert.False(KspStatePatcher.ResolveMissingSubjectCreation(
+                "x@y", hasLedgerState: true, creditedTotal: double.NaN, maxValue: 5.0).ShouldCreate);
+            Assert.False(KspStatePatcher.ResolveMissingSubjectCreation(
+                "x@y", hasLedgerState: true,
+                creditedTotal: double.PositiveInfinity, maxValue: 5.0).ShouldCreate);
+        }
+
+        [Fact]
+        public void ResolveMissingSubjectCreation_EmptySubjectId_DoesNotCreate()
+        {
+            Assert.False(KspStatePatcher.ResolveMissingSubjectCreation(
+                "", hasLedgerState: true, creditedTotal: 4.0, maxValue: 5.0).ShouldCreate);
+            Assert.False(KspStatePatcher.ResolveMissingSubjectCreation(
+                null, hasLedgerState: true, creditedTotal: 4.0, maxValue: 5.0).ShouldCreate);
+        }
+
+        [Fact]
+        public void ResolveMissingSubjectCreation_CapBelowTarget_RaisesCapToTarget()
+        {
+            // A missing or under-recorded subjectMaxValue must not produce a subject whose
+            // science exceeds its cap — stock's diminishing-returns math would go negative.
+            // Fails if the cap floor is dropped.
+            var d = KspStatePatcher.ResolveMissingSubjectCreation(
+                "x@y", hasLedgerState: true, creditedTotal: 12.0, maxValue: 4.0);
+
+            Assert.True(d.ShouldCreate);
+            Assert.Equal(12f, d.TargetScience, 0.0001f);
+            Assert.Equal(12f, d.ScienceCap, 0.0001f);
+        }
+
+        [Fact]
+        public void ResolveMissingSubjectCreation_NonFiniteCap_FallsBackToTarget()
+        {
+            var d = KspStatePatcher.ResolveMissingSubjectCreation(
+                "x@y", hasLedgerState: true, creditedTotal: 7.0, maxValue: double.NaN);
+
+            Assert.True(d.ShouldCreate);
+            Assert.Equal(7f, d.ScienceCap, 0.0001f);
+        }
+
+        [Fact]
+        public void ResolveMissingSubjectCreation_CreatedSubjectFeedsTheNormalPatchDecision()
+        {
+            // Composition proof: the create branch does NOT write the science itself — it
+            // hands a zero-science row to ResolveSubjectSciencePatch, which writes the target
+            // and the diminishing-returns factor exactly as it would for a pre-existing row.
+            var creation = KspStatePatcher.ResolveMissingSubjectCreation(
+                "x@y", hasLedgerState: true, creditedTotal: 4.0, maxValue: 10.0);
+            Assert.True(creation.ShouldCreate);
+
+            // A freshly constructed ScienceSubject starts at science = 0 (verified against the
+            // decompiled 1.12.5 ctor).
+            var patch = KspStatePatcher.ResolveSubjectSciencePatch(
+                currentScience: 0f, targetScience: creation.TargetScience,
+                scienceCap: creation.ScienceCap);
+
+            Assert.True(patch.ShouldWrite);
+            Assert.Equal(4f, patch.TargetScience, 0.0001f);
+            Assert.Equal(0.6f, patch.ScientificValue, 0.0001f); // 1 - 4/10
+        }
+
+        [Fact]
+        public void EmitScienceSubjectsReflectionWarnOnce_FiresExactlyOncePerSession()
+        {
+            // Mirrors the protoTechNodes one-shot: a broken reflection handle degrades to the
+            // historical skip, and says so once. Fails if the latch is dropped (per-subject
+            // per-recalc WARN spam) or never set (silent degradation).
+            KspStatePatcher.ResetForTesting();
+            logLines.Clear();
+
+            KspStatePatcher.EmitScienceSubjectsReflectionWarnOnce("first-detail-token");
+            KspStatePatcher.EmitScienceSubjectsReflectionWarnOnce("second-detail-token");
+
+            int hits = 0;
+            foreach (var line in logLines)
+            {
+                if (line.Contains("scienceSubjects") && line.Contains("one-shot per session"))
+                    hits++;
+            }
+            Assert.Equal(1, hits);
+            Assert.Contains(logLines, l => l.Contains("first-detail-token"));
+            Assert.DoesNotContain(logLines, l => l.Contains("second-detail-token"));
+
+            KspStatePatcher.ResetForTesting();
+        }
+
+        // ================================================================
         // ClassifyTechNodeForPatch — node-set apply 2x2 (audit gap 2)
         // ================================================================
 

@@ -110,6 +110,9 @@ namespace Parsek
             var heatStates = new Dictionary<ulong, TransientPartState>();
             var parachuteStates = new Dictionary<ulong, TransientPartState>();
             var roboticStates = new Dictionary<ulong, TransientPartState>();
+            var converterStates = new Dictionary<ulong, TransientPartState>();
+            var evaJetpackStates = new Dictionary<ulong, TransientPartState>();
+            var evaRagdollStates = new Dictionary<ulong, TransientPartState>();
 
             for (int i = 0; i < indexedEvents.Count; i++)
             {
@@ -142,6 +145,16 @@ namespace Parsek
                     case PartEventType.DeployableRetracted:
                         deployableStates[key] = BuildTransientState(
                             evt, active: false, value: 0f, seedEventType: PartEventType.DeployableRetracted);
+                        break;
+                    // S6: the PARACHUTE-TRIO pattern. Retracted and Broken are both "panel not
+                    // extended", but they are NOT interchangeable poses — retracted renders a
+                    // folded panel, broken renders NO panel — so the seed carries evt.eventType
+                    // VERBATIM rather than one shared inactive type. `active: false` only routes
+                    // it past the active-direction emitter; AppendReversibleStateSeeds still
+                    // emits it, because DeployableBroken is not an IsPermanentVisualStateEvent.
+                    case PartEventType.DeployableBroken:
+                        deployableStates[key] = BuildTransientState(
+                            evt, active: false, value: 0f, seedEventType: evt.eventType);
                         break;
                     case PartEventType.GearDeployed:
                         gearStates[key] = BuildTransientState(
@@ -210,6 +223,35 @@ namespace Parsek
                     case PartEventType.ParachuteRepacked:
                         parachuteStates[key] = BuildTransientState(
                             evt, active: false, value: 0f, seedEventType: evt.eventType);
+                        break;
+                    case PartEventType.EvaJetpackDeployed:
+                        evaJetpackStates[key] = BuildTransientState(
+                            evt, active: true, value: 0f, seedEventType: PartEventType.EvaJetpackDeployed);
+                        break;
+                    case PartEventType.EvaJetpackStowed:
+                        evaJetpackStates[key] = BuildTransientState(
+                            evt, active: false, value: 0f, seedEventType: PartEventType.EvaJetpackStowed);
+                        break;
+                    case PartEventType.EvaRagdollStarted:
+                        evaRagdollStates[key] = BuildTransientState(
+                            evt, active: true, value: 0f, seedEventType: PartEventType.EvaRagdollStarted);
+                        break;
+                    case PartEventType.EvaRagdollEnded:
+                        evaRagdollStates[key] = BuildTransientState(
+                            evt, active: false, value: 0f, seedEventType: PartEventType.EvaRagdollEnded);
+                        break;
+                    // The THRUST pair follows the RCS RULE and is absent from this reducer on
+                    // purpose: "not thrusting" is the prefab default, so only the ACTIVE direction
+                    // could ever need a seed - and a thrust burst that was still running at a split
+                    // is a momentary input the tail's own next frame re-establishes. See
+                    // AppendActiveStateSeeds' call-site comment for the same argument on heat.
+                    case PartEventType.ConverterActivated:
+                        converterStates[key] = BuildTransientState(
+                            evt, active: true, value: 0f, seedEventType: PartEventType.ConverterActivated);
+                        break;
+                    case PartEventType.ConverterDeactivated:
+                        converterStates[key] = BuildTransientState(
+                            evt, active: false, value: 0f, seedEventType: PartEventType.ConverterDeactivated);
                         break;
                     case PartEventType.RoboticMotionStarted:
                     case PartEventType.RoboticPositionSample:
@@ -310,6 +352,12 @@ namespace Parsek
                 cargoBayStates, seeds, splitUT, ref visualStateOffSeeds);
             visualStateSeeds += AppendReversibleStateSeeds(
                 parachuteStates, seeds, splitUT, ref visualStateOffSeeds);
+            visualStateSeeds += AppendReversibleStateSeeds(
+                converterStates, seeds, splitUT, ref visualStateOffSeeds);
+            visualStateSeeds += AppendReversibleStateSeeds(
+                evaJetpackStates, seeds, splitUT, ref visualStateOffSeeds);
+            visualStateSeeds += AppendReversibleStateSeeds(
+                evaRagdollStates, seeds, splitUT, ref visualStateOffSeeds);
             // Heat stays ACTIVE-ONLY on purpose. The inactive direction here is
             // ThermalAnimationCold, and cold is what the spawn pass already lays down
             // unconditionally (PopulateHeatInfos / step 3a of the loop-cycle re-apply) —
@@ -439,6 +487,9 @@ namespace Parsek
             {
                 case PartEventType.DeployableExtended:
                 case PartEventType.DeployableRetracted:
+                // S6: reversible because stock repair (eventRepairExternal -> DoRepair) takes a
+                // BROKEN panel back to RETRACTED. NOT a permanent state event.
+                case PartEventType.DeployableBroken:
                 case PartEventType.GearDeployed:
                 case PartEventType.GearRetracted:
                 case PartEventType.CargoBayOpened:
@@ -463,6 +514,20 @@ namespace Parsek
                 case PartEventType.RoboticMotionStarted:
                 case PartEventType.RoboticPositionSample:
                 case PartEventType.RoboticMotionStopped:
+                // S7: the converter running loop is a plain reversible on/off pair - a player
+                // toggle. The INACTIVE direction is not redundant: nothing else stops the loop, so
+                // a tail whose head span ended with the drill switched off needs to be told, or the
+                // tail's ghost would spin a drill the recording says is idle.
+                case PartEventType.ConverterActivated:
+                case PartEventType.ConverterDeactivated:
+                // S4: the jetpack POSE and the ragdoll FLAG are both reversible two-state signals,
+                // so both directions seed. The THRUST pair is deliberately absent - it follows the
+                // RCS rule (active-direction only, and even that is momentary), so it is not a
+                // transient VISUAL STATE a tail has to be told about.
+                case PartEventType.EvaJetpackDeployed:
+                case PartEventType.EvaJetpackStowed:
+                case PartEventType.EvaRagdollStarted:
+                case PartEventType.EvaRagdollEnded:
                     return true;
                 default:
                     return false;
@@ -490,6 +555,20 @@ namespace Parsek
             {
                 case PartEventType.DeployableExtended:
                 case PartEventType.DeployableRetracted:
+                // S6: BROKEN joins the deployable family rather than getting its own, so the
+                // reducer collapses a per-part run of extend/retract/break to its LAST state
+                // and the boundary dedupe treats all three as one opinion about one pivot.
+                //
+                // INHERITED LIMITATION, worth naming because BROKEN makes it more visible: this
+                // family is PID-COLLAPSED (TransientVisualStateKey), and ladders, animation groups
+                // and aero/control surfaces all speak DeployableExtended/Retracted under the same
+                // pid. On a part combining a breakable ModuleDeployablePart with one of those - mod
+                // parts only; no stock part does it - a head-span DeployableBroken can be overwritten
+                // by a later same-pid DeployableExtended from the OTHER module, and the tail seeds an
+                // intact panel. Pre-existing for extend/retract (a folded ladder could already lose
+                // to an extended panel); fixing it means module-scoping the whole family's key, which
+                // is a change to five event types' storage, not to this member.
+                case PartEventType.DeployableBroken:
                     return 3;
                 case PartEventType.GearDeployed:
                 case PartEventType.GearRetracted:
@@ -518,6 +597,15 @@ namespace Parsek
                 case PartEventType.RoboticPositionSample:
                 case PartEventType.RoboticMotionStopped:
                     return 10;
+                case PartEventType.ConverterActivated:
+                case PartEventType.ConverterDeactivated:
+                    return 11;
+                case PartEventType.EvaJetpackDeployed:
+                case PartEventType.EvaJetpackStowed:
+                    return 12;
+                case PartEventType.EvaRagdollStarted:
+                case PartEventType.EvaRagdollEnded:
+                    return 13;
                 default:
                     return 0;
             }

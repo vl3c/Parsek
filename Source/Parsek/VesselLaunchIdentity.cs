@@ -105,6 +105,34 @@ namespace Parsek
         }
 
         /// <summary>
+        /// True only when a live vessel is POSITIVELY the recording's launch: pid equal AND both
+        /// launch Guids known AND equal. This is the NON-degrading sibling of
+        /// <see cref="LiveVesselIsRecordedLaunch"/>: it does not fall back to pid-only on an
+        /// unknown Guid.
+        ///
+        /// <para>
+        /// Which one a site wants is decided by WHICH DIRECTION the unknown-Guid fallback moves
+        /// behavior. Where pid-only is what the code did before Guids existed, the degrading
+        /// predicate preserves it. Where the pre-Guid behavior was to leave the vessel/action
+        /// ALONE, degrading to pid-only is a destructive change of direction and this predicate
+        /// is the correct gate — the #15 resurrection-retirement classifier
+        /// (<see cref="ResurrectionRetirementEligibility.IsPositivelySameLaunch"/>, which
+        /// delegates here) and the Re-Fly disabled-slot strip's source arm are both that shape.
+        /// </para>
+        /// </summary>
+        internal static bool LiveVesselIsPositivelyRecordedLaunch(
+            Recording rec, uint livePid, string liveGuid)
+        {
+            if (rec == null || livePid == 0) return false;
+            if (rec.VesselPersistentId == 0 || rec.VesselPersistentId != livePid) return false;
+
+            string recGuid = NormalizeGuid(rec.RecordedVesselGuid);
+            string live = NormalizeGuid(liveGuid);
+            if (recGuid == null || live == null) return false;
+            return string.Equals(recGuid, live, StringComparison.OrdinalIgnoreCase);
+        }
+
+        /// <summary>
         /// True when a candidate vessel is the SAME launch as a recording — its recorded SOURCE
         /// vessel (when <paramref name="matchSource"/>, via <see cref="LiveVesselIsRecordedLaunch"/>)
         /// and/or its spawn/adoption endpoint (when <paramref name="matchSpawn"/>, via

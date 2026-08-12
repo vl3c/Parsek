@@ -45,6 +45,21 @@ namespace Parsek
         bool TryGetRotationAngleDegrees(string fieldName, out float angleDegrees);
 
         /// <summary>
+        /// The module's <c>IScalarModule.GetScalar</c>, when it implements that interface.
+        /// <para>
+        /// This is the one accessor in the family that is NOT name-keyed, and it exists because
+        /// <c>ModuleAnimateHeat</c> cannot be reached any other way: its live scalars
+        /// (<c>animState</c> / <c>inputState</c>, both declared on <c>ModuleAnimationSetter</c>) are
+        /// plain public fields carrying NO <c>[KSPField]</c> attribute, so they are absent from
+        /// <c>module.Fields</c> and no addition to a probe name table can find them. The interface
+        /// property is the accessor KSP itself uses, and <c>ModuleAnimationSetter</c> implements it
+        /// as <c>GetScalar =&gt; inputState</c> — the 0..1 heat ratio
+        /// <c>ModuleAnimateHeat.UpdateHeatEffect</c> writes through <c>SetScalar</c> every frame.
+        /// </para>
+        /// </summary>
+        bool TryGetScalarModuleScalar(out float scalar);
+
+        /// <summary>
         /// Aggregated deploy/retract UI-event availability under the given keyword vocabulary:
         /// whether any such event exists at all, and whether any matching one is currently active.
         /// </summary>
@@ -102,6 +117,11 @@ namespace Parsek
                     return false;
                 angleDegrees = Quaternion.Angle(Quaternion.identity, rot);
                 return true;
+            }
+
+            public bool TryGetScalarModuleScalar(out float scalar)
+            {
+                return TryReadScalarModuleScalar(module, out scalar);
             }
 
             public void ReadDeployRetractEventActivity(
@@ -163,6 +183,11 @@ namespace Parsek
                 return true;
             }
 
+            public bool TryGetScalarModuleScalar(out float scalar)
+            {
+                return TryReadScalarModuleScalar(module, out scalar);
+            }
+
             public void ReadDeployRetractEventActivity(
                 DeployEventKeywordSet keywordSet,
                 out bool sawDeployEvent, out bool sawRetractEvent,
@@ -171,6 +196,34 @@ namespace Parsek
                 ReadModuleDeployRetractEventActivity(
                     module, keywordSet,
                     out sawDeployEvent, out sawRetractEvent, out canDeploy, out canRetract);
+            }
+        }
+
+        /// <summary>
+        /// The typed half of the <c>IScalarModule</c> accessor. One cast, no name table: see the
+        /// contract on <see cref="IModuleFieldValues.TryGetScalarModuleScalar"/> for why
+        /// <c>ModuleAnimateHeat</c> is unreachable by name.
+        /// </summary>
+        private static bool TryReadScalarModuleScalar(PartModule module, out float scalar)
+        {
+            scalar = 0f;
+            if (module == null) return false;
+
+            var scalarModule = module as IScalarModule;
+            if (scalarModule == null) return false;
+
+            try
+            {
+                float value = scalarModule.GetScalar;
+                if (float.IsNaN(value) || float.IsInfinity(value)) return false;
+                scalar = value;
+                return true;
+            }
+            catch (Exception ex)
+            {
+                ParsekLog.VerboseRateLimited("Recorder", "scalar-module-getscalar",
+                    $"IScalarModule.GetScalar threw on {module.GetType().Name}: {ex.Message}");
+                return false;
             }
         }
 
@@ -235,8 +288,25 @@ namespace Parsek
             "retracted"
         };
 
+        /// <summary>
+        /// Deployed-family bools for <c>ModuleAeroSurface</c> / <c>ModuleControlSurface</c>.
+        ///
+        /// <para>
+        /// <c>deploy</c> leads and is the ONLY entry that exists on a stock part. Decompiled
+        /// (KSP 1.12.5), <c>ModuleControlSurface</c> declares
+        /// <c>[KSPField(isPersistant = true, guiActive = true, ...)] public bool deploy;</c> and
+        /// <c>ModuleAeroSurface : ModuleControlSurface</c> inherits it (its <c>OnAwake</c> seeds
+        /// <c>deployInvert = brakeDeployInvert</c> and its action group toggles <c>deploy</c>).
+        /// Neither type declares any of the other eight names, and neither declares a deploy or
+        /// retract <c>[KSPEvent]</c> — they expose <c>[KSPAction]</c>s only, which
+        /// <c>module.Events</c> never sees. So before <c>deploy</c> was added the event stage found
+        /// nothing, both bool stages found nothing and the deflection stage found nothing: every
+        /// airbrake and every deployed flap on every stock craft recorded NOTHING.
+        /// </para>
+        /// </summary>
         internal static readonly string[] AeroSurfaceDeployedFieldNames =
         {
+            "deploy",
             "isDeployed",
             "deployed",
             "isExtended",
@@ -246,6 +316,39 @@ namespace Parsek
             "isActivated",
             "active"
         };
+
+        /// <summary>
+        /// The commanded deploy ANGLE, probed only to veto a <c>deploy == true</c> that produces no
+        /// visible movement.
+        ///
+        /// <para>
+        /// Deliberately NOT folded into <see cref="AeroSurfaceDeflectionFieldNames"/>, and the
+        /// distinction is load-bearing. That list means "a non-zero magnitude here proves the
+        /// surface is deployed". <c>deployAngle</c> does not mean that: it is a
+        /// <c>[KSPAxisField]</c> TWEAKABLE — the angle the surface will travel to WHEN deployed —
+        /// and <c>ModuleControlSurface.OnStart</c> resolves its <c>float.NaN</c> default to
+        /// <c>ctrlSurfaceRange</c> (15-20 deg on stock parts). Putting it in the deflection list
+        /// would classify every control surface in the game as permanently deployed.
+        /// </para>
+        /// <para>
+        /// <c>aeroDeployAngle</c> leads because <c>ModuleAeroSurface</c> declares its own axis field
+        /// and switches the inherited <c>deployAngle</c> off in the UI
+        /// (<c>Fields["deployAngle"].guiActive = false</c>, <c>(… as BaseAxisField).active = false</c>)
+        /// while reading <c>aeroDeployAngle</c> for its actual deflection. An airbrake has BOTH
+        /// fields present in <c>module.Fields</c>, so the order decides which one is believed.
+        /// </para>
+        /// </summary>
+        internal static readonly string[] AeroSurfaceDeployAngleFieldNames =
+        {
+            "aeroDeployAngle",
+            "deployAngle"
+        };
+
+        /// <summary>
+        /// Below this many degrees a deployed control surface has no visible deflection, so the
+        /// ghost renders it stowed rather than carrying a deploy the viewer cannot see.
+        /// </summary>
+        internal const float AeroSurfaceVisibleDeployAngleDegrees = 0.5f;
 
         internal static readonly string[] AeroSurfaceRetractedFieldNames =
         {
@@ -610,8 +713,17 @@ namespace Parsek
         /// <summary>
         /// Pure interpretation half of <see cref="TryClassifyAeroSurfaceState"/> (and of
         /// <see cref="TryClassifyControlSurfaceState"/>, which shares the same contract).
-        /// Order: event activity, deployed-family bools, retracted-family bools, then the first
-        /// finite deflection scalar (a non-finite candidate is skipped, not read as zero).
+        /// Order: event activity, deployed-family bools (now led by the real stock field
+        /// <c>deploy</c>), retracted-family bools, then the first finite deflection scalar (a
+        /// non-finite candidate is skipped, not read as zero).
+        ///
+        /// <para>
+        /// One refinement sits on the bool stage: a surface whose <c>deploy</c> is on but whose
+        /// commanded deploy angle is ~0 is reported RETRACTED, because it does not move and a
+        /// DeployableExtended event for it would put a visual change in the recording that the
+        /// viewer never sees. See <see cref="AeroSurfaceDeployAngleFieldNames"/> for why the angle
+        /// is a veto rather than a deflection signal.
+        /// </para>
         /// </summary>
         internal static bool TryClassifyAeroSurfaceStateFromFieldValues<TFields>(
             TFields fields, out bool isDeployed, out bool isRetracted)
@@ -627,7 +739,14 @@ namespace Parsek
             if (TryClassifyFromDeployedRetractedFields(
                 fields, AeroSurfaceDeployedFieldNames, AeroSurfaceRetractedFieldNames,
                 out isDeployed, out isRetracted))
+            {
+                if (isDeployed && AeroSurfaceDeployAngleIsInvisible(fields))
+                {
+                    isDeployed = false;
+                    isRetracted = true;
+                }
                 return true;
+            }
 
             for (int i = 0; i < AeroSurfaceDeflectionFieldNames.Length; i++)
             {
@@ -648,9 +767,55 @@ namespace Parsek
         }
 
         /// <summary>
+        /// True when the module exposes a commanded deploy angle and it is effectively zero, i.e.
+        /// deploying it moves nothing. A module with no such field (or a non-finite one — a
+        /// <c>deployAngle</c> read before <c>OnStart</c> resolves it is <c>float.NaN</c>) reports
+        /// false, so the veto only ever fires on a positively-measured zero.
+        /// </summary>
+        internal static bool AeroSurfaceDeployAngleIsInvisible<TFields>(TFields fields)
+            where TFields : IModuleFieldValues
+        {
+            for (int i = 0; i < AeroSurfaceDeployAngleFieldNames.Length; i++)
+            {
+                if (!fields.TryGetFloat(AeroSurfaceDeployAngleFieldNames[i], out float angle))
+                    continue;
+                if (float.IsNaN(angle) || float.IsInfinity(angle))
+                    continue;
+
+                return Math.Abs(angle) < AeroSurfaceVisibleDeployAngleDegrees;
+            }
+
+            return false;
+        }
+
+        /// <summary>
         /// Pure interpretation half of <see cref="TryClassifyRobotArmScannerState"/>.
         /// Order: event activity, deployed-family bools, retracted-family bools, then animTime
         /// endpoints (mid-travel and non-finite animTime both leave the state unclassified).
+        ///
+        /// <para>
+        /// DELIBERATELY LEFT AS-IS by the S5 dead-probe pass, and the reason is not "we ran out of
+        /// names" — it is that the audit's premise was wrong here. Three decompiled facts
+        /// (KSP 1.12.5, <c>Expansions.Serenity.ModuleRobotArmScanner</c>):
+        /// </para>
+        /// <list type="number">
+        /// <item><description>The probe is NOT dead. <c>ModuleRobotArmScanner : ModuleDeployablePart</c>,
+        /// which declares <c>[KSPEvent] Extend()</c> and <c>[KSPEvent] Retract()</c>, and the
+        /// scanner actively toggles their availability (<c>Events["Extend"].active = true/false</c>,
+        /// <c>Events["Retract"].active = false</c>). <c>BaseEvent.name</c> is the method name, so
+        /// the stage-1 keyword match on "extend"/"retract" resolves and the mutually-exclusive
+        /// availability rule classifies the arm.</description></item>
+        /// <item><description>None of the ten deployed-family names below exists on it, and no name
+        /// COULD: the live <c>ArmDeployState</c> sits behind a <c>new</c> property over a private,
+        /// unattributed <c>_deployState</c> field, so it is not in <c>module.Fields</c> at all.</description></item>
+        /// <item><description>Adding an accessor would be REDUNDANT and actively harmful. The
+        /// scanner's <c>deployState</c> setter mirrors every arm state onto the base
+        /// <c>ModuleDeployablePart.deployState</c> (UNPACKING/EXTENDING → EXTENDING, SCANNING →
+        /// EXTENDED, RETRACTING/PACKING → RETRACTING, BROKEN → BROKEN), and Parsek's
+        /// <c>CheckDeployableState</c> / <c>PartStateSeeder.SeedDeployables</c> already poll every
+        /// <c>ModuleDeployablePart</c> on the vessel. A second signal would emit a duplicate
+        /// DeployableExtended for the same physical motion under a different key.</description></item>
+        /// </list>
         /// </summary>
         internal static bool TryClassifyRobotArmScannerStateFromFieldValues<TFields>(
             TFields fields, out bool isDeployed, out bool isRetracted)
@@ -681,9 +846,31 @@ namespace Parsek
             return false;
         }
 
+        /// <summary>The <see cref="AnimateHeatScalarModuleSourceField"/> marker reported when the
+        /// heat level came from the typed <c>IScalarModule</c> accessor rather than a named field.</summary>
+        internal const string AnimateHeatScalarModuleSourceField = "IScalarModule.GetScalar";
+
         /// <summary>
-        /// Pure interpretation half of <see cref="TryClassifyAnimateHeatState"/>: takes the first
-        /// candidate field that resolves to a finite scalar and normalizes it to 0..1.
+        /// Pure interpretation half of <see cref="TryClassifyAnimateHeatState"/>: the typed
+        /// <c>IScalarModule</c> accessor first, then the first candidate field that resolves to a
+        /// finite scalar, normalized to 0..1.
+        ///
+        /// <para>
+        /// The interface accessor leads because it is the ONLY thing that works on a stock part.
+        /// <c>ModuleAnimateHeat</c> extends <c>ModuleAnimationSetter</c>, whose live scalars
+        /// <c>animState</c> and <c>inputState</c> are plain public fields with NO attribute, so
+        /// <c>module.Fields</c> — which is <c>[KSPField]</c>-only — cannot see them, and none of
+        /// the eight candidate names below exists on any stock part. The whole reentry-glow
+        /// recorder and its already-built Hot / Medium / Cold playback path have therefore been
+        /// inert on every stock heat shield since they shipped. <c>ModuleAnimationSetter</c>
+        /// implements <c>GetScalar =&gt; inputState</c>, and <c>UpdateHeatEffect</c> writes that
+        /// through <c>SetScalar</c> every frame as the already-normalized 0..1 temperature ratio —
+        /// which is exactly what this classifier's contract wants.
+        /// </para>
+        /// <para>
+        /// The name table is kept beneath it for modded heat-animation modules that expose a
+        /// <c>[KSPField]</c> instead of implementing the interface.
+        /// </para>
         /// </summary>
         internal static bool TryClassifyAnimateHeatFromFieldValues<TFields>(
             TFields fields, out float normalizedHeat, out string sourceField)
@@ -691,6 +878,14 @@ namespace Parsek
         {
             normalizedHeat = 0f;
             sourceField = null;
+
+            if (fields.TryGetScalarModuleScalar(out float scalar)
+                && !float.IsNaN(scalar) && !float.IsInfinity(scalar))
+            {
+                normalizedHeat = NormalizeAnimateHeatScalar(scalar);
+                sourceField = AnimateHeatScalarModuleSourceField;
+                return true;
+            }
 
             for (int i = 0; i < AnimateHeatCandidateFieldNames.Length; i++)
             {
@@ -723,10 +918,21 @@ namespace Parsek
         /// and the position deadband that suits that quantity (suspension travel is finer-grained
         /// than steering degrees, which is finer-grained than motor RPM).
         /// </summary>
+        /// <summary>
+        /// Suspension travel candidates. <c>suspensionOffset</c> was REMOVED: decompiled,
+        /// <c>ModuleWheels.ModuleWheelSuspension</c> declares it as a plain <c>[KSPField]</c> read
+        /// exactly once, in <c>OnStart</c>, to configure the wheel collider
+        /// (<c>wheel.wheelCollider.suspensionOffset = suspensionOffset * part.rescaleFactor</c>).
+        /// It is a config CONSTANT that never moves, and because it resolved, it shadowed the
+        /// working <c>suspensionPos</c> vector fallback below — the only live signal on the module,
+        /// a <c>[KSPField(isPersistant = true)] Vector3</c> assigned from
+        /// <c>suspensionTransform.localPosition</c> as the wheel compresses. None of the remaining
+        /// names exists on a stock part, so a stock rover now falls straight through to
+        /// <c>suspensionPos</c> and records real suspension travel for the first time.
+        /// </summary>
         private static readonly string[] WheelSuspensionScalarFieldNames =
         {
             "currentSuspensionOffset",
-            "suspensionOffset",
             "compression",
             "suspensionCompression",
             "suspensionTravel"
@@ -816,12 +1022,37 @@ namespace Parsek
         /// metres (linear deadband); hinges, rotation servos and rotors are angular.
         /// Wheel module names are dispatched away before this is reached.
         /// </summary>
+        /// <summary>
+        /// Piston stroke candidates, reordered after decompiling
+        /// <c>Expansions.Serenity.ModuleRoboticServoPiston</c> (KSP 1.12.5).
+        ///
+        /// <para>
+        /// <c>currentExtension</c> leads and is the correct live signal: it is a
+        /// <c>[KSPField(guiActive = true, guiUnits = "m")] public float</c> recomputed from the
+        /// actual transform geometry
+        /// (<c>currentExtension = Vector3.Dot(… ) + driveTargetPosition</c>), so it sweeps
+        /// continuously through a stroke. <c>targetExtension</c> follows it as the commanded
+        /// setpoint — a <c>[KSPAxisField(isPersistant = true)]</c> that STEPS rather than sweeping,
+        /// but is the right answer for a module that somehow lacks the live one, and is also the
+        /// only one of the two that a saved craft carries (which is why the snapshot-side ghost
+        /// baseline reads <c>targetExtension</c> and this live probe reads <c>currentExtension</c>:
+        /// the divergence is deliberate and follows from which field is persistent).
+        /// </para>
+        /// <para>
+        /// Two names were REMOVED. <c>targetPosition</c> is <c>private float</c> with no attribute,
+        /// so <c>module.Fields</c> can never see it — it was never reachable. <c>traverseVelocity</c>
+        /// IS reachable, and that was the bug: a <c>[KSPAxisField]</c> SPEED SLIDER (m/s, 0.05-5)
+        /// that is constant for the whole stroke. It resolved first, so every piston recorded its
+        /// speed setting as though it were a pose, and the working <c>servoTransformPosition</c>
+        /// transform fallback below was never reached.
+        /// </para>
+        /// </summary>
         private static readonly string[] RoboticPistonScalarFieldNames =
         {
+            "currentExtension",
+            "targetExtension",
             "currentPosition",
-            "position",
-            "targetPosition",
-            "traverseVelocity"
+            "position"
         };
 
         private static readonly string[] RoboticRotorScalarFieldNames =

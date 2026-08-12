@@ -1,4 +1,4 @@
-using System.Collections.Generic;
+﻿using System.Collections.Generic;
 using System.Globalization;
 using Parsek.InGameTests.Helpers;
 using UnityEngine;
@@ -298,6 +298,11 @@ namespace Parsek.InGameTests
             // Recovery credits (vessel facet input).
             recon.RecoveryCredits = ScanRecoveryCredits();
 
+            // Per-kerbal career-log entries (P9a, report-only KerbalXp facet). Read off the
+            // module accumulator, which is rebuilt from the ELS walk on every recalc.
+            if (LedgerOrchestrator.Kerbals != null)
+                recon.KerbalCareerLog = LedgerOrchestrator.Kerbals.SnapshotCareerEntries();
+
             ParsekLog.Verbose(Tag,
                 $"BuildReconstructionSnapshot: funds={recon.Funds.ToString("R", IC)} " +
                 $"science={recon.SciencePool.ToString("R", IC)} rep={recon.Reputation.ToString("R", IC)} " +
@@ -305,7 +310,8 @@ namespace Parsek.InGameTests
                 $"facilities={recon.FacilityLevel.Count.ToString(IC)} " +
                 $"activeContracts={recon.ActiveContractGuids.Count.ToString(IC)} " +
                 $"creditedMilestones={recon.CreditedMilestoneIds.Count.ToString(IC)} " +
-                $"recoveryCredits={recon.RecoveryCredits.Count.ToString(IC)}");
+                $"recoveryCredits={recon.RecoveryCredits.Count.ToString(IC)} " +
+                $"kerbalCareerLogs={recon.KerbalCareerLog.Count.ToString(IC)}");
 
             return recon;
         }

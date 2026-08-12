@@ -2755,6 +2755,14 @@ class IngameBatchWiringGroupTests(unittest.TestCase):
         # (Flown as `H33-logistics-route-proof`; renamed H35 post-merge for the
         # same collision.)
         "H35-logistics-route-proof": ("Logistics", 47, "FLIGHT"),
+        # P5/P6's live half. Flown twice (PARSEK-FAIL 5/7 on two product defects,
+        # then PASS 7/7 after both fixes), so its tally is now pinned WHOLE and it
+        # has left INTERIM_PIN_IDS - see that set's comment for the measurement.
+        "H36-playback-fidelity":     ("PlaybackFidelity", 7, "FLIGHT"),
+        # P8's live half. LIVE-PROVEN 2026-08-12 on the re-fly (`total=5 passed=5 failed=0
+        # skipped=0`) after a first flight that red 3/5 on one product defect and one
+        # fixture bug; the pin is whole and the id has left INTERIM_PIN_IDS.
+        "H37-part-event-fidelity":   ("PartEventFidelity", 5, "FLIGHT"),
     }
 
     # Declared MEASURED run-time skips per member: InGameAssert.Skip firings the
@@ -2835,7 +2843,7 @@ class IngameBatchWiringGroupTests(unittest.TestCase):
     # satisfied.
     # EMPTY, and that is the healthy state: an interim pin is a temporary weakening
     # (the form accepts 1-of-N by design), so it should exist only between a spec
-    # landing and its first flight. Two members passed through it and both are gone:
+    # landing and its first PASSING flight. Three members passed through it, all gone:
     #
     #   H32-snapshot-baseline FLEW 2026-08-11 (run `2026-08-11_1111`, PASS) reading
     #   `total=7 passed=7 failed=0 skipped=0`. BOTH pre-flight reasons for leaving it
@@ -2854,8 +2862,47 @@ class IngameBatchWiringGroupTests(unittest.TestCase):
     #   body-relative surface normal, and a spin axis not parallel to it) - so no
     #   RUNTIME_SKIPS entry is owed for either.
     #
-    # Both specs now pin their tallies whole, so the set is empty again.
-    INTERIM_PIN_IDS = set()
+    #   H36-playback-fidelity took TWO flights. EVERY one of its seven cells carries a
+    #   run-time InGameAssert.Skip keyed on what the provisioned install loaded and on
+    #   what the ghost builder resolved (an engine whose FX clone yields a captured
+    #   magnitude baseline, an RCS block ditto, a deployable whose sampled poses
+    #   differ, a resolvable ModuleGimbal / ModuleWheelSteering transform, a tracking
+    #   pivot), so no attribute predicted the split. The first flight (2026-08-11, run
+    #   `2026-08-12_0015`) was PARSEK-FAIL 5/7 on two PRODUCT defects, NOT on any of
+    #   those guards - which is worth recording, because a red is not a measurement and
+    #   the id stayed interim through it. The RE-FLY after both fixes (2026-08-12, run
+    #   `2026-08-11_2211`, PASS attempt 1) read `total=7 passed=7 failed=0 skipped=0`:
+    #   all seven guards were satisfied on stock-minimal, so no RUNTIME_SKIPS entry is
+    #   owed and the pin is now whole.
+    #
+    #   H37-part-event-fidelity (P8) also took TWO flights, and its first one is the
+    #   sharpest illustration yet of why this set exists. All five cells carry a run-time
+    #   InGameAssert.Skip keyed on what the install loaded AND on what the ghost builder
+    #   resolved, so no attribute predicted the split. The FIRST flight (2026-08-12) read
+    #   `total=5 passed=3 failed=1 skipped=1`, and NEITHER non-green cell was a fixture
+    #   shortfall of the kind the loose pin was hedging against:
+    #     * the RED was a PRODUCT defect - ParticleSystem.Play() on a ghost that is not
+    #       activeInHierarchy is a SILENT no-op, and a ghost is inactive for the whole of
+    #       its spawn-time prefix replay, so an EVA ghost spawning mid-burst stayed dark
+    #       for the entire burst while the log claimed it was emitting; and
+    #     * the SKIP was a FIXTURE BUG, not an install property - the cell's precondition
+    #       tested POSITION only while a science canister's Deploy clip swings its doors,
+    #       so it was blind to the one motion the part has. The re-fly measured
+    #       `span(pos=0 rot=29.99998)` on mk2LanderCabin.v2: a literally ZERO position
+    #       span, which is the diagnosis in one number.
+    #   THE LESSON, which is the durable part: a loose `passed=` hedges against the
+    #   install, but the things it actually caught here were a product bug and a test bug.
+    #   Do not read a non-green interim flight as "the profile lacks X" - measure which of
+    #   the three it is. The RE-FLY after both fixes (2026-08-12, PASS attempt 1) read
+    #   `total=5 passed=5 failed=0 skipped=0`, every verifier green (analyzer red=0,
+    #   anomalySweep hits=[], expectations mismatches=0, unityExceptions 0), so all five
+    #   guards were satisfied on stock-minimal, no RUNTIME_SKIPS entry is owed, and the pin
+    #   is now whole.
+    #
+    # All four specs now pin their tallies whole, so the set is empty again. It must stay a
+    # `set()` call rather than a `{}` literal, which would be an empty DICT - the two
+    # membership cells below would then answer False for every id and pass vacuously.
+    INTERIM_PIN_IDS: set = set()
 
     # Every committed spec whose id matches this is an H-SERIES batch spec.
     # Membership is DISCOVERED from disk and then compared for set equality against
@@ -2900,8 +2947,8 @@ class IngameBatchWiringGroupTests(unittest.TestCase):
         # cell below cannot catch either, because it compares two sets that shrink
         # together. Same shape as CommittedBatchTallySourceSyncTests's
         # test_the_source_tree_is_actually_readable.
-        self.assertEqual(28, len(self.GROUP),
-                         "the H7-H20 + H22-H35 group is 28 specs; if it genuinely changed "
+        self.assertEqual(30, len(self.GROUP),
+                         "the H7-H20 + H22-H37 group is 30 specs; if it genuinely changed "
                          "size, update this floor AND the counts in "
                          "docs/dev/autotest-ingame-category-inventory.md and "
                          "docs/dev/autotest-status.md in the same commit")
@@ -4720,28 +4767,7 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
                                        "reset need a career fixture the sandbox host lacks; the "
                                        "self-authored RewindPoint needs a multi-controllable "
                                        "split plus a seam channel. No unattended run discharges them.",
-        # Landed UNFLOWN with the world-preservation coverage wave. The tag is here on
-        # S4.1's OWN stated rule, quoted verbatim from its tier note: "The
-        # pending-operator TAG stays until that first green run; the tag alone is
-        # non-gating." The original derivation debt is PAID: run 2026-08-11_1057 flew,
-        # the batch line matched the derived tally token for token, and the pin is
-        # re-stamped MEASURED. The entry's old drop rule ("when the tally is re-pinned
-        # from a measured line") is deliberately NOT taken, because S4.1's quoted rule
-        # is "until that first GREEN run" and that run classified
-        # PARSEK-FAIL(expectations) on the AppendRelations token - the standing
-        # RED-BY-FINDING (REFLY-CONCLUSION-SKIPS-APPENDRELATIONS). What the operator
-        # still owes: the standing-red disposition (fix the finding, or set
-        # [expectedFail] bugId to quiet nightlies) and the save-structure arming
-        # decision the spec deliberately leaves report-only. DROP THIS ENTRY on the
-        # first green run after the finding is resolved.
-        "S4.2-refly-world-preservation.toml":
-                                       "flown RED-BY-FINDING 2026-08-11: tally measured (matched "
-                                       "the derivation token for token) but the run classified "
-                                       "PARSEK-FAIL on REFLY-CONCLUSION-SKIPS-APPENDRELATIONS, "
-                                       "so the tag stays until the first green run. Operator "
-                                       "owes the standing-red disposition + the report-only "
-                                       "arming decision. NOT tier=operator: a nightly spec can "
-                                       "owe operator work, exactly as S1.5 and EVA-1 do.",
+        # S4.2-refly-world-preservation DROPPED 2026-08-12 - see DROPPED_2026_08_12.
     }
 
     # Untagged specs that are CANDIDATES - they MENTION the token, or they are
@@ -4969,8 +4995,21 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
         "L1-upgrade-facility-career.toml",    # proven live at -150,000, hardDivergences=0
     )
 
+    # The 2026-08-12 drop, on the entry's OWN written rule ("DROP THIS ENTRY on that
+    # green run") and S4.1's quoted rule that the tag "stays until that first green
+    # run". Discharged by run `2026-08-11_2111` attempt 2 (PASS, wall 62 s): the three
+    # post-fix conclusion tokens the entry was still holding for
+    # (`outcome=retired-empty-provisional`, `AppendRelations
+    # outcome=refused-unflown-provisional`, `outcome=concluded-no-supersede`) all fired
+    # verbatim, both pre-fix `forbidden` cascade lines stayed absent, and expectations
+    # read mismatches=0. Attempt 1 was INVALID(driver, seam-timeout) and is recorded as
+    # a driver flake in the spec header - an INVALID is not a failed green run.
+    DROPPED_2026_08_12 = (
+        "S4.2-refly-world-preservation.toml",  # own rule: "DROP THIS ENTRY on that green run"
+    )
+
     def test_the_specs_promoted_out_stay_out(self):
-        for name in self.DROPPED_2026_07_31:
+        for name in self.DROPPED_2026_07_31 + self.DROPPED_2026_08_12:
             tags = load_spec(name).get("tags") or []
             self.assertNotIn("pending-operator", tags,
                              "%s was live-proven and owes no operator work" % name)
@@ -5487,8 +5526,10 @@ class IngameCategoryInventoryDocTests(unittest.TestCase):
         # table cannot self-check (a row added AND the totals line updated by hand
         # would agree with each other while both drifted from the source). 99 -> 100
         # with the `ReFlyWorldPreservation` category (S4.2), 100 -> 101 with
-        # `RecordedSignals` (H33), 101 -> 102 with `SnapshotBaseline` (H32).
-        self.assertIn("**102 categories / %d declarations**" % stated_decls, body,
+        # `RecordedSignals` (H33), 101 -> 102 with `SnapshotBaseline` (H32),
+        # 102 -> 103 with `PlaybackFidelity` (H36), 103 -> 104 with
+        # `PartEventFidelity` (H37).
+        self.assertIn("**104 categories / %d declarations**" % stated_decls, body,
                       "the triage totals line disagrees with the table it summarises "
                       "(table sums to %d declarations across %d categories)"
                       % (stated_decls, len(self.rows)))

@@ -248,6 +248,20 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void ComposeAdvisoryBody_StatesThatRecoveredCraftComeBackAndGiveTheirRewardsUp()
+        {
+            // #15: the rewind resurrects craft the player had already recovered, and the
+            // matching recovery funds/science/crew rows are retired at invoke. That is a
+            // funds-visible consequence, so the player has to be told BEFORE they confirm.
+            // Fails if the sentence is dropped or reworded away from the two facts it
+            // carries — the craft comes back, AND its rewards go back.
+            string body = RewindInvoker.ComposeReFlyAdvisoryBody(new List<string>());
+
+            Assert.Contains("Craft you recovered after this point are back in flight", body);
+            Assert.Contains("recovery rewards are returned to the ledger", body);
+        }
+
+        [Fact]
         public void ComposeAdvisoryBody_ListsTheSiblingCraftThatBecomeReplays()
         {
             string body = RewindInvoker.ComposeReFlyAdvisoryBody(

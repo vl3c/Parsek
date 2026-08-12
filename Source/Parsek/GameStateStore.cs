@@ -165,7 +165,13 @@ namespace Parsek
             return count;
         }
 
-        internal static void AddContractSnapshot(string guid, ConfigNode contractNode)
+        /// <summary>
+        /// Stores the ACCEPT-TIME snapshot for a contract (the zero-progress shape the
+        /// contract had when the player took it). Exactly one accept-time row exists per
+        /// guid; re-accepting after a failure replaces it. Rewind-point snapshots are a
+        /// separate population — see <see cref="AddContractSnapshotAtRp"/>.
+        /// </summary>
+        internal static void AddContractSnapshot(string guid, ConfigNode contractNode, double ut = 0.0)
         {
             if (string.IsNullOrEmpty(guid) || contractNode == null)
             {
@@ -173,15 +179,20 @@ namespace Parsek
                 return;
             }
 
-            // Replace existing snapshot for same GUID (contract re-accepted after failure)
+            // Replace the existing ACCEPT-TIME snapshot for the same GUID (contract
+            // re-accepted after failure). RP snapshots are never replaced from here —
+            // they are keyed by (guid, rpId) and belong to their rewind point.
             for (int i = 0; i < contractSnapshots.Count; i++)
             {
-                if (contractSnapshots[i].contractGuid == guid)
+                if (contractSnapshots[i].contractGuid == guid &&
+                    string.IsNullOrEmpty(contractSnapshots[i].sourceRpId))
                 {
                     contractSnapshots[i] = new ContractSnapshot
                     {
                         contractGuid = guid,
-                        contractNode = contractNode
+                        contractNode = contractNode,
+                        ut = ut,
+                        sourceRpId = null
                     };
                     ParsekLog.Verbose("GameStateStore", $"Replaced existing contract snapshot for guid={guid}");
                     return;
@@ -191,21 +202,175 @@ namespace Parsek
             contractSnapshots.Add(new ContractSnapshot
             {
                 contractGuid = guid,
-                contractNode = contractNode
+                contractNode = contractNode,
+                ut = ut,
+                sourceRpId = null
             });
             ParsekLog.Verbose("GameStateStore", $"Added contract snapshot for guid={guid} (total={contractSnapshots.Count})");
         }
 
+        /// <summary>
+        /// Stores a rewind-point snapshot: the contract's state AS OF the RP's quicksave
+        /// UT, including whatever parameter progress it had accumulated since accept.
+        ///
+        /// <para>
+        /// Why this exists: reinstating a tombstoned contract used to rebuild it from the
+        /// ACCEPT-time snapshot, which is zero-progress. A contract accepted long before a
+        /// rewind point, worked halfway, then completed by a branch the merge supersedes,
+        /// came back from the merge with all of its progress erased. The RP snapshot gives
+        /// the rebuild a state that matches where the timeline actually rewound to.
+        /// </para>
+        ///
+        /// Appends; deduplicated on (guid, rpId) so a repeated capture for the same RP
+        /// replaces rather than accumulates.
+        /// </summary>
+        internal static void AddContractSnapshotAtRp(
+            string guid, ConfigNode contractNode, double ut, string rpId)
+        {
+            if (string.IsNullOrEmpty(guid) || contractNode == null || string.IsNullOrEmpty(rpId))
+            {
+                ParsekLog.Verbose("GameStateStore",
+                    $"AddContractSnapshotAtRp skipped: guid={guid ?? "null"}, node={contractNode != null}, " +
+                    $"rpId={rpId ?? "null"}");
+                return;
+            }
+
+            for (int i = 0; i < contractSnapshots.Count; i++)
+            {
+                if (contractSnapshots[i].contractGuid == guid &&
+                    string.Equals(contractSnapshots[i].sourceRpId, rpId, StringComparison.Ordinal))
+                {
+                    contractSnapshots[i] = new ContractSnapshot
+                    {
+                        contractGuid = guid,
+                        contractNode = contractNode,
+                        ut = ut,
+                        sourceRpId = rpId
+                    };
+                    return;
+                }
+            }
+
+            contractSnapshots.Add(new ContractSnapshot
+            {
+                contractGuid = guid,
+                contractNode = contractNode,
+                ut = ut,
+                sourceRpId = rpId
+            });
+        }
+
+        /// <summary>
+        /// Returns the ACCEPT-TIME snapshot node for a contract, or null. Unchanged
+        /// semantics for every pre-existing caller: rewind-point snapshots are invisible
+        /// here and are reached only through <see cref="GetContractSnapshotForPatch"/>.
+        /// </summary>
         internal static ConfigNode GetContractSnapshot(string guid)
         {
             if (string.IsNullOrEmpty(guid)) return null;
 
             for (int i = 0; i < contractSnapshots.Count; i++)
             {
-                if (contractSnapshots[i].contractGuid == guid)
+                if (contractSnapshots[i].contractGuid == guid &&
+                    string.IsNullOrEmpty(contractSnapshots[i].sourceRpId))
+                {
                     return contractSnapshots[i].contractNode;
+                }
             }
             return null;
+        }
+
+        /// <summary>
+        /// Pure selection rule behind <see cref="GetContractSnapshotForPatch"/>. Returns the
+        /// index of the snapshot to rebuild <paramref name="guid"/> from, or -1.
+        ///
+        /// <para>
+        /// With no cutoff (the contract was never tombstoned, so nothing rewound it) the
+        /// accept-time snapshot is used — identical to the historical behavior, so this
+        /// rule is never worse than what it replaces. With a cutoff, the NEWEST rewind-point
+        /// snapshot at or before it wins: that is the last state the surviving timeline
+        /// actually reached. A cutoff that predates every RP snapshot falls back to
+        /// accept-time rather than reinstating progress from a future the merge discarded.
+        /// </para>
+        ///
+        /// Pure: takes the list as a parameter; no statics, no singletons.
+        /// </summary>
+        internal static int SelectContractSnapshotIndexForPatch(
+            IReadOnlyList<ContractSnapshot> snapshots, string guid, double? cutoffUt)
+        {
+            if (snapshots == null || string.IsNullOrEmpty(guid))
+                return -1;
+
+            int acceptTimeIndex = -1;
+            int bestRpIndex = -1;
+            double bestRpUt = 0.0;
+
+            for (int i = 0; i < snapshots.Count; i++)
+            {
+                var snap = snapshots[i];
+                if (!string.Equals(snap.contractGuid, guid, StringComparison.Ordinal))
+                    continue;
+                if (snap.contractNode == null)
+                    continue;
+
+                if (string.IsNullOrEmpty(snap.sourceRpId))
+                {
+                    if (acceptTimeIndex < 0)
+                        acceptTimeIndex = i;
+                    continue;
+                }
+
+                if (!cutoffUt.HasValue)
+                    continue;
+                if (double.IsNaN(snap.ut) || snap.ut > cutoffUt.Value)
+                    continue;
+                if (bestRpIndex < 0 || snap.ut > bestRpUt)
+                {
+                    bestRpIndex = i;
+                    bestRpUt = snap.ut;
+                }
+            }
+
+            return bestRpIndex >= 0 ? bestRpIndex : acceptTimeIndex;
+        }
+
+        /// <summary>
+        /// Resolves the snapshot node <c>PatchContracts</c> should rebuild
+        /// <paramref name="guid"/> from, honouring the per-contract reinstate cutoff.
+        /// </summary>
+        internal static ConfigNode GetContractSnapshotForPatch(string guid, double? cutoffUt)
+        {
+            int idx = SelectContractSnapshotIndexForPatch(contractSnapshots, guid, cutoffUt);
+            return idx >= 0 ? contractSnapshots[idx].contractNode : null;
+        }
+
+        /// <summary>
+        /// Drops every rewind-point snapshot captured for <paramref name="rpId"/>. Called
+        /// from the reaper when an RP is retired so snapshot storage does not grow without
+        /// bound across a long career. Accept-time snapshots are never touched.
+        /// </summary>
+        internal static int PurgeContractSnapshotsForRewindPoint(string rpId)
+        {
+            if (string.IsNullOrEmpty(rpId))
+                return 0;
+
+            int removed = 0;
+            for (int i = contractSnapshots.Count - 1; i >= 0; i--)
+            {
+                if (string.Equals(contractSnapshots[i].sourceRpId, rpId, StringComparison.Ordinal))
+                {
+                    contractSnapshots.RemoveAt(i);
+                    removed++;
+                }
+            }
+
+            if (removed > 0)
+            {
+                ParsekLog.Verbose("GameStateStore",
+                    $"Purged {removed} rewind-point contract snapshot(s) for rp={rpId} " +
+                    $"(total={contractSnapshots.Count})");
+            }
+            return removed;
         }
 
         /// <summary>
@@ -397,8 +562,10 @@ namespace Parsek
 
         /// <summary>
         /// #431: deletes contract snapshots whose corresponding <see cref="GameStateEventType.ContractAccepted"/>
-        /// event appears in the purged list. Snapshots are only created by <see cref="AddContractSnapshot"/>
-        /// from <c>GameStateRecorder.OnContractAccepted</c> — so they always follow the accept event's fate.
+        /// event appears in the purged list. Both snapshot populations follow the accept
+        /// event's fate: the accept-time row from <c>GameStateRecorder.OnContractAccepted</c>
+        /// AND every rewind-point row from <see cref="AddContractSnapshotAtRp"/>, since an
+        /// RP snapshot of a contract whose accept is gone has nothing left to reinstate.
         /// A completion/failure/cancel event being purged does NOT drop the snapshot on its own;
         /// the accept event must be among the purged set for the snapshot to go.
         /// </summary>

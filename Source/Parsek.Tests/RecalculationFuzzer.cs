@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Linq;
 using Xunit;
@@ -10,7 +10,7 @@ namespace Parsek.Tests
     {
         // Keep this count in sync with CreateAction's switch below so a new
         // GameActionType cannot land without an explicit fuzzer payload.
-        private const int ExpectedGameActionTypeCount = 31;
+        private const int ExpectedGameActionTypeCount = 32;
         private readonly bool priorSuppressLogging;
 
         public RecalculationFuzzerTests()
@@ -369,6 +369,16 @@ namespace Parsek.Tests
                 case GameActionType.RoutePaused:
                     action.RouteId = "route-" + iteration;
                     action.RouteEndpointReason = "player-pause";
+                    break;
+                case GameActionType.KerbalExperience:
+                    action.KerbalName = "Fuzz Kerman " + iteration;
+                    action.KerbalRole = "Pilot";
+                    action.KerbalCareerEntries = KerbalCareerLogEntry.FormatSet(
+                        new List<KerbalCareerLogEntry>
+                        {
+                            new KerbalCareerLogEntry(iteration % 4, "Orbit", "Kerbin"),
+                            new KerbalCareerLogEntry(iteration % 4, "Recover", ""),
+                        });
                     break;
                 case GameActionType.RouteResumed:
                     action.RouteId = "route-" + iteration;
