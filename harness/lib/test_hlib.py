@@ -4862,6 +4862,22 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
         # window stays unpinned until the jettison's debris topology has been
         # measured once. Promotion is that post-measurement re-pinning call.
         "B19-dres-orbit.toml":              "calibration-discipline - first flight of a new profile AND of the pre-transfer JETTISON phase; the recordings count window is unpinned pending the jettison debris topology, and promotion waits on that re-pin rather than on outstanding work",
+        # B21 is B19's profile RETARGETED, and it is operator by the same
+        # calibration discipline for a reason that is Eeloo's alone: e = 0.26 makes
+        # the transfer TIME a 2x band rather than a number, so the arrival end
+        # MechJeb's window lands on is unknowable pre-flight and every game-second
+        # budget is sized on the aphelion worst case. Its recordings-count window is
+        # unpinned pending the measured drop-tank / jettison debris topology, so
+        # promotion is the post-measurement re-pinning call. No ASSERTION is
+        # loosened for the retarget beyond one derived park ceiling; three budgets
+        # ARE widened and the correction cap is LOWERED (1,200 -> 550, because the
+        # cap is per round and this lane can fire FOUR capped rounds -- the two the
+        # spec schedules plus up to two arrival-quality extras granted at
+        # mlib.py:10343-10376 on their own MAX_ARRIVAL_EXTRA_ROUNDS = 2 counter --
+        # so the worst correction spend is 4 x cap, and 550 is the largest round
+        # value surviving that tail on the sizing geometry), each with its
+        # arithmetic in the spec.
+        "B21-eeloo-orbit.toml":             "calibration-discipline - first flight of a new TARGET on the proven B19 profile, and the first at a body whose eccentricity (0.26) makes the transfer time a 2x band (23.3M-46.5M game s) rather than a number, so the arrival end is unknowable pre-flight; the recordings count window is unpinned pending the measured jettison/drop-tank debris topology, and promotion waits on that re-pin rather than on outstanding work",
         # V9 began as a pure READING RUN and did its job: it measured the optimizer
         # split defeating the re-aim classifier. That finding is now FIXED and V9 is
         # ARMED as its regression floor, so the post-reading arming call it was
