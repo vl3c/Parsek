@@ -21,15 +21,15 @@ THE TWO THINGS MOHO CHANGES, and both are sizing rather than machinery:
 
   (1) THE APPROACH IS ~8x SHORTER IN GAME TIME. Moho's SOI is 9,646,663 m
       against Dres's 32,832,840 m, and the arrival v_inf is far higher, so the
-      SOI-entry -> periapsis coast is ~2,400-3,900 game s where Dres's measured
-      ~25,000. Note 2*mu/r_soi = 34,955 m^2/s^2 is negligible against v_inf^2
-      (~9e6), i.e. Moho's gravity barely bends the approach and the passage is
+      SOI-entry -> periapsis coast is 2,168-4,119 game s where Dres's measured
+      ~25,000. Note 2*mu/r_soi = 34,957 m^2/s^2 is negligible against v_inf^2
+      (5.5e6-2.0e7), i.e. Moho's gravity barely bends the approach and the passage is
       essentially straight-line at v_inf: t ~ r_soi / v_inf.
 
       B19's sizing rule ("one poll frame must advance well under a fifth of the
       SOI-entry -> periapsis coast", `test_one_frame_cannot_swallow_the_dres_
-      approach`) therefore forces a LOWER ceiling here: at the pessimistic end
-      of the band the budget is 2,000/5 = 400 game s, so factor 5 (x1,000)
+      approach`) therefore forces a LOWER ceiling here: sized against a
+      pessimistic 2,000 s floor (under the whole band) the budget is 400 game s, so factor 5 (x1,000)
       FAILS and factor 4 (x100) passes with 4x margin.
 
       What does NOT scale down with the body is `soiLeadSeconds`. That knob is
@@ -41,16 +41,19 @@ THE TWO THINGS MOHO CHANGES, and both are sizing rather than machinery:
       exactly the `capture-never-armed (past-periapsis)` give-up the knob
       exists to prevent. It stays at B19's 100,000.
 
-  (2) THE CAPTURE IS ~2x THE BURN. Moho's mu is 1.6860938e11 and the arrival
-      v_inf is ~3,000 m/s, so capturing to a ~100 km periapsis costs
-      sqrt(v_inf^2 + 2mu/r) - sqrt(mu/r) ~= 3,157 - 694 ~= 2,463 m/s, against
-      Dres's measured 1,717.4 m/s node. On ~13.85 t at the LV-N's 60 kN /
-      Isp 800 that is ~485 s (~8 min) of continuous thrust, begun ~242 s before
-      periapsis by the node executor -- inside a 2,400-3,900 s SOI coast, but
-      with far less slack than Dres had. The burn-liveness and capture budgets
-      below are widened for that, and if the single capture burn still fails to
-      bind, the MEASURED failure mode is the finding; no new machinery is
-      invented ahead of the evidence.
+  (2) THE CAPTURE COST IS SET BY MOHO'S ECCENTRICITY, NOT ITS DISTANCE. At
+      ecc 0.2 Moho's velocity is not tangential except at its apsides, so at
+      r = sma an 11.54 deg flight-path-angle mismatch puts arrival v_inf at
+      4,449 m/s where treating Moho as circular gives 2,997. Capture to a
+      ~100 km periapsis therefore runs ~1,845 m/s (encounter at Moho
+      periapsis) to ~3,862 (at r = sma), against Dres's measured 1,717.4.
+      The worst case is ~5.4 t of propellant and ~700 s (~12 min) of
+      continuous LV-N thrust, begun ~350 s before periapsis by the node
+      executor -- inside a 2,168 s SOI coast at that same v_inf, so it fits,
+      but on ~3x margin rather than Dres's ~35x. The burn-liveness and capture
+      budgets below are widened for that, and if the single capture burn still
+      fails to bind, the MEASURED failure mode is the finding; no new machinery
+      is invented ahead of the evidence.
 
   Moho, like Dres and unlike Eve, is CHEAPER to capture LOW (v_inf is large
   against a small mu), so there is no high-park temptation. Moho HAS NO MOONS,
@@ -62,13 +65,30 @@ caps warp by ALTITUDE. At a 100 km park the ceiling is 50x, which cannot cover
 a multi-million-second window wait inside any sane wall budget; above 600 km
 the full 100,000x ladder is legal. The park altitude is a WARP decision.
 
-DELTA-V. B18 MEASURED the LV-N stage at 18.220 t wet / 7.020 t burnout, i.e.
-7,483 m/s at Isp 800 s. Against Moho: ~1,700 (ejection from the 700 km park,
-v_inf ~2,349 m/s for the inward Hohmann, plus Moho's 7 deg folded in) + <=450
-(corrections) + ~2,463 (capture) = ~4,600 m/s. The margin is ~1.6x, TIGHTER
-than Dres's 2.3x and stated plainly because it is the one budget on this lane
-that is not comfortable. B19 measured 3,933 m/s still in the stage at its Dres
-commit, which is the direct evidence this fits.
+DELTA-V, and this lane's is the tightest in the suite. B18 MEASURED the LV-N
+stage at 18.220 t wet / 7.020 t burnout, i.e. 7,483 m/s at Isp 800 s. Against
+Moho that buys, with every figure now anchored on flight 1's measurements
+rather than on derivation:
+
+  ejection      1,735.5 m/s MEASURED (the planned node). Note this came out
+                COPLANAR -- the flight's transfer read inc=0.007 against Moho's
+                7 deg -- so it is +4.5% over the ~1,661 m/s coplanar derivation,
+                NOT evidence that the 7 deg was folded in. It was not.
+  corrections   ~1,090 m/s MEASURED for the encounter-CREATING round (MechJeb's
+                own plan), plus a small refining round. This is the number the
+                first authoring got wrong by deriving instead of measuring, and
+                capping below it cost two flights -- see the spec's
+                maxCorrectionDvMps block.
+  capture       ~1,845 to ~3,862 m/s, a RANGE set by where in Moho's eccentric
+                orbit the encounter falls (see above).
+  remaining     5,724 m/s MEASURED still in the stage after the ejection
+                (2,240 -> 1,508.915 units of LF).
+
+So the realistic case leaves ~4,434 m/s for a capture costing at most ~3,862 --
+it closes, with ~572 spare. The margin is ~1.5x at a cheap encounter and ~1.05x
+at the dear one, against Dres's uniform 2.3x, and the one combination that does
+NOT close is both correction rounds landing on the 1200 cap AND the worst-case
+r=sma encounter. That conjunction is named in the spec rather than hidden.
 
 Kept as its own mission name so the client name, the result files and the logs
 say which body the flight parked at; the schema is a copy for the same reason

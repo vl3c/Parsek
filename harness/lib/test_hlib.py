@@ -4866,7 +4866,7 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
         # debris topology is now MEASURED, so what is unpinned here is the Moho
         # ARRIVAL rather than the staging. Three of its numbers are DERIVED from
         # arithmetic rather than from a flight -- the approach ceiling (lowered
-        # 5 -> 4 because Moho's SOI-entry -> periapsis coast is ~2,400-3,900 game
+        # 5 -> 4 because Moho's SOI-entry -> periapsis coast is 2,168-4,119 game
         # s against Dres's measured ~25,000), the two correction triggers (scaled
         # to a ~2.7M game-second tof), and the wall budget the lower ceiling's
         # ~2,000 s approach traversal drives. Promotion is the post-flight re-pin
