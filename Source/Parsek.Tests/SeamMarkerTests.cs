@@ -333,6 +333,65 @@ namespace Parsek.Tests
         }
 
         // ==================================================================
+        // Board merges get boarding words, not docking words
+        // ==================================================================
+
+        [Fact]
+        public void Board_R2_SaysBoardedNotDocked()
+        {
+            // A kerbal climbing into a pod is not a docking. Regression: the merge branch covers
+            // Dock AND Board, so a single verb would describe the wrong event - and since Board
+            // merges carry no partner pid in v1 (design Q1), the GENERIC arm is the one players
+            // actually see, which is exactly where a copy-paste verb would hide.
+            var markers = Build(
+                BoardGraph(), "ta",
+                Windows((IdxA0, 0, DockUT), (IdxAB, DockUT, UndockUT)),
+                out int r2, out int _);
+
+            Assert.Equal(1, r2);
+            Assert.Equal("boarded by another kerbal", Assert.Single(markers).Text);
+        }
+
+        [Fact]
+        public void Board_R3_SaysBoardedAndNamesTheContinuingMission()
+        {
+            var markers = Build(
+                BoardGraph(), "ta", Windows((IdxA0, 0, DockUT)), out int _, out int r3);
+
+            Assert.Equal(1, r3);
+            Assert.Equal("boarded - continues in mission 'AB'", Assert.Single(markers).Text);
+        }
+
+        [Fact]
+        public void Board_NamedPartner_StillSaysBoarded()
+        {
+            // The named arm too: the verb comes from the branch-point kind, not from whether a
+            // partner happened to resolve.
+            Assert.Equal("boarded by Bob Kerman - see mission 'CD Freighter'",
+                LoopSeamMarkerBuilder.FormatMergeAppear(
+                    BranchPointType.Board, "Bob Kerman", "CD Freighter"));
+            Assert.Equal("boarded", LoopSeamMarkerBuilder.FormatDockedVanish(
+                BranchPointType.Board, "Stack AB", null));
+        }
+
+        // ta with the merge recorded as a BOARD (unstamped, as v1 records every board).
+        private static DockEventGraph BoardGraph()
+        {
+            var a0 = CrossTreeDockFixture.Rec("A0", CrossTreeDockFixture.PidA,
+                CrossTreeDockFixture.GuidA, "CA", 0, 0, DockUT, pods: 1, probes: 0,
+                childBp: "dockbp", vessel: "Lander A");
+            var ab = CrossTreeDockFixture.Rec("AB", CrossTreeDockFixture.PidA,
+                CrossTreeDockFixture.GuidA, "CAB", 0, DockUT, UndockUT, pods: 1, probes: 1,
+                parentBp: "dockbp", vessel: "Stack AB");
+            RecordingTree tree = CrossTreeDockFixture.Tree("ta", new[] { a0, ab }, new[]
+            {
+                CrossTreeDockFixture.BP("dockbp", BranchPointType.Board, DockUT,
+                    new[] { "A0" }, new[] { "AB" }, targetPid: 0, mergeCause: "BOARD"),
+            });
+            return DockEventGraph.Build(new List<RecordingTree> { tree }, null);
+        }
+
+        // ==================================================================
         // List shape, degradation, logging
         // ==================================================================
 
@@ -469,6 +528,14 @@ namespace Parsek.Tests
                     200.0, 210.0, GhostPlaybackLogic.SeamMarkerKind.MergeAppear, 2, "second"),
             };
 
+        // Thin wrapper so the cursor cells read as the question they ask; the skip counters have
+        // their own dedicated cells below.
+        private static int Resolve(
+            IReadOnlyList<GhostPlaybackLogic.LoopSeamMarker> markers, int memberIndex,
+            double spanLoopUT, ref int cursor, HashSet<long> fired, long cycle)
+            => GhostPlaybackLogic.TryResolveSeamMarkerToEmit(
+                markers, memberIndex, spanLoopUT, ref cursor, fired, cycle, out int _, out int _2);
+
         [Fact]
         public void Cursor_FiresOnceInsideTheWindowThenStaysQuiet()
         {
@@ -478,14 +545,12 @@ namespace Parsek.Tests
             int cursor = 0;
             var fired = new HashSet<long>();
 
-            int hit = GhostPlaybackLogic.TryResolveSeamMarkerToEmit(markers, 1, 100.5, ref cursor, fired, 3);
+            int hit = Resolve(markers, 1, 100.5, ref cursor, fired, 3);
             Assert.Equal(0, hit);
             fired.Add(GhostPlaybackLogic.SeamMarkerDedupKey(hit, 3));
 
-            Assert.Equal(-1,
-                GhostPlaybackLogic.TryResolveSeamMarkerToEmit(markers, 1, 100.6, ref cursor, fired, 3));
-            Assert.Equal(-1,
-                GhostPlaybackLogic.TryResolveSeamMarkerToEmit(markers, 1, 109.9, ref cursor, fired, 3));
+            Assert.Equal(-1, Resolve(markers, 1, 100.6, ref cursor, fired, 3));
+            Assert.Equal(-1, Resolve(markers, 1, 109.9, ref cursor, fired, 3));
         }
 
         [Fact]
@@ -497,16 +562,14 @@ namespace Parsek.Tests
             int cursor = 0;
             var fired = new HashSet<long>();
 
-            int first = GhostPlaybackLogic.TryResolveSeamMarkerToEmit(markers, 1, 100.5, ref cursor, fired, 0);
+            int first = Resolve(markers, 1, 100.5, ref cursor, fired, 0);
             fired.Add(GhostPlaybackLogic.SeamMarkerDedupKey(first, 0));
-            Assert.Equal(-1,
-                GhostPlaybackLogic.TryResolveSeamMarkerToEmit(markers, 1, 101.0, ref cursor, fired, 0));
+            Assert.Equal(-1, Resolve(markers, 1, 101.0, ref cursor, fired, 0));
 
             // New cycle: the engine resets the cursor and clears the dedup for this member.
             cursor = 0;
             fired.Clear();
-            Assert.Equal(0,
-                GhostPlaybackLogic.TryResolveSeamMarkerToEmit(markers, 1, 100.5, ref cursor, fired, 1));
+            Assert.Equal(0, Resolve(markers, 1, 100.5, ref cursor, fired, 1));
             // The key itself is cycle-scoped even without the clear.
             Assert.NotEqual(
                 GhostPlaybackLogic.SeamMarkerDedupKey(0, 0),
@@ -520,10 +583,8 @@ namespace Parsek.Tests
             // window alone would fire every member's message on every member's clock.
             var markers = TwoMarkers();
             int cursor = 0;
-            Assert.Equal(-1,
-                GhostPlaybackLogic.TryResolveSeamMarkerToEmit(markers, 2, 100.5, ref cursor, null, 0));
-            Assert.Equal(1,
-                GhostPlaybackLogic.TryResolveSeamMarkerToEmit(markers, 2, 200.5, ref cursor, null, 0));
+            Assert.Equal(-1, Resolve(markers, 2, 100.5, ref cursor, null, 0));
+            Assert.Equal(1, Resolve(markers, 2, 200.5, ref cursor, null, 0));
         }
 
         [Fact]
@@ -531,11 +592,9 @@ namespace Parsek.Tests
         {
             var markers = TwoMarkers();
             int before = 0;
-            Assert.Equal(-1,
-                GhostPlaybackLogic.TryResolveSeamMarkerToEmit(markers, 1, 99.0, ref before, null, 0));
+            Assert.Equal(-1, Resolve(markers, 1, 99.0, ref before, null, 0));
             int after = 0;
-            Assert.Equal(-1,
-                GhostPlaybackLogic.TryResolveSeamMarkerToEmit(markers, 1, 110.5, ref after, null, 0));
+            Assert.Equal(-1, Resolve(markers, 1, 110.5, ref after, null, 0));
         }
 
         [Fact]
@@ -547,11 +606,11 @@ namespace Parsek.Tests
             int cursor = 0;
             var fired = new HashSet<long>();
 
-            int hit = GhostPlaybackLogic.TryResolveSeamMarkerToEmit(markers, 1, 100.0, ref cursor, fired, 0);
+            int hit = Resolve(markers, 1, 100.0, ref cursor, fired, 0);
             Assert.Equal(0, hit);
             fired.Add(GhostPlaybackLogic.SeamMarkerDedupKey(hit, 0));
             // Same frame-boundary UT again (a second dispatch within the epsilon): no second fire.
-            Assert.Equal(-1, GhostPlaybackLogic.TryResolveSeamMarkerToEmit(
+            Assert.Equal(-1, Resolve(
                 markers, 1, 100.0 - LoopTiming.BoundaryEpsilon / 2.0, ref cursor, fired, 0));
         }
 
@@ -560,10 +619,163 @@ namespace Parsek.Tests
         {
             // The steady-state path for every mission that never crossed a dock.
             int cursor = 0;
-            Assert.Equal(-1,
-                GhostPlaybackLogic.TryResolveSeamMarkerToEmit(null, 0, 10.0, ref cursor, null, 0));
-            Assert.Equal(-1, GhostPlaybackLogic.TryResolveSeamMarkerToEmit(
+            Assert.Equal(-1, Resolve(null, 0, 10.0, ref cursor, null, 0));
+            Assert.Equal(-1, Resolve(
                 new List<GhostPlaybackLogic.LoopSeamMarker>(), 0, 10.0, ref cursor, null, 0));
+        }
+
+        [Fact]
+        public void Cursor_ReportsAWindowTheClockSteppedRightOver()
+        {
+            // A frame at >=1000x warp can advance the loop clock past the whole 10s window, and the
+            // marker then never fires. That stays the behavior (a line nobody could read is worse
+            // than none) - but the logging rules say a silent path must leave evidence, so the walk
+            // reports what it passed. Regression: without the counter this is indistinguishable
+            // from a marker that was never computed.
+            var markers = TwoMarkers();
+            int cursor = 0;
+            int hit = GhostPlaybackLogic.TryResolveSeamMarkerToEmit(
+                markers, 1, 5000.0, ref cursor, null, 7,
+                out int skipped, out int firstSkipped);
+
+            Assert.Equal(-1, hit);
+            Assert.Equal(1, skipped);              // only member 1's marker counts, not member 2's
+            Assert.Equal(0, firstSkipped);
+        }
+
+        [Fact]
+        public void Cursor_DoesNotReportAWindowItAlreadyFiredIn()
+        {
+            // The counter means "passed WITHOUT firing". A marker that fired and then fell behind
+            // the clock is the normal course of a loop, and reporting it would make every healthy
+            // seam look like a warp skip.
+            var markers = TwoMarkers();
+            int cursor = 0;
+            var fired = new HashSet<long>();
+            int hit = Resolve(markers, 1, 100.5, ref cursor, fired, 0);
+            fired.Add(GhostPlaybackLogic.SeamMarkerDedupKey(hit, 0));
+
+            GhostPlaybackLogic.TryResolveSeamMarkerToEmit(
+                markers, 1, 5000.0, ref cursor, fired, 0, out int skipped, out int firstSkipped);
+
+            Assert.Equal(0, skipped);
+            Assert.Equal(-1, firstSkipped);
+        }
+
+        // ==================================================================
+        // LoopSeamMarkerRuntime: the state the engine keeps between frames
+        // ==================================================================
+
+        [Fact]
+        public void Runtime_ResetsWhenTheMarkerListIsSwapped()
+        {
+            // THE defect this class exists for: a signature-gated loop-unit rebuild (toggling a
+            // partner-journey link or an interval checkbox mid-flight, or committing a recording)
+            // hands the engine a DIFFERENT marker list with NO loop-cycle change. Carrying the old
+            // cursor and fired-keys across that swap suppresses whatever marker now sits at that
+            // index for the rest of the cycle - and after a commit the committed-index space has
+            // moved, so the state is not even about the same recording any more.
+            var runtime = new LoopSeamMarkerRuntime();
+            var before = TwoMarkers();
+
+            Assert.Equal(0, runtime.TryTake(before, 1, 100.5, 4, out int _, out int _2));
+            Assert.Equal(-1, runtime.TryTake(before, 1, 100.6, 4, out int _3, out int _4));
+
+            // Same cycle, same member, same UT - but a rebuilt list.
+            var after = TwoMarkers();
+            Assert.Equal(0, runtime.TryTake(after, 1, 100.6, 4, out int _5, out int _6));
+        }
+
+        [Fact]
+        public void Runtime_ResetDropsEveryMembersState()
+        {
+            // The engine calls this when it is handed a different unit SET, so nothing survives into
+            // an index space it was not keyed in.
+            var runtime = new LoopSeamMarkerRuntime();
+            var markers = TwoMarkers();
+            runtime.TryTake(markers, 1, 100.5, 0, out int _, out int _2);
+            runtime.TryTake(markers, 2, 200.5, 0, out int _3, out int _4);
+            Assert.Equal(2, runtime.TrackedMemberCount);
+
+            runtime.Reset();
+
+            Assert.Equal(0, runtime.TrackedMemberCount);
+            // And the same marker is due again on the same cycle.
+            Assert.Equal(0, runtime.TryTake(markers, 1, 100.5, 0, out int _5, out int _6));
+        }
+
+        [Fact]
+        public void Runtime_FiresOncePerCycleAndAgainOnTheNext()
+        {
+            var runtime = new LoopSeamMarkerRuntime();
+            var markers = TwoMarkers();
+
+            Assert.Equal(0, runtime.TryTake(markers, 1, 100.5, 0, out int _, out int _2));
+            Assert.Equal(-1, runtime.TryTake(markers, 1, 100.9, 0, out int _3, out int _4));
+            Assert.Equal(0, runtime.TryTake(markers, 1, 100.5, 1, out int _5, out int _6));
+        }
+
+        [Fact]
+        public void Runtime_NoMarkers_TracksNothing()
+        {
+            // The steady-state path: a mission that never crossed a dock must not even allocate
+            // per-member state.
+            var runtime = new LoopSeamMarkerRuntime();
+            Assert.Equal(-1, runtime.TryTake(null, 1, 100.5, 0, out int _, out int _2));
+            Assert.Equal(-1, runtime.TryTake(
+                new List<GhostPlaybackLogic.LoopSeamMarker>(), 1, 100.5, 0, out int _3, out int _4));
+            Assert.Equal(0, runtime.TrackedMemberCount);
+        }
+
+        // ==================================================================
+        // SeamMessageAccumulator: one seam moment is one screen line
+        // ==================================================================
+
+        [Fact]
+        public void Accumulator_JoinsMarkersRaisedInTheSameFrame()
+        {
+            // THE defect this class exists for: two markers can share one seam instant (a two-parent
+            // merge with the docked stretch excluded raises an R3 per parent at the same UT). Posted
+            // separately, the second one loses to the real-time floor EVERY cycle - permanently
+            // invisible rather than delayed. Joined, one moment is one line.
+            var acc = new SeamMessageAccumulator();
+
+            Assert.Null(acc.Offer(10, "A docked to X"));
+            Assert.Null(acc.Offer(10, "B docked to X"));
+            Assert.Equal(2, acc.BufferedCount);
+
+            string flushed = acc.Flush();
+            Assert.Equal("A docked to X" + SeamMessageAccumulator.Separator + "B docked to X", flushed);
+            Assert.Equal(0, acc.BufferedCount);
+            Assert.Null(acc.Flush());
+        }
+
+        [Fact]
+        public void Accumulator_ANewFrameClosesThePreviousLine()
+        {
+            // A marker arriving on a later frame must not be swallowed into an older seam's line,
+            // and the older line must come out even if the per-frame flush never ran.
+            var acc = new SeamMessageAccumulator();
+            Assert.Null(acc.Offer(10, "first"));
+
+            Assert.Equal("first", acc.Offer(11, "second"));
+            Assert.Equal("second", acc.Flush());
+        }
+
+        [Fact]
+        public void Accumulator_IgnoresEmptyTextAndExactRepeats()
+        {
+            // Two members can carry the identical generic sentence; saying it twice on one line adds
+            // nothing.
+            var acc = new SeamMessageAccumulator();
+            Assert.Null(acc.Offer(1, null));
+            Assert.Null(acc.Offer(1, ""));
+            Assert.Equal(0, acc.BufferedCount);
+
+            acc.Offer(1, "joined by another vessel");
+            acc.Offer(1, "joined by another vessel");
+            Assert.Equal(1, acc.BufferedCount);
+            Assert.Equal("joined by another vessel", acc.Flush());
         }
 
         // ==================================================================

@@ -36,10 +36,16 @@ the R5 gap statement (step 6) shipped on branch `loop-seam-markers`
 the FINAL member windows; `LoopUnit.SeamMarkers` defaults null so every non-flight
 build site is byte-identical; `GhostPlaybackEngine.TryEmitSeamMarker` runs one
 sorted-cursor comparison per member per frame ABOVE the hide/destroy block, so R3
-still fires for a hidden-not-destroyed watched member; `ParsekPlaybackPolicy`
-posts one ScreenMessage per emission). That closes PR sequence steps 1-6.
+still fires for a hidden-not-destroyed watched member; the cursor / dedup /
+same-frame-joining rules live in the pure `LoopSeamMarkerRuntime.cs` so they are
+testable without a live host, and reset both on a loop-cycle change AND on a
+marker-list swap - a signature-gated rebuild replaces the list with no cycle
+change, and carrying the old cursor across it silently loses markers, worse still
+after a commit moves the committed-index space; `ParsekPlaybackPolicy` joins the
+markers raised in one frame into ONE ScreenMessage). That closes PR sequence
+steps 1-6.
 
-**Three v1 limits carried by the seam-marker step, all deliberate.** (1) **No
+**Five v1 limits carried by the seam-marker step, all deliberate.** (1) **No
 ghost-label badge** (design Q5 asked for one alongside the ScreenMessages line):
 Parsek's only floating-label surface, `ParsekFlight.DrawGhostLabels`, draws over
 `activeGhostChains` - the chain-ghost system - while unit members are
@@ -53,7 +59,18 @@ loop-unit signature, not the graph signature** - `MissionLoopUnitBuilder.Build`
 only re-runs when `BuildSignature` moves, so a graph rebuild that changes ONLY a
 partner's name (e.g. a mission rename in another tree) can leave a marker string
 stale until the next unit rebuild. It degrades to an out-of-date name on an
-explanatory line, never to a wrong seam.
+explanatory line, never to a wrong seam. (4) **Two seams within
+`SeamMessageMinRealSeconds` (3 s) of real time still throttle the second away.**
+Same-frame markers are joined into one line first, so the throttle can no longer
+eat half of ONE seam moment; what it still drops is a genuinely DIFFERENT seam
+arriving within three real seconds - two looping missions crossing docks at once,
+or a high-warp cycle. The drop is logged (`screen=throttled`) rather than silent.
+A queue that replayed them in order would be the fuller fix and is deliberately
+not built for v1. (5) **A marker whose whole 10 s window one frame steps over
+never fires** - unavoidable at >= 1000x warp with a containment test, and a line
+nobody could read is worse than none; the pass is logged
+(`[SeamMarker] skipped-at-warp`), so it is never confused with a marker that was
+never computed.
 
 **Two v1 approximations carried by the chapter step, deliberately, both
 documented at their code sites.** (1) A `SwitchContinuation` chapter takes only

@@ -627,6 +627,9 @@ namespace Parsek.Tests
                 // windows, the committed-index map and the name resolver all arrive as parameters
                 // (the loop-unit builder, itself pure, hands them over).
                 "Source/Parsek/LoopSeamMarkerBuilder.cs",
+                // ...and PR6's RUNTIME half: the cursor / dedup / same-frame message-joining rules
+                // live outside the engine and the policy so they are testable without a live host.
+                "Source/Parsek/LoopSeamMarkerRuntime.cs",
             })
             {
                 string path = Path.Combine(repoRoot, rel.Replace('/', Path.DirectorySeparatorChar));
@@ -643,6 +646,7 @@ namespace Parsek.Tests
                 "Source/Parsek/MissionEventDigest.cs",
                 "Source/Parsek/MissionChapters.cs",
                 "Source/Parsek/LoopSeamMarkerBuilder.cs",
+                "Source/Parsek/LoopSeamMarkerRuntime.cs",
             })
             {
                 string core = File.ReadAllText(

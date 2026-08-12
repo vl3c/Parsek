@@ -190,23 +190,13 @@ namespace Parsek
         private readonly HashSet<int> earlyDestroyedDebrisCompleted = new HashSet<int>();
 
         /// <summary>
-        /// Per-unit-member seam-marker runtime state (design-dock-event-graph.md 7.3 / 14): the
-        /// sorted-list cursor plus the (marker, cycle) dedup keys already fired for the cycle this
-        /// member is on. Allocated lazily on the FIRST marker check for a member of a unit that
-        /// actually carries markers, so a mission with no seams (every mission today) allocates
-        /// nothing and the steady-state cost stays one dictionary lookup + one double comparison.
-        /// Cleared wholesale by <see cref="DestroyAllGhosts"/> alongside the other per-index dedup
-        /// sets, so a rewind / scene teardown cannot leak a stale cursor.
+        /// Per-unit-member seam-marker cursor + dedup (design-dock-event-graph.md 7.3 / 14). The
+        /// rules live in the pure <see cref="LoopSeamMarkerRuntime"/> so they stay headlessly
+        /// testable (this class cannot be constructed without a live host). Reset on a unit-set swap
+        /// (<see cref="SetLoopUnits"/>) and on full teardown (<see cref="DestroyAllGhosts"/>), so no
+        /// cursor or dedup key ever outlives the committed-index space it was keyed in.
         /// </summary>
-        private sealed class SeamMarkerMemberState
-        {
-            internal int Cursor;
-            internal long Cycle = long.MinValue;
-            internal readonly HashSet<long> FiredKeys = new HashSet<long>();
-        }
-
-        private readonly Dictionary<int, SeamMarkerMemberState> seamMarkerStates =
-            new Dictionary<int, SeamMarkerMemberState>();
+        private readonly LoopSeamMarkerRuntime seamMarkerRuntime = new LoopSeamMarkerRuntime();
 
         private enum GhostVisualLoadStatus : byte
         {
@@ -302,7 +292,25 @@ namespace Parsek
         /// </summary>
         internal void SetLoopUnits(GhostPlaybackLogic.LoopUnitSet units)
         {
+            GhostPlaybackLogic.LoopUnitSet previous = currentLoopUnits;
             currentLoopUnits = units ?? GhostPlaybackLogic.LoopUnitSet.Empty;
+
+            // A DIFFERENT set instance means the host rebuilt the units (a partner-journey link or
+            // interval toggle, a commit, the loop turned off). Marker lists, member indices and even
+            // the committed-index space they are keyed in can all have moved, so every seam cursor
+            // and dedup key from the previous set is meaningless - carrying them across would
+            // silently suppress whatever marker now sits at those indices for the rest of the loop
+            // cycle. The host re-pushes the SAME reference every frame between rebuilds, so this is
+            // one reference compare per frame and a clear only on an actual rebuild.
+            if (!ReferenceEquals(previous, currentLoopUnits))
+            {
+                if (seamMarkerRuntime.TrackedMemberCount > 0)
+                    ParsekLog.Verbose("SeamMarker",
+                        "unit set replaced - reset seam cursors for "
+                        + seamMarkerRuntime.TrackedMemberCount.ToString(CultureInfo.InvariantCulture)
+                        + " member(s)");
+                seamMarkerRuntime.Reset();
+            }
         }
 
         /// <summary>
@@ -2849,10 +2857,12 @@ namespace Parsek
         /// pure cursor's single double comparison; allocation happens only on an actual emission
         /// (the event object) and once per member on first use (the cursor state).</para>
         ///
-        /// <para><b>Cycle change.</b> The dedup set is cleared when this member's tracked cycle
-        /// moves, which is the same rule as the completed-event dedup clear in the render path - but
-        /// it must live HERE rather than there, because that clear sits below the hide/destroy block
-        /// this check deliberately runs above.</para>
+        /// <para><b>Cycle change and unit swap.</b> The cursor and dedup reset when this member's
+        /// tracked cycle moves OR when the unit's marker LIST is a different object (a signature-
+        /// gated rebuild swaps it with no cycle change). Both rules live in
+        /// <see cref="LoopSeamMarkerRuntime"/>; the cycle rule must live there rather than beside
+        /// the completed-event dedup clear in the render path, because that clear sits below the
+        /// hide/destroy block this check deliberately runs above.</para>
         ///
         /// <para><b>Not called from the self-overlap branch</b> (edge case 20): overlap instances
         /// already accept reduced fidelity, and one ScreenMessage per staggered instance would be
@@ -2866,26 +2876,35 @@ namespace Parsek
             if (markers == null || markers.Count == 0)
                 return;
 
-            if (!seamMarkerStates.TryGetValue(i, out SeamMarkerMemberState st))
+            int markerIndex = seamMarkerRuntime.TryTake(
+                markers, i, spanLoopUT, unitCycle,
+                out int skippedUnfired, out int firstSkippedIndex);
+
+            // The clock stepped over a whole display window without firing - the deliberate
+            // high-warp behavior (a line nobody could read is worse than none), logged so the
+            // silent path still leaves evidence. Once per (marker, cycle) by key construction.
+            if (skippedUnfired > 0 && firstSkippedIndex >= 0)
             {
-                st = new SeamMarkerMemberState();
-                seamMarkerStates[i] = st;
-            }
-            if (st.Cycle != unitCycle)
-            {
-                st.Cycle = unitCycle;
-                st.Cursor = 0;
-                st.FiredKeys.Clear();
+                var sic = CultureInfo.InvariantCulture;
+                GhostPlaybackLogic.LoopSeamMarker skipped = markers[firstSkippedIndex];
+                ParsekLog.VerboseRateLimited(
+                    "SeamMarker",
+                    "skipped-at-warp-" + i.ToString(sic) + "-" + unitCycle.ToString(sic)
+                        + "-" + firstSkippedIndex.ToString(sic),
+                    "skipped-at-warp memberIdx=" + i.ToString(sic)
+                        + " cycle=" + unitCycle.ToString(sic)
+                        + " count=" + skippedUnfired.ToString(sic)
+                        + " seamUT=" + skipped.SeamUT.ToString("R", sic)
+                        + " windowEndUT=" + skipped.WindowEndUT.ToString("R", sic)
+                        + " loopUT=" + spanLoopUT.ToString("R", sic)
+                        + " (frame stepped past the whole window; no message posted)",
+                    5.0);
             }
 
-            int markerIndex = GhostPlaybackLogic.TryResolveSeamMarkerToEmit(
-                markers, i, spanLoopUT, ref st.Cursor, st.FiredKeys, unitCycle);
             if (markerIndex < 0)
                 return;
 
             GhostPlaybackLogic.LoopSeamMarker marker = markers[markerIndex];
-            st.FiredKeys.Add(GhostPlaybackLogic.SeamMarkerDedupKey(markerIndex, unitCycle));
-
             ghostStates.TryGetValue(i, out GhostPlaybackState markerState);
             OnSeamMarker?.Invoke(new SeamMarkerEvent
             {
@@ -8772,7 +8791,7 @@ namespace Parsek
             loggedReshow.Clear();
             completedEventFired.Clear();
             earlyDestroyedDebrisCompleted.Clear();
-            seamMarkerStates.Clear();
+            seamMarkerRuntime.Reset();
             chainBridgeOpenedUT.Clear();
             // Chain-loop unit state is per-frame (rebuilt from host detection on the next
             // SetLoopUnits), but drop the cached transition log state so a re-spawned unit logs

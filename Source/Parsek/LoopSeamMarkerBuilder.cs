@@ -185,7 +185,7 @@ namespace Parsek
             marker = new GhostPlaybackLogic.LoopSeamMarker(
                 node.UT, node.UT + SeamWindowSeconds,
                 GhostPlaybackLogic.SeamMarkerKind.MergeAppear, mergedIndex,
-                FormatMergeAppear(partnerName, partnerMission));
+                FormatMergeAppear(node.Kind, partnerName, partnerMission));
             return true;
         }
 
@@ -251,14 +251,28 @@ namespace Parsek
             markers.Add(new GhostPlaybackLogic.LoopSeamMarker(
                 node.UT, node.UT + SeamWindowSeconds,
                 GhostPlaybackLogic.SeamMarkerKind.DockedVanish, index,
-                FormatDockedVanish(partnerName, partnerMission)));
+                FormatDockedVanish(node.Kind, partnerName, partnerMission)));
             return 1;
         }
 
         // ---- text (design 7.3; generic wording on every unresolved status, design 6.4) ----
+        //
+        // A merge node is a Dock OR a Board, and a kerbal climbing into a pod is not a docking:
+        // "docked to" over a boarding describes the wrong event. Board merges are unstamped in v1
+        // (design Q1), so a Board node reaches the GENERIC arm essentially always - which is exactly
+        // why the verb has to be right there too, not only on the named one.
 
-        internal static string FormatMergeAppear(string partnerName, string partnerMissionName)
+        internal static string FormatMergeAppear(
+            BranchPointType kind, string partnerName, string partnerMissionName)
         {
+            if (kind == BranchPointType.Board)
+            {
+                if (string.IsNullOrEmpty(partnerName))
+                    return "boarded by another kerbal";
+                if (string.IsNullOrEmpty(partnerMissionName))
+                    return "boarded by " + partnerName;
+                return "boarded by " + partnerName + " - see mission '" + partnerMissionName + "'";
+            }
             if (string.IsNullOrEmpty(partnerName))
                 return "joined by another vessel";
             if (string.IsNullOrEmpty(partnerMissionName))
@@ -266,8 +280,18 @@ namespace Parsek
             return "joined by " + partnerName + " - see mission '" + partnerMissionName + "'";
         }
 
-        internal static string FormatDockedVanish(string partnerName, string partnerMissionName)
+        internal static string FormatDockedVanish(
+            BranchPointType kind, string partnerName, string partnerMissionName)
         {
+            if (kind == BranchPointType.Board)
+            {
+                // A boarded line ends because its KERBAL climbed aboard something else. Naming the
+                // absorbing craft as something the line "boarded to" reads wrong, so the destination
+                // is stated as the mission that carries the rest of the story.
+                return string.IsNullOrEmpty(partnerMissionName)
+                    ? "boarded"
+                    : "boarded - continues in mission '" + partnerMissionName + "'";
+            }
             if (string.IsNullOrEmpty(partnerName))
                 return "docked to another vessel";
             if (string.IsNullOrEmpty(partnerMissionName))

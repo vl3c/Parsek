@@ -1847,6 +1847,13 @@ namespace Parsek
         /// <para>Returns the FIRST matching marker; a second marker for the same member in the same
         /// window is picked up on the next frame once the first is deduped away, so no marker is
         /// lost. Pure: no logging, no allocation.</para>
+        ///
+        /// <para><b>Warp skip.</b> Firing is CONTAINMENT-based, so at high time warp one frame can
+        /// advance the loop clock past a whole 10-second window and the marker never fires. That is
+        /// deliberate (a line nobody could read is worse than none) but must not be SILENT:
+        /// <paramref name="skippedUnfired"/> counts this member's markers the cursor walked past
+        /// without firing and <paramref name="firstSkippedIndex"/> names one, so the caller can log
+        /// the skip.</para>
         /// </summary>
         internal static int TryResolveSeamMarkerToEmit(
             IReadOnlyList<LoopSeamMarker> markers,
@@ -1854,14 +1861,28 @@ namespace Parsek
             double spanLoopUT,
             ref int cursor,
             HashSet<long> alreadyFiredKeys,
-            long unitCycle)
+            long unitCycle,
+            out int skippedUnfired,
+            out int firstSkippedIndex)
         {
+            skippedUnfired = 0;
+            firstSkippedIndex = -1;
             if (markers == null || markers.Count == 0)
                 return -1;
             if (cursor < 0)
                 cursor = 0;
             while (cursor < markers.Count && markers[cursor].WindowEndUT < spanLoopUT)
+            {
+                if (markers[cursor].MemberIndex == memberIndex
+                    && (alreadyFiredKeys == null
+                        || !alreadyFiredKeys.Contains(SeamMarkerDedupKey(cursor, unitCycle))))
+                {
+                    skippedUnfired++;
+                    if (firstSkippedIndex < 0)
+                        firstSkippedIndex = cursor;
+                }
                 cursor++;
+            }
 
             for (int i = cursor; i < markers.Count; i++)
             {
