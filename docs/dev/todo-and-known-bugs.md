@@ -14,6 +14,20 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## ~~SAME-TREE-DOCK-INVISIBLE-FROM-ABSORBED-SIDE: a cross-session dock inside one tree named nobody and was derivable from neither side~~ [FOUND by the 2026-08-12 dock/loop-coherence analysis (I2-ii); FIXED 2026-08-12/13, branches `same-tree-dock-claims` + `dock-event-graph` (design `docs/dev/design-dock-event-graph.md` 6.2 / 6.3-6.5, PR sequence steps 2-3)]
+
+A same-tree cross-session dock records single-parent (the partner's committed
+leaf fails `IsBackgroundMapEligible`), and `MissionCrossTreeDock.FindLinks`
+deliberately skips own-tree claims, so the A->D shape was structurally
+invisible from the absorbed side. Closed in two steps:
+`FindSameTreeDockClaims` (guid-gated recovery with parent / merged-child /
+pre-dock-start guards) and the `DockEventGraph` (pure, parameter-injected,
+signature-cached via `DockEventGraphCache`; no ERS allowlist entry - the core
+never reads the store) whose `TryDescribePartner` names dock partners in BOTH
+tabs, controller side included. Same-tree recovered links mint no selection
+affordance by design (Q8). Remaining consumers (event digest, chapters, seam
+markers) are PR sequence steps 4-6.
+
 ## ~~FORGE-CREW-SEATING-SILENT-FAILURE: kRPC launch_vessel seats NOBODY when a requested crew name is unseatable, and the pad forge stamped an empty-pod fixture without noticing~~ [FOUND 2026-08-11 by the first FORGE-b18-dres-pad run + B18 flight 1 (PR #1459 carries the measurement in that spec's header). GUARD SHIPPED 2026-08-12, branch `forge-crew-guard`: the forge_lko minCrew gate ported to forge_station. CLOSED 2026-08-12: fixture re-forged crewed (FORGE-gs1-two-stage run `2026-08-12_1552` PASS attempt 1, `crewAboard value=1` live) and GS-1 flew the re-stamp to a full PASS (run `2026-08-12_1556`, attempt 1, armed saveParse green)]
 
 **The trap.** kRPC 0.5.4 `launch_vessel(crew=[names])` does NOT fail when a name
