@@ -41,8 +41,8 @@ steps = [
 # the `_vessel.craft` vessel-snapshot sidecar - it writes and reads that file
 # through `RecordingPaths.BuildVesselSnapshotRelativePath`, NOT a `.pcrf` - which is
 # D16 `sidecar-craft` executed rather than decided.
-# NOT claimed: the other three sidecar cells (`sidecar-prec`, `sidecar-pcrf`,
-# `sidecar-pann`) - no cell in this category writes or reads those - and no D1
+# NOT claimed: the other two sidecar cells (`sidecar-prec`, `sidecar-pann`) - no
+# cell in this category writes or reads those - and no D1
 # recording-lifecycle token, since the batch records nothing.
 D16 = ["sidecar-craft"]
 D14 = ["sandbox", "scene-flight"]

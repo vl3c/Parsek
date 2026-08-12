@@ -30,7 +30,7 @@ steps = [
 
 [dimensionsCovered]
 D6  = ["basic-playback", "ghost-map-presence", "non-orbital-polyline"]
-D16 = ["sidecar-prec", "sidecar-pcrf"]
+D16 = ["sidecar-prec"]
 
 [expectations]
 # PLACEMENT IS LOAD-BEARING. run.py reads `expectations.allowedAnomalies`; a bare
