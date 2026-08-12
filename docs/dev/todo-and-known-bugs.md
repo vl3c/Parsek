@@ -130,6 +130,64 @@ REAIM-CLASSIFIER-FRAGILE-TO-MEMBER-SPLITS -- it is the only direction that makes
 classifier robust to split topologies in general, and the preserved burn-split
 contract means the FAITHFUL-by-blindness shape can still occur.
 
+## REAIM-CLASSIFIER-FRAGILE-TO-MEMBER-SPLITS: the re-aim classifier needs the whole transfer inside ONE member, so any legitimate split silently produces FAITHFUL with a misleading reason [FILED 2026-08-12 as the defense-in-depth follow-up to OPTIMIZER-SPLIT-DEFEATS-REAIM-CLASSIFIER (open question 2 of docs/dev/plans/optimizer-split-transfer-cohesion.md, recommendation accepted). NOT a regression - the cohesion fix removed the only measured instance; this is the class of failure it does not cure]
+
+**The residual.** `ReaimClassifier.Classify` requires parking orbit + heliocentric
+coast + direct-child arrival among the segments of a SINGLE loop-unit member. The
+cohesion fix stopped the optimizer splitting an on-rails SOI handoff, which was the
+only shape in the committed corpus that broke that requirement. It did not make the
+requirement itself robust, and one split shape is DELIBERATELY preserved: a genuine
+physics-frame burn straddling an SOI crossing still splits (the calibration row "SOI
+traversal while burning -> split"). A mission flown that way would reproduce the
+exact V9 symptom -- `no member yields a re-aim transfer`, a FAITHFUL replay, and a
+reason string that blames a missing heliocentric leg the recording actually contains.
+
+**Why it is not loud.** Nothing distinguishes "this recording has no transfer" from
+"this recording's transfer is spread across two members". Both emit the same
+decline. That is what made the original defect cost a full reading run to find.
+
+**The direction, and why it is viable** (Design C of the plan, rejected for that
+branch only to keep V9's re-measure attributable to one change). The topology marker
+already exists and is sound: `CopySplitIdentityFields`
+(`Source/Parsek/RecordingStore.Optimization.cs`) gives split halves a shared
+`ChainId`, the same `TreeId` / `RecordedVesselGuid`, chain re-indexed by StartUT, and
+no branch point. `ApplyReaim` (`Source/Parsek/MissionLoopUnitBuilder.cs`) could
+classify per CHAIN GROUP -- same ChainId + guid, UT-ordered concatenation -- instead
+of per member. The playtest interleaving bug that forced per-member classification
+would not recur, because a chain group is one vessel's non-overlapping time slices.
+
+**What to watch out for.** Downstream carries single-transfer-member assumptions
+(`transferMemberIndex` / `transferMemberRecordingId`, descent gating "EXACTLY on this
+member", per-member heliocentric substitution in `ReaimPlaybackResolver`); a plan
+spanning two members would strain them. That is the actual work, and it is why this
+is a separate entry rather than a follow-up commit.
+
+**Cheaper interim option worth considering first:** make the failure LOUD rather than
+robust -- when a decline's reason is "no heliocentric leg" but a sibling member in the
+same chain group HAS one, say so in the reason string. That converts a silent
+misclassification into a diagnosable one for a fraction of the cost.
+
+## RECORDER-LABELS-ON-RAILS-CHECKPOINTS-EXOPROPULSIVE: a packed vessel cannot thrust, but the recorder still stamps some on-rails checkpoint re-emissions ExoPropulsive [FILED 2026-08-12 as the hygiene follow-up to OPTIMIZER-SPLIT-DEFEATS-REAIM-CLASSIFIER (open question 3, recommendation accepted: file it, do not act on it yet). LOW PRIORITY - the consumer that was misled has been fixed]
+
+**The observation.** On `dres-orbit-recorded`, track section 28 is
+`env=ExoPropulsive ref=OrbitalCheckpoint`, spans 25,921 s, and its single
+ORBIT_SEGMENT payload is byte-identical to its ExoBallistic predecessor's -- the same
+Kerbin escape hyperbola (ecc 2.3601122370442775, sma -1,007,185.2465716415). No burn
+altered the conic across that boundary. A stock vessel cannot run an engine while
+packed, so the ExoPropulsive label there is recorder bookkeeping, not gameplay.
+
+**Why it is filed rather than fixed.** Two reasons, both from the plan's Design E
+analysis. (1) It does nothing for already-recorded saves and fixtures, and the
+regression floor for this whole area IS a recorded fixture -- so the consumer-side fix
+was the one that mattered and it has landed. (2) The env label may be load-bearing
+elsewhere; changing what the recorder emits is a wider blast radius than changing how
+one predicate reads it, for no measured benefit today.
+
+**What would make it worth doing.** A second consumer being misled by the same label.
+If that happens, the fix is at
+`FlightRecorder`'s checkpoint re-emission path, and the test is that a packed section
+never carries a propulsive env.
+
 ## ROUTE-CANDIDACY-GATED-ON-SEAL-NO-SEAM-PATH: a green two-vessel docking flight cannot produce a route-candidate tree, and no seam verb can seal one [FOUND 2026-08-11 while wiring `H35-logistics-route-proof`. A CAPABILITY GAP in the automation surface, not a product defect - the seal policy itself is correct]
 
 **What was measured.** The `bdock-recorded` fixture is the produced save of a FULLY
