@@ -4844,6 +4844,13 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
         # numbers -- and on this lane that call is BLOCKED on a product finding
         # (the optimizer split defeating the re-aim classifier), not on lane work.
         "V9-dres-player-loop.toml":         "calibration-discipline - a deliberately unarmed READING run (V8 iteration-1 pattern); it claims no coverage cells and pins nothing beyond plumbing, and arming waits on the re-aim classifier finding it measured rather than on outstanding lane work",
+        # V10 is operator by the same calibration discipline: it is a TimeJump
+        # observation lane whose brackets are derived from a specific recording's
+        # replay clock, so it is re-derived rather than re-run when the fixture
+        # changes. Armed on its measurements; the one thing it deliberately does
+        # not arm (the seam-endpoint census pair) is documented in the spec with
+        # the trade that forced it.
+        "V10-dres-loop-arrival.toml":       "calibration-discipline - a TimeJump observation lane whose brackets come from one recording's replay clock; armed on the tilt/geometry/ready tokens, with the census pair deliberately unarmed because reaching it reproduces the filed line-blink detector gap",
         # The V2 dwell is operator BY THE CALIBRATION DISCIPLINE (V1 precedent):
         # its first flight is a deliberately under-gated READING run whose red,
         # if any, is evidence; promotion is the post-reading arming call, not a

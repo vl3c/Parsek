@@ -130,6 +130,54 @@ REAIM-CLASSIFIER-FRAGILE-TO-MEMBER-SPLITS -- it is the only direction that makes
 classifier robust to split topologies in general, and the preserved burn-split
 contract means the FAITHFUL-by-blindness shape can still occur.
 
+## DRES-PROGRAM-MEASUREMENTS-COMPLETE: the tilt disposition at 5 deg, the re-aimed arrival geometry, and what V9's two structural gaps turned out to be [RECORDED 2026-08-12 by `V10-dres-loop-arrival`. NOT A DEFECT - the closing measurement record for the Dres program]
+
+**The two gaps V9 named are now resolved, and neither was a product problem.**
+
+*The tilt gap.* V9 reported the Dres 5 deg tilt disposition as UNMEASURED because the
+synthesizer runs from `ReaimPlaybackResolver` during playback OF the re-aimed leg and
+V9 quits ~1 s after `StartLoopPlayback`. V10 TimeJumps into the transfer and gets the
+answer:
+
+```
+[ReaimSeam] tilt-correction inc-before=13.1958 bound=5.5000 targetInc=5.0000
+            incAch=3.6426 inc-after=NaN state=retained reason=unreachable-plane
+```
+
+At Dres's 5 deg the achievability gate is UNSAFE (incAch 3.6426 < targetInc 5.0000),
+exactly as it is at Eve's 2.1 -- and the tilt-retention fix's third arm RETAINS the
+un-corrected conic rather than declining the candidate. This is the first probe of
+that fix beyond Eve, and it holds. Pre-fix, this combination dropped the window to a
+faithful replay.
+
+*The census gap.* V9 reported the seam-endpoint census as absent post-fix. V10 shows
+it is reachable, and what it needs: bracketing the RE-AIMED arc's own SOI crossing
+(`soiEntryUT=43,144,577.77`) rather than the recorded arrival mapped through the
+replay clock (43,162,644.6 -- 18,067 s later, a different conic's crossing). Bracketed
+correctly the census reads `evaluated=1 outsideSoi=0` (runs `_0329`/`_0331`).
+
+**The arrival, from the synthesizer rather than the renderer:**
+
+```
+[ReaimSeam] synth geometry (patched-conic): departUT=31276743 arrivalUT=43162645
+            soiEntryUT=43144578 sma=30673044261.6 ecc=0.5893 inc=13.1958 bound=5.5000
+            | xfer-vs-Kerbin@depart=0m | xfer-vs-Dres@arrival=0m
+            | xfer-vs-Dres@soi=32832839m (SOI=32832840)
+```
+
+The re-aimed conic meets Dres's sphere of influence to within one metre, and cycle 0
+re-aims with `devFromRecorded=0s`.
+
+**ONE OPEN TENSION, filed here rather than papered over.** The census and a green
+verdict cannot both be had in one lane today: `evaluated=1` requires a pre-D0 jump,
+and EVERY pre-D0 jump reproduces the filed line-blink detector gap
+(three placements tried, all `sinceFrames=1 body=Sun` -- the Sun-leg proto line
+toggling because the CLOCK left its window, which `bodyChanged` cannot see). V10 is
+armed in its green shape and carries the arrival claim via the synth-geometry token
+instead. If the detector gap is closed, restore V10's iteration-3 escape bracket
+(-900 / -300 / +600) and arm the census pair too. The gap itself is the existing V8
+entry's, not a new one.
+
 ## REAIM-CLASSIFIER-FRAGILE-TO-MEMBER-SPLITS: the re-aim classifier needs the whole transfer inside ONE member, so any legitimate split silently produces FAITHFUL with a misleading reason [FILED 2026-08-12 as the defense-in-depth follow-up to OPTIMIZER-SPLIT-DEFEATS-REAIM-CLASSIFIER (open question 2 of docs/dev/plans/optimizer-split-transfer-cohesion.md, recommendation accepted). NOT a regression - the cohesion fix removed the only measured instance; this is the class of failure it does not cure]
 
 **The residual.** `ReaimClassifier.Classify` requires parking orbit + heliocentric
