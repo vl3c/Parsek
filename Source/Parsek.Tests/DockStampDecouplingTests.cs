@@ -33,8 +33,9 @@ namespace Parsek.Tests
         [Fact]
         public void StampPid_SelfPartner_ReturnsZero()
         {
-            // Fails if a same-vessel couple event (partner == recorder) ever stamps
-            // the vessel as its own dock partner.
+            // Defense-in-depth: ResolveDockPartnerPidFromEvent already excludes self, so
+            // this input is production-unreachable today; the stamp's own self-filter
+            // keeps a future caller from stamping a vessel as its own dock partner.
             Assert.Equal(0u, ParsekFlight.ResolveBranchPartnerStampPid(
                 partnerPidFromEvent: 42u, selfVesselPid: 42u, involvesEva: false));
         }
@@ -84,6 +85,27 @@ namespace Parsek.Tests
 
             Assert.Equal(777u, bp.TargetVesselPersistentId);
             Assert.Equal(777u, child.TransferTargetVesselPid);
+            Assert.Equal(RouteConnectionKind.DockingPort, child.TransferKind);
+        }
+
+        [Fact]
+        public void Build_DivergentPids_PartnerWinsTheStamp()
+        {
+            // Pins the fallback's precedence rule: when both pids are nonzero and differ
+            // (production provably cannot produce this today - the ungated pid equals the
+            // gated one whenever the gated one is nonzero - but the rule is a real line of
+            // BuildMergeBranchData), the branch stamp takes the partner pid and the route
+            // surfaces take the gated pid. Fails if the precedence flips, which would
+            // silently re-couple the stamp to route eligibility for any future caller.
+            var (bp, child) = ParsekFlight.BuildMergeBranchData(
+                new List<string> { "p1" }, "tree", 3000.0, BranchPointType.Dock,
+                mergedVesselPid: 60, mergedVesselName: "Merged",
+                targetVesselPersistentId: 999u,
+                transferKind: RouteConnectionKind.DockingPort,
+                branchPartnerPid: 777u);
+
+            Assert.Equal(777u, bp.TargetVesselPersistentId);
+            Assert.Equal(999u, child.TransferTargetVesselPid);
             Assert.Equal(RouteConnectionKind.DockingPort, child.TransferKind);
         }
 
