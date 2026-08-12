@@ -328,6 +328,40 @@ Safe to prune by hand if the disk ever demands it: old `_shots/` dirs and old
 are exclusive-create and load-bearing (see the ownership boundary above);
 deleting one lets a future run overwrite an earlier run's records.
 
+## Fixture saves and the shared craft library
+
+`fixtures/saves/<name>/` holds committed KSP save templates; `run.py::stage_fixture`
+copies one verbatim into the provisioned instance's `saves/` for each run. Their
+contents and the pinned career constants are documented in
+`fixtures/saves/README.md`.
+
+A craft flown by two or more of those fixtures is committed ONCE under
+`fixtures/ships/` and overlaid into the staged save's `Ships/VAB/` at stage time,
+per `fixtures/shared-ships.toml`. That directory is what kRPC's
+`SpaceCenter.launch_vessel("VAB", <name>, ...)` resolves
+`<save>/Ships/VAB/<name>.craft` against, so the craft has to BE there at run time -
+it just no longer has to be there in git. Committing a physical copy per save cost
+180,799 duplicated lines across 27 files (twelve byte-identical `Kerbal X.craft`),
+and made every copy an independent drift risk: `build_dd1_craft.py` had grown a
+three-path gate purely to chase its own copies.
+
+Two rules when adding or harvesting a fixture:
+
+- **Needs a shared craft?** Add the save's row to `shared-ships.toml`. Do NOT copy
+  the `.craft` into the fixture - `SharedShipsManifestTests` (in `lib/test_hlib.py`)
+  hashes the whole fixture tree and reds on any file byte-identical to a library
+  craft, including one that was renamed.
+- **Craft used by exactly one fixture?** It stays physically in that fixture and is
+  NOT listed (`gloops-airshow/Ships/VAB/Auto-Saved Ship.craft` is the only one
+  today). The same test reds a library craft that drops to one consumer.
+
+`tools/harvest_bdock_station.py` drops harvested craft the library already holds
+and prints the manifest row to add. The overlay fails CLOSED, pre-boot, as
+`INVALID(staging)` when a declared craft is missing or a fixture carries a copy it
+also declares - never silently, because the symptom otherwise surfaces minutes
+later as a `launch_vessel` failure classified against a perfectly good spec. Pure
+resolution: `hlib.plan_shared_ship_overlay` / `hlib.validate_shared_ships_manifest`.
+
 ## Running the tests
 
 ```

@@ -102,16 +102,16 @@ import sys
 _HERE = os.path.dirname(os.path.abspath(__file__))
 _HARNESS_ROOT = os.path.dirname(_HERE)                       # harness/
 
-# The committed craft lives in the FORGE BASE's Ships/VAB, which is the save
-# FORGE-gs1-two-stage boots and the directory kRPC launch_vessel resolves
-# <save>/Ships/VAB/<craftName>.craft against. bdock-forge-base is reused rather than
-# forked: FORGE-eva3-pad already established that one bootable base serves several
-# forges, and adding a craft file to it costs no new fixture directory and no
-# re-pin of test_saveparse's committed-fixture sweep.
-BASE_NAME = "bdock-forge-base"
+# The craft is committed ONCE, in the shared library at harness/fixtures/ships/,
+# and `run.py::stage_fixture` overlays it into each consuming save's Ships/VAB at
+# stage time (the directory kRPC launch_vessel resolves
+# <save>/Ships/VAB/<craftName>.craft against). Consumers are declared in
+# harness/fixtures/shared-ships.toml -- seven of them today, headed by
+# bdock-forge-base, the base FORGE-gs1-two-stage boots. Committing one copy per
+# consuming save is what the shared library replaced: seven files to keep in step,
+# and a drift gate that had to walk all of them to mean anything.
 SHIP_NAME = "GS1 Auto-Chute Booster"
-CRAFT_PATH = os.path.join(_HARNESS_ROOT, "fixtures", "saves", BASE_NAME,
-                          "Ships", "VAB", SHIP_NAME + ".craft")
+CRAFT_PATH = os.path.join(_HARNESS_ROOT, "fixtures", "ships", SHIP_NAME + ".craft")
 
 # Root placement (assumption A1).
 ROOT_Y = 15.0

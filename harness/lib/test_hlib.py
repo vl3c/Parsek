@@ -10450,3 +10450,184 @@ class FxFingerprintReportTests(unittest.TestCase):
         lines = hlib.format_fx_fingerprint_diff(d, "stock minimal", "modded compat")
         self.assertTrue(lines[0].startswith("fx-fingerprint-diff "))
         self.assertTrue(lines[1].startswith("only-in-a side=stock minimal part='"))
+
+
+# ---------------------------------------------------------------------------
+# Shared craft library (harness/fixtures/ships + shared-ships.toml).
+# ---------------------------------------------------------------------------
+
+
+FIXTURES_DIR = os.path.join(HARNESS_ROOT, "fixtures")
+FIXTURE_SAVES_DIR = os.path.join(FIXTURES_DIR, "saves")
+SHIPS_DIR = os.path.join(FIXTURES_DIR, hlib.SHARED_SHIPS_DIRNAME)
+SHARED_SHIPS_PATH = os.path.join(FIXTURES_DIR, hlib.SHARED_SHIPS_MANIFEST_NAME)
+
+
+def _library_ship_names():
+    suffix = hlib.SHARED_SHIP_SUFFIX
+    if not os.path.isdir(SHIPS_DIR):
+        return []
+    return sorted(n[:-len(suffix)] for n in os.listdir(SHIPS_DIR) if n.endswith(suffix))
+
+
+def _fixture_save_names():
+    if not os.path.isdir(FIXTURE_SAVES_DIR):
+        return []
+    return sorted(n for n in os.listdir(FIXTURE_SAVES_DIR)
+                  if os.path.isdir(os.path.join(FIXTURE_SAVES_DIR, n)))
+
+
+def _read_manifest():
+    with open(SHARED_SHIPS_PATH, "rb") as fh:
+        return hlib.parse_shared_ships_manifest(tomllib.load(fh))
+
+
+class SharedShipOverlayPlanTests(unittest.TestCase):
+    """Pure resolution of the per-save craft overlay (hlib.plan_shared_ship_overlay).
+
+    Guards the decision half of the fixture dedup: a save fixture no longer commits
+    its own copy of a craft two or more fixtures share, so the copy has to arrive at
+    stage time or `launch_vessel` cannot resolve `<save>/Ships/VAB/<name>.craft`.
+    """
+
+    MAN = {"a-save": ("Kerbal X", "Duna Rocket"), "b-save": ("Kerbal X",)}
+    LIB = ("Kerbal X", "Duna Rocket")
+
+    def test_a_declared_save_resolves_its_craft_in_declaration_order(self):
+        plan = hlib.plan_shared_ship_overlay("a-save", self.MAN, self.LIB, [])
+        self.assertEqual((), plan.errors)
+        self.assertEqual([("Kerbal X.craft", "Kerbal X.craft"),
+                          ("Duna Rocket.craft", "Duna Rocket.craft")], list(plan.entries))
+
+    def test_a_save_absent_from_the_manifest_overlays_nothing_and_is_not_an_error(self):
+        # Most fixtures (the fresh-* KSC templates) carry no craft at all; an
+        # unlisted save must stage exactly as a verbatim copytree would.
+        plan = hlib.plan_shared_ship_overlay("fresh-career", self.MAN, self.LIB, [])
+        self.assertEqual((), plan.entries)
+        self.assertEqual((), plan.errors)
+
+    def test_a_declared_ship_missing_from_the_library_is_an_error_not_a_silent_skip(self):
+        # The resolvable sibling still appears in entries -- the plan is partial,
+        # not empty. The shell must gate on `errors` and never on `entries` being
+        # empty, which is what the staging-abort test below pins.
+        plan = hlib.plan_shared_ship_overlay("a-save", self.MAN, ("Kerbal X",), [])
+        self.assertEqual([("Kerbal X.craft", "Kerbal X.craft")], list(plan.entries))
+        self.assertEqual(1, len(plan.errors))
+        self.assertIn("Duna Rocket", plan.errors[0])
+        self.assertIn("not in the ship library", plan.errors[0])
+
+    def test_a_ship_both_declared_and_committed_physically_is_an_error(self):
+        # This is the dedup-regressed shape: silently overlaying would overwrite a
+        # committed copy that may have diverged, hiding exactly the drift the
+        # shared library exists to prevent.
+        plan = hlib.plan_shared_ship_overlay("b-save", self.MAN, self.LIB, ["Kerbal X.craft"])
+        self.assertEqual((), plan.entries)
+        self.assertEqual(1, len(plan.errors))
+        self.assertIn("declared shared AND committed", plan.errors[0])
+
+    def test_an_unrelated_committed_craft_beside_the_overlay_is_left_alone(self):
+        plan = hlib.plan_shared_ship_overlay("b-save", self.MAN, self.LIB, ["Auto-Saved Ship.craft"])
+        self.assertEqual((), plan.errors)
+        self.assertEqual([("Kerbal X.craft", "Kerbal X.craft")], list(plan.entries))
+
+    def test_a_traversal_ship_name_is_rejected(self):
+        man = {"a-save": ("../../../etc/passwd", "..")}
+        plan = hlib.plan_shared_ship_overlay("a-save", man, self.LIB, [])
+        self.assertEqual((), plan.entries)
+        self.assertEqual(2, len(plan.errors))
+        self.assertTrue(all("not filename-safe" in e for e in plan.errors))
+
+    def test_a_duplicate_row_entry_copies_once(self):
+        man = {"a-save": ("Kerbal X", "Kerbal X")}
+        plan = hlib.plan_shared_ship_overlay("a-save", man, self.LIB, [])
+        self.assertEqual((), plan.errors)
+        self.assertEqual(1, len(plan.entries))
+
+    def test_a_malformed_manifest_body_parses_to_empty_rather_than_raising(self):
+        # Staging turns an unresolved save into a named error; a traceback out of
+        # the TOML shape would lose that naming.
+        self.assertEqual({}, hlib.parse_shared_ships_manifest(None))
+        self.assertEqual({}, hlib.parse_shared_ships_manifest({"ships": "not-a-table"}))
+        self.assertEqual({"s": ("Kerbal X",)},
+                         hlib.parse_shared_ships_manifest({"ships": {"s": ["Kerbal X", 7]}}))
+
+    def test_a_bare_table_without_the_ships_wrapper_is_accepted(self):
+        self.assertEqual({"s": ("Kerbal X",)},
+                         hlib.parse_shared_ships_manifest({"s": ["Kerbal X"]}))
+
+
+class SharedShipsManifestTests(unittest.TestCase):
+    """The COMMITTED fixture tree against the COMMITTED manifest.
+
+    This is the regression floor for the dedup itself. Before it, a craft flown by
+    several fixtures was committed once per fixture: 27 files, 180,799 duplicated
+    lines, twelve byte-identical copies of `Kerbal X.craft` alone -- and each copy
+    drifted independently, which is why `build_dd1_craft.py` had grown a tuple
+    naming "EVERY committed copy of the craft" so its byte gate could walk them.
+    A re-introduced copy reds HERE instead of quietly restoring that state.
+    """
+
+    def test_the_committed_manifest_satisfies_every_invariant(self):
+        errors = hlib.validate_shared_ships_manifest(
+            _read_manifest(), _library_ship_names(), _fixture_save_names())
+        self.assertEqual((), errors, "shared-ships.toml invariants: %s" % (errors,))
+
+    def test_no_committed_fixture_file_duplicates_a_shared_library_craft(self):
+        # The anti-regression sweep. Hash every committed file under fixtures/saves
+        # and assert none is byte-identical to a library craft. Content-addressed on
+        # purpose: a re-introduced copy under a DIFFERENT name (a rename, a harvest
+        # that renamed the ship) is the same duplication and must red the same way.
+        import hashlib
+        lib_digests = {}
+        for name in os.listdir(SHIPS_DIR):
+            path = os.path.join(SHIPS_DIR, name)
+            with open(path, "rb") as fh:
+                lib_digests[hashlib.sha256(fh.read()).hexdigest()] = name
+        offenders = []
+        for dirpath, _, filenames in os.walk(FIXTURE_SAVES_DIR):
+            for fn in filenames:
+                path = os.path.join(dirpath, fn)
+                with open(path, "rb") as fh:
+                    digest = hashlib.sha256(fh.read()).hexdigest()
+                if digest in lib_digests:
+                    offenders.append("%s duplicates fixtures/%s/%s"
+                                     % (os.path.relpath(path, FIXTURES_DIR).replace("\\", "/"),
+                                        hlib.SHARED_SHIPS_DIRNAME, lib_digests[digest]))
+        self.assertEqual([], sorted(offenders),
+                         "committed fixture files duplicate a shared library craft; add a "
+                         "shared-ships.toml row instead of copying the .craft in")
+
+    def test_every_manifest_row_resolves_against_the_committed_library(self):
+        manifest, lib = _read_manifest(), _library_ship_names()
+        for save in sorted(manifest):
+            vab = os.path.join(FIXTURE_SAVES_DIR, save, *hlib.SHARED_SHIPS_DEST_SEGMENTS)
+            existing = os.listdir(vab) if os.path.isdir(vab) else []
+            plan = hlib.plan_shared_ship_overlay(save, manifest, lib, existing)
+            self.assertEqual((), plan.errors, "%s: %s" % (save, plan.errors))
+            self.assertEqual(len(manifest[save]), len(plan.entries), save)
+
+    def test_every_fixture_that_a_scenario_boots_can_resolve_its_craft(self):
+        # The consumer-side pairing: a spec's saveTemplate names a fixture, and a
+        # fixture that resolves NO craft at all (neither physical nor shared) is
+        # only legal if no committed spec drives it to launch_vessel. This asserts
+        # the weaker, mechanically checkable half -- every saveTemplate a committed
+        # spec names is a real fixture directory, so a manifest row can never be
+        # the only thing keeping a scenario's save alive.
+        manifest = _read_manifest()
+        saves = set(_fixture_save_names())
+        for name in sorted(n for n in os.listdir(SCENARIOS_DIR) if n.endswith(".toml")):
+            path = os.path.join(SCENARIOS_DIR, name)
+            with open(path, "rb") as fh:
+                spec = tomllib.load(fh)
+            template = (spec.get("fixture", {}) or {}).get("saveTemplate", "")
+            if not template:
+                continue
+            leaf = template.replace("\\", "/").rstrip("/").rsplit("/", 1)[-1]
+            self.assertIn(leaf, saves,
+                          "%s: saveTemplate %r names no fixture directory"
+                          % (os.path.basename(path), template))
+            for ship in manifest.get(leaf, ()):
+                self.assertTrue(
+                    os.path.isfile(os.path.join(SHIPS_DIR, ship + hlib.SHARED_SHIP_SUFFIX)),
+                    "%s: fixture %s declares missing library craft %r"
+                    % (os.path.basename(path), leaf, ship))

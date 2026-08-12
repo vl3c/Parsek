@@ -136,26 +136,22 @@ import sys
 _HERE = os.path.dirname(os.path.abspath(__file__))
 _HARNESS_ROOT = os.path.dirname(_HERE)                       # harness/
 
-# The committed craft lives in the FORGE BASE's Ships/VAB (the save the
-# FORGE-b17-duna-pad scenario boots, and the directory kRPC launch_vessel
-# resolves <save>/Ships/VAB/<craftName>.craft against). bdock-forge-base is
-# reused rather than forked, the same call FORGE-gs1-two-stage made: one
-# bootable base serves several forges, and adding a craft file costs no new
-# fixture directory and no re-pin of test_saveparse's committed-fixture sweep.
-BASE_NAME = "bdock-forge-base"
+# The craft is committed ONCE, in the shared library at harness/fixtures/ships/,
+# and `run.py::stage_fixture` overlays it into each consuming save's Ships/VAB at
+# stage time (the directory kRPC launch_vessel resolves
+# <save>/Ships/VAB/<craftName>.craft against). Consumers are declared in
+# harness/fixtures/shared-ships.toml: bdock-forge-base (the forge base
+# FORGE-b17-duna-pad boots), b17-duna-pad (what the B17 nightly boots),
+# duna-direct-recorded, b18-dres-pad and dres-orbit-recorded.
+#
+# THIS USED TO BE A THREE-PATH GATE. Each of those saves carried its own harvested
+# copy, so `--check` had to walk every one of them: a gate that checked only the
+# forge base would stay green while the copy the nightly actually flies went
+# stale. The shared library removes the class of bug rather than chasing it --
+# there is now exactly one file to drift, and `SharedShipsManifestTests` in
+# harness/lib/test_hlib.py reds if a copy is ever re-introduced beside it.
 SHIP_NAME = "DD1 Duna Direct Probe"
-CRAFT_PATH = os.path.join(_HARNESS_ROOT, "fixtures", "saves", BASE_NAME,
-                          "Ships", "VAB", SHIP_NAME + ".craft")
-# EVERY committed copy of the craft. The forge launches from
-# bdock-forge-base, but b17-duna-pad and duna-direct-recorded each carry
-# their own harvested copy under Ships/VAB -- and B17 boots b17-duna-pad,
-# so a drift gate that checks only the forge base would stay green while
-# the copy the nightly actually flies goes stale. --check and --write
-# both walk this whole list.
-COMMITTED_CRAFT_PATHS = tuple(
-    os.path.join(_HARNESS_ROOT, "fixtures", "saves", base,
-                 "Ships", "VAB", SHIP_NAME + ".craft")
-    for base in (BASE_NAME, "b17-duna-pad", "duna-direct-recorded"))
+CRAFT_PATH = os.path.join(_HARNESS_ROOT, "fixtures", "ships", SHIP_NAME + ".craft")
 
 # Root placement (assumption A1).
 ROOT_Y = 15.0
@@ -678,28 +674,26 @@ def main(argv=None) -> int:
 
     built = build()
     if args.write:
-        for path in COMMITTED_CRAFT_PATHS:
-            os.makedirs(os.path.dirname(path), exist_ok=True)
-            # CRLF, matching what KSP itself writes on Windows and what the
-            # sibling committed craft carry. read_lines normalizes, so the
-            # drift comparison is line-based either way.
-            with open(path, "w", encoding="utf-8", newline="\r\n") as fh:
-                fh.write("\n".join(built))
-            sys.stdout.write("[DD1Craft] wrote %s (%d lines)\n"
-                             % (path, len(built)))
+        os.makedirs(os.path.dirname(CRAFT_PATH), exist_ok=True)
+        # CRLF, matching what KSP itself writes on Windows and what the
+        # sibling committed craft carry. read_lines normalizes, so the
+        # drift comparison is line-based either way.
+        with open(CRAFT_PATH, "w", encoding="utf-8", newline="\r\n") as fh:
+            fh.write("\n".join(built))
+        sys.stdout.write("[DD1Craft] wrote %s (%d lines)\n"
+                         % (CRAFT_PATH, len(built)))
 
     problems = verify(built)
-    for path in COMMITTED_CRAFT_PATHS:
-        if os.path.isfile(path):
-            committed = read_lines(path)
-            problems.extend(verify(committed))
-            if committed != built:
-                problems.append("the committed craft at %s has DRIFTED from "
-                                "what this script produces; re-run with "
-                                "--write and commit, or explain the "
-                                "divergence" % path)
-        else:
-            problems.append("committed craft not found at %s" % path)
+    if os.path.isfile(CRAFT_PATH):
+        committed = read_lines(CRAFT_PATH)
+        problems.extend(verify(committed))
+        if committed != built:
+            problems.append("the committed craft at %s has DRIFTED from "
+                            "what this script produces; re-run with "
+                            "--write and commit, or explain the "
+                            "divergence" % CRAFT_PATH)
+    else:
+        problems.append("committed craft not found at %s" % CRAFT_PATH)
 
     for problem in problems:
         sys.stdout.write("[DD1Craft] PROBLEM: %s\n" % problem)

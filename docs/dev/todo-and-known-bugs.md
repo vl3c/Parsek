@@ -14,6 +14,76 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## ~~FIXTURE-CRAFT-DUPLICATED-PER-SAVE: every committed save fixture carries its own byte-identical copy of each craft it flies~~ [FOUND 2026-08-12 while accounting for the six-figure line counts on the recent fixture-lane PRs. FIXED 2026-08-12, branch `claude/large-pr-code-volume-xt1z02`]
+
+**What was measured.** `harness/fixtures/` held 1,226,233 lines over 490 files, of
+which 184,204 were byte-identical duplicates; 180,799 of those were craft files.
+Twelve identical copies of `Kerbal X.craft` (12,353 lines each), seven of
+`GS1 Auto-Chute Booster.craft`, five of `DD1 Duna Direct Probe.craft`, three of
+`Duna Rocket.craft` - 27 files in total. This is the bulk of the recent lane PRs'
+size: #1447 was 377,596 insertions with 376,666 under `harness/fixtures`, #1459
+222,283 with 218,355, against ~5k for every non-lane PR in the same window.
+
+**Why the copies existed.** A save fixture's craft must sit at
+`<save>/Ships/VAB/<name>.craft`, because that is what kRPC's
+`SpaceCenter.launch_vessel("VAB", <name>, ...)` resolves against
+(`mission_runner.py`, `ACTION_LAUNCH_VESSEL`). Committing a copy per save
+satisfied that literally.
+
+**Why it was more than a size problem.** Each copy drifted independently.
+`build_dd1_craft.py` had already grown a `COMMITTED_CRAFT_PATHS` tuple naming
+"EVERY committed copy of the craft" so `--check` could walk all three, after the
+observation that "a drift gate that checks only the forge base would stay green
+while the copy the nightly actually flies goes stale."
+
+**Fix.** One copy per shared craft under `harness/fixtures/ships/`, overlaid into
+the staged save's `Ships/VAB/` by `run.py::stage_fixture` per
+`harness/fixtures/shared-ships.toml`. Pure resolution in
+`hlib.plan_shared_ship_overlay` / `hlib.validate_shared_ships_manifest`; the
+overlay fails closed pre-boot (`INVALID(staging)`) on a missing library craft or a
+save that both declares and carries one. Verified behaviour-preserving by staging
+all 22 committed fixtures and comparing byte-for-byte against the pre-change
+trees: 22/22 identical, 27 craft overlaid. `build_dd1_craft.py`'s three-path gate
+collapses to one path; `build_gs1_craft.py` likewise; `harvest_bdock_station.py`
+drops a harvested craft the library already holds and prints the manifest row to
+add. Guarded by `SharedShipsManifestTests` + `SharedShipOverlayPlanTests`
+(`harness/lib/test_hlib.py`) and `SharedShipOverlayStagingTests`
+(`test_run_smoke.py`), 20 cells: the anti-regression sweep is content-addressed,
+so a re-introduced copy reds even if it was renamed.
+
+**Not done here, filed below:** the `.prec.txt` / `.craft.txt` mirror population
+(FIXTURE-TEXT-MIRRORS-UNREAD), which is larger than this was.
+
+## FIXTURE-TEXT-MIRRORS-UNREAD: every binary recording sidecar in the fixture tree is committed a second time as a text mirror no code reads [OPEN, filed 2026-08-12 alongside FIXTURE-CRAFT-DUPLICATED-PER-SAVE. NOT a regression - predates it]
+
+**What was measured.** Each committed recording sidecar exists twice: the binary
+the game reads (`<id>.prec`, `<id>_ghost.craft`, `<id>_vessel.craft`) and a
+plain-text mirror beside it (`.prec.txt`, `_ghost.craft.txt`, `_vessel.craft.txt`).
+The mirrors are 4x-10x the size of what they mirror - for
+`902b516ccc69491f9097d9c3dddd9e5d`, 12,231 bytes of `.prec` against 53,103 of
+`.prec.txt`; 5,649 of `_ghost.craft` against 59,307. Across the tree: 215,571
+lines of `.prec.txt` over 50 files plus 334,023 lines of `*.craft.txt` over 99,
+totalling 549,594 lines - **45% of the whole fixture tree**, and roughly three
+times the craft duplication just removed.
+
+**Who reads them.** Nothing. A sweep of `harness/`, `Source/` and `scripts/`
+(`.py`, `.cs`, `.toml`, `.ps1`) finds no code path opening a `.prec.txt` or a
+`*.craft.txt`. The only references are prose citations in scenario headers
+(`V6M-mun-player-loop.toml`, `V6T-mun-ts-arrival.toml`,
+`V7M-minmus-player-loop.toml`, `M1-mission-loop-unit.toml`) quoting values a human
+read out of one. So they are a review surface, not an input - which is a real use,
+and the reason this was NOT deleted as part of the craft dedup.
+
+**Why it is filed rather than fixed.** Deleting them removes a git-diffable
+window into recorded fixtures that four spec headers actively cite; that is a
+judgment call about how fixtures get reviewed, not a mechanical cleanup. The
+options worth weighing: (a) delete and regenerate on demand, which needs a decoder
+for the `PSK0` binary that does not exist outside the C# codec; (b) keep only the
+`.prec.txt` (the one carrying trajectory values a reviewer actually quotes) and
+drop the two `.craft.txt` per recording, which is 334,023 of the 549,594 lines for
+no loss of any current citation; (c) keep as is and accept the size. **(b) is the
+recommendation** - no existing citation is to a `.craft.txt`.
+
 ## ~~OPTIMIZER-SPLIT-DEFEATS-REAIM-CLASSIFIER: the load-time optimizer splits an interplanetary recording at an on-rails SOI handoff, and the re-aim classifier then finds no member holding a whole transfer~~ [FOUND 2026-08-12 by `V9-dres-player-loop`, the Dres program's loop-unit reading run. FIXED 2026-08-12, branch `dres-split-cohesion`, Design A of docs/dev/plans/optimizer-split-transfer-cohesion.md]
 
 **What was measured.** `V9-dres-player-loop` marks B19's committed Kerbin -> Sun ->

@@ -64,6 +64,7 @@ Stdlib only; ASCII only; no em dashes.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import os
 import re
 import shutil
@@ -72,6 +73,12 @@ import sys
 _HERE = os.path.dirname(os.path.abspath(__file__))
 _HARNESS_ROOT = os.path.dirname(_HERE)                       # harness/
 _FIXTURES_SAVES = os.path.join(_HARNESS_ROOT, "fixtures", "saves")
+# The shared craft library. A produced save's Ships/VAB carries whatever craft the
+# forge launched, which is usually a craft the library ALREADY holds -- harvesting
+# it verbatim is how the fixture tree accumulated 27 duplicate copies in the first
+# place. Step 3b below drops such a copy and tells the operator to declare the
+# fixture a consumer in shared-ships.toml instead.
+_FIXTURES_SHIPS = os.path.join(_HARNESS_ROOT, "fixtures", "ships")
 
 # Files copied verbatim from the produced save (the bootable pad state + the craft
 # the Interceptor re-launches). Everything else (quicksaves, Parsek state,
@@ -325,16 +332,62 @@ def harvest(save_dir: str, target_name: str, title: str, force: bool,
         # The refusal gate ran BEFORE the write (Sanity 3); this is the tally.
         log("fixture Parsek/Recordings: %d file(s)" % len(sidecars))
 
+    # 3b) drop any harvested craft the shared library already holds. The produced
+    # save carries the craft the forge launched, and that is normally a library
+    # craft; committing it again is the duplication the library exists to remove,
+    # and SharedShipsManifestTests would red on it. Byte-identity is the test, so a
+    # genuinely MODIFIED craft of the same name is kept and reported instead.
+    shared = _drop_shared_library_craft(target)
+
     craft = os.path.join(target, "Ships", "VAB")
     craft_files = sorted(os.listdir(craft)) if os.path.isdir(craft) else []
     log("fixture Ships/VAB: %s" % (craft_files or "<none>"))
-    if not craft_files:
+    if shared:
+        log("dropped %d craft already in the shared library: %s"
+            % (len(shared), ", ".join(shared)))
+        log("ACTION REQUIRED: add this row to harness/fixtures/shared-ships.toml so "
+            "the craft is overlaid at stage time --")
+        log('  "%s" = [%s]'
+            % (os.path.basename(target), ", ".join('"%s"' % s for s in shared)))
+    if not craft_files and not shared:
         log("warning: the fixture has no Ships/VAB craft; any consumer that calls "
             "launch_vessel on it will fail to resolve <save>/Ships/VAB/<name>.craft "
             "(harmless for a fixture whose scenario never launches anything)")
 
     log("harvested -> %s" % target)
     return 0
+
+
+def _digest(path: str) -> str:
+    with open(path, "rb") as fh:
+        return hashlib.sha256(fh.read()).hexdigest()
+
+
+def _drop_shared_library_craft(target: str) -> list:
+    """Remove craft under ``<target>/Ships/VAB`` that the shared library already
+    holds byte-for-byte; return their ship names (sorted).
+
+    Content-addressed rather than name-matched on purpose: a harvest that renamed
+    the ship still produced a duplicate, and a craft that merely SHARES a name with
+    a library entry but differs in content is a real divergence the operator needs
+    to see, not something to silently delete."""
+    vab = os.path.join(target, "Ships", "VAB")
+    if not os.path.isdir(vab) or not os.path.isdir(_FIXTURES_SHIPS):
+        return []
+    library = {}
+    for name in os.listdir(_FIXTURES_SHIPS):
+        if name.endswith(".craft"):
+            library[_digest(os.path.join(_FIXTURES_SHIPS, name))] = name[:-len(".craft")]
+    dropped = []
+    for name in sorted(os.listdir(vab)):
+        path = os.path.join(vab, name)
+        if not os.path.isfile(path):
+            continue
+        ship = library.get(_digest(path))
+        if ship is not None:
+            os.remove(path)
+            dropped.append(ship)
+    return sorted(dropped)
 
 
 def _ignore_pruned(directory, names):
