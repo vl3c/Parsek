@@ -62,8 +62,14 @@ steps = [
 craftName            = "Kerbal X"
 launchSite           = "LaunchPad"
 # THREE named crew for the EVA-3 3-crew pod. Must include the two EVA-3 exits
-# (Valentina Kerman, Bob Kerman); the third rounds out the 3-seat pod.
+# (Valentina Kerman, Bob Kerman); the third rounds out the 3-seat pod. All three
+# are `Available` in bdock-forge-base (Jebediah is NOT -- he crews the base's own
+# active vessel, and kRPC launch_vessel silently seats NOBODY it cannot seat; see
+# the FORGE-b18-dres-pad header for the measured trap).
 crewNames            = ["Valentina Kerman", "Bob Kerman", "Bill Kerman"]
+# Forge-time guard: a silent seating failure flakes ON THE PAD naming the crew
+# instead of stamping a fixture whose pod is emptier than EVA-3 expects.
+minCrew              = 3
 # Game-seconds to see the new craft settle PRELAUNCH before flaking. Generous:
 # launch_vessel is a scene reload.
 launchTimeoutSeconds = 120

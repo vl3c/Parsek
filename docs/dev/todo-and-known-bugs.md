@@ -14,6 +14,58 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## ~~FORGE-CREW-SEATING-SILENT-FAILURE: kRPC launch_vessel seats NOBODY when a requested crew name is unseatable, and the pad forge stamped an empty-pod fixture without noticing~~ [FOUND 2026-08-11 by the first FORGE-b18-dres-pad run + B18 flight 1 (PR #1459 carries the measurement in that spec's header). GUARD SHIPPED 2026-08-12, branch `forge-crew-guard`: the forge_lko minCrew gate ported to forge_station. CLOSED 2026-08-12: fixture re-forged crewed (FORGE-gs1-two-stage run `2026-08-12_1552` PASS attempt 1, `crewAboard value=1` live) and GS-1 flew the re-stamp to a full PASS (run `2026-08-12_1556`, attempt 1, armed saveParse green)]
+
+**The trap.** kRPC 0.5.4 `launch_vessel(crew=[names])` does NOT fail when a name
+cannot be seated - it launches an EMPTY pod and leaves the kerbal `Missing`. In
+`bdock-forge-base` Jebediah is `state = Assigned` (he crews the base's own active
+vessel), so `FORGE-gs1-two-stage`'s original `crewNames = ["Jebediah Kerman"]`
+seated nobody, and the committed `gs1-two-stage-pad` fixture carries an empty Mk1
+pod + a `Missing` Jeb. GS-1 flew green on it anyway (its craft pairs a
+probeCoreOcto2 with the pod, so it is probe-controlled); the identical mistake was
+FATAL to B18's Duna Rocket (one ModuleCommand, no probe core), which is how it was
+finally measured. The orbital forge (`forge_lko`) already had a `minCrew` gate for
+exactly this; the pad forge (`forge_station`) did not.
+
+**The durable fix (option c of the triage), shipped.** `mlib.ForgeParams` gained
+`min_crew` (spec key `minCrew`, 0 = off, declared in `forge_station.schema.toml`),
+`forge_decide`'s LAUNCH settle gate now also requires `crew_count >= minCrew`
+(fail-closed on the -1 unread sentinel; the launch-budget flake NAMES the crew
+shortfall via the new `ForgeState.flake_reason`, mirroring the flko diagnosis
+latch), `evaluate_forge_assertions` gained the `crewAboard` row (auto-met at
+minCrew 0, so every pre-guard spec is behavior-identical), and `forge_station`'s
+shell opts into `read_crew=True` (the HARNESS-SHELL-READSET discipline: the
+machine now reads a population-gated field). Specs armed: `FORGE-gs1-two-stage`
+(crewNames corrected to Valentina + `minCrew = 1`), `FORGE-eva3-pad`
+(`minCrew = 3`), `FORGE-b18-dres-pad` (`minCrew = 1`). `FORGE-bdock-station` /
+`FORGE-b17-duna-pad` pass no crewNames and stay gate-off. Post-review hardening
+(Fable review of PR #1460, findings applied same day): the floor now DEFAULTS to
+`len(crewNames)` when `minCrew` is omitted (shared `_derive_min_crew`, both
+forges; explicit 0 still disables) so a future spec that requests names and
+forgets the floor is gated by default; the `crewAboard` row and the crew-short
+flake message are extracted into shared helpers used by BOTH machines
+(`_crew_aboard_outcome` scans POST-launch frames only, so the crewed boot base's
+frame-0 read can never certify the forged craft; `_crew_short_flake_reason`
+names the -1 unread sentinel so a crew-telemetry fault is not misread as a
+seeding failure); and the pad forge's never-settled flake now names the accepted
+situations like flko's instead of the generic timeout line.
+
+**Residuals, both closed or triaged.** (1) ~~The committed `gs1-two-stage-pad`
+fixture still carries the empty pod~~ CLOSED 2026-08-12 on the same branch: the
+forge re-flown under the corrected params (run `2026-08-12_1552`, PASS attempt 1,
+76 s wall, the new `crewAboard` row read `value=1 met=True` live), re-harvested
+with the PRELAUNCH gate, and the committed fixture now carries
+`crew = Valentina Kerman` / `state = Assigned` (Jeb stays `Missing` in the
+roster, unchanged from every fixture this base produces - the pad clear recovers
+his vessel). GS-1 then flew the re-stamped fixture to a full PASS (run
+`2026-08-12_1556`, attempt 1: driver valid, analyzer red=0, expectations green,
+armed saveParse `mismatches=0`), so both the guard and the fixture are
+flight-proven. (2) No roster PRE-flight check: kRPC has
+`get_kerbal(name).roster_status`, so the runner could verify seatability BEFORE
+launch_vessel - rejected for now because the post-launch crew_count gate catches
+the same failure with zero new RPC surface, and a pre-check would race the same
+scene reload the settle debounce already owns.
+
 ## ~~FIXTURE-CRAFT-DUPLICATED-PER-SAVE: every committed save fixture carries its own byte-identical copy of each craft it flies~~ [FOUND 2026-08-12 while accounting for the six-figure line counts on the recent fixture-lane PRs. FIXED 2026-08-12, branch `claude/large-pr-code-volume-xt1z02`]
 
 **What was measured.** `harness/fixtures/` held 1,226,233 lines over 490 files, of

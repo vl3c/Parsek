@@ -61,7 +61,14 @@ def evaluate(frames, params: dict, state=None) -> List[mlib.AssertionOutcome]:
 def make_control() -> mission_runner.MissionControl:
     # No MechJeb, no docking telemetry: the forge only calls launch_vessel and
     # reads the settle situation. use_mechjeb=False keeps the connection minimal.
-    return mission_runner.KrpcMissionControl(use_mechjeb=False, client_name=MISSION_NAME)
+    # read_crew=True is LOAD-BEARING for the minCrew gate (the
+    # HARNESS-SHELL-READSET discipline: the machine reads snapshot.crew_count,
+    # which the runner populates ONLY under this flag -- without it the field
+    # sits at the -1 unread sentinel and any positive minCrew flakes every
+    # run). Opted in unconditionally, like forge_lko's shell: one extra RPC per
+    # poll on a mission that spends its whole life parked on the pad.
+    return mission_runner.KrpcMissionControl(use_mechjeb=False, client_name=MISSION_NAME,
+                                             read_crew=True)
 
 
 SPEC = mission_runner.MissionSpec(
