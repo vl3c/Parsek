@@ -3423,6 +3423,36 @@ class B5Params:
                                            # phase-entry baseline by at least this
                                            # before the pops are believed. Spec
                                            # key jettisonMinSplits.
+    # --- TARGET-SOI APPROACH WARP CLAMP (armed by B19; off everywhere else) ----
+    # THE DEFECT THIS EXISTS FOR, measured on B19 flight 4 (2026-08-11_2352) to
+    # the frame. The coast's native warp DID stop exactly where it promised --
+    # `tts=29.904 warp=NONEx1.000`, 30 game seconds short of the Dres boundary,
+    # with soiLeadSeconds=30 working perfectly. The very NEXT poll read
+    # `body=Dres ut=+27,596 s warp=RAILSx8738.770 ttPe=-9,741`: one frame
+    # crossed the SOI boundary AND the entire SOI-entry -> periapsis coast, so
+    # TARGET-FLYBY's first frame already had periapsis behind it and
+    # `capture-never-armed (past-periapsis)` was inevitable. Lowering the in-SOI
+    # factors (flyby 5/6 -> 3/4) could not help: by the time TARGET-FLYBY runs,
+    # the overshoot has already happened.
+    #
+    # A LEAD ALONE IS NOT ENOUGH, which is why this is two knobs. Making the lead
+    # bigger only moves where the machine regains control; whatever rails factor
+    # is in force for the REMAINING approach can still swallow it in one poll.
+    # So: hand off early (soi_lead), and hold a low ceiling from there to the
+    # boundary (this cap). Both are needed and neither is sufficient.
+    #
+    # 0 / 0 (the defaults) leave every existing lane byte-identical.
+    approach_window: float = 0.0           # GAME seconds of time-to-SOI within
+                                           # which the coast counts as ON FINAL
+                                           # APPROACH to the target SOI. 0 =
+                                           # feature off. Spec key
+                                           # approachWindowSeconds.
+    approach_max_warp_factor: int = 0      # rails factor ceiling while on
+                                           # approach. Size it so ONE poll
+                                           # advances well under the target's
+                                           # SOI-entry -> periapsis coast. 0 =
+                                           # no ceiling. Spec key
+                                           # approachMaxWarpFactor.
 
 
 def b5_params_from_dict(params: Dict) -> B5Params:
@@ -3546,6 +3576,9 @@ def b5_params_from_dict(params: Dict) -> B5Params:
         jettison_max_live_thrust=float(
             params.get("jettisonMaxLiveThrustNewtons", 0.0)),
         jettison_min_splits=int(params.get("jettisonMinSplits", 1)),
+        # Target-SOI approach clamp: off (0/0) unless a spec arms it.
+        approach_window=float(params.get("approachWindowSeconds", 0.0)),
+        approach_max_warp_factor=int(params.get("approachMaxWarpFactor", 0)),
     )
 
 
@@ -7841,6 +7874,55 @@ def _b5_seam_payload(snapshot: TelemetrySnapshot, tag: str, key: str) -> str:
     return ""
 
 
+def approach_warp_clamp(time_to_soi, ut, soi_lead, window, cap,
+                        desired, native_target):
+    """PURE. Clamp the coast's warp intent while on FINAL APPROACH to the target
+    SOI, so no single poll can swallow the SOI-entry -> periapsis coast.
+
+    Returns ``(desired, native_target)``.
+
+    THE MEASUREMENT THIS ENCODES (B19 flight 4, 2026-08-11_2352). The coast's
+    native warp stopped exactly where it promised -- ``tts=29.904
+    warp=NONEx1.000``, 30 game seconds short of the Dres boundary. The NEXT poll
+    read ``body=Dres ut=+27,596 s warp=RAILSx8738.770 ttPe=-9,741``: one frame
+    crossed the boundary AND the whole ~25,000 game-second approach, so
+    TARGET-FLYBY's first frame already had periapsis behind it. Clamping the
+    IN-SOI factors cannot fix that, because by then the overshoot has happened.
+
+    THE RULE, and why it is two things rather than one:
+      - ``desired`` is capped at ``cap`` -- a ceiling that HOLDS from the moment
+        the craft is within ``window`` of the boundary all the way to it, so the
+        remaining approach is flown in small steps.
+      - ``native_target`` is never allowed past ``ut + time_to_soi - soi_lead``,
+        and is DROPPED ENTIRELY once inside the lead window (a native warp whose
+        target is already behind us is exactly the frame that overshot). When it
+        is dropped, ``desired`` falls back to the cap so the frame still has a
+        defined, low rails intent rather than an unmanaged one.
+    A bigger lead alone only moves WHERE control is regained; the cap is what
+    makes the remaining distance survivable. Neither is sufficient alone.
+
+    OFF BY DEFAULT: ``window <= 0`` returns the inputs untouched, so every lane
+    that does not arm it is byte-identical. Fails OPEN on a non-finite
+    ``time_to_soi`` (an unread clock never triggers a clamp) and only ever
+    LOWERS a factor -- it can never raise one."""
+    if window <= 0.0 or not _is_finite(time_to_soi) or time_to_soi <= 0.0:
+        return desired, native_target
+    if time_to_soi > window:
+        return desired, native_target
+    if native_target is not None and _is_finite(ut):
+        limit = ut + time_to_soi - soi_lead
+        if limit <= ut:
+            # Inside the lead window: no native warp at all.
+            native_target = None
+            if cap > 0 and desired <= 0:
+                desired = cap
+        else:
+            native_target = min(native_target, limit)
+    if cap > 0 and desired > 0:
+        desired = min(desired, cap)
+    return desired, native_target
+
+
 def _b5_enter_plan_transfer(state: B5State, snapshot: TelemetrySnapshot,
                             peak: float) -> Tuple[B5State, List[Action]]:
     """Hand off into PLAN-TRANSFER: set the transfer target and ask the
@@ -10415,6 +10497,14 @@ def b5_decide(state: B5State, snapshot: TelemetrySnapshot) -> Tuple[B5State, Lis
             blind_soi_hold = coast_native_warp_hold(
                 snapshot.time_to_soi, stayed.warp_to_cmd, snapshot.ut,
                 snapshot.warp_mode, snapshot.warp_rate, snapshot.warping_to)
+        # TARGET-SOI APPROACH CLAMP (B19 flight 4). Applied HERE, at the single
+        # point every branch above converges on, rather than inside each branch:
+        # the overshoot frame was the hand-off itself, so the clamp has to see
+        # the final intent whichever branch produced it. Inert unless armed.
+        desired, native_target = approach_warp_clamp(
+            snapshot.time_to_soi, snapshot.ut, state.params.soi_lead,
+            state.params.approach_window, state.params.approach_max_warp_factor,
+            desired, native_target)
         if native_target is not None:
             # THRASH WATCHDOG (B12 flight 2 liveness): a healthy coast issues
             # the native warp a handful of times (arm + the occasional

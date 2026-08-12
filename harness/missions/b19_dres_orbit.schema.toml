@@ -512,3 +512,30 @@ required = false
 type = "int"
 min = 1
 max = 10
+
+# --- TARGET-SOI APPROACH WARP CLAMP (B19 flight 4's finding) -----------------
+# GAME seconds of time-to-SOI within which the coast counts as ON FINAL APPROACH
+# to the target SOI. Omitted / 0 = the clamp does not exist and the machine is
+# byte-identical to every other B5 lane.
+#
+# WHY IT EXISTS, measured to the frame on 2026-08-11_2352: the coast's native
+# warp stopped exactly where it promised (`tts=29.904 warp=NONEx1.000`, 30 game
+# seconds short of the Dres boundary), and the NEXT poll read `body=Dres
+# ut=+27,596 s warp=RAILSx8738.770 ttPe=-9,741` -- one frame crossed the
+# boundary AND the entire SOI-entry -> periapsis coast. Clamping the in-SOI
+# factors cannot fix that; by the time TARGET-FLYBY runs the overshoot has
+# already happened.
+[params.approachWindowSeconds]
+required = false
+type = "number"
+min = 0.0
+
+# Rails factor CEILING held from the moment the craft is within
+# approachWindowSeconds of the target SOI all the way to the boundary. Size it
+# so ONE poll advances well under the target's SOI-entry -> periapsis coast.
+# 0 / omitted = no ceiling.
+[params.approachMaxWarpFactor]
+required = false
+type = "int"
+min = 0
+max = 7

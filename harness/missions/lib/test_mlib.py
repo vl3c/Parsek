@@ -10041,6 +10041,80 @@ B19_JETTISON_PARAMS = replace(
 )
 
 
+class ApproachWarpClampTests(unittest.TestCase):
+    """The TARGET-SOI approach clamp (B19 flight 4). Pure: no I/O, no snapshot.
+
+    Sizing used throughout mirrors B19's armed values -- soi_lead 100,000 game s,
+    window 200,000, cap factor 5 -- and the numbers in the names are the MEASURED
+    ones from run 2026-08-11_2352."""
+
+    LEAD, WINDOW, CAP = 100000.0, 200000.0, 5
+
+    def clamp(self, tts, desired=7, native=None, ut=1000.0,
+              lead=None, window=None, cap=None):
+        return mlib.approach_warp_clamp(
+            tts, ut,
+            self.LEAD if lead is None else lead,
+            self.WINDOW if window is None else window,
+            self.CAP if cap is None else cap,
+            desired, native)
+
+    def test_off_by_default_is_byte_identical(self):
+        """window = 0 is the state every other lane is in; the inputs must come
+        back untouched, which is what keeps B5/B7/B11/B12/B16 unchanged."""
+        self.assertEqual((7, 12345.0),
+                         self.clamp(50.0, desired=7, native=12345.0, window=0.0))
+
+    def test_far_from_the_boundary_nothing_is_clamped(self):
+        """Outside the window the coast keeps its full factor -- the clamp must
+        not tax the 13M game-second heliocentric leg."""
+        self.assertEqual((7, 9e9), self.clamp(5_000_000.0, desired=7, native=9e9))
+
+    def test_inside_the_window_the_factor_is_capped(self):
+        desired, _ = self.clamp(150000.0, desired=7)
+        self.assertEqual(self.CAP, desired)
+
+    def test_the_clamp_only_ever_lowers(self):
+        """A factor already below the cap is left alone -- the clamp is a
+        ceiling, never a floor, so it can never speed a lane up."""
+        desired, _ = self.clamp(150000.0, desired=3)
+        self.assertEqual(3, desired)
+
+    def test_native_target_is_pulled_back_to_the_lead_point(self):
+        """A native warp aimed past the lead point is the frame that overshot;
+        it must be pulled back to ut + tts - lead."""
+        _, native = self.clamp(150000.0, native=1e12, ut=1000.0)
+        self.assertAlmostEqual(1000.0 + 150000.0 - self.LEAD, native)
+
+    def test_inside_the_lead_window_the_native_warp_is_dropped_entirely(self):
+        """THE MEASURED FRAME. At tts=29.904 the old code still had a native
+        warp armed and the next poll advanced 27,596 game seconds across the
+        boundary. Inside the lead there is no valid native target left, so it is
+        dropped and the frame falls back to the capped rails intent."""
+        desired, native = self.clamp(29.904, desired=0, native=1e12)
+        self.assertIsNone(native)
+        self.assertEqual(self.CAP, desired)
+
+    def test_a_dropped_native_target_does_not_raise_an_existing_factor(self):
+        desired, native = self.clamp(29.904, desired=2, native=1e12)
+        self.assertIsNone(native)
+        self.assertEqual(2, desired)
+
+    def test_unread_or_nonpositive_time_to_soi_fails_open(self):
+        """An unread clock must never trigger a clamp (fail OPEN), because the
+        heliocentric leg legitimately reads tts=nan for most of its length."""
+        self.assertEqual((7, 5.0), self.clamp(float("nan"), desired=7, native=5.0))
+        self.assertEqual((7, 5.0), self.clamp(-3.0, desired=7, native=5.0))
+
+    def test_one_frame_cannot_swallow_the_dres_approach(self):
+        """The sizing claim, stated as arithmetic rather than prose. Dres's
+        SOI-entry -> periapsis coast measured ~25,000 game s (the flight-4 frame
+        crossed 27,596). A poll is ~0.5-1.0 s wall, so the capped factor must
+        advance well under a fifth of that per frame."""
+        rate = mlib.RAILS_WARP_RATES[self.CAP]
+        self.assertLessEqual(rate * 1.0, 25000.0 / 5.0)
+
+
 class B5PreTransferJettisonTests(unittest.TestCase):
     """The optional pre-transfer jettison: armed, it pops an EXACT number of
     stages thrust-safe and then certifies BOTH that a stack separated and that

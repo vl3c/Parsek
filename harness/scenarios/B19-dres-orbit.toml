@@ -300,7 +300,30 @@ flybyWarpFactor            = 3
 flybyMaxWarpFactor         = 4
 nodeArrivalMarginSeconds   = 15
 planWarpFactor             = 2
-soiLeadSeconds             = 30
+# --- THE ARRIVAL FIX (flight 4's finding), TWO KNOBS, BOTH REQUIRED.
+# Flight 4 measured the coast's native warp stopping EXACTLY where it promised:
+# `tts=29.904 warp=NONEx1.000`, 30 game seconds short of the Dres boundary. So
+# soiLeadSeconds=30 was not broken -- it was just far too small to matter. The
+# NEXT poll read `body=Dres ut=+27,596 s warp=RAILSx8738.770 ttPe=-9,741`: ONE
+# frame crossed the boundary and the whole ~25,000 game-second approach, so
+# TARGET-FLYBY's first frame already had periapsis behind it.
+#
+# (1) HAND OFF EARLY. 100,000 game s is >= 2x the measured 27,596 s single-frame
+# advance (and >= 2x the ~50,000 s a full-rate x100,000 poll can cover), so the
+# machine regains control at least two worst-case frames before the boundary
+# instead of 30 game seconds before it.
+soiLeadSeconds             = 100000
+# (2) HOLD A LOW CEILING FROM THERE TO THE BOUNDARY. A bigger lead ALONE only
+# moves where control is regained -- whatever factor is in force for the
+# remaining approach can still swallow it in one poll, which is exactly what
+# happened. The window opens the ceiling 200,000 game s out (2x the lead, so it
+# is already in force when the native warp hands off) and factor 5 = x1,000
+# advances ~500-1,000 game s per poll: under 1/25 of Dres's ~25,000 s
+# SOI-entry -> periapsis coast, comfortably inside the "one frame <= 1/5 of the
+# approach" sizing rule. Bounded cost: 200,000 game s at x1,000 is ~200 wall s,
+# which the re-sized mission budget absorbs.
+approachWindowSeconds      = 200000
+approachMaxWarpFactor      = 5
 flipPhysicsWarpFactor      = 1
 # Dres has NO atmosphere; its peaks reach ~5.7 km. 50 km is ~9x the highest
 # terrain and asserts the whole in-SOI stay (arrival AND park) stayed in clean
