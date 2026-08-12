@@ -1449,6 +1449,106 @@ namespace Parsek.Tests
                 thrustingJetpackParts: new HashSet<uint>()));
         }
 
+        // ------------------------------------------------------------------
+        // The plume reconcile classifier — added after the 2026-08-12 H37
+        // measuring flight found the inactive-hierarchy no-op
+        // ------------------------------------------------------------------
+
+        [Fact]
+        public void AnInactiveHierarchyDefersThePlumeRatherThanBuildingOrFailingIt()
+        {
+            // THE FLIGHT FINDING, pinned. Unity's ParticleSystem.Play() on a ghost that is not
+            // activeInHierarchy is a SILENT no-op — no throw, isPlaying stays false — and a ghost is
+            // inactive for the whole of its spawn-time prefix replay (the build ends with
+            // SetActive(false); activation happens later, per frame). So a ghost whose playback
+            // cursor lands inside a thrust burst consumed its EvaJetpackThrustStarted against an
+            // inactive hierarchy and, the reconcile being event-driven only, never tried again.
+            Assert.Equal(
+                GhostPlaybackLogic.EvaPlumeReconcileAction.DeferInactiveHierarchy,
+                GhostPlaybackLogic.ClassifyEvaPlumeReconcile(
+                    wanted: true, hasPlume: false, unavailable: false,
+                    hierarchyActive: false, isPlaying: false));
+
+            // Deferral WINS over both the build and the unavailable flag. Over the build because
+            // allocating a system that cannot start is pure cost for a ghost that may never be
+            // shown; over `unavailable` because an inactive ghost is a retry-later, and recording it
+            // as a permanent failure would mean the plume never appears for that ghost even once it
+            // becomes visible.
+            Assert.Equal(
+                GhostPlaybackLogic.EvaPlumeReconcileAction.DeferInactiveHierarchy,
+                GhostPlaybackLogic.ClassifyEvaPlumeReconcile(
+                    wanted: true, hasPlume: true, unavailable: true,
+                    hierarchyActive: false, isPlaying: false));
+        }
+
+        [Fact]
+        public void ThePlumeReconcileClassifierCoversEveryReachableCombination()
+        {
+            // --- gate SHUT: only ever stop-or-nothing, and never a build ---
+            Assert.Equal(GhostPlaybackLogic.EvaPlumeReconcileAction.None,
+                GhostPlaybackLogic.ClassifyEvaPlumeReconcile(false, false, false, true, false));
+            Assert.Equal(GhostPlaybackLogic.EvaPlumeReconcileAction.None,
+                GhostPlaybackLogic.ClassifyEvaPlumeReconcile(false, true, false, true, false));
+            Assert.Equal(GhostPlaybackLogic.EvaPlumeReconcileAction.Stop,
+                GhostPlaybackLogic.ClassifyEvaPlumeReconcile(false, true, false, true, true));
+            // A shut gate does NOT consult the hierarchy: stopping an emitting system is valid
+            // whatever the ghost's visibility, and a hidden ghost must not be left emitting.
+            Assert.Equal(GhostPlaybackLogic.EvaPlumeReconcileAction.Stop,
+                GhostPlaybackLogic.ClassifyEvaPlumeReconcile(false, true, false, false, true));
+
+            // --- gate OPEN, hierarchy ACTIVE ---
+            Assert.Equal(GhostPlaybackLogic.EvaPlumeReconcileAction.Build,
+                GhostPlaybackLogic.ClassifyEvaPlumeReconcile(true, false, false, true, false));
+            Assert.Equal(GhostPlaybackLogic.EvaPlumeReconcileAction.Play,
+                GhostPlaybackLogic.ClassifyEvaPlumeReconcile(true, true, false, true, false));
+            Assert.Equal(GhostPlaybackLogic.EvaPlumeReconcileAction.AlreadyPlaying,
+                GhostPlaybackLogic.ClassifyEvaPlumeReconcile(true, true, false, true, true));
+            Assert.Equal(GhostPlaybackLogic.EvaPlumeReconcileAction.Unavailable,
+                GhostPlaybackLogic.ClassifyEvaPlumeReconcile(true, false, true, true, false));
+
+            // Every one of the 32 combinations resolves to a DEFINED action (no silent
+            // fall-through), which is what makes the wrapper's switch exhaustive, plus the two
+            // invariants that carry the fix.
+            foreach (bool wanted in new[] { false, true })
+            foreach (bool hasPlume in new[] { false, true })
+            foreach (bool unavailable in new[] { false, true })
+            foreach (bool active in new[] { false, true })
+            foreach (bool playing in new[] { false, true })
+            {
+                GhostPlaybackLogic.EvaPlumeReconcileAction a =
+                    GhostPlaybackLogic.ClassifyEvaPlumeReconcile(
+                        wanted, hasPlume, unavailable, active, playing);
+                Assert.True(Enum.IsDefined(typeof(GhostPlaybackLogic.EvaPlumeReconcileAction), a));
+
+                // A build is only ever proposed when there is nothing to build on AND the ghost can
+                // actually show it — the property that keeps the laziness claim true.
+                if (a == GhostPlaybackLogic.EvaPlumeReconcileAction.Build)
+                    Assert.True(wanted && !hasPlume && !unavailable && active);
+
+                // Neither Build nor Play is ever proposed on an inactive hierarchy: that no-op is
+                // the whole reason this classifier exists.
+                if (a == GhostPlaybackLogic.EvaPlumeReconcileAction.Build
+                    || a == GhostPlaybackLogic.EvaPlumeReconcileAction.Play)
+                {
+                    Assert.True(active);
+                }
+            }
+        }
+
+        [Fact]
+        public void ThePerFrameSelfHealCostsOneBoolReadForANonThrustingGhost()
+        {
+            // The gate that keeps a per-frame hook affordable: essentially every ghost in a scene is
+            // not an EVA kerbal mid-burst, and must pay one field read and nothing else. A null
+            // state is also a no-op, since the hook runs from the frame path.
+            var idle = new GhostPlaybackState();
+            GhostPlaybackLogic.UpdateEvaJetpackPlumeForFrame(idle);
+            Assert.Null(idle.evaJetpackPlumeInfo);
+            Assert.False(idle.evaJetpackPlumeUnavailable);
+
+            GhostPlaybackLogic.UpdateEvaJetpackPlumeForFrame(null);
+        }
+
         [Fact]
         public void TryUpdateEvaFlags_IgnoresNonEvaEventTypesAndANullState()
         {

@@ -120,29 +120,58 @@ count = { min = 0, max = 0 }
 # `passed=` is pinned to a literal nonzero, so hlib.batch_contract_vacuity_gap answers
 # None (every vacuous BATCH_COMPLETE carries passed=0).
 #
-# EVIDENCE STANDING: **INTERIM — NOT YET FLOWN.** `total=5` and `skipped=0` are
-# ATTRIBUTE-EXACT, derived mechanically by `hlib.parse_ingame_test_declarations` +
-# `hlib.derive_batch_tally` over
+# EVIDENCE STANDING: **INTERIM — FLOWN ONCE, 2026-08-12, PARSEK-FAIL 3/5.** `total=5` and
+# `skipped=0` are ATTRIBUTE-EXACT, derived mechanically by
+# `hlib.parse_ingame_test_declarations` + `hlib.derive_batch_tally` over
 # Source/Parsek/InGameTests/PartEventFidelityInGameTests.cs (5 declarations, all
 # Category = "PartEventFidelity", all Scene = GameScenes.FLIGHT, all
 # AllowBatchExecution) and kept in sync by CommittedBatchTallySourceSyncTests.
 # `failed=0` is the ASSERTION. `scene=FLIGHT` is the gloops-airshow Focusable route,
 # measured by H13 / H5 / S1.4 / H33 / H36 on this exact fixture.
 #
-# WHAT IS NOT YET MEASURED, and why this id sits in
-# IngameBatchWiringGroupTests.INTERIM_PIN_IDS until it is: `passed=5` is a PREDICTION.
-# Every one of the five cells carries a run-time InGameAssert.Skip keyed on what the
-# provisioned install actually loaded AND on what the ghost builder resolved — a
-# deployable whose breakName (or pivotName fallback) clones into the ghost, a
-# ModuleAnimationGroup whose running clip moves cloned geometry, a part with that clip and
-# NO deploy animation, a KerbalEVA prefab plus the additive particle shader, and a science
-# experiment paired with a ModuleAnimateGeneric whose sampled poses differ. No attribute
-# can predict that split; "expected to hold" is not a measurement. The H36 precedent is
-# explicit that a RED is not a measurement either — that id stayed interim through a
-# PARSEK-FAIL before its clean re-fly settled the pin. So the interim exposure here is
-# accepted on the same terms: the first green flight replaces `passed=[1-9][0-9]*` with a
-# literal, records the per-cell resolutions the way H36's comment does, adds any owed
-# RUNTIME_SKIPS entry, and removes this id from INTERIM_PIN_IDS.
+# THE FIRST FLIGHT read `BATCH_COMPLETE v1 total=5 passed=3 failed=1 skipped=1`, with 0
+# Parsek ERRORs and only the two known benign camera re-pin WARNs on this boot route. What
+# it settled, and what it bought:
+#
+#   GREEN, and these three retire the biggest predicted risks. The S6 break/repair/loop
+#   round trip PASSED, which means the breakName -> pivotName fallback resolved on a real
+#   stock prefab — the failure mode this spec called its likeliest red. Both converter-loop
+#   cells PASSED, including the EMPTY-deploy-name ISRU shape, with the cyclic wrap
+#   measured: `quarterRot=90.0001deg` a quarter of the way through the clip and
+#   `driftAfterStop=0deg` after deactivate.
+#
+#   RED — a PRODUCT defect, not a fixture shortfall, and the more valuable of the two
+#   findings. The EVA plume cell failed at "plume built but not playing while thrusting":
+#   the gate opened, the build logged, the success line logged — and `isPlaying` was false.
+#   Unity's `ParticleSystem.Play()` on a ghost that is not `activeInHierarchy` is a SILENT
+#   no-op, and a ghost is inactive for the whole of its spawn-time prefix replay
+#   (`BuildTimelineGhostFromSnapshot` ends with `root.SetActive(false)`;
+#   `ActivateGhostVisualsIfNeeded` runs later, per frame). Because the reconcile was
+#   EVENT-driven only, a ghost spawning mid-burst stayed dark for the entire burst while
+#   the log claimed otherwise. Fixed on three fronts: a pure
+#   `ClassifyEvaPlumeReconcile` that DEFERS on an inactive hierarchy (rather than building
+#   a system it cannot start, or marking a good ghost permanently unavailable), a per-frame
+#   `UpdateEvaJetpackPlumeForFrame` self-heal beside the launch-dust drive — dust already
+#   had this property for free by re-calling Play every frame — and DECISION-VS-TRUTH
+#   logging that reads `isPlaying` back, so the success line can no longer be emitted on
+#   the strength of having called Play. A Warn now names the unmodelled-refusal case.
+#
+#   SKIPPED VACUOUSLY — a FIXTURE bug. The Goo cell resolved `science.module`, cloned 15
+#   MeshRenderers and sampled 6 animated transforms from clip `Deploy`, then skipped on its
+#   own precondition that stowed and deployed poses differ. Cause: the precondition tested
+#   POSITION only, and a science canister's Deploy clip SWINGS ITS DOORS — pure rotation,
+#   identical positions at both ends. The builder's own `CollectTransformDeltas` keeps a
+#   transform on position OR ROTATION OR scale, so the cell was blind to exactly the motion
+#   the part has. Both the precondition and the round-trip assertions are now per-component
+#   (position, rotation, scale), each judged against its own span. NO `RUNTIME_SKIPS` entry
+#   is owed: the skip was fixed rather than accepted, so `skipped=0` stands as written.
+#
+# WHY THE PIN STAYS INTERIM. `passed=5` is still a PREDICTION for the two repaired cells,
+# and the H36 precedent is explicit that a RED IS NOT A MEASUREMENT — that id stayed
+# interim through a PARSEK-FAIL before its clean re-fly settled the pin. The three green
+# cells are measured; the other two have been fixed but not observed. The next green
+# flight replaces `passed=[1-9][0-9]*` with a literal, records the per-cell resolutions the
+# way H36's comment does, and removes this id from INTERIM_PIN_IDS.
 required  = ["BATCH_COMPLETE v1 total=5 passed=[1-9][0-9]* failed=0 skipped=0 category=PartEventFidelity scene=FLIGHT"]
 forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
 

@@ -396,8 +396,32 @@ namespace Parsek.InGameTests
                 InGameAssert.IsTrue(state.evaJetpackPlumeInfo == null,
                     "S4: deploying the pack alone built a plume — an idle jetpack emits nothing");
 
-                // THRUST: the gate opens and the system must exist and be playing.
+                // ── THE INACTIVE-HIERARCHY CASE, and it is here because the 2026-08-12 flight
+                //    found it the hard way. Unity's ParticleSystem.Play() on a ghost that is not
+                //    activeInHierarchy is a SILENT no-op: no throw, isPlaying stays false. That is
+                //    the state the spawn-time prefix replay is ALWAYS in, so a ghost spawning
+                //    mid-burst used to consume its thrust event into nothing and stay dark for the
+                //    whole burst while the log claimed it was emitting.
+                //
+                //    Deactivating deliberately reproduces it, and asserts the two properties that
+                //    make it safe now: the reconcile DEFERS (allocating nothing rather than building
+                //    a system it cannot start), and the per-frame self-heal picks it up afterwards.
+                state.ghost.SetActive(false);
                 GhostPlaybackLogic.ApplyEvaState(state, PartEventType.EvaJetpackThrustStarted);
+                InGameAssert.IsTrue(state.evaJetpackPlumeInfo == null,
+                    "S4: a plume was BUILT while the ghost was inactive in the hierarchy. Play() " +
+                    "cannot take there, so building is pure allocation for a system that would sit " +
+                    "idle — the reconcile is supposed to defer and retry");
+                InGameAssert.IsFalse(state.evaJetpackPlumeUnavailable,
+                    "S4: the inactive hierarchy was recorded as a PERMANENT build failure. It is a " +
+                    "retry-later, and marking it unavailable means the plume never appears for this " +
+                    "ghost even once it is shown");
+
+                // THE SELF-HEAL: activate the ghost the way production does, then drive the frame
+                // hook. This is the exact production sequence a ghost spawning mid-burst follows.
+                GhostPlaybackEngine.ActivateGhostVisualsIfNeededForTesting(state);
+                GhostPlaybackLogic.UpdateEvaJetpackPlumeForFrame(state);
+
                 if (state.evaJetpackPlumeUnavailable)
                 {
                     InGameAssert.Skip(
@@ -408,13 +432,16 @@ namespace Parsek.InGameTests
                 }
 
                 InGameAssert.IsTrue(state.evaJetpackPlumeInfo != null,
-                    "S4: no plume was built on '" + usedPart + "' when the gate opened " +
-                    "(deployed + thrusting, no ragdoll)");
+                    "S4: the per-frame self-heal did not build a plume on '" + usedPart + "' after " +
+                    "the ghost became active, with the gate still open (deployed + thrusting, no " +
+                    "ragdoll) — a ghost that spawned mid-burst would stay dark for the whole burst");
                 ParticleSystem ps = state.evaJetpackPlumeInfo.particles;
                 InGameAssert.IsTrue(ps != null, "S4: the built plume carries no ParticleSystem");
                 InGameAssert.IsTrue(ps.isPlaying,
                     "S4: the plume was built but is not playing while the recording says the kerbal " +
-                    "is thrusting");
+                    "is thrusting. If the ghost is active and this still fails, Play() is being " +
+                    "refused for a reason nothing models — check the Warn line the reconcile now " +
+                    "emits for exactly this case");
 
                 // RAGDOLL suppresses it, even though thrust is still recorded as on.
                 GhostPlaybackLogic.ApplyEvaState(state, PartEventType.EvaRagdollStarted);
@@ -508,9 +535,11 @@ namespace Parsek.InGameTests
                 {
                     InGameAssert.Skip(
                         "no loaded ModuleScienceExperiment part paired with a ModuleAnimateGeneric " +
-                        "produced a ghost whose sampled stowed and deployed poses differ; stock " +
-                        "supplies this shape through the Goo canister and Science Jr (both " +
-                        "animationName = Deploy, FxModules = 0)");
+                        "produced a ghost whose sampled stowed and deployed poses differ in ANY " +
+                        "component (position, rotation or scale); stock supplies this shape through " +
+                        "the Goo canister and Science Jr (both animationName = Deploy, " +
+                        "FxModules = 0), whose doors SWING - so a rotation-blind precondition here " +
+                        "is a fixture bug, not an install property");
                     return;
                 }
 
@@ -520,31 +549,52 @@ namespace Parsek.InGameTests
                     "longer recorded by anything. P8's WON'T verdict for the science timeline rests " +
                     "on this being false — revisit the verdict, do not silence this cell");
 
-                // HALF TWO: the recorded event really does animate the ghost.
+                // HALF TWO: the recorded event really does animate the ghost. Measured on ALL
+                // THREE pose components, because a science canister's Deploy clip is a door SWING -
+                // rotation only, with the positions identical at both ends. The first version of
+                // this cell measured position alone and skipped itself into vacuity.
                 DeployableTransformState ts = FindMovingTransform(info);
-                Vector3 stowed = ts.stowedPos;
-                Vector3 deployed = ts.deployedPos;
+                MeasurePoseSpan(ts, out float posSpan, out float rotSpanDeg, out float scaleSpan);
 
                 GhostPlaybackLogic.ApplyDeployableState(
                     state, new PartEvent { partPersistentId = FixturePartPid }, deployed: false);
-                float atStowed = (ts.t.localPosition - stowed).magnitude;
+                MeasurePoseError(ts, toDeployed: false,
+                    out float stowedPosErr, out float stowedRotErr, out float stowedScaleErr);
 
                 GhostPlaybackLogic.ApplyDeployableState(
                     state, new PartEvent { partPersistentId = FixturePartPid }, deployed: true);
-                float atDeployed = (ts.t.localPosition - deployed).magnitude;
+                MeasurePoseError(ts, toDeployed: true,
+                    out float deployedPosErr, out float deployedRotErr, out float deployedScaleErr);
 
-                float span = (deployed - stowed).magnitude;
-                InGameAssert.IsTrue(atStowed < span * 0.1f,
-                    "§2: '" + usedPart + "' did not reach its STOWED pose (off by " + atStowed +
-                    " m of a " + span + " m span)");
-                InGameAssert.IsTrue(atDeployed < span * 0.1f,
-                    "§2: '" + usedPart + "' did not reach its DEPLOYED pose (off by " + atDeployed +
-                    " m of a " + span + " m span) — the science deploy visual does NOT round-trip, " +
-                    "so the claim that it is already covered is false");
+                // Each component is judged against ITS OWN span with a small absolute floor, so a
+                // component the clip does not move at all (span 0) is satisfied by staying put
+                // rather than being held to an unreachable relative tolerance.
+                bool stowedOk =
+                    stowedPosErr <= posSpan * 0.1f + 1e-4f
+                    && stowedRotErr <= rotSpanDeg * 0.1f + 0.05f
+                    && stowedScaleErr <= scaleSpan * 0.1f + 1e-4f;
+                bool deployedOk =
+                    deployedPosErr <= posSpan * 0.1f + 1e-4f
+                    && deployedRotErr <= rotSpanDeg * 0.1f + 0.05f
+                    && deployedScaleErr <= scaleSpan * 0.1f + 1e-4f;
+
+                string spans = "span(pos=" + posSpan + "m rot=" + rotSpanDeg + "deg scale=" + scaleSpan + ")";
+
+                InGameAssert.IsTrue(stowedOk,
+                    "§2: '" + usedPart + "' did not reach its STOWED pose — off by pos=" +
+                    stowedPosErr + "m rot=" + stowedRotErr + "deg scale=" + stowedScaleErr +
+                    " against " + spans);
+                InGameAssert.IsTrue(deployedOk,
+                    "§2: '" + usedPart + "' did not reach its DEPLOYED pose — off by pos=" +
+                    deployedPosErr + "m rot=" + deployedRotErr + "deg scale=" + deployedScaleErr +
+                    " against " + spans + ". The science deploy visual does NOT round-trip, so the " +
+                    "claim that it is already covered by the AnimateGeneric path is false");
 
                 ParsekLog.Info("InGameTest",
-                    "Goo verification on '" + usedPart + "': dedicatedHandler=false span=" + span +
-                    "m stowedErr=" + atStowed + "m deployedErr=" + atDeployed + "m");
+                    "Goo verification on '" + usedPart + "': dedicatedHandler=false " + spans +
+                    " transforms=" + info.transforms.Count +
+                    " stowedErr(pos=" + stowedPosErr + " rot=" + stowedRotErr + " scale=" + stowedScaleErr + ")" +
+                    " deployedErr(pos=" + deployedPosErr + " rot=" + deployedRotErr + " scale=" + deployedScaleErr + ")");
             }
             finally
             {
@@ -583,6 +633,24 @@ namespace Parsek.InGameTests
                 ghost = build.root
             };
             GhostPlaybackLogic.PopulateGhostInfoDictionaries(state, build, rec);
+
+            // ACTIVATE THE GHOST THE WAY A REAL SPAWN DOES, through the production seam rather than
+            // a bare SetActive. BuildTimelineGhostFromSnapshot deliberately ends with
+            // root.SetActive(false) (GhostVisualBuilder: the ghost must not flash at the origin
+            // before it is positioned), and every production path then activates it through
+            // GhostPlaybackEngine.ActivateGhostVisualsIfNeeded - which is exactly what this seam
+            // exposes. In this case the production step IS just the SetActive(true) plus clearing
+            // deferVisibilityUntilPlaybackSync, so routing through it costs nothing and cannot drift
+            // from production if that step ever grows.
+            //
+            // WHY IT MATTERS HERE AND NOT IN THE H36 CELLS: those read activeSelf flags and sampled
+            // poses, both readable on an inactive hierarchy. Anything Unity refuses to do while
+            // inactive is invisible to them. ParticleSystem.Play() is exactly such a thing - a
+            // silent no-op, no throw, isPlaying stays false - so the EVA plume cell measured a lie
+            // until the fixture matched production. (The same no-op is reachable in PRODUCTION
+            // during the spawn prefix replay; GhostPlaybackLogic.UpdateEvaJetpackPlumeForFrame is
+            // the fix for that half, and this is the fix for the fixture half.)
+            GhostPlaybackEngine.ActivateGhostVisualsIfNeededForTesting(state);
             return build;
         }
 
@@ -643,7 +711,30 @@ namespace Parsek.InGameTests
             return null;
         }
 
-        /// <summary>A deployable whose stowed and deployed poses actually differ.</summary>
+        // ---- pose-change detection -------------------------------------------
+        //
+        // THESE THRESHOLDS ARE THE SAMPLER'S OWN, and copying them rather than inventing a
+        // tolerance is the whole fix for the 2026-08-12 vacuous skip. The first version of the Goo
+        // cell asked "do stowed and deployed POSITIONS differ?" - and a science canister's `Deploy`
+        // clip SWINGS ITS DOORS, i.e. it is pure ROTATION. GhostVisualBuilder.CollectTransformDeltas
+        // keeps a transform when position OR ROTATION OR scale moved (sqrMag > 0.0001, angle > 0.01
+        // deg, sqrMag > 0.0001), so the builder correctly sampled 6 animated transforms while the
+        // cell's position-only predicate matched none of them and skipped on its own precondition -
+        // asserting nothing about the verdict it exists to pin.
+        private const float PoseMoveSqrMagThreshold = 0.0001f;
+        private const float PoseMoveAngleDegThreshold = 0.01f;
+
+        /// <summary>True when this transform's stowed and deployed poses differ in ANY component,
+        /// by the same test the builder used to decide the transform was animated at all.</summary>
+        private static bool PoseChanges(DeployableTransformState ts)
+        {
+            if (ts.t == null) return false;
+            return (ts.deployedPos - ts.stowedPos).sqrMagnitude > PoseMoveSqrMagThreshold
+                || Quaternion.Angle(ts.deployedRot, ts.stowedRot) > PoseMoveAngleDegThreshold
+                || (ts.deployedScale - ts.stowedScale).sqrMagnitude > PoseMoveSqrMagThreshold;
+        }
+
+        /// <summary>A deployable at least one of whose transforms actually changes pose.</summary>
         private static DeployableGhostInfo FindMovingDeployable(GhostPlaybackState state)
         {
             if (state?.deployableInfos == null) return null;
@@ -652,11 +743,7 @@ namespace Parsek.InGameTests
                 DeployableGhostInfo info = kv.Value;
                 if (info?.transforms == null) continue;
                 for (int i = 0; i < info.transforms.Count; i++)
-                {
-                    DeployableTransformState ts = info.transforms[i];
-                    if (ts.t != null && (ts.deployedPos - ts.stowedPos).sqrMagnitude > 1e-6f)
-                        return info;
-                }
+                    if (PoseChanges(info.transforms[i])) return info;
             }
             return null;
         }
@@ -664,12 +751,36 @@ namespace Parsek.InGameTests
         private static DeployableTransformState FindMovingTransform(DeployableGhostInfo info)
         {
             for (int i = 0; i < info.transforms.Count; i++)
-            {
-                DeployableTransformState ts = info.transforms[i];
-                if (ts.t != null && (ts.deployedPos - ts.stowedPos).sqrMagnitude > 1e-6f)
-                    return ts;
-            }
+                if (PoseChanges(info.transforms[i])) return info.transforms[i];
             return info.transforms[0];
+        }
+
+        /// <summary>How far a transform currently sits from a target pose, per component. Reported
+        /// as three numbers rather than one blended score because the components have different
+        /// units, and a failure message that says "12 degrees off" is actionable where a mixed
+        /// scalar is not.</summary>
+        private static void MeasurePoseError(
+            DeployableTransformState ts, bool toDeployed,
+            out float posErr, out float rotErrDeg, out float scaleErr)
+        {
+            Vector3 targetPos = toDeployed ? ts.deployedPos : ts.stowedPos;
+            Quaternion targetRot = toDeployed ? ts.deployedRot : ts.stowedRot;
+            Vector3 targetScale = toDeployed ? ts.deployedScale : ts.stowedScale;
+
+            posErr = (ts.t.localPosition - targetPos).magnitude;
+            rotErrDeg = Quaternion.Angle(ts.t.localRotation, targetRot);
+            scaleErr = (ts.t.localScale - targetScale).magnitude;
+        }
+
+        /// <summary>The size of the stowed -> deployed move, per component: the reference each error
+        /// above is judged against, so a clip that barely moves is not held to an absolute
+        /// tolerance it could never meet.</summary>
+        private static void MeasurePoseSpan(
+            DeployableTransformState ts, out float posSpan, out float rotSpanDeg, out float scaleSpan)
+        {
+            posSpan = (ts.deployedPos - ts.stowedPos).magnitude;
+            rotSpanDeg = Quaternion.Angle(ts.deployedRot, ts.stowedRot);
+            scaleSpan = (ts.deployedScale - ts.stowedScale).magnitude;
         }
 
         // ---- prefab discovery (never hardcoded part names) -------------------

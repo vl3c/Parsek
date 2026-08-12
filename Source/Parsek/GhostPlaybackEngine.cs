@@ -3693,6 +3693,15 @@ namespace Parsek
             {
                 UpdateReentryFx(index, state, traj.VesselName, warpRate);
                 UpdateLaunchDust(index, state, traj, warpRate);
+
+                // S4 SELF-HEAL, and it belongs beside launch dust for the same reason dust is here:
+                // a ParticleSystem.Play() only takes on an ACTIVE hierarchy, and a ghost is inactive
+                // for the whole of its spawn-time prefix replay (BuildTimelineGhostFromSnapshot ends
+                // with root.SetActive(false); ActivateGhostVisualsIfNeeded runs later). Dust gets the
+                // retry for free by re-calling Play every frame; the plume is EVENT-driven, so
+                // without this a ghost spawning mid-burst stayed dark for the entire burst. Gated on
+                // the one flag that can want a plume, so every non-EVA ghost pays one bool read.
+                GhostPlaybackLogic.UpdateEvaJetpackPlumeForFrame(state);
                 GhostPlaybackLogic.RestoreAllRcsEmissions(state);
                 // Boundary-overlap secondary gets NO audio (plan invariant 3): it borrows the overlap
                 // STORAGE but must never be audible. The spawn-time MuteAllAudio is a one-shot flag, and

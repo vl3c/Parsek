@@ -5763,9 +5763,81 @@ namespace Parsek
         }
 
         /// <summary>
+        /// S4: what one plume reconcile should DO, as a pure function of the gate plus the facts
+        /// only Unity can answer. Split out from <see cref="ReconcileEvaJetpackPlume"/> so the
+        /// interesting decision - in particular the inactive-hierarchy case, which is the one that
+        /// shipped broken - is headless-testable; the Unity reads and the build / Play / Stop calls
+        /// stay in the impure wrapper.
+        /// </summary>
+        internal enum EvaPlumeReconcileAction
+        {
+            /// <summary>Gate shut and nothing playing: no work.</summary>
+            None,
+            /// <summary>Gate shut but the system is still emitting: stop it.</summary>
+            Stop,
+            /// <summary>Gate open, hierarchy active, no system yet: build one, then play it.</summary>
+            Build,
+            /// <summary>Gate open, hierarchy active, system exists and is idle: start it.</summary>
+            Play,
+            /// <summary>Gate open and the system is already emitting: no work.</summary>
+            AlreadyPlaying,
+            /// <summary>
+            /// Gate open but the ghost is NOT active in the hierarchy, so neither building nor
+            /// playing would take effect. Do nothing THIS call; the per-frame self-heal retries once
+            /// the ghost is shown.
+            /// </summary>
+            DeferInactiveHierarchy,
+            /// <summary>A previous build failed (no additive shader): never retry.</summary>
+            Unavailable,
+        }
+
+        /// <summary>
+        /// THE INACTIVE-HIERARCHY CASE IS THE WHOLE REASON THIS IS A NAMED FUNCTION. Unity's
+        /// <c>ParticleSystem.Play()</c> on a system that is not <c>activeInHierarchy</c> is a SILENT
+        /// no-op - it neither throws nor sets <c>isPlaying</c> - and a ghost spends a genuinely
+        /// reachable part of its life inactive: <c>BuildTimelineGhostFromSnapshot</c> ends with
+        /// <c>root.SetActive(false)</c>, and the spawn-time prefix replay inside
+        /// <c>ApplyPartEvents</c> runs BEFORE <c>ActivateGhostVisualsIfNeeded</c>. So a ghost whose
+        /// playback cursor lands inside a thrust burst consumed its <c>EvaJetpackThrustStarted</c>
+        /// against an inactive hierarchy, the Play no-opped, and - because this reconcile was
+        /// EVENT-driven only - nothing ever tried again. The plume stayed dark for the whole burst
+        /// while the log claimed it was emitting.
+        ///
+        /// Deferring the BUILD as well (rather than building and failing to play) keeps the laziness
+        /// claim honest: a ghost that is never shown allocates nothing at all.
+        /// </summary>
+        internal static EvaPlumeReconcileAction ClassifyEvaPlumeReconcile(
+            bool wanted, bool hasPlume, bool unavailable, bool hierarchyActive, bool isPlaying)
+        {
+            if (!wanted)
+                return hasPlume && isPlaying ? EvaPlumeReconcileAction.Stop : EvaPlumeReconcileAction.None;
+
+            // Checked BEFORE `unavailable` and before the build: an inactive ghost is a
+            // RETRY-LATER, not a permanent failure, and conflating the two would either mark a
+            // perfectly good ghost permanently unavailable or allocate for one never shown.
+            if (!hierarchyActive)
+                return EvaPlumeReconcileAction.DeferInactiveHierarchy;
+
+            if (unavailable) return EvaPlumeReconcileAction.Unavailable;
+            if (!hasPlume) return EvaPlumeReconcileAction.Build;
+            return isPlaying ? EvaPlumeReconcileAction.AlreadyPlaying : EvaPlumeReconcileAction.Play;
+        }
+
+        /// <summary>
         /// S4: brings the plume into line with the flags. Builds it LAZILY on the first moment it is
-        /// actually wanted, so an EVA ghost that never fires its pack allocates no particle system
-        /// and a non-EVA ghost never reaches here at all.
+        /// wanted AND showable, so an EVA ghost that never fires its pack - or is never shown -
+        /// allocates no particle system, and a non-EVA ghost never reaches here at all.
+        ///
+        /// Called BOTH from the six EVA events (immediate response) and once per rendered frame
+        /// while the recording says the pack is firing
+        /// (<see cref="UpdateEvaJetpackPlumeForFrame"/>). The per-frame call is what makes it
+        /// SELF-HEALING, exactly as launch dust already is: whatever the hierarchy was doing when
+        /// the event arrived, the first frame the ghost is actually visible starts the plume.
+        ///
+        /// Logging is DECISION-VS-TRUTH, per the named anomaly class the render tracers use: the
+        /// success line is emitted only after reading <c>isPlaying</c> BACK and finding it true. It
+        /// used to be emitted on the strength of having called Play, which is exactly how a total
+        /// no-op logged as a success.
         /// </summary>
         internal static void ReconcileEvaJetpackPlume(GhostPlaybackState state)
         {
@@ -5774,39 +5846,93 @@ namespace Parsek
             bool wanted = ShouldEmitEvaJetpackPlume(
                 state.evaJetpackDeployed, state.evaJetpackThrusting, state.evaRagdoll);
 
-            if (!wanted)
-            {
-                // A PLAIN reference check on the info object before touching anything Unity-shaped:
-                // a ghost that never fired its pack has no plume to stop, and comparing a null
-                // ParticleSystem against null would still route through UnityEngine.Object's
-                // overloaded operator.
-                if (state.evaJetpackPlumeInfo == null) return;
-                ParticleSystem existing = state.evaJetpackPlumeInfo.particles;
-                if (existing != null && existing.isPlaying)
-                    existing.Stop(true, ParticleSystemStopBehavior.StopEmitting);
-                return;
-            }
+            // Every Unity read happens ONCE, here, and is handed to the pure classifier. A PLAIN
+            // reference check guards the info object first: comparing a null ParticleSystem against
+            // null would still route through UnityEngine.Object's overloaded operator.
+            bool hasPlume = state.evaJetpackPlumeInfo != null;
+            ParticleSystem ps = hasPlume ? state.evaJetpackPlumeInfo.particles : null;
+            bool isPlaying = hasPlume && ps != null && ps.isPlaying;
+            bool hierarchyActive = state.ghost != null && state.ghost.activeInHierarchy;
 
-            if (state.evaJetpackPlumeInfo == null)
+            EvaPlumeReconcileAction action = ClassifyEvaPlumeReconcile(
+                wanted, hasPlume, state.evaJetpackPlumeUnavailable, hierarchyActive, isPlaying);
+
+            switch (action)
             {
-                if (state.evaJetpackPlumeUnavailable || state.ghost == null) return;
-                state.evaJetpackPlumeInfo = GhostVisualBuilder.TryBuildEvaJetpackPlume(
-                    state.ghost, state.vesselName);
-                if (state.evaJetpackPlumeInfo == null)
-                {
-                    state.evaJetpackPlumeUnavailable = true;
+                case EvaPlumeReconcileAction.None:
+                case EvaPlumeReconcileAction.AlreadyPlaying:
+                case EvaPlumeReconcileAction.Unavailable:
                     return;
-                }
+
+                case EvaPlumeReconcileAction.Stop:
+                    ps.Stop(true, ParticleSystemStopBehavior.StopEmitting);
+                    return;
+
+                case EvaPlumeReconcileAction.DeferInactiveHierarchy:
+                    // Not a failure, and deliberately not silent: this is the state the spawn prefix
+                    // replay is ALWAYS in, so it has to be greppable when a plume is reported
+                    // missing.
+                    ParsekLog.VerboseRateLimited("GhostVisual", "eva-plume-deferred",
+                        "EVA jetpack plume deferred (vessel='" + (state.vesselName ?? "unknown") +
+                        "'): ghost not active in hierarchy, so Play() would silently no-op; " +
+                        "retrying on the first rendered frame", 5.0);
+                    return;
+
+                case EvaPlumeReconcileAction.Build:
+                    state.evaJetpackPlumeInfo = GhostVisualBuilder.TryBuildEvaJetpackPlume(
+                        state.ghost, state.vesselName);
+                    if (state.evaJetpackPlumeInfo == null)
+                    {
+                        state.evaJetpackPlumeUnavailable = true;
+                        return;
+                    }
+                    ps = state.evaJetpackPlumeInfo.particles;
+                    goto case EvaPlumeReconcileAction.Play;
+
+                case EvaPlumeReconcileAction.Play:
+                    if (ps == null) return;
+                    ps.Play();
+
+                    // TRUTH, read back rather than assumed.
+                    if (ps.isPlaying)
+                    {
+                        ParsekLog.VerboseRateLimited("GhostVisual", "eva-plume",
+                            "EVA jetpack plume emitting (vessel='" + (state.vesselName ?? "unknown") +
+                            "' deployed=" + state.evaJetpackDeployed +
+                            " thrusting=" + state.evaJetpackThrusting +
+                            " ragdoll=" + state.evaRagdoll + ")", 5.0);
+                    }
+                    else
+                    {
+                        // WARN, not Verbose: the hierarchy WAS active, so the deferral branch did not
+                        // apply and Play() should have taken. Anything reaching here is an unmodelled
+                        // refusal, and the render tracers' convention is that a decision-vs-truth
+                        // mismatch nobody predicted is loud.
+                        ParsekLog.Warn("GhostVisual",
+                            "EVA jetpack plume did NOT start after Play() (vessel='" +
+                            (state.vesselName ?? "unknown") + "' hierarchyActive=true deployed=" +
+                            state.evaJetpackDeployed + " thrusting=" + state.evaJetpackThrusting +
+                            " ragdoll=" + state.evaRagdoll +
+                            ") - the gate opened but the system stayed idle");
+                    }
+                    return;
             }
+        }
 
-            ParticleSystem ps = state.evaJetpackPlumeInfo.particles;
-            if (ps == null) return;
-            if (!ps.isPlaying) ps.Play();
-
-            ParsekLog.VerboseRateLimited("GhostVisual", "eva-plume",
-                $"EVA jetpack plume emitting (vessel='{state.vesselName ?? "unknown"}' " +
-                $"deployed={state.evaJetpackDeployed} thrusting={state.evaJetpackThrusting} " +
-                $"ragdoll={state.evaRagdoll})", 5.0);
+        /// <summary>
+        /// S4 per-frame self-heal, called from <c>ApplyFrameVisuals</c> beside the launch-dust drive.
+        /// Gated on the ONE flag that can want a plume, so a non-EVA ghost - i.e. essentially every
+        /// ghost - pays a single bool field read per frame and nothing more.
+        ///
+        /// It exists because the event-driven reconcile alone is not enough: see
+        /// <see cref="ClassifyEvaPlumeReconcile"/> for the inactive-hierarchy no-op it repairs.
+        /// Launch dust gets the same property for free by re-calling Play every frame; this plume is
+        /// event-driven, so it needs the retry stated explicitly.
+        /// </summary>
+        internal static void UpdateEvaJetpackPlumeForFrame(GhostPlaybackState state)
+        {
+            if (state == null || !state.evaJetpackThrusting) return;
+            ReconcileEvaJetpackPlume(state);
         }
 
         private static void DriveSynthesizedGimbals(
