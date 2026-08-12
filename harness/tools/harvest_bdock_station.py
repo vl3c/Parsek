@@ -91,6 +91,18 @@ _KEEP_DIRS = ("Ships", "AddOns")
 # points / journals, and pre-Parsek safety backups the mod drops).
 _PRUNE_DIR_NAMES = ("Parsek",)
 _PRUNE_DIR_PREFIXES = (".parsek-backup", ".parsek-backup-staging")
+# Readable SNAPSHOT mirrors are never committed to a fixture (see
+# _ignore_pruned_keep_parsek for why, and CommittedFixtureMirrorTests for the
+# gate). `.prec.txt` is deliberately NOT in this tuple - the trajectory mirror IS
+# committed, because scenario headers cite values out of it.
+_PRUNE_MIRROR_SUFFIXES = ("_vessel.craft.txt", "_ghost.craft.txt")
+# Directories under Parsek/ that a fixture must never carry. `Saves` holds the
+# legacy Rewind-to-LAUNCH quicksaves (`parsek_rw_*.sfs`), which --keep-parsek used
+# to copy verbatim: 137,355 lines over 7 files that no spec, no seam verb and no
+# analyzer rule ever read (the sole reader is the Timeline window's manual
+# "Rewind to launch" button). NOT to be confused with `RewindPoints`, which IS
+# payload - `RewindInvoker.PartLoaderPrecondition.Check` deep-parses those.
+_PRUNE_PARSEK_SUBDIRS = ("Saves",)
 
 
 def log(msg: str) -> None:
@@ -399,10 +411,29 @@ def _ignore_pruned(directory, names):
 
 
 def _ignore_pruned_keep_parsek(directory, names):
-    """--keep-parsek copytree filter: only the backup-staging dirs are pruned;
-    the Parsek dir (the recording sidecars) is the fixture's payload."""
-    return set(n for n in names
-               if any(n.startswith(p) for p in _PRUNE_DIR_PREFIXES))
+    """--keep-parsek copytree filter: the backup-staging dirs are pruned, and so
+    are the readable snapshot mirrors; the Parsek dir (the recording sidecars) is
+    otherwise the fixture's payload.
+
+    WHY THE MIRRORS ARE PRUNED. Parsek writes a readable text mirror beside each
+    authoritative sidecar (default-on diagnostics). For the trajectory that mirror
+    is worth committing - four scenario headers cite values read straight out of a
+    `.prec.txt`. For the two SNAPSHOT mirrors it is not: nothing cites one, and
+    they cost 334,023 lines across 99 files, three times the craft duplication the
+    shared ship library removed. They are also strictly derived - the mod's own
+    `ReconcileReadableSidecarMirrors` rebuilds them from the authoritative
+    `_vessel.craft` / `_ghost.craft` binaries (its `AuthoritativeSidecar` path)
+    whenever the sidecars are next saved, so nothing is lost by not committing
+    them. Load the fixture in KSP to get them back."""
+    pruned = set(n for n in names
+                 if any(n.startswith(p) for p in _PRUNE_DIR_PREFIXES)
+                 or n.endswith(_PRUNE_MIRROR_SUFFIXES))
+    # Drop Parsek/Saves wholesale (see _PRUNE_PARSEK_SUBDIRS). Matched on the
+    # PARENT being the Parsek dir so a same-named directory elsewhere in the tree
+    # is untouched.
+    if os.path.basename(directory) == "Parsek":
+        pruned |= set(n for n in names if n in _PRUNE_PARSEK_SUBDIRS)
+    return pruned
 
 
 def _prune_state(root: str, keep_parsek: bool = False):

@@ -10631,3 +10631,125 @@ class SharedShipsManifestTests(unittest.TestCase):
                     os.path.isfile(os.path.join(SHIPS_DIR, ship + hlib.SHARED_SHIP_SUFFIX)),
                     "%s: fixture %s declares missing library craft %r"
                     % (os.path.basename(path), leaf, ship))
+
+
+class CommittedFixtureMirrorTests(unittest.TestCase):
+    """No readable SNAPSHOT mirror may be committed under `fixtures/saves/`.
+
+    Parsek writes a readable text mirror beside each authoritative sidecar
+    (default-on diagnostics), and harvesting a produced save used to bring all
+    three into the fixture tree. The two snapshot mirrors cost 334,023 lines over
+    99 files - three times the craft duplication the shared ship library removed -
+    and are strictly derived: the mod's own `ReconcileReadableSidecarMirrors`
+    rebuilds them from the committed `_vessel.craft` / `_ghost.craft` binaries via
+    its `AuthoritativeSidecar` path the next time the sidecars are saved. So the
+    observability is regenerable and the committed copies are pure redundancy.
+
+    The TRAJECTORY mirror (`.prec.txt`) is deliberately NOT gated: four scenario
+    headers cite values read straight out of one, so it stays committed. This test
+    asserts BOTH halves, so a later sweep cannot quietly take the cited surface
+    with it."""
+
+    SNAPSHOT_MIRROR_SUFFIXES = ("_vessel.craft.txt", "_ghost.craft.txt")
+
+    def _committed(self):
+        out = []
+        for dirpath, _, filenames in os.walk(FIXTURE_SAVES_DIR):
+            for fn in filenames:
+                out.append(os.path.relpath(os.path.join(dirpath, fn),
+                                           FIXTURE_SAVES_DIR).replace("\\", "/"))
+        return out
+
+    def test_no_snapshot_mirror_is_committed(self):
+        offenders = sorted(f for f in self._committed()
+                           if f.endswith(self.SNAPSHOT_MIRROR_SUFFIXES))
+        self.assertEqual([], offenders,
+                         "readable snapshot mirrors are derived from the committed "
+                         "_vessel.craft / _ghost.craft binaries and must not be "
+                         "committed; harvest_bdock_station.py prunes them")
+
+    def test_the_authoritative_snapshot_binaries_are_still_committed(self):
+        # The other half of the trade: the mirrors are safe to drop only BECAUSE
+        # the binaries they are rebuilt from are here. A sweep that took both would
+        # destroy the fixture, and this cell is what catches that.
+        committed = self._committed()
+        precs = [f for f in committed if f.endswith(".prec")]
+        vessels = [f for f in committed if f.endswith("_vessel.craft")]
+        self.assertTrue(precs, "no committed .prec trajectory sidecars remain")
+        self.assertTrue(vessels, "no committed _vessel.craft snapshot sidecars remain")
+        # Every recording with a trajectory must keep its authoritative snapshot.
+        for prec in precs:
+            stem = prec[:-len(".prec")]
+            self.assertIn(stem + "_vessel.craft", committed,
+                          "%s lost its authoritative vessel snapshot" % prec)
+
+    def test_the_cited_trajectory_mirror_is_still_committed(self):
+        # V6M-mun-player-loop, V6T-mun-ts-arrival, V7M-minmus-player-loop and
+        # M1-mission-loop-unit quote values read out of a `.prec.txt`. Keeping the
+        # gate above narrow to the SNAPSHOT mirrors is deliberate; this asserts it.
+        self.assertTrue([f for f in self._committed() if f.endswith(".prec.txt")],
+                        "the trajectory mirrors scenario headers cite were removed")
+
+
+class CommittedFixtureRewindSaveTests(unittest.TestCase):
+    """No fixture may carry a legacy Rewind-to-LAUNCH quicksave, or a hint to one.
+
+    `Parsek/Saves/parsek_rw_*.sfs` is `Recording.RewindSaveFileName` payload, and
+    arrived in six recorded fixtures as harvest exhaust rather than by decision:
+    137,355 lines over 7 files. Nothing automated reads it - no spec names one, no
+    seam verb reaches it (`InvokeRewind` is Rewind-to-SEPARATION and targets
+    `Parsek/RewindPoints/<rpId>.sfs` through `RewindInvoker`, a different system),
+    and the analyzer's Inv9RewindPoint only does existence + parse checks.
+
+    The FILE and the HINT must go together. A `rewindSave = ` key pointing at a
+    deleted file is a dangling reference: Inv9RewindPoint raises WARN for it, and
+    escalates to FAIL when the owning recording is `CommittedProvisional`
+    (`Inv9RewindPoint.cs:136`) - which `bdock-recorded` carries three of, so
+    deleting the payload alone would turn the analyzer RED under the harness's
+    Forbid fresh-save gate. This cell pins both halves.
+
+    KNOWN, TOLERATED RESIDUAL: `bdock-recorded/Parsek/RewindPoints/rp_*.sfs` embed
+    their own copies of the ParsekScenario, hints included, and are NOT edited -
+    they are byte-sensitive payload (`RewindInvoker.PartLoaderPrecondition.Check`
+    deep-parses their PART names) and `test_saveparse` pins `rewind_points: 3`.
+    Those hints only surface if a run actually invokes a rewind against
+    `bdock-recorded`, and neither consuming spec (`BDOCK-1-station-interceptor`,
+    `H35-logistics-route-proof`) has an `InvokeRewind` step. A spec that adds one
+    must re-check this."""
+
+    def test_no_fixture_commits_a_rewind_to_launch_quicksave(self):
+        offenders = []
+        for dirpath, _, filenames in os.walk(FIXTURE_SAVES_DIR):
+            norm = dirpath.replace("\\", "/")
+            if norm.endswith("/Parsek/Saves"):
+                offenders.extend(
+                    os.path.relpath(os.path.join(dirpath, f),
+                                    FIXTURE_SAVES_DIR).replace("\\", "/")
+                    for f in filenames)
+        self.assertEqual([], sorted(offenders),
+                         "Parsek/Saves is harvest exhaust nothing automated reads; "
+                         "harvest_bdock_station.py prunes it")
+
+    def test_no_fixture_persistent_save_carries_a_dangling_rewind_hint(self):
+        offenders = []
+        for name in sorted(os.listdir(FIXTURE_SAVES_DIR)):
+            path = os.path.join(FIXTURE_SAVES_DIR, name, "persistent.sfs")
+            if not os.path.isfile(path):
+                continue
+            with open(path, "r", encoding="utf-8", errors="replace") as fh:
+                for lineno, line in enumerate(fh, 1):
+                    if re.match(r"^\s*rewindSave = parsek_rw_\w+\s*$", line):
+                        offenders.append("%s:%d" % (name, lineno))
+        self.assertEqual([], offenders,
+                         "a rewindSave hint whose payload is not committed is a "
+                         "dangling reference: Inv9RewindPoint WARNs, and FAILs when "
+                         "the owning recording is CommittedProvisional")
+
+    def test_the_rewind_points_payload_is_untouched(self):
+        # The other half of the trade. RewindPoints are NOT exhaust - they are
+        # deep-parsed payload, and a sweep that confused the two would break
+        # bdock-recorded. `test_saveparse` pins the count at 3; this pins the files.
+        rp_dir = os.path.join(FIXTURE_SAVES_DIR, "bdock-recorded", "Parsek", "RewindPoints")
+        self.assertTrue(os.path.isdir(rp_dir), "bdock-recorded lost its RewindPoints")
+        rps = sorted(f for f in os.listdir(rp_dir) if f.endswith(".sfs"))
+        self.assertEqual(3, len(rps), "expected 3 committed rewind points, got %s" % (rps,))

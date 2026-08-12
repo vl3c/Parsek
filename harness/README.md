@@ -355,8 +355,57 @@ Two rules when adding or harvesting a fixture:
   NOT listed (`gloops-airshow/Ships/VAB/Auto-Saved Ship.craft` is the only one
   today). The same test reds a library craft that drops to one consumer.
 
+### Recording sidecars: what is committed and what is derived
+
+A fixture's `Parsek/Recordings/` carries the AUTHORITATIVE sidecars - `<id>.prec`
+(trajectory) and `<id>_vessel.craft` / `<id>_ghost.craft` (snapshots), all binary -
+plus ONE derived text mirror, `<id>.prec.txt`.
+
+Parsek writes a readable text mirror beside each of the three at runtime
+(default-on diagnostics). Only the trajectory one is committed, because scenario
+headers cite values read straight out of it (`V6M-mun-player-loop`,
+`V6T-mun-ts-arrival`, `V7M-minmus-player-loop`, `M1-mission-loop-unit`). The two
+SNAPSHOT mirrors are not committed: nothing cites one, they cost 334,023 lines
+over 99 files, and they are strictly derived - the mod's own
+`RecordingSidecarStore.ReconcileReadableSidecarMirrors` rebuilds them from the
+committed binaries via its `AuthoritativeSidecar` branch the next time the
+sidecars are saved. **To read one, load the fixture in KSP**; the text is
+regenerated from the binary that is still in git. Gated by
+`CommittedFixtureMirrorTests`, which also asserts the binaries and the cited
+`.prec.txt` are still there - dropping a mirror is only safe while the thing it is
+rebuilt from survives.
+
+### What a fixture must NOT carry
+
+Harvesting a produced save brings along everything KSP and Parsek wrote beside
+the state a scenario needs. Three populations are exhaust, all pruned by
+`harvest_bdock_station.py` and gated in `lib/test_hlib.py` /
+`lib/test_saveparse.py`:
+
+| Not committed | Why | Gate |
+| --- | --- | --- |
+| `*_vessel.craft.txt`, `*_ghost.craft.txt` | derived; the mod rebuilds them from the committed binaries | `CommittedFixtureMirrorTests` |
+| `Parsek/Saves/parsek_rw_*.sfs` + their `rewindSave =` hints | legacy Rewind-to-LAUNCH quicksaves; no spec, seam verb or analyzer rule reads them | `CommittedFixtureRewindSaveTests` |
+| `quicksave.sfs` / `quicksave.loadmeta` | near-copy of the fixture's own `persistent.sfs`; every in-game quickload uses a NAMED slot | `test_no_fixture_commits_a_quicksave` |
+
+Two look like exhaust and are **payload** - do not confuse them:
+
+- `Parsek/RewindPoints/rp_*.sfs` is deep-parsed by
+  `RewindInvoker.PartLoaderPrecondition.Check`, and `test_saveparse` pins the
+  count. Rewind-to-SEPARATION (the `InvokeRewind` seam verb) is a different
+  system from the Rewind-to-LAUNCH quicksaves above.
+- `<id>.prec.txt` is a live test input, not just a review surface:
+  `OptimizerTransferCohesionTests` globs every fixture's `*.prec.txt` recursively
+  and `ReaimTransferSynthesizerTests` names one directly.
+
+The file/hint pairing matters: deleting a `parsek_rw_*.sfs` while leaving its
+`rewindSave =` key dangles the reference, which `Inv9RewindPoint` WARNs on and
+escalates to FAIL for a `CommittedProvisional` recording - analyzer RED under the
+Forbid fresh-save gate. Both halves go together, which is what the gate pins.
+
 `tools/harvest_bdock_station.py` drops harvested craft the library already holds
-and prints the manifest row to add. The overlay fails CLOSED, pre-boot, as
+and prints the manifest row to add, and prunes the snapshot mirrors and
+`Parsek/Saves` so a harvest cannot re-commit them. The overlay fails CLOSED, pre-boot, as
 `INVALID(staging)` when a declared craft is missing or a fixture carries a copy it
 also declares - never silently, because the symptom otherwise surfaces minutes
 later as a `launch_vessel` failure classified against a perfectly good spec. Pure
