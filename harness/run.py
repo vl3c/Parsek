@@ -426,17 +426,33 @@ def load_registry() -> Dict:
     return load_toml(REGISTRY_PATH)
 
 
-def load_shared_ships_manifest() -> Dict[str, Tuple[str, ...]]:
-    """Parse `fixtures/shared-ships.toml` into ``{save: (ship, ...)}``.
+def load_shared_ships_manifest() -> Tuple[Dict[str, Tuple[str, ...]], str]:
+    """Parse `fixtures/shared-ships.toml` into ``({save: (ship, ...)}, error)``.
 
-    A MISSING manifest is an empty mapping, not an error: every save then stages
-    exactly as it did before the shared library existed (verbatim copytree, no
-    overlay), so a checkout without the file degrades to the old behavior rather
-    than failing every run. A manifest that exists but is unparseable is NOT
-    swallowed -- that is a real defect and tomllib's error names the line."""
+    ``error`` is "" on success, otherwise a reason string the caller turns into a
+    pre-boot staging abort.
+
+    A MISSING manifest is an ERROR, not an empty mapping. It used to be treated as
+    "degrade to the pre-library behavior", which was wrong the moment the library
+    landed: before the dedup a verbatim copytree CARRIED the craft, and now it
+    carries nothing, so a missing manifest silently stages twelve fixtures
+    craftless and reports success. That also left the two failure modes
+    inconsistent -- a missing `fixtures/ships/` failed closed pre-boot while a
+    missing manifest failed open and booted. Both now fail closed.
+
+    A manifest that exists but is unparseable is likewise an error rather than a
+    traceback: `_run_selection` has no per-scenario `except`, so raising here would
+    take down the remaining scenarios of the whole selection, contradicting its own
+    "one broken spec cannot abort the batch". `SharedShipsManifestTests` catches a
+    malformed manifest in CI long before a run sees it."""
     if not os.path.isfile(SHARED_SHIPS_PATH):
-        return {}
-    return hlib.parse_shared_ships_manifest(load_toml(SHARED_SHIPS_PATH))
+        return {}, ("shared-ships manifest missing at %s; every fixture that "
+                    "relies on the shared craft library would stage craftless"
+                    % SHARED_SHIPS_PATH)
+    try:
+        return hlib.parse_shared_ships_manifest(load_toml(SHARED_SHIPS_PATH)), ""
+    except (OSError, ValueError, tomllib.TOMLDecodeError) as exc:
+        return {}, "shared-ships manifest unreadable (%s): %s" % (SHARED_SHIPS_PATH, exc)
 
 
 def library_ship_names() -> List[str]:
@@ -858,7 +874,9 @@ def stage_fixture(spec: Dict, instance_dir: str, runtime: Runtime,
                   logger: HarnessLogger) -> Tuple[bool, str, str]:
     """Stage the scenario's fixture. Returns (ok, run_save_name, subkind); subkind
     is "" on success, "spec-invalid" on a containment violation (a runSaveName that
-    escapes saves/), "staging" on a missing template, or "stage-inject-noop" when a
+    escapes saves/), "staging" on a missing template OR an unsatisfiable shared-craft
+    overlay (missing/unreadable manifest, a declared craft absent from the library, or
+    a fixture that both declares and commits one), or "stage-inject-noop" when a
     requested fixture injection left no fixture on disk (fail-closed postcondition;
     the run never boots KSP)."""
     fixture = spec.get("fixture", {}) or {}
@@ -916,8 +934,14 @@ def stage_fixture(spec: Dict, instance_dir: str, runtime: Runtime,
     # error names the ship and the save instead.
     vab_dir = os.path.join(target_save, *hlib.SHARED_SHIPS_DEST_SEGMENTS)
     existing_vab = os.listdir(vab_dir) if os.path.isdir(vab_dir) else []
+    shared_ships, manifest_error = load_shared_ships_manifest()
+    if manifest_error:
+        logger.error("Stage", "shared-ship overlay: %s" % manifest_error)
+        logger.error("Stage", "aborting pre-boot (INVALID staging) staging save=%s"
+                     % run_save_name)
+        return False, run_save_name, "staging"
     overlay = hlib.plan_shared_ship_overlay(
-        run_save_name, load_shared_ships_manifest(), library_ship_names(), existing_vab)
+        run_save_name, shared_ships, library_ship_names(), existing_vab)
     if overlay.errors:
         for err in overlay.errors:
             logger.error("Stage", "shared-ship overlay: %s" % err)
@@ -931,6 +955,16 @@ def stage_fixture(spec: Dict, instance_dir: str, runtime: Runtime,
         logger.verbose("Stage", "shared-ship overlay: %d craft into %s/Ships/VAB [%s]"
                        % (len(overlay.entries), run_save_name,
                           ", ".join(d for _, d in overlay.entries)))
+    else:
+        # ALWAYS say something. The unlisted path is legitimate (most fixtures need
+        # no shared craft) but silence here made the harness log unable to tell
+        # "overlay ran" from "no manifest row", which is precisely the state a
+        # dedup slip leaves behind. Naming the craftless case gives the log a
+        # fingerprint to grep when a mission dies on an unresolvable launch_vessel.
+        total_craft = len(existing_vab) + len(overlay.entries)
+        logger.verbose("Stage", "shared-ship overlay: no rows for save=%s "
+                                "(Ships/VAB carries %d committed craft)"
+                       % (run_save_name, total_craft))
 
     # (3) inject synthetic recordings when requested (recording OFF by construction).
     #

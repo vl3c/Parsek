@@ -3790,20 +3790,61 @@ class SharedShipOverlayStagingTests(unittest.TestCase):
         self.assertFalse(os.path.isdir(os.path.join(self.instance, "saves", name, "Ships")),
                          "an unlisted save must stage exactly as a verbatim copytree")
 
-    def test_a_missing_manifest_degrades_to_the_pre_library_behavior(self):
-        # A checkout without the manifest stages every save verbatim rather than
-        # failing every run.
+    def test_a_missing_manifest_fails_closed(self):
+        # This used to assert the opposite - that a missing manifest "degrades to
+        # the pre-library behavior". That reasoning died with the dedup: before it,
+        # a verbatim copytree CARRIED the craft; now it carries nothing, so a
+        # missing manifest silently stages twelve fixtures craftless and reports
+        # success. It also left the two failure modes inconsistent - a missing
+        # fixtures/ships/ failed closed pre-boot while a missing manifest booted.
         os.remove(self.manifest_path)
-        ok, name, subkind = self._stage()
-        self.assertTrue(ok)
-        self.assertEqual("", subkind)
-        self.assertFalse(os.path.isdir(os.path.join(self.instance, "saves", name, "Ships")))
+        ok, _name, subkind = self._stage()
+        self.assertFalse(ok)
+        self.assertEqual("staging", subkind)
+        with open(self.logger.log_path, encoding="utf-8") as fh:
+            self.assertIn("shared-ships manifest missing", fh.read())
+
+    def test_an_unreadable_manifest_fails_closed_without_a_traceback(self):
+        # _run_selection has no per-scenario except, so raising out of the parse
+        # would take down the remaining scenarios of the whole selection.
+        with open(self.manifest_path, "w", encoding="utf-8") as fh:
+            fh.write("[ships\nthis is not toml = = =\n")
+        ok, _name, subkind = self._stage()
+        self.assertFalse(ok)
+        self.assertEqual("staging", subkind)
+        with open(self.logger.log_path, encoding="utf-8") as fh:
+            self.assertIn("shared-ships manifest unreadable", fh.read())
 
     def test_the_overlay_precedes_injection_so_an_injected_save_sees_the_craft(self):
+        # Asserting the craft exists AFTER staging cannot see the ordering - it is
+        # true whichever side of the injector the overlay runs on (verified: moving
+        # the overlay below the inject block leaves such a cell green). The only
+        # way to test the claim is to have the injector LOOK, so this runtime
+        # records what Ships/VAB held at the moment it was called.
+        observed = {}
+
+        class ObservingRuntime(FakeRuntime):
+            def run_inject(self, instance_dir, save_name, timeout, preset="all-synthetic"):
+                vab = os.path.join(instance_dir, "saves", save_name, "Ships", "VAB")
+                observed["at_inject"] = sorted(os.listdir(vab)) if os.path.isdir(vab) else []
+                return super().run_inject(instance_dir, save_name, timeout, preset=preset)
+
         spec = _make_spec(self.template, 30, 600)
         spec["fixture"]["injectedRecordings"] = "all-synthetic"
-        ok, name, subkind = run.stage_fixture(spec, self.instance, FakeRuntime("pass"),
+        ok, name, subkind = run.stage_fixture(spec, self.instance, ObservingRuntime("pass"),
                                               self.logger)
         self.assertTrue(ok, subkind)
-        self.assertTrue(os.path.isfile(os.path.join(
-            self.instance, "saves", name, "Ships", "VAB", "Kerbal X.craft")))
+        self.assertEqual(["Kerbal X.craft"], observed.get("at_inject"),
+                         "the injector must see the overlaid craft; the overlay has "
+                         "to run BEFORE injection so an injected fixture gets the "
+                         "same Ships/VAB a verbatim template copy would have had")
+
+    def test_a_save_with_no_manifest_row_is_logged_rather_than_silent(self):
+        # The craftless case is legitimate but must leave a fingerprint: without one
+        # the harness log cannot distinguish "overlay ran" from "no row", which is
+        # exactly the state a dedup slip leaves behind.
+        self._write_shared_manifest('"some-other-save" = ["Kerbal X"]')
+        ok, _name, _subkind = self._stage()
+        self.assertTrue(ok)
+        with open(self.logger.log_path, encoding="utf-8") as fh:
+            self.assertIn("shared-ship overlay: no rows for save=ships-fixture", fh.read())

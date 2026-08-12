@@ -2464,12 +2464,32 @@ SHARED_SHIPS_DEST_SEGMENTS = ("Ships", "VAB")
 SHARED_SHIP_SUFFIX = ".craft"
 
 # Ship names become filename leaves under fixtures/ships/ AND under the staged
-# save, so they take the same discipline _SAVE_NAME_RE applies to runSaveName:
-# alphanumerics, dash, underscore, space ONLY. Dots are deliberately EXCLUDED so
-# "."/".." and any dotted traversal token cannot pass; "+" rejects "". Every
-# committed ship name today ("Kerbal X", "DD1 Duna Direct Probe", ...) is inside
-# this class, so tightening it costs nothing and closes the traversal surface.
-_SHIP_NAME_RE = re.compile(r"^[A-Za-z0-9 _-]+$")
+# save, so they take filename discipline: alphanumerics, dash, underscore, space
+# and DOT. `\Z` not `$`, because Python's `$` also matches before a trailing
+# newline -- `re.match(r"^[A-Za-z0-9 ]+$", "Kerbal X\n")` succeeds, and a name is
+# a path component where that is never wanted.
+#
+# Dots are ALLOWED, unlike `_SAVE_NAME_RE`'s stance for runSaveName, because real
+# KSP craft names carry them ("Mk1-3 Pod v2.1") and a blanket exclusion would
+# reject a perfectly good library craft while blaming its name. The traversal
+# tokens dots exist to smuggle are rejected explicitly instead, by
+# `_is_safe_ship_name`: no name that is "." or "..", starts with a dot, or
+# contains "..". That is a strictly smaller hole than the character class was
+# hiding, and it is the part that actually matters.
+_SHIP_NAME_RE = re.compile(r"^[A-Za-z0-9 ._-]+\Z")
+
+
+def _is_safe_ship_name(ship: str) -> bool:
+    """True when ``ship`` is safe to use as a path component (pure).
+
+    Character class plus the explicit dotted-token rejections; see `_SHIP_NAME_RE`.
+    A ship still has to exist in the library before anything is written, so this is
+    defence in depth rather than the only gate."""
+    if not ship or not _SHIP_NAME_RE.match(ship):
+        return False
+    if ship in (".", "..") or ship.startswith(".") or ".." in ship:
+        return False
+    return True
 
 
 @dataclass(frozen=True)
@@ -2535,7 +2555,7 @@ def plan_shared_ship_overlay(run_save_name: str,
         an overlay silently overwrite a divergent committed copy.
     """
     lib = set(library_ships)
-    present = set(existing_vab_files)
+    present_lower = set(f.lower() for f in existing_vab_files)
     entries: List[Tuple[str, str]] = []
     errors: List[str] = []
     seen: Set[str] = set()
@@ -2543,9 +2563,10 @@ def plan_shared_ship_overlay(run_save_name: str,
         if ship in seen:
             continue
         seen.add(ship)
-        if not ship or not _SHIP_NAME_RE.match(ship):
+        if not _is_safe_ship_name(ship):
             errors.append("shared-ships[%s]: ship name %r not filename-safe "
-                          "(alphanumerics, dash, underscore, space only)" % (run_save_name, ship))
+                          "(alphanumerics, dash, underscore, space, dot; no leading "
+                          "dot and no '..')" % (run_save_name, ship))
             continue
         leaf = ship + SHARED_SHIP_SUFFIX
         if ship not in lib:
@@ -2553,7 +2574,10 @@ def plan_shared_ship_overlay(run_save_name: str,
                           "(expected fixtures/%s/%s)"
                           % (run_save_name, ship, SHARED_SHIPS_DIRNAME, leaf))
             continue
-        if leaf in present:
+        # Case-insensitive, because Windows and macOS filesystems are: a committed
+        # `kerbal x.craft` beside a declared `Kerbal X` is the same collision, and
+        # overwriting it silently is what this branch exists to prevent.
+        if leaf.lower() in present_lower:
             errors.append("shared-ships[%s]: %r is declared shared AND committed under "
                           "the fixture's own Ships/VAB -- remove one (the shared-library "
                           "copy is canonical)" % (run_save_name, ship))
@@ -2585,7 +2609,7 @@ def validate_shared_ships_manifest(manifest: Dict[str, Tuple[str, ...]],
         for ship in manifest[save]:
             if ship in consumers:
                 consumers[ship] += 1
-            elif not ship or not _SHIP_NAME_RE.match(ship):
+            elif not _is_safe_ship_name(ship):
                 errors.append("shared-ships[%s]: ship name %r not filename-safe" % (save, ship))
             else:
                 errors.append("shared-ships[%s]: %r not in the ship library" % (save, ship))

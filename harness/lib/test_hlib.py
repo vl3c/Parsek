@@ -10606,13 +10606,47 @@ class SharedShipsManifestTests(unittest.TestCase):
             self.assertEqual((), plan.errors, "%s: %s" % (save, plan.errors))
             self.assertEqual(len(manifest[save]), len(plan.entries), save)
 
-    def test_every_fixture_that_a_scenario_boots_can_resolve_its_craft(self):
-        # The consumer-side pairing: a spec's saveTemplate names a fixture, and a
-        # fixture that resolves NO craft at all (neither physical nor shared) is
-        # only legal if no committed spec drives it to launch_vessel. This asserts
-        # the weaker, mechanically checkable half -- every saveTemplate a committed
-        # spec names is a real fixture directory, so a manifest row can never be
-        # the only thing keeping a scenario's save alive.
+    def test_every_spec_that_launches_a_craft_can_resolve_it(self):
+        """The consumer-side gate, and the one that stops a dedup slip costing a flight.
+
+        A spec that drives `launch_vessel` names its craft in
+        `driver.missionParams.craftName`, and kRPC resolves it against
+        `<save>/Ships/VAB/<craftName>.craft` in the STAGED save. Post-dedup that
+        file arrives one of two ways: physically in the fixture, or via a
+        `shared-ships.toml` row. Neither present means the save stages craftless
+        and `stage_fixture` reports success -- an unlisted save resolves zero
+        entries AND zero errors by design, because most fixtures need no shared
+        craft at all. The run then boots and dies minutes later inside the mission
+        as a driver-INVALID against a perfectly good spec, which is the exact
+        misdirection the overlay's fail-closed path exists to prevent.
+
+        An earlier version of this cell asserted only that each saveTemplate leaf
+        was a real directory and that EXISTING rows resolve -- both of which stay
+        true when a row is dropped, so it could not see the failure it was named
+        for. This is the strong form: physical-or-declared, per launching spec."""
+        manifest = _read_manifest()
+        library = set(_library_ship_names())
+        unresolved = []
+        for name in sorted(n for n in os.listdir(SCENARIOS_DIR) if n.endswith(".toml")):
+            with open(os.path.join(SCENARIOS_DIR, name), "rb") as fh:
+                spec = tomllib.load(fh)
+            params = ((spec.get("driver", {}) or {}).get("missionParams", {}) or {})
+            craft = params.get("craftName")
+            if not craft:
+                continue
+            leaf = ((spec.get("fixture", {}) or {}).get("saveTemplate", "")
+                    ).replace("\\", "/").rstrip("/").rsplit("/", 1)[-1]
+            physical = os.path.isfile(os.path.join(
+                FIXTURE_SAVES_DIR, leaf, *(hlib.SHARED_SHIPS_DEST_SEGMENTS
+                                           + (craft + hlib.SHARED_SHIP_SUFFIX,))))
+            declared = craft in manifest.get(leaf, ()) and craft in library
+            if not (physical or declared):
+                unresolved.append("%s: %s launches %r from %r, which carries it "
+                                  "neither physically nor via shared-ships.toml"
+                                  % (name, name[:-5], craft, leaf))
+        self.assertEqual([], unresolved, "\n".join(unresolved))
+
+    def test_every_spec_saveTemplate_names_a_real_fixture(self):
         manifest = _read_manifest()
         saves = set(_fixture_save_names())
         for name in sorted(n for n in os.listdir(SCENARIOS_DIR) if n.endswith(".toml")):
@@ -10686,12 +10720,25 @@ class CommittedFixtureMirrorTests(unittest.TestCase):
             self.assertIn(stem + "_vessel.craft", committed,
                           "%s lost its authoritative vessel snapshot" % prec)
 
-    def test_the_cited_trajectory_mirror_is_still_committed(self):
-        # V6M-mun-player-loop, V6T-mun-ts-arrival, V7M-minmus-player-loop and
-        # M1-mission-loop-unit quote values read out of a `.prec.txt`. Keeping the
-        # gate above narrow to the SNAPSHOT mirrors is deliberate; this asserts it.
-        self.assertTrue([f for f in self._committed() if f.endswith(".prec.txt")],
-                        "the trajectory mirrors scenario headers cite were removed")
+    def test_every_committed_trajectory_keeps_its_readable_mirror(self):
+        """`.prec.txt` is a LIVE TEST INPUT, and the gate has to be per-file.
+
+        `OptimizerTransferCohesionTests` globs a fixture's Recordings dir for
+        `*.prec.txt` (line 91) and sweeps every fixture recursively (line 530);
+        `ReaimTransferSynthesizerTests:639` names one directly. Four scenario
+        headers also quote values read out of one.
+
+        An earlier version asserted only that at least ONE `.prec.txt` survived
+        anywhere under fixtures/saves/. That could not trip until the last mirror
+        in the repo went - deleting every mirror from two whole fixtures left it
+        green. The real invariant is that the mirror set tracks the trajectory set,
+        so this pairs them one to one."""
+        committed = set(self._committed())
+        missing = sorted(p[:-len(".prec")] for p in committed
+                         if p.endswith(".prec") and (p + ".txt") not in committed)
+        self.assertEqual([], missing,
+                         "these recordings lost the readable trajectory mirror that "
+                         "OptimizerTransferCohesionTests globs: %s" % (missing,))
 
 
 class CommittedFixtureRewindSaveTests(unittest.TestCase):

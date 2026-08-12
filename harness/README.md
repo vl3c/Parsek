@@ -409,11 +409,24 @@ Forbid fresh-save gate. Both halves go together, which is what the gate pins.
 
 `tools/harvest_bdock_station.py` drops harvested craft the library already holds
 and prints the manifest row to add, and prunes the snapshot mirrors and
-`Parsek/Saves` so a harvest cannot re-commit them. The overlay fails CLOSED, pre-boot, as
-`INVALID(staging)` when a declared craft is missing or a fixture carries a copy it
-also declares - never silently, because the symptom otherwise surfaces minutes
-later as a `launch_vessel` failure classified against a perfectly good spec. Pure
-resolution: `hlib.plan_shared_ship_overlay` / `hlib.validate_shared_ships_manifest`.
+`Parsek/Saves` so a harvest cannot re-commit them. The overlay fails CLOSED, pre-boot, as `INVALID(staging)` on every way it can be
+unsatisfiable - a declared craft missing from the library, a fixture that both
+declares and commits one, and a manifest that is missing or unparseable. Never
+silently, because the symptom otherwise surfaces minutes later as a
+`launch_vessel` failure classified against a perfectly good spec. The
+missing-manifest case is deliberately NOT treated as "degrade to the pre-library
+behaviour": before the dedup a verbatim copytree carried the craft, and now it
+carries nothing, so degrading would stage twelve fixtures craftless and report
+success. A save with no manifest row is legitimate (most fixtures need no shared
+craft) and logs a `no rows for save=` line, so the harness log can always tell
+"overlay ran" from "no row".
+
+The consumer-side gate is `test_every_spec_that_launches_a_craft_can_resolve_it`:
+every spec with a `driver.missionParams.craftName` must resolve that craft from
+its own fixture either physically or through a manifest row. That is the cell
+that catches a dropped row before it costs a flight - the weaker "the saveTemplate
+names a real directory" form stays green when a row goes missing. Pure resolution:
+`hlib.plan_shared_ship_overlay` / `hlib.validate_shared_ships_manifest`.
 
 ## Running the tests
 
