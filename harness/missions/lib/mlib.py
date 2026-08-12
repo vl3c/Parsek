@@ -7640,6 +7640,19 @@ class B5State:
     # Cleared on arrival (ut >= target), on cancel, and on every phase exit
     # that cancels. While set, the machine never emits set_rails_warp.
     warp_to_cmd: Optional[float] = None
+    # TARGET-SOI APPROACH LATCH (B20 flight 3, 2026-08-12). True once the craft
+    # has been OBSERVED inside approachWindowSeconds of the target SOI. The
+    # approach clamp is a PURE, STATELESS predicate and fails OPEN on an unread
+    # time_to_soi, which is right on the heliocentric leg (tts is nan for most
+    # of it) and wrong once the approach has been entered: B20 measured the
+    # clamp stair-down correctly to tts=100000.353, then the patched-conic read
+    # blink to nan, then ONE unclamped frame advance 55,041 game s through the
+    # lead, the boundary and the whole SOI-entry -> periapsis coast. This latch
+    # is the same insight as the NATIVE-WARP LATCH below -- a blind read under
+    # warp is the warp's own artifact -- applied to the CEILING rather than the
+    # target. Cleared when the target SOI is entered or the encounter is
+    # abandoned, so it can never outlive the approach it describes.
+    approach_latched: bool = False
     # Game-time stamp of the last warp_to_ut emission (initial, retarget, or
     # self-heal re-issue) - bounds the self-healing re-issue to once per
     # WARP_REISSUE_SECONDS.
@@ -7874,8 +7887,35 @@ def _b5_seam_payload(snapshot: TelemetrySnapshot, tag: str, key: str) -> str:
     return ""
 
 
+def approach_latch_state(time_to_soi, window, body, target_body, latched):
+    """PURE. Whether the target-SOI approach ceiling is LATCHED for this frame.
+
+    Engages the first time the craft is OBSERVED inside ``window`` of the target
+    SOI, and holds through subsequent unread ``time_to_soi`` frames. Releases on
+    arrival (``body`` is the target -- the in-SOI flyby factors govern from
+    there) so the latch can never outlive the approach it describes.
+
+    WHY IT EXISTS (B20 flight 3, 2026-08-12): ``approach_warp_clamp`` is pure and
+    stateless, so it cannot tell "not yet on approach" from "on approach, and the
+    clock blinked". One blink re-opened the ceiling and the next frame advanced
+    55,041 game seconds -- through the remaining lead, the SOI boundary, and the
+    entire 2,168-4,119 s SOI-entry -> periapsis coast -- landing TARGET-FLYBY's
+    first frame past periapsis with ``capture-never-armed (past-periapsis)``.
+
+    OFF BY DEFAULT with the clamp: ``window <= 0`` never latches, so every lane
+    that does not arm the clamp is byte-identical."""
+    if window <= 0.0:
+        return False
+    if target_body and body and body == target_body:
+        # Arrived: the approach is over and the flyby factors take it from here.
+        return False
+    if _is_finite(time_to_soi) and 0.0 < time_to_soi <= window:
+        return True
+    return latched
+
+
 def approach_warp_clamp(time_to_soi, ut, soi_lead, window, cap,
-                        desired, native_target):
+                        desired, native_target, latched=False):
     """PURE. Clamp the coast's warp intent while on FINAL APPROACH to the target
     SOI, so no single poll can swallow the SOI-entry -> periapsis coast.
 
@@ -7905,8 +7945,21 @@ def approach_warp_clamp(time_to_soi, ut, soi_lead, window, cap,
     that does not arm it is byte-identical. Fails OPEN on a non-finite
     ``time_to_soi`` (an unread clock never triggers a clamp) and only ever
     LOWERS a factor -- it can never raise one."""
-    if window <= 0.0 or not _is_finite(time_to_soi) or time_to_soi <= 0.0:
+    if window <= 0.0:
         return desired, native_target
+    if not _is_finite(time_to_soi) or time_to_soi <= 0.0:
+        if not latched:
+            # UNLATCHED: an unread clock never triggers a clamp. This is the
+            # heliocentric leg, where tts is legitimately nan for most of the
+            # length, and clamping it would tax the whole coast.
+            return desired, native_target
+        # LATCHED: the approach WAS entered and the clock blinked, so the
+        # ceiling is held. The native target cannot be recomputed without a
+        # tts, so it is dropped rather than left armed at a stale value --
+        # the same disposition the inside-the-lead branch below takes.
+        if cap > 0 and (desired <= 0 or desired > cap):
+            desired = cap
+        return desired, None
     if time_to_soi > window:
         return desired, native_target
     if native_target is not None and _is_finite(ut):
@@ -10507,10 +10560,19 @@ def b5_decide(state: B5State, snapshot: TelemetrySnapshot) -> Tuple[B5State, Lis
         # point every branch above converges on, rather than inside each branch:
         # the overshoot frame was the hand-off itself, so the clamp has to see
         # the final intent whichever branch produced it. Inert unless armed.
+        #
+        # THE LATCH (B20 flight 3) is computed BEFORE the clamp and threaded
+        # onto `stayed`, so a blinking time_to_soi cannot re-open the ceiling
+        # mid-approach. It releases on arrival at the target body.
+        approach_latched = approach_latch_state(
+            snapshot.time_to_soi, state.params.approach_window,
+            snapshot.body, state.params.target_body, stayed.approach_latched)
+        if approach_latched != stayed.approach_latched:
+            stayed = replace(stayed, approach_latched=approach_latched)
         desired, native_target = approach_warp_clamp(
             snapshot.time_to_soi, snapshot.ut, state.params.soi_lead,
             state.params.approach_window, state.params.approach_max_warp_factor,
-            desired, native_target)
+            desired, native_target, approach_latched)
         if native_target is not None:
             # THRASH WATCHDOG (B12 flight 2 liveness): a healthy coast issues
             # the native warp a handful of times (arm + the occasional

@@ -14,7 +14,7 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
-## APPROACH-WARP-CLAMP-FAILS-OPEN-ON-AN-INTERMITTENT-TTS: the ceiling is dropped by a single unread time-to-SOI, at the one moment it is load-bearing [MEASURED 2026-08-12 by `B20-moho-orbit` run `_1855`. A SHARED-MACHINE gap in `mlib.approach_warp_clamp`, not a lane-parameter error. NOT FIXED -- the fix is machinery and needs a decision]
+## ~~APPROACH-WARP-CLAMP-FAILS-OPEN-ON-AN-INTERMITTENT-TTS: the ceiling is dropped by a single unread time-to-SOI, at the one moment it is load-bearing~~ [MEASURED 2026-08-12 by `B20-moho-orbit` run `_1855`. A SHARED-MACHINE gap in `mlib.approach_warp_clamp`, not a lane-parameter error. FIXED 2026-08-12 with an approach LATCH, on an explicit decision to change shared machinery]
 
 **What was measured.** With the correction cap restored, B20's third flight
 (`2026-08-12_1855`) reached Moho's SOI for the first time in the program -- and then
@@ -71,19 +71,41 @@ periapsis altitude, comfortably above the 50 km floor, with periapsis 3,154 s AH
 Had the ceiling held, PLAN-CAPTURE had a clean arrival to arm on. This flight was one
 warp frame from a capture.
 
-**Proposed fix (NOT APPLIED -- shared machinery, needs a decision).** Latch the clamp:
+**Fix, APPLIED 2026-08-12 on an explicit decision to touch shared machinery.** Latch the clamp:
 once `tts` has been observed finite and `<= window` for the current target, hold the cap
 until the target SOI is actually entered (or the encounter is genuinely abandoned, e.g.
 a body change or a re-plan), so an intermittent unread frame cannot re-open the ceiling.
-That is a state field on the B5 machine plus a latched variant of the pure predicate,
-with cells alongside the existing `ApproachWarpClampTests`. It is a behaviour change to
-a function every interplanetary lane shares (B7/B11/B12/B16/B17/B19), which is why it is
-filed rather than taken unilaterally -- the blast radius, not the size, is the reason.
+Shipped as a new pure predicate `mlib.approach_latch_state` plus an `approach_latched`
+state field and a `latched=False` keyword on `approach_warp_clamp` -- so every lane that
+does not arm the clamp, and every existing caller, is BYTE-IDENTICAL (all 1,496
+pre-existing mission cells pass unchanged). The latch engages only when `tts` is
+observed finite and inside the window, releases on arrival at the target body, and while
+held it applies the cap and DROPS the native target rather than leaving a stale one
+armed. It only ever LOWERS a factor, so the blast radius across B7/B11/B12/B16/B17/B19
+is one-directional: those lanes can only warp more conservatively on final approach, and
+none of them can be sped up by it.
 
-Cheaper but UNPROVEN alternative: a much smaller `soiLeadSeconds` on the theory that
-`tts` reads reliably closer in (the observed blink was at ~100,000 s out). That is a
-guess about read stability, and this lane has already spent two flights on guesses that
-were not measured first.
+VERIFIED AGAINST THE MEASURED FRAMES, replayed through the real predicate:
+
+```
+frame (ut, tts)              BEFORE          AFTER
+2780692.797  nan             x100000         x100000   <- heliocentric, unchanged
+2780694.621  100001.413      x100            x100      <- window entered, latch engages
+2780695.681  100000.353      x100            x100
+2780709.607  nan             x100000  <-BUG  x100      <- the blink no longer re-opens it
+2835750.877  nan             x100000  <-BUG  x100      <- the frame that overshot
+```
+
+The pre-window frames are untouched, so the 2.7M game-second coast is not taxed; only
+the post-blink frames change, which is exactly the defect. Seven cells added beside
+`ApproachWarpClampTests`, including the fail-open regression guard for the unlatched
+heliocentric leg and a Moho sibling of the Dres sizing claim.
+
+Cheaper alternative CONSIDERED AND REJECTED: a much smaller `soiLeadSeconds` on the
+theory that `tts` reads reliably closer in. That is a guess about read stability, and a
+fail-open x100,000 frame covers ~50,000 game s against a 2,168-4,119 s coast, so no lead
+survives one. This lane has already spent two flights on derivations that were not
+measured first.
 
 ## ~~CORRECTION-CAP-DERIVED-BELOW-THE-PLANNED-CORRECTION: B20's own `maxCorrectionDvMps = 700` discarded the encounter-creating burn six times a flight~~ [MEASURED 2026-08-12 by `B20-moho-orbit`, two identical INVALID flights. FIXED the same day by restoring B19's 1200; re-fly pending. A LANE-PARAMETER error, NOT a Parsek defect and NOT a MechJeb limitation]
 

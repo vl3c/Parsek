@@ -10106,6 +10106,64 @@ class ApproachWarpClampTests(unittest.TestCase):
         self.assertEqual((7, 5.0), self.clamp(float("nan"), desired=7, native=5.0))
         self.assertEqual((7, 5.0), self.clamp(-3.0, desired=7, native=5.0))
 
+    # --- THE LATCH (B20 flight 3, 2026-08-12) -----------------------------
+    # The clamp is pure and stateless, so it fails OPEN on an unread tts. That
+    # is right on the heliocentric leg and wrong once the approach is entered:
+    # B20 measured the stair-down halt at tts=100000.353, then a read blink to
+    # nan, then ONE unclamped frame advance 55,041 game s through the lead, the
+    # boundary and the whole coast, landing past periapsis.
+
+    def test_an_unread_clock_still_fails_open_when_unlatched(self):
+        """THE REGRESSION GUARD FOR THE HELIOCENTRIC LEG: unlatched, a nan tts
+        must still leave the inputs untouched, or the clamp would tax the whole
+        2.7M game-second coast."""
+        self.assertEqual((7, 5.0),
+                         self.clamp(float("nan"), desired=7, native=5.0))
+
+    def test_a_blinking_clock_cannot_reopen_the_ceiling_once_latched(self):
+        """THE MEASURED FRAME. Latched, an unread tts holds the cap instead of
+        returning the caller's x100,000 intent -- the single frame that cost
+        B20 flight 3 its capture."""
+        desired, native = mlib.approach_warp_clamp(
+            float("nan"), 1000.0, self.LEAD, self.WINDOW, self.CAP,
+            7, 1e12, True)
+        self.assertEqual(self.CAP, desired)
+        self.assertIsNone(native, "a stale native target must not survive the blink")
+
+    def test_the_latched_hold_only_ever_lowers(self):
+        """A factor already under the cap is left alone: the latch is a
+        ceiling, never a floor, so it can never speed a lane up."""
+        desired, _ = mlib.approach_warp_clamp(
+            float("nan"), 1000.0, self.LEAD, self.WINDOW, self.CAP, 2, None, True)
+        self.assertEqual(2, desired)
+
+    def test_the_latch_engages_only_inside_the_window(self):
+        latch = lambda tts, prev=False, body="Sun": mlib.approach_latch_state(
+            tts, self.WINDOW, body, "Moho", prev)
+        self.assertFalse(latch(5_000_000.0), "far out must not latch")
+        self.assertFalse(latch(float("nan")), "an unread clock must not latch")
+        self.assertTrue(latch(150000.0), "inside the window latches")
+        self.assertTrue(latch(float("nan"), prev=True), "and then HOLDS")
+
+    def test_the_latch_releases_on_arrival(self):
+        """It must not outlive the approach it describes: once the craft is in
+        the target SOI the in-SOI flyby factors govern."""
+        self.assertFalse(mlib.approach_latch_state(
+            float("nan"), self.WINDOW, "Moho", "Moho", True))
+
+    def test_an_unarmed_lane_never_latches(self):
+        """window = 0 is every lane that does not arm the clamp."""
+        self.assertFalse(mlib.approach_latch_state(
+            150000.0, 0.0, "Sun", "Moho", False))
+
+    def test_one_frame_cannot_swallow_the_moho_approach(self):
+        """B20's sibling of the Dres sizing claim, as arithmetic. Moho's
+        SOI-entry -> periapsis coast is 2,168-4,119 game s (measured band; the
+        lane sizes against a pessimistic 2,000 floor), so the Dres cap of 5
+        FAILS here and 4 passes."""
+        self.assertGreater(mlib.RAILS_WARP_RATES[5] * 1.0, 2000.0 / 5.0)
+        self.assertLessEqual(mlib.RAILS_WARP_RATES[4] * 1.0, 2000.0 / 5.0)
+
     def test_one_frame_cannot_swallow_the_dres_approach(self):
         """The sizing claim, stated as arithmetic rather than prose. Dres's
         SOI-entry -> periapsis coast measured ~25,000 game s (the flight-4 frame
