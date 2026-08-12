@@ -617,6 +617,9 @@ namespace Parsek.Tests
             {
                 "Source/Parsek/DockEventGraph.cs",
                 "Source/Parsek/DockEventGraphCache.cs",
+                // PR4's digest provider inherits the same contract: it is a consumer of the graph
+                // and takes its tree, mission and resolvers as parameters.
+                "Source/Parsek/MissionEventDigest.cs",
             })
             {
                 string path = Path.Combine(repoRoot, rel.Replace('/', Path.DirectorySeparatorChar));
@@ -624,13 +627,22 @@ namespace Parsek.Tests
                 Assert.DoesNotContain(".CommittedRecordings", File.ReadAllText(path));
             }
 
-            // The pure core additionally touches NO live store at all (design 2.4).
-            string core = File.ReadAllText(Path.Combine(
-                repoRoot, "Source", "Parsek", "DockEventGraph.cs"));
-            Assert.DoesNotContain("RecordingStore.", core);
-            Assert.DoesNotContain("ParsekScenario.", core);
-            Assert.DoesNotContain("EffectiveState.", core);
-            Assert.DoesNotContain("MissionStore.", core);
+            // The pure cores additionally touch NO live store at all (design 2.4). The digest
+            // takes the Mission as a PARAMETER, so MissionStore is on its forbidden list too -
+            // reaching for the store there is how a "pure" module quietly becomes untestable.
+            foreach (string rel in new[]
+            {
+                "Source/Parsek/DockEventGraph.cs",
+                "Source/Parsek/MissionEventDigest.cs",
+            })
+            {
+                string core = File.ReadAllText(
+                    Path.Combine(repoRoot, rel.Replace('/', Path.DirectorySeparatorChar)));
+                Assert.DoesNotContain("RecordingStore.", core);
+                Assert.DoesNotContain("ParsekScenario.", core);
+                Assert.DoesNotContain("EffectiveState.", core);
+                Assert.DoesNotContain("MissionStore.", core);
+            }
         }
 
         private static string ResolveRepoRoot()

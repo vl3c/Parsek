@@ -140,6 +140,26 @@ namespace Parsek
         private readonly Dictionary<string, string> dockPartnerTextCache =
             new Dictionary<string, string>();
 
+        // Mission event digest (design-dock-event-graph.md 7.1). NOT a per-frame cache: the rows
+        // are keyed on the GRAPH INSTANCE (which the host cache only replaces when the committed
+        // topology signature moves) plus a fingerprint of the mission's included foreign dock
+        // links (the one selection input, via the R5 gap rows), so an expanded foldout costs one
+        // dictionary hit + one fingerprint fold per frame instead of a rebuild. Cleared only by
+        // those two inputs changing, so it survives across frames like the graph it mirrors.
+        private struct DigestCacheEntry
+        {
+            public DockEventGraph Graph;
+            public int LinkFingerprint;
+            public List<MissionEventRow> Rows;
+        }
+        private readonly Dictionary<string, DigestCacheEntry> digestCache =
+            new Dictionary<string, DigestCacheEntry>();
+
+        // Per-mission foldout expansion, keyed by Mission.Id. UI-SESSION ONLY: deliberately not
+        // persisted (a reading aid, not a selection), so it resets with the window like
+        // collapsedLegs does.
+        private readonly Dictionary<string, bool> digestExpanded = new Dictionary<string, bool>();
+
         // Per-frame cache of the REAL Mission LoopUnitSet (the SAME one the scene drivers build via
         // MissionLoopUnitBuilder.Build with FlightGlobalsBodyInfo.Instance), so the T- countdown
         // points to the engine's ACTUAL next relaunch (PhaseAnchorUT + n*relaunchCadence) instead of
@@ -673,6 +693,10 @@ namespace Parsek
                 // dock link on this tree's vessel(s), with the journey's intervals as child rows
                 // when the link is included (explicit player action; default off).
                 rowCount += DrawForeignDockLinkRows(mission, tree, trees);
+
+                // The mission's chronological story (design 7.1 / issue-1 T2.3), collapsed by
+                // default so it costs one row until the player asks for it.
+                rowCount += DrawEventDigestRows(mission, tree);
             }
 
             GUILayout.EndVertical();
@@ -1381,6 +1405,175 @@ namespace Parsek
                 }
             }
             return rows;
+        }
+
+        // ---- mission event digest (design-dock-event-graph.md 7.1; issue-1's T2.3) ----
+
+        /// <summary>
+        /// The mission's chronological story: one collapsed-by-default "Events (N)" foldout row,
+        /// and while expanded one line per <see cref="MissionEventRow"/> ("&lt;date&gt; - &lt;subject
+        /// verb partner&gt;"), with a "Go to" button on the rows whose other side lives in another
+        /// mission. Returns the number of rows drawn.
+        /// <para>Minimal by design: the row CONTRACT is this PR's deliverable (issue-1 owns the
+        /// eventual styling, design section 8), so this renders through the tab's existing row
+        /// idioms and adds no new columns.</para>
+        /// </summary>
+        private int DrawEventDigestRows(Mission mission, RecordingTree tree)
+        {
+            List<MissionEventRow> rows = GetEventDigest(mission, tree);
+            if (rows == null || rows.Count == 0)
+                return 0;
+
+            bool expanded = mission.Id != null
+                && digestExpanded.TryGetValue(mission.Id, out bool e) && e;
+
+            GUILayout.BeginHorizontal(GUILayout.MinHeight(CompositionRowMinHeight));
+            GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_Enable));
+            GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_Index));
+            float headerIndent = RecordingsTableUI.SelfConnectorIndent(1);
+            if (headerIndent > 0f)
+                GUILayout.Space(headerIndent);
+            string caret = expanded ? CaretDown : CaretRight;
+            if (GUILayout.Button(
+                    caret + "Events (" +
+                    rows.Count.ToString(System.Globalization.CultureInfo.InvariantCulture) + ")",
+                    compositionCellLabel, GUILayout.ExpandWidth(true)))
+            {
+                // Written to the dictionary ONLY: `expanded` decides how many rows this pass
+                // draws, and flipping it mid-frame would make a Repaint disagree with its own
+                // Layout pass ("Getting control N's position in a group with only M controls").
+                // The flip takes effect next frame, exactly like the composition-row collapse.
+                bool next = !expanded;
+                if (!string.IsNullOrEmpty(mission.Id))
+                    digestExpanded[mission.Id] = next;
+                ParsekLog.Verbose("UI",
+                    $"Mission '{mission.Name}' event digest expanded={next} rows={rows.Count}");
+            }
+            DrawBlankDigestCells();
+            GUILayout.EndHorizontal();
+            int drawn = 1;
+
+            if (!expanded)
+                return drawn;
+
+            for (int i = 0; i < rows.Count; i++)
+            {
+                MissionEventRow row = rows[i];
+                GUILayout.BeginHorizontal(GUILayout.MinHeight(CompositionRowMinHeight));
+                GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_Enable));
+                GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_Index));
+                float indent = RecordingsTableUI.SelfConnectorIndent(2);
+                if (indent > 0f)
+                    GUILayout.Space(indent);
+                GUILayout.Label(
+                    RecordingsTableUI.TreeConnector(i == rows.Count - 1)
+                    + KSPUtil.PrintDateCompact(row.UT, true) + " - "
+                    + MissionEventDigest.FormatRowText(row),
+                    compositionCellLabel, GUILayout.ExpandWidth(true));
+                GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_TMinus));
+                GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_StartTime));
+                GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_StartEvent));
+                GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_EndEvent));
+                GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_EndTime));
+
+                // The cross-navigation, in the Re-Fly column's slot so the Archive column stays
+                // aligned. Same call contract as the Timeline's GoTo button: the Recordings window
+                // owns opening itself on the Missions tab and delegates the scroll to
+                // RevealMissionForRecording (which is built to be called from a mid-frame click
+                // handler - it only QUEUES the archive-filter clear).
+                if (!string.IsNullOrEmpty(row.GoToRecordingId))
+                {
+                    if (GUILayout.Button(
+                            new GUIContent("Go to", BuildDigestGoToTooltip(row)),
+                            GUILayout.Width(ColW_ReFly)))
+                    {
+                        ParsekLog.Info("UI",
+                            $"Mission event digest GoTo: mission='{mission.Name}' " +
+                            $"recording={row.GoToRecordingId} " +
+                            $"targetMission={row.GoToMissionId ?? "<unresolved>"} " +
+                            $"verb='{row.Verb}' bp={row.SourceBranchPointId ?? "<none>"}");
+                        parentUI.GetRecordingsTableUI().ShowMissionForRecording(row.GoToRecordingId);
+                    }
+                }
+                else
+                {
+                    GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_ReFly));
+                }
+
+                GUILayout.BeginHorizontal(GUILayout.Width(ColW_Archive));
+                GUILayout.FlexibleSpace();
+                GUILayout.EndHorizontal();
+                GUILayout.EndHorizontal();
+                drawn++;
+            }
+            return drawn;
+        }
+
+        // The data columns a digest row leaves blank (the story text lives in the name column),
+        // plus the trailing margin-0 Archive spacer every row in this tab ends with.
+        private void DrawBlankDigestCells()
+        {
+            GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_TMinus));
+            GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_StartTime));
+            GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_StartEvent));
+            GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_EndEvent));
+            GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_EndTime));
+            GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_ReFly));
+            GUILayout.BeginHorizontal(GUILayout.Width(ColW_Archive));
+            GUILayout.FlexibleSpace();
+            GUILayout.EndHorizontal();
+        }
+
+        private static string BuildDigestGoToTooltip(MissionEventRow row)
+            => "Go to the other side of this event"
+               + (string.IsNullOrEmpty(row.PartnerText) ? "" : ": " + row.PartnerText);
+
+        // Digest rows for a mission, rebuilt only when the dock-event graph instance changes (a
+        // committed-topology move) or the mission's included-link set does (the R5 gap rows'
+        // only selection input). Everything else about the digest derives from the tree, whose
+        // changes move the graph signature too.
+        private List<MissionEventRow> GetEventDigest(Mission mission, RecordingTree tree)
+        {
+            if (mission == null || string.IsNullOrEmpty(mission.Id) || tree == null)
+                return null;
+
+            DockEventGraph graph = GetDockEventGraph();
+            int fingerprint = ForeignLinkFingerprint(mission);
+            if (digestCache.TryGetValue(mission.Id, out DigestCacheEntry entry)
+                && ReferenceEquals(entry.Graph, graph)
+                && entry.LinkFingerprint == fingerprint)
+                return entry.Rows;
+
+            List<MissionEventRow> rows = MissionEventDigest.Build(
+                graph, tree, mission, ResolvePartnerMissionName, ResolvePartnerMissionId);
+            digestCache[mission.Id] = new DigestCacheEntry
+            {
+                Graph = graph,
+                LinkFingerprint = fingerprint,
+                Rows = rows,
+            };
+            return rows;
+        }
+
+        // Order-independent, allocation-free fold over the mission's included foreign dock links
+        // (typically zero of them). Only used to decide whether a cached digest is stale, so an
+        // XOR fold is enough: a change that collides would have to swap one link id for another
+        // with an identical hash in the same frame.
+        private static int ForeignLinkFingerprint(Mission mission)
+        {
+            int hash = mission.IncludedForeignDockLinkIds.Count;
+            foreach (string id in mission.IncludedForeignDockLinkIds)
+                hash ^= id != null ? id.GetHashCode() : 0;
+            return hash;
+        }
+
+        // treeId -> mission id, the GoTo half of the digest's resolvers (the NAME half is
+        // ResolvePartnerMissionName above). Same pick as the name resolver and as
+        // RevealMissionForRecording: a tree's narrative custody is its ORIGINAL mission.
+        internal static string ResolvePartnerMissionId(string treeId)
+        {
+            Mission m = MissionStore.FindOriginalMission(treeId);
+            return m != null ? m.Id : null;
         }
 
         // Linear lookup of a committed recording by id (the Missions tab maps a composition row to
