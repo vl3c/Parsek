@@ -642,7 +642,9 @@ namespace Parsek
         // matches: pids are craft-baked (not launch-unique), so a guid-less debris recording
         // carrying a colliding pid would otherwise mint a false partner-journey affordance for
         // an unrelated vessel (MissionStructureBuilder likewise excludes debris from legs).
-        private static Recording FindClaimedRecording(
+        // internal (not private): DockEventGraph's cross-tree resolution REUSES this exact
+        // claim rule so the graph and FindLinks can never drift apart (design 6.3 step 2c).
+        internal static Recording FindClaimedRecording(
             RecordingTree myTree, uint pid, string foreignLaunchGuid, out bool rejectedByGuid)
         {
             rejectedByGuid = false;
@@ -668,7 +670,9 @@ namespace Parsek
         // the merged child / departing offshoot carry the pid when the partner survived as the
         // merged stack; when the partner was absorbed, the foreign tree may carry no recording
         // with that pid at all (null -> pid-only fallback, walker semantics).
-        private static string ResolveLaunchGuidForPid(RecordingTree tree, uint pid)
+        // internal (not private): DockEventGraph's cross-tree resolution REUSES this exact
+        // guid lookup so the graph and FindLinks can never drift apart (design 6.3 step 2c).
+        internal static string ResolveLaunchGuidForPid(RecordingTree tree, uint pid)
         {
             if (tree?.Recordings == null || pid == 0)
                 return null;

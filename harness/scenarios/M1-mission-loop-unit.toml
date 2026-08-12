@@ -117,15 +117,16 @@ count = { min = 0, max = 0 }
 # 2026-07-26 (the first flight and the post-sidecar-fix re-fly emitted the identical
 # line; only the recordings count differed between them):
 #
-#   BATCH_COMPLETE v1 total=12 passed=5 failed=0 skipped=7 category=Missions scene=SPACECENTER
+#   BATCH_COMPLETE v1 total=13 passed=6 failed=0 skipped=7 category=Missions scene=SPACECENTER
 #
 # The pre-flight derivation below was written from the [InGameTest] attributes and the
 # live line confirmed it token for token. It is kept as the explanation of each number:
-#  - total=12: exactly 12 [InGameTest(Category = "Missions")] methods exist
-#    (CrossTreeDockLoopUnitInGameTest 1, JointArrivalHoldInGameTest 2,
-#    JoolConfigHoldInGameTest 2, DescentHandoffVisibilityInGameTest 1,
-#    MissionDockCompositionRuntimeTest 1, ReaimRenderLoopShiftCanaryInGameTest 1,
-#    RealSaveMissionInGameTests 4). BATCH_COMPLETE's total is
+#  - total=13: exactly 13 [InGameTest(Category = "Missions")] methods exist
+#    (CrossTreeDockLoopUnitInGameTest 1, DockEventGraphInGameTest 1,
+#    JointArrivalHoldInGameTest 2, JoolConfigHoldInGameTest 2,
+#    DescentHandoffVisibilityInGameTest 1, MissionDockCompositionRuntimeTest 1,
+#    ReaimRenderLoopShiftCanaryInGameTest 1, RealSaveMissionInGameTests 4).
+#    BATCH_COMPLETE's total is
 #    `allTests.Count(Status != NotRun)` over the single RunCategory batch, which counts
 #    the scene-skipped ones too.
 #  - skipped=7: the 7 Scene = GameScenes.FLIGHT members (the 4 RealSave_* tests, which
@@ -133,7 +134,10 @@ count = { min = 0, max = 0 }
 #    render canary) are scene-eligibility skipped at SPACECENTER. That is CORRECT, not a
 #    shortfall: they are the render/real-save half this scenario explicitly does not
 #    claim. No Missions test declares AllowBatchExecution=false, so nothing else skips.
-#  - passed=5: the 5 Scene = GameScenes.SPACECENTER members execute. Their
+#  - passed=6: the 6 Scene = GameScenes.SPACECENTER members execute (the sixth is
+#    DockEventGraphInGameTest, added with the dock-event graph: it commits two synthetic
+#    trees, reads them back through DockEventGraphCache, and reaps its own sidecars).
+#    Their
 #    InGameAssert.Skip guards fire only on a NON-STOCK body graph (Kerbin/Duna/Jool/
 #    Laythe/Vall/Tylo/Bop missing or not sharing the expected parent) or degenerate live
 #    orbit/rotation data, none of which the stock-minimal profile produces.
@@ -142,7 +146,7 @@ count = { min = 0, max = 0 }
 # The former PENDING-OPERATOR is CLOSED by the 2026-07-26 flights. If a stock rebalance
 # ever trips one of those skip guards this reds with the exact numbers to re-derive from
 # - which is the intended behavior, not a flake. Do NOT relax it back to a bare failed=0.
-required  = ["BATCH_COMPLETE v1 total=12 passed=5 failed=0 skipped=7 category=Missions scene=SPACECENTER"]
+required  = ["BATCH_COMPLETE v1 total=13 passed=6 failed=0 skipped=7 category=Missions scene=SPACECENTER"]
 forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
 
 # The raw-Unity-exception scan (hlib.scan_unity_exceptions), ARMED AT ZERO. Every

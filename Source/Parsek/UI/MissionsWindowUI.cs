@@ -128,6 +128,18 @@ namespace Parsek
         private readonly Dictionary<string, List<MissionCompositionNode>> compositionCache =
             new Dictionary<string, List<MissionCompositionNode>>();
 
+        // Dock-event graph (design-dock-event-graph.md 6.5) held per FRAME, so the composition
+        // rows can name a dock partner without walking the graph host once per row per OnGUI
+        // pass. DockEventGraphCache itself is signature-gated (it rebuilds only when the
+        // committed topology moves) but recomputing that signature per row would still allocate;
+        // this reference memo makes a naming lookup a pure dictionary hit. The description memo
+        // is keyed by (tree id, interval key) - the whole row identity - and clears with the
+        // other per-frame caches in GetMissionView.
+        private DockEventGraph dockEventGraphCache;
+        private int dockEventGraphCacheFrame = -1;
+        private readonly Dictionary<string, string> dockPartnerTextCache =
+            new Dictionary<string, string>();
+
         // Per-frame cache of the REAL Mission LoopUnitSet (the SAME one the scene drivers build via
         // MissionLoopUnitBuilder.Build with FlightGlobalsBodyInfo.Instance), so the T- countdown
         // points to the engine's ACTUAL next relaunch (PhaseAnchorUT + n*relaunchCadence) instead of
@@ -712,6 +724,7 @@ namespace Parsek
                 compositionCache.Clear();
                 foreignLinksCache.Clear();
                 journeyLegsCache.Clear();
+                dockPartnerTextCache.Clear();
                 missionViewCacheFrame = frame;
             }
 
@@ -772,6 +785,161 @@ namespace Parsek
             }
             return roots;
         }
+
+        // ---- dock-partner naming (design-dock-event-graph.md 6.5 / 7.6) ----
+
+        // The global dock-event graph, fetched at most once per frame. NOT log-suppressed: the
+        // host cache only rebuilds on a committed-topology signature change, and that rebuild is
+        // exactly the event the one [DockGraph] summary line exists for.
+        private DockEventGraph GetDockEventGraph()
+        {
+            int frame = Time.frameCount;
+            if (frame != dockEventGraphCacheFrame || dockEventGraphCache == null)
+            {
+                dockEventGraphCache = DockEventGraphCache.GetOrBuild();
+                dockEventGraphCacheFrame = frame;
+            }
+            return dockEventGraphCache;
+        }
+
+        // (treeId, recordingId) -> mission name, the resolver DockEventGraph.TryDescribePartner
+        // takes so the pure core stays free of Mission / MissionStore references. The recording
+        // id is unused today: a tree's narrative custody is its original mission (clones are
+        // player-made views of the same tree, and naming one of those as "the partner's mission"
+        // would be arbitrary).
+        internal static string ResolvePartnerMissionName(string treeId, string recordingId)
+        {
+            Mission m = MissionStore.FindOriginalMission(treeId);
+            return m != null ? m.Name : null;
+        }
+
+        /// <summary>
+        /// The dock partner named by a composition interval whose START is a Dock / Board merge:
+        /// "with CD (mission 'CD Freighter')", or null when there is nothing to name (design 6.4
+        /// keeps the tables silent exactly where they are silent today). Cached per frame.
+        /// </summary>
+        private string GetIntervalDockPartnerText(Mission mission, MissionCompositionNode node)
+        {
+            if (mission == null || node == null || node.IsAtom
+                || string.IsNullOrEmpty(mission.TreeId)
+                || !IsMergeStartEvent(node.StartEvent))
+                return null;
+
+            string key = mission.TreeId + KeySeparator + (node.HeadLegId ?? "");
+            if (dockPartnerTextCache.TryGetValue(key, out string cached))
+                return cached;
+
+            string text = BuildIntervalDockPartnerText(mission, node);
+            dockPartnerTextCache[key] = text;
+            return text;
+        }
+
+        // The composition layer labels a merge-started interval through MergeEventName ->
+        // BranchEventName, so the words are taken FROM that function rather than duplicated here
+        // (a relabel there must not silently switch this naming off). Gating on the label keeps
+        // the graph lookup off the hot path for the ~99% of rows that start at a launch /
+        // decouple / EVA edge. Null cause: a Dock/Board branch point's MergeCause ("DOCK",
+        // "BOARD", "CLAW", "CONSTRUCT") never matches BranchEventName's cause switch, so the
+        // type arm is what both a real row and this probe resolve through.
+        private static readonly string DockedEventLabel =
+            MissionCompositionBuilder.BranchEventName(BranchPointType.Dock, null);
+        private static readonly string BoardedEventLabel =
+            MissionCompositionBuilder.BranchEventName(BranchPointType.Board, null);
+
+        private static bool IsMergeStartEvent(string startEvent)
+            => string.Equals(startEvent, DockedEventLabel, System.StringComparison.Ordinal)
+               || string.Equals(startEvent, BoardedEventLabel, System.StringComparison.Ordinal);
+
+        private string BuildIntervalDockPartnerText(Mission mission, MissionCompositionNode node)
+        {
+            DockEventGraph graph = GetDockEventGraph();
+            if (graph == null)
+                return null;
+
+            // Map interval -> branch point by UT, restricted to branch points this tree OWNS.
+            // Composition interval edges are cut FROM the merge legs' UTs (the same doubles the
+            // branch points carry), so the epsilon only absorbs representation noise. Restricting
+            // to owned nodes removes the only ambiguity the UT match could have: a foreign node
+            // resolved INTO this tree shares no interval edge with it.
+            DockEventNode merge = null;
+            List<DockEventNode> candidates = graph.NodesForTree(mission.TreeId);
+            for (int i = 0; i < candidates.Count; i++)
+            {
+                DockEventNode n = candidates[i];
+                if (n.IsMerge && !n.VisibilityFlagged
+                    && string.Equals(n.TreeId, mission.TreeId, System.StringComparison.Ordinal)
+                    && System.Math.Abs(n.UT - node.StartUT) <= DockPartnerUTEpsilon)
+                {
+                    merge = n;
+                    break;
+                }
+            }
+            if (merge == null)
+                return null;
+
+            // Viewer = this row's own line, so the description names the OTHER vessel. The
+            // through-line head is the mission's side of the merge in the ordinary shape; when it
+            // is not one of the branch point's parents, a single-parent merge can still answer
+            // from the parent (the partner is the claimed recording either way), while a
+            // TWO-parent merge must stay silent rather than guess which parent the row is on -
+            // guessing is exactly how a row ends up naming its own vessel as its partner.
+            if (!DockEventGraph.TryDescribePartner(
+                    graph, merge.BranchPointId, node.OwnerHeadId,
+                    ResolvePartnerMissionName, out DockPartnerDescription d))
+            {
+                if (merge.Partner.Status == DockPartnerStatus.TwoParentSameTree
+                    || merge.ParentRecordingIds.Count == 0
+                    || !DockEventGraph.TryDescribePartner(
+                        graph, merge.BranchPointId, merge.ParentRecordingIds[0],
+                        ResolvePartnerMissionName, out d))
+                    return null;
+            }
+            return FormatDockPartner(d);
+        }
+
+        /// <summary>
+        /// The Start-event cell. Identical to a plain label except on a Dock / Board merge whose
+        /// partner the graph can name: then the partner rides as the cell's TOOLTIP (the column is
+        /// fixed at <see cref="ColW_StartEvent"/> and "Docked" already fills it, so the inline
+        /// form is appended only when it genuinely measures inside the cell - the visible-label
+        /// rework of this column is issue-1's T1.3/T1.4, deliberately not pre-empted here).
+        /// </summary>
+        private void DrawStartEventCell(MissionCompositionNode node, Mission mission)
+        {
+            string text = node.StartEvent ?? "";
+            string partner = GetIntervalDockPartnerText(mission, node);
+            if (string.IsNullOrEmpty(partner))
+            {
+                GUILayout.Label(text, compositionCellLabel, GUILayout.Width(ColW_StartEvent));
+                return;
+            }
+
+            string full = text + " " + partner;
+            var content = new GUIContent(text, full);
+            if (compositionCellLabel.CalcSize(new GUIContent(full)).x <= ColW_StartEvent)
+                content.text = full;
+            GUILayout.Label(content, compositionCellLabel, GUILayout.Width(ColW_StartEvent));
+        }
+
+        /// <summary>"with CD (mission 'CD Freighter')", or "with CD" when no mission names it.</summary>
+        internal static string FormatDockPartner(DockPartnerDescription d)
+        {
+            if (string.IsNullOrEmpty(d.PartnerVesselName))
+                return null;
+            return string.IsNullOrEmpty(d.PartnerMissionName)
+                ? "with " + d.PartnerVesselName
+                : "with " + d.PartnerVesselName + " (mission '" + d.PartnerMissionName + "')";
+        }
+
+        // Merge-leg UTs and interval edges are the same doubles; this only absorbs
+        // representation noise (mirrors MissionCrossTreeDock.WindowEpsilon).
+        private const double DockPartnerUTEpsilon = 1e-3;
+
+        // Memo-key separator: a character no tree id or interval key can contain, written as an
+        // escape so it stays visible in a diff (a literal control character reads as a MISSING
+        // separator). Interval keys append "/segN" / "@dockM" to a recording id, so a printable
+        // separator would not be provably collision-free.
+        private const string KeySeparator = "";
 
         // Returns the REAL Mission LoopUnitSet, built at most once per frame, EXACTLY as the scene
         // drivers build it (MissionLoopUnitBuilder.Build over MissionStore.Missions +
@@ -976,7 +1144,7 @@ namespace Parsek
             if (!node.IsAtom)
             {
                 GUILayout.Label(KSPUtil.PrintDateCompact(node.StartUT, true), compositionCellLabel, GUILayout.Width(ColW_StartTime));
-                GUILayout.Label(node.StartEvent ?? "", compositionCellLabel, GUILayout.Width(ColW_StartEvent));
+                DrawStartEventCell(node, mission);
                 GUILayout.Label(node.EndEvent ?? "", compositionCellLabel, GUILayout.Width(ColW_EndEvent));
                 GUILayout.Label(KSPUtil.PrintDateCompact(node.EndUT, true), compositionCellLabel, GUILayout.Width(ColW_EndTime));
             }

@@ -258,6 +258,18 @@ namespace Parsek
         private int[] sortedIndices; // maps display row -> CommittedRecordings index
         private int lastSortedCount = -1;
 
+        // Dock-partner naming (design-dock-event-graph.md 6.5 / 7.6): the global dock-event
+        // graph, fetched at most once per frame so a per-row tooltip lookup is a dictionary hit
+        // rather than a signature recompute. The host cache is itself signature-gated, so this
+        // frame memo only removes the per-row string build, never a rebuild.
+        private DockEventGraph dockEventGraphCache;
+        private int dockEventGraphCacheFrame = -1;
+        // Per-frame memo of the resolved tooltip text per recording id (null entries included):
+        // the resolver behind it walks MissionStore per call, and OnGUI runs several passes per
+        // frame over every visible row. Cleared with the graph reference above.
+        private readonly Dictionary<string, string> dockPartnerTooltipCache =
+            new Dictionary<string, string>();
+
         // Tooltip state
         private GUIStyle tooltipLabelStyle;
         private Rect scrollViewRect;
@@ -1779,8 +1791,10 @@ namespace Parsek
                     chainStatusTooltip = chainStatus;
             }
             string statusTooltip = CombineTooltipText(
-                GetRecordingVisualStatusTooltip(visualKind),
-                chainStatusTooltip);
+                CombineTooltipText(
+                    GetRecordingVisualStatusTooltip(visualKind),
+                    chainStatusTooltip),
+                ResolveDockPartnerTooltip(rec));
             var statusContent = new GUIContent(statusText, statusTooltip);
             GUILayout.Label(statusContent, statusStyle, GUILayout.Width(ColW_Status));
             if (captureThisRow) AlignDebugLogLastRect(alignmentDebugRowLog, "rowStatus");
@@ -4501,6 +4515,58 @@ namespace Parsek
                 default:
                     return statusStylePast ?? GUI.skin.label;
             }
+        }
+
+        /// <summary>
+        /// "Docked with CD (mission 'CD Freighter')" for a recording that BEGAN at a dock - the
+        /// merged stack naming the vessel it absorbed. This is the controller side, which today
+        /// carries no partner information anywhere (design-dock-event-graph.md 6.5); the partner
+        /// side keeps getting its naming from the Missions tab's link rows.
+        ///
+        /// <para>Returns null (silence, exactly like today) when the merge is unstamped, its pid
+        /// resolves nowhere, the guid gate rejected it, the recording's subtree was superseded
+        /// away, or the merge has TWO parents - in that last case both parents are equally "the
+        /// partner" seen from the stack, they are already both visible in this table's own chain
+        /// block, and picking one would be arbitrary.</para>
+        /// </summary>
+        private string ResolveDockPartnerTooltip(Recording rec)
+        {
+            if (rec == null || string.IsNullOrEmpty(rec.ParentBranchPointId)
+                || string.IsNullOrEmpty(rec.RecordingId))
+                return null;
+
+            int frame = Time.frameCount;
+            if (frame != dockEventGraphCacheFrame || dockEventGraphCache == null)
+            {
+                dockEventGraphCache = DockEventGraphCache.GetOrBuild();
+                dockPartnerTooltipCache.Clear();
+                dockEventGraphCacheFrame = frame;
+            }
+            if (dockPartnerTooltipCache.TryGetValue(rec.RecordingId, out string memo))
+                return memo;
+            string resolved = BuildDockPartnerTooltip(rec, dockEventGraphCache);
+            dockPartnerTooltipCache[rec.RecordingId] = resolved;
+            return resolved;
+        }
+
+        private static string BuildDockPartnerTooltip(Recording rec, DockEventGraph graph)
+        {
+            if (graph == null
+                || !graph.NodesByBranchPointId.TryGetValue(
+                    rec.ParentBranchPointId, out DockEventNode node)
+                || node == null || !node.IsMerge)
+                return null;
+
+            if (!DockEventGraph.TryDescribePartner(
+                    graph, node.BranchPointId, rec.RecordingId,
+                    MissionsWindowUI.ResolvePartnerMissionName,
+                    out DockPartnerDescription d))
+                return null;
+
+            string partner = MissionsWindowUI.FormatDockPartner(d);
+            if (string.IsNullOrEmpty(partner))
+                return null;
+            return (node.Kind == BranchPointType.Board ? "Boarded " : "Docked ") + partner;
         }
 
         private static string CombineTooltipText(string primary, string secondary)
