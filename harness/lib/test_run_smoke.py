@@ -3689,3 +3689,162 @@ class RunIdCollisionSmokeTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class SharedShipOverlayStagingTests(unittest.TestCase):
+    """The shell half of the fixture dedup: stage_fixture must lay the shared craft
+    into the staged save, and must fail CLOSED, pre-boot, when it cannot.
+
+    A save fixture no longer commits its own copy of a craft that several fixtures
+    share; the copy arrives here instead. If it silently did not, the save would
+    boot and the mission's `launch_vessel` would fail to resolve
+    `<save>/Ships/VAB/<name>.craft` minutes later - classified driver-INVALID
+    against a perfectly good spec, which is the exact misdirection the injection
+    postcondition above exists to avoid."""
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp(prefix="parsek-harness-ships-")
+        self.instance = os.path.join(self.tmp, "instance")
+        os.makedirs(self.instance, exist_ok=True)
+        _write_manifest(self.instance, "stock-minimal")
+        # A template named for a save the real manifest does NOT list, so the test
+        # controls the whole overlay decision through its own manifest below.
+        self.template = os.path.join(self.tmp, "ships-fixture")
+        os.makedirs(self.template, exist_ok=True)
+        with open(os.path.join(self.template, "persistent.sfs"), "w") as fh:
+            fh.write("GAME { }\n")
+        self.ships = os.path.join(self.tmp, "ships")
+        os.makedirs(self.ships, exist_ok=True)
+        self._write_ship("Kerbal X", "ship = KerbalX\n")
+        self.manifest_path = os.path.join(self.tmp, "shared-ships.toml")
+        self._write_shared_manifest('"ships-fixture" = ["Kerbal X"]')
+        self._orig = (run.SHIPS_DIR, run.SHARED_SHIPS_PATH, run.RESULTS_DIR)
+        run.SHIPS_DIR = self.ships
+        run.SHARED_SHIPS_PATH = self.manifest_path
+        run.RESULTS_DIR = os.path.join(self.tmp, "results")
+        self.logger = run.HarnessLogger(os.path.join(run.RESULTS_DIR, "ships_harness.log"))
+
+    def tearDown(self):
+        run.SHIPS_DIR, run.SHARED_SHIPS_PATH, run.RESULTS_DIR = self._orig
+        self.logger.close()
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def _write_ship(self, name, body):
+        with open(os.path.join(self.ships, name + ".craft"), "w", encoding="utf-8") as fh:
+            fh.write(body)
+
+    def _write_shared_manifest(self, rows):
+        with open(self.manifest_path, "w", encoding="utf-8") as fh:
+            fh.write("[ships]\n%s\n" % rows)
+
+    def _stage(self):
+        return run.stage_fixture(_make_spec(self.template, 30, 600), self.instance,
+                                 FakeRuntime("pass"), self.logger)
+
+    def test_a_declared_shared_craft_lands_in_the_staged_saves_vab(self):
+        ok, name, subkind = self._stage()
+        self.assertTrue(ok)
+        self.assertEqual("", subkind)
+        staged = os.path.join(self.instance, "saves", name, "Ships", "VAB", "Kerbal X.craft")
+        self.assertTrue(os.path.isfile(staged), "the shared craft must be staged")
+        with open(staged, encoding="utf-8") as fh:
+            self.assertEqual("ship = KerbalX\n", fh.read())
+
+    def test_the_vab_directory_is_created_when_the_template_has_none(self):
+        # Post-dedup this is the COMMON shape: every fixture whose only craft were
+        # shared now commits no Ships/ directory at all (git stores no empty dirs).
+        self.assertFalse(os.path.isdir(os.path.join(self.template, "Ships")))
+        ok, name, _ = self._stage()
+        self.assertTrue(ok)
+        self.assertTrue(os.path.isdir(os.path.join(self.instance, "saves", name, "Ships", "VAB")))
+
+    def test_a_missing_library_craft_fails_closed_before_boot(self):
+        self._write_shared_manifest('"ships-fixture" = ["Kerbal X", "Duna Rocket"]')
+        ok, name, subkind = self._stage()
+        self.assertFalse(ok)
+        self.assertEqual("staging", subkind)
+        with open(self.logger.log_path, encoding="utf-8") as fh:
+            body = fh.read()
+        self.assertIn("Duna Rocket", body)
+        self.assertIn("not in the ship library", body)
+
+    def test_a_craft_both_shared_and_committed_fails_closed(self):
+        # The dedup-regressed shape. Overlaying silently would overwrite a committed
+        # copy that may have diverged from the library - hiding the exact drift the
+        # shared library exists to prevent.
+        vab = os.path.join(self.template, "Ships", "VAB")
+        os.makedirs(vab, exist_ok=True)
+        with open(os.path.join(vab, "Kerbal X.craft"), "w", encoding="utf-8") as fh:
+            fh.write("ship = DivergedCopy\n")
+        ok, _name, subkind = self._stage()
+        self.assertFalse(ok)
+        self.assertEqual("staging", subkind)
+        with open(self.logger.log_path, encoding="utf-8") as fh:
+            self.assertIn("declared shared AND committed", fh.read())
+
+    def test_an_unlisted_save_stages_verbatim_with_no_overlay(self):
+        self._write_shared_manifest('"some-other-save" = ["Kerbal X"]')
+        ok, name, subkind = self._stage()
+        self.assertTrue(ok)
+        self.assertEqual("", subkind)
+        self.assertFalse(os.path.isdir(os.path.join(self.instance, "saves", name, "Ships")),
+                         "an unlisted save must stage exactly as a verbatim copytree")
+
+    def test_a_missing_manifest_fails_closed(self):
+        # This used to assert the opposite - that a missing manifest "degrades to
+        # the pre-library behavior". That reasoning died with the dedup: before it,
+        # a verbatim copytree CARRIED the craft; now it carries nothing, so a
+        # missing manifest silently stages twelve fixtures craftless and reports
+        # success. It also left the two failure modes inconsistent - a missing
+        # fixtures/ships/ failed closed pre-boot while a missing manifest booted.
+        os.remove(self.manifest_path)
+        ok, _name, subkind = self._stage()
+        self.assertFalse(ok)
+        self.assertEqual("staging", subkind)
+        with open(self.logger.log_path, encoding="utf-8") as fh:
+            self.assertIn("shared-ships manifest missing", fh.read())
+
+    def test_an_unreadable_manifest_fails_closed_without_a_traceback(self):
+        # _run_selection has no per-scenario except, so raising out of the parse
+        # would take down the remaining scenarios of the whole selection.
+        with open(self.manifest_path, "w", encoding="utf-8") as fh:
+            fh.write("[ships\nthis is not toml = = =\n")
+        ok, _name, subkind = self._stage()
+        self.assertFalse(ok)
+        self.assertEqual("staging", subkind)
+        with open(self.logger.log_path, encoding="utf-8") as fh:
+            self.assertIn("shared-ships manifest unreadable", fh.read())
+
+    def test_the_overlay_precedes_injection_so_an_injected_save_sees_the_craft(self):
+        # Asserting the craft exists AFTER staging cannot see the ordering - it is
+        # true whichever side of the injector the overlay runs on (verified: moving
+        # the overlay below the inject block leaves such a cell green). The only
+        # way to test the claim is to have the injector LOOK, so this runtime
+        # records what Ships/VAB held at the moment it was called.
+        observed = {}
+
+        class ObservingRuntime(FakeRuntime):
+            def run_inject(self, instance_dir, save_name, timeout, preset="all-synthetic"):
+                vab = os.path.join(instance_dir, "saves", save_name, "Ships", "VAB")
+                observed["at_inject"] = sorted(os.listdir(vab)) if os.path.isdir(vab) else []
+                return super().run_inject(instance_dir, save_name, timeout, preset=preset)
+
+        spec = _make_spec(self.template, 30, 600)
+        spec["fixture"]["injectedRecordings"] = "all-synthetic"
+        ok, name, subkind = run.stage_fixture(spec, self.instance, ObservingRuntime("pass"),
+                                              self.logger)
+        self.assertTrue(ok, subkind)
+        self.assertEqual(["Kerbal X.craft"], observed.get("at_inject"),
+                         "the injector must see the overlaid craft; the overlay has "
+                         "to run BEFORE injection so an injected fixture gets the "
+                         "same Ships/VAB a verbatim template copy would have had")
+
+    def test_a_save_with_no_manifest_row_is_logged_rather_than_silent(self):
+        # The craftless case is legitimate but must leave a fingerprint: without one
+        # the harness log cannot distinguish "overlay ran" from "no row", which is
+        # exactly the state a dedup slip leaves behind.
+        self._write_shared_manifest('"some-other-save" = ["Kerbal X"]')
+        ok, _name, _subkind = self._stage()
+        self.assertTrue(ok)
+        with open(self.logger.log_path, encoding="utf-8") as fh:
+            self.assertIn("shared-ship overlay: no rows for save=ships-fixture", fh.read())

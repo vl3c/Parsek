@@ -14,6 +14,338 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## ~~FIXTURE-CRAFT-DUPLICATED-PER-SAVE: every committed save fixture carries its own byte-identical copy of each craft it flies~~ [FOUND 2026-08-12 while accounting for the six-figure line counts on the recent fixture-lane PRs. FIXED 2026-08-12, branch `claude/large-pr-code-volume-xt1z02`]
+
+**What was measured.** `harness/fixtures/` held 1,226,233 lines over 490 files, of
+which 184,204 were byte-identical duplicates; 180,799 of those were craft files.
+Twelve identical copies of `Kerbal X.craft` (12,353 lines each), seven of
+`GS1 Auto-Chute Booster.craft`, five of `DD1 Duna Direct Probe.craft`, three of
+`Duna Rocket.craft` - 27 files in total. This is the bulk of the recent lane PRs'
+size: #1447 was 377,596 insertions with 376,666 under `harness/fixtures`, #1459
+222,283 with 218,355, against ~5k for every non-lane PR in the same window.
+
+**Why the copies existed.** A save fixture's craft must sit at
+`<save>/Ships/VAB/<name>.craft`, because that is what kRPC's
+`SpaceCenter.launch_vessel("VAB", <name>, ...)` resolves against
+(`mission_runner.py`, `ACTION_LAUNCH_VESSEL`). Committing a copy per save
+satisfied that literally.
+
+**Why it was more than a size problem.** Each copy drifted independently.
+`build_dd1_craft.py` had already grown a `COMMITTED_CRAFT_PATHS` tuple naming
+"EVERY committed copy of the craft" so `--check` could walk all three, after the
+observation that "a drift gate that checks only the forge base would stay green
+while the copy the nightly actually flies goes stale."
+
+**Fix.** One copy per shared craft under `harness/fixtures/ships/`, overlaid into
+the staged save's `Ships/VAB/` by `run.py::stage_fixture` per
+`harness/fixtures/shared-ships.toml`. Pure resolution in
+`hlib.plan_shared_ship_overlay` / `hlib.validate_shared_ships_manifest`; the
+overlay fails closed pre-boot (`INVALID(staging)`) on a missing library craft or a
+save that both declares and carries one. Verified behaviour-preserving by staging
+all 22 committed fixtures and comparing byte-for-byte against the pre-change
+trees: 22/22 identical, 27 craft overlaid. `build_dd1_craft.py`'s three-path gate
+collapses to one path (`build_gs1_craft.py` had only ever had one, pointed at the
+forge base, and is simply repointed at the library); `harvest_bdock_station.py`
+drops a harvested craft the library already holds and prints the manifest row to
+add. Guarded by `SharedShipsManifestTests` + `SharedShipOverlayPlanTests`
+(`harness/lib/test_hlib.py`) and `SharedShipOverlayStagingTests`
+(`test_run_smoke.py`), 20 cells: the anti-regression sweep is content-addressed,
+so a re-introduced copy reds even if it was renamed.
+
+**Companion item:** the derived snapshot-mirror population
+(FIXTURE-SNAPSHOT-MIRRORS-COMMITTED, below), which was larger than this was.
+
+## ~~FIXTURE-SNAPSHOT-MIRRORS-COMMITTED: each recording sidecar in the fixture tree is committed twice, as an authoritative binary and as a derived text mirror~~ [FILED + FIXED 2026-08-12 alongside FIXTURE-CRAFT-DUPLICATED-PER-SAVE. NOT a regression - predates it. Scope: the two SNAPSHOT mirrors removed, the trajectory mirror deliberately KEPT]
+
+**What was measured.** Each committed recording sidecar existed twice: the binary
+the game reads (`<id>.prec`, `<id>_ghost.craft`, `<id>_vessel.craft`) and a
+plain-text mirror beside it (`.prec.txt`, `_ghost.craft.txt`, `_vessel.craft.txt`).
+The mirrors are 4x-10x the size of what they mirror - for
+`902b516ccc69491f9097d9c3dddd9e5d`, 12,231 bytes of `.prec` against 53,103 of
+`.prec.txt`; 5,649 of `_ghost.craft` against 59,307. Across the tree: 215,571
+lines of `.prec.txt` over 50 files plus 334,023 lines of `*.craft.txt` over 99,
+totalling 549,594 lines - **45% of the whole fixture tree**, and roughly three
+times the craft duplication removed in the sibling item above.
+
+**What reads them - stated precisely, because the first two passes both got this
+wrong and the second error is the dangerous one.**
+
+The two SNAPSHOT mirrors are read by nothing. Exactly two C# files BUILD PATHS into
+`harness/fixtures` - `OptimizerTransferCohesionTests` (globbing `*.prec.txt` only)
+and `ReaimTransferSynthesizerTests` (naming one `.prec.txt`);
+`Generators/LoopedInterplanetaryFixture` and this branch's own edit to
+`Bug277OrphanCrewPlacementTests` mention the tree in comments and open nothing. No
+C# file names `_ghost.craft.txt` or `_vessel.craft.txt` under the committed tree; the
+harness's own `count_recordings` filters on `.endswith(".prec")`, which no mirror
+matches.
+
+The TRAJECTORY mirror is a different story. An early sweep here reported it
+unread, which was an artifact of a truncated grep. `.prec.txt` is a LIVE TEST
+INPUT: `OptimizerTransferCohesionTests` builds its path (line 61), globs a
+fixture's Recordings dir for `*.prec.txt` (line 91) and sweeps every committed
+fixture recursively for them (line 530); `ReaimTransferSynthesizerTests` reads
+`eve-orbit-recorded/.../75a6ab25a0f445219a82b7b841e44ba8.prec.txt` (line 639)
+through its own `ReadOrbitSegments`. Deleting `.prec.txt` would red those suites.
+
+Separately, the mirrors are a real default-on PRODUCT feature: the mod writes
+them through `RecordingPaths.BuildReadable*MirrorRelativePath` and sweeps them in
+`RecordingStore.OrphanCleanup` / `InGameTestSidecarReaper`. None of that is
+touched here; the question was only whether the fixture tree carries a copy in git.
+
+**Why the snapshot mirrors were safe to drop.** They are strictly DERIVED, and an
+offline decode confirms it end to end: the retained binaries are `PSN0` + header +
+raw-deflate (`SnapshotSidecarCodec.cs:209-236`) wrapping
+`SNAPSHOT_SIDECAR { VESSEL { ... } }`, and that inner body dedented by two tabs is
+byte-identical to the deleted `.txt` for **99 of 99** files. The binary is a strict
+SUPERSET - it keeps the `VESSEL` node name that `ConfigNode.Save()` discards - so
+reconstruction needs neither KSP nor git history.
+
+The two halves regenerate by DIFFERENT routes, and the distinction matters:
+- **Vessel:** `ReconcileReadableSidecarMirrors` has a genuine fallback. When the
+  snapshot is not in memory its `else` branch calls
+  `LoadSnapshotSidecarForReadableMirror(vesselPath)` and writes the readable form
+  straight from the committed binary (`RecordingSidecarStore.cs:1313-1321`,
+  `VesselSource = "AuthoritativeSidecar"`).
+- **Ghost:** there is NO such fallback. `GhostSource` is assigned exactly once,
+  `"InMemory"` (`:1330`); the only other ghost branch DELETES the mirror under
+  `AliasVessel`. The ghost mirror comes back because
+  `LoadSnapshotSidecarsFromPaths` hydrates `rec.GhostVisualSnapshot` from the
+  binary at LOAD (`:443-449`), so the in-memory branch fires on the next save.
+
+An earlier draft of this entry claimed an `AuthoritativeSidecar` branch for both.
+The outcome is the same today, but the ghost invariant is load-path hydration, not
+a write-path fallback - and nothing gates it. If ghost hydration ever became lazy,
+the regeneration claim would silently go false.
+
+**Why `.prec.txt` was KEPT.** Four scenario headers cite values read straight out
+of one (`V6M-mun-player-loop.toml`, `V6T-mun-ts-arrival.toml`,
+`V7M-minmus-player-loop.toml`, `M1-mission-loop-unit.toml`). No citation anywhere
+is to a `.craft.txt`. Dropping the cited surface to save another 215,571 lines
+would trade a used review surface for size, which is the opposite of the trade
+made here.
+
+**Fix.** 99 files / 334,023 lines removed. `harvest_bdock_station.py`'s
+`--keep-parsek` copytree filter now prunes the two snapshot-mirror suffixes
+(`_PRUNE_MIRROR_SUFFIXES`), so a future harvest cannot re-commit them. Guarded by
+`CommittedFixtureMirrorTests` (`harness/lib/test_hlib.py`), which asserts all
+three halves: no snapshot mirror is committed, the authoritative binaries every
+mirror is rebuilt FROM are still committed (a sweep taking both would destroy the
+fixture), and the cited `.prec.txt` survives.
+
+## ~~FIXTURE-HARVEST-EXHAUST-COMMITTED: harvested save fixtures carry three populations nothing automated reads~~ [FOUND + FIXED 2026-08-12, branch `claude/large-pr-code-volume-xt1z02`, by a three-agent audit of the fixture tree]
+
+Sibling of the two items above, found by asking what ELSE rides into a fixture
+when a produced save is harvested. `harvest_bdock_station.py --keep-parsek`
+copied whole directories verbatim, so anything KSP and Parsek wrote beside the
+state a scenario needs came too.
+
+**1. `Parsek/Saves/parsek_rw_*.sfs` - 137,355 lines / 7 files.** Legacy
+Rewind-to-LAUNCH quicksaves (`Recording.RewindSaveFileName`). Nothing automated
+reads them: `grep -rn "Parsek/Saves\|parsek_rw" harness scripts` returns zero hits
+OUTSIDE `harness/fixtures` itself (inside it the matches are the fixture bytes plus
+this branch's own tool and test text); of the six C# consumers of
+`BuildRewindSaveRelativePath`, five only test existence or delete, and the one that
+opens the file (`RecordingStore.cs:5384`, in `ExecuteRewindSaveLoad`) is reachable
+only through `InitiateRewind`, whose two callers are `UI/RecordingsTableUI.cs:4241`
+(behind the Timeline window's confirm dialog) and `WarpToTimeController.cs:349`
+(behind its warp-to-date control) - both player actions originating in the Timeline
+window, neither drivable by the harness. No seam verb reaches
+it - `InvokeRewind` is Rewind-to-SEPARATION and targets
+`Parsek/RewindPoints/<rpId>.sfs` through `RewindInvoker`, a different system.
+
+The file and its `rewindSave =` hint had to go TOGETHER. A hint whose payload is
+missing is a dangling reference: `Inv9RewindPoint` WARNs, and escalates to FAIL
+when the owning recording is `CommittedProvisional` (`Inv9RewindPoint.cs:136`),
+which `bdock-recorded` carries three of - so deleting payload alone would have
+turned the analyzer RED under the Forbid fresh-save gate. Two audit agents
+disagreed on exactly this point; the escalation is real and was confirmed against
+the fixture bytes before acting.
+
+TOLERATED RESIDUAL: `bdock-recorded/Parsek/RewindPoints/rp_*.sfs` embed their own
+ParsekScenario copies, hints included, and are NOT edited - they are byte-sensitive
+payload (`RewindInvoker.PartLoaderPrecondition.Check` deep-parses their PART names)
+and `test_saveparse` pins `rewind_points: 3`. Those hints surface only if a run
+invokes a rewind against `bdock-recorded`, and neither consuming spec
+(`BDOCK-1-station-interceptor`, `H35-logistics-route-proof`) has an `InvokeRewind`
+step. A spec that adds one must re-check this.
+
+**2. `quicksave.sfs` / `quicksave.loadmeta` - 23,931 lines / 6 files.** Three
+pre-convention fixtures (`b1-pad-craft`, `b2-lko-craft`, `gloops-airshow`) each
+carried a near-copy of their own `persistent.sfs`, differing by 73 / 467 / 41
+lines. No spec names one, no seam verb quickloads, and every in-game
+`TriggerQuickload` call site quicksaves to a NAMED slot first, never the default
+`"quicksave"` slot. `harvest_bdock_station.py` has pruned "the stale `quicksave.*`"
+since `design-autotest-bdock-missions.md:186`, so every fixture forged after that
+convention carries none - these three predated it. Their only reader was
+`test_quicksave_sidecars_parse_too`, a self-referential cell that existed because
+the files existed; it is now `test_no_fixture_commits_a_quicksave`, pinning the
+convention instead of the exhaust.
+
+**3. `.gitattributes` did not exist.** The committed `.sfs` under the two covered
+trees (294,964 lines after this branch's deletions, 456,209 before them) are
+Windows-authored KSP output compared BYTE-FOR-BYTE by several gates
+(`build_*_craft.py --check`, `FixtureDriftTests`, `SharedShipsManifestTests`). A
+contributor with `core.autocrlf=true` would get CRLF working-tree copies and red
+every one of them for a reason unrelated to their change. Now `-text` on
+`harness/fixtures/**` and `Source/Parsek.Tests/Fixtures/**`. Deliberately NOT
+`-diff`: that would shrink fixture PR diffs but hide every fixture change from
+review, and a fixture edit is exactly what needs reading (a missing
+`ParsekScenario` node in `career-pad-craft` once cost a full flight to diagnose).
+Size is addressed by not committing redundant data, not by making it unreadable.
+
+**Also fixed:** the root `.gitignore` had UTF-16LE bytes spliced into a UTF-8 file
+(a PowerShell `>>` artifact), which made its `ksp-session.log` pattern literally
+`\0ksp-session.log` and therefore dead - `git check-ignore` confirmed the file was
+NOT ignored. Repaired; both patterns now resolve. Two 0-byte
+`harness/results/.ledger-smoke*-marker` files, referenced nowhere and sitting in a
+directory whose own `.gitignore` says "never committed", removed.
+
+**Net across all three items in this branch:** `harness/fixtures/` falls from
+1,226,233 lines / 490 files to 550,167 / 356 - **-55%**.
+
+## ~~FIXTURE-DEFAULTCAREER-DELETED: a 73,945-line test fixture the code had refused to load since 2026-05-11~~ [FOUND + DELETED 2026-08-12, branch `claude/large-pr-code-volume-xt1z02`]
+
+**What it was.** `Source/Parsek.Tests/Fixtures/DefaultCareer/` - 41 files,
+1.5 MB, 73,945 lines by `wc -l`. The branch diffstat shows 73,113 for it because
+15 of the 41 are binary to git and contribute 0 to `numstat`; both numbers are
+right, of different things. Its only consumer was
+`SyntheticRecordingTests.AddRealCareerRecordings`, gated by
+`TryValidateRealCareerRecordingCorpusCurrent`.
+
+**Why it never loaded.** The gate requires `CurrentRecordingFormatVersion = 1`
+(`RecordingStore.cs:105`) and `CurrentRecordingSchemaGeneration = 4` (`:131`).
+
+Two different objects are involved and they must not be conflated - a correction
+pass on this entry did exactly that and briefly retracted a true statement.
+
+The gate reads the **RECORDING nodes of `persistent.sfs`**, not the sidecar files.
+Those 14 nodes carry `recordingFormatVersion` **0 (x9) and 3 (x5)**, and the
+string `recordingSchemaGeneration` appears **nowhere in the file**. Rejection is on
+FORMAT VERSION: `TryValidateRealCareerRecordingCorpusCurrent` checks
+`recordingFormatVersion` first and `return false`s
+(`SyntheticRecordingTests.cs:7528-7539`), so the generation check below it is never
+reached, and the emitted reason is
+`recording '<id>' recordingFormatVersion='0' expected=1`. (`generation-missing` is
+a `RecordingStore.IsRecordingSchemaCompatible` / codec reason and is NOT what fires
+here.)
+
+Separately, the 14 sidecar FILES are also pre-reset - 9 are text sidecars whose
+first line reads `version = 5`, 5 are binary `PRKB` against the current `PSK0` -
+so even a relaxed gate would find nothing loadable behind the metadata.
+
+The gate therefore failed on the first recording and returned an empty array every
+run since the v0 schema reset of 2026-05-11 (`CHANGELOG.md:780`, `:782`, `:786`),
+which replaced migration with hard refusal. 40 of the 41 files were never opened
+at all.
+
+**Why the rebake never came, and why it never would have used this data.** The
+rebake was scoped as module M-A4 (`automated-testing-plan.md:496`). It is absent
+from `docs/dev/autotest-status.md`, the status authority, while its dependency
+M-A1 is SHIPPED there; every other mention is forward-looking deferral. Nothing
+in the live todo names it. And the recipe (`automated-testing-plan.md:338-350`)
+never meant re-serializing the old bytes - the no-migration policy forbids
+reading them - it meant "fly something new and harvest it". The outcome M-A4
+existed to produce shipped anyway, as the harness's own corpus: 50 real
+recordings at format 1 / generation 4 across six `*-recorded` fixtures.
+
+**Adversarial value check, all negative.** Of the 14 recording IDs, 12 have zero
+references outside the fixture. `1bbb50cf...` appears only in archived DONE entries
+(`done/todo-and-known-bugs-v3.md:2481`, `:2486`, `:2518`, and
+`done/todo-and-known-bugs-v5.md:5830`). `393b82cc...` appears in
+`Bug419DebrisMonotonicityTests.cs:310` as a bare string literal with its 13 UT
+values hardcoded inline - the test never opens the fixture, the evidence was
+already transcribed. No csproj/props/targets/ps1 references it. Nothing asserts
+its PRESENCE; the `realRecordingNodes.Length > 0` conditional in
+`SyntheticRecordingTests.InjectAllRecordings` asserts its **absence** on its `else`
+branch, which has been the live one since the reset, so deletion changes no
+assertion outcome. Its unique `parsek_rw_0a74d6.sfs` is the same artifact class deleted
+from six harness fixtures in this branch and now forbidden by
+`CommittedFixtureRewindSaveTests`; it survived only by sitting outside that
+gate's swept directory.
+
+**The hazard this surfaced, which is the real find.**
+`AddRealCareerRecordings` fell back to a LIVE, machine-local save when the
+fixture was absent: `sourceCareerDir = fixtureDir ?? Path.Combine(kspRoot,
+"saves", "default")`, mirrored at the sidecar-copy site. Deleting the directory
+alone would have made that fallback the normal path, and a dev instance whose
+`saves/default` carries current-schema recordings would have silently injected
+uncommitted, machine-local, non-reproducible data - flipping the
+`Assert.DoesNotContain` branch on a machine-specific condition. Both fallbacks
+are removed; a missing fixture now yields an empty corpus.
+
+**Deferred, deliberately:** ~230 lines of now-dead C# below the entry point
+(`AddRealCareerRecordings` body, `TryValidateRealCareerRecordingCorpusCurrent`,
+`HasExpectedIntValue`, `CopyRealRecordingFiles`,
+`ResolveDefaultCareerFixtureDir`, and the `realRecordingNodes.Length` conditional
+plus the two count-math terms). Every reference is mapped and confined to
+`SyntheticRecordingTests.cs`, but `dotnet` was unavailable in the environment
+that made this deletion, so excising it could not be compiled. Left with an
+in-file banner naming this entry. See FIXTURE-DEFAULTCAREER-DEAD-CODE below.
+
+## FIXTURE-DEFAULTCAREER-DEAD-CODE: ~230 lines of test helper left in place, unreachable [OPEN, filed 2026-08-12. Needs a checkout with `dotnet`]
+
+Mechanical excision, no design decision. Delete from
+`Source/Parsek.Tests/SyntheticRecordingTests.cs`:
+`ResolveDefaultCareerFixtureDir`, `AddRealCareerRecordings`,
+`TryValidateRealCareerRecordingCorpusCurrent`, `HasExpectedIntValue` (the
+private helper in THIS file - `SegmentEventTests.cs:45` has an unrelated test of
+the same name), `CopyRealRecordingFiles`, the `AddRealCareerRecordings` call site
+in `InjectAllRecordings`, the sidecar-copy block guarded by
+`realRecordingNodes.Length > 0`, the `realRecordingNodes` conditional (keep the
+`else` branch's two `Assert.DoesNotContain` calls unconditionally), and the two
+`+ realRecordingNodes.Length` terms in the `.prec` / snapshot count math.
+SYMBOL-addressed, not line-addressed, on purpose: this PR's own hunk shifted every
+line below `InjectAllRecordings` by +4, and a delete-these-lines instruction that
+rots is worse than none. Nothing
+outside this file references any of them. `dotnet test` after, and the fixture
+count assertions should be unchanged because the term being dropped is always 0.
+
+## FIXTURE-AUDIT-DEFERRED: measured redundancy deliberately NOT acted on [OPEN, filed 2026-08-12 from the same audit. Each entry is a decision someone should make with the numbers in hand, not a defect]
+
+Recorded so the measurements are not lost and nobody re-derives them.
+
+- **`.prec.txt` trajectory mirrors, 215,571 lines / 50 files.** An audit pass
+  recommended deleting these as derived. **DO NOT** without repointing four C#
+  read sites first: `OptimizerTransferCohesionTests.cs:61,91,530` (the last globs
+  every fixture's `*.prec.txt` recursively) and `ReaimTransferSynthesizerTests.cs:639`
+  plus its hand-rolled `ReadOrbitSegments`. They are a live test input, not a
+  review surface. The binary `.prec` is already proven headless in the same rig,
+  so the switch is feasible - it needs one `dotnet test` run to validate, which
+  was not available in the environment that found this.
+- **Kerbal `INVENTORY` blocks - 115 nodes at HEAD (158 before this branch's `.sfs`
+  deletions), ~25 distinct shapes.**
+  88% of all ROSTER bytes. Load-bearing for the EVA lane (`EVA-4-atmo-chute`
+  drives `EvaChuteDeploy` against this jetpack). Do not strip; recorded as the
+  honest diagnosis of why `.sfs` mass is what it is.
+- **Asteroid `SpaceObject` VESSEL nodes - at HEAD, 2,424 lines / 20 nodes across 20
+  of 25 `.sfs`** (3,637 across 30 of 35 before this branch deleted 10 `.sfs`; the
+  HEAD figures are the ones to act on). A few distinct asteroids, replicated, and
+  every fixture's `DiscoverableObjects` SCENARIO node is empty, so nothing
+  registered them.
+  `fixtures/saves/README.md` already names this hazard for `career-pad-craft`
+  (edit 1: an unregistered asteroid is "a free variable in any consumer's
+  `expectations.recordings.count`") - one fixture was cleaned and the rule was
+  never generalized. Removing them MOVES recording counts, so each needs its
+  consumers' windows re-read against a live run.
+- **`bdock-forge-base` now has zero unique bytes.** Its `persistent.sfs` and
+  `.loadmeta` hash-match `gloops-airshow` exactly; its craft now come from
+  `shared-ships.toml`, which WAS the whole difference. Do not simply repoint the 7
+  FORGE specs at `gloops-airshow`: the distinct run-save NAME is load-bearing
+  (`stage_fixture` rmtree's the target save dir, so sharing a name would collide
+  forge runs with the 41 gloops specs). A save-level alias in the spirit of
+  `shared-ships.toml` is the clean shape.
+- **`AddOns/DistantObject/Settings.cfg`, 22 byte-identical copies / 735 lines.**
+  DistantObject is not in `stock-minimal`, the profile 105 of 107 specs use. Real
+  but small; 21 file touches for 735 lines is poor value against the risk.
+- **`sidecar-pcrf` is false coverage.** Zero `.pcrf` files exist anywhere
+  (`git ls-files | grep -ci pcrf` -> 0), yet `harness/coverage/registry.toml:268`
+  still lists the D16 value and two committed specs claim it
+  (`H15-corpus-ghost-visuals.toml:44`, `S1.4-injected-playback.toml:33`). A
+  correctness fix in the coverage ledger, not redundancy - left for its own change.
+- **`AGENTS.md:91` is stale**, still saying "Recording storage (format v3)" and
+  listing `.pcrf` as a current sidecar; `.claude/CLAUDE.md` says format 1 /
+  generation 4 and calls `.pcrf` legacy.
+
 ## ~~OPTIMIZER-SPLIT-DEFEATS-REAIM-CLASSIFIER: the load-time optimizer splits an interplanetary recording at an on-rails SOI handoff, and the re-aim classifier then finds no member holding a whole transfer~~ [FOUND 2026-08-12 by `V9-dres-player-loop`, the Dres program's loop-unit reading run. FIXED 2026-08-12, branch `dres-split-cohesion`, Design A of docs/dev/plans/optimizer-split-transfer-cohesion.md]
 
 **What was measured.** `V9-dres-player-loop` marks B19's committed Kerbin -> Sun ->

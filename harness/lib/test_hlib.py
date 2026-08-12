@@ -10450,3 +10450,356 @@ class FxFingerprintReportTests(unittest.TestCase):
         lines = hlib.format_fx_fingerprint_diff(d, "stock minimal", "modded compat")
         self.assertTrue(lines[0].startswith("fx-fingerprint-diff "))
         self.assertTrue(lines[1].startswith("only-in-a side=stock minimal part='"))
+
+
+# ---------------------------------------------------------------------------
+# Shared craft library (harness/fixtures/ships + shared-ships.toml).
+# ---------------------------------------------------------------------------
+
+
+FIXTURES_DIR = os.path.join(HARNESS_ROOT, "fixtures")
+FIXTURE_SAVES_DIR = os.path.join(FIXTURES_DIR, "saves")
+SHIPS_DIR = os.path.join(FIXTURES_DIR, hlib.SHARED_SHIPS_DIRNAME)
+SHARED_SHIPS_PATH = os.path.join(FIXTURES_DIR, hlib.SHARED_SHIPS_MANIFEST_NAME)
+
+
+def _library_ship_names():
+    suffix = hlib.SHARED_SHIP_SUFFIX
+    if not os.path.isdir(SHIPS_DIR):
+        return []
+    return sorted(n[:-len(suffix)] for n in os.listdir(SHIPS_DIR) if n.endswith(suffix))
+
+
+def _fixture_save_names():
+    if not os.path.isdir(FIXTURE_SAVES_DIR):
+        return []
+    return sorted(n for n in os.listdir(FIXTURE_SAVES_DIR)
+                  if os.path.isdir(os.path.join(FIXTURE_SAVES_DIR, n)))
+
+
+def _read_manifest():
+    with open(SHARED_SHIPS_PATH, "rb") as fh:
+        return hlib.parse_shared_ships_manifest(tomllib.load(fh))
+
+
+class SharedShipOverlayPlanTests(unittest.TestCase):
+    """Pure resolution of the per-save craft overlay (hlib.plan_shared_ship_overlay).
+
+    Guards the decision half of the fixture dedup: a save fixture no longer commits
+    its own copy of a craft two or more fixtures share, so the copy has to arrive at
+    stage time or `launch_vessel` cannot resolve `<save>/Ships/VAB/<name>.craft`.
+    """
+
+    MAN = {"a-save": ("Kerbal X", "Duna Rocket"), "b-save": ("Kerbal X",)}
+    LIB = ("Kerbal X", "Duna Rocket")
+
+    def test_a_declared_save_resolves_its_craft_in_declaration_order(self):
+        plan = hlib.plan_shared_ship_overlay("a-save", self.MAN, self.LIB, [])
+        self.assertEqual((), plan.errors)
+        self.assertEqual([("Kerbal X.craft", "Kerbal X.craft"),
+                          ("Duna Rocket.craft", "Duna Rocket.craft")], list(plan.entries))
+
+    def test_a_save_absent_from_the_manifest_overlays_nothing_and_is_not_an_error(self):
+        # Most fixtures (the fresh-* KSC templates) carry no craft at all; an
+        # unlisted save must stage exactly as a verbatim copytree would.
+        plan = hlib.plan_shared_ship_overlay("fresh-career", self.MAN, self.LIB, [])
+        self.assertEqual((), plan.entries)
+        self.assertEqual((), plan.errors)
+
+    def test_a_declared_ship_missing_from_the_library_is_an_error_not_a_silent_skip(self):
+        # The resolvable sibling still appears in entries -- the plan is partial,
+        # not empty. The shell must gate on `errors` and never on `entries` being
+        # empty, which is what the staging-abort test below pins.
+        plan = hlib.plan_shared_ship_overlay("a-save", self.MAN, ("Kerbal X",), [])
+        self.assertEqual([("Kerbal X.craft", "Kerbal X.craft")], list(plan.entries))
+        self.assertEqual(1, len(plan.errors))
+        self.assertIn("Duna Rocket", plan.errors[0])
+        self.assertIn("not in the ship library", plan.errors[0])
+
+    def test_a_ship_both_declared_and_committed_physically_is_an_error(self):
+        # This is the dedup-regressed shape: silently overlaying would overwrite a
+        # committed copy that may have diverged, hiding exactly the drift the
+        # shared library exists to prevent.
+        plan = hlib.plan_shared_ship_overlay("b-save", self.MAN, self.LIB, ["Kerbal X.craft"])
+        self.assertEqual((), plan.entries)
+        self.assertEqual(1, len(plan.errors))
+        self.assertIn("declared shared AND committed", plan.errors[0])
+
+    def test_an_unrelated_committed_craft_beside_the_overlay_is_left_alone(self):
+        plan = hlib.plan_shared_ship_overlay("b-save", self.MAN, self.LIB, ["Auto-Saved Ship.craft"])
+        self.assertEqual((), plan.errors)
+        self.assertEqual([("Kerbal X.craft", "Kerbal X.craft")], list(plan.entries))
+
+    def test_a_traversal_ship_name_is_rejected(self):
+        man = {"a-save": ("../../../etc/passwd", "..")}
+        plan = hlib.plan_shared_ship_overlay("a-save", man, self.LIB, [])
+        self.assertEqual((), plan.entries)
+        self.assertEqual(2, len(plan.errors))
+        self.assertTrue(all("not filename-safe" in e for e in plan.errors))
+
+    def test_a_duplicate_row_entry_copies_once(self):
+        man = {"a-save": ("Kerbal X", "Kerbal X")}
+        plan = hlib.plan_shared_ship_overlay("a-save", man, self.LIB, [])
+        self.assertEqual((), plan.errors)
+        self.assertEqual(1, len(plan.entries))
+
+    def test_a_malformed_manifest_body_parses_to_empty_rather_than_raising(self):
+        # Staging turns an unresolved save into a named error; a traceback out of
+        # the TOML shape would lose that naming.
+        self.assertEqual({}, hlib.parse_shared_ships_manifest(None))
+        self.assertEqual({}, hlib.parse_shared_ships_manifest({"ships": "not-a-table"}))
+        self.assertEqual({"s": ("Kerbal X",)},
+                         hlib.parse_shared_ships_manifest({"ships": {"s": ["Kerbal X", 7]}}))
+
+    def test_a_bare_table_without_the_ships_wrapper_is_accepted(self):
+        self.assertEqual({"s": ("Kerbal X",)},
+                         hlib.parse_shared_ships_manifest({"s": ["Kerbal X"]}))
+
+
+class SharedShipsManifestTests(unittest.TestCase):
+    """The COMMITTED fixture tree against the COMMITTED manifest.
+
+    This is the regression floor for the dedup itself. Before it, a craft flown by
+    several fixtures was committed once per fixture: 27 files, 180,799 duplicated
+    lines, twelve byte-identical copies of `Kerbal X.craft` alone -- and each copy
+    drifted independently, which is why `build_dd1_craft.py` had grown a tuple
+    naming "EVERY committed copy of the craft" so its byte gate could walk them.
+    A re-introduced copy reds HERE instead of quietly restoring that state.
+    """
+
+    def test_the_committed_manifest_satisfies_every_invariant(self):
+        errors = hlib.validate_shared_ships_manifest(
+            _read_manifest(), _library_ship_names(), _fixture_save_names())
+        self.assertEqual((), errors, "shared-ships.toml invariants: %s" % (errors,))
+
+    def test_no_committed_fixture_file_duplicates_a_shared_library_craft(self):
+        # The anti-regression sweep. Hash every committed file under fixtures/saves
+        # and assert none is byte-identical to a library craft. Content-addressed on
+        # purpose: a re-introduced copy under a DIFFERENT name (a rename, a harvest
+        # that renamed the ship) is the same duplication and must red the same way.
+        import hashlib
+        lib_digests = {}
+        for name in os.listdir(SHIPS_DIR):
+            path = os.path.join(SHIPS_DIR, name)
+            with open(path, "rb") as fh:
+                lib_digests[hashlib.sha256(fh.read()).hexdigest()] = name
+        offenders = []
+        for dirpath, _, filenames in os.walk(FIXTURE_SAVES_DIR):
+            for fn in filenames:
+                path = os.path.join(dirpath, fn)
+                with open(path, "rb") as fh:
+                    digest = hashlib.sha256(fh.read()).hexdigest()
+                if digest in lib_digests:
+                    offenders.append("%s duplicates fixtures/%s/%s"
+                                     % (os.path.relpath(path, FIXTURES_DIR).replace("\\", "/"),
+                                        hlib.SHARED_SHIPS_DIRNAME, lib_digests[digest]))
+        self.assertEqual([], sorted(offenders),
+                         "committed fixture files duplicate a shared library craft; add a "
+                         "shared-ships.toml row instead of copying the .craft in")
+
+    def test_every_manifest_row_resolves_against_the_committed_library(self):
+        manifest, lib = _read_manifest(), _library_ship_names()
+        for save in sorted(manifest):
+            vab = os.path.join(FIXTURE_SAVES_DIR, save, *hlib.SHARED_SHIPS_DEST_SEGMENTS)
+            existing = os.listdir(vab) if os.path.isdir(vab) else []
+            plan = hlib.plan_shared_ship_overlay(save, manifest, lib, existing)
+            self.assertEqual((), plan.errors, "%s: %s" % (save, plan.errors))
+            self.assertEqual(len(manifest[save]), len(plan.entries), save)
+
+    def test_every_spec_that_launches_a_craft_can_resolve_it(self):
+        """The consumer-side gate, and the one that stops a dedup slip costing a flight.
+
+        A spec that drives `launch_vessel` names its craft in
+        `driver.missionParams.craftName`, and kRPC resolves it against
+        `<save>/Ships/VAB/<craftName>.craft` in the STAGED save. Post-dedup that
+        file arrives one of two ways: physically in the fixture, or via a
+        `shared-ships.toml` row. Neither present means the save stages craftless
+        and `stage_fixture` reports success -- an unlisted save resolves zero
+        entries AND zero errors by design, because most fixtures need no shared
+        craft at all. The run then boots and dies minutes later inside the mission
+        as a driver-INVALID against a perfectly good spec, which is the exact
+        misdirection the overlay's fail-closed path exists to prevent.
+
+        An earlier version of this cell asserted only that each saveTemplate leaf
+        was a real directory and that EXISTING rows resolve -- both of which stay
+        true when a row is dropped, so it could not see the failure it was named
+        for. This is the strong form: physical-or-declared, per launching spec."""
+        manifest = _read_manifest()
+        library = set(_library_ship_names())
+        unresolved = []
+        for name in sorted(n for n in os.listdir(SCENARIOS_DIR) if n.endswith(".toml")):
+            with open(os.path.join(SCENARIOS_DIR, name), "rb") as fh:
+                spec = tomllib.load(fh)
+            params = ((spec.get("driver", {}) or {}).get("missionParams", {}) or {})
+            craft = params.get("craftName")
+            if not craft:
+                continue
+            leaf = ((spec.get("fixture", {}) or {}).get("saveTemplate", "")
+                    ).replace("\\", "/").rstrip("/").rsplit("/", 1)[-1]
+            physical = os.path.isfile(os.path.join(
+                FIXTURE_SAVES_DIR, leaf, *(hlib.SHARED_SHIPS_DEST_SEGMENTS
+                                           + (craft + hlib.SHARED_SHIP_SUFFIX,))))
+            declared = craft in manifest.get(leaf, ()) and craft in library
+            if not (physical or declared):
+                unresolved.append("%s: %s launches %r from %r, which carries it "
+                                  "neither physically nor via shared-ships.toml"
+                                  % (name, name[:-5], craft, leaf))
+        self.assertEqual([], unresolved, "\n".join(unresolved))
+
+    def test_every_spec_saveTemplate_names_a_real_fixture(self):
+        manifest = _read_manifest()
+        saves = set(_fixture_save_names())
+        for name in sorted(n for n in os.listdir(SCENARIOS_DIR) if n.endswith(".toml")):
+            path = os.path.join(SCENARIOS_DIR, name)
+            with open(path, "rb") as fh:
+                spec = tomllib.load(fh)
+            template = (spec.get("fixture", {}) or {}).get("saveTemplate", "")
+            if not template:
+                continue
+            leaf = template.replace("\\", "/").rstrip("/").rsplit("/", 1)[-1]
+            self.assertIn(leaf, saves,
+                          "%s: saveTemplate %r names no fixture directory"
+                          % (os.path.basename(path), template))
+            for ship in manifest.get(leaf, ()):
+                self.assertTrue(
+                    os.path.isfile(os.path.join(SHIPS_DIR, ship + hlib.SHARED_SHIP_SUFFIX)),
+                    "%s: fixture %s declares missing library craft %r"
+                    % (os.path.basename(path), leaf, ship))
+
+
+class CommittedFixtureMirrorTests(unittest.TestCase):
+    """No readable SNAPSHOT mirror may be committed under `fixtures/saves/`.
+
+    Parsek writes a readable text mirror beside each authoritative sidecar
+    (default-on diagnostics), and harvesting a produced save used to bring all
+    three into the fixture tree. The two snapshot mirrors cost 334,023 lines over
+    99 files - 1.85x the craft duplication the shared ship library removed -
+    and are strictly derived from the committed `_vessel.craft` / `_ghost.craft`
+    binaries: an offline decode reconstructs all 99 byte-for-byte, the binary being
+    a strict superset of the text. Loading the fixture in KSP rewrites them - the
+    vessel mirror through `ReconcileReadableSidecarMirrors`'s `AuthoritativeSidecar`
+    fallback, the ghost mirror through load-time snapshot hydration (there is no
+    ghost write-path fallback; `GhostSource` is only ever `InMemory`). So the
+    observability is regenerable and the committed copies are pure redundancy.
+
+    The TRAJECTORY mirror (`.prec.txt`) is deliberately NOT gated: four scenario
+    headers cite values read straight out of one, so it stays committed. This test
+    asserts BOTH halves, so a later sweep cannot quietly take the cited surface
+    with it."""
+
+    SNAPSHOT_MIRROR_SUFFIXES = ("_vessel.craft.txt", "_ghost.craft.txt")
+
+    def _committed(self):
+        out = []
+        for dirpath, _, filenames in os.walk(FIXTURE_SAVES_DIR):
+            for fn in filenames:
+                out.append(os.path.relpath(os.path.join(dirpath, fn),
+                                           FIXTURE_SAVES_DIR).replace("\\", "/"))
+        return out
+
+    def test_no_snapshot_mirror_is_committed(self):
+        offenders = sorted(f for f in self._committed()
+                           if f.endswith(self.SNAPSHOT_MIRROR_SUFFIXES))
+        self.assertEqual([], offenders,
+                         "readable snapshot mirrors are derived from the committed "
+                         "_vessel.craft / _ghost.craft binaries and must not be "
+                         "committed; harvest_bdock_station.py prunes them")
+
+    def test_the_authoritative_snapshot_binaries_are_still_committed(self):
+        # The other half of the trade: the mirrors are safe to drop only BECAUSE
+        # the binaries they are rebuilt from are here. A sweep that took both would
+        # destroy the fixture, and this cell is what catches that.
+        committed = self._committed()
+        precs = [f for f in committed if f.endswith(".prec")]
+        vessels = [f for f in committed if f.endswith("_vessel.craft")]
+        self.assertTrue(precs, "no committed .prec trajectory sidecars remain")
+        self.assertTrue(vessels, "no committed _vessel.craft snapshot sidecars remain")
+        # Every recording with a trajectory must keep its authoritative snapshot.
+        for prec in precs:
+            stem = prec[:-len(".prec")]
+            self.assertIn(stem + "_vessel.craft", committed,
+                          "%s lost its authoritative vessel snapshot" % prec)
+
+    def test_every_committed_trajectory_keeps_its_readable_mirror(self):
+        """`.prec.txt` is a LIVE TEST INPUT, and the gate has to be per-file.
+
+        `OptimizerTransferCohesionTests` globs a fixture's Recordings dir for
+        `*.prec.txt` (line 91) and sweeps every fixture recursively (line 530);
+        `ReaimTransferSynthesizerTests:639` names one directly. Four scenario
+        headers also quote values read out of one.
+
+        An earlier version asserted only that at least ONE `.prec.txt` survived
+        anywhere under fixtures/saves/. That could not trip until the last mirror
+        in the repo went - deleting every mirror from two whole fixtures left it
+        green. The real invariant is that the mirror set tracks the trajectory set,
+        so this pairs them one to one."""
+        committed = set(self._committed())
+        missing = sorted(p[:-len(".prec")] for p in committed
+                         if p.endswith(".prec") and (p + ".txt") not in committed)
+        self.assertEqual([], missing,
+                         "these recordings lost the readable trajectory mirror that "
+                         "OptimizerTransferCohesionTests globs: %s" % (missing,))
+
+
+class CommittedFixtureRewindSaveTests(unittest.TestCase):
+    """No fixture may carry a legacy Rewind-to-LAUNCH quicksave, or a hint to one.
+
+    `Parsek/Saves/parsek_rw_*.sfs` is `Recording.RewindSaveFileName` payload, and
+    arrived in six recorded fixtures as harvest exhaust rather than by decision:
+    137,355 lines over 7 files. Nothing automated reads it - no spec names one, no
+    seam verb reaches it (`InvokeRewind` is Rewind-to-SEPARATION and targets
+    `Parsek/RewindPoints/<rpId>.sfs` through `RewindInvoker`, a different system),
+    and the analyzer's Inv9RewindPoint only does existence + parse checks.
+
+    The FILE and the HINT must go together. A `rewindSave = ` key pointing at a
+    deleted file is a dangling reference: Inv9RewindPoint raises WARN for it, and
+    escalates to FAIL when the owning recording is `CommittedProvisional`
+    (`Inv9RewindPoint.cs:136`) - which `bdock-recorded` carries three of, so
+    deleting the payload alone would turn the analyzer RED under the harness's
+    Forbid fresh-save gate. This cell pins both halves.
+
+    KNOWN, TOLERATED RESIDUAL: `bdock-recorded/Parsek/RewindPoints/rp_*.sfs` embed
+    their own copies of the ParsekScenario, hints included, and are NOT edited -
+    they are byte-sensitive payload (`RewindInvoker.PartLoaderPrecondition.Check`
+    deep-parses their PART names) and `test_saveparse` pins `rewind_points: 3`.
+    Those hints only surface if a run actually invokes a rewind against
+    `bdock-recorded`, and neither consuming spec (`BDOCK-1-station-interceptor`,
+    `H35-logistics-route-proof`) has an `InvokeRewind` step. A spec that adds one
+    must re-check this."""
+
+    def test_no_fixture_commits_a_rewind_to_launch_quicksave(self):
+        offenders = []
+        for dirpath, _, filenames in os.walk(FIXTURE_SAVES_DIR):
+            norm = dirpath.replace("\\", "/")
+            if norm.endswith("/Parsek/Saves"):
+                offenders.extend(
+                    os.path.relpath(os.path.join(dirpath, f),
+                                    FIXTURE_SAVES_DIR).replace("\\", "/")
+                    for f in filenames)
+        self.assertEqual([], sorted(offenders),
+                         "Parsek/Saves is harvest exhaust nothing automated reads; "
+                         "harvest_bdock_station.py prunes it")
+
+    def test_no_fixture_persistent_save_carries_a_dangling_rewind_hint(self):
+        offenders = []
+        for name in sorted(os.listdir(FIXTURE_SAVES_DIR)):
+            path = os.path.join(FIXTURE_SAVES_DIR, name, "persistent.sfs")
+            if not os.path.isfile(path):
+                continue
+            with open(path, "r", encoding="utf-8", errors="replace") as fh:
+                for lineno, line in enumerate(fh, 1):
+                    if re.match(r"^\s*rewindSave = parsek_rw_\w+\s*$", line):
+                        offenders.append("%s:%d" % (name, lineno))
+        self.assertEqual([], offenders,
+                         "a rewindSave hint whose payload is not committed is a "
+                         "dangling reference: Inv9RewindPoint WARNs, and FAILs when "
+                         "the owning recording is CommittedProvisional")
+
+    def test_the_rewind_points_payload_is_untouched(self):
+        # The other half of the trade. RewindPoints are NOT exhaust - they are
+        # deep-parsed payload, and a sweep that confused the two would break
+        # bdock-recorded. `test_saveparse` pins the count at 3; this pins the files.
+        rp_dir = os.path.join(FIXTURE_SAVES_DIR, "bdock-recorded", "Parsek", "RewindPoints")
+        self.assertTrue(os.path.isdir(rp_dir), "bdock-recorded lost its RewindPoints")
+        rps = sorted(f for f in os.listdir(rp_dir) if f.endswith(".sfs"))
+        self.assertEqual(3, len(rps), "expected 3 committed rewind points, got %s" % (rps,))
