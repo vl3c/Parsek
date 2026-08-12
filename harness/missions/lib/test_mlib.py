@@ -5218,12 +5218,13 @@ class ForgeMachineTests(unittest.TestCase):
 
 
 class ForgeAssertionTests(unittest.TestCase):
-    def test_both_assertions_met(self):
+    def test_all_assertions_met(self):
         frames = [snap(situation="PRE_LAUNCH")]
         outs = mlib.evaluate_forge_assertions(
             frames, FORGE_PARAMS,
             phases_reached=(mlib.FORGE_PRELAUNCH, mlib.FORGE_LAUNCH, mlib.FORGE_SETTLED))
-        self.assertEqual([o.name for o in outs], ["launched", "settledOnPad"])
+        self.assertEqual([o.name for o in outs],
+                         ["launched", "crewAboard", "settledOnPad"])
         self.assertTrue(all(o.met for o in outs))
 
     def test_settled_unmet_without_settled_phase(self):
@@ -5232,7 +5233,7 @@ class ForgeAssertionTests(unittest.TestCase):
             [snap(situation="FLYING")], FORGE_PARAMS,
             phases_reached=(mlib.FORGE_PRELAUNCH, mlib.FORGE_LAUNCH))
         self.assertTrue(outs[0].met)      # launched
-        self.assertFalse(outs[1].met)     # settledOnPad
+        self.assertFalse(outs[2].met)     # settledOnPad
 
     def test_settled_unmet_with_wrong_final_situation(self):
         # Reached SETTLED but the final frame situation is not a settle situation
@@ -5240,7 +5241,127 @@ class ForgeAssertionTests(unittest.TestCase):
         outs = mlib.evaluate_forge_assertions(
             [snap(situation="FLYING")], FORGE_PARAMS,
             phases_reached=(mlib.FORGE_PRELAUNCH, mlib.FORGE_LAUNCH, mlib.FORGE_SETTLED))
+        self.assertFalse(outs[2].met)
+
+    def test_crew_aboard_auto_met_when_gate_off(self):
+        # minCrew=0 (every pre-guard spec): the row is met even though no crew
+        # read ever happened (crew_count stays the -1 sentinel).
+        outs = mlib.evaluate_forge_assertions(
+            [snap(situation="PRE_LAUNCH")], FORGE_PARAMS,
+            phases_reached=(mlib.FORGE_PRELAUNCH, mlib.FORGE_LAUNCH, mlib.FORGE_SETTLED))
+        crew = outs[1]
+        self.assertEqual(crew.name, "crewAboard")
+        self.assertTrue(crew.met)
+        self.assertIsNone(crew.value)
+
+    def test_crew_aboard_unmet_on_unread_sentinel_with_floor(self):
+        # minCrew=1 and no finite crew read in any frame -> UNMET (fail closed):
+        # an uncrewed stamp can never read green off the -1 sentinel.
+        params = replace(FORGE_PARAMS, min_crew=1)
+        outs = mlib.evaluate_forge_assertions(
+            [snap(situation="PRE_LAUNCH")], params,
+            phases_reached=(mlib.FORGE_PRELAUNCH, mlib.FORGE_LAUNCH, mlib.FORGE_SETTLED))
         self.assertFalse(outs[1].met)
+
+    def test_crew_aboard_unmet_when_pod_is_empty(self):
+        # The gs1-two-stage-pad stamp: launch_vessel seated nobody, the pad
+        # settles fine, crew_count reads a real 0 -> crewAboard UNMET.
+        params = replace(FORGE_PARAMS, min_crew=1)
+        outs = mlib.evaluate_forge_assertions(
+            [snap(situation="PRE_LAUNCH", crew_count=0)], params,
+            phases_reached=(mlib.FORGE_PRELAUNCH, mlib.FORGE_LAUNCH, mlib.FORGE_SETTLED))
+        self.assertFalse(outs[1].met)
+        self.assertEqual(outs[1].value, 0)
+
+    def test_crew_aboard_met_with_crew_at_floor(self):
+        params = replace(FORGE_PARAMS, min_crew=1)
+        outs = mlib.evaluate_forge_assertions(
+            [snap(situation="PRE_LAUNCH", crew_count=1)], params,
+            phases_reached=(mlib.FORGE_PRELAUNCH, mlib.FORGE_LAUNCH, mlib.FORGE_SETTLED))
+        self.assertTrue(outs[1].met)
+        self.assertEqual(outs[1].value, 1)
+
+
+class ForgeCrewGateMachineTests(unittest.TestCase):
+    """Guards the pad-forge minCrew gate (the FORGE-LKO gate, ported): kRPC
+    launch_vessel silently seats NOBODY when a requested name is unseatable
+    (Jebediah `Assigned` in bdock-forge-base -> the committed gs1-two-stage-pad
+    fixture's empty pod). With the gate armed, that run must flake ON THE PAD
+    naming the crew -- never settle into an uncrewed SaveGame stamp."""
+
+    PARAMS = mlib.ForgeParams(
+        craft_name="GS1 Auto-Chute Booster",
+        launch_site="LaunchPad",
+        crew_names=("Valentina Kerman",),
+        min_crew=1,
+        launch_timeout=120.0,
+        settle_debounce=3,
+    )
+
+    def test_empty_pod_never_settles_and_flake_names_the_crew(self):
+        # The exact gs1 failure shape: the craft settles PRE_LAUNCH every frame
+        # but crew_count reads a real 0 the whole time.
+        state = mlib.forge_initial_state(self.PARAMS)
+        state, _ = mlib.forge_decide(state, snap(ut=0.0))
+        for ut in (5.0, 10.0, 15.0, 20.0):
+            state, _ = mlib.forge_decide(
+                state, snap(ut=ut, situation="PRE_LAUNCH", crew_count=0))
+            self.assertEqual(state.settle_streak, 0)
+            self.assertFalse(state.done)
+        self.assertTrue(state.launch_crew_short_seen)
+        state, _ = mlib.forge_decide(
+            state, snap(ut=125.0, situation="PRE_LAUNCH", crew_count=0))
+        self.assertTrue(state.done)
+        self.assertEqual(state.verdict, mlib.MISSION_FLAKE)
+        self.assertEqual(state.flake_phase, mlib.FORGE_LAUNCH)
+        self.assertIn("crew_count=0", state.flake_reason)
+        self.assertIn("minCrew=1", state.flake_reason)
+        self.assertIn("UNCREWED", state.flake_reason)
+        # resolve_flight_verdict surfaces the named reason, not the generic line.
+        verdict, reason = mlib.resolve_flight_verdict(state, [])
+        self.assertEqual(verdict, mlib.MISSION_FLAKE)
+        self.assertIn("crew seeding", reason)
+
+    def test_unread_sentinel_fails_closed(self):
+        # crew_count -1 (shell forgot read_crew / read faulted): the streak may
+        # never advance -- fail closed, exactly like the flko gate.
+        state = mlib.forge_initial_state(self.PARAMS)
+        state, _ = mlib.forge_decide(state, snap(ut=0.0))
+        state, _ = mlib.forge_decide(
+            state, snap(ut=5.0, situation="PRE_LAUNCH", crew_count=-1))
+        self.assertEqual(state.settle_streak, 0)
+
+    def test_crewed_pad_settles_normally(self):
+        state = mlib.forge_initial_state(self.PARAMS)
+        frames = [
+            snap(ut=0.0),
+            snap(ut=5.0, situation="PRE_LAUNCH", crew_count=1),
+            snap(ut=10.0, situation="PRE_LAUNCH", crew_count=1),
+            snap(ut=15.0, situation="PRE_LAUNCH", crew_count=1),
+        ]
+        state, _ = drive_forge(state, frames)
+        self.assertTrue(state.done)
+        self.assertEqual(state.phase, mlib.FORGE_SETTLED)
+        self.assertIsNone(state.verdict)
+
+    def test_never_settled_flake_stays_generic(self):
+        # The craft never reads PRE_LAUNCH at all: a settle failure, not a crew
+        # failure -- the flake must NOT blame the crew.
+        state = mlib.forge_initial_state(self.PARAMS)
+        state, _ = mlib.forge_decide(state, snap(ut=0.0))
+        state, _ = mlib.forge_decide(
+            state, snap(ut=125.0, situation="FLYING", crew_count=0))
+        self.assertTrue(state.done)
+        self.assertEqual(state.verdict, mlib.MISSION_FLAKE)
+        self.assertIsNone(state.flake_reason)
+
+    def test_min_crew_parsed_from_dict_and_defaults_off(self):
+        parsed = mlib.forge_params_from_dict(
+            {"craftName": "X", "launchTimeoutSeconds": 60, "minCrew": 1})
+        self.assertEqual(parsed.min_crew, 1)
+        defaulted = mlib.forge_params_from_dict(
+            {"craftName": "X", "launchTimeoutSeconds": 60})
+        self.assertEqual(defaulted.min_crew, 0)
 
 
 # ===========================================================================

@@ -14,6 +14,43 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## FORGE-CREW-SEATING-SILENT-FAILURE: kRPC launch_vessel seats NOBODY when a requested crew name is unseatable, and the pad forge stamped an empty-pod fixture without noticing [FOUND 2026-08-11 by the first FORGE-b18-dres-pad run + B18 flight 1 (PR #1459 carries the measurement in that spec's header). GUARD SHIPPED 2026-08-12, branch `forge-crew-guard`: the forge_lko minCrew gate ported to forge_station. RESIDUAL: the committed `gs1-two-stage-pad` fixture still carries the empty pod - re-forge wanted, benign meanwhile]
+
+**The trap.** kRPC 0.5.4 `launch_vessel(crew=[names])` does NOT fail when a name
+cannot be seated - it launches an EMPTY pod and leaves the kerbal `Missing`. In
+`bdock-forge-base` Jebediah is `state = Assigned` (he crews the base's own active
+vessel), so `FORGE-gs1-two-stage`'s original `crewNames = ["Jebediah Kerman"]`
+seated nobody, and the committed `gs1-two-stage-pad` fixture carries an empty Mk1
+pod + a `Missing` Jeb. GS-1 flew green on it anyway (its craft pairs a
+probeCoreOcto2 with the pod, so it is probe-controlled); the identical mistake was
+FATAL to B18's Duna Rocket (one ModuleCommand, no probe core), which is how it was
+finally measured. The orbital forge (`forge_lko`) already had a `minCrew` gate for
+exactly this; the pad forge (`forge_station`) did not.
+
+**The durable fix (option c of the triage), shipped.** `mlib.ForgeParams` gained
+`min_crew` (spec key `minCrew`, 0 = off, declared in `forge_station.schema.toml`),
+`forge_decide`'s LAUNCH settle gate now also requires `crew_count >= minCrew`
+(fail-closed on the -1 unread sentinel; the launch-budget flake NAMES the crew
+shortfall via the new `ForgeState.flake_reason`, mirroring the flko diagnosis
+latch), `evaluate_forge_assertions` gained the `crewAboard` row (auto-met at
+minCrew 0, so every pre-guard spec is behavior-identical), and `forge_station`'s
+shell opts into `read_crew=True` (the HARNESS-SHELL-READSET discipline: the
+machine now reads a population-gated field). Specs armed: `FORGE-gs1-two-stage`
+(crewNames corrected to Valentina + `minCrew = 1`), `FORGE-eva3-pad`
+(`minCrew = 3`), `FORGE-b18-dres-pad` (`minCrew = 1`). `FORGE-bdock-station` /
+`FORGE-b17-duna-pad` pass no crewNames and stay gate-off.
+
+**Residual, deliberately not done here.** (1) The committed `gs1-two-stage-pad`
+fixture still carries the empty pod - re-forging is a live operator run
+(`python harness/run.py --id FORGE-gs1-two-stage`, then the harvest, then a GS-1
+reading flight on the new stamp), queued for the next operator forge pass; the
+forge spec header and the GS-1 spec's `[fixture]` block both disclose the
+degraded stamp. (2) No roster PRE-flight check: kRPC has
+`get_kerbal(name).roster_status`, so the runner could verify seatability BEFORE
+launch_vessel - rejected for now because the post-launch crew_count gate catches
+the same failure with zero new RPC surface, and a pre-check would race the same
+scene reload the settle debounce already owns.
+
 ## ~~OPTIMIZER-SPLIT-DEFEATS-REAIM-CLASSIFIER: the load-time optimizer splits an interplanetary recording at an on-rails SOI handoff, and the re-aim classifier then finds no member holding a whole transfer~~ [FOUND 2026-08-12 by `V9-dres-player-loop`, the Dres program's loop-unit reading run. FIXED 2026-08-12, branch `dres-split-cohesion`, Design A of docs/dev/plans/optimizer-split-transfer-cohesion.md]
 
 **What was measured.** `V9-dres-player-loop` marks B19's committed Kerbin -> Sun ->

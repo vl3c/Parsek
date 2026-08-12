@@ -41,3 +41,18 @@ max = 100
 [params.crewNames]
 required = false
 type = "list"
+
+# Minimum kerbals that must READ aboard before the pad settle may complete (and
+# the crewAboard assertion's floor). 0 disables the gate. Any positive value
+# fails CLOSED on the -1 unread sentinel. ARM THIS ON EVERY FORGE THAT PASSES
+# crewNames: kRPC launch_vessel does NOT fail when a requested name cannot be
+# seated (e.g. the kerbal is already Assigned in the boot save) -- it silently
+# launches an EMPTY pod and leaves the kerbal Missing, which is how the
+# committed gs1-two-stage-pad fixture was stamped with an empty Mk1 pod
+# (measured 2026-08-11 on the first b18-dres-pad forge run). With the gate
+# armed, the forge flakes ON THE PAD naming the crew shortfall instead.
+[params.minCrew]
+required = false
+type = "int"
+min = 0
+max = 16

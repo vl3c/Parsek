@@ -35,9 +35,14 @@ id = "FORGE-gs1-two-stage"
 # also the derivation record and the drift gate); this forge is what turns that craft
 # into a pad save, because nothing but KSP can.
 #
-# UNFLOWN. Its first scheduled run IS its live-prove. A failure classifies
-# driver-INVALID (retryable), never a PARSEK-FAIL: the forge asserts nothing about
-# Parsek and its logContracts.required list is empty on purpose.
+# FLOWN 2026-08-05 (the committed gs1-two-stage-pad fixture is its harvest), but the
+# stamp is KNOWN-DEGRADED: that run passed crewNames = ["Jebediah Kerman"], who is
+# unseatable in the base, so the fixture's pod is EMPTY (see the crewNames comment
+# below). RE-FLY WANTED under the corrected params (Valentina + minCrew) on the next
+# operator forge pass; GS-1 flies green on the degraded fixture meanwhile because its
+# craft is probe-controlled. A failure classifies driver-INVALID (retryable), never a
+# PARSEK-FAIL: the forge asserts nothing about Parsek and its logContracts.required
+# list is empty on purpose.
 #
 # WHAT A FAILED FIRST RUN MEANS, in the order the assumptions bite. The full derivation
 # and its five numbered assumptions live in `build_gs1_craft.py`'s module docstring;
@@ -90,12 +95,23 @@ steps = [
 [driver.missionParams]
 craftName            = "GS1 Auto-Chute Booster"
 launchSite           = "LaunchPad"
-# ONE named crew, and it is LOAD-BEARING rather than flavour. mk1pod.v2's ModuleCommand
-# carries minimumCrew = 1, so an EMPTY pod is an UNCONTROLLED upper stage: kRPC could
-# still read it, but throttle and staging commands would do nothing and the GS-1
-# mission would burn its whole budget on the pad. The name matches GS-1's own
-# expectations; it is a SANDBOX save, so nothing about the roster is asserted.
-crewNames            = ["Jebediah Kerman"]
+# ONE named crew, and NOT Jebediah (the name this spec originally passed): in
+# bdock-forge-base Jeb is ALREADY `state = Assigned` (he crews the base's own active
+# vessel), and kRPC launch_vessel does NOT fail loudly on an unseatable name -- it
+# launches an EMPTY pod and leaves the kerbal `Missing`. That is exactly how the
+# COMMITTED gs1-two-stage-pad fixture was stamped (empty Mk1 pod, Missing Jeb);
+# nobody noticed because this craft carries a probeCoreOcto2 ALONGSIDE the pod, so
+# GS-1 flies probe-controlled either way. Measured 2026-08-11 on the first
+# b18-dres-pad forge run, whose spec header carries the full trap write-up.
+# Valentina is `Available` in the base (as are Bill and Bob); eva3-pad-3crew is the
+# positive control that an Available name really does get seated. It is a SANDBOX
+# save, so nothing about the roster is asserted -- the only requirement is that the
+# named kerbal be seatable.
+crewNames            = ["Valentina Kerman"]
+# The forge-time guard for the trap above: with a positive floor, the settle gate
+# also requires crew_count >= minCrew, so a silent seating failure flakes ON THE
+# PAD naming the crew instead of stamping an uncrewed fixture.
+minCrew              = 1
 # Game-seconds to see the new craft settle PRELAUNCH before flaking. Generous:
 # launch_vessel is a scene reload.
 launchTimeoutSeconds = 120
