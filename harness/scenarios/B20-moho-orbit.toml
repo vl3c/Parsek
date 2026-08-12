@@ -1,0 +1,494 @@
+schema = 1
+id = "B20-moho-orbit"
+# =====================================================================================
+# B20: MOHO ORBIT -- the Moho program's step 1, and the flight whose PRODUCT IS THE
+# RECORDING. Kerbin LKO -> pre-transfer jettison -> ejection at the Kerbin->Moho
+# window -> heliocentric coast with corrections -> CAPTURE into a Moho orbit ->
+# held park -> mid-mission CommitTree, then FlushAndQuit so the produced save
+# carries the whole committed tree.
+#
+#   PRELAUNCH -> MJ-ASCENT (700 km) -> CIRCULARIZE (+ park round-out) ->
+#   ORBIT -> JETTISON -> PLAN-TRANSFER (INTERPLANETARY) -> TRANSFER-BURN
+#   (ejection, hyperbolic ecc evidence) -> COAST-TO-TARGET (heliocentric, 2
+#   time-to-SOI correction rounds) -> TARGET-FLYBY (capture arming) ->
+#   PLAN-CAPTURE -> CAPTURE-BURN -> PARK -> ORBIT-COMMIT -> ORBIT-COMMITTED
+#
+# THE B16 -> B17 -> B19 PRECEDENT, ONE MORE TIME: this lane adds NO machinery at
+# all. B19's one genuinely new mechanism (the JETTISON phase) is already shared
+# and default-off; `b20_moho_orbit` is a thin alias that arms it with B19's
+# measured values and changes a body name plus three sizing numbers. There is no
+# b20_decide and no new mlib code.
+#
+# =====================================================================================
+# WHY MOHO, AND WHY THIS FLIGHT IS WORTH ITS WALL TIME.
+#
+# Moho is the re-aim synthesizer's OWN DOCUMENTED FAILURE CASE. Its 7 deg
+# inclination and ~0.2 eccentricity are the population the synthesizer's own
+# comments place beyond Duna's always-safe 0.06, beyond Eve's 2.1 and beyond
+# Dres's 5 -- and `docs/dev/done/plans/reaim-eccentric-tof-reliability.md`
+# names it directly: "a high-inclination small-SOI target like Moho projected
+# far outside its SOI, so the proximity encounter check failed" (the pre-stage-A
+# behaviour), and section 4.2.3 calls Moho "the COMBINED case".
+#
+# THIS FLIGHT ASKS NONE OF THAT. It asks only for a committed Moho orbit. The
+# re-aim questions belong to V11 (the loop unit) and V11A (the tilt disposition
+# at 7 deg), which read the recording this flight produces. Keeping the flight
+# innocent of the hypothesis is the point: a lane that flew differently because
+# of what we hoped to measure would not be evidence.
+#
+# =====================================================================================
+# WHAT MOHO CHANGES, and it is exactly two things, both SIZING rather than machinery.
+#
+# (1) THE APPROACH IS ~8x SHORTER IN GAME TIME -- and this is the one number that
+# forces a parameter DOWN from B19.
+#   Moho SOI          9,646,663 m   (Dres 32,832,840 m -- 3.4x smaller)
+#   arrival v_inf     2,342-4,449 m/s (Dres measured ~1,571 m/s) -- a RANGE, not
+#                     a number, because Moho's ecc 0.2 sets it; see (2)
+#   2*mu/r_soi        34,955 m^2/s^2 against v_inf^2 of 5.5e6-2.0e7 -- NEGLIGIBLE
+#                     at every point of that range, so
+#                     Moho's gravity barely bends the approach and the passage is
+#                     essentially straight-line: t ~ r_soi / v_inf.
+#   => SOI-entry -> periapsis coast 2,168-4,119 game s, against Dres's MEASURED
+#      ~25,000. The band is Moho's own eccentricity again (see (2)): 2,168 s at
+#      an r=sma encounter (v_inf 4,449), 2,582 at apoapsis (3,736), 4,119 at
+#      periapsis (2,342). The SIZING BELOW USES A PESSIMISTIC 2,000 s FLOOR,
+#      which sits under the whole measured band on purpose.
+#
+# B19's sizing rule -- "one poll frame must advance well under a fifth of the
+# SOI-entry -> periapsis coast", carried as arithmetic in
+# `test_one_frame_cannot_swallow_the_dres_approach` -- therefore forces a LOWER
+# ceiling here. Sizing against the PESSIMISTIC end of the band (2,000 s) the
+# budget is 2,000/5 = 400 game s per frame, and RAILS_WARP_RATES says:
+#   factor 5 = x1,000  FAILS (1,000 > 400)   <- Dres's value
+#   factor 4 = x100    PASSES (100 <= 400, 4x margin)
+# => approachMaxWarpFactor 4. See the parameter for the cost this imposes.
+#
+# WHAT DOES *NOT* SCALE DOWN WITH THE BODY, and getting this wrong would
+# reproduce the exact give-up the knob exists to prevent: `soiLeadSeconds`. That
+# knob is sized against the COAST PHASE's single-frame advance, which B19 flight 4
+# measured at 27,596 game s and reasoned about from the ~50,000 s a full-rate
+# x100,000 poll can cover. Those are functions of coastWarpFactor and the poll
+# rate, NOT of the target body. Scaling the lead down in proportion to Moho's
+# smaller SOI would put it BELOW one coast frame, and a single x100,000 poll
+# would then blow through the lead AND Moho's entire ~3,000 s coast -- which is
+# `capture-never-armed (past-periapsis)`, flights 3 and 4 all over again. It
+# stays at B19's 100,000, and approachWindowSeconds stays at 200,000.
+#
+# (2) THE CAPTURE COST IS SET BY MOHO'S ECCENTRICITY, NOT BY ITS DISTANCE, AND
+# IT IS THE TIGHTEST BUDGET IN THE SUITE.
+#
+# THE THING THAT DOMINATES, and it is easy to get wrong by treating Moho as a
+# circular target: at ecc 0.2 Moho's own velocity is NOT tangential except at
+# its apsides. At r = sma the flight-path angle is 11.54 deg, and an arriving
+# transfer whose periapsis sits there is purely tangential, so the ANGLE between
+# the two velocities -- not their magnitudes -- sets v_inf. Treating Moho as
+# circular gives |17,922 - 14,925| = 2,997 m/s; the real number at that
+# encounter is 4,449 m/s. The whole capture budget hangs on that distinction.
+#
+# So the arrival cost is a RANGE, set by where in Moho's eccentric orbit the
+# encounter falls (mu_Moho 1.6860938e11, R 250 km; capture circularizing at a
+# ~100 km periapsis, r = 350 km, dv = sqrt(v_inf^2 + 2mu/r) - sqrt(mu/r)):
+#   encounter at Moho periapsis   v_inf 2,342 -> capture ~1,845 m/s
+#   encounter at r = sma          v_inf 4,449 -> capture ~3,862 m/s
+#   encounter at Moho apoapsis    v_inf 3,736 -> capture ~3,169 m/s
+# MechJeb picks the window, so which of these the flight pays is NOT ours to
+# choose -- it is one of the things flight 1 MEASURES.
+#
+# Capture is CHEAPER LOW here, like Dres and unlike Eve, and that is checked
+# rather than assumed: at v_inf 3,000 the cost runs 2,396 m/s at the surface,
+# 2,462 at 100 km, 2,873 at the SOI edge, rising monotonically to v_inf itself.
+# There is no high-park temptation.
+#
+#   ejection from the 700 km park  inward Hohmann r_Kerbin 13,599,840,256 ->
+#                                  r_Moho sma 5,263,138,304, mu_Sun 1.1723328e18
+#                                  gives coplanar v_inf ~2,349 m/s; tilting the
+#                                  transfer into Moho's 7 deg plane raises it to
+#                                  ~2,545, i.e. ~1,803 m/s from the park
+#   corrections                    <= 700 per round (the cap below, re-derived)
+#   capture                        ~1,845 to ~3,862 (above)
+#   => ~4,900 to ~7,100 m/s against B18's MEASURED 7,483. The margin runs from
+#   ~1.5x at a periapsis encounter down to ~1.05x at the worst one, against
+#   Dres's uniform 2.3x. THIS IS THE ONE BUDGET ON THIS LANE THAT MAY NOT CLOSE,
+#   and it is written as a range rather than a point estimate because pretending
+#   otherwise would make a propellant-exhaustion red look like a surprise.
+#   B19 reached its Dres commit with 3,933 m/s still in the stage; Moho can ask
+#   for all of it.
+#
+# THE BURN-TIME RISK, named ahead of the flight so the failure mode is legible.
+# A ~3,862 m/s capture on ~13.85 t at the LV-N's 60 kN / Isp 800 is mdot
+# 7.648 kg/s, i.e. ~5.4 t of propellant and ~700 s (~12 min) of continuous
+# thrust, begun ~350 s before periapsis by the node executor -- against an SOI
+# coast of 2,168 s at that same v_inf. It FITS, but the whole margin is ~3x
+# rather than Dres's ~35x (1,717 m/s inside ~25,000 s). If MechJeb's single
+# capture burn does not bind, or the stage runs dry, THE MEASURED FAILURE MODE
+# IS THE FINDING -- this lane reports it verbatim and no new machinery is
+# invented ahead of the evidence.
+#
+# Moho HAS NO MOONS, so nothing physical constrains the park (the reason the park
+# windows below are loose is the same reason B19's were).
+# =====================================================================================
+# NOT YET FLOWN. Every number below is DERIVED -- from B18's measured craft, from
+# B19's measured green flight, and from the stated Moho arithmetic -- and the
+# DERIVED ones are named as such at their parameters. RE-PIN to the MEASURED
+# values after the first green flight; do not leave a derived pin standing.
+# =====================================================================================
+tier = "operator"
+description = "Moho ORBIT across a heliocentric traverse, on the stock Duna Rocket: 700 km park, PRE-TRANSFER JETTISON of the spent chemical stack onto the LV-N, ejection at the Kerbin->Moho window, corrections, CAPTURE inside Moho's SOI, held park and a mid-mission CommitTree -- the flight whose committed recording becomes the moho-orbit-recorded fixture, and with it the re-aim synthesizer's own documented failure case (7 deg, ecc ~0.2) as read evidence."
+instanceProfile = "stock-minimal"
+tags = ["B20", "moho", "orbit", "mechjeb", "interplanetary", "cross-soi", "capture", "commit-in-foreign-soi", "jettison"]
+
+[fixture]
+# B18's committed pad fixture, REUSED UNCHANGED: the Duna Rocket PRELAUNCH on the
+# LaunchPad with VALENTINA aboard (not Jebediah -- see FORGE-b18-dres-pad's
+# header for why naming an already-Assigned kerbal silently produces an
+# uncontrollable rocket). No new forge lane: the pad state is body-independent,
+# and the craft B19 measured reaching Dres orbit with 3,933 m/s residual is the
+# same craft this lane needs.
+saveTemplate       = "fixtures/saves/b18-dres-pad"
+injectedRecordings = "none"
+craft              = []
+
+[driver]
+kind    = "autopilot"
+# Thin alias over the body-parameterized B5 machine (b20_moho_orbit.py). No
+# b20_decide, and -- unlike B19 -- no new mlib code whatsoever.
+mission = "b20_moho_orbit"
+
+# `steps` MUST stay in the [driver] table, ABOVE the [driver.missionParams]
+# header (a key after the sub-table header would be TOML-scoped into it and the
+# spec would validate as having zero steps).
+#
+# RECORDING DISCIPLINE, copied from B16/B19 because this lane's product IS the
+# recording: autoRecordOnLaunch true so the tree starts at launch and covers the
+# whole flight, and EXACTLY ONE commit -- the MID-MISSION one the machine fires
+# from ORBIT-COMMIT. There is deliberately NO post-mission CommitTree: the seam's
+# CommitTreeImpl answers ERROR no-active-tree once the tree is closed, which
+# would make every green flight driver-INVALID (the B11/B12/B16 accounting rule).
+#
+# SaveGame IS included, for B19's reason: this flight is meant to be HARVESTED
+# into a moho-orbit-recorded fixture, and the harvest reads the produced
+# persistent.sfs. FlushAndQuit alone would leave the committed tree's own save
+# write to chance.
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 240 },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "true" }, expect = "OK" },
+  { phase = "mission",  expect = "MISSION-OK", budget = 7800 },
+  { cmd = "SaveGame",   args = { name = "persistent" },                      expect = "OK" },
+  { cmd = "FlushAndQuit",                                                    expect = "OK" },
+]
+
+[driver.missionParams]
+# --- ASCENT to a HIGH park. B19's values verbatim; 700 km is a WARP decision,
+# not a fuel one (KSP's stock rails table caps warp by ALTITUDE and Kerbin's
+# ladder needs 600 km before 100,000x is legal). Body-independent, so unchanged.
+targetApoapsisMeters       = 700000
+targetPeriapsisMeters      = 700000
+apoErrorMeters             = 150000
+periErrorMeters            = 150000
+ascentTimeoutSeconds       = 2400
+circularizeTimeoutSeconds  = 12000
+# The B15 blocker, inherited: MechJeb's interplanetary ejection planner sizes the
+# burn at the park's SEMI-MAJOR AXIS and applies it at a different radius, so an
+# eccentric park under-ejects. B19 measured MechJeb leaving the 700 km park at
+# ecc 0.083, so the round-out really fires on this profile.
+parkTrimEccMax             = 0.02
+
+# --- THE JETTISON. B19's measured values verbatim: the phase is a property of
+# THIS CRAFT (Nerv 60 kN / Skipper 650 kN / Mainsail 1,500 kN), not of the
+# destination, so nothing here is re-derived for Moho. 4 is a CAP, not a count --
+# the phase is evidence-driven and stops on the LV-N's thrust signature (two pops
+# from a Skipper-live park, four from a Mainsail-live one).
+jettisonMaxActivations        = 4
+jettisonTimeoutSeconds        = 600
+jettisonMaxLiveThrustNewtons  = 120000
+jettisonMinSplits             = 1
+
+# --- INTERPLANETARY TRANSFER (B7's five params, retargeted at Moho).
+targetBodyName             = "Moho"
+homeBodyName               = "Kerbin"
+interplanetaryTransfer     = true
+transferMinApoapsisMeters  = 0
+# INWARD, so B16's re-derived floor is the right family here and B19's is NOT.
+# B16 MEASURED that B7's outward-calibrated 1.05 is wrong for an INWARD transfer
+# and re-derived 1.001; Kerbin->Eve is inward and so is Kerbin->Moho. B19 kept
+# 1.05 deliberately because Kerbin->Dres is OUTWARD like Duna. Copying B19's
+# number here would apply an outward-calibrated floor to an inward ejection --
+# exactly the mistake B19's own comment warns against in the opposite direction.
+# Moho's ejection is the higher-C3 of the two inward cases (v_inf ~2,349 m/s
+# against Eve's ~1,000), so 1.001 has margin rather than being knife-edge.
+ejectionEccFloor           = 1.001
+# "Mun" carried from B16's flight-2 evidence: a Kerbin departure legitimately
+# transits a moon's SOI on the way out, and that is ordinary KSP behaviour rather
+# than "went somewhere wrong". The via list catches a WRONG destination.
+viaBodyNames               = ["Sun", "Mun"]
+# In CAPTURE mode this is the FAILURE body, not a success terminal: reading it
+# from TARGET-FLYBY means "left the target SOI without capturing". "Sun" is where
+# an uncaptured Moho arrival actually goes. A diagnosis-quality choice.
+returnBodyName             = "Sun"
+
+# --- CORRECTIONS.
+# 300 km requested, B19's value. Finding 16d's documented bias is that MechJeb's
+# OperationCourseCorrection arrives HIGHER than requested. On MOHO that bias is
+# LESS forgiving than on Dres, and the difference is worth naming: Dres's SOI is
+# 32,832 km with "enormous room above", while Moho's is 9,646 km. A B5-scale
+# overshoot (250 km -> 956-1,142 km) still lands far inside Moho's SOI, so the
+# request stands -- but the capture cost curve is NOT flat here the way it is at
+# Dres (~2,463 m/s at 100 km vs ~2,404 at 10 km is nearly flat, but the curve
+# steepens with radius far faster against Moho's small mu), so an arrival much
+# higher than requested costs real dv out of a 1.6x margin. DERIVED; re-read
+# against the measured arrival periapsis after flight 1.
+courseCorrectPeriapsisMeters = 300000
+# LOWERED FROM B19's 1200, and this is the one parameter where Moho's thin dv
+# margin overrides a proven value. The tension is real in BOTH directions and is
+# stated rather than resolved by preference:
+#   B15's lesson (why a cap wants to be HIGH): a cap BELOW the needed burn
+#   silently discards the node and the coast flies the raw intercept. B19 raised
+#   its cap to 1200 precisely because its correction had to CREATE the encounter.
+#   Moho's budget (why it cannot be): the worst-case encounter costs ~3,862 m/s
+#   to capture after a ~1,803 m/s ejection. Reserving 5% of B18's measured 7,483
+#   leaves 7,109 usable, so 7,109 - 1,803 - 3,862 = 1,444 m/s for ALL corrections,
+#   i.e. 722 per round across the two the trigger list arms. At B19's 1200 both
+#   rounds landing on the ceiling would consume 2,400 and the capture would run
+#   the stage dry.
+# 700 is that arithmetic rounded down. It is a REAL RISK that a Moho correction
+# needs more than 700 and is silently discarded -- if the flight declines its
+# encounter with `nodeDv=nan`, that is the first thing to re-read, and the fix is
+# a bigger craft rather than a bigger cap, because the cap is bounded by the
+# propellant and not by preference.
+maxCorrectionDvMps         = 700
+correctionTriggerAltsMeters       = []
+# LOWERED FROM B19's [20000000, 500000], and this is a Moho-specific
+# re-derivation rather than a copy. Those triggers are time-to-SOI values on a
+# ~13.0M game-second Dres transfer; Kerbin->Moho's tof is ~2.7M game s, so a
+# 20,000,000 s trigger would fire before the transfer even exists (or never) and
+# a 500,000 s trigger sits at ~19% of the whole coast rather than ~4%. Scaled to
+# the same FRACTIONS of this lane's own tof: round 1 at ~2.0M (74%), round 2 at
+# ~150k (5.6%). DERIVED from the ~2.7M tof; re-pin once flight 1 measures it.
+correctionTriggerTimeToSoiSeconds = [2000000, 150000]
+# B19's flight-2 measurement, kept verbatim: PLAN-CORRECTION is entered from a
+# coast at coastWarpFactor 7 = RAILS x100,000, where ONE poll frame advances
+# ~39,000-41,000 GAME seconds, so a 300 game-second budget expires before MechJeb
+# is given a single real frame. 300,000 game s is ~7 frames at x100,000.
+planTimeoutSeconds         = 300000
+planRetrySeconds           = 10
+# GAME seconds, carrying the ejection-window wait inside the NodeExecutor's
+# autowarp. The Kerbin->Moho synodic period is ~2.918M game s (T_Moho 2.2158M,
+# T_Kerbin 9.2035M), so the window wait is bounded by roughly one synodic --
+# an order of magnitude SHORTER than the Kerbin->Dres wait B19 sized 18,000,000
+# for. Kept at B19's value anyway: it bounds SLOW, it costs nothing when unused,
+# and shrinking a budget that is already proven is a change with no upside.
+transferBurnTimeoutSeconds = 18000000
+# Moho's transfer is much SHORTER than Dres's (tof ~2.7M game s against ~13.0M),
+# so B19's 16,000,000 is ~6x the need. Kept generous rather than tightened for
+# the same reason as above -- it bounds SLOW, and the named give-ups bound BROKEN.
+coastTimeoutSeconds        = 16000000
+flybyTimeoutSeconds        = 600000
+coastWarpFactor            = 7
+# IN-SOI WARP. B19's 3/4 kept: those factors (x50 / x100) were correct on their
+# own terms at Dres and are MORE appropriate here, since Moho's in-SOI coast is
+# ~8x shorter in game time. At x50 a ~3,000 s coast still gets ~60 poll frames.
+flybyWarpFactor            = 3
+flybyMaxWarpFactor         = 4
+nodeArrivalMarginSeconds   = 15
+planWarpFactor             = 2
+# --- THE ARRIVAL, and the ONE parameter Moho forces DOWN. See the header for the
+# full derivation; the short form:
+#
+# (1) HAND OFF EARLY -- UNCHANGED AT 100,000. This is sized against the COAST
+# phase's single-frame advance (B19 flight 4 measured 27,596 game s in one poll;
+# a full-rate x100,000 poll can cover ~50,000), which depends on coastWarpFactor
+# and the poll rate and NOT on the target body. Scaling it down with Moho's
+# smaller SOI would put the lead below one coast frame and reproduce flights 3
+# and 4's `capture-never-armed (past-periapsis)`.
+soiLeadSeconds             = 100000
+# (2) HOLD A LOW CEILING -- window UNCHANGED at 2x the lead so the cap is already
+# in force when the native warp hands off; the CEILING ITSELF LOWERED 5 -> 4.
+# factor 4 = x100 advances ~50-100 game s per poll: under 1/24 of even the
+# pessimistic 2,400 s end of Moho's SOI-entry -> periapsis band, inside the
+# "one frame <= 1/5 of the approach" rule with 4x margin. factor 5 (x1,000)
+# would advance ~1,000 s per poll, which is ~40% of that coast -- i.e. the Dres
+# value is not merely loose here, it FAILS the rule Dres itself established.
+#
+# THE COST, stated rather than buried: traversal is window / rate wall seconds,
+# so this is 200,000 / 100 = ~2,000 wall s against Dres's ~200. That 10x is the
+# price of the 10x finer sampling and it is why the mission budget below is
+# 7,800 rather than B19's 5,400. The alternative -- dropping coastWarpFactor 7
+# -> 6 so a smaller lead would suffice -- is B19's own explicitly UNTESTED
+# "NEXT THING TO TRY", and flying an unproven shape on a first attempt trades a
+# bounded wall cost for an unbounded diagnostic one. Pay the wall time.
+approachWindowSeconds      = 200000
+approachMaxWarpFactor      = 4
+flipPhysicsWarpFactor      = 1
+# Moho has NO atmosphere; its peaks reach ~6.8 km. 50 km is ~7x the highest
+# terrain and asserts the whole in-SOI stay (arrival AND park) stayed in clean
+# vacuum well clear of the ground. B19's value, and it clears Moho's terrain by
+# the same order it cleared Dres's.
+targetPeriapsisFloorMeters = 50000
+
+# --- BURN LIVENESS, widened over B19 for MOHO'S LONGER CAPTURE. B19 sized these
+# on a ~440 s ejection; this lane's CAPTURE is ~485 s (~2,463 m/s on ~13.85 t at
+# 60 kN), the longest single burn in the suite, and it runs against the shortest
+# approach in the suite. A stagnation window shorter than the burn itself would
+# abort a perfectly healthy capture.
+# 480 holds B19's own ratio (240 against its ~440 s ejection, i.e. ~0.55x) against
+# THIS lane's longest burn, the ~700 s worst-case capture. Copying B19's 240 would
+# be ~0.34x of that burn and would abort a perfectly healthy capture partway.
+burnStagnantSeconds        = 480
+# MechJeb's pre-ignition WARPALIGN hold is ~600 game-s and body-independent; the
+# no-start window must clear it with room. B19's 1,200 kept -- the hold does not
+# grow with the burn.
+burnNoStartSeconds         = 1200
+correctionThrottle         = 0.25
+correctionCutDvMps         = 2.0
+correctionSettleSeconds    = 10
+maxAttitudeErrorDeg        = 30
+frozenTelemetrySamples     = 10
+
+# --- CAPTURE + PARK + COMMIT (B11/B12/B16/B19 tail, Moho numbers).
+captureEnabled             = true
+# RAISED from B19's 300. The capture node here is ~2,463 m/s against Dres's
+# 1,717.4, and PLAN-CAPTURE is entered on the shortest approach in the suite --
+# the one phase where giving MechJeb too few frames is most likely. GAME seconds.
+capturePlanTimeoutSeconds  = 600
+# GAME seconds. B16 sized 400,000 for Eve's 85,109 km SOI edge and B19 kept it
+# for Dres's 32,832 km. Moho's edge is 9,646 km, so the autowarped
+# SOI-entry -> periapsis coast inside this budget is the SMALLEST in the suite;
+# 400,000 remains a very loose SLOW bound and the named executor / window /
+# under-burn watchdogs bound BROKEN. Kept.
+captureBurnTimeoutSeconds  = 400000
+# THE PARK WINDOW. Moho earns the same looseness Dres did (no moons), but the
+# CEILING is re-derived because it is the captured-or-not evidence and it must
+# sit inside MOHO's SOI, which is 3.4x smaller:
+#   parkMinPeriapsisMeters 50 km    - ~7x Moho's highest terrain (~6.8 km).
+#                                     Certifies a VACUUM park that will not decay.
+#   parkMaxApoapsisMeters  5,000 km - LOAD-BEARING as the captured-or-not
+#                                     evidence: a hyperbolic (uncaptured)
+#                                     approach reads a NEGATIVE apoapsis in the
+#                                     Moho frame, so "0 < ap <= ceiling" cannot
+#                                     be faked by flying past. RE-DERIVED from
+#                                     B19's 20,000 km, which would be MEANINGLESS
+#                                     here -- it sits OUTSIDE Moho's 9,646 km SOI
+#                                     entirely, so it would assert nothing about
+#                                     boundedness. 5,000 km is ~52% of the SOI
+#                                     radius, the same "inside the SOI with
+#                                     margin" posture B19's 20,000 km held
+#                                     against 32,832 km (61%).
+#   parkMaxEccentricity    0.25     - B11/B12/B16/B19's value. MechJeb
+#                                     circularizes AT PERIAPSIS, so a healthy
+#                                     capture lands far under this; the slack
+#                                     absorbs a partial burn that is still a
+#                                     stable park. THE CONJUNCT MOST LIKELY TO
+#                                     CATCH THIS LANE'S NAMED RISK: an
+#                                     under-burned 2,463 m/s capture that still
+#                                     binds reads as a high-ecc park.
+parkMinPeriapsisMeters     = 50000
+parkMaxApoapsisMeters      = 5000000
+parkMaxEccentricity        = 0.25
+parkMaxAngularVelocityRadPerSec = 0.05
+parkSituations             = ["ORBITING"]
+# 180 game-s held at 1x, B11/B12/B16/B19's value. This dwell IS the recorded
+# parked-in-foreign-SOI coverage the harvested fixture will carry, so it is
+# deliberately not warped.
+parkDwellSeconds           = 180
+parkDebounceFrames         = 3
+parkTimeoutSeconds         = 600
+commitTimeoutSeconds       = 300
+
+# CLAIM-IS-NOT-GATE: every cell below is backed by a gate in this spec's own
+# contract. D1 auto-record-launch by the SetSetting step + the Recording-started
+# token; D1 commit-in-foreign-soi by the terminalOrbitBody=Moho commit token; the
+# D14 bodies by the SOI-traverse tokens; the warp cells by the mission's rails
+# policy the coast cannot complete without.
+# NOT claimed: D3 parent-anchored-debris (B18 pins that token on the ascent, and
+# this lane does not re-require it while the jettison's debris topology is
+# unmeasured on THIS profile) -- B19's carve-out, kept for the same reason.
+[dimensionsCovered]
+D1  = ["auto-record-launch", "commit-in-foreign-soi"]
+D3  = ["orbital-checkpoint"]
+D4  = ["atmospheric", "exo-propulsive", "exo-ballistic", "cohesive-cross-body-coast"]
+D14 = ["kerbin", "moho", "soi-count", "warp-rails", "warp-high", "scene-flight", "sandbox"]
+
+[expectations]
+# PLACEMENT IS LOAD-BEARING: allowedAnomalies must precede every
+# [expectations.<sub>] header or TOML scopes it into the sub-table
+# (hlib.validate_spec rejects the misplaced form).
+allowedAnomalies = []
+
+[expectations.recordings]
+# WIDE ON PURPOSE, THEN RE-PIN -- B19's OWN FIRST-FLIGHT POSTURE, followed
+# deliberately rather than short-cut. B19 flew its first attempts on
+# { min = 3, max = 12 } and tightened to { min = 5, max = 5 } only after the
+# green flight named all five recordings by UT.
+#
+# THE DERIVED EXPECTATION IS 5, and it is a strong one: the recording population
+# is a property of the CRAFT and the ASCENT PROFILE, both identical to B19 --
+#   +1  the main recording -- terminal Orbiting, terminalOrbitBody=Moho
+#   +2  the two radial booster stacks shed at istg 6 during ascent (B18's
+#       measured population on this craft), terminal Destroyed
+#   +1  the core Mainsail stack, dropped by MechJeb AUTOSTAGE during the ascent
+#   +1  the Skipper stack, dropped by the JETTISON's two pops
+# Nothing after the jettison stages, so the transfer and capture add none.
+#
+# IT IS NOT PINNED AT 5 ANYWAY, and the reason is a cost argument rather than a
+# doubt: this lane's PRODUCT is the recording, a flight costs ~1.5 wall hours,
+# and a count pin is the one gate that can red a flight which otherwise produced
+# exactly the fixture the program needs. min 3 gates the ascent population that
+# IS measured; max 12 absorbs any jettison-debris difference. A count outside
+# THAT is a real finding.
+# RE-PIN TO THE MEASURED VALUE AFTER FLIGHT 1 -- do NOT leave this wide.
+count = { min = 3, max = 12 }
+
+[expectations.logContracts]
+# Every token sourced from its ACTUAL emitting call site; the interplanetary
+# format is VERIFIED against a real flight log
+# (logs/2026-07-25_1216_B7-duna-flyby/KSP.log carries `Kerbin to Sun` verbatim)
+# and against B19's green Dres run for the Sun->target form.
+#   "Recording started" / "Recording stopped" -- the lifecycle pair.
+#   the two SOI tokens -- ParsekFlight.HandleSoiChangeSplit's tree-mode branch;
+#       together they assert the full Kerbin -> Sun -> Moho traverse, which is
+#       what makes "capture after a heliocentric traverse" a CHECKED claim.
+#   "CommitTreeFlight: starting tree commit at UT=" -- the commit path ran.
+#   "committree committed=true" -- the MID-MISSION seam verb reached its OK.
+#   "CommitTreeFlight terminal: ... terminalOrbitBody=Moho" -- the ONLY real
+#       evidence for the headline: the first two commit tokens would be
+#       byte-identical for a tree that ended around KERBIN.
+required = [
+  "Recording started",
+  "Recording stopped",
+  "SOI change boundary suppressed in tree mode: Kerbin to Sun",
+  "SOI change boundary suppressed in tree mode: Sun to Moho",
+  "CommitTreeFlight: starting tree commit at UT=",
+  "committree committed=true",
+  "CommitTreeFlight terminal: rec=\\w+ terminalState=Orbiting terminalOrbitBody=Moho",
+]
+forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
+
+[runtime]
+# 240 LoadGame + 7800 mission + SaveGame / FlushAndQuit + margin.
+#
+# SIZED FROM B19's MEASURED GREEN (2,981 s wall on a 5,400 mission budget) PLUS
+# THE ONE THING THIS LANE ADDS, which is not guesswork but the same arithmetic
+# that set approachMaxWarpFactor:
+#   + ~1,800 wall  THE APPROACH CLAMP AT THE LOWER CEILING. 200,000 game s of
+#                  window traversed at x100 is ~2,000 wall s, against ~200 at
+#                  Dres's x1,000. This is the dominant new cost and it is a
+#                  DIRECT consequence of Moho's short SOI coast.
+#   +   ~65 wall   the capture burn is ~485 s against Dres's ~420 s node.
+#   -  ~100 wall   the heliocentric coast is CHEAPER: tof ~2.7M game s against
+#                  Dres's ~13.0M, and at x100,000 that is ~27 wall s against
+#                  ~130.
+# => ~4,750 wall EXPECTED. 7,800 is ~1.6x that, the same margin class B12/B16/B19
+# carry and defend, and deliberately generous because this lane's approach cost
+# is DERIVED rather than measured -- if the real v_inf sits at the low end of the
+# band the clamp engages longer than priced.
+# RE-SIZE from the measured wall after flight 1.
+budgetSeconds = 8400
+
+[retry]
+# A first flight of a new profile: one retry absorbs a transient (a node-executor
+# abort, a plan that needs re-issuing) without absorbing a systematic failure,
+# which reds both attempts identically and names itself.
+policy = "once"
+
+[expectedFail]
+bugId = ""

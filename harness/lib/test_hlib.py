@@ -4862,6 +4862,16 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
         # window stays unpinned until the jettison's debris topology has been
         # measured once. Promotion is that post-measurement re-pinning call.
         "B19-dres-orbit.toml":              "calibration-discipline - first flight of a new profile AND of the pre-transfer JETTISON phase; the recordings count window is unpinned pending the jettison debris topology, and promotion waits on that re-pin rather than on outstanding work",
+        # B20 is operator for B19's FIRST reason but not its second: the jettison
+        # debris topology is now MEASURED, so what is unpinned here is the Moho
+        # ARRIVAL rather than the staging. Three of its numbers are DERIVED from
+        # arithmetic rather than from a flight -- the approach ceiling (lowered
+        # 5 -> 4 because Moho's SOI-entry -> periapsis coast is ~2,400-3,900 game
+        # s against Dres's measured ~25,000), the two correction triggers (scaled
+        # to a ~2.7M game-second tof), and the wall budget the lower ceiling's
+        # ~2,000 s approach traversal drives. Promotion is the post-flight re-pin
+        # of those, plus the recordings count.
+        "B20-moho-orbit.toml":              "calibration-discipline - first flight of a new destination whose approach sizing is DERIVED rather than measured (approachMaxWarpFactor lowered to 4 by Moho's short SOI coast, correction triggers scaled to the ~2.7M s tof, wall budget driven by the lower ceiling); the recordings count window is deliberately wide on the B19 first-flight precedent, and promotion waits on re-pinning those to measured values rather than on outstanding work",
         # V9 began as a pure READING RUN and did its job: it measured the optimizer
         # split defeating the re-aim classifier. That finding is now FIXED and V9 is
         # ARMED as its regression floor, so the post-reading arming call it was
