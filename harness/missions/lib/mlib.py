@@ -7985,10 +7985,16 @@ def _b5_jettison_step(state: B5State, snapshot: TelemetrySnapshot,
               craft's engines differ by an order of magnitude, so the thrust
               SIGNATURE identifies the stage without any part-level telemetry.
 
-    Fails CLOSED on both channels, the B-DOCK discipline verbatim:
+    THE TWO CERTIFY CHANNELS FAIL CLOSED, the B-DOCK discipline verbatim:
     ``vessel_count`` defaults 0 (unread) so an unread count never clears a
     baseline, and ``available_thrust`` defaults NaN so an unread thrust is never
-    "lit". Bounded by ``jettison_timeout`` with a reason that distinguishes the
+    "lit". THE THRUST-SAFE GATE FAILS OPEN, deliberately and in the other
+    direction: a non-finite ``throttle`` is treated as safe to stage. That is a
+    considered asymmetry, not an oversight -- a lane whose telemetry does not
+    carry a throttle reading would otherwise never issue a single pop and would
+    sit out its whole budget, and the gate's job is to avoid staging UNDER
+    OBSERVED THRUST rather than to prove the absence of thrust. The certify half
+    is what refuses to call an unobserved outcome a success. Bounded by ``jettison_timeout`` with a reason that distinguishes the
     three failures a human would act on differently: never split, split but
     nothing lit, and lit-but-too-strong (the wrong engine)."""
     p = state.params

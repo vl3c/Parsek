@@ -4862,14 +4862,12 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
         # window stays unpinned until the jettison's debris topology has been
         # measured once. Promotion is that post-measurement re-pinning call.
         "B19-dres-orbit.toml":              "calibration-discipline - first flight of a new profile AND of the pre-transfer JETTISON phase; the recordings count window is unpinned pending the jettison debris topology, and promotion waits on that re-pin rather than on outstanding work",
-        # V9 is operator BY THE CALIBRATION DISCIPLINE in its purest form: it is a
-        # READING RUN by construction (nothing armed, no cells claimed, only the
-        # three plumbing tokens required), flown to measure what the loop machinery
-        # makes of a 20.393M game-second interplanetary unit. Promotion is the
-        # post-reading arming call, which is a human decision taken off the measured
-        # numbers -- and on this lane that call is BLOCKED on a product finding
-        # (the optimizer split defeating the re-aim classifier), not on lane work.
-        "V9-dres-player-loop.toml":         "calibration-discipline - a deliberately unarmed READING run (V8 iteration-1 pattern); it claims no coverage cells and pins nothing beyond plumbing, and arming waits on the re-aim classifier finding it measured rather than on outstanding lane work",
+        # V9 began as a pure READING RUN and did its job: it measured the optimizer
+        # split defeating the re-aim classifier. That finding is now FIXED and V9 is
+        # ARMED as its regression floor, so the post-reading arming call it was
+        # waiting on has been taken. What remains is the ordinary operator -> cadence
+        # promotion decision, which is a human call and not a debt this tag names.
+        "V9-dres-player-loop.toml":         "calibration-discipline - it began as a reading run (V8 iteration-1 pattern), MEASURED the optimizer/re-aim defect, and is now ARMED as that fix's regression floor (classification + schedule + count tokens, two decline reasons forbidden, control run recorded). Operator tier is the ordinary promotion call; the tilt disposition it could not reach is V10's lane, not outstanding work here",
         # V10 is operator by the same calibration discipline: it is a TimeJump
         # observation lane whose brackets are derived from a specific recording's
         # replay clock, so it is re-derived rather than re-run when the fixture

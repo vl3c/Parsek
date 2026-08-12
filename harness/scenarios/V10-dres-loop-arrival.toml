@@ -126,7 +126,7 @@ id = "V10-dres-loop-arrival"
 #     (-900 / -300 / +600) and arm the census pair too.
 # =====================================================================================
 tier = "operator"
-description = "The Dres program's final measurement, ARMED -- TimeJump into the re-aimed Kerbin->Dres transfer so the per-window synthesizer runs, to read the tilt disposition at Dres's 5 deg inclination, the seam-endpoint census at the arrival, and the cycle-0 re-aimed-transfer-ready line. Nothing armed."
+description = "The Dres program's final measurement, ARMED -- TimeJump into the re-aimed Kerbin->Dres transfer so the per-window synthesizer runs, to read the tilt disposition at Dres's 5 deg inclination, the seam-endpoint census at the arrival, and the cycle-0 re-aimed-transfer-ready line."
 instanceProfile = "stock-minimal"
 tags = ["V10", "dres", "loop", "playback", "reaim", "tilt", "flown"]
 

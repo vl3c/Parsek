@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Globalization;
 using UnityEngine;
@@ -1958,6 +1958,15 @@ namespace Parsek
         /// at its Kerbin→Sun handoff, and the re-aim classifier then found no
         /// member holding parking + heliocentric coast + arrival, so a real
         /// Kerbin→Dres transfer replayed FAITHFUL instead of re-aimed.
+        ///
+        /// THE PREMISE IS STOCK-ONLY, and worth naming: "packed means coasting" holds
+        /// because stock KSP does not run engines on rails. A mod that thrusts while
+        /// packed (PersistentThrust and friends) would make a genuinely POWERED
+        /// on-rails traversal read as cohesive here. That is an accepted limit rather
+        /// than an oversight -- the alternative is splitting every real on-rails SOI
+        /// crossing on a stock install to guard a modded case -- but it is the first
+        /// thing to re-read if a modded-install report ever describes a transfer that
+        /// should have split and did not.
         ///
         /// WHAT THIS DELIBERATELY DOES NOT CHANGE: a genuine physics-frame burn
         /// straddling an SOI crossing (ReferenceFrame.Absolute on either side)

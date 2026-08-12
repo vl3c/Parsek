@@ -557,7 +557,11 @@ namespace Parsek.Tests
             Assert.True(bodySplits.Count == 0,
                 "expected NO rule-4 body split in the fixture inventory after the cohesion fix, "
                 + "found " + bodySplits.Count + " after scanning " + sidecarsScanned
-                + " sidecars: " + string.Join(" || ", bodySplits));
+                + " sidecars: " + string.Join(" || ", bodySplits)
+                + "\nIF THIS IS A LEGITIMATE NEW FIXTURE: a physics-frame powered SOI crossing "
+                + "SHOULD split -- that contract is deliberately preserved. The remedy is to PIN "
+                + "the new boundary here (assert the expected set rather than zero), NOT to widen "
+                + "ShouldKeepCohesiveCrossBodyExoCoast to swallow it.");
         }
     }
 }

@@ -62,14 +62,33 @@ id = "V9-dres-player-loop"
 # DETERMINISM: this spec is flown TWICE back to back before anything is pinned, the
 # V8 discipline. Numbers that move between two identical runs are not pinnable.
 #
-# NOT ARMED, DELIBERATELY: no `[expectations.rewind]`, no
-# `[expectations.recordings.structure]`, no census/parity/tilt tokens, no anomaly
-# ceiling. The only required log tokens are the three that prove the STEPS THEMSELVES
-# ran -- if those are absent the run measured nothing and the reading is void, which
-# is a different failure from "the product did something interesting".
+# ARMING LEDGER. This block described the lane's ORIGINAL reading-run posture, and
+# it is now out of date in the one direction that matters, so it is restated rather
+# than left to contradict the contract below.
+#
+#   READING RUNS   2026-08-12 `_0150` (PARSEK-FAIL on the author's own too-narrow
+#                  count window; corrected, mechanism understood) and `_0153` (PASS).
+#                  These are the runs that MEASURED the defect.
+#   POST-FIX       `_0241` / `_0244`, both PASS, byte-identical on every decision
+#                  field -- the two consecutive readings the arming discipline wants.
+#   ARMED          `_0256` PASS attempt 1.
+#   CONTROL        `_0257` PARSEK-FAIL on the single inverted window
+#                  (`recordings.count 6 < min 7`), then reverted.
+#
+# WHAT IS ARMED NOW: a nine-token `required` list (plumbing + classification +
+# schedule + loiter) with two decline reasons FORBIDDEN, and `count` pinned {6,6}.
+# Every armed token is TWO-SIDED -- it reads one way post-fix and the opposite way
+# on the two pre-fix runs -- which is what makes this a regression floor for
+# OPTIMIZER-SPLIT-DEFEATS-REAIM-CLASSIFIER rather than decoration.
+#
+# STILL NOT ARMED, deliberately, and each for a stated reason in the logContracts
+# block below: the tilt disposition (structurally unreachable from this lane -- V10
+# is the lane that reaches it), the seam-endpoint census (absent post-fix because
+# the ENGAGED unit takes the synthesis path), `[expectations.rewind]`,
+# `[expectations.recordings.structure]`, and any anomaly ceiling.
 # =====================================================================================
 tier = "operator"
-description = "READING RUN: the player loop workflow on the Dres program's committed recording -- mark the B19 tree a loop unit and start loop playback, to measure the classify mode, the window schedule, the tilt disposition at Dres's 5 deg inclination, the loiter compression of the 8.4M s LKO wait, and the seam-endpoint census. Nothing armed."
+description = "READING RUN: the player loop workflow on the Dres program's committed recording -- mark the B19 tree a loop unit and start loop playback, to measure the classify mode, the window schedule, the tilt disposition at Dres's 5 deg inclination, the loiter compression of the 8.4M s LKO wait, and the seam-endpoint census. ARMED on the classification, schedule and count tokens the fix moved."
 instanceProfile = "stock-minimal"
 tags = ["V9", "dres", "loop", "playback", "flown", "reaim", "engaged"]
 

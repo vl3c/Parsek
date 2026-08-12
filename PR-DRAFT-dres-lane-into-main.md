@@ -10,7 +10,7 @@ The program's question was narrow: *can the harness fly a human-built craft off 
 
 | Artefact | What it is |
 |---|---|
-| `craft/Duna Rocket.craft` → `bdock-forge-base/Ships/VAB/` | KerbalX (Steltuck), pure stock 1.12.1, 92 parts, committed **byte-identical** to its download (sha256 `f664d7ce…5fc2`). No MechJeb edit — capability is install-side. |
+| `Duna Rocket.craft`, committed under `harness/fixtures/saves/*/Ships/VAB/` | KerbalX (Steltuck), pure stock 1.12.1, 92 parts, committed **byte-identical** to its download (sha256 `f664d7ce…5fc2`). No MechJeb edit — capability is install-side. |
 | `FORGE-b18-dres-pad` + `fixtures/saves/b18-dres-pad` | The pad fixture. Sixth consumer of `forge_station` + `harvest_bdock_station` — no new mission, no new tool. |
 | `B18-dres-lko-ascent` | Ascent-works proof. Reuses `b2_lko_ascent` unchanged. |
 | `B19-dres-orbit` + `b19_dres_orbit` | Kerbin→Sun→Dres transfer, capture, mid-mission commit. Carries the suite's first **pre-transfer JETTISON phase** and first **target-SOI approach warp clamp**. |
