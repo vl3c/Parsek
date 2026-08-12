@@ -213,13 +213,23 @@ type = "int"
 min = 0
 max = 7
 
-# Native-warp SOI lead (GAME seconds): coast/flyby legs warp to the SOI
-# change minus this lead. Optional; mlib defaults 30.
+# Native-warp SOI lead (GAME seconds): coast/flyby legs warp to the SOI change
+# minus this lead. Optional; mlib defaults 30.
+#
+# MAX RAISED 3600 -> 1,000,000 FOR THIS LANE, and the old bound was itself an
+# untested assumption rather than a physical limit. 3600 game seconds is ~4% of
+# ONE full-rate x100,000 poll frame (~50,000 game s), so on any lane that coasts
+# at a high rails factor the bound forbade every value large enough to actually
+# do the job -- B19 flight 4 measured a single frame advancing 27,596 game s
+# straight through the boundary while the lead sat at its default 30. A lead has
+# to be expressible in units of WARP FRAMES, not seconds of real approach, or it
+# cannot bound what it exists to bound. The lower bound and the type are
+# unchanged, and no other lane's value moves (every one of them is <= 30).
 [params.soiLeadSeconds]
 required = false
 type = "number"
 min = 5.0
-max = 3600.0
+max = 1000000.0
 
 # CORRECTION-BURN pre-burn attitude-flip physics warp factor INDEX (0-3;
 # 1 = 2x). Optional; mlib defaults 1.
