@@ -98,7 +98,9 @@ exclusions across the seam live in the SAME `Mission.ExcludedIntervalKeys` set -
 exclusion namespace.
 
 **Missions window rendering**: for each mission whose tree has at least one derivable link,
-render one affordance row per link ("Partner journey - <foreign vessel> (docked <time>)")
+render one affordance row per link ("Docked partner: <foreign vessel>", with the dock time in
+the Start time column; the row read "Partner journey - <foreign vessel>" before the Tier-1
+presentation pass, `docs/dev/research/mission-presentation-ux-analysis-2026-08-12.md` T1.7)
 with an include toggle bound to `IncludedForeignDockLinkIds` (the explicit player action
 that engages the cross-tree path; default OFF). When included, the journey's intervals
 render as indented child rows with normal per-interval checkboxes (same
