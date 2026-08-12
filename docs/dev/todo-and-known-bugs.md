@@ -78,28 +78,52 @@ a body change or a re-plan), so an intermittent unread frame cannot re-open the 
 Shipped as a new pure predicate `mlib.approach_latch_state` plus an `approach_latched`
 state field and a `latched=False` keyword on `approach_warp_clamp` -- so every lane that
 does not arm the clamp, and every existing caller, is BYTE-IDENTICAL (all 1,496
-pre-existing mission cells pass unchanged). The latch engages only when `tts` is
-observed finite and inside the window, releases on arrival at the target body, and while
-held it applies the cap and DROPS the native target rather than leaving a stale one
-armed. It only ever LOWERS a factor, so the blast radius across B7/B11/B12/B16/B17/B19
-is one-directional: those lanes can only warp more conservatively on final approach, and
-none of them can be sped up by it.
+pre-existing mission cells pass unchanged). While held it applies the cap and DROPS the
+native target rather than leaving a stale one armed.
+
+BLAST RADIUS, counted rather than asserted: exactly TWO committed specs set
+`approachWindowSeconds` -- `B19-dres-orbit` and `B20-moho-orbit`. Every other lane
+leaves it at 0, where the clamp and the latch are both inert. (An earlier draft of this
+entry named B7/B11/B12/B16/B17 as well; they never arm it, and gating a review on the
+wrong set is worse than gating it on none.) For B19 the change is one-directional and
+favourable: the latch can only hold the ceiling it already asked for, and it prevents
+precisely the past-periapsis overshoot that killed B19's own flights 3 and 4.
+
+THE ENGAGE CONDITION NEEDS A SECOND DISCRIMINATOR, and the first implementation missed
+it -- caught in clean-context review BEFORE it flew. `time_to_soi` is time to the NEXT
+SOI transition of ANY kind, not to the target's. B20's own escape leg measured
+`body=Kerbin tts=45901.038 nextBody=Mun` (a legitimate via-body transit -- the lane
+lists Mun in `viaBodyNames`) and `tts=309757.221 nextBody=Sun`. A latch keyed on `tts`
+alone engaged on the MUN transit and, since release requires arrival at the target, held
+the ceiling across the whole heliocentric coast -- taxing the exact leg the clamp exists
+to leave alone. Engage therefore requires `next_body == target_body`, read off the same
+patched conic (`nextBody=Moho` on both finite frames of the measured approach) and
+failing closed on a blank. Release happens on the live COAST -> TARGET-FLYBY hop, not in
+the predicate: that hop runs BEFORE the latch computation, so the predicate's own
+arrival branch never executes on the live path.
 
 VERIFIED AGAINST THE MEASURED FRAMES, replayed through the real predicate:
 
 ```
-frame (ut, tts)              BEFORE          AFTER
-2780692.797  nan             x100000         x100000   <- heliocentric, unchanged
-2780694.621  100001.413      x100            x100      <- window entered, latch engages
-2780695.681  100000.353      x100            x100
-2780709.607  nan             x100000  <-BUG  x100      <- the blink no longer re-opens it
-2835750.877  nan             x100000  <-BUG  x100      <- the frame that overshot
+leg (from B20's own measured frames)   tts        next   BEFORE   AFTER
+post-TLI, Mun transit ahead            45901      Mun    x100     x100     (pre-existing
+escape, Sun ahead                      309757     Sun    x100000  x100000   clamp
+heliocentric, no encounter             nan        ?      x100000  x100000   behaviour,
+encounter exists, far                  1255576    Moho   x100000  x100000   unchanged)
+approach, inside the window            100001     Moho   x100     x100     <- latch engages
+THE BLINK                              nan        ?      x100000  x100     <- THE DEFECT
+the frame that overshot                nan        ?      x100000  x100     <- THE DEFECT
+arrived at Moho                        nan        ?      x100000  x100000  <- released
 ```
 
-The pre-window frames are untouched, so the 2.7M game-second coast is not taxed; only
-the post-blink frames change, which is exactly the defect. Seven cells added beside
-`ApproachWarpClampTests`, including the fail-open regression guard for the unlatched
-heliocentric leg and a Moho sibling of the Dres sizing claim.
+Only the two post-blink frames change, which is exactly the defect and nothing else: the
+escape, the via-body transit and the 2.7M game-second heliocentric coast all keep their
+speed. (The `x100` on the Mun-transit row is the UNLATCHED clamp's own pre-existing
+behaviour -- it caps whenever `tts <= window` regardless of which boundary -- and is left
+alone here because B19 is live-proven green with it.) Nine cells added beside
+`ApproachWarpClampTests`: the fail-open regression guard for the unlatched heliocentric
+leg, the non-target-boundary guard pinned on the measured Mun/Sun frames, a blank
+next_body fail-closed guard, and a Moho sibling of the Dres sizing claim.
 
 Cheaper alternative CONSIDERED AND REJECTED: a much smaller `soiLeadSeconds` on the
 theory that `tts` reads reliably closer in. That is a guess about read stability, and a

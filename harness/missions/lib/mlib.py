@@ -7652,6 +7652,13 @@ class B5State:
     # warp is the warp's own artifact -- applied to the CEILING rather than the
     # target. Cleared when the target SOI is entered or the encounter is
     # abandoned, so it can never outlive the approach it describes.
+    #
+    # RELEASED on the COAST -> TARGET-FLYBY hop (arrival). There is deliberately
+    # NO "encounter abandoned" release: engage already requires next_body to BE
+    # the target, so a lost or re-planned encounter simply stops re-engaging,
+    # and a stale True can only ever cap warp on a coast that is no longer
+    # approaching anything -- slow, never wrong, and bounded by the phase's own
+    # game-time budget.
     approach_latched: bool = False
     # Game-time stamp of the last warp_to_ut emission (initial, retarget, or
     # self-heal re-issue) - bounds the self-healing re-issue to once per
@@ -7887,13 +7894,27 @@ def _b5_seam_payload(snapshot: TelemetrySnapshot, tag: str, key: str) -> str:
     return ""
 
 
-def approach_latch_state(time_to_soi, window, body, target_body, latched):
+def approach_latch_state(time_to_soi, next_body, window, body, target_body,
+                         latched):
     """PURE. Whether the target-SOI approach ceiling is LATCHED for this frame.
 
-    Engages the first time the craft is OBSERVED inside ``window`` of the target
-    SOI, and holds through subsequent unread ``time_to_soi`` frames. Releases on
-    arrival (``body`` is the target -- the in-SOI flyby factors govern from
-    there) so the latch can never outlive the approach it describes.
+    Engages the first time the craft is OBSERVED inside ``window`` of the
+    TARGET's SOI, and holds through subsequent unread ``time_to_soi`` frames.
+    Releases on arrival (``body`` is the target -- the in-SOI flyby factors
+    govern from there); the live COAST -> TARGET-FLYBY hop clears the state
+    field directly, and this branch keeps the predicate honest on its own.
+
+    ``next_body`` IS THE LOAD-BEARING DISCRIMINATOR, and omitting it was a real
+    bug caught in review before it flew. ``time_to_soi`` is time to the NEXT SOI
+    transition of ANY kind, not to the target's: B20's own escape leg measured
+    ``body=Kerbin tts=45901.038 nextBody=Mun`` (a legitimate via-body transit --
+    the lane lists Mun in viaBodyNames) and ``tts=309757.221 nextBody=Sun``.
+    Latching on the first of those would have engaged the ceiling on the Kerbin
+    escape and, since the release requires arrival at the target, held it across
+    the entire heliocentric coast -- taxing exactly the leg this clamp is
+    supposed to leave alone. Engage therefore requires the observed transition
+    to be INTO the target body, which the same patched-conic read supplies
+    (``nextBody=Moho`` on both finite frames of the measured approach).
 
     WHY IT EXISTS (B20 flight 3, 2026-08-12): ``approach_warp_clamp`` is pure and
     stateless, so it cannot tell "not yet on approach" from "on approach, and the
@@ -7909,7 +7930,8 @@ def approach_latch_state(time_to_soi, window, body, target_body, latched):
     if target_body and body and body == target_body:
         # Arrived: the approach is over and the flyby factors take it from here.
         return False
-    if _is_finite(time_to_soi) and 0.0 < time_to_soi <= window:
+    if (_is_finite(time_to_soi) and 0.0 < time_to_soi <= window
+            and target_body and next_body == target_body):
         return True
     return latched
 
@@ -10324,7 +10346,12 @@ def b5_decide(state: B5State, snapshot: TelemetrySnapshot) -> Tuple[B5State, Lis
 
     if state.phase == B5_COAST_TO_TARGET:
         if snapshot.body == state.params.target_body:
-            entered = _b5_enter(state, B5_TARGET_FLYBY, snapshot.ut, peak)
+            # RELEASE THE APPROACH LATCH HERE, not in the predicate: this hop
+            # runs BEFORE the latch computation further down, so the predicate's
+            # own arrival branch never executes on the live path and the field
+            # would otherwise stay True for the rest of the mission.
+            entered = _b5_enter(replace(state, approach_latched=False),
+                                B5_TARGET_FLYBY, snapshot.ut, peak)
             if not state.params.capture_enabled:
                 # FLYBY missions are unchanged: passing periapsis IS the
                 # point, so the inherited coast warp rides on byte-identically.
@@ -10565,7 +10592,8 @@ def b5_decide(state: B5State, snapshot: TelemetrySnapshot) -> Tuple[B5State, Lis
         # onto `stayed`, so a blinking time_to_soi cannot re-open the ceiling
         # mid-approach. It releases on arrival at the target body.
         approach_latched = approach_latch_state(
-            snapshot.time_to_soi, state.params.approach_window,
+            snapshot.time_to_soi, snapshot.next_body,
+            state.params.approach_window,
             snapshot.body, state.params.target_body, stayed.approach_latched)
         if approach_latched != stayed.approach_latched:
             stayed = replace(stayed, approach_latched=approach_latched)
