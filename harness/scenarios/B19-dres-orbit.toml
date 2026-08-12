@@ -124,10 +124,32 @@ id = "B19-dres-orbit"
 # there is no Ike/Gilly exclusion to design the park around -- the reason the
 # park windows below are loose is that nothing physical is fighting them.
 # =====================================================================================
+# FLOWN GREEN 2026-08-12 (run 2026-08-12_0047, PASS attempt 1, 2,981 s wall,
+# every verifier PASS/SKIPPED, all six mission assertions met). The five-run road
+# there and what each run bought is in docs/dev/autotest-status.md; the two
+# machine findings it produced (the jettison redesign and the approach warp
+# clamp) are documented at their own parameters below.
+#
+# MEASURED ON THE GREEN RUN, the numbers a re-pin or a re-derivation should start
+# from:
+#   jettison        2 pops, hand-off at avThr=60,000 N (the LV-N), lf=2,240.000
+#                   -- the transfer stage's full load, nuclear propellant
+#                   untouched by the ascent
+#   ejection        node 1,337.5 m/s class; TRANSFER-BURN ut 2,704 -> 8,447,964
+#                   (the window wait is inside that span, autowarped)
+#   corrections     2 rounds, both BURNED (round 1 ut 8,584,968; round 2
+#                   ut 19,785,503)
+#   Sun->Dres SOI   ut 20,378,838.0, and the first in-SOI frame read
+#                   ttPe=+14,196.1 -- periapsis AHEAD, which is the whole point
+#                   of the approach clamp (flight 4 read -9,741.9 here)
+#   capture         node 1,717.4 m/s, CAPTURE-BURN ut 20,385,705 -> 20,393,228
+#   park            1,110.4 x 1,089.7 km, ecc 0.0084, ORBITING
+#   commit          ut 20,393,408.2, terminalOrbitBody=Dres
+#   fuel            lf 913.859 at commit -> 3,933 m/s still in the LV-N stage
 tier = "operator"
 description = "Dres ORBIT across a heliocentric traverse, on the stock Duna Rocket: 700 km park, PRE-TRANSFER JETTISON of the spent chemical stack onto the LV-N, ejection at the Kerbin->Dres window, corrections, CAPTURE inside Dres's SOI, held park and a mid-mission CommitTree -- the flight whose committed recording becomes the dres-orbit-recorded fixture."
 instanceProfile = "stock-minimal"
-tags = ["B19", "dres", "orbit", "mechjeb", "interplanetary", "cross-soi", "capture", "commit-in-foreign-soi", "jettison", "pending-flight"]
+tags = ["B19", "dres", "orbit", "mechjeb", "interplanetary", "cross-soi", "capture", "commit-in-foreign-soi", "jettison", "flown"]
 
 [fixture]
 # B18's committed pad fixture: the Duna Rocket PRELAUNCH on the LaunchPad with
@@ -407,13 +429,23 @@ D14 = ["kerbin", "dres", "soi-count", "warp-rails", "warp-high", "scene-flight",
 allowedAnomalies = []
 
 [expectations.recordings]
-# MEASURED 5 on both flights that got past the jettison (2026-08-11_2311 and
-# _2352, `verifiers.expectations.observed.recordings.count`), but DELIBERATELY
-# LEFT UNPINNED: both were driver-INVALID runs that never captured, committed or
-# saved, so 5 is the count of an INCOMPLETE flight's sidecars, not of the
-# topology this lane is meant to produce. Pin it from the first GREEN run.
-#
-# UNPINNED PENDING THE FIRST GREEN FLIGHT, and honestly so. B18 MEASURED the ascent
+# PINNED FROM THE GREEN FLIGHT (2026-08-12_0047, PASS attempt 1): observed
+# count = 5, and the topology is NAMED rather than merely counted, which is what
+# makes the pin tight rather than lucky:
+#   +1  the main recording -- terminal Orbiting, terminalOrbitBody=Dres
+#   +2  the two radial booster stacks shed at istg 6 during ascent (the exact
+#       population B18 measured on this craft), terminal Destroyed
+#   +2  the two stacks the JETTISON sheds at the 700 km park -- the core
+#       Mainsail group and the Skipper group -- terminal Orbiting with
+#       terminalOrbitBody=KERBIN, because they are left in the parking orbit
+# 5 = 3 (B18's measured ascent population) + 2 (this lane's jettison), so the
+# count is derived from two independently measured halves and every one of the
+# five is accounted for. saveParse agrees: trees 1, committedTrees 1,
+# terminalStates {Orbiting 3, Destroyed 2}, branchPoints {JointBreak 3},
+# points total 1,729 (largest 1,546, smallest 21, trivial 0, unparsed 0),
+# supersedeRows 0, tombstones 0, rewindPoints 0.
+# RE-PIN CONTRACT: if a later run legitimately differs, re-pin to the measured
+# value and record which recordings it produced; do NOT widen. B18 MEASURED the ascent
 # half at exactly 3 (1 main + 2 radial-booster debris children), but THIS lane
 # adds the jettison, which shears off two more stacks (the core Mainsail group
 # and the Skipper group) at a point no flight has yet recorded. Whether KSP
@@ -421,7 +453,7 @@ allowedAnomalies = []
 # each, is exactly what this run measures. min 3 gates the ascent population that
 # IS measured; max 12 absorbs the jettison debris. RE-PIN to the measured value
 # once green -- do NOT leave this wide.
-count = { min = 3, max = 12 }
+count = { min = 5, max = 5 }
 
 [expectations.logContracts]
 # Every token sourced from its ACTUAL emitting call site; the interplanetary
