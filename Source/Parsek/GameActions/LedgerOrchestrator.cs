@@ -3775,22 +3775,56 @@ namespace Parsek
         ///   <item>Global latest by EndUT (preserved fallback for recoveries whose metadata
         ///   has drifted, e.g., manual EndUT trim).</item>
         /// </list>
-        /// Skips ghost-only recordings (zero career footprint per #432) and
-        /// <see cref="MergeState.NotCommitted"/> recordings. The NotCommitted skip closes the
-        /// phantom-attribution route: <c>RewindInvoker.BuildProvisionalRecording</c> is the only
-        /// production creator of a NotCommitted recording, and it copies the origin child's
-        /// <c>VesselName</c>, so a live Re-Fly provisional matches this picker's vessel-name
-        /// filter and — being the newest recording — normally wins both the bracketing and the
-        /// global-latest tier. Stamping its id onto a career payout leaves a dangling
-        /// <c>RecordingId</c> the moment the provisional is discarded or pruned. An uncommitted
-        /// provisional is not a legitimate attribution target for a career payout; a committed
-        /// candidate is preferred, and no-candidate is preferred over a doomed one.
-        /// Returns null when no eligible recording matches <paramref name="vesselName"/>.
+        /// Skips ghost-only recordings (zero career footprint per #432) and ZOMBIE
+        /// <see cref="MergeState.NotCommitted"/> recordings.
+        /// <para>
+        /// The NotCommitted rule is SESSION-AWARE, deliberately not a blanket skip.
+        /// <c>RewindInvoker.BuildProvisionalRecording</c> is the only production creator of a
+        /// NotCommitted recording, and it copies the origin child's <c>VesselName</c>, so such
+        /// a recording always matches this picker's vessel-name filter and — being newest —
+        /// normally wins the bracketing and global-latest tiers. Two populations wear that
+        /// state and they need OPPOSITE treatment:
+        /// </para>
+        /// <list type="bullet">
+        ///   <item><description>
+        ///     The ACTIVE session's provisional is ELIGIBLE. A payout earned mid-session
+        ///     (recovery UT past the origin child's EndUT — the ordinary successful re-fly)
+        ///     belongs to the provisional, which becomes the surviving fork at merge and is
+        ///     NOT in the supersede subtree, so the attribution becomes valid on commit.
+        ///     Skipping it would redirect the payout to the origin child, whose post-rewind
+        ///     actions <c>RecordingTreeSplitter</c> retags to the superseded TIP — and
+        ///     <c>CommitTombstones</c> would then tombstone a REAL payout away.
+        ///     <c>RecordingId</c> is the tombstone SCOPING KEY
+        ///     (<c>TombstoneAttributionHelper.InSupersedeScope</c>, no UT guard), not a
+        ///     cosmetic label.
+        ///   </description></item>
+        ///   <item><description>
+        ///     Any OTHER NotCommitted recording is a zombie awaiting <c>LoadTimeSweep</c> and
+        ///     is SKIPPED: it is going away, so its id would dangle. That is the
+        ///     phantom-attribution route this closes.
+        ///   </description></item>
+        /// </list>
+        /// Returns null when no eligible recording matches <paramref name="vesselName"/>;
+        /// no-candidate is preferred over a doomed one.
         /// Internal static for testability.
         /// </summary>
         internal static string PickRecoveryRecordingId(string vesselName, double ut)
         {
             return PickRecoveryRecordingId(RecoveredVesselIdentity.FromRawName(vesselName), ut);
+        }
+
+        /// <summary>
+        /// The live Re-Fly session's provisional recording id, or null when no session is
+        /// armed. <c>ReferenceEquals</c> bypasses Unity's <c>Object ==</c> override so the
+        /// no-scenario case (unit tests, non-flight callers) resolves to null instead of
+        /// throwing.
+        /// </summary>
+        private static string ResolveActiveReFlyProvisionalRecordingId()
+        {
+            var scenario = ParsekScenario.Instance;
+            if (ReferenceEquals(null, scenario))
+                return null;
+            return scenario.ActiveReFlySessionMarker?.ActiveReFlyRecordingId;
         }
 
         internal static string PickRecoveryRecordingId(RecoveredVesselIdentity identity, double ut)
@@ -3802,20 +3836,33 @@ namespace Parsek
             Recording mostRecentEnded = null;  // tier 2
             Recording globalLatest = null;     // tier 3
             int candidateCount = 0;
-            int skippedNotCommitted = 0;
+            int skippedZombieNotCommitted = 0;
+            bool admittedSessionProvisional = false;
+
+            // The ACTIVE session's provisional is a legitimate target (it survives the
+            // merge as the fork); every other NotCommitted recording is a zombie whose
+            // id would dangle. Resolved once, outside the loop.
+            string sessionProvisionalId = ResolveActiveReFlyProvisionalRecordingId();
 
             for (int i = 0; i < recordings.Count; i++)
             {
                 var rec = recordings[i];
                 if (rec == null) continue;
                 if (rec.IsGhostOnly) continue;
-                // An uncommitted Re-Fly provisional carries the origin child's VesselName and
-                // the newest EndUT, so it would otherwise win outright and tag the payout with
-                // an id that dies with the provisional. Counted, not logged per-item.
                 if (rec.MergeState == MergeState.NotCommitted)
                 {
-                    if (identity.MatchesName(rec.VesselName)) skippedNotCommitted++;
-                    continue;
+                    bool isSessionProvisional =
+                        !string.IsNullOrEmpty(sessionProvisionalId)
+                        && string.Equals(
+                            rec.RecordingId, sessionProvisionalId, StringComparison.Ordinal);
+                    if (!isSessionProvisional)
+                    {
+                        // Zombie awaiting LoadTimeSweep. Counted, not logged per-item.
+                        if (identity.MatchesName(rec.VesselName)) skippedZombieNotCommitted++;
+                        continue;
+                    }
+                    if (identity.MatchesName(rec.VesselName))
+                        admittedSessionProvisional = true;
                 }
                 if (!identity.MatchesName(rec.VesselName)) continue;
                 candidateCount++;
@@ -3845,16 +3892,16 @@ namespace Parsek
             Recording pick = bracketing ?? mostRecentEnded ?? globalLatest;
             if (pick == null)
             {
-                // Worth a positive trace: when the only name matches were uncommitted
-                // provisionals, this untagged payout is the NotCommitted skip working, not a
+                // Worth a positive trace: when the only name matches were zombie
+                // provisionals, this untagged payout is the zombie skip working, not a
                 // missing recording. Without this line the two are indistinguishable in a log.
-                if (skippedNotCommitted > 0)
+                if (skippedZombieNotCommitted > 0)
                 {
                     ParsekLog.Verbose(Tag,
                         $"PickRecoveryRecordingId: {identity.FormatForLog()} " +
                         $"ut={ut.ToString("F1", CultureInfo.InvariantCulture)} candidates=0 " +
-                        $"skippedNotCommitted={skippedNotCommitted} tier=none pick=<null> " +
-                        $"(only uncommitted provisionals matched; payout left untagged)");
+                        $"skippedZombieNotCommitted={skippedZombieNotCommitted} tier=none " +
+                        $"pick=<null> (only zombie provisionals matched; payout left untagged)");
                 }
                 return null;
             }
@@ -3864,7 +3911,8 @@ namespace Parsek
                         : "global-latest";
             ParsekLog.Verbose(Tag,
                 $"PickRecoveryRecordingId: {identity.FormatForLog()} ut={ut.ToString("F1", CultureInfo.InvariantCulture)} " +
-                $"candidates={candidateCount} skippedNotCommitted={skippedNotCommitted} " +
+                $"candidates={candidateCount} skippedZombieNotCommitted={skippedZombieNotCommitted} " +
+                $"sessionProvisionalAdmitted={admittedSessionProvisional} " +
                 $"tier={tier} pick={pick.RecordingId}");
 
             return pick.RecordingId;

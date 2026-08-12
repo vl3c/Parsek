@@ -2761,6 +2761,18 @@ namespace Parsek
             CommitTombstones(marker, subtree, retiredId, ut, nowIso, scenario);
             int tombstonesWritten = scenario.LedgerTombstones.Count - tombstonesBefore;
 
+            // Retire-time tag re-home. The provisional is being retired and will not exist
+            // after this, so any ledger row still tagged to it is untagged HERE. NOT cosmetic
+            // tidying: RecordingId is the tombstone scoping key
+            // (TombstoneAttributionHelper.InSupersedeScope — bare subtree-id containment, no UT
+            // guard) and FundsEarning / ScienceEarning are tombstone-eligible, so a row left
+            // pointing at a retired id can be swept into a later supersede subtree and a REAL
+            // payout tombstoned away. Clearing the tag keeps the row and its career effect —
+            // the same shape PreserveIrreversibleLiveGameplayOnDiscard produces. Accepted
+            // exposure: the untagged row becomes eligible for PruneOrphanActionsAfterUT,
+            // identical to the exposure the existing discard re-home already accepts.
+            int tagsCleared = Ledger.ClearRecordingTagForRecording(retired.RecordingId);
+
             ClearPreReFlyAnchorSnapshotsForSession(marker.SessionId);
             scenario.ActiveReFlySessionMarker = null;
             Parsek.Rendering.RenderSessionState.Clear("marker-cleared");
@@ -2775,6 +2787,7 @@ namespace Parsek
                 $"retireReason={retireReason ?? "<none>"} " +
                 $"rows={rowsWritten.ToString(ic)} " +
                 $"tombstones={tombstonesWritten.ToString(ic)} " +
+                $"ledgerTagsCleared={tagsCleared.ToString(ic)} " +
                 $"{DescribeSupersedePayload(retired)} — the attempt produced nothing the " +
                 "timeline could play, so the origin stays effective and the session is " +
                 "concluded here rather than left for the load-time sweep");

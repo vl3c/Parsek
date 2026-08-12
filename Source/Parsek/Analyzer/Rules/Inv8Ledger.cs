@@ -22,8 +22,10 @@ namespace Parsek.Analyzer.Rules
     //
     // Part (a2) -- dangling ledger RecordingId refs (WARN, every save). A ledger row
     // whose non-empty RecordingId resolves to no known recording (phantom
-    // attribution). WARN, not FAIL: attribution-only damage, and a pre-existing
-    // population must stay gate-neutral. See EvaluateDanglingRecordingRefs.
+    // attribution). WARN, not FAIL: a DANGLING id cannot scope a tombstone, so this
+    // specific finding is attribution-only, and a pre-existing population must stay
+    // gate-neutral. See EvaluateDanglingRecordingRefs for why that reasoning does NOT
+    // generalise to a wrong-but-live tag.
     //
     // Part (b) -- career-diff reconstruction (WARN, career only). The rule diffs a
     // headless ledger reconstruction against the parsed career totals via
@@ -192,23 +194,41 @@ namespace Parsek.Analyzer.Rules
         // --- Part (a2): dangling ledger RecordingId refs (WARN, every save) ---
         //
         // Observability for phantom attribution: a ledger row tagged with a
-        // RecordingId that resolves to no known recording. The live route that
-        // produced these was LedgerOrchestrator.PickRecoveryRecordingId stamping an
-        // uncommitted Re-Fly provisional's id onto a career payout; the provisional is
-        // then discarded or pruned and the tag outlives it. That route is now closed at
-        // the picker (NotCommitted skip), so this rule's job is the EXISTING
-        // population already sitting in saves -- hence WARN, not FAIL.
+        // RecordingId that resolves to no known recording. Two live routes produced
+        // these, both now closed: LedgerOrchestrator.PickRecoveryRecordingId stamping a
+        // ZOMBIE uncommitted provisional's id onto a career payout (session-aware skip),
+        // and the two retire paths -- SupersedeCommit.ConcludeRetiredProvisional and
+        // MergeDialog.TryDiscardActiveReFlyAttempt -- deleting a recording without
+        // untagging its rows (retire-time re-home via
+        // Ledger.ClearRecordingTagForRecordings). This rule's job is the EXISTING
+        // population already sitting in saves, which neither fix rewrites.
         //
-        // WARN by design, two reasons: (1) the tag is cosmetic/attribution-only -- the
-        // payout itself is correct and the career totals reconcile, so a dangling tag
-        // is not a state corruption; (2) WARN never contributes to the .analysis.txt
-        // terminal RED token (ReportWriter: RED=1 iff failNonBaselined +
-        // staleNonBaselined > 0), so surfacing a pre-existing population in every
+        // SCOPE OF THE DAMAGE, stated carefully because it is easy to get wrong:
+        // RecordingId is NOT a cosmetic label in general -- it is the tombstone scoping
+        // key at merge (TombstoneAttributionHelper.InSupersedeScope is bare subtree-id
+        // containment with NO UT guard, and FundsEarning / ScienceEarning are
+        // tombstone-eligible), so a WRONG-but-live tag can get a real payout tombstoned
+        // away. What this rule reports is narrower: a tag pointing at an id no recording
+        // owns. Such an id cannot be a member of any supersede subtree, so it cannot
+        // scope a tombstone, and the row's own career effect still applies -- the pools
+        // reconcile. For THIS finding, and only this one, the damage is attribution-only.
+        //
+        // WARN by design: (1) per the scope note above, a DANGLING tag is inert for
+        // recalculation, so it is not a state corruption; (2) WARN never contributes to
+        // the .analysis.txt terminal RED token (ReportWriter: RED=1 iff failNonBaselined
+        // + staleNonBaselined > 0), so surfacing a pre-existing population in every
         // affected save cannot flip a gated run red. It is still normally
         // baseline-absorbable: Target is the real recording id (never a placeholder,
         // which BaselineFilter.IsPlaceholderTarget refuses) and the count in the
         // message is masked to '#' by NormalizeMessageDigest, so the key stays stable
         // as more rows accumulate against the same phantom id.
+        //
+        // The message deliberately carries NO sample actionId. NormalizeMessageDigest
+        // masks only numeric RUNS, and a real ActionId is hex -- its letters survive
+        // masking, so including one would change the baseline key whenever the FIRST
+        // dangling row for that id changed (a re-order, or an earlier row pruned), and
+        // silently un-baseline an already-accepted finding. The recording id in Target
+        // already identifies the phantom; the ledger itself is where to go for the rows.
         //
         // One finding per DISTINCT phantom recording id (not per action): the finding
         // count stays bounded by the number of missing recordings rather than by the
@@ -238,7 +258,6 @@ namespace Parsek.Analyzer.Rules
             var reported = new HashSet<string>(System.StringComparer.Ordinal);
             var order = new List<string>();
             var counts = new Dictionary<string, int>(System.StringComparer.Ordinal);
-            var firstActionId = new Dictionary<string, string>(System.StringComparer.Ordinal);
 
             foreach (GameAction a in model.Ledger)
             {
@@ -250,7 +269,6 @@ namespace Parsek.Analyzer.Rules
                 {
                     order.Add(a.RecordingId);
                     counts[a.RecordingId] = 0;
-                    firstActionId[a.RecordingId] = a.ActionId ?? "<none>";
                 }
                 counts[a.RecordingId]++;
             }
@@ -263,8 +281,8 @@ namespace Parsek.Analyzer.Rules
                     recId,
                     -1,
                     Inv("INV8 dangling-recording-ref recordingId={0} actions={1} " +
-                        "firstActionId={2} kind=phantom-attribution",
-                        recId, counts[recId], firstActionId[recId]),
+                        "kind=phantom-attribution",
+                        recId, counts[recId]),
                     "GameAction.RecordingId"));
             }
         }

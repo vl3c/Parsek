@@ -41,6 +41,9 @@ namespace Parsek.Tests
             GameStateStore.ResetForTesting();
             LedgerOrchestrator.ResetForTesting();
             RecordingStore.ResetForTesting();
+            // PickRecoveryRecordingId now reads the live Re-Fly marker off the scenario,
+            // so the instance is shared static state this class must own both ends of.
+            ParsekScenario.ResetInstanceForTesting();
         }
 
         public void Dispose()
@@ -51,8 +54,35 @@ namespace Parsek.Tests
             KspStatePatcher.ResetForTesting();
             RecordingStore.SuppressLogging = false;
             GameStateStore.ResetForTesting();
+            ParsekScenario.ResetInstanceForTesting();
             ParsekLog.ResetTestOverrides();
             ParsekLog.SuppressLogging = true;
+        }
+
+        /// <summary>
+        /// Arms a live Re-Fly session whose provisional is <paramref name="provisionalId"/>,
+        /// so the picker's session-aware NotCommitted rule can see it.
+        /// </summary>
+        private static void InstallReFlySession(string provisionalId, string originId)
+        {
+            var scenario = new ParsekScenario
+            {
+                RecordingSupersedes = new List<RecordingSupersedeRelation>(),
+                LedgerTombstones = new List<LedgerTombstone>(),
+                RewindPoints = new List<RewindPoint>(),
+                ActiveReFlySessionMarker = new ReFlySessionMarker
+                {
+                    SessionId = "sess_1",
+                    TreeId = "tree_1",
+                    ActiveReFlyRecordingId = provisionalId,
+                    OriginChildRecordingId = originId,
+                    SupersedeTargetId = originId,
+                    RewindPointId = "rp_1",
+                    InvokedUT = 0.0,
+                    PreSessionBranchPointIds = new List<string>(),
+                },
+            };
+            ParsekScenario.SetInstanceForTesting(scenario);
         }
 
         [Fact]
@@ -1665,63 +1695,106 @@ namespace Parsek.Tests
             Assert.Equal("rec-mid", pick);
         }
 
-        [Fact]
-        public void PickRecoveryRecordingId_SkipsNotCommittedProvisional_PrefersCommitted()
-        {
-            // Phantom-attribution close: RewindInvoker.BuildProvisionalRecording is the
-            // only production creator of a NotCommitted recording and it COPIES the
-            // origin child's VesselName, so a live Re-Fly provisional matches the
-            // picker's name filter. Being newest, it would otherwise win both the
-            // bracketing and global-latest tiers and stamp a soon-to-be-pruned id onto
-            // a career payout. A committed candidate must win instead.
-            var committed = new Recording
-            {
-                RecordingId = "rec-committed",
-                VesselName = "Reusable",
-                PreLaunchFunds = 50000.0,
-                MergeState = MergeState.Immutable,
-                TerminalStateValue = TerminalState.Destroyed
-            };
-            committed.Points.Add(new TrajectoryPoint { ut = 100.0, funds = 40000.0 });
-            committed.Points.Add(new TrajectoryPoint { ut = 900.0, funds = 40000.0 });
-            RecordingStore.AddRecordingWithTreeForTesting(committed);
+        // --- The session-aware NotCommitted rule ---------------------------------
+        //
+        // RewindInvoker.BuildProvisionalRecording is the only production creator of a
+        // NotCommitted recording and it COPIES the origin child's VesselName, so such a
+        // recording always matches this picker's name filter and, being newest, wins the
+        // bracketing / global-latest tiers. Two populations wear that state and need
+        // OPPOSITE treatment - hence a session-aware rule, not a blanket skip.
 
-            // Uncommitted provisional: same vessel name, brackets the recovery UT AND
-            // carries the largest EndUT (so it would win tiers 1 and 3 alike).
-            var provisional = new Recording
+        private static Recording PickerRec(
+            string id, string vesselName, MergeState state,
+            double startUT, double endUT, TerminalState terminal)
+        {
+            var rec = new Recording
             {
-                RecordingId = "rec-provisional",
-                VesselName = "Reusable",
+                RecordingId = id,
+                VesselName = vesselName,
                 PreLaunchFunds = 50000.0,
-                MergeState = MergeState.NotCommitted,
-                TerminalStateValue = TerminalState.Orbiting
+                MergeState = state,
+                TerminalStateValue = terminal
             };
-            provisional.Points.Add(new TrajectoryPoint { ut = 200.0, funds = 39000.0 });
-            provisional.Points.Add(new TrajectoryPoint { ut = 5000.0, funds = 39000.0 });
-            RecordingStore.AddRecordingWithTreeForTesting(provisional);
+            rec.Points.Add(new TrajectoryPoint { ut = startUT, funds = 40000.0 });
+            rec.Points.Add(new TrajectoryPoint { ut = endUT, funds = 40000.0 });
+            return rec;
+        }
+
+        [Fact]
+        public void PickRecoveryRecordingId_ActiveSessionProvisional_IsEligible()
+        {
+            // THE REGRESSION GUARD. A payout earned mid-session (recovery UT past the
+            // origin child's EndUT - the ordinary successful re-fly) must attribute to
+            // the PROVISIONAL, which survives the merge as the fork and is NOT in the
+            // supersede subtree, so the tag becomes valid on commit.
+            //
+            // A blanket NotCommitted skip would redirect this to the origin child, whose
+            // post-rewind actions RecordingTreeSplitter retags to the superseded TIP -
+            // and CommitTombstones would then tombstone a REAL payout away
+            // (TombstoneAttributionHelper.InSupersedeScope is bare subtree-id
+            // containment with no UT guard; FundsEarning is tombstone-eligible).
+            // RecordingId is the tombstone SCOPING KEY, not a cosmetic label.
+            InstallReFlySession("rec-provisional", "rec-origin");
+
+            RecordingStore.AddRecordingWithTreeForTesting(PickerRec(
+                "rec-origin", "Reusable", MergeState.Immutable,
+                100.0, 900.0, TerminalState.Destroyed));
+            RecordingStore.AddRecordingWithTreeForTesting(PickerRec(
+                "rec-provisional", "Reusable", MergeState.NotCommitted,
+                1000.0, 5000.0, TerminalState.Orbiting));
+
+            // Recovery at 2000: past the origin's EndUT (900), inside the provisional.
+            string pick = LedgerOrchestrator.PickRecoveryRecordingId("Reusable", 2000.0);
+            Assert.Equal("rec-provisional", pick);
+        }
+
+        [Fact]
+        public void PickRecoveryRecordingId_ZombieNotCommitted_IsSkipped_PrefersCommitted()
+        {
+            // No session armed, so a NotCommitted recording is a zombie awaiting
+            // LoadTimeSweep: it is going away and its id would dangle. The committed
+            // candidate must win even though the zombie brackets the UT and carries the
+            // largest EndUT. This is the phantom-attribution route being closed.
+            RecordingStore.AddRecordingWithTreeForTesting(PickerRec(
+                "rec-committed", "Reusable", MergeState.Immutable,
+                100.0, 900.0, TerminalState.Destroyed));
+            RecordingStore.AddRecordingWithTreeForTesting(PickerRec(
+                "rec-zombie", "Reusable", MergeState.NotCommitted,
+                200.0, 5000.0, TerminalState.Orbiting));
 
             string pick = LedgerOrchestrator.PickRecoveryRecordingId("Reusable", 500.0);
             Assert.Equal("rec-committed", pick);
         }
 
         [Fact]
-        public void PickRecoveryRecordingId_OnlyNotCommittedProvisionalMatches_ReturnsNull()
+        public void PickRecoveryRecordingId_NotCommittedFromADifferentSession_IsSkipped()
         {
-            // When the ONLY name match is an uncommitted provisional, no-candidate is
-            // preferred over a doomed one: the payout stays untagged rather than
-            // carrying an id that dies with the provisional. Verified contract, not an
-            // assumption — the picker's no-candidate result is null.
-            var provisional = new Recording
-            {
-                RecordingId = "rec-provisional-only",
-                VesselName = "Solo",
-                PreLaunchFunds = 50000.0,
-                MergeState = MergeState.NotCommitted,
-                TerminalStateValue = TerminalState.Orbiting
-            };
-            provisional.Points.Add(new TrajectoryPoint { ut = 200.0, funds = 39000.0 });
-            provisional.Points.Add(new TrajectoryPoint { ut = 5000.0, funds = 39000.0 });
-            RecordingStore.AddRecordingWithTreeForTesting(provisional);
+            // A session IS armed, but this NotCommitted recording is not ITS provisional
+            // (a leftover from an earlier session). Identity is by recording id, not by
+            // "some session is running", so this one is still a zombie.
+            InstallReFlySession("rec-provisional-current", "rec-origin");
+
+            RecordingStore.AddRecordingWithTreeForTesting(PickerRec(
+                "rec-committed", "Reusable", MergeState.Immutable,
+                100.0, 900.0, TerminalState.Destroyed));
+            RecordingStore.AddRecordingWithTreeForTesting(PickerRec(
+                "rec-zombie-other-session", "Reusable", MergeState.NotCommitted,
+                200.0, 5000.0, TerminalState.Orbiting));
+
+            string pick = LedgerOrchestrator.PickRecoveryRecordingId("Reusable", 500.0);
+            Assert.Equal("rec-committed", pick);
+        }
+
+        [Fact]
+        public void PickRecoveryRecordingId_OnlyZombieMatches_ReturnsNull()
+        {
+            // When the ONLY name match is a zombie, no-candidate is preferred over a
+            // doomed one: the payout stays untagged rather than carrying an id that dies
+            // with the zombie. Verified contract, not an assumption - the picker's
+            // no-candidate result is null.
+            RecordingStore.AddRecordingWithTreeForTesting(PickerRec(
+                "rec-zombie-only", "Solo", MergeState.NotCommitted,
+                200.0, 5000.0, TerminalState.Orbiting));
 
             string pick = LedgerOrchestrator.PickRecoveryRecordingId("Solo", 1000.0);
             Assert.Null(pick);
@@ -1730,20 +1803,12 @@ namespace Parsek.Tests
         [Fact]
         public void PickRecoveryRecordingId_CommittedProvisionalStillEligible()
         {
-            // Only NotCommitted is skipped. CommittedProvisional is a merged,
-            // re-flyable tip that legitimately owns career attribution — skipping it
-            // too would over-correct and drop real tags.
-            var committedProvisional = new Recording
-            {
-                RecordingId = "rec-committed-provisional",
-                VesselName = "Staged",
-                PreLaunchFunds = 50000.0,
-                MergeState = MergeState.CommittedProvisional,
-                TerminalStateValue = TerminalState.Orbiting
-            };
-            committedProvisional.Points.Add(new TrajectoryPoint { ut = 100.0, funds = 40000.0 });
-            committedProvisional.Points.Add(new TrajectoryPoint { ut = 900.0, funds = 40000.0 });
-            RecordingStore.AddRecordingWithTreeForTesting(committedProvisional);
+            // Only NotCommitted is filtered at all. CommittedProvisional is a merged,
+            // re-flyable tip that legitimately owns career attribution - filtering it
+            // would over-correct and drop real tags.
+            RecordingStore.AddRecordingWithTreeForTesting(PickerRec(
+                "rec-committed-provisional", "Staged", MergeState.CommittedProvisional,
+                100.0, 900.0, TerminalState.Orbiting));
 
             string pick = LedgerOrchestrator.PickRecoveryRecordingId("Staged", 500.0);
             Assert.Equal("rec-committed-provisional", pick);

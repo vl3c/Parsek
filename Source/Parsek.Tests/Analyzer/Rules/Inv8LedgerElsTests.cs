@@ -153,8 +153,30 @@ namespace Parsek.Tests.Analyzer.Rules
             Assert.Equal("rec_gone", warn.Target);
             Assert.Contains("dangling-recording-ref", warn.Message);
             Assert.Contains("recordingId=rec_gone", warn.Message);
-            Assert.Contains("firstActionId=act_1", warn.Message);
             Assert.Contains("kind=phantom-attribution", warn.Message);
+        }
+
+        // Guards baseline-key stability: the message must carry NO sample actionId.
+        // NormalizeMessageDigest masks only numeric RUNS, and a real ActionId is hex,
+        // so its letters survive masking - carrying one would change the baseline key
+        // whenever the FIRST dangling row for this id changed (a re-order, or an
+        // earlier row pruned), silently un-baselining an already-accepted finding.
+        // Fails if a sample action id is reintroduced into the message.
+        [Fact]
+        public void DanglingRecordingRef_MessageCarriesNoActionId_SoTheBaselineKeyIsStable()
+        {
+            Finding first = Assert.Single(Run(ModelWithRecordings(
+                new[] { Tagged("act_aaa", "rec_gone"), Tagged("act_bbb", "rec_gone") },
+                "rec_a")));
+
+            // Same phantom id, same row count, DIFFERENT first action id.
+            Finding second = Assert.Single(Run(ModelWithRecordings(
+                new[] { Tagged("act_bbb", "rec_gone"), Tagged("act_aaa", "rec_gone") },
+                "rec_a")));
+
+            Assert.Equal(first.Message, second.Message);
+            Assert.DoesNotContain("act_aaa", first.Message);
+            Assert.DoesNotContain("act_bbb", first.Message);
         }
 
         // Guards WARN severity specifically: a pre-existing phantom population must
@@ -194,8 +216,7 @@ namespace Parsek.Tests.Analyzer.Rules
 
             Finding warn = Assert.Single(Run(model));
             Assert.Contains("actions=3", warn.Message);
-            // First-appearance action id, so the message is deterministic.
-            Assert.Contains("firstActionId=act_1", warn.Message);
+            Assert.Equal("rec_gone", warn.Target);
         }
 
         // Guards determinism / one-per-distinct-id: two phantom ids -> two findings
