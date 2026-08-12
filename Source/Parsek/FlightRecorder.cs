@@ -3483,6 +3483,12 @@ namespace Parsek
         /// and re-lit on every loop cycle. Optional so the existing call sites (and ~20 test cells)
         /// are unchanged; a null set is exactly the old behaviour.
         /// </para>
+        ///
+        /// <para>
+        /// NONE of the four families' tracking state is mutated here — double-emit safety and
+        /// post-emit lifetime are the CALLER's, uniformly across all four. See the jetpack block's
+        /// own comment for why that matters more for S4 than for the other three.
+        /// </para>
         /// </summary>
         internal static List<PartEvent> EmitTerminalEngineAndRcsEvents(
             HashSet<ulong> activeEngineKeys,
@@ -3495,14 +3501,24 @@ namespace Parsek
         {
             var events = new List<PartEvent>();
 
-            // Terminal EvaJetpackThrustStopped for a kerbal still mid-burst. Pids are REMOVED as
-            // they are emitted, so a later terminal emit over the same set cannot double-close.
+            // Terminal EvaJetpackThrustStopped for a kerbal still mid-burst.
+            //
+            // THIS BLOCK DOES NOT MUTATE THE SET, and that is the engine/RCS/robotics convention
+            // rather than an omission. The CALLERS own the lifetime: the rails site
+            // (EmitTerminalEventsAndClearActiveState) clears every tracking set right after this
+            // returns, so a second rails emit sees empty sets and the `Count > 0` gates above write
+            // nothing; the STOP site (FinalizeRecordingState) deliberately leaves the sets intact so
+            // ResumeAfterFalseAlarm can unwind an abandoned stop and keep tracking the burn that is
+            // still running. Removing pids here broke exactly that unwind: after the resume the real
+            // thrust-end edge hit `thrustingParts.Remove(pid) == false` in ProcessEvaThrustDebounce
+            // and emitted nothing, leaving the pair open to recording end — the very failure the
+            // terminal emit exists to prevent. Engines have never had a remove-on-emit and neither
+            // does this now.
             if (thrustingJetpackParts != null && thrustingJetpackParts.Count > 0)
             {
                 var pids = new List<uint>(thrustingJetpackParts);
                 for (int i = 0; i < pids.Count; i++)
                 {
-                    thrustingJetpackParts.Remove(pids[i]);
                     events.Add(new PartEvent
                     {
                         ut = finalUT,
@@ -3588,7 +3604,8 @@ namespace Parsek
             {
                 ParsekLog.Info(logTag,
                     $"Emitted {events.Count} terminal events at UT={finalUT.ToString("F2", System.Globalization.CultureInfo.InvariantCulture)}" +
-                    $" (engines={activeEngineKeys?.Count ?? 0}, rcs={activeRcsKeys?.Count ?? 0}, robotics={activeRoboticKeys?.Count ?? 0})");
+                    $" (engines={activeEngineKeys?.Count ?? 0}, rcs={activeRcsKeys?.Count ?? 0}, robotics={activeRoboticKeys?.Count ?? 0}" +
+                    $", jetpack={thrustingJetpackParts?.Count ?? 0})");
             }
 
             return events;
@@ -10540,10 +10557,13 @@ namespace Parsek
             lastRcsThrottle.Clear();
             lastRoboticPosition.Clear();
             rcsActiveFrameCount.Clear();
-            // S4: the debounce frame counts go with the rest of the active state. The thrusting SET
-            // was already emptied by the terminal emit above (it removes each pid as it closes it),
-            // so clearing the counts here is what stops a half-accumulated burst from resuming into
-            // a start event off-rails that its own frames never earned.
+            // S4 joins the same convention as the three families above: the terminal emit does NOT
+            // mutate its sets, so BOTH halves of the thrust debounce state are cleared here. The
+            // thrusting SET must be emptied for the same reason activeEngineKeys is — it is what
+            // makes a second rails emit a no-op instead of a double-close — and the frame COUNTS
+            // must go with it, so a half-accumulated burst cannot resume into a start event
+            // off-rails that its own frames never earned.
+            thrustingJetpackParts.Clear();
             evaThrustFrameCounts.Clear();
             decoupledPartIds.Clear();
         }

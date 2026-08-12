@@ -1350,12 +1350,88 @@ namespace Parsek.Tests
             Assert.Equal(KerbalPid, stop.partPersistentId);
             Assert.Equal(7777.0, stop.ut);
 
-            // The pid is REMOVED as it is closed, so a second terminal emit over the same set
-            // (stop after a rails transition, say) cannot double-close it.
-            Assert.Empty(thrusting);
+            // The emit does NOT mutate the set — that is the engine/RCS/robotics convention, and
+            // the callers own the lifetime. Both halves of why are the two cells below.
+            Assert.Contains(KerbalPid, thrusting);
+        }
+
+        [Fact]
+        public void TheRailsPathClearIsWhatMakesASecondTerminalEmitANoOp_NotARemoveOnEmit()
+        {
+            // REVIEW FIX (F1). Double-emit safety comes from the same mechanism engines use: the
+            // rails call site (EmitTerminalEventsAndClearActiveState) clears every tracking set
+            // right after the emit returns, so the `Count > 0` gate inside the emit sees an empty
+            // set the second time round. The STOP site does not clear — by design, see the next
+            // cell — and never emits twice over a live set without an intervening resume.
+            var thrusting = new HashSet<uint> { KerbalPid };
+
+            var first = FlightRecorder.EmitTerminalEngineAndRcsEvents(
+                new HashSet<ulong>(), new HashSet<ulong>(), new HashSet<ulong>(),
+                new Dictionary<ulong, float>(), 7777.0, "Recorder", thrusting);
+            Assert.Single(first);
+
+            thrusting.Clear();   // what the rails site does immediately afterwards
+
             Assert.Empty(FlightRecorder.EmitTerminalEngineAndRcsEvents(
                 new HashSet<ulong>(), new HashSet<ulong>(), new HashSet<ulong>(),
                 new Dictionary<ulong, float>(), 8888.0, "Recorder", thrusting));
+        }
+
+        [Fact]
+        public void AFalseAlarmStopMidBurst_ResumesTracking_AndClosesAtTheREALThrustEnd()
+        {
+            // REVIEW FIX (F1). The route a remove-on-emit broke. The STOP path deliberately leaves
+            // the tracking sets intact so ResumeAfterFalseAlarm can unwind an abandoned
+            // chain-boundary stop and keep tracking a burn that never actually ended. With the pid
+            // removed by the emit, the resumed poll's real thrust-end edge hit
+            // `thrustingParts.Remove(pid) == false` in ProcessEvaThrustDebounce and emitted
+            // NOTHING — the pair stayed open to recording end, which is precisely the failure the
+            // terminal emit exists to prevent.
+            int threshold = FlightRecorder.RcsDebounceFrameThreshold;
+            var counts = new Dictionary<uint, int>();
+            var thrusting = new HashSet<uint>();
+            var partEvents = new List<PartEvent>();
+
+            // A burst starts and is sustained past the debounce threshold.
+            for (int i = 0; i < threshold + 5; i++)
+            {
+                FlightRecorder.ProcessEvaThrustDebounce(
+                    KerbalPid, KerbalName, true, ut: 1000.0 + i, counts, thrusting, partEvents);
+            }
+            Assert.Single(partEvents);
+            Assert.Equal(PartEventType.EvaJetpackThrustStarted, partEvents[0].eventType);
+
+            // A chain-boundary stop mid-burst: terminal close appended, tracking sets left intact.
+            var terminals = FlightRecorder.EmitTerminalEngineAndRcsEvents(
+                new HashSet<ulong>(), new HashSet<ulong>(), new HashSet<ulong>(),
+                new Dictionary<ulong, float>(), finalUT: 2000.0, logTag: "Recorder",
+                thrustingJetpackParts: thrusting);
+            partEvents.AddRange(terminals);
+            Assert.Equal(2, partEvents.Count);
+
+            // The split turns out to be debris only: ResumeAfterFalseAlarm content-removes exactly
+            // the terminals the stop stashed (#287).
+            Assert.Equal(1, FlightRecorder.RemoveTerminalsFromList(partEvents, terminals));
+            Assert.Single(partEvents);
+
+            // Tracking survived the unwind, so the burn is still open and still ours.
+            Assert.Contains(KerbalPid, thrusting);
+
+            // More thrusting frames, then the REAL thrust-end edge.
+            for (int i = 0; i < 20; i++)
+            {
+                FlightRecorder.ProcessEvaThrustDebounce(
+                    KerbalPid, KerbalName, true, ut: 2100.0 + i, counts, thrusting, partEvents);
+            }
+            FlightRecorder.ProcessEvaThrustDebounce(
+                KerbalPid, KerbalName, false, ut: 2200.0, counts, thrusting, partEvents);
+
+            // Exactly one close, at the REAL edge rather than the abandoned stop's UT.
+            PartEvent stop = Assert.Single(
+                partEvents.Where(e => e.eventType == PartEventType.EvaJetpackThrustStopped));
+            Assert.Equal(2200.0, stop.ut);
+            Assert.Equal(2, partEvents.Count);
+            Assert.Empty(thrusting);
         }
 
         [Fact]

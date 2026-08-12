@@ -152,12 +152,40 @@ sentence nearly bought four event types nobody needed.
 duplicate signal for a visual already polled, and the career side is already captured through
 `OnScienceReceived` / `OnScienceChanged` with UT + reasonKey + recordingId.
 
-**`ModuleDataTransmitter` (201) — WON'T, because there is no stock transmit visual to record.**
-Measured rather than inferred: `DeployFxModuleIndices` and `ProgressFxModuleIndices` are set by
-**ZERO** stock parts (grepped across all of `Squad` + `SquadExpansion` — 0 matching files). A
-bystander watching a stock antenna transmit sees nothing at all, so recording a transmit "visual"
-would be inventing one. The career side is already captured. `busy` is reachable through the public
-`IsBusy()` if a future wave ever wants the timeline for a non-visual reason.
+**`ModuleDataTransmitter` (201) — WON'T, because the only stock transmit visual is one the recorder
+ALREADY polls, and the transmit-progress visual proper has no stock setters.**
+
+*Evidence corrected 2026-08-12.* An earlier draft of this paragraph claimed `DeployFxModuleIndices`
+and `ProgressFxModuleIndices` are set by **ZERO** stock parts. That was a **grep-name trap** and the
+claim was false. Those are the C# FIELD names; the cfg KEYS `ModuleDataTransmitter.OnLoad` parses
+into them are `DeployFxModules` and `ProgressFxModules` (decompiled, KSP 1.12.5:
+`DeployFxModuleIndices = KSPUtil.ParseArray(node.GetValue("DeployFxModules"), int.Parse)`). A grep
+for the field name over `GameData` returns a confident zero because the string never appears in a
+cfg at all. Grepping the cfg KEY finds **six** stock antennas, every one of them setting
+`DeployFxModules = 0`: `HighGainAntenna`, `commDish88-88`, `commsAntennaDTS-M1`, `commsAntenna16`,
+`HG-5`, `HG-5_v2`. `ProgressFxModules` does have zero stock setters.
+
+The WON'T verdict stands, now on the corrected evidence:
+
+- **`DeployFxModules = 0` resolves to the part's own `ModuleDeployableAntenna`** — verified in all
+  six cfgs, where module index 0 is that module and `ModuleDataTransmitter` is index 1. Stock drives
+  it with `SetFXModules(deployFxModules, 1f)` at transmit start and back to its recorded start
+  position at the end, so the stock "transmit visual" IS the dish extending and re-stowing. That is
+  a `ModuleDeployablePart.deployState` change, and `FlightRecorder`'s deployable poll
+  (`FindModuleImplementing<ModuleDeployablePart>()` — `ModuleDeployableAntenna` derives from it) has
+  always recorded those as `DeployableExtended` / `DeployableRetracted`. Already covered; a
+  transmit event type would be a second recorder for one visual.
+- **`ProgressFxModules` — the transmit-progress visual proper — genuinely has zero stock setters.**
+  That is the scalar stock zeroes at transmit start and then drives from the transfer's
+  remaining-data ratio as the packets go out, and no stock part wires anything to it. Recording a
+  progress "visual" would be inventing one.
+
+The career side is already captured. `busy` is reachable through the public `IsBusy()` if a future
+wave ever wants the timeline for a non-visual reason.
+
+The trap generalizes and is cheap to repeat: for any array a module parses by hand in `OnLoad`, the
+cfg key and the C# field name need not match, so a field-name grep over `GameData` proves nothing.
+Grep the cfg key, and confirm it by reading the `OnLoad` that consumes it.
 
 **`ModuleTestSubject` (709, the second-most-declared module in the game) — WON'T.** The tested
 part's own action is already recorded by whichever family owns it (an engine test is an engine event,
@@ -175,8 +203,6 @@ visual already has a recorder, or there is no visual at all. That is why the hon
 is one verification cell plus this note rather than four new event types — and it is worth saying
 plainly, because "the audit found it unrecorded" reads like a mandate right up until you check
 whether anything is actually unrecorded.
-
----
 
 ---
 

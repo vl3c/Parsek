@@ -1511,6 +1511,25 @@ because each corrects something a future reader would otherwise trust:
   (`KerbalEVA.JetpackTransform` is a public serialized `Transform`). The missing piece is
   the VISIBILITY signal - `HasJetpack`, driven by inventory contents - which Parsek does
   not record; the honest follow-on is to read the snapshot's `ModuleInventoryPart`.
+- **`EmitTerminalEngineAndRcsEvents` must not mutate its tracking sets** - all four
+  families, jetpack included. The first cut of the S4 terminal close removed each pid as
+  it emitted, which reads like double-emit safety but breaks the false-alarm unwind: the
+  STOP path leaves the sets intact ON PURPOSE so `ResumeAfterFalseAlarm` can undo an
+  abandoned chain-boundary stop and keep tracking a burn that never ended, and with the
+  pid gone the resumed poll's real thrust-end edge hit
+  `thrustingParts.Remove(pid) == false` and emitted nothing - the pair stayed open to
+  recording end, the exact failure the terminal emit exists to prevent. Double-emit safety
+  is the CALLER's, exactly as for engines: the rails site
+  (`EmitTerminalEventsAndClearActiveState`) clears every set right after the emit, so the
+  second emit's `Count > 0` gate is a no-op. Fixed 2026-08-12; guarded by
+  `PartEventFidelityTests.AFalseAlarmStopMidBurst_ResumesTracking_AndClosesAtTheREALThrustEnd`
+  and `...TheRailsPathClearIsWhatMakesASecondTerminalEmitANoOp_NotARemoveOnEmit`.
+- **NOTE ONLY, no fix owed:** a kerbal-to-kerbal `ContinueOnEva` switch mid-burst closes
+  the DEPARTING kerbal's thrust pair only at the recording's final-stop UT, not at his
+  real thrust end - late, not lost. `PruneDepartedTrackingKeys` covers the engine / RCS /
+  robotic sets and does not reach the EVA sets, so the departing pid stays in
+  `thrustingJetpackParts` until a terminal emit closes it. Recorded because the late close
+  is a plausible-looking plume, not an obviously wrong one.
 
 The `M` items and the remaining non-`S` items below are untouched.
 
@@ -1844,9 +1863,17 @@ Open items, highest leverage first:
     The audit's "`Deployed` ... gates the deploy animation" wording is what made the
     verdict look like a gap. P8 added the VERIFICATION that never existed instead of a
     recorder: an in-game cell that reds if the claim stops holding.
-  - `ModuleDataTransmitter` (201): **zero** stock parts set `DeployFxModuleIndices` or
-    `ProgressFxModuleIndices` (measured across `Squad` + `SquadExpansion`), so there is
-    no stock transmit visual and recording one would be invention.
+  - `ModuleDataTransmitter` (201): the only stock transmit visual is one the recorder
+    ALREADY polls. **Evidence corrected 2026-08-12** - the first write-up claimed zero
+    stock parts set `DeployFxModuleIndices` / `ProgressFxModuleIndices`, which was a
+    GREP-NAME TRAP: those are the C# field names, while the cfg keys `OnLoad` parses into
+    them are `DeployFxModules` / `ProgressFxModules`. Six stock antennas DO set
+    `DeployFxModules = 0` (HighGainAntenna, commDish88-88, commsAntennaDTS-M1,
+    commsAntenna16, HG-5, HG-5_v2), and index 0 is each part's `ModuleDeployableAntenna`
+    - so the stock transmit visual is the dish extending, a `deployState` change the
+    existing `ModuleDeployablePart` poll has always recorded. `ProgressFxModules` (the
+    transmit-progress visual proper) is the one with genuinely zero stock setters. Verdict
+    unchanged; a transmit event type would be a second recorder for one visual.
   - `ModuleTestSubject` (709): the tested part's own action is already recorded by its
     family, and contract completion is already in `GameStateEvent` types 2/15/17.
   - `ModuleOrbitalSurveyor` (2): M700 deploy already recorded via the AnimationGroup
