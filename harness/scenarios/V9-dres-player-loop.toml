@@ -1,0 +1,164 @@
+schema = 1
+id = "V9-dres-player-loop"
+# =====================================================================================
+# V9: THE PLAYER LOOP WORKFLOW ON THE DRES PROGRAM'S RECORDING -- and, on this first
+# run, a pure MEASUREMENT flight. Nothing here is armed and nothing is pinned beyond
+# the plumbing the run cannot work without. The V8 iteration-1 pattern verbatim: fly
+# it, read what the product's own lines say, and only then decide what is worth
+# gating. A red on a reading run is EVIDENCE, not a regression.
+#
+# WHAT IT DOES: boots the committed `dres-orbit-recorded` fixture (B19's green
+# flight, harvested --keep-parsek), kills the scene-entry recording stub, turns the
+# three tracers on, marks the committed tree as a LOOP unit, and starts loop
+# playback. That is the whole workflow a player performs when they say "replay my
+# Dres mission"; the flight exists to find out what the loop machinery MAKES of a
+# 20.393M game-second interplanetary unit it has never seen.
+#
+# WHY THIS UNIT IS INTERESTING, stated as the questions the run answers rather than
+# as predictions, because predictions on a reading run are how lanes get armed on
+# assumptions:
+#
+#   1. MODE. Does the classifier call this ENGAGED (a re-aimed Kerbin->Dres transfer
+#      via the Sun) or fall back to FAITHFUL? The Supported shape wants a parking
+#      orbit, a heliocentric coast, and a direct-child arrival; B19's recording has
+#      all three by construction (700 km park -> Sun -> Dres capture). If it declines,
+#      the DECLINE REASON is the finding.
+#   2. THE SCHEDULE. The unit's span is 20.393M game s (measured: main recording
+#      ut 26.2 -> 20,393,407.1). The Kerbin->Dres synodic period is ~11.4M s, so the
+#      span is ~1.79 synodic and the cadence should land on a multiple of the synodic
+#      rather than the span. Whether that multiple is 2x is exactly the sort of thing
+#      to MEASURE and then pin, not to assert now.
+#   3. THE TILT, AND THIS IS THE ONE TO WATCH. Dres's orbital inclination is 5 deg --
+#      the largest any lane in the suite has re-aimed against. V8F/V8 measured the
+#      achievability gate DECLINING all 27 tof candidates at EVE's 2.1 deg
+#      (`unreachable-plane`) before the tilt-retention fix, and the synthesizer's own
+#      comments place the failing population between Duna's 0.06 and Moho's 7. Dres
+#      at 5 sits inside that band and ABOVE Eve. So: does the post-fix synth RETAIN
+#      the tilt (`state=retained`) at 5 deg, or does it decline and fall back to a
+#      faithful window? Either answer is a real result; a decline is a FINDING and
+#      the exact tilt-correction lines are the evidence to capture.
+#   4. LOITER COMPRESSION. The recording contains an ~8.4M game-second LKO
+#      ejection-window wait (B19 measured TRANSFER-BURN spanning ut 2,704 ->
+#      8,447,964). V8 produced the program's first non-zero loiter cut on exactly
+#      this shape. Does the compressor find this one, and how much does it cut?
+#   5. THE SEAM-ENDPOINT CENSUS. evaluated / outsideSoi -- the instrument that
+#      raised for the first time on V8. A structural zero told FROM BLINDNESS is a
+#      different reading from a measured zero, and the census's own accounting
+#      distinguishes them.
+#
+# DETERMINISM: this spec is flown TWICE back to back before anything is pinned, the
+# V8 discipline. Numbers that move between two identical runs are not pinnable.
+#
+# NOT ARMED, DELIBERATELY: no `[expectations.rewind]`, no
+# `[expectations.recordings.structure]`, no census/parity/tilt tokens, no anomaly
+# ceiling. The only required log tokens are the three that prove the STEPS THEMSELVES
+# ran -- if those are absent the run measured nothing and the reading is void, which
+# is a different failure from "the product did something interesting".
+# =====================================================================================
+tier = "operator"
+description = "READING RUN: the player loop workflow on the Dres program's committed recording -- mark the B19 tree a loop unit and start loop playback, to measure the classify mode, the window schedule, the tilt disposition at Dres's 5 deg inclination, the loiter compression of the 8.4M s LKO wait, and the seam-endpoint census. Nothing armed."
+instanceProfile = "stock-minimal"
+tags = ["V9", "dres", "loop", "playback", "reading-run", "pending-flight"]
+
+[fixture]
+# B19's green flight, harvested --keep-parsek (see the fixture's provenance block in
+# harness/lib/test_saveparse.py). One committed tree, five recordings, main orbiter
+# terminal Orbiting at Dres.
+saveTemplate       = "fixtures/saves/dres-orbit-recorded"
+injectedRecordings = "none"
+craft              = []
+
+[driver]
+kind = "seam"
+
+# `steps` MUST stay in the [driver] table (there is no missionParams sub-table here,
+# but the placement rule is the same one every spec follows).
+#
+# THE STUB-KILL TRIPLE (steps 2-4) is not optional bookkeeping: the fixture's own
+# parked craft is the active vessel, so entering FLIGHT starts a scene-entry
+# recording. Left alive it becomes a sixth recording and a second tree, which would
+# both pollute the count and give the loop machinery an active tree to argue with.
+# StopRecording + DiscardTree + autoRecordOnLaunch=false is the V8 shape verbatim.
+#
+# The three tracers are what makes this a READING run: ghostRenderTracing and
+# mapRenderTracing emit the per-ghost render truth, verboseLogging opens the
+# classify / schedule / synth / census lines that the whole flight exists to read.
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  { cmd = "StopRecording",                                                   expect = "OK" },
+  { cmd = "DiscardTree",                                                     expect = "OK" },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "ghostRenderTracing", value = "true" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "mapRenderTracing",   value = "true" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "verboseLogging",     value = "true" }, expect = "OK" },
+  { cmd = "MissionConfig",     args = { tree = "f0c17a694f214fe7a759ea255ef4634a", loop = "true" }, expect = "OK" },
+  { cmd = "StartLoopPlayback", args = { tree = "f0c17a694f214fe7a759ea255ef4634a" }, expect = "OK", budget = 300 },
+  { cmd = "FlushAndQuit",                                                    expect = "OK" },
+]
+
+# NOTHING CLAIMED. A reading run measures; it does not earn coverage. Cells get
+# claimed once this lane has a pinned contract that BACKS them, which is the
+# post-reading arming call and a separate decision.
+[dimensionsCovered]
+
+[expectations]
+# PLACEMENT IS LOAD-BEARING: allowedAnomalies must precede every
+# [expectations.<sub>] header or TOML scopes it into the sub-table.
+#
+# EMPTY, and that is the reading-run posture: an anomaly raised on this flight is
+# the READING, so exempting one in advance would discard the very evidence the run
+# exists to collect. If a Tier-C detector fires, the run reds and the red is the
+# finding -- the V8 precedent, where two line-blink reds were filed as a detector
+# gap rather than exempted.
+allowedAnomalies = []
+
+[expectations.recordings]
+# MEASURED 7 on reading run 1 (2026-08-12_0150), and the first draft of this window
+# was WRONG about what a 7 means, so the correction is recorded rather than quietly
+# widened. The draft said "7+ would mean the stub-kill triple failed"; it did not
+# fail. saveParse on that run reads trees 1, committedTrees 1, terminalStates
+# {Orbiting 3, Destroyed 2} and branchPoints {JointBreak 3} -- all IDENTICAL to the
+# fixture -- with points total 1,730 against the fixture's 1,729 and the LARGEST
+# recording dropping 1,546 -> 763. Nothing was added; the MAIN RECORDING WAS SPLIT.
+#
+# The mechanism is the load-time optimizer splitting at body boundaries
+# (RecordingOptimizer.IsSplittableEnvOrBodyBoundary rule 4, "other body changes"),
+# and this recording has exactly two of them -- Kerbin->Sun and Sun->Dres -- so the
+# one main recording becomes three. 5 + 2 = 7. That is the same mechanism V6M and V8
+# record as a deterministic "+1" on their fixtures; it is "+2" here only because an
+# interplanetary recording crosses two SOI boundaries instead of one.
+#
+# The window stays a PLUMBING window rather than becoming a pin: it is one
+# observation, and this lane's job on these runs is to measure. What WOULD still be
+# a plumbing failure is an 8 (a surviving scene-entry promotion on top of the split).
+count = { min = 5, max = 7 }
+
+[expectations.logContracts]
+# THE THREE PLUMBING TOKENS ONLY -- exactly the ones that prove the steps ran, so
+# that a void reading is distinguishable from an interesting one. Nothing about
+# what the loop machinery DECIDED is required, because that is the measurement.
+#
+# Deliberately NOT required on this run (all are V8's ARMED tokens, and every one
+# of them would be an assumption here): the classify mode, the schedule cadence, the
+# tilt disposition, the loiter cut, the census pair, the parity pin. They get
+# considered at arming, off measured numbers.
+required = [
+  "MissionConfig",
+  "StartLoopPlayback",
+  "Recording stopped",
+]
+# The ERROR floor every committed spec carries. A loop workflow that makes Parsek
+# throw is a finding on any run, reading or not.
+forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
+
+[runtime]
+# V8's 2,400 for the same seam-driven shape on a comparable fixture. This lane has
+# no flight: it is a LoadGame, eight fast seam verbs and a quit, so the budget is
+# dominated by the KSP boot and the fixture load.
+budgetSeconds = 2400
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

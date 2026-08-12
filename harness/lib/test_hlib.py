@@ -4836,6 +4836,14 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
         # window stays unpinned until the jettison's debris topology has been
         # measured once. Promotion is that post-measurement re-pinning call.
         "B19-dres-orbit.toml":              "calibration-discipline - first flight of a new profile AND of the pre-transfer JETTISON phase; the recordings count window is unpinned pending the jettison debris topology, and promotion waits on that re-pin rather than on outstanding work",
+        # V9 is operator BY THE CALIBRATION DISCIPLINE in its purest form: it is a
+        # READING RUN by construction (nothing armed, no cells claimed, only the
+        # three plumbing tokens required), flown to measure what the loop machinery
+        # makes of a 20.393M game-second interplanetary unit. Promotion is the
+        # post-reading arming call, which is a human decision taken off the measured
+        # numbers -- and on this lane that call is BLOCKED on a product finding
+        # (the optimizer split defeating the re-aim classifier), not on lane work.
+        "V9-dres-player-loop.toml":         "calibration-discipline - a deliberately unarmed READING run (V8 iteration-1 pattern); it claims no coverage cells and pins nothing beyond plumbing, and arming waits on the re-aim classifier finding it measured rather than on outstanding lane work",
         # The V2 dwell is operator BY THE CALIBRATION DISCIPLINE (V1 precedent):
         # its first flight is a deliberately under-gated READING run whose red,
         # if any, is evidence; promotion is the post-reading arming call, not a
