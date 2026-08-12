@@ -14,6 +14,85 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## MECHJEB-COURSE-CORRECT-CANNOT-CREATE-AN-INCLINED-ENCOUNTER: the harness's interplanetary transfer strategy has an inclination ceiling, and Moho's 7 deg is above it [MEASURED 2026-08-12 by `B20-moho-orbit`, two identical INVALID flights. A HARNESS/DRIVER limitation, NOT a Parsek defect]
+
+**What was measured.** `B20-moho-orbit` flew twice (runs `2026-08-12_1628` and its
+retry `_1704`). Both reached `COAST-TO-TARGET` and both timed out there with
+`MISSION-FLAKE reason=phase COAST-TO-TARGET timed out`, classified `INVALID
+(autopilot-flake)`. The two heliocentric orbits agree to the 8th significant figure
+(ap 13,336,525,125.193 vs 13,336,525,165.914; pe 4,752,514,300.416 vs
+4,752,525,610.767), so this is systematic, not a flake in the ordinary sense.
+
+Everything upstream of the transfer worked exactly as designed and is worth recording
+because it is the part that is NOT in question:
+
+- ascent to the 700 km park, apsides 769,845 x 769,649 m (ecc ~1e-4)
+- JETTISON stopped at TWO pops and handed off at `avThr=60000.000` -- the LV-N --
+  reproducing B19's Skipper-live path on the identical craft profile
+- ejection node `nodeDv=1735.502` against a derivation of ~1,803 (within 4%)
+- propellant: 2,240 -> 1,508.915 units of LF, i.e. 5,724 m/s still in the stage,
+  against a worst-case Moho need of ~5,262. **The craft is not the problem.**
+- the approach clamp never got its chance, but the coast sampled `tts` at
+  106.5 -> 54.5 -> 2.5 (~50 game s per poll), which is exactly what
+  `approachMaxWarpFactor = 4` (x100) was sized to produce
+
+**The mechanism, from the harness's own plan diagnostic** (the instrument built for
+precisely this question):
+
+```
+interplanetary plan: target=Moho nodeUt=400880.040 nodeDv=1735.502
+| transfer leg (in Sun) pe=5.01523e+09 ap=1.35982e+10
+  vs Moho orbit pe=4.21051e+09 ap=6.31577e+09 soi=9.64666e+06
+| reachesTargetOrbit=reaches gap=0 m (0.000 SOI)
+| targetSoiEncounterPredicted=NO
+```
+
+The transfer **reaches Moho's orbital band with a radial gap of exactly zero** and
+still predicts **no SOI encounter**. Radial reach with no encounter is a plane miss,
+and the coast telemetry names it: the transfer orbit is `inc=0.007` -- the ecliptic --
+against Moho's 7 deg. At the crossing radius 5.015e9 m a 6.993 deg plane error
+displaces Moho **610,595 km** out of the craft's plane, i.e. **63.3 SOI radii**.
+
+**Why the existing encounter-creation strategy cannot recover it.** `mlib.py`'s
+finding-18 note states the design outright: "the phase-angle interplanetary ejection
+reliably produces NO target encounter ... the course-correct plan CREATES the
+encounter mid-course." That delegation works at Duna (0.06 deg), Eve (2.1) and Dres
+(5). At Moho it does not: `mj_plan_course_correct` was invoked **six times** across
+two correction rounds and returned `nodeDv=nan` **every time**. No node was ever
+produced.
+
+**This is NOT a `maxCorrectionDvMps` tuning question, and the arithmetic settles it.**
+Buying 6.993 deg at the crossing costs `2*v*sin(dinc/2)` with v = 15,289 m/s, i.e.
+**1,865 m/s** -- above this lane's 700 cap AND above B19's 1200. The failure signature
+agrees: a cap that discarded a node would show a node and then drop it; what the log
+shows is `nodeDv=nan`, i.e. no node was ever planned. B20's lowered cap is not
+implicated, and raising it would not have helped.
+
+**Why it is INVALID and not PARSEK-FAIL.** The mission did not fly, so by the
+mission-vs-Parsek orthogonality rule this is driver-INVALID. No Parsek surface was
+exercised past the Kerbin->Sun handoff, and no claim about Parsek is made or void.
+
+**Fix: NOT ATTEMPTED, deliberately.** Every route out of this is new machinery, not a
+parameter: a dedicated plane-change phase, a node-aligned departure window, or a
+transfer verb that folds inclination into the ejection. kRPC.MechJeb 0.8.1 exposes
+only `WaitForPhaseAngle` on `operation_interplanetary_transfer` (mission_runner.py's
+pinned-source note), so there is no inclination knob to turn. Reporting the measured
+mode before building anything is the standing instruction for this program, and the
+measurement above is what it asked for.
+
+**What it blocks.** `moho-orbit-recorded` cannot be harvested, so the V11 (loop unit)
+and V11A (tilt disposition at 7 deg) lanes have no fixture and are not authored. The
+B20 spec, its mission alias and its schema are committed and validate; the lane is
+registered as `Committed, not yet live-run`.
+
+**The coincidence worth noting, because it is not one.** Moho's 7 deg breaks the
+harness's transfer strategy at the same inclination where the re-aim synthesizer's own
+comments place its failing population ("between Duna's 0.06 and Moho's 7"). Two
+independent subsystems -- the MechJeb-driving mission machine and Parsek's re-aim
+synthesizer -- have an inclination ceiling in the same band. Reaching Moho at all is
+the prerequisite for measuring the second one, which is why this entry blocks that
+measurement rather than merely annoying it.
+
 ## ~~FIXTURE-CRAFT-DUPLICATED-PER-SAVE: every committed save fixture carries its own byte-identical copy of each craft it flies~~ [FOUND 2026-08-12 while accounting for the six-figure line counts on the recent fixture-lane PRs. FIXED 2026-08-12, branch `claude/large-pr-code-volume-xt1z02`]
 
 **What was measured.** `harness/fixtures/` held 1,226,233 lines over 490 files, of
