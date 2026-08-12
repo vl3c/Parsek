@@ -7397,8 +7397,9 @@ namespace Parsek.Tests
 
         private static ConfigNode[] AddRealCareerRecordings(ScenarioWriter writer, string kspRoot)
         {
-            // The DefaultCareer fixture is GONE (deleted 2026-08-12: 41 files /
-            // 73,945 lines that this method had not been able to load since the
+            // The DefaultCareer fixture is GONE (deleted 2026-08-12: 41 files,
+            // 73,945 lines by wc -l / 73,113 as git counts them, 15 of the 41
+            // being binary to git -- that this method had not been able to load since the
             // 2026-05-11 v0 schema reset -- it carried recordingFormatVersion 0/3
             // with no recordingSchemaGeneration at all, so the corpus-currency gate
             // below rejected it on the first recording and returned empty every

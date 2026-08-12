@@ -89,14 +89,30 @@ them through `RecordingPaths.BuildReadable*MirrorRelativePath` and sweeps them i
 `RecordingStore.OrphanCleanup` / `InGameTestSidecarReaper`. None of that is
 touched here; the question was only whether the fixture tree carries a copy in git.
 
-**Why the snapshot mirrors were safe to drop.** They are strictly DERIVED, by the
-mod's own design: `RecordingSidecarStore.ReconcileReadableSidecarMirrors` rebuilds
-a mirror from the authoritative sidecar when the snapshot is not in memory - its
-`AuthoritativeSidecar` branch calls `LoadSnapshotSidecarForReadableMirror(vesselPath)`
-and writes the readable form from the committed `_vessel.craft` / `_ghost.craft`
-binary. Those binaries stay committed, so loading a fixture in KSP regenerates the
-text. The observability mechanism is untouched and the data is one save away; only
-the git-resident copy is gone.
+**Why the snapshot mirrors were safe to drop.** They are strictly DERIVED, and an
+offline decode confirms it end to end: the retained binaries are `PSN0` + header +
+raw-deflate (`SnapshotSidecarCodec.cs:206-235`) wrapping
+`SNAPSHOT_SIDECAR { VESSEL { ... } }`, and that inner body dedented by two tabs is
+byte-identical to the deleted `.txt` for **99 of 99** files. The binary is a strict
+SUPERSET - it keeps the `VESSEL` node name that `ConfigNode.Save()` discards - so
+reconstruction needs neither KSP nor git history.
+
+The two halves regenerate by DIFFERENT routes, and the distinction matters:
+- **Vessel:** `ReconcileReadableSidecarMirrors` has a genuine fallback. When the
+  snapshot is not in memory its `else` branch calls
+  `LoadSnapshotSidecarForReadableMirror(vesselPath)` and writes the readable form
+  straight from the committed binary (`RecordingSidecarStore.cs:1313-1321`,
+  `VesselSource = "AuthoritativeSidecar"`).
+- **Ghost:** there is NO such fallback. `GhostSource` is assigned exactly once,
+  `"InMemory"` (`:1330`); the only other ghost branch DELETES the mirror under
+  `AliasVessel`. The ghost mirror comes back because
+  `LoadSnapshotSidecarsFromPaths` hydrates `rec.GhostVisualSnapshot` from the
+  binary at LOAD (`:443-449`), so the in-memory branch fires on the next save.
+
+An earlier draft of this entry claimed an `AuthoritativeSidecar` branch for both.
+The outcome is the same today, but the ghost invariant is load-path hydration, not
+a write-path fallback - and nothing gates it. If ghost hydration ever became lazy,
+the regeneration claim would silently go false.
 
 **Why `.prec.txt` was KEPT.** Four scenario headers cite values read straight out
 of one (`V6M-mun-player-loop.toml`, `V6T-mun-ts-arrival.toml`,
@@ -181,16 +197,21 @@ directory whose own `.gitignore` says "never committed", removed.
 ## ~~FIXTURE-DEFAULTCAREER-DELETED: a 73,945-line test fixture the code had refused to load since 2026-05-11~~ [FOUND + DELETED 2026-08-12, branch `claude/large-pr-code-volume-xt1z02`]
 
 **What it was.** `Source/Parsek.Tests/Fixtures/DefaultCareer/` - 41 files,
-73,945 lines, 1.5 MB. Its only consumer was
+1.5 MB, 73,945 lines by `wc -l`. The branch diffstat shows 73,113 for it because
+15 of the 41 are binary to git and contribute 0 to `numstat`; both numbers are
+right, of different things. Its only consumer was
 `SyntheticRecordingTests.AddRealCareerRecordings`, gated by
 `TryValidateRealCareerRecordingCorpusCurrent`.
 
 **Why it never loaded.** The gate requires `CurrentRecordingFormatVersion = 1`
 (`RecordingStore.cs:105`) and `CurrentRecordingSchemaGeneration = 4` (`:131`).
-The fixture carries `recordingFormatVersion` 0 (x9) and 3 (x5), and
-`recordingSchemaGeneration` **zero times** - the field is absent. Its `.prec`
-files are 9 pre-reset TEXT sidecars plus 5 binary `PRKB`, against the current
-binary `PSK0`. The gate therefore failed on the first recording and returned an
+Measured across the 14 committed `.prec`: 9 are pre-reset TEXT sidecars whose
+first line reads `version = 5`, and 5 are pre-reset binary `PRKB` against the
+current binary `PSK0`. **None of the 14 carries a `recordingSchemaGeneration`
+field at all** - that absence is what rejects them, as `generation-missing`,
+before any format-version comparison. (An earlier draft of this entry said
+"`recordingFormatVersion` 0 (x9) and 3 (x5)", which was wrong on both counts;
+the conclusion is unaffected because the missing generation is decisive.) The gate therefore failed on the first recording and returned an
 empty array every run since the v0 schema reset of 2026-05-11 (`CHANGELOG.md:775`,
 `:777`, `:782`), which replaced migration with hard refusal. 40 of the 41 files
 were never opened at all.

@@ -10640,9 +10640,12 @@ class CommittedFixtureMirrorTests(unittest.TestCase):
     (default-on diagnostics), and harvesting a produced save used to bring all
     three into the fixture tree. The two snapshot mirrors cost 334,023 lines over
     99 files - three times the craft duplication the shared ship library removed -
-    and are strictly derived: the mod's own `ReconcileReadableSidecarMirrors`
-    rebuilds them from the committed `_vessel.craft` / `_ghost.craft` binaries via
-    its `AuthoritativeSidecar` path the next time the sidecars are saved. So the
+    and are strictly derived from the committed `_vessel.craft` / `_ghost.craft`
+    binaries: an offline decode reconstructs all 99 byte-for-byte, the binary being
+    a strict superset of the text. Loading the fixture in KSP rewrites them - the
+    vessel mirror through `ReconcileReadableSidecarMirrors`'s `AuthoritativeSidecar`
+    fallback, the ghost mirror through load-time snapshot hydration (there is no
+    ghost write-path fallback; `GhostSource` is only ever `InMemory`). So the
     observability is regenerable and the committed copies are pure redundancy.
 
     The TRAJECTORY mirror (`.prec.txt`) is deliberately NOT gated: four scenario

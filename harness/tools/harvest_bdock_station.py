@@ -420,11 +420,12 @@ def _ignore_pruned_keep_parsek(directory, names):
     is worth committing - four scenario headers cite values read straight out of a
     `.prec.txt`. For the two SNAPSHOT mirrors it is not: nothing cites one, and
     they cost 334,023 lines across 99 files, three times the craft duplication the
-    shared ship library removed. They are also strictly derived - the mod's own
-    `ReconcileReadableSidecarMirrors` rebuilds them from the authoritative
-    `_vessel.craft` / `_ghost.craft` binaries (its `AuthoritativeSidecar` path)
-    whenever the sidecars are next saved, so nothing is lost by not committing
-    them. Load the fixture in KSP to get them back."""
+    shared ship library removed. They are also strictly derived from the
+    authoritative `_vessel.craft` / `_ghost.craft` binaries, which ARE committed:
+    an offline decode reconstructs all 99 byte-for-byte. Load the fixture in KSP
+    to get them back (the vessel mirror through
+    `ReconcileReadableSidecarMirrors`'s `AuthoritativeSidecar` fallback, the ghost
+    mirror through load-time snapshot hydration - see harness/README.md)."""
     pruned = set(n for n in names
                  if any(n.startswith(p) for p in _PRUNE_DIR_PREFIXES)
                  or n.endswith(_PRUNE_MIRROR_SUFFIXES))

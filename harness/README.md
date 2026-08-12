@@ -366,11 +366,15 @@ Parsek writes a readable text mirror beside each of the three at runtime
 headers cite values read straight out of it (`V6M-mun-player-loop`,
 `V6T-mun-ts-arrival`, `V7M-minmus-player-loop`, `M1-mission-loop-unit`). The two
 SNAPSHOT mirrors are not committed: nothing cites one, they cost 334,023 lines
-over 99 files, and they are strictly derived - the mod's own
-`RecordingSidecarStore.ReconcileReadableSidecarMirrors` rebuilds them from the
-committed binaries via its `AuthoritativeSidecar` branch the next time the
-sidecars are saved. **To read one, load the fixture in KSP**; the text is
-regenerated from the binary that is still in git. Gated by
+over 99 files, and they are strictly derived - an offline decode reconstructs all
+99 byte-for-byte from the retained binaries, which are a strict superset of the
+text. **To read one, load the fixture in KSP**; the text is regenerated from the
+binary that is still in git. The two halves come back by different routes, which
+is worth knowing before relying on either: the VESSEL mirror has a real write-path
+fallback (`ReconcileReadableSidecarMirrors`'s `AuthoritativeSidecar` branch,
+`RecordingSidecarStore.cs:1313-1321`), while the GHOST mirror has none - it comes
+back only because `LoadSnapshotSidecarsFromPaths` hydrates the snapshot from the
+binary at load (`:443-449`), so the in-memory branch fires on the next save. Gated by
 `CommittedFixtureMirrorTests`, which also asserts the binaries and the cited
 `.prec.txt` are still there - dropping a mirror is only safe while the thing it is
 rebuilt from survives.
