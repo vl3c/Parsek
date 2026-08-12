@@ -629,6 +629,16 @@
         "2026-08-11T22:12:28Z": 51.0
       }
     },
+    "H37-part-event-fidelity": {
+      "last": 51.0,
+      "lastVsP50": 1.0,
+      "n": 1,
+      "p50": 51.0,
+      "p95": 51.0,
+      "samples": {
+        "2026-08-12T02:00:23Z": 51.0
+      }
+    },
     "H5-invariants-corpus": {
       "last": 71.0,
       "lastVsP50": 1.029,

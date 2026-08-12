@@ -120,59 +120,82 @@ count = { min = 0, max = 0 }
 # `passed=` is pinned to a literal nonzero, so hlib.batch_contract_vacuity_gap answers
 # None (every vacuous BATCH_COMPLETE carries passed=0).
 #
-# EVIDENCE STANDING: **INTERIM — FLOWN ONCE, 2026-08-12, PARSEK-FAIL 3/5.** `total=5` and
-# `skipped=0` are ATTRIBUTE-EXACT, derived mechanically by
-# `hlib.parse_ingame_test_declarations` + `hlib.derive_batch_tally` over
-# Source/Parsek/InGameTests/PartEventFidelityInGameTests.cs (5 declarations, all
-# Category = "PartEventFidelity", all Scene = GameScenes.FLIGHT, all
-# AllowBatchExecution) and kept in sync by CommittedBatchTallySourceSyncTests.
-# `failed=0` is the ASSERTION. `scene=FLIGHT` is the gloops-airshow Focusable route,
-# measured by H13 / H5 / S1.4 / H33 / H36 on this exact fixture.
+# EVIDENCE STANDING: **LIVE-PROVEN 2026-08-12 ON THE SECOND FLIGHT.** All four numbers are
+# now pinned literally and this id has been REMOVED from
+# IngameBatchWiringGroupTests.INTERIM_PIN_IDS. The re-fly (PASS attempt 1) printed
+# `BATCH_COMPLETE v1 total=5 passed=5 failed=0 skipped=0 category=PartEventFidelity
+# scene=FLIGHT` with every verifier green: analyzer red=0, anomalySweep `hits=[]`,
+# expectations mismatches=0, unityExceptions 0, zero downloads, and the deployed DLL
+# byte-verified as carrying the `ClassifyEvaPlumeReconcile` marker. No RUNTIME_SKIPS entry
+# is owed: the measured split equals the attribute derivation
+# (`hlib.derive_batch_tally` -> total 5, attribute_skipped 0). `total=5` remains
+# ATTRIBUTE-EXACT (5 `[InGameTest(Category = "PartEventFidelity")]` declarations in
+# Source/Parsek/InGameTests/PartEventFidelityInGameTests.cs, all Scene = FLIGHT, all
+# AllowBatchExecution), kept in sync by CommittedBatchTallySourceSyncTests; `failed=0` is
+# the ASSERTION; `scene=FLIGHT` is the gloops-airshow Focusable route, measured by
+# H13 / H5 / S1.4 / H33 / H36 on this exact fixture.
 #
-# THE FIRST FLIGHT read `BATCH_COMPLETE v1 total=5 passed=3 failed=1 skipped=1`, with 0
-# Parsek ERRORs and only the two known benign camera re-pin WARNs on this boot route. What
-# it settled, and what it bought:
+# WHAT THE MEASUREMENT SETTLED. The interim form existed because every one of the five
+# cells carries a run-time InGameAssert.Skip keyed on what the provisioned install actually
+# loaded AND on what the ghost builder resolved, and "expected to hold" is not a
+# measurement. All five EXECUTED on stock-minimal; each resolved the fixture it needed:
+#  - BrokenDeployableHidesItsSubtreeAndRepairRestoresIt needed a ModuleDeployablePart whose
+#    breakName - or its pivotName FALLBACK - names a transform that clones onto the ghost.
+#    Resolved 'solarPanelOX10C', break subtree `rootHinge`, 13 transforms. THIS RETIRES THE
+#    SPEC'S STATED LIKELIEST RED: almost no stock part sets breakName (stock applies that
+#    default in OnStart, which a prefab has not run), so the fallback carries the whole
+#    feature, and `rootHinge` is the fallback resolving in production.
+#  - ConverterLoopAdvancesWhileActiveAndStopsOnDeactivate needed a ModuleAnimationGroup
+#    whose running clip moves cloned geometry. Resolved an ISRU: `quarterRot=90.0001deg` a
+#    quarter of the way through the clip, and the CYCLIC WRAP held - one whole clip later
+#    the pose matched the start - with `driftAfterStop=0deg` after deactivate. That last
+#    number is the one that matters for a stop: a switched-off drill does not creep.
+#  - ConverterLoopResolvesForAPartWithNoDeployAnimation needed the large-ISRU shape (running
+#    clip, EMPTY deployAnimationName). Resolved with 4 looping transforms, so the loop
+#    builder really is independent of TryGetAnimationGroupDeployAnimation.
+#  - EvaJetpackPlumeBuildsOnDemandAndGatesOnThrustAndRagdoll needed a KerbalEVA prefab plus
+#    the additive particle shader. Resolved 'kerbalEVA': `built=True emissionRate=45`, and
+#    the deferral line FIRED AND THEN HEALED exactly as designed - the cell deliberately
+#    deactivates the ghost to reproduce the first flight's silent no-op, then activates and
+#    drives the frame hook.
+#  - ScienceExperimentDeployVisualIsAlreadyCoveredByTheAnimateGenericPath needed a science
+#    experiment paired with a ModuleAnimateGeneric whose sampled poses differ. Resolved
+#    'mk2LanderCabin.v2' with `span(pos=0 rot=29.99998deg)` and stowedErr / deployedErr all
+#    ZERO. **THAT `pos=0` IS THE FIRST FLIGHT'S BUG IN ONE NUMBER** - see below.
 #
-#   GREEN, and these three retire the biggest predicted risks. The S6 break/repair/loop
-#   round trip PASSED, which means the breakName -> pivotName fallback resolved on a real
-#   stock prefab — the failure mode this spec called its likeliest red. Both converter-loop
-#   cells PASSED, including the EMPTY-deploy-name ISRU shape, with the cyclic wrap
-#   measured: `quarterRot=90.0001deg` a quarter of the way through the clip and
-#   `driftAfterStop=0deg` after deactivate.
+# THIS IS THE SECOND FLIGHT. The FIRST was PARSEK-FAIL 3/5, and the two non-green cells were
+# a PRODUCT defect and a TEST defect - neither the install shortfall the loose pin was
+# hedging against, which is the durable lesson here:
+#  - RED (product): the EVA plume logged "built" and "emitting" in the same millisecond
+#    while `isPlaying` stayed false. Unity's `ParticleSystem.Play()` on a ghost that is not
+#    `activeInHierarchy` is a SILENT no-op, and a ghost is inactive for the whole of its
+#    spawn-time prefix replay (`BuildTimelineGhostFromSnapshot` ends with
+#    `root.SetActive(false)`; `ActivateGhostVisualsIfNeeded` runs later, per frame). The
+#    reconcile being EVENT-driven only, nothing ever retried: a ghost spawning mid-burst
+#    stayed dark for the whole burst. Fixed with a pure `ClassifyEvaPlumeReconcile` that
+#    DEFERS on an inactive hierarchy, a per-frame `UpdateEvaJetpackPlumeForFrame` self-heal
+#    beside the launch-dust drive (dust already had that property for free by re-calling
+#    Play every frame), and decision-vs-truth logging that reads `isPlaying` BACK instead of
+#    reporting success on the strength of having called Play.
+#  - SKIPPED VACUOUSLY (test): the Goo cell resolved its part, cloned 15 MeshRenderers and
+#    sampled 6 animated transforms from clip `Deploy`, then skipped on its own precondition
+#    that stowed and deployed poses differ. The precondition tested POSITION only, and a
+#    science canister's Deploy clip SWINGS ITS DOORS. The re-fly's `span(pos=0
+#    rot=29.99998deg)` is the proof: the position span is exactly zero, so a position-only
+#    test could never fire. Both the precondition and the round-trip assertions are now
+#    per-component, using the builder's OWN thresholds from `CollectTransformDeltas`.
+#    `skipped=0` therefore stands as written and no RUNTIME_SKIPS entry is owed - the skip
+#    was FIXED, not accepted. A skip that always fires buys no coverage of the negative
+#    decision the cell exists to pin.
 #
-#   RED — a PRODUCT defect, not a fixture shortfall, and the more valuable of the two
-#   findings. The EVA plume cell failed at "plume built but not playing while thrusting":
-#   the gate opened, the build logged, the success line logged — and `isPlaying` was false.
-#   Unity's `ParticleSystem.Play()` on a ghost that is not `activeInHierarchy` is a SILENT
-#   no-op, and a ghost is inactive for the whole of its spawn-time prefix replay
-#   (`BuildTimelineGhostFromSnapshot` ends with `root.SetActive(false)`;
-#   `ActivateGhostVisualsIfNeeded` runs later, per frame). Because the reconcile was
-#   EVENT-driven only, a ghost spawning mid-burst stayed dark for the entire burst while
-#   the log claimed otherwise. Fixed on three fronts: a pure
-#   `ClassifyEvaPlumeReconcile` that DEFERS on an inactive hierarchy (rather than building
-#   a system it cannot start, or marking a good ghost permanently unavailable), a per-frame
-#   `UpdateEvaJetpackPlumeForFrame` self-heal beside the launch-dust drive — dust already
-#   had this property for free by re-calling Play every frame — and DECISION-VS-TRUTH
-#   logging that reads `isPlaying` back, so the success line can no longer be emitted on
-#   the strength of having called Play. A Warn now names the unmodelled-refusal case.
-#
-#   SKIPPED VACUOUSLY — a FIXTURE bug. The Goo cell resolved `science.module`, cloned 15
-#   MeshRenderers and sampled 6 animated transforms from clip `Deploy`, then skipped on its
-#   own precondition that stowed and deployed poses differ. Cause: the precondition tested
-#   POSITION only, and a science canister's Deploy clip SWINGS ITS DOORS — pure rotation,
-#   identical positions at both ends. The builder's own `CollectTransformDeltas` keeps a
-#   transform on position OR ROTATION OR scale, so the cell was blind to exactly the motion
-#   the part has. Both the precondition and the round-trip assertions are now per-component
-#   (position, rotation, scale), each judged against its own span. NO `RUNTIME_SKIPS` entry
-#   is owed: the skip was fixed rather than accepted, so `skipped=0` stands as written.
-#
-# WHY THE PIN STAYS INTERIM. `passed=5` is still a PREDICTION for the two repaired cells,
-# and the H36 precedent is explicit that a RED IS NOT A MEASUREMENT — that id stayed
-# interim through a PARSEK-FAIL before its clean re-fly settled the pin. The three green
-# cells are measured; the other two have been fixed but not observed. The next green
-# flight replaces `passed=[1-9][0-9]*` with a literal, records the per-cell resolutions the
-# way H36's comment does, and removes this id from INTERIM_PIN_IDS.
-required  = ["BATCH_COMPLETE v1 total=5 passed=[1-9][0-9]* failed=0 skipped=0 category=PartEventFidelity scene=FLIGHT"]
+# THE FIXTURE LESSON, worth carrying to the next in-game category: the other four cells
+# passed on the FIRST flight while the plume cell measured a lie, because they read
+# `activeSelf` flags and sampled poses - both readable on an INACTIVE hierarchy. Anything
+# Unity silently refuses to do while inactive is invisible to that style of cell. The
+# fixture now activates the ghost through the production seam
+# (`GhostPlaybackEngine.ActivateGhostVisualsIfNeededForTesting`) rather than a bare
+# SetActive, so it cannot drift from production if that step ever grows.
+required  = ["BATCH_COMPLETE v1 total=5 passed=5 failed=0 skipped=0 category=PartEventFidelity scene=FLIGHT"]
 forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
 
 [runtime]

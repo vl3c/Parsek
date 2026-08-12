@@ -260,9 +260,27 @@ to make that verdict look wrong. The cell asserts both halves of the claim on a 
 prefab, so if the verdict ever stops being true it REDS instead of a doc sentence
 quietly rotting. All five are Scene = FLIGHT and batch-allowed (attribute-derived skip
 floor 0) and all five self-skip with a named requirement when the install gives them
-no usable prefab, so `H37` ships with an interim `passed=` pin until a flight measures
-the split - `IngameBatchWiringGroupTests.INTERIM_PIN_IDS` holds exactly that one id.
-Bucket A1, same standing as `H36`.
+no usable prefab. `H37` shipped with an interim `passed=` pin and is now LIVE-PROVEN:
+after a first flight that red 3/5, the 2026-08-12 re-fly measured `total=5 passed=5
+failed=0 skipped=0`, all five guards satisfied on stock-minimal, so the pin is literal,
+no `RUNTIME_SKIPS` entry is owed and `IngameBatchWiringGroupTests.INTERIM_PIN_IDS` is
+EMPTY again. Bucket A1, same standing as `H36`.
+
+WHAT ITS FIRST FLIGHT COST AND BOUGHT, because it is the most useful thing this category
+has produced so far: neither non-green cell was the install shortfall the interim pin was
+hedging against. The RED was a PRODUCT defect (`ParticleSystem.Play()` on a ghost that is
+not `activeInHierarchy` is a SILENT no-op, and a ghost is inactive throughout its
+spawn-time prefix replay, so an EVA ghost spawning mid-burst stayed dark for the whole
+burst while the log claimed it was emitting). The SKIP was a TEST defect - the Goo cell's
+precondition tested POSITION only while a science canister's `Deploy` clip swings its
+doors, and the re-fly's measured `span(pos=0 rot=29.99998deg)` is that diagnosis in one
+number. The transferable lesson is about CELL STYLE rather than about either bug: the
+other four cells passed on that first flight while the plume cell measured a lie, because
+they read `activeSelf` flags and sampled poses, both of which are readable on an INACTIVE
+hierarchy. Anything Unity silently refuses to do while inactive is invisible to that style
+of cell, so a category whose claims depend on Unity ACTING should activate its fixture
+through the production seam (`GhostPlaybackEngine.ActivateGhostVisualsIfNeededForTesting`),
+as `H37` now does.
 
 READ THAT 381 CAREFULLY - the last 47 of it are the largest single-spec jump in
 this row's history and the least representative. `Logistics` contributes all 47 of its declarations to

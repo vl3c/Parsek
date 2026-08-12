@@ -357,6 +357,15 @@ confidently wrong.
     the `driveOutput` family. It is
     storage-*negative* and strictly more correct than the signal it replaces.
 - ~~**S4. EVA jetpack deploy/thrust + ragdoll.**~~ **DONE 2026-08-12** (`part-event-fidelity`/P8),
+  **CONFIRMED LIVE 2026-08-12** by `H37-part-event-fidelity` ('kerbalEVA', `built=True
+  emissionRate=45`, the deferral line firing and then healing). Its FIRST flight caught a
+  PRODUCT defect this list should record, because the mechanism generalises to any
+  event-driven FX: `ParticleSystem.Play()` on a ghost that is not `activeInHierarchy` is a
+  SILENT no-op, and a ghost is inactive for the whole of its spawn-time prefix replay - so a
+  ghost spawning mid-burst stayed dark for the entire burst while the log claimed it was
+  emitting. The reconcile now defers on an inactive hierarchy, self-heals per frame beside
+  the launch-dust drive, and reads `isPlaying` back instead of reporting success on the
+  strength of having called Play.
   with the anchor-filter reading CONFIRMED (the filters have since moved to `:5250` / `:5439` and
   both remain anchor-candidate filters). Six members: the jetpack deploy/stow pair, the thrust
   pair, and the ragdoll pair. THREE corrections to the prescription below.
@@ -390,7 +399,11 @@ confidently wrong.
   `currentExtension`/`targetExtension` prepended for pistons; drop `suspensionOffset`;
   `(module as IScalarModule).GetScalar` for `ModuleAnimateHeat` — **one cast unlocks a complete,
   already-implemented recorder + playback path** (`GhostPlaybackLogic.cs:3693-3770`).
-- ~~**S6. Deployable `BROKEN`.**~~ **DONE 2026-08-12** (`part-event-fidelity`/P8). One correction
+- ~~**S6. Deployable `BROKEN`.**~~ **DONE 2026-08-12** (`part-event-fidelity`/P8),
+  **CONFIRMED LIVE 2026-08-12** by `H37` on 'solarPanelOX10C' (break subtree `rootHinge`, 13
+  transforms), which retires the wave's likeliest silent no-op: almost no stock part sets
+  `breakName`, so the `pivotName` fallback carries the whole feature and this is it
+  resolving in production. One correction
   to the description: it is **NOT permanent**. `eventRepairExternal` is active exactly while BROKEN
   and `DoRepair()` returns the part to RETRACTED, so `DeployableBroken` is a REVERSIBLE-family
   member (split-seed family 3, seeded verbatim like the parachute trio) rather than a
@@ -403,7 +416,10 @@ confidently wrong.
   two simultaneous set changes. The visual is `panelBreakTransform.gameObject.SetActive(false)`;
   note that a LIVE break instead detaches the subtree as debris via `breakPanels()` and the hide is
   what a later load applies, so hiding is the right net rendering for a ghost either way.
-- ~~**S7. Drill/ISRU running animation.**~~ **DONE 2026-08-12** (`part-event-fidelity`/P8), and
+- ~~**S7. Drill/ISRU running animation.**~~ **DONE 2026-08-12** (`part-event-fidelity`/P8),
+  **CONFIRMED LIVE 2026-08-12** by `H37` on an ISRU (`quarterRot=90.0001deg` a quarter
+  through the clip, cyclic wrap holding, `driftAfterStop=0deg`) and on the empty-deploy-name
+  shape (4 looping transforms). And
   deliberately NOT by extending the harvest window. That window is vessel-scoped and exists to
   attribute harvested resources; the visual is per-PART, so P8 added a separate per-part
   `CheckConverterState` keyed on `BaseConverter.IsActivated` (a `[KSPField(isPersistant = true)]

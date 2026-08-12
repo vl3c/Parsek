@@ -1499,7 +1499,30 @@ one `[Rewind]` Info line; details in that same entry.
 which also converted the §2 science-timeline row into four explicit WON'Ts.** Nine new
 `PartEventType` members (36-44), no schema-generation bump (verified against both
 sidecar readers rather than assumed), and a new in-game category `PartEventFidelity`
-wired as `H37-part-event-fidelity`. Three findings from P8 worth carrying forward
+wired as `H37-part-event-fidelity`. **CONFIRMED LIVE 2026-08-12** by the H37 re-fly
+(`total=5 passed=5 failed=0 skipped=0`, every verifier green): the break/repair/loop
+round trip on `solarPanelOX10C` (break subtree `rootHinge`, 13 transforms - so the
+`breakName` -> `pivotName` fallback resolves in production, which was the wave's
+likeliest silent no-op), the converter loop at `quarterRot=90.0001deg` with
+`driftAfterStop=0deg`, the empty-deploy-name ISRU shape with 4 looping transforms, and
+the EVA plume built and gated. Its FIRST flight red 3/5 and bought two fixes worth
+naming here, since both are the wave's own failure mode - a replay that renders or
+reports plausibly rather than correctly:
+- **A silent `Play()` no-op.** `ParticleSystem.Play()` on a ghost that is not
+  `activeInHierarchy` neither throws nor sets `isPlaying`, and a ghost is inactive for
+  the whole of its spawn-time prefix replay - so an EVA ghost spawning mid-burst stayed
+  dark for the entire burst while the log reported it emitting. Fixed with a pure
+  `ClassifyEvaPlumeReconcile` that DEFERS on an inactive hierarchy, a per-frame
+  `UpdateEvaJetpackPlumeForFrame` self-heal beside the launch-dust drive (dust already
+  had that property for free by re-calling Play every frame), and decision-vs-truth
+  logging that reads `isPlaying` BACK rather than reporting success on the strength of
+  having called Play.
+- **A rotation-blind test.** The Goo verification cell skipped VACUOUSLY because its
+  precondition tested POSITION only, while a science canister's `Deploy` clip swings its
+  doors; the re-fly's `span(pos=0 rot=29.99998deg)` on `mk2LanderCabin.v2` is the
+  diagnosis in one number. Precondition and assertions are now per-component against the
+  builder's own `CollectTransformDeltas` thresholds. No `RUNTIME_SKIPS` entry: the skip
+  was fixed, not accepted. Three findings from P8 worth carrying forward
 because each corrects something a future reader would otherwise trust:
 - Deployable `BROKEN` is **REVERSIBLE** (stock `eventRepairExternal` -> `DoRepair` lands
   on RETRACTED), so it is a reversible-family split seed, not a permanent one. The audit

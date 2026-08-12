@@ -2759,9 +2759,9 @@ class IngameBatchWiringGroupTests(unittest.TestCase):
         # then PASS 7/7 after both fixes), so its tally is now pinned WHOLE and it
         # has left INTERIM_PIN_IDS - see that set's comment for the measurement.
         "H36-playback-fidelity":     ("PlaybackFidelity", 7, "FLIGHT"),
-        # P8's live half. NOT YET FLOWN, so its `passed=` is still the nonzero-literal
-        # form and the id sits in INTERIM_PIN_IDS below; `total=5` / `skipped=0` are
-        # attribute-exact and this entry is what keeps them so.
+        # P8's live half. LIVE-PROVEN 2026-08-12 on the re-fly (`total=5 passed=5 failed=0
+        # skipped=0`) after a first flight that red 3/5 on one product defect and one
+        # fixture bug; the pin is whole and the id has left INTERIM_PIN_IDS.
         "H37-part-event-fidelity":   ("PartEventFidelity", 5, "FLIGHT"),
     }
 
@@ -2875,21 +2875,34 @@ class IngameBatchWiringGroupTests(unittest.TestCase):
     #   all seven guards were satisfied on stock-minimal, so no RUNTIME_SKIPS entry is
     #   owed and the pin is now whole.
     #
-    # All three specs then pinned their tallies whole, emptying the set - and
-    # H37-part-event-fidelity re-opens it on exactly the same terms.
+    #   H37-part-event-fidelity (P8) also took TWO flights, and its first one is the
+    #   sharpest illustration yet of why this set exists. All five cells carry a run-time
+    #   InGameAssert.Skip keyed on what the install loaded AND on what the ghost builder
+    #   resolved, so no attribute predicted the split. The FIRST flight (2026-08-12) read
+    #   `total=5 passed=3 failed=1 skipped=1`, and NEITHER non-green cell was a fixture
+    #   shortfall of the kind the loose pin was hedging against:
+    #     * the RED was a PRODUCT defect - ParticleSystem.Play() on a ghost that is not
+    #       activeInHierarchy is a SILENT no-op, and a ghost is inactive for the whole of
+    #       its spawn-time prefix replay, so an EVA ghost spawning mid-burst stayed dark
+    #       for the entire burst while the log claimed it was emitting; and
+    #     * the SKIP was a FIXTURE BUG, not an install property - the cell's precondition
+    #       tested POSITION only while a science canister's Deploy clip swings its doors,
+    #       so it was blind to the one motion the part has. The re-fly measured
+    #       `span(pos=0 rot=29.99998)` on mk2LanderCabin.v2: a literally ZERO position
+    #       span, which is the diagnosis in one number.
+    #   THE LESSON, which is the durable part: a loose `passed=` hedges against the
+    #   install, but the things it actually caught here were a product bug and a test bug.
+    #   Do not read a non-green interim flight as "the profile lacks X" - measure which of
+    #   the three it is. The RE-FLY after both fixes (2026-08-12, PASS attempt 1) read
+    #   `total=5 passed=5 failed=0 skipped=0`, every verifier green (analyzer red=0,
+    #   anomalySweep hits=[], expectations mismatches=0, unityExceptions 0), so all five
+    #   guards were satisfied on stock-minimal, no RUNTIME_SKIPS entry is owed, and the pin
+    #   is now whole.
     #
-    #   H37-part-event-fidelity (P8) has NOT FLOWN. Its `total=5` and `skipped=0` are
-    #   attribute-exact, but all five cells carry a run-time InGameAssert.Skip keyed on
-    #   what the provisioned install loaded AND on what the ghost builder resolved: a
-    #   deployable whose breakName (or its pivotName fallback) clones into the ghost, a
-    #   ModuleAnimationGroup whose running clip moves cloned geometry, a part with that
-    #   clip and NO deploy animation (the large-ISRU shape), a KerbalEVA prefab plus the
-    #   additive particle shader, and a science experiment paired with a
-    #   ModuleAnimateGeneric whose sampled poses differ. No attribute predicts that
-    #   split, so `passed=5` would be a prediction dressed as a pin. H36's history is the
-    #   precedent for holding the line: a RED is not a measurement either, and that id
-    #   stayed interim through a PARSEK-FAIL before its clean re-fly settled the pin.
-    INTERIM_PIN_IDS: set = {"H37-part-event-fidelity"}
+    # All four specs now pin their tallies whole, so the set is empty again. It must stay a
+    # `set()` call rather than a `{}` literal, which would be an empty DICT - the two
+    # membership cells below would then answer False for every id and pass vacuously.
+    INTERIM_PIN_IDS: set = set()
 
     # Every committed spec whose id matches this is an H-SERIES batch spec.
     # Membership is DISCOVERED from disk and then compared for set equality against
