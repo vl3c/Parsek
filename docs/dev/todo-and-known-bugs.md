@@ -178,6 +178,79 @@ directory whose own `.gitignore` says "never committed", removed.
 **Net across all three items in this branch:** `harness/fixtures/` falls from
 1,226,233 lines / 490 files to 550,167 / 356 - **-55%**.
 
+## ~~FIXTURE-DEFAULTCAREER-DELETED: a 73,945-line test fixture the code had refused to load since 2026-05-11~~ [FOUND + DELETED 2026-08-12, branch `claude/large-pr-code-volume-xt1z02`]
+
+**What it was.** `Source/Parsek.Tests/Fixtures/DefaultCareer/` - 41 files,
+73,945 lines, 1.5 MB. Its only consumer was
+`SyntheticRecordingTests.AddRealCareerRecordings`, gated by
+`TryValidateRealCareerRecordingCorpusCurrent`.
+
+**Why it never loaded.** The gate requires `CurrentRecordingFormatVersion = 1`
+(`RecordingStore.cs:105`) and `CurrentRecordingSchemaGeneration = 4` (`:131`).
+The fixture carries `recordingFormatVersion` 0 (x9) and 3 (x5), and
+`recordingSchemaGeneration` **zero times** - the field is absent. Its `.prec`
+files are 9 pre-reset TEXT sidecars plus 5 binary `PRKB`, against the current
+binary `PSK0`. The gate therefore failed on the first recording and returned an
+empty array every run since the v0 schema reset of 2026-05-11 (`CHANGELOG.md:775`,
+`:777`, `:782`), which replaced migration with hard refusal. 40 of the 41 files
+were never opened at all.
+
+**Why the rebake never came, and why it never would have used this data.** The
+rebake was scoped as module M-A4 (`automated-testing-plan.md:496`). It is absent
+from `docs/dev/autotest-status.md`, the status authority, while its dependency
+M-A1 is SHIPPED there; every other mention is forward-looking deferral. Nothing
+in the live todo names it. And the recipe (`automated-testing-plan.md:339-352`)
+never meant re-serializing the old bytes - the no-migration policy forbids
+reading them - it meant "fly something new and harvest it". The outcome M-A4
+existed to produce shipped anyway, as the harness's own corpus: 50 real
+recordings at format 1 / generation 4 across six `*-recorded` fixtures.
+
+**Adversarial value check, all negative.** Of the 14 recording IDs, 12 have zero
+references outside the fixture. `1bbb50cf...` appears only in an archived DONE
+entry (`done/todo-and-known-bugs-v3.md:2481`). `393b82cc...` appears in
+`Bug419DebrisMonotonicityTests.cs:310` as a bare string literal with its 13 UT
+values hardcoded inline - the test never opens the fixture, the evidence was
+already transcribed. No csproj/props/targets/ps1 references it. Nothing asserts
+its PRESENCE; `SyntheticRecordingTests.cs:7146` asserts its **absence** on the
+branch that has been live since the reset, so deletion changes no assertion
+outcome. Its unique `parsek_rw_0a74d6.sfs` is the same artifact class deleted
+from six harness fixtures in this branch and now forbidden by
+`CommittedFixtureRewindSaveTests`; it survived only by sitting outside that
+gate's swept directory.
+
+**The hazard this surfaced, which is the real find.**
+`AddRealCareerRecordings` fell back to a LIVE, machine-local save when the
+fixture was absent: `sourceCareerDir = fixtureDir ?? Path.Combine(kspRoot,
+"saves", "default")`, mirrored at the sidecar-copy site. Deleting the directory
+alone would have made that fallback the normal path, and a dev instance whose
+`saves/default` carries current-schema recordings would have silently injected
+uncommitted, machine-local, non-reproducible data - flipping the
+`Assert.DoesNotContain` branch on a machine-specific condition. Both fallbacks
+are removed; a missing fixture now yields an empty corpus.
+
+**Deferred, deliberately:** ~230 lines of now-dead C# below the entry point
+(`AddRealCareerRecordings` body, `TryValidateRealCareerRecordingCorpusCurrent`,
+`HasExpectedIntValue`, `CopyRealRecordingFiles`,
+`ResolveDefaultCareerFixtureDir`, the `realRecordingNodes.Length` terms at
+`:7146-7157` and `:7201-7206`). Every reference is mapped and confined to
+`SyntheticRecordingTests.cs`, but `dotnet` was unavailable in the environment
+that made this deletion, so excising it could not be compiled. Left with an
+in-file banner naming this entry. See FIXTURE-DEFAULTCAREER-DEAD-CODE below.
+
+## FIXTURE-DEFAULTCAREER-DEAD-CODE: ~230 lines of test helper left in place, unreachable [OPEN, filed 2026-08-12. Needs a checkout with `dotnet`]
+
+Mechanical excision, no design decision. Delete from
+`Source/Parsek.Tests/SyntheticRecordingTests.cs`:
+`ResolveDefaultCareerFixtureDir`, `AddRealCareerRecordings`,
+`TryValidateRealCareerRecordingCorpusCurrent`, `HasExpectedIntValue` (the
+private helper in THIS file - `SegmentEventTests.cs:45` has an unrelated test of
+the same name), `CopyRealRecordingFiles`, the call site at `:6884`, the
+sidecar-copy block, the `realRecordingNodes` conditional at `:7146-7157` (keep
+the `else` branch's two `Assert.DoesNotContain` calls unconditionally), and the
+`+ realRecordingNodes.Length` terms in the count math at `:7201-7206`. Nothing
+outside this file references any of them. `dotnet test` after, and the fixture
+count assertions should be unchanged because the term being dropped is always 0.
+
 ## FIXTURE-AUDIT-DEFERRED: measured redundancy deliberately NOT acted on [OPEN, filed 2026-08-12 from the same audit. Each entry is a decision someone should make with the numbers in hand, not a defect]
 
 Recorded so the measurements are not lost and nobody re-derives them.

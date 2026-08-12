@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using Xunit;
 
@@ -456,7 +456,9 @@ namespace Parsek.Tests
         /// <summary>
         /// Builds a PART node with the real KSP field name (`persistentId`),
         /// matching how `ProtoPartSnapshot.Save` serializes the part pid in
-        /// stock `.sfs` files (verified in `Fixtures/DefaultCareer/persistent.sfs`).
+        /// stock `.sfs` files (originally verified against the DefaultCareer
+        /// fixture, deleted 2026-08-12; the same shape is carried by every
+        /// `persistent.sfs` under `harness/fixtures/saves/`).
         /// </summary>
         private static ConfigNode BuildKspFormatSnapshotWithCrew(
             uint partPid, string partName, params string[] crewNames)
