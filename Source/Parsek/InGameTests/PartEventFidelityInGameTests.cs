@@ -132,6 +132,20 @@ namespace Parsek.InGameTests
                 InGameAssert.IsFalse(info.breakSubtreeHidden,
                     "S6: breakSubtreeHidden stayed true through the repair");
 
+                // THE REPAIR MUST SNAP, not animate. Rule 1 leaves the pivot at deployFraction = 1
+                // when the panel breaks (the recorder does not retract it), so an ANIMATED
+                // application here would re-show the panel fully EXTENDED and fold it politely shut
+                // over the clip length — while stock DoRepair lands on RETRACTED instantly with a
+                // freshly instantiated subtree. Caught on review: the applier was passing
+                // immediate: false, so the un-hide branch now forces the snap.
+                InGameAssert.IsFalse(info.transitionActive,
+                    "S6: '" + usedPart + "' armed an ANIMATED transition on repair. The panel would " +
+                    "reappear fully extended and fold shut over " + info.clipLengthSeconds +
+                    "s; stock DoRepair is instant, so the un-hide must snap");
+                InGameAssert.IsTrue(info.deployFraction < 1e-3f,
+                    "S6: '" + usedPart + "' repaired to deployFraction=" + info.deployFraction +
+                    " instead of the stowed 0 — the panel came back still extended");
+
                 // 3. THE LOOP CYCLE. Break it again, then run the real loop-restart pair. Without
                 //    the explicit re-show, cycle 2 of a looping replay starts with the panel already
                 //    gone — the break would be shown once and then permanent.

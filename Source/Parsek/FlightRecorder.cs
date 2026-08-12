@@ -3470,6 +3470,19 @@ namespace Parsek
         /// chain boundary, scene change). Without these, ghost plumes and FX may stay
         /// frozen at the last throttle level instead of shutting down at recording end.
         /// Bug #108.
+        ///
+        /// <para>
+        /// S4 JOINS THE SAME CONTRACT via <paramref name="thrustingJetpackParts"/>, and it needs to
+        /// for a reason the other families do not have: nothing else can close an EVA thrust pair.
+        /// A kerbal switched away from mid-burst (a map click or a `[` press while a translate key
+        /// is held) stops being polled by the flight recorder before the false-thrust edge lands,
+        /// and the BACKGROUND recorder has no thrust wrapper at all — deliberately, since a
+        /// background kerbal receives no input, so the edge can never fire there. An RCS pair left
+        /// open at the same handoff is closed by the BG recorder's own CheckRcsState; an EVA thrust
+        /// pair would simply stay open, leaving the ghost's plume lit for the rest of the recording
+        /// and re-lit on every loop cycle. Optional so the existing call sites (and ~20 test cells)
+        /// are unchanged; a null set is exactly the old behaviour.
+        /// </para>
         /// </summary>
         internal static List<PartEvent> EmitTerminalEngineAndRcsEvents(
             HashSet<ulong> activeEngineKeys,
@@ -3477,9 +3490,31 @@ namespace Parsek
             HashSet<ulong> activeRoboticKeys,
             Dictionary<ulong, float> lastRoboticPosition,
             double finalUT,
-            string logTag)
+            string logTag,
+            HashSet<uint> thrustingJetpackParts = null)
         {
             var events = new List<PartEvent>();
+
+            // Terminal EvaJetpackThrustStopped for a kerbal still mid-burst. Pids are REMOVED as
+            // they are emitted, so a later terminal emit over the same set cannot double-close.
+            if (thrustingJetpackParts != null && thrustingJetpackParts.Count > 0)
+            {
+                var pids = new List<uint>(thrustingJetpackParts);
+                for (int i = 0; i < pids.Count; i++)
+                {
+                    thrustingJetpackParts.Remove(pids[i]);
+                    events.Add(new PartEvent
+                    {
+                        ut = finalUT,
+                        partPersistentId = pids[i],
+                        eventType = PartEventType.EvaJetpackThrustStopped,
+                        partName = "unknown"
+                    });
+                    ParsekLog.Verbose(logTag,
+                        $"Terminal event: EvaJetpackThrustStopped pid={pids[i]} at " +
+                        $"UT={finalUT.ToString("F2", System.Globalization.CultureInfo.InvariantCulture)}");
+                }
+            }
 
             // Terminal EngineShutdown for each active engine
             if (activeEngineKeys != null && activeEngineKeys.Count > 0)
@@ -7742,7 +7777,7 @@ namespace Parsek
                 double terminalUT = Planetarium.GetUniversalTime();
                 var terminalEvts = EmitTerminalEngineAndRcsEvents(
                     activeEngineKeys, activeRcsKeys, activeRoboticKeys,
-                    lastRoboticPosition, terminalUT, "Recorder");
+                    lastRoboticPosition, terminalUT, "Recorder", thrustingJetpackParts);
                 PartEvents.AddRange(terminalEvts);
                 // Save the exact terminal events so ResumeAfterFalseAlarm can remove them
                 // by content-match (#287). Index-based RemoveRange is brittle across unstable
@@ -10491,7 +10526,7 @@ namespace Parsek
             double railsUT = Planetarium.GetUniversalTime();
             var railsTerminalEvts = EmitTerminalEngineAndRcsEvents(
                 activeEngineKeys, activeRcsKeys, activeRoboticKeys,
-                lastRoboticPosition, railsUT, "Recorder");
+                lastRoboticPosition, railsUT, "Recorder", thrustingJetpackParts);
             PartEvents.AddRange(railsTerminalEvts);
             if (railsTerminalEvts.Count > 0)
                 ParsekLog.Info("Recorder",
@@ -10505,6 +10540,11 @@ namespace Parsek
             lastRcsThrottle.Clear();
             lastRoboticPosition.Clear();
             rcsActiveFrameCount.Clear();
+            // S4: the debounce frame counts go with the rest of the active state. The thrusting SET
+            // was already emptied by the terminal emit above (it removes each pid as it closes it),
+            // so clearing the counts here is what stops a half-accumulated burst from resuming into
+            // a start event off-rails that its own frames never earned.
+            evaThrustFrameCounts.Clear();
             decoupledPartIds.Clear();
         }
 

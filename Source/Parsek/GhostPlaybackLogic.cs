@@ -6146,12 +6146,18 @@ namespace Parsek
             if (state?.deployableInfos == null) return true;
             if (!state.deployableInfos.TryGetValue(partPersistentId, out DeployableGhostInfo d) || d == null)
                 return true;
-            // S6: a BROKEN panel closes the gate unconditionally. The pivot may still carry a
-            // fully-deployed pose from before the break (the recorder does not retract it - that is
-            // rule 1), so without this the ghost would slew the pivot of a panel it has just hidden
-            // toward the Sun for the rest of the recording. On a part whose break transform did not
-            // resolve, the hidden flag is still set, so the gate still closes: aiming a panel we
-            // could not remove is worse than leaving it still.
+            // S6: a BROKEN panel closes the gate. The pivot may still carry a fully-deployed pose
+            // from before the break (the recorder does not retract it - that is rule 1), so without
+            // this the ghost would slew the pivot of a panel it has just hidden toward the Sun for
+            // the rest of the recording.
+            //
+            // SCOPE, stated precisely because the obvious stronger claim is false: this closes the
+            // gate for any part that HAS a DeployableGhostInfo, including one whose break transform
+            // did not resolve (ApplyDeployableBrokenState still sets the flag). It does NOT cover a
+            // part with no info at all - the TryGetValue miss above answers "treated as deployed" -
+            // but that combination needs a part with no deploy animation AND an unresolvable break
+            // transform AND isTracking, which no stock part is: every tracking panel has a deploy
+            // animation, so it always has an info.
             if (d.breakSubtreeHidden) return false;
             return d.currentDeployed && !d.transitionActive && d.deployFraction >= 1f - 1e-4f;
         }
@@ -6629,8 +6635,18 @@ namespace Parsek
             // and putting it here rather than only in the Retracted arm means a recording whose
             // repair was followed immediately by a re-deploy (so the tail's first deployable
             // event is Extended) still gets the panel back.
+            //
+            // AND THE UN-HIDE FORCES A SNAP, which is not a detail. Rule 1 deliberately leaves the
+            // pivot at deployFraction = 1 when a panel breaks (the recorder does not retract it),
+            // so an ANIMATED application here would re-show the panel fully EXTENDED and then fold
+            // it politely shut over the clip length. Stock DoRepair lands on RETRACTED instantly,
+            // with a freshly instantiated subtree - there is no fold to show. Reaching the target
+            // pose in the same frame as the un-hide is the faithful rendering.
             if (info.breakSubtreeHidden)
+            {
                 ApplyDeployableBrokenState(state, evt.partPersistentId, broken: false);
+                immediate = true;
+            }
 
             float target = deployed ? 1f : 0f;
 

@@ -558,6 +558,16 @@ namespace Parsek
                 // S6: BROKEN joins the deployable family rather than getting its own, so the
                 // reducer collapses a per-part run of extend/retract/break to its LAST state
                 // and the boundary dedupe treats all three as one opinion about one pivot.
+                //
+                // INHERITED LIMITATION, worth naming because BROKEN makes it more visible: this
+                // family is PID-COLLAPSED (TransientVisualStateKey), and ladders, animation groups
+                // and aero/control surfaces all speak DeployableExtended/Retracted under the same
+                // pid. On a part combining a breakable ModuleDeployablePart with one of those - mod
+                // parts only; no stock part does it - a head-span DeployableBroken can be overwritten
+                // by a later same-pid DeployableExtended from the OTHER module, and the tail seeds an
+                // intact panel. Pre-existing for extend/retract (a folded ladder could already lose
+                // to an extended panel); fixing it means module-scoping the whole family's key, which
+                // is a change to five event types' storage, not to this member.
                 case PartEventType.DeployableBroken:
                     return 3;
                 case PartEventType.GearDeployed:

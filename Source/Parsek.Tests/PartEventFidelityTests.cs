@@ -1325,6 +1325,55 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void AKerbalStillThrustingAtARecordingBoundary_GetsATerminalStop()
+        {
+            // REVIEW FIX. Nothing else can close an EVA thrust pair. A kerbal switched away from
+            // mid-burst stops being polled by the flight recorder before the false-thrust edge
+            // lands, and the BACKGROUND recorder has no thrust wrapper at all (a background kerbal
+            // receives no input, so the edge can never fire there). An RCS pair left open at the
+            // same handoff is closed by the BG recorder's own CheckRcsState; a thrust pair would
+            // stay open, leaving the ghost's plume lit for the rest of the recording AND re-lit on
+            // every loop cycle.
+            var thrusting = new HashSet<uint> { KerbalPid };
+
+            var terminals = FlightRecorder.EmitTerminalEngineAndRcsEvents(
+                activeEngineKeys: new HashSet<ulong>(),
+                activeRcsKeys: new HashSet<ulong>(),
+                activeRoboticKeys: new HashSet<ulong>(),
+                lastRoboticPosition: new Dictionary<ulong, float>(),
+                finalUT: 7777.0,
+                logTag: "Recorder",
+                thrustingJetpackParts: thrusting);
+
+            PartEvent stop = Assert.Single(terminals);
+            Assert.Equal(PartEventType.EvaJetpackThrustStopped, stop.eventType);
+            Assert.Equal(KerbalPid, stop.partPersistentId);
+            Assert.Equal(7777.0, stop.ut);
+
+            // The pid is REMOVED as it is closed, so a second terminal emit over the same set
+            // (stop after a rails transition, say) cannot double-close it.
+            Assert.Empty(thrusting);
+            Assert.Empty(FlightRecorder.EmitTerminalEngineAndRcsEvents(
+                new HashSet<ulong>(), new HashSet<ulong>(), new HashSet<ulong>(),
+                new Dictionary<ulong, float>(), 8888.0, "Recorder", thrusting));
+        }
+
+        [Fact]
+        public void TheTerminalEmitIsUnchangedForANullOrEmptyThrustSet()
+        {
+            // The parameter is optional so ~20 existing call sites and test cells are untouched;
+            // this pins that a null set really is the old behaviour.
+            Assert.Empty(FlightRecorder.EmitTerminalEngineAndRcsEvents(
+                new HashSet<ulong>(), new HashSet<ulong>(), new HashSet<ulong>(),
+                new Dictionary<ulong, float>(), 100.0, "Recorder"));
+
+            Assert.Empty(FlightRecorder.EmitTerminalEngineAndRcsEvents(
+                new HashSet<ulong>(), new HashSet<ulong>(), new HashSet<ulong>(),
+                new Dictionary<ulong, float>(), 100.0, "Recorder",
+                thrustingJetpackParts: new HashSet<uint>()));
+        }
+
+        [Fact]
         public void TryUpdateEvaFlags_IgnoresNonEvaEventTypesAndANullState()
         {
             var state = new GhostPlaybackState();

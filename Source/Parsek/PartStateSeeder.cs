@@ -57,7 +57,11 @@ namespace Parsek
                 SeedAnimationGroupsAndSurfaces(p, sets, logTag);
                 SeedAnimateGeneric(p, cargo, sets, logTag);
                 SeedConverters(p, sets, logTag);
-                SeedEvaState(p, sets, logTag);
+                // The v.isEVA gate MIRRORS both pollers (FlightRecorder.CheckEvaState and the BG
+                // wrapper). Without it a kerbal riding an external command seat on a rocket would
+                // seed an EvaJetpackDeployed off his persisted flag that no poll could ever pair or
+                // retract, because neither poller looks at a non-EVA vessel.
+                if (v.isEVA) SeedEvaState(p, sets, logTag);
             }
 
             SeedEngines(cachedEngines, sets, logTag);
