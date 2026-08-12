@@ -541,6 +541,96 @@ namespace Parsek.Tests
 
         #endregion
 
+        #region LiveAnchorLaunchMatches (#16 live-anchor launch gate)
+
+        // The pid that resolves a live vessel to a recording (BackgroundMap key /
+        // active-recording pid) is craft-baked and reused by every launch of that craft.
+        // Since Re-Fly preserves the fleet, a DIFFERENT launch of the same craft can answer
+        // that lookup, and its world pose would then be written into the focus recording's
+        // ReferenceFrame.Relative frames as metre offsets - silent trajectory corruption
+        // with no downstream signal. The gate rejects exactly that case and nothing else.
+        //
+        // Adoption-stamp note: the anchor gate does NOT re-check the pid (several
+        // BackgroundMap writers key the map on a live pid that is not the recording's
+        // VesselPersistentId), so the fixtures below vary ONLY the launch Guid - which is
+        // the whole decision surface here.
+
+        [Fact]
+        public void LiveAnchorLaunchMatches_ConclusivelyDifferentLaunchGuid_Rejects()
+        {
+            var rec = new Recording
+            {
+                RecordingId = "rec-a",
+                VesselName = "Kerbal X",
+                VesselPersistentId = 2708531065u,
+                RecordedVesselGuid = "11111111-1111-1111-1111-111111111111"
+            };
+
+            Assert.False(AnchorDetector.LiveAnchorLaunchMatches(
+                rec, "22222222-2222-2222-2222-222222222222"));
+        }
+
+        [Fact]
+        public void LiveAnchorLaunchMatches_SameLaunchGuid_Accepts()
+        {
+            var rec = new Recording
+            {
+                RecordingId = "rec-a",
+                VesselPersistentId = 2708531065u,
+                RecordedVesselGuid = "11111111-1111-1111-1111-111111111111"
+            };
+
+            Assert.True(AnchorDetector.LiveAnchorLaunchMatches(
+                rec, "11111111-1111-1111-1111-111111111111"));
+        }
+
+        [Fact]
+        public void LiveAnchorLaunchMatches_SameLaunchGuidInADifferentTextForm_Accepts()
+        {
+            // VesselLaunchIdentity normalizes to "N" form; a recording backfilled from a
+            // ProtoVessel pid and a live Vessel.id must compare equal across formats or the
+            // gate would reject every legitimate anchor.
+            var rec = new Recording
+            {
+                RecordingId = "rec-a",
+                RecordedVesselGuid = "11111111111111111111111111111111"
+            };
+
+            Assert.True(AnchorDetector.LiveAnchorLaunchMatches(
+                rec, "11111111-1111-1111-1111-111111111111"));
+        }
+
+        [Fact]
+        public void LiveAnchorLaunchMatches_UnknownLiveGuid_FallsBackToPriorBehaviour()
+        {
+            var rec = new Recording
+            {
+                RecordingId = "rec-a",
+                RecordedVesselGuid = "11111111-1111-1111-1111-111111111111"
+            };
+
+            Assert.True(AnchorDetector.LiveAnchorLaunchMatches(rec, null));
+            Assert.True(AnchorDetector.LiveAnchorLaunchMatches(rec, ""));
+        }
+
+        [Fact]
+        public void LiveAnchorLaunchMatches_LegacyRecordingWithNoRecordedGuid_FallsBackToPriorBehaviour()
+        {
+            var rec = new Recording { RecordingId = "legacy", RecordedVesselGuid = null };
+
+            Assert.True(AnchorDetector.LiveAnchorLaunchMatches(
+                rec, "22222222-2222-2222-2222-222222222222"));
+        }
+
+        [Fact]
+        public void LiveAnchorLaunchMatches_NullRecording_Rejects()
+        {
+            Assert.False(AnchorDetector.LiveAnchorLaunchMatches(
+                null, "11111111-1111-1111-1111-111111111111"));
+        }
+
+        #endregion
+
         [Fact]
         public void TryCreateRecordingAnchorCandidate_RejectsSameTreeNewerCandidate()
         {

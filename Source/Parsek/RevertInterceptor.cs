@@ -267,8 +267,7 @@ namespace Parsek
             var scenario = ParsekScenario.Instance;
             if (!ReferenceEquals(null, scenario))
             {
-                scenario.ActiveReFlySessionMarker = null;
-                Parsek.Rendering.RenderSessionState.Clear("marker-cleared");
+                scenario.ClearActiveReFlySessionMarker("marker-cleared");
                 // Live variant (route-timeline events): Retry is a player click
                 // in flight; ERS visibility shifts here must stamp route markers.
                 scenario.BumpSupersedeStateVersionLive();
@@ -366,8 +365,7 @@ namespace Parsek
                     marker, "RevertInterceptor:DiscardReFly:rp-unresolvable");
                 if (!ReferenceEquals(null, scenario))
                 {
-                    scenario.ActiveReFlySessionMarker = null;
-                    Parsek.Rendering.RenderSessionState.Clear("marker-cleared");
+                    scenario.ClearActiveReFlySessionMarker("marker-cleared");
                     scenario.ActiveMergeJournal = null;
                     // Live variant (route-timeline events): player Discard click.
                     scenario.BumpSupersedeStateVersionLive();
@@ -427,8 +425,7 @@ namespace Parsek
             // Step 5-6: clear scenario session state + bump caches.
             if (!ReferenceEquals(null, scenario))
             {
-                scenario.ActiveReFlySessionMarker = null;
-                Parsek.Rendering.RenderSessionState.Clear("marker-cleared");
+                scenario.ClearActiveReFlySessionMarker("marker-cleared");
                 scenario.ActiveMergeJournal = null;
                 // Live variant (route-timeline events): player Discard click.
                 scenario.BumpSupersedeStateVersionLive();

@@ -971,6 +971,76 @@ namespace Parsek.Tests
             Assert.True(rec.SpawnSuppressedByRewind);
         }
 
+        // ----------------------------------------------------------------
+        // #16 triage verdict: the rewind-suppression live-craft scan is
+        // DELIBERATELY pid-only and must stay that way.
+        //
+        // The live re-flight this block exists to protect against IS a
+        // same-craft stranger by construction: relaunching the rewound craft
+        // reuses the craft-baked persistentId and gets a FRESH launch Guid. A
+        // launch-Guid gate here would therefore lift the block during exactly
+        // the re-fly it must hold for and resurrect the #573 duplicate. The
+        // accepted cost is the narrower case below (a preserved unrelated
+        // launch of the same craft holds the block), which is why the held
+        // decision is logged rather than silent.
+        // ----------------------------------------------------------------
+
+        [Fact]
+        public void ResolveRewindSuppressionLiveLaunchPresence_LiveSameCraftPresent_HoldsBlockAndLogsIt()
+        {
+            var rec = MakeRecording(
+                "held-standalone",
+                "Kerbal X",
+                3620499050u,
+                treeId: null,
+                startUT: 0.0,
+                endUT: 182.766);
+            rec.RecordedVesselGuid = "11111111-1111-1111-1111-111111111111";
+            rec.SpawnSuppressedByRewind = true;
+            rec.SpawnSuppressedByRewindReason =
+                ParsekScenario.RewindSpawnSuppressionReasonSameRecording;
+            rec.SpawnSuppressedByRewindUT = 50.0;
+
+            // A live vessel shares the craft-baked pid. Whether it is the genuine
+            // re-flight or a preserved unrelated launch of the same craft, the resolver
+            // reports "present" and the block stays closed - pid-only by design.
+            GhostPlaybackLogic.SetLiveSameCraftOverrideForTesting(_ => true);
+
+            Assert.True(GhostPlaybackLogic.ResolveRewindSuppressionLiveLaunchPresence(rec));
+            Assert.Contains(logLines, l =>
+                l.Contains("[Rewind]") &&
+                l.Contains("same-recording spawn suppression HELD"));
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("same-recording spawn suppression lifted"));
+        }
+
+        [Fact]
+        public void ResolveRewindSuppressionLiveLaunchPresence_NonLiftableTarget_SkipsTheScanEntirely()
+        {
+            // The short-circuit that keeps the uncached FlightGlobals scan at most once per
+            // frame: a recording carrying no liftable same-recording marker is answered
+            // conservatively without any scan, so neither line is emitted.
+            var rec = MakeRecording(
+                "not-marked",
+                "Kerbal X",
+                3620499050u,
+                treeId: null,
+                startUT: 0.0,
+                endUT: 182.766);
+
+            bool scanned = false;
+            GhostPlaybackLogic.SetLiveSameCraftOverrideForTesting(_ =>
+            {
+                scanned = true;
+                return false;
+            });
+
+            Assert.True(GhostPlaybackLogic.ResolveRewindSuppressionLiveLaunchPresence(rec));
+            Assert.False(scanned);
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("same-recording spawn suppression"));
+        }
+
         private static Recording MakeRecording(
             string recordingId,
             string vesselName,
