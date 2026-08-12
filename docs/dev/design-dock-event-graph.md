@@ -575,7 +575,55 @@ Cross-cutting per-commit duties (project rules): CHANGELOG entry per behavior-ch
 
 ---
 
-## 18. References
+## 18. Addendum (2026-08-13): #8 spike resolved GO - ClassifyUndockChildProvenance
+
+The section 9 spike ran on 2026-08-13 and resolved **GO** on all three 9.4 clauses;
+evidence in `docs/dev/research/dprovenance-spike-2026-08-13.md` (perfect 100%/0%
+separation on the BDOCK-1 fixture; window sets exactly partner-scoped on disk; pid
+preservation proven end-to-end through commit and harvest). This addendum specifies the
+follow-up implementation; it is NOT part of PR sequence steps 1-7 and lands as its own
+scope after they soak.
+
+### 19.1 The classifier
+
+```
+ClassifyUndockChildProvenance(tree, undockBp, childRecording) -> UndockChildProvenance
+  UndockChildProvenance (enum): Unclassified = 0, RecorderMatter = 1, PartnerMatter = 2, Mixed = 3
+```
+
+Pure, in the dock-graph family. Preconditions (all must hold, else Unclassified):
+the undock's parent recording carries a completed `RouteConnectionWindow` whose
+`[DockUT, UndockUT]` brackets the child's StartUT (epsilon `LoopTiming.BoundaryEpsilon`);
+the child has a non-null persisted `VesselSnapshot`; the window's TRANSPORT and
+ENDPOINT pid sets are non-empty and disjoint. Classification: let p = |childPids and
+ENDPOINT| / |childPids|. p >= 0.9 -> PartnerMatter; p <= 0.1 -> RecorderMatter
+(symmetric to the transport set); otherwise Mixed. Same-merged-stack scoping is
+structural (the window lives on the child's own parent recording), so craft-baked pid
+collisions cannot enter the comparison. Unclassified and Mixed degrade to today's
+behavior at every consumer.
+
+### 19.2 Consumers (exactly two)
+
+1. **Journey-walk fork decision**: `FindBranchSuccessor` prefers, above the current
+   pid-match rule, a child classified PartnerMatter when the link's claimed side is the
+   partner (and dually skips a PartnerMatter child when walking the recorder's own
+   line). The current pid preference stays as the fallback for Unclassified/Mixed. This
+   fixes the D case: mission 2's journey follows R(D), and the pinned
+   `[AB, B1]`-style walks are unchanged wherever the classifier agrees with the pid rule.
+2. **Digest continuation line**: the partner-side digest gains the design 1.2
+   right-column closing row ("D departed - story continues in mission 'AB' ->") for
+   PartnerMatter children, with GoTo ids.
+
+### 19.3 Consequence for #9
+
+The recorded part-set lineage (#9) remains out of scope and is now likely unnecessary
+for the docked-partner case: the derived classifier covers it from data already on
+disk. #9 would only add value for non-dock splits (decouplers between two future
+missions), which no current feature needs.
+
+---
+
+## 19. References
 
 - `docs/dev/research/crosstree-dock-loop-coherence-analysis-2026-08-12.md` - the authoritative analysis; s6 recommendation numbering used throughout.
 - `docs/dev/research/dock-loop-model-extract-2026-08-12.md` - verified extraction; the AB/CD walk and the pinned-test inventory.
