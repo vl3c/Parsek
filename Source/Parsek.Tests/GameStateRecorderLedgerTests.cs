@@ -1666,6 +1666,90 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void PickRecoveryRecordingId_SkipsNotCommittedProvisional_PrefersCommitted()
+        {
+            // Phantom-attribution close: RewindInvoker.BuildProvisionalRecording is the
+            // only production creator of a NotCommitted recording and it COPIES the
+            // origin child's VesselName, so a live Re-Fly provisional matches the
+            // picker's name filter. Being newest, it would otherwise win both the
+            // bracketing and global-latest tiers and stamp a soon-to-be-pruned id onto
+            // a career payout. A committed candidate must win instead.
+            var committed = new Recording
+            {
+                RecordingId = "rec-committed",
+                VesselName = "Reusable",
+                PreLaunchFunds = 50000.0,
+                MergeState = MergeState.Immutable,
+                TerminalStateValue = TerminalState.Destroyed
+            };
+            committed.Points.Add(new TrajectoryPoint { ut = 100.0, funds = 40000.0 });
+            committed.Points.Add(new TrajectoryPoint { ut = 900.0, funds = 40000.0 });
+            RecordingStore.AddRecordingWithTreeForTesting(committed);
+
+            // Uncommitted provisional: same vessel name, brackets the recovery UT AND
+            // carries the largest EndUT (so it would win tiers 1 and 3 alike).
+            var provisional = new Recording
+            {
+                RecordingId = "rec-provisional",
+                VesselName = "Reusable",
+                PreLaunchFunds = 50000.0,
+                MergeState = MergeState.NotCommitted,
+                TerminalStateValue = TerminalState.Orbiting
+            };
+            provisional.Points.Add(new TrajectoryPoint { ut = 200.0, funds = 39000.0 });
+            provisional.Points.Add(new TrajectoryPoint { ut = 5000.0, funds = 39000.0 });
+            RecordingStore.AddRecordingWithTreeForTesting(provisional);
+
+            string pick = LedgerOrchestrator.PickRecoveryRecordingId("Reusable", 500.0);
+            Assert.Equal("rec-committed", pick);
+        }
+
+        [Fact]
+        public void PickRecoveryRecordingId_OnlyNotCommittedProvisionalMatches_ReturnsNull()
+        {
+            // When the ONLY name match is an uncommitted provisional, no-candidate is
+            // preferred over a doomed one: the payout stays untagged rather than
+            // carrying an id that dies with the provisional. Verified contract, not an
+            // assumption — the picker's no-candidate result is null.
+            var provisional = new Recording
+            {
+                RecordingId = "rec-provisional-only",
+                VesselName = "Solo",
+                PreLaunchFunds = 50000.0,
+                MergeState = MergeState.NotCommitted,
+                TerminalStateValue = TerminalState.Orbiting
+            };
+            provisional.Points.Add(new TrajectoryPoint { ut = 200.0, funds = 39000.0 });
+            provisional.Points.Add(new TrajectoryPoint { ut = 5000.0, funds = 39000.0 });
+            RecordingStore.AddRecordingWithTreeForTesting(provisional);
+
+            string pick = LedgerOrchestrator.PickRecoveryRecordingId("Solo", 1000.0);
+            Assert.Null(pick);
+        }
+
+        [Fact]
+        public void PickRecoveryRecordingId_CommittedProvisionalStillEligible()
+        {
+            // Only NotCommitted is skipped. CommittedProvisional is a merged,
+            // re-flyable tip that legitimately owns career attribution — skipping it
+            // too would over-correct and drop real tags.
+            var committedProvisional = new Recording
+            {
+                RecordingId = "rec-committed-provisional",
+                VesselName = "Staged",
+                PreLaunchFunds = 50000.0,
+                MergeState = MergeState.CommittedProvisional,
+                TerminalStateValue = TerminalState.Orbiting
+            };
+            committedProvisional.Points.Add(new TrajectoryPoint { ut = 100.0, funds = 40000.0 });
+            committedProvisional.Points.Add(new TrajectoryPoint { ut = 900.0, funds = 40000.0 });
+            RecordingStore.AddRecordingWithTreeForTesting(committedProvisional);
+
+            string pick = LedgerOrchestrator.PickRecoveryRecordingId("Staged", 500.0);
+            Assert.Equal("rec-committed-provisional", pick);
+        }
+
+        [Fact]
         public void OnVesselRecoveryFunds_SameUtDifferentReasonKey_PicksVesselRecoveryEvent()
         {
             // Review item 3a: the gate filters on key == VesselRecoveryReasonKey. If two

@@ -2559,11 +2559,28 @@ namespace Parsek
         ///   </description></item>
         ///   <item><description>
         ///     This test and <c>ParsekFlight.IsZeroPointLeaf</c> (Points +
-        ///     OrbitSegments + SurfacePos) DISAGREE in both directions: sections
-        ///     count here and not there, SurfacePos counts there and not here. Any
-        ///     prune that removes a recording the merge would accept must defer to
-        ///     this predicate — see
-        ///     <c>ReFlyConclusionRoute.ClassifyProvisionalPrune</c>.
+        ///     OrbitSegments + playable sections + SurfacePos) now agree on
+        ///     sections: both read playable payload through
+        ///     <c>PlaybackTrajectoryBoundsResolver.HasPlayablePayload</c>, so a
+        ///     section-authoritative recording can no longer be judged empty by the
+        ///     prune while the merge accepts it. The divergence is NARROWED, not
+        ///     gone, and remains one-directional: <c>SurfacePos</c> counts as
+        ///     "not empty" in the prune and is NOT payload here. A recording whose
+        ///     only surface is <c>SurfacePos</c> is therefore still kept by the prune
+        ///     and still refused by the merge — the safe direction (keep, don't
+        ///     supersede). Any prune that removes a recording the merge would accept
+        ///     must defer to this predicate — see
+        ///     <c>ReFlyConclusionRoute.ClassifyProvisionalPrune</c>, whose guard
+        ///     stays as belt-and-braces even now that the section term is shared.
+        ///   </description></item>
+        ///   <item><description>
+        ///     Both predicates share a blind spot: a section carrying ONLY
+        ///     <c>bodyFixedFrames</c> (no <c>frames</c>, no <c>checkpoints</c>) is
+        ///     payload to neither, while <c>DebrisRelativeRecorderPolicy</c> treats
+        ///     bodyFixedFrames as renderable coverage. Filed as a cross-cutting
+        ///     follow-up (it touches the sidecar codec); deliberately NOT patched by
+        ///     widening <c>HasPlayablePayload</c>, which would silently change what
+        ///     the merge accepts.
         ///   </description></item>
         /// </list>
         /// </summary>

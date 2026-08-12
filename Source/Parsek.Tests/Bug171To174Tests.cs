@@ -166,6 +166,177 @@ namespace Parsek.Tests
             Assert.False(ParsekFlight.IsZeroPointLeaf(rec));
         }
 
+        // --- Section-authoritative payload (divergence-narrowing) ---
+        // A recording whose trajectory lives in TrackSection.frames / .checkpoints
+        // rather than the flat Points list is renderable payload the merge predicate
+        // (SupersedeCommit.HasPlayableSupersedePayload) accepts. The prune must not
+        // judge it empty, or it deletes a recording the merge would keep.
+
+        [Fact]
+        public void LeafWithFramesOnlyAbsoluteSection_NotZeroPoint()
+        {
+            var rec = new Recording
+            {
+                RecordingId = "leaf-section-frames",
+                Points = new List<TrajectoryPoint>(),
+                OrbitSegments = new List<OrbitSegment>(),
+                SurfacePos = null,
+                ChildBranchPointId = null,
+                TrackSections = new List<TrackSection>
+                {
+                    new TrackSection
+                    {
+                        referenceFrame = ReferenceFrame.Absolute,
+                        frames = new List<TrajectoryPoint>
+                        {
+                            new TrajectoryPoint { ut = 100 },
+                            new TrajectoryPoint { ut = 101 }
+                        }
+                    }
+                }
+            };
+            Assert.False(ParsekFlight.IsZeroPointLeaf(rec));
+        }
+
+        [Fact]
+        public void LeafWithOrbitalCheckpointSectionCheckpoints_NotZeroPoint()
+        {
+            var rec = new Recording
+            {
+                RecordingId = "leaf-section-checkpoints",
+                Points = new List<TrajectoryPoint>(),
+                OrbitSegments = new List<OrbitSegment>(),
+                SurfacePos = null,
+                ChildBranchPointId = null,
+                TrackSections = new List<TrackSection>
+                {
+                    new TrackSection
+                    {
+                        referenceFrame = ReferenceFrame.OrbitalCheckpoint,
+                        checkpoints = new List<OrbitSegment>
+                        {
+                            new OrbitSegment { startUT = 100, endUT = 200 }
+                        }
+                    }
+                }
+            };
+            Assert.False(ParsekFlight.IsZeroPointLeaf(rec));
+        }
+
+        [Fact]
+        public void LeafWithEmptySections_StillZeroPoint()
+        {
+            // Metadata-only sections are not payload: an Absolute section with an
+            // empty frames list and an OrbitalCheckpoint section with an empty
+            // checkpoints list both carry nothing renderable.
+            var rec = new Recording
+            {
+                RecordingId = "leaf-section-empty",
+                Points = new List<TrajectoryPoint>(),
+                OrbitSegments = new List<OrbitSegment>(),
+                SurfacePos = null,
+                ChildBranchPointId = null,
+                TrackSections = new List<TrackSection>
+                {
+                    new TrackSection
+                    {
+                        referenceFrame = ReferenceFrame.Absolute,
+                        frames = new List<TrajectoryPoint>()
+                    },
+                    new TrackSection
+                    {
+                        referenceFrame = ReferenceFrame.OrbitalCheckpoint,
+                        checkpoints = new List<OrbitSegment>()
+                    }
+                }
+            };
+            Assert.True(ParsekFlight.IsZeroPointLeaf(rec));
+        }
+
+        [Fact]
+        public void LeafWithNullPayloadSections_StillZeroPoint()
+        {
+            // frames / checkpoints are null until initialized (TrackSection.cs), the
+            // shape a bare section carries before any sample lands in it.
+            var rec = new Recording
+            {
+                RecordingId = "leaf-section-null-payload",
+                Points = new List<TrajectoryPoint>(),
+                OrbitSegments = new List<OrbitSegment>(),
+                SurfacePos = null,
+                ChildBranchPointId = null,
+                TrackSections = new List<TrackSection>
+                {
+                    new TrackSection { referenceFrame = ReferenceFrame.Absolute },
+                    new TrackSection { referenceFrame = ReferenceFrame.OrbitalCheckpoint }
+                }
+            };
+            Assert.True(ParsekFlight.IsZeroPointLeaf(rec));
+        }
+
+        [Fact]
+        public void LeafWithOrbitalCheckpointSection_FramesDoNotCount_StillZeroPoint()
+        {
+            // Mirrors PlaybackTrajectoryBoundsResolver.HasPlayablePayload's dispatch:
+            // an OrbitalCheckpoint section's payload is `checkpoints`, so `frames`
+            // content on such a section is NOT the surface that path reads. Pins the
+            // prune to the merge's exact per-section notion rather than an "any list
+            // is non-empty" approximation.
+            var rec = new Recording
+            {
+                RecordingId = "leaf-section-frame-on-checkpoint",
+                Points = new List<TrajectoryPoint>(),
+                OrbitSegments = new List<OrbitSegment>(),
+                SurfacePos = null,
+                ChildBranchPointId = null,
+                TrackSections = new List<TrackSection>
+                {
+                    new TrackSection
+                    {
+                        referenceFrame = ReferenceFrame.OrbitalCheckpoint,
+                        frames = new List<TrajectoryPoint>
+                        {
+                            new TrajectoryPoint { ut = 100 }
+                        },
+                        checkpoints = new List<OrbitSegment>()
+                    }
+                }
+            };
+            Assert.True(ParsekFlight.IsZeroPointLeaf(rec));
+        }
+
+        [Fact]
+        public void SectionPayloadLeaf_AgreesWithMergeSupersedePredicate()
+        {
+            // The point of the change: prune-empty must not contradict
+            // merge-accepts. A frames-only Absolute section validates as a supersede
+            // target, so it must not read as a zero-point leaf.
+            var rec = new Recording
+            {
+                RecordingId = "leaf-section-agreement",
+                Points = new List<TrajectoryPoint>(),
+                OrbitSegments = new List<OrbitSegment>(),
+                SurfacePos = null,
+                ChildBranchPointId = null,
+                TerminalStateValue = TerminalState.Landed,
+                TrackSections = new List<TrackSection>
+                {
+                    new TrackSection
+                    {
+                        referenceFrame = ReferenceFrame.Absolute,
+                        frames = new List<TrajectoryPoint>
+                        {
+                            new TrajectoryPoint { ut = 100 }
+                        }
+                    }
+                }
+            };
+
+            bool mergeAccepts = SupersedeCommit.ValidateSupersedeTarget(rec, out string reason);
+            Assert.True(mergeAccepts, "expected merge to accept, reason=" + (reason ?? "<none>"));
+            Assert.False(ParsekFlight.IsZeroPointLeaf(rec));
+        }
+
         #endregion
 
         #region CollectZeroPointLeafIds

@@ -122,6 +122,73 @@ same reason the patcher is, so the facet measures exactly what the patcher would
 - **#15 now bundles the recovery's `KerbalExperience` row too** - the crew are back in
   flight in a world where that recovery has not happened.
 
+## PHANTOM-ATTRIBUTION-RETIRE-TIME-REHOME: rows already tagged with a retired provisional's id keep a dangling `RecordingId` [OPEN, filed 2026-08-12 on branch `provisional-ledger-hygiene`]
+
+The SOURCE of phantom attribution is closed: `LedgerOrchestrator.PickRecoveryRecordingId`
+now skips `MergeState.NotCommitted` candidates, so a live Re-Fly provisional can no longer
+be stamped onto a career payout. That fix is prospective only. It does NOT re-home rows
+already tagged in existing saves, and it does not cover the ordering where a row is tagged
+legitimately and the recording is retired afterwards.
+
+**Why the picker was the only live route.** `RewindInvoker.BuildProvisionalRecording` is the
+sole production creator of a `NotCommitted` recording (`Recording.MergeState` defaults to
+`Immutable`, so ordinary in-flight recordings are never NotCommitted), and it COPIES the
+origin child's `VesselName`. The picker filtered only on `IsGhostOnly` + vessel-name, so the
+provisional matched by name and — carrying the newest `EndUT` — won both the bracketing and
+the global-latest tier. Both consumers routed through it: recovery funds via
+`TryAddVesselRecoveryFundsAction`, KSC science via `ResolveKscScienceRecordingId`.
+
+**What is owed.** `ConcludeRetiredProvisional` should clear `RecordingId` on ledger rows
+tagged with the id it is retiring, matching the convention
+`PreserveIrreversibleLiveGameplayOnDiscard` already uses (preserve the row's career effect,
+drop the dead attribution — an untagged row is correct, a row pointing at nothing is not).
+Needs a `Ledger` helper to mutate rows by `RecordingId`; interacts with
+`PruneOrphanActionsAfterUT`'s exposure, so the two should be read together rather than
+having a second row-mutating path grown beside it. Not attempted here: it is a retire-time
+write path, not a hygiene one-liner, and the observability below tells us the real size of
+the population before anyone writes a migration for it.
+
+**Detection meanwhile.** `Inv8Ledger` part (a2) raises a WARN
+(`dangling-recording-ref ... kind=phantom-attribution`) per distinct unresolvable
+`RecordingId`, offline and in the in-game `RecordingInvariants` (H5) category. WARN
+deliberately: the payout itself is correct and the pools reconcile, so this is
+attribution-only damage, and WARN never feeds the `.analysis.txt` terminal `RED` token
+(`ReportWriter`: `RED=1` iff `failNonBaselined + staleNonBaselined > 0`), so surfacing a
+pre-existing population cannot flip a gated run red.
+
+## BODYFIXEDFRAMES-INVISIBLE-TO-BOTH-EMPTINESS-PREDICATES: a section carrying only `bodyFixedFrames` is payload to neither predicate, yet renderable coverage to the recorder [OPEN, filed 2026-08-12 on branch `provisional-ledger-hygiene`]
+
+`PlaybackTrajectoryBoundsResolver.HasPlayablePayload` reads `checkpoints` for an
+`OrbitalCheckpoint` section and `frames` for everything else. It never reads
+`bodyFixedFrames`. Both emptiness predicates are built on it — `SupersedeCommit.`
+`HasPlayableSupersedePayload` (merge) and, as of this branch,
+`ParsekFlight.IsZeroPointLeaf` (prune) — so a parent-anchored section whose ONLY authored
+surface is `bodyFixedFrames` reads as empty to both, while
+`DebrisRelativeRecorderPolicy` treats `bodyFixedFrames` as renderable coverage and the
+parent-anchored contract names it the PRIMARY playback surface.
+
+Deliberately NOT patched by widening `HasPlayablePayload`: that predicate is what the merge
+accepts as a supersede target, so widening it silently changes merge behavior for every
+parent-anchored recording. Cross-cutting — it touches the sidecar codec (whether a
+bodyFixedFrames-only section round-trips at all) and the recorder-persistence invariant that
+already governs how long a parent-anchored Relative section may outlive its authored
+coverage. Wants its own reading pass against
+`docs/dev/research/extending-rewind-to-stable-leaves.md` and the parent-anchored contract,
+not a term bolted onto a shared helper.
+
+Narrowed but not closed by this branch: the prune and the merge now AGREE on sections, so
+the previously documented both-directions divergence is down to one direction
+(`SurfacePos` counts as non-empty in the prune only, which fails safe: keep, don't
+supersede). The `ReFlyConclusionRoute.ClassifyProvisionalPrune` guard stays as
+belt-and-braces.
+
+A third site carried the same section-blind
+`Points + OrbitSegments + SurfacePos` triple and IS fixed here:
+`ParsekFlight.Finalization.cs`'s "leaf has no playback data" WARN, which mislabelled
+section-authoritative recordings in the log. Diagnostic only, no control flow — but a
+misleading WARN on exactly the recordings the prune fix now protects was worth closing in
+the same pass. That triple appearing in a fourth place is the smell to watch for.
+
 ## KERBAL-XP-UNTAGGED-RECOVERY-HAS-NO-LEDGER-ROW: a tracking-station or KSC recovery records the XP event but no ledger action [OPEN, filed 2026-08-11 with the P9a facet]
 
 `GameStateRecorder.OnVesselRecoveryProcessingForExperience` deliberately does NOT forward

@@ -111,5 +111,155 @@ namespace Parsek.Tests.Analyzer.Rules
         {
             Assert.Empty(Run(ModelWith(null, null)));
         }
+
+        // --- Part (a2): dangling ledger RecordingId refs (phantom attribution) ---
+
+        private static GameAction Tagged(string actionId, string recordingId) =>
+            new GameAction { ActionId = actionId, RecordingId = recordingId };
+
+        private static AnalyzerModel ModelWithRecordings(
+            IEnumerable<GameAction> ledger, params string[] recordingIds)
+        {
+            AnalyzerModel model = ModelWith(ledger, null);
+            model.Recordings = recordingIds
+                .Select(id => new Recording { RecordingId = id })
+                .ToList();
+            return model;
+        }
+
+        // Guards: an action tagged with a recording id that IS present resolves
+        // cleanly -> no finding. Fails if the check flags legitimate attribution.
+        [Fact]
+        public void ResolvingRecordingRef_NoFindings()
+        {
+            var model = ModelWithRecordings(
+                new[] { Tagged("act_1", "rec_a") }, "rec_a");
+
+            Assert.Empty(Run(model));
+        }
+
+        // Guards: an action tagged with an unknown recording id -> WARN, targeting
+        // the phantom id. This is the population left behind by the (now closed)
+        // PickRecoveryRecordingId provisional-attribution route.
+        [Fact]
+        public void DanglingRecordingRef_Warns()
+        {
+            var model = ModelWithRecordings(
+                new[] { Tagged("act_1", "rec_gone") }, "rec_a");
+
+            Finding warn = Assert.Single(Run(model));
+            Assert.Equal(Inv8Ledger.RuleIdConst, warn.RuleId);
+            Assert.Equal(VerdictLevel.Warn, warn.Level);
+            Assert.Equal("rec_gone", warn.Target);
+            Assert.Contains("dangling-recording-ref", warn.Message);
+            Assert.Contains("recordingId=rec_gone", warn.Message);
+            Assert.Contains("firstActionId=act_1", warn.Message);
+            Assert.Contains("kind=phantom-attribution", warn.Message);
+        }
+
+        // Guards WARN severity specifically: a pre-existing phantom population must
+        // stay gate-neutral. WARN never feeds the .analysis.txt terminal RED token
+        // (ReportWriter: RED=1 iff failNonBaselined + staleNonBaselined > 0), so
+        // surfacing these in every affected save cannot flip a gated run red. Fails
+        // if the severity is ever escalated to Fail / StaleFixture without a
+        // deliberate decision about the gate.
+        [Fact]
+        public void DanglingRecordingRef_IsGateNeutral()
+        {
+            var model = ModelWithRecordings(
+                new[] { Tagged("act_1", "rec_gone") }, "rec_a");
+
+            Counts counts = Counts.From(Run(model));
+
+            Assert.Equal(1, counts.Warn);
+            Assert.Equal(0, counts.Fail);
+            Assert.Equal(0, counts.FailNonBaselined);
+            Assert.Equal(0, counts.StaleNonBaselined);
+        }
+
+        // Guards the bounded-output choice: many actions pointing at ONE phantom id
+        // collapse to a single finding carrying the count, not N findings. Fails if
+        // the rule reverts to per-action emission (a long ledger would flood).
+        [Fact]
+        public void MultipleActionsOneDanglingId_SingleFindingWithCount()
+        {
+            var model = ModelWithRecordings(
+                new[]
+                {
+                    Tagged("act_1", "rec_gone"),
+                    Tagged("act_2", "rec_gone"),
+                    Tagged("act_3", "rec_gone"),
+                },
+                "rec_a");
+
+            Finding warn = Assert.Single(Run(model));
+            Assert.Contains("actions=3", warn.Message);
+            // First-appearance action id, so the message is deterministic.
+            Assert.Contains("firstActionId=act_1", warn.Message);
+        }
+
+        // Guards determinism / one-per-distinct-id: two phantom ids -> two findings
+        // in first-appearance order. Order stability matters for baseline matching.
+        [Fact]
+        public void TwoDanglingIds_TwoFindings_InFirstAppearanceOrder()
+        {
+            var model = ModelWithRecordings(
+                new[]
+                {
+                    Tagged("act_1", "rec_gone_b"),
+                    Tagged("act_2", "rec_gone_a"),
+                    Tagged("act_3", "rec_gone_b"),
+                },
+                "rec_a");
+
+            List<Finding> findings = Run(model)
+                .Where(f => f.Message.Contains("dangling-recording-ref")).ToList();
+
+            Assert.Equal(2, findings.Count);
+            Assert.Equal("rec_gone_b", findings[0].Target);
+            Assert.Equal("rec_gone_a", findings[1].Target);
+        }
+
+        // Guards: an untagged action (null / empty RecordingId) is free-standing and
+        // legitimate (route rows, KSC-path rows), never a phantom. Fails if the rule
+        // treats "no attribution" as "broken attribution".
+        [Fact]
+        public void UntaggedActions_NoFindings()
+        {
+            var model = ModelWithRecordings(
+                new[] { Act("act_1"), Tagged("act_2", null), Tagged("act_3", "") },
+                "rec_a");
+
+            Assert.Empty(Run(model));
+        }
+
+        // Guards the single-report policy for this check: an sfs LoadFault means the
+        // RECORDING list is incomplete, so every tagged row would look dangling. The
+        // LOADER-FAULT rule already owns that failure. Fails if a corrupt save
+        // double-reports as a phantom-attribution flood.
+        [Fact]
+        public void SfsLoadFault_SuppressesDanglingRecordingRefCheck()
+        {
+            var model = ModelWithRecordings(
+                new[] { Tagged("act_1", "rec_gone") });   // no recordings survived the fault
+            model.LoadFaults = new List<LoadFault>
+            {
+                new LoadFault("/save/persistent.sfs", "sfs", "unbalanced-braces", null),
+            };
+
+            Assert.DoesNotContain(Run(model), f =>
+                f.RuleId == Inv8Ledger.RuleIdConst && f.Message.Contains("dangling-recording-ref"));
+        }
+
+        // Guards purity / robustness: a null Recordings list must not NRE, and with
+        // no known recordings a tagged row is genuinely dangling.
+        [Fact]
+        public void NullRecordings_NoThrow_StillReports()
+        {
+            AnalyzerModel model = ModelWith(new[] { Tagged("act_1", "rec_gone") }, null);
+            model.Recordings = null;
+
+            Assert.Contains(Run(model), f => f.Message.Contains("dangling-recording-ref"));
+        }
     }
 }

@@ -3775,8 +3775,17 @@ namespace Parsek
         ///   <item>Global latest by EndUT (preserved fallback for recoveries whose metadata
         ///   has drifted, e.g., manual EndUT trim).</item>
         /// </list>
-        /// Skips ghost-only recordings (zero career footprint per #432). Returns null when
-        /// no non-ghost-only recording matches <paramref name="vesselName"/>.
+        /// Skips ghost-only recordings (zero career footprint per #432) and
+        /// <see cref="MergeState.NotCommitted"/> recordings. The NotCommitted skip closes the
+        /// phantom-attribution route: <c>RewindInvoker.BuildProvisionalRecording</c> is the only
+        /// production creator of a NotCommitted recording, and it copies the origin child's
+        /// <c>VesselName</c>, so a live Re-Fly provisional matches this picker's vessel-name
+        /// filter and — being the newest recording — normally wins both the bracketing and the
+        /// global-latest tier. Stamping its id onto a career payout leaves a dangling
+        /// <c>RecordingId</c> the moment the provisional is discarded or pruned. An uncommitted
+        /// provisional is not a legitimate attribution target for a career payout; a committed
+        /// candidate is preferred, and no-candidate is preferred over a doomed one.
+        /// Returns null when no eligible recording matches <paramref name="vesselName"/>.
         /// Internal static for testability.
         /// </summary>
         internal static string PickRecoveryRecordingId(string vesselName, double ut)
@@ -3793,12 +3802,21 @@ namespace Parsek
             Recording mostRecentEnded = null;  // tier 2
             Recording globalLatest = null;     // tier 3
             int candidateCount = 0;
+            int skippedNotCommitted = 0;
 
             for (int i = 0; i < recordings.Count; i++)
             {
                 var rec = recordings[i];
                 if (rec == null) continue;
                 if (rec.IsGhostOnly) continue;
+                // An uncommitted Re-Fly provisional carries the origin child's VesselName and
+                // the newest EndUT, so it would otherwise win outright and tag the payout with
+                // an id that dies with the provisional. Counted, not logged per-item.
+                if (rec.MergeState == MergeState.NotCommitted)
+                {
+                    if (identity.MatchesName(rec.VesselName)) skippedNotCommitted++;
+                    continue;
+                }
                 if (!identity.MatchesName(rec.VesselName)) continue;
                 candidateCount++;
 
@@ -3825,14 +3843,29 @@ namespace Parsek
             }
 
             Recording pick = bracketing ?? mostRecentEnded ?? globalLatest;
-            if (pick == null) return null;
+            if (pick == null)
+            {
+                // Worth a positive trace: when the only name matches were uncommitted
+                // provisionals, this untagged payout is the NotCommitted skip working, not a
+                // missing recording. Without this line the two are indistinguishable in a log.
+                if (skippedNotCommitted > 0)
+                {
+                    ParsekLog.Verbose(Tag,
+                        $"PickRecoveryRecordingId: {identity.FormatForLog()} " +
+                        $"ut={ut.ToString("F1", CultureInfo.InvariantCulture)} candidates=0 " +
+                        $"skippedNotCommitted={skippedNotCommitted} tier=none pick=<null> " +
+                        $"(only uncommitted provisionals matched; payout left untagged)");
+                }
+                return null;
+            }
 
             string tier = bracketing != null ? "bracketing"
                         : mostRecentEnded != null ? "most-recent-ended"
                         : "global-latest";
             ParsekLog.Verbose(Tag,
                 $"PickRecoveryRecordingId: {identity.FormatForLog()} ut={ut.ToString("F1", CultureInfo.InvariantCulture)} " +
-                $"candidates={candidateCount} tier={tier} pick={pick.RecordingId}");
+                $"candidates={candidateCount} skippedNotCommitted={skippedNotCommitted} " +
+                $"tier={tier} pick={pick.RecordingId}");
 
             return pick.RecordingId;
         }
