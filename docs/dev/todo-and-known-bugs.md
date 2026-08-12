@@ -30,8 +30,30 @@ markers) are PR sequence steps 4-6; the event digest (step 4) shipped on branch
 `mission-event-digest` and chapter grouping (step 5) on branch
 `mission-chapters` (`MissionChapters.cs`: switch-continuation +
 foreign-dock-departure roots, expansion to explicit `ExcludedIntervalKeys`, the
-tri-state header toggle, and the Q6 reconcile observation). Seam markers (step
-6) remain.
+tri-state header toggle, and the Q6 reconcile observation). Loop seam markers +
+the R5 gap statement (step 6) shipped on branch `loop-seam-markers`
+(`LoopSeamMarkerBuilder.cs` computes R2/R3 at loop-unit build from the graph plus
+the FINAL member windows; `LoopUnit.SeamMarkers` defaults null so every non-flight
+build site is byte-identical; `GhostPlaybackEngine.TryEmitSeamMarker` runs one
+sorted-cursor comparison per member per frame ABOVE the hide/destroy block, so R3
+still fires for a hidden-not-destroyed watched member; `ParsekPlaybackPolicy`
+posts one ScreenMessage per emission). That closes PR sequence steps 1-6.
+
+**Three v1 limits carried by the seam-marker step, all deliberate.** (1) **No
+ghost-label badge** (design Q5 asked for one alongside the ScreenMessages line):
+Parsek's only floating-label surface, `ParsekFlight.DrawGhostLabels`, draws over
+`activeGhostChains` - the chain-ghost system - while unit members are
+playback-ENGINE ghosts with no label surface at all, so a badge means new
+per-frame per-ghost UI infrastructure, which is what design 14 and the
+visual-design principle rule out for a v1 label. Shipped as ScreenMessages + a
+`[SeamMarker] emit` log line; the badge is a follow-up if the message alone reads
+thin in play. (2) **Self-overlap emits nothing** (edge case 20, as designed): the
+overlap branch returns before the marker check. (3) **Marker freshness rides the
+loop-unit signature, not the graph signature** - `MissionLoopUnitBuilder.Build`
+only re-runs when `BuildSignature` moves, so a graph rebuild that changes ONLY a
+partner's name (e.g. a mission rename in another tree) can leave a marker string
+stale until the next unit rebuild. It degrades to an out-of-date name on an
+explanatory line, never to a wrong seam.
 
 **Two v1 approximations carried by the chapter step, deliberately, both
 documented at their code sites.** (1) A `SwitchContinuation` chapter takes only

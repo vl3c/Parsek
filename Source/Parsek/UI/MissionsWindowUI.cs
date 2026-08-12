@@ -1518,7 +1518,8 @@ namespace Parsek
                     GUILayout.Space(indent);
                 GUILayout.Label(
                     RecordingsTableUI.TreeConnector(li == links.Count - 1)
-                    + $"Partner journey - {link.ForeignVesselName}",
+                    + $"Partner journey - {link.ForeignVesselName}"
+                    + FormatLinkLoiterGap(tree, link),
                     compositionCellLabel, GUILayout.ExpandWidth(true));
                 GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_TMinus));
                 GUILayout.Label(KSPUtil.PrintDateCompact(link.DockUT, true),
@@ -1552,6 +1553,33 @@ namespace Parsek
                 // ComputeJourneyWindowsByOwner emits no diagnostics.)
             }
             return rows;
+        }
+
+        /// <summary>
+        /// R5 gap statement (design-dock-event-graph.md 7.4): our vessel's OWN recording stops well
+        /// before the dock the partner journey begins at, so the journey the player is about to
+        /// switch on starts with time nobody recorded. State the gap, never interpolate over it.
+        ///
+        /// <para>Returns "" (the overwhelmingly common case) when the recording runs right up to the
+        /// dock, when it is missing, or when the shortfall is under the threshold. Threshold and
+        /// wording are SHARED with the digest's own gap row
+        /// (<see cref="MissionEventDigest.GapThresholdSeconds"/> /
+        /// <see cref="MissionEventDigest.FormatRowText"/> phrasing) so the two surfaces can never
+        /// state the same gap differently. Duration goes through the house formatter
+        /// (InvariantCulture).</para>
+        /// </summary>
+        internal static string FormatLinkLoiterGap(RecordingTree tree, ForeignDockLink link)
+        {
+            if (tree?.Recordings == null || link == null
+                || string.IsNullOrEmpty(link.ClaimedRecordingId))
+                return "";
+            if (!tree.Recordings.TryGetValue(link.ClaimedRecordingId, out Recording claimed)
+                || claimed == null)
+                return "";
+            double gap = link.DockUT - claimed.EndUT;
+            if (double.IsNaN(gap) || gap <= MissionEventDigest.GapThresholdSeconds)
+                return "";
+            return " (loiter, " + ParsekTimeFormat.FormatDuration(gap) + " - not recorded)";
         }
 
         // Walks a foreign composition tree and draws every MAXIMAL partner-journey node (a

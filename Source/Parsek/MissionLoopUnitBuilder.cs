@@ -42,7 +42,8 @@ namespace Parsek
             double autoLoopIntervalSeconds,
             IBodyInfo bodyInfo = null,
             TransitedBodyRotationMode transitedBodyRotationMode = TransitedBodyRotationMode.Tight,
-            bool forceFaithful = false)
+            bool forceFaithful = false,
+            DockEventGraph dockGraph = null)
         {
             if (missions == null)
                 return GhostPlaybackLogic.LoopUnitSet.Empty;
@@ -61,7 +62,7 @@ namespace Parsek
 
                 if (!TryBuildMissionUnit(
                         mission, trees, committed, indexById, autoLoopIntervalSeconds, bodyInfo,
-                        transitedBodyRotationMode, forceFaithful,
+                        transitedBodyRotationMode, forceFaithful, dockGraph, missions,
                         out GhostPlaybackLogic.LoopUnit unit, out int[] memberArray))
                     continue;
 
@@ -138,9 +139,11 @@ namespace Parsek
             if (mission == null || !mission.LoopPlayback)
                 return false;
             Dictionary<string, int> indexById = BuildIndexById(committed);
+            // No dock graph: the route-delivery clock consumes the unit's TIMING, never its seam
+            // markers (they are raised by the flight engine only), so this door stays marker-free.
             return TryBuildMissionUnit(
                 mission, trees, committed, indexById, autoLoopIntervalSeconds, bodyInfo,
-                transitedBodyRotationMode, forceFaithful, out unit, out int[] _);
+                transitedBodyRotationMode, forceFaithful, null, null, out unit, out int[] _);
         }
 
         /// <summary>
@@ -148,6 +151,10 @@ namespace Parsek
         /// Mission. Returns false (and logs why at Verbose) when the tree is missing or the
         /// selection maps to no committed members. <paramref name="indexById"/> is the shared
         /// committed id -> index map (built once by <see cref="Build"/>).
+        /// <para><paramref name="dockGraph"/> (null = no seam markers, the default everywhere but
+        /// the flight scene) and <paramref name="allMissions"/> (the name source for the marker
+        /// text) feed the design-7.3 loop seam markers; both null keeps the unit byte-identical to
+        /// its pre-marker shape.</para>
         /// </summary>
         private static bool TryBuildMissionUnit(
             Mission mission,
@@ -158,6 +165,8 @@ namespace Parsek
             IBodyInfo bodyInfo,
             TransitedBodyRotationMode transitedBodyRotationMode,
             bool forceFaithful,
+            DockEventGraph dockGraph,
+            IReadOnlyList<Mission> allMissions,
             out GhostPlaybackLogic.LoopUnit unit,
             out int[] memberArray)
         {
@@ -472,6 +481,32 @@ namespace Parsek
             // with a null AmberReason on all those paths).
             LogArrivalAmberTransition(tree.Id, mission.Name, arrivalHold.AmberReason);
 
+            // 7f. Loop seam markers (design 7.3): the member windows are FINAL here, which is the
+            //     whole reason the computation sits at this point - R2 asks whether a partner is a
+            //     member, R3 asks whether a member's window ENDS at a dock, and both questions are
+            //     only answerable once the trims and any partner-journey merge have landed. Null
+            //     graph (KSC / Tracking Station / the Missions-window mirror / every existing test)
+            //     -> null SeamMarkers -> today's silent seams everywhere.
+            IReadOnlyList<GhostPlaybackLogic.LoopSeamMarker> seamMarkers = null;
+            if (dockGraph != null)
+            {
+                bool prevSeamSuppress = LoopSeamMarkerBuilder.SuppressLogging;
+                LoopSeamMarkerBuilder.SuppressLogging = SuppressLogging;
+                try
+                {
+                    List<GhostPlaybackLogic.LoopSeamMarker> built = LoopSeamMarkerBuilder.Build(
+                        dockGraph, tree.Id, memberWindowByIndex, indexById,
+                        treeId => ResolveMissionNameForTree(allMissions, treeId),
+                        out int _, out int _);
+                    if (built.Count > 0)
+                        seamMarkers = built;
+                }
+                finally
+                {
+                    LoopSeamMarkerBuilder.SuppressLogging = prevSeamSuppress;
+                }
+            }
+
             // 8. Build the unit (carrying the per-member trimmed render windows + the optional
             //    zero-drift schedule; null schedule => the existing uniform-cadence span clock; the
             //    optional re-aim plan + synodic schedule drive the flight engine's per-window transfer
@@ -489,7 +524,8 @@ namespace Parsek
                 arrivalHold.IsJointHold ? arrivalHold.JointSecondaryPeriodSeconds : double.NaN,
                 arrivalHold.IsJointHold ? arrivalHold.JointSecondaryToleranceSeconds : double.NaN,
                 arrivalHold.IsJointHold ? arrivalHold.JointMaxWholeHoldPeriods : 0,
-                transferMemberRecordingId);
+                transferMemberRecordingId,
+                seamMarkers);
 
             LogMissionUnitSummary(
                 mission, tree, memberArray, skippedNotCommitted, spanStartUT, spanEndUT, span,
@@ -1907,6 +1943,27 @@ namespace Parsek
                 reason != null
                     ? $"Arrival amber SET: tree={key} mission='{missionName}' {reason}"
                     : $"Arrival amber CLEARED: tree={key} mission='{missionName}'");
+        }
+
+        // The display name of the mission owning a tree, for the seam-marker text ("see mission
+        // 'CD Freighter'"). Sourced from the mission list this build was HANDED rather than from
+        // MissionStore, so the builder stays pure and headlessly testable. Missions are one per tree
+        // for the manual population; the unioned route-mission list can add a second entry for a
+        // tree, in which case the first wins - a naming tie-break, never a behavior fork. Null when
+        // no mission covers the tree (the text then names the vessel with no mission clause).
+        internal static string ResolveMissionNameForTree(
+            IReadOnlyList<Mission> missions, string treeId)
+        {
+            if (missions == null || string.IsNullOrEmpty(treeId))
+                return null;
+            for (int i = 0; i < missions.Count; i++)
+            {
+                Mission m = missions[i];
+                if (m != null && string.Equals(m.TreeId, treeId, StringComparison.Ordinal)
+                    && !string.IsNullOrEmpty(m.Name))
+                    return m.Name;
+            }
+            return null;
         }
 
         private static RecordingTree FindTree(IReadOnlyList<RecordingTree> trees, string treeId)

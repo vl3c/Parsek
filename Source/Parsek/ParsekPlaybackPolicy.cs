@@ -57,6 +57,14 @@ namespace Parsek
         /// </summary>
         internal readonly Dictionary<int, HeldGhostInfo> heldGhosts = new Dictionary<int, HeldGhostInfo>();
 
+        /// <summary>Minimum real seconds between two seam-marker ScreenMessages (design 7.3 / Q5).
+        /// The engine's (marker, cycle) dedup is the semantic rule; this is the physical floor that
+        /// keeps a high-warp loop from stacking readable lines faster than they can be read.</summary>
+        internal const float SeamMessageMinRealSeconds = 3.0f;
+
+        /// <summary>Real time of the last posted seam message; 0 = none yet this session.</summary>
+        private float lastSeamMessageRealTime;
+
         /// <summary>Maximum real-time seconds to hold a ghost before giving up and destroying it.</summary>
         internal const float HeldGhostTimeoutSeconds = 5.0f;
         internal const float HeldGhostRetryIntervalSeconds = 1.0f;
@@ -73,6 +81,7 @@ namespace Parsek
             engine.OnGhostDestroyed += HandleGhostDestroyed;
             engine.OnLoopRestarted += HandleLoopRestarted;
             engine.OnOverlapExpired += HandleOverlapExpired;
+            engine.OnSeamMarker += HandleSeamMarker;
             engine.OnAllGhostsDestroying += HandleAllGhostsDestroying;
 
             // Tell the engine how to check if a ghost is being held
@@ -1377,6 +1386,72 @@ namespace Parsek
                 $"OverlapExpired index={evt.Index} cycle={evt.CycleIndex} explosion={evt.ExplosionFired}");
         }
 
+        /// <summary>
+        /// Renders one loop seam explanation (design-dock-event-graph.md 7.3, Q5): the moment a
+        /// looping mission's ghost grows because a partner mission's half joined it (R2), or ends
+        /// because its line docked into a mission this one does not replay (R3). One
+        /// <see cref="ScreenMessages"/> line per emission - the engine already deduped to once per
+        /// (marker, loop cycle), so this fires at most once per seam per loop.
+        ///
+        /// <para>The design also asks for a ghost-label badge for the window duration. Parsek's only
+        /// floating-label mechanism (<c>ParsekFlight.DrawGhostLabels</c>) draws over
+        /// <c>activeGhostChains</c> - the chain-ghost system - and unit members are playback-ENGINE
+        /// ghosts, which have no label surface at all. Building one would be new per-frame
+        /// per-ghost UI infrastructure, which is exactly what the design's performance budget
+        /// (section 14) and the visual-design principle rule out for a v1 label. v1 therefore ships
+        /// the ScreenMessages line plus this log line, and the badge stays a follow-up.</para>
+        /// </summary>
+        private void HandleSeamMarker(SeamMarkerEvent evt)
+        {
+            if (evt == null || string.IsNullOrEmpty(evt.Text))
+                return;
+
+            // REAL-TIME floor on top of the engine's per-cycle dedup. The dedup is the SEMANTIC
+            // rule (one line per seam per loop); this is the physical one. At high time warp a whole
+            // loop cycle can pass in a few milliseconds of real time, so "once per cycle" alone
+            // would still stack messages faster than they can be read - and a player at 100000x is
+            // not studying a seam. Decided BEFORE the log line so the log records which emissions
+            // actually reached the screen.
+            float nowReal = CurrentRealTimeOverrideForTesting != null
+                ? CurrentRealTimeOverrideForTesting()
+                : CurrentUnityRealTime();
+            bool throttled = lastSeamMessageRealTime > 0f
+                && nowReal - lastSeamMessageRealTime < SeamMessageMinRealSeconds;
+
+            var ic = CultureInfo.InvariantCulture;
+            ParsekLog.VerboseRateLimited(
+                "SeamMarker",
+                // Bounded by member x cycle x kind (NOT frame count): the engine's dedup already
+                // caps this at one emission per marker per cycle, so the key only guards against a
+                // second marker for the same member in the same cycle spamming the same slot.
+                "emit-" + evt.Index.ToString(ic) + "-" + evt.UnitCycle.ToString(ic) + "-" + evt.Kind,
+                "emit kind=" + (evt.Kind == GhostPlaybackLogic.SeamMarkerKind.MergeAppear ? "R2" : "R3")
+                    + " memberIdx=" + evt.Index.ToString(ic)
+                    + " cycle=" + evt.UnitCycle.ToString(ic)
+                    + " seamUT=" + evt.SeamUT.ToString("R", ic)
+                    + " screen=" + (throttled ? "throttled" : "posted")
+                    + " text=\"" + evt.Text + "\"",
+                5.0);
+            if (throttled)
+                return;
+            lastSeamMessageRealTime = nowReal;
+
+            string vesselName = evt.Trajectory != null ? evt.Trajectory.VesselName : null;
+            string line = string.IsNullOrEmpty(vesselName)
+                ? "[Parsek] " + evt.Text
+                : "[Parsek] " + vesselName + ": " + evt.Text;
+            try
+            {
+                ScreenMessages.PostScreenMessage(line, 6f, ScreenMessageStyle.UPPER_LEFT);
+            }
+            catch (Exception ex)
+            {
+                // A ScreenMessages failure must never take the per-frame playback dispatch with it.
+                ParsekLog.Warn("SeamMarker",
+                    $"PostScreenMessage threw: {ex.GetType().Name}: {ex.Message}");
+            }
+        }
+
         private void HandleAllGhostsDestroying()
         {
             ParsekLog.Info("Policy", "AllGhostsDestroying — clearing policy state");
@@ -1399,10 +1474,11 @@ namespace Parsek
             engine.OnGhostDestroyed -= HandleGhostDestroyed;
             engine.OnLoopRestarted -= HandleLoopRestarted;
             engine.OnOverlapExpired -= HandleOverlapExpired;
+            engine.OnSeamMarker -= HandleSeamMarker;
             engine.OnAllGhostsDestroying -= HandleAllGhostsDestroying;
             heldGhosts.Clear();
             GhostMapPresence.ClearFlightMapPresenceState();
-            ParsekLog.Info("Policy", "ParsekPlaybackPolicy disposed and unsubscribed from 7 engine events");
+            ParsekLog.Info("Policy", "ParsekPlaybackPolicy disposed and unsubscribed from 8 engine events");
         }
 
         /// <summary>

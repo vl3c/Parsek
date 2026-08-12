@@ -623,6 +623,10 @@ namespace Parsek.Tests
                 // PR5's chapter derivation likewise: graph, tree, structure, composition roots and
                 // the name resolver all arrive as parameters.
                 "Source/Parsek/MissionChapters.cs",
+                // PR6's seam-marker computation likewise: the graph, the loop unit's member
+                // windows, the committed-index map and the name resolver all arrive as parameters
+                // (the loop-unit builder, itself pure, hands them over).
+                "Source/Parsek/LoopSeamMarkerBuilder.cs",
             })
             {
                 string path = Path.Combine(repoRoot, rel.Replace('/', Path.DirectorySeparatorChar));
@@ -638,6 +642,7 @@ namespace Parsek.Tests
                 "Source/Parsek/DockEventGraph.cs",
                 "Source/Parsek/MissionEventDigest.cs",
                 "Source/Parsek/MissionChapters.cs",
+                "Source/Parsek/LoopSeamMarkerBuilder.cs",
             })
             {
                 string core = File.ReadAllText(
