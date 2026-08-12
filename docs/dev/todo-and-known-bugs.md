@@ -44,7 +44,8 @@ overlay fails closed pre-boot (`INVALID(staging)`) on a missing library craft or
 save that both declares and carries one. Verified behaviour-preserving by staging
 all 22 committed fixtures and comparing byte-for-byte against the pre-change
 trees: 22/22 identical, 27 craft overlaid. `build_dd1_craft.py`'s three-path gate
-collapses to one path; `build_gs1_craft.py` likewise; `harvest_bdock_station.py`
+collapses to one path (`build_gs1_craft.py` had only ever had one, pointed at the
+forge base, and is simply repointed at the library); `harvest_bdock_station.py`
 drops a harvested craft the library already holds and prints the manifest row to
 add. Guarded by `SharedShipsManifestTests` + `SharedShipOverlayPlanTests`
 (`harness/lib/test_hlib.py`) and `SharedShipOverlayStagingTests`
@@ -69,10 +70,12 @@ times the craft duplication removed in the sibling item above.
 **What reads them - stated precisely, because the first two passes both got this
 wrong and the second error is the dangerous one.**
 
-The two SNAPSHOT mirrors are read by nothing. Only four C# files touch
-`harness/fixtures` at all (`OptimizerTransferCohesionTests`,
-`ReaimTransferSynthesizerTests`, `Generators/LoopedInterplanetaryFixture`,
-`ParsekHarmony`), and none names `_ghost.craft.txt` or `_vessel.craft.txt`; the
+The two SNAPSHOT mirrors are read by nothing. Exactly two C# files BUILD PATHS into
+`harness/fixtures` - `OptimizerTransferCohesionTests` (globbing `*.prec.txt` only)
+and `ReaimTransferSynthesizerTests` (naming one `.prec.txt`);
+`Generators/LoopedInterplanetaryFixture` and this branch's own edit to
+`Bug277OrphanCrewPlacementTests` mention the tree in comments and open nothing. No
+C# file names `_ghost.craft.txt` or `_vessel.craft.txt` under the committed tree; the
 harness's own `count_recordings` filters on `.endswith(".prec")`, which no mirror
 matches.
 
@@ -91,7 +94,7 @@ touched here; the question was only whether the fixture tree carries a copy in g
 
 **Why the snapshot mirrors were safe to drop.** They are strictly DERIVED, and an
 offline decode confirms it end to end: the retained binaries are `PSN0` + header +
-raw-deflate (`SnapshotSidecarCodec.cs:206-235`) wrapping
+raw-deflate (`SnapshotSidecarCodec.cs:209-236`) wrapping
 `SNAPSHOT_SIDECAR { VESSEL { ... } }`, and that inner body dedented by two tabs is
 byte-identical to the deleted `.txt` for **99 of 99** files. The binary is a strict
 SUPERSET - it keeps the `VESSEL` node name that `ConfigNode.Save()` discards - so
@@ -138,10 +141,15 @@ state a scenario needs came too.
 
 **1. `Parsek/Saves/parsek_rw_*.sfs` - 137,355 lines / 7 files.** Legacy
 Rewind-to-LAUNCH quicksaves (`Recording.RewindSaveFileName`). Nothing automated
-reads them: `grep -rn "Parsek/Saves\|parsek_rw" harness scripts` returns zero
-hits; of the six C# consumers of `BuildRewindSaveRelativePath`, five only test
-existence or delete, and the one that opens the file (`RecordingStore.cs:5384`)
-is reachable only from the Timeline window's manual button. No seam verb reaches
+reads them: `grep -rn "Parsek/Saves\|parsek_rw" harness scripts` returns zero hits
+OUTSIDE `harness/fixtures` itself (inside it the matches are the fixture bytes plus
+this branch's own tool and test text); of the six C# consumers of
+`BuildRewindSaveRelativePath`, five only test existence or delete, and the one that
+opens the file (`RecordingStore.cs:5384`, in `ExecuteRewindSaveLoad`) is reachable
+only through `InitiateRewind`, whose two callers are `UI/RecordingsTableUI.cs:4241`
+(behind the Timeline window's confirm dialog) and `WarpToTimeController.cs:349`
+(behind its warp-to-date control) - both player actions originating in the Timeline
+window, neither drivable by the harness. No seam verb reaches
 it - `InvokeRewind` is Rewind-to-SEPARATION and targets
 `Parsek/RewindPoints/<rpId>.sfs` through `RewindInvoker`, a different system.
 
@@ -173,7 +181,8 @@ convention carries none - these three predated it. Their only reader was
 the files existed; it is now `test_no_fixture_commits_a_quicksave`, pinning the
 convention instead of the exhaust.
 
-**3. `.gitattributes` did not exist.** All 456,000 lines of committed `.sfs` are
+**3. `.gitattributes` did not exist.** The committed `.sfs` under the two covered
+trees (294,964 lines after this branch's deletions, 456,209 before them) are
 Windows-authored KSP output compared BYTE-FOR-BYTE by several gates
 (`build_*_craft.py --check`, `FixtureDriftTests`, `SharedShipsManifestTests`). A
 contributor with `core.autocrlf=true` would get CRLF working-tree copies and red
@@ -205,36 +214,51 @@ right, of different things. Its only consumer was
 
 **Why it never loaded.** The gate requires `CurrentRecordingFormatVersion = 1`
 (`RecordingStore.cs:105`) and `CurrentRecordingSchemaGeneration = 4` (`:131`).
-Measured across the 14 committed `.prec`: 9 are pre-reset TEXT sidecars whose
-first line reads `version = 5`, and 5 are pre-reset binary `PRKB` against the
-current binary `PSK0`. **None of the 14 carries a `recordingSchemaGeneration`
-field at all** - that absence is what rejects them, as `generation-missing`,
-before any format-version comparison. (An earlier draft of this entry said
-"`recordingFormatVersion` 0 (x9) and 3 (x5)", which was wrong on both counts;
-the conclusion is unaffected because the missing generation is decisive.) The gate therefore failed on the first recording and returned an
-empty array every run since the v0 schema reset of 2026-05-11 (`CHANGELOG.md:775`,
-`:777`, `:782`), which replaced migration with hard refusal. 40 of the 41 files
-were never opened at all.
+
+Two different objects are involved and they must not be conflated - a correction
+pass on this entry did exactly that and briefly retracted a true statement.
+
+The gate reads the **RECORDING nodes of `persistent.sfs`**, not the sidecar files.
+Those 14 nodes carry `recordingFormatVersion` **0 (x9) and 3 (x5)**, and the
+string `recordingSchemaGeneration` appears **nowhere in the file**. Rejection is on
+FORMAT VERSION: `TryValidateRealCareerRecordingCorpusCurrent` checks
+`recordingFormatVersion` first and `return false`s
+(`SyntheticRecordingTests.cs:7528-7539`), so the generation check below it is never
+reached, and the emitted reason is
+`recording '<id>' recordingFormatVersion='0' expected=1`. (`generation-missing` is
+a `RecordingStore.IsRecordingSchemaCompatible` / codec reason and is NOT what fires
+here.)
+
+Separately, the 14 sidecar FILES are also pre-reset - 9 are text sidecars whose
+first line reads `version = 5`, 5 are binary `PRKB` against the current `PSK0` -
+so even a relaxed gate would find nothing loadable behind the metadata.
+
+The gate therefore failed on the first recording and returned an empty array every
+run since the v0 schema reset of 2026-05-11 (`CHANGELOG.md:780`, `:782`, `:786`),
+which replaced migration with hard refusal. 40 of the 41 files were never opened
+at all.
 
 **Why the rebake never came, and why it never would have used this data.** The
 rebake was scoped as module M-A4 (`automated-testing-plan.md:496`). It is absent
 from `docs/dev/autotest-status.md`, the status authority, while its dependency
 M-A1 is SHIPPED there; every other mention is forward-looking deferral. Nothing
-in the live todo names it. And the recipe (`automated-testing-plan.md:339-352`)
+in the live todo names it. And the recipe (`automated-testing-plan.md:338-350`)
 never meant re-serializing the old bytes - the no-migration policy forbids
 reading them - it meant "fly something new and harvest it". The outcome M-A4
 existed to produce shipped anyway, as the harness's own corpus: 50 real
 recordings at format 1 / generation 4 across six `*-recorded` fixtures.
 
 **Adversarial value check, all negative.** Of the 14 recording IDs, 12 have zero
-references outside the fixture. `1bbb50cf...` appears only in an archived DONE
-entry (`done/todo-and-known-bugs-v3.md:2481`). `393b82cc...` appears in
+references outside the fixture. `1bbb50cf...` appears only in archived DONE entries
+(`done/todo-and-known-bugs-v3.md:2481`, `:2486`, `:2518`, and
+`done/todo-and-known-bugs-v5.md:5830`). `393b82cc...` appears in
 `Bug419DebrisMonotonicityTests.cs:310` as a bare string literal with its 13 UT
 values hardcoded inline - the test never opens the fixture, the evidence was
 already transcribed. No csproj/props/targets/ps1 references it. Nothing asserts
-its PRESENCE; `SyntheticRecordingTests.cs:7146` asserts its **absence** on the
-branch that has been live since the reset, so deletion changes no assertion
-outcome. Its unique `parsek_rw_0a74d6.sfs` is the same artifact class deleted
+its PRESENCE; the `realRecordingNodes.Length > 0` conditional in
+`SyntheticRecordingTests.InjectAllRecordings` asserts its **absence** on its `else`
+branch, which has been the live one since the reset, so deletion changes no
+assertion outcome. Its unique `parsek_rw_0a74d6.sfs` is the same artifact class deleted
 from six harness fixtures in this branch and now forbidden by
 `CommittedFixtureRewindSaveTests`; it survived only by sitting outside that
 gate's swept directory.
@@ -252,8 +276,8 @@ are removed; a missing fixture now yields an empty corpus.
 **Deferred, deliberately:** ~230 lines of now-dead C# below the entry point
 (`AddRealCareerRecordings` body, `TryValidateRealCareerRecordingCorpusCurrent`,
 `HasExpectedIntValue`, `CopyRealRecordingFiles`,
-`ResolveDefaultCareerFixtureDir`, the `realRecordingNodes.Length` terms at
-`:7146-7157` and `:7201-7206`). Every reference is mapped and confined to
+`ResolveDefaultCareerFixtureDir`, and the `realRecordingNodes.Length` conditional
+plus the two count-math terms). Every reference is mapped and confined to
 `SyntheticRecordingTests.cs`, but `dotnet` was unavailable in the environment
 that made this deletion, so excising it could not be compiled. Left with an
 in-file banner naming this entry. See FIXTURE-DEFAULTCAREER-DEAD-CODE below.
@@ -265,10 +289,14 @@ Mechanical excision, no design decision. Delete from
 `ResolveDefaultCareerFixtureDir`, `AddRealCareerRecordings`,
 `TryValidateRealCareerRecordingCorpusCurrent`, `HasExpectedIntValue` (the
 private helper in THIS file - `SegmentEventTests.cs:45` has an unrelated test of
-the same name), `CopyRealRecordingFiles`, the call site at `:6884`, the
-sidecar-copy block, the `realRecordingNodes` conditional at `:7146-7157` (keep
-the `else` branch's two `Assert.DoesNotContain` calls unconditionally), and the
-`+ realRecordingNodes.Length` terms in the count math at `:7201-7206`. Nothing
+the same name), `CopyRealRecordingFiles`, the `AddRealCareerRecordings` call site
+in `InjectAllRecordings`, the sidecar-copy block guarded by
+`realRecordingNodes.Length > 0`, the `realRecordingNodes` conditional (keep the
+`else` branch's two `Assert.DoesNotContain` calls unconditionally), and the two
+`+ realRecordingNodes.Length` terms in the `.prec` / snapshot count math.
+SYMBOL-addressed, not line-addressed, on purpose: this PR's own hunk shifted every
+line below `InjectAllRecordings` by +4, and a delete-these-lines instruction that
+rots is worse than none. Nothing
 outside this file references any of them. `dotnet test` after, and the fixture
 count assertions should be unchanged because the term being dropped is always 0.
 
@@ -284,13 +312,16 @@ Recorded so the measurements are not lost and nobody re-derives them.
   review surface. The binary `.prec` is already proven headless in the same rig,
   so the switch is feasible - it needs one `dotnet test` run to validate, which
   was not available in the environment that found this.
-- **Kerbal `INVENTORY` blocks, 43,970 lines / 161 nodes, 25 distinct shapes.**
+- **Kerbal `INVENTORY` blocks - 115 nodes at HEAD (158 before this branch's `.sfs`
+  deletions), ~25 distinct shapes.**
   88% of all ROSTER bytes. Load-bearing for the EVA lane (`EVA-4-atmo-chute`
   drives `EvaChuteDeploy` against this jetpack). Do not strip; recorded as the
   honest diagnosis of why `.sfs` mass is what it is.
-- **Asteroid `SpaceObject` VESSEL nodes, 3,637 lines across 30 of 35 `.sfs`.**
-  Only 3 distinct asteroids replicated 30 times, and every fixture's
-  `DiscoverableObjects` SCENARIO node is empty, so nothing registered them.
+- **Asteroid `SpaceObject` VESSEL nodes - at HEAD, 2,424 lines / 20 nodes across 20
+  of 25 `.sfs`** (3,637 across 30 of 35 before this branch deleted 10 `.sfs`; the
+  HEAD figures are the ones to act on). A few distinct asteroids, replicated, and
+  every fixture's `DiscoverableObjects` SCENARIO node is empty, so nothing
+  registered them.
   `fixtures/saves/README.md` already names this hazard for `career-pad-craft`
   (edit 1: an unregistered asteroid is "a free variable in any consumer's
   `expectations.recordings.count`") - one fixture was cleaned and the rule was

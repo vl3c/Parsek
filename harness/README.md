@@ -389,7 +389,7 @@ the state a scenario needs. Three populations are exhaust, all pruned by
 | Not committed | Why | Gate |
 | --- | --- | --- |
 | `*_vessel.craft.txt`, `*_ghost.craft.txt` | derived; the mod rebuilds them from the committed binaries | `CommittedFixtureMirrorTests` |
-| `Parsek/Saves/parsek_rw_*.sfs` + their `rewindSave =` hints | legacy Rewind-to-LAUNCH quicksaves; no spec, seam verb or analyzer rule reads them | `CommittedFixtureRewindSaveTests` |
+| `Parsek/Saves/parsek_rw_*.sfs` + their `rewindSave =` hints | legacy Rewind-to-LAUNCH quicksaves; no spec or seam verb reaches them, and the one analyzer rule that looks (`Inv9RewindPoint`) only checks existence and parseability, never content | `CommittedFixtureRewindSaveTests` |
 | `quicksave.sfs` / `quicksave.loadmeta` | near-copy of the fixture's own `persistent.sfs`; every in-game quickload uses a NAMED slot | `test_no_fixture_commits_a_quicksave` |
 
 Two look like exhaust and are **payload** - do not confuse them:

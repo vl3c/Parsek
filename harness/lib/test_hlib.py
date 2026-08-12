@@ -10673,7 +10673,7 @@ class CommittedFixtureMirrorTests(unittest.TestCase):
     Parsek writes a readable text mirror beside each authoritative sidecar
     (default-on diagnostics), and harvesting a produced save used to bring all
     three into the fixture tree. The two snapshot mirrors cost 334,023 lines over
-    99 files - three times the craft duplication the shared ship library removed -
+    99 files - 1.85x the craft duplication the shared ship library removed -
     and are strictly derived from the committed `_vessel.craft` / `_ghost.craft`
     binaries: an offline decode reconstructs all 99 byte-for-byte, the binary being
     a strict superset of the text. Loading the fixture in KSP rewrites them - the

@@ -96,12 +96,17 @@ _PRUNE_DIR_PREFIXES = (".parsek-backup", ".parsek-backup-staging")
 # gate). `.prec.txt` is deliberately NOT in this tuple - the trajectory mirror IS
 # committed, because scenario headers cite values out of it.
 _PRUNE_MIRROR_SUFFIXES = ("_vessel.craft.txt", "_ghost.craft.txt")
-# Directories under Parsek/ that a fixture must never carry. `Saves` holds the
-# legacy Rewind-to-LAUNCH quicksaves (`parsek_rw_*.sfs`), which --keep-parsek used
-# to copy verbatim: 137,355 lines over 7 files that no spec, no seam verb and no
-# analyzer rule ever read (the sole reader is the Timeline window's manual
-# "Rewind to launch" button). NOT to be confused with `RewindPoints`, which IS
-# payload - `RewindInvoker.PartLoaderPrecondition.Check` deep-parses those.
+# Directories under Parsek/ that a fixture must never carry. `Saves` is where
+# Parsek writes the legacy Rewind-to-LAUNCH quicksaves (`parsek_rw_*.sfs`) AND the
+# career-start snapshot (`parsek_career_start.sfs`, via the same
+# `RecordingPaths.BuildRewindSaveRelativePath` root). --keep-parsek used to copy
+# the directory verbatim: 137,355 lines over 7 files that no spec and no seam verb
+# reaches, and that the one analyzer rule which looks (`Inv9RewindPoint`) only
+# existence-checks. No committed fixture carries a career-start snapshot today, so
+# pruning the directory wholesale is safe; a fixture that ever needs one must
+# narrow this to the `parsek_rw_` prefix rather than widen the keep set. NOT to be
+# confused with `RewindPoints`, which IS payload -
+# `RewindInvoker.PartLoaderPrecondition.Check` deep-parses those.
 _PRUNE_PARSEK_SUBDIRS = ("Saves",)
 
 
@@ -419,8 +424,8 @@ def _ignore_pruned_keep_parsek(directory, names):
     authoritative sidecar (default-on diagnostics). For the trajectory that mirror
     is worth committing - four scenario headers cite values read straight out of a
     `.prec.txt`. For the two SNAPSHOT mirrors it is not: nothing cites one, and
-    they cost 334,023 lines across 99 files, three times the craft duplication the
-    shared ship library removed. They are also strictly derived from the
+    they cost 334,023 lines across 99 files, 1.85x the craft duplication the shared
+    ship library removed (both mirror kinds together would be 3.04x it). They are also strictly derived from the
     authoritative `_vessel.craft` / `_ghost.craft` binaries, which ARE committed:
     an offline decode reconstructs all 99 byte-for-byte. Load the fixture in KSP
     to get them back (the vessel mirror through
