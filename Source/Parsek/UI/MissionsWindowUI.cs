@@ -160,6 +160,38 @@ namespace Parsek
         // collapsedLegs does.
         private readonly Dictionary<string, bool> digestExpanded = new Dictionary<string, bool>();
 
+        // Chapter grouping (design-dock-event-graph.md 7.2). Same memo shape and the same
+        // rationale as digestCache above: chapters and their key expansions derive from the TREE
+        // alone (never from the selection - the selection only decides the checkbox state), and
+        // any tree change moves the dock-event graph's topology signature, so the graph INSTANCE
+        // is a sufficient staleness key. Cached across frames like the graph it mirrors, so an
+        // open Missions window costs one dictionary hit per mission per frame instead of a
+        // structure + through-line + composition walk per chapter per frame.
+        private sealed class MissionChapterEntry
+        {
+            public ChapterRoot Root;
+            public HashSet<string> IntervalKeys;
+            /// <summary>The chapter's earliest interval key: the row its header sits above.</summary>
+            public string AnchorKey;
+        }
+        private struct ChapterCacheEntry
+        {
+            public DockEventGraph Graph;
+            public List<MissionChapterEntry> Chapters;
+            /// <summary>anchor interval key -> index into <see cref="Chapters"/>, so the row
+            /// walker's per-node lookup is one dictionary hit.</summary>
+            public Dictionary<string, int> AnchorToIndex;
+        }
+        private readonly Dictionary<string, ChapterCacheEntry> chapterCache =
+            new Dictionary<string, ChapterCacheEntry>();
+
+        // The chapters of the mission whose OWN composition rows are currently being drawn, set
+        // for the duration of that mission's compRoots loop and cleared straight after. Scoping
+        // it to that loop is deliberate: the foreign partner-journey rows drawn afterwards go
+        // through the same row walker, and a chapter is a statement about THIS mission's tree.
+        private List<MissionChapterEntry> currentChapters;
+        private Dictionary<string, int> currentChapterAnchors;
+
         // Per-frame cache of the REAL Mission LoopUnitSet (the SAME one the scene drivers build via
         // MissionLoopUnitBuilder.Build with FlightGlobalsBodyInfo.Instance), so the T- countdown
         // points to the engine's ACTUAL next relaunch (PhaseAnchorUT + n*relaunchCadence) instead of
@@ -678,15 +710,26 @@ namespace Parsek
                 // interval / branch with its own independent include checkbox (interval-level
                 // start/end trim), bound to Mission.ExcludedIntervalKeys - no cascade.
                 var compRoots = GetCompositionRoots(tree);
-                for (int r = 0; r < compRoots.Count; r++)
+                // Chapter grouping (design 7.2): armed only for this mission's own rows, so a
+                // header appears above the first row its sub-story owns. Cleared in finally so a
+                // mid-draw exception cannot leak one mission's chapters onto the next.
+                ArmChapters(mission, tree);
+                try
                 {
-                    bool isLast = r == compRoots.Count - 1;
-                    // The launch row (the very first rendered composition row = the first root's
-                    // head node) carries the mission's "Time to launch" countdown under that
-                    // column; every other vessel row leaves it blank.
-                    bool isLaunchRoot = r == 0;
-                    rowCount += DrawCompositionNode(compRoots[r], mission, 1, isLast, false,
-                        isLaunchRoot, periodicity);
+                    for (int r = 0; r < compRoots.Count; r++)
+                    {
+                        bool isLast = r == compRoots.Count - 1;
+                        // The launch row (the very first rendered composition row = the first root's
+                        // head node) carries the mission's "Time to launch" countdown under that
+                        // column; every other vessel row leaves it blank.
+                        bool isLaunchRoot = r == 0;
+                        rowCount += DrawCompositionNode(compRoots[r], mission, 1, isLast, false,
+                            isLaunchRoot, periodicity);
+                    }
+                }
+                finally
+                {
+                    DisarmChapters();
                 }
 
                 // M-MIS-8: cross-tree partner-journey affordance - one row per derived foreign
@@ -1050,11 +1093,17 @@ namespace Parsek
             bool hasChildren = node.Children.Count > 0;
             bool collapsed = hasChildren && collapsedLegs.Contains(CollapseKey(mission, node.HeadLegId));
 
+            // Chapter grouping (design 7.2): an ADDITIONAL group-header row immediately above the
+            // first row a chapter owns. It never restructures the interval staircase - the rows
+            // below it keep their own depth, their own independent checkboxes and their own
+            // semantics; the header just names the sub-story and offers the bulk toggle.
+            int rows = TryDrawChapterHeaderRow(mission, node, depth);
+
             // Only the head node of the mission's first root is the launch row; its children and
             // every later root row leave the "Time to launch" cell blank.
             DrawCompositionRow(node, mission, depth, isLast, selectable, selfExcluded, greyed,
                 hasChildren, collapsed, isLaunchRow, periodicity);
-            int rows = 1;
+            rows++;
 
             if (hasChildren && !collapsed)
             {
@@ -1211,6 +1260,168 @@ namespace Parsek
             GUILayout.FlexibleSpace();
             GUILayout.EndHorizontal();
 
+            GUILayout.EndHorizontal();
+        }
+
+        // ---- chapter grouping (design-dock-event-graph.md 7.2) ----
+        //
+        // Own draw region by the design's section-8 file-ownership seam: the chapter header is an
+        // ADDITIONAL row, so nothing in the interval staircase above moves and issue-1's row
+        // refactor has no textual overlap with this block.
+
+        // Builds (or reuses) this mission's chapters and arms them for the composition walk.
+        private void ArmChapters(Mission mission, RecordingTree tree)
+        {
+            ChapterCacheEntry entry = GetChapters(mission, tree);
+            currentChapters = entry.Chapters;
+            currentChapterAnchors = entry.AnchorToIndex;
+        }
+
+        private void DisarmChapters()
+        {
+            currentChapters = null;
+            currentChapterAnchors = null;
+        }
+
+        // Chapters for a mission, rebuilt only when the dock-event graph INSTANCE changes (a
+        // committed-topology move). Chapters derive from the tree alone, and every tree change
+        // moves the graph signature, so that reference is the whole staleness key - the same
+        // argument (and the same residual: an edit that leaves both per-tree counts equal) as the
+        // digest cache above.
+        private ChapterCacheEntry GetChapters(Mission mission, RecordingTree tree)
+        {
+            if (mission == null || string.IsNullOrEmpty(mission.Id) || tree == null)
+                return default;
+
+            DockEventGraph graph = GetDockEventGraph();
+            if (chapterCache.TryGetValue(mission.Id, out ChapterCacheEntry cached)
+                && ReferenceEquals(cached.Graph, graph))
+                return cached;
+
+            var (structure, _) = GetMissionView(tree);
+            List<MissionCompositionNode> compRoots = GetCompositionRoots(tree);
+            List<ChapterRoot> roots = MissionChapters.CollectChapterRoots(
+                graph, tree, ResolvePartnerMissionName);
+
+            var chapters = new List<MissionChapterEntry>();
+            var anchors = new Dictionary<string, int>(System.StringComparer.Ordinal);
+            for (int i = 0; i < roots.Count; i++)
+            {
+                HashSet<string> keys = MissionChapters.ExpandChapterToIntervalKeys(
+                    roots[i], structure, compRoots);
+                string anchor = MissionChapters.ResolveChapterAnchorKey(keys, compRoots);
+                // A chapter that owns no selectable key has nothing to head and nothing to
+                // toggle (a debris-only or fully-collapsed sub-story); drawing an inert header
+                // would be a row that does nothing. Two chapters landing on the SAME anchor row
+                // is likewise a header we cannot place - only one row can carry one - so the
+                // later one is dropped. Both outcomes are logged: a chapter that silently fails
+                // to render is exactly the thing that is undiagnosable from a screenshot.
+                if (string.IsNullOrEmpty(anchor) || anchors.ContainsKey(anchor))
+                {
+                    ParsekLog.Verbose("Mission",
+                        $"Chapters: no header for '{roots[i].Title}' (root={roots[i].RootRecordingId}) " +
+                        $"- {(string.IsNullOrEmpty(anchor) ? "owns no selectable interval key" : "anchor '" + anchor + "' already headed by another chapter")}");
+                    continue;
+                }
+                anchors[anchor] = chapters.Count;
+                chapters.Add(new MissionChapterEntry
+                {
+                    Root = roots[i],
+                    IntervalKeys = keys,
+                    AnchorKey = anchor,
+                });
+            }
+
+            var entry = new ChapterCacheEntry
+            {
+                Graph = graph,
+                Chapters = chapters,
+                AnchorToIndex = anchors,
+            };
+            chapterCache[mission.Id] = entry;
+            return entry;
+        }
+
+        /// <summary>
+        /// Draws the chapter group header when <paramref name="node"/> is a chapter's first row.
+        /// Returns the number of rows drawn (0 or 1).
+        /// </summary>
+        private int TryDrawChapterHeaderRow(Mission mission, MissionCompositionNode node, int depth)
+        {
+            // IsSelectable is load-bearing, not a shortcut: a roster ATOM carries its owning
+            // interval's HeadLegId verbatim (MissionCompositionBuilder.AddAtoms /
+            // AddCrewAtom), so keying the anchor lookup on the id alone would redraw the
+            // header above every pod / probe / crew leaf of the chapter's first interval.
+            if (currentChapterAnchors == null || currentChapters == null
+                || node == null || !node.IsSelectable || string.IsNullOrEmpty(node.HeadLegId)
+                || !currentChapterAnchors.TryGetValue(node.HeadLegId, out int idx)
+                || idx < 0 || idx >= currentChapters.Count)
+                return 0;
+            DrawChapterHeaderRow(mission, currentChapters[idx], depth);
+            return 1;
+        }
+
+        private void DrawChapterHeaderRow(Mission mission, MissionChapterEntry chapter, int depth)
+        {
+            // Read the tri-state ONCE, before the toggle: the click handler mutates the excluded
+            // set mid-frame, and a state re-read afterwards could change which CONTROL this row
+            // draws between the Layout and Repaint passes of the same frame (IMGUI's
+            // "Getting control N's position in a group with only M controls"). The control set is
+            // therefore fixed regardless of state - see the mixed-marker note below.
+            ChapterSelectionState state = MissionChapters.ClassifyChapterState(
+                chapter.IntervalKeys, mission.ExcludedIntervalKeys);
+
+            GUILayout.BeginHorizontal(GUILayout.MinHeight(CompositionRowMinHeight));
+            GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_Enable));
+
+            // Tri-state as ONE always-drawn Toggle plus a text marker, rather than swapping in a
+            // different control for Mixed: swapping would change the control count mid-frame the
+            // moment the click lands (the same hazard the digest foldout defers around), and
+            // there is no existing mixed-state toggle style in this codebase to borrow. Checked
+            // means "some of this chapter is included", so one click drops the whole chapter and
+            // the next brings all of it back.
+            bool shownChecked = state != ChapterSelectionState.AllExcluded;
+            bool toggled = GUILayout.Toggle(shownChecked, "",
+                GUILayout.Width(ColW_Index), GUILayout.ExpandHeight(true));
+            if (toggled != shownChecked)
+            {
+                int changed = 0;
+                foreach (string key in chapter.IntervalKeys)
+                {
+                    if (toggled)
+                    {
+                        if (mission.ExcludedIntervalKeys.Remove(key)) changed++;
+                    }
+                    else if (mission.ExcludedIntervalKeys.Add(key))
+                    {
+                        changed++;
+                    }
+                }
+                // Same reason as the per-interval checkbox: this edit is authored against CURRENT
+                // key numbering, so a gen-0 mission that became editable mid-session must not be
+                // extended across its @dock sub-siblings by the next load's legacy reconcile.
+                mission.SelectionSchemaGeneration = Mission.CurrentSelectionSchemaGeneration;
+                ParsekLog.Info("Mission",
+                    $"chapter '{chapter.Root.Title}' {(toggled ? "include" : "exclude")} " +
+                    $"keys={changed.ToString(System.Globalization.CultureInfo.InvariantCulture)} " +
+                    $"mission='{mission.Name}'");
+            }
+
+            Color prevColor = GUI.color;
+            if (state == ChapterSelectionState.AllExcluded)
+                GUI.color = DimColor;
+            float indent = RecordingsTableUI.SelfConnectorIndent(depth);
+            if (indent > 0f)
+                GUILayout.Space(indent);
+            // The header is a group label, not a leg: it deliberately carries no tree connector
+            // (the row under it owns that) and no span columns - a chapter's span is exactly the
+            // union of the rows below, which are already showing it.
+            string marker = state == ChapterSelectionState.Mixed ? "[~] " : "";
+            GUILayout.Label(marker + (chapter.Root.Title ?? ""),
+                compositionCellLabel, GUILayout.ExpandWidth(true));
+            GUI.color = prevColor;
+
+            DrawBlankDigestCells();
             GUILayout.EndHorizontal();
         }
 

@@ -620,6 +620,9 @@ namespace Parsek.Tests
                 // PR4's digest provider inherits the same contract: it is a consumer of the graph
                 // and takes its tree, mission and resolvers as parameters.
                 "Source/Parsek/MissionEventDigest.cs",
+                // PR5's chapter derivation likewise: graph, tree, structure, composition roots and
+                // the name resolver all arrive as parameters.
+                "Source/Parsek/MissionChapters.cs",
             })
             {
                 string path = Path.Combine(repoRoot, rel.Replace('/', Path.DirectorySeparatorChar));
@@ -634,6 +637,7 @@ namespace Parsek.Tests
             {
                 "Source/Parsek/DockEventGraph.cs",
                 "Source/Parsek/MissionEventDigest.cs",
+                "Source/Parsek/MissionChapters.cs",
             })
             {
                 string core = File.ReadAllText(

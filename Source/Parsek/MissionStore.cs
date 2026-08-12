@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 
 namespace Parsek
 {
@@ -165,6 +166,10 @@ namespace Parsek
             // missions), and foreign composition roots per foreign tree.
             var linksCache = new Dictionary<string, List<ForeignDockLink>>(StringComparer.Ordinal);
             var compRootsCache = new Dictionary<string, List<MissionCompositionNode>>(StringComparer.Ordinal);
+            // Design Q6 (chapter grouping): built lazily on the first mission that actually has
+            // an interval exclusion to judge, so a store with no trimmed mission pays nothing.
+            DockEventGraph chapterGraph = null;
+            int chapterWarnings = 0;
             int removedHeads = 0;
             int removedIntervals = 0;
             int removedLinks = 0;
@@ -309,6 +314,46 @@ namespace Parsek
                                 key => validKeys.Contains(key)
                                        || (fKeys != null && fKeys.Contains(key)));
                         }
+
+                        // Design Q6 / edge case 22: a branch recorded LATER inside an excluded
+                        // chapter defaults to INCLUDED (the standing open-question-3a contract),
+                        // so the chapter reappears in the loop carrying a piece the player thought
+                        // they had dropped. OBSERVATION ONLY - auto-extending the exclusion would
+                        // be a silent write to player selection state. Runs after the stale-drop
+                        // so it judges the CURRENT key set, and only with the full tree population
+                        // present (a parked tree could be a chapter's partner tree).
+                        if (!parkedUncommittedExists && !deferCrossTree)
+                        {
+                            if (chapterGraph == null)
+                            {
+                                // Pure, parameter-injected build over the trees this pass was
+                                // handed - no store read, and no cache write either: the host
+                                // cache owns the graph's own rebuild line, so this one is silent.
+                                // Visibility predicate deliberately NULL (nothing flagged): this
+                                // pass runs inside OnLoad, where the ERS inputs are themselves
+                                // still being rebuilt, and the only consequence is that a
+                                // re-fly-superseded subtree can raise an extra REPORT-ONLY
+                                // warning. Taking a hydration-order dependency on ComputeERS to
+                                // suppress a log line would be the worse trade.
+                                bool prevGraphSuppress = DockEventGraph.SuppressLogging;
+                                DockEventGraph.SuppressLogging = true;
+                                try
+                                {
+                                    chapterGraph = DockEventGraph.Build(allTreesList, null);
+                                }
+                                finally
+                                {
+                                    DockEventGraph.SuppressLogging = prevGraphSuppress;
+                                }
+                            }
+                            if (!compRootsCache.TryGetValue(m.TreeId, out List<MissionCompositionNode> ownRoots))
+                            {
+                                ownRoots = MissionCompositionBuilder.Build(structure);
+                                compRootsCache[m.TreeId] = ownRoots;
+                            }
+                            chapterWarnings += WarnNewTopologyInsideExcludedChapters(
+                                m, tree, chapterGraph, structure, ownRoots);
+                        }
                     }
                 }
 
@@ -338,6 +383,12 @@ namespace Parsek
                     $"{linkReconcileDeferred} mission(s) (a parked tree is not committed yet; " +
                     "re-runs once it is)");
 
+            if (chapterWarnings > 0 && !SuppressLogging)
+                ParsekLog.Info("Mission",
+                    $"ReconcileSelections: {chapterWarnings} chapter(s) hold both excluded and " +
+                    "included topology (see the per-chapter warnings above; nothing was written - " +
+                    "a new branch inside an excluded chapter defaults to included by contract)");
+
             int removed = removedHeads + removedIntervals + removedLinks;
             if (removed > 0 && !SuppressLogging)
                 ParsekLog.Warn("Mission",
@@ -346,6 +397,49 @@ namespace Parsek
                     "dock link id(s) (no longer current after a topology change; cleared to avoid " +
                     "silently dropping / mis-targeting segments)");
             return removed;
+        }
+
+        /// <summary>
+        /// Design Q6 / edge case 22: warn-logs every chapter of this mission's tree that holds
+        /// BOTH excluded and included interval keys - the observable shadow of "new topology
+        /// appeared inside a chapter the player had excluded". Returns the number of warnings
+        /// raised. Writes NOTHING: extending the exclusion automatically would be a silent edit
+        /// to player selection state, and the open-question-3a contract says a new branch defaults
+        /// to included. The raise predicate and its accepted over-reporting are documented on
+        /// <see cref="MissionChapters.ShouldWarnNewTopologyInsideExcludedChapter"/>.
+        /// </summary>
+        private static int WarnNewTopologyInsideExcludedChapters(
+            Mission m, RecordingTree tree, DockEventGraph graph,
+            MissionStructure structure, List<MissionCompositionNode> compRoots)
+        {
+            bool prevChapterSuppress = MissionChapters.SuppressLogging;
+            MissionChapters.SuppressLogging = SuppressLogging;
+            List<ChapterRoot> roots;
+            try
+            {
+                roots = MissionChapters.CollectChapterRoots(graph, tree, null);
+            }
+            finally
+            {
+                MissionChapters.SuppressLogging = prevChapterSuppress;
+            }
+
+            int warned = 0;
+            for (int i = 0; i < roots.Count; i++)
+            {
+                HashSet<string> keys = MissionChapters.ExpandChapterToIntervalKeys(
+                    roots[i], structure, compRoots);
+                if (!MissionChapters.ShouldWarnNewTopologyInsideExcludedChapter(
+                        keys, m.ExcludedIntervalKeys, out int includedKeys))
+                    continue;
+                warned++;
+                if (!SuppressLogging)
+                    ParsekLog.Warn("Mission",
+                        $"chapter '{roots[i].Title}' has new included topology " +
+                        $"(keys={includedKeys.ToString(CultureInfo.InvariantCulture)}) " +
+                        "after exclusion");
+            }
+            return warned;
         }
 
         // M-MIS-5 (D3): adds every valid "<parentKey>@dockM" sub-interval key whose parent key is

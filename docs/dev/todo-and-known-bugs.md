@@ -27,7 +27,26 @@ never reads the store) whose `TryDescribePartner` names dock partners in BOTH
 tabs, controller side included. Same-tree recovered links mint no selection
 affordance by design (Q8). Remaining consumers (event digest, chapters, seam
 markers) are PR sequence steps 4-6; the event digest (step 4) shipped on branch
-`mission-event-digest`, chapters + seam markers (steps 5-6) remain.
+`mission-event-digest` and chapter grouping (step 5) on branch
+`mission-chapters` (`MissionChapters.cs`: switch-continuation +
+foreign-dock-departure roots, expansion to explicit `ExcludedIntervalKeys`, the
+tri-state header toggle, and the Q6 reconcile observation). Seam markers (step
+6) remain.
+
+**Two v1 approximations carried by the chapter step, deliberately, both
+documented at their code sites.** (1) A `SwitchContinuation` chapter takes only
+the intervals that BEGIN at or after the switch: the recorder folds the switch
+segment into the same physical vessel's through-line as the pre-switch legs
+(`ChildRecordingIds[0]` -> `ContinuationSuccessor`), so the interval STRADDLING
+the switch shares one key with the mission's earlier flight and no selection can
+separate them - taking it would make "exclude this chapter" silently drop the
+launch. (2) The Q6 reconcile warning (`chapter '<title>' has new included
+topology`) raises on any chapter that is partially excluded, because the precise
+statement ("the excluded set still holds everything the chapter held WHEN it was
+excluded") needs a persisted per-chapter snapshot and this design adds no
+persistence. It therefore never misses the case it exists for and over-reports a
+deliberate single-interval trim inside a chapter; it is a Warn on a reporting
+path that writes nothing.
 
 ## ~~FORGE-CREW-SEATING-SILENT-FAILURE: kRPC launch_vessel seats NOBODY when a requested crew name is unseatable, and the pad forge stamped an empty-pod fixture without noticing~~ [FOUND 2026-08-11 by the first FORGE-b18-dres-pad run + B18 flight 1 (PR #1459 carries the measurement in that spec's header). GUARD SHIPPED 2026-08-12, branch `forge-crew-guard`: the forge_lko minCrew gate ported to forge_station. CLOSED 2026-08-12: fixture re-forged crewed (FORGE-gs1-two-stage run `2026-08-12_1552` PASS attempt 1, `crewAboard value=1` live) and GS-1 flew the re-stamp to a full PASS (run `2026-08-12_1556`, attempt 1, armed saveParse green)]
 
