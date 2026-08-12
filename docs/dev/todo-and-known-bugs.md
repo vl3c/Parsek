@@ -36,16 +36,44 @@ warped through - B19's own flight log carries both
 and the arrival captured into a Dres orbit. What the recording does NOT have is all
 three shape requirements (parking orbit, heliocentric coast, direct-child arrival)
 inside ONE member, because the **load-time optimizer splits the main recording at
-its two body boundaries** (`RecordingOptimizer.IsSplittableEnvOrBodyBoundary` rule
-4, "other body changes"). The tree therefore presents `members=3`, one per SOI leg,
-and each member individually is missing most of the transfer.
+ONE body boundary** (`RecordingOptimizer.IsSplittableEnvOrBodyBoundary` rule 4,
+"other body changes").
+
+**MECHANISM CORRECTED 2026-08-12.** This paragraph first said the optimizer split
+"at its two body boundaries", producing "one member per SOI leg". Both halves of
+that were wrong, and the truth is narrower and more actionable. Measured through the
+real predicate on the committed fixture bytes
+(`Source/Parsek.Tests/OptimizerTransferCohesionTests.cs`, cells E1), the Dres main's
+57 sections yield exactly four classified boundaries:
+
+| Boundary | Sections | Reason | Outcome |
+|---|---|---|---|
+| 1->2 @ ut 31.0 | SurfaceMobile/Kerbin -> Atmospheric/Kerbin | `SurfaceInvolved` | splittable, REJECTED by the minimum-half floor |
+| 3->4 @ ut 224.5 | Atmospheric/Kerbin -> ExoBallistic/Kerbin | `PersistedPhaseChange` | SPLIT (the ordinary ascent split) |
+| 28->29 @ ut 8,490,936.2 | **ExoPropulsive(OrbitalCheckpoint)/Kerbin -> ExoBallistic(OrbitalCheckpoint)/Sun** | `BodyChange` | **SPLIT -- the defect** |
+| 45->46 @ ut 20,376,838.0 | ExoBallistic/Sun -> ExoBallistic/Dres | `SuppressedExoCoastBodyChange` | suppressed -- Sun->Dres does NOT split |
+
+So the Sun->Dres crossing was never the problem: rule 3 already keeps it cohesive,
+and member#2 held the Sun AND Dres legs together all along. The measured "+2" is ONE
+body split plus the ordinary ascent env split.
+
+**Why rule 3 declines at 28->29 and nowhere else.**
+`ShouldKeepCohesiveCrossBodyExoCoast` requires RAW `ExoBallistic` on both sides.
+Section 28 is labelled `ExoPropulsive` -- but it is an on-rails `OrbitalCheckpoint`
+re-emission whose single ORBIT_SEGMENT payload is byte-identical to its ExoBallistic
+predecessor's (the same Kerbin escape hyperbola, ecc 2.3601122370442775): recorder
+bookkeeping, not an engine firing. A stock vessel cannot thrust while packed. Eve's
+fixture escapes the same fate only because a ~30 s ExoBallistic checkpoint stub
+happened to be re-emitted between its trans-Eve burn and its SOI flip -- recorder
+timing noise, not gameplay semantics. That is the whole discriminator between the
+ENGAGED Eve unit and the FAITHFUL Dres one.
 
 The split is visible in the counts and is otherwise harmless: the fixture's 5
 recordings load as 7, with structure IDENTICAL (`trees 1, committedTrees 1,
 terminalStates {Orbiting 3, Destroyed 2}, branchPoints {JointBreak 3}`), points
 total 1,730 against 1,729, and the largest recording dropping 1,546 -> 763. This
 is the same mechanism V6M and V8 record as a deterministic "+1"; it is "+2" here
-only because an interplanetary recording crosses two boundaries instead of one.
+because the ascent split lands on top of the body split.
 
 **A second, independent decline** comes from the periodicity solver, and this one
 is not about the split at all:

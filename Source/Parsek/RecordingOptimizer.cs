@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Globalization;
 using UnityEngine;
@@ -354,7 +354,13 @@ namespace Parsek
         /// caller treats this as "skip without counting." Seam-flagged sections also return
         /// false but with reason = SuppressedBoundarySeam, which the caller tallies.
         /// </param>
-        private static bool IsSplittableEnvOrBodyBoundary(
+        /// <remarks>
+        /// `internal`, not `private`, so the §3 ordering can be asserted directly
+        /// (CLAUDE.md: "Pure/static methods should be internal static for direct
+        /// testability"). Behaviour is unchanged by the accessibility widening;
+        /// `OptimizerTransferCohesionTests` is the caller.
+        /// </remarks>
+        internal static bool IsSplittableEnvOrBodyBoundary(
             Recording rec, int s, out SplitBoundaryReason reason)
         {
             var prev = rec.TrackSections[s - 1];

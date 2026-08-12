@@ -121,12 +121,20 @@ allowedAnomalies = []
 # fixture -- with points total 1,730 against the fixture's 1,729 and the LARGEST
 # recording dropping 1,546 -> 763. Nothing was added; the MAIN RECORDING WAS SPLIT.
 #
-# The mechanism is the load-time optimizer splitting at body boundaries
-# (RecordingOptimizer.IsSplittableEnvOrBodyBoundary rule 4, "other body changes"),
-# and this recording has exactly two of them -- Kerbin->Sun and Sun->Dres -- so the
-# one main recording becomes three. 5 + 2 = 7. That is the same mechanism V6M and V8
-# record as a deterministic "+1" on their fixtures; it is "+2" here only because an
-# interplanetary recording crosses two SOI boundaries instead of one.
+# CORRECTED 2026-08-12, measured through the real predicate
+# (Source/Parsek.Tests/OptimizerTransferCohesionTests.cs). This comment first said
+# the recording has "exactly two" body boundaries and becomes three pieces. It does
+# not. The main takes TWO splits, but only ONE of them is a body change:
+#   ut    224.5  Atmospheric -> ExoBallistic (Kerbin)   PersistedPhaseChange -- the
+#                ordinary ascent split, the same "+1" V6M and V8 record
+#   ut 8,490,936.2  ExoPropulsive(OrbitalCheckpoint)/Kerbin ->
+#                   ExoBallistic(OrbitalCheckpoint)/Sun   BodyChange -- THE DEFECT
+# The Sun->Dres crossing at ut 20,376,838.0 is ALREADY rule-3 suppressed
+# (SuppressedExoCoastBodyChange), so member#2 carries the Sun and Dres legs together.
+# The body split fires only because rule 3's raw-env test rejects section 28's
+# ExoPropulsive label -- a label on an on-rails checkpoint re-emission whose payload
+# is byte-identical to its ballistic predecessor's, i.e. recorder bookkeeping rather
+# than a burn. Filed as OPTIMIZER-SPLIT-DEFEATS-REAIM-CLASSIFIER.
 #
 # The window stays a PLUMBING window rather than becoming a pin: it is one
 # observation, and this lane's job on these runs is to measure. What WOULD still be
