@@ -1265,14 +1265,158 @@ double-pay, because the world reverts to `rp.UT` while the ledger is deliberatel
 kept and re-applied (`RecalculateAndPatch(double.MaxValue)`, "career state
 sticks") - a vessel recovered after the RP is resurrected with its payout still
 banked. And a family of pid-only live-vessel resolutions that were safe when only
-one vessel existed: `FlightRecorder.TryResolveLivePeerRecordingId` (a preserved
+one vessel existed: ~~`FlightRecorder.TryResolveLivePeerRecordingId` (a preserved
 stranger can become a RELATIVE anchor at a bogus position - silent trajectory
-corruption), `GhostPlaybackLogic.AnyLiveRealVesselSharesRecordedCraft` (latches the
-`#573` rewind suppression), plus `VesselSpawner.RemoveDuplicateCrewFromSnapshot`
-emptying seats, `SpawnCollisionDetector` blocking spawns against preserved
-stations, `IsFlightReady`'s `Vessels.Count > 0` no longer implying the selected slot
-is present, and a partially-populated RP now leaving the sibling stage in scene as
-a real vessel AND a ghost. See the P1-FOLLOWUP task entries.
+corruption)~~, ~~`GhostPlaybackLogic.AnyLiveRealVesselSharesRecordedCraft` (latches the
+`#573` rewind suppression)~~, plus ~~`VesselSpawner.RemoveDuplicateCrewFromSnapshot`
+emptying seats~~, `SpawnCollisionDetector` blocking spawns against preserved
+stations, ~~`IsFlightReady`'s `Vessels.Count > 0` no longer implying the selected slot
+is present~~, and ~~a partially-populated RP now leaving the sibling stage in scene as
+a real vessel AND a ghost~~. The pid-only family is TRIAGED AND CLOSED - see
+"PID-ONLY LIVE-VESSEL RESOLUTION FAMILY" below. `SpawnCollisionDetector` is the one
+item left open there (a proximity/physics test that is correctly identity-blind).
+
+**PID-ONLY LIVE-VESSEL RESOLUTION FAMILY - TRIAGED AND CLOSED 2026-08-12** (branch
+`identity-hardening`). Every named site was re-verified against current HEAD
+(several had moved) and given a per-site verdict rather than a blanket gate,
+because a blanket gate would have broken two sites whose pid is genuinely the right
+key.
+
+*Gated (a stranger-bind had a real consequence).*
+`FlightRecorder.TryResolveLivePeerRecordingId` and the background recorder's
+`AddBackgroundLiveAnchorCandidates` now take the live vessel's `Vessel.id` and
+reject a conclusive launch-Guid mismatch through the new pure
+`AnchorDetector.LiveAnchorLaunchMatches`; the sharpest failure in the whole family
+was this one - a stranger anchor writes `ReferenceFrame.Relative` metre offsets
+against the wrong body, so the recording is corrupted with no downstream signal.
+The three recording->live-vessel POSE lookups in `BackgroundRecorder` (debris TTL
+parent check, live parent anchor candidate, debris proximity tier) route through the
+new `FlightRecorder.FindLaunchMatchedVesselForRecording`, whose null result is the
+"parent not live" case those sites already handle, so the failure mode degrades to
+the recorded-anchor fallback instead of a bogus frame.
+`GhostPlaybackLogic.ShouldSkipExternalVesselGhost` gained a production overload
+taking the `Recording`, so "the real vessel is already its own visual" is decided by
+the guid-gated `RealVesselExistsForRecording`; `GhostMapPresence.IsMaterializedForMapPresence`
+likewise. The last pid-only `ReconcileSpawnStateAfterStrip` caller (the plain
+Rewind-to-Launch OnLoad path) now collects `(pid, launch-guid)` identities, and the
+pid-only overloads plus `CollectSurvivingPids` / `ComputeSurvivorsFromProtoVesselPids`
+were DELETED so no future caller can pick the unsafe one (their cells were ported
+onto the guid-aware surface, adoption-stamp fixture rules included).
+
+*Deliberately pid-only, documented in code.*
+`GhostPlaybackLogic.AnyLiveRealVesselSharesRecordedCraft` (the #573 rewind
+suppression scan) must NOT be gated: the live re-flight it protects against is a
+same-craft stranger BY CONSTRUCTION (fresh launch of the rewound craft = baked pid,
+new Guid), so a Guid gate would lift the block during exactly the re-fly it exists
+for and resurrect the #573 duplicate. The accepted cost is that a preserved
+unrelated launch of the same craft also holds the block; the held decision now emits
+a `same-recording spawn suppression HELD` line so that case is diagnosable rather
+than silent, and two new `RewindSpawnSuppressionTests` cells pin the verdict.
+`GhostPlaybackLogic.RealVesselExists` stays the pid-level PRIMITIVE (its guid-aware
+caller is `RealVesselExistsForRecording`), `ValidateLoopAnchor` is pid-only by the
+loop-anchor live-PID contract (a loop anchor has no recorded Guid to compare), and
+the `BackgroundRecorder` split-detection pid snapshots are same-frame
+`FlightGlobals` diffs whose pids are session-scoped. Live-spawned ghost map pids are
+KSP-unique and were left alone per the #573 contract.
+
+*Not an identity problem at all.* `VesselSpawner.RemoveDuplicateCrewFromSnapshot`
+stays NAME-GLOBAL, argued from the roster model rather than from launch identity:
+KSP's `KerbalRoster` holds ONE `ProtoCrewMember` per name for the whole save, and
+loading a snapshot that seats a kerbal already aboard a live vessel does not copy
+them - it points a second part at the same roster entry, which is corrupt state. So
+"this kerbal is somewhere else" genuinely means "cannot be here" whichever launch the
+somewhere-else vessel belongs to, and the EMPTY SEAT IS THE CORRECT OUTCOME. What the
+preserved fleet changed is how often it happens (the recorded crew are aboard a craft
+the rewind left flying), so what was owed was the log: the removal Warn now names
+which live vessel holds the kerbal, and a pure `DescribeCrewDedupOutcome` summary
+calls out an all-seats-empty materialization explicitly instead of leaving it
+inferable by counting Warns.
+
+*Two guards the one-vessel world was silently carrying.* `RewindInvoker.IsFlightReady`
+now asserts the SELECTED SLOT's vessel (by vessel pid or root-part pid, the same two
+keys `ClassifySlotAffinity` uses) instead of `Vessels.Count > 0`, which the preserved
+population makes true before the slot's own vessel exists - the old proxy let Strip
+run early and bail "selected vessel not present on reload". An RP whose selected slot
+maps no pid keeps the count-only answer (nothing to assert, and refusing would burn
+the whole deferral budget). And the partially-populated RP: a slot disabled at author
+time (`DisabledReason="no-live-vessel"`) has no `PidSlotMap` entry, so
+`PostLoadStripper` cannot see its craft, which the old strict strip removed as
+collateral and the preserved world now leaves standing as a real vessel AND a
+replaying ghost (the #587 third facet). FIX CHOSEN: strip it, via the new pure
+`ResolveDisabledSlotVesselsToStrip` + `StripDisabledSlotVessels`. Rationale for
+choosing that over blocking the invoke or documenting it: a disabled slot is one whose
+vessel the author FAILED TO CORRELATE, not one excluded from the split, and the invoke
+contract for every OTHER non-selected slot is "vessel stripped, recording continues as
+history" - so this restores an existing invariant rather than inventing a rule, and
+blocking the invoke would make a perfectly usable RP unusable over one lost sibling.
+The pass is narrow by construction: it matches on `VesselLaunchIdentity`
+(never on name, which is the #587 pass's key and would delete an unrelated same-named
+craft), walks to the slot's EFFECTIVE tip so a re-flown slot resolves to the recording
+that stands, skips any pid the RP maps to a slot, never considers the selected slot,
+and protects `stripResult.SelectedPid` OUTRIGHT. That last exclusion is not redundant
+and was added in self-review: the stripper can resolve the selected vessel through
+`RootPartPidMap` when KSP regenerated its vessel pid on load, so that pid is absent
+from `PidSlotMap`, and a craft-baked collision with a disabled sibling's recording
+could otherwise have named the vessel the player was about to fly. Two ordering
+decisions from the same pass: it runs AFTER `SetActiveVessel` (so no `Die()` can land
+on the active vessel even if a future refactor loosens the exclusions), and its kills
+are appended to `stripResult.StrippedPids` - `Vessel.Die()` does not remove the
+matching `ProtoVessel`, so without that the disabled slot's recording would keep
+reading as "still spawned" through the very reconcile that exists to catch it (and the
+#587 survey / left-alone warn correctly treat the appended pids as already-removed).
+A third self-review finding tightened the identity gate itself: this pass's SOURCE arm
+now demands a CONCLUSIVE guid match
+(`VesselLaunchIdentity.LiveVesselIsPositivelyRecordedLaunch`, the non-degrading sibling
+the #15 resurrection classifier already needed and now shares) instead of the family's
+`LiveVesselIsRecordedLaunch`. Reason: the unknown-guid fallback DIRECTION is inverted
+here. Everywhere else on this branch, degrading to pid-only preserves the site's
+pre-guid behavior; the pre-guid behavior of THIS pass (the preserved-fleet world) was
+leave-the-vessel-alone, so degrading would have pointed the fallback at `Die()` - a
+same-pid stranger with a guid-less recording deleted on a craft-baked coincidence.
+Reachability was near-nil (a same-pid stranger live at strip time essentially cannot
+coexist with a slot the author disabled for having no live vessel), but the asymmetry
+was real and the safe direction is free: a guid-less disabled slot now strips nothing.
+The SPAWN arm is unchanged - a genuine Parsek spawn pid is KSP-unique, so it is already
+pid-conclusive. Cells: `ReFlyPreservedFleetGuardTests` (17),
+`VesselLaunchIdentityTests` (+2 non-degrading-sibling cells).
+
+Known escape in the pass, SAFE direction, not fixed: a disabled slot's craft that is
+live under a DIFFERENT vessel pid than its recording carries - docking pid churn between
+recording and RP capture, which is the very thing that made the author fail to correlate
+it - matches neither `PidSlotMap` nor this pass, so it stays both a real vessel and a
+replaying ghost (the #587 third-facet shape the supplement otherwise closes). The pass
+restores the invariant for PID-STABLE disabled slots only. Closing it would need a
+non-pid correlation key at strip time (part-set or root-part fingerprint), which is a
+larger design question than this supplement; the current behavior is the pre-existing
+one, so nothing regressed.
+
+**FOLLOW-UP (filed, NOT fixed here): guid-check the RP author's slot correlation.** The
+strip end of this defect class is now guid-gated at six sites, but the CAPTURE end is
+still pid-only: `RewindPointAuthor.ExecuteDeferredBody` resolves each child slot's
+recording pid and hands it straight to `IFlightGlobalsProvider.TryGetVesselSnapshot(pid)`
+(`SegmentBoundaryLogic.cs:512`, which is `FlightRecorder.FindVesselByPid`), with no
+launch-guid check. So a same-craft STRANGER live at RP-capture time - a separate launch
+of the craft, carrying the same craft-baked pid - gets correlated INTO `PidSlotMap` /
+`RootPartPidMap` as if it were the slot's vessel. On the later Re-Fly the NORMAL strip
+then reads that mapped pid as a non-selected sibling and kills the stranger: exactly the
+delete-a-player's-unrelated-launch failure this branch fixes everywhere else, arriving
+through the author path instead. Deliberately left alone here because it touches the
+author/capture path this branch did not open, and the fix is not merely "add the guid":
+refusing the correlation turns the slot into a `no-live-vessel` disabled one (usable RP,
+one lost sibling) and the author would need to say so in its Warn, so it wants its own
+pass. Fix: gate the author-time correlation on `VesselLaunchIdentity` (the live vessel
+read through `AnchorDetector.TryReadLiveVesselGuid`) and let a guid mismatch disable the
+slot with a distinct reason string rather than mapping the wrong vessel.
+
+Guarded by `AnchorDetectorTests` (+6 `LiveAnchorLaunchMatches` cells),
+`ChainGhostSkipTests` (+4), `SpawnStateReconciliationTests` (ported to the guid-aware
+surface, +5 adoption-stamp / plain-rewind-shape cells),
+`RewindSpawnSuppressionTests` (+2 pid-only-verdict cells), `CrewDedupTests` (+4),
+`ReFlyPreservedFleetGuardTests` (17, new) and `ReFlyConclusionRouteTests` (+3
+marker-clear cells). No in-game category was added: every decision in this batch is a
+pure predicate over data a headless cell can build, and the live halves are the
+existing Unity walks that feed them (a new FLIGHT cell would assert the walk, not the
+decision).
 
 **PRE-INVOKE ADVISORY (audit item C2) - ADDRESSED 2026-08-11.** The world-state
 half of this entry was always going to survive the vessel-preservation fix: a
@@ -1453,7 +1597,19 @@ and both remaining session-ending marker clears (`FlipMergeStateAndClearTransien
 `TryTake`'s session gate cannot see an F9 that re-arms a marker with the SAME
 SessionId; the prune evaluates identity before payload; and the unreachable
 "refusal did not hold" guard rolls its rows back rather than bailing on top of
-them.
+them. ~~The other ~9 marker-clear sites (`MergeJournalOrchestrator` x3,
+`RevertInterceptor` x3, `TreeDiscardPurge`, `RewindInvoker`'s arm-rollback,
+`ParsekScenario`'s plain-rewind clear, `SupersedeCommit`'s concluded-no-supersede)
+still leak the reference~~ - CENTRALIZED 2026-08-12 (branch `identity-hardening`):
+`ParsekScenario.ClearActiveReFlySessionMarker(reason)` is now THE clear, dropping the
+marker and the note together, and every production session-ending site routes through
+it (the three hand-written pairings became comments pointing at it). One deliberate
+non-route: `LoadRewindStagingState`'s reset, which runs on every OnLoad and is
+followed immediately by repopulating the marker from the loaded node - the note is
+SUPPOSED to survive that scene change, since the route it exists for spans the
+scene-exit finalize that writes it and the merge-dialog answer that consumes it.
+Pinned by three `ReFlyConclusionRouteTests` cells, including the end-to-end
+same-SessionId re-arm the residual was actually about.
 
 **Spotted in passing, NOT fixed (two items):**
 

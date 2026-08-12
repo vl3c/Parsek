@@ -565,5 +565,66 @@ namespace Parsek.Tests
             Assert.False(SupersedeCommit.ValidateSupersedeTarget(rec, out reason));
             Assert.Equal("empty Points", reason);
         }
+
+        // ------------------------------------------------------------------
+        // #16 item 8: the hand-over note is dropped by the ONE marker-clearing
+        // helper, so every session-ending clear drops it whether or not that
+        // site remembered to. TryTake's session gate cannot cover this: an F9
+        // re-arms a marker with the SAME SessionId, so a note outliving its own
+        // session is adoptable by the next one.
+        // ------------------------------------------------------------------
+
+        [Fact]
+        public void ClearActiveReFlySessionMarker_DropsTheHandOverNote()
+        {
+            var marker = Marker();
+            var scenario = InstallScenario(marker);
+            var retired = Rec("rec_provisional", state: MergeState.NotCommitted);
+            ReFlyProvisionalRetirement.Note(marker, retired, "PruneZeroPointLeaves");
+            Assert.Equal("rec_provisional", ReFlyProvisionalRetirement.RecordingId);
+
+            scenario.ClearActiveReFlySessionMarker("test-session-end");
+
+            Assert.Null(scenario.ActiveReFlySessionMarker);
+            Assert.Null(ReFlyProvisionalRetirement.RecordingId);
+            Assert.Null(ReFlyProvisionalRetirement.SessionId);
+            Assert.Contains(logLines, l =>
+                l.Contains("ReFlyProvisionalRetirement cleared")
+                && l.Contains("reason=test-session-end"));
+        }
+
+        [Fact]
+        public void ClearActiveReFlySessionMarker_ANoteFromAnEndedSessionIsNotAdoptableByASameIdMarker()
+        {
+            // The leak this closes, stated end to end: same SessionId, different
+            // session (an F9 re-armed it). Without the paired drop the new
+            // session's conclusion would TryTake the OLD session's provisional.
+            var firstMarker = Marker();
+            var scenario = InstallScenario(firstMarker);
+            ReFlyProvisionalRetirement.Note(
+                firstMarker, Rec("rec_provisional", state: MergeState.NotCommitted),
+                "PruneZeroPointLeaves");
+
+            scenario.ClearActiveReFlySessionMarker("first-session-end");
+
+            var reArmed = Marker(); // identical SessionId
+            Recording taken;
+            string takenReason;
+            Assert.False(ReFlyProvisionalRetirement.TryTake(reArmed, out taken, out takenReason));
+            Assert.Null(taken);
+        }
+
+        [Fact]
+        public void ClearActiveReFlySessionMarker_WithNoNote_IsSilentAndIdempotent()
+        {
+            var scenario = InstallScenario(Marker());
+
+            scenario.ClearActiveReFlySessionMarker("no-note");
+            scenario.ClearActiveReFlySessionMarker("no-note-again");
+
+            Assert.Null(scenario.ActiveReFlySessionMarker);
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("ReFlyProvisionalRetirement cleared"));
+        }
     }
 }

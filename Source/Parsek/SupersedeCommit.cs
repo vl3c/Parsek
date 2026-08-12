@@ -860,16 +860,15 @@ namespace Parsek
             if (preserveMarker) return;
 
             string sessionId = marker.SessionId;
-            scenario.ActiveReFlySessionMarker = null;
-            Parsek.Rendering.RenderSessionState.Clear("marker-cleared");
-            // The prune's hand-over slot is session-scoped state, so it dies
-            // with the marker. The S4.1 shape reaches here WITH a live note
+            scenario.ClearActiveReFlySessionMarker("marker-cleared");
+            // The prune's hand-over slot is session-scoped state, so it dies with
+            // the marker (dropped by ClearActiveReFlySessionMarker above - the
+            // pairing is central now). The S4.1 shape reaches here WITH a live note
             // (the prune retired the provisional, but it was still in the flat
-            // committed list so this normal route resolved it and never
-            // consumed the note), and a note outliving its own session is
-            // exactly the stale-adoption hazard TryTake's session gate cannot
-            // see across an F9 that re-arms the same SessionId.
-            ReFlyProvisionalRetirement.Clear("supersede-marker-cleared");
+            // committed list so this normal route resolved it and never consumed
+            // the note), and a note outliving its own session is exactly the
+            // stale-adoption hazard TryTake's session gate cannot see across an F9
+            // that re-arms the same SessionId.
             scenario.BumpSupersedeStateVersion();
             // Drop any forced CanRevertToPostInit override now that the
             // session is committed. Normally this commit happens at scene
@@ -2778,8 +2777,7 @@ namespace Parsek
             int tagsCleared = Ledger.ClearRecordingTagForRecording(retired.RecordingId);
 
             ClearPreReFlyAnchorSnapshotsForSession(marker.SessionId);
-            scenario.ActiveReFlySessionMarker = null;
-            Parsek.Rendering.RenderSessionState.Clear("marker-cleared");
+            scenario.ClearActiveReFlySessionMarker("marker-cleared");
             scenario.BumpSupersedeStateVersion();
             ReFlyRevertButtonGate.Apply("SupersedeCommit:concluded-no-supersede");
 

@@ -12936,7 +12936,13 @@ namespace Parsek
             {
                 try
                 {
-                    realVesselExists = FlightRecorder.FindVesselByPid(rec.VesselPersistentId) != null;
+                    // Launch-Guid gated (FindLaunchMatchedVesselForRecording, not the bare pid
+                    // lookup): "materialized" must mean THIS recording's vessel is in the world.
+                    // A preserved relaunch of the same craft carries the same craft-baked pid,
+                    // and counting it here would retire the recording's map presence while its
+                    // own vessel is nowhere in the scene.
+                    realVesselExists =
+                        FlightRecorder.FindLaunchMatchedVesselForRecording(rec) != null;
                 }
                 catch (Exception)
                 {

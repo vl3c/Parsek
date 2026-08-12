@@ -308,8 +308,7 @@ namespace Parsek
             GameStateRecorder.PendingScienceSubjects.Clear();
             RecordingStore.ClearRewindReplayTargetScope();
 
-            scenario.ActiveReFlySessionMarker = null;
-            Parsek.Rendering.RenderSessionState.Clear("marker-cleared");
+            scenario.ClearActiveReFlySessionMarker("marker-cleared");
             scenario.ActiveMergeJournal = null;
             // Live variant (route-timeline events): the Re-Fly discard dialog
             // choice is player-driven; a route whose sources this discard
@@ -317,9 +316,9 @@ namespace Parsek
             scenario.BumpSupersedeStateVersionLive();
             ReFlyRevertButtonGate.Apply("MergeDialog:discard-refly-attempt");
             SupersedeCommit.ClearPreReFlyAnchorSnapshotsForSession(sessionId);
-            // Discard is a terminal conclusion too: drop any prune hand-over so the
-            // retired Recording does not outlive the session that owned it.
-            ReFlyProvisionalRetirement.Clear("discard-refly-attempt");
+            // Discard is a terminal conclusion too: the prune hand-over must not
+            // outlive the session that owned it. Dropped by
+            // ClearActiveReFlySessionMarker above - the pairing is central now.
 
             LedgerOrchestrator.RecalculateAndPatchForCurrentTimelineIfFutureActions(
                 ParsekScenario.GetCurrentTimelineUTForLedgerRecalc(),

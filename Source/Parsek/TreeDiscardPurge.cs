@@ -623,8 +623,7 @@ namespace Parsek
                 return false;
 
             string sessionId = marker.SessionId ?? "<no-id>";
-            scenario.ActiveReFlySessionMarker = null;
-            Parsek.Rendering.RenderSessionState.Clear("marker-cleared");
+            scenario.ClearActiveReFlySessionMarker("marker-cleared");
             // Live variant (route-timeline events): marker-clear changes ERS
             // visibility, same live-vs-load reasoning as the purge bump above.
             scenario.BumpSupersedeStateVersionLive();

@@ -3086,13 +3086,37 @@ namespace Parsek
         /// Removes crew members from a spawn snapshot if they already exist on a loaded
         /// vessel in the scene. Prevents kerbal duplication when a previously-spawned vessel
         /// still has the same crew member aboard.
+        ///
+        /// <para>
+        /// DELIBERATELY NAME-GLOBAL, not scoped to the recording's own launch (#16 triage).
+        /// The tempting fix - only dedup against vessels of the same launch - is wrong,
+        /// because a kerbal is not a per-launch thing: KSP's <c>KerbalRoster</c> holds ONE
+        /// <c>ProtoCrewMember</c> per name for the whole save, and a name is that object's
+        /// identity. Loading a snapshot that seats a kerbal who is already aboard another
+        /// live vessel does not create a copy of them; it points a second part at the SAME
+        /// roster entry, which is a corrupt game state (KSP tracks a kerbal's seat on the
+        /// crew member itself). So "this kerbal is somewhere else right now" really does mean
+        /// "this kerbal cannot be here", whichever launch the somewhere-else vessel belongs
+        /// to - a kerbal genuinely cannot be in two places, and the empty seat is the
+        /// CORRECT outcome rather than a symptom.
+        /// </para>
+        /// <para>
+        /// What the preserved-fleet world changed is how OFTEN that outcome happens: before
+        /// Re-Fly preserved unrelated vessels, the scene the spawn landed in was nearly
+        /// empty, so a materialization arriving with empty seats was rare enough to go
+        /// unnoticed. It is now reachable in normal play (the crew you recorded are aboard a
+        /// craft the rewind left flying), and the fix that was actually owed is the log:
+        /// each removal now names WHICH live vessel holds the kerbal, and a removal that
+        /// empties the snapshot's roster entirely is called out as one line instead of being
+        /// inferable only by counting Warns.
+        /// </para>
         /// </summary>
         public static void RemoveDuplicateCrewFromSnapshot(ConfigNode snapshot)
         {
             if (snapshot == null) return;
 
-            // Build set of crew names already on loaded vessels
-            var existingCrew = BuildExistingCrewSet();
+            // Build name -> holding live vessel, so a removal can name the holder.
+            var existingCrew = BuildExistingCrewHolders();
             if (existingCrew.Count == 0)
             {
                 ParsekLog.Verbose("Spawner", "Crew dedup: no existing crew in scene — skipped");
@@ -3101,7 +3125,8 @@ namespace Parsek
 
             // Extract crew from the snapshot and find duplicates
             var snapshotCrew = CrewReservationManager.ExtractCrewFromSnapshot(snapshot);
-            var duplicates = FindDuplicateCrew(snapshotCrew, existingCrew);
+            var duplicates = FindDuplicateCrew(
+                snapshotCrew, new HashSet<string>(existingCrew.Keys));
 
             if (duplicates.Count == 0)
             {
@@ -3111,6 +3136,7 @@ namespace Parsek
             }
 
             // Remove duplicates from snapshot parts (same pattern as RemoveSpecificCrewFromSnapshot)
+            int removedCount = 0;
             foreach (ConfigNode partNode in snapshot.GetNodes("PART"))
             {
                 var names = partNode.GetValues("crew");
@@ -3123,8 +3149,13 @@ namespace Parsek
                     if (duplicates.Contains(name))
                     {
                         removedAny = true;
+                        removedCount++;
+                        string holder;
+                        if (!existingCrew.TryGetValue(name, out holder) || string.IsNullOrEmpty(holder))
+                            holder = "(unknown vessel)";
                         ParsekLog.Warn("Spawner",
-                            $"Crew dedup: '{name}' already on a vessel in the scene — removed from spawn snapshot");
+                            $"Crew dedup: '{name}' is already aboard {holder} — removed from spawn snapshot " +
+                            "(a kerbal is one roster entry and cannot be in two places; the seat spawns empty)");
                     }
                     else
                     {
@@ -3139,6 +3170,27 @@ namespace Parsek
                         partNode.AddValue("crew", name);
                 }
             }
+
+            ParsekLog.Info("Spawner", DescribeCrewDedupOutcome(snapshotCrew.Count, removedCount));
+        }
+
+        /// <summary>
+        /// Pure summary line for <see cref="RemoveDuplicateCrewFromSnapshot"/>: states how
+        /// many of the snapshot's seats were vacated and, when ALL of them were, says so
+        /// explicitly. The all-empty case is the one worth a named line - the materialized
+        /// craft arrives crewless, which looks like a Parsek bug from the outside and is
+        /// actually the correct answer (every recorded kerbal is aboard something else that
+        /// is still flying). Extracted so the wording is unit-testable without a live scene.
+        /// </summary>
+        internal static string DescribeCrewDedupOutcome(int snapshotCrewCount, int removedCount)
+        {
+            int remaining = snapshotCrewCount - removedCount;
+            if (remaining < 0) remaining = 0;
+            string tail = removedCount > 0 && remaining == 0
+                ? " — vessel materializes with EVERY seat empty (all recorded crew are aboard other live vessels)"
+                : "";
+            return $"Crew dedup: removed {removedCount} of {snapshotCrewCount} snapshot crew, " +
+                $"{remaining} seat(s) still filled{tail}";
         }
 
         /// <summary>
@@ -3147,17 +3199,32 @@ namespace Parsek
         /// </summary>
         internal static HashSet<string> BuildExistingCrewSet()
         {
-            var existing = new HashSet<string>();
+            return new HashSet<string>(BuildExistingCrewHolders().Keys);
+        }
+
+        /// <summary>
+        /// Same walk as <see cref="BuildExistingCrewSet"/> but keeps WHICH live vessel holds
+        /// each kerbal (<c>"name" (pid=N)</c>), so the crew-dedup Warn can name the holder
+        /// instead of saying only that the kerbal is "on a vessel in the scene". With the
+        /// fleet preserved across a rewind, that holder is the whole diagnosis: it is the
+        /// craft the player still has flying with the recorded crew aboard.
+        /// </summary>
+        internal static Dictionary<string, string> BuildExistingCrewHolders()
+        {
+            var existing = new Dictionary<string, string>();
             if (FlightGlobals.Vessels == null) return existing;
 
             for (int v = 0; v < FlightGlobals.Vessels.Count; v++)
             {
-                if (GhostMapPresence.IsGhostMapVessel(FlightGlobals.Vessels[v].persistentId)) continue;
-                var crew = FlightGlobals.Vessels[v].GetVesselCrew();
+                Vessel vessel = FlightGlobals.Vessels[v];
+                if (vessel == null) continue;
+                if (GhostMapPresence.IsGhostMapVessel(vessel.persistentId)) continue;
+                var crew = vessel.GetVesselCrew();
+                string holder = $"\"{vessel.vesselName ?? "(unnamed)"}\" (pid={vessel.persistentId})";
                 for (int c = 0; c < crew.Count; c++)
                 {
-                    if (!string.IsNullOrEmpty(crew[c].name))
-                        existing.Add(crew[c].name);
+                    if (!string.IsNullOrEmpty(crew[c].name) && !existing.ContainsKey(crew[c].name))
+                        existing[crew[c].name] = holder;
                 }
             }
             return existing;
