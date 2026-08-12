@@ -354,7 +354,13 @@ namespace Parsek
         /// caller treats this as "skip without counting." Seam-flagged sections also return
         /// false but with reason = SuppressedBoundarySeam, which the caller tallies.
         /// </param>
-        private static bool IsSplittableEnvOrBodyBoundary(
+        /// <remarks>
+        /// `internal`, not `private`, so the §3 ordering can be asserted directly
+        /// (CLAUDE.md: "Pure/static methods should be internal static for direct
+        /// testability"). Behaviour is unchanged by the accessibility widening;
+        /// `OptimizerTransferCohesionTests` is the caller.
+        /// </remarks>
+        internal static bool IsSplittableEnvOrBodyBoundary(
             Recording rec, int s, out SplitBoundaryReason reason)
         {
             var prev = rec.TrackSections[s - 1];
@@ -1927,16 +1933,70 @@ namespace Parsek
             return prevBody != nextBody;
         }
 
+        /// <summary>
+        /// Rule 3 of the §3 ordering: a body change that is really one cohesive
+        /// transfer coast must not split the recording.
+        ///
+        /// TWO WAYS TO QUALIFY, and the second one was added 2026-08-12 by
+        /// OPTIMIZER-SPLIT-DEFEATS-REAIM-CLASSIFIER (plan:
+        /// docs/dev/plans/optimizer-split-transfer-cohesion.md, Design A):
+        ///
+        ///   (a) both sides raw ExoBallistic — the original rule, unchanged;
+        ///   (b) both sides Exo CLASS *and* both sections OrbitalCheckpoint-framed
+        ///       — an ON-RAILS SOI traversal.
+        ///
+        /// WHY (b) IS SOUND, measured rather than argued. A packed/on-rails vessel
+        /// cannot thrust: stock KSP does not run engines on rails. So an
+        /// ExoPropulsive label on a checkpoint-framed section is recorder
+        /// bookkeeping, not "engine firing at the crossing". The measured instance
+        /// that motivated this: on the committed dres-orbit-recorded fixture,
+        /// section 28 is env=ExoPropulsive ref=OrbitalCheckpoint and its single
+        /// ORBIT_SEGMENT payload is BYTE-IDENTICAL to its ExoBallistic
+        /// predecessor's (the same Kerbin escape hyperbola, ecc 2.3601122370442775)
+        /// — no burn altered the conic. Rule 3's raw-env test nonetheless declined,
+        /// the boundary fell through to rule 4, the interplanetary recording split
+        /// at its Kerbin→Sun handoff, and the re-aim classifier then found no
+        /// member holding parking + heliocentric coast + arrival, so a real
+        /// Kerbin→Dres transfer replayed FAITHFUL instead of re-aimed.
+        ///
+        /// THE PREMISE IS STOCK-ONLY, and worth naming: "packed means coasting" holds
+        /// because stock KSP does not run engines on rails. A mod that thrusts while
+        /// packed (PersistentThrust and friends) would make a genuinely POWERED
+        /// on-rails traversal read as cohesive here. That is an accepted limit rather
+        /// than an oversight -- the alternative is splitting every real on-rails SOI
+        /// crossing on a stock install to guard a modded case -- but it is the first
+        /// thing to re-read if a modded-install report ever describes a transfer that
+        /// should have split and did not.
+        ///
+        /// WHAT THIS DELIBERATELY DOES NOT CHANGE: a genuine physics-frame burn
+        /// straddling an SOI crossing (ReferenceFrame.Absolute on either side)
+        /// still splits, because that is a real gameplay event at the boundary.
+        /// That contract is pinned by
+        /// RecordingOptimizerTests.Persistence_BodyChange_ExoPropulsiveCrossing_Splits
+        /// and by the §3 calibration row "SOI traversal while burning → split";
+        /// OptimizerTransferCohesionTests.E3_PhysicsFramedExoBodyChange_* asserts it
+        /// from the other side. The reason vocabulary is unchanged
+        /// (SuppressedExoCoastBodyChange), so no log or analyzer surface moves.
+        /// </summary>
         private static bool ShouldKeepCohesiveCrossBodyExoCoast(
             TrackSection prev,
             TrackSection next,
             int prevClass,
             int nextClass)
         {
-            return prevClass == ExoSplitClass
-                && nextClass == ExoSplitClass
-                && prev.environment == SegmentEnvironment.ExoBallistic
-                && next.environment == SegmentEnvironment.ExoBallistic;
+            if (prevClass != ExoSplitClass || nextClass != ExoSplitClass)
+                return false;
+
+            // (a) The original rule: a ballistic coast across the boundary.
+            if (prev.environment == SegmentEnvironment.ExoBallistic
+                && next.environment == SegmentEnvironment.ExoBallistic)
+                return true;
+
+            // (b) An on-rails traversal. Checkpoint-framed on BOTH sides means the
+            // vessel was packed across the handoff, so whatever env label the
+            // recorder stamped, it was coasting.
+            return prev.referenceFrame == ReferenceFrame.OrbitalCheckpoint
+                && next.referenceFrame == ReferenceFrame.OrbitalCheckpoint;
         }
 
         private static string GetSectionBody(TrackSection section)

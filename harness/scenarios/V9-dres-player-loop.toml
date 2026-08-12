@@ -1,9 +1,22 @@
 schema = 1
 id = "V9-dres-player-loop"
 # =====================================================================================
-# V9: THE PLAYER LOOP WORKFLOW ON THE DRES PROGRAM'S RECORDING -- and, on this first
-# run, a pure MEASUREMENT flight. Nothing here is armed and nothing is pinned beyond
-# the plumbing the run cannot work without. The V8 iteration-1 pattern verbatim: fly
+# V9: THE PLAYER LOOP WORKFLOW ON THE DRES PROGRAM'S RECORDING.
+#
+# HISTORY, because this lane changed job. It was authored as a pure MEASUREMENT
+# flight (V8 iteration-1 posture: nothing armed), and on its first two runs
+# (2026-08-12 _0150/_0153) it measured a product defect -- the unit classified
+# FAITHFUL because the load-time optimizer split the transfer at its on-rails
+# Kerbin->Sun handoff, so no member held parking + coast + arrival. That is
+# OPTIMIZER-SPLIT-DEFEATS-REAIM-CLASSIFIER, fixed on branch `dres-split-cohesion`
+# (docs/dev/plans/optimizer-split-transfer-cohesion.md, Design A).
+#
+# IT IS NOW THE REGRESSION FLOOR FOR THAT FIX, armed 2026-08-12 on the
+# two-consecutive-runs discipline (_0241/_0244, byte-identical). The armed tokens
+# are two-sided: each reads one way post-fix and the opposite way on the two
+# pre-fix runs. The tilt disposition at Dres's 5 degrees -- the question this lane
+# was originally written to answer -- is STILL UNMEASURED and deliberately unarmed;
+# see the logContracts block for why this lane structurally cannot reach it. The V8 iteration-1 pattern verbatim: fly
 # it, read what the product's own lines say, and only then decide what is worth
 # gating. A red on a reading run is EVIDENCE, not a regression.
 #
@@ -49,16 +62,35 @@ id = "V9-dres-player-loop"
 # DETERMINISM: this spec is flown TWICE back to back before anything is pinned, the
 # V8 discipline. Numbers that move between two identical runs are not pinnable.
 #
-# NOT ARMED, DELIBERATELY: no `[expectations.rewind]`, no
-# `[expectations.recordings.structure]`, no census/parity/tilt tokens, no anomaly
-# ceiling. The only required log tokens are the three that prove the STEPS THEMSELVES
-# ran -- if those are absent the run measured nothing and the reading is void, which
-# is a different failure from "the product did something interesting".
+# ARMING LEDGER. This block described the lane's ORIGINAL reading-run posture, and
+# it is now out of date in the one direction that matters, so it is restated rather
+# than left to contradict the contract below.
+#
+#   READING RUNS   2026-08-12 `_0150` (PARSEK-FAIL on the author's own too-narrow
+#                  count window; corrected, mechanism understood) and `_0153` (PASS).
+#                  These are the runs that MEASURED the defect.
+#   POST-FIX       `_0241` / `_0244`, both PASS, byte-identical on every decision
+#                  field -- the two consecutive readings the arming discipline wants.
+#   ARMED          `_0256` PASS attempt 1.
+#   CONTROL        `_0257` PARSEK-FAIL on the single inverted window
+#                  (`recordings.count 6 < min 7`), then reverted.
+#
+# WHAT IS ARMED NOW: a nine-token `required` list (plumbing + classification +
+# schedule + loiter) with two decline reasons FORBIDDEN, and `count` pinned {6,6}.
+# Every armed token is TWO-SIDED -- it reads one way post-fix and the opposite way
+# on the two pre-fix runs -- which is what makes this a regression floor for
+# OPTIMIZER-SPLIT-DEFEATS-REAIM-CLASSIFIER rather than decoration.
+#
+# STILL NOT ARMED, deliberately, and each for a stated reason in the logContracts
+# block below: the tilt disposition (structurally unreachable from this lane -- V10
+# is the lane that reaches it), the seam-endpoint census (absent post-fix because
+# the ENGAGED unit takes the synthesis path), `[expectations.rewind]`,
+# `[expectations.recordings.structure]`, and any anomaly ceiling.
 # =====================================================================================
 tier = "operator"
-description = "READING RUN: the player loop workflow on the Dres program's committed recording -- mark the B19 tree a loop unit and start loop playback, to measure the classify mode, the window schedule, the tilt disposition at Dres's 5 deg inclination, the loiter compression of the 8.4M s LKO wait, and the seam-endpoint census. Nothing armed."
+description = "READING RUN: the player loop workflow on the Dres program's committed recording -- mark the B19 tree a loop unit and start loop playback, to measure the classify mode, the window schedule, the tilt disposition at Dres's 5 deg inclination, the loiter compression of the 8.4M s LKO wait, and the seam-endpoint census. ARMED on the classification, schedule and count tokens the fix moved."
 instanceProfile = "stock-minimal"
-tags = ["V9", "dres", "loop", "playback", "reading-run", "pending-flight"]
+tags = ["V9", "dres", "loop", "playback", "flown", "reaim", "engaged"]
 
 [fixture]
 # B19's green flight, harvested --keep-parsek (see the fixture's provenance block in
@@ -121,35 +153,85 @@ allowedAnomalies = []
 # fixture -- with points total 1,730 against the fixture's 1,729 and the LARGEST
 # recording dropping 1,546 -> 763. Nothing was added; the MAIN RECORDING WAS SPLIT.
 #
-# The mechanism is the load-time optimizer splitting at body boundaries
-# (RecordingOptimizer.IsSplittableEnvOrBodyBoundary rule 4, "other body changes"),
-# and this recording has exactly two of them -- Kerbin->Sun and Sun->Dres -- so the
-# one main recording becomes three. 5 + 2 = 7. That is the same mechanism V6M and V8
-# record as a deterministic "+1" on their fixtures; it is "+2" here only because an
-# interplanetary recording crosses two SOI boundaries instead of one.
+# CORRECTED 2026-08-12, measured through the real predicate
+# (Source/Parsek.Tests/OptimizerTransferCohesionTests.cs). This comment first said
+# the recording has "exactly two" body boundaries and becomes three pieces. It does
+# not. The main takes TWO splits, but only ONE of them is a body change:
+#   ut    224.5  Atmospheric -> ExoBallistic (Kerbin)   PersistedPhaseChange -- the
+#                ordinary ascent split, the same "+1" V6M and V8 record
+#   ut 8,490,936.2  ExoPropulsive(OrbitalCheckpoint)/Kerbin ->
+#                   ExoBallistic(OrbitalCheckpoint)/Sun   BodyChange -- THE DEFECT
+# The Sun->Dres crossing at ut 20,376,838.0 is ALREADY rule-3 suppressed
+# (SuppressedExoCoastBodyChange), so member#2 carries the Sun and Dres legs together.
+# The body split fires only because rule 3's raw-env test rejects section 28's
+# ExoPropulsive label -- a label on an on-rails checkpoint re-emission whose payload
+# is byte-identical to its ballistic predecessor's, i.e. recorder bookkeeping rather
+# than a burn. Filed as OPTIMIZER-SPLIT-DEFEATS-REAIM-CLASSIFIER.
 #
-# The window stays a PLUMBING window rather than becoming a pin: it is one
-# observation, and this lane's job on these runs is to measure. What WOULD still be
-# a plumbing failure is an 8 (a surviving scene-entry promotion on top of the split).
-count = { min = 5, max = 7 }
+# PINNED AT 6 (armed 2026-08-12, branch `dres-split-cohesion`). The cohesion fix
+# removed the body split, so the transfer is one recording again and the fixture's
+# 5 take only the ordinary ascent split. Measured 6 on both post-fix runs
+# (_0241/_0244), against 7 on both pre-fix runs (_0150/_0153) -- a two-sided
+# measurement, which is what makes this a pin rather than a guess. A 7 now means
+# the cohesion regressed; an 8 means a scene-entry promotion survived the kill
+# triple. Both are findings.
+count = { min = 6, max = 6 }
 
 [expectations.logContracts]
-# THE THREE PLUMBING TOKENS ONLY -- exactly the ones that prove the steps ran, so
-# that a void reading is distinguishable from an interesting one. Nothing about
-# what the loop machinery DECIDED is required, because that is the measurement.
+# ARMED 2026-08-12 (branch `dres-split-cohesion`) on the two-consecutive-runs
+# discipline: every token below was measured BYTE-IDENTICAL on _0241 and _0244,
+# and every one of them reads the OPPOSITE way on the two pre-fix runs
+# (_0150/_0153). That two-sided property is the point -- these are a regression
+# floor for the cohesion fix, not decoration.
 #
-# Deliberately NOT required on this run (all are V8's ARMED tokens, and every one
-# of them would be an assumption here): the classify mode, the schedule cadence, the
-# tilt disposition, the loiter cut, the census pair, the parity pin. They get
-# considered at arming, off measured numbers.
+# WHAT IS ARMED, and only this (open question 4's recommendation):
+#   * CLASSIFICATION -- the defect itself. `supported=True target=Dres` on a
+#     19-segment member, and the ENGAGED verdict naming the route.
+#   * SCHEDULE -- the consequence that proves the classification was USED:
+#     cadence 22,785,806.611915223 is EXACTLY 2x the synodic
+#     11,392,903.305957612, where the faithful unit used its own span
+#     (20,393,382). The exact digits are pinned because they were identical
+#     across runs; a change means the schedule moved.
+#   * LOITER -- `loiterCuts=1 cutSeconds=8436248`, the ~8.4M s LKO ejection-window
+#     wait finally being compressed (the faithful unit cut nothing).
+#
+# WHAT IS DELIBERATELY NOT ARMED:
+#   * THE TILT DISPOSITION at Dres's 5 deg -- still UNMEASURED. The synth runs
+#     from ReaimPlaybackResolver during playback OF the re-aimed leg, and this
+#     lane quits ~1 s after StartLoopPlayback, so the tilt gate is never reached.
+#     Zero tilt lines on all four runs, pre- and post-fix. Measuring it needs a
+#     lane that actually plays into the heliocentric leg; that is a separate
+#     lane-design question and gets its own arming decision.
+#   * THE SEAM-ENDPOINT CENSUS -- it appeared pre-fix (`evaluated=0 outsideSoi=0
+#     skip.no-cross-body-successor=1`) and does NOT appear post-fix, because the
+#     ENGAGED unit takes the synthesis path and the run ends before the render
+#     stage the census rides. Arming its absence would pin an artifact of this
+#     lane's brevity.
+#   * PhaseLock stays `UnsupportedCrossParent` (Dres is not a direct child of
+#     Kerbin). V8's ENGAGED unit reads the same; it was never part of the defect.
 required = [
   "MissionConfig",
   "StartLoopPlayback",
   "Recording stopped",
+  # Classification: the defect, inverted.
+  "member#1 segs=19 startBody=Kerbin supported=True target=Dres",
+  "transferMemberSegs=19 plan.Supported=True",
+  "ENGAGED re-aim Kerbin->Dres via Sun",
+  # Schedule: cadence == 2x synodic, to the digit.
+  "synodic=11392903.305957612",
+  "cadence=22785806.611915223",
+  # Loiter compression of the LKO ejection-window wait.
+  "loiterCuts=1 cutSeconds=8436248",
 ]
-# The ERROR floor every committed spec carries. A loop workflow that makes Parsek
-# throw is a finding on any run, reading or not.
-forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
+# The ERROR floor every committed spec carries, PLUS the two decline reasons this
+# fix removed. Forbidding them is the sharp end of the regression floor: if the
+# cohesion ever breaks again, the lane reds on the product's own words rather than
+# on a count that could drift for other reasons.
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "no member yields a re-aim transfer",
+  "not re-aim \\(no member yields a re-aim transfer\\); faithful",
+]
 
 [runtime]
 # V8's 2,400 for the same seam-driven shape on a comparable fixture. This lane has
