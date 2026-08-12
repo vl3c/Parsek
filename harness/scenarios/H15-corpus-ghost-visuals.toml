@@ -35,13 +35,15 @@ steps = [
 [dimensionsCovered]
 # HONEST: the four cells read each recording's craft + ghost-geometry sidecars back
 # into a live GhostVisualBuilder mesh and resolve its part names through the real
-# PartLoader (D16 sidecar-craft, sidecar-pcrf - the two sidecars a ghost mesh is
-# built FROM). SANDBOX, FLIGHT-scene host (D14). NOT claimed: any D6 playback token
-# - a mesh is built and inspected, never positioned or played back, which is
-# S1.4's job; and no D7 part-event / FX token - no engine or RCS effect is built
-# here.
+# PartLoader (D16 sidecar-craft - the `_vessel.craft` / `_ghost.craft` pair a ghost
+# mesh is built FROM). SANDBOX, FLIGHT-scene host (D14).
+# NOT claimed: the retired `sidecar-pcrf` token - the current pipeline writes no
+# `.pcrf` and none exists in the tree, so claiming it was coverage of nothing; any
+# D6 playback token - a mesh is built and inspected, never positioned or played
+# back, which is S1.4's job; and no D7 part-event / FX token - no engine or RCS
+# effect is built here.
 D14 = ["sandbox", "scene-flight"]
-D16 = ["sidecar-craft", "sidecar-pcrf"]
+D16 = ["sidecar-craft"]
 
 [expectations]
 # PLACEMENT IS LOAD-BEARING (see H7).

@@ -273,7 +273,8 @@ uncommitted, machine-local, non-reproducible data - flipping the
 `Assert.DoesNotContain` branch on a machine-specific condition. Both fallbacks
 are removed; a missing fixture now yields an empty corpus.
 
-**Deferred, deliberately:** ~230 lines of now-dead C# below the entry point
+**Deferred, deliberately (DONE 2026-08-12, branch `fixture-audit-followups`):**
+~230 lines of now-dead C# below the entry point
 (`AddRealCareerRecordings` body, `TryValidateRealCareerRecordingCorpusCurrent`,
 `HasExpectedIntValue`, `CopyRealRecordingFiles`,
 `ResolveDefaultCareerFixtureDir`, and the `realRecordingNodes.Length` conditional
@@ -282,7 +283,7 @@ plus the two count-math terms). Every reference is mapped and confined to
 that made this deletion, so excising it could not be compiled. Left with an
 in-file banner naming this entry. See FIXTURE-DEFAULTCAREER-DEAD-CODE below.
 
-## FIXTURE-DEFAULTCAREER-DEAD-CODE: ~230 lines of test helper left in place, unreachable [OPEN, filed 2026-08-12. Needs a checkout with `dotnet`]
+## ~~FIXTURE-DEFAULTCAREER-DEAD-CODE: ~230 lines of test helper left in place, unreachable~~ [FILED 2026-08-12. DONE 2026-08-12, branch `fixture-audit-followups`, in a checkout with `dotnet`]
 
 Mechanical excision, no design decision. Delete from
 `Source/Parsek.Tests/SyntheticRecordingTests.cs`:
@@ -299,6 +300,13 @@ line below `InjectAllRecordings` by +4, and a delete-these-lines instruction tha
 rots is worse than none. Nothing
 outside this file references any of them. `dotnet test` after, and the fixture
 count assertions should be unchanged because the term being dropped is always 0.
+
+**DONE 2026-08-12.** All five symbols were one contiguous `#region Real Career
+Recordings` holding nothing else, so the excision was that region plus the four
+call-site edits: 305 deletions / 12 insertions, net 293 lines. Verified as
+predicted - zero references to any of the five remain, `InjectAllRecordings`
+still passes 3/3, and the count assertions are unchanged because the dropped
+term was always 0. Full suite green (20,642 passed / 0 failed).
 
 ## FIXTURE-AUDIT-DEFERRED: measured redundancy deliberately NOT acted on [OPEN, filed 2026-08-12 from the same audit. Each entry is a decision someone should make with the numbers in hand, not a defect]
 
@@ -337,14 +345,29 @@ Recorded so the measurements are not lost and nobody re-derives them.
 - **`AddOns/DistantObject/Settings.cfg`, 22 byte-identical copies / 735 lines.**
   DistantObject is not in `stock-minimal`, the profile 105 of 107 specs use. Real
   but small; 21 file touches for 735 lines is poor value against the risk.
-- **`sidecar-pcrf` is false coverage.** Zero `.pcrf` files exist anywhere
+- ~~**`sidecar-pcrf` is false coverage.**~~ **DONE 2026-08-12** (branch
+  `fixture-audit-followups`): the D16 value is removed from the registry and from
+  the two specs that claimed it (`H15-corpus-ghost-visuals`,
+  `S1.4-injected-playback`), with `H25-serialization`'s "other three sidecar
+  cells" comment corrected to two and both `autotest-status.md` rows repointed.
+  Registry and specs had to move together - `validate_spec` errors on a claim the
+  registry does not carry - and all 107 specs still validate. Original finding:
+  zero `.pcrf` files exist anywhere
   (`git ls-files | grep -ci pcrf` -> 0), yet `harness/coverage/registry.toml:268`
   still lists the D16 value and two committed specs claim it
   (`H15-corpus-ghost-visuals.toml:44`, `S1.4-injected-playback.toml:33`). A
   correctness fix in the coverage ledger, not redundancy - left for its own change.
-- **`AGENTS.md:91` is stale**, still saying "Recording storage (format v3)" and
-  listing `.pcrf` as a current sidecar; `.claude/CLAUDE.md` says format 1 /
-  generation 4 and calls `.pcrf` legacy.
+- ~~**`AGENTS.md:91` is stale**~~ **DONE 2026-08-12** (branch
+  `fixture-audit-followups`), and it was not only line 91. Fixing that line
+  collided with line 72, which already owned the schema contract and stated it
+  WRONG, so the pass was widened and every claim re-checked against the source
+  rather than against `.claude/CLAUDE.md` (a second stale copy is how this drift
+  happens). Four fixes: line 91 now reads "Recording storage (sidecar layout)" and
+  marks `.pcrf` legacy without restating the contract; line 72's
+  `CurrentRecordingSchemaGeneration` goes 3 -> 4 (`RecordingStore.cs:131`); and
+  lines 74-75's `DebrisParentRecordingId` becomes `ParentAnchorRecordingId`
+  (`Recording.cs:33`), dropping the parenthetical that still called that rename
+  future work.
 
 ## ~~OPTIMIZER-SPLIT-DEFEATS-REAIM-CLASSIFIER: the load-time optimizer splits an interplanetary recording at an on-rails SOI handoff, and the re-aim classifier then finds no member holding a whole transfer~~ [FOUND 2026-08-12 by `V9-dres-player-loop`, the Dres program's loop-unit reading run. FIXED 2026-08-12, branch `dres-split-cohesion`, Design A of docs/dev/plans/optimizer-split-transfer-cohesion.md]
 
