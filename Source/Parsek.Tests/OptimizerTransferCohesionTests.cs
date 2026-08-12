@@ -172,7 +172,7 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void E1_DresMain_TheKerbinToSunHandoffIsARule4BodySplit()
+        public void E1_DresMain_TheKerbinToSunHandoffIsKeptCohesive()
         {
             Recording dres = LoadFixtureRecording("dres-orbit-recorded", DresMainId);
             Assert.Equal(57, dres.TrackSections.Count);
@@ -186,14 +186,17 @@ namespace Parsek.Tests
                 "expected 4 classified boundaries on the Dres main, got "
                 + classified.Count + ": " + detail);
 
-            // THE DEFECT: the on-rails Kerbin->Sun handoff is a rule-4 BodyChange,
-            // because rule 3's raw-env test rejects the ExoPropulsive-labelled
-            // checkpoint section on the Kerbin side.
+            // POST-FIX: the on-rails Kerbin->Sun handoff is now KEPT COHESIVE.
+            // Before Phase 1 this boundary classified BodyChange and split the
+            // interplanetary recording in two; it is the whole defect, and the
+            // assertion is inverted here rather than deleted so the file still
+            // names the boundary that moved.
             var body = classified.Single(c =>
-                c.Reason == RecordingOptimizer.SplitBoundaryReason.BodyChange);
+                c.Reason == RecordingOptimizer.SplitBoundaryReason.SuppressedExoCoastBodyChange
+                && SectionBody(dres.TrackSections[c.Index]) == "Kerbin");
             TrackSection b0 = dres.TrackSections[body.Index];
             TrackSection b1 = dres.TrackSections[body.Index + 1];
-            Assert.True(body.Split);
+            Assert.False(body.Split);
             Assert.Equal(SegmentEnvironment.ExoPropulsive, b0.environment);
             Assert.Equal(SegmentEnvironment.ExoBallistic, b1.environment);
             Assert.Equal(ReferenceFrame.OrbitalCheckpoint, b0.referenceFrame);
@@ -217,15 +220,23 @@ namespace Parsek.Tests
                 .Where(c => c.Reason == RecordingOptimizer.SplitBoundaryReason.SuppressedExoCoastBodyChange)
                 .ToList();
 
-            Assert.True(suppressed.Count == 1,
-                "expected exactly one rule-3 suppression (Sun->Dres), got " + suppressed.Count);
-            Assert.False(suppressed[0].Split);
-            Assert.Equal("Sun", SectionBody(dres.TrackSections[suppressed[0].Index]));
-            Assert.Equal("Dres", SectionBody(dres.TrackSections[suppressed[0].Index + 1]));
+            // POST-FIX there are TWO rule-3 suppressions: the Sun->Dres crossing
+            // (which was always suppressed) and the Kerbin->Sun handoff (which
+            // Phase 1 moved). Both legs of the transfer now stay in one recording.
+            Assert.True(suppressed.Count == 2,
+                "expected two rule-3 suppressions (Kerbin->Sun and Sun->Dres), got " + suppressed.Count);
+            Assert.All(suppressed, s => Assert.False(s.Split));
+
+            var bodies = suppressed
+                .Select(s => SectionBody(dres.TrackSections[s.Index]) + "->"
+                             + SectionBody(dres.TrackSections[s.Index + 1]))
+                .ToList();
+            Assert.Contains("Kerbin->Sun", bodies);
+            Assert.Contains("Sun->Dres", bodies);
         }
 
         [Fact]
-        public void E1_DresMain_BothBoundariesAreACCEPTEDBySplitAcceptance()
+        public void E1_DresMain_OnlyTheAscentSplitIsAcceptedNow()
         {
             // WHY NOT AN END-TO-END SPLIT COUNT HERE: RecordingOptimizer.SplitAtSection
             // calls UnityEngine.Quaternion.Slerp, a Unity ECall that throws
@@ -242,8 +253,13 @@ namespace Parsek.Tests
 
             var classified = AllClassifiedBoundaries(dres);
             var splittable = classified.Where(c => c.Split).ToList();
-            Assert.True(splittable.Count == 3,
-                "expected 3 splittable boundaries (surface, ascent, body), got " + splittable.Count);
+
+            // POST-FIX: two splittable boundaries, not three -- the body change is
+            // gone from this list entirely.
+            Assert.True(splittable.Count == 2,
+                "expected 2 splittable boundaries (surface, ascent), got " + splittable.Count);
+            Assert.DoesNotContain(splittable, c =>
+                c.Reason == RecordingOptimizer.SplitBoundaryReason.BodyChange);
 
             var accepted = splittable
                 .Where(c => RecordingOptimizer.CanAutoSplitIgnoringGhostTriggers(dres, c.Index + 1))
@@ -251,17 +267,17 @@ namespace Parsek.Tests
 
             string detail = string.Join(" || ", accepted.Select(c =>
                 Describe(dres, c.Index) + " reason=" + c.Reason));
-            Assert.True(accepted.Count == 2,
-                "exactly 2 of the 3 splittable boundaries must be accepted, got "
+
+            // Exactly ONE accepted split now: the ordinary ascent env split, the
+            // same "+1" every other fixture takes. That is the 7 -> 6 the V9 lane
+            // must measure in game.
+            Assert.True(accepted.Count == 1,
+                "exactly 1 boundary must be accepted post-fix (the ascent split), got "
                 + accepted.Count + ": " + detail);
+            Assert.Equal(RecordingOptimizer.SplitBoundaryReason.PersistedPhaseChange,
+                accepted[0].Reason);
 
-            // The accepted pair is the ascent env split and THE DEFECT body split.
-            Assert.Contains(accepted, c =>
-                c.Reason == RecordingOptimizer.SplitBoundaryReason.PersistedPhaseChange);
-            Assert.Contains(accepted, c =>
-                c.Reason == RecordingOptimizer.SplitBoundaryReason.BodyChange);
-
-            // And the surface boundary is the one that loses, on the length floor.
+            // And the surface boundary still loses on the minimum-half floor.
             var rejected = splittable.Except(accepted).Single();
             Assert.Equal(RecordingOptimizer.SplitBoundaryReason.SurfaceInvolved, rejected.Reason);
         }
@@ -417,9 +433,12 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void E3_CheckpointFramedExoBodyChange_TodaySplits()
+        public void E3_CheckpointFramedExoBodyChange_IsNowKeptCohesive()
         {
-            // PRE-FIX PIN. Phase 1 flips this to SuppressedExoCoastBodyChange.
+            // THE PHASE-1 CHANGE, stated as one boundary class. Before the fix this
+            // asserted SPLIT / BodyChange (an ExoPropulsive label on a packed
+            // section defeated rule 3's raw-env test); it now suppresses, because
+            // both sides are checkpoint-framed and a packed vessel cannot thrust.
             var sections = new List<TrackSection>
             {
                 Section(SegmentEnvironment.ExoPropulsive, ReferenceFrame.OrbitalCheckpoint, "Kerbin", 100, 200),
@@ -430,6 +449,27 @@ namespace Parsek.Tests
             var rec = new Recording { RecordingId = "synthetic", TrackSections = sections };
             bool splittable = RecordingOptimizer.IsSplittableEnvOrBodyBoundary(rec, 1, out reason);
 
+            Assert.False(splittable);
+            Assert.Equal(RecordingOptimizer.SplitBoundaryReason.SuppressedExoCoastBodyChange, reason);
+        }
+
+        [Fact]
+        public void E3_MixedFraming_StillSplits()
+        {
+            // The rule needs BOTH sides on rails. One checkpoint side and one
+            // physics side is not an on-rails traversal, so it keeps splitting --
+            // this is what stops the widening from leaking into partially-packed
+            // shapes.
+            var sections = new List<TrackSection>
+            {
+                Section(SegmentEnvironment.ExoPropulsive, ReferenceFrame.Absolute, "Kerbin", 100, 200),
+                Section(SegmentEnvironment.ExoBallistic, ReferenceFrame.OrbitalCheckpoint, "Sun", 200, 300),
+            };
+
+            RecordingOptimizer.SplitBoundaryReason reason;
+            var rec = new Recording { RecordingId = "synthetic-mixed", TrackSections = sections };
+            bool splittable = RecordingOptimizer.IsSplittableEnvOrBodyBoundary(rec, 1, out reason);
+
             Assert.True(splittable);
             Assert.Equal(RecordingOptimizer.SplitBoundaryReason.BodyChange, reason);
         }
@@ -437,9 +477,11 @@ namespace Parsek.Tests
         [Fact]
         public void E3_PhysicsFramedExoBodyChange_SplitsAndMustKeepSplitting()
         {
-            // THE PRESERVED CONTRACT. A genuine powered SOI crossing recorded in
-            // the physics frame splits today and must still split after Phase 1 --
-            // this is the calibration row "SOI traversal while burning -> split".
+            // THE PRESERVED CONTRACT, and after Phase 1 it is the ONLY form of
+            // Exo-class body change that still splits. A genuine powered SOI
+            // crossing recorded in the PHYSICS frame is a real gameplay event at
+            // the boundary -- the calibration row "SOI traversal while burning ->
+            // split". Widening rule 3 must never reach it.
             var sections = new List<TrackSection>
             {
                 Section(SegmentEnvironment.ExoPropulsive, ReferenceFrame.Absolute, "Kerbin", 100, 200),
@@ -477,7 +519,7 @@ namespace Parsek.Tests
         // ===============================================================
 
         [Fact]
-        public void E4_FixtureInventory_TheDresCrossingIsTheOnlyBodySplitInTheWholeInventory()
+        public void E4_FixtureInventory_NoBodySplitSurvivesAnywhere()
         {
             string savesRoot = Path.Combine(RepoRoot(), "harness", "fixtures", "saves");
             Assert.True(Directory.Exists(savesRoot), $"fixture root must exist at {savesRoot}");
@@ -507,13 +549,15 @@ namespace Parsek.Tests
 
             Assert.True(sidecarsScanned > 0, "the sweep must have scanned at least one sidecar");
 
-            // EXACTLY ONE rule-4 body split exists across every committed fixture:
-            // the Dres Kerbin->Sun handoff. That is the whole blast radius of Phase 1.
-            Assert.True(bodySplits.Count == 1,
-                $"expected exactly 1 rule-4 body split in the fixture inventory (the Dres Kerbin->Sun handoff), "
-                + $"found {bodySplits.Count} after scanning {sidecarsScanned} sidecars:\n  "
-                + string.Join("\n  ", bodySplits));
-            Assert.Contains(DresMainId, bodySplits[0]);
+            // PRE-FIX this found exactly one rule-4 body split in the whole
+            // inventory -- the Dres Kerbin->Sun handoff -- which was the measured
+            // blast radius of Phase 1. POST-FIX there are NONE, and that pair of
+            // readings is the blast-radius proof: the only boundary that moved is
+            // the one the fix targeted, on the one fixture that had it.
+            Assert.True(bodySplits.Count == 0,
+                "expected NO rule-4 body split in the fixture inventory after the cohesion fix, "
+                + "found " + bodySplits.Count + " after scanning " + sidecarsScanned
+                + " sidecars: " + string.Join(" || ", bodySplits));
         }
     }
 }

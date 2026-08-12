@@ -14,7 +14,7 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
-## OPTIMIZER-SPLIT-DEFEATS-REAIM-CLASSIFIER: the load-time optimizer splits an interplanetary recording at its SOI boundaries, and the re-aim classifier then finds no member holding a whole transfer [FOUND 2026-08-12 by `V9-dres-player-loop`, the Dres program's loop-unit reading run. NOT YET DIAGNOSED as a defect in either component - both behave as designed in isolation, and which one should change is an open product question]
+## ~~OPTIMIZER-SPLIT-DEFEATS-REAIM-CLASSIFIER: the load-time optimizer splits an interplanetary recording at an on-rails SOI handoff, and the re-aim classifier then finds no member holding a whole transfer~~ [FOUND 2026-08-12 by `V9-dres-player-loop`, the Dres program's loop-unit reading run. FIXED 2026-08-12, branch `dres-split-cohesion`, Design A of docs/dev/plans/optimizer-split-transfer-cohesion.md]
 
 **What was measured.** `V9-dres-player-loop` marks B19's committed Kerbin -> Sun ->
 Dres recording as a loop unit and starts loop playback. The unit classifies
@@ -109,15 +109,26 @@ the 5 deg question is **unanswered, not answered negatively**. Answering it need
 either the classifier change below or a fixture whose transfer survives in one
 member.
 
-**Open question, deliberately not decided here.** Three candidate directions, none
-obviously right: (a) the re-aim gatherer walks the member CHAIN rather than single
-members, so a split transfer still presents one logical transfer; (b) the optimizer
-does not split a recording at a body boundary that is part of a single continuous
-transfer (but §3 rule 3 already keeps same-class ExoBallistic body changes cohesive
-for transfer coasts, so this may be a rule-3 classification question rather than a
-new rule); (c) the loop unit reassembles members before classification. Whichever is
-taken, the `V9-dres-player-loop` lane is the regression floor for it - it is
-deliberately UNARMED today precisely so it can be armed on the fixed behaviour.
+**RESOLVED: direction (b), scoped.** Of the three candidate directions -- (a)
+chain-aware classifier gather, (b) the optimizer not splitting a continuous
+transfer, (c) the loop unit reassembling members -- the supervisor took (b), and the
+guess in the original write-up turned out to be right: this WAS a rule-3
+classification question rather than a new rule. `ShouldKeepCohesiveCrossBodyExoCoast`
+now keeps a body change cohesive when both sides are Exo class and **both sections
+are `OrbitalCheckpoint`-framed**, i.e. the craft was packed across the handoff and
+therefore coasting whatever the env label says. A genuine physics-frame burn
+straddling an SOI crossing still splits, which is pinned from both sides
+(`Persistence_BodyChange_ExoPropulsiveCrossing_Splits` and
+`OptimizerTransferCohesionTests.E3_PhysicsFramedExoBodyChange_*`).
+
+Blast radius was measured, not assumed: an inventory sweep over every committed
+fixture found the Dres handoff was the ONLY rule-4 body split in the whole corpus
+before the fix, and none after (`E4_FixtureInventory_NoBodySplitSurvivesAnywhere`).
+
+Direction (a) is still worth having and is filed separately as
+REAIM-CLASSIFIER-FRAGILE-TO-MEMBER-SPLITS -- it is the only direction that makes the
+classifier robust to split topologies in general, and the preserved burn-split
+contract means the FAITHFUL-by-blindness shape can still occur.
 
 ## ROUTE-CANDIDACY-GATED-ON-SEAL-NO-SEAM-PATH: a green two-vessel docking flight cannot produce a route-candidate tree, and no seam verb can seal one [FOUND 2026-08-11 while wiring `H35-logistics-route-proof`. A CAPABILITY GAP in the automation surface, not a product defect - the seal policy itself is correct]
 

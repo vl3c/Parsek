@@ -6,6 +6,19 @@ All notable changes to Parsek are documented here.
 
 ## 0.10.4
 
+- **Interplanetary transfers no longer split at an on-rails SOI handoff, so looped
+  replays of them re-aim instead of silently replaying the recorded path.** A
+  recorded Kerbin→Dres mission was being cut in two by the load-time optimizer at
+  the moment it left Kerbin's sphere of influence, and the loop machinery then
+  could not recognise either half as a transfer — so replaying the mission at a
+  later date flew the original trajectory to where the planet used to be, rather
+  than re-aiming at where it is. The cause was a label: while a craft is packed on
+  rails it cannot fire an engine, but the recorder still stamped one checkpoint
+  section "propulsive", and the optimizer read that as a burn at the boundary. A
+  genuine burn across an SOI crossing still splits, deliberately. Existing saves
+  that were already split stay split (the halves are not re-merged); re-recording
+  or a fresh mission gets the fixed behaviour.
+
 ### Features
 
 - A second automated scenario covers the supply-route machinery, and this one closes a gap the first could not reach: the checks that read a recorded docking - the ones confirming that a route's proof of where two craft met and what moved between them is actually written into the recording - had never once run. They are read-only checks: they inspect a saved flight and stand down when there is nothing to inspect, and every test save they had ever been given was empty of recordings, so they had been quietly standing down since the day they were written. This change commits a real recorded flight as a test fixture - the suite's most complete mission, in which one craft flies to orbit and parks, a second launches and rendezvous with it, they dock, transfer fuel and monopropellant both ways, and undock - and points the checks at it. Two of the five now genuinely run and are pinned green: one confirms the docking window carries a complete, self-consistent record of where the two craft met, down to the body, coordinates and flight situation; the other confirms a flight launched from the pad correctly carries no "started out docked to something else" record. The other three still stand down, and the measured reasons are written down rather than papered over - two of them need the two craft's identities to differ in a way this particular fixture happens not to produce, and the third needs a mission that BEGINS already docked to something, which nothing in the suite currently flies. Also recorded from the same measurement, because it is the more useful finding: a completely successful docking mission cannot produce a supply route on its own. A route requires every recording in a flight to be sealed, and a mission that ends in flight leaves some unsealed by design; sealing is a player action, and the test harness has no way to perform one. So supply-route creation end to end stays outside automated testing, and the record now says that plainly instead of leaving a green tick to imply otherwise. Test fixture, scenario-spec and docs only; no gameplay change.
