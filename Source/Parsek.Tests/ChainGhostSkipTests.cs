@@ -130,5 +130,77 @@ namespace Parsek.Tests
 
             Assert.True(result);
         }
+
+        // ================================================================
+        // #16: the production overload is launch-Guid gated. "The real vessel
+        // is already its own visual" only holds when the LIVE vessel is the
+        // recording's own launch; a preserved relaunch of the same craft
+        // carries the same craft-baked pid and must not hide the ghost of a
+        // vessel that is not in the world at all.
+        // ================================================================
+
+        [Fact]
+        public void ExternalVesselGhost_LiveVesselIsADifferentLaunchOfTheSameCraft_NotSkipped()
+        {
+            GhostPlaybackLogic.SetIsGhostedOverride(pid => false);
+            GhostPlaybackLogic.SetVesselExistsOverrideForTesting(pid => true);
+            GhostPlaybackLogic.SetVesselGuidResolverOverrideForTesting(
+                pid => "22222222-2222-2222-2222-222222222222");
+
+            var rec = new Recording
+            {
+                RecordingId = "rec-a",
+                TreeId = "tree-abc",
+                VesselName = "Kerbal X",
+                VesselPersistentId = 500u,
+                RecordedVesselGuid = "11111111-1111-1111-1111-111111111111"
+            };
+
+            Assert.False(GhostPlaybackLogic.ShouldSkipExternalVesselGhost(rec, false));
+        }
+
+        [Fact]
+        public void ExternalVesselGhost_LiveVesselIsTheRecordedLaunch_StillSkipped()
+        {
+            const string launchGuid = "11111111-1111-1111-1111-111111111111";
+            GhostPlaybackLogic.SetIsGhostedOverride(pid => false);
+            GhostPlaybackLogic.SetVesselExistsOverrideForTesting(pid => true);
+            GhostPlaybackLogic.SetVesselGuidResolverOverrideForTesting(pid => launchGuid);
+
+            var rec = new Recording
+            {
+                RecordingId = "rec-a",
+                TreeId = "tree-abc",
+                VesselPersistentId = 500u,
+                RecordedVesselGuid = launchGuid
+            };
+
+            Assert.True(GhostPlaybackLogic.ShouldSkipExternalVesselGhost(rec, false));
+        }
+
+        [Fact]
+        public void ExternalVesselGhost_UnknownLiveGuid_FallsBackToPidOnlySkip()
+        {
+            // Legacy save / un-backfillable Guid: unchanged pre-#16 behaviour.
+            GhostPlaybackLogic.SetIsGhostedOverride(pid => false);
+            GhostPlaybackLogic.SetVesselExistsOverrideForTesting(pid => true);
+            GhostPlaybackLogic.SetVesselGuidResolverOverrideForTesting(pid => null);
+
+            var rec = new Recording
+            {
+                RecordingId = "rec-a",
+                TreeId = "tree-abc",
+                VesselPersistentId = 500u,
+                RecordedVesselGuid = "11111111-1111-1111-1111-111111111111"
+            };
+
+            Assert.True(GhostPlaybackLogic.ShouldSkipExternalVesselGhost(rec, false));
+        }
+
+        [Fact]
+        public void ExternalVesselGhost_NullRecording_NotSkipped()
+        {
+            Assert.False(GhostPlaybackLogic.ShouldSkipExternalVesselGhost(null, false));
+        }
     }
 }

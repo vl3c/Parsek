@@ -292,14 +292,37 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Production entry point for <see cref="ShouldSkipExternalVesselGhost(string, uint, bool, Recording)"/>:
+        /// passes the recording itself so the "the real vessel is already its own visual"
+        /// existence test is launch-Guid gated. Without the gate a preserved DIFFERENT launch of
+        /// the same craft (same craft-baked pid) hides a ghost whose recorded vessel is not in
+        /// the world at all.
+        /// </summary>
+        internal static bool ShouldSkipExternalVesselGhost(Recording rec, bool isActiveRecording)
+        {
+            if (rec == null) return false;
+            return ShouldSkipExternalVesselGhost(
+                rec.TreeId, rec.VesselPersistentId, isActiveRecording, rec);
+        }
+
+        /// <summary>
         /// Pure decision method: determines whether a ghost should be skipped for an
         /// external background vessel whose real vessel still exists in the game world.
         /// An "external vessel" is a tree recording that was tracked via BackgroundMap
         /// (not the active vessel) and whose VesselPersistentId matches a live vessel.
         /// Returns true if the ghost should be skipped.
+        ///
+        /// <para>
+        /// <paramref name="launchGateRecording"/> (production always supplies it, via the
+        /// <see cref="ShouldSkipExternalVesselGhost(Recording, bool)"/> overload) switches the
+        /// existence test to the launch-Guid-gated
+        /// <see cref="RealVesselExistsForRecording"/>. Null keeps the bare pid test and is only
+        /// used by pid-level unit cells that assert the surrounding gates.
+        /// </para>
         /// </summary>
         internal static bool ShouldSkipExternalVesselGhost(
-            string treeId, uint vesselPersistentId, bool isActiveRecording)
+            string treeId, uint vesselPersistentId, bool isActiveRecording,
+            Recording launchGateRecording = null)
         {
             // Only applies to tree recordings (standalone recordings don't have BackgroundMap)
             if (string.IsNullOrEmpty(treeId)) return false;
@@ -328,7 +351,10 @@ namespace Parsek
             if (IsVesselRecordedByTree(treeId, vesselPersistentId))
                 return false;
 
-            if (RealVesselExists(vesselPersistentId))
+            bool realVesselExists = launchGateRecording != null
+                ? RealVesselExistsForRecording(launchGateRecording)
+                : RealVesselExists(vesselPersistentId);
+            if (realVesselExists)
             {
                 ParsekLog.Verbose("Flight",
                     $"Skipping external vessel ghost: real vessel {vesselPersistentId} exists");
@@ -7394,6 +7420,21 @@ namespace Parsek
         /// runs at most once per frame because
         /// <see cref="ResolveRewindSuppressionLiveLaunchPresence"/> short-circuits before
         /// calling it for every non-marked recording.
+        ///
+        /// <para>
+        /// RE-CONFIRMED as pid-only against the preserved-fleet world (#16 triage): now that
+        /// Re-Fly preserves unrelated vessels, a same-craft STRANGER can hold the block closed
+        /// and a standalone Rewind-to-Launch target then never materializes. That is the
+        /// accepted side, not a bug to gate away, because the live re-flight this block exists
+        /// for IS a same-craft stranger by construction — a fresh launch of the rewound craft
+        /// carries the baked pid and a NEW Guid, so a Guid gate here would lift the block during
+        /// exactly the re-fly it must hold for and resurrect the #573 duplicate. The narrower
+        /// failure (one un-materialized terminal while a same-craft vessel is loaded) is
+        /// recoverable through the watch-entry lift and the next rewind/revert reset; the
+        /// duplicate is not. The block-kept case is logged (see
+        /// <see cref="ResolveRewindSuppressionLiveLaunchPresence"/>) so it is diagnosable in
+        /// KSP.log rather than silent.
+        /// </para>
         /// </summary>
         internal static bool AnyLiveRealVesselSharesRecordedCraft(Recording rec)
         {
@@ -7460,6 +7501,23 @@ namespace Parsek
                     $"rec={rec.RecordingId} vessel=\"{rec.VesselName}\" pid={rec.VesselPersistentId} — " +
                     "no live same-craft vessel present (plain Rewind-to-Launch not re-flown); " +
                     "recorded terminal will materialize (#573/#589)");
+            }
+            else
+            {
+                // The block stays closed. Deliberately pid-only (see
+                // AnyLiveRealVesselSharesRecordedCraft): the live same-craft vessel may be the
+                // genuine re-flight this block exists for, OR — since Re-Fly preserves the
+                // fleet — an unrelated launch of the same craft that merely reuses the baked
+                // pid. Both keep the block; this line is what makes the second case
+                // diagnosable when a player reports "my rewound vessel never came back".
+                ParsekLog.VerboseRateLimited(
+                    "Rewind",
+                    "suppression-held|" + (rec.RecordingId ?? "(none)"),
+                    $"same-recording spawn suppression HELD for standalone rewind target " +
+                    $"rec={rec.RecordingId} vessel=\"{rec.VesselName}\" pid={rec.VesselPersistentId} — " +
+                    "a live vessel shares this craft's persistentId (re-flight, or a preserved " +
+                    "same-craft launch); recorded terminal stays unspawned (#573)",
+                    5.0);
             }
             return present;
         }

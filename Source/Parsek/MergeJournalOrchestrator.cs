@@ -295,8 +295,7 @@ namespace Parsek
             MaybeInject(Phase.RpReap);
 
             // Step 7: clear marker (§6.6 step 11).
-            scenario.ActiveReFlySessionMarker = null;
-            Parsek.Rendering.RenderSessionState.Clear("marker-cleared");
+            scenario.ClearActiveReFlySessionMarker("marker-cleared");
             scenario.BumpSupersedeStateVersion();
             ReFlyRevertButtonGate.Apply("MergeJournal:marker-cleared");
             // #688 follow-up: drop the captured pre-Re-Fly anchor trajectory
@@ -457,8 +456,7 @@ namespace Parsek
             }
 
             bool hadMarker = scenario.ActiveReFlySessionMarker != null;
-            scenario.ActiveReFlySessionMarker = null;
-            Parsek.Rendering.RenderSessionState.Clear("marker-cleared");
+            scenario.ClearActiveReFlySessionMarker("marker-cleared");
             scenario.ActiveMergeJournal = null;
             scenario.BumpSupersedeStateVersion();
             ReFlyRevertButtonGate.Apply("MergeJournal:rollback");
@@ -615,8 +613,7 @@ namespace Parsek
                     ParsekLog.Info("ReFlySession",
                         $"End reason=merged sess={sessionId} provisional={provisionalId}");
                 }
-                scenario.ActiveReFlySessionMarker = null;
-                Parsek.Rendering.RenderSessionState.Clear("marker-cleared");
+                scenario.ClearActiveReFlySessionMarker("marker-cleared");
                 scenario.BumpSupersedeStateVersion();
                 ReFlyRevertButtonGate.Apply("MergeJournal:complete-marker-cleared");
                 // #688 follow-up: mirror the synchronous-merge cleanup so

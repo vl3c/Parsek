@@ -136,14 +136,21 @@ namespace Parsek
         ///
         /// <para>
         /// A hygiene pass must never delete a recording the live session owes a
-        /// supersede for — the prune's payload test
-        /// (<c>ParsekFlight.IsZeroPointLeaf</c>: Points + OrbitSegments +
-        /// SurfacePos) and the merge's payload test
+        /// supersede for. The prune's payload test
+        /// (<c>ParsekFlight.IsZeroPointLeaf</c>: Points + OrbitSegments + playable
+        /// TrackSections + SurfacePos) and the merge's payload test
         /// (<c>SupersedeCommit.ValidateSupersedeTarget</c>: Points + OrbitSegments
-        /// + playable TrackSections) are NOT the same predicate, so a
-        /// section-authoritative provisional can be zero-point AND a valid
-        /// supersede target at the same time. When they disagree, the merge's test
-        /// wins and the recording stays.
+        /// + playable TrackSections) now share the section term, so the specific
+        /// hole this guard was written for — a section-authoritative provisional
+        /// reading as zero-point while being a valid supersede target — is closed at
+        /// the predicate.
+        /// </para>
+        /// <para>
+        /// This guard STAYS as belt-and-braces. The two predicates are still not the
+        /// same test (SurfacePos counts only in the prune), they live in different
+        /// files and can drift again, and the cost of being wrong here is deleting a
+        /// recording the live session owes a supersede for. When they disagree, the
+        /// merge's test wins and the recording stays.
         /// </para>
         /// </summary>
         internal static ReFlyProvisionalPruneAction ClassifyProvisionalPrune(

@@ -55,17 +55,14 @@ namespace Parsek
         /// True only when a live vessel is POSITIVELY the same launch the recording captured:
         /// pid equal AND both launch guids known AND equal. Unlike
         /// <see cref="VesselLaunchIdentity.LiveVesselIsRecordedLaunch"/> this does NOT fall
-        /// back to pid-only on an unknown guid — see the class remarks for why.
+        /// back to pid-only on an unknown guid — see the class remarks for why. The
+        /// implementation lives with its degrading sibling as
+        /// <see cref="VesselLaunchIdentity.LiveVesselIsPositivelyRecordedLaunch"/>; this name is
+        /// kept because the #15 rationale reads from here.
         /// </summary>
         internal static bool IsPositivelySameLaunch(Recording rec, uint livePid, string liveGuid)
         {
-            if (rec == null || livePid == 0) return false;
-            if (rec.VesselPersistentId == 0 || rec.VesselPersistentId != livePid) return false;
-
-            string recGuid = VesselLaunchIdentity.NormalizeGuid(rec.RecordedVesselGuid);
-            string live = VesselLaunchIdentity.NormalizeGuid(liveGuid);
-            if (recGuid == null || live == null) return false;
-            return string.Equals(recGuid, live, StringComparison.OrdinalIgnoreCase);
+            return VesselLaunchIdentity.LiveVesselIsPositivelyRecordedLaunch(rec, livePid, liveGuid);
         }
 
         /// <summary>

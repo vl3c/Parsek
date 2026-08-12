@@ -225,6 +225,38 @@ namespace Parsek.Tests
             Assert.False(VesselLaunchIdentity.LiveVesselIsRecordedSpawn(SpawnRec(Pid, Pid, GuidA), 0u, GuidA));
         }
 
+        // -- LiveVesselIsPositivelyRecordedLaunch (the NON-degrading sibling) ----------
+
+        [Fact]
+        public void LiveVesselIsPositivelyRecordedLaunch_RequiresBothGuidsKnownAndEqual()
+        {
+            var rec = Rec(Pid, GuidA);
+            Assert.True(VesselLaunchIdentity.LiveVesselIsPositivelyRecordedLaunch(rec, Pid, GuidA));
+            // Dashed spelling of the same guid still matches (normalization).
+            Assert.True(VesselLaunchIdentity.LiveVesselIsPositivelyRecordedLaunch(
+                rec, Pid, "2b6e6a60-d2c9-4748-9753-371317fa067e"));
+            Assert.False(VesselLaunchIdentity.LiveVesselIsPositivelyRecordedLaunch(rec, Pid, GuidB));
+            Assert.False(VesselLaunchIdentity.LiveVesselIsPositivelyRecordedLaunch(rec, 999u, GuidA));
+            Assert.False(VesselLaunchIdentity.LiveVesselIsPositivelyRecordedLaunch(null, Pid, GuidA));
+            Assert.False(VesselLaunchIdentity.LiveVesselIsPositivelyRecordedLaunch(rec, 0u, GuidA));
+            Assert.False(VesselLaunchIdentity.LiveVesselIsPositivelyRecordedLaunch(Rec(0u, GuidA), Pid, GuidA));
+        }
+
+        [Fact]
+        public void LiveVesselIsPositivelyRecordedLaunch_UnknownGuidDoesNotDegradeToPidOnly()
+        {
+            // The whole point of the predicate: where LiveVesselIsRecordedLaunch falls back to
+            // pid-only on an unknown guid, this one refuses. Sites whose unknown-guid fallback
+            // direction is destructive (a Die(), a tombstone) use this one.
+            var noGuidRec = Rec(Pid, null);
+            Assert.True(VesselLaunchIdentity.LiveVesselIsRecordedLaunch(noGuidRec, Pid, GuidA));
+            Assert.False(VesselLaunchIdentity.LiveVesselIsPositivelyRecordedLaunch(noGuidRec, Pid, GuidA));
+
+            var rec = Rec(Pid, GuidA);
+            Assert.True(VesselLaunchIdentity.LiveVesselIsRecordedLaunch(rec, Pid, null));
+            Assert.False(VesselLaunchIdentity.LiveVesselIsPositivelyRecordedLaunch(rec, Pid, null));
+        }
+
         // -- CandidateMatchesRecording / FindMatchingRecording ----------
 
         [Fact]

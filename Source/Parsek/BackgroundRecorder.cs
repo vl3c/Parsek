@@ -1417,7 +1417,10 @@ namespace Parsek
                     continue;
                 }
 
-                Vessel parentVessel = FlightRecorder.FindVesselByPid(parentRec.VesselPersistentId);
+                // Launch-matched lookup: a preserved relaunch of the same craft carries the
+                // parent's craft-baked pid, and treating it as the live parent would keep a
+                // debris recording anchored to a stranger instead of ending it here.
+                Vessel parentVessel = FlightRecorder.FindLaunchMatchedVesselForRecording(parentRec);
                 if (parentVessel == null || parentVessel.packed || !parentVessel.loaded)
                 {
                     if (expired == null)
@@ -5233,6 +5236,20 @@ namespace Parsek
                 {
                     continue;
                 }
+                // Launch-identity gate, mirroring the active-recorder live-anchor scan
+                // (FlightRecorder.TryResolveLivePeerRecordingId): the pid that resolved this
+                // recording is craft-baked, so a preserved DIFFERENT launch of the same craft
+                // would supply the anchor pose and corrupt this recording's Relative frames.
+                // Rejects only a conclusive launch-Guid mismatch (unknown Guid = prior behaviour).
+                if (!AnchorDetector.LiveAnchorLaunchMatches(
+                        candidateRecording, AnchorDetector.TryReadLiveVesselGuid(vessel)))
+                {
+                    ParsekLog.VerboseRateLimited("BgRecorder", "bg-anchor-launch-mismatch",
+                        $"Background anchor candidate rejected: recordingId={recordingId} " +
+                        $"reason=live-vessel-different-launch peerPid={vessel.persistentId}",
+                        5.0);
+                    continue;
+                }
 
                 // Use vesselTransform.position to stay symmetric with
                 // vessel.transform.rotation -- mixing GetWorldPos3D (CoM) with
@@ -5431,7 +5448,7 @@ namespace Parsek
             Recording parentRec = null;
             tree?.Recordings?.TryGetValue(parentRecId, out parentRec);
             Vessel parentVessel = parentRec != null
-                ? FlightRecorder.FindVesselByPid(parentRec.VesselPersistentId)
+                ? FlightRecorder.FindLaunchMatchedVesselForRecording(parentRec)
                 : null;
 
             if (parentVessel != null && parentVessel.loaded)
@@ -6195,7 +6212,7 @@ namespace Parsek
                 return double.NaN;
             }
 
-            parentVessel = FlightRecorder.FindVesselByPid(parentRecording.VesselPersistentId);
+            parentVessel = FlightRecorder.FindLaunchMatchedVesselForRecording(parentRecording);
             if (parentVessel == null || !parentVessel.loaded || parentVessel.packed)
                 return double.NaN;
 
@@ -6741,7 +6758,7 @@ namespace Parsek
                 && parentRecording != null
                 && parentRecording.VesselPersistentId != 0u)
             {
-                liveParent = FlightRecorder.FindVesselByPid(parentRecording.VesselPersistentId);
+                liveParent = FlightRecorder.FindLaunchMatchedVesselForRecording(parentRecording);
             }
 
             if (liveParent != null && liveParent.loaded && liveParent.transform != null)

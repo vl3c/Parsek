@@ -5824,6 +5824,7 @@ namespace Parsek
                 scanned++;
                 if (!TryResolveLivePeerRecordingId(
                         vessel.persistentId,
+                        AnchorDetector.TryReadLiveVesselGuid(vessel),
                         out string recordingId,
                         skipActiveProvisional: false))
                     continue;
@@ -5939,8 +5940,18 @@ namespace Parsek
             return true;
         }
 
+        /// <summary>
+        /// Maps a LIVE peer vessel to the tree recording it represents, for the RELATIVE-anchor
+        /// candidate scan. <paramref name="peerLaunchGuid"/> is the live vessel's <c>Vessel.id</c>
+        /// (null when unknown) and gates the craft-baked pid lookup through
+        /// <see cref="AnchorDetector.LiveAnchorLaunchMatches"/>: a preserved DIFFERENT launch of
+        /// the same craft carries the same baked pid, and anchoring to it would write this
+        /// recording's Relative frames as offsets from a stranger's world pose (silent trajectory
+        /// corruption). Unknown Guids fall back to the prior pid-only behaviour.
+        /// </summary>
         private bool TryResolveLivePeerRecordingId(
             uint peerPid,
+            string peerLaunchGuid,
             out string recordingId,
             bool skipActiveProvisional = true)
         {
@@ -5952,6 +5963,19 @@ namespace Parsek
             if (!ActiveTree.BackgroundMap.TryGetValue(peerPid, out recordingId)
                 || string.IsNullOrWhiteSpace(recordingId))
             {
+                return false;
+            }
+            if (ActiveTree.Recordings != null
+                && ActiveTree.Recordings.TryGetValue(recordingId, out Recording peerRecording)
+                && !AnchorDetector.LiveAnchorLaunchMatches(peerRecording, peerLaunchGuid))
+            {
+                ParsekLog.VerboseRateLimited("Anchor", "recording-anchor-launch-mismatch",
+                    $"Recording anchor candidate rejected: recordingId={recordingId} " +
+                    $"reason=live-vessel-different-launch peerPid={peerPid} " +
+                    $"recordedGuid={peerRecording.RecordedVesselGuid ?? "(none)"} " +
+                    $"liveGuid={peerLaunchGuid ?? "(none)"}",
+                    5.0);
+                recordingId = null;
                 return false;
             }
             if (skipActiveProvisional
@@ -10918,6 +10942,42 @@ namespace Parsek
                     return vessel;
                 }
             }
+            return null;
+        }
+
+        /// <summary>
+        /// <see cref="FindVesselByPid"/> plus the launch-identity gate: returns the live vessel
+        /// carrying the recording's <c>VesselPersistentId</c> ONLY when it is not conclusively a
+        /// different launch (<see cref="AnchorDetector.LiveAnchorLaunchMatches"/>).
+        ///
+        /// <para>
+        /// Use this wherever a live vessel is looked up FROM a recording to supply that
+        /// recording's world pose (parent-anchor pose, debris proximity, anchor candidates). A
+        /// bare pid lookup is craft-baked: with the world preserved across Re-Fly, a relaunch of
+        /// the same craft answers the lookup after the recorded vessel is gone, and its pose then
+        /// drives Relative frames / proximity tiers for a vessel it has nothing to do with. A
+        /// null result is the same "parent not live" case those call sites already handle
+        /// (recorded-anchor fallback / TTL end), so the failure mode is a graceful degrade rather
+        /// than a corrupted frame. Unknown launch Guid on either side = prior pid-only behaviour.
+        /// </para>
+        /// </summary>
+        internal static Vessel FindLaunchMatchedVesselForRecording(Recording rec)
+        {
+            if (rec == null || rec.VesselPersistentId == 0u)
+                return null;
+            Vessel vessel = FindVesselByPid(rec.VesselPersistentId);
+            if (vessel == null)
+                return null;
+            if (AnchorDetector.LiveAnchorLaunchMatches(
+                    rec, AnchorDetector.TryReadLiveVesselGuid(vessel)))
+            {
+                return vessel;
+            }
+
+            ParsekLog.VerboseRateLimited("Anchor", "live-vessel-launch-mismatch",
+                $"Live vessel pid={rec.VesselPersistentId} rejected for rec={rec.RecordingId ?? "(none)"}: " +
+                $"recorded launch guid differs conclusively (relaunch of the same craft)",
+                5.0);
             return null;
         }
 
