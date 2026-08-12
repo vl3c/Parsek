@@ -6,6 +6,19 @@ All notable changes to Parsek are documented here.
 
 ## 0.10.4
 
+- **Interplanetary transfers no longer split at an on-rails SOI handoff, so looped
+  replays of them re-aim instead of silently replaying the recorded path.** A
+  recorded Kerbin→Dres mission was being cut in two by the load-time optimizer at
+  the moment it left Kerbin's sphere of influence, and the loop machinery then
+  could not recognise either half as a transfer — so replaying the mission at a
+  later date flew the original trajectory to where the planet used to be, rather
+  than re-aiming at where it is. The cause was a label: while a craft is packed on
+  rails it cannot fire an engine, but the recorder still stamped one checkpoint
+  section "propulsive", and the optimizer read that as a burn at the boundary. A
+  genuine burn across an SOI crossing still splits, deliberately. Existing saves
+  that were already split stay split (the halves are not re-merged); re-recording
+  or a fresh mission gets the fixed behaviour.
+
 ### Features
 
 - A solar panel, antenna or radiator that BREAKS now stays broken on the replay. Snapping a panel off - deploying it too fast, overspeeding a deployed array, flying into something - is one of the most conspicuous things that can happen to a craft, and until now the replay did not know about it at all: the ghost carried on with the panel intact for the rest of the recording, every time you watched it. Now the panel disappears at the moment it broke, exactly as it did on the real craft. If a kerbal later goes out and repairs it, the replay shows the panel come back folded and ready to deploy again - instantly, the way the real repair happens, rather than reappearing open and then closing - and if it was then re-deployed, it deploys. A craft that was ALREADY missing a panel when the recording started replays that way from its first frame, rather than starting whole and never losing it. Background craft are covered too, so an unattended station that loses an array while you are somewhere else replays with the array gone.

@@ -14,6 +14,228 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## ~~OPTIMIZER-SPLIT-DEFEATS-REAIM-CLASSIFIER: the load-time optimizer splits an interplanetary recording at an on-rails SOI handoff, and the re-aim classifier then finds no member holding a whole transfer~~ [FOUND 2026-08-12 by `V9-dres-player-loop`, the Dres program's loop-unit reading run. FIXED 2026-08-12, branch `dres-split-cohesion`, Design A of docs/dev/plans/optimizer-split-transfer-cohesion.md]
+
+**What was measured.** `V9-dres-player-loop` marks B19's committed Kerbin -> Sun ->
+Dres recording as a loop unit and starts loop playback. The unit classifies
+**FAITHFUL, not ENGAGED**, and the classifier says why per member:
+
+```
+[ReaimDiag] member#1 segs=8  startBody=Kerbin supported=False
+[ReaimDiag] member#2 segs=11 startBody=Sun    supported=False
+    reason='no heliocentric (common-ancestor) leg recorded - never warped through
+            the coast, or background; staying faithful'
+[ReaimDiag] gatheredSegs=19 transferMemberSegs=0 plan.Supported=False
+    reason='no member yields a re-aim transfer'
+[Reaim]     MissionLoopUnit: mission='Duna Rocket' not re-aim; faithful
+```
+
+**Why that reason is misleading here.** The heliocentric leg WAS recorded and WAS
+warped through - B19's own flight log carries both
+`SOI change boundary suppressed in tree mode: Kerbin to Sun` and `... Sun to Dres`,
+and the arrival captured into a Dres orbit. What the recording does NOT have is all
+three shape requirements (parking orbit, heliocentric coast, direct-child arrival)
+inside ONE member, because the **load-time optimizer splits the main recording at
+ONE body boundary** (`RecordingOptimizer.IsSplittableEnvOrBodyBoundary` rule 4,
+"other body changes").
+
+**MECHANISM CORRECTED 2026-08-12.** This paragraph first said the optimizer split
+"at its two body boundaries", producing "one member per SOI leg". Both halves of
+that were wrong, and the truth is narrower and more actionable. Measured through the
+real predicate on the committed fixture bytes
+(`Source/Parsek.Tests/OptimizerTransferCohesionTests.cs`, cells E1), the Dres main's
+57 sections yield exactly four classified boundaries:
+
+| Boundary | Sections | Reason | Outcome |
+|---|---|---|---|
+| 1->2 @ ut 31.0 | SurfaceMobile/Kerbin -> Atmospheric/Kerbin | `SurfaceInvolved` | splittable, REJECTED by the minimum-half floor |
+| 3->4 @ ut 224.5 | Atmospheric/Kerbin -> ExoBallistic/Kerbin | `PersistedPhaseChange` | SPLIT (the ordinary ascent split) |
+| 28->29 @ ut 8,490,936.2 | **ExoPropulsive(OrbitalCheckpoint)/Kerbin -> ExoBallistic(OrbitalCheckpoint)/Sun** | `BodyChange` | **SPLIT -- the defect** |
+| 45->46 @ ut 20,376,838.0 | ExoBallistic/Sun -> ExoBallistic/Dres | `SuppressedExoCoastBodyChange` | suppressed -- Sun->Dres does NOT split |
+
+So the Sun->Dres crossing was never the problem: rule 3 already keeps it cohesive,
+and member#2 held the Sun AND Dres legs together all along. The measured "+2" is ONE
+body split plus the ordinary ascent env split.
+
+**Why rule 3 declines at 28->29 and nowhere else.**
+`ShouldKeepCohesiveCrossBodyExoCoast` requires RAW `ExoBallistic` on both sides.
+Section 28 is labelled `ExoPropulsive` -- but it is an on-rails `OrbitalCheckpoint`
+re-emission whose single ORBIT_SEGMENT payload is byte-identical to its ExoBallistic
+predecessor's (the same Kerbin escape hyperbola, ecc 2.3601122370442775): recorder
+bookkeeping, not an engine firing. A stock vessel cannot thrust while packed. Eve's
+fixture escapes the same fate only because a ~30 s ExoBallistic checkpoint stub
+happened to be re-emitted between its trans-Eve burn and its SOI flip -- recorder
+timing noise, not gameplay semantics. That is the whole discriminator between the
+ENGAGED Eve unit and the FAITHFUL Dres one.
+
+The split is visible in the counts and is otherwise harmless: the fixture's 5
+recordings load as 7, with structure IDENTICAL (`trees 1, committedTrees 1,
+terminalStates {Orbiting 3, Destroyed 2}, branchPoints {JointBreak 3}`), points
+total 1,730 against 1,729, and the largest recording dropping 1,546 -> 763. This
+is the same mechanism V6M and V8 record as a deterministic "+1"; it is "+2" here
+because the ascent split lands on top of the body split.
+
+**A second, independent decline** comes from the periodicity solver, and this one
+is not about the split at all:
+
+```
+[MissionPeriodicity] ExtractConstraints: members=3 launchBody=Kerbin
+    support=UnsupportedCrossParent constraints=2
+    [Rotation(Kerbin) P=21549.425183089825 off=0;
+     Orbital(Dres) cross-parent P=47893063.138593182 off=20376811.796301231]
+    why=orbital target 'Dres' is not a direct child of launch body 'Kerbin'
+        (synodic, Phase 4)
+[MissionPeriodicity] Solve: method=unsupported-no-lock P=NaN nextWindow=NaN lock=no
+```
+
+**What the two declines cost, measured.** `cadence=20393382.003373124` - the unit's
+own SPAN, not a synodic multiple, so the ~11.39M s Kerbin -> Dres synodic is never
+used; `overlapCadence=1019669.1001686562 overlaps=yes scheduled=no`; PhaseLock
+SKIPPED; PadAlign never runs (zero lines); and **no loiter compression at all** of
+the recording's ~8.4M game-second LKO ejection-window wait, where V8's ENGAGED unit
+cut 11,819,849 s on the same shape. The seam-endpoint census reads
+`evaluated=0 outsideSoi=0 skip.no-cross-body-successor=1` - a structural zero told
+from blindness.
+
+**Deterministic.** Every decision field is byte-identical across two consecutive
+runs (2026-08-12 `_0150`/`_0153`); the only delta is `phaseAnchor`
+20,393,410.963373061 vs .923373062, which is `now` at solve time on an unsupported
+unit.
+
+**What this does NOT tell us.** Dres's 5 deg inclination was the thing V9 was
+written to probe (V8/V8F measured the tilt gate declining all 27 tof candidates at
+Eve's 2.1 deg pre-fix). The synth never reaches the tilt gate on this fixture, so
+the 5 deg question is **unanswered, not answered negatively**. Answering it needs
+either the classifier change below or a fixture whose transfer survives in one
+member.
+
+**RESOLVED: direction (b), scoped.** Of the three candidate directions -- (a)
+chain-aware classifier gather, (b) the optimizer not splitting a continuous
+transfer, (c) the loop unit reassembling members -- the supervisor took (b), and the
+guess in the original write-up turned out to be right: this WAS a rule-3
+classification question rather than a new rule. `ShouldKeepCohesiveCrossBodyExoCoast`
+now keeps a body change cohesive when both sides are Exo class and **both sections
+are `OrbitalCheckpoint`-framed**, i.e. the craft was packed across the handoff and
+therefore coasting whatever the env label says. A genuine physics-frame burn
+straddling an SOI crossing still splits, which is pinned from both sides
+(`Persistence_BodyChange_ExoPropulsiveCrossing_Splits` and
+`OptimizerTransferCohesionTests.E3_PhysicsFramedExoBodyChange_*`).
+
+Blast radius was measured, not assumed: an inventory sweep over every committed
+fixture found the Dres handoff was the ONLY rule-4 body split in the whole corpus
+before the fix, and none after (`E4_FixtureInventory_NoBodySplitSurvivesAnywhere`).
+
+Direction (a) is still worth having and is filed separately as
+REAIM-CLASSIFIER-FRAGILE-TO-MEMBER-SPLITS -- it is the only direction that makes the
+classifier robust to split topologies in general, and the preserved burn-split
+contract means the FAITHFUL-by-blindness shape can still occur.
+
+## DRES-PROGRAM-MEASUREMENTS-COMPLETE: the tilt disposition at 5 deg, the re-aimed arrival geometry, and what V9's two structural gaps turned out to be [RECORDED 2026-08-12 by `V10-dres-loop-arrival`. NOT A DEFECT - the closing measurement record for the Dres program]
+
+**The two gaps V9 named are now resolved, and neither was a product problem.**
+
+*The tilt gap.* V9 reported the Dres 5 deg tilt disposition as UNMEASURED because the
+synthesizer runs from `ReaimPlaybackResolver` during playback OF the re-aimed leg and
+V9 quits ~1 s after `StartLoopPlayback`. V10 TimeJumps into the transfer and gets the
+answer:
+
+```
+[ReaimSeam] tilt-correction inc-before=13.1958 bound=5.5000 targetInc=5.0000
+            incAch=3.6426 inc-after=NaN state=retained reason=unreachable-plane
+```
+
+At Dres's 5 deg the achievability gate is UNSAFE (incAch 3.6426 < targetInc 5.0000),
+exactly as it is at Eve's 2.1 -- and the tilt-retention fix's third arm RETAINS the
+un-corrected conic rather than declining the candidate. This is the first probe of
+that fix beyond Eve, and it holds. Pre-fix, this combination dropped the window to a
+faithful replay.
+
+*The census gap.* V9 reported the seam-endpoint census as absent post-fix. V10 shows
+it is reachable, and what it needs: bracketing the RE-AIMED arc's own SOI crossing
+(`soiEntryUT=43,144,577.77`) rather than the recorded arrival mapped through the
+replay clock (43,162,644.6 -- 18,067 s later, a different conic's crossing). Bracketed
+correctly the census reads `evaluated=1 outsideSoi=0` (runs `_0329`/`_0331`).
+
+**The arrival, from the synthesizer rather than the renderer:**
+
+```
+[ReaimSeam] synth geometry (patched-conic): departUT=31276743 arrivalUT=43162645
+            soiEntryUT=43144578 sma=30673044261.6 ecc=0.5893 inc=13.1958 bound=5.5000
+            | xfer-vs-Kerbin@depart=0m | xfer-vs-Dres@arrival=0m
+            | xfer-vs-Dres@soi=32832839m (SOI=32832840)
+```
+
+The re-aimed conic meets Dres's sphere of influence to within one metre, and cycle 0
+re-aims with `devFromRecorded=0s`.
+
+**ONE OPEN TENSION, filed here rather than papered over.** The census and a green
+verdict cannot both be had in one lane today: `evaluated=1` requires a pre-D0 jump,
+and EVERY pre-D0 jump reproduces the filed line-blink detector gap
+(three placements tried, all `sinceFrames=1 body=Sun` -- the Sun-leg proto line
+toggling because the CLOCK left its window, which `bodyChanged` cannot see). V10 is
+armed in its green shape and carries the arrival claim via the synth-geometry token
+instead. If the detector gap is closed, restore V10's iteration-3 escape bracket
+(-900 / -300 / +600) and arm the census pair too. The gap itself is the existing V8
+entry's, not a new one.
+
+## REAIM-CLASSIFIER-FRAGILE-TO-MEMBER-SPLITS: the re-aim classifier needs the whole transfer inside ONE member, so any legitimate split silently produces FAITHFUL with a misleading reason [FILED 2026-08-12 as the defense-in-depth follow-up to OPTIMIZER-SPLIT-DEFEATS-REAIM-CLASSIFIER (open question 2 of docs/dev/plans/optimizer-split-transfer-cohesion.md, recommendation accepted). NOT a regression - the cohesion fix removed the only measured instance; this is the class of failure it does not cure]
+
+**The residual.** `ReaimClassifier.Classify` requires parking orbit + heliocentric
+coast + direct-child arrival among the segments of a SINGLE loop-unit member. The
+cohesion fix stopped the optimizer splitting an on-rails SOI handoff, which was the
+only shape in the committed corpus that broke that requirement. It did not make the
+requirement itself robust, and one split shape is DELIBERATELY preserved: a genuine
+physics-frame burn straddling an SOI crossing still splits (the calibration row "SOI
+traversal while burning -> split"). A mission flown that way would reproduce the
+exact V9 symptom -- `no member yields a re-aim transfer`, a FAITHFUL replay, and a
+reason string that blames a missing heliocentric leg the recording actually contains.
+
+**Why it is not loud.** Nothing distinguishes "this recording has no transfer" from
+"this recording's transfer is spread across two members". Both emit the same
+decline. That is what made the original defect cost a full reading run to find.
+
+**The direction, and why it is viable** (Design C of the plan, rejected for that
+branch only to keep V9's re-measure attributable to one change). The topology marker
+already exists and is sound: `CopySplitIdentityFields`
+(`Source/Parsek/RecordingStore.Optimization.cs`) gives split halves a shared
+`ChainId`, the same `TreeId` / `RecordedVesselGuid`, chain re-indexed by StartUT, and
+no branch point. `ApplyReaim` (`Source/Parsek/MissionLoopUnitBuilder.cs`) could
+classify per CHAIN GROUP -- same ChainId + guid, UT-ordered concatenation -- instead
+of per member. The playtest interleaving bug that forced per-member classification
+would not recur, because a chain group is one vessel's non-overlapping time slices.
+
+**What to watch out for.** Downstream carries single-transfer-member assumptions
+(`transferMemberIndex` / `transferMemberRecordingId`, descent gating "EXACTLY on this
+member", per-member heliocentric substitution in `ReaimPlaybackResolver`); a plan
+spanning two members would strain them. That is the actual work, and it is why this
+is a separate entry rather than a follow-up commit.
+
+**Cheaper interim option worth considering first:** make the failure LOUD rather than
+robust -- when a decline's reason is "no heliocentric leg" but a sibling member in the
+same chain group HAS one, say so in the reason string. That converts a silent
+misclassification into a diagnosable one for a fraction of the cost.
+
+## RECORDER-LABELS-ON-RAILS-CHECKPOINTS-EXOPROPULSIVE: a packed vessel cannot thrust, but the recorder still stamps some on-rails checkpoint re-emissions ExoPropulsive [FILED 2026-08-12 as the hygiene follow-up to OPTIMIZER-SPLIT-DEFEATS-REAIM-CLASSIFIER (open question 3, recommendation accepted: file it, do not act on it yet). LOW PRIORITY - the consumer that was misled has been fixed]
+
+**The observation.** On `dres-orbit-recorded`, track section 28 is
+`env=ExoPropulsive ref=OrbitalCheckpoint`, spans 25,921 s, and its single
+ORBIT_SEGMENT payload is byte-identical to its ExoBallistic predecessor's -- the same
+Kerbin escape hyperbola (ecc 2.3601122370442775, sma -1,007,185.2465716415). No burn
+altered the conic across that boundary. A stock vessel cannot run an engine while
+packed, so the ExoPropulsive label there is recorder bookkeeping, not gameplay.
+
+**Why it is filed rather than fixed.** Two reasons, both from the plan's Design E
+analysis. (1) It does nothing for already-recorded saves and fixtures, and the
+regression floor for this whole area IS a recorded fixture -- so the consumer-side fix
+was the one that mattered and it has landed. (2) The env label may be load-bearing
+elsewhere; changing what the recorder emits is a wider blast radius than changing how
+one predicate reads it, for no measured benefit today.
+
+**What would make it worth doing.** A second consumer being misled by the same label.
+If that happens, the fix is at
+`FlightRecorder`'s checkpoint re-emission path, and the test is that a packed section
+never carries a propulsive env.
+
 ## ~~REWIND-ERASES-SURVIVING-KERBAL-XP: a rewind rolls the crew roster back, silently deleting experience earned by flights the rewind does not touch~~ [P9a, FIXED 2026-08-11, branch `ledger-facets`]
 
 Kerbal XP is DERIVED, not stored - decompile-verified against KSP 1.12.5

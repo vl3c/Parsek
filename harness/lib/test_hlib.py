@@ -4844,6 +4844,37 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
         # build_dd1_craft.py) onto the pad UNCREWED. Flown + harvested
         # 2026-08-06; the tier is the forge mechanism, not a review debt.
         "FORGE-b17-duna-pad.toml":          "forge-mechanism - manual by design; FLOWN 2026-08-06 (PASS attempt 1 after the UInt32 uid finding), fixture b17-duna-pad committed + registered",
+        # The SIXTH forge, same mechanism argument as the five above: it launches
+        # the committed stock `Duna Rocket` (KerbalX, Steltuck) onto the pad with
+        # one named crew for the Dres program. Flown + harvested 2026-08-11.
+        "FORGE-b18-dres-pad.toml":          "forge-mechanism - manual by design; FLOWN 2026-08-11 (PASS attempt 1, 105 s wall), fixture b18-dres-pad committed + registered",
+        # B18 is operator BY THE CALIBRATION DISCIPLINE (the V1/V2 precedent), and
+        # for a reason particular to it: it is the FIRST flight of a DOWNLOADED
+        # human-built craft, so its recordings-count window and its debris
+        # logContract token are deliberately unpinned on the first run and the
+        # run's job is to measure them. Promotion is the post-measurement
+        # re-pinning call, which is a recorded human decision and not a debt this
+        # tag would name.
+        "B18-dres-lko-ascent.toml":         "calibration-discipline - the first flight of an unmeasured downloaded craft is a READING run by construction (count window min=1/max=12 and the debris token are unpinned on purpose); promotion waits on the re-pin, not on outstanding work",
+        # B19 is operator by the SAME calibration discipline as B16 (whose first
+        # flight shape it copies) plus one reason of its own: it is the FIRST
+        # flight of the new pre-transfer JETTISON phase, so its recordings-count
+        # window stays unpinned until the jettison's debris topology has been
+        # measured once. Promotion is that post-measurement re-pinning call.
+        "B19-dres-orbit.toml":              "calibration-discipline - first flight of a new profile AND of the pre-transfer JETTISON phase; the recordings count window is unpinned pending the jettison debris topology, and promotion waits on that re-pin rather than on outstanding work",
+        # V9 began as a pure READING RUN and did its job: it measured the optimizer
+        # split defeating the re-aim classifier. That finding is now FIXED and V9 is
+        # ARMED as its regression floor, so the post-reading arming call it was
+        # waiting on has been taken. What remains is the ordinary operator -> cadence
+        # promotion decision, which is a human call and not a debt this tag names.
+        "V9-dres-player-loop.toml":         "calibration-discipline - it began as a reading run (V8 iteration-1 pattern), MEASURED the optimizer/re-aim defect, and is now ARMED as that fix's regression floor (classification + schedule + count tokens, two decline reasons forbidden, control run recorded). Operator tier is the ordinary promotion call; the tilt disposition it could not reach is V10's lane, not outstanding work here",
+        # V10 is operator by the same calibration discipline: it is a TimeJump
+        # observation lane whose brackets are derived from a specific recording's
+        # replay clock, so it is re-derived rather than re-run when the fixture
+        # changes. Armed on its measurements; the one thing it deliberately does
+        # not arm (the seam-endpoint census pair) is documented in the spec with
+        # the trade that forced it.
+        "V10-dres-loop-arrival.toml":       "calibration-discipline - a TimeJump observation lane whose brackets come from one recording's replay clock; armed on the tilt/geometry/ready tokens, with the census pair deliberately unarmed because reaching it reproduces the filed line-blink detector gap",
         # The V2 dwell is operator BY THE CALIBRATION DISCIPLINE (V1 precedent):
         # its first flight is a deliberately under-gated READING run whose red,
         # if any, is evidence; promotion is the post-reading arming call, not a

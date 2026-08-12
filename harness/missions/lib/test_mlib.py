@@ -10024,5 +10024,276 @@ class LandingParamParseTests(unittest.TestCase):
         self.assertTrue(any("landingEngaged" in c for c in changes), changes)
 
 
+# ---------------------------------------------------------------------------
+# Pre-transfer JETTISON (B19). The phase is ARMED by jettisonActivations > 0 and
+# ABSENT otherwise, so the first cell here is the one that protects every other
+# lane in the suite.
+# ---------------------------------------------------------------------------
+
+B19_JETTISON_PARAMS = replace(
+    B11_PARAMS,
+    target_body="Dres",
+    interplanetary_transfer=True,
+    jettison_activations=4,   # a CAP, not a plan
+    jettison_timeout=600.0,
+    jettison_max_live_thrust=120000.0,
+    jettison_min_splits=1,
+)
+
+
+class ApproachWarpClampTests(unittest.TestCase):
+    """The TARGET-SOI approach clamp (B19 flight 4). Pure: no I/O, no snapshot.
+
+    Sizing used throughout mirrors B19's armed values -- soi_lead 100,000 game s,
+    window 200,000, cap factor 5 -- and the numbers in the names are the MEASURED
+    ones from run 2026-08-11_2352."""
+
+    LEAD, WINDOW, CAP = 100000.0, 200000.0, 5
+
+    def clamp(self, tts, desired=7, native=None, ut=1000.0,
+              lead=None, window=None, cap=None):
+        return mlib.approach_warp_clamp(
+            tts, ut,
+            self.LEAD if lead is None else lead,
+            self.WINDOW if window is None else window,
+            self.CAP if cap is None else cap,
+            desired, native)
+
+    def test_off_by_default_is_byte_identical(self):
+        """window = 0 is the state every other lane is in; the inputs must come
+        back untouched, which is what keeps B5/B7/B11/B12/B16 unchanged."""
+        self.assertEqual((7, 12345.0),
+                         self.clamp(50.0, desired=7, native=12345.0, window=0.0))
+
+    def test_far_from_the_boundary_nothing_is_clamped(self):
+        """Outside the window the coast keeps its full factor -- the clamp must
+        not tax the 13M game-second heliocentric leg."""
+        self.assertEqual((7, 9e9), self.clamp(5_000_000.0, desired=7, native=9e9))
+
+    def test_inside_the_window_the_factor_is_capped(self):
+        desired, _ = self.clamp(150000.0, desired=7)
+        self.assertEqual(self.CAP, desired)
+
+    def test_the_clamp_only_ever_lowers(self):
+        """A factor already below the cap is left alone -- the clamp is a
+        ceiling, never a floor, so it can never speed a lane up."""
+        desired, _ = self.clamp(150000.0, desired=3)
+        self.assertEqual(3, desired)
+
+    def test_native_target_is_pulled_back_to_the_lead_point(self):
+        """A native warp aimed past the lead point is the frame that overshot;
+        it must be pulled back to ut + tts - lead."""
+        _, native = self.clamp(150000.0, native=1e12, ut=1000.0)
+        self.assertAlmostEqual(1000.0 + 150000.0 - self.LEAD, native)
+
+    def test_inside_the_lead_window_the_native_warp_is_dropped_entirely(self):
+        """THE MEASURED FRAME. At tts=29.904 the old code still had a native
+        warp armed and the next poll advanced 27,596 game seconds across the
+        boundary. Inside the lead there is no valid native target left, so it is
+        dropped and the frame falls back to the capped rails intent."""
+        desired, native = self.clamp(29.904, desired=0, native=1e12)
+        self.assertIsNone(native)
+        self.assertEqual(self.CAP, desired)
+
+    def test_a_dropped_native_target_does_not_raise_an_existing_factor(self):
+        desired, native = self.clamp(29.904, desired=2, native=1e12)
+        self.assertIsNone(native)
+        self.assertEqual(2, desired)
+
+    def test_unread_or_nonpositive_time_to_soi_fails_open(self):
+        """An unread clock must never trigger a clamp (fail OPEN), because the
+        heliocentric leg legitimately reads tts=nan for most of its length."""
+        self.assertEqual((7, 5.0), self.clamp(float("nan"), desired=7, native=5.0))
+        self.assertEqual((7, 5.0), self.clamp(-3.0, desired=7, native=5.0))
+
+    def test_one_frame_cannot_swallow_the_dres_approach(self):
+        """The sizing claim, stated as arithmetic rather than prose. Dres's
+        SOI-entry -> periapsis coast measured ~25,000 game s (the flight-4 frame
+        crossed 27,596). A poll is ~0.5-1.0 s wall, so the capped factor must
+        advance well under a fifth of that per frame."""
+        rate = mlib.RAILS_WARP_RATES[self.CAP]
+        self.assertLessEqual(rate * 1.0, 25000.0 / 5.0)
+
+
+class B5PreTransferJettisonTests(unittest.TestCase):
+    """The optional pre-transfer jettison: armed, it pops an EXACT number of
+    stages thrust-safe and then certifies BOTH that a stack separated and that
+    the engine now live is the intended one. Unarmed, it does not exist."""
+
+    def _at_orbit(self, params):
+        st = mlib.b5_initial_state(params)
+        return replace(st, phase=mlib.B5_ORBIT, phase_entry_ut=100.0)
+
+    def test_unarmed_orbit_hands_straight_to_plan_transfer(self):
+        """THE REGRESSION GUARD FOR EVERY OTHER LANE: with the default
+        jettison_activations = 0 the ORBIT waypoint must behave exactly as it
+        did before the phase existed -- straight to PLAN-TRANSFER, emitting the
+        target + plan actions, never entering JETTISON."""
+        st = self._at_orbit(B11_PARAMS)
+        out, actions = mlib.b5_decide(st, snap(ut=200.0, vessel_count=3))
+        self.assertEqual(mlib.B5_PLAN_TRANSFER, out.phase)
+        self.assertNotIn(mlib.B5_JETTISON, out.phases_reached)
+        kinds = [a.kind for a in actions]
+        self.assertIn(mlib.ACTION_SET_TARGET_BODY, kinds)
+
+    def test_armed_orbit_enters_jettison_and_cuts_throttle(self):
+        """Armed, ORBIT hands to JETTISON instead, baselines the vessel count,
+        and the ENTRY action is the thrust-safe throttle cut."""
+        st = self._at_orbit(B19_JETTISON_PARAMS)
+        out, actions = mlib.b5_decide(st, snap(ut=200.0, vessel_count=3))
+        self.assertEqual(mlib.B5_JETTISON, out.phase)
+        self.assertEqual(3, out.jettison_baseline_vessel_count)
+        self.assertEqual([mlib.ACTION_CUT_THROTTLE], [a.kind for a in actions])
+
+    def _in_jettison(self, baseline=3, done=0, **over):
+        st = mlib.b5_initial_state(B19_JETTISON_PARAMS)
+        return replace(st, phase=mlib.B5_JETTISON, phase_entry_ut=100.0,
+                       jettison_baseline_vessel_count=baseline,
+                       jettison_activations_done=done,
+                       # mirrors the primed entry value in b5_decide
+                       jettison_frames_since_pop=mlib.DEFAULT_DEBOUNCE_K, **over)
+
+    def _drive(self, thrust_by_pop, vessel_count_by_pop=None, frames=60):
+        """Drive the phase with a thrust reading that DEPENDS on how many pops
+        have happened -- i.e. a fake staging stack. Returns (state, pops)."""
+        st = self._in_jettison()
+        pops = 0
+        for i in range(frames):
+            thr = thrust_by_pop[min(pops, len(thrust_by_pop) - 1)]
+            vc = 3
+            if vessel_count_by_pop is not None:
+                vc = vessel_count_by_pop[min(pops, len(vessel_count_by_pop) - 1)]
+            # apoapsis VARIES per frame on purpose: bit-identical orbit fields
+            # across 10 frames trip the frozen-telemetry vessel-lost watchdog,
+            # which would end the phase for a reason that has nothing to do with
+            # the jettison.
+            st, actions = mlib.b5_decide(
+                st, snap(ut=200.0 + i, vessel_count=vc, throttle=0.0,
+                         apoapsis=700000.0 + i, periapsis=690000.0 + i,
+                         available_thrust=thr))
+            pops += sum(1 for a in actions if a.kind == mlib.ACTION_ACTIVATE_STAGE)
+            if st.done or st.phase == mlib.B5_PLAN_TRANSFER:
+                return st, pops
+        # Trailing frame past the 600 s phase budget so a phase that can never
+        # certify reaches its bounded give-up instead of idling (the budget is
+        # GAME seconds; the frames above advance it one second at a time).
+        thr = thrust_by_pop[min(pops, len(thrust_by_pop) - 1)]
+        vc = 3 if vessel_count_by_pop is None else vessel_count_by_pop[
+            min(pops, len(vessel_count_by_pop) - 1)]
+        st, _ = mlib.b5_decide(
+            st, snap(ut=100.0 + 700.0, vessel_count=vc, throttle=0.0,
+                     apoapsis=700500.0, periapsis=690500.0,
+                     available_thrust=thr))
+        return st, pops
+
+    def test_stops_at_two_pops_when_the_skipper_is_already_live(self):
+        """THE REGRESSION THIS PHASE WAS REWRITTEN FOR (B19 flight 1,
+        2026-08-11_2215). The 700 km ascent ran the core dry, so autostage had
+        already popped it and the park was reached with the SKIPPER live -- only
+        TWO stages from the Nerv. The old fixed-count phase would have popped
+        four, shedding the transfer stage's own drop tanks and firing the pod
+        decoupler. Evidence-driven, it must stop at two.
+
+        Stack, by pops taken: 0 -> Skipper 650 kN (lit, too strong), 1 -> 0 N
+        (Skipper dropped), 2 -> Nerv 60 kN (in signature -> STOP)."""
+        st, pops = self._drive([650000.0, 0.0, 60000.0],
+                               vessel_count_by_pop=[3, 4, 4])
+        self.assertEqual(2, pops)
+        self.assertEqual(mlib.B5_PLAN_TRANSFER, st.phase)
+        self.assertFalse(st.done)
+
+    def test_takes_four_pops_when_the_mainsail_is_still_live(self):
+        """The OTHER measured state (B18's 80 km park): the core Mainsail is
+        live and four stages separate it from the Nerv. The SAME evidence-driven
+        phase must walk all four -- 0 -> Mainsail 1,500 kN, 1 -> 0, 2 -> Skipper
+        650 kN, 3 -> 0, 4 -> Nerv 60 kN."""
+        st, pops = self._drive([1500000.0, 0.0, 650000.0, 0.0, 60000.0],
+                               vessel_count_by_pop=[3, 4, 4, 5, 5])
+        self.assertEqual(4, pops)
+        self.assertEqual(mlib.B5_PLAN_TRANSFER, st.phase)
+
+    def test_never_pops_past_the_cap(self):
+        """The safety rail: a stack that never reaches its signature stops at
+        the cap and flakes, rather than walking the whole staging list."""
+        st, pops = self._drive([650000.0], vessel_count_by_pop=[4])
+        self.assertEqual(4, pops)
+        self.assertTrue(st.done)
+        self.assertIn("WRONG ONE", st.loss_reason)
+
+    def test_pops_are_spaced_so_the_post_pop_state_is_observed(self):
+        """Without the observe-between-pops gate the whole cap would fire in
+        consecutive frames and overshoot the intended stage."""
+        st = self._in_jettison()
+        st, a0 = mlib.b5_decide(st, snap(ut=200.0, vessel_count=3, throttle=0.0,
+                                         apoapsis=700000.0, periapsis=690000.0,
+                                         available_thrust=650000.0))
+        self.assertEqual(1, sum(1 for a in a0 if a.kind == mlib.ACTION_ACTIVATE_STAGE))
+        st, a1 = mlib.b5_decide(st, snap(ut=201.0, vessel_count=3, throttle=0.0,
+                                         apoapsis=700001.0, periapsis=690001.0,
+                                         available_thrust=650000.0))
+        self.assertEqual([], [a.kind for a in a1])
+
+    def test_a_pop_is_never_issued_under_thrust_or_with_a_node_pending(self):
+        """Thrust-safe gate (the B-DOCK prox-ops rule applied to staging)."""
+        st = self._in_jettison()
+        out, actions = mlib.b5_decide(
+            st, snap(ut=200.0, vessel_count=3, throttle=0.6))
+        self.assertEqual([], [a.kind for a in actions])
+        self.assertEqual(0, out.jettison_activations_done)
+        out2, actions2 = mlib.b5_decide(
+            st, snap(ut=200.0, vessel_count=3, throttle=0.0, node_count=1))
+        self.assertEqual([], [a.kind for a in actions2])
+        self.assertEqual(0, out2.jettison_activations_done)
+
+    def _certify(self, thrust, vessel_count=4, frames=8):
+        """Drive a fully-popped JETTISON to its conclusion. The trailing frame
+        jumps GAME time past `jettison_timeout` (600 s from the 100.0 entry) so
+        a phase that CANNOT certify actually reaches its bounded give-up -- the
+        budget is game seconds, and eight one-second frames never reach it."""
+        last = self._in_jettison(done=4, jettison_split_confirmed=False)
+        for i in range(frames):
+            last, _ = mlib.b5_decide(
+                last, snap(ut=200.0 + i, vessel_count=vessel_count,
+                           apoapsis=700000.0 + i, periapsis=690000.0 + i,
+                           throttle=0.0, available_thrust=thrust))
+            if last.done or last.phase == mlib.B5_PLAN_TRANSFER:
+                return last
+        last, _ = mlib.b5_decide(
+            last, snap(ut=100.0 + 700.0, vessel_count=vessel_count,
+                       apoapsis=700099.0, periapsis=690099.0,
+                       throttle=0.0, available_thrust=thrust))
+        return last
+
+    def test_certifies_and_advances_when_split_and_the_right_engine_is_lit(self):
+        """60 kN (the Nerv) is under the 120 kN signature ceiling -> advance."""
+        out = self._certify(60000.0)
+        self.assertEqual(mlib.B5_PLAN_TRANSFER, out.phase)
+        self.assertFalse(out.done)
+
+    def test_a_heavier_engine_still_lit_is_a_named_failure(self):
+        """650 kN (the Skipper) is POSITIVE thrust and would satisfy a naive
+        'an engine is lit' check -- the signature ceiling is what catches it,
+        and the reason names the actual fault."""
+        out = self._certify(650000.0)
+        self.assertTrue(out.done)
+        self.assertEqual(mlib.MISSION_FLAKE, out.verdict)
+        self.assertIn("WRONG ONE", out.loss_reason)
+
+    def test_no_split_is_a_named_failure_distinct_from_no_ignition(self):
+        no_split = self._certify(60000.0, vessel_count=3)
+        self.assertTrue(no_split.done)
+        self.assertIn("no separation observed", no_split.loss_reason)
+        no_ign = self._certify(0.0, vessel_count=4)
+        self.assertTrue(no_ign.done)
+        self.assertIn("nothing is lit", no_ign.loss_reason)
+
+    def test_unread_channels_fail_closed(self):
+        """vessel_count defaults 0 and available_thrust defaults NaN; neither
+        may ever certify a step."""
+        out = self._certify(float("nan"), vessel_count=0)
+        self.assertTrue(out.done)
+        self.assertFalse(out.jettison_split_confirmed)
+
+
 if __name__ == "__main__":
     unittest.main()
