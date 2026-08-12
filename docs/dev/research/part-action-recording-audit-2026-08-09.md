@@ -124,7 +124,63 @@ reentry char.
 
 ---
 
-## 3. Where the current 35 event types actually stand
+### CORRECTION 2026-08-12 (`part-event-fidelity`/P8) — the science-timeline row is IMPRECISE, and it changes a verdict
+
+The table above says of `ModuleScienceExperiment` that "`Deployed` is persistent and **gates the
+deploy animation** (Goo canister, Science Jr doors)". That reads as "the animation is a property of
+the experiment module, so recording the experiment is the only way to get the visual" — and on that
+reading P8 owed the science timeline a recorder. It does not, and the wave recorded **zero** new
+event types for it. Four per-module verdicts, each with the evidence that settled it.
+
+**`ModuleScienceExperiment` (158 declarations) — WON'T, because the deploy visual is ALREADY
+RECORDED.** The animation is not the experiment module's at all. The Goo canister and Science Jr
+each carry a **separate `ModuleAnimateGeneric`** named `Deploy`, wired to the experiment through
+`FxModules = 0` (`Squad/Parts/Science/GooExperiment/gooExperiment.cfg:29-46`,
+`.../MaterialBay/materialBay.cfg:34-52`). `ModuleScienceExperiment` is **not** in
+`FlightRecorder.HasDedicatedAnimateHandler`'s list, so `CheckAnimateGenericState` polls that
+animation exactly like any other standalone one, and playback animates it through the ordinary
+deployable family. The visual was covered before P8 and is covered now.
+
+What P8 added instead is the **verification** that had never existed: a live cell
+(`PartEventFidelityInGameTests.ScienceExperimentDeployVisualIsAlreadyCoveredByTheAnimateGenericPath`)
+asserting both halves on a real prefab — that the recorder does not skip the part, and that the
+resulting event really does move the ghost. If this verdict ever stops being true, that cell reds. A
+doc sentence cannot do that, which is the whole reason this correction is written down: the imprecise
+sentence nearly bought four event types nobody needed.
+
+`OnExperimentDeployed` stays unused, and that is now a decision rather than an oversight: it is a
+duplicate signal for a visual already polled, and the career side is already captured through
+`OnScienceReceived` / `OnScienceChanged` with UT + reasonKey + recordingId.
+
+**`ModuleDataTransmitter` (201) — WON'T, because there is no stock transmit visual to record.**
+Measured rather than inferred: `DeployFxModuleIndices` and `ProgressFxModuleIndices` are set by
+**ZERO** stock parts (grepped across all of `Squad` + `SquadExpansion` — 0 matching files). A
+bystander watching a stock antenna transmit sees nothing at all, so recording a transmit "visual"
+would be inventing one. The career side is already captured. `busy` is reachable through the public
+`IsBusy()` if a future wave ever wants the timeline for a non-visual reason.
+
+**`ModuleTestSubject` (709, the second-most-declared module in the game) — WON'T.** The tested
+part's own action is already recorded by whichever family owns it (an engine test is an engine event,
+a decoupler test is a decouple), and contract completion is already in `GameStateEvent` types
+2/15/17. `RunTest` fires `onTestRun` (verified present) and has no visual of its own.
+
+**`ModuleOrbitalSurveyor` (2) — WON'T for P8.** The M700's deploy is already recorded by the
+AnimationGroup family, and `PerformSurvey` produces no part visual — it fires
+`GameEvents.OnOrbitalSurveyCompleted` (verified present). The planet-unlock facet is a LEDGER concern
+and belongs to a ledger wave, not a part-event one. The hook is named here so the next reader does
+not re-derive it.
+
+**The shape shared by all four.** Each fails the audit's own two sieves the same way: either the
+visual already has a recorder, or there is no visual at all. That is why the honest P8 output for §2
+is one verification cell plus this note rather than four new event types — and it is worth saying
+plainly, because "the audit found it unrecorded" reads like a mandate right up until you check
+whether anything is actually unrecorded.
+
+---
+
+---
+
+## 3. Where the event types actually stand (35 at audit time; 44 after P8)
 
 **Well covered, recorded and played:** decouple, dock/undock (as tree topology), destroyed,
 shroud jettison, fairing deploy, parachute semi/full/cut/destroyed, engine ignite/shutdown,
@@ -274,18 +330,67 @@ confidently wrong.
     bytes rather than one being ignored at read time. Original text: delete
     the `driveOutput` family. It is
     storage-*negative* and strictly more correct than the signal it replaces.
-- **S4. EVA jetpack deploy/thrust + ragdoll.** EVA vessels **are** recorded — the `VesselType.EVA`
-  filters at `FlightRecorder.cs:4911`/`:5100` are docking-**anchor candidate** filters, not
-  recording gates (the surrounding comment says "not valid anchor candidates", and `:5100` also
-  excludes LANDED/SPLASHED/PRELAUNCH, which no recording gate would). 2-6 events per EVA.
+- ~~**S4. EVA jetpack deploy/thrust + ragdoll.**~~ **DONE 2026-08-12** (`part-event-fidelity`/P8),
+  with the anchor-filter reading CONFIRMED (the filters have since moved to `:5250` / `:5439` and
+  both remain anchor-candidate filters). Six members: the jetpack deploy/stow pair, the thrust
+  pair, and the ragdoll pair. THREE corrections to the prescription below.
+  - **The typed-cast rationale was wrong in one particular, and the particular matters.** The plan
+    said none of the three KerbalEVA members is a `[KSPField]`. `JetpackDeployed` IS
+    (`[KSPField(isPersistant = true)]`, KerbalEVA.cs:185); `JetpackIsThrusting` and `isRagdoll` are
+    plain public fields. Typed casts are still the right call — a `module.Fields` walk, the
+    recorder's usual route into a type it cannot reference, would have silently missed TWO of the
+    three — but the reason is "two of three are invisible to a Fields walk", not "none is a
+    KSPField". Do not build a reflection path on the original premise.
+  - **Only THRUST is debounced.** `JetpackIsThrusting` is recomputed every FixedUpdate from
+    `fuelFlowRate > PropellantConsumption / 2 * thrustPercentage * 0.01`, so it flickers across
+    consecutive frames on a single tap; it reuses the RCS frame threshold rather than introducing a
+    second number to keep in step. Deploy and ragdoll are clean FSM edges and get none.
+  - **The ragdoll POSE is a deliberate WON'T; the ragdoll EVENTS are not.** A ragdoll is a physics
+    outcome with no clip to sample, so a replayed pose would be invention. The events still earn
+    their keep: they gate the thrust plume (a tumbling kerbal is not flying, and stock cuts thrust
+    on FSM ragdoll entry) and they mark the timeline. State the asymmetry rather than reading the
+    events as an unfinished pose feature.
+  - **The pack MESHES stayed out, and NOT because the asset was unreachable.** The probe succeeded:
+    `KerbalEVA.JetpackTransform` is a public serialized `Transform`, so no name guessing is needed,
+    and stock's `UpdatePackModels` does nothing but `SetActive` on it. The blocker is the GATE. That
+    flag is `HasJetpack`, driven by whether an `evaJetpack` sits in the kerbal's
+    `ModuleInventoryPart`, and Parsek records no such signal — so every gate reachable from recorded
+    data renders visibly wrong: showing the pack on the first deploy event pops a backpack into
+    existence mid-spacewalk and leaves every ground EVA without one, while showing it
+    unconditionally puts a jetpack on kerbals who carry none. The honest follow-on is to read the
+    snapshot's `ModuleInventoryPart` contents as a new baseline surface. Recorded at the canopy
+    lazy-clone site in `GhostVisualBuilder`, where a future reader would look.
 - **S5. Fix the dead probes.** `deploy` + `deployAngle` strings for aero/control surfaces;
   `currentExtension`/`targetExtension` prepended for pistons; drop `suspensionOffset`;
   `(module as IScalarModule).GetScalar` for `ModuleAnimateHeat` — **one cast unlocks a complete,
   already-implemented recorder + playback path** (`GhostPlaybackLogic.cs:3693-3770`).
-- **S6. Deployable `BROKEN`.** `CheckDeployableState` explicitly `continue`s past it
-  (`FlightRecorder.cs:1861`). Permanent, dramatic, silhouette-changing. ~0-2 events/flight.
-- **S7. Drill/ISRU running animation.** The window is already computed by `PollHarvestActivity`
-  (`:6293-6317`) and emits no PartEvent. 2 events per mining session.
+- ~~**S6. Deployable `BROKEN`.**~~ **DONE 2026-08-12** (`part-event-fidelity`/P8). One correction
+  to the description: it is **NOT permanent**. `eventRepairExternal` is active exactly while BROKEN
+  and `DoRepair()` returns the part to RETRACTED, so `DeployableBroken` is a REVERSIBLE-family
+  member (split-seed family 3, seeded verbatim like the parachute trio) rather than a
+  `ForwardPermanentStateEvents` type. Two ordering rules carry the fix, both bugs that would have
+  rendered plausibly rather than obviously: entering BROKEN must SILENTLY drop the pid from the
+  extended set (a panel normally breaks while extended, so leaving the flag would emit a spurious
+  `DeployableRetracted` and playback would fold the panel neatly shut before hiding it), and leaving
+  BROKEN must emit `DeployableRetracted` EXPLICITLY (playback needs a positive instruction to
+  un-hide). The same precedence is required on the rails-span reconciler, where a break shows up as
+  two simultaneous set changes. The visual is `panelBreakTransform.gameObject.SetActive(false)`;
+  note that a LIVE break instead detaches the subtree as debris via `breakPanels()` and the hide is
+  what a later load applies, so hiding is the right net rendering for a ghost either way.
+- ~~**S7. Drill/ISRU running animation.**~~ **DONE 2026-08-12** (`part-event-fidelity`/P8), and
+  deliberately NOT by extending the harvest window. That window is vessel-scoped and exists to
+  attribute harvested resources; the visual is per-PART, so P8 added a separate per-part
+  `CheckConverterState` keyed on `BaseConverter.IsActivated` (a `[KSPField(isPersistant = true)]
+  public bool`, so it covers `ModuleResourceConverter`, `ModuleResourceHarvester` and the
+  asteroid/comet drills with no module-name list) — which also left the background wrapper with no
+  window machinery to replicate. 2 events per mining session as estimated. Playback samples the
+  RUNNING clip at twelve phases rather than interpolating two poses, because a cyclic clip's
+  endpoints are the SAME pose and a two-pose delta is zero — the drill would "run" by standing
+  still. THE STOCK POPULATION IS FIVE PARTS, NOT THE FOUR THE PLAN ENUMERATED: RadialDrill
+  (`Drill_Running`), MiniDrill (`Drill`), the large ISRU (`ProcessorLarge_running`) and the orbital
+  scanner (`miniscanner`) all carry running clips, and the last two have an EMPTY
+  `deployAnimationName` — which is why the loop info is built independently of
+  `TryGetAnimationGroupDeployAnimation`.
 - **S8. Kerbal XP as a ledger facet.** Monotone, so the patcher is a re-assert not a diff.
   `ModuleTripLogger` (101 parts) is the mechanism that writes it; zero references today.
 - **S9. Contract re-snapshot at RP capture** rather than at accept — fixes the rebuild branch

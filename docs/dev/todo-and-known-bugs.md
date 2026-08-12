@@ -1492,8 +1492,27 @@ the index so the items are not lost.
 asteroids/comets, flags) shipped 2026-08-09 - see the
 REFLY-DELETES-NON-SLOT-WORLD entry above. `C2` (pre-invoke advisory naming what
 the revert takes back) shipped 2026-08-11 into the Re-Fly confirmation dialog +
-one `[Rewind]` Info line; details in that same entry. The `M` / `S` items below
-are untouched.
+one `[Rewind]` Info line; details in that same entry.
+
+**The `S` table is now CLOSED OUT: S1-S3 and the wheel corollary shipped 2026-08-11
+(`playback-fidelity`), and S4 / S6 / S7 shipped 2026-08-12 (`part-event-fidelity`/P8),
+which also converted the §2 science-timeline row into four explicit WON'Ts.** Nine new
+`PartEventType` members (36-44), no schema-generation bump (verified against both
+sidecar readers rather than assumed), and a new in-game category `PartEventFidelity`
+wired as `H37-part-event-fidelity`. Three findings from P8 worth carrying forward
+because each corrects something a future reader would otherwise trust:
+- Deployable `BROKEN` is **REVERSIBLE** (stock `eventRepairExternal` -> `DoRepair` lands
+  on RETRACTED), so it is a reversible-family split seed, not a permanent one. The audit
+  described it as "permanent".
+- Of the three KerbalEVA members, `JetpackDeployed` IS a `[KSPField]`; the other two are
+  not. Typed casts remain correct, but the reason is "two of three are invisible to a
+  `module.Fields` walk", not "none is a KSPField".
+- The EVA pack MESHES are still absent, and NOT because the asset is unreachable
+  (`KerbalEVA.JetpackTransform` is a public serialized `Transform`). The missing piece is
+  the VISIBILITY signal - `HasJetpack`, driven by inventory contents - which Parsek does
+  not record; the honest follow-on is to read the snapshot's `ModuleInventoryPart`.
+
+The `M` items and the remaining non-`S` items below are untouched.
 
 **Establish the restore model before reasoning about any "world desyncs" claim.**
 The RP quicksave is a full `GamePersistence.SaveGame`, so the whole `GAME` node
@@ -1811,12 +1830,29 @@ Open items, highest leverage first:
   tracking from `Planetarium.fetch.Sun`; launch dust (`ModuleSurfaceFX`, 183
   parts, zero references) from engine power + altitude. Precedent:
   `ApplyAblationChar` already synthesizes reentry char from live physics.
-- **Career-bearing modules with a modest visual, which fell through both the "is
-  it visible" and "does the quicksave restore it" sieves:**
-  `ModuleScienceExperiment` (158 parts, ONE reference and it is a comment at
-  `VesselSpawner.cs:744`), `ModuleDataTransmitter` transmission timeline (201
-  parts, 6 refs all static `AntennaSpec`), `ModuleTestSubject` (**709**
-  declarations, zero refs - a whole contract genre), `ModuleOrbitalSurveyor`.
+- ~~**Career-bearing modules with a modest visual, which fell through both the "is
+  it visible" and "does the quicksave restore it" sieves:**~~ **RESOLVED AS FOUR
+  EXPLICIT WON'Ts, 2026-08-12** (`part-event-fidelity`/P8) - net ZERO new event
+  types, and the audit's own §2 row is CORRECTED in the process. Full reasoning and
+  evidence in
+  `docs/dev/research/part-action-recording-audit-2026-08-09.md` -> "CORRECTION
+  2026-08-12"; the load-bearing findings:
+  - `ModuleScienceExperiment` (158): the deploy visual was **already recorded**. The
+    animation belongs to a SEPARATE `ModuleAnimateGeneric` named `Deploy` (Goo and
+    Science Jr, wired via `FxModules = 0`), and `ModuleScienceExperiment` is not in
+    `HasDedicatedAnimateHandler`, so `CheckAnimateGenericState` has always polled it.
+    The audit's "`Deployed` ... gates the deploy animation" wording is what made the
+    verdict look like a gap. P8 added the VERIFICATION that never existed instead of a
+    recorder: an in-game cell that reds if the claim stops holding.
+  - `ModuleDataTransmitter` (201): **zero** stock parts set `DeployFxModuleIndices` or
+    `ProgressFxModuleIndices` (measured across `Squad` + `SquadExpansion`), so there is
+    no stock transmit visual and recording one would be invention.
+  - `ModuleTestSubject` (709): the tested part's own action is already recorded by its
+    family, and contract completion is already in `GameStateEvent` types 2/15/17.
+  - `ModuleOrbitalSurveyor` (2): M700 deploy already recorded via the AnimationGroup
+    family; `PerformSurvey` has no part visual and fires
+    `GameEvents.OnOrbitalSurveyCompleted`. The planet-unlock facet is a LEDGER concern
+    for a ledger wave.
 - **Ledger facets:** kerbal XP is zero-coverage (`ModuleTripLogger` /
   `flightLog` / `ArchiveFlightLog` / `experienceLevel` all return NOTHING across
   `Source/`) and survives a supersede that refunds the funds; it is monotone, so
