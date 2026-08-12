@@ -239,11 +239,19 @@ namespace Parsek.Tests
             string invokerSrc = System.IO.File.ReadAllText(
                 System.IO.Path.Combine(srcRoot, "RewindInvoker.cs"));
 
+            // Match the DECLARATION, not one formatting of it: the signature gained the
+            // selected-slot pid sets (#16 item 6) and wrapped onto a second line, and the
+            // contract this cell pins is "tempPath reaches the coroutine", not the layout.
             int coroutineStart = invokerSrc.IndexOf(
-                "WaitForFlightReadyAndInvoke(Action action, string tempPath)",
+                "IEnumerator WaitForFlightReadyAndInvoke(",
                 StringComparison.Ordinal);
             Assert.True(coroutineStart >= 0,
-                "WaitForFlightReadyAndInvoke must carry tempPath for cleanup");
+                "WaitForFlightReadyAndInvoke declaration not found");
+            int paramsEnd = invokerSrc.IndexOf(')', coroutineStart);
+            Assert.True(paramsEnd > coroutineStart, "Malformed coroutine signature");
+            Assert.Contains(
+                "string tempPath",
+                invokerSrc.Substring(coroutineStart, paramsEnd - coroutineStart));
 
             // The timeout branch must call TryDeleteTemp(tempPath) before
             // clearing the context so the temp file doesn't leak on crash.

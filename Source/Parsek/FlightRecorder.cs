@@ -118,6 +118,30 @@ namespace Parsek
         private Dictionary<ulong, string> jettisonNameRawCache = new Dictionary<ulong, string>();
         private Dictionary<ulong, string[]> parsedJettisonNamesCache = new Dictionary<ulong, string[]>();
         private HashSet<uint> extendedDeployables = new HashSet<uint>();
+        /// <summary>
+        /// S6: pids whose ModuleDeployablePart is currently BROKEN. Disjoint from
+        /// <see cref="extendedDeployables"/> by construction — CheckDeployableBrokenTransition
+        /// clears the extended flag when a panel breaks, so no pid is ever in both.
+        /// </summary>
+        private HashSet<uint> brokenDeployables = new HashSet<uint>();
+        /// <summary>
+        /// S7: pids with at least one running BaseConverter. Per-PART, unlike the vessel-scoped
+        /// harvest window - the running animation belongs to one part's ModuleAnimationGroup.
+        /// </summary>
+        private HashSet<uint> activeConverterParts = new HashSet<uint>();
+        /// <summary>S4: pids whose KerbalEVA has its jetpack extended.</summary>
+        private HashSet<uint> jetpackDeployedParts = new HashSet<uint>();
+        /// <summary>S4: pids whose KerbalEVA is in a SUSTAINED (post-debounce) thrust burst.</summary>
+        private HashSet<uint> thrustingJetpackParts = new HashSet<uint>();
+        /// <summary>S4: pids whose KerbalEVA is ragdolled.</summary>
+        private HashSet<uint> ragdollParts = new HashSet<uint>();
+        /// <summary>
+        /// S4: consecutive frames each pid has read JetpackIsThrusting == true. Recorder-local
+        /// bookkeeping for the debounce, NOT part state, so it deliberately does not join
+        /// PartTrackingSets - there is no such thing as "seeding" a frame count, and a rails-span
+        /// diff of one would be meaningless.
+        /// </summary>
+        private Dictionary<uint, int> evaThrustFrameCounts = new Dictionary<uint, int>();
         private HashSet<uint> lightsOn = new HashSet<uint>();
         private HashSet<uint> blinkingLights = new HashSet<uint>();
         private Dictionary<uint, float> lightBlinkRates = new Dictionary<uint, float>();
@@ -131,6 +155,13 @@ namespace Parsek
         private HashSet<ulong> deployedControlSurfaceModules = new HashSet<ulong>();
         private HashSet<ulong> deployedRobotArmScannerModules = new HashSet<ulong>();
         private Dictionary<ulong, HeatLevel> animateHeatLevels = new Dictionary<ulong, HeatLevel>();
+
+        /// <summary>
+        /// Minimum change in recorded engine power that emits an <see cref="PartEventType.EngineThrottle"/>.
+        /// Shared by the per-frame transition check and the background rails-span diff so both
+        /// halves quantise the same way.
+        /// </summary>
+        internal const float EngineThrottleDeadband = 0.05f;
 
         // Engine state tracking (key = EncodeEngineKey(pid, moduleIndex))
         private List<(Part part, ModuleEngines engine, int moduleIndex)> cachedEngines;
@@ -148,6 +179,32 @@ namespace Parsek
         internal HashSet<ulong> ActiveRcsKeys => activeRcsKeys;
         internal Dictionary<ulong, float> LastRcsThrottles => lastRcsThrottle;
 
+        /// <summary>
+        /// Last observed throttle for engine / RCS modules whose part LEFT the recorded vessel,
+        /// moved here by <see cref="OnVesselWasModified"/>'s departed-key prune.
+        ///
+        /// <para>
+        /// Read by exactly one consumer: <c>InheritedEngineState.FromRecorder</c>, the #298
+        /// parent-to-child breakup snapshot. That snapshot is taken from
+        /// <c>ParsekFlight.ProcessBreakupEvent</c>, which runs a whole crash-coalescer window AFTER
+        /// <c>onVesselWasModified</c> has already fired for the split — so without this carry-over a
+        /// prune would delete the "the booster was at full throttle when it came off" fact before
+        /// the child debris recording could inherit it. Nothing polls these, and the terminal emit
+        /// deliberately does not see them: that is the whole point of the prune.
+        /// </para>
+        /// <para>
+        /// Lifetime matches <see cref="ActiveEngineKeys"/>: cleared only by
+        /// <c>ResetPartEventTrackingState</c> (a new recording), never by
+        /// <c>FinalizeRecordingState</c>, so a chain-boundary stop keeps it. Bounded by the number of
+        /// engine/RCS modules that leave the vessel during one recording, and an entry is dropped
+        /// the moment its pid comes back.
+        /// </para>
+        /// </summary>
+        private readonly Dictionary<ulong, float> departedEngineThrottles = new Dictionary<ulong, float>();
+        private readonly Dictionary<ulong, float> departedRcsThrottles = new Dictionary<ulong, float>();
+        internal Dictionary<ulong, float> DepartedEngineThrottles => departedEngineThrottles;
+        internal Dictionary<ulong, float> DepartedRcsThrottles => departedRcsThrottles;
+
         // RCS state tracking (separate dicts from engines — keys can overlap for same part)
         private List<(Part part, ModuleRCS rcs, int moduleIndex)> cachedRcsModules;
         private HashSet<ulong> activeRcsKeys;
@@ -162,6 +219,10 @@ namespace Parsek
         private Dictionary<ulong, float> lastRoboticPosition;
         private Dictionary<ulong, double> lastRoboticSampleUT;
         private HashSet<ulong> loggedRoboticModuleKeys;
+        /// <summary>One-shot log guard for the cached-module ownership guard (M5): a cached engine /
+        /// RCS / robotic entry whose part has left the recorded vessel is reported once per key,
+        /// not once per physics frame.</summary>
+        private HashSet<ulong> loggedForeignCachedModuleKeys = new HashSet<ulong>();
         private HashSet<ulong> loggedLadderClassificationMisses = new HashSet<ulong>();
         private HashSet<ulong> loggedAnimationGroupClassificationMisses = new HashSet<ulong>();
         private HashSet<ulong> loggedAnimateGenericClassificationMisses = new HashSet<ulong>();
@@ -1845,6 +1906,80 @@ namespace Parsek
             }
         }
 
+        /// <summary>
+        /// S6: the BROKEN edge of the ModuleDeployablePart state machine, which the recorder
+        /// skipped outright before P8 — a snapped solar panel replayed intact for the rest of
+        /// the recording, forever, on every replay.
+        ///
+        /// WHAT STOCK DOES, decompiled (ModuleDeployablePart, KSP 1.12.5). On the live break,
+        /// <c>breakPanels()</c> detaches the <c>panelBreakTransform</c> subtree into its own
+        /// physics object and sets <c>deployState = BROKEN</c>: the panel flies off. On any
+        /// later load, <c>startFSM()</c> simply does
+        /// <c>panelBreakTransform.gameObject.SetActive(false)</c>. Either way the net look is
+        /// the same and it is what playback reproduces: the subtree is GONE.
+        /// <c>breakName</c> defaults to <c>pivotName</c> when the config leaves it empty.
+        ///
+        /// AND IT IS REVERSIBLE. <c>eventRepairExternal</c> is active exactly while BROKEN, and
+        /// <c>DoRepair()</c> returns the part to RETRACTED (it re-instantiates a fresh subtree
+        /// from the prefab; our ghost only ever hid its own, so a plain un-hide is the faithful
+        /// inverse). That is why this is a reversible-family member rather than a permanent one.
+        ///
+        /// THE TWO ORDERING RULES, which are the whole reason this is a separate pure function
+        /// with its own truth table:
+        /// <list type="number">
+        /// <item><description>ENTERING broken must SILENTLY drop the pid from
+        /// <paramref name="extendedSet"/>. A panel breaks while extended — that is the only way
+        /// it usually breaks — so leaving the set alone would make the NEXT poll of a
+        /// no-longer-extended part emit a spurious <c>DeployableRetracted</c>, and playback
+        /// would animate the panel politely folding up before hiding it.</description></item>
+        /// <item><description>LEAVING broken (a repair) must emit <c>DeployableRetracted</c>
+        /// EXPLICITLY. Stock lands on RETRACTED, and playback needs a positive instruction to
+        /// un-hide the subtree and snap it stowed; without one the ghost would keep rendering
+        /// the panel as missing even though the recording says it was repaired.</description></item>
+        /// </list>
+        ///
+        /// Budget: 0-2 events per flight. A panel breaks at most once per mission in practice,
+        /// and repairs need an EVA kerbal carrying repair kits.
+        /// </summary>
+        internal static PartEvent? CheckDeployableBrokenTransition(
+            uint partPersistentId, string partName, bool isBroken,
+            HashSet<uint> brokenSet, HashSet<uint> extendedSet, double ut)
+        {
+            bool wasBroken = brokenSet.Contains(partPersistentId);
+
+            if (isBroken && !wasBroken)
+            {
+                brokenSet.Add(partPersistentId);
+                // Rule 1: drop the extended flag WITHOUT emitting a retract for it.
+                extendedSet?.Remove(partPersistentId);
+                return new PartEvent
+                {
+                    ut = ut,
+                    partPersistentId = partPersistentId,
+                    eventType = PartEventType.DeployableBroken,
+                    partName = partName
+                };
+            }
+
+            if (!isBroken && wasBroken)
+            {
+                brokenSet.Remove(partPersistentId);
+                // Rule 2: a repair lands on RETRACTED, and playback needs to be told so.
+                // The pid is deliberately NOT added to extendedSet: RETRACTED is the
+                // not-extended state, so the ordinary extended/retracted poll picks up from
+                // here correctly on the next frame.
+                return new PartEvent
+                {
+                    ut = ut,
+                    partPersistentId = partPersistentId,
+                    eventType = PartEventType.DeployableRetracted,
+                    partName = partName
+                };
+            }
+
+            return null;
+        }
+
         internal static PartEvent? CheckDeployableTransition(
             uint partPersistentId, string partName, bool isExtended, HashSet<uint> extendedSet, double ut)
         {
@@ -1891,20 +2026,357 @@ namespace Parsek
                 if (deployable == null) continue;
 
                 var ds = deployable.deployState;
+                string partName = p.partInfo?.name ?? "unknown";
+                bool isBroken = ds == ModuleDeployablePart.DeployState.BROKEN;
 
-                // Skip broken and transitional states — only fire on completed transitions
-                if (ds == ModuleDeployablePart.DeployState.BROKEN) continue;
+                // S6: BROKEN is now a RECORDED state rather than a skipped one. This runs first
+                // and owns both edges of it — entering (emit DeployableBroken, silently clear the
+                // extended flag) and leaving via repair (emit DeployableRetracted).
+                var brokenEvt = CheckDeployableBrokenTransition(
+                    p.persistentId, partName, isBroken, brokenDeployables, extendedDeployables, ut);
+                if (brokenEvt.HasValue)
+                {
+                    PartEvents.Add(brokenEvt.Value);
+                    ParsekLog.Verbose("Recorder", $"Part event: {brokenEvt.Value.eventType} '{brokenEvt.Value.partName}' " +
+                        $"pid={brokenEvt.Value.partPersistentId} (deployable-broken edge, deployState={ds})");
+                }
+
+                // While BROKEN there is no extended/retracted opinion to form: the subtree is
+                // gone, and the ordinary check would read "not extended" and emit a retract.
+                if (isBroken) continue;
+
+                // Transitional states — only fire on completed transitions.
                 if (ds == ModuleDeployablePart.DeployState.EXTENDING) continue;
                 if (ds == ModuleDeployablePart.DeployState.RETRACTING) continue;
 
                 bool isExtended = ds == ModuleDeployablePart.DeployState.EXTENDED;
 
                 var evt = CheckDeployableTransition(
-                    p.persistentId, p.partInfo?.name ?? "unknown", isExtended, extendedDeployables, ut);
+                    p.persistentId, partName, isExtended, extendedDeployables, ut);
                 if (evt.HasValue)
                 {
                     PartEvents.Add(evt.Value);
                     ParsekLog.Verbose("Recorder", $"Part event: {evt.Value.eventType} '{evt.Value.partName}' pid={evt.Value.partPersistentId}");
+                }
+            }
+        }
+
+        /// <summary>
+        /// S7: whether ANY <c>BaseConverter</c> on this part is currently running.
+        ///
+        /// Base-class keying, the same choice <see cref="RebuildHarvestConverterCache"/> makes and
+        /// for the same reason: it covers <c>ModuleResourceHarvester</c>,
+        /// <c>ModuleResourceConverter</c>, the asteroid / comet drills and modded derivatives with
+        /// no module-name list to maintain. <c>BaseConverter.IsActivated</c> is a
+        /// <c>[KSPField(isPersistant = true)] public bool</c> (verified by decompile, KSP 1.12.5),
+        /// so it is readable, persistent and rails-safe.
+        ///
+        /// ANY rather than ALL because the visual is per-PART: one ModuleAnimationGroup drives one
+        /// running animation on the part, so a single active converter is enough to make the drill
+        /// spin. A Unity-destroyed module (a staged-away drill) counts as inactive.
+        /// </summary>
+        internal static bool IsAnyConverterActiveOnPart(Part p)
+        {
+            if (p?.Modules == null) return false;
+            for (int m = 0; m < p.Modules.Count; m++)
+            {
+                if (p.Modules[m] is BaseConverter converter
+                    && converter != null
+                    && converter.IsActivated)
+                {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        /// <summary>
+        /// S7: the per-part converter on/off edge, which produced NO PartEvent at all before P8 —
+        /// so a mining base replayed with a dead-still drill and an ISRU that never moved, even
+        /// though the recording knew the harvest was running (the vessel-scoped
+        /// <see cref="PollHarvestActivity"/> window is a resource-attribution device and emits no
+        /// part event).
+        ///
+        /// Playback turns these into the part's ModuleAnimationGroup RUNNING animation
+        /// (RadialDrill's Drill_Running, the large ISRU's ProcessorLarge_running), driven as a pure
+        /// function of elapsed recorded UT.
+        ///
+        /// Budget: 2 events per mining session. The state is a player toggle, not a continuous
+        /// signal, so there is nothing to debounce.
+        /// </summary>
+        internal static PartEvent? CheckConverterTransition(
+            uint partPersistentId, string partName, bool isActive,
+            HashSet<uint> activeConverterParts, double ut)
+        {
+            bool wasActive = activeConverterParts.Contains(partPersistentId);
+
+            if (isActive && !wasActive)
+            {
+                activeConverterParts.Add(partPersistentId);
+                return new PartEvent
+                {
+                    ut = ut,
+                    partPersistentId = partPersistentId,
+                    eventType = PartEventType.ConverterActivated,
+                    partName = partName
+                };
+            }
+
+            if (!isActive && wasActive)
+            {
+                activeConverterParts.Remove(partPersistentId);
+                return new PartEvent
+                {
+                    ut = ut,
+                    partPersistentId = partPersistentId,
+                    eventType = PartEventType.ConverterDeactivated,
+                    partName = partName
+                };
+            }
+
+            return null;
+        }
+
+        /// <summary>
+        /// S7 flight-side poll. DELIBERATELY SEPARATE from the harvest-window machinery
+        /// (<see cref="PollHarvestActivity"/>), which is vessel-scoped, owns rails-entry /
+        /// rails-exit funnels and exists to attribute harvested resources. This one is per-PART and
+        /// needs none of that: the background recorder gets the identical wrapper with no window
+        /// bookkeeping to replicate.
+        /// </summary>
+        private void CheckConverterState(Vessel v)
+        {
+            if (v == null || v.parts == null) return;
+
+            double ut = Planetarium.GetUniversalTime();
+            for (int i = 0; i < v.parts.Count; i++)
+            {
+                Part p = v.parts[i];
+                if (p == null) continue;
+
+                var evt = CheckConverterTransition(
+                    p.persistentId, p.partInfo?.name ?? "unknown",
+                    IsAnyConverterActiveOnPart(p), activeConverterParts, ut);
+                if (evt.HasValue)
+                {
+                    PartEvents.Add(evt.Value);
+                    ParsekLog.Verbose("Recorder", $"Part event: {evt.Value.eventType} '{evt.Value.partName}' " +
+                        $"pid={evt.Value.partPersistentId} (converter)");
+                }
+            }
+        }
+
+        /// <summary>
+        /// S4: the EVA jetpack's deploy / stow edge.
+        ///
+        /// <c>KerbalEVA.JetpackDeployed</c> is a clean two-state player action, so this is a plain
+        /// edge with no debounce. It IS a <c>[KSPField(isPersistant = true)]</c> — so it also rides
+        /// the quicksave, which is why a ghost spawned from a snapshot can read the pose without an
+        /// event. The event is what makes the CHANGE visible mid-recording.
+        /// </summary>
+        internal static PartEvent? CheckEvaJetpackTransition(
+            uint partPersistentId, string partName, bool deployed,
+            HashSet<uint> jetpackDeployedParts, double ut)
+        {
+            bool wasDeployed = jetpackDeployedParts.Contains(partPersistentId);
+
+            if (deployed && !wasDeployed)
+            {
+                jetpackDeployedParts.Add(partPersistentId);
+                return new PartEvent
+                {
+                    ut = ut,
+                    partPersistentId = partPersistentId,
+                    eventType = PartEventType.EvaJetpackDeployed,
+                    partName = partName
+                };
+            }
+
+            if (!deployed && wasDeployed)
+            {
+                jetpackDeployedParts.Remove(partPersistentId);
+                return new PartEvent
+                {
+                    ut = ut,
+                    partPersistentId = partPersistentId,
+                    eventType = PartEventType.EvaJetpackStowed,
+                    partName = partName
+                };
+            }
+
+            return null;
+        }
+
+        /// <summary>
+        /// S4: the EVA ragdoll edge. <c>KerbalEVA.isRagdoll</c> is set in the FSM's ragdoll-enter
+        /// state and cleared on the timed recover-complete event (decompiled, KSP 1.12.5), so it is
+        /// a clean edge that needs no debounce either.
+        ///
+        /// EVENTS ONLY, and that asymmetry is deliberate rather than unfinished: the ragdoll POSE is
+        /// a physics outcome with no animation clip to sample, so a replayed pose would be invention
+        /// rather than recording. What the events buy is real: they gate the thrust plume (a
+        /// tumbling kerbal is not flying) and they mark the timeline.
+        /// </summary>
+        internal static PartEvent? CheckEvaRagdollTransition(
+            uint partPersistentId, string partName, bool ragdoll,
+            HashSet<uint> ragdollParts, double ut)
+        {
+            bool wasRagdoll = ragdollParts.Contains(partPersistentId);
+
+            if (ragdoll && !wasRagdoll)
+            {
+                ragdollParts.Add(partPersistentId);
+                return new PartEvent
+                {
+                    ut = ut,
+                    partPersistentId = partPersistentId,
+                    eventType = PartEventType.EvaRagdollStarted,
+                    partName = partName
+                };
+            }
+
+            if (!ragdoll && wasRagdoll)
+            {
+                ragdollParts.Remove(partPersistentId);
+                return new PartEvent
+                {
+                    ut = ut,
+                    partPersistentId = partPersistentId,
+                    eventType = PartEventType.EvaRagdollEnded,
+                    partName = partName
+                };
+            }
+
+            return null;
+        }
+
+        /// <summary>
+        /// S4: the EVA jetpack THRUST edge, debounced on the same frame threshold as RCS
+        /// (<see cref="RcsDebounceFrameThreshold"/>).
+        ///
+        /// WHY THIS ONE NEEDS A DEBOUNCE WHILE THE OTHER TWO DO NOT.
+        /// <c>KerbalEVA.JetpackIsThrusting</c> is not a state a player sets — it is RECOMPUTED every
+        /// FixedUpdate as <c>fuelFlowRate &gt; PropellantConsumption / 2 * thrustPercentage * 0.01</c>
+        /// (decompiled, KSP 1.12.5). A single tap of a translation key, or fuel flow hovering at the
+        /// comparison boundary, flips it on and off across consecutive frames. Recorded raw, one
+        /// kerbal nudging himself into a hatch would write dozens of start/stop pairs, which is
+        /// exactly the noise the RCS debounce exists to filter — so it reuses that threshold rather
+        /// than inventing a second number to keep in step.
+        ///
+        /// Binary rather than power-valued: a jetpack has no throttle a player can set, so
+        /// <c>value = 1.0</c> on the start event says "full", and the plume needs no magnitude.
+        ///
+        /// Budget: 2 events per sustained thrust burst.
+        /// </summary>
+        internal static void ProcessEvaThrustDebounce(
+            uint partPersistentId, string partName, bool thrusting, double ut,
+            Dictionary<uint, int> thrustFrameCounts, HashSet<uint> thrustingParts,
+            List<PartEvent> events)
+        {
+            if (thrusting)
+            {
+                int count;
+                thrustFrameCounts.TryGetValue(partPersistentId, out count);
+                count++;
+                thrustFrameCounts[partPersistentId] = count;
+
+                // Only the frame that EXACTLY reaches the threshold emits. Past it there is nothing
+                // to say: unlike RCS there is no continuous power to re-report.
+                if (ShouldStartRcsRecording(count, RcsDebounceFrameThreshold)
+                    && thrustingParts.Add(partPersistentId))
+                {
+                    events.Add(new PartEvent
+                    {
+                        ut = ut,
+                        partPersistentId = partPersistentId,
+                        eventType = PartEventType.EvaJetpackThrustStarted,
+                        partName = partName,
+                        value = 1f
+                    });
+                }
+                return;
+            }
+
+            int held;
+            if (!thrustFrameCounts.TryGetValue(partPersistentId, out held))
+                return;
+
+            thrustFrameCounts.Remove(partPersistentId);
+            if (IsRcsRecordingSustained(held, RcsDebounceFrameThreshold))
+            {
+                if (thrustingParts.Remove(partPersistentId))
+                {
+                    events.Add(new PartEvent
+                    {
+                        ut = ut,
+                        partPersistentId = partPersistentId,
+                        eventType = PartEventType.EvaJetpackThrustStopped,
+                        partName = partName
+                    });
+                }
+                return;
+            }
+
+            // A filtered micro-tap: nothing was ever emitted, so clear any stale membership
+            // rather than emitting an unpaired stop.
+            thrustingParts.Remove(partPersistentId);
+        }
+
+        /// <summary>
+        /// S4 flight-side poll for the three KerbalEVA signals.
+        ///
+        /// TYPED CASTS, not reflection, and the reason is measurable: of the three members only
+        /// <c>JetpackDeployed</c> carries <c>[KSPField]</c> — <c>JetpackIsThrusting</c> and
+        /// <c>isRagdoll</c> are plain public fields (decompiled, KSP 1.12.5). A
+        /// <c>module.Fields</c> walk, which is how the recorder reads modules whose types it cannot
+        /// reference, sees only KSPFields and would have silently missed two of the three.
+        ///
+        /// The <c>v.isEVA</c> gate is what keeps this free: a rocket pays one bool read per frame
+        /// and never walks its parts. EVA vessels ARE recorded — the VesselType.EVA filters
+        /// elsewhere in this file are docking-ANCHOR-candidate filters, not recording gates (they
+        /// also exclude LANDED / SPLASHED / PRELAUNCH, which no recording gate would).
+        /// </summary>
+        private void CheckEvaState(Vessel v)
+        {
+            if (v == null || !v.isEVA || v.parts == null) return;
+
+            double ut = Planetarium.GetUniversalTime();
+            for (int i = 0; i < v.parts.Count; i++)
+            {
+                Part p = v.parts[i];
+                if (p == null) continue;
+
+                var eva = p.FindModuleImplementing<KerbalEVA>();
+                if (eva == null) continue;
+
+                string partName = p.partInfo?.name ?? "unknown";
+                uint pid = p.persistentId;
+
+                var jetpackEvt = CheckEvaJetpackTransition(
+                    pid, partName, eva.JetpackDeployed, jetpackDeployedParts, ut);
+                if (jetpackEvt.HasValue)
+                {
+                    PartEvents.Add(jetpackEvt.Value);
+                    ParsekLog.Verbose("Recorder", $"Part event: {jetpackEvt.Value.eventType} '{partName}' pid={pid} (eva)");
+                }
+
+                var ragdollEvt = CheckEvaRagdollTransition(
+                    pid, partName, eva.isRagdoll, ragdollParts, ut);
+                if (ragdollEvt.HasValue)
+                {
+                    PartEvents.Add(ragdollEvt.Value);
+                    ParsekLog.Verbose("Recorder", $"Part event: {ragdollEvt.Value.eventType} '{partName}' pid={pid} (eva)");
+                }
+
+                reusableEventBuffer.Clear();
+                ProcessEvaThrustDebounce(
+                    pid, partName, eva.JetpackIsThrusting, ut,
+                    evaThrustFrameCounts, thrustingJetpackParts, reusableEventBuffer);
+                for (int e = 0; e < reusableEventBuffer.Count; e++)
+                {
+                    PartEvents.Add(reusableEventBuffer[e]);
+                    ParsekLog.Verbose("Recorder", $"Part event: {reusableEventBuffer[e].eventType} '{partName}' " +
+                        $"pid={pid} (eva thrust, debounce={RcsDebounceFrameThreshold} frames)");
                 }
             }
         }
@@ -2998,6 +3470,25 @@ namespace Parsek
         /// chain boundary, scene change). Without these, ghost plumes and FX may stay
         /// frozen at the last throttle level instead of shutting down at recording end.
         /// Bug #108.
+        ///
+        /// <para>
+        /// S4 JOINS THE SAME CONTRACT via <paramref name="thrustingJetpackParts"/>, and it needs to
+        /// for a reason the other families do not have: nothing else can close an EVA thrust pair.
+        /// A kerbal switched away from mid-burst (a map click or a `[` press while a translate key
+        /// is held) stops being polled by the flight recorder before the false-thrust edge lands,
+        /// and the BACKGROUND recorder has no thrust wrapper at all — deliberately, since a
+        /// background kerbal receives no input, so the edge can never fire there. An RCS pair left
+        /// open at the same handoff is closed by the BG recorder's own CheckRcsState; an EVA thrust
+        /// pair would simply stay open, leaving the ghost's plume lit for the rest of the recording
+        /// and re-lit on every loop cycle. Optional so the existing call sites (and ~20 test cells)
+        /// are unchanged; a null set is exactly the old behaviour.
+        /// </para>
+        ///
+        /// <para>
+        /// NONE of the four families' tracking state is mutated here — double-emit safety and
+        /// post-emit lifetime are the CALLER's, uniformly across all four. See the jetpack block's
+        /// own comment for why that matters more for S4 than for the other three.
+        /// </para>
         /// </summary>
         internal static List<PartEvent> EmitTerminalEngineAndRcsEvents(
             HashSet<ulong> activeEngineKeys,
@@ -3005,9 +3496,41 @@ namespace Parsek
             HashSet<ulong> activeRoboticKeys,
             Dictionary<ulong, float> lastRoboticPosition,
             double finalUT,
-            string logTag)
+            string logTag,
+            HashSet<uint> thrustingJetpackParts = null)
         {
             var events = new List<PartEvent>();
+
+            // Terminal EvaJetpackThrustStopped for a kerbal still mid-burst.
+            //
+            // THIS BLOCK DOES NOT MUTATE THE SET, and that is the engine/RCS/robotics convention
+            // rather than an omission. The CALLERS own the lifetime: the rails site
+            // (EmitTerminalEventsAndClearActiveState) clears every tracking set right after this
+            // returns, so a second rails emit sees empty sets and the `Count > 0` gates above write
+            // nothing; the STOP site (FinalizeRecordingState) deliberately leaves the sets intact so
+            // ResumeAfterFalseAlarm can unwind an abandoned stop and keep tracking the burn that is
+            // still running. Removing pids here broke exactly that unwind: after the resume the real
+            // thrust-end edge hit `thrustingParts.Remove(pid) == false` in ProcessEvaThrustDebounce
+            // and emitted nothing, leaving the pair open to recording end — the very failure the
+            // terminal emit exists to prevent. Engines have never had a remove-on-emit and neither
+            // does this now.
+            if (thrustingJetpackParts != null && thrustingJetpackParts.Count > 0)
+            {
+                var pids = new List<uint>(thrustingJetpackParts);
+                for (int i = 0; i < pids.Count; i++)
+                {
+                    events.Add(new PartEvent
+                    {
+                        ut = finalUT,
+                        partPersistentId = pids[i],
+                        eventType = PartEventType.EvaJetpackThrustStopped,
+                        partName = "unknown"
+                    });
+                    ParsekLog.Verbose(logTag,
+                        $"Terminal event: EvaJetpackThrustStopped pid={pids[i]} at " +
+                        $"UT={finalUT.ToString("F2", System.Globalization.CultureInfo.InvariantCulture)}");
+                }
+            }
 
             // Terminal EngineShutdown for each active engine
             if (activeEngineKeys != null && activeEngineKeys.Count > 0)
@@ -3081,7 +3604,8 @@ namespace Parsek
             {
                 ParsekLog.Info(logTag,
                     $"Emitted {events.Count} terminal events at UT={finalUT.ToString("F2", System.Globalization.CultureInfo.InvariantCulture)}" +
-                    $" (engines={activeEngineKeys?.Count ?? 0}, rcs={activeRcsKeys?.Count ?? 0}, robotics={activeRoboticKeys?.Count ?? 0})");
+                    $" (engines={activeEngineKeys?.Count ?? 0}, rcs={activeRcsKeys?.Count ?? 0}, robotics={activeRoboticKeys?.Count ?? 0}" +
+                    $", jetpack={thrustingJetpackParts?.Count ?? 0})");
             }
 
             return events;
@@ -3431,7 +3955,7 @@ namespace Parsek
                     lastT = 0f;
 
                 float delta = throttle - lastT;
-                if (delta > 0.05f || delta < -0.05f)
+                if (delta > EngineThrottleDeadband || delta < -EngineThrottleDeadband)
                 {
                     lastThrottleMap[key] = throttle;
                     events.Add(new PartEvent
@@ -3447,6 +3971,181 @@ namespace Parsek
             }
         }
 
+        /// <summary>
+        /// Live half of the cached-module ownership guard: reads the four observable booleans off
+        /// the KSP objects and hands them to the pure
+        /// <see cref="DecideCachedModulePoll(bool, bool, bool, bool)"/> core.
+        ///
+        /// <para>
+        /// <c>ReferenceEquals</c> is deliberate. Unity's overloaded <c>==</c> on
+        /// <c>UnityEngine.Object</c> treats a destroyed-but-not-collected vessel as equal to
+        /// <c>null</c>, which would make a destroyed recorded vessel compare equal to a destroyed
+        /// foreign one. Identity here is instance identity, nothing more; the
+        /// <paramref name="part"/>/<paramref name="module"/> null checks use Unity's operator
+        /// because there "destroyed" genuinely means "nothing to read".
+        /// </para>
+        /// </summary>
+        internal static CachedModulePollDecision DecideCachedModulePoll(
+            Part part, PartModule module, Vessel recordedVessel)
+        {
+            bool hasPart = part != null;
+            Vessel partVessel = hasPart ? part.vessel : null;
+            return DecideCachedModulePoll(
+                hasPart,
+                module != null,
+                hasPart && partVessel != null,
+                hasPart && ReferenceEquals(partVessel, recordedVessel));
+        }
+
+        /// <summary>
+        /// Logs (once per cached key) that a cached module entry was skipped because its part no
+        /// longer belongs to the recorded vessel. Returns true when the entry should be polled.
+        /// </summary>
+        private bool ShouldPollCachedModule(
+            Part part, PartModule module, Vessel recordedVessel, ulong key, string family)
+        {
+            var decision = DecideCachedModulePoll(part, module, recordedVessel);
+            if (decision == CachedModulePollDecision.Poll)
+                return true;
+
+            if (decision == CachedModulePollDecision.SkipForeignVessel
+                && loggedForeignCachedModuleKeys.Add(key))
+            {
+                uint pid; int midx;
+                DecodeEngineKey(key, out pid, out midx);
+                ParsekLog.Info("Recorder",
+                    $"Cached {family} module dropped from poll: pid={pid} midx={midx} " +
+                    $"'{part?.partInfo?.name ?? "unknown"}' is no longer on the recorded vessel " +
+                    $"(recordedPid={recordedVessel?.persistentId ?? 0}) — events for it would have " +
+                    $"landed in this recording");
+            }
+
+            return false;
+        }
+
+        /// <summary>
+        /// Rebuilds the engine / RCS / robotic module caches from the live part list after KSP
+        /// reports the recorded vessel's structure changed (staging, decouple, undock, dock,
+        /// EVA-construction weld), then prunes the tracking-set keys belonging to parts that left.
+        /// Keys for parts that STAYED are untouched, so an engine that was burning before the change
+        /// is still known to be burning and no spurious transition is emitted.
+        ///
+        /// <para>
+        /// Three defects this closes. (1) Parts that left keep live <c>PartModule</c> references in
+        /// the cache; the per-poll ownership guard already refuses to read them, and this drops
+        /// them entirely so the guard has nothing to do. (2) Parts that ARRIVED (an EVA-construction
+        /// welded-on engine, a docked-on tug's RCS) were absent from a cache built at
+        /// <c>StartRecording</c> and therefore emitted nothing at all for the rest of the flight.
+        /// (3) Because the guard makes a departed booster's burnout unobservable, its key never left
+        /// <c>activeEngineKeys</c> — so the terminal emit at the rails transition or at stop wrote an
+        /// EngineShutdown into the PARENT recording for a pid that departed minutes earlier, landing
+        /// at the TAIL where <c>RecordingOptimizer.IsInertPartEventForTailTrim</c> counts it as
+        /// interesting and the #263 boring-tail trim is defeated.
+        /// </para>
+        /// <para>
+        /// The prune is silent — no synthetic event for a departed pid. See
+        /// <see cref="PruneDepartedTrackingKeys"/> for why it measures survival against
+        /// <c>Vessel.parts</c> as well as the rebuilt caches, and why engine/RCS state is moved to
+        /// <see cref="DepartedEngineThrottles"/> rather than dropped.
+        /// </para>
+        /// </summary>
+        public void OnVesselWasModified(Vessel v)
+        {
+            if (!IsRecording || v == null) return;
+            if (v.persistentId != RecordingVesselId) return;
+
+            int engineCountBefore = cachedEngines?.Count ?? 0;
+            int rcsCountBefore = cachedRcsModules?.Count ?? 0;
+            int roboticCountBefore = cachedRoboticModules?.Count ?? 0;
+
+            cachedEngines = CacheEngineModules(v);
+            cachedRcsModules = CacheRcsModules(v);
+            cachedRoboticModules = CacheRoboticModules(v);
+
+            // allEngineKeys drives the #298 EngineShutdown-sentinel seeding, so a welded-on engine
+            // has to join it or a later split/promotion seed would omit its sentinel.
+            int newEngineKeys = 0;
+            if (cachedEngines != null && allEngineKeys != null)
+            {
+                for (int i = 0; i < cachedEngines.Count; i++)
+                {
+                    var (part, engine, moduleIndex) = cachedEngines[i];
+                    if (part == null || engine == null) continue;
+                    if (allEngineKeys.Add(EncodeEngineKey(part.persistentId, moduleIndex)))
+                        newEngineKeys++;
+                }
+            }
+
+            var pruned = PruneDepartedTrackingKeys(
+                CollectSurvivingTrackedPartPids(v),
+                activeEngineKeys, lastThrottle, allEngineKeys,
+                activeRcsKeys, lastRcsThrottle, rcsActiveFrameCount,
+                activeRoboticKeys, lastRoboticPosition, lastRoboticSampleUT,
+                departedEngineThrottles, departedRcsThrottles);
+
+            // onVesselWasModified fires in bursts (staging, docking, part death, crew moves), and
+            // most of them do not change the module counts at all. Report a real change at Info so
+            // it is greppable, and the no-op rebuilds at rate-limited Verbose so they stay visible
+            // without flooding.
+            string summary =
+                $"Module caches rebuilt after vessel modification: pid={v.persistentId} " +
+                $"engines={engineCountBefore}->{cachedEngines?.Count ?? 0} " +
+                $"rcs={rcsCountBefore}->{cachedRcsModules?.Count ?? 0} " +
+                $"robotics={roboticCountBefore}->{cachedRoboticModules?.Count ?? 0} " +
+                $"newEngineKeys={newEngineKeys} " +
+                $"prunedDepartedKeys={pruned.Total} " +
+                $"(engine={pruned.engineKeys} rcs={pruned.rcsKeys} robotic={pruned.roboticKeys}) " +
+                $"departedCarryOver={departedEngineThrottles.Count + departedRcsThrottles.Count}";
+            bool countsChanged =
+                engineCountBefore != (cachedEngines?.Count ?? 0)
+                || rcsCountBefore != (cachedRcsModules?.Count ?? 0)
+                || roboticCountBefore != (cachedRoboticModules?.Count ?? 0)
+                || newEngineKeys > 0
+                || pruned.Total > 0;
+            if (countsChanged)
+                ParsekLog.Info("Recorder", summary);
+            else
+                ParsekLog.VerboseRateLimited("Recorder", "module-cache-rebuild-unchanged", summary, 5.0);
+        }
+
+        /// <summary>
+        /// The pids the departed-key prune treats as still ours: every pid on the live
+        /// <c>Vessel.parts</c> list UNIONED with every pid in the freshly rebuilt cache lists.
+        ///
+        /// <para>
+        /// <c>Vessel.parts</c> is the load-bearing half. The cache lists only contain parts that
+        /// currently expose an engine / RCS / robotic module, so a part whose module list reads empty
+        /// for one frame (a module destroyed and re-added, a reflection probe that momentarily
+        /// resolves nothing) drops out of them while the part itself never left the vessel. Pruning
+        /// against the caches alone would turn that transient into a permanently forgotten burn —
+        /// exactly the "momentarily vesselless during a dock/undock shuffle" hazard, resolved by
+        /// asking the vessel's own part list rather than trusting the narrower derived view.
+        /// </para>
+        /// <para>
+        /// The cache half is kept anyway so the union stays correct if <c>CacheEngineModules</c> and
+        /// friends ever learn to include a part the vessel list does not.
+        /// </para>
+        /// </summary>
+        private HashSet<uint> CollectSurvivingTrackedPartPids(Vessel v)
+        {
+            var pids = new HashSet<uint>();
+            if (v?.parts != null)
+            {
+                for (int i = 0; i < v.parts.Count; i++)
+                    if (v.parts[i] != null) pids.Add(v.parts[i].persistentId);
+            }
+            if (cachedEngines != null)
+                for (int i = 0; i < cachedEngines.Count; i++)
+                    if (cachedEngines[i].part != null) pids.Add(cachedEngines[i].part.persistentId);
+            if (cachedRcsModules != null)
+                for (int i = 0; i < cachedRcsModules.Count; i++)
+                    if (cachedRcsModules[i].part != null) pids.Add(cachedRcsModules[i].part.persistentId);
+            if (cachedRoboticModules != null)
+                for (int i = 0; i < cachedRoboticModules.Count; i++)
+                    if (cachedRoboticModules[i].part != null) pids.Add(cachedRoboticModules[i].part.persistentId);
+            return pids;
+        }
+
         private void CheckEngineState(Vessel v)
         {
             if (cachedEngines == null) return;
@@ -3458,6 +4157,7 @@ namespace Parsek
                 if (part == null || engine == null) continue;
 
                 ulong key = EncodeEngineKey(part.persistentId, moduleIndex);
+                if (!ShouldPollCachedModule(part, engine, v, key, "engine")) continue;
                 bool ignited = ShouldRecordEngineAsIgnited(
                     engine.EngineIgnited, engine.isOperational, engine.finalThrust);
                 float recordedPower = ComputeRecordedEnginePower(
@@ -3695,6 +4395,7 @@ namespace Parsek
                 if (part == null || rcs == null) continue;
 
                 ulong key = EncodeEngineKey(part.persistentId, moduleIndex);
+                if (!ShouldPollCachedModule(part, rcs, v, key, "rcs")) continue;
                 bool active = rcs.rcs_active && rcs.rcsEnabled;
                 if (loggedRcsModuleKeys.Add(key))
                 {
@@ -3740,8 +4441,12 @@ namespace Parsek
 
         /// <summary>
         /// The wheel MOTOR modules, whose spin is derived at playback from the ghost's own ground
-        /// speed instead of being recorded. Returns false for ModuleWheelSuspension and
-        /// ModuleWheelSteering, whose scalars are still recorded normally.
+        /// speed instead of being recorded. This is the VISUAL-MODE test (it maps to
+        /// <c>RoboticVisualMode.WheelGroundSpeed</c>); the recorder's emission gate is the wider
+        /// <see cref="IsDerivedWheelVisualModuleName"/>, which also covers ModuleWheelSteering.
+        /// Returns false for ModuleWheelSuspension, whose scalars are still recorded normally, and
+        /// for ModuleWheelSteering, whose caliper angle is a DIFFERENT derived visual
+        /// (<c>WheelSteeringHeading</c>) and must not be spun like a motor.
         ///
         /// Why these two stopped being recorded: the only field on <c>ModuleWheelMotor</c> that the
         /// probe list could resolve is <c>driveOutput</c>, and <c>module.Fields</c> is
@@ -3774,6 +4479,38 @@ namespace Parsek
         {
             return string.Equals(moduleName, "ModuleWheelMotor", StringComparison.Ordinal) ||
                    string.Equals(moduleName, "ModuleWheelMotorSteering", StringComparison.Ordinal);
+        }
+
+        /// <summary>
+        /// The wheel modules whose visual is DERIVED from the ghost's own ground motion at playback,
+        /// so recording a scalar for them is pure storage cost. This is the RECORDER EMISSION GATE
+        /// (foreground <see cref="CheckRoboticState"/> and its background mirror); it is deliberately
+        /// wider than <see cref="IsWheelMotorSpinModuleName"/>, which stays the visual-mode test.
+        ///
+        /// ModuleWheelSteering joins the motors for the same reason they left: what the field plan
+        /// resolves on stock rovers is a steering INPUT (<c>steeringInput</c> / <c>currentSteering</c>,
+        /// unsigned on several of them), not a caliper ANGLE, and playback replayed it as an angle.
+        /// <c>GhostPlaybackLogic.ApplyRoboticEvent</c> now discards every RoboticMotion* event whose
+        /// visual mode is <c>WheelSteeringHeading</c> and derives the caliper from the ghost's
+        /// ground-track heading rate instead — a signal every recording carries, old ones included.
+        /// So the producer had become a write-only surface: bytes on disk that no playback path can
+        /// ever read. Deleting the emission is storage-NEGATIVE and behaviour-neutral.
+        ///
+        /// Nothing is retired in <c>PartEventType</c>: RoboticMotionStarted / RoboticPositionSample /
+        /// RoboticMotionStopped are still the live signal for hinges, pistons, rotation servos, rotors
+        /// and wheel SUSPENSION. Legacy recordings keep their steering events on disk and playback
+        /// stays tolerant of them (it logs and ignores), so there is nothing to migrate.
+        ///
+        /// Like the motor gate, this one gates EMISSION ONLY. It must not be folded into
+        /// <see cref="IsRoboticModuleName"/> — that predicate assigns the sequential
+        /// <c>roboticModuleIndex</c> that the playback key <c>EncodeEngineKey(pid, moduleIndex)</c>
+        /// is built from, in both <see cref="CacheRoboticModules"/> and the ghost builder, and the two
+        /// numberings have to stay in lockstep.
+        /// </summary>
+        internal static bool IsDerivedWheelVisualModuleName(string moduleName)
+        {
+            return IsWheelMotorSpinModuleName(moduleName) ||
+                   string.Equals(moduleName, "ModuleWheelSteering", StringComparison.Ordinal);
         }
 
         internal static List<(Part part, PartModule module, int moduleIndex, string moduleName)> CacheRoboticModules(Vessel v)
@@ -4155,17 +4892,19 @@ namespace Parsek
                 if (part == null || module == null) continue;
 
                 ulong key = EncodeEngineKey(part.persistentId, moduleIndex);
+                if (!ShouldPollCachedModule(part, module, v, key, "robotic")) continue;
 
-                // Wheel motor spin is derived from ground speed at playback, not recorded. The
-                // module stays in cachedRoboticModules so moduleIndex numbering matches the ghost
-                // builder's; only the emission is skipped. See IsWheelMotorSpinModuleName.
-                if (IsWheelMotorSpinModuleName(moduleName))
+                // Wheel motor spin AND wheel steering deflection are derived from the ghost's own
+                // ground motion at playback, not recorded. The module stays in cachedRoboticModules
+                // so moduleIndex numbering matches the ghost builder's; only the emission is
+                // skipped. See IsDerivedWheelVisualModuleName.
+                if (IsDerivedWheelVisualModuleName(moduleName))
                 {
                     if (loggedRoboticModuleKeys.Add(key))
                     {
-                        ParsekLog.Verbose("Recorder", $"Robotics: wheel-motor spin not recorded for " +
+                        ParsekLog.Verbose("Recorder", $"Robotics: derived wheel visual not recorded for " +
                             $"'{part.partInfo?.name}' pid={part.persistentId} midx={moduleIndex} " +
-                            $"module={moduleName}; derived from ghost ground speed at playback");
+                            $"module={moduleName}; derived from ghost ground motion at playback");
                     }
                     continue;
                 }
@@ -5085,6 +5824,7 @@ namespace Parsek
                 scanned++;
                 if (!TryResolveLivePeerRecordingId(
                         vessel.persistentId,
+                        AnchorDetector.TryReadLiveVesselGuid(vessel),
                         out string recordingId,
                         skipActiveProvisional: false))
                     continue;
@@ -5200,8 +5940,18 @@ namespace Parsek
             return true;
         }
 
+        /// <summary>
+        /// Maps a LIVE peer vessel to the tree recording it represents, for the RELATIVE-anchor
+        /// candidate scan. <paramref name="peerLaunchGuid"/> is the live vessel's <c>Vessel.id</c>
+        /// (null when unknown) and gates the craft-baked pid lookup through
+        /// <see cref="AnchorDetector.LiveAnchorLaunchMatches"/>: a preserved DIFFERENT launch of
+        /// the same craft carries the same baked pid, and anchoring to it would write this
+        /// recording's Relative frames as offsets from a stranger's world pose (silent trajectory
+        /// corruption). Unknown Guids fall back to the prior pid-only behaviour.
+        /// </summary>
         private bool TryResolveLivePeerRecordingId(
             uint peerPid,
+            string peerLaunchGuid,
             out string recordingId,
             bool skipActiveProvisional = true)
         {
@@ -5213,6 +5963,19 @@ namespace Parsek
             if (!ActiveTree.BackgroundMap.TryGetValue(peerPid, out recordingId)
                 || string.IsNullOrWhiteSpace(recordingId))
             {
+                return false;
+            }
+            if (ActiveTree.Recordings != null
+                && ActiveTree.Recordings.TryGetValue(recordingId, out Recording peerRecording)
+                && !AnchorDetector.LiveAnchorLaunchMatches(peerRecording, peerLaunchGuid))
+            {
+                ParsekLog.VerboseRateLimited("Anchor", "recording-anchor-launch-mismatch",
+                    $"Recording anchor candidate rejected: recordingId={recordingId} " +
+                    $"reason=live-vessel-different-launch peerPid={peerPid} " +
+                    $"recordedGuid={peerRecording.RecordedVesselGuid ?? "(none)"} " +
+                    $"liveGuid={peerLaunchGuid ?? "(none)"}",
+                    5.0);
+                recordingId = null;
                 return false;
             }
             if (skipActiveProvisional
@@ -6580,6 +7343,12 @@ namespace Parsek
             jettisonNameRawCache.Clear();
             parsedJettisonNamesCache.Clear();
             extendedDeployables.Clear();
+            brokenDeployables.Clear();
+            activeConverterParts.Clear();
+            jetpackDeployedParts.Clear();
+            thrustingJetpackParts.Clear();
+            ragdollParts.Clear();
+            evaThrustFrameCounts.Clear();
             lightsOn.Clear();
             blinkingLights.Clear();
             lightBlinkRates.Clear();
@@ -6619,6 +7388,9 @@ namespace Parsek
             lastRoboticPosition = new Dictionary<ulong, float>();
             lastRoboticSampleUT = new Dictionary<ulong, double>();
             loggedRoboticModuleKeys = new HashSet<ulong>();
+            loggedForeignCachedModuleKeys.Clear();
+            departedEngineThrottles.Clear();
+            departedRcsThrottles.Clear();
             RebuildHarvestConverterCache(v, "start");
             ParsekLog.Info("Recorder",
                 $"Module caches seeded for vessel pid={v.persistentId}: engines={cachedEngines?.Count ?? 0}, " +
@@ -6833,6 +7605,10 @@ namespace Parsek
                 jettisonedShrouds = jettisonedShrouds,
                 parachuteStates = parachuteStates,
                 extendedDeployables = extendedDeployables,
+                brokenDeployables = brokenDeployables,
+                activeConverterParts = activeConverterParts,
+                jetpackDeployedParts = jetpackDeployedParts,
+                ragdollParts = ragdollParts,
                 lightsOn = lightsOn,
                 blinkingLights = blinkingLights,
                 lightBlinkRates = lightBlinkRates,
@@ -7042,7 +7818,7 @@ namespace Parsek
                 double terminalUT = Planetarium.GetUniversalTime();
                 var terminalEvts = EmitTerminalEngineAndRcsEvents(
                     activeEngineKeys, activeRcsKeys, activeRoboticKeys,
-                    lastRoboticPosition, terminalUT, "Recorder");
+                    lastRoboticPosition, terminalUT, "Recorder", thrustingJetpackParts);
                 PartEvents.AddRange(terminalEvts);
                 // Save the exact terminal events so ResumeAfterFalseAlarm can remove them
                 // by content-match (#287). Index-based RemoveRange is brittle across unstable
@@ -7724,6 +8500,15 @@ namespace Parsek
             if (decision == VesselSwitchDecision.ContinueOnEva)
             {
                 RecordingVesselId = v.persistentId;
+                // The recording now follows the kerbal, so the craft's cached engine/RCS/robotic
+                // modules are foreign from here on. Rebuilding drops them outright rather than
+                // leaving the per-poll ownership guard to reject each one (and log each rejection)
+                // every frame for the rest of the EVA. The same call also prunes the tracking-set
+                // keys for every part left behind on the craft, so the EVA's own recording does not
+                // close with terminal EngineShutdown / RCSStopped events for the craft's engines —
+                // events the kerbal's ghost has no part to play them on, and which would pin the
+                // tail-trim to the end of the EVA.
+                OnVesselWasModified(v);
                 SamplePosition(v);
                 RefreshBackupSnapshot(v, "eva_switch", force: true);
                 ParsekLog.Verbose("Recorder", $"Recording switched to EVA vessel (pid={v.persistentId})");
@@ -8012,7 +8797,7 @@ namespace Parsek
         /// <summary>
         /// Polls all part-module states (parachutes, jettisons, engines, RCS, deployables,
         /// ladders, animation groups, aero/control surfaces, lights, gear, cargo bays,
-        /// fairings, robotics). Runs every physics frame before adaptive sampling.
+        /// fairings, robotics, converters, EVA). Runs every physics frame before adaptive sampling.
         /// </summary>
         private void PollPartStates(Vessel v)
         {
@@ -8033,6 +8818,8 @@ namespace Parsek
             CheckCargoBayState(v);
             CheckFairingState(v);
             CheckRoboticState(v);
+            CheckConverterState(v);
+            CheckEvaState(v);
         }
 
         /// <summary>
@@ -9780,7 +10567,7 @@ namespace Parsek
             double railsUT = Planetarium.GetUniversalTime();
             var railsTerminalEvts = EmitTerminalEngineAndRcsEvents(
                 activeEngineKeys, activeRcsKeys, activeRoboticKeys,
-                lastRoboticPosition, railsUT, "Recorder");
+                lastRoboticPosition, railsUT, "Recorder", thrustingJetpackParts);
             PartEvents.AddRange(railsTerminalEvts);
             if (railsTerminalEvts.Count > 0)
                 ParsekLog.Info("Recorder",
@@ -9794,6 +10581,14 @@ namespace Parsek
             lastRcsThrottle.Clear();
             lastRoboticPosition.Clear();
             rcsActiveFrameCount.Clear();
+            // S4 joins the same convention as the three families above: the terminal emit does NOT
+            // mutate its sets, so BOTH halves of the thrust debounce state are cleared here. The
+            // thrusting SET must be emptied for the same reason activeEngineKeys is — it is what
+            // makes a second rails emit a no-op instead of a double-close — and the frame COUNTS
+            // must go with it, so a half-accumulated burst cannot resume into a start event
+            // off-rails that its own frames never earned.
+            thrustingJetpackParts.Clear();
+            evaThrustFrameCounts.Clear();
             decoupledPartIds.Clear();
         }
 
@@ -10147,6 +10942,42 @@ namespace Parsek
                     return vessel;
                 }
             }
+            return null;
+        }
+
+        /// <summary>
+        /// <see cref="FindVesselByPid"/> plus the launch-identity gate: returns the live vessel
+        /// carrying the recording's <c>VesselPersistentId</c> ONLY when it is not conclusively a
+        /// different launch (<see cref="AnchorDetector.LiveAnchorLaunchMatches"/>).
+        ///
+        /// <para>
+        /// Use this wherever a live vessel is looked up FROM a recording to supply that
+        /// recording's world pose (parent-anchor pose, debris proximity, anchor candidates). A
+        /// bare pid lookup is craft-baked: with the world preserved across Re-Fly, a relaunch of
+        /// the same craft answers the lookup after the recorded vessel is gone, and its pose then
+        /// drives Relative frames / proximity tiers for a vessel it has nothing to do with. A
+        /// null result is the same "parent not live" case those call sites already handle
+        /// (recorded-anchor fallback / TTL end), so the failure mode is a graceful degrade rather
+        /// than a corrupted frame. Unknown launch Guid on either side = prior pid-only behaviour.
+        /// </para>
+        /// </summary>
+        internal static Vessel FindLaunchMatchedVesselForRecording(Recording rec)
+        {
+            if (rec == null || rec.VesselPersistentId == 0u)
+                return null;
+            Vessel vessel = FindVesselByPid(rec.VesselPersistentId);
+            if (vessel == null)
+                return null;
+            if (AnchorDetector.LiveAnchorLaunchMatches(
+                    rec, AnchorDetector.TryReadLiveVesselGuid(vessel)))
+            {
+                return vessel;
+            }
+
+            ParsekLog.VerboseRateLimited("Anchor", "live-vessel-launch-mismatch",
+                $"Live vessel pid={rec.VesselPersistentId} rejected for rec={rec.RecordingId ?? "(none)"}: " +
+                $"recorded launch guid differs conclusively (relaunch of the same craft)",
+                5.0);
             return null;
         }
 

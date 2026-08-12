@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Globalization;
 
@@ -27,7 +27,15 @@ namespace Parsek
         MilestoneAchieved,   // 18
         KerbalRescued,       // 19
         StrategyActivated,   // 20
-        StrategyDeactivated  // 21
+        StrategyDeactivated, // 21
+
+        /// <summary>
+        /// A recovered kerbal's flight log was archived into their career log, which is what
+        /// stock derives experience from. Explicitly numbered and append-only: an older build
+        /// loading a save with this row WARNs and drops it, which costs the XP re-assert on
+        /// that build and nothing else.
+        /// </summary>
+        ExperienceGained = 22
     }
 
     public struct GameStateEvent
@@ -468,10 +476,27 @@ namespace Parsek
         public string contractGuid;
         public ConfigNode contractNode;
 
+        /// <summary>
+        /// Planetarium UT the snapshot was taken at. Accept-time snapshots carry the
+        /// accept UT; rewind-point snapshots carry the RP's own quicksave UT. Legacy
+        /// persisted rows written before this field existed deserialize as 0, which the
+        /// selection rule treats as "oldest possible" — the historical fallback shape.
+        /// </summary>
+        public double ut;
+
+        /// <summary>
+        /// The <c>RewindPoint.RewindPointId</c> this snapshot was captured for, or null
+        /// for the accept-time snapshot. Purged with its RP by the reaper.
+        /// </summary>
+        public string sourceRpId;
+
         public void SerializeInto(ConfigNode parentNode)
         {
             ConfigNode snapNode = parentNode.AddNode("CONTRACT_SNAPSHOT");
             snapNode.AddValue("guid", contractGuid ?? "");
+            snapNode.AddValue("ut", ut.ToString("R", CultureInfo.InvariantCulture));
+            if (!string.IsNullOrEmpty(sourceRpId))
+                snapNode.AddValue("sourceRpId", sourceRpId);
             if (contractNode != null)
                 snapNode.AddNode(contractNode);
         }
@@ -480,6 +505,19 @@ namespace Parsek
         {
             var snap = new ContractSnapshot();
             snap.contractGuid = snapNode.GetValue("guid") ?? "";
+
+            // Legacy rows carry neither value; both default to the accept-time shape.
+            string utStr = snapNode.GetValue("ut");
+            double parsedUt;
+            if (!string.IsNullOrEmpty(utStr) &&
+                double.TryParse(utStr, NumberStyles.Float, CultureInfo.InvariantCulture, out parsedUt))
+            {
+                snap.ut = parsedUt;
+            }
+
+            string rpId = snapNode.GetValue("sourceRpId");
+            snap.sourceRpId = string.IsNullOrEmpty(rpId) ? null : rpId;
+
             ConfigNode contractChild = snapNode.GetNode("CONTRACT");
             if (contractChild != null)
                 snap.contractNode = contractChild;

@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Globalization;
 
@@ -67,6 +67,7 @@ namespace Parsek
             CompareContracts(save, recon, report);
             CompareMilestones(save, recon, report);
             CompareRecovery(save, recon, report);
+            CompareKerbalCareerLogs(save, recon, report);
 
             int hard = report.HardFailures(StrictPerIdentityForTesting).Count;
             int reportOnly = report.All.Count - hard;
@@ -77,6 +78,74 @@ namespace Parsek
                 $"strict={StrictPerIdentityForTesting.ToString(IC)}");
 
             return report;
+        }
+
+        // ----------------------------------------------------------------
+        // Kerbal career log (REPORT-ONLY, P9a)
+        // ----------------------------------------------------------------
+
+        /// <summary>
+        /// Compares the reconstruction's career-log accumulator against the save's roster.
+        ///
+        /// <para>
+        /// ONE-DIRECTIONAL by design: it reports entries the recon credits that the save does
+        /// NOT have (<see cref="DivergenceKind.PhantomInRecon"/>), and does not report the
+        /// reverse. A kerbal's save-side career log legitimately carries entries the ledger
+        /// never saw - pre-Parsek flights, stand-in careers, mod-written entries - so
+        /// "the save has more" is the normal state and reporting it would bury the signal.
+        /// The production re-assert is monotone in exactly the same direction, so this facet
+        /// measures precisely what the patcher would act on.
+        /// </para>
+        /// </summary>
+        private static void CompareKerbalCareerLogs(
+            CareerSaveSnapshot save, LedgerReconstructionSnapshot recon,
+            LedgerDivergenceReport report)
+        {
+            if (recon.KerbalCareerLog == null || recon.KerbalCareerLog.Count == 0)
+            {
+                ParsekLog.Verbose(Tag, "CompareKerbalCareerLogs: recon credits no entries -> skip");
+                return;
+            }
+            report.FacetsCompared++;
+
+            int kerbalsCompared = 0;
+            int divergent = 0;
+            foreach (var kvp in recon.KerbalCareerLog)
+            {
+                if (kvp.Value == null || kvp.Value.Count == 0) continue;
+                kerbalsCompared++;
+
+                HashSet<KerbalCareerLogEntry> saveEntries = null;
+                bool inSave = save.KerbalCareerLog != null
+                    && save.KerbalCareerLog.TryGetValue(kvp.Key, out saveEntries);
+                if (!inSave) saveEntries = null;
+
+                int missing = 0;
+                foreach (var entry in kvp.Value)
+                {
+                    if (saveEntries == null || !saveEntries.Contains(entry))
+                        missing++;
+                }
+
+                if (missing == 0) continue;
+                divergent++;
+
+                report.All.Add(new LedgerDivergence
+                {
+                    Facet = DivergenceFacet.KerbalXp,
+                    Kind = DivergenceKind.PhantomInRecon,
+                    Identity = kvp.Key,
+                    ExpectedFromSave = saveEntries != null ? saveEntries.Count : 0,
+                    Reconstructed = kvp.Value.Count,
+                    Detail = $"kerbalXp kerbal='{kvp.Key}' reconEntries={kvp.Value.Count.ToString(IC)} " +
+                             $"saveEntries={(saveEntries != null ? saveEntries.Count : 0).ToString(IC)} " +
+                             $"missingInSave={missing.ToString(IC)} inSaveRoster={inSave.ToString(IC)}"
+                });
+            }
+
+            ParsekLog.Verbose(Tag,
+                $"CompareKerbalCareerLogs: kerbals={kerbalsCompared.ToString(IC)} " +
+                $"divergent={divergent.ToString(IC)}");
         }
 
         // ----------------------------------------------------------------

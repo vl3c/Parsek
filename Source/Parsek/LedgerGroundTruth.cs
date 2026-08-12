@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Text;
@@ -60,6 +60,14 @@ namespace Parsek
 
         /// <summary>FLIGHTSTATE &gt; VESSEL entries.</summary>
         public List<SaveVessel> Vessels = new List<SaveVessel>();
+
+        /// <summary>
+        /// Per-kerbal career-log entries parsed from ROSTER &gt; KERBAL &gt; CAREER_LOG. The
+        /// unit stock derives experience from - XP itself is never stored, it is recomputed
+        /// from this log, so the log IS the ground truth for the KerbalXp facet.
+        /// </summary>
+        public Dictionary<string, HashSet<KerbalCareerLogEntry>> KerbalCareerLog =
+            new Dictionary<string, HashSet<KerbalCareerLogEntry>>(StringComparer.Ordinal);
     }
 
     /// <summary>A vessel parsed from FLIGHTSTATE &gt; VESSEL.</summary>
@@ -110,6 +118,13 @@ namespace Parsek
 
         /// <summary>Recovery credits: ledger FundsEarning + Recovery (vessel facet).</summary>
         public List<RecoveryCredit> RecoveryCredits = new List<RecoveryCredit>();
+
+        /// <summary>
+        /// Per-kerbal career-log entries the reconstruction credits, read off the
+        /// KerbalsModule accumulator.
+        /// </summary>
+        public Dictionary<string, HashSet<KerbalCareerLogEntry>> KerbalCareerLog =
+            new Dictionary<string, HashSet<KerbalCareerLogEntry>>(StringComparer.Ordinal);
     }
 
     /// <summary>
@@ -145,7 +160,16 @@ namespace Parsek
         Facility,
         Contract,
         Milestone,
-        Vessel
+        Vessel,
+
+        /// <summary>
+        /// Per-kerbal career-log entries (P9a). REPORT-ONLY: deliberately absent from
+        /// <see cref="LedgerDivergenceReport.IsAlwaysHard"/>, matching the SubjectScience
+        /// posture. A kerbal's career log legitimately carries entries the ledger never saw
+        /// (pre-Parsek flights, stand-ins, mod-written entries), so a mismatch here is
+        /// information rather than corruption until a scenario proves otherwise.
+        /// </summary>
+        KerbalXp
     }
 
     /// <summary>What kind of disagreement a divergence represents.</summary>

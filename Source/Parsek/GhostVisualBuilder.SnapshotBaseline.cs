@@ -32,6 +32,14 @@ namespace Parsek
     {
         /// <summary>ModuleDeployablePart subclass — EXTENDED / RETRACTED; null for mid-travel or BROKEN.</summary>
         public bool? deployableExtended;
+        /// <summary>
+        /// S6: the part's ModuleDeployablePart persisted as BROKEN, so the ghost must spawn with
+        /// its break subtree hidden. Deliberately a plain bool rather than a nullable: there is no
+        /// "snapshot says NOT broken" opinion to carry — an intact panel is the prefab default and
+        /// <see cref="deployableExtended"/> already covers its pose. Mutually exclusive with a
+        /// deployableExtended value: broken is not a point on the stowed&lt;-&gt;deployed axis.
+        /// </summary>
+        public bool deployableBroken;
         /// <summary>ModuleWheelDeployment.stateString — Deployed / Retracted; null otherwise.</summary>
         public bool? gearDeployed;
         /// <summary>Cargo/service bay open state, resolved from the paired ModuleAnimateGeneric animTime against the prefab's closedPosition.</summary>
@@ -55,6 +63,7 @@ namespace Parsek
 
         internal bool HasAnyBaseline =>
             deployableExtended.HasValue
+            || deployableBroken
             || gearDeployed.HasValue
             || cargoBayOpen.HasValue
             || animateGenericDeployed.HasValue
@@ -219,7 +228,7 @@ namespace Parsek
                 // concrete subclasses (ModuleDeployableSolarPanel / Antenna / Radiator,
                 // plus any mod subclass). Match on the KEY rather than the class name so
                 // a differently-named subclass still resolves.
-                if (!baseline.deployableExtended.HasValue)
+                if (!baseline.deployableExtended.HasValue && !baseline.deployableBroken)
                 {
                     string deployState = module.GetValue("deployState");
                     if (!string.IsNullOrEmpty(deployState))
@@ -230,8 +239,20 @@ namespace Parsek
                             baseline.deployableExtended = true;
                         else if (string.Equals(trimmed, "RETRACTED", System.StringComparison.OrdinalIgnoreCase))
                             baseline.deployableExtended = false;
-                        // EXTENDING / RETRACTING are mid-travel and BROKEN is its own
-                        // (deferred) visual: no opinion, prefab stow stands.
+                        else if (string.Equals(trimmed, "BROKEN", System.StringComparison.OrdinalIgnoreCase))
+                        {
+                            // S6 fills the slot this comment used to defer. A ghost spawning from
+                            // a snapshot whose panel was already broken must spawn with the break
+                            // subtree HIDDEN — the prefab pose is intact, and before P8 nothing
+                            // corrected it, so a station recorded after losing a panel replayed
+                            // with the panel back.
+                            //
+                            // deployableExtended is deliberately left with NO value: broken is not
+                            // a point on the stowed<->deployed axis, and giving it one would make
+                            // the resolver pose the panel (folded or open) as well as hiding it.
+                            baseline.deployableBroken = true;
+                        }
+                        // EXTENDING / RETRACTING remain mid-travel: no opinion, prefab stow stands.
                     }
                 }
                 else if (module.GetValue("deployState") != null)

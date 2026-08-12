@@ -129,9 +129,57 @@ namespace Parsek.InGameTests
             InGameAssert.AreEqual(0, inEls.Count,
                 $"No contract actions may remain in ELS after broad tombstone merge; got {inEls.Count}");
 
+            // Invariant 4 (P9b): a reinstated contract comes back at its AT-REWIND-POINT
+            // state, not at accept-time zero progress. The tombstones just written produce a
+            // per-guid reinstate cutoff; wherever a rewind-point snapshot exists at or
+            // before that cutoff, the patch-side selection MUST choose it over the
+            // accept-time row. Before P9b there was only ever one snapshot per contract and
+            // a half-finished contract came back from a merge with every parameter reset.
+            var cutoffs = LedgerOrchestrator.BuildContractReinstateCutoffsForPatch();
+            int cutoffsResolved = cutoffs?.Count ?? 0;
+            int rpSnapshotsChosen = 0;
+            int acceptTimeChosen = 0;
+            if (cutoffs != null)
+            {
+                foreach (var kvp in cutoffs)
+                {
+                    string guidStr = kvp.Key.ToString();
+                    var chosen = GameStateStore.GetContractSnapshotForPatch(guidStr, kvp.Value);
+                    var acceptTime = GameStateStore.GetContractSnapshot(guidStr);
+
+                    // Does a rewind-point row exist at or before the cutoff at all? If so,
+                    // the selection is REQUIRED to have picked it.
+                    bool rpRowEligible = false;
+                    var snapshots = GameStateStore.ContractSnapshots;
+                    for (int i = 0; i < snapshots.Count; i++)
+                    {
+                        var snap = snapshots[i];
+                        if (snap.contractGuid != guidStr) continue;
+                        if (string.IsNullOrEmpty(snap.sourceRpId)) continue;
+                        if (snap.contractNode == null) continue;
+                        if (snap.ut <= kvp.Value) { rpRowEligible = true; break; }
+                    }
+
+                    if (rpRowEligible)
+                    {
+                        InGameAssert.IsTrue(chosen != null && !object.ReferenceEquals(chosen, acceptTime),
+                            $"Contract {guidStr} has a rewind-point snapshot at or before its reinstate " +
+                            $"cutoff {kvp.Value:F1} but the patch would rebuild it from the accept-time " +
+                            "snapshot — reinstated progress would be reset to zero");
+                        rpSnapshotsChosen++;
+                    }
+                    else
+                    {
+                        acceptTimeChosen++;
+                    }
+                }
+            }
+
             ParsekLog.Info("RewindTest",
                 $"ContractTombstonesAcrossSupersede: all {contractActionIds.Count} contract action(s) " +
-                "survive physically in Ledger.Actions, are tombstoned, and are absent from ELS.");
+                "survive physically in Ledger.Actions, are tombstoned, and are absent from ELS. " +
+                $"Reinstate cutoffs resolved={cutoffsResolved} rpSnapshotChosen={rpSnapshotsChosen} " +
+                $"acceptTimeFallback={acceptTimeChosen}.");
         }
 
         private static Recording FindRecording(string recordingId)

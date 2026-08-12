@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Globalization;
 
@@ -78,6 +78,7 @@ namespace Parsek
             ParseContracts(gameNode, snapshot);
             ParseMilestones(gameNode, snapshot);
             ParseVessels(flightState, snapshot);
+            ParseKerbalCareerLogs(gameNode, snapshot);
 
             ParsekLog.Verbose(Tag,
                 $"Parse: complete hasFunds={snapshot.HasFunds.ToString(IC)} " +
@@ -89,9 +90,93 @@ namespace Parsek
                 $"allContracts={snapshot.ContractGuidsAllStates.Count.ToString(IC)} " +
                 $"completedMilestones={snapshot.CompletedMilestoneIds.Count.ToString(IC)} " +
                 $"allMilestones={snapshot.AllMilestoneIds.Count.ToString(IC)} " +
-                $"vessels={snapshot.Vessels.Count.ToString(IC)}");
+                $"vessels={snapshot.Vessels.Count.ToString(IC)} " +
+                $"kerbalCareerLogs={snapshot.KerbalCareerLog.Count.ToString(IC)}");
 
             return snapshot;
+        }
+
+        /// <summary>
+        /// Parses ROSTER &gt; KERBAL &gt; CAREER_LOG into per-kerbal entry sets.
+        ///
+        /// <para>
+        /// Node shape, verified against the decompiled <c>FlightLog.Save</c>: a <c>flight</c>
+        /// value holding the log's own counter, then ONE VALUE PER ENTRY whose KEY is the
+        /// entry's flight number and whose VALUE is <c>type</c> or <c>type,target</c>. So the
+        /// same key repeats for every entry in a flight, which is why this walks
+        /// <c>node.values</c> positionally instead of using GetValue.
+        /// </para>
+        /// </summary>
+        private static void ParseKerbalCareerLogs(ConfigNode gameNode, CareerSaveSnapshot snapshot)
+        {
+            ConfigNode roster = gameNode.GetNode("ROSTER");
+            if (roster == null)
+            {
+                ParsekLog.Verbose(Tag, "ParseKerbalCareerLogs: no ROSTER -> empty");
+                return;
+            }
+
+            ConfigNode[] kerbals = roster.GetNodes("KERBAL");
+            if (kerbals == null || kerbals.Length == 0)
+            {
+                ParsekLog.Verbose(Tag, "ParseKerbalCareerLogs: ROSTER has no KERBAL nodes -> empty");
+                return;
+            }
+
+            int withLog = 0;
+            int totalEntries = 0;
+            for (int i = 0; i < kerbals.Length; i++)
+            {
+                ConfigNode kerbal = kerbals[i];
+                if (kerbal == null) continue;
+                string name = kerbal.GetValue("name");
+                if (string.IsNullOrEmpty(name)) continue;
+
+                ConfigNode careerLog = kerbal.GetNode("CAREER_LOG");
+                if (careerLog == null) continue;
+
+                var entries = ParseFlightLogNode(careerLog);
+                if (entries.Count == 0) continue;
+
+                snapshot.KerbalCareerLog[name] = entries;
+                withLog++;
+                totalEntries += entries.Count;
+            }
+
+            ParsekLog.Verbose(Tag,
+                $"ParseKerbalCareerLogs: kerbals={kerbals.Length.ToString(IC)} " +
+                $"withLog={withLog.ToString(IC)} entries={totalEntries.ToString(IC)}");
+        }
+
+        /// <summary>
+        /// Reads one FlightLog-shaped ConfigNode into a set of entries. The <c>flight</c> key
+        /// is the log-level counter, NOT an entry, and is skipped.
+        /// </summary>
+        internal static HashSet<KerbalCareerLogEntry> ParseFlightLogNode(ConfigNode node)
+        {
+            var result = new HashSet<KerbalCareerLogEntry>();
+            if (node == null || node.values == null) return result;
+
+            for (int i = 0; i < node.values.Count; i++)
+            {
+                var value = node.values[i];
+                if (value == null) continue;
+                if (string.Equals(value.name, "flight", StringComparison.Ordinal)) continue;
+
+                int flight;
+                if (!int.TryParse(value.name, NumberStyles.Integer, IC, out flight)) continue;
+
+                string raw = value.value ?? "";
+                if (raw.Length == 0) continue;
+
+                int comma = raw.IndexOf(',');
+                string type = comma >= 0 ? raw.Substring(0, comma) : raw;
+                string target = comma >= 0 ? raw.Substring(comma + 1) : "";
+                if (type.Length == 0) continue;
+
+                result.Add(new KerbalCareerLogEntry(flight, type, target));
+            }
+            return result;
         }
 
         /// <summary>Finds the first SCENARIO node with a matching `name` value.</summary>

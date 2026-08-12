@@ -46,6 +46,8 @@ namespace Parsek
         /// </summary>
         internal static void PruneZeroPointLeaves(RecordingTree tree)
         {
+            ClearStaleReFlyHandOverIfProvisionalValidates(tree, "PruneZeroPointLeaves");
+
             var toPrune = CollectZeroPointLeafIds(tree);
             if (toPrune == null || toPrune.Count == 0)
                 return;
@@ -57,8 +59,54 @@ namespace Parsek
                 "zero-point leaf recording(s)");
         }
 
+        /// <summary>
+        /// Drops a stale Re-Fly hand-over note when the marker's own provisional is
+        /// alive in this tree AND validates as a supersede target.
+        /// <para>
+        /// <c>TryTake</c>'s session gate cannot see an F9 that re-arms a marker with the
+        /// SAME SessionId, so a note describing a pre-quickload object could otherwise
+        /// be adopted as this session's conclusion. A prune pass finding the recording
+        /// alive and validating is proof the note is stale.
+        /// </para>
+        /// <para>
+        /// This proof used to be an emergent SIDE EFFECT of the in-loop keep-guard: it
+        /// only fired when the provisional was first COLLECTED as a zero-point leaf.
+        /// Once <see cref="IsZeroPointLeaf"/> learned to count playable sections, a
+        /// section-authoritative provisional stopped being collected at all — the right
+        /// outcome for the prune, but it silently took the staleness proof with it and
+        /// let a stale note survive. The proof never actually depended on collection,
+        /// only on "alive and validating", so it is now its own explicit step that runs
+        /// before the collect / early-return. Keep the in-loop
+        /// <c>Clear</c> too: it is idempotent and covers the guard path directly.
+        /// </para>
+        /// </summary>
+        private static void ClearStaleReFlyHandOverIfProvisionalValidates(
+            RecordingTree tree, string logTag)
+        {
+            if (tree == null || tree.Recordings == null)
+                return;
+
+            var marker = ResolveActiveReFlySessionMarkerForPrune();
+            if (marker == null || string.IsNullOrEmpty(marker.ActiveReFlyRecordingId))
+                return;
+
+            Recording provisional;
+            if (!tree.Recordings.TryGetValue(marker.ActiveReFlyRecordingId, out provisional)
+                || provisional == null)
+                return;
+
+            string ignoredReason;
+            if (!SupersedeCommit.ValidateSupersedeTarget(provisional, out ignoredReason))
+                return;
+
+            ReFlyProvisionalRetirement.Clear("provisional-alive-and-validating:" + logTag);
+        }
+
         internal static void PruneSinglePointDebrisLeaves(RecordingTree tree)
         {
+            ClearStaleReFlyHandOverIfProvisionalValidates(
+                tree, "PruneSinglePointDebrisLeaves");
+
             var toPrune = CollectSinglePointDebrisLeafIds(tree);
             if (toPrune == null || toPrune.Count == 0)
                 return;
@@ -115,9 +163,72 @@ namespace Parsek
             string description,
             string summarySuffix = null)
         {
+            // REFLY-CONCLUSION-SKIPS-APPENDRELATIONS: the live Re-Fly session's
+            // provisional is a leaf whose durable marker names it by id. Deleting
+            // it here behind the session's back is what turned a designed,
+            // grep-stable refusal into a WARN cascade plus a cross-load zombie
+            // sweep (S4.2's first flight, 2026-08-11). Two cases, decided by the
+            // pure ReFlyConclusionRoute.ClassifyProvisionalPrune:
+            //   - the provisional would validate as a supersede target: KEEP it,
+            //     the session's own conclusion owns its fate;
+            //   - it would not: prune exactly as before, but hand the object to
+            //     ReFlyProvisionalRetirement so MergeDialog.TryCommitReFlySupersede
+            //     can conclude through SupersedeCommit.AppendRelations' named
+            //     refusal in-session instead of leaving a zombie marker behind.
+            var reFlyMarker = ResolveActiveReFlySessionMarkerForPrune();
+            int keptProvisional = 0;
+            int retiredProvisional = 0;
+
             for (int i = 0; i < toPrune.Count; i++)
             {
                 string id = toPrune[i];
+
+                Recording candidate;
+                tree.Recordings.TryGetValue(id, out candidate);
+                // Identity first, payload second: ValidateSupersedeTarget walks
+                // TrackSections, and only the one id the marker names can ever
+                // change this loop's behaviour.
+                if (candidate != null
+                    && ReFlyConclusionRoute.ClassifyProvisionalPrune(reFlyMarker, id, false)
+                        != ReFlyProvisionalPruneAction.NotTheProvisional)
+                {
+                    string ignoredReason;
+                    var action = ReFlyConclusionRoute.ClassifyProvisionalPrune(
+                        reFlyMarker,
+                        id,
+                        SupersedeCommit.ValidateSupersedeTarget(candidate, out ignoredReason));
+
+                    if (action == ReFlyProvisionalPruneAction.KeepOwesSupersede)
+                    {
+                        keptProvisional++;
+                        // Any note from an earlier prune of this same id is now
+                        // provably stale: the recording is alive and validating,
+                        // so the conclusion must resolve it normally, never adopt
+                        // a hand-over describing a pre-quickload object.
+                        ReFlyProvisionalRetirement.Clear("provisional-kept-owes-supersede");
+                        ParsekLog.Info("Flight",
+                            $"{logTag}: keeping active Re-Fly provisional rec={id} " +
+                            $"sess={reFlyMarker.SessionId ?? "<no-id>"} " +
+                            "outcome=refly-provisional-prune-kept reason=owes-supersede " +
+                            "— it validates as a supersede target, so the session's own " +
+                            "conclusion decides its fate, not this hygiene pass");
+                        continue;
+                    }
+
+                    if (action == ReFlyProvisionalPruneAction.RetireEmpty)
+                    {
+                        retiredProvisional++;
+                        ReFlyProvisionalRetirement.Note(reFlyMarker, candidate, logTag);
+                        ParsekLog.Info("ReFlySession",
+                            $"outcome=retired-empty-provisional rec={id} " +
+                            $"sess={reFlyMarker.SessionId ?? "<no-id>"} " +
+                            $"origin={reFlyMarker.OriginChildRecordingId ?? "<none>"} " +
+                            $"prune={logTag} — the session's provisional carries no payload " +
+                            "the merge could accept; handing it to the conclusion so it " +
+                            "concludes in-session instead of leaving a zombie marker");
+                    }
+                }
+
                 tree.Recordings.Remove(id);
 
                 // Remove from parent branch point's children list
@@ -126,6 +237,8 @@ namespace Parsek
                     tree.BranchPoints[b].ChildRecordingIds.Remove(id);
                 }
             }
+
+            int removedCount = toPrune.Count - keptProvisional;
 
             // Clean up branch points with no remaining children
             int prunedBPs = 0;
@@ -146,10 +259,28 @@ namespace Parsek
             }
 
             ParsekLog.Info("Flight",
-                $"{logTag}: removed {toPrune.Count} {description}" +
+                $"{logTag}: removed {removedCount} {description}" +
                 (string.IsNullOrEmpty(summarySuffix) ? "" : summarySuffix) +
                 (prunedBPs > 0 ? $" and {prunedBPs} empty branch point(s)" : "") +
-                $" from tree '{tree.TreeName}'");
+                $" from tree '{tree.TreeName}'" +
+                (keptProvisional > 0 || retiredProvisional > 0
+                    ? $" (reFlyProvisionalKept={keptProvisional} " +
+                      $"reFlyProvisionalRetired={retiredProvisional})"
+                    : string.Empty));
+        }
+
+        /// <summary>
+        /// Resolves the live Re-Fly session marker for the prune guard, tolerating
+        /// the no-scenario case (unit tests, non-flight callers). ReferenceEquals
+        /// bypasses Unity's Object == null override so a plain-CLR test scenario
+        /// still resolves.
+        /// </summary>
+        private static ReFlySessionMarker ResolveActiveReFlySessionMarkerForPrune()
+        {
+            var scenario = ParsekScenario.Instance;
+            if (object.ReferenceEquals(null, scenario))
+                return null;
+            return scenario.ActiveReFlySessionMarker;
         }
 
         /// <summary>
@@ -191,7 +322,19 @@ namespace Parsek
 
         /// <summary>
         /// Returns true if a recording is a leaf with no playback data (zero points,
-        /// no orbit segments, no surface position).
+        /// no orbit segments, no playable track section, no surface position).
+        /// <para>
+        /// The playable-section term closes the section-blind half of the documented
+        /// divergence against <c>SupersedeCommit.HasPlayableSupersedePayload</c>: a
+        /// section-authoritative recording (its trajectory lives in
+        /// <c>TrackSection.frames</c> / <c>checkpoints</c> rather than the flat
+        /// <c>Points</c> list) is renderable payload the merge predicate accepts, so
+        /// judging it empty here would prune a recording the merge would keep. Payload
+        /// is tested with the SAME per-section notion the merge uses
+        /// (<see cref="PlaybackTrajectoryBoundsResolver.HasPlayablePayload"/>) — this
+        /// narrows the divergence rather than inventing a third definition, and does
+        /// not change what counts as payload for the merge.
+        /// </para>
         /// </summary>
         internal static bool IsZeroPointLeaf(Recording rec)
         {
@@ -199,7 +342,24 @@ namespace Parsek
             if (rec.SidecarLoadFailed) return false; // keep explicit hydration failures for later recovery/inspection
             return rec.Points.Count == 0
                 && rec.OrbitSegments.Count == 0
+                && !HasPlayableTrackSection(rec)
                 && !rec.SurfacePos.HasValue;
+        }
+
+        /// <summary>
+        /// True when any track section carries renderable payload, per the merge
+        /// predicate's own per-section notion. Conservative: a null / empty section
+        /// list is no payload.
+        /// </summary>
+        private static bool HasPlayableTrackSection(Recording rec)
+        {
+            if (rec.TrackSections == null) return false;
+            for (int i = 0; i < rec.TrackSections.Count; i++)
+            {
+                if (PlaybackTrajectoryBoundsResolver.HasPlayablePayload(rec.TrackSections[i]))
+                    return true;
+            }
+            return false;
         }
 
         internal static bool IsSinglePointDebrisLeaf(Recording rec)
