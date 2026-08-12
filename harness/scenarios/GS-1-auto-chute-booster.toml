@@ -436,15 +436,17 @@ tags = ["GS1", "rewind", "unfinished-flights", "staging", "auto-merge", "scene-e
 # death that moves the reputation pool) does not apply - this flight kills nobody and
 # recovers nothing.
 #
-# The pod is EMPTY in the committed fixture, contrary to what this comment claimed
-# until 2026-08-12: the forge passed crewNames = ["Jebediah Kerman"], but Jeb is
+# The pod carries ONE kerbal (Valentina, seated by the 2026-08-12 re-forge under the
+# minCrew=1 gate; she just lands with the pod - no GS-1 expectation reads the crew).
+# HISTORY, because this comment claimed the opposite of the truth until 2026-08-12:
+# the ORIGINAL 2026-08-05 stamp passed crewNames = ["Jebediah Kerman"], but Jeb is
 # `Assigned` in bdock-forge-base and kRPC launch_vessel silently seats nobody it
-# cannot seat (measured on the first b18-dres-pad forge run, 2026-08-11; the fixture
-# also carries Jeb as `Missing`). The flight is CONTROLLABLE anyway because the upper
-# stage carries a probeCoreOcto2 alongside the Mk1 pod (2 ModuleCommands), which is
-# why every GS-1 flight to date flew green on this fixture. A re-forge under the
-# corrected FORGE-gs1-two-stage spec (Valentina + the minCrew=1 gate) will seat one
-# kerbal, who then just lands with the pod - no GS-1 expectation reads the crew.
+# cannot seat (measured on the first b18-dres-pad forge run, 2026-08-11), so that
+# fixture's pod was EMPTY. Every pre-2026-08-12 GS-1 flight flew green on the empty
+# pod anyway because the upper stage carries a probeCoreOcto2 alongside the Mk1 pod
+# (2 ModuleCommands) and is probe-controlled - which is exactly why nobody noticed.
+# GS-1 flew the re-stamped crewed fixture to a full PASS (run 2026-08-12_1556,
+# attempt 1, armed saveParse green), so both fixture generations are flight-proven.
 #
 # The harvested fixture inherits the forge base's INERT `SCENARIO{name=ParsekScenario}`
 # node, which is the CL-1 trap: the seam's FLIGHT focus route does not run

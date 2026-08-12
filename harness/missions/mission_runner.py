@@ -439,10 +439,11 @@ class KrpcMissionControl(MissionControl):
         # never touch the MechJeb target controller / docking-port surface). The
         # bdock shell constructs this True.
         self._read_docking = bool(read_docking)
-        # OPT-IN crew-count telemetry (FORGE-LKO). OFF everywhere else so their
-        # read_snapshot stays byte-identical (crew_count keeps its -1 unread
-        # sentinel, which fails every crew gate closed). ONE extra RPC per poll,
-        # taken only by the forge that must certify its fixture is CREWED.
+        # OPT-IN crew-count telemetry (the two fixture forges: FORGE-LKO and the
+        # pad forge_station, whose minCrew gates certify a stamped fixture is
+        # CREWED). OFF everywhere else so their read_snapshot stays
+        # byte-identical (crew_count keeps its -1 unread sentinel, which fails
+        # every crew gate closed). ONE extra RPC per poll.
         self._read_crew = bool(read_crew)
         # OPT-IN parachute-state telemetry (EVA-4). OFF everywhere else so every other
         # mission's read_snapshot stays byte-identical (craft_chute_state keeps its ""

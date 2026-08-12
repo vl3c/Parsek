@@ -5255,20 +5255,20 @@ class ForgeAssertionTests(unittest.TestCase):
         self.assertIsNone(crew.value)
 
     def test_crew_aboard_unmet_on_unread_sentinel_with_floor(self):
-        # minCrew=1 and no finite crew read in any frame -> UNMET (fail closed):
+        # minCrew=1 and no finite post-launch crew read -> UNMET (fail closed):
         # an uncrewed stamp can never read green off the -1 sentinel.
         params = replace(FORGE_PARAMS, min_crew=1)
         outs = mlib.evaluate_forge_assertions(
-            [snap(situation="PRE_LAUNCH")], params,
+            [snap(), snap(situation="PRE_LAUNCH")], params,
             phases_reached=(mlib.FORGE_PRELAUNCH, mlib.FORGE_LAUNCH, mlib.FORGE_SETTLED))
         self.assertFalse(outs[1].met)
 
     def test_crew_aboard_unmet_when_pod_is_empty(self):
-        # The gs1-two-stage-pad stamp: launch_vessel seated nobody, the pad
-        # settles fine, crew_count reads a real 0 -> crewAboard UNMET.
+        # The original gs1-two-stage-pad stamp: launch_vessel seated nobody, the
+        # pad settles fine, crew_count reads a real 0 -> crewAboard UNMET.
         params = replace(FORGE_PARAMS, min_crew=1)
         outs = mlib.evaluate_forge_assertions(
-            [snap(situation="PRE_LAUNCH", crew_count=0)], params,
+            [snap(), snap(situation="PRE_LAUNCH", crew_count=0)], params,
             phases_reached=(mlib.FORGE_PRELAUNCH, mlib.FORGE_LAUNCH, mlib.FORGE_SETTLED))
         self.assertFalse(outs[1].met)
         self.assertEqual(outs[1].value, 0)
@@ -5276,10 +5276,24 @@ class ForgeAssertionTests(unittest.TestCase):
     def test_crew_aboard_met_with_crew_at_floor(self):
         params = replace(FORGE_PARAMS, min_crew=1)
         outs = mlib.evaluate_forge_assertions(
-            [snap(situation="PRE_LAUNCH", crew_count=1)], params,
+            [snap(), snap(situation="PRE_LAUNCH", crew_count=1)], params,
             phases_reached=(mlib.FORGE_PRELAUNCH, mlib.FORGE_LAUNCH, mlib.FORGE_SETTLED))
         self.assertTrue(outs[1].met)
         self.assertEqual(outs[1].value, 1)
+
+    def test_crew_aboard_ignores_the_boot_base_frame(self):
+        # Frame 0 is read BEFORE launch_vessel fires, while the active vessel is
+        # still the (crewed) forge base. A finite frame-0 read must never
+        # certify the forged craft: with every post-launch read faulted to the
+        # -1 sentinel, the row stays UNMET despite the base's crew=3.
+        params = replace(FORGE_PARAMS, min_crew=1)
+        outs = mlib.evaluate_forge_assertions(
+            [snap(crew_count=3),
+             snap(situation="PRE_LAUNCH", crew_count=-1),
+             snap(situation="PRE_LAUNCH", crew_count=-1)], params,
+            phases_reached=(mlib.FORGE_PRELAUNCH, mlib.FORGE_LAUNCH))
+        self.assertFalse(outs[1].met)
+        self.assertIsNone(outs[1].value)
 
 
 class ForgeCrewGateMachineTests(unittest.TestCase):
@@ -5344,24 +5358,63 @@ class ForgeCrewGateMachineTests(unittest.TestCase):
         self.assertEqual(state.phase, mlib.FORGE_SETTLED)
         self.assertIsNone(state.verdict)
 
-    def test_never_settled_flake_stays_generic(self):
+    def test_never_settled_flake_names_the_settle_not_the_crew(self):
         # The craft never reads PRE_LAUNCH at all: a settle failure, not a crew
-        # failure -- the flake must NOT blame the crew.
+        # failure -- the flake names the accepted situations (the flko wording)
+        # and must NOT blame the crew.
         state = mlib.forge_initial_state(self.PARAMS)
         state, _ = mlib.forge_decide(state, snap(ut=0.0))
         state, _ = mlib.forge_decide(
             state, snap(ut=125.0, situation="FLYING", crew_count=0))
         self.assertTrue(state.done)
         self.assertEqual(state.verdict, mlib.MISSION_FLAKE)
-        self.assertIsNone(state.flake_reason)
+        self.assertIn("never settled", state.flake_reason)
+        self.assertNotIn("crew", state.flake_reason)
 
-    def test_min_crew_parsed_from_dict_and_defaults_off(self):
+    def test_crew_read_fault_flake_names_the_unread_sentinel(self):
+        # A persistent crew-telemetry fault (every read degrades to -1) latches
+        # the same crew-short flake a seeding failure would; the message must
+        # say the give-up read was the UNREAD sentinel so the operator does not
+        # hunt a seating bug when the read never succeeded.
+        state = mlib.forge_initial_state(self.PARAMS)
+        state, _ = mlib.forge_decide(state, snap(ut=0.0))
+        state, _ = mlib.forge_decide(
+            state, snap(ut=5.0, situation="PRE_LAUNCH", crew_count=-1))
+        state, _ = mlib.forge_decide(
+            state, snap(ut=125.0, situation="PRE_LAUNCH", crew_count=-1))
+        self.assertTrue(state.done)
+        self.assertEqual(state.verdict, mlib.MISSION_FLAKE)
+        self.assertIn("crew_count=-1", state.flake_reason)
+        self.assertIn("UNREAD sentinel", state.flake_reason)
+
+    def test_min_crew_parsed_explicit_derived_and_disabled(self):
+        # Explicit minCrew wins.
         parsed = mlib.forge_params_from_dict(
             {"craftName": "X", "launchTimeoutSeconds": 60, "minCrew": 1})
         self.assertEqual(parsed.min_crew, 1)
+        # No crewNames, no minCrew -> gate off.
         defaulted = mlib.forge_params_from_dict(
             {"craftName": "X", "launchTimeoutSeconds": 60})
         self.assertEqual(defaulted.min_crew, 0)
+        # crewNames WITHOUT minCrew -> floor derives to len(crewNames): a spec
+        # that requests names and forgets the floor is gated by default (the
+        # recurrence route the hand-maintained floor left open).
+        derived = mlib.forge_params_from_dict(
+            {"craftName": "X", "launchTimeoutSeconds": 60,
+             "crewNames": ["Valentina Kerman", "Bob Kerman"]})
+        self.assertEqual(derived.min_crew, 2)
+        # An explicit 0 still disables the gate even with crewNames present.
+        disabled = mlib.forge_params_from_dict(
+            {"craftName": "X", "launchTimeoutSeconds": 60,
+             "crewNames": ["Valentina Kerman"], "minCrew": 0})
+        self.assertEqual(disabled.min_crew, 0)
+        # The FORGE-LKO parser resolves the floor through the same helper.
+        flko_derived = mlib.forge_lko_params_from_dict(
+            {"craftName": "X", "crewNames": ["Valentina Kerman"]})
+        self.assertEqual(flko_derived.min_crew, 1)
+        flko_disabled = mlib.forge_lko_params_from_dict(
+            {"craftName": "X", "crewNames": ["Valentina Kerman"], "minCrew": 0})
+        self.assertEqual(flko_disabled.min_crew, 0)
 
 
 # ===========================================================================
