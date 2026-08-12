@@ -14,6 +14,83 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## OPTIMIZER-SPLIT-DEFEATS-REAIM-CLASSIFIER: the load-time optimizer splits an interplanetary recording at its SOI boundaries, and the re-aim classifier then finds no member holding a whole transfer [FOUND 2026-08-12 by `V9-dres-player-loop`, the Dres program's loop-unit reading run. NOT YET DIAGNOSED as a defect in either component - both behave as designed in isolation, and which one should change is an open product question]
+
+**What was measured.** `V9-dres-player-loop` marks B19's committed Kerbin -> Sun ->
+Dres recording as a loop unit and starts loop playback. The unit classifies
+**FAITHFUL, not ENGAGED**, and the classifier says why per member:
+
+```
+[ReaimDiag] member#1 segs=8  startBody=Kerbin supported=False
+[ReaimDiag] member#2 segs=11 startBody=Sun    supported=False
+    reason='no heliocentric (common-ancestor) leg recorded - never warped through
+            the coast, or background; staying faithful'
+[ReaimDiag] gatheredSegs=19 transferMemberSegs=0 plan.Supported=False
+    reason='no member yields a re-aim transfer'
+[Reaim]     MissionLoopUnit: mission='Duna Rocket' not re-aim; faithful
+```
+
+**Why that reason is misleading here.** The heliocentric leg WAS recorded and WAS
+warped through - B19's own flight log carries both
+`SOI change boundary suppressed in tree mode: Kerbin to Sun` and `... Sun to Dres`,
+and the arrival captured into a Dres orbit. What the recording does NOT have is all
+three shape requirements (parking orbit, heliocentric coast, direct-child arrival)
+inside ONE member, because the **load-time optimizer splits the main recording at
+its two body boundaries** (`RecordingOptimizer.IsSplittableEnvOrBodyBoundary` rule
+4, "other body changes"). The tree therefore presents `members=3`, one per SOI leg,
+and each member individually is missing most of the transfer.
+
+The split is visible in the counts and is otherwise harmless: the fixture's 5
+recordings load as 7, with structure IDENTICAL (`trees 1, committedTrees 1,
+terminalStates {Orbiting 3, Destroyed 2}, branchPoints {JointBreak 3}`), points
+total 1,730 against 1,729, and the largest recording dropping 1,546 -> 763. This
+is the same mechanism V6M and V8 record as a deterministic "+1"; it is "+2" here
+only because an interplanetary recording crosses two boundaries instead of one.
+
+**A second, independent decline** comes from the periodicity solver, and this one
+is not about the split at all:
+
+```
+[MissionPeriodicity] ExtractConstraints: members=3 launchBody=Kerbin
+    support=UnsupportedCrossParent constraints=2
+    [Rotation(Kerbin) P=21549.425183089825 off=0;
+     Orbital(Dres) cross-parent P=47893063.138593182 off=20376811.796301231]
+    why=orbital target 'Dres' is not a direct child of launch body 'Kerbin'
+        (synodic, Phase 4)
+[MissionPeriodicity] Solve: method=unsupported-no-lock P=NaN nextWindow=NaN lock=no
+```
+
+**What the two declines cost, measured.** `cadence=20393382.003373124` - the unit's
+own SPAN, not a synodic multiple, so the ~11.39M s Kerbin -> Dres synodic is never
+used; `overlapCadence=1019669.1001686562 overlaps=yes scheduled=no`; PhaseLock
+SKIPPED; PadAlign never runs (zero lines); and **no loiter compression at all** of
+the recording's ~8.4M game-second LKO ejection-window wait, where V8's ENGAGED unit
+cut 11,819,849 s on the same shape. The seam-endpoint census reads
+`evaluated=0 outsideSoi=0 skip.no-cross-body-successor=1` - a structural zero told
+from blindness.
+
+**Deterministic.** Every decision field is byte-identical across two consecutive
+runs (2026-08-12 `_0150`/`_0153`); the only delta is `phaseAnchor`
+20,393,410.963373061 vs .923373062, which is `now` at solve time on an unsupported
+unit.
+
+**What this does NOT tell us.** Dres's 5 deg inclination was the thing V9 was
+written to probe (V8/V8F measured the tilt gate declining all 27 tof candidates at
+Eve's 2.1 deg pre-fix). The synth never reaches the tilt gate on this fixture, so
+the 5 deg question is **unanswered, not answered negatively**. Answering it needs
+either the classifier change below or a fixture whose transfer survives in one
+member.
+
+**Open question, deliberately not decided here.** Three candidate directions, none
+obviously right: (a) the re-aim gatherer walks the member CHAIN rather than single
+members, so a split transfer still presents one logical transfer; (b) the optimizer
+does not split a recording at a body boundary that is part of a single continuous
+transfer (but §3 rule 3 already keeps same-class ExoBallistic body changes cohesive
+for transfer coasts, so this may be a rule-3 classification question rather than a
+new rule); (c) the loop unit reassembles members before classification. Whichever is
+taken, the `V9-dres-player-loop` lane is the regression floor for it - it is
+deliberately UNARMED today precisely so it can be armed on the fixed behaviour.
+
 ## ROUTE-CANDIDACY-GATED-ON-SEAL-NO-SEAM-PATH: a green two-vessel docking flight cannot produce a route-candidate tree, and no seam verb can seal one [FOUND 2026-08-11 while wiring `H35-logistics-route-proof`. A CAPABILITY GAP in the automation surface, not a product defect - the seal policy itself is correct]
 
 **What was measured.** The `bdock-recorded` fixture is the produced save of a FULLY
