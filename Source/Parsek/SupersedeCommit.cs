@@ -2669,12 +2669,16 @@ namespace Parsek
         /// NO merge journal, deliberately. <see cref="MergeJournalOrchestrator"/>'s
         /// checkpoints exist to make a multi-step DURABLE mutation atomic
         /// (migrate → split → rows → tombstones → MergeState flip → RP reap). This
-        /// route writes none of those: its only mutation is clearing the marker,
-        /// and a crash before the next save leaves exactly the pre-fix state, which
-        /// <see cref="LoadTimeSweep"/> already reconciles. Opening a journal for it
-        /// would add five synchronous saves and a Begin-rollback window around a
-        /// no-op — and the origin split it performs at step 1.5 would carve HEAD /
-        /// TIP out of a recording that nothing is going to supersede.
+        /// route writes none of those. Its mutations are clearing the marker and
+        /// re-homing the retired provisional's ledger tags
+        /// (<see cref="Ledger.ClearRecordingTagForRecording"/>), and BOTH are
+        /// crash-safe without a journal: a crash before the next save leaves exactly
+        /// the pre-fix state, which <see cref="LoadTimeSweep"/> already reconciles,
+        /// and the re-home is idempotent (clearing an already-cleared tag is a no-op)
+        /// so re-running it after a crash converges rather than compounding. Opening
+        /// a journal for it would add five synchronous saves and a Begin-rollback
+        /// window around a no-op — and the origin split it performs at step 1.5 would
+        /// carve HEAD / TIP out of a recording that nothing is going to supersede.
         /// </para>
         ///
         /// <para>

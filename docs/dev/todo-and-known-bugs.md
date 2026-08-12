@@ -181,17 +181,52 @@ A recovery payout whose UT is at or before the origin child's `EndUT` tier-1-BRA
 origin child — before and after every change on that branch, so nothing there moves it. At
 merge the origin child (or the TIP carved from it) lands in the supersede subtree, and because
 `TombstoneAttributionHelper.InSupersedeScope` carries **no UT guard** while `FundsEarning` /
-`ScienceEarning` are tombstone-eligible, `CommitTombstones` tombstones the row. The payout was
-real and was earned on the PRE-rewind flight the merge deliberately KEEPS, so tombstoning it
-is wrong.
+`ScienceEarning` are tombstone-eligible, `CommitTombstones` tombstones the row.
 
-Needs its own investigation. The likely shape is a UT-aware or terminal-kind-aware tombstone
-eligibility rule (tombstone only rows whose UT falls at/after the rewind UT — i.e. rows
-belonging to the part of the timeline actually being replaced), which is exactly the guard
+Two sub-shapes, and they need DIFFERENT remedies — do not conflate them:
+- **(A) pre-rewind**: `ut < rewindUT`. The payout was earned on the flight the merge
+  deliberately KEEPS, and the origin-child tag is correct.
+- **(B) bracket-tie, mid-session**: `rewindUT <= ut <= origin.EndUT`. The payout was earned
+  during the re-fly, but the origin child can still win the tier-1 tie (see below).
+
+Both are wrong to tombstone; only (A) is fixed by a UT guard.
+
+Needs its own investigation. The obvious-looking remedy is a UT-aware tombstone eligibility
+rule (tombstone only rows whose UT falls at/after the rewind UT — i.e. rows belonging to the
+part of the timeline actually being replaced), mirroring the guard
 `RecordingTreeSplitter`'s step-2.9 retag already applies on the OTHER side of the same seam.
-Do NOT approach it by widening the picker: the attribution is CORRECT here — the payout does
-belong to the origin child — so the defect is in what the tombstone pass does with a correct
-tag, not in the tag.
+
+**A UT guard alone is NOT sufficient, and shipping one would leave a residual shape open while
+looking like a complete fix.** The bracket-TIE case defeats it by construction:
+
+- The splitter only runs when the origin genuinely SPANS the rewind UT
+  (`RecordingTreeSplitter` requires `actualStartUT < rewindUT < actualEndUT`, strictly), so
+  `origin.EndUT > rewindUT` always holds.
+- A mid-session recovery at `rewindUT <= ut <= origin.EndUT` is therefore bracketed by the
+  origin child — and also by the provisional, whose `StartUT` is ~`rewindUT`.
+- Tier 1's tie-break is **largest EndUT**. While the provisional has not yet flown past where
+  the original flight ended (`origin.EndUT > provisional.EndUT`), the ORIGIN CHILD wins that
+  tie and takes the tag — the session-aware rule added on this branch admits the provisional
+  as a CANDIDATE but does not make it win a tie.
+- That row's UT is `>= rewindUT` **by construction** (it happened during the session), so a
+  "tombstone only rows at/after rewindUT" guard passes it straight through to tombstoning.
+
+So the residual shape is a real payout, earned during the re-fly, tagged to the origin child by
+a legitimate bracket tie, which a UT guard does not save. The two options that actually address
+it:
+
+1. **Prefer the admitted session provisional on bracket ties** in `PickRecoveryRecordingId`:
+   when several candidates bracket the UT and one is the active session's provisional, pick it
+   rather than max-EndUT. Cheaper, and it lands where the session-aware rule already lives —
+   but it changes tier-1 semantics, so it wants its own read of the other tier-1 consumers.
+2. **Carve out session-window rows at tombstone time**: exclude rows whose UT falls inside the
+   live session's window from the supersede scope, whichever recording they are tagged to.
+   Costlier, but fixes the class rather than one attribution path.
+
+Do NOT approach the ORIGINAL (pre-rewind, `ut` before `rewindUT`) case by widening the picker:
+there the attribution is CORRECT — the payout does belong to the origin child — so the defect
+is in what the tombstone pass does with a correct tag. Options 1 and 2 are for the bracket-tie
+subset above, where the tag itself is the arguable part.
 
 ## BODYFIXEDFRAMES-INVISIBLE-TO-BOTH-EMPTINESS-PREDICATES: a section carrying only `bodyFixedFrames` is payload to neither predicate, yet renderable coverage to the recorder [OPEN, filed 2026-08-12 on branch `provisional-ledger-hygiene`]
 
