@@ -26,6 +26,19 @@ namespace Parsek
                 case PartEventType.ThermalAnimationHot:
                 case PartEventType.ThermalAnimationCold:
                 case PartEventType.ThermalAnimationMedium:
+                // P8: the converter running-loop, the EVA jetpack pose/plume and the EVA
+                // ragdoll flag are all cosmetic overlays on a ghost that already exists —
+                // none of them adds, removes or re-parents a part, so none needs a rebuild.
+                // DeployableBroken is the ONE P8 member on the other side of the line: it
+                // HIDES a mesh subtree, which is a geometry change.
+                case PartEventType.ConverterActivated:
+                case PartEventType.ConverterDeactivated:
+                case PartEventType.EvaJetpackDeployed:
+                case PartEventType.EvaJetpackStowed:
+                case PartEventType.EvaJetpackThrustStarted:
+                case PartEventType.EvaJetpackThrustStopped:
+                case PartEventType.EvaRagdollStarted:
+                case PartEventType.EvaRagdollEnded:
                     return false;
 
                 // All structural / mechanical / deployment events — trigger ghost rebuild
@@ -57,6 +70,7 @@ namespace Parsek
                 case PartEventType.RoboticMotionStopped:
                 case PartEventType.ParachuteSemiDeployed:
                 case PartEventType.ParachuteRepacked:
+                case PartEventType.DeployableBroken:
                     return true;
 
                 default:

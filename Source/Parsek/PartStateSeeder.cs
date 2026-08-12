@@ -56,6 +56,12 @@ namespace Parsek
                 SeedLadders(p, sets, logTag);
                 SeedAnimationGroupsAndSurfaces(p, sets, logTag);
                 SeedAnimateGeneric(p, cargo, sets, logTag);
+                SeedConverters(p, sets, logTag);
+                // The v.isEVA gate MIRRORS both pollers (FlightRecorder.CheckEvaState and the BG
+                // wrapper). Without it a kerbal riding an external command seat on a rocket would
+                // seed an EvaJetpackDeployed off his persisted flag that no poll could ever pair or
+                // retract, because neither poller looks at a non-EVA vessel.
+                if (v.isEVA) SeedEvaState(p, sets, logTag);
             }
 
             SeedEngines(cachedEngines, sets, logTag);
@@ -64,11 +70,14 @@ namespace Parsek
 
             ParsekLog.Verbose(logTag,
                 $"Initial state seeding complete: fairings={sets.deployedFairings.Count} shrouds={sets.jettisonedShrouds.Count} " +
-                $"parachutes={sets.parachuteStates.Count} deployables={sets.extendedDeployables.Count} lights={sets.lightsOn.Count} " +
+                $"parachutes={sets.parachuteStates.Count} deployables={sets.extendedDeployables.Count} " +
+                $"brokenDeployables={sets.brokenDeployables.Count} lights={sets.lightsOn.Count} " +
                 $"blinks={sets.blinkingLights.Count} gear={sets.deployedGear.Count} cargo={sets.openCargoBays.Count} " +
                 $"ladders={sets.deployedLadders.Count} animGroups={sets.deployedAnimationGroups.Count} " +
                 $"animGeneric={sets.deployedAnimateGenericModules.Count} heat={sets.animateHeatLevels.Count} " +
-                $"engines={sets.activeEngineKeys.Count} rcs={sets.activeRcsKeys.Count}");
+                $"engines={sets.activeEngineKeys.Count} rcs={sets.activeRcsKeys.Count} " +
+                $"converters={sets.activeConverterParts.Count} " +
+                $"evaJetpack={sets.jetpackDeployedParts.Count} evaRagdoll={sets.ragdollParts.Count}");
         }
 
         private static void SeedFairings(Part p, PartTrackingSets sets, string logTag)
@@ -141,6 +150,63 @@ namespace Parsek
                 sets.extendedDeployables.Add(p.persistentId);
                 ParsekLog.Verbose(logTag,
                     $"Seeded already-extended deployable: '{p.partInfo?.name}' pid={p.persistentId}");
+            }
+            // S6: a panel that is ALREADY BROKEN when recording starts. Without this the broken
+            // set would be empty on the first poll, read the live BROKEN state as an ENTERING
+            // edge, and emit a DeployableBroken the recording never witnessed — the break would
+            // appear to happen at the start of every later recording of that craft. The two
+            // states are mutually exclusive, hence the else.
+            else if (deployable.deployState == ModuleDeployablePart.DeployState.BROKEN)
+            {
+                sets.brokenDeployables.Add(p.persistentId);
+                ParsekLog.Verbose(logTag,
+                    $"Seeded already-broken deployable: '{p.partInfo?.name}' pid={p.persistentId}");
+            }
+        }
+
+        /// <summary>
+        /// S7: a drill / ISRU already RUNNING when recording starts. Without this the first poll
+        /// would read the live active state as an activation edge and emit a spurious
+        /// ConverterActivated - so a base that had been mining for an hour would look like it
+        /// started the moment the recording did. (The precedent is
+        /// FlightRecorder.InitializeHarvestWindowAtStart, which opens the resource window at start
+        /// for the same reason.)
+        /// </summary>
+        private static void SeedConverters(Part p, PartTrackingSets sets, string logTag)
+        {
+            if (!FlightRecorder.IsAnyConverterActiveOnPart(p)) return;
+
+            sets.activeConverterParts.Add(p.persistentId);
+            ParsekLog.Verbose(logTag,
+                $"Seeded already-running converter: '{p.partInfo?.name}' pid={p.persistentId}");
+        }
+
+        /// <summary>
+        /// S4: a kerbal who is ALREADY on EVA with his jetpack out, or already ragdolled, when
+        /// recording starts. Same argument as every other seeder: without it the first poll reads
+        /// the live state as an entering edge and writes an event the recording never witnessed.
+        ///
+        /// TYPED cast, matching FlightRecorder.CheckEvaState - only JetpackDeployed is a KSPField,
+        /// so a Fields walk would miss isRagdoll entirely. THRUST is deliberately not seeded: it is
+        /// a momentary input, and a kerbal caught mid-burst at recording start has the debounce
+        /// window ahead of him anyway.
+        /// </summary>
+        private static void SeedEvaState(Part p, PartTrackingSets sets, string logTag)
+        {
+            var eva = p.FindModuleImplementing<KerbalEVA>();
+            if (eva == null) return;
+
+            if (eva.JetpackDeployed)
+            {
+                sets.jetpackDeployedParts.Add(p.persistentId);
+                ParsekLog.Verbose(logTag,
+                    $"Seeded already-deployed EVA jetpack: '{p.partInfo?.name}' pid={p.persistentId}");
+            }
+            if (eva.isRagdoll)
+            {
+                sets.ragdollParts.Add(p.persistentId);
+                ParsekLog.Verbose(logTag,
+                    $"Seeded already-ragdolled kerbal: '{p.partInfo?.name}' pid={p.persistentId}");
             }
         }
 
@@ -471,6 +537,15 @@ namespace Parsek
             // --- uint-keyed sets (pid only, moduleIndex = 0) ---
 
             EmitFromUintSet(sets.extendedDeployables, PartEventType.DeployableExtended);
+            // S6: a recording that STARTS with a broken panel needs the ghost told so at UT0 —
+            // the ghost is built from the prefab (intact) and nothing else would hide the subtree.
+            EmitFromUintSet(sets.brokenDeployables, PartEventType.DeployableBroken);
+            // S7: a recording that starts with the drill already turning needs the running loop
+            // started at UT0 rather than at the recording's first toggle (which may never come).
+            EmitFromUintSet(sets.activeConverterParts, PartEventType.ConverterActivated);
+            // S4: a recording that starts with the kerbal's pack already out, or already tumbling.
+            EmitFromUintSet(sets.jetpackDeployedParts, PartEventType.EvaJetpackDeployed);
+            EmitFromUintSet(sets.ragdollParts, PartEventType.EvaRagdollStarted);
             EmitFromUintSet(sets.jettisonedShrouds, PartEventType.ShroudJettisoned);
             EmitFromUintSet(sets.deployedFairings, PartEventType.FairingJettisoned);
             EmitFromUintSet(sets.lightsOn, PartEventType.LightOn);
@@ -746,6 +821,18 @@ namespace Parsek
         public HashSet<uint> jettisonedShrouds = new HashSet<uint>();
         public Dictionary<uint, int> parachuteStates = new Dictionary<uint, int>();
         public HashSet<uint> extendedDeployables = new HashSet<uint>();
+        /// <summary>S6: pids whose ModuleDeployablePart is BROKEN. Disjoint from extendedDeployables.</summary>
+        public HashSet<uint> brokenDeployables = new HashSet<uint>();
+        /// <summary>S7: pids with at least one running BaseConverter (ISRU / drill / harvester).</summary>
+        public HashSet<uint> activeConverterParts = new HashSet<uint>();
+        /// <summary>S4: pids whose KerbalEVA has its jetpack extended.</summary>
+        public HashSet<uint> jetpackDeployedParts = new HashSet<uint>();
+        /// <summary>
+        /// S4: pids whose KerbalEVA is ragdolled. Seeded and diffed for the same reason as the
+        /// jetpack pose - a kerbal can be knocked over across a rails span - even though the ghost
+        /// renders no ragdoll POSE (events only; see PartEventType.EvaRagdollStarted).
+        /// </summary>
+        public HashSet<uint> ragdollParts = new HashSet<uint>();
         public HashSet<uint> lightsOn = new HashSet<uint>();
         public HashSet<uint> blinkingLights = new HashSet<uint>();
         public Dictionary<uint, float> lightBlinkRates = new Dictionary<uint, float>();

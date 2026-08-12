@@ -521,6 +521,7 @@ namespace Parsek
             if (baselines == null || baselines.Count == 0) return;
 
             int deployableApplied = 0;
+            int brokenApplied = 0;
             int parachuteApplied = 0;
             int lightApplied = 0;
             int servoApplied = 0;
@@ -541,6 +542,18 @@ namespace Parsek
                         : ApplyDeployableState(state, evt, actions.deployableTarget.Value);
                     if (applied)
                         deployableApplied++;
+                }
+
+                // S6, applied AFTER any pose so the hide is not undone by ApplyDeployableState's
+                // own un-hide. The two are mutually exclusive on a well-formed snapshot (the
+                // parser sets at most one), but ordering it this way makes a malformed node that
+                // somehow carried both resolve to BROKEN, which is the safer reading: a hidden
+                // panel that should have been posed is a smaller lie than a posed panel that
+                // should have been gone.
+                if (actions.deployableBroken
+                    && ApplyDeployableBrokenState(state, pid, broken: true))
+                {
+                    brokenApplied++;
                 }
 
                 if (ApplySnapshotParachuteBaseline(state, pid, actions.parachuteAction))
@@ -573,7 +586,8 @@ namespace Parsek
 
             string summary =
                 $"Snapshot baseline applied: parts={baselines.Count} " +
-                $"deployables={deployableApplied} parachutes={parachuteApplied} " +
+                $"deployables={deployableApplied} brokenDeployables={brokenApplied} " +
+                $"parachutes={parachuteApplied} " +
                 $"lights={lightApplied} servos={servoApplied} servosSkipped={servoSkipped} " +
                 $"(vessel='{state.vesselName ?? "unknown"}')";
             if (rateLimitLog)
@@ -595,6 +609,13 @@ namespace Parsek
             public bool? deployableTarget;
             /// <summary>True when the target must route through the cargo-bay cascade (deployable, else jettison panels).</summary>
             public bool deployableThroughCargoBayCascade;
+            /// <summary>
+            /// S6: the snapshot said this part's deployable is BROKEN, so the ghost must spawn with
+            /// its break subtree hidden. Independent of <see cref="deployableTarget"/> rather than
+            /// folded into it: broken is not a point on the stowed&lt;-&gt;deployed axis, and the two
+            /// drive different ghost surfaces (a pose vs a SetActive).
+            /// </summary>
+            public bool deployableBroken;
             public bool? lightPower;
             public bool? blinkEnabled;
             public float? blinkRateHz;
@@ -640,6 +661,11 @@ namespace Parsek
         {
             var actions = new SnapshotBaselineActions();
             if (baseline == null) return actions;
+
+            // S6 first, and NOT in the else-if chain below: a broken panel has no pose opinion
+            // to compete with (the parser leaves deployableExtended unset for BROKEN), so this is
+            // an independent flag rather than another arm of the single-opinion cascade.
+            actions.deployableBroken = baseline.deployableBroken;
 
             if (baseline.deployableExtended.HasValue)
                 actions.deployableTarget = baseline.deployableExtended;
@@ -1337,6 +1363,16 @@ namespace Parsek
             if (state.launchDustInfo != null)
                 state.launchDustInfo.lastIntensity = 0f;
 
+            // S4: the three EVA flags go back to "pack stowed, not thrusting, on his feet", which is
+            // how a kerbal leaves the hatch. The particle system itself is stopped in
+            // ReapplySpawnTimeModuleBaselinesForLoopCycle (a Unity call this method cannot make),
+            // exactly like launch dust. Without the reset a kerbal who was thrusting at the end of
+            // one cycle would have the plume lit at the start of the next, before the recording's
+            // own thrust event replayed.
+            state.evaJetpackDeployed = false;
+            state.evaJetpackThrusting = false;
+            state.evaRagdoll = false;
+
             if (state.colorChangerInfos != null)
             {
                 foreach (var list in state.colorChangerInfos.Values)
@@ -1423,10 +1459,19 @@ namespace Parsek
 
             // 2. Deployables: re-stow every panel. Events during the new
             //    cycle re-deploy on their original UT.
+            //
+            //    S6: the break subtree is RE-SHOWN here too, and it has to be explicit. A loop
+            //    cycle restarts from the craft's pre-launch look, and a panel that broke during
+            //    the prior cycle must be whole again at the top of the next one — otherwise the
+            //    first cycle of a looping replay shows the break and every cycle after it starts
+            //    with the panel already missing. The un-hide runs BEFORE the re-stow so the
+            //    re-stow's own broken-check (in ApplyDeployableState) is a no-op rather than a
+            //    second write.
             if (state.deployableInfos != null)
             {
                 foreach (var kvp in state.deployableInfos)
                 {
+                    ApplyDeployableBrokenState(state, kvp.Key, broken: false);
                     var stowedEvt = new PartEvent { partPersistentId = kvp.Key };
                     ApplyDeployableState(state, stowedEvt, deployed: false);
                 }
@@ -1521,6 +1566,14 @@ namespace Parsek
             RestoreSynthesizedMotionNeutralPoses(state);
             if (state.launchDustInfo?.particles != null && state.launchDustInfo.particles.isPlaying)
                 state.launchDustInfo.particles.Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
+            // S4: the EVA plume's Unity half of the same reset. Clear as well as stop, so no
+            // in-flight particles from the previous cycle survive into the new one.
+            if (state.evaJetpackPlumeInfo?.particles != null
+                && state.evaJetpackPlumeInfo.particles.isPlaying)
+            {
+                state.evaJetpackPlumeInfo.particles.Stop(
+                    true, ParticleSystemStopBehavior.StopEmittingAndClear);
+            }
 
             // 3f. Re-apply the M1 snapshot baselines the stow/cold/off steps above just
             //     reverted, so cycle N+1 restarts from the RECORDED look rather than the
@@ -1823,6 +1876,31 @@ namespace Parsek
                         break;
                     case PartEventType.DeployableRetracted:
                         ApplyDeployableState(state, evt, deployed: false, immediate: false);
+                        break;
+                    // S6: a break is a SNAP, never an animation. The panel is gone in the frame it
+                    // broke (stock flings the subtree off as debris), so there is no pose to
+                    // interpolate toward and no `immediate` distinction to make.
+                    case PartEventType.DeployableBroken:
+                        ApplyDeployableBrokenState(state, evt.partPersistentId, broken: true);
+                        break;
+                    // S7: evt.ut is the loop's phase origin, which is what makes a scrubbed or
+                    // looping replay land on the SAME pose for the same recorded moment.
+                    case PartEventType.ConverterActivated:
+                        ApplyConverterLoopState(state, evt.partPersistentId, active: true, activeSinceUT: evt.ut);
+                        break;
+                    case PartEventType.ConverterDeactivated:
+                        ApplyConverterLoopState(state, evt.partPersistentId, active: false, activeSinceUT: evt.ut);
+                        break;
+                    // S4: all six EVA members share one applier so the plume gate lives in one
+                    // place. The RAGDOLL pair is recorded and applied but renders no POSE - it
+                    // gates the plume and marks the timeline (see PartEventType.EvaRagdollStarted).
+                    case PartEventType.EvaJetpackDeployed:
+                    case PartEventType.EvaJetpackStowed:
+                    case PartEventType.EvaJetpackThrustStarted:
+                    case PartEventType.EvaJetpackThrustStopped:
+                    case PartEventType.EvaRagdollStarted:
+                    case PartEventType.EvaRagdollEnded:
+                        ApplyEvaState(state, evt.eventType);
                         break;
                     case PartEventType.ThermalAnimationHot:
                         ApplyHeatState(state, evt, HeatLevel.Hot);
@@ -5433,6 +5511,31 @@ namespace Parsek
                 }
             }
 
+            // S7: STOP every running loop and put its transforms back to phase 0. Without the stop,
+            // a drill switched on during the prior cycle would keep turning through the start of
+            // the next one - before the recording's own ConverterActivated has replayed - so the
+            // second cycle of a looping mining replay would show the drill already running.
+            if (synth.converterLoops != null)
+            {
+                for (int i = 0; i < synth.converterLoops.Count; i++)
+                {
+                    ConverterLoopGhostInfo loop = synth.converterLoops[i];
+                    if (loop == null) continue;
+                    loop.active = false;
+                    loop.activeSinceUT = 0.0;
+                    if (loop.transforms == null) continue;
+                    for (int t = 0; t < loop.transforms.Count; t++)
+                    {
+                        ConverterLoopTransformState ts = loop.transforms[t];
+                        if (ts?.t == null || ts.phases == null || ts.phases.Length == 0) continue;
+                        ts.t.localPosition = ts.phases[0].pos;
+                        ts.t.localRotation = ts.phases[0].rot;
+                        ts.t.localScale = ts.phases[0].scale;
+                        restored++;
+                    }
+                }
+            }
+
             if (restored > 0)
                 ParsekLog.VerboseRateLimited("GhostVisual", "loop-synth-restore",
                     $"Loop cycle: restored {restored} synthesized transform(s) to neutral " +
@@ -5451,6 +5554,14 @@ namespace Parsek
             if (state?.ghost == null) return;
             SynthesizedMotionGhostInfos synth = state.synthesizedMotionInfos;
             if (synth == null || synth.IsEmpty) return;
+
+            // S7 runs FIRST and OUTSIDE the delta-time machinery below, deliberately. The other
+            // three families are attitude-DERIVATIVE driven, so they need a usable dt and re-seed
+            // (skipping the frame) when they cannot get one. A running loop needs no derivative at
+            // all: its phase is a pure function of (currentUT - activeSinceUT). Putting it after
+            // the re-seed guard would freeze every drill in the scene for the whole of a sustained
+            // time warp — precisely the situation a mining base is usually watched in.
+            DriveConverterLoops(state, synth, currentUT);
 
             // The APPLIED world rotation — post-positioning, post-frame-resolution, correct on
             // Absolute and RELATIVE sections alike because it is the transform, not stored data.
@@ -5496,6 +5607,358 @@ namespace Parsek
             DriveSynthesizedGimbals(state, synth, rate, deltaSeconds);
             DriveSynthesizedControlSurfaces(state, synth, rate, deltaSeconds);
             DriveSunTracking(state, synth, deltaSeconds);
+        }
+
+        /// <summary>
+        /// S7: the running-loop phase for one loop at one recorded UT, wrapped into [0,1).
+        ///
+        /// Pure, so the cyclic arithmetic — the part most likely to be wrong and least likely to be
+        /// noticed — is directly testable. A non-finite or non-positive clip length parks the loop
+        /// at phase 0 rather than dividing by it.
+        /// </summary>
+        internal static float ComputeConverterLoopPhase(
+            double currentUT, double activeSinceUT, float clipLengthSeconds)
+        {
+            if (clipLengthSeconds <= 0f || float.IsNaN(clipLengthSeconds) || float.IsInfinity(clipLengthSeconds))
+                return 0f;
+            double elapsed = currentUT - activeSinceUT;
+            if (double.IsNaN(elapsed) || double.IsInfinity(elapsed) || elapsed <= 0.0)
+                return 0f;
+
+            double cycles = elapsed / clipLengthSeconds;
+            double phase = cycles - Math.Floor(cycles);
+            if (phase < 0.0) phase += 1.0;
+            // Guard the boundary: floating point can land phase at exactly 1.0 for a large
+            // `cycles`, and a caller indexing phases[(int)(phase * N)] would then run off the end.
+            if (phase >= 1.0) phase = 0.0;
+            return (float)phase;
+        }
+
+        /// <summary>
+        /// S7: resolves a wrapped phase onto a pair of adjacent sampled poses and the blend between
+        /// them. The pair WRAPS — phase 11 of 12 blends toward phase 0, not toward a 13th slot —
+        /// because the clip is cyclic and the sampler deliberately did not store a duplicate
+        /// endpoint.
+        /// </summary>
+        internal static void ResolveConverterLoopBlend(
+            float phase, int phaseCount, out int fromIndex, out int toIndex, out float blend)
+        {
+            fromIndex = 0;
+            toIndex = 0;
+            blend = 0f;
+            if (phaseCount <= 0) return;
+            if (phaseCount == 1) return;
+
+            float scaled = Mathf.Clamp01(phase) * phaseCount;
+            fromIndex = (int)scaled;
+            if (fromIndex >= phaseCount) fromIndex = phaseCount - 1;
+            toIndex = (fromIndex + 1) % phaseCount;
+            blend = Mathf.Clamp01(scaled - fromIndex);
+        }
+
+        /// <summary>
+        /// S7: advances every ACTIVE running loop on this ghost to the pose its recorded UT implies.
+        /// Inactive loops are left exactly where they stopped, which is what a switched-off drill
+        /// looks like — parked mid-stroke, not snapped to a home pose.
+        /// </summary>
+        private static void DriveConverterLoops(
+            GhostPlaybackState state, SynthesizedMotionGhostInfos synth, double currentUT)
+        {
+            if (synth.converterLoops == null || synth.converterLoops.Count == 0) return;
+
+            int driven = 0;
+            for (int i = 0; i < synth.converterLoops.Count; i++)
+            {
+                ConverterLoopGhostInfo loop = synth.converterLoops[i];
+                if (loop == null || !loop.active) continue;
+                if (loop.transforms == null || loop.transforms.Count == 0) continue;
+
+                float phase = ComputeConverterLoopPhase(
+                    currentUT, loop.activeSinceUT, loop.clipLengthSeconds);
+
+                for (int t = 0; t < loop.transforms.Count; t++)
+                {
+                    ConverterLoopTransformState ts = loop.transforms[t];
+                    if (ts?.t == null || ts.phases == null || ts.phases.Length == 0) continue;
+
+                    ResolveConverterLoopBlend(
+                        phase, ts.phases.Length, out int from, out int to, out float blend);
+
+                    ConverterLoopPose a = ts.phases[from];
+                    ConverterLoopPose b = ts.phases[to];
+                    ts.t.localPosition = Vector3.Lerp(a.pos, b.pos, blend);
+                    ts.t.localRotation = Quaternion.Slerp(a.rot, b.rot, blend);
+                    ts.t.localScale = Vector3.Lerp(a.scale, b.scale, blend);
+                }
+                driven++;
+            }
+
+            if (driven > 0)
+                ParsekLog.VerboseRateLimited("GhostVisual", "converter-loop-drive",
+                    $"Converter loops driven: {driven} (vessel='{state.vesselName ?? "unknown"}')", 5.0);
+        }
+
+        /// <summary>
+        /// S7: starts or stops one part's running loop. Called by the ConverterActivated /
+        /// ConverterDeactivated events, by the snapshot-start seed and by the loop-cycle reset.
+        ///
+        /// <paramref name="activeSinceUT"/> is the RECORDED event UT, which is what makes the whole
+        /// thing scrub-safe: replaying the same recorded moment always lands on the same phase, so
+        /// a rewound or looping replay is not merely close but identical.
+        /// </summary>
+        internal static bool ApplyConverterLoopState(
+            GhostPlaybackState state, uint partPersistentId, bool active, double activeSinceUT)
+        {
+            var synth = state?.synthesizedMotionInfos;
+            if (synth?.converterLoops == null) return false;
+
+            bool applied = false;
+            for (int i = 0; i < synth.converterLoops.Count; i++)
+            {
+                ConverterLoopGhostInfo loop = synth.converterLoops[i];
+                if (loop == null || loop.partPersistentId != partPersistentId) continue;
+
+                // Re-arming an ALREADY-active loop would restart it from phase 0 and produce a
+                // visible hitch. A duplicate ConverterActivated (a snapshot seed followed by a
+                // start-UT seed for the same part) is exactly that case, so it is ignored.
+                if (active && loop.active) { applied = true; continue; }
+
+                loop.active = active;
+                if (active) loop.activeSinceUT = activeSinceUT;
+                applied = true;
+            }
+
+            return applied;
+        }
+
+        /// <summary>
+        /// S4: the jetpack plume gate. Pure, because it is the one place the three recorded EVA
+        /// flags combine and the combination is the whole honesty of the feature.
+        ///
+        /// All three conditions are load-bearing:
+        /// <list type="bullet">
+        /// <item><description>THRUSTING is the signal itself, already debounced by the recorder so
+        /// a single tap never reaches here.</description></item>
+        /// <item><description>JETPACK DEPLOYED, because a stowed pack cannot thrust. The recorder
+        /// reads the two flags independently and KSP recomputes JetpackIsThrusting from fuel flow,
+        /// so the pair CAN disagree for a frame around a stow - and a plume from a stowed pack is
+        /// the more visible of the two possible errors.</description></item>
+        /// <item><description>NOT RAGDOLL. A tumbling kerbal is not flying, and stock cuts thrust
+        /// when the FSM enters ragdoll. This is also where the ragdoll events earn their keep on the
+        /// VISUAL side, given that the ragdoll POSE is deliberately not replayed.</description></item>
+        /// </list>
+        /// </summary>
+        internal static bool ShouldEmitEvaJetpackPlume(bool deployed, bool thrusting, bool ragdoll)
+            => thrusting && deployed && !ragdoll;
+
+        /// <summary>
+        /// S4: records one EVA flag change and reconciles the plume to the resulting gate.
+        ///
+        /// All six EVA event types route through here rather than each toggling the particle system
+        /// itself, so the gate is evaluated in exactly one place and cannot drift between call sites.
+        /// </summary>
+        internal static void ApplyEvaState(GhostPlaybackState state, PartEventType type)
+        {
+            if (!TryUpdateEvaFlags(state, type)) return;
+            ReconcileEvaJetpackPlume(state);
+        }
+
+        /// <summary>
+        /// S4: folds one EVA event into the three playback flags. Returns false for an event type
+        /// that is not an EVA one, so the caller skips the reconcile.
+        ///
+        /// Split out from <see cref="ApplyEvaState"/> so the BOOKKEEPING is headless-testable: the
+        /// reconcile below has to compare a GameObject against null, which routes through a
+        /// UnityEngine.Object ECall xUnit cannot host. Same pure-decision / Unity-applier division
+        /// the rest of this file uses.
+        /// </summary>
+        internal static bool TryUpdateEvaFlags(GhostPlaybackState state, PartEventType type)
+        {
+            if (state == null) return false;
+
+            switch (type)
+            {
+                case PartEventType.EvaJetpackDeployed: state.evaJetpackDeployed = true; return true;
+                case PartEventType.EvaJetpackStowed: state.evaJetpackDeployed = false; return true;
+                case PartEventType.EvaJetpackThrustStarted: state.evaJetpackThrusting = true; return true;
+                case PartEventType.EvaJetpackThrustStopped: state.evaJetpackThrusting = false; return true;
+                case PartEventType.EvaRagdollStarted: state.evaRagdoll = true; return true;
+                case PartEventType.EvaRagdollEnded: state.evaRagdoll = false; return true;
+                default: return false;
+            }
+        }
+
+        /// <summary>
+        /// S4: what one plume reconcile should DO, as a pure function of the gate plus the facts
+        /// only Unity can answer. Split out from <see cref="ReconcileEvaJetpackPlume"/> so the
+        /// interesting decision - in particular the inactive-hierarchy case, which is the one that
+        /// shipped broken - is headless-testable; the Unity reads and the build / Play / Stop calls
+        /// stay in the impure wrapper.
+        /// </summary>
+        internal enum EvaPlumeReconcileAction
+        {
+            /// <summary>Gate shut and nothing playing: no work.</summary>
+            None,
+            /// <summary>Gate shut but the system is still emitting: stop it.</summary>
+            Stop,
+            /// <summary>Gate open, hierarchy active, no system yet: build one, then play it.</summary>
+            Build,
+            /// <summary>Gate open, hierarchy active, system exists and is idle: start it.</summary>
+            Play,
+            /// <summary>Gate open and the system is already emitting: no work.</summary>
+            AlreadyPlaying,
+            /// <summary>
+            /// Gate open but the ghost is NOT active in the hierarchy, so neither building nor
+            /// playing would take effect. Do nothing THIS call; the per-frame self-heal retries once
+            /// the ghost is shown.
+            /// </summary>
+            DeferInactiveHierarchy,
+            /// <summary>A previous build failed (no additive shader): never retry.</summary>
+            Unavailable,
+        }
+
+        /// <summary>
+        /// THE INACTIVE-HIERARCHY CASE IS THE WHOLE REASON THIS IS A NAMED FUNCTION. Unity's
+        /// <c>ParticleSystem.Play()</c> on a system that is not <c>activeInHierarchy</c> is a SILENT
+        /// no-op - it neither throws nor sets <c>isPlaying</c> - and a ghost spends a genuinely
+        /// reachable part of its life inactive: <c>BuildTimelineGhostFromSnapshot</c> ends with
+        /// <c>root.SetActive(false)</c>, and the spawn-time prefix replay inside
+        /// <c>ApplyPartEvents</c> runs BEFORE <c>ActivateGhostVisualsIfNeeded</c>. So a ghost whose
+        /// playback cursor lands inside a thrust burst consumed its <c>EvaJetpackThrustStarted</c>
+        /// against an inactive hierarchy, the Play no-opped, and - because this reconcile was
+        /// EVENT-driven only - nothing ever tried again. The plume stayed dark for the whole burst
+        /// while the log claimed it was emitting.
+        ///
+        /// Deferring the BUILD as well (rather than building and failing to play) keeps the laziness
+        /// claim honest: a ghost that is never shown allocates nothing at all.
+        /// </summary>
+        internal static EvaPlumeReconcileAction ClassifyEvaPlumeReconcile(
+            bool wanted, bool hasPlume, bool unavailable, bool hierarchyActive, bool isPlaying)
+        {
+            if (!wanted)
+                return hasPlume && isPlaying ? EvaPlumeReconcileAction.Stop : EvaPlumeReconcileAction.None;
+
+            // Checked BEFORE `unavailable` and before the build: an inactive ghost is a
+            // RETRY-LATER, not a permanent failure, and conflating the two would either mark a
+            // perfectly good ghost permanently unavailable or allocate for one never shown.
+            if (!hierarchyActive)
+                return EvaPlumeReconcileAction.DeferInactiveHierarchy;
+
+            if (unavailable) return EvaPlumeReconcileAction.Unavailable;
+            if (!hasPlume) return EvaPlumeReconcileAction.Build;
+            return isPlaying ? EvaPlumeReconcileAction.AlreadyPlaying : EvaPlumeReconcileAction.Play;
+        }
+
+        /// <summary>
+        /// S4: brings the plume into line with the flags. Builds it LAZILY on the first moment it is
+        /// wanted AND showable, so an EVA ghost that never fires its pack - or is never shown -
+        /// allocates no particle system, and a non-EVA ghost never reaches here at all.
+        ///
+        /// Called BOTH from the six EVA events (immediate response) and once per rendered frame
+        /// while the recording says the pack is firing
+        /// (<see cref="UpdateEvaJetpackPlumeForFrame"/>). The per-frame call is what makes it
+        /// SELF-HEALING, exactly as launch dust already is: whatever the hierarchy was doing when
+        /// the event arrived, the first frame the ghost is actually visible starts the plume.
+        ///
+        /// Logging is DECISION-VS-TRUTH, per the named anomaly class the render tracers use: the
+        /// success line is emitted only after reading <c>isPlaying</c> BACK and finding it true. It
+        /// used to be emitted on the strength of having called Play, which is exactly how a total
+        /// no-op logged as a success.
+        /// </summary>
+        internal static void ReconcileEvaJetpackPlume(GhostPlaybackState state)
+        {
+            if (state == null) return;
+
+            bool wanted = ShouldEmitEvaJetpackPlume(
+                state.evaJetpackDeployed, state.evaJetpackThrusting, state.evaRagdoll);
+
+            // Every Unity read happens ONCE, here, and is handed to the pure classifier. A PLAIN
+            // reference check guards the info object first: comparing a null ParticleSystem against
+            // null would still route through UnityEngine.Object's overloaded operator.
+            bool hasPlume = state.evaJetpackPlumeInfo != null;
+            ParticleSystem ps = hasPlume ? state.evaJetpackPlumeInfo.particles : null;
+            bool isPlaying = hasPlume && ps != null && ps.isPlaying;
+            bool hierarchyActive = state.ghost != null && state.ghost.activeInHierarchy;
+
+            EvaPlumeReconcileAction action = ClassifyEvaPlumeReconcile(
+                wanted, hasPlume, state.evaJetpackPlumeUnavailable, hierarchyActive, isPlaying);
+
+            switch (action)
+            {
+                case EvaPlumeReconcileAction.None:
+                case EvaPlumeReconcileAction.AlreadyPlaying:
+                case EvaPlumeReconcileAction.Unavailable:
+                    return;
+
+                case EvaPlumeReconcileAction.Stop:
+                    ps.Stop(true, ParticleSystemStopBehavior.StopEmitting);
+                    return;
+
+                case EvaPlumeReconcileAction.DeferInactiveHierarchy:
+                    // Not a failure, and deliberately not silent: this is the state the spawn prefix
+                    // replay is ALWAYS in, so it has to be greppable when a plume is reported
+                    // missing.
+                    ParsekLog.VerboseRateLimited("GhostVisual", "eva-plume-deferred",
+                        "EVA jetpack plume deferred (vessel='" + (state.vesselName ?? "unknown") +
+                        "'): ghost not active in hierarchy, so Play() would silently no-op; " +
+                        "retrying on the first rendered frame", 5.0);
+                    return;
+
+                case EvaPlumeReconcileAction.Build:
+                    state.evaJetpackPlumeInfo = GhostVisualBuilder.TryBuildEvaJetpackPlume(
+                        state.ghost, state.vesselName);
+                    if (state.evaJetpackPlumeInfo == null)
+                    {
+                        state.evaJetpackPlumeUnavailable = true;
+                        return;
+                    }
+                    ps = state.evaJetpackPlumeInfo.particles;
+                    goto case EvaPlumeReconcileAction.Play;
+
+                case EvaPlumeReconcileAction.Play:
+                    if (ps == null) return;
+                    ps.Play();
+
+                    // TRUTH, read back rather than assumed.
+                    if (ps.isPlaying)
+                    {
+                        ParsekLog.VerboseRateLimited("GhostVisual", "eva-plume",
+                            "EVA jetpack plume emitting (vessel='" + (state.vesselName ?? "unknown") +
+                            "' deployed=" + state.evaJetpackDeployed +
+                            " thrusting=" + state.evaJetpackThrusting +
+                            " ragdoll=" + state.evaRagdoll + ")", 5.0);
+                    }
+                    else
+                    {
+                        // WARN, not Verbose: the hierarchy WAS active, so the deferral branch did not
+                        // apply and Play() should have taken. Anything reaching here is an unmodelled
+                        // refusal, and the render tracers' convention is that a decision-vs-truth
+                        // mismatch nobody predicted is loud.
+                        ParsekLog.Warn("GhostVisual",
+                            "EVA jetpack plume did NOT start after Play() (vessel='" +
+                            (state.vesselName ?? "unknown") + "' hierarchyActive=true deployed=" +
+                            state.evaJetpackDeployed + " thrusting=" + state.evaJetpackThrusting +
+                            " ragdoll=" + state.evaRagdoll +
+                            ") - the gate opened but the system stayed idle");
+                    }
+                    return;
+            }
+        }
+
+        /// <summary>
+        /// S4 per-frame self-heal, called from <c>ApplyFrameVisuals</c> beside the launch-dust drive.
+        /// Gated on the ONE flag that can want a plume, so a non-EVA ghost - i.e. essentially every
+        /// ghost - pays a single bool field read per frame and nothing more.
+        ///
+        /// It exists because the event-driven reconcile alone is not enough: see
+        /// <see cref="ClassifyEvaPlumeReconcile"/> for the inactive-hierarchy no-op it repairs.
+        /// Launch dust gets the same property for free by re-calling Play every frame; this plume is
+        /// event-driven, so it needs the retry stated explicitly.
+        /// </summary>
+        internal static void UpdateEvaJetpackPlumeForFrame(GhostPlaybackState state)
+        {
+            if (state == null || !state.evaJetpackThrusting) return;
+            ReconcileEvaJetpackPlume(state);
         }
 
         private static void DriveSynthesizedGimbals(
@@ -5743,6 +6206,7 @@ namespace Parsek
                 return "deployable=absent (treated as deployed)";
             }
             return "deployable=present"
+                + $" breakSubtreeHidden={d.breakSubtreeHidden}"
                 + $" currentDeployed={d.currentDeployed}"
                 + $" transitionActive={d.transitionActive}"
                 + $" deployFraction={d.deployFraction.ToString("R", CultureInfo.InvariantCulture)}"
@@ -5834,6 +6298,19 @@ namespace Parsek
             if (state?.deployableInfos == null) return true;
             if (!state.deployableInfos.TryGetValue(partPersistentId, out DeployableGhostInfo d) || d == null)
                 return true;
+            // S6: a BROKEN panel closes the gate. The pivot may still carry a fully-deployed pose
+            // from before the break (the recorder does not retract it - that is rule 1), so without
+            // this the ghost would slew the pivot of a panel it has just hidden toward the Sun for
+            // the rest of the recording.
+            //
+            // SCOPE, stated precisely because the obvious stronger claim is false: this closes the
+            // gate for any part that HAS a DeployableGhostInfo, including one whose break transform
+            // did not resolve (ApplyDeployableBrokenState still sets the flag). It does NOT cover a
+            // part with no info at all - the TryGetValue miss above answers "treated as deployed" -
+            // but that combination needs a part with no deploy animation AND an unresolvable break
+            // transform AND isTracking, which no stock part is: every tracking panel has a deploy
+            // animation, so it always has an info.
+            if (d.breakSubtreeHidden) return false;
             return d.currentDeployed && !d.transitionActive && d.deployFraction >= 1f - 1e-4f;
         }
 
@@ -6257,6 +6734,41 @@ namespace Parsek
             => ApplyDeployableState(state, evt, deployed, immediate: true);
 
         /// <summary>
+        /// S6: hides or re-shows the break subtree — the ghost-side equivalent of what stock does
+        /// to a ModuleDeployablePart that goes BROKEN (<c>panelBreakTransform.gameObject
+        /// .SetActive(false)</c>) and of what a repair undoes.
+        ///
+        /// Stock's own repair path (<c>DoRepair</c>) re-instantiates a fresh subtree off the part
+        /// prefab rather than re-activating the old one, because the live break DETACHED the panel
+        /// into its own physics object and flung it away. Our ghost never detached anything — it
+        /// only ever hid its own clone — so a plain SetActive(true) is the faithful inverse, and
+        /// the simpler one.
+        ///
+        /// Absolute-state and idempotent, which is what lets a snapshot baseline, a start-UT seed
+        /// and a recorded event all target the same pid without fighting.
+        ///
+        /// Returns true when an info existed for the pid, whether or not it had a resolvable
+        /// transform: the STATE flag is set either way, because "this panel is broken" still has
+        /// to gate sun tracking on a part whose break transform could not be resolved.
+        /// </summary>
+        internal static bool ApplyDeployableBrokenState(
+            GhostPlaybackState state, uint partPersistentId, bool broken)
+        {
+            if (state?.deployableInfos == null) return false;
+
+            DeployableGhostInfo info;
+            if (!state.deployableInfos.TryGetValue(partPersistentId, out info) || info == null)
+                return false;
+
+            info.breakSubtreeHidden = broken;
+
+            if (info.breakSubtreeRoot != null)
+                info.breakSubtreeRoot.gameObject.SetActive(!broken);
+
+            return true;
+        }
+
+        /// <summary>
         /// Applies a deployable target pose, either immediately or as an interpolated transition
         /// keyed on <c>evt.ut</c> (the RECORDED event UT, never wall time — see
         /// <see cref="ComputeDeployableTransitionFraction"/>).
@@ -6269,6 +6781,24 @@ namespace Parsek
             DeployableGhostInfo info;
             if (!state.deployableInfos.TryGetValue(evt.partPersistentId, out info)) return false;
             if (info?.transforms == null) return false;
+
+            // S6: ANY extend/retract opinion on a panel currently rendered broken un-hides it
+            // first. The recorder emits DeployableRetracted on a repair precisely so this fires,
+            // and putting it here rather than only in the Retracted arm means a recording whose
+            // repair was followed immediately by a re-deploy (so the tail's first deployable
+            // event is Extended) still gets the panel back.
+            //
+            // AND THE UN-HIDE FORCES A SNAP, which is not a detail. Rule 1 deliberately leaves the
+            // pivot at deployFraction = 1 when a panel breaks (the recorder does not retract it),
+            // so an ANIMATED application here would re-show the panel fully EXTENDED and then fold
+            // it politely shut over the clip length. Stock DoRepair lands on RETRACTED instantly,
+            // with a freshly instantiated subtree - there is no fold to show. Reaching the target
+            // pose in the same frame as the un-hide is the faithful rendering.
+            if (info.breakSubtreeHidden)
+            {
+                ApplyDeployableBrokenState(state, evt.partPersistentId, broken: false);
+                immediate = true;
+            }
 
             float target = deployed ? 1f : 0f;
 

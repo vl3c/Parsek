@@ -972,6 +972,14 @@ namespace Parsek
                 case PartEventType.Undocked:
                 case PartEventType.InventoryPartPlaced:
                 case PartEventType.InventoryPartRemoved:
+                // P8: DeployableBroken is the ONLY new member that earns a prewarm — it hides a
+                // mesh subtree, so a hidden ghost that skipped it would render an intact panel
+                // the moment it becomes visible. The other eight are self-correcting overlays:
+                // the converter running loop is a pure function of (UT - activeSinceUT) and
+                // re-derives its phase on the first visible frame, and the EVA jetpack pose /
+                // plume / ragdoll flags are re-established by the prefix replay when the ghost
+                // is actually built. Prewarming a ghost build for those would buy nothing.
+                case PartEventType.DeployableBroken:
                     return true;
                 default:
                     return false;
@@ -3685,6 +3693,15 @@ namespace Parsek
             {
                 UpdateReentryFx(index, state, traj.VesselName, warpRate);
                 UpdateLaunchDust(index, state, traj, warpRate);
+
+                // S4 SELF-HEAL, and it belongs beside launch dust for the same reason dust is here:
+                // a ParticleSystem.Play() only takes on an ACTIVE hierarchy, and a ghost is inactive
+                // for the whole of its spawn-time prefix replay (BuildTimelineGhostFromSnapshot ends
+                // with root.SetActive(false); ActivateGhostVisualsIfNeeded runs later). Dust gets the
+                // retry for free by re-calling Play every frame; the plume is EVENT-driven, so
+                // without this a ghost spawning mid-burst stayed dark for the entire burst. Gated on
+                // the one flag that can want a plume, so every non-EVA ghost pays one bool read.
+                GhostPlaybackLogic.UpdateEvaJetpackPlumeForFrame(state);
                 GhostPlaybackLogic.RestoreAllRcsEmissions(state);
                 // Boundary-overlap secondary gets NO audio (plan invariant 3): it borrows the overlap
                 // STORAGE but must never be audible. The spawn-time MuteAllAudio is a one-shot flag, and
@@ -8344,6 +8361,10 @@ namespace Parsek
             // collect with the hierarchy — the same reason DestroyReentryFxResources exists.
             GhostVisualBuilder.DestroyLaunchDust(state.launchDustInfo);
             state.launchDustInfo = null;
+            // S4: the EVA jetpack puff owns a Material and a generated Texture2D on exactly the
+            // same terms, so it needs the same explicit release.
+            GhostVisualBuilder.DestroyEvaJetpackPlume(state.evaJetpackPlumeInfo);
+            state.evaJetpackPlumeInfo = null;
 
             if (state.ghost != null)
                 UnityEngine.Object.Destroy(state.ghost);

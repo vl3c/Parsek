@@ -121,6 +121,24 @@ namespace Parsek
         public float transitionStartFraction;
         /// <summary>The fraction the in-flight transition is heading to (0 or 1).</summary>
         public float transitionTargetFraction;
+
+        /// <summary>
+        /// S6: the ghost-side clone of the part's <c>panelBreakTransform</c> subtree — what stock
+        /// hides when a ModuleDeployablePart goes BROKEN. Resolved at build time from
+        /// <c>breakName</c>, falling back to <c>pivotName</c> exactly as stock's own OnStart does
+        /// (the prefab has not run OnStart, so the empty-breakName default has not been applied
+        /// yet and we must apply it ourselves). Null when the part is not breakable or the
+        /// transform could not be resolved onto the ghost — in which case a DeployableBroken
+        /// event degrades to no visual rather than to a wrong one.
+        /// </summary>
+        public Transform breakSubtreeRoot;
+
+        /// <summary>
+        /// True while <see cref="breakSubtreeRoot"/> is hidden. Tracked rather than read back off
+        /// the GameObject so the loop-cycle re-show and the sun-tracking gate are pure state
+        /// reads, and so a null transform still carries a truthful "this part is broken" answer.
+        /// </summary>
+        public bool breakSubtreeHidden;
     }
 
     /// <summary>
@@ -186,6 +204,25 @@ namespace Parsek
     }
 
     /// <summary>
+    /// S4: the Parsek-owned puff a ghost kerbal's jetpack emits while thrusting.
+    ///
+    /// WHY PARSEK OWNS IT rather than cloning a stock system, verified by decompile: KerbalEVA's
+    /// jetpack FX are <c>FXGroup</c>s resolved from <c>part.findFxGroup("X+")</c> and friends, and
+    /// <c>kerbalEVA.cfg</c>'s EFFECTS node is AUDIO ONLY — there are no stock particles to clone,
+    /// and no ModuleRCS to route through the engine/RCS FX path. Same situation as launch dust, so
+    /// the same answer: author one system outright, which also means the driver may write emission
+    /// and size multipliers directly rather than through the captured-baseline machinery a cloned
+    /// KSP asset needs.
+    /// </summary>
+    internal class EvaJetpackPlumeInfo
+    {
+        public GameObject plumeObject;
+        public ParticleSystem particles;
+        public Material material;
+        public Texture2D generatedTexture;
+    }
+
+    /// <summary>
     /// The three S3 synthesis families a single part can contribute. One container so the ghost
     /// build's already-14-wide out-parameter list grows by one rather than by three.
     /// </summary>
@@ -194,11 +231,72 @@ namespace Parsek
         public List<GimbalGhostInfo> gimbals;
         public List<ControlSurfaceGhostInfo> controlSurfaces;
         public List<SunTrackingGhostInfo> sunTrackers;
+        /// <summary>
+        /// S7: the ModuleAnimationGroup RUNNING loops (drill spinning, ISRU churning). Rides this
+        /// container rather than a fifteenth <c>AddPartVisuals</c> out-parameter, and it belongs
+        /// here on merit: like the other three it is DRIVEN per frame from recorded state rather
+        /// than applied once by an event, so it shares the same per-frame walk.
+        /// </summary>
+        public List<ConverterLoopGhostInfo> converterLoops;
 
         internal bool IsEmpty =>
             (gimbals == null || gimbals.Count == 0)
             && (controlSurfaces == null || controlSurfaces.Count == 0)
-            && (sunTrackers == null || sunTrackers.Count == 0);
+            && (sunTrackers == null || sunTrackers.Count == 0)
+            && (converterLoops == null || converterLoops.Count == 0);
+    }
+
+    /// <summary>One transform's pose at one sampled phase of a looping animation clip.</summary>
+    internal struct ConverterLoopPose
+    {
+        public Vector3 pos;
+        public Quaternion rot;
+        public Vector3 scale;
+    }
+
+    /// <summary>
+    /// One ghost transform animated by a running loop, with its pose sampled at each phase.
+    /// <c>phases</c> has the same length for every transform in a
+    /// <see cref="ConverterLoopGhostInfo"/> (the sampler fills all of them or drops the transform).
+    /// </summary>
+    internal class ConverterLoopTransformState
+    {
+        public Transform t;
+        public ConverterLoopPose[] phases;
+    }
+
+    /// <summary>
+    /// S7: one part's ModuleAnimationGroup RUNNING animation, replayed as a continuous loop while
+    /// the part's converter is active.
+    ///
+    /// WHY N SAMPLED PHASES rather than the two-pose interpolation the deployable family uses: a
+    /// running loop is CYCLIC, so its two endpoints are the SAME pose. Sampling only the ends would
+    /// produce a delta of zero and no motion at all — a drill that "runs" by standing perfectly
+    /// still. N phases around the cycle give a piecewise-linear traversal that reads correctly at
+    /// playback speed, which is all the design principle asks for.
+    ///
+    /// The phase is a pure function of <c>(playbackUT - activeSinceUT) / clipLengthSeconds</c>,
+    /// exactly the S2 argument: no wall-clock time anywhere, so scrubbing, time warp and looping
+    /// replays all land on the same pose for the same recorded moment.
+    ///
+    /// Built INDEPENDENTLY of <c>TryGetAnimationGroupDeployAnimation</c>, which requires a non-empty
+    /// deployAnimationName — the large ISRU's ModuleAnimationGroup has an EMPTY deploy name and only
+    /// a running one (<c>ProcessorLarge_running</c>), so anything gated on the deploy name would
+    /// silently skip the single biggest ISRU part in the game.
+    /// </summary>
+    internal class ConverterLoopGhostInfo
+    {
+        public uint partPersistentId;
+        public List<ConverterLoopTransformState> transforms;
+        /// <summary>The running clip's own length, clamped by ClampDeployableClipSeconds.</summary>
+        public float clipLengthSeconds = 3f;
+        /// <summary>True while the part's converter is running and the loop should advance.</summary>
+        public bool active;
+        /// <summary>
+        /// The RECORDED UT the loop started at — never wall time. Phase is measured from here, so
+        /// the same recorded moment always renders the same pose.
+        /// </summary>
+        public double activeSinceUT;
     }
 
     internal struct HeatTransformState

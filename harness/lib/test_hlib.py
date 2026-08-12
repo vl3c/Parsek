@@ -2759,6 +2759,10 @@ class IngameBatchWiringGroupTests(unittest.TestCase):
         # then PASS 7/7 after both fixes), so its tally is now pinned WHOLE and it
         # has left INTERIM_PIN_IDS - see that set's comment for the measurement.
         "H36-playback-fidelity":     ("PlaybackFidelity", 7, "FLIGHT"),
+        # P8's live half. LIVE-PROVEN 2026-08-12 on the re-fly (`total=5 passed=5 failed=0
+        # skipped=0`) after a first flight that red 3/5 on one product defect and one
+        # fixture bug; the pin is whole and the id has left INTERIM_PIN_IDS.
+        "H37-part-event-fidelity":   ("PartEventFidelity", 5, "FLIGHT"),
     }
 
     # Declared MEASURED run-time skips per member: InGameAssert.Skip firings the
@@ -2871,7 +2875,33 @@ class IngameBatchWiringGroupTests(unittest.TestCase):
     #   all seven guards were satisfied on stock-minimal, so no RUNTIME_SKIPS entry is
     #   owed and the pin is now whole.
     #
-    # All three specs now pin their tallies whole, so the set is empty again.
+    #   H37-part-event-fidelity (P8) also took TWO flights, and its first one is the
+    #   sharpest illustration yet of why this set exists. All five cells carry a run-time
+    #   InGameAssert.Skip keyed on what the install loaded AND on what the ghost builder
+    #   resolved, so no attribute predicted the split. The FIRST flight (2026-08-12) read
+    #   `total=5 passed=3 failed=1 skipped=1`, and NEITHER non-green cell was a fixture
+    #   shortfall of the kind the loose pin was hedging against:
+    #     * the RED was a PRODUCT defect - ParticleSystem.Play() on a ghost that is not
+    #       activeInHierarchy is a SILENT no-op, and a ghost is inactive for the whole of
+    #       its spawn-time prefix replay, so an EVA ghost spawning mid-burst stayed dark
+    #       for the entire burst while the log claimed it was emitting; and
+    #     * the SKIP was a FIXTURE BUG, not an install property - the cell's precondition
+    #       tested POSITION only while a science canister's Deploy clip swings its doors,
+    #       so it was blind to the one motion the part has. The re-fly measured
+    #       `span(pos=0 rot=29.99998)` on mk2LanderCabin.v2: a literally ZERO position
+    #       span, which is the diagnosis in one number.
+    #   THE LESSON, which is the durable part: a loose `passed=` hedges against the
+    #   install, but the things it actually caught here were a product bug and a test bug.
+    #   Do not read a non-green interim flight as "the profile lacks X" - measure which of
+    #   the three it is. The RE-FLY after both fixes (2026-08-12, PASS attempt 1) read
+    #   `total=5 passed=5 failed=0 skipped=0`, every verifier green (analyzer red=0,
+    #   anomalySweep hits=[], expectations mismatches=0, unityExceptions 0), so all five
+    #   guards were satisfied on stock-minimal, no RUNTIME_SKIPS entry is owed, and the pin
+    #   is now whole.
+    #
+    # All four specs now pin their tallies whole, so the set is empty again. It must stay a
+    # `set()` call rather than a `{}` literal, which would be an empty DICT - the two
+    # membership cells below would then answer False for every id and pass vacuously.
     INTERIM_PIN_IDS: set = set()
 
     # Every committed spec whose id matches this is an H-SERIES batch spec.
@@ -2917,8 +2947,8 @@ class IngameBatchWiringGroupTests(unittest.TestCase):
         # cell below cannot catch either, because it compares two sets that shrink
         # together. Same shape as CommittedBatchTallySourceSyncTests's
         # test_the_source_tree_is_actually_readable.
-        self.assertEqual(29, len(self.GROUP),
-                         "the H7-H20 + H22-H36 group is 29 specs; if it genuinely changed "
+        self.assertEqual(30, len(self.GROUP),
+                         "the H7-H20 + H22-H37 group is 30 specs; if it genuinely changed "
                          "size, update this floor AND the counts in "
                          "docs/dev/autotest-ingame-category-inventory.md and "
                          "docs/dev/autotest-status.md in the same commit")
@@ -5464,8 +5494,9 @@ class IngameCategoryInventoryDocTests(unittest.TestCase):
         # would agree with each other while both drifted from the source). 99 -> 100
         # with the `ReFlyWorldPreservation` category (S4.2), 100 -> 101 with
         # `RecordedSignals` (H33), 101 -> 102 with `SnapshotBaseline` (H32),
-        # 102 -> 103 with `PlaybackFidelity` (H36).
-        self.assertIn("**103 categories / %d declarations**" % stated_decls, body,
+        # 102 -> 103 with `PlaybackFidelity` (H36), 103 -> 104 with
+        # `PartEventFidelity` (H37).
+        self.assertIn("**104 categories / %d declarations**" % stated_decls, body,
                       "the triage totals line disagrees with the table it summarises "
                       "(table sums to %d declarations across %d categories)"
                       % (stated_decls, len(self.rows)))

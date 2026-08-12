@@ -130,6 +130,7 @@ Two limits of this table, stated so nobody over-reads it:
 | `Missions` | 12 | 7 | 5 | 0 | 0 | 9 | M1 | B |
 | `Optimizer` | 2 | 0 | 2 | 0 | 0 | 2 | - | B |
 | `PartEventFX` | 6 | 6 | 0 | 0 | 0 | 6 | - | B |
+| `PartEventFidelity` | 5 | 5 | 0 | 0 | 0 | 5 | H37 | A |
 | `PartEventTiming` | 2 | 2 | 0 | 0 | 0 | 0 | - | B |
 | `Periodicity` | 12 | 1 | 8 | 0 | 3 | 5 | M2 | B |
 | `Pipeline-Anchor` | 7 | 7 | 0 | 0 | 0 | 0 | H11 | A |
@@ -193,18 +194,19 @@ Two limits of this table, stated so nobody over-reads it:
 
 ## Triage
 
-Totals, re-derived: **103 categories / 574 declarations**. Buckets **A 31 categories
-(215 declarations)**, **B 72 categories (359 declarations)**, **C 0 categories (0
-declarations)**. Driven by a committed spec: **40 of 103 categories**, up from 35
-across five waves - `ReFlyWorldPreservation` via S4.2, `RecordedSignals` via H33,
+Totals, re-derived: **104 categories / 579 declarations**. Buckets **A 32 categories
+(220 declarations)**, **B 72 categories (359 declarations)**, **C 0 categories (0
+declarations)**. Driven by a committed spec: **41 of 104 categories**, up from 35
+across six waves - `ReFlyWorldPreservation` via S4.2, `RecordedSignals` via H33,
 `SnapshotBaseline` via H32, and `Logistics` via H34 all landed together in one merge
 (the S1.8 SoiCrossingPlayback wave had taken it to 35 from 34, and 28 and 8 the waves
-before), then `PlaybackFidelity` via H36. Measured against declarations rather than
-categories, that is 388 of 574 inside a driven category (was 318 before these waves:
-324 after S4.2, 327 after H33, 334 after H32, 381 once `Logistics` counted, and 388
-with `PlaybackFidelity`). `H35-logistics-route-proof` (2026-08-11) moves NEITHER
-number - it is the second spec on a category H34 already counted - which is exactly
-the distortion the paragraph after next is about.
+before), then `PlaybackFidelity` via H36 and `PartEventFidelity` via H37. Measured
+against declarations rather than categories, that is 393 of 579 inside a driven
+category (was 318 before these waves: 324 after S4.2, 327 after H33, 334 after H32,
+381 once `Logistics` counted, 388 with `PlaybackFidelity`, and 393 with
+`PartEventFidelity`). `H35-logistics-route-proof` (2026-08-11) moves NEITHER number -
+it is the second spec on a category H34 already counted - which is exactly the
+distortion the paragraph after next is about.
 
 `ReFlyWorldPreservation` (6, driven by `S4.2-refly-world-preservation`) arrived with
 its driver rather than as an undriven category: it was authored for the
@@ -243,8 +245,42 @@ with its scenario, for the M1 ghost snapshot-baseline fix. Its spec was also pin
 interim on landing, on the expectation that the stock-minimal profile might carry
 neither Breaking Ground robotics nor deployable prefabs whose clips separate stow
 from deploy; the 2026-08-11 flight measured `total=7 passed=7 failed=0 skipped=0` and
-disproved both, so that pin is whole too. `IngameBatchWiringGroupTests.INTERIM_PIN_IDS`
-is empty again.
+disproved both, so that pin is whole too.
+
+`PartEventFidelity` (5 declarations, wired as `H37-part-event-fidelity`) is the live
+half of P8, and it arrived with its driver on the same ground as the two above. Four
+of its cells cover the wave's new signals - a broken deployable's subtree hide plus
+its repair un-hide and loop-cycle re-show, the converter running loop's motion and
+cyclic wrap and stop, the empty-deploy-name (large ISRU) shape of that loop, and the
+EVA jetpack plume's lazy build and three-flag gate. THE FIFTH IS DIFFERENT IN KIND and
+worth naming: it pins a NEGATIVE decision. P8 deliberately records nothing for the
+science timeline because the science-experiment deploy visual was ALREADY recorded
+through the ModuleAnimateGeneric path, and the audit's §2 wording was imprecise enough
+to make that verdict look wrong. The cell asserts both halves of the claim on a live
+prefab, so if the verdict ever stops being true it REDS instead of a doc sentence
+quietly rotting. All five are Scene = FLIGHT and batch-allowed (attribute-derived skip
+floor 0) and all five self-skip with a named requirement when the install gives them
+no usable prefab. `H37` shipped with an interim `passed=` pin and is now LIVE-PROVEN:
+after a first flight that red 3/5, the 2026-08-12 re-fly measured `total=5 passed=5
+failed=0 skipped=0`, all five guards satisfied on stock-minimal, so the pin is literal,
+no `RUNTIME_SKIPS` entry is owed and `IngameBatchWiringGroupTests.INTERIM_PIN_IDS` is
+EMPTY again. Bucket A1, same standing as `H36`.
+
+WHAT ITS FIRST FLIGHT COST AND BOUGHT, because it is the most useful thing this category
+has produced so far: neither non-green cell was the install shortfall the interim pin was
+hedging against. The RED was a PRODUCT defect (`ParticleSystem.Play()` on a ghost that is
+not `activeInHierarchy` is a SILENT no-op, and a ghost is inactive throughout its
+spawn-time prefix replay, so an EVA ghost spawning mid-burst stayed dark for the whole
+burst while the log claimed it was emitting). The SKIP was a TEST defect - the Goo cell's
+precondition tested POSITION only while a science canister's `Deploy` clip swings its
+doors, and the re-fly's measured `span(pos=0 rot=29.99998deg)` is that diagnosis in one
+number. The transferable lesson is about CELL STYLE rather than about either bug: the
+other four cells passed on that first flight while the plume cell measured a lie, because
+they read `activeSelf` flags and sampled poses, both of which are readable on an INACTIVE
+hierarchy. Anything Unity silently refuses to do while inactive is invisible to that style
+of cell, so a category whose claims depend on Unity ACTING should activate its fixture
+through the production seam (`GhostPlaybackEngine.ActivateGhostVisualsIfNeededForTesting`),
+as `H37` now does.
 
 READ THAT 381 CAREFULLY - the last 47 of it are the largest single-spec jump in
 this row's history and the least representative. `Logistics` contributes all 47 of its declarations to

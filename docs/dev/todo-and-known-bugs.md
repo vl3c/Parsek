@@ -699,7 +699,11 @@ baseline -> recorded events.**
 ### Deliberately out of scope
 
 Sun-tracking `currentRotation` (freezing a launch-time sun-relative quaternion is
-worse than the prefab pose - the real fix synthesizes it), deployable `BROKEN`,
+worse than the prefab pose - the real fix synthesizes it), ~~deployable `BROKEN`~~
+(**DONE 2026-08-12**, `part-event-fidelity`/P8-S6: the snapshot slot this list deferred
+is filled, and `deployState = BROKEN` now parses to its own `deployableBroken` baseline
+rather than to no opinion - alongside a recorded `DeployableBroken` PartEvent, so a break
+mid-recording is carried as well as a break before it),
 wheel-robotic suspension/steering/motor (continuous-motion, no meaningful
 persisted pose), ladders / aero / control surfaces / robot-arm scanners (their
 live probes are the dead-probe family, so no event stream could toggle a baseline
@@ -1792,8 +1796,69 @@ the index so the items are not lost.
 asteroids/comets, flags) shipped 2026-08-09 - see the
 REFLY-DELETES-NON-SLOT-WORLD entry above. `C2` (pre-invoke advisory naming what
 the revert takes back) shipped 2026-08-11 into the Re-Fly confirmation dialog +
-one `[Rewind]` Info line; details in that same entry. The `M` / `S` items below
-are untouched.
+one `[Rewind]` Info line; details in that same entry.
+
+**The `S` table is now CLOSED OUT: S1-S3 and the wheel corollary shipped 2026-08-11
+(`playback-fidelity`), and S4 / S6 / S7 shipped 2026-08-12 (`part-event-fidelity`/P8),
+which also converted the §2 science-timeline row into four explicit WON'Ts.** Nine new
+`PartEventType` members (36-44), no schema-generation bump (verified against both
+sidecar readers rather than assumed), and a new in-game category `PartEventFidelity`
+wired as `H37-part-event-fidelity`. **CONFIRMED LIVE 2026-08-12** by the H37 re-fly
+(`total=5 passed=5 failed=0 skipped=0`, every verifier green): the break/repair/loop
+round trip on `solarPanelOX10C` (break subtree `rootHinge`, 13 transforms - so the
+`breakName` -> `pivotName` fallback resolves in production, which was the wave's
+likeliest silent no-op), the converter loop at `quarterRot=90.0001deg` with
+`driftAfterStop=0deg`, the empty-deploy-name ISRU shape with 4 looping transforms, and
+the EVA plume built and gated. Its FIRST flight red 3/5 and bought two fixes worth
+naming here, since both are the wave's own failure mode - a replay that renders or
+reports plausibly rather than correctly:
+- **A silent `Play()` no-op.** `ParticleSystem.Play()` on a ghost that is not
+  `activeInHierarchy` neither throws nor sets `isPlaying`, and a ghost is inactive for
+  the whole of its spawn-time prefix replay - so an EVA ghost spawning mid-burst stayed
+  dark for the entire burst while the log reported it emitting. Fixed with a pure
+  `ClassifyEvaPlumeReconcile` that DEFERS on an inactive hierarchy, a per-frame
+  `UpdateEvaJetpackPlumeForFrame` self-heal beside the launch-dust drive (dust already
+  had that property for free by re-calling Play every frame), and decision-vs-truth
+  logging that reads `isPlaying` BACK rather than reporting success on the strength of
+  having called Play.
+- **A rotation-blind test.** The Goo verification cell skipped VACUOUSLY because its
+  precondition tested POSITION only, while a science canister's `Deploy` clip swings its
+  doors; the re-fly's `span(pos=0 rot=29.99998deg)` on `mk2LanderCabin.v2` is the
+  diagnosis in one number. Precondition and assertions are now per-component against the
+  builder's own `CollectTransformDeltas` thresholds. No `RUNTIME_SKIPS` entry: the skip
+  was fixed, not accepted. Three findings from P8 worth carrying forward
+because each corrects something a future reader would otherwise trust:
+- Deployable `BROKEN` is **REVERSIBLE** (stock `eventRepairExternal` -> `DoRepair` lands
+  on RETRACTED), so it is a reversible-family split seed, not a permanent one. The audit
+  described it as "permanent".
+- Of the three KerbalEVA members, `JetpackDeployed` IS a `[KSPField]`; the other two are
+  not. Typed casts remain correct, but the reason is "two of three are invisible to a
+  `module.Fields` walk", not "none is a KSPField".
+- The EVA pack MESHES are still absent, and NOT because the asset is unreachable
+  (`KerbalEVA.JetpackTransform` is a public serialized `Transform`). The missing piece is
+  the VISIBILITY signal - `HasJetpack`, driven by inventory contents - which Parsek does
+  not record; the honest follow-on is to read the snapshot's `ModuleInventoryPart`.
+- **`EmitTerminalEngineAndRcsEvents` must not mutate its tracking sets** - all four
+  families, jetpack included. The first cut of the S4 terminal close removed each pid as
+  it emitted, which reads like double-emit safety but breaks the false-alarm unwind: the
+  STOP path leaves the sets intact ON PURPOSE so `ResumeAfterFalseAlarm` can undo an
+  abandoned chain-boundary stop and keep tracking a burn that never ended, and with the
+  pid gone the resumed poll's real thrust-end edge hit
+  `thrustingParts.Remove(pid) == false` and emitted nothing - the pair stayed open to
+  recording end, the exact failure the terminal emit exists to prevent. Double-emit safety
+  is the CALLER's, exactly as for engines: the rails site
+  (`EmitTerminalEventsAndClearActiveState`) clears every set right after the emit, so the
+  second emit's `Count > 0` gate is a no-op. Fixed 2026-08-12; guarded by
+  `PartEventFidelityTests.AFalseAlarmStopMidBurst_ResumesTracking_AndClosesAtTheREALThrustEnd`
+  and `...TheRailsPathClearIsWhatMakesASecondTerminalEmitANoOp_NotARemoveOnEmit`.
+- **NOTE ONLY, no fix owed:** a kerbal-to-kerbal `ContinueOnEva` switch mid-burst closes
+  the DEPARTING kerbal's thrust pair only at the recording's final-stop UT, not at his
+  real thrust end - late, not lost. `PruneDepartedTrackingKeys` covers the engine / RCS /
+  robotic sets and does not reach the EVA sets, so the departing pid stays in
+  `thrustingJetpackParts` until a terminal emit closes it. Recorded because the late close
+  is a plausible-looking plume, not an obviously wrong one.
+
+The `M` items and the remaining non-`S` items below are untouched.
 
 **Establish the restore model before reasoning about any "world desyncs" claim.**
 The RP quicksave is a full `GamePersistence.SaveGame`, so the whole `GAME` node
@@ -2111,12 +2176,37 @@ Open items, highest leverage first:
   tracking from `Planetarium.fetch.Sun`; launch dust (`ModuleSurfaceFX`, 183
   parts, zero references) from engine power + altitude. Precedent:
   `ApplyAblationChar` already synthesizes reentry char from live physics.
-- **Career-bearing modules with a modest visual, which fell through both the "is
-  it visible" and "does the quicksave restore it" sieves:**
-  `ModuleScienceExperiment` (158 parts, ONE reference and it is a comment at
-  `VesselSpawner.cs:744`), `ModuleDataTransmitter` transmission timeline (201
-  parts, 6 refs all static `AntennaSpec`), `ModuleTestSubject` (**709**
-  declarations, zero refs - a whole contract genre), `ModuleOrbitalSurveyor`.
+- ~~**Career-bearing modules with a modest visual, which fell through both the "is
+  it visible" and "does the quicksave restore it" sieves:**~~ **RESOLVED AS FOUR
+  EXPLICIT WON'Ts, 2026-08-12** (`part-event-fidelity`/P8) - net ZERO new event
+  types, and the audit's own §2 row is CORRECTED in the process. Full reasoning and
+  evidence in
+  `docs/dev/research/part-action-recording-audit-2026-08-09.md` -> "CORRECTION
+  2026-08-12"; the load-bearing findings:
+  - `ModuleScienceExperiment` (158): the deploy visual was **already recorded**. The
+    animation belongs to a SEPARATE `ModuleAnimateGeneric` named `Deploy` (Goo and
+    Science Jr, wired via `FxModules = 0`), and `ModuleScienceExperiment` is not in
+    `HasDedicatedAnimateHandler`, so `CheckAnimateGenericState` has always polled it.
+    The audit's "`Deployed` ... gates the deploy animation" wording is what made the
+    verdict look like a gap. P8 added the VERIFICATION that never existed instead of a
+    recorder: an in-game cell that reds if the claim stops holding.
+  - `ModuleDataTransmitter` (201): the only stock transmit visual is one the recorder
+    ALREADY polls. **Evidence corrected 2026-08-12** - the first write-up claimed zero
+    stock parts set `DeployFxModuleIndices` / `ProgressFxModuleIndices`, which was a
+    GREP-NAME TRAP: those are the C# field names, while the cfg keys `OnLoad` parses into
+    them are `DeployFxModules` / `ProgressFxModules`. Six stock antennas DO set
+    `DeployFxModules = 0` (HighGainAntenna, commDish88-88, commsAntennaDTS-M1,
+    commsAntenna16, HG-5, HG-5_v2), and index 0 is each part's `ModuleDeployableAntenna`
+    - so the stock transmit visual is the dish extending, a `deployState` change the
+    existing `ModuleDeployablePart` poll has always recorded. `ProgressFxModules` (the
+    transmit-progress visual proper) is the one with genuinely zero stock setters. Verdict
+    unchanged; a transmit event type would be a second recorder for one visual.
+  - `ModuleTestSubject` (709): the tested part's own action is already recorded by its
+    family, and contract completion is already in `GameStateEvent` types 2/15/17.
+  - `ModuleOrbitalSurveyor` (2): M700 deploy already recorded via the AnimationGroup
+    family; `PerformSurvey` has no part visual and fires
+    `GameEvents.OnOrbitalSurveyCompleted`. The planet-unlock facet is a LEDGER concern
+    for a ledger wave.
 - **Ledger facets:** kerbal XP is zero-coverage (`ModuleTripLogger` /
   `flightLog` / `ArchiveFlightLog` / `experienceLevel` all return NOTHING across
   `Source/`) and survives a supersede that refunds the funds; it is monotone, so

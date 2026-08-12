@@ -574,6 +574,11 @@ namespace Parsek
                 if (sink.sunTrackers == null) sink.sunTrackers = new List<SunTrackingGhostInfo>();
                 sink.sunTrackers.AddRange(part.sunTrackers);
             }
+            if (part.converterLoops != null)
+            {
+                if (sink.converterLoops == null) sink.converterLoops = new List<ConverterLoopGhostInfo>();
+                sink.converterLoops.AddRange(part.converterLoops);
+            }
         }
 
         internal static GhostBuildResult CompleteTimelineGhostBuild(
@@ -1778,6 +1783,194 @@ namespace Parsek
             return result;
         }
 
+        /// <summary>
+        /// S7: how many poses around a running loop get sampled. Twelve is a deliberate middle:
+        /// enough that a rotating drill head reads as rotating rather than as three jerks, few
+        /// enough that the storage is trivial (12 poses x a handful of transforms per part, built
+        /// once per part TYPE and cached) and the per-frame cost stays one lerp+slerp per transform.
+        /// </summary>
+        internal const int ConverterLoopPhaseCount = 12;
+
+        // S7: partKey|animName -> the sampled loop phases, and the running clip's own length.
+        // Keyed by BOTH because the running clip is a different clip from the deploy clip on the
+        // same part, and animationClipLengthCache is per-part last-write-wins — writing the running
+        // length into that cache would corrupt the DEPLOY duration the S2 interpolation reads.
+        private static readonly Dictionary<string, (List<(string path, ConverterLoopPose[] phases)> samples,
+            float clipSeconds)> converterLoopSampleCache =
+            new Dictionary<string, (List<(string, ConverterLoopPose[])>, float)>();
+
+        internal static void ClearConverterLoopSampleCache() => converterLoopSampleCache.Clear();
+
+        /// <summary>
+        /// S7: samples a LOOPING animation clip at <see cref="ConverterLoopPhaseCount"/> evenly
+        /// spaced normalized times, keeping every transform the clip actually moves.
+        ///
+        /// A sibling of <see cref="SampleAnimationStates"/> rather than an extension of it: that
+        /// method's whole contract is a stowed/deployed PAIR (it even scores which endpoint is
+        /// "stowed"), and a cyclic clip has no such pair — its endpoints coincide. Same temp-clone
+        /// mechanics, same DestroyImmediate in a finally.
+        ///
+        /// A transform is kept when ANY sampled phase differs from phase 0 beyond the same
+        /// thresholds <see cref="CollectTransformDeltas"/> uses, so a clip that animates nothing
+        /// (or that could not be found) yields null and the part simply has no running loop.
+        /// </summary>
+        private static List<(string path, ConverterLoopPose[] phases)> SampleAnimationLoopStates(
+            Part prefab, string animName, string label, out float clipSeconds)
+        {
+            clipSeconds = GhostPlaybackLogic.ClampDeployableClipSeconds(0f);
+            if (prefab == null || string.IsNullOrEmpty(animName)) return null;
+
+            string partKey = prefab.partInfo?.name ?? prefab.name;
+            string cacheKey = partKey + "|" + animName;
+            if (converterLoopSampleCache.TryGetValue(cacheKey, out var cached))
+            {
+                clipSeconds = cached.clipSeconds;
+                return cached.samples;
+            }
+
+            Transform modelRoot = FindModelRoot(prefab);
+            if (modelRoot == null)
+            {
+                converterLoopSampleCache[cacheKey] = (null, clipSeconds);
+                return null;
+            }
+
+            GameObject tempClone = Object.Instantiate(modelRoot.gameObject);
+            List<(string path, ConverterLoopPose[] phases)> result = null;
+            try
+            {
+                Animation anim = FindAnimation(tempClone, animName, null,
+                    AnimLookup.Simple, label, partKey);
+                AnimationState state = anim != null ? anim[animName] : null;
+                if (state == null)
+                {
+                    ParsekLog.Verbose("GhostVisual",
+                        $"  {label} '{partKey}': running animation '{animName}' not found on model clone");
+                    converterLoopSampleCache[cacheKey] = (null, clipSeconds);
+                    return null;
+                }
+
+                clipSeconds = GhostPlaybackLogic.ClampDeployableClipSeconds(state.length);
+
+                var allTransforms = tempClone.GetComponentsInChildren<Transform>(true);
+                state.enabled = true;
+                state.speed = 0f;
+                state.weight = 1f;
+                anim.Play(animName);
+
+                // Phase i is sampled at i/N, NOT i/(N-1): the clip is cyclic, so normalized time 1
+                // is the same pose as 0 and including both would spend a phase slot on a duplicate
+                // and stall the loop for one interval. The drive wraps from the last phase back to
+                // phase 0.
+                var perPhase = new Dictionary<string, (Vector3 pos, Quaternion rot, Vector3 scale)>[ConverterLoopPhaseCount];
+                for (int phase = 0; phase < ConverterLoopPhaseCount; phase++)
+                {
+                    state.normalizedTime = (float)phase / ConverterLoopPhaseCount;
+                    anim.Sample();
+                    perPhase[phase] = SnapshotTransformStates(allTransforms, tempClone.transform);
+                }
+
+                result = new List<(string, ConverterLoopPose[])>();
+                foreach (var kv in perPhase[0])
+                {
+                    string path = kv.Key;
+                    var poses = new ConverterLoopPose[ConverterLoopPhaseCount];
+                    bool moves = false;
+                    bool complete = true;
+
+                    for (int phase = 0; phase < ConverterLoopPhaseCount; phase++)
+                    {
+                        if (!perPhase[phase].TryGetValue(path, out var s)) { complete = false; break; }
+                        poses[phase] = new ConverterLoopPose { pos = s.pos, rot = s.rot, scale = s.scale };
+
+                        if (!moves && phase > 0)
+                        {
+                            moves = (s.pos - kv.Value.pos).sqrMagnitude > 0.0001f
+                                || Quaternion.Angle(s.rot, kv.Value.rot) > 0.01f
+                                || (s.scale - kv.Value.scale).sqrMagnitude > 0.0001f;
+                        }
+                    }
+
+                    if (complete && moves)
+                        result.Add((path, poses));
+                }
+
+                if (result.Count == 0)
+                {
+                    ParsekLog.Verbose("GhostVisual",
+                        $"  {label} '{partKey}': running animation '{animName}' moves nothing over {ConverterLoopPhaseCount} phases");
+                    result = null;
+                }
+                else
+                {
+                    ParsekLog.Verbose("GhostVisual",
+                        $"  {label} '{partKey}': sampled {result.Count} looping transform(s) from '{animName}' " +
+                        $"over {ConverterLoopPhaseCount} phases (clip={clipSeconds.ToString("F2", CultureInfo.InvariantCulture)}s)");
+                }
+            }
+            finally
+            {
+                Object.DestroyImmediate(tempClone);
+            }
+
+            converterLoopSampleCache[cacheKey] = (result, clipSeconds);
+            return result;
+        }
+
+        /// <summary>
+        /// S7: builds one part's running loop from its ModuleAnimationGroup
+        /// <c>activeAnimationName</c>.
+        ///
+        /// Stock ground truth, read off the shipped configs: RadialDrill pairs
+        /// <c>Drill_Deploy</c> with <c>Drill_Running</c>, MiniDrill pairs <c>Deploy</c> with
+        /// <c>Drill</c>, and the large ISRU and the orbital scanner have an EMPTY
+        /// <c>deployAnimationName</c> with only a running one (<c>ProcessorLarge_running</c> /
+        /// <c>miniscanner</c>). That last shape is why this reads <c>activeAnimationName</c>
+        /// DIRECTLY instead of going through <c>TryGetAnimationGroupDeployAnimation</c>, which
+        /// requires a non-empty deploy name and would have skipped them.
+        /// </summary>
+        private static ConverterLoopGhostInfo TryBuildConverterLoopInfo(
+            Part prefab, PartModule module, uint persistentId, string partName,
+            Transform modelNodeTransform)
+        {
+            if (!TryGetModuleStringField(module, "activeAnimationName", out string activeAnim))
+                return null;
+            if (string.IsNullOrEmpty(activeAnim))
+                return null;
+
+            var samples = SampleAnimationLoopStates(
+                prefab, activeAnim, "ConverterLoop", out float clipSeconds);
+            if (samples == null || samples.Count == 0)
+                return null;
+
+            var resolved = new List<ConverterLoopTransformState>();
+            for (int i = 0; i < samples.Count; i++)
+            {
+                Transform ghostT = FindTransformByPath(modelNodeTransform, samples[i].path);
+                if (ghostT == null) continue;
+                resolved.Add(new ConverterLoopTransformState
+                {
+                    t = ghostT,
+                    phases = samples[i].phases
+                });
+            }
+
+            if (resolved.Count == 0)
+            {
+                ParsekLog.VerboseRateLimited("GhostVisual", $"converter-loop-unresolved-{partName}",
+                    $"    ConverterLoop '{partName}' pid={persistentId}: none of {samples.Count} looping " +
+                    $"transform(s) from '{activeAnim}' resolved onto the ghost", 60.0);
+                return null;
+            }
+
+            return new ConverterLoopGhostInfo
+            {
+                partPersistentId = persistentId,
+                transforms = resolved,
+                clipLengthSeconds = clipSeconds
+            };
+        }
+
         // Cache: partName(+anim) -> sampled 3-state ModuleAnimateHeat transform states
         private static readonly Dictionary<string, List<(string path,
             Vector3 coldPos, Quaternion coldRot, Vector3 coldScale,
@@ -1790,8 +1983,9 @@ namespace Parsek
             animateHeatCache.Clear();
             // S2's clip-length cache is prefab-derived exactly like this one and has exactly the
             // same lifetime, so it is dropped here rather than growing a second call site nobody
-            // remembers to call.
+            // remembers to call. S7's loop-phase cache is prefab-derived on the same terms.
             animationClipLengthCache.Clear();
+            converterLoopSampleCache.Clear();
         }
 
         // S2: partKey -> the prefab deployable clip's own length in seconds, already clamped.
@@ -3963,6 +4157,19 @@ namespace Parsek
                             result.sunTrackers = new List<SunTrackingGhostInfo>();
                         result.sunTrackers.Add(tracker);
                     }
+                    continue;
+                }
+
+                if (string.Equals(moduleName, "ModuleAnimationGroup", System.StringComparison.Ordinal))
+                {
+                    ConverterLoopGhostInfo loop = TryBuildConverterLoopInfo(
+                        prefab, module, persistentId, partName, modelNode);
+                    if (loop != null)
+                    {
+                        if (result.converterLoops == null)
+                            result.converterLoops = new List<ConverterLoopGhostInfo>();
+                        result.converterLoops.Add(loop);
+                    }
                 }
             }
 
@@ -3973,7 +4180,8 @@ namespace Parsek
                 $"Synthesized motion for '{partName}' pid={persistentId}: " +
                 $"gimbals={(result.gimbals != null ? result.gimbals.Count : 0)} " +
                 $"surfaces={(result.controlSurfaces != null ? result.controlSurfaces.Count : 0)} " +
-                $"sunTrackers={(result.sunTrackers != null ? result.sunTrackers.Count : 0)}", 30.0);
+                $"sunTrackers={(result.sunTrackers != null ? result.sunTrackers.Count : 0)} " +
+                $"converterLoops={(result.converterLoops != null ? result.converterLoops.Count : 0)}", 30.0);
             return result;
         }
 
@@ -4372,6 +4580,19 @@ namespace Parsek
             // clone only the canopy and cap transforms so they enter cloneMap.
             // We intentionally skip all other meshes in the subtree (backpack, storage,
             // parachute housing, etc.) — only the canopy/cap are needed for playback.
+            //
+            // P8-S4 PROBED THE BACKPACK HERE AND DELIBERATELY LEFT IT OUT. The finding, so nobody
+            // re-probes it: the asset is trivially reachable — `KerbalEVA.JetpackTransform` is a
+            // public serialized Transform field, so no name guessing is needed, and stock's own
+            // `UpdatePackModels` does nothing more than `JetpackTransform.gameObject.SetActive(flag)`.
+            // The blocker is the GATE, not the asset. That `flag` is `HasJetpack`, driven by whether
+            // an `evaJetpack` part is in the kerbal's ModuleInventoryPart — and Parsek records no
+            // such signal. Every gate reachable from recorded data renders visibly wrong:
+            // showing the pack on the first EvaJetpackDeployed event pops a backpack into existence
+            // mid-spacewalk and leaves every ground EVA (who never deploys) with no pack at all,
+            // while showing it unconditionally puts a jetpack on kerbals who carry none. Either is a
+            // worse lie than the current absence. The honest fix is to read the snapshot's
+            // ModuleInventoryPart contents as a new baseline surface, which is its own piece of work.
             Transform canopySubtreeRoot = null;
             if (srcCanopy != null && !cloneMap.ContainsKey(srcCanopy))
             {
@@ -4585,6 +4806,26 @@ namespace Parsek
                 var sampledStates = SampleDeployableStates(prefab, deployable);
                 deployableInfo = ResolveSampledStatesToDeployableInfo(
                     sampledStates, modelNodeTransform, persistentId, partName, "Deployable", logUnresolved: true);
+
+                // S6: the break subtree, resolved INDEPENDENTLY of the animation cascade above.
+                // A fixed (non-retractable) panel has no animationName and so produces no
+                // deployableInfo, but it can still break — so when the animation path found
+                // nothing we materialise a transforms-only-empty info to carry the break root.
+                Transform breakRoot = TryResolveDeployableBreakSubtreeRoot(
+                    prefab, deployable, modelRoot, modelNodeTransform, cloneMap, partName, persistentId);
+                if (breakRoot != null)
+                {
+                    if (deployableInfo == null)
+                    {
+                        deployableInfo = new DeployableGhostInfo
+                        {
+                            partPersistentId = persistentId,
+                            transforms = new List<DeployableTransformState>(),
+                            clipLengthSeconds = ResolveDeployableClipSeconds(partName)
+                        };
+                    }
+                    deployableInfo.breakSubtreeRoot = breakRoot;
+                }
             }
 
             // Detect landing gear / legs (ModuleWheels.ModuleWheelDeployment) — reuses DeployableGhostInfo
@@ -4722,6 +4963,66 @@ namespace Parsek
             }
 
             return deployableInfo;
+        }
+
+        /// <summary>
+        /// S6: resolves the ghost-side clone of the transform stock hides when a
+        /// ModuleDeployablePart breaks.
+        ///
+        /// THE NAME, and why the fallback is not optional. Stock reads
+        /// <c>panelBreakTransform = part.FindModelTransform(breakName)</c> in OnStart, having
+        /// first defaulted <c>breakName</c> to <c>pivotName</c> when the config left it empty
+        /// (ModuleDeployablePart, KSP 1.12.5). We read a PREFAB, whose OnStart has not run, so
+        /// <c>breakName</c> is still the raw config value — usually empty, because almost no stock
+        /// part sets it. Reading it without the fallback would resolve nothing for nearly every
+        /// breakable part in the game, i.e. the feature would silently do nothing.
+        ///
+        /// Returns null when neither name resolves on the prefab or the transform cannot be
+        /// mapped onto the ghost. A DeployableBroken event then degrades to no visual, which is
+        /// the pre-P8 behaviour, rather than to hiding the wrong subtree.
+        /// </summary>
+        private static Transform TryResolveDeployableBreakSubtreeRoot(
+            Part prefab, ModuleDeployablePart deployable,
+            Transform modelRoot, Transform modelNodeTransform,
+            Dictionary<Transform, Transform> cloneMap,
+            string partName, uint persistentId)
+        {
+            if (prefab == null || deployable == null || modelRoot == null || modelNodeTransform == null)
+                return null;
+
+            string breakName = deployable.breakName;
+            string resolvedFrom = "breakName";
+            if (string.IsNullOrEmpty(breakName))
+            {
+                breakName = deployable.pivotName;
+                resolvedFrom = "pivotName (stock OnStart default)";
+            }
+            if (string.IsNullOrEmpty(breakName))
+                return null;
+
+            Transform sourceBreak = prefab.FindModelTransform(breakName);
+            if (sourceBreak == null)
+            {
+                ParsekLog.VerboseRateLimited("GhostVisual", $"break-subtree-miss-{partName}",
+                    $"    Deployable '{partName}' pid={persistentId}: break transform '{breakName}' " +
+                    $"({resolvedFrom}) not found on the prefab — DeployableBroken will have no visual", 60.0);
+                return null;
+            }
+
+            Transform ghostBreak = ResolveGhostTransformForPrefabTransform(
+                sourceBreak, modelRoot, modelNodeTransform, cloneMap);
+            if (ghostBreak == null)
+            {
+                ParsekLog.VerboseRateLimited("GhostVisual", $"break-subtree-unmapped-{partName}",
+                    $"    Deployable '{partName}' pid={persistentId}: break transform '{breakName}' " +
+                    $"({resolvedFrom}) did not map onto the ghost — DeployableBroken will have no visual", 60.0);
+                return null;
+            }
+
+            ParsekLog.VerboseRateLimited("GhostVisual", $"break-subtree-{partName}",
+                $"    Deployable '{partName}' pid={persistentId}: break subtree '{breakName}' " +
+                $"resolved from {resolvedFrom}", 30.0);
+            return ghostBreak;
         }
 
         /// <summary>
@@ -6953,6 +7254,128 @@ namespace Parsek
                 material = dustMat,
                 generatedTexture = softCircle
             };
+        }
+
+        /// <summary>
+        /// S4: the ONE Parsek-owned jetpack puff a ghost kerbal gets, parented at the ghost root
+        /// and offset BACKWARD so the particles leave from behind the pack rather than out of the
+        /// kerbal's chest.
+        ///
+        /// Deliberately small and short-lived. A jetpack is a few newtons of cold gas, so a plume
+        /// scaled like an engine's would read as a rocket strapped to a spacesuit. What has to be
+        /// legible at playback speed is simply "he is under power", which a brief puff carries.
+        ///
+        /// Returns null when the additive particle shader is unavailable — the same condition that
+        /// makes launch dust and reentry FX unbuildable, and the caller then never re-tries.
+        /// </summary>
+        internal static EvaJetpackPlumeInfo TryBuildEvaJetpackPlume(GameObject ghostRoot, string vesselName)
+        {
+            if (ghostRoot == null) return null;
+
+            Shader particleShader = Shader.Find("KSP/Particles/Additive");
+            if (particleShader == null)
+            {
+                ParsekLog.VerboseRateLimited("GhostVisual", "eva-plume-noshader",
+                    $"EVA jetpack plume unavailable for '{vesselName}': KSP/Particles/Additive not found", 60.0);
+                return null;
+            }
+
+            var plumeObj = new GameObject("ParsekEvaJetpackPlume");
+            plumeObj.transform.SetParent(ghostRoot.transform, false);
+            // Behind and slightly below the kerbal's origin: roughly where the pack's nozzles sit.
+            // A kerbal is ~1.8 m of which the pack occupies the upper back, and the ghost root is at
+            // the part origin, so these are deliberately small numbers.
+            plumeObj.transform.localPosition = new Vector3(0f, 0.15f, -0.25f);
+            plumeObj.transform.localRotation = Quaternion.identity;
+
+            ParticleSystem ps = plumeObj.AddComponent<ParticleSystem>();
+
+            var main = ps.main;
+            main.playOnAwake = false;
+            main.prewarm = false;
+            main.loop = true;
+            main.startLifetime = 0.35f;
+            main.startSpeed = 3.5f;
+            main.startSize = 0.18f;
+            main.maxParticles = 60;
+            // LOCAL space, unlike launch dust's world space: the puff belongs to a kerbal who is
+            // himself moving, and world-space particles would leave a trail hanging in the air
+            // behind him rather than a jet leaving the pack.
+            main.simulationSpace = ParticleSystemSimulationSpace.Local;
+            main.startColor = new Color(0.85f, 0.88f, 0.95f, 0.45f);
+
+            // A narrow cone pointing BACKWARD along the ghost's local -Z.
+            var shape = ps.shape;
+            shape.enabled = true;
+            shape.shapeType = ParticleSystemShapeType.Cone;
+            shape.angle = 14f;
+            shape.radius = 0.05f;
+            plumeObj.transform.localRotation = Quaternion.LookRotation(Vector3.back, Vector3.up);
+
+            var emission = ps.emission;
+            emission.enabled = true;
+            emission.rateOverTimeMultiplier = EvaJetpackPlumeEmissionRate;
+
+            var sizeOverLifetime = ps.sizeOverLifetime;
+            sizeOverLifetime.enabled = true;
+            sizeOverLifetime.size = new ParticleSystem.MinMaxCurve(1f,
+                new AnimationCurve(new Keyframe(0f, 1f), new Keyframe(1f, 0.2f)));
+
+            var colorOverLifetime = ps.colorOverLifetime;
+            colorOverLifetime.enabled = true;
+            var gradient = new Gradient();
+            gradient.SetKeys(
+                new GradientColorKey[]
+                {
+                    new GradientColorKey(new Color(0.92f, 0.95f, 1f), 0f),
+                    new GradientColorKey(new Color(0.75f, 0.80f, 0.90f), 1f)
+                },
+                new GradientAlphaKey[]
+                {
+                    new GradientAlphaKey(0.55f, 0f),
+                    new GradientAlphaKey(0f, 1f)
+                });
+            colorOverLifetime.color = gradient;
+
+            var psRenderer = plumeObj.GetComponent<ParticleSystemRenderer>();
+            psRenderer.renderMode = ParticleSystemRenderMode.Billboard;
+            psRenderer.maxParticleSize = 0.5f;
+
+            Texture2D softCircle = CreateSoftCircleTexture(32);
+            var plumeMat = new Material(particleShader) { mainTexture = softCircle };
+            plumeMat.SetColor("_TintColor", new Color(0.85f, 0.9f, 1f, 0.4f));
+            psRenderer.material = plumeMat;
+
+            ps.Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
+            ps.Clear(true);
+
+            ParsekLog.Verbose("GhostVisual", $"EVA jetpack plume built for '{vesselName}'");
+            return new EvaJetpackPlumeInfo
+            {
+                plumeObject = plumeObj,
+                particles = ps,
+                material = plumeMat,
+                generatedTexture = softCircle
+            };
+        }
+
+        /// <summary>
+        /// S4: the puff's steady emission rate. A jetpack has no throttle a player can set, so
+        /// there is one rate rather than a power curve.
+        /// </summary>
+        internal const float EvaJetpackPlumeEmissionRate = 45f;
+
+        /// <summary>Destroys a ghost's EVA jetpack plume and the two assets it owns.</summary>
+        internal static void DestroyEvaJetpackPlume(EvaJetpackPlumeInfo info)
+        {
+            if (info == null) return;
+            if (info.material != null) Object.Destroy(info.material);
+            if (info.generatedTexture != null) Object.Destroy(info.generatedTexture);
+            if (info.plumeObject != null) Object.Destroy(info.plumeObject);
+            info.material = null;
+            info.generatedTexture = null;
+            info.particles = null;
+            info.plumeObject = null;
         }
 
         /// <summary>Destroys a ghost's launch-dust system and the two assets it owns.</summary>

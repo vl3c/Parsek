@@ -86,6 +86,17 @@ namespace Parsek
         internal LaunchDustInfo launchDustInfo;
         internal bool launchDustPendingBuild;
         internal double launchDustGroundRefAltitude = double.NaN;
+        // S4 EVA: the three recorded flags plus the lazily-built jetpack puff. The flags live on
+        // the state rather than being re-derived from the event stream each frame so the plume gate
+        // is a pure read of three bools (GhostPlaybackLogic.ShouldEmitEvaJetpackPlume) and the
+        // loop-cycle reset has something to clear. A non-EVA ghost never sets any of them and never
+        // builds a plume.
+        internal bool evaJetpackDeployed;
+        internal bool evaJetpackThrusting;
+        internal bool evaRagdoll;
+        internal EvaJetpackPlumeInfo evaJetpackPlumeInfo;
+        /// <summary>True once a plume build was attempted and failed, so it is never re-tried.</summary>
+        internal bool evaJetpackPlumeUnavailable;
         public Dictionary<uint, HeatGhostInfo> heatInfos;
         public Dictionary<uint, LightGhostInfo> lightInfos;
         public Dictionary<uint, LightPlaybackState> lightPlaybackStates;
@@ -191,6 +202,13 @@ namespace Parsek
             launchDustInfo = null;
             launchDustPendingBuild = false;
             launchDustGroundRefAltitude = double.NaN;
+            // S4: same contract as launchDustInfo - DestroyEvaJetpackPlume has already released the
+            // Material and the generated Texture2D by the time this runs.
+            evaJetpackPlumeInfo = null;
+            evaJetpackPlumeUnavailable = false;
+            evaJetpackDeployed = false;
+            evaJetpackThrusting = false;
+            evaRagdoll = false;
             heatInfos = null;
             lightInfos = null;
             lightPlaybackStates = null;
