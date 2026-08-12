@@ -848,11 +848,12 @@ namespace Parsek
                 facts = MissionPresentation.ComputeSummaryFacts(
                     structure, view, GetCompositionRoots(tree));
                 summaryFactsCache[tree.Id] = facts;
+                var loggedFacts = facts;
                 ParsekLog.VerboseRateLimited("Mission", "missions-summary-facts",
-                    $"Missions summary facts: tree={tree.Id} span={(facts.HasSpan ? "yes" : "no")} " +
-                    $"vessels={facts.VesselCount.ToString(System.Globalization.CultureInfo.InvariantCulture)} " +
-                    $"crew={facts.CrewCount.ToString(System.Globalization.CultureInfo.InvariantCulture)} " +
-                    $"terminal='{facts.TerminalWord ?? ""}'", 5.0);
+                    () => $"Missions summary facts: tree={tree.Id} span={(loggedFacts.HasSpan ? "yes" : "no")} " +
+                    $"vessels={loggedFacts.VesselCount.ToString(System.Globalization.CultureInfo.InvariantCulture)} " +
+                    $"crew={loggedFacts.CrewCount.ToString(System.Globalization.CultureInfo.InvariantCulture)} " +
+                    $"terminal='{loggedFacts.TerminalWord ?? ""}'", 5.0);
             }
             return facts;
         }
