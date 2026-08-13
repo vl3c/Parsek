@@ -14,6 +14,296 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## MOHO-PROGRAM-MEASUREMENTS-COMPLETE: the tilt disposition at 7 deg, the cadence at a ~1.0-synodic span, and the eccentric tof band earning its keep [RECORDED 2026-08-13 by `V11-moho-player-loop` + `V11A-moho-loop-arrival`. NOT A DEFECT - the closing measurement record for the Moho program]
+
+**THE HEADLINE: the tilt-retention fix holds at the TOP of its own documented failing
+band.** Moho is the case the synthesizer's own comments name -- `docs/dev/done/plans/
+reaim-eccentric-tof-reliability.md` S4.2.3 calls it "the COMBINED case" (high
+inclination AND small SOI AND moderate eccentricity) -- and the disposition, measured
+byte-identically on two runs:
+
+```
+tilt-correction inc-before=23.5906 bound=7.5000 targetInc=7.0000 incAch=3.3633
+                inc-after=NaN state=retained reason=unreachable-plane
+```
+
+The band, now walked end to end:
+
+| target | inclination | disposition |
+| --- | --- | --- |
+| Duna | 0.06 deg | always safe |
+| Eve | 2.1 deg | DECLINED all 27 tof candidates (`unreachable-plane`), pre-fix |
+| Dres | 5 deg | `state=retained`, incAch 3.6426 < targetInc 5.0000 (V10) |
+| **Moho** | **7 deg** | **`state=retained`, incAch 3.3633 < targetInc 7.0000** |
+
+The achievability gate is UNSAFE at Moho exactly as it was at Eve and Dres, and the
+retention fix's third arm holds the un-corrected conic instead of killing the window.
+Pre-fix that combination declined. **There is no ceiling between 5 and 7 degrees.**
+
+**THE ARRIVAL GEOMETRY IS EXACT.** `xfer-vs-Kerbin@depart=0m | xfer-vs-Moho@arrival=0m
+| xfer-vs-Moho@soi=9646663m (SOI=9646663)` -- the re-aimed conic meets Moho's sphere of
+influence to ZERO metres, where V10 measured Dres to within one.
+
+**A SECOND FINDING, not looked for: stage B's eccentric tof band is what MAKES this
+window resolve.** The ready line reads `eTarget=0.2000 halfWidthFraction=0.1600` with
+`devFromGeom=-211482.317s` against `tof=2446149.5876669968`. That deviation is 8.6% of
+the tof, so **the old fixed +-6% band would have DECLINED this window**; the
+`0.06 + 0.5*ecc` law widening to 16% for Moho's 0.2 eccentricity is the only reason it
+does not. `reaim-eccentric-tof-reliability.md` S4.2.3 predicted exactly this for a Moho
+fixture ("the band widens substantially toward the geometric tof, the sanctioned
+M-MIS-3 direction") and no fixture had demonstrated it live until now. It is pinned as
+a required token, so narrowing that law reds V11A.
+
+**THE CADENCE DIFFERS FROM DRES, AND THE DISCRIMINATOR IS THE SPAN -- but the
+byte-equality is partly an artifact, so state it carefully.** V11 measured
+`cadence == synodic` at 2,909,172.3997171265 for both, i.e. the unit schedules on ONE
+window spacing where V9 measured Dres landing on TWO (22,785,806.61 against
+11,392,903.31). The difference is where the span sits: 2,884,066.6 game s against that
+divisor is **0.9914**, where Dres spanned ~1.79.
+
+What the byte-equality is NOT is an independent measurement.
+`ReaimWindowPlanner.PadAlignLaunch` quantizes the synodic to a whole Kerbin sidereal day
+and then assigns the cadence THE SAME VARIABLE (`r.SynodicPeriodSeconds =
+quantizedSynodic; r.CadenceSeconds = quantizedSynodic;`), so the two tokens are equal BY
+CONSTRUCTION whenever pad-align applies and the multiple is one. Two consequences:
+the pinned value is EXACTLY 135 sidereal days (135 x 21,549.4251830898), not the physical
+Kerbin-Moho synodic of 2,918,346.4 s (0.314% away, ratio 0.9883 against the physical
+divisor -- the conclusion survives either way); and V9's Dres pin is the RAW synodic
+because pad-align was SKIPPED there, so the two lanes pin different quantities under one
+name. **The measured fact is the MULTIPLE** -- one here, two at Dres -- and that
+pad-align applied here and not there. That is what the tokens are armed for.
+
+**THE COHESION FIX HOLDS ON A SECOND BODY.** `member#1 segs=18 startBody=Kerbin
+supported=True target=Moho` with `transferMemberSegs=18 plan.Supported=True` -- the PR
+#1458 rule-3 cohesion fix keeping the on-rails Kerbin->Sun handoff from splitting the
+transfer, on a recording it was not tuned against.
+
+**LOITER COMPRESSION AT A NEW SCALE.** `loiterCuts=1 cutSeconds=391267` -- the
+compressor finding a ~398,000 game-second LKO ejection-window wait, an ORDER OF
+MAGNITUDE below the 8,436,248 s cut V9 measured on Dres. Nothing else in the suite
+exercises it there.
+
+**WHAT IS DELIBERATELY NOT ARMED, with the trade stated rather than buried:** the
+seam-endpoint census. V11A reads `evaluated=0 outsideSoi=0 skip.no-usable-ratio=1`,
+which is EXACTLY V10 iteration 4's reading and for exactly V10's reason -- reaching
+`evaluated=1` requires a pre-D0 TimeJump, and every pre-D0 jump reproduces the filed
+LINE-BLINK-JUMP-STRADDLE-DETECTOR-GAP. The census and a green verdict cannot both be
+had today. The armed lane is the green one, and the same arrival claim is carried
+deterministically by the synth-geometry token instead -- from the synthesizer rather
+than the renderer. If that detector gap is ever closed, add V10 iteration 3's escape
+bracket (-900 / -300 / +600) and arm the census pair too. `allowedAnomalies` stays [].
+
+## ~~APPROACH-WARP-CLAMP-FAILS-OPEN-ON-AN-INTERMITTENT-TTS: the ceiling is dropped by a single unread time-to-SOI, at the one moment it is load-bearing~~ [MEASURED 2026-08-12 by `B20-moho-orbit` run `_1855`. A SHARED-MACHINE gap in `mlib.approach_warp_clamp`, not a lane-parameter error. FIXED 2026-08-12 with an approach LATCH, on an explicit decision to change shared machinery]
+
+**What was measured.** With the correction cap restored, B20's third flight
+(`2026-08-12_1855`) reached Moho's SOI for the first time in the program -- and then
+died on `capture-never-armed (past-periapsis)`, the same give-up Dres flights 3 and 4
+produced and the exact failure the approach clamp exists to prevent.
+
+**The clamp worked, and then was switched off by a missing read.** The final approach,
+frame by frame:
+
+```
+tts=nan         nextBody=?     warp=RAILSx88.000      ut=2780619.790
+tts=nan         nextBody=?     warp=RAILSx22.002      ut=2780672.892
+tts=nan         nextBody=?     warp=RAILSx10.000      ut=2780685.413
+tts=nan         nextBody=?     warp=PHYSICSx3.400     ut=2780692.797
+tts=100001.413  nextBody=Moho  warp=NONEx1.000        ut=2780694.621
+tts=100000.353  nextBody=Moho  warp=NONEx1.000        ut=2780695.681
+tts=nan         nextBody=?     warp=RAILSx52.482      ut=2780709.607
+tts=nan         nextBody=?     warp=RAILSx100000.000  ut=2835750.877
+```
+
+The stair-down is textbook: 88 -> 22 -> 10 -> 3.4 -> 1x, halting at `tts=100,000`,
+which is `soiLeadSeconds` to the digit. The sizing was right. Then `tts` returned `nan`
+and `nextBody` returned `?` -- the patched-conic encounter read was lost -- and 14
+seconds later the machine was back at x100,000. One frame then advanced **55,041 game
+seconds**, covering the remaining lead, the SOI boundary and the entire
+SOI-entry -> periapsis coast.
+
+**The mechanism is the clamp's own first line.** `mlib.approach_warp_clamp` opens with
+
+```python
+if window <= 0.0 or not _is_finite(time_to_soi) or time_to_soi <= 0.0:
+    return desired, native_target      # FAIL OPEN
+```
+
+and its docstring defends this: "Fails OPEN on a non-finite `time_to_soi` (an unread
+clock never triggers a clamp)". That is right for the heliocentric leg, where `tts` is
+legitimately `nan` for most of the length. But the function is PURE and STATELESS, so it
+cannot distinguish "not yet on approach" from "on approach, and the read blinked". A
+single unread frame therefore removes the ceiling permanently, and it does so precisely
+in the window where the ceiling is the only thing preventing the overshoot.
+
+**Why this is not a lane-parameter problem.** Nothing in B20's sizing is implicated, and
+the flight proves it: the clamp engaged, stepped down correctly, and stopped exactly at
+the configured lead. Enlarging `approachWindowSeconds` cannot help (the gate is
+`_is_finite`, not a magnitude). Shrinking `soiLeadSeconds` only moves where the handoff
+happens; a fail-open x100,000 frame covers ~50,000 game s and Moho's whole coast is
+2,168-4,119 s, so any lead is swallowed. Lowering `coastWarpFactor` to 5 (x1,000) would
+bound one frame under the coast, but it taxes the entire 2.7M game-second heliocentric
+leg to work around a blink.
+
+**The geometry was RIGHT, which is what makes this worth fixing rather than routing
+around.** The first in-SOI frame read `pe=450629.528 ttPe=+3154.010` -- a 200 km
+periapsis altitude, comfortably above the 50 km floor, with periapsis 3,154 s AHEAD.
+Had the ceiling held, PLAN-CAPTURE had a clean arrival to arm on. This flight was one
+warp frame from a capture.
+
+**Fix, APPLIED 2026-08-12 on an explicit decision to touch shared machinery.** Latch the clamp:
+once `tts` has been observed finite and `<= window` FOR THE TARGET (`next_body ==
+target_body`), hold the cap until the target SOI is actually entered, so an intermittent
+unread frame cannot re-open the ceiling. There is deliberately NO "encounter abandoned"
+release: engage already requires next_body to BE the target, so a lost or re-planned
+encounter simply stops re-engaging. The residual cost of that choice, named rather than
+hidden: after engaging, a PERMANENTLY lost encounter crawls at the cap until the WALL
+budget kills the run, where fail-open would have reached the game-time give-up sooner --
+the bound that fires is the less diagnosable one. Low likelihood, and the alternative is
+the defect this fixes.
+Shipped as a new pure predicate `mlib.approach_latch_state` plus an `approach_latched`
+state field and a `latched=False` keyword on `approach_warp_clamp` -- so every lane that
+does not arm the clamp, and every existing caller, is BYTE-IDENTICAL (all 1,496
+pre-existing mission cells pass unchanged). While held it applies the cap and DROPS the
+native target rather than leaving a stale one armed.
+
+BLAST RADIUS, counted rather than asserted: exactly TWO committed specs set
+`approachWindowSeconds` -- `B19-dres-orbit` and `B20-moho-orbit`. Every other lane
+leaves it at 0, where the clamp and the latch are both inert. (An earlier draft of this
+entry named B7/B11/B12/B16/B17 as well; they never arm it, and gating a review on the
+wrong set is worse than gating it on none.) For B19 the change is one-directional and
+favourable: the latch can only hold the ceiling it already asked for, and it prevents
+precisely the past-periapsis overshoot that killed B19's own flights 3 and 4.
+
+THE ENGAGE CONDITION NEEDS A SECOND DISCRIMINATOR, and the first implementation missed
+it -- caught in clean-context review BEFORE it flew. `time_to_soi` is time to the NEXT
+SOI transition of ANY kind, not to the target's. B20's own escape leg measured
+`body=Kerbin tts=45901.038 nextBody=Mun` (a legitimate via-body transit -- the lane
+lists Mun in `viaBodyNames`) and `tts=309757.221 nextBody=Sun`. A latch keyed on `tts`
+alone engaged on the MUN transit and, since release requires arrival at the target, held
+the ceiling across the whole heliocentric coast -- taxing the exact leg the clamp exists
+to leave alone. Engage therefore requires `next_body == target_body`, read off the same
+patched conic (`nextBody=Moho` on both finite frames of the measured approach) and
+failing closed on a blank. Release happens on the live COAST -> TARGET-FLYBY hop, not in
+the predicate: that hop runs BEFORE the latch computation, so the predicate's own
+arrival branch never executes on the live path.
+
+VERIFIED AGAINST THE MEASURED FRAMES, replayed through the real predicate:
+
+```
+leg (from B20's own measured frames)   tts        next   BEFORE   AFTER
+post-TLI, Mun transit ahead            45901      Mun    x100     x100     (pre-existing
+escape, Sun ahead                      309757     Sun    x100000  x100000   clamp
+heliocentric, no encounter             nan        ?      x100000  x100000   behaviour,
+encounter exists, far                  1255576    Moho   x100000  x100000   unchanged)
+approach, inside the window            100001     Moho   x100     x100     <- latch engages
+THE BLINK                              nan        ?      x100000  x100     <- THE DEFECT
+the frame that overshot                nan        ?      x100000  x100     <- THE DEFECT
+arrived at Moho                        nan        ?      x100000  x100000  <- released
+```
+
+Only the two post-blink frames change, which is exactly the defect and nothing else: the
+escape, the via-body transit and the 2.7M game-second heliocentric coast all keep their
+speed. (The `x100` on the Mun-transit row is the UNLATCHED clamp's own pre-existing
+behaviour -- it caps whenever `tts <= window` regardless of which boundary -- and is left
+alone here because B19 is live-proven green with it.) Nine cells added beside
+`ApproachWarpClampTests`: the fail-open regression guard for the unlatched heliocentric
+leg, the non-target-boundary guard pinned on the measured Mun/Sun frames, a blank
+next_body fail-closed guard, and a Moho sibling of the Dres sizing claim.
+
+**A COVERAGE GAP LEFT OPEN, named rather than papered over.** All nine cells exercise
+the PURE predicates; none drives `b5_decide` end to end through engage -> blink -> hold
+-> arrival-release. That matters, because the one bug this fix shipped with (engaging on
+ANY SOI boundary) was caught by clean-context review and NOT by a cell -- predicate-level
+coverage is exactly what missed it. A decide-level cell was attempted and removed rather
+than committed weak: on a hand-built COAST fixture the machine takes an early return
+before the latch computation when the warp command already equals the desired factor, so
+the cell asserted a state the frame never reached. Finding and pinning that entry
+condition is real work and is left as follow-up. What DOES back the fix end to end today
+is the live flight: run `_2331`'s log shows the ceiling holding at x100 across the
+measured blink (`tts=nan` at ut 2,780,709 and again at 2,835,750) where flight 3 read
+x100,000 and overshot, and the capture arming on `ttPe=+3152.474`.
+
+Cheaper alternative CONSIDERED AND REJECTED: a much smaller `soiLeadSeconds` on the
+theory that `tts` reads reliably closer in. That is a guess about read stability, and a
+fail-open x100,000 frame covers ~50,000 game s against a 2,168-4,119 s coast, so no lead
+survives one. This lane has already spent two flights on derivations that were not
+measured first.
+
+## ~~CORRECTION-CAP-DERIVED-BELOW-THE-PLANNED-CORRECTION: B20's own `maxCorrectionDvMps = 700` discarded the encounter-creating burn six times a flight~~ [MEASURED 2026-08-12 by `B20-moho-orbit`, two identical INVALID flights. FIXED the same day by restoring B19's 1200; re-fly pending. A LANE-PARAMETER error, NOT a Parsek defect and NOT a MechJeb limitation]
+
+**What was measured.** `B20-moho-orbit` flew twice (runs `2026-08-12_1628` and its
+retry `_1704`). Both reached `COAST-TO-TARGET` and both timed out there with
+`MISSION-FLAKE reason=phase COAST-TO-TARGET timed out`, classified `INVALID
+(autopilot-flake)`. The two heliocentric orbits agree to the 8th significant figure
+(ap 13,336,525,125.193 vs 13,336,525,165.914), so this was systematic.
+
+**The cause was this lane's own parameter.** MechJeb planned an encounter-CREATING
+course correction on every invocation, and the lane's cap removed it:
+
+```
+[Mission][Warn][Plan] course-correction dv 1089.5 m/s exceeds cap 700.0; plan removed
+(correction disqualified, coast will fly the raw intercept)
+```
+
+Six times per flight (attempt 1 log lines 2490/2515/2540/2577/2603/2606; attempt 2
+1899/1926/1950/1987/2012/2016), across both correction rounds, in both attempts, at
+1,089.5-1,090.8 m/s. The coast then flew the raw intercept, never encountered Moho, and
+ran out its 16M game-second bound. **1,090 is below B19's untouched 1200**, so the
+proven value would have flown it.
+
+**How the wrong cap was arrived at, because the mistake is reusable.** The first
+authoring DERIVED the cap from a dv reserve: 5% of B18's measured 7,483 leaves 7,109
+usable, less a ~1,803 ejection and a ~3,862 worst-case capture, leaves 1,444 across the
+two rounds the trigger list arms, i.e. 722 each -> 700. Every one of those numbers is
+right. The error is that a correction cap is not a budget share to be allocated -- it is
+a threshold that must sit ABOVE WHAT THE PLANNER ACTUALLY ASKS FOR, and what it asks for
+was never measured. B15's lesson, quoted in B20's own spec at the time, is exactly this:
+a cap below the needed burn silently discards the node and the coast flies the raw
+intercept.
+
+**The diagnosis that was published first was wrong, and the way it was wrong is the
+lesson.** The first reading of these flights concluded "MechJeb never produced a node"
+from the telemetry field `nodeDv=nan`, and filed it as a planner limitation
+(MECHJEB-COURSE-CORRECT-CANNOT-CREATE-AN-INCLINED-ENCOUNTER). But `mission_runner.py`
+removes the node synchronously inside the action, so `nodeDv=nan` is the POST-REMOVAL
+steady state -- 886 telemetry lines of consequence, with the six `Warn` lines that
+explain them sitting two lines above each `action mj_plan_course_correct`. **A
+rate-limited telemetry field is a symptom; the Warn line is the event.** Read the Warn
+level before concluding from telemetry, especially when the conclusion exonerates a
+parameter you changed.
+
+**The inclination story is real but is NOT the blocker.** The ejection genuinely came
+out coplanar -- the harness's plan diagnostic reads `reachesTargetOrbit=reaches gap=0 m
+(0.000 SOI)` with `targetSoiEncounterPredicted=NO`, and the transfer orbit is
+`inc=0.007` against Moho's 7 deg. That is WHY the correction costs ~1,090 m/s where a
+low-inclination lane needs tens: at the 5.015e9 m crossing a 6.993 deg plane error
+displaces Moho ~610,595 km, and closing it is a real burn. But MechJeb planned that burn
+perfectly well. `mlib`'s finding-18 delegation (the phase-angle ejection produces no
+encounter; the course-correct plan CREATES it) is intact and working. What failed was
+the lane refusing to pay.
+
+Note also that a naive impulsive estimate of the plane change (`2*v*sin(dinc/2)` = 2,254
+m/s at the transfer's 18,481 m/s at the crossing) is ~2x what MechJeb's optimizer
+actually found. Deriving a cap from that geometry would have been wrong in the other
+direction too; the planner's own number is the only one worth capping against.
+
+**Fix.** `maxCorrectionDvMps` restored to B19's proven 1200. At the measured 5,724 m/s
+remaining after ejection: the realistic case (round 1 creates the encounter at ~1,090,
+round 2 refines) leaves ~4,434 m/s against a worst-case ~3,862 capture, closing with
+~572 spare. The one combination that does not close is BOTH rounds landing on the 1200
+ceiling AND the worst-case r=sma encounter (~538 short); that conjunction is named in
+the spec, and if it lands there the answer is a bigger craft rather than a smaller cap.
+
+**Status.** Re-fly pending. Until it greens, `moho-orbit-recorded` cannot be harvested
+and the V11 (loop unit) / V11A (tilt disposition at 7 deg) lanes have no fixture.
+
+**What was NOT in question, all measured on both flights:** the 700 km park (769,845 x
+769,649 m, ecc ~1e-4); JETTISON stopping at TWO pops and handing off at
+`avThr=60000.000`, reproducing B19's Skipper-live path on the identical craft; the
+ejection node `nodeDv=1735.502`, which is +4.5% over the ~1,661 m/s COPLANAR derivation
+(and NOT evidence that the 7 deg was folded in -- it was not); and 5,724 m/s still in
+the stage. The craft is not the problem, and no Parsek surface past the Kerbin->Sun
+handoff was exercised, which is why this is INVALID rather than PARSEK-FAIL.
 ## ~~FORGE-CREW-SEATING-SILENT-FAILURE: kRPC launch_vessel seats NOBODY when a requested crew name is unseatable, and the pad forge stamped an empty-pod fixture without noticing~~ [FOUND 2026-08-11 by the first FORGE-b18-dres-pad run + B18 flight 1 (PR #1459 carries the measurement in that spec's header). GUARD SHIPPED 2026-08-12, branch `forge-crew-guard`: the forge_lko minCrew gate ported to forge_station. CLOSED 2026-08-12: fixture re-forged crewed (FORGE-gs1-two-stage run `2026-08-12_1552` PASS attempt 1, `crewAboard value=1` live) and GS-1 flew the re-stamp to a full PASS (run `2026-08-12_1556`, attempt 1, armed saveParse green)]
 
 **The trap.** kRPC 0.5.4 `launch_vessel(crew=[names])` does NOT fail when a name

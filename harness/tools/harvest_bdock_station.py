@@ -122,6 +122,39 @@ def resolve_save_dir(args) -> str:
     raise SystemExit("harvest: pass --save-dir <path> OR --instance <dir> [--run-save NAME]")
 
 
+def strip_rewind_save_hints(text: str):
+    """Clear `rewindSave = parsek_rw_*` pointers, returning (text, cleared).
+
+    WHY THIS EXISTS. `_PRUNE_PARSEK_SUBDIRS` drops `Parsek/Saves` wholesale, so
+    the Rewind-to-LAUNCH quicksaves never reach a fixture -- but the RECORDING
+    nodes that referenced them kept pointing at the pruned files. That is a
+    DANGLING REFERENCE, and the committed contract forbids both halves of it:
+    `CommittedFixtureRewindSaveTests.test_no_fixture_commits_a_rewind_to_launch_quicksave`
+    forbids the payload and `..._no_fixture_persistent_save_carries_a_dangling_rewind_hint`
+    forbids the pointer, so a fixture must carry NEITHER.
+
+    Found by `moho-orbit-recorded` (B20, 2026-08-12), the first harvested
+    fixture whose flight actually produced a rewind point --
+    `rewindSave = parsek_rw_1ee581` survived the prune and red the gate.
+    dres-orbit-recorded never hit it because its flight produced none, so the
+    tool has been shipping this hole unexercised. Fixed HERE rather than by
+    hand-editing the fixture, so the committed bytes stay tool-produced and
+    every future harvest is clean.
+
+    Only the VALUE is cleared, not the key: the line is part of the recording's
+    serialized shape, and Parsek reads an empty value as "no rewind save".
+    """
+    out, cleared = [], 0
+    for line in text.split("\n"):
+        stripped = line.strip()
+        if stripped.startswith("rewindSave = parsek_rw_"):
+            out.append(line[:line.index("rewindSave")] + "rewindSave = ")
+            cleared += 1
+        else:
+            out.append(line)
+    return "\n".join(out), cleared
+
+
 def normalize_title(sfs_text: str, title: str) -> str:
     """Rewrite the GAME node's `Title = ...` line to `<title> (SANDBOX)` (the
     committed-fixture title convention, mirroring b2-lko-craft / bdock-station-craft).
@@ -309,8 +342,14 @@ def harvest(save_dir: str, target_name: str, title: str, force: bool,
         shutil.rmtree(target)
     os.makedirs(target)
 
-    # 1) persistent.sfs with the normalized title.
+    # 1) persistent.sfs with the normalized title, and with any rewind-save
+    #    pointer cleared (its payload is pruned with Parsek/Saves, so leaving
+    #    the pointer would commit a dangling reference).
     normalized = normalize_title(sfs_text, title)
+    normalized, cleared_hints = strip_rewind_save_hints(normalized)
+    if cleared_hints:
+        log("cleared %d dangling rewindSave hint(s) (payload lives in the "
+            "pruned Parsek/Saves)" % cleared_hints)
     with open(os.path.join(target, "persistent.sfs"), "w", encoding="utf-8",
               newline="\n") as fh:
         fh.write(normalized)
