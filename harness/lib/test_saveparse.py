@@ -921,6 +921,67 @@ class CommittedFixtureSweepTests(unittest.TestCase):
         # mirrors; those are no longer committed (the two snapshot mirrors
         # are regenerated from the binaries on demand), and the floor now
         # counts ONLY authoritative sidecars so a mirror cannot pad it.
+        # --- THE MOHO PROGRAM'S ORBIT FIXTURE ----------------------------
+        # PROVENANCE: moho-orbit-recorded <- B20-moho-orbit, run
+        # 2026-08-12_2331, PASS attempt 1. Harvested with
+        # `harvest_bdock_station.py --keep-parsek --expect-situation ORBITING`
+        # (situation gate PASSED on 'Duna Rocket' ORBITING at Moho, no --force)
+        # from a SNAPSHOT of the produced save rather than from the instance
+        # directly -- see the note below. Every number here was re-measured off
+        # THESE COMMITTED BYTES with saveparse.parse_parsek_scenario +
+        # observed_structure_facets, never copied from the run.
+        #
+        # WHY A SNAPSHOT, and it cost a flight to learn: the saveTemplate LEAF
+        # IS the runSaveName, and B20 shares `fixtures/saves/b18-dres-pad` with
+        # the sibling B21-eeloo-orbit lane, so BOTH stage into
+        # `automation/stock-minimal/saves/b18-dres-pad`. The produced save is
+        # destroyed by whichever run stages next. A first harvest of THIS lane
+        # was overwritten exactly that way, and the situation gate caught it
+        # ('is PRELAUNCH, expected ORBITING') -- the gate was then overridden
+        # with --force, which turned a correct refusal into silent data loss.
+        # DO NOT PASS --force TO A FIXTURE HARVEST. Copy the produced save out
+        # first and harvest the copy.
+        #
+        # WHAT THE FIVE RECORDINGS ARE, by measured span UT -- the SAME five
+        # roles as dres-orbit-recorded, because the craft and the ascent profile
+        # are identical and only the destination changed:
+        #   2d99b581  main orbiter, ut 26.3 -> 2,884,092.9 (the 2.884M
+        #             game-second loop-unit span), 1,834 points, Orbiting/Moho
+        #   92bfc5b4  ascent booster, ut 97.1 -> 149.0, 68 points, Destroyed
+        #   8bee0671  ascent booster, ut 97.1 -> 148.8, 67 points, Destroyed
+        #   4fa3a07d  core Mainsail stack dropped by MechJeb AUTOSTAGE during
+        #             ascent, ut 1,697.2 -> 1,716.6, 27 points, Orbiting/Kerbin
+        #   8218e120  Skipper stack dropped by the JETTISON phase, ut 2,699.1
+        #             -> 2,703.9 (exactly the JETTISON window), 21 points,
+        #             Orbiting/Kerbin
+        # So 3 terminals are Orbiting and only 2 Destroyed, and two of the
+        # Orbiting three are parked DEBRIS at Kerbin rather than the Moho
+        # orbiter -- the same trap dres-orbit-recorded carries. The four debris
+        # point counts (68/67/27/21) reproduced EXACTLY across two flights of
+        # this profile, which is what makes the topology a pin rather than a
+        # snapshot of one run.
+        #
+        # THE SPAN IS THE INTERESTING DIFFERENCE, and V11 will care: 2.884M game
+        # seconds against the Dres fixture's 20.393M. This flight's
+        # Kerbin->Moho ejection window fell ~398,000 s out (B19's Dres wait was
+        # ~8.4M), so the unit is a FIFTH of a synodic (Kerbin->Moho synodic
+        # ~2.918M s) where the Dres unit was ~1.79 of one. Whatever cadence the
+        # loop machinery derives from that is a MEASUREMENT for V11, not
+        # something to predict here.
+        "moho-orbit-recorded": {
+            "trees": 1, "committedTrees": 1, "recordings": 5,
+            "supersedes": 0, "tombstones": 0, "rewind_points": 0,
+            "rewind_retirements": 0,
+            "terminalStates": {"Orbiting": 3, "Destroyed": 2},
+            "branchPoints": {"JointBreak": 3},
+            "minAuthoritativeSidecars": 20,
+            "recordingIds": ["2d99b581c9e942acb8519233a9fbd64b",
+                             "4fa3a07d06734889bdfceebcde3b1325",
+                             "8218e1205711401fa765998c0baea66f",
+                             "8bee06711eb34a84be0355523858784b",
+                             "92bfc5b4b61a4fd78eac1619409f1389"],
+            "schemaGeneration": 4,
+        },
         "bdock-recorded": {
             "trees": 2, "committedTrees": 2, "recordings": 19,
             "supersedes": 0, "tombstones": 0, "rewind_points": 3,
