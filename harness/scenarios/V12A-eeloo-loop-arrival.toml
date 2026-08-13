@@ -1,0 +1,811 @@
+schema = 1
+id = "V12A-eeloo-loop-arrival"
+# =====================================================================================
+# V12A: THE EELOO PROGRAM'S ARRIVAL LANE. V10's shape pointed at the Eeloo fixture:
+# a driver that TIME-JUMPS INTO the re-aimed Kerbin->Eeloo transfer so the per-window
+# synthesizer runs and the render path reaches the arrival seam.
+#
+# WHY IT EXISTS, and it is the same structural gap V9/V10 named at Dres. A player-loop
+# lane (V12) marks the tree a loop unit, starts loop playback and quits ~1 s later. The
+# transfer SYNTHESIZER runs from `ReaimPlaybackResolver` while resolving the re-aimed
+# heliocentric leg, and the seam-endpoint CENSUS rides the map render path -- neither is
+# reached by a run that ends at the relaunch. So V12 can prove the unit ENGAGED and read
+# the schedule, but the tilt disposition, the tof band and the ready line belong here.
+#
+# THE FOUR QUESTIONS THIS LANE ASKS:
+#   1. THE TILT DISPOSITION AT EELOO'S 6.15 DEG. This is the tilt-retention fix's
+#      HIGHEST probe: Eve 2.1 -> Dres 5.0 -> Eeloo 6.15, the last stock step below the
+#      7 deg Moho case the synthesizer's own comments name as the failing population.
+#      The plan's claim scope is explicitly "Eve only ... Moho/Dres/Eeloo are unmeasured
+#      collateral", so EVERY disposition here is a finding to report verbatim, not to
+#      fix in this lane and not to soften. See THE TILT, below, for the four outcomes.
+#   2. THE ECCENTRIC-TARGET TOF BAND. Eeloo (e = 0.26) is the fixture
+#      `ReaimTofSearch`'s two MEASURE-FIRST PLACEHOLDER constants were written to be
+#      pinned against -- both `EccGain` and `MaxHalfWidthFraction` carry
+#      "PLACEHOLDER - pin against the Eeloo fixture" in the source, and the open
+#      validation debt is item (3) of the validation-debt list in
+#      docs/dev/todo-and-known-bugs.md ("eccentric-target Eeloo/Moho constant
+#      pinning (M-MIS-3)"). This lane is where that debt is discharged.
+#   3. THE SEAM-ENDPOINT CENSUS at the arrival. Read, NOT armed -- see the census trade
+#      carried from V10 below.
+#   4. THE RE-AIMED TRANSFER READY LINE for cycle 0 -- departUT and devFromRecorded.
+#
+# =====================================================================================
+# THIS IS A TWO-PASS LANE BY CONSTRUCTION, AND THAT IS THE LANE'S DEFINING CONSTRAINT.
+#
+# The seven jump UTs are arithmetic on five quantities that only a PRIOR READING RUN's
+# log carries: `phaseAnchor`, `D0`, `tof`, the loiter cut, and -- critically -- the
+# RE-AIMED ARC'S OWN `soiEntryUT`, which is NOT the recorded arrival mapped through the
+# replay clock. V10 iteration 1 made exactly that mistake at Dres and the census
+# answered `evaluated=0 skip.no-usable-ratio=1`: the re-aimed conic is a DIFFERENT
+# conic and its SOI crossing sat 18,067 s earlier than the bracket.
+#
+# So: the UTs committed below are PASS-1 ESTIMATES, derived in the ESTIMATE ARITHMETIC
+# block that follows and labelled as estimates everywhere they appear. Pass 1 is a
+# READING run whose real job is to print the five quantities. Pass 2 recomputes all
+# seven from the log, by this recipe:
+#
+#   Read from `ReaimPlaybackResolver`'s `re-aimed transfer ready:` line
+#       departUT (= D0), tof, soiEntryUT
+#   and from the `MissionLoopUnit:` Info line
+#       phaseAnchor, compressedSpan, loiterCuts / cutSeconds
+#   then:
+#     jump 1 = phaseAnchor + 120                    cycle-0 Kerbin ascent leg
+#     jump 2 = D0 + 600                             post-seam escape observation,
+#                                                   POST-D0 ONLY (see NO PRE-D0 JUMP)
+#     jump 3 = D0 + tof/2                           mid-transfer: the jump that makes
+#                                                   the synthesizer resolve the window
+#                                                   and the tilt gate run. THE STEP
+#                                                   V12 STRUCTURALLY CANNOT TAKE.
+#     jumps 4/5/6 = soiEntryUT - 190 / - 60 / + 180 bracket the PRODUCT'S OWN
+#                                                   soiEntryUT off the ready line,
+#                                                   never the recorded arrival
+#     jump 7 = phaseAnchor + compressedSpan - 120   parked tail, INSIDE the rendered
+#                                                   window (not past it -- that is the
+#                                                   V8 _0810 line-blink shape)
+#
+#   Then fly the recomputed shape twice byte-identically, then arm what it measured,
+#   then a negative control (invert one armed window, confirm PARSEK-FAIL, revert).
+#
+# =====================================================================================
+# THE ESTIMATE ARITHMETIC (ITERATION 1 ONLY -- every number here is DERIVED, not
+# measured, and every one is SUPERSEDED by THE MEASURED NUMBERS block below. Kept as the
+# estimate's provenance: the deltas recorded there are only readable against it.)
+#
+# Measured inputs, all from B21-eeloo-orbit run `2026-08-12_2239` (PASS attempt 1,
+# 3,092 s wall) and from the committed fixture that run produced. `_2239` and NOT the
+# earlier green `_2003`: `_2003`'s produced save was destroyed 53 s after it ended by a
+# sibling run sharing the same `saveTemplate` leaf (HARNESS-PRODUCED-SAVE-CLOBBERED-BY-
+# SIBLING-RUN in docs/dev/todo-and-known-bugs.md), so the committed BYTES are `_2239`'s
+# and every pin must be measured against them.
+#
+#   recorded span      [26.2, 47,036,743.9]        spanDur 47,036,717.7
+#   LKO ejection wait  TRANSFER-BURN 2,703.9 -> COAST-TO-TARGET 5,096,457.1
+#                                                  = 5,093,753.3 game s
+#   Kerbin->Sun escape recorded ut 5,124,183.6     (first heliocentric frame)
+#   Sun->Eeloo arrival recorded ut 46,968,150.4    (TARGET-FLYBY entry)
+#   heliocentric coast 41,843,966.8 game s         (escape -> SOI entry)
+#
+# Estimated schedule:
+#   synodic   Kerbin-Eeloo   9,776,696.33 s   (exact-period derivation; the same method
+#             reproduces the product's emitted Dres synodic 11392903.305957612 to
+#             0.004 s, so it is right to ~9 figures and STILL wrong for an R-format
+#             substring pin -- which is why no synodic/cadence digit token is armed)
+#   spanDur / synodic = 4.8111  ->  multiple 5  ->  cadence ~ 48,883,481.6
+#             THE MULTIPLE IS THE FIRST PREDICTION WORTH RECORDING: Dres got 2 (at
+#             1.79) and Eve got 2 (at 1.07). Eeloo is the first >= 3 this suite has
+#             predicted, and it is a consequence of the long coast, not of the target.
+#   loiter cut ~ [2,703.9, 5,096,457.1], len ~ 5,093,753.3  (the LKO ejection-window
+#             wait; at Dres the emitted cut len 8,436,248 sat ~9,000 s inside the
+#             measured wait, so treat this as an upper estimate)
+#   compressedSpan ~ 47,036,717.7 - 5,093,753.3 = 41,942,964.4
+#   phaseAnchor ~ spanStart + cadence + cutLen = 53,977,261
+#             THIS RELATION IS EMPIRICAL, calibrated on ONE point: at Dres it gives
+#             26.24 + 22,785,806.61 + 8,436,248 = 31,222,080.85 against the emitted
+#             31,222,080.6814808, a 0.17 s residual (inside the rounding of the quoted
+#             cut length). It is also self-consistent as "the first whole cadence
+#             boundary after the save's own UT". One point is not a law: if pass 1
+#             prints a phaseAnchor that is a whole cadence away, that is the estimate
+#             failing, not the product.
+#
+#   replay(R) = phaseAnchor + (R - spanStart) - (R > cutEnd ? cutLen : 0)
+#   D0  ~ 54,007,665      (replay of the recorded escape)
+#   tof ~ 41,843,967      (recorded arrival - recorded escape; devFromRecorded=0
+#                          would make the used tof exactly this)
+#   D0 + tof ~ 95,851,632 = the replay of the recorded arrival
+#   rendered window ends ~ 95,920,225 = phaseAnchor + compressedSpan
+#
+# THE ARRIVAL BRACKET, and this is where V10's iteration-1 lesson is GENERALISED rather
+# than merely avoided. `arrivalUT` is where the Lambert conic reaches the target's
+# CENTRE; `soiEntryUT` is where it crosses the SOI boundary, necessarily EARLIER. At
+# Dres the gap measured 18,067 s against a modelled ~20,700 s SOI-crossing -> periapsis
+# coast, i.e. 0.87 of it -- so the 18,067 s was not arbitrary geometry, it was one
+# approach time. B21 measured Eeloo's own approach at 69,895.611 s (KSP's own ttPe on
+# the first in-SOI frame), so the estimate is
+#       soiEntryUT ~ (D0 + tof) - 0.87 x 69,896 ~ 95,851,632 - 61,000 = 95,790,632
+# with a HONEST +-35,000 s uncertainty: the re-aimed conic's periapsis is not the flown
+# one's, the 0.87 factor rests on a single Dres point, and the mechanism itself
+# (centre-arrival vs boundary-crossing) is a hypothesis cross-checked once. Pass 1's
+# arrival bracket will very probably MISS, and that costs nothing: the tilt, tof-band
+# and ready tokens all come from jump 3, and the census is not armed anyway.
+#
+# ONE PROPERTY OF THE ESTIMATE THAT WAS CHECKED RATHER THAN ASSUMED: jump 1 sits
+# 30,284 s before D0 (the post-ejection Kerbin-SOI climb-out, 5,124,183.6 - 5,096,457.1,
+# plus the pre-cut head). V10's equivalent jump sat 54,543 s before its D0 and never
+# raised the detector, while the three placements that DID raise sat 60 / 300 / 900 s
+# out. 30,284 s is two orders of magnitude clear of the widest raising placement.
+#
+# =====================================================================================
+# THE MEASURED NUMBERS (iteration 2). Every value below is READ OFF PASS 1'S OWN LOG,
+# run 2026-08-13_0120, and the seven jump UTs committed in the step list are arithmetic
+# on THESE, never on the estimates above.
+#
+# From `ReaimPlaybackResolver`'s `re-aimed transfer ready:` line:
+#   D0 (departUT)   54,007,648.196326263
+#   tof             41,843,983.835473977    devFromRecorded=0s (recorded tof kept verbatim)
+#   soiEntryUT      95,851,632.03180024
+# From the `MissionLoopUnit: ... ENGAGED re-aim Kerbin->Eeloo via Sun` Info line:
+#   phaseAnchor     53,969,923.596983388
+#   cadence         48,883,481.632992938    (synodic multiple 5 -- the prediction HELD)
+#   loiterCuts=1    cutSeconds=5,086,416    compressedSpan=41,950,304/47,036,720
+#
+#   jump 1 = phaseAnchor + 120                  = 53,970,043.597
+#   jump 2 = D0 + 600                           = 54,008,248.196
+#   jump 3 = D0 + tof/2                         = 74,929,640.114
+#   jump 4 = soiEntryUT - 190                   = 95,851,442.032
+#   jump 5 = soiEntryUT - 60                    = 95,851,572.032
+#   jump 6 = soiEntryUT + 180                   = 95,851,812.032
+#   jump 7 = phaseAnchor + compressedSpan - 120 = 95,920,107.597
+#
+# HOW FAR EACH MOVED, AND WHY. The point of a two-pass lane is that these deltas ARE the
+# estimate's error bars, measured rather than asserted:
+#   jumps 4/5/6   +61,000.032 s each. THE BIG ONE, and it is the arrival-bracket
+#     hypothesis failing outright rather than drifting. The estimate modelled soiEntryUT
+#     as (D0 + tof) - 61,000, generalising Dres's 18,067 s centre-arrival ->
+#     boundary-crossing gap by one approach time. THE PRODUCT REPORTS soiEntryUT =
+#     D0 + tof EXACTLY: 95,851,632.03180024 computed both ways, to the digit. THERE IS
+#     NO DRES-STYLE GAP ON THIS LANE. The Dres gap was real and is not refuted -- it
+#     simply does not generalise, and pass 1's census read
+#     `evaluated=0 skip.no-usable-ratio=1` because of it.
+#   jump 1        -7,337.403 s. The estimate's phaseAnchor relation
+#     (spanStart + cadence + cutLen) gave 53,977,261 against the measured
+#     53,969,923.597. So that one-point Dres calibration is good to ~1 part in 7,300
+#     here, NOT to the 0.17 s it looked like at Dres. It cost this lane nothing (see the
+#     pre-D0 distinction below), but it is not a law and must not be quoted as one.
+#   jumps 2/3/7   -16.804 / -8.886 / +1.597 s. Seconds. The D0, tof and compressedSpan
+#     derivations were right, exactly as V10's departure derivation was.
+#
+# THE PRE-D0 DISTINCTION, STATED PRECISELY BECAUSE THE FLAT FORM IS WRONG. "No pre-D0
+# jump" is NOT this lane's constraint, and stating it that way would mislead the next
+# reader: JUMP 1 IS DELIBERATELY PRE-D0 -- it is the cycle-0 Kerbin ascent leg, and
+# V10's own jump 1 sat at D0 - 54,543. The real constraint is narrower: no jump may sit
+# in the NEAR-pre-D0 STRADDLE ZONE where the Sun-leg proto line toggles inside one
+# settle (the filed LINE-BLINK-JUMP-STRADDLE-DETECTOR-GAP; the three V10 placements that
+# raised sat 60 / 300 / 900 s out). Pass 1 flew a jump 1 sitting 30,267 s pre-D0 and
+# raised NOTHING; iteration 2's jump 1 sits 37,604.599 s pre-D0, FURTHER OUT, so it is
+# safe by pass 1's own margin plus 7.3k. Jumps 2..6 are all POST-D0 -- verified: +600,
+# +20,921,991.9, and the three arrival-bracket jumps 41.8M s past D0.
+#
+# WHAT THE TOF BAND ACTUALLY PROVED, AND WHAT IT DID NOT. This NARROWS the M-MIS-3 claim
+# rather than closing it, and the narrowing is load-bearing.
+# `ReaimTofSearch.BuildCandidateTofs` is RECORDED-CENTERED, not geom-centered: step 0 is
+# ALWAYS the recorded tof, the band is recordedTof +- k*step with
+# step = recordedTof * stepFraction, and geomTof only chooses which SIDE to probe first
+# (towardSign). So pass 1's devFromGeom=7,577,876.6 s exceeding 0.19*geom is IRRELEVANT
+# -- the band is never measured against geom. AND because devFromRecorded=0s, cycle 0
+# was accepted AT STEP 0, so THE EXPANSION BAND WAS NEVER WALKED. Pinning
+# `eTarget=0.2600 halfWidthFraction=0.1900` therefore proves the constant is COMPUTED
+# correctly for e = 0.26; it does NOT prove the expansion BEHAVES, because no candidate
+# past step 0 was ever probed. Claim the computation half only -- the behavioural half of
+# the `EccGain` validation debt stays OPEN. (A separate geom-centered function serves the
+# heliocentric-parking-departure path; parking=False here, so that is not our path.)
+#
+# =====================================================================================
+# ITERATION HISTORY -- THIS LANE, AT EELOO
+#
+#   iteration 1 -- FLOWN 2026-08-13_0120, PASS on attempt 1, 54 s wall, all 30 steps OK,
+#     anomalySweep PASS hits=[], expectations PASS, ZERO line-blink. (One report-only
+#     NRE in stock scene teardown -- CrewHatchController.OnDestroy -> DespawnUIs ->
+#     HideTooltip -- not Parsek.) IT WAS NOT A FAILURE OF THE LANE. It is the EXPECTED
+#     COST OF A TWO-PASS LANE BY CONSTRUCTION: its job was to print the five quantities
+#     the jump UTs are arithmetic on, and it printed all five. What it read:
+#       (i)   THE TILT CAME BACK `state=noop reason=in-plane`, NOT the predicted
+#             `state=retained`. inc-before=4.0725 against bound=6.6500 /
+#             targetInc=6.1500, so the synthesized conic was ALREADY INSIDE the bound
+#             and no correction was attempted (incAch=NaN, inc-after == inc-before).
+#             EELOO'S 6.15 DEG DID NOT FORCE A TILT ON THIS GEOMETRY. Per this lane's
+#             own posture that is a FINDING recorded verbatim, not a failure, and the
+#             absence of a retain line is NOT a decline.
+#       (ii)  THE SYNTH GEOMETRY CLOSED TO ZERO METRES on all three checks:
+#             `xfer-vs-Kerbin@depart=0m (~0) | xfer-vs-Eeloo@arrival=0m (~0) |
+#             xfer-vs-Eeloo@soi=0m (SOI=119082942)`, on sma=47,537,901,349.02877
+#             ecc=0.7529 inc=4.0725 bound=6.6500. NOTE `@soi=0m`, where Dres read
+#             32,832,839m against its own SOI -- consistent with soiEntryUT ==
+#             arrivalUT on this lane. The SOI constant MEASURED 119082942, i.e. the
+#             value the program's notes carry and NOT the 119082941 an independent
+#             mass-table derivation gives.
+#       (iii) THE CENSUS READ `evaluated=0 outsideSoi=0 skip.no-usable-ratio=1`,
+#             because the seeded arrival bracket sat ~61,000 s BEFORE the real SOI
+#             crossing. Same failure MODE as V10 iteration 1, opposite CAUSE: V10
+#             placed its bracket at the recorded arrival and the real seam was
+#             18,067 s earlier; here the seed DEDUCTED a modelled approach time from a
+#             seam that has none.
+#       (iv)  cadence multiple 5 CONFIRMED (48,883,481.632992938 /
+#             9,776,696.3265985884 = 5.0000), the suite's first prediction above 2.
+#             Members and span as predicted: members=2 foreignMembers=0 skipped=0,
+#             span=[26.21999999999953, 47,036,746.303578854].
+#   iteration 2 -- THIS SHAPE, all seven jump UTs recomputed on the product's own
+#     numbers per THE MEASURED NUMBERS block above. FLOWN TWICE, 2026-08-13_1513 and
+#     _1515, BOTH PASS on attempt 1 (78 s / 52 s wall), all 30 steps OK, anomalySweep
+#     PASS hits=[], expectations PASS, ZERO line-blink in either. Nothing armed.
+#       (i)   EVERY PRODUCT MEASUREMENT IS BYTE-IDENTICAL ACROSS THE TWO RUNS AND
+#             IDENTICAL TO ITERATION 1's: the ready line whole (departUT / tof /
+#             eTarget / halfWidthFraction / devFromRecorded / soiEntryUT / segs /
+#             renderSpan), the tilt line whole, the synth geometry line whole, the
+#             `ENGAGED re-aim` and loop-unit lines whole, and `map effective segments
+#             ... segs=6 helioSegs=1 firstHelioSma=47537901349 | suppressed=122`. So
+#             the retarget moved WHERE the clock parks without moving anything the
+#             synthesizer computes -- which is the expected shape (the synth resolves
+#             per WINDOW, not per jump) and is what makes those tokens pinnable.
+#       (ii)  WHAT MOVES BETWEEN TWO IDENTICAL RUNS, AND IS THEREFORE NOT PINNABLE:
+#             the staged recording ids and ghost pids (fresh per run), frame counters
+#             (7431 vs 7169), ghost world positions (~200 m apart -- floating origin),
+#             `timejump complete reachedUT` (settles a few tens of ms past target, e.g.
+#             53970043.677 vs .657), `SetLoopEnabled anchorUT` / `missionconfig
+#             anchorUt` (47036749.103579313 vs .003579296) and the epoch-shift delta
+#             (129.3 vs 129.2 s), the post-quit vessel-snapshot distance (199 m vs
+#             119 m), spline `fitDurationMs`, and the raw Unity NRE count (1 vs 4 --
+#             all four stock scene teardown: KnowledgeBase.ActivateApps under
+#             PlanetariumCamera.OnVesselDestroy, MechJebCore.OnDestroy,
+#             CrewHatchController.HideTooltip; none Parsek). The Parsek TEARDOWN lines
+#             themselves are not stable either -- _1513's log carries `GhostPlaybackEngine
+#             disposed` / `OnDestroy: cleaning up ParsekFlight` and _1515's does not,
+#             because the process dies mid-teardown at a different point AFTER
+#             FlushAndQuit already answered OK. All of it is below the measurement.
+#       (iii) THE CENSUS STILL READS `evaluated=0 outsideSoi=0 skip.no-usable-ratio=1`,
+#             AND THE RETARGET RESOLVED WHY -- this is a FINDING, recorded rather than
+#             iterated on. THE EMITTED LINE IS NOT AN ARRIVAL-BRACKET READING AT ALL.
+#             In BOTH runs the single summary comes from the frame at
+#             currentUT=53970043.597, i.e. JUMP 1, the cycle-0 Kerbin ascent leg. The
+#             summary rides `ParsekLog.VerboseRateLimited(..., "seam-endpoint-summary",
+#             5.0)` on a SHARED key and the counters reset every pass, so it reports ONE
+#             PASS, and jump 1 primed the 5 s key while the whole rest of the lane --
+#             all three arrival-bracket jumps included -- executed inside the shadow.
+#             The bucket itself is CORRECT for that frame: the proto conic there is the
+#             Kerbin-frame escape hyperbola (sma=-404710 ecc=4.3873) whose cross-body
+#             successor destination is the SUN, and `no-usable-ratio`'s own documented
+#             field cause is exactly a destination with no finite sphere
+#             (`MapRenderProbe.ComputeSeamEndpointGeometry`, and the bucket comment at
+#             the `HasMeasurement` gate names the Sun case in as many words).
+#             THE ARRIVAL SEAM WAS NEVERTHELESS REACHED, on independent evidence from
+#             the render side: at jump 6 the proto line closed with
+#             `reason=past-body-frame-end lineActive=False ... bounds=[54007648.2,
+#             95851632.0]` -- bounds ending at soiEntryUT to the digit, i.e. the bracket
+#             is on the seam this time and the leg ran out exactly there. So the census
+#             is silent about the arrival, not negative about it.
+#             CONSEQUENCE FOR THE V10-CARRIED CLAIM BELOW: "the census evaluating at all
+#             depends on the render having passed through the PRE-D0 state" does not
+#             survive here. This lane's pre-D0 jump 1 is precisely what DID reach the
+#             lens, and it produced an unusable sample. Reading the arrival census on
+#             this lane needs the rate-limit key freed near the seam (or a
+#             per-onset/per-pid key), which is an instrument change and NOT this lane's
+#             business.
+#   iteration 3 (THIS REVISION) -- ARMED 2026-08-13 on iteration 2's two green readings,
+#     then PROVED BY NEGATIVE CONTROL. Nothing about the flown shape changed: the seven
+#     jump UTs, the spacer pacing and `allowedAnomalies = []` are iteration 2's verbatim.
+#     What changed is the contract -- 2 required tokens became 13, and the recordings
+#     window {5,8} became a pin {6,6}.
+#       (i)   ARMED RUN `2026-08-13_1536`: PASS attempt 1, 54 s wall, all 30 steps OK,
+#             driverValidity PASS, analyzer PASS red=0, logValidate PASS, anomalySweep
+#             PASS hits=[] counts={}, expectations PASS mismatches=0, saveParse REPORT
+#             (recordings 6, pointsTotal 1685, unparsed 0), ZERO line-blink,
+#             unityExceptions REPORT total=3 (stock teardown). Every one of the 13 armed
+#             tokens matched -- a FOURTH byte-identical reproduction of the tilt literal,
+#             the ready line, the synth geometry and the band pair.
+#       (ii)  NEGATIVE CONTROL `2026-08-13_1537`: ONE digit of ONE genuinely-measured
+#             token inverted -- `inc-before=4.0725` -> `4.0726` in the required array
+#             only, every comment copy left intact -- and the lane went
+#             PARSEK-FAIL(expectation) attempt 1, naming exactly that token and nothing
+#             else:
+#               logContracts.required not matched: tilt-correction inc-before=4.0726
+#               bound=6.6500 targetInc=6.1500 incAch=NaN inc-after=4.0725 state=noop
+#               reason=in-plane
+#             THE ISOLATION IS THE POINT, and it validated the redundant bound pair on
+#             its first outing: the other 12 tokens still matched, INCLUDING
+#             `bound=6.6500 targetInc=6.1500`. So the red read "the solved conic moved,
+#             the bound arithmetic did not" -- exactly the diagnostic split the pair was
+#             armed separately to give, demonstrated rather than asserted. A derivable
+#             constant was deliberately NOT the corruption target: inverting one would
+#             have proven only that a constant is a constant.
+#       (iii) REVERT CONFIRMED `2026-08-13_1539`: PASS attempt 1, 54 s, expectations
+#             mismatches=0, anomalySweep hits=[], unityExceptions 0. The revert was
+#             verified by `git diff` (only this spec plus the harness-written
+#             coverage/duration.json) and by re-reading the ARMED ARRAY: the required
+#             entry is byte-restored to `inc-before=4.0725`, which is the material
+#             fact. A repo-wide grep for `4.0726` is NOT empty and was never going to
+#             be -- it still hits the two NARRATIVE QUOTES of the control two
+#             paragraphs above, the same quote in this lane's autotest-status row, and
+#             one unrelated older fixture where it is float data rather than a token
+#             (`velY = -44.07268` in eve-orbit-recorded's
+#             75a6ab25...prec.txt). What no committed file carries is the corrupted
+#             digit inside an ARMED ARRAY ENTRY, and that is what was checked.
+#       (iv)  THE CENSUS READ `evaluated=0 outsideSoi=0 skip.no-usable-ratio=1` on all
+#             three, unchanged and still unarmed. FOUR runs, one reading.
+#
+# =====================================================================================
+# ITERATION HISTORY CARRIED FROM V10 -- this is V10's measured Dres history, reproduced
+# because it is the reason this lane's step list has the shape it has. Nothing below was
+# measured at Eeloo.
+#
+#   iteration 1 -- FLOWN 2026-08-12_0326, PARSEK-FAIL(anomaly), and it did its job:
+#     the synthesizer ran, all three questions got answers, and two things needed
+#     moving.
+#       (i)  THE DEPARTURE DERIVATION WAS EXACTLY RIGHT. The product's own
+#            `re-aimed transfer ready` line reports
+#            departUT=31,276,742.826743945 -- identical to the D0 that header
+#            derives, to the digit. The escape bracket stays where it is.
+#       (ii) THE ARRIVAL BRACKET WAS ON THE WRONG SEAM. It was placed at the
+#            RECORDED arrival mapped through the replay clock (43,162,644.6). The
+#            re-aimed transfer does not enter Dres's SOI there: the ready line
+#            reports soiEntryUT=43,144,577.773317166, which is 18,067 s EARLIER.
+#            That is not drift, it is geometry -- the re-aimed conic is a different
+#            conic, and its SOI crossing is its own. The census duly read
+#            `evaluated=0 skip.no-usable-ratio=1`, i.e. it was asked about a seam
+#            the arc does not have.
+#       (iii) LINE-BLINK at the escape bracket: `currentUT=31276682.680 ...
+#            sinceFrames=1 body=Sun`, i.e. the two straddling jumps
+#            31,276,552 -> 31,276,682 landed one visual frame apart. This is the V8
+#            detector gap exactly.
+#   iteration 2 -- FLOWN 2026-08-12_0329, PARSEK-FAIL(anomaly), and the re-bracket
+#     WORKED: the census went `evaluated=0 skip.no-usable-ratio=1` ->
+#     `evaluated=1 outsideSoi=0`, which is the rendered-arrival proof that lane was
+#     written for. Tilt and ready lines reproduced identically. But line-blink went
+#     1 -> 2, and reading WHERE settled what it is: both hits are the SAME jump,
+#     31,276,682, at `sinceFrames=1`. That is not inter-jump pacing -- adding
+#     spacers around it gave it more frames and it toggled twice instead of once.
+#     A 1-frame toggle inside ONE jump's settle means the jump LANDED ON the
+#     Sun-leg line's own window edge: 31,276,682 sits 60.8 s before D0
+#     31,276,742.83, i.e. within a frame of where the heliocentric leg's line
+#     switches on. Spacers cannot fix a toggle that happens inside one settle.
+#   iteration 3 -- FLOWN 2026-08-12_0331, PARSEK-FAIL(anomaly). Moving the escape
+#     bracket clear of the edge (-900 / -300 / +600) did NOT clear the blink: it
+#     followed the middle jump to its new UT, `31,276,442.640 sinceFrames=1
+#     body=Sun`. Three runs, three placements, same shape -- so the trigger is not a
+#     particular UT edge, it is ANY jump landing in the pre-D0 region: the Sun-leg
+#     proto line toggles within one frame because the CLOCK is outside its window,
+#     which is exactly the filed V8 detector gap (`bodyChanged` cannot see a
+#     clock-leaves-window transition). That lane did not open that gap and cannot
+#     close it by pacing.
+#   iteration 4 -- FLOWN 2026-08-12_0333 and _0335, both PASS, zero anomalies, and
+#     ARMED on them. The pre-D0 jumps are REMOVED; the escape leg keeps one
+#     post-seam observation (+600).
+#
+#     THE ONE THING THAT COST, stated plainly rather than buried: dropping those
+#     jumps also dropped the census's SECOND line. Iterations 2 and 3 both emitted
+#     `seam-endpoint summary evaluated=1 outsideSoi=0` -- the rendered-arrival proof
+#     -- and iteration 4 emits only `evaluated=0 skip.no-usable-ratio=1`. So the
+#     census evaluating at all depends on the render having passed through the
+#     pre-D0 state, and reaching that state reproduces the filed detector gap. The
+#     two cannot both be had in one lane today.
+#
+#     THE CHOICE, and why: the armed lane is the GREEN one. The census reading is
+#     not lost -- it is MEASURED, twice, and recorded here and in the status doc
+#     (`evaluated=1 outsideSoi=0`, suppressed 279 / 273) -- but a permanently
+#     red-by-detector-gap lane makes a poor regression floor, and the arrival proof
+#     is independently carried by a token that lane DOES arm: the synth geometry
+#     line's `xfer-vs-Dres@arrival=0m` and `xfer-vs-Dres@soi=32832839m
+#     (SOI=32832840)`, i.e. the re-aimed conic meets Dres's SOI boundary to within
+#     one metre. That is the same claim the census makes, from the synthesizer
+#     rather than the renderer, and it is deterministic on every run.
+#     If the detector gap is ever closed, restore iteration 3's escape bracket
+#     (-900 / -300 / +600) and arm the census pair too.
+#
+# HARD CONSTRAINT CARRIED FORWARD: NO PRE-D0 JUMP in the escape bracket. The filed
+# finding is LINE-BLINK-JUMP-STRADDLE-DETECTOR-GAP in docs/dev/todo-and-known-bugs.md.
+# `RecordingState` spacers CANNOT fix it -- the toggle happens inside one jump's settle.
+#
+# =====================================================================================
+# WHAT THIS LANE ARMS, AND WHY EACH TOKEN EARNED IT
+#
+# ARMED 2026-08-13 on the two-consecutive-runs discipline (`_1513` / `_1515`, both PASS
+# attempt 1, zero anomalies). EVERY token below was verified byte-identical across BOTH
+# retarget runs before arming, and every one also reproduces iteration 1's reading --
+# three runs, one set of digits. Nothing that MOVED between the two runs is pinned; the
+# moving set is enumerated in iteration 2 (ii) above and none of it is a decision.
+#
+#   THE TILT LITERAL -- THIS LANE'S HEADLINE, armed on what it MEASURED rather than on
+#   what the pre-flight header predicted:
+#     `tilt-correction inc-before=4.0725 bound=6.6500 targetInc=6.1500 incAch=NaN
+#      inc-after=4.0725 state=noop reason=in-plane`
+#   Read THE TILT RESULT below for what this means and, more importantly, for what it
+#   does NOT license anyone to claim.
+#
+#   THE BOUND PAIR `bound=6.6500 targetInc=6.1500`, armed SEPARATELY even though it is a
+#   substring of the literal above, and the redundancy is deliberate rather than sloppy.
+#   It is the DERIVABLE half -- `ReaimTransferSynthesizer.InclinationBoundDegrees(l, t) =
+#   Max(Max(l, t), 0) + InclinationToleranceDegrees`, the tolerance a compile-time 0.5,
+#   Kerbin's inclination 0 and Eeloo's 6.15, so bound = 6.65 and targetInc = 6.15, both
+#   F4 and adjacent in `LogTiltCorrection`'s format string. It therefore SURVIVES a
+#   legitimate change in the geometry that the whole literal would not, and the pair of
+#   them DIAGNOSES a red instead of merely raising one: pair green + literal red = the
+#   solved conic moved (a reading to re-measure); BOTH red = the bound arithmetic itself
+#   moved (a regression). A COPIED DRES `bound=5.5000` would red a CORRECT Eeloo run,
+#   which is why it is spelled out here rather than inherited.
+#
+#   THE ECCENTRIC-TARGET BAND `eTarget=0.2600 halfWidthFraction=0.1900`. See THE M-MIS-3
+#   CLAIM, NARROWED below -- the claim this token supports is strictly SMALLER than the
+#   one the pre-flight header made for it, and the difference is load-bearing.
+#
+#   THE SYNTH GEOMETRY, all three proximity checks, now measured: `xfer-vs-Kerbin@
+#   depart=0m`, `xfer-vs-Eeloo@arrival=0m`, and `xfer-vs-Eeloo@soi=0m \(SOI=119082942\)`
+#   armed in ONE PIECE exactly as the pre-flight header said it must be. THE SOI CONSTANT
+#   IS ARMED ON THE MEASUREMENT AND NOT ON A DERIVATION: the header refused to pin it
+#   because a*(m/M)^0.4 from the stock mass table returns 119,082,940.97 -> "119082941",
+#   ONE off the 119082942 the program's notes carry, and the run settled it --
+#   `sphereOfInfluence.ToString("F0")` reads 119082942. The measurement is now the
+#   authority and the independent derivation is the thing that was wrong. NOTE `@soi=0m`
+#   where Dres read 32832839m: consistent with soiEntryUT == arrivalUT on this lane, i.e.
+#   this conic touches the SOI boundary AT its arrival instant rather than before it.
+#
+#   THE READY LINE: `re-aimed transfer ready: departUT=54007648.196326263`,
+#   `soiEntryUT=95851632.03180024`, `devFromRecorded=0s` and `encounter=Eeloo`. The
+#   pre-flight header refused `devFromRecorded=0s` because it "holds only if cycle 0
+#   resolves at CANDIDATE STEP 0" -- it DID, on three runs, so that condition is now a
+#   measurement rather than a hope. That same fact is what NARROWS the M-MIS-3 claim
+#   below, so this token is simultaneously the proof and the limit.
+#
+#   THE CLASSIFICATION `ENGAGED re-aim Kerbin->Eeloo via Sun`. Derivable from
+#   `MissionLoopUnitBuilder`, but it is a claim about product BEHAVIOUR, so it waited for
+#   the measurement. It has it, three times.
+#
+# =====================================================================================
+# THE TILT RESULT -- THE HEADLINE, AND WHAT IT DOES NOT PROVE
+#
+# MEASURED, byte-identical on all three runs (`_0120`, `_1513`, `_1515`):
+#     tilt-correction inc-before=4.0725 bound=6.6500 targetInc=6.1500 incAch=NaN
+#     inc-after=4.0725 state=noop reason=in-plane
+#
+# The prediction was `state=retained reason=unreachable-plane`. THAT IS NOT WHAT
+# HAPPENED, and the reason is STRUCTURAL rather than marginal: inc-before 4.0725 deg is
+# BELOW the 6.6500 deg bound, so `IsExcessiveTiltTransfer(incBefore, tiltBound)` is FALSE
+# and control never enters the excessive branch at all. `incAch` is NaN because it is
+# only computed INSIDE that branch, and `inc-after == inc-before` because nothing was
+# touched. EELOO'S 6.15 DEG DID NOT FORCE A TILT ON THIS GEOMETRY.
+#
+# WHAT THIS MEANS AGAINST THE TILT PLAN'S OWN CLAIM SCOPE, stated plainly because the
+# tempting one-line summary is FALSE. The plan scopes itself "Eve only ... Moho/Dres/
+# Eeloo are unmeasured collateral". Eeloo is the HIGHEST inclination the retention arm
+# has ever been aimed at -- Eve 2.1 -> Dres 5.0 -> Eeloo 6.15 -- and the retention arm
+# WAS STILL NOT REACHED, because THE RETENTION BRANCH LIVES INSIDE THE EXCESSIVE-TILT
+# GATE AND THE GATE NEVER OPENED. Therefore:
+#   * EELOO TESTED THE BOUND ARITHMETIC, NOT THE RETENTION BRANCH. The 6.65 bound and
+#     the 6.15 target are confirmed to the digit, and the not-excessive arm is confirmed
+#     to LOG a Noop rather than fall silent. That is the whole of what was proven.
+#   * THE RETENTION BRANCH REMAINS EVE-ONLY-VALIDATED (plus Dres's retained reading).
+#     THIS LANE DOES NOT WIDEN THE PLAN'S CLAIM SCOPE. Any note reading "Eeloo validated
+#     retention" would be false. Filed as REAIM-TILT-NOOP-AT-EELOO-6.15-DEG.
+#   * WHAT WOULD ACTUALLY EXERCISE IT: a geometry whose SOLVED transfer inclination
+#     exceeds the bound -- NOT a higher-inclination TARGET. Target inclination sets the
+#     BOUND, so raising it makes the gate HARDER to trip; what trips the gate is the
+#     Lambert solution's own plane. Dres reached `inc-before=13.1958` against a 5.5000
+#     bound on a shorter, more bent transfer, while this Eeloo window solves nearly
+#     in-plane at 4.0725 because a 484-day near-Hohmann coast barely leaves the ecliptic.
+#     Moho (7 deg target, but a fast bent INNER transfer) is the better candidate, and it
+#     is a NEW FIXTURE, not a re-aim of this one.
+# ABSENCE OF A RETAIN LINE IS NOT A DECLINE. A Noop DOES emit a tilt line (the `else` arm
+# of the disposition switch, `"noop", "in-plane"`); absence of a tilt line ALTOGETHER
+# would mean the synth never reached the tilt block, which is the larger finding. This
+# lane got its line.
+#
+# =====================================================================================
+# THE M-MIS-3 CLAIM, NARROWED -- WHAT `eTarget=0.2600 halfWidthFraction=0.1900` PROVES
+# AND WHAT IT DOES NOT. The pre-flight header claimed this token "CLOSES the M-MIS-3
+# validation debt for EccGain at 0.5". THAT CLAIM WAS TOO BROAD AND IS CORRECTED HERE.
+#
+# WHAT IS PROVEN -- THE COMPUTATION HALF. `ReaimTofSearch.HalfWidthFraction(e) =
+# clamp(BaseHalfWidthFraction + EccGain*e, BaseHalfWidthFraction, MaxHalfWidthFraction)`
+# = clamp(0.06 + 0.5 x 0.26, 0.06, 0.20) = 0.19 EXACTLY, and the product emitted
+# `halfWidthFraction=0.1900` against `eTarget=0.2600` on three runs. So at e = 0.26 the
+# band law COMPUTES correctly on the shipped constants, and the 0.20 cap is NOT engaged:
+# engaging it needs EccGain >= (0.20 - 0.06)/0.26 = 0.5385, so the shipped 0.5 sits 7.7%
+# BELOW engagement. That is a real measurement against a real fixture, and it is the
+# first one the `PLACEHOLDER - pin against the Eeloo fixture` comments have ever had.
+#
+# WHAT IS *NOT* PROVEN -- THE BEHAVIOURAL HALF, and this is why the debt stays OPEN.
+# `ReaimTofSearch.BuildCandidateTofs` is RECORDED-CENTERED, not geom-centered:
+#     step 0   = recordedTof, ALWAYS first (the source calls this invariant b)
+#     the band = recordedTof +- k*step, with step = recordedTof * stepFraction
+#     geomTof  = chooses only the SIDE probed first (`towardSign`) and NOTHING else
+# Two consequences follow, and both cut against the broader claim:
+#   (1) `devFromGeom=7577876.6049437672s` exceeding 0.19 x geom is IRRELEVANT. The band
+#       is never measured against geom, so a large devFromGeom is NOT a band violation
+#       and must not be read as one.
+#   (2) `devFromRecorded=0s` MEANS CYCLE 0 WAS ACCEPTED AT CANDIDATE STEP 0. The
+#       expansion steps (baseSteps+1 .. maxSteps) were NEVER WALKED -- not one candidate
+#       past step 0 was probed, on any of the three runs.
+# So the widened band was COMPUTED and never EXERCISED. Whether the eccentricity-gated
+# expansion BEHAVES -- whether those 26 extra steps land where the law intends, in the
+# order it intends, and whether a window that NEEDS them resolves -- IS STILL UNTESTED.
+# THE DEBT IS NOT CLOSED. Filed as M-MIS-3-BAND-COMPUTED-NOT-EXERCISED. Discharging the
+# behavioural half needs a fixture whose STEP-0 TOF IS REJECTED, which this one's is not.
+# (A separate geom-CENTERED function, `BuildParkingCandidateTofs`, serves the
+# heliocentric-parking-departure path. `parking=False` on every run here, so that is not
+# our path and this lane says nothing about it.)
+#
+# =====================================================================================
+# WHAT IS STILL DELIBERATELY NOT ARMED, EACH WITH ITS REASON
+#
+#   THE CENSUS PAIR. STILL A DOCUMENTED READING, and after the retarget the reason is
+#   BETTER UNDERSTOOD than V10's rather than merely inherited -- see iteration 2 (iii).
+#   Measured here, byte-identical on both runs:
+#       `[MapRenderTrace] seam-endpoint summary evaluated=0 outsideSoi=0
+#        skip.no-usable-ratio=1`
+#   and the emitted line is NOT an arrival-bracket reading: it comes from the frame at
+#   currentUT=53970043.597, i.e. JUMP 1, because the summary rides a SHARED 5 s
+#   `VerboseRateLimited` key that jump 1 primes and the whole rest of the lane executes
+#   inside its shadow. The bucket is CORRECT for that frame (a Kerbin-frame escape
+#   hyperbola whose cross-body successor destination is the Sun, which has no finite
+#   sphere). The arrival seam WAS reached, on independent render-side evidence: at jump 6
+#   the proto line closed `reason=past-body-frame-end lineActive=False ...
+#   bounds=[54007648.2,95851632.0]`, ending at soiEntryUT to the digit. The census is
+#   SILENT about the arrival, not negative about it -- and arming an `evaluated=0` token
+#   would pin an INSTRUMENT ARTEFACT as though it were a product contract.
+#   V10'S RESTORATION RECIPE IS CARRIED VERBATIM and remains the recipe of record: "if
+#   the detector gap is ever closed, restore iteration 3's escape bracket
+#   -900 / -300 / +600 and arm the census pair too." NOTE, for whoever executes it, that
+#   this lane's own measurement ADDS a condition V10 could not have known: freeing the
+#   rate-limit key near the seam (or moving it to a per-onset / per-pid key) is ALSO
+#   needed here, because on a ~55 s lane the shared key alone suppresses the arrival
+#   sample even when the bracket is dead on the seam. Both are instrument changes, and
+#   neither is this lane's business.
+#
+#   `suppressed=122` AND THE EFFECTIVE-SEGMENTS LINE. Stable across both runs, but it is
+#   a render-side count whose stability rests on two runs of ONE jump shape, and it would
+#   red on any unrelated render change while proving nothing this lane asks. Recorded as
+#   a reading: `map effective segments: RE-AIMED member=1 segs=6 helioSegs=1
+#   firstHelioSma=47537901349 | suppressed=122`.
+#
+#   THE CANDIDATE COUNT. Eeloo probes a DERIVED 77 candidates (1 + 2*maxSteps, with
+#   maxSteps = round(0.19/0.005) = 38) against Dres's 53 and Eve's 27. DERIVED AND NOT
+#   MEASURABLE ON A GREEN RUN: both emitters sit on the FAILURE path (`synth failed
+#   across N tof candidates`, `reaim window fell back faithful: ... candidates=N`), so a
+#   success prints no count at all. SEEING `candidates=77` IN A LOG MEANS THE WINDOW
+#   DECLINED.
+#
+#   THE SCHEDULE DIGITS (cadence / synodic / phaseAnchor / loiter cut / compressedSpan).
+#   V12 already arms those, on the same fixture and the same tree; duplicating them here
+#   would double-pin one measurement across two lanes and make a single product change
+#   red twice for one reason. This lane arms the SYNTHESIZER's half; V12 arms the
+#   SCHEDULE's.
+#
+# THE `state=declined` FORBID IS NARROWED FOR EELOO, and the narrowed form is what is
+# armed. V10 forbids the bare substring `state=declined`. That is a whole-log scan, and
+# the candidate sweep can legitimately emit PER-CANDIDATE declines
+# (`degenerate-rotation` / `sane-fail` / `handedness-flip` / `residual-tilt`) on a window
+# that ULTIMATELY RESOLVES -- the counter comment in `ReaimTransferSynthesizer` says so
+# in as many words. Dres got away with the bare form on 53 candidates; Eeloo would sweep
+# a DERIVED 77 at a higher tilt where the 90 deg retrograde ceiling is closer, so the
+# bare form here is a false positive waiting for the first window that needs a second
+# candidate. NARROWED TO `state=declined reason=unreachable-plane`, which is the SPECIFIC
+# pre-retention-fix regression V10 actually cares about and which the shipped code can no
+# longer emit at all (an unreachable plane now RETAINS). Zero false-positive surface,
+# same regression floor.
+# AND NOTE THE ASYMMETRY THAT MAKES THE NARROWING SAFE RATHER THAN MERELY CONVENIENT:
+# THE CANDIDATE COUNT IS ONLY OBSERVABLE ON A DECLINE, because both emitters are on the
+# failure path. So 77 is DERIVED and was never measured here -- and if a log ever does
+# show `candidates=77`, that reading is itself the news that the window declined.
+#
+# OTHER READINGS RECORDED HERE, NONE OF THEM ARMED:
+#   * `PhaseLock` reads `UnsupportedCrossParent` (Eeloo is not a child of Kerbin, exactly
+#     as Dres). Not a defect.
+#   * cadence multiple 5 CONFIRMED (48,883,481.632992938 / 9,776,696.3265985884 =
+#     5.0000), the suite's first prediction above 2. Armed in V12, not here.
+#   * `unityExceptions` REPORT-ONLY and NOT stable: total 1 / 1 / 4 across the three runs,
+#     every one stock scene teardown (KnowledgeBase.ActivateApps under
+#     PlanetariumCamera.OnVesselDestroy, MechJebCore.OnDestroy,
+#     CrewHatchController.HideTooltip), all of it AFTER FlushAndQuit answered OK. Not
+#     Parsek, and deliberately not gated.
+# =====================================================================================
+tier = "operator"
+description = "ARMED: the Eeloo program's arrival lane -- TimeJump into the re-aimed Kerbin->Eeloo transfer so the per-window synthesizer runs, pinning the tilt disposition at Eeloo's 6.15 deg inclination, the eccentric-target tof band at e=0.26, the three synth-geometry proximity checks including the MEASURED Eeloo SOI constant, and the cycle-0 re-aimed-transfer-ready line. THE HEADLINE IS A FINDING: the tilt came back state=noop reason=in-plane, not the predicted retained -- the solved conic's 4.0725 deg sits BELOW the 6.6500 deg bound, so the excessive-tilt gate never opened and the retention branch was NOT exercised at Eeloo. The seam-endpoint census stays a documented reading (its summary rides a shared 5 s rate-limit key primed by jump 1)."
+instanceProfile = "stock-minimal"
+tags = ["V12A", "eeloo", "loop", "playback", "reaim", "tilt", "flown"]
+
+[fixture]
+# The committed B21 recording, harvested --keep-parsek from run 2026-08-12_2239.
+saveTemplate       = "fixtures/saves/eeloo-orbit-recorded"
+injectedRecordings = "none"
+craft              = []
+
+[driver]
+kind = "seam"
+
+# V10's plumbing verbatim (stub-kill triple + the three tracers + MissionConfig +
+# StartLoopPlayback), then the jumps.
+#
+# PACING SPACERS ARE LOAD-BEARING, the V8 finding verbatim:
+# `MapRenderTrace.IsLineBlink` raises when a proto line's ON/OFF toggle pair lands
+# within LineBlinkFrameWindow = 8 VISUAL frames (`MapRenderTrace.cs`, verified), and two
+# back-to-back seam TimeJumps execute ~4-7 frames apart in WALL time regardless of the
+# game-seconds between them. V8 runs _0810 and _0814 both PARSEK-FAILed on exactly that
+# shape. The RecordingState pairs put wall frames between straddling jumps.
+# `allowedAnomalies` stays [] -- if the detector fires anyway, that is the reading.
+#
+# NO EnterWatchMode, deliberately. Watch verdicts on a cross-body replay are a separate
+# question with their own open finding (WATCH-ENTRY-REFUSED-INSIDE-QUOTED-RANGE), and an
+# unexpected OK would read INVALID(driver-verdict-mismatch) and discard this lane's
+# actual measurement. This lane asks four questions and spends its verbs on those.
+#
+# THE TREE GUID is the Eeloo fixture's own committed tree, read off its persistent.sfs
+# RECORDING_TREE node: d4ce5c45adae4f3e89c4ac6bbec6b167 (rootRecordingId
+# 20d890f9f34b466fb8be07d83103a9a7). A STALE GUID -- e.g. Dres's
+# f0c17a694f214fe7a759ea255ef4634a -- makes this lane VACUOUS, NOT RED: both seam verbs
+# answer OK-with-nothing-to-do and the run goes green proving nothing.
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  { cmd = "StopRecording",                                                   expect = "OK" },
+  { cmd = "DiscardTree",                                                     expect = "OK" },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "ghostRenderTracing", value = "true" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "mapRenderTracing",   value = "true" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "verboseLogging",     value = "true" }, expect = "OK" },
+  { cmd = "MissionConfig",     args = { tree = "d4ce5c45adae4f3e89c4ac6bbec6b167", loop = "true" }, expect = "OK" },
+  { cmd = "StartLoopPlayback", args = { tree = "d4ce5c45adae4f3e89c4ac6bbec6b167" }, expect = "OK", budget = 300 },
+
+  # (a) Cycle-0 just after the relaunch: the Kerbin ascent leg of the replay.
+  # MEASURED phaseAnchor 53,969,923.596983388 + 120. Iteration 1 seeded 53,977,381 off an
+  # estimated phaseAnchor of 53,977,261; this moves -7,337.403 s onto the product's own.
+  # DELIBERATELY PRE-D0 -- by 37,604.599 s, which is FURTHER OUT than the 30,267 s pre-D0
+  # placement iteration 1 flew clean. The constraint is the NEAR-pre-D0 straddle zone
+  # (60 / 300 / 900 s out at V10), not pre-D0 as such; see the header's PRE-D0
+  # DISTINCTION block.
+  { cmd = "TimeJump", args = { ut = "53970043.597" }, expect = "OK", budget = 300 },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+
+  # (b) Kerbin->Sun escape, POST-SEAM ONLY: MEASURED D0 54,007,648.196326263 + 600
+  # (iteration 1 seeded 54,008,265, i.e. -16.804 s -- the D0 derivation was right).
+  # THE PRE-D0 JUMPS ARE NOT HERE AND MUST NOT BE ADDED. Three V10 placements, three
+  # runs, one shape: `line-blink ... sinceFrames=1 body=Sun`, the filed
+  # LINE-BLINK-JUMP-STRADDLE-DETECTOR-GAP, where a proto line toggles because the CLOCK
+  # left its window rather than the body changing. The toggle happens INSIDE one jump's
+  # settle, so RecordingState spacers cannot fix it -- V10 iteration 2 added frames and
+  # it toggled twice. Those jumps answer none of this lane's four questions.
+  { cmd = "TimeJump", args = { ut = "54008248.196" }, expect = "OK", budget = 300 },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+
+  # (c) MID-TRANSFER, and this is the step V12 structurally cannot take: park the clock
+  # in the middle of the re-aimed heliocentric leg (MEASURED D0 + tof/2 =
+  # 54,007,648.196326263 + 20,921,991.917736989) so ReaimPlaybackResolver resolves it and
+  # the per-window synthesizer -- and with it the tilt gate and the tof-band line --
+  # actually runs. THE MOST FORGIVING JUMP IN THE LANE: the leg is ~41.8M game s wide, so
+  # there is ~20.9M s of slack either side, which is why iteration 1's estimate (only
+  # -8.886 s off) already got every tilt / band / ready token this lane reports.
+  { cmd = "TimeJump", args = { ut = "74929640.114" }, expect = "OK", budget = 300 },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+
+  # (d) THE CENSUS SEAM. Offsets -190 / -60 / +180 around the PRODUCT'S OWN MEASURED
+  # soiEntryUT 95,851,632.03180024, read off the `re-aimed transfer ready` line -- never
+  # off the recorded arrival (V10 iteration 1's measured mistake, 18,067 s from the real
+  # seam at Dres). All three moved +61,000.032 s from iteration 1, which seeded them
+  # around (D0 + tof) - 61,000 on the hypothesis that a centre-arrival -> boundary
+  # crossing gap generalises from Dres. IT DOES NOT: here soiEntryUT == D0 + tof to the
+  # digit, and iteration 1 duly read `evaluated=0 skip.no-usable-ratio=1`.
+  { cmd = "TimeJump", args = { ut = "95851442.032" }, expect = "OK", budget = 300 },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "TimeJump", args = { ut = "95851572.032" }, expect = "OK", budget = 300 },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "TimeJump", args = { ut = "95851812.032" }, expect = "OK", budget = 300 },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+
+  # (e) Parked tail, INSIDE the MEASURED rendered window: phaseAnchor + compressedSpan =
+  # 53,969,923.596983388 + 41,950,304 = 95,920,227.597, so this sits 120 s inside its end.
+  # Deliberately not past it -- that is the V8 _0810 line-blink shape. Iteration 1's
+  # 95,920,106 was +1.597 s off; the compressedSpan derivation was right.
+  { cmd = "TimeJump", args = { ut = "95920107.597" }, expect = "OK", budget = 300 },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "FlushAndQuit",                                                    expect = "OK" },
+]
+
+# NOTHING CLAIMED on a reading run. Cells get claimed once this lane has a pinned
+# contract that backs them -- the post-reading arming call, and a separate decision.
+[dimensionsCovered]
+
+[expectations]
+# PLACEMENT IS LOAD-BEARING: allowedAnomalies must precede every [expectations.<sub>]
+# header or TOML scopes it into the sub-table.
+#
+# EMPTY, the reading-run posture. An anomaly raised here IS the reading; exempting one
+# in advance would discard the evidence. The V8 precedent: two line-blink reds were
+# filed as a detector gap rather than exempted.
+allowedAnomalies = []
+
+[expectations.recordings]
+# RE-PINNED {6,6} on pass 2, from the interim {5,8}, and the +1 over the fixture's own
+# measured 5 is IDENTIFIED rather than inferred: both retarget runs emit
+# `[Optimizer] SplitAtSection: split 20d890f9f34b466fb8be07d83103a9a7 at UT=224.5`, the
+# ordinary deterministic load-time ascent split (Atmospheric -> ExoBallistic), which is
+# the SAME mechanism AND THE SAME UT the Dres lanes measured. Recording is OFF throughout,
+# so the TimeJumps cannot author anything. saveParse agrees on both runs: recordings 6,
+# trees 1, committedTrees 1, terminalStates {Orbiting 3, Destroyed 2}, branchPoints
+# {JointBreak 3}, points total 1,685 largest 1,275 smallest 21 unparsed 0.
+# DO NOT WIDEN: a 7 means a second split appeared (most likely the V9 cohesion fix
+# regressing at the Kerbin->Sun handoff), a 5 means the ascent split stopped, an 8 means a
+# scene-entry promotion survived the stub-kill triple. Each of those is a finding.
+count = { min = 6, max = 6 }
+
+[expectations.logContracts]
+# ARMED POSTURE (2026-08-13). Every token below was verified byte-identical across BOTH
+# green retarget runs (`_1513` / `_1515`) before arming, and each also reproduces
+# iteration 1's reading. The header's WHAT THIS LANE ARMS section carries the reason each
+# one earned it, and WHAT IS STILL DELIBERATELY NOT ARMED carries the reason for each
+# omission (the census pair, `suppressed=122`, the candidate count, and the schedule
+# digits V12 already owns).
+required = [
+  "MissionConfig",
+  "StartLoopPlayback",
+  # The classification: cycle 0 re-aims rather than replaying faithfully.
+  "ENGAGED re-aim Kerbin->Eeloo via Sun",
+  # THE HEADLINE, armed on the measurement and NOT on the prediction: the disposition at
+  # Eeloo's 6.15 deg is noop/in-plane, because the solved conic's 4.0725 deg is BELOW the
+  # 6.6500 bound so the excessive-tilt gate never opened (incAch NaN, inc-after ==
+  # inc-before). This is a FINDING, filed as REAIM-TILT-NOOP-AT-EELOO-6.15-DEG: Eeloo
+  # tested the BOUND ARITHMETIC, not the retention branch.
+  "tilt-correction inc-before=4.0725 bound=6.6500 targetInc=6.1500 incAch=NaN inc-after=4.0725 state=noop reason=in-plane",
+  # The DERIVABLE half of that literal, armed separately ON PURPOSE: Max(Max(0, 6.15), 0)
+  # + 0.5 = 6.65, both F4 and adjacent in the format string. It survives a legitimate
+  # change in the geometry that the whole literal would not, so the PAIR of tokens
+  # diagnoses a red -- this one green with the literal red means the solved conic moved;
+  # both red means the bound arithmetic itself moved. A copied Dres bound=5.5000 would red
+  # a CORRECT Eeloo run.
+  "bound=6.6500 targetInc=6.1500",
+  # The eccentric-target band at e=0.26: clamp(0.06 + 0.5 x 0.26, 0.06, 0.20) = 0.19
+  # exactly, cap NOT engaged. THIS PINS THE COMPUTATION HALF ONLY of the M-MIS-3
+  # placeholder debt -- devFromRecorded=0s means step 0 was accepted and the expansion
+  # band was never walked, so the BEHAVIOURAL half stays open
+  # (M-MIS-3-BAND-COMPUTED-NOT-EXERCISED). See the header's M-MIS-3 CLAIM, NARROWED.
+  "eTarget=0.2600 halfWidthFraction=0.1900",
+  # The synth geometry, all three proximity checks. The SOI constant is armed on the
+  # MEASUREMENT (119082942), not on the independent a*(m/M)^0.4 derivation that returned
+  # 119082941 -- see the header. @soi=0m rather than Dres's 32832839m because soiEntryUT
+  # == arrivalUT on this lane.
+  "xfer-vs-Kerbin@depart=0m",
+  "xfer-vs-Eeloo@arrival=0m",
+  "xfer-vs-Eeloo@soi=0m \\(SOI=119082942\\)",
+  # The ready line: cycle 0 re-aims to a real Eeloo encounter at candidate step 0, and
+  # its SOI crossing lands at D0 + tof to the digit (no Dres-style centre-arrival gap).
+  "re-aimed transfer ready: departUT=54007648.196326263",
+  "soiEntryUT=95851632.03180024",
+  "devFromRecorded=0s",
+  "encounter=Eeloo",
+]
+# The ERROR floor, plus the ONE decline the tilt-retention fix removed. NARROWED from
+# V10's bare "state=declined": the candidate sweep legitimately emits per-candidate
+# declines of four other reasons (degenerate-rotation / sane-fail / handedness-flip /
+# residual-tilt) on a window that ultimately resolves, and Eeloo would sweep a DERIVED 77
+# candidates against Dres's 53 at a higher tilt where the 90 deg retrograde ceiling is
+# closer. `reason=unreachable-plane` is the specific pre-fix regression, and the shipped
+# code can no longer emit it with `state=declined` at all -- zero false-positive surface,
+# same regression floor. Note the count is only observable ON a decline (both emitters sit
+# on the failure path), so 77 is derived, never measured here.
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "state=declined reason=unreachable-plane",
+]
+
+[runtime]
+# V10's budget class for the same seam-driven shape and step count. No flight: a
+# LoadGame, ~28 seam verbs and a quit; the epoch jumps are instant, so the budget is
+# dominated by the KSP boot and the fixture load (V10 measured well inside this).
+budgetSeconds = 2400
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

@@ -864,6 +864,174 @@ class CommittedFixtureSweepTests(unittest.TestCase):
                              "e3c055b7af8f4d9e8f9e8bf3b8aa0f1a"],
             "schemaGeneration": 4,
         },
+        # --- THE EELOO PROGRAM'S ORBIT FIXTURE ---------------------------
+        # PROVENANCE: eeloo-orbit-recorded <- B21-eeloo-orbit, run
+        # 2026-08-12_2239, PASS attempt 1, wall 3092 s (mission 3020 s).
+        # Harvested with `harvest_bdock_station.py --save-dir <snapshot>
+        # --target-name eeloo-orbit-recorded --expect-situation ORBITING
+        # --keep-parsek`; the gate passed on 'Duna Rocket' ORBITING at Eeloo,
+        # vessels=4. Every number below was re-measured off THESE COMMITTED
+        # BYTES with saveparse.parse_parsek_scenario +
+        # observed_structure_facets and is identical to that run's own
+        # saveParse verifier facets.
+        #
+        # WHY THE HARVEST WENT THROUGH A SNAPSHOT, and why the run id matters
+        # more here than on any earlier fixture. B21 flew green TWICE. The
+        # FIRST green run (2026-08-12_2003, also PASS, wall 3083 s) had its
+        # produced save DESTROYED 53 s after it ended, because sibling
+        # scenario B20-moho-orbit declares the same `saveTemplate =
+        # "fixtures/saves/b18-dres-pad"` and the produced-save directory is
+        # `_leaf_of(saveTemplate)` - so both runs stage into the same
+        # `<instance>/saves/b18-dres-pad`, and the machine lock serialises
+        # RUNS, not the produced save's lifetime (filed as
+        # HARNESS-PRODUCED-SAVE-CLOBBERED-BY-SIBLING-RUN in
+        # todo-and-known-bugs.md). THE COMMITTED BYTES ARE _2239's, harvested
+        # from a snapshot taken in the same command as the run. Do not
+        # re-measure any pin here against _2003.
+        #
+        # WHAT THE FIVE RECORDINGS ARE, by measured span UT -- the count
+        # alone cannot distinguish the Eeloo payload from the Kerbin-parked
+        # debris that also read Orbiting:
+        #   20d890f9  main orbiter, ut 26.2 -> 47,036,743.9 (the 47.037M
+        #             game-second loop-unit span), 1,501 points,
+        #             Orbiting/Eeloo, terminal elements sma 11,552,911.723
+        #             ecc 0.000713 inc 87.743 at epoch 47,036,746.304 -
+        #             which is exactly _2239's ORBIT-COMMIT entry UT, the
+        #             tightest available tie between these bytes and that run
+        #   c849bbee  ascent booster, ut 97.1 -> 149.0, Destroyed
+        #   d8bfbb2c  ascent booster, ut 97.1 -> 148.7, Destroyed
+        #   34ba13d3  core stack dropped by MechJeb AUTOSTAGE during ascent,
+        #             ut 1,697.3 -> 1,716.4 (MJ-ASCENT ran 26.2 -> 1,715.3),
+        #             Orbiting/Kerbin
+        #   cf7ff6b8  Skipper stack dropped by the JETTISON phase, ut 2,699.0
+        #             -> 2,703.9 (the JETTISON PHASE itself ran 2,698.475 ->
+        #             2,703.315, ORBIT -> JETTISON -> PLAN-TRANSFER; 2,703.9
+        #             is the RECORDING's end, 0.6 s past the phase exit, not
+        #             the phase exit itself), Orbiting/Kerbin
+        # So 3 terminals are Orbiting and 2 Destroyed, and two of the
+        # Orbiting three are parked DEBRIS at Kerbin, not the Eeloo orbiter.
+        #
+        # STRUCTURALLY IDENTICAL TO dres-orbit-recorded ON EVERY FACET
+        # PINNED HERE - 5 recordings, Orbiting 3 / Destroyed 2, JointBreak 3,
+        # 20 authoritative sidecars - because it is the same craft flown on
+        # the same B19 profile to a different target. The two fixtures differ
+        # only in points and in span. Read that as confirmation the profile
+        # is body-independent, NOT as evidence one fixture can stand in for
+        # the other: the consumer lanes key off the Eeloo tree id
+        # d4ce5c45adae4f3e89c4ac6bbec6b167 and on the terminal body being
+        # Eeloo, and a stale Dres GUID answers OK-with-nothing-to-do. TWO
+        # DIFFERENT SPELLINGS, do not grep the wrong one: IN THIS FIXTURE the
+        # key is `tOrbBody = Eeloo` (persistent.sfs:729, with the two parked
+        # Kerbin debris reading `tOrbBody = Kerbin` at :1021 and :1073);
+        # `terminalOrbitBody=` is the KSP.log spelling, emitted by
+        # ParsekFlight.cs:13446 and GhostMapPresence.Observability.cs:295 and
+        # found in a collected log, never in the save.
+        #
+        # LINE ENDINGS: THIS FIXTURE IS CRLF WHERE THE OLDER RECORDED
+        # FIXTURES ARE LF, AND THAT IS DELIBERATE. Census of the committed
+        # bytes: 14 of these 33 files contain CRLF and 19 do not. The pure-
+        # CRLF ones are the ConfigNode writes - `persistent.loadmeta` (16
+        # CRLF / 0 LF), all five `Parsek/GameState/*` files (`ledger.pgld`
+        # 210/0, `milestones.pgsm` 157/0, the two `.pgsb` baselines, and
+        # `events.pgse`), and all five `.prec.txt` (29,395/0 for the main
+        # orbiter). `persistent.sfs` is LF-only (15,562 LF); the sidecars are
+        # predominantly LF, and EXACTLY THREE FILES ARE MIXED - all three
+        # named so the census is complete rather than illustrative:
+        # 20d890f9's `.prec` (3 CRLF / 331 LF), 20d890f9's `_ghost.craft`
+        # (1 CRLF / 91 LF) and d8bfbb2c's `.prec` (1 CRLF / 49 LF). The
+        # other 11 CRLF-bearing files are pure CRLF. By contrast
+        # dres-orbit-recorded commits 1
+        # CRLF-bearing file of 33 and bdock-recorded 2 of 106 - in both cases
+        # a single CRLF inside one `.prec`.
+        # MECHANISM. `harvest_bdock_station.py` writes persistent.sfs
+        # EXPLICITLY with an LF-only `newline` argument
+        # (harvest_bdock_station.py:314-316) and copies everything else
+        # verbatim - `shutil.copy2` for the kept root files at :325 and
+        # `shutil.copytree` for the kept directories at :335 - so every
+        # non-sfs file lands byte-for-byte as KSP and
+        # Parsek wrote it on Windows, which for ConfigNode output is CRLF.
+        # `.gitattributes:30` (`harness/fixtures/**    -text`) then keeps
+        # those bytes stable on every platform: no index normalisation on
+        # add, no smudge on checkout, and no gate anywhere compares these
+        # bytes against LF-generated output - the consumers parse structure,
+        # not bytes.
+        # WHY THE OLDER FIXTURES ARE LF - VERIFIED, not assumed. Both were
+        # committed BEFORE the `-text` rule existed: it landed in cc257c44d
+        # (2026-08-12 13:03 UTC), which `git merge-base --is-ancestor`
+        # reports is NOT an ancestor of either dres-orbit-recorded's add
+        # commit fc0a6e8b0 (2026-08-12 01:48 UTC) or bdock-recorded's
+        # 60de84ac2 (2026-08-11 17:24 UTC). This checkout has
+        # `core.autocrlf = true`, so those adds went through CRLF -> LF index
+        # normalisation. The fingerprint proves it rather than merely
+        # suggesting it: dres's committed `ledger.pgld` blob is 0 CRLF / 210
+        # LF while this fixture's, from the same Parsek writer on the same
+        # OS, is 210 CRLF / 0 LF - same 210 lines, opposite endings, a
+        # difference no game code produces. And the one thing that DID
+        # survive normalisation in the old fixtures is explained by the same
+        # rule: `.prec` carries NUL bytes in its first 8 KB, git therefore
+        # classified it binary and skipped the filter, which is why dres's
+        # `.prec` kept its lone CRLF exactly as this fixture's `.prec` files
+        # keep theirs.
+        # WHY IT IS NOT BEING NORMALISED. The provenance block above asserts
+        # that the committed bytes ARE `_2239`'s output. Rewriting the line
+        # endings for tidiness would make that assertion false in exactly the
+        # way this branch has just had to correct elsewhere (the Duna Rocket
+        # craft's retracted "byte-identical to its download" claim). Truthful
+        # bytes beat a tidy convention: these are left as the game wrote them
+        # so the claim stays literally true. Do NOT LF-normalise this
+        # fixture, and do NOT "fix" the inconsistency with the older two.
+        #
+        # POINTS ARE NOT STABLE TO THE UNIT - deliberately NOT pinned here,
+        # and any consumer window over them must not be tight. Measured
+        # across the two green B21 runs: total 1,700 / largest 1,517
+        # (_2003) against total 1,684 / largest 1,501 (_2239), a 16-point
+        # swing in the main orbiter on two runs of the same spec. smallest
+        # (21) and every structural facet were identical across both.
+        #
+        # RISK 2 DID NOT FIRE, AND THE MARGIN IS THE FINDING: THE
+        # 5-RECORDING PIN HERE IS A KNIFE EDGE, NOT A COMFORTABLE
+        # MEASUREMENT. The count rests on the four radial LF drop tanks
+        # (istg 1, 4 x 360 = 1,440 units) never emptying, because emptying
+        # them would let MechJeb autostage pop a SIXTH recording. Measured
+        # from `_2239`'s telemetry lf track, all three readings: 2,240.000 at
+        # TRANSFER-BURN entry, 1,305.522 at CAPTURE-BURN entry (934.478
+        # spent, well inside the radial group) - but 800.452 at ORBIT-COMMIT,
+        # i.e. 1,439.548 of the 1,440 spent by the end of the capture burn.
+        # THE RADIALS RETAINED 0.452 UNITS, 0.03% OF THE GROUP. _2003 landed
+        # at 801.135 (1.135 retained - still under a tenth of a percent). So
+        # the 5-recording topology is measured and correct for both green
+        # runs, and the flight came within 0.03% of being a 6-recording one.
+        # THE CONCRETE CONSEQUENCE for anyone re-harvesting: a marginally
+        # different arrival geometry, a slightly larger correction round, or
+        # ANY change to the craft or the park altitude spends those 0.452
+        # units, autostage sheds istg 1, and the count becomes 6 - which
+        # would red the spec's {5, 5} pin AND this fixture's `recordings`/
+        # `recordingIds` pins ON AN ENTIRELY CORRECT FLIGHT. That is the
+        # drop-tank shed, not a regression.
+        # WHAT TO DO WHEN IT HAPPENS: re-pin to the measured value, add the
+        # new recording's id and span UT to the list above, and say which
+        # recording appeared. DO NOT relax `recordings` to a range - B19's
+        # contract is pin the measurement, and a range would re-hide the
+        # transition this margin exists to warn about.
+        # IT ALSO MOVES THE FLAMEOUT ANALYSIS in the spec's
+        # maxCorrectionDvMps block: its two-trip reading assumes istg 1 is
+        # still attached, so on a flight that DOES shed, istg 1 is gone and a
+        # flameout pop lands on istg 0 - the POD decoupler - on the FIRST
+        # trip rather than the second.
+        "eeloo-orbit-recorded": {
+            "trees": 1, "committedTrees": 1, "recordings": 5,
+            "supersedes": 0, "tombstones": 0, "rewind_points": 0,
+            "rewind_retirements": 0,
+            "terminalStates": {"Orbiting": 3, "Destroyed": 2},
+            "branchPoints": {"JointBreak": 3},
+            "minAuthoritativeSidecars": 20,
+            "recordingIds": ["20d890f9f34b466fb8be07d83103a9a7",
+                             "34ba13d3aaea4297a3e5bee543de4b9d",
+                             "c849bbeea3df44a1bcb85d8f9f2fc06b",
+                             "cf7ff6b80f8649df962cfbf1a37907b1",
+                             "d8bfbb2c7c654b0fa83f1a6d43394833"],
+            "schemaGeneration": 4,
+        },
         # --- THE ROUTE-PROOF (DOCKING) FIXTURE ---------------------------
         # PROVENANCE: bdock-recorded <- BDOCK-1-station-interceptor, run
         # 2026-08-11_1606, PASS attempt 1, wall 2146 s / mission 2093 s
