@@ -4872,6 +4872,12 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
         # ~2,000 s approach traversal drives. Promotion is the post-flight re-pin
         # of those, plus the recordings count.
         "B20-moho-orbit.toml":              "calibration-discipline - first flight of a new destination whose approach sizing is DERIVED rather than measured (approachMaxWarpFactor lowered to 4 by Moho's short SOI coast, correction triggers scaled to the ~2.7M s tof, wall budget driven by the lower ceiling); the recordings count window is deliberately wide on the B19 first-flight precedent, and promotion waits on re-pinning those to measured values rather than on outstanding work",
+        # V11 is a pure READING RUN in V9's original posture: nothing armed
+        # beyond the plumbing triple, count window deliberately wide, and the
+        # decline reasons V9 forbids left UNFORBIDDEN here on purpose -- if
+        # Moho declines, this lane must RECORD that rather than red on it.
+        # Promotion is the post-reading arming call, a recorded human decision.
+        "V11-moho-player-loop.toml":        "calibration-discipline - a READING run (V8/V9 iteration-1 pattern): the classify mode, the window schedule against a span that is ~0.99 of the Kerbin->Moho synodic, the loiter cut on a ~398,000 s LKO wait and the seam-endpoint census are all MEASURED here and none is armed; promotion waits on the post-reading arming call rather than on outstanding work",
         # V9 began as a pure READING RUN and did its job: it measured the optimizer
         # split defeating the re-aim classifier. That finding is now FIXED and V9 is
         # ARMED as its regression floor, so the post-reading arming call it was
