@@ -4878,6 +4878,11 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
         # Moho declines, this lane must RECORD that rather than red on it.
         # Promotion is the post-reading arming call, a recorded human decision.
         "V11-moho-player-loop.toml":        "calibration-discipline - a READING run (V8/V9 iteration-1 pattern): the classify mode, the window schedule against a span that is ~0.99 of the Kerbin->Moho synodic, the loiter cut on a ~398,000 s LKO wait and the seam-endpoint census are all MEASURED here and none is armed; promotion waits on the post-reading arming call rather than on outstanding work",
+        # V11A is a TimeJump observation lane whose brackets are derived from
+        # V11's measured D0/tof, so it is re-derived rather than re-run when the
+        # fixture changes. Pass 1 reads the tilt; the census bracket needs a
+        # soiEntryUT only pass 1 can print.
+        "V11A-moho-loop-arrival.toml":      "calibration-discipline - a TimeJump observation lane reading the tilt disposition at Moho's 7 deg, the TOP of the band the synthesizer's own comments call its failing population; brackets come from V11's measured loop-unit line, nothing is armed on the reading pass, and the census bracket is deliberately deferred to a second pass because it must sit on the re-aimed arc's own soiEntryUT",
         # V9 began as a pure READING RUN and did its job: it measured the optimizer
         # split defeating the re-aim classifier. That finding is now FIXED and V9 is
         # ARMED as its regression floor, so the post-reading arming call it was
