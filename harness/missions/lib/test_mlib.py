@@ -10319,6 +10319,83 @@ class ApproachWarpClampTests(unittest.TestCase):
         self.assertTrue(latch(150000.0), "inside the window latches")
         self.assertTrue(latch(float("nan"), prev=True), "and then HOLDS")
 
+    def test_decide_holds_the_ceiling_across_a_blink_and_releases_on_arrival(self):
+        """DECIDE-LEVEL, and the distinction is the whole point of the cell.
+
+        Every OTHER latch cell here exercises the pure predicates in isolation,
+        and that is exactly the coverage shape that MISSED the bug this latch
+        shipped with: keyed on `tts` alone it engaged on ANY SOI boundary, and a
+        clean-context review caught it rather than a test. This drives the real
+        `b5_decide` through the measured sequence -- via-body transit,
+        heliocentric coast, target approach, THE BLINK, arrival -- and asserts
+        the EMITTED WARP, which is what the predicate cells cannot see.
+
+        THE STRONGEST ASSERTION IS f2 vs f4. Both are `tts=nan` on body=Sun, so
+        they are indistinguishable to a stateless clamp. Unlatched (f2) the frame
+        emits the raw coastWarpFactor 7 = x100,000; latched (f4) it emits the cap
+        4 = x100. That one-digit difference IS the latch, and it is the frame
+        that cost B20 flight 3 its capture (one x100,000 poll covered 55,041 game
+        s through the lead, the boundary and the whole SOI coast).
+
+        TWO FIXTURE REQUIREMENTS, both discovered the hard way and both invisible
+        from the predicate signature:
+          * `via_bodies` MUST contain "Sun", or `_b5_coast_bodies` rejects the
+            heliocentric frames as "left home SOI without reaching the target",
+            sets done=True, and `b5_decide`'s idempotence guard then swallows
+            every later frame -- so the latch never runs and the arrival never
+            hops, with no diagnostic pointing at either.
+          * the apsides MUST VARY per frame; ten bitwise-identical telemetry
+            samples trip the frozen-telemetry vessel-lost watchdog.
+        """
+        params = replace(B19_JETTISON_PARAMS, target_body="Moho",
+                         soi_lead=100000.0, approach_window=200000.0,
+                         approach_max_warp_factor=4, coast_warp_factor=7,
+                         correction_trigger_alts=(),
+                         correction_trigger_time_to_soi=(),
+                         via_bodies=("Sun",), coast_timeout=1.0e7)
+        st = replace(mlib.b5_initial_state(params),
+                     phase=mlib.B5_COAST_TO_TARGET, phase_entry_ut=100.0)
+
+        # (ut, time_to_soi, next_body, body) -- B20's own measured shape.
+        frames = ((400000.0, 45901.038, "Mun", "Kerbin"),   # via-body transit
+                  (1000000.0, float("nan"), "", "Sun"),     # heliocentric, no encounter
+                  (2780694.0, 100001.413, "Moho", "Sun"),   # the target approach
+                  (2780709.0, float("nan"), "", "Sun"),     # THE BLINK
+                  (2880658.0, float("nan"), "", "Moho"))    # arrival
+        seen = []
+        for i, (ut, tts, nb, body) in enumerate(frames):
+            st, actions = mlib.b5_decide(st, snap(
+                ut=ut, time_to_soi=tts, next_body=nb, body=body,
+                altitude=1.0e10 + i * 1e6, apoapsis=1.0e10 + i * 1e6,
+                periapsis=4.7e9 + i * 1e5, situation="ORBITING"))
+            seen.append((st.phase, st.approach_latched, actions))
+
+        # Every frame REACHED the coast branch; none tripped a give-up.
+        self.assertFalse(st.done, "no frame may end the mission")
+        self.assertIsNone(st.verdict)
+
+        # f1: inside the window but the boundary is the MUN's, so no latch. The
+        # clamp still caps it -- stateless, it caps any finite tts <= window --
+        # which is why the capped factor alone is NOT latch evidence.
+        self.assertFalse(seen[0][1],
+                         "a via-body transit must not latch the target ceiling")
+
+        # f2 UNLATCHED vs f4 LATCHED, the same nan-tts frame either side of the
+        # engage. This pair is the assertion the predicate cells cannot make.
+        self.assertFalse(seen[1][1])
+        self.assertIn(Action(mlib.ACTION_SET_RAILS_WARP, 7.0), seen[1][2],
+                      "unlatched, a blind frame keeps the raw coast factor")
+        self.assertTrue(seen[3][1], "the blink must not drop the ceiling")
+        self.assertIn(Action(mlib.ACTION_SET_RAILS_WARP, 4.0), seen[3][2],
+                      "latched, the same blind frame is capped -- THE FIX")
+
+        # f3: the target approach engages it.
+        self.assertTrue(seen[2][1], "an approach to the TARGET latches")
+
+        # f5: arrival hops and RELEASES, so the latch cannot outlive its approach.
+        self.assertEqual(mlib.B5_TARGET_FLYBY, seen[4][0])
+        self.assertFalse(seen[4][1], "arrival must release the latch")
+
     def test_the_latch_does_not_engage_on_a_non_target_boundary(self):
         """THE BUG THIS PREDICATE SHIPPED WITH, caught in review before it flew,
         pinned on B20's OWN MEASURED escape frames. `time_to_soi` is time to the

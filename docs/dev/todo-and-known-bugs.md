@@ -210,18 +210,31 @@ alone here because B19 is live-proven green with it.) Nine cells added beside
 leg, the non-target-boundary guard pinned on the measured Mun/Sun frames, a blank
 next_body fail-closed guard, and a Moho sibling of the Dres sizing claim.
 
-**A COVERAGE GAP LEFT OPEN, named rather than papered over.** All nine cells exercise
-the PURE predicates; none drives `b5_decide` end to end through engage -> blink -> hold
--> arrival-release. That matters, because the one bug this fix shipped with (engaging on
-ANY SOI boundary) was caught by clean-context review and NOT by a cell -- predicate-level
-coverage is exactly what missed it. A decide-level cell was attempted and removed rather
-than committed weak: on a hand-built COAST fixture the machine takes an early return
-before the latch computation when the warp command already equals the desired factor, so
-the cell asserted a state the frame never reached. Finding and pinning that entry
-condition is real work and is left as follow-up. What DOES back the fix end to end today
-is the live flight: run `_2331`'s log shows the ceiling holding at x100 across the
-measured blink (`tts=nan` at ut 2,780,709 and again at 2,835,750) where flight 3 read
-x100,000 and overshot, and the capture arming on `ttPe=+3152.474`.
+**THE COVERAGE GAP IS NOW CLOSED.** The first pass shipped nine cells that all
+exercised the PURE predicates, which is precisely the coverage shape that MISSED this
+latch's own shipped bug (keyed on `tts` alone it engaged on any SOI boundary, and a
+clean-context review caught it rather than a test). A decide-level cell was attempted at
+the time and REMOVED rather than committed weak, because on a hand-built COAST fixture
+the frames never reached the latch and the cell asserted a state they never had.
+
+The entry condition turned out to be the opposite of the guess. It is not a shared
+prelude: `_b5_coast_bodies` (mlib.py:8306) allows only `("", home_body) + via_bodies`, so
+with `via_bodies=()` the first heliocentric frame is rejected as "left home SOI without
+reaching the target", sets `done=True`, and `b5_decide`'s idempotence guard
+(mlib.py:9814) then swallows every later frame -- the arrival hop was UNREACHABLE, not
+broken. Two fixture requirements follow, both invisible from the predicate signature:
+`via_bodies` must contain "Sun", and the apsides must VARY per frame or ten bitwise
+identical samples trip the frozen-telemetry vessel-lost watchdog.
+
+`test_decide_holds_the_ceiling_across_a_blink_and_releases_on_arrival` now drives the
+real `b5_decide` through B20's measured shape (via-body transit, heliocentric coast,
+target approach, the blink, arrival). ITS STRONGEST ASSERTION IS A PAIR: frames 2 and 4
+are both `tts=nan` on `body=Sun` and indistinguishable to a stateless clamp, but the
+unlatched one emits the raw coastWarpFactor 7 (x100,000) and the latched one emits the
+cap 4 (x100). That one-digit difference IS the latch, and it is the frame that cost B20
+flight 3 its capture. MUTATION-TESTED against three independent breakages -- clamp fails
+open when latched, latch keyed on tts alone (the real bug), arrival stops releasing --
+and the cell reds on all three.
 
 Cheaper alternative CONSIDERED AND REJECTED: a much smaller `soiLeadSeconds` on the
 theory that `tts` reads reliably closer in. That is a guess about read stability, and a

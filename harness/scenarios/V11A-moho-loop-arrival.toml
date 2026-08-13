@@ -36,15 +36,15 @@ id = "V11A-moho-loop-arrival"
 #     D0       = 3361722.05233201
 #     tof      = 2446149.5876669968
 #     relaunch = 3318637.7781958329
-#     cadence  = synodic = 2909172.3997171265   (ONE window spacing; Dres: two)#
+#     cadence  = synodic = 2909172.3997171265   (ONE window spacing; Dres: two)
+# so the re-aimed arc departs at D0 and arrives at D0 + tof = 5,807,871.64.
+#
 # A NOTE ON THE SYNODIC TOKENS V11 ARMS, carried here so this lane's reader does not
 # have to rediscover it: `ReaimWindowPlanner.PadAlignLaunch` quantizes the synodic to a
 # whole Kerbin sidereal day and assigns the cadence THE SAME VARIABLE, so V11's
 # `cadence == synodic` byte-equality is BY CONSTRUCTION, and the pinned
 # 2,909,172.3997171265 is exactly 135 sidereal days rather than the physical
 # 2,918,346.4 s. The measured fact is the MULTIPLE (one, where Dres was two).
-#
-# so the re-aimed arc departs at D0 and arrives at D0 + tof = 5,807,871.64.
 #
 #   (a) cycle-0 just after the relaunch, 3,322,200 -- the Kerbin ascent leg of the
 #       replay. V10 kept its equivalent; the jumps iteration 4 REMOVED were the ones
