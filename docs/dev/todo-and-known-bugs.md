@@ -222,19 +222,52 @@ prelude: `_b5_coast_bodies` (mlib.py:8306) allows only `("", home_body) + via_bo
 with `via_bodies=()` the first heliocentric frame is rejected as "left home SOI without
 reaching the target", sets `done=True`, and `b5_decide`'s idempotence guard
 (mlib.py:9814) then swallows every later frame -- the arrival hop was UNREACHABLE, not
-broken. Two fixture requirements follow, both invisible from the predicate signature:
-`via_bodies` must contain "Sun", and the apsides must VARY per frame or ten bitwise
-identical samples trip the frozen-telemetry vessel-lost watchdog.
+broken. THE fixture requirement that follows is invisible from the predicate signature:
+`via_bodies` must contain "Sun", or the heliocentric leg is an ejection. (A first draft
+of this paragraph also claimed the apsides must vary per frame to dodge the
+frozen-telemetry watchdog. That is FALSE for a cell this short --
+`frozen_sample_limit` is 10 and the cell has five frames, so the counter tops out at
+four and cannot trip. Re-measured with bitwise-identical apsides on all five frames:
+identical phases, latch values and actions. It is a real hazard for a LONGER hand-built
+sequence and a false requirement for this one.) The other two overrides that ARE
+load-bearing are `coast_timeout` -- the inherited 400,000 flakes at the second frame --
+and having the correction rounds already spent, without which the target-approach frame
+hops to PLAN-CORRECTION instead of latching.
 
 `test_decide_holds_the_ceiling_across_a_blink_and_releases_on_arrival` now drives the
 real `b5_decide` through B20's measured shape (via-body transit, heliocentric coast,
-target approach, the blink, arrival). ITS STRONGEST ASSERTION IS A PAIR: frames 2 and 4
-are both `tts=nan` on `body=Sun` and indistinguishable to a stateless clamp, but the
-unlatched one emits the raw coastWarpFactor 7 (x100,000) and the latched one emits the
-cap 4 (x100). That one-digit difference IS the latch, and it is the frame that cost B20
-flight 3 its capture. MUTATION-TESTED against three independent breakages -- clamp fails
-open when latched, latch keyed on tts alone (the real bug), arrival stops releasing --
-and the cell reds on all three.
+target approach, the blink, arrival), on the REAL LANE'S PARAMS -- B20-moho-orbit.toml's
+own `via_bodies`, `coast_timeout` and correction triggers, with `correction_rounds_done=2`
+putting the state where a real flight is by tts ~ 100k. (An earlier draft emptied the
+trigger list instead, which reaches the coast branch by DISARMING what a real flight has
+merely finished; with the real triggers restored, f3 hops to PLAN-CORRECTION and the latch
+never engages at all.)
+
+ITS STRONGEST ASSERTION IS A PAIR: frames 2 and 4 are both `tts=nan` on `body=Sun` and
+indistinguishable to a stateless clamp, but the unlatched one emits the raw
+coastWarpFactor 7 (x100,000) and the latched one emits the cap 4 (x100). That one-digit
+difference IS the latch, and it is the frame that cost B20 flight 3 its capture. The
+ut/apsides deltas between those two frames were checked to be decision-inert, so the
+latch is the sole discriminator.
+
+WHAT THE CELL CATCHES ALONE, stated precisely because the first draft of this paragraph
+overclaimed it. Four mutants were applied to `mlib.py` and reverted:
+  (a) the clamp fails open even when latched      -> new cell reds, AND so does the
+      pre-existing `test_a_blinking_clock_cannot_reopen_the_ceiling_once_latched`
+  (b) the latch keyed on `tts` alone (the real bug) -> new cell reds, AND so do the
+      pre-existing non-target-boundary and blank-next_body cells
+  (c) arrival stops releasing the latch            -> ONLY the new cell reds
+  (d) the call site passes a literal False instead of the threaded state
+                                                   -> ONLY the new cell reds
+So (a) and (b) were already covered at predicate level; the cell's unique value is the
+LIVE RELEASE and the CALL-SITE WIRING, which no predicate cell can see. That is a
+narrower claim than "it catches the bug review found", and it is the true one.
+
+WHAT BACKS THE FIX END TO END REMAINS THE FLIGHT, not this cell: run `_2331`'s log shows
+the ceiling holding at x100 across the measured blink (`tts=nan` at ut 2,780,709 and again
+at 2,835,750) where flight 3 read x100,000 and overshot, with the capture then arming on
+`ttPe=+3152.474`. The cell is the regression floor under that measurement, not a
+replacement for it.
 
 Cheaper alternative CONSIDERED AND REJECTED: a much smaller `soiLeadSeconds` on the
 theory that `tts` reads reliably closer in. That is a guess about read stability, and a
