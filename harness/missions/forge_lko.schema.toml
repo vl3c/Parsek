@@ -29,9 +29,11 @@ required = false
 type = "list"
 
 # Minimum kerbals that must READ aboard before the ascent starts (and the
-# crewAboard assertion's floor). 0 disables the gate. Any positive value fails
-# CLOSED on the -1 unread sentinel: a forge whose crew seeding silently failed
-# flakes ON THE PAD instead of stamping an UNCREWED fixture.
+# crewAboard assertion's floor). OMITTED = defaults to len(crewNames) (the
+# shared _derive_min_crew resolution, same as the pad forge); an explicit 0
+# disables the gate. Any positive value fails CLOSED on the -1 unread sentinel:
+# a forge whose crew seeding silently failed flakes ON THE PAD instead of
+# stamping an UNCREWED fixture.
 [params.minCrew]
 required = false
 type = "int"

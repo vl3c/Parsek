@@ -124,6 +124,10 @@ launchSite           = "LaunchPad"
 # produces exactly that empty pod. Valentina is `Available`; the eva3-pad-3crew
 # fixture is the positive control that an Available name really does get seated.
 crewNames            = ["Valentina Kerman"]
+# Forge-time guard for the header's trap (added after this forge's 2026-08-11
+# re-fly, which pre-dates the gate): a silent seating failure now flakes ON THE
+# PAD naming the crew instead of stamping an uncrewed fixture.
+minCrew              = 1
 # Game-seconds to see the new craft settle PRELAUNCH before flaking. WIDER than the
 # 120 the sibling forges use: this is a 92-part, ~260 t stack (the DD1 is a fraction
 # of both), and launch_vessel is a scene reload whose cost scales with part count.

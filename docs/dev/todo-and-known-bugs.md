@@ -274,6 +274,57 @@ ejection node `nodeDv=1735.502`, which is +4.5% over the ~1,661 m/s COPLANAR der
 (and NOT evidence that the 7 deg was folded in -- it was not); and 5,724 m/s still in
 the stage. The craft is not the problem, and no Parsek surface past the Kerbin->Sun
 handoff was exercised, which is why this is INVALID rather than PARSEK-FAIL.
+## ~~FORGE-CREW-SEATING-SILENT-FAILURE: kRPC launch_vessel seats NOBODY when a requested crew name is unseatable, and the pad forge stamped an empty-pod fixture without noticing~~ [FOUND 2026-08-11 by the first FORGE-b18-dres-pad run + B18 flight 1 (PR #1459 carries the measurement in that spec's header). GUARD SHIPPED 2026-08-12, branch `forge-crew-guard`: the forge_lko minCrew gate ported to forge_station. CLOSED 2026-08-12: fixture re-forged crewed (FORGE-gs1-two-stage run `2026-08-12_1552` PASS attempt 1, `crewAboard value=1` live) and GS-1 flew the re-stamp to a full PASS (run `2026-08-12_1556`, attempt 1, armed saveParse green)]
+
+**The trap.** kRPC 0.5.4 `launch_vessel(crew=[names])` does NOT fail when a name
+cannot be seated - it launches an EMPTY pod and leaves the kerbal `Missing`. In
+`bdock-forge-base` Jebediah is `state = Assigned` (he crews the base's own active
+vessel), so `FORGE-gs1-two-stage`'s original `crewNames = ["Jebediah Kerman"]`
+seated nobody, and the committed `gs1-two-stage-pad` fixture carries an empty Mk1
+pod + a `Missing` Jeb. GS-1 flew green on it anyway (its craft pairs a
+probeCoreOcto2 with the pod, so it is probe-controlled); the identical mistake was
+FATAL to B18's Duna Rocket (one ModuleCommand, no probe core), which is how it was
+finally measured. The orbital forge (`forge_lko`) already had a `minCrew` gate for
+exactly this; the pad forge (`forge_station`) did not.
+
+**The durable fix (option c of the triage), shipped.** `mlib.ForgeParams` gained
+`min_crew` (spec key `minCrew`, 0 = off, declared in `forge_station.schema.toml`),
+`forge_decide`'s LAUNCH settle gate now also requires `crew_count >= minCrew`
+(fail-closed on the -1 unread sentinel; the launch-budget flake NAMES the crew
+shortfall via the new `ForgeState.flake_reason`, mirroring the flko diagnosis
+latch), `evaluate_forge_assertions` gained the `crewAboard` row (auto-met at
+minCrew 0, so every pre-guard spec is behavior-identical), and `forge_station`'s
+shell opts into `read_crew=True` (the HARNESS-SHELL-READSET discipline: the
+machine now reads a population-gated field). Specs armed: `FORGE-gs1-two-stage`
+(crewNames corrected to Valentina + `minCrew = 1`), `FORGE-eva3-pad`
+(`minCrew = 3`), `FORGE-b18-dres-pad` (`minCrew = 1`). `FORGE-bdock-station` /
+`FORGE-b17-duna-pad` pass no crewNames and stay gate-off. Post-review hardening
+(Fable review of PR #1460, findings applied same day): the floor now DEFAULTS to
+`len(crewNames)` when `minCrew` is omitted (shared `_derive_min_crew`, both
+forges; explicit 0 still disables) so a future spec that requests names and
+forgets the floor is gated by default; the `crewAboard` row and the crew-short
+flake message are extracted into shared helpers used by BOTH machines
+(`_crew_aboard_outcome` scans POST-launch frames only, so the crewed boot base's
+frame-0 read can never certify the forged craft; `_crew_short_flake_reason`
+names the -1 unread sentinel so a crew-telemetry fault is not misread as a
+seeding failure); and the pad forge's never-settled flake now names the accepted
+situations like flko's instead of the generic timeout line.
+
+**Residuals, both closed or triaged.** (1) ~~The committed `gs1-two-stage-pad`
+fixture still carries the empty pod~~ CLOSED 2026-08-12 on the same branch: the
+forge re-flown under the corrected params (run `2026-08-12_1552`, PASS attempt 1,
+76 s wall, the new `crewAboard` row read `value=1 met=True` live), re-harvested
+with the PRELAUNCH gate, and the committed fixture now carries
+`crew = Valentina Kerman` / `state = Assigned` (Jeb stays `Missing` in the
+roster, unchanged from every fixture this base produces - the pad clear recovers
+his vessel). GS-1 then flew the re-stamped fixture to a full PASS (run
+`2026-08-12_1556`, attempt 1: driver valid, analyzer red=0, expectations green,
+armed saveParse `mismatches=0`), so both the guard and the fixture are
+flight-proven. (2) No roster PRE-flight check: kRPC has
+`get_kerbal(name).roster_status`, so the runner could verify seatability BEFORE
+launch_vessel - rejected for now because the post-launch crew_count gate catches
+the same failure with zero new RPC surface, and a pre-check would race the same
+scene reload the settle debounce already owns.
 
 ## ~~FIXTURE-CRAFT-DUPLICATED-PER-SAVE: every committed save fixture carries its own byte-identical copy of each craft it flies~~ [FOUND 2026-08-12 while accounting for the six-figure line counts on the recent fixture-lane PRs. FIXED 2026-08-12, branch `claude/large-pr-code-volume-xt1z02`]
 
@@ -534,7 +585,8 @@ uncommitted, machine-local, non-reproducible data - flipping the
 `Assert.DoesNotContain` branch on a machine-specific condition. Both fallbacks
 are removed; a missing fixture now yields an empty corpus.
 
-**Deferred, deliberately:** ~230 lines of now-dead C# below the entry point
+**Deferred, deliberately (DONE 2026-08-12, branch `fixture-audit-followups`):**
+~230 lines of now-dead C# below the entry point
 (`AddRealCareerRecordings` body, `TryValidateRealCareerRecordingCorpusCurrent`,
 `HasExpectedIntValue`, `CopyRealRecordingFiles`,
 `ResolveDefaultCareerFixtureDir`, and the `realRecordingNodes.Length` conditional
@@ -543,7 +595,7 @@ plus the two count-math terms). Every reference is mapped and confined to
 that made this deletion, so excising it could not be compiled. Left with an
 in-file banner naming this entry. See FIXTURE-DEFAULTCAREER-DEAD-CODE below.
 
-## FIXTURE-DEFAULTCAREER-DEAD-CODE: ~230 lines of test helper left in place, unreachable [OPEN, filed 2026-08-12. Needs a checkout with `dotnet`]
+## ~~FIXTURE-DEFAULTCAREER-DEAD-CODE: ~230 lines of test helper left in place, unreachable~~ [FILED 2026-08-12. DONE 2026-08-12, branch `fixture-audit-followups`, in a checkout with `dotnet`]
 
 Mechanical excision, no design decision. Delete from
 `Source/Parsek.Tests/SyntheticRecordingTests.cs`:
@@ -560,6 +612,25 @@ line below `InjectAllRecordings` by +4, and a delete-these-lines instruction tha
 rots is worse than none. Nothing
 outside this file references any of them. `dotnet test` after, and the fixture
 count assertions should be unchanged because the term being dropped is always 0.
+
+**DONE 2026-08-12.** All five symbols were one contiguous `#region Real Career
+Recordings` holding nothing else, so the excision was that region plus the four
+call-site edits: 305 deletions / 12 insertions, net 293 lines. Verified as
+predicted - zero references to any of the five remain, `InjectAllRecordings`
+still passes 3/3, and the count assertions are unchanged because the dropped
+term was always 0. Full suite green (20,642 passed / 0 failed).
+
+Two dangling references the deletion created were caught in review and fixed in
+the same branch: `H16-corpus-spawn-health.toml` and `H20-eva-spawn-position.toml`
+both stated their load-bearing "real invariant" in terms of
+`AddRealCareerRecordings`. That mattered more than a stale name - those comments
+are the only recorded justification for why H16's `SpawnedPidConsistency` cell is
+INERT over the corpus, and `autotest-status.md` records an earlier wrong version
+of the same mechanism as an "active trap" that nearly led to `-CleanStart` being
+added to the harness inject. Both now state the invariant in terms of what
+remains (the corpus writer injects no real-career recordings at all, so the
+guarantee holds by construction), keeping the historical name only in an
+explicitly past-tense clause that says it is gone.
 
 ## FIXTURE-AUDIT-DEFERRED: measured redundancy deliberately NOT acted on [OPEN, filed 2026-08-12 from the same audit. Each entry is a decision someone should make with the numbers in hand, not a defect]
 
@@ -598,14 +669,29 @@ Recorded so the measurements are not lost and nobody re-derives them.
 - **`AddOns/DistantObject/Settings.cfg`, 22 byte-identical copies / 735 lines.**
   DistantObject is not in `stock-minimal`, the profile 105 of 107 specs use. Real
   but small; 21 file touches for 735 lines is poor value against the risk.
-- **`sidecar-pcrf` is false coverage.** Zero `.pcrf` files exist anywhere
+- ~~**`sidecar-pcrf` is false coverage.**~~ **DONE 2026-08-12** (branch
+  `fixture-audit-followups`): the D16 value is removed from the registry and from
+  the two specs that claimed it (`H15-corpus-ghost-visuals`,
+  `S1.4-injected-playback`), with `H25-serialization`'s "other three sidecar
+  cells" comment corrected to two and both `autotest-status.md` rows repointed.
+  Registry and specs had to move together - `validate_spec` errors on a claim the
+  registry does not carry - and all 107 specs still validate. Original finding:
+  zero `.pcrf` files exist anywhere
   (`git ls-files | grep -ci pcrf` -> 0), yet `harness/coverage/registry.toml:268`
   still lists the D16 value and two committed specs claim it
   (`H15-corpus-ghost-visuals.toml:44`, `S1.4-injected-playback.toml:33`). A
   correctness fix in the coverage ledger, not redundancy - left for its own change.
-- **`AGENTS.md:91` is stale**, still saying "Recording storage (format v3)" and
-  listing `.pcrf` as a current sidecar; `.claude/CLAUDE.md` says format 1 /
-  generation 4 and calls `.pcrf` legacy.
+- ~~**`AGENTS.md:91` is stale**~~ **DONE 2026-08-12** (branch
+  `fixture-audit-followups`), and it was not only line 91. Fixing that line
+  collided with line 72, which already owned the schema contract and stated it
+  WRONG, so the pass was widened and every claim re-checked against the source
+  rather than against `.claude/CLAUDE.md` (a second stale copy is how this drift
+  happens). Four fixes: line 91 now reads "Recording storage (sidecar layout)" and
+  marks `.pcrf` legacy without restating the contract; line 72's
+  `CurrentRecordingSchemaGeneration` goes 3 -> 4 (`RecordingStore.cs:131`); and
+  lines 74-75's `DebrisParentRecordingId` becomes `ParentAnchorRecordingId`
+  (`Recording.cs:33`), dropping the parenthetical that still called that rename
+  future work.
 
 ## ~~OPTIMIZER-SPLIT-DEFEATS-REAIM-CLASSIFIER: the load-time optimizer splits an interplanetary recording at an on-rails SOI handoff, and the re-aim classifier then finds no member holding a whole transfer~~ [FOUND 2026-08-12 by `V9-dres-player-loop`, the Dres program's loop-unit reading run. FIXED 2026-08-12, branch `dres-split-cohesion`, Design A of docs/dev/plans/optimizer-split-transfer-cohesion.md]
 

@@ -18,8 +18,11 @@ tier = "nightly"
 # draft blamed `CleanSaveStart -> RemoveSpawnedPidLines` for stripping the key; that
 # helper runs BEFORE the corpus writer injects and does not run on the harness path
 # at all (no -CleanStart, so PARSEK_INJECT_CLEAN_START=0). The real invariants are
-# that `RecordingBuilder.WithSpawnedPid` has ZERO callers and that
-# `AddRealCareerRecordings` injects RECORDING_TREE nodes only. See
+# that `RecordingBuilder.WithSpawnedPid` has ZERO callers and that the corpus writer
+# injects no real-career recordings at all. (It formerly injected them through
+# `AddRealCareerRecordings`, which added RECORDING_TREE nodes only; that helper and
+# the frozen career fixture it read are both gone - PR #1461 / #1463 - so the
+# invariant now holds by construction rather than by that helper's behaviour.) See
 # docs/dev/autotest-ingame-category-inventory.md for the full finding, including why
 # adding -CleanStart to "make the mechanism real" would break scene=FLIGHT for the
 # four corpus specs in this group.

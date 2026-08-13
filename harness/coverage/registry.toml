@@ -265,7 +265,7 @@ values = ["kerbin", "mun", "minmus", "moho", "eve", "gilly", "duna", "ike", "dre
 values = ["timeline-projection"]
 
 [D16]  # storage / format
-values = ["sidecar-prec", "sidecar-craft", "sidecar-pcrf", "sidecar-pann",
+values = ["sidecar-prec", "sidecar-craft", "sidecar-pann",
           "rp-quicksaves", "deflate-snapshots", "txt-mirrors", "alias-mode",
           "sfs-scenario-node", "schema-gate", "path-validation", "safe-write",
           "pre-parsek-backup"]

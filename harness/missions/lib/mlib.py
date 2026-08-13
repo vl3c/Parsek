@@ -11428,6 +11428,19 @@ class ForgeParams:
     # + launch_vessel(crew: List[str]). The EVA-3 3-crew pad fixture passes the
     # three names its EvaExit steps later reference.
     crew_names: Optional[Tuple[str, ...]] = None
+    # Minimum kerbals that must read aboard before the pad settle may complete
+    # (and the crewAboard assertion's floor). 0 DISABLES the gate; any positive
+    # value fails CLOSED on the -1 unread sentinel. Spec key `minCrew`; when
+    # OMITTED the parser defaults it to len(crewNames) via _derive_min_crew, so
+    # requesting names arms the gate by default. The FORGE-LKO min_crew gate,
+    # ported here after the gs1-two-stage-pad stamp: kRPC launch_vessel does NOT
+    # fail when a requested name cannot be seated (Jebediah was `Assigned` in
+    # bdock-forge-base), it silently launches an EMPTY pod and leaves the kerbal
+    # `Missing` -- measured on the first b18-dres-pad forge run (2026-08-11_2125),
+    # and the committed gs1-two-stage-pad fixture carries the same empty pod.
+    # With the gate armed, that forge flakes ON THE PAD naming the crew instead
+    # of stamping an uncrewed fixture that fails its consumer a flight later.
+    min_crew: int = 0
     settle_situations: Tuple[str, ...] = ("PRE_LAUNCH",)
     launch_timeout: float = 300.0              # game-s to see the new craft settle
     settle_debounce: int = 3                   # K consecutive settled frames
@@ -11436,15 +11449,29 @@ class ForgeParams:
 def forge_params_from_dict(params: Dict) -> ForgeParams:
     params = params or {}
     crew_names = params.get("crewNames", None)
+    crew_tuple = (tuple(str(n) for n in crew_names) if crew_names else None)
     return ForgeParams(
         craft_name=str(params.get("craftName", "Kerbal X")),
         launch_site=str(params.get("launchSite", "LaunchPad")),
-        crew_names=(tuple(str(n) for n in crew_names)
-                    if crew_names else None),
+        crew_names=crew_tuple,
+        min_crew=_derive_min_crew(params.get("minCrew", None), crew_tuple),
         settle_situations=tuple(params.get("settleSituations", ("PRE_LAUNCH",))),
         launch_timeout=float(params.get("launchTimeoutSeconds", 300)),
         settle_debounce=int(params.get("settleDebounceFrames", 3)),
     )
+
+
+def _derive_min_crew(min_crew_param, crew_names: Optional[Tuple[str, ...]]) -> int:
+    """Resolve the crew-gate floor for BOTH forges (pad + FORGE-LKO): an
+    explicit ``minCrew`` wins (0 still disables), and when the spec omits it
+    the floor DEFAULTS to len(crewNames) -- a forge that requests names is
+    gated on all of them unless it explicitly opts out. This closes the two
+    recurrence routes the hand-maintained floor left open: a future spec that
+    passes crewNames and forgets minCrew (the exact silent empty-pod stamp the
+    gate exists to prevent), and a crewNames list extended without its floor."""
+    if min_crew_param is not None:
+        return int(min_crew_param)
+    return len(crew_names) if crew_names else 0
 
 
 @dataclass(frozen=True)
@@ -11455,13 +11482,72 @@ class ForgeState:
     phases_reached: Tuple[str, ...] = (FORGE_PRELAUNCH,)
     verdict: Optional[str] = None
     flake_phase: Optional[str] = None
+    # Specific FLAKE reason (resolve_flight_verdict reads it; None -> the
+    # generic "phase X timed out" line). Set only by the crew-gate give-up.
+    flake_reason: Optional[str] = None
     done: bool = False
     loss_reason: Optional[str] = None
     settle_streak: int = 0
+    # Crew-gate diagnosis latch (mirrors ForgeLkoState.launch_crew_short_seen):
+    # a settle-situation frame was seen but the crew count was short, so the
+    # launch-budget flake NAMES the crew instead of the generic never-settled.
+    launch_crew_short_seen: bool = False
 
 
 def forge_initial_state(params: ForgeParams) -> ForgeState:
     return ForgeState(params=params)
+
+
+def _forge_crew_ok(min_crew: int, crew_count: int) -> bool:
+    """The forge crew gate (pad forge AND FORGE-LKO -- one logic, one source):
+    no floor -> always satisfied; otherwise the read must be a real count
+    at/above the floor. The -1 unread sentinel fails CLOSED."""
+    if min_crew <= 0:
+        return True
+    return crew_count >= min_crew
+
+
+def _crew_short_flake_reason(phase: str, crew_count: int, min_crew: int) -> str:
+    """The crew-gate give-up diagnosis, shared by the pad forge and FORGE-LKO so
+    the two machines can never drift apart on it. ``crew_count`` is the GIVE-UP
+    frame's read. When it is the -1 unread sentinel the note says so: a
+    persistent crew-telemetry fault latches this same flake a seeding failure
+    would (fail-closed either way, but the operator should not hunt a seating
+    bug when the read never succeeded)."""
+    reason = ("phase %s: craft settled on the pad but crew_count=%d is below "
+              "minCrew=%d (launch_vessel crew seeding failed; the fixture "
+              "would be UNCREWED)" % (phase, crew_count, min_crew))
+    if crew_count < 0:
+        reason += (" -- NOTE: -1 is the UNREAD sentinel, so the give-up frame's "
+                   "crew read faulted; a persistent crew-telemetry fault is "
+                   "indistinguishable from a seeding failure here")
+    return reason
+
+
+def _crew_aboard_outcome(frames, min_crew: int) -> "AssertionOutcome":
+    """The ``crewAboard`` assertion row, shared by the pad forge and FORGE-LKO.
+
+    Scans POST-LAUNCH frames only (``frames[1:]``): both machines spend exactly
+    ONE frame in their PRELAUNCH phase before emitting ACTION_LAUNCH_VESSEL, so
+    frame 0 reads the BOOT BASE vessel -- whose crew must never certify the
+    forged craft (with read_crew on, the crewed base would satisfy the floor on
+    a run whose own pod was never read). The last finite post-launch read wins;
+    auto-met when the floor is 0 (gate off); the -1 unread sentinel contributes
+    nothing, so an uncrewed stamp can never read green."""
+    crew_last = None
+    for f in list(frames or [])[1:]:
+        if int(getattr(f, "crew_count", -1)) >= 0:
+            crew_last = int(f.crew_count)
+    met = (min_crew <= 0
+           or _forge_crew_ok(min_crew, -1 if crew_last is None else crew_last))
+    return AssertionOutcome("crewAboard", met, crew_last, {"minCrew": min_crew})
+
+
+def _forge_flake(state: ForgeState, reason: Optional[str] = None) -> ForgeState:
+    """Terminate the pad-forge machine MISSION-FLAKE, optionally with a named
+    reason (the sibling machines' ``_flko_flake`` idiom)."""
+    return replace(state, verdict=MISSION_FLAKE, flake_phase=state.phase,
+                   flake_reason=reason, done=True)
 
 
 def _forge_enter(state: ForgeState, new_phase: str, ut: float) -> ForgeState:
@@ -11486,8 +11572,12 @@ def forge_decide(state: ForgeState,
 
     - PRELAUNCH -> LAUNCH: emit ACTION_LAUNCH_VESSEL (the craft onto the pad).
     - LAUNCH -> SETTLED (done MISSION-OK): the new active vessel reads a
-      settle situation (PRE_LAUNCH on the pad) for settleDebounce consecutive
-      frames. Bounded by launchTimeoutSeconds -> MISSION-FLAKE.
+      settle situation (PRE_LAUNCH on the pad) WITH the crew gate satisfied
+      (minCrew kerbals aboard; 0 disables) for settleDebounce consecutive
+      frames. Bounded by launchTimeoutSeconds -> MISSION-FLAKE, naming the
+      CREW when the craft was seen settled-but-short (launch_vessel seats
+      nobody, silently, when a requested name is not seatable -- the
+      gs1-two-stage-pad empty-pod stamp).
 
     vessel_lost during LAUNCH is a scene-reload TRANSIENT (launch_vessel is a
     FLIGHT->FLIGHT reload; the runner's read-fail streak can briefly emit
@@ -11511,29 +11601,44 @@ def forge_decide(state: ForgeState,
 
     if state.phase == FORGE_LAUNCH:
         # vessel_lost is a reload transient here -- keep waiting (bounded).
-        settled = (not snapshot.vessel_lost
-                   and snapshot.situation in state.params.settle_situations)
-        streak = state.settle_streak + 1 if settled else 0
+        on_pad = (not snapshot.vessel_lost
+                  and snapshot.situation in state.params.settle_situations)
+        crew_ok = _forge_crew_ok(state.params.min_crew, snapshot.crew_count)
+        streak = state.settle_streak + 1 if (on_pad and crew_ok) else 0
+        st = replace(state, settle_streak=streak,
+                     launch_crew_short_seen=(state.launch_crew_short_seen
+                                             or (on_pad and not crew_ok)))
         if streak >= state.params.settle_debounce:
-            return _forge_enter(replace(state, settle_streak=streak),
-                                FORGE_SETTLED, snapshot.ut), []
-        stayed = replace(state, settle_streak=streak)
-        if _forge_over_budget(stayed, snapshot):
-            return replace(stayed, verdict=MISSION_FLAKE,
-                           flake_phase=stayed.phase, done=True), []
-        return stayed, []
+            return _forge_enter(st, FORGE_SETTLED, snapshot.ut), []
+        if _forge_over_budget(st, snapshot):
+            # Blame the CREW only when the craft was seen settled-but-short AND
+            # is STILL short at the give-up (the FORGE-LKO diagnosis, verbatim):
+            # a craft that reached the pad and then stopped reading PRE_LAUNCH
+            # is a settle failure, not a crew failure.
+            if st.launch_crew_short_seen and not crew_ok:
+                return _forge_flake(st, _crew_short_flake_reason(
+                    FORGE_LAUNCH, snapshot.crew_count,
+                    state.params.min_crew)), []
+            return _forge_flake(st, (
+                "phase %s: the launched craft never settled in %s"
+                % (FORGE_LAUNCH, list(state.params.settle_situations)))), []
+        return st, []
 
-    return replace(state, verdict=MISSION_FLAKE, flake_phase=state.phase, done=True), []
+    return _forge_flake(state), []
 
 
 def evaluate_forge_assertions(frames, params: ForgeParams,
                               phases_reached=(),
                               k: int = DEFAULT_DEBOUNCE_K) -> List[AssertionOutcome]:
-    """Two FORGE driver-validity assertions (phase evidence; the forge produces
+    """Three FORGE driver-validity assertions (phase evidence; the forge produces
     STATE, not a trajectory):
 
     - ``launched``:        FORGE_LAUNCH appears in phases_reached (launch_vessel
       fired).
+    - ``crewAboard``:      the shared ``_crew_aboard_outcome`` row (also used by
+      FORGE-LKO): the last finite POST-LAUNCH crew_count is at/above minCrew.
+      Auto-met when minCrew is 0 (the gate is off); otherwise the -1 unread
+      sentinel is UNMET, so an uncrewed stamp can never read green.
     - ``settledOnPad``:    FORGE_SETTLED appears in phases_reached (the new craft
       settled in a settle situation on the pad) AND the final situation is one
       of settleSituations (the settled state the SaveGame will persist).
@@ -11546,13 +11651,15 @@ def evaluate_forge_assertions(frames, params: ForgeParams,
                                 (phases[-1] if phases else None),
                                 {"required": FORGE_LAUNCH})
 
+    crew = _crew_aboard_outcome(frames, params.min_crew)
+
     reached = FORGE_SETTLED in phases
     final_situation = frames[-1].situation if frames else None
     settled_met = reached and (final_situation in params.settle_situations)
     settled = AssertionOutcome("settledOnPad", settled_met, final_situation,
                                {"required": FORGE_SETTLED,
                                 "accepted": list(params.settle_situations)})
-    return [launched, settled]
+    return [launched, crew, settled]
 
 
 # ---------------------------------------------------------------------------
@@ -12620,7 +12727,11 @@ def forge_lko_params_from_dict(params: Dict) -> ForgeLkoParams:
         craft_name=str(params.get("craftName", "Kerbal X")),
         launch_site=str(params.get("launchSite", "LaunchPad")),
         crew_names=(tuple(str(n) for n in crew_names) if crew_names else None),
-        min_crew=int(params.get("minCrew", 0)),
+        # The SHARED floor resolution (also the pad forge's): explicit minCrew
+        # wins (0 disables); omitted defaults to len(crewNames).
+        min_crew=_derive_min_crew(
+            params.get("minCrew", None),
+            tuple(str(n) for n in crew_names) if crew_names else None),
         launch_settle_situations=tuple(
             params.get("launchSettleSituations", ("PRE_LAUNCH",))),
         launch_timeout=float(params.get("launchTimeoutSeconds", 300)),
@@ -12761,10 +12872,9 @@ def _flko_stay_or_flake(state: ForgeLkoState,
 
 def _flko_crew_ok(params: ForgeLkoParams, snapshot: TelemetrySnapshot) -> bool:
     """The crew gate: no floor -> always satisfied; otherwise the read must be a
-    real count at/above the floor. The -1 unread sentinel fails CLOSED."""
-    if params.min_crew <= 0:
-        return True
-    return snapshot.crew_count >= params.min_crew
+    real count at/above the floor. The -1 unread sentinel fails CLOSED. The
+    logic lives in the shared ``_forge_crew_ok`` (the pad forge's gate)."""
+    return _forge_crew_ok(params.min_crew, snapshot.crew_count)
 
 
 def _flko_park_stable(params: ForgeLkoParams, snapshot: TelemetrySnapshot) -> bool:
@@ -12867,11 +12977,10 @@ def forge_lko_decide(state: ForgeLkoState, snapshot: TelemetrySnapshot
             # STILL short at the give-up: a craft that reached the pad and then
             # stopped reading PRE_LAUNCH is a settle failure, not a crew failure.
             if st.launch_crew_short_seen and not crew_ok:
-                return _flko_flake(st, (
-                    "phase %s: craft settled on the pad but crew_count=%d is below "
-                    "minCrew=%d (launch_vessel crew seeding failed; the fixture "
-                    "would be UNCREWED)" % (FLKO_LAUNCH, snapshot.crew_count,
-                                            p.min_crew))), []
+                # The SHARED crew-gate diagnosis (also the pad forge's), so the
+                # two machines never drift apart on this message.
+                return _flko_flake(st, _crew_short_flake_reason(
+                    FLKO_LAUNCH, snapshot.crew_count, p.min_crew)), []
             return _flko_flake(st, (
                 "phase %s: the launched craft never settled in %s"
                 % (FLKO_LAUNCH, list(p.launch_settle_situations)))), []
@@ -13010,9 +13119,10 @@ def evaluate_forge_lko_assertions(frames, params: ForgeLkoParams,
     trajectory.
 
     - ``launched``:     FLKO_LAUNCH in phases_reached (launch_vessel fired).
-    - ``crewAboard``:   the last finite crew_count is at/above minCrew. Auto-met
-      when minCrew is 0 (the gate is off); otherwise the -1 unread sentinel is
-      UNMET, so an uncrewed stamp can never read green.
+    - ``crewAboard``:   the shared ``_crew_aboard_outcome`` row (also the pad
+      forge's): the last finite POST-LAUNCH crew_count is at/above minCrew.
+      Auto-met when minCrew is 0 (the gate is off); otherwise the -1 unread
+      sentinel is UNMET, so an uncrewed stamp can never read green.
     - ``separated``:    SEPARATE entered AND both steps confirmed (the spent core
       dropped AND the orbital engine lit) AND the machine advanced to PARK.
     - ``parkedStable``: FLKO_ORBIT reached AND the final situation is an accepted
@@ -13025,14 +13135,9 @@ def evaluate_forge_lko_assertions(frames, params: ForgeLkoParams,
                                 (phases[-1] if phases else None),
                                 {"required": FLKO_LAUNCH})
 
-    crew_last = None
-    for f in frames:
-        if int(getattr(f, "crew_count", -1)) >= 0:
-            crew_last = int(f.crew_count)
-    crew_met = (params.min_crew <= 0
-                or (crew_last is not None and crew_last >= params.min_crew))
-    crew = AssertionOutcome("crewAboard", crew_met, crew_last,
-                            {"minCrew": params.min_crew})
+    # The SHARED crewAboard row (also the pad forge's): post-launch frames only,
+    # so the crewed boot base's frame-0 read can never certify the forged craft.
+    crew = _crew_aboard_outcome(frames, params.min_crew)
 
     split_ev = bool(getattr(state, "split_ever_confirmed", False))
     ignition_ev = bool(getattr(state, "ignition_ever_confirmed", False))
