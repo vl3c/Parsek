@@ -4866,9 +4866,16 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
         # calibration discipline for a reason that is Eeloo's alone: e = 0.26 makes
         # the transfer TIME a 2x band rather than a number, so the arrival end
         # MechJeb's window lands on is unknowable pre-flight and every game-second
-        # budget is sized on the aphelion worst case. Its recordings-count window is
-        # unpinned pending the measured drop-tank / jettison debris topology, so
-        # promotion is the post-measurement re-pinning call. No ASSERTION is
+        # budget is sized on the aphelion worst case. FLOWN GREEN TWICE 2026-08-12
+        # (`_2003` and `_2239`, both PASS attempt 1) with NOT ONE PARAMETER CHANGED,
+        # and the recordings count is now RE-PINNED {5,5} off `_2239`'s produced save
+        # with every span UT named -- so the re-pin this entry used to wait on is
+        # DONE. THE ENTRY STAYS ANYWAY, and not as residue: this list's completeness
+        # cell keys on `tier == "operator"` and NOT on the `flown` tag, so every
+        # operator-tier spec owes a recorded human call here for as long as it is
+        # operator-tier, green or not. What the call now says is that operator tier
+        # is the ORDINARY promotion judgement for a ~52-minute interplanetary lane
+        # (its wall measured 3,092 s), not an outstanding debt. No ASSERTION is
         # loosened for the retarget beyond one derived park ceiling; three budgets
         # ARE widened and the correction cap is LOWERED (1,200 -> 550, because the
         # cap is per round and this lane can fire FOUR capped rounds -- the two the
@@ -4877,7 +4884,7 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
         # so the worst correction spend is 4 x cap, and 550 is the largest round
         # value surviving that tail on the sizing geometry), each with its
         # arithmetic in the spec.
-        "B21-eeloo-orbit.toml":             "calibration-discipline - first flight of a new TARGET on the proven B19 profile, and the first at a body whose eccentricity (0.26) makes the transfer time a 2x band (23.3M-46.5M game s) rather than a number, so the arrival end is unknowable pre-flight; the recordings count window is unpinned pending the measured jettison/drop-tank debris topology, and promotion waits on that re-pin rather than on outstanding work",
+        "B21-eeloo-orbit.toml":             "calibration-discipline - LIVE-PROVEN 2026-08-12, green twice (`_2003` / `_2239`, both PASS attempt 1) with no parameter re-tuned, and the recordings count re-pinned {5,5} from the measured flight with every span UT named, so the re-pin this entry once waited on is discharged; it stays only because the completeness cell keys on tier==operator rather than on the flown tag, and the call it records is that operator tier is the ordinary promotion judgement for a ~52-minute interplanetary lane whose arrival end (Eeloo e=0.26 makes the transfer time a 2x band, 23.3M-46.5M game s) is unknowable pre-flight - not an outstanding debt",
         # V9 began as a pure READING RUN and did its job: it measured the optimizer
         # split defeating the re-aim classifier. That finding is now FIXED and V9 is
         # ARMED as its regression floor, so the post-reading arming call it was
@@ -4891,6 +4898,27 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
         # not arm (the seam-endpoint census pair) is documented in the spec with
         # the trade that forced it.
         "V10-dres-loop-arrival.toml":       "calibration-discipline - a TimeJump observation lane whose brackets come from one recording's replay clock; armed on the tilt/geometry/ready tokens, with the census pair deliberately unarmed because reaching it reproduces the filed line-blink detector gap",
+        # V12 is V9's shape on the Eeloo fixture and it is at V9's STARTING point, not
+        # its finishing one: a deliberately unarmed READING run (the V8/V9 iteration-1
+        # pattern) with three plumbing tokens and an ERROR floor. Its three headline
+        # quantities - the cadence multiple at a 4.81-synodic span, the loiter cut of
+        # the 5.09M s LKO ejection-window wait, and the member segment counts - are all
+        # functions of the B21 recording's own span, and the synodic/cadence DIGIT
+        # strings are unpredictable by construction because the planner reads KSP's
+        # live orbit.period. Arming waits on what it measures, twice.
+        "V12-eeloo-player-loop.toml":       "calibration-discipline - a deliberately unarmed READING run (V8/V9 iteration-1 pattern) on the Eeloo fixture, armed only on the plumbing trio plus the ERROR floor; its headline quantities (the cadence multiple at a 4.81-synodic span, the loiter cut, the member segment counts) are functions of the B21 recording's own span and its synodic/cadence digit strings are unpredictable because the planner reads KSP's live orbit.period, so it claims no coverage cells and arming waits on two consecutive readings plus a negative control",
+        # V12A is V12's missing half and V10's shape on the Eeloo fixture: the
+        # TimeJump lane that actually reaches the per-window synthesizer. It is
+        # operator by the calibration discipline for a reason stronger than V10's -
+        # it is a TWO-PASS lane BY CONSTRUCTION. Its seven brackets are arithmetic on
+        # one recording's replay clock AND on the product's own re-aimed soiEntryUT,
+        # which is a different conic's SOI crossing than the recorded arrival (V10
+        # iteration 1 measured that difference at 18,067 s), so pass 1 seeds estimates
+        # and pass 2 recomputes every UT from pass 1's log. What it DOES arm pre-flight
+        # is the pair of tokens derivable to the digit from source - the 6.15 deg tilt
+        # bound and the e=0.26 tof band that discharges the M-MIS-3 placeholder debt -
+        # and the census pair stays deliberately unarmed for V10's recorded reason.
+        "V12A-eeloo-loop-arrival.toml":     "calibration-discipline - a TWO-PASS TimeJump observation lane: its seven brackets are arithmetic on one recording's replay clock and on the product's own re-aimed soiEntryUT, so pass 1 flies estimates and pass 2 recomputes them from pass 1's log. Armed pre-flight only on what source makes derivable to the digit (the 6.15 deg tilt bound pair, and the e=0.26 tof band that pins the M-MIS-3 EccGain placeholder); the tilt disposition, the arrival geometry digits and the seam-endpoint census are deliberately unarmed - the census because reaching it reproduces the filed line-blink detector gap",
         # The V2 dwell is operator BY THE CALIBRATION DISCIPLINE (V1 precedent):
         # its first flight is a deliberately under-gated READING run whose red,
         # if any, is evidence; promotion is the post-reading arming call, not a

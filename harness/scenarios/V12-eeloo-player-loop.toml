@@ -1,0 +1,297 @@
+schema = 1
+id = "V12-eeloo-player-loop"
+# =====================================================================================
+# V12: THE PLAYER LOOP WORKFLOW ON THE EELOO PROGRAM'S RECORDING.
+#
+# READING RUN, and the posture is V8/V9-iteration-1 verbatim: three plumbing tokens
+# armed, an ERROR floor, and nothing else. A red on a reading run is EVIDENCE, not a
+# regression. V9 is what this lane grows into IF the readings come back stable -- V9
+# began exactly here, measured a real product defect (the load-time optimizer split
+# defeating the re-aim classifier, OPTIMIZER-SPLIT-DEFEATS-REAIM-CLASSIFIER), and only
+# became an armed regression floor after the fix landed and two byte-identical runs
+# agreed. Arming V12 on flight 1 would turn every one of those measurements into a
+# guess with a gate around it.
+#
+# WHAT IT DOES: boots the committed `eeloo-orbit-recorded` fixture (B21's green flight
+# `2026-08-12_2239`, harvested --keep-parsek), kills the scene-entry recording stub,
+# turns the three tracers on, marks the committed tree as a LOOP unit, and starts loop
+# playback. That is the whole workflow a player performs when they say "replay my
+# Eeloo mission". The flight exists to find out what the loop machinery MAKES of a
+# 47.0M game-second interplanetary unit -- by a wide margin the longest, and the most
+# deeply span>synodic, unit any committed lane has ever handed it.
+#
+# -------------------------------------------------------------------------------------
+# FIXTURE FACTS, measured off the COMMITTED BYTES (saveparse.parse_parsek_scenario +
+# observed_structure_facets over harness/fixtures/saves/eeloo-orbit-recorded), not off
+# a result JSON:
+#
+#   tree id           d4ce5c45adae4f3e89c4ac6bbec6b167   (single committed tree)
+#   rootRecordingId   20d890f9f34b466fb8be07d83103a9a7
+#   trees 1, committedTrees 1, recordings 5
+#   terminalStates {Orbiting 3, Destroyed 2}, branchPoints {JointBreak 3}
+#   supersedes 0, tombstones 0, rewindPoints 0, rewindRetirements 0
+#   points total 1,684 largest 1,501 smallest 21, trivial 0, unparsed 0
+#   schemaGeneration 4
+#
+#   per-recording spans (explicitStartUT -> explicitEndUT), which is what makes the
+#   unit-span arithmetic below checkable rather than asserted:
+#     20d890f9  Duna Rocket             26.220 -> 47,036,743.944   main orbiter, Eeloo
+#     c849bbee  Duna Rocket Debris      97.080 ->        149.040   ascent booster
+#     d8bfbb2c  Duna Rocket Debris      97.080 ->        148.740   ascent booster
+#     34ba13d3  Duna Rocket Debris   1,697.256 ->      1,716.398   autostaged core
+#     cf7ff6b8  Duna Rocket Debris   2,698.995 ->      2,703.897   jettisoned Skipper
+#   ALL FOUR DEBRIS SPANS NEST INSIDE THE MAIN'S, so the unit's span envelope
+#   (MissionLoopUnitBuilder.cs:227-250 takes min StartUT / max EndUT over the members)
+#   is the main recording's span exactly. That is why the cadence arithmetic below can
+#   be derived from one recording instead of from the whole member set.
+#
+#   THE COMMITTED BYTES ARE `_2239`'s, NOT `_2003`'s. B21 flew green twice on
+#   2026-08-12 and the FIRST green run's produced save was destroyed 53 s after it
+#   ended by a sibling scenario staging into the same `saveTemplate` leaf
+#   (HARNESS-PRODUCED-SAVE-CLOBBERED-BY-SIBLING-RUN, docs/dev/todo-and-known-bugs.md).
+#   Every number in this header was re-measured against `_2239` or against the
+#   committed bytes. Do not cross-check this spec against `_2003`'s artifacts.
+#
+# -------------------------------------------------------------------------------------
+# PREDICTION 1 -- THE CADENCE MULTIPLE IS 5, AND THIS IS THE PROGRAM'S FIRST READING
+# DEEP IN THE span>synodic REGIME. The law, re-read and verified at
+# ReaimWindowPlanner.cs:144-146:
+#
+#     cadence = Max(1, Ceiling(spanDuration / synodic - 1e-9)) * synodic
+#
+# and the engaged branch then takes Math.Max(span, cadence) at
+# MissionLoopUnitBuilder.cs:652, so the emitted `cadence=` is whichever is larger.
+#
+#   spanDuration = 47,036,743.943578467 - 26.21999999999953 = 47,036,717.7236 s
+#                  (the committed fixture's own main-recording span, above)
+#   synodic      ~ 9,776,696.33 s        (derived from the stock sidereal periods
+#                  Kerbin 9,203,544.62 / Eeloo 156,992,048.35: 1 / |1/T1 - 1/T2|)
+#   ratio        = 47,036,717.72 / 9,776,696.33 = 4.8111
+#   Ceiling(4.8111 - 1e-9) = 5
+#   cadence     ~ 5 x 9,776,696.33 = 48,883,481.6 s
+#   Math.Max(span, cadence): 48,883,481.6 > 47,036,717.7, so the CEILING wins and the
+#   emitted cadence should be the synodic multiple rather than the span.
+#
+# For scale, the two prior readings: Dres measured multiple 2 at ratio 1.79, Eve
+# measured multiple 2 at ratio 1.0733. Eeloo at 4.81 is the first unit past 2.
+#
+# TWO THINGS ONLY THIS RATIO EXPOSES. (a) Eve is the case that PROVES the planner
+# reads the RAW span, not the loiter-compressed one: Eve's cut of 11,819,849 s leaves
+# a compressed span of 3,944,147 = 0.269 synodic, whose Ceiling would be 1, and Eve
+# still measured 2. So do not expect an Eeloo cut to move the multiple. (b) 5 x
+# synodic exceeds the span by only 1,846,764 s = 3.9%, the TIGHTEST cadence-over-span
+# margin of any committed unit -- the smallest inter-cycle dead band the loop has ever
+# scheduled. If the emitted multiple comes back as 5 but the emitted cadence sits
+# BELOW the span, the Math.Max guard is the thing to read.
+#
+# THE MULTIPLE IS A PREDICTION. THE DIGITS ARE NOT PREDICTABLE AT ALL -- see the
+# omission ledger below.
+#
+# PREDICTION 2 -- PhaseLock will read `UnsupportedCrossParent`. Eeloo is not a direct
+# child of Kerbin, exactly as Dres (V9) and Eve (V8) are not. That is the normal
+# reading for a cross-parent interplanetary unit, NOT a defect, and it is deliberately
+# not in `forbidden`.
+#
+# PREDICTION 3 -- the seam-endpoint census will read `evaluated=0`, because this lane
+# quits ~1 s after StartLoopPlayback and never reaches the render stage the census
+# rides. Arming its absence would pin an artifact of the lane's brevity (V9 says the
+# same thing about its own post-fix census).
+#
+# PREDICTION 4 -- ZERO `tilt-correction` LINES, AND NO tof-BAND TOKENS. THIS IS
+# STRUCTURAL, not a tuning question, and it is stated explicitly so nobody reads the
+# log hunting for them. `eTarget=` / `halfWidthFraction=` are emitted from exactly two
+# sites, both inside ReaimPlaybackResolver -- the failure line at
+# ReaimPlaybackResolver.cs:483 (`synth failed across N tof candidates`) and the success
+# line at :620 (`re-aimed transfer ready`) -- and the resolver runs during PLAYBACK OF
+# the re-aimed heliocentric leg. This lane ends at the relaunch, so neither site is
+# reached and the tilt gate downstream of them never runs. V9 measured zero tilt lines
+# on all four of its runs, pre- and post-fix, for exactly this reason. Eeloo's
+# derivable band token (`eTarget=0.2600 halfWidthFraction=0.1900`, from ReaimTofSearch's
+# HalfWidthFraction = clamp(0.06 + 0.5*e, 0.06, 0.20) at e=0.26) and the derivable tilt
+# pair (`bound=6.6500 targetInc=6.1500`) belong to V12A, the lane that TimeJumps into
+# the transfer. They are not omissions here; they are out of this lane's reach.
+#
+# -------------------------------------------------------------------------------------
+# WHAT IS ARMED, AND IT IS ONLY THE PLUMBING:
+#   MissionConfig       - the seam verb was accepted
+#   StartLoopPlayback   - loop playback actually started
+#   Recording stopped   - the stub-kill triple fired (FlightRecorder.cs:8004)
+#   forbidden: [Parsek][ERROR] - the floor every committed spec carries
+#
+# WHAT IS DELIBERATELY OMITTED, each with the reason it is not knowable before the
+# reading run. This ledger exists so the post-reading arming pass has a checklist
+# rather than a memory:
+#
+#   * `synodic=<digits>` -- PROVEN UNKNOWABLE TO THE DIGIT. ReaimWindowPlanner feeds
+#     TransferWindowMath.SynodicPeriodSeconds from KSP's LIVE `orbit.period`, not from
+#     an ideal 2*pi*sqrt(a^3/mu). The evidence is Dres: an exact-SMA derivation gives
+#     11,392,903.2808 against the product's emitted 11392903.305957612 -- 0.025 s
+#     apart, right to ~9 significant figures and WRONG for an `R`-format substring
+#     pin. The Eeloo derivation above (9,776,696.33) carries the same defect.
+#   * `cadence=<digits>` -- the same digit problem, compounded: cadence is a multiple
+#     of that same live synodic, so the error is multiplied by 5.
+#   * `loiterCuts=N cutSeconds=M` -- the cut is the LKO ejection-window wait, which is
+#     B21's TRANSFER-BURN span: measured ut 2,703.855 -> 5,096,457.141 = 5,093,753
+#     game s on `_2239`. Whether the COMPRESSOR finds it, and what boundary it snaps
+#     to, is a product decision this fixture has never been run through. Dres's cut
+#     (8,436,248) came in ~9,000 s under its own TRANSFER-BURN span, so even the cut
+#     length is not the phase span. `loiterCuts=0` would be a legitimate reading.
+#   * `member#N segs=... startBody=Kerbin supported=True target=Eeloo` and
+#     `transferMemberSegs=N plan.Supported=True` -- `segs` counts checkpoint-bearing
+#     TrackSections, a recorder-timing quantity not derivable from anything on disk.
+#     `supported=True` is the PREDICTED direction post-cohesion-fix, but pinning a
+#     predicted boolean next to an underived integer arms neither honestly.
+#   * `ENGAGED re-aim Kerbin->Eeloo via Sun` -- the string itself IS fully derivable
+#     (MissionLoopUnitBuilder.cs:789 interpolates LaunchBody->TargetBody via
+#     CommonAncestor). It is omitted anyway because it is a PREDICTION ABOUT PRODUCT
+#     BEHAVIOUR, not a plumbing fact: if this unit classifies FAITHFUL, that is the
+#     finding this flight exists to collect, and an armed token would convert it into
+#     a PARSEK-FAIL that discards the evidence. It is the FIRST token to arm once
+#     measured -- and it is also the anti-vacuity token, because a run with a stale
+#     tree id passes both seam verbs while doing nothing at all (see the steps block).
+#   * V9's two decline forbids (`no member yields a re-aim transfer` and
+#     `not re-aim (...); faithful`) -- those are V9's POST-FIX regression floor,
+#     earned there by a two-sided measurement. On an unmeasured fixture a decline is a
+#     legitimate READING (a genuine physics-frame ejection burn straddling the
+#     Kerbin->Sun handoff still splits BY DESIGN -- the cohesion fix's route (b)
+#     covers OrbitalCheckpoint/OrbitalCheckpoint pairs only), and forbidding it
+#     pre-flight would make a finding look like a failure.
+#
+# -------------------------------------------------------------------------------------
+# DISCIPLINE BEFORE ANYTHING IS PINNED, V9's own rule reproduced because it is the
+# rule that made V9 trustworthy: this spec is flown TWICE back to back before anything
+# is pinned. Numbers that move between two identical runs are not pinnable -- B21
+# itself is the cautionary example, where two identical green flights measured points
+# 1,700 vs 1,684 and largest 1,517 vs 1,501 with every structural facet identical.
+# After the two readings agree, arm, then run a NEGATIVE CONTROL: temporarily invert
+# one armed window, confirm the run reds PARSEK-FAIL on exactly that mismatch, revert
+# (V9's `_0257`, V10's `_0339`). Only after the control does this lane's
+# REVIEWED_UNTAGGED rationale get to say "ARMED as ... regression floor" instead of
+# "reading run".
+# =====================================================================================
+tier = "operator"
+description = "READING RUN: the player loop workflow on the Eeloo program's committed recording -- mark the B21 tree a loop unit and start loop playback, to measure the classify mode, the window schedule at a 4.81-synodic span (the program's first reading deep in the span>synodic regime, where the cadence multiple should be 5 rather than Dres's and Eve's 2), the loiter compression of the 5.09M s LKO ejection-window wait, and the member topology at Eeloo. Nothing is armed but the plumbing; every headline quantity is a function of the B21 recording's own span and is measured here, not asserted."
+instanceProfile = "stock-minimal"
+tags = ["V12", "eeloo", "loop", "playback", "reaim"]
+
+[fixture]
+# B21's green flight `2026-08-12_2239`, harvested --keep-parsek (see the fixture's
+# provenance block in harness/lib/test_saveparse.py). One committed tree, five
+# recordings, main orbiter terminal Orbiting at Eeloo.
+saveTemplate       = "fixtures/saves/eeloo-orbit-recorded"
+injectedRecordings = "none"
+craft              = []
+
+[driver]
+kind = "seam"
+
+# `steps` MUST stay in the [driver] table (there is no missionParams sub-table here,
+# but the placement rule is the same one every spec follows).
+#
+# THE STUB-KILL TRIPLE (steps 2-4) is not optional bookkeeping: the fixture's own
+# parked craft is the active vessel, so entering FLIGHT starts a scene-entry
+# recording. Left alive it becomes a sixth recording and a second tree, which would
+# both pollute the count and give the loop machinery an active tree to argue with.
+# StopRecording + DiscardTree + autoRecordOnLaunch=false is the V8/V9 shape verbatim.
+#
+# The three tracers are what makes this a READING run: ghostRenderTracing and
+# mapRenderTracing emit the per-ghost render truth, verboseLogging opens the
+# classify / schedule / synth / census lines that the whole flight exists to read.
+# verboseLogging is LOAD-BEARING -- every [ReaimDiag] / [ReaimSeam] line is Verbose.
+#
+# THE TREE GUID IS THE ONE THING THAT CANNOT BE COPIED FROM V9. Both MissionConfig and
+# StartLoopPlayback take a tree id, and a STALE id makes this lane VACUOUS RATHER THAN
+# RED: both seam verbs answer OK-with-nothing-to-do, zero [ReaimDiag] lines are
+# emitted, and the run goes green having proved nothing. The id below was read off the
+# committed fixture's own persistent.sfs RECORDING_TREE node
+# (d4ce5c45adae4f3e89c4ac6bbec6b167, rootRecordingId 20d890f9...), the same read that
+# fills the RECORDED_FIXTURES facets. V9's f0c17a69... belongs to the DRES fixture.
+# The structural guard against a future stale id is the `ENGAGED re-aim Kerbin->Eeloo
+# via Sun` token: it is a PRODUCT token a vacuous run cannot produce, and arming it is
+# the first thing the post-reading pass does.
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  { cmd = "StopRecording",                                                   expect = "OK" },
+  { cmd = "DiscardTree",                                                     expect = "OK" },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "ghostRenderTracing", value = "true" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "mapRenderTracing",   value = "true" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "verboseLogging",     value = "true" }, expect = "OK" },
+  { cmd = "MissionConfig",     args = { tree = "d4ce5c45adae4f3e89c4ac6bbec6b167", loop = "true" }, expect = "OK" },
+  { cmd = "StartLoopPlayback", args = { tree = "d4ce5c45adae4f3e89c4ac6bbec6b167" }, expect = "OK", budget = 300 },
+  { cmd = "FlushAndQuit",                                                    expect = "OK" },
+]
+
+# NOTHING CLAIMED. A reading run measures; it does not earn coverage. Cells get
+# claimed once this lane has a pinned contract that BACKS them, which is the
+# post-reading arming call and a separate decision.
+[dimensionsCovered]
+
+[expectations]
+# PLACEMENT IS LOAD-BEARING: allowedAnomalies must precede every
+# [expectations.<sub>] header or TOML scopes it into the sub-table.
+#
+# EMPTY, and that is the reading-run posture: an anomaly raised on this flight is
+# the READING, so exempting one in advance would discard the very evidence the run
+# exists to collect. If a Tier-C detector fires, the run reds and the red is the
+# finding -- the V8 precedent, where two line-blink reds were filed as a detector
+# gap rather than exempted.
+allowedAnomalies = []
+
+[expectations.recordings]
+# INTERIM AND DELIBERATELY WIDE, pending the first reading. The committed fixture
+# holds FIVE recordings (measured, listed in the header with every span UT), and the
+# load-time optimizer is expected to split the main recording at the ordinary ascent
+# boundary the way it does on every other loop lane -- V8 measured fixture 8 -> 9,
+# V9 measured fixture 5 -> 6. So SIX is the likely reading here.
+#
+# It is NOT pinned at 6, for two reasons specific to this fixture. (1) The split count
+# is a product decision on a recording no lane has ever loaded; Eeloo's main recording
+# is 47.0M game s and 1,501 points against Dres's 20.4M / 1,546, and V9's own first
+# draft of this window was WRONG about what its measurement meant. (2) B21's `_2003`
+# and `_2239` measured different point totals (1,700 / 1,684) on identical flights, so
+# this fixture family is demonstrably not stable to the unit -- a tight window authored
+# pre-flight would red on variance rather than on a defect.
+#
+# {3,14} spans B21's own pre-green draft window plus room for load-time splits.
+# RE-PIN CONTRACT, B19's, inherited verbatim: after the two consecutive readings agree,
+# re-pin to the MEASURED value and record which recordings it produced (a per-recording
+# span-UT itemisation, the way the B21 status row does it); do NOT widen.
+count = { min = 3, max = 14 }
+
+[expectations.logContracts]
+# THE INTERIM ARMED SET IS THE PLUMBING AND NOTHING ELSE. Each of the three is a fact
+# about whether the LANE RAN, not about what the product decided:
+#   MissionConfig      - the seam verb was accepted
+#   StartLoopPlayback  - loop playback actually started
+#   Recording stopped  - the stub-kill triple fired (FlightRecorder.cs:8004)
+# The header's omission ledger names every V9 token that is NOT here and why. The short
+# version: the synodic and cadence digit strings are unpredictable because the planner
+# reads KSP's live orbit.period (Dres's own derivation missed the emitted digits by
+# 0.025 s); the loiter cut, the member segment counts and the ENGAGED disposition are
+# measurements this flight exists to take; and V9's two decline forbids are a post-fix
+# regression floor that has not been earned at Eeloo yet, so a decline here must be
+# allowed to read as a finding rather than as a failure.
+required = [
+  "MissionConfig",
+  "StartLoopPlayback",
+  "Recording stopped",
+]
+# The ERROR floor every committed spec carries, and only that. No decline reasons are
+# forbidden on a reading run.
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+]
+
+[runtime]
+# V8/V9's 2,400 for the same seam-driven shape. This lane has no flight: it is a
+# LoadGame, eight fast seam verbs and a quit, so the budget is dominated by the KSP
+# boot and the fixture load (V9 measured 48 s wall). Eeloo's fixture is the same
+# five-recording size as Dres's, so there is no load-time reason to move it.
+budgetSeconds = 2400
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

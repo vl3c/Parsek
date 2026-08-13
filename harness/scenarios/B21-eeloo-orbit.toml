@@ -92,6 +92,16 @@ id = "B21-eeloo-orbit"
 #   THE OTHER HALF OF THIS RISK IS THE LOAD-BEARING ONE: whether autostage actually
 #   fires is UNMEASURED, which is why no safety argument in this file is allowed to
 #   depend on the shed happening.
+#   FLOWN 2026-08-12: THE SHED DID NOT HAPPEN, BY 0.452 LF UNITS OF 1,440 -- 0.03%.
+#   The count re-pinned to {5, 5}, and that pin is a KNIFE EDGE, not a comfortable
+#   measurement. Read the margin at [expectations.recordings] before touching the
+#   craft, the park altitude, or anything that moves arrival geometry: a marginally
+#   different arrival, a slightly larger correction, or a heavier stack spends those
+#   0.452 units, autostage sheds istg 1, the count becomes 6, and {5, 5} REDS ON A
+#   CORRECT FLIGHT. WHEN THAT HAPPENS: re-pin to the measured value and record which
+#   recording appeared. Do NOT widen back to a range -- B19's contract is pin the
+#   measurement, and a range here would re-hide the very transition this margin is
+#   warning about.
 #
 # RISK 3 -- THE DELTA-V MARGIN. This lane is the closest to propellant-limited of
 #   any flown so far: a 7,482.5 m/s stage against a worst-geometry mission that can
@@ -724,10 +734,80 @@ id = "B21-eeloo-orbit"
 #       duration, so it cannot calibrate one. The approach it IMPLIES is
 #       27,596 - 29.904 (the tts the frame started from) - 9,741 (the ttPe it
 #       landed past) = ~17,825 s, against which this derivation is ~17% HIGH.
-# What the model IS, stated honestly and with the re-derivation's own limits: it is
-# SELF-CONSISTENT and UNCALIBRATED. An independent re-derivation reproduces the
-# EELOO figure exactly (52,522.0 from the printed inputs) but NOT the Dres one --
-# the same formulas with the printed v_inf 1,571 give 20,869.7 s, 0.87% above the
+# WHAT THE MODEL IS, AFTER THE FIRST FLIGHT: THE METHOD IS VALIDATED AT EELOO, still
+# uncalibrated at Dres -- but READ WHICH PART IS VALIDATED AND BY WHAT. An earlier
+# draft of this passage quoted a single "12 ms" agreement as if it settled the whole
+# question; it does not, and the way it was written invited exactly the objection a
+# reviewer raised: the answer depends on WHICH RADIUS you evaluate at, so an agreement
+# reached at a radius picked after seeing the answer would prove nothing. Below, both
+# radii are fixed BEFORE the comparison and the comparands are independent outputs.
+# The 2026-08-12 green run `_2239` arrived with measured elements pe altitude
+# 11,343,134.761 m (r_pe 11,553,134.761 m), ecc 447.020, hence |a| 25,902.728 m,
+# v_inf 1,694.905 m/s, sqrt(|a|^3/mu) = 15.282705.
+#
+# CHECK 1 -- THE LOAD-BEARING ONE. Predict an EPOCH, not a duration, from a radius the
+# telemetry fixes, and check it against a comparand this derivation does not control:
+#   PLAN-CAPTURE frame, ut 47,019,141.933, alt 31,249,602.931 -> r 31,459,602.931 m
+#   cosh H = (31,459,602.931/25,902.728 + 1)/447.020                 = 2.71918
+#                                                          -> H      = 1.65781
+#   M      = 447.020 * sinh H - H                                    = 1,128.69
+#   t      = M * sqrt(|a|^3/mu)                                      = 17,249.413 s
+#   => periapsis at ut 47,019,141.933 + 17,249.413               = 47,036,391.346
+# MechJeb independently placed the capture node at ut 47,036,392.324, and its own plan
+# line says where: `capture plan issued (circularize at periapsis, time reference READ
+# BACK confirmed)`. THE MODEL IS 0.978 s OUT on a 17,249 s propagation, 0.0057%. Repeat
+# from the first in-SOI frame (ut 46,968,150.399, alt 116,081,372.020 -> r
+# 116,291,372.020 m, cosh H 10.04550, H 2.99779, M 4,465.24): t = 68,240.923 s, putting
+# periapsis at 47,036,391.322 -- 1.002 s from the same node. THE SAME ~1 s SYSTEMATIC
+# FROM BOTH RADII, i.e. it lives in the printed elements, not in the propagation. That
+# is the validation, and it carries no interpretive step.
+#
+# CHECK 2 -- THE SOI-ENTRY -> PERIAPSIS COAST, and the trap in how it was first
+# written. Run the same method at Eeloo's PUBLISHED SOI radius (1.1908294e8 m -- a
+# body constant, not a fitted value):
+#   cosh H = (1.1908294e8/25,902.728 + 1)/447.020                    = 10.28659
+#                                                          -> H      = 3.02162
+#   M      = 447.020 * sinh H - H                                    = 4,573.51
+#   t      = M * sqrt(|a|^3/mu)                                      = 69,895.622 game s
+# and the first in-SOI frame printed `ttPe=+69,895.611`. 11 ms apart -- BUT THAT IS NOT
+# A SAME-INSTANT COMPARISON, and quoting it as one is what the earlier draft got wrong.
+# The frame that printed 69,895.611 sits at r 116,291,372 m, 2.79e6 m INSIDE the SOI,
+# where the model says 68,240.923 s: 1,654.688 s / 2.37% away from the printed number.
+# The excess is NOT model error -- the model's own SOI-radius -> frame-radius fall time
+# is 1,654.699 s, matching it to 0.011 s. The reading that makes every number consistent
+# is that the printed `ttPe` is referenced to the SOI-CROSSING instant rather than to
+# the poll that printed it: that poll ran at 100,000x rails and STRADDLED the crossing
+# (previous poll ut 46,920,150.399, this one 46,968,150.399, 48,000 game s apart), and
+# back-solving SOI entry from the node (47,036,392.324 - 69,895.622) gives ut
+# 46,966,496.7, inside that interval. Three quantities reconcile with ZERO free
+# parameters, so the coast claim stands -- but state it as what it is: THE MODEL'S
+# SOI-ENTRY -> PERIAPSIS COAST EQUALS KSP'S SOI-CROSSING-REFERENCED ttPe, not the
+# number on the frame it happens to be printed on.
+# NOT-CIRCULAR CHECK, since the objection was that the radius was chosen to agree: the
+# radius that would make check 2 print exactly 69,895.611 is 119,082,920.9 m, and
+# Eeloo's published SOI is 119,082,940 m -- 19.1 m / 2e-7 apart. The constant plugged
+# in blind lands there; nothing was tuned.
+#
+# THE PRECISION IS OVERSTATED EITHER WAY, so do not re-quote "12 ms". `ecc` is printed
+# to 3 dp, and the +/-0.0005 hiding behind 447.020 moves check 2 by +/-0.039 s and
+# check 1 by +/-0.010 s. Check 2 agrees WITHIN THE ~0.04 s THE PRINTED ELEMENTS
+# RESOLVE; that is the strongest true statement available from this log.
+# ONE-LINE SUMMARY: the hyperbolic-Kepler method is right -- demonstrated to 1 s of
+# periapsis epoch against an independent MechJeb output (check 1), and consistent with
+# the SOI-entry coast once the ttPe reference instant is accounted for (check 2).
+# READ THE OTHER COMPARISON CAREFULLY TOO, because the obvious one is wrong. The 52,522 s row
+# is the MATCHED PERIHELION arrival at a 1,000 km periapsis; this flight arrived on a
+# near-aphelion transfer at an 11,553 km periapsis, so 52,522 was never its predicted
+# value. Do NOT validate the model by putting the measured SOI-entry -> CAPTURE-BURN
+# arm span (50,992.1 s) over 52,522 for a tidy 0.971: those are different ENDPOINTS
+# (burn arm vs periapsis) on different GEOMETRIES, and the 0.971 is a coincidence of
+# two errors pointing opposite ways. What is validated is the METHOD, on matched
+# inputs, to the tolerance check 1 and check 2 state above -- 1 s of periapsis epoch,
+# and ~0.04 s on the coast. Not "exactly", and not 12 ms.
+# THE DRES CROSS-CHECK STILL DOES NOT REPRODUCE, and this flight does not close it.
+# An independent re-derivation reproduces the EELOO figure exactly (52,522.0 from the
+# printed inputs) but NOT the Dres one -- the same formulas with the printed v_inf
+# 1,571 give 20,869.7 s, 0.87% above the
 # 20,689 an earlier draft printed, and reproducing 20,689 would need v_inf 1,584.7.
 # The Dres column above is therefore corrected to 20,870, and the factor-5
 # conclusion is unaffected either way (20,870/5 = 4,174 against the 4,138 the old
@@ -866,46 +946,149 @@ id = "B21-eeloo-orbit"
 # every geometry crosses it: a cheap aphelion arrival with small rounds
 # (2,249.3 + 2 x 250 + 1,005.4 = ~3,755 m/s) stays inside the radials, exactly as
 # Dres did. Delta-v is not at risk either way -- shedding 1.84 t of dry tankage
-# RAISES stage capacity from 7,482.5 to 8,434.0 m/s -- the COUNT is (RISK 2). The
-# mitigation is this interim window, not a parameter change.
+# RAISES stage capacity from 7,482.5 to 8,434.0 m/s -- the COUNT is (RISK 2).
+# MEASURED 2026-08-12, AND THE PREDICTION MISSED BY 1.6 m/s. The flight did NOT cross
+# the threshold, so there is no sixth recording and the count re-pins to 5 -- but only
+# just. The realised dv ladder, from the telemetry lf track through the same rocket
+# equation this block uses (1 unit = 0.005 t, ve = 7,845.32, wet 18.220 t):
+#   ejection   2,240.000 -> 1,364.701 lf                              = 2,155.1 m/s
+#   round 1    1,364.701 -> 1,307.128                                 =   164.9
+#   round 2    1,307.113 -> 1,305.522                                 =     4.6
+#   capture    1,305.522 ->   800.452                                 = 1,618.4
+#   TOTAL                                                             = 3,943.1 m/s
+#                       against the 3,944.7 that empties the radials  =    -1.6 m/s
+# i.e. the four radial tanks retained 0.452 LF units, 0.03% of their 1,440. (Run
+# `_2003` spent 3,940.7 and retained 1.135.) TREAT -1.6 m/s AS ZERO MARGIN: any of the
+# terms below moving by a tenth of a percent puts the flight on the other side of the
+# threshold, the shed fires, and the {5, 5} recordings pin reds on a correct flight. WHICH TERM WAS WRONG: not the patched-conic node
+# model -- ejection came in 1.9% above its predicted 2,115.2 and capture 2.5% above
+# its predicted 1,579.3, both excellent -- but the CORRECTION allowance. This block
+# priced 2 x ~400 m/s; the rounds measured 164.9 and 4.6, a total of 169.5, so the
+# allowance was 4.7x high and that ~630 m/s of phantom spend is the whole of the
+# ~4,495 - 3,943 gap. Keep the derivation: it was right about the mechanism and right
+# to within 2.5% on both real burns, and a geometry needing even one more correction
+# round of B19-scale (~250 m/s) sheds the tanks and produces the sixth recording.
+# The count is re-pinned to the measured 5, not left as a window.
 # =====================================================================================
-# NOT YET FLOWN. The `flown` tag is deliberately absent and this spec claims no
-# measured numbers of its own. WHAT THE FIRST RUN MUST MEASURE, and what a re-pin
-# should start from:
-#   arrival band    which end of 23.34e6 / 34.27e6 / 46.51e6 game s MechJeb's
-#                   window actually landed on -- compute the arrival radius from
-#                   the `interplanetary plan: target=Eeloo` nodeUt + tof BEFORE
-#                   concluding anything about Parsek
-#   round 1 ut      how soon after the ejection the encounter-creating correction
-#                   fired; healthy is tens of thousands of game s, as Dres's
-#                   measured 21,004
-#   per-round dv    the dv each correction node actually took, AND whether any round
-#                   came out CLIPPED at the 550 m/s cap -- this is the measurement
-#                   that licenses re-pinning the cap in either direction, and the
-#                   clip is silent, so it has to be read off the node dv rather than
-#                   waited for in a warning
-#   rounds fired    HOW MANY correction rounds ran, and whether any of them were
-#                   arrival-quality EXTRAS rather than the two this spec schedules:
-#                   the telemetry key is `extraRounds` (`extra_rounds_done`,
-#                   mlib.py:14204 and :14347). The cap is sized on the four-round
-#                   bound, so `extraRounds=0` says the sizing basis was conservative
-#                   by 2 x cap and licenses a re-pin just as a clip does
-#   drop-tank shed  whether MechJeb autostage actually sheds istg 1 when the four
-#                   radial tanks empty at 3,944.7 m/s of cumulative spend. Every
-#                   margin in this header is quoted on BOTH the no-shed 7,482.5 and
-#                   the shed 8,434.0 capacity precisely because this is unmeasured
-#   recordings      the count AND each recording's span UT, so the re-pin NAMES its
-#                   topology instead of merely counting it
-#   in-SOI approach the first in-SOI frame's ttPe: POSITIVE means the approach clamp
-#                   held (B19 flight 4 read -9,741.9 before the fix)
-#   fuel            lf at the start of CAPTURE-BURN (1 unit = 0.005 t; remaining
-#                   dv = 7,845.32 * ln(m_now/(m_now - lf*0.005))), the only way to
-#                   tell an under-fuelled capture from a bad node -- against the
-#                   per-geometry floors of 656 / 396 / 313 / 192 units
+# FLOWN, GREEN, TWICE -- 2026-08-12. Runs `2026-08-12_2003` (PASS attempt 1, 3,083 s
+# wall) and `2026-08-12_2239` (PASS attempt 1, 3,092 s wall / 3,020 s mission), both
+# with all six mission assertions met and every verifier PASS/SKIPPED/REPORT. NOT ONE
+# PARAMETER IN THIS FILE WAS CHANGED ON THE RE-PIN: the flight was green at the
+# authored values, so nothing below is a post-hoc tuning. THE COMMITTED FIXTURE
+# `eeloo-orbit-recorded` IS `_2239`'s PRODUCED SAVE, not `_2003`'s -- `_2003`'s was
+# destroyed 53 s after that run ended by sibling scenario B20-moho-orbit staging over
+# the same `saveTemplate` leaf (filed as HARNESS-PRODUCED-SAVE-CLOBBERED-BY-SIBLING-RUN
+# in docs/dev/todo-and-known-bugs.md). Every figure below is `_2239`'s; where the two
+# runs disagree, both are given, because a quantity that moves between two identical
+# runs is not pinnable.
+#
+# THE ANSWERS TO THE QUESTIONS THIS BLOCK USED TO ASK, in the order it asked them:
+#   arrival band    THE APHELION END. The heliocentric coast ran ejection ut
+#                   5,096,457.1 -> Eeloo SOI entry ut 46,968,150.4 = 41,871,693.3
+#                   game s: 0.900 of the 46.51e6 aphelion figure, 1.22x the 34.27e6
+#                   SMA one, 1.79x the 23.34e6 perihelion one. Sizing every
+#                   game-second budget on the aphelion worst case rather than the
+#                   middle of the band is what this flight vindicates. (`_2003`:
+#                   41,872,883.2, a 1,190 s difference on 41.9e6.)
+#                   AND A CORRECTION TO THIS HEADER'S OWN ARITHMETIC:
+#                   `coastTimeoutSeconds` bounds ONE COAST-TO-TARGET SEGMENT, not the
+#                   whole coast -- `snapshot.ut - state.phase_entry_ut` at
+#                   mlib.py:8111-8116, and `_b5_enter` re-stamps `phase_entry_ut` on
+#                   every re-entry, so the coast's three segments are budgeted
+#                   independently. Measured: 80,750.0 / 23,534,341.5 / 6,743,381.1.
+#                   The sizing quantity is therefore the LONGEST SEGMENT, 23.53e6, not
+#                   the 41.87e6 total. B19's inherited 16e6 WOULD still have reaped
+#                   this flight, 68% into segment 2 at ut 32,686,411 -- before round 2
+#                   ever planned -- so the widen was load-bearing. But the 42e6 this
+#                   header rejected would have carried 1.78x the worst segment, not
+#                   the 1.003x a whole-coast reading implies; 60e6 carries 2.55x.
+#                   Do not restate the rejection of 42e6 as a near-miss.
+#   round 1 ut      80,750.0 game s after COAST-TO-TARGET entry -- 0.19% of the coast
+#                   -- of which ~27,700 s was the residual Kerbin-SOI escape (the
+#                   first heliocentric frame was ut 5,124,183.6 and PLAN-CORRECTION
+#                   entered 53,023 s later). The raise to 50e6 is confirmed: at B19's
+#                   20e6 the predicate `dt = tts - threshold` stays positive until tts
+#                   falls to 20e6, i.e. 21.87e6 game s in = 52% of the coast, far too
+#                   late to CREATE the encounter. (`_2003`: 82,733.0.)
+#   per-round dv    166.82 and 6.32 m/s, both logged `classified fly (cap 550.0,
+#                   floor 0.5); plan accepted`. NEITHER ROUND WAS CLIPPED and NEITHER
+#                   CAME CLOSE: 30.3% and 1.1% of the cap. (`_2003`: 166.79 / 6.21.)
+#   rounds fired    TWO -- exactly the two this spec schedules -- with `extraRounds=0`
+#                   on every machine line of both runs. No arrival-quality extra was
+#                   granted.
+#                   THE HONEST COUNTERWEIGHT, and it belongs here rather than buried:
+#                   THE CORRECTION CAP NEVER BOUND, AND IS NOT WHAT MADE THIS FLIGHT
+#                   POSSIBLE. The four-round-at-cap tail this header derives at length
+#                   sized for geometries the flight did not visit -- it flew two rounds
+#                   at 30% of one cap. The tails remain real and the asymmetry argument
+#                   stands (a cap BELOW the needed burn silently discards the node and
+#                   the coast flies the raw intercept), so 550 stays; but what actually
+#                   made this flight were the two GAME-SECOND budgets,
+#                   `coastTimeoutSeconds` and `correctionTriggerTimeToSoiSeconds[0]`.
+#                   `extraRounds=0` licenses a re-pin of the cap in the way this block
+#                   always said it would -- it is not being taken, because one green
+#                   geometry does not bound the family.
+#   drop-tank shed  IT DID NOT HAPPEN, AND THE MARGIN IS THE FINDING. lf ran 2,240.000
+#                   at TRANSFER-BURN entry (the LV-N's full load -- the ascent spends
+#                   zero nuclear propellant, re-confirming B18/B19) -> 1,364.701 after
+#                   the ejection -> 1,305.522 at CAPTURE-BURN entry -> 800.452 at
+#                   ORBIT-COMMIT. So 934.478 units were spent by capture entry, well
+#                   inside the 1,440-unit radial group -- but 1,439.548 by the end of
+#                   the capture burn. THE RADIALS RETAINED 0.452 UNITS, 0.03% OF THE
+#                   GROUP. (`_2003` retained 1.135.) RISK 2 did not fire on either
+#                   green run and the 5-recording topology is correct; it is also
+#                   0.03% away from being a 6-recording topology, so a future run that
+#                   comes back with 6 is the shed, not a regression. THE {5, 5} PIN IS
+#                   THEREFORE A KNIFE EDGE: re-pin to the measured count when it moves,
+#                   never widen it back to a range. Note the shed also moves the
+#                   FLAMEOUT analysis -- with istg 1 gone, a flameout pop lands on
+#                   istg 0 (the pod decoupler) on the FIRST trip, not the second.
+#   recordings      FIVE, re-pinned {5, 5} with every span UT named at
+#                   [expectations.recordings] below.
+#   in-SOI approach POSITIVE: the first in-SOI frame (ut 46,968,150.399) read
+#                   `ttPe=+69,895.611`, periapsis ahead, the approach clamp doing
+#                   exactly what B19 flight 4's -9,741.9 said it had to. The flight
+#                   also FLIGHT-VALIDATES the hyperbolic approach model, but NOT via
+#                   that number read at face value: the load-bearing check is the
+#                   PERIAPSIS EPOCH, predicted to 0.978 s / 0.0057% against MechJeb's
+#                   independently placed capture node (ut 47,036,392.324). The 11 ms
+#                   coast agreement is real but is against KSP's SOI-CROSSING-
+#                   referenced ttPe, not against the frame that printed it -- and it
+#                   is finer than the +/-0.04 s the printed `ecc` resolves. Do not
+#                   re-quote "12 ms"; see the model block above for both derivations.
+#                   `soiLeadSeconds` 100,000 turns out to be 1.43x the WHOLE 69,896 s
+#                   approach, so at Eeloo the clamp arms before SOI entry and stays
+#                   armed throughout; `approachMaxWarpFactor` 5's one-frame-under-a-
+#                   fifth rule measured 28.0x margin (500 game s per poll against
+#                   13,979 allowed) rather than the 10.5x derived below.
+#   fuel            lf 1,305.522 at CAPTURE-BURN entry -- 1.99x even the WORST of the
+#                   per-geometry floors (656 units) and 6.8x the best (192). The
+#                   capture was not close to under-fuelled.
+#
+# TWO MORE THINGS THE FLIGHT SETTLED, neither of them asked for above:
+#   park geometry   THE ~1,660 km / 7.9-body-radii PREDICTION IN THE
+#                   `parkMaxApoapsisMeters` BLOCK IS REFUTED. The park came out at
+#                   11,351.2 x 11,334.7 km, ecc 0.000713 -- 55.0 Eeloo radii, 6.8x the
+#                   prediction, so MechJeb's arrive-higher bias is far larger here than
+#                   the Dres ratio implied. The loosening to 40,000 km is therefore
+#                   well judged in spirit -- but 11,351 km would have cleared B19's own
+#                   20,000 km ceiling too, so it was insurance this flight did not need
+#                   (0.28x the new ceiling, 0.57x the old). Keep it: the next arrival
+#                   geometry gets no promise from this one.
+#   ejection wait   the TRANSFER-BURN span (the ejection-window wait) was 5,093,753.3
+#                   game s = 0.52x the 9,776,696 s Kerbin-Eeloo synodic, 3.54x inside
+#                   the UNCHANGED 18e6 `transferBurnTimeoutSeconds`. The "this key
+#                   GAINS margin at Eeloo, do not widen it" call below is confirmed.
+#                   Ejection node ut 5,096,159.3, dv 2,119.457 m/s; jettison 2 pops,
+#                   `avThr` 650,000 (Skipper) -> 60,000 (LV-N).
+#   wall            3,092 s against the 9,600 runtime / 9,000 mission budget = 0.32x.
+#                   The budget was sized on the four-round-at-cap tail, which is a
+#                   BOUND and not an expectation, so this is NOT a reason to trim it;
+#                   the measured expectation for a green run is ~3,100 s.
 tier = "operator"
 description = "Eeloo ORBIT across a heliocentric traverse, on the stock Duna Rocket: 700 km park, PRE-TRANSFER JETTISON of the spent chemical stack onto the LV-N, ejection at the Kerbin->Eeloo window, corrections, CAPTURE inside Eeloo's SOI, held park and a mid-mission CommitTree -- the flight whose committed recording becomes the eeloo-orbit-recorded fixture."
 instanceProfile = "stock-minimal"
-tags = ["B21", "eeloo", "orbit", "mechjeb", "interplanetary", "cross-soi", "capture", "commit-in-foreign-soi", "jettison"]
+tags = ["B21", "eeloo", "orbit", "mechjeb", "interplanetary", "cross-soi", "capture", "commit-in-foreign-soi", "jettison", "flown"]
 
 [fixture]
 # B18's committed pad fixture: the Duna Rocket PRELAUNCH on the LaunchPad with
@@ -1080,6 +1263,12 @@ courseCorrectPeriapsisMeters = 300000
 # BRANCH: with istg 1 not yet shed it takes TWO trips (trip 1 sheds the dry radials
 # and recovers no thrust, trip 2 fires the pod decoupler); with istg 1 ALREADY shed,
 # which is what RISK 2 expects, the current top stage IS istg 0 and ONE trip does it.
+# WHICH BRANCH THIS LANE IS ON IS DECIDED BY 0.452 LF UNITS. Both green runs stayed on
+# the two-trip branch by 0.03% of the radial group (see RISK 2 and
+# [expectations.recordings]); the same nudge that turns the recordings count into 6
+# ALSO moves this lane onto the one-trip branch, where the first flameout pop takes the
+# pod. Do not read "two trips" as a property of the craft -- it is a property of a
+# margin that nearly vanished.
 # The schema max 2000.0 is not merely unattractive here but unreachable on this stage.
 # TWO GEOMETRIES ARE BEYOND THIS CRAFT AT ANY USEFUL CAP and are NOT a reason to move
 # this key: an aphelion-apoapsis transfer arriving at perihelion (base 5,784.2 leaves
@@ -1335,38 +1524,57 @@ D14 = ["kerbin", "eeloo", "soi-count", "warp-rails", "warp-high", "scene-flight"
 allowedAnomalies = []
 
 [expectations.recordings]
-# INTERIM AND DELIBERATELY UNPINNED -- this is B19's OWN pre-green draft window,
-# reproduced because B21 is in exactly the state B19 was in before it flew.
-# B19 went on to pin {5, 5}, and NAMED the topology rather than merely counting it:
-#   +1  the main recording -- terminal Orbiting, terminalOrbitBody=<target>
-#   +2  the two radial booster stacks shed at istg 6 during ascent (the exact
-#       population B18 measured on this craft), terminal Destroyed
-#   +1  the core Mainsail stack, dropped by MechJeb AUTOSTAGE during the ascent,
-#       terminal Orbiting / terminalOrbitBody=KERBIN
-#   +1  the Skipper stack, dropped by the JETTISON, also Orbiting / KERBIN -- both
-#       are left behind in the 700 km parking orbit
-# Same craft, same 700 km park, so 5 is the LIKELY Eeloo value too. But there is a
-# named Eeloo-specific reason it may be 6 (RISK 2, derived in the header): on the
-# mid-band arrival Eeloo's spend (2,115.2 ejection + 2 x ~400 corrections + 1,579.3
-# capture = ~4,495 m/s -- RAISED from ~4,374 by the matched-SMA v_inf correction in
-# the header, which makes the sixth recording MORE likely, still inside {3, 12})
-# crosses the 3,944.7 m/s that empties the four radial LF drop
-# tanks (7,845.32 * ln(18.220/11.020)) about 1,030 m/s INTO the capture burn, where
-# Dres stopped 114 units short -- ~8% of the radials' OWN 1,440, or ~5% of the
-# craft's whole 2,240 LF load -- and did NOT: so MechJeb autostage very likely pops
-# istg 1 mid-mission and a SIXTH recording appears, possibly the suite's first
-# heliocentric or foreign-SOI debris. Not every geometry crosses it -- a cheap
-# aphelion arrival with small rounds (2,249.3 + 2 x 250 + 1,005.4 = ~3,755 m/s)
-# stays inside the radials, exactly as Dres did -- so pinning EITHER 5 or 6
-# pre-flight would red a correct run.
-# RE-PIN CONTRACT (B19's, and it applies to the first green run of THIS lane): if a
-# later run legitimately differs, re-pin to the measured value and record which
-# recordings it produced; do NOT widen. B18 MEASURED the ascent half at exactly 3
-# (1 main + 2 radial-booster debris children), so min 3 gates the population that IS
-# measured; max 12 absorbs the jettison and drop-tank debris. RE-PIN to the measured
-# value once green, naming each recording's span UT in the same commit -- do NOT
-# leave this wide.
-count = { min = 3, max = 12 }
+# RE-PINNED {5, 5} FROM THE MEASURED FLIGHT. This window was authored as B19's own
+# pre-green draft {3, 12}; run `2026-08-12_2239` (and `_2003` before it) measured 5,
+# and B19's RE-PIN contract -- "re-pin to the measured value and record which
+# recordings it produced; do NOT widen" -- applies to the first green run of this
+# lane. NAMED, not merely counted, by measured span UT off the committed fixture
+# bytes (`harness/fixtures/saves/eeloo-orbit-recorded/persistent.sfs`, cross-checked
+# against that run's own saveParse verifier facets):
+#   20d890f9  the main recording, ut 26.2 -> 47,036,743.9, 1,501 points, terminal
+#             Orbiting / terminalOrbitBody=Eeloo, terminal elements sma 11,552,911.723
+#             ecc 0.000713 inc 87.743 at epoch 47,036,746.304 -- which is exactly
+#             `_2239`'s ORBIT-COMMIT entry UT
+#   c849bbee  radial booster stack shed at istg 6 during ascent, ut 97.1 -> 149.0,
+#             terminal Destroyed
+#   d8bfbb2c  the other radial booster stack, ut 97.1 -> 148.7, terminal Destroyed
+#   34ba13d3  the core stack dropped by MechJeb AUTOSTAGE during the ascent, ut
+#             1,697.3 -> 1,716.4 (MJ-ASCENT ran 26.2 -> 1,715.3), terminal Orbiting /
+#             KERBIN
+#   cf7ff6b8  the Skipper stack dropped by the JETTISON phase, ut 2,699.0 -> 2,703.9
+#             (the JETTISON phase itself ran 2,698.475 -> 2,703.315, i.e. ORBIT ->
+#             JETTISON -> PLAN-TRANSFER; the recording outlives the phase by 0.6 s,
+#             so 2,703.9 is the RECORDING's end and NOT the phase exit),
+#             terminal Orbiting / KERBIN
+# = exactly B18's measured ascent 3 plus this lane's 2, and structurally identical to
+# dres-orbit-recorded on every facet (5 / Orbiting 3 / Destroyed 2 / JointBreak 3):
+# same craft, same profile, different target.
+#
+# RISK 2 DID NOT FIRE, AND BY 0.03%. READ THIS BEFORE TRUSTING THE {5, 5} PIN: it is a
+# KNIFE EDGE, not a comfortable measurement. The sixth recording this window was
+# widened for would come from MechJeb autostage popping istg 1 once the four radial LF
+# drop tanks (4 x 360 = 1,440 units) empty. Measured lf, all three readings off
+# `_2239`'s telemetry track: 2,240.000 at TRANSFER-BURN entry -> 1,305.522 at
+# CAPTURE-BURN entry (934.478 spent, still well inside the radials) -> 800.452 at
+# ORBIT-COMMIT. That is 1,439.548 of the 1,440 spent by the end of the capture burn:
+# THE RADIALS RETAINED 0.452 UNITS, 0.03% OF THE GROUP. (`_2003` retained 1.135 --
+# still under a tenth of a percent.) So 5 is the measured, correct, twice-reproduced
+# count, AND the flight came within 0.03% of measuring 6.
+# THE CONCRETE CONSEQUENCE: a marginally different arrival geometry, a slightly larger
+# correction round, or ANY change to the craft or the park altitude spends those 0.452
+# units. Autostage then sheds istg 1, a sixth recording appears, and {5, 5} REDS ON A
+# FLIGHT THAT WAS ENTIRELY CORRECT. Expect that, do not debug it as a Parsek defect --
+# the signature is a sixth debris recording whose span UT falls inside a correction or
+# the capture burn.
+# WHAT TO DO WHEN IT HAPPENS: re-pin to the measured value and record which recording
+# appeared, with its span UT, in this block. DO NOT widen the window back to a range --
+# B19's contract is pin the measurement, and a range would re-hide exactly the
+# transition this margin is warning about.
+# IT ALSO MOVES THE FLAMEOUT ANALYSIS: the maxCorrectionDvMps block's two-trip reading
+# assumes istg 1 is still attached. On a flight that DOES shed, istg 1 is gone, so a
+# flameout pop lands on istg 0 -- the POD decoupler -- on the FIRST trip rather than
+# the second.
+count = { min = 5, max = 5 }
 
 [expectations.logContracts]
 # Every token sourced from its ACTUAL emitting call site; the interplanetary

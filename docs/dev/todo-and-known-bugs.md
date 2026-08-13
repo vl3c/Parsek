@@ -66,6 +66,122 @@ launch_vessel - rejected for now because the post-launch crew_count gate catches
 the same failure with zero new RPC surface, and a pre-check would race the same
 scene reload the settle debounce already owns.
 
+## HARNESS-PRODUCED-SAVE-CLOBBERED-BY-SIBLING-RUN: the machine lock serialises RUNS, not the produced save, so a finished green flight's output is destroyed by the next run that shares its `saveTemplate` leaf [FOUND 2026-08-12 while harvesting `eeloo-orbit-recorded` from `B21-eeloo-orbit`. A HARNESS LIFECYCLE GAP, not a Parsek defect - the lock is doing exactly what it says]
+
+**What happened.** `B21-eeloo-orbit` flew green twice on 2026-08-12. The FIRST green
+run, `2026-08-12_2003` (PASS attempt 1, wall 3,083 s, ~51 minutes of real flight), had
+its produced save destroyed before it could be harvested. The harvest refused with
+
+```
+situation gate failed: active vessel 'Duna Rocket' is PRELAUNCH, expected one of ORBITING
+```
+
+which reads exactly like a mission that did not reach orbit - and the mission JSON for
+that run says `MISSION-OK` with all six assertions met and a park at Eeloo. A second
+symptom named the real cause: repeated greps of the same `persistent.sfs` returned
+INCONSISTENT results, because a sibling's live `KSP_x64.exe` was rewriting the file
+underneath the reads.
+
+**The mechanism, and it is one line.** The produced-save directory is the
+`saveTemplate` LEAF, not the scenario id: `hlib` derives `run_save_name = _leaf_of(
+save_template)` (`harness/lib/hlib.py:2792`, with `_leaf_of` at `:2648`) and its own
+comment says "The saveTemplate leaf IS runSaveName, staged as a directory the shell
+rmtree's + copytree's". The shell then does exactly that at the top of staging:
+
+```
+harness/run.py:905    if os.path.isdir(target_save):
+harness/run.py:906        shutil.rmtree(target_save, ignore_errors=True)
+```
+
+So EVERY scenario sharing a `saveTemplate` leaf shares ONE produced-save directory in
+the instance, `<instance>/saves/<leaf>`, and each new run deletes the previous
+occupant's output as its first destructive act. `<umbrella>/automation/.ksp-machine.lock`
+does not help: it serialises RUNS so two KSP processes never overlap, and it is released
+when a run ENDS. The produced save's useful lifetime begins exactly then.
+
+**Verified, not inferred.** Four specs share the `b18-dres-pad` leaf - `B18-dres-lko-
+ascent`, `B19-dres-orbit`, `B21-eeloo-orbit` (all in this worktree) and
+`B20-moho-orbit.toml:148` in the sibling worktree `Parsek-moho-lane`. The lockfile
+caught the collision in the act: after B21's second green run `_2239` ended at
+`2026-08-12T23:30:45Z`, `.ksp-machine.lock` read
+`{"worktree": "...\\Parsek-moho-lane", "selection": "--id B20-moho-orbit",
+"startedIso": "2026-08-12T23:30:54Z"}` - NINE SECONDS later. The instance's
+`saves/b18-dres-pad/persistent.sfs` now holds a single RECORDING_TREE whose every
+`endpointBodyName` reads `Kerbin`; B21's Eeloo payload is gone from the instance
+entirely, and survives only because it was snapshotted first. The `_2003` clobber was
+the same event about 53 s after that run ended; its lockfile evidence has since been
+overwritten, so that interval is reported rather than re-verified, while the mechanism
+and the `_2239` timing above are both measured.
+
+**Why it is worse than it looks.** The failure is SILENT and MISATTRIBUTED. Nothing
+warns; the harvest simply describes a pad-bound vessel, and the natural reading is that
+the flight failed. It cost one wrong diagnosis here before the lockfile was read. It is
+also RECIPROCAL - whoever flies second destroys the first one's harvest source - so on a
+machine with 28 sibling worktrees the hazard is a function of neighbours, not of
+anything the flying spec did. And the cost unit is a whole ~51-minute flight.
+
+**Mitigation used, and worth recommending.** Chain the harvest into the SAME command as
+the run, snapshot the produced-save directory the moment the run returns, and harvest
+from the snapshot:
+
+```
+python run.py --id <SPEC> && cp -r <instance>/saves/<leaf> <snapshot> \
+  && python tools/harvest_bdock_station.py --save-dir <snapshot> --target-name <fixture> ...
+```
+
+`harvest_bdock_station.py --save-dir` already accepts an arbitrary directory, so no tool
+change is needed for the workaround.
+
+**Fixes worth considering, none taken here.** (a) Make the produced-save directory
+per-RUN (`<leaf>__<runId>`) and have staging reap only its own; that removes the
+collision outright but touches every consumer that resolves a produced save by leaf.
+(b) Keep the leaf but have staging MOVE rather than delete an existing occupant, into
+`<leaf> (superseded <runId>)`, so the bytes survive one generation. (c) Cheapest and
+smallest: have staging log a WARN naming the runId whose output it is about to delete,
+so the destruction is at least visible in the harness log. Even (c) would have turned
+this from a wrong diagnosis into a one-line read.
+
+---
+
+## FORGE-CRAFT-BYTE-IDENTICAL-CLAIM-IS-FALSE-AS-WRITTEN: two sites say the committed `Duna Rocket.craft` is byte-identical to its download at a sha256 that is actually the CRLF form's [FOUND 2026-08-12 while registering the Eeloo fixture. A DOC-ACCURACY defect, not a craft defect - the craft is content-correct and nothing gates the pin]
+
+**What the two sites claim.** `docs/dev/autotest-status.md:1102` (the
+`FORGE-b18-dres-pad` row) and `harness/scenarios/FORGE-b18-dres-pad.toml:26` both say
+the craft is "committed VERBATIM, byte-identical to its download, sha256
+`f664d7ce27710420976e5454ccaed9c1ae872a302455e7369048ffdf8f555fc2`", and the spec adds
+that because the craft is not authored by construction "the craft file itself IS the
+record".
+
+**What is measured.** Over `harness/fixtures/ships/Duna Rocket.craft`:
+
+```
+bytes        213,198      CRLF 0      LF 12,804
+sha256(committed bytes)                  f504608c5a3b36bd2d121f6f178d03d2b9e11b1cc4e5ed36b611f7a5a9289328
+sha256(same content re-CRLF'd, 226,002 bytes)  f664d7ce27710420976e5454ccaed9c1ae872a302455e7369048ffdf8f555fc2
+```
+
+So `f664d7ce...5fc2` IS the download's hash - of the CRLF form KerbalX serves. The
+committed file is LF-normalised and hashes `f504608c...9328`. Same craft,
+content-identical modulo end-of-line, but "byte-identical to its download" is FALSE as
+written, and the stated hash matches nothing in the repository.
+
+**Why it survived.** Nothing gates the pin. The craft is deliberately NOT
+builder-authored (unlike the DD1, which has `build_dd1_craft.py --check`), so there is
+no drift gate to notice, and `.gitattributes:30` marks `harness/fixtures/** -text`,
+which makes the LF form stable in every working tree on every platform - so the number
+is wrong but the file is not going to move under it.
+
+**Fix applied.** Both sites now state BOTH hashes and the mechanism: content-identical
+to the download, LF-normalised on commit, `f504608c...9328` as committed and
+`f664d7ce...5fc2` for the CRLF form the download arrives in. That keeps the derivation
+record intact - which is the whole point of the sentence - while making it checkable.
+
+**Not done, and a real option.** Adding a `--check` byte gate for this craft (hash the
+committed bytes against `f504608c...9328`) would make the claim enforced rather than
+merely accurate. It was not added here because the craft is downloaded rather than
+generated, so a gate would pin a fact with no generator to re-derive it from; the
+`-text` attribute already supplies the stability the gate would be protecting.
+
 ## ~~FIXTURE-CRAFT-DUPLICATED-PER-SAVE: every committed save fixture carries its own byte-identical copy of each craft it flies~~ [FOUND 2026-08-12 while accounting for the six-figure line counts on the recent fixture-lane PRs. FIXED 2026-08-12, branch `claude/large-pr-code-volume-xt1z02`]
 
 **What was measured.** `harness/fixtures/` held 1,226,233 lines over 490 files, of
