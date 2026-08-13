@@ -14,6 +14,74 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## MOHO-PROGRAM-MEASUREMENTS-COMPLETE: the tilt disposition at 7 deg, the cadence at a ~1.0-synodic span, and the eccentric tof band earning its keep [RECORDED 2026-08-13 by `V11-moho-player-loop` + `V11A-moho-loop-arrival`. NOT A DEFECT - the closing measurement record for the Moho program]
+
+**THE HEADLINE: the tilt-retention fix holds at the TOP of its own documented failing
+band.** Moho is the case the synthesizer's own comments name -- `docs/dev/done/plans/
+reaim-eccentric-tof-reliability.md` S4.2.3 calls it "the COMBINED case" (high
+inclination AND small SOI AND moderate eccentricity) -- and the disposition, measured
+byte-identically on two runs:
+
+```
+tilt-correction inc-before=23.5906 bound=7.5000 targetInc=7.0000 incAch=3.3633
+                inc-after=NaN state=retained reason=unreachable-plane
+```
+
+The band, now walked end to end:
+
+| target | inclination | disposition |
+| --- | --- | --- |
+| Duna | 0.06 deg | always safe |
+| Eve | 2.1 deg | DECLINED all 27 tof candidates (`unreachable-plane`), pre-fix |
+| Dres | 5 deg | `state=retained`, incAch 3.6426 < targetInc 5.0000 (V10) |
+| **Moho** | **7 deg** | **`state=retained`, incAch 3.3633 < targetInc 7.0000** |
+
+The achievability gate is UNSAFE at Moho exactly as it was at Eve and Dres, and the
+retention fix's third arm holds the un-corrected conic instead of killing the window.
+Pre-fix that combination declined. **There is no ceiling between 5 and 7 degrees.**
+
+**THE ARRIVAL GEOMETRY IS EXACT.** `xfer-vs-Kerbin@depart=0m | xfer-vs-Moho@arrival=0m
+| xfer-vs-Moho@soi=9646663m (SOI=9646663)` -- the re-aimed conic meets Moho's sphere of
+influence to ZERO metres, where V10 measured Dres to within one.
+
+**A SECOND FINDING, not looked for: stage B's eccentric tof band is what MAKES this
+window resolve.** The ready line reads `eTarget=0.2000 halfWidthFraction=0.1600` with
+`devFromGeom=-211482.317s` against `tof=2446149.5876669968`. That deviation is 8.6% of
+the tof, so **the old fixed +-6% band would have DECLINED this window**; the
+`0.06 + 0.5*ecc` law widening to 16% for Moho's 0.2 eccentricity is the only reason it
+does not. `reaim-eccentric-tof-reliability.md` S4.2.3 predicted exactly this for a Moho
+fixture ("the band widens substantially toward the geometric tof, the sanctioned
+M-MIS-3 direction") and no fixture had demonstrated it live until now. It is pinned as
+a required token, so narrowing that law reds V11A.
+
+**THE CADENCE DIFFERS FROM DRES, AND THE DISCRIMINATOR IS THE SPAN.** V11 measured
+`cadence == synodic` EXACTLY (2,909,172.3997171265 for both), i.e. ONE synodic period,
+where V9 measured Dres landing on TWO (22,785,806.61 against 11,392,903.31). The
+difference is where the span sits: this unit spans 2,884,092.9 game s against a
+2,909,172.4 s synodic, a ratio of **0.9914**, where Dres spanned ~1.79 synodic. Both
+are the planner choosing a whole multiple; WHICH multiple falls out of the span. The
+spec deliberately refused to predict it and pinned what the product printed.
+
+**THE COHESION FIX HOLDS ON A SECOND BODY.** `member#1 segs=18 startBody=Kerbin
+supported=True target=Moho` with `transferMemberSegs=18 plan.Supported=True` -- the PR
+#1458 rule-3 cohesion fix keeping the on-rails Kerbin->Sun handoff from splitting the
+transfer, on a recording it was not tuned against.
+
+**LOITER COMPRESSION AT A NEW SCALE.** `loiterCuts=1 cutSeconds=391267` -- the
+compressor finding a ~398,000 game-second LKO ejection-window wait, an ORDER OF
+MAGNITUDE below the 8,436,248 s cut V9 measured on Dres. Nothing else in the suite
+exercises it there.
+
+**WHAT IS DELIBERATELY NOT ARMED, with the trade stated rather than buried:** the
+seam-endpoint census. V11A reads `evaluated=0 outsideSoi=0 skip.no-usable-ratio=1`,
+which is EXACTLY V10 iteration 4's reading and for exactly V10's reason -- reaching
+`evaluated=1` requires a pre-D0 TimeJump, and every pre-D0 jump reproduces the filed
+LINE-BLINK-JUMP-STRADDLE-DETECTOR-GAP. The census and a green verdict cannot both be
+had today. The armed lane is the green one, and the same arrival claim is carried
+deterministically by the synth-geometry token instead -- from the synthesizer rather
+than the renderer. If that detector gap is ever closed, add V10 iteration 3's escape
+bracket (-900 / -300 / +600) and arm the census pair too. `allowedAnomalies` stays [].
+
 ## ~~APPROACH-WARP-CLAMP-FAILS-OPEN-ON-AN-INTERMITTENT-TTS: the ceiling is dropped by a single unread time-to-SOI, at the one moment it is load-bearing~~ [MEASURED 2026-08-12 by `B20-moho-orbit` run `_1855`. A SHARED-MACHINE gap in `mlib.approach_warp_clamp`, not a lane-parameter error. FIXED 2026-08-12 with an approach LATCH, on an explicit decision to change shared machinery]
 
 **What was measured.** With the correction cap restored, B20's third flight
