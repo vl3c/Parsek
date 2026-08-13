@@ -4898,15 +4898,19 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
         # not arm (the seam-endpoint census pair) is documented in the spec with
         # the trade that forced it.
         "V10-dres-loop-arrival.toml":       "calibration-discipline - a TimeJump observation lane whose brackets come from one recording's replay clock; armed on the tilt/geometry/ready tokens, with the census pair deliberately unarmed because reaching it reproduces the filed line-blink detector gap",
-        # V12 is V9's shape on the Eeloo fixture and it is at V9's STARTING point, not
-        # its finishing one: a deliberately unarmed READING run (the V8/V9 iteration-1
-        # pattern) with three plumbing tokens and an ERROR floor. Its three headline
-        # quantities - the cadence multiple at a 4.81-synodic span, the loiter cut of
-        # the 5.09M s LKO ejection-window wait, and the member segment counts - are all
-        # functions of the B21 recording's own span, and the synodic/cadence DIGIT
-        # strings are unpredictable by construction because the planner reads KSP's
-        # live orbit.period. Arming waits on what it measures, twice.
-        "V12-eeloo-player-loop.toml":       "calibration-discipline - a deliberately unarmed READING run (V8/V9 iteration-1 pattern) on the Eeloo fixture, armed only on the plumbing trio plus the ERROR floor; its headline quantities (the cadence multiple at a 4.81-synodic span, the loiter cut, the member segment counts) are functions of the B21 recording's own span and its synodic/cadence digit strings are unpredictable because the planner reads KSP's live orbit.period, so it claims no coverage cells and arming waits on two consecutive readings plus a negative control",
+        # V12 is V9's shape on the Eeloo fixture and it has now reached V9's FINISHING
+        # point: it flew twice green on 2026-08-13 (_0053/_0055, byte-identical on
+        # every measured token) and is ARMED on those measurements. The three headline
+        # quantities it was waiting on all came back - cadence 48,883,481.633 is
+        # EXACTLY 5x the 9,776,696.327 s synodic at a 4.8111-synodic raw span (the
+        # program's first multiple past Dres's and Eve's 2), the compressor cut
+        # 5,086,416 s of the LKO ejection wait, and the member reads segs=20
+        # supported=True target=Eeloo. Unlike V9 it measured no defect, so the armed
+        # set is a regression floor for a HEALTHY reading; V9's two decline forbids
+        # come with it because a decline here is now a regression rather than a
+        # reading. Operator tier is the ordinary promotion call, and the negative
+        # control is the one item still owed.
+        "V12-eeloo-player-loop.toml":       "calibration-discipline - FLOWN TWICE GREEN 2026-08-13 (_0053 wall 48 s / _0055 wall 49 s, both PASS attempt 1, byte-identical on every measured token) and ARMED on those measurements: a ten-token required list (plumbing trio + the ENGAGED classification + the member topology + cadence==5x synodic to the digit + the loiter cut and the tof-dominated compressedSpan ratio), V9's two decline reasons forbidden, and count re-pinned {6,6} from the interim window. It measured no defect, so the armed set is a regression floor for a HEALTHY ENGAGED reading at the program's deepest span>synodic ratio. Claims no coverage cells (the value is the measurement and the floor); operator tier is the ordinary promotion call and a negative control is still owed",
         # V12A is V12's missing half and V10's shape on the Eeloo fixture: the
         # TimeJump lane that actually reaches the per-window synthesizer. It is
         # operator by the calibration discipline for a reason stronger than V10's -
