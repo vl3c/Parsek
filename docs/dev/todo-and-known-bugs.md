@@ -66,6 +66,122 @@ launch_vessel - rejected for now because the post-launch crew_count gate catches
 the same failure with zero new RPC surface, and a pre-check would race the same
 scene reload the settle debounce already owns.
 
+## HARNESS-PRODUCED-SAVE-CLOBBERED-BY-SIBLING-RUN: the machine lock serialises RUNS, not the produced save, so a finished green flight's output is destroyed by the next run that shares its `saveTemplate` leaf [FOUND 2026-08-12 while harvesting `eeloo-orbit-recorded` from `B21-eeloo-orbit`. A HARNESS LIFECYCLE GAP, not a Parsek defect - the lock is doing exactly what it says]
+
+**What happened.** `B21-eeloo-orbit` flew green twice on 2026-08-12. The FIRST green
+run, `2026-08-12_2003` (PASS attempt 1, wall 3,083 s, ~51 minutes of real flight), had
+its produced save destroyed before it could be harvested. The harvest refused with
+
+```
+situation gate failed: active vessel 'Duna Rocket' is PRELAUNCH, expected one of ORBITING
+```
+
+which reads exactly like a mission that did not reach orbit - and the mission JSON for
+that run says `MISSION-OK` with all six assertions met and a park at Eeloo. A second
+symptom named the real cause: repeated greps of the same `persistent.sfs` returned
+INCONSISTENT results, because a sibling's live `KSP_x64.exe` was rewriting the file
+underneath the reads.
+
+**The mechanism, and it is one line.** The produced-save directory is the
+`saveTemplate` LEAF, not the scenario id: `hlib` derives `run_save_name = _leaf_of(
+save_template)` (`harness/lib/hlib.py:2792`, with `_leaf_of` at `:2648`) and its own
+comment says "The saveTemplate leaf IS runSaveName, staged as a directory the shell
+rmtree's + copytree's". The shell then does exactly that at the top of staging:
+
+```
+harness/run.py:905    if os.path.isdir(target_save):
+harness/run.py:906        shutil.rmtree(target_save, ignore_errors=True)
+```
+
+So EVERY scenario sharing a `saveTemplate` leaf shares ONE produced-save directory in
+the instance, `<instance>/saves/<leaf>`, and each new run deletes the previous
+occupant's output as its first destructive act. `<umbrella>/automation/.ksp-machine.lock`
+does not help: it serialises RUNS so two KSP processes never overlap, and it is released
+when a run ENDS. The produced save's useful lifetime begins exactly then.
+
+**Verified, not inferred.** Four specs share the `b18-dres-pad` leaf - `B18-dres-lko-
+ascent`, `B19-dres-orbit`, `B21-eeloo-orbit` (all in this worktree) and
+`B20-moho-orbit.toml:148` in the sibling worktree `Parsek-moho-lane`. The lockfile
+caught the collision in the act: after B21's second green run `_2239` ended at
+`2026-08-12T23:30:45Z`, `.ksp-machine.lock` read
+`{"worktree": "...\\Parsek-moho-lane", "selection": "--id B20-moho-orbit",
+"startedIso": "2026-08-12T23:30:54Z"}` - NINE SECONDS later. The instance's
+`saves/b18-dres-pad/persistent.sfs` now holds a single RECORDING_TREE whose every
+`endpointBodyName` reads `Kerbin`; B21's Eeloo payload is gone from the instance
+entirely, and survives only because it was snapshotted first. The `_2003` clobber was
+the same event about 53 s after that run ended; its lockfile evidence has since been
+overwritten, so that interval is reported rather than re-verified, while the mechanism
+and the `_2239` timing above are both measured.
+
+**Why it is worse than it looks.** The failure is SILENT and MISATTRIBUTED. Nothing
+warns; the harvest simply describes a pad-bound vessel, and the natural reading is that
+the flight failed. It cost one wrong diagnosis here before the lockfile was read. It is
+also RECIPROCAL - whoever flies second destroys the first one's harvest source - so on a
+machine with 28 sibling worktrees the hazard is a function of neighbours, not of
+anything the flying spec did. And the cost unit is a whole ~51-minute flight.
+
+**Mitigation used, and worth recommending.** Chain the harvest into the SAME command as
+the run, snapshot the produced-save directory the moment the run returns, and harvest
+from the snapshot:
+
+```
+python run.py --id <SPEC> && cp -r <instance>/saves/<leaf> <snapshot> \
+  && python tools/harvest_bdock_station.py --save-dir <snapshot> --target-name <fixture> ...
+```
+
+`harvest_bdock_station.py --save-dir` already accepts an arbitrary directory, so no tool
+change is needed for the workaround.
+
+**Fixes worth considering, none taken here.** (a) Make the produced-save directory
+per-RUN (`<leaf>__<runId>`) and have staging reap only its own; that removes the
+collision outright but touches every consumer that resolves a produced save by leaf.
+(b) Keep the leaf but have staging MOVE rather than delete an existing occupant, into
+`<leaf> (superseded <runId>)`, so the bytes survive one generation. (c) Cheapest and
+smallest: have staging log a WARN naming the runId whose output it is about to delete,
+so the destruction is at least visible in the harness log. Even (c) would have turned
+this from a wrong diagnosis into a one-line read.
+
+---
+
+## FORGE-CRAFT-BYTE-IDENTICAL-CLAIM-IS-FALSE-AS-WRITTEN: two sites say the committed `Duna Rocket.craft` is byte-identical to its download at a sha256 that is actually the CRLF form's [FOUND 2026-08-12 while registering the Eeloo fixture. A DOC-ACCURACY defect, not a craft defect - the craft is content-correct and nothing gates the pin]
+
+**What the two sites claim.** `docs/dev/autotest-status.md:1102` (the
+`FORGE-b18-dres-pad` row) and `harness/scenarios/FORGE-b18-dres-pad.toml:26` both say
+the craft is "committed VERBATIM, byte-identical to its download, sha256
+`f664d7ce27710420976e5454ccaed9c1ae872a302455e7369048ffdf8f555fc2`", and the spec adds
+that because the craft is not authored by construction "the craft file itself IS the
+record".
+
+**What is measured.** Over `harness/fixtures/ships/Duna Rocket.craft`:
+
+```
+bytes        213,198      CRLF 0      LF 12,804
+sha256(committed bytes)                  f504608c5a3b36bd2d121f6f178d03d2b9e11b1cc4e5ed36b611f7a5a9289328
+sha256(same content re-CRLF'd, 226,002 bytes)  f664d7ce27710420976e5454ccaed9c1ae872a302455e7369048ffdf8f555fc2
+```
+
+So `f664d7ce...5fc2` IS the download's hash - of the CRLF form KerbalX serves. The
+committed file is LF-normalised and hashes `f504608c...9328`. Same craft,
+content-identical modulo end-of-line, but "byte-identical to its download" is FALSE as
+written, and the stated hash matches nothing in the repository.
+
+**Why it survived.** Nothing gates the pin. The craft is deliberately NOT
+builder-authored (unlike the DD1, which has `build_dd1_craft.py --check`), so there is
+no drift gate to notice, and `.gitattributes:30` marks `harness/fixtures/** -text`,
+which makes the LF form stable in every working tree on every platform - so the number
+is wrong but the file is not going to move under it.
+
+**Fix applied.** Both sites now state BOTH hashes and the mechanism: content-identical
+to the download, LF-normalised on commit, `f504608c...9328` as committed and
+`f664d7ce...5fc2` for the CRLF form the download arrives in. That keeps the derivation
+record intact - which is the whole point of the sentence - while making it checkable.
+
+**Not done, and a real option.** Adding a `--check` byte gate for this craft (hash the
+committed bytes against `f504608c...9328`) would make the claim enforced rather than
+merely accurate. It was not added here because the craft is downloaded rather than
+generated, so a gate would pin a fact with no generator to re-derive it from; the
+`-text` attribute already supplies the stability the gate would be protecting.
+
 ## ~~FIXTURE-CRAFT-DUPLICATED-PER-SAVE: every committed save fixture carries its own byte-identical copy of each craft it flies~~ [FOUND 2026-08-12 while accounting for the six-figure line counts on the recent fixture-lane PRs. FIXED 2026-08-12, branch `claude/large-pr-code-volume-xt1z02`]
 
 **What was measured.** `harness/fixtures/` held 1,226,233 lines over 490 files, of
@@ -10976,7 +11092,7 @@ Every Tier 1 merge-queue item below LANDED on `main` (verified 2026-07-11 via `g
 - ~~**M-MIS-5 P2** (L) - lift the undock->undock shuttle mid-recording start-trim limitation (`MidRecordingStartTrimUnsupported=9`); unlocks multi-stop shuttle logistics routes rejected today. Prereq: #1239.~~ **SHIPPED 2026-07-08** via #1251 (P2a detector) + #1254 (P2b start-trim lift). Supported shape accepted, degenerate shapes still rejected (NOT a full removal of status 9): an undock->undock mid-tree docked origin with a committed tree, `>=2` completed connection windows, and a finite non-overlapping origin window is now admitted with origin = the first window's undock UT (`RouteAnalysisEngine.IsSupportedMidTreeDockedOrigin` wired into the analysis gate + stand-downs; `RouteBuilder` mid-tree-origin plumbing; `RouteBackingMission.ComputeStartExcludedIntervalKeys`; `Route.RecordedOriginUndockUT` persisted; updated reject text in `RouteCreationFormatters`). Status `MidRecordingStartTrimUnsupported=9` still fires for the degenerate remainder (null/legacy `AnalyzeRecording` tree, origin window overlapping the next stop, inverted origin window, the mid-tree-origin-proof variant), which stay intentionally out of scope per `docs/dev/done/plans/plan-mmis5-p2b-start-trim.md` section 7.
 
 ### Tier 3 - LATER: verification + hygiene
-- **Validation debt (the real bottleneck)** - code-complete-but-in-game-unconfirmed fixes, clustering onto ~4-5 playtest sessions: (1) career-economy (Rec-1 #1242 gate PASSED in-game 2026-07-08; still open: career-freeze milestone-storm, contract-discard-desync, OnMainMenuTransition); (2) looped re-aim descent-render (reaim-descent cluster, arc truncation, M-MIS-2 P4, cross-SOI encounter observation); (3) eccentric-target Eeloo/Moho constant pinning (M-MIS-3); (4) cross-parent station resupply (M4c); (5) in-game test-runner camera-survival batch. KSP cannot run headless, so this is playtest-bound.
+- **Validation debt (the real bottleneck)** - code-complete-but-in-game-unconfirmed fixes, clustering onto ~4-5 playtest sessions: (1) career-economy (Rec-1 #1242 gate PASSED in-game 2026-07-08; still open: career-freeze milestone-storm, contract-discard-desync, OnMainMenuTransition); (2) looped re-aim descent-render (reaim-descent cluster, arc truncation, M-MIS-2 P4, cross-SOI encounter observation); (3) eccentric-target Eeloo/Moho constant pinning (M-MIS-3) - HALF DISCHARGED 2026-08-13: V12A pinned the COMPUTATION at Eeloo (e=0.26 -> `halfWidthFraction=0.1900`, cap unengaged) but the expansion band was never WALKED because step 0 was accepted, so the behavioural half is open - see M-MIS-3-BAND-COMPUTED-NOT-EXERCISED; (4) cross-parent station resupply (M4c); (5) in-game test-runner camera-survival batch. KSP cannot run headless, so this is playtest-bound.
 - **M-MIS-10 archetype verification sweep** - constellation deploy / booster flyback / off-Kerbin launch / claw couples / Elcano; cheap verify-and-file, no known break.
 - **Remove `MapRenderWarpControl`** temporary debug aid once re-aim descent-render is signed off.
 - ~~**Doc hygiene** - flip the stale "In progress - Forward trajectory rendering" header (shipped 0.10.2) + add SHIPPED markers to roadmap §19.4 M3/M4.~~ DONE (verified 2026-07-11): roadmap §19.4 already marks M1-M5 SHIPPED and no "In progress / Forward trajectory rendering" header remains in the roadmap or this file.
@@ -11316,6 +11432,57 @@ ZERO raises on any lane; V7T's `icon-off-orbit` red is its own documented findin
 **The measurement, off two sibling lanes on the same fixture and same day.** V8-eve-player-loop's produced save (FlushAndQuit from FLIGHT) carries the fixture's full terminal map: 9 recordings, `terminalStates {Orbiting 2, Destroyed 6}` (saveParse observed on every V8 run, e.g. `2026-08-11_0802`). V8T-eve-ts-arrival's produced save (mid-run SaveGame in FLIGHT, then a TRACKSTATION re-boot, then FlushAndQuit FROM the TS) carries `terminalStates {Orbiting 2}` with the six Destroyed keys ABSENT - verified on the produced-save bytes directly (9 `RECORDING` nodes, terminal histogram `{0: 2}`, six debris rows with NO `terminalState` key at all), not just through the parser. RE-VERIFIABILITY NOTE (post-review): the byte-level check was performed on the live produced save at harvest time and that save has since been overwritten (PASS runs collect nothing), so it is not re-runnable; the DURABLE evidence is the archived parser record - `terminalStates {"Orbiting": 2}` with 9 recordings in the _0836/_0843 result JSONs vs `{Orbiting 2, Destroyed 6}` in every FLIGHT-flushed sibling run - plus the TS OnSave line `saving 9 committed recordings` at `_0836` a2 KSP.log:12114.
 
 **Why it matters.** `terminalState` is how a committed recording's outcome is classified everywhere downstream (the Recordings table, `TerminalKindClassifier`, the RECORDED_FIXTURES pins). A PLAYER who visits the tracking station and quits gets the same TS-path save, so debris classifications in a real save can silently degrade to unclassified. Unknown (deliberately not chased here): whether the drop round-trips destructively (does a later FLIGHT load + save restore the keys from sidecars, or are they gone for good?), and whether the mechanism is the TS route's augmented-game persist (`loadgame trackstation route: persisted augmented game`), the TS scenario rehydration skipping debris terminal fields, or the OnSave path itself. V5/V6T/V7T (the Duna/moon TS lanes, flying since 2026-08-08) would show the same drop if it is general - their observed structure facets were never compared against their fixtures' maps, so this was present-but-unnoticed. NOT gated anywhere: V8T's armed structure block pins committedTrees/trees, which are unaffected; gating the terminal map on a TS lane would gate on this bug.
+
+## REAIM-TILT-NOOP-AT-EELOO-6.15-DEG - the tilt-RETENTION branch is still unexercised at the highest stock inclination below Moho, because the synthesized conic came in BELOW the bound (measured 2026-08-13, branch `eeloo-loop-lanes`, four green V12A-eeloo-loop-arrival runs; NOT a defect, and NOT a widening of the tilt plan's claim scope)
+
+**The measurement, byte-identical on all four runs** (`2026-08-13_0120`, `_1513`, `_1515`, `_1536`):
+
+```
+[ReaimSeam] tilt-correction inc-before=4.0725 bound=6.6500 targetInc=6.1500 incAch=NaN inc-after=4.0725 state=noop reason=in-plane
+```
+
+The prediction was `state=retained reason=unreachable-plane`, extrapolated from the two measured points (incAch/targetInc = 0.588 at Eve, 0.729 at Dres). It is not what happened, and the miss is STRUCTURAL rather than marginal: `inc-before` 4.0725 deg is BELOW the 6.6500 deg bound, so `IsExcessiveTiltTransfer(incBefore, tiltBound)` is FALSE and control never enters the excessive branch. `incAch` is NaN because it is only computed inside that branch (`ReaimTransferSynthesizer.cs`, the `if (IsExcessiveTiltTransfer(...))` gate), and `inc-after == inc-before` because nothing was touched. **Eeloo's 6.15 deg did not force a tilt on this geometry.**
+
+**Why this does NOT widen the tilt plan's claim scope.** The plan scopes itself "Eve only ... Moho/Dres/Eeloo are unmeasured collateral". Eeloo is the highest inclination the retention arm has ever been AIMED at - Eve 2.1 -> Dres 5.0 -> Eeloo 6.15, the last stock step below Moho's 7 - and the retention arm was STILL NOT REACHED, because **the retention branch lives inside the excessive-tilt gate and the gate never opened.** So Eeloo tested the BOUND ARITHMETIC (6.65 = Max(Max(0, 6.15), 0) + `InclinationToleranceDegrees` 0.5, confirmed to the digit) and confirmed the not-excessive arm LOGS a Noop rather than falling silent - and nothing else. The retention branch remains Eve-only-validated plus Dres's `state=retained` reading. **Any note reading "Eeloo validated retention" would be false.**
+
+**What would actually exercise it, and it is not what the program assumed.** A geometry whose SOLVED transfer inclination exceeds the bound - NOT a higher-inclination TARGET. Target inclination sets the BOUND, so raising it makes the gate HARDER to trip; what trips the gate is the Lambert solution's own plane. Dres reached `inc-before=13.1958` against a 5.5000 bound on a shorter, more bent transfer, while this Eeloo window solves nearly in-plane at 4.0725 because a 484-day near-Hohmann coast barely leaves the ecliptic. Moho (7 deg target, but a fast bent INNER transfer) is the better candidate, and it needs a NEW FIXTURE, not a re-aim of this one.
+
+**Recorded as a FINDING, not a failure, per the lane's own posture** - V12A declared all four tilt outcomes findings-to-report-verbatim in advance, and the noop literal is now ARMED as its regression floor (with `bound=6.6500 targetInc=6.1500` armed separately so a red distinguishes "the solved conic moved" from "the bound arithmetic moved"; proved on the negative control `2026-08-13_1537`, where inverting one digit of `inc-before` red the literal while the pair still matched). Note also that a Noop DOES emit a tilt line, so ABSENCE of a tilt line means the synth never reached the tilt block at all - a different and larger finding.
+
+## M-MIS-3-BAND-COMPUTED-NOT-EXERCISED - the eccentricity-gated tof band is now PINNED AS COMPUTED at Eeloo's e=0.26, but was never WALKED, because candidate step 0 is accepted (measured 2026-08-13, branch `eeloo-loop-lanes`, four green V12A runs; the validation debt is HALF discharged, not closed)
+
+**What is now proven - the computation half.** `ReaimTofSearch.HalfWidthFraction(e) = clamp(BaseHalfWidthFraction + EccGain*e, BaseHalfWidthFraction, MaxHalfWidthFraction)` = clamp(0.06 + 0.5 x 0.26, 0.06, 0.20) = **0.19 exactly**, and the product emitted it, on four runs, byte-identically:
+
+```
+[ReaimPlayback] ... eTarget=0.2600 halfWidthFraction=0.1900 devFromRecorded=0s devFromGeom=7577876.6049437672s
+```
+
+So at e = 0.26 the band law COMPUTES correctly on the shipped constants, and the 0.20 cap is NOT engaged: engaging it needs `EccGain >= (0.20 - 0.06)/0.26 = 0.5385`, so the shipped 0.5 sits 7.7% below engagement. This is the first real measurement the two `PLACEHOLDER - pin against the Eeloo fixture` comments (`EccGain`, `MaxHalfWidthFraction`) have ever had, and the token is ARMED in V12A.
+
+**What is NOT proven - the behavioural half, and this is why the debt stays open.** `ReaimTofSearch.BuildCandidateTofs` is **recorded-centered, not geom-centered**: step 0 is ALWAYS the recorded tof (the source's invariant b), the band is `recordedTof +- k*step` with `step = recordedTof * stepFraction`, and `geomTof` chooses only which SIDE is probed first (`towardSign`) and nothing else. Two consequences:
+
+1. `devFromGeom=7577876.6049437672s` exceeding 0.19 x geom is **irrelevant** - the band is never measured against geom, so a large devFromGeom is not a band violation and must not be read as one. (The lane's own pre-flight header nearly made that mistake.)
+2. `devFromRecorded=0s` means **cycle 0 was accepted at candidate step 0**. The expansion steps (`baseSteps+1 .. maxSteps`, i.e. 26 of the derived 77 candidates) were **never walked** - not one candidate past step 0 was probed, on any of the four runs.
+
+So the widened band was COMPUTED and never EXERCISED. Whether the eccentricity-gated expansion BEHAVES - whether those extra steps land where the law intends, in the order it intends, and whether a window that NEEDS them resolves - is still untested, and so is `MaxHalfWidthFraction` as anything but an unreached ceiling.
+
+**What would exercise it:** a fixture whose STEP-0 TOF IS REJECTED, forcing the search off the recorded centre. This fixture's is not - it resolves immediately, which is the healthy outcome and precisely why it cannot probe the expansion. A candidate shape is a recorded transfer whose replay-clock departure no longer admits the recorded tof (a target whose phase has drifted far enough across the synodic multiple), or the geom-centered sibling path `BuildParkingCandidateTofs`, which is a different function and unexercised here (`parking=False` on every run). **Do not mark M-MIS-3 closed off the Eeloo pin alone.**
+
+## SEAM-ENDPOINT-CENSUS-UNREADABLE-ON-A-SHORT-LANE - the census summary rides a SHARED 5 s rate-limit key, so on a ~55 s lane the first ghost-bearing frame consumes the only reported pass (measured 2026-08-13, branch `eeloo-loop-lanes`, four V12A runs; an INSTRUMENT limit, not a product defect, and NOT fixed here)
+
+**The measurement.** V12A's arrival bracket was retargeted onto the product's own `soiEntryUT` (the V10 iteration-1 lesson), all three bracket jumps landing within +-190 s of `95851632.03180024` - and the census STILL read, byte-identically on all four runs:
+
+```
+[MapRenderTrace] seam-endpoint summary evaluated=0 outsideSoi=0 skip.no-usable-ratio=1
+```
+
+**The retarget resolved WHY, and the answer is that the emitted line is not an arrival reading at all.** In every run the single summary comes from the frame at `currentUT=53970043.597` - **jump 1**, the cycle-0 Kerbin ascent leg. The summary rides `ParsekLog.VerboseRateLimited(..., "seam-endpoint-summary", 5.0)` on a SHARED key whose counters reset each pass, so it reports ONE pass; jump 1 primes the 5 s key and the whole rest of the lane - all three arrival-bracket jumps included - executes inside the shadow. (V10's iterations 2/3 got two lines; a ~55 s lane gets one.) The bucket is CORRECT for that frame: the proto conic there is the Kerbin-frame escape hyperbola (`sma=-404710 ecc=4.3873`) whose cross-body successor destination is the SUN, and `no-usable-ratio`'s own documented cause at the `HasMeasurement` gate in `MapRenderProbe.ComputeSeamEndpointGeometry` is exactly a destination with no finite sphere.
+
+**The arrival seam WAS reached** - on independent render-side evidence rather than inference: at jump 6 the proto line closed with `reason=past-body-frame-end lineActive=False drawIcons=NONE ... bounds=[54007648.2,95851632.0]`, bounds ending at `soiEntryUT` to the digit. **So the census is SILENT about the arrival, not negative about it,** and V12A leaves it a documented reading rather than arming an `evaluated=0` token that would pin an instrument artefact as a product contract.
+
+**This retires one carried claim.** V10 iteration 4 concluded "the census evaluating at all depends on the render having passed through the PRE-D0 state". That does NOT survive here: V12A's jump 1 IS pre-D0 (by 37,604.599 s) and is precisely what reached the lens - and it produced an unusable sample. So the pre-D0 correlation V10 measured is not the mechanism.
+
+**What would fix it:** free the rate-limit key near the seam, or move the summary to a per-onset / per-pid key so one primed shared key cannot suppress every later seam. Both are instrument changes to a shared gated tracer and neither belongs on a lane branch - the same call V1/V8 made for `line-blink`. Note for whoever restores V10's census bracket (`-900 / -300 / +600`): on a short lane that recipe is **necessary but not sufficient**, because the shared key suppresses the arrival sample even when the bracket is dead on the seam.
 
 ## LINE-BLINK-JUMP-STRADDLE-DETECTOR-GAP - back-to-back seam TimeJumps raise the gated `line-blink` on legitimate window transitions (measured 2026-08-11, branch `eve-loop-lanes`; two PARSEK-FAIL artifacts; lane re-paced, detector NOT modified)
 
