@@ -4908,9 +4908,13 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
         # supported=True target=Eeloo. Unlike V9 it measured no defect, so the armed
         # set is a regression floor for a HEALTHY reading; V9's two decline forbids
         # come with it because a decline here is now a regression rather than a
-        # reading. Operator tier is the ordinary promotion call, and the negative
-        # control is the one item still owed.
-        "V12-eeloo-player-loop.toml":       "calibration-discipline - FLOWN TWICE GREEN 2026-08-13 (_0053 wall 48 s / _0055 wall 49 s, both PASS attempt 1, byte-identical on every measured token) and ARMED on those measurements: a ten-token required list (plumbing trio + the ENGAGED classification + the member topology + cadence==5x synodic to the digit + the loiter cut and the tof-dominated compressedSpan ratio), V9's two decline reasons forbidden, and count re-pinned {6,6} from the interim window. It measured no defect, so the armed set is a regression floor for a HEALTHY ENGAGED reading at the program's deepest span>synodic ratio. Claims no coverage cells (the value is the measurement and the floor); operator tier is the ordinary promotion call and a negative control is still owed",
+        # reading. Operator tier is the ordinary promotion call. THE NEGATIVE CONTROL
+        # IS RUN AND PASSED, not owed: `_0114` inverted the last digit of the armed
+        # cadence token in the required array only and the lane red
+        # PARSEK-FAIL(expectation) naming exactly `cadence=48883481.632992939`, with
+        # the other nine tokens and every other verifier still green; `_0116` reverted
+        # exactly and re-flew PASS.
+        "V12-eeloo-player-loop.toml":       "calibration-discipline - FLOWN TWICE GREEN 2026-08-13 (_0053 wall 48 s / _0055 wall 49 s, both PASS attempt 1, byte-identical on every measured token) and ARMED on those measurements: a ten-token required list (plumbing trio + the ENGAGED classification + the member topology + cadence==5x synodic to the digit + the loiter cut and the 10.8% compressedSpan cut fraction), V9's two decline reasons forbidden, and count re-pinned {6,6} from the interim window. It measured no defect, so the armed set is a regression floor for a HEALTHY ENGAGED reading at the program's deepest span>synodic ratio. Claims no coverage cells (the value is the measurement and the floor); operator tier is the ordinary promotion call, not a debt - the negative control is RUN AND PASSED (`_0114` inverted the armed cadence token's last digit in the required array only and red PARSEK-FAIL(expectation) naming exactly `cadence=48883481.632992939` with every other token and verifier green; `_0116` reverted exactly and re-flew PASS)",
         # V12A is V12's missing half and V10's shape on the Eeloo fixture: the
         # TimeJump lane that actually reaches the per-window synthesizer. It WAS a
         # TWO-PASS lane by construction and BOTH PASSES ARE NOW FLOWN - pass 1

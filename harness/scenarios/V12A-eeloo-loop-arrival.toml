@@ -320,9 +320,15 @@ id = "V12A-eeloo-loop-arrival"
 #       (iii) REVERT CONFIRMED `2026-08-13_1539`: PASS attempt 1, 54 s, expectations
 #             mismatches=0, anomalySweep hits=[], unityExceptions 0. The revert was
 #             verified by `git diff` (only this spec plus the harness-written
-#             coverage/duration.json) and by a repo-wide grep for the corrupted digit,
-#             whose only surviving hits are inside the gitignored run records of the
-#             control run itself -- i.e. no committed file carries it.
+#             coverage/duration.json) and by re-reading the ARMED ARRAY: the required
+#             entry is byte-restored to `inc-before=4.0725`, which is the material
+#             fact. A repo-wide grep for `4.0726` is NOT empty and was never going to
+#             be -- it still hits the two NARRATIVE QUOTES of the control two
+#             paragraphs above, the same quote in this lane's autotest-status row, and
+#             one unrelated older fixture where it is float data rather than a token
+#             (`velY = -44.07268` in eve-orbit-recorded's
+#             75a6ab25...prec.txt). What no committed file carries is the corrupted
+#             digit inside an ARMED ARRAY ENTRY, and that is what was checked.
 #       (iv)  THE CENSUS READ `evaluated=0 outsideSoi=0 skip.no-usable-ratio=1` on all
 #             three, unchanged and still unarmed. FOUR runs, one reading.
 #

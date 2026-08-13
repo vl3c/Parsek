@@ -99,20 +99,39 @@ id = "V12-eeloo-player-loop"
 #   5); EVE is the case that does, and it still stands: compressed 3,944,147 = 0.269
 #   synodic, whose Ceiling would be 1, and Eve measured 2.
 #
-# MEASUREMENT 2 -- THE LOOP UNIT IS TOF-DOMINATED, NOT WAIT-DOMINATED, AND THAT IS A
-# QUALITATIVE REGIME DIFFERENCE FROM DRES rather than a bigger number of the same kind.
-# The compressor found exactly one loiter and cut 5,086,416 s out of a 47,036,720 s
-# span = 10.8%. It cannot do much better, because there is almost nothing else to cut:
+# MEASUREMENT 2 -- THE COMPRESSOR REMOVES A MUCH SMALLER FRACTION OF THIS SPAN THAN OF
+# DRES'S, AND THE SPAN ITSELF IS 2.31x LARGER. The compressor found exactly one loiter
+# and cut 5,086,416 s out of a 47,036,720 s span = 10.8%. It cannot do much better,
+# because there is almost nothing else to cut:
 #
 #     tof          41,843,983.8 s  = 89.0% of the raw span   <- the heliocentric coast
 #     loiter cut    5,086,416   s  = 10.8%                   <- the LKO ejection wait
 #
-# Dres cut 8,436,248 s out of a span whose LKO ejection-window wait DOMINATED. Eeloo's
-# LKO wait is comparable in absolute size (5.09M s -- B21's own TRANSFER-BURN span
-# measured 5,093,753 game s on `_2239`, so the compressor landed 7,337 s inside it) but
-# it is a tenth of a unit whose bulk is a 484-day coast out to Eeloo. Same mechanism,
-# opposite regime. `compressedSpan=41950304/47036720` is armed BECAUSE it is that
-# finding in one token: a change that starts compressing the coast, or that stops
+# NO REGIME INVERSION, and an earlier draft of this header claimed one. It said Dres's
+# span was WAIT-DOMINATED against Eeloo's TOF-DOMINATED, i.e. an opposite composition.
+# THAT IS WRONG ON THE DRES NUMBERS: Dres cut 8,436,248 s out of a 20,393,382 s span =
+# 41.4%, against a tof of 11,885,901.8 s = 58.3% (V10-dres-loop-arrival.toml:41 for the
+# tof, V9-dres-player-loop.toml:193/:195 for the span and the cut). DRES WAS ALSO
+# TOF-MAJORITY -- its coast was the larger share there too -- so nothing flipped. Both
+# spans are essentially wait + tof (Dres 99.65%, Eeloo 99.77% of the raw span), which
+# is itself the cross-check that the compressor is finding the whole ejection wait and
+# nothing else.
+#
+# WHAT IS ACTUALLY DIFFERENT, and it is still worth arming:
+#
+#                  raw span        loiter cut          cut fraction   tof fraction
+#     Dres       20,393,382 s     8,436,248 s              41.4%          58.3%
+#     Eeloo      47,036,720 s     5,086,416 s              10.8%          89.0%
+#
+# The CUT FRACTION falls by 3.83x while the span grows by 2.31x -- the compressor's
+# purchase on a unit shrinks as the coast lengthens, in both relative and absolute
+# terms (Eeloo's cut is SMALLER in seconds than Dres's on a span more than twice as
+# long). Eeloo's LKO wait is nonetheless comparable in absolute size to Dres's own
+# ejection wait in the sense that matters for correctness: B21's TRANSFER-BURN span
+# measured 5,093,753 game s on `_2239`, so the compressor landed 7,337 s inside the
+# wait it was supposed to find. Same mechanism, same job done, a tenth of a span whose
+# bulk is a 484-day coast. `compressedSpan=41950304/47036720` is armed BECAUSE it is
+# that ratio in one token: a change that starts compressing the coast, or that stops
 # finding the ejection wait, moves it.
 #
 # -------------------------------------------------------------------------------------
@@ -153,9 +172,27 @@ id = "V12-eeloo-player-loop"
 #              below was verified by re.search against BOTH collected KSP.logs before
 #              it was written into the list.
 #   ARMED      2026-08-13, this commit.
-#   CONTROL    OWED: temporarily invert one armed window, confirm the run reds
-#              PARSEK-FAIL on exactly that mismatch, revert (V9's `_0257` and V10's
-#              `_0339` are the precedents).
+#   CONTROL    RUN AND PASSED, not owed. `2026-08-13_0114`: ONE digit of ONE
+#              genuinely-measured token inverted -- `cadence=48883481.632992938` ->
+#              `48883481.632992939` in the required array ONLY, every comment copy left
+#              intact so a comment match could not mask it -- and the lane went
+#              PARSEK-FAIL(expectation) attempt 1 (wall 49 s, all 10 driver steps OK),
+#              naming exactly that token and nothing else:
+#                logContracts.required not matched: cadence=48883481.632992939
+#              THE ISOLATION IS THE POINT: the other nine required tokens still
+#              matched, the three forbids still held, and every other verifier stayed
+#              green -- analyzer PASS red=0, anomalySweep PASS hits=[], logValidate
+#              PASS, driverValidity PASS, saveParse REPORT (recordings 6, pointsTotal
+#              1685, unparsed 0), unityExceptions REPORT total=0. The corruption target
+#              was a MEASURED digit rather than a derivable constant: inverting one of
+#              those would have proven only that a constant is a constant.
+#              REVERT CONFIRMED `2026-08-13_0116`: PASS attempt 1, wall 48 s,
+#              expectations mismatches=0, anomalySweep hits=[], analyzer red=0,
+#              saveParse REPORT identical (recordings 6, pointsTotal 1685), so the
+#              branch is left proven-green. Its unityExceptions read REPORT total=1,
+#              one stock NullReferenceException -- report-only, unarmed, and inside the
+#              same non-identical facet recorded below. (V9's `_0257` and V10's `_0339`
+#              are the precedents.)
 #
 # ONE NON-IDENTICAL FACET, recorded so nobody re-discovers it as a surprise:
 # `unityExceptions` read total 0 on `_0053` and 2 NullReferenceExceptions on `_0055`.
@@ -164,7 +201,7 @@ id = "V12-eeloo-player-loop"
 # NOT armed. Everything the flight DECIDED was identical.
 # =====================================================================================
 tier = "operator"
-description = "ARMED: the player loop workflow on the Eeloo program's committed recording -- mark the B21 tree a loop unit and start loop playback. Flown twice green 2026-08-13 (`_0053`/`_0055`, byte-identical on every measured token), and now the regression floor for a healthy ENGAGED reading at the program's deepest span>synodic ratio: the unit classifies ENGAGED re-aim Kerbin->Eeloo via Sun on a 20-segment member, its cadence 48,883,481.633 is EXACTLY 5x the 9,776,696.327 s synodic (raw span 47,036,720 = 4.8111 synodic, Ceiling 5, against Dres's and Eve's multiple 2), and the loiter compressor cuts the 5.09M s LKO ejection wait for 10.8% of a TOF-DOMINATED span (tof 41.84M s = 89.0%) -- the opposite regime from Dres's wait-dominated unit. Count pinned at the measured 6."
+description = "ARMED: the player loop workflow on the Eeloo program's committed recording -- mark the B21 tree a loop unit and start loop playback. Flown twice green 2026-08-13 (`_0053`/`_0055`, byte-identical on every measured token), and now the regression floor for a healthy ENGAGED reading at the program's deepest span>synodic ratio: the unit classifies ENGAGED re-aim Kerbin->Eeloo via Sun on a 20-segment member, its cadence 48,883,481.633 is EXACTLY 5x the 9,776,696.327 s synodic (raw span 47,036,720 = 4.8111 synodic, Ceiling 5, against Dres's and Eve's multiple 2), and the loiter compressor cuts the 5.09M s LKO ejection wait for 10.8% of the span (tof 41.84M s = 89.0%) -- against 41.4% at Dres on a span 2.31x smaller, so the compressor's purchase shrinks as the coast lengthens rather than the composition inverting (Dres was tof-majority too, 58.3%). Count pinned at the measured 6."
 instanceProfile = "stock-minimal"
 tags = ["V12", "eeloo", "loop", "playback", "flown", "reaim", "engaged"]
 
@@ -282,11 +319,12 @@ count = { min = 6, max = 6 }
 #     derivation gave 11,392,903.2808 against the emitted 11392903.305957612 -- right
 #     to ~9 significant figures and WRONG as a substring). A change to either number
 #     means the schedule moved.
-#   * LOITER + REGIME -- `loiterCuts=1 cutSeconds=5086416` (the LKO ejection-window
-#     wait, compressed) and `compressedSpan=41950304/47036720`, which is the
-#     tof-dominated finding in a single token. V9 arms the cut alone because Dres is
-#     wait-dominated and the ratio carries no separate information there; at Eeloo it
-#     does, so the ratio is armed beside the cut.
+#   * LOITER + RATIO -- `loiterCuts=1 cutSeconds=5086416` (the LKO ejection-window
+#     wait, compressed) and `compressedSpan=41950304/47036720`, which is the 10.8%
+#     cut-fraction measurement in a single token. V9 arms the cut alone; the ratio is
+#     armed beside it here because the compressor's purchase on the span -- 10.8%
+#     against Dres's 41.4% -- is the thing this deep-coast unit measures that Dres's
+#     could not, and a change to either end of the fraction moves it.
 #
 # WHAT IS DELIBERATELY NOT ARMED, each for the reason stated in the readings block
 # above: the tilt disposition and the tof band (structurally unreachable from this lane
@@ -306,7 +344,7 @@ required = [
   # Schedule: cadence == 5x synodic, to the digit.
   "synodic=9776696.3265985884",
   "cadence=48883481.632992938",
-  # Loiter compression of the LKO ejection-window wait, and the tof-dominated ratio.
+  # Loiter compression of the LKO ejection-window wait, and the 10.8% cut fraction.
   "loiterCuts=1 cutSeconds=5086416",
   "compressedSpan=41950304/47036720",
 ]

@@ -918,8 +918,14 @@ class CommittedFixtureSweepTests(unittest.TestCase):
         # only in points and in span. Read that as confirmation the profile
         # is body-independent, NOT as evidence one fixture can stand in for
         # the other: the consumer lanes key off the Eeloo tree id
-        # d4ce5c45adae4f3e89c4ac6bbec6b167 and the terminalOrbitBody=Eeloo
-        # token, and a stale Dres GUID answers OK-with-nothing-to-do.
+        # d4ce5c45adae4f3e89c4ac6bbec6b167 and on the terminal body being
+        # Eeloo, and a stale Dres GUID answers OK-with-nothing-to-do. TWO
+        # DIFFERENT SPELLINGS, do not grep the wrong one: IN THIS FIXTURE the
+        # key is `tOrbBody = Eeloo` (persistent.sfs:729, with the two parked
+        # Kerbin debris reading `tOrbBody = Kerbin` at :1021 and :1073);
+        # `terminalOrbitBody=` is the KSP.log spelling, emitted by
+        # ParsekFlight.cs:13446 and GhostMapPresence.Observability.cs:295 and
+        # found in a collected log, never in the save.
         #
         # LINE ENDINGS: THIS FIXTURE IS CRLF WHERE THE OLDER RECORDED
         # FIXTURES ARE LF, AND THAT IS DELIBERATE. Census of the committed
@@ -929,8 +935,12 @@ class CommittedFixtureSweepTests(unittest.TestCase):
         # 210/0, `milestones.pgsm` 157/0, the two `.pgsb` baselines, and
         # `events.pgse`), and all five `.prec.txt` (29,395/0 for the main
         # orbiter). `persistent.sfs` is LF-only (15,562 LF); the sidecars are
-        # predominantly LF with a handful of stray CRLF (20d890f9's `.prec`
-        # is 3 CRLF / 331 LF). By contrast dres-orbit-recorded commits 1
+        # predominantly LF, and EXACTLY THREE FILES ARE MIXED - all three
+        # named so the census is complete rather than illustrative:
+        # 20d890f9's `.prec` (3 CRLF / 331 LF), 20d890f9's `_ghost.craft`
+        # (1 CRLF / 91 LF) and d8bfbb2c's `.prec` (1 CRLF / 49 LF). The
+        # other 11 CRLF-bearing files are pure CRLF. By contrast
+        # dres-orbit-recorded commits 1
         # CRLF-bearing file of 33 and bdock-recorded 2 of 106 - in both cases
         # a single CRLF inside one `.prec`.
         # MECHANISM. `harvest_bdock_station.py` writes persistent.sfs

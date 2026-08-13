@@ -7,11 +7,15 @@
 #
 # NOTHING in this file is new, and for B21 that is a stronger statement than it
 # was for B19: not one key, not one type and not one BOUND moves. Retargeting
-# Dres -> Eeloo moves SIXTEEN parsed values in the spec -- only SIX of them
+# Dres -> Eeloo moves FOURTEEN parsed values in the spec -- only SIX of them
 # inside [driver.missionParams] -- and every one of them lands inside a bound
 # that was already committed. (That count is a MEASUREMENT: parse both specs with
 # tomllib, flatten to dotted keys, compare. `driver.steps` is one leaf under that
-# flattening.) The seven that sit closest, each checked against the declaration
+# flattening. It read SIXTEEN when this file was written; re-pinning B21's interim
+# recordings window {3,12} back to B19's own {5,5} made
+# `expectations.recordings.count.min`/`.max` equal to B19's, closing two differing
+# leaves. The [driver.missionParams] sub-count is unchanged at six.) The seven that
+# sit closest, each checked against the declaration
 # below it rather than against memory:
 #   coastTimeoutSeconds               16,000,000 -> 60,000,000  min 1.0, NO max
 #   correctionTriggerTimeToSoiSeconds [20e6,5e5] -> [50e6,5e5]  type list, no

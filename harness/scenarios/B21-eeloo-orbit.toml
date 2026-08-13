@@ -20,13 +20,18 @@ id = "B21-eeloo-orbit"
 # B19's own pad fixture UNCHANGED (fixtures/saves/b18-dres-pad -- same craft, same
 # Valentina, same PRELAUNCH state; a pad does not know where the rocket is going),
 # and the recording discipline is byte-identical. A leaf-by-leaf diff of the two
-# PARSED specs finds SIXTEEN values changed, and only SIX of them sit inside
+# PARSED specs finds FOURTEEN values changed, and only SIX of them sit inside
 # [driver.missionParams]: targetBodyName, three game-second budgets, one deliberate
 # LOOSENING (parkMaxApoapsisMeters) and one deliberate TIGHTENING
 # (maxCorrectionDvMps 1,200 -> 550). Every one of the six is derived below with its
 # arithmetic in view. The count is a MEASUREMENT and not a claim: parse both specs
 # with tomllib, flatten to dotted keys, compare. `driver.steps` is ONE leaf under
 # that flattening, so the mission step's 5,400 -> 9,000 budget is folded into it.
+# IT WAS SIXTEEN WHEN THIS HEADER WAS FIRST WRITTEN, and the two that closed are
+# named so the drop is not read as a lost change: the interim recordings window
+# {3,12} was later re-pinned to B19's own {5,5}, making
+# `expectations.recordings.count.min` and `.max` EQUAL to B19's instead of
+# different. Nothing was removed; two differing leaves became identical ones.
 #
 # MEASURED-vs-DERIVED DISCIPLINE, which is the whole point of this header being as
 # long as it is: every number below is either MEASURED on a named B18/B19 flight,
@@ -116,7 +121,7 @@ id = "B21-eeloo-orbit"
 #   DIAGNOSTIC: `lf` at CAPTURE-BURN entry against the per-geometry capture floors
 #   in the DELTA-V block (1 unit = 0.005 t).
 #   MITIGATION HERE: cap 550, plus a first flight that MEASURES both the per-round
-#   burn AND how many rounds fired (`extraRounds`, mlib.py:14204/:14347).
+#   burn AND how many rounds fired (`extraRounds`, mlib.py:14309/:14452).
 #
 # RISK 4 -- CORRECTION ROUND 1 FIRES TOO LATE TO CREATE THE ENCOUNTER. On this lane
 #   round 1 must CREATE the encounter rather than refine one, so its trigger has to
@@ -646,8 +651,8 @@ id = "B21-eeloo-orbit"
 # It measures THREE things now, and the third is new to this block: (a) the per-round
 # correction burn, (b) whether autostage actually sheds the radials, and (c) HOW MANY
 # ROUNDS ACTUALLY FIRED -- scheduled versus extra. The telemetry key for (c) is
-# `extraRounds`, the state-line field carrying `extra_rounds_done` (mlib.py:14204 and
-# :14347): `extraRounds=0` means the four-round tail never materialised and the sizing
+# `extraRounds`, the state-line field carrying `extra_rounds_done` (mlib.py:14309 and
+# :14452): `extraRounds=0` means the four-round tail never materialised and the sizing
 # basis was conservative by 2 x cap, while 1 or 2 means it did. EITHER (a) OR (c)
 # LICENSES A RE-PIN -- a round CLIPPED at 550 licenses raising it; a green flight with
 # `extraRounds=0` and rounds near Dres's measured ~250 licenses lowering it; and (b),
@@ -719,6 +724,15 @@ id = "B21-eeloo-orbit"
 #   |a|    = mu_Eeloo / v_inf^2 = 7.4410815e10 / 2266.0^2            = 1.44916e4 m
 #   e      = 1 + r_pe/|a|       = 1 + 1.210e6 / 1.44916e4            = 84.4967
 #   cosh H = (r_SOI/|a| + 1)/e  = (1.19082942e8/1.44916e4 + 1)/84.4967 = 97.2628
+#     ^ r_SOI = 1.19082942e8 m, THE ONE SPELLING THIS HEADER USES. It is Eeloo's
+#       MEASURED SOI radius: the product emits `SOI=119082942` (armed as such in
+#       V12A-eeloo-loop-arrival.toml, where an independent a*(m/M)^0.4 derivation
+#       returned 119,082,940.97 and was the thing that was wrong). Community tables
+#       publish 119,082,940 m. Earlier drafts of this header spelled the constant
+#       three ways (1.19082942e8 / 1.1908294e8 / "published 119,082,940"); the 2 m
+#       spread is immaterial to every result quoted below -- rule 3's 52,522 s and
+#       check 2's 69,895.62 s are unchanged at their printed precision, and the only
+#       arithmetic that moves at all is the not-circular gap (19.5 m -> 21.5 m).
 #                                                          -> H     = 5.27054
 #   sinh H = sqrt(cosh^2 H - 1)                                      = 97.2576
 #   M      = e*sinh H - H       = 84.4967 * 97.2576 - 5.27054        = 8,212.67
@@ -763,9 +777,9 @@ id = "B21-eeloo-orbit"
 # is the validation, and it carries no interpretive step.
 #
 # CHECK 2 -- THE SOI-ENTRY -> PERIAPSIS COAST, and the trap in how it was first
-# written. Run the same method at Eeloo's PUBLISHED SOI radius (1.1908294e8 m -- a
-# body constant, not a fitted value):
-#   cosh H = (1.1908294e8/25,902.728 + 1)/447.020                    = 10.28659
+# written. Run the same method at Eeloo's SOI radius (1.19082942e8 m -- a body
+# constant, not a fitted value; the same one spelling as above):
+#   cosh H = (1.19082942e8/25,902.728 + 1)/447.020                   = 10.28659
 #                                                          -> H      = 3.02162
 #   M      = 447.020 * sinh H - H                                    = 4,573.51
 #   t      = M * sqrt(|a|^3/mu)                                      = 69,895.622 game s
@@ -784,9 +798,10 @@ id = "B21-eeloo-orbit"
 # SOI-ENTRY -> PERIAPSIS COAST EQUALS KSP'S SOI-CROSSING-REFERENCED ttPe, not the
 # number on the frame it happens to be printed on.
 # NOT-CIRCULAR CHECK, since the objection was that the radius was chosen to agree: the
-# radius that would make check 2 print exactly 69,895.611 is 119,082,920.9 m, and
-# Eeloo's published SOI is 119,082,940 m -- 19.1 m / 2e-7 apart. The constant plugged
-# in blind lands there; nothing was tuned.
+# radius that would make check 2 print exactly 69,895.611 is 119,082,920.5 m, and
+# Eeloo's MEASURED SOI is 119,082,942 m -- 21.5 m / 1.8e-7 apart (against the published
+# 119,082,940 it is 19.5 m; the choice of spelling moves this check by 2 m and nothing
+# else). The constant plugged in blind lands there; nothing was tuned.
 #
 # THE PRECISION IS OVERSTATED EITHER WAY, so do not re-quote "12 ms". `ecc` is printed
 # to 3 dp, and the +/-0.0005 hiding behind 447.020 moves check 2 by +/-0.039 s and
@@ -1281,7 +1296,7 @@ courseCorrectPeriapsisMeters = 300000
 # and C of the (6) list above.
 # THE FIRST FLIGHT SETTLES IT IN EITHER DIRECTION: a round CLIPPED at 550, or a
 # confirmed drop-tank shed, licenses raising it; rounds coming in near Dres's measured
-# ~250 m/s with `extraRounds=0` (mlib.py:14204/:14347) licenses lowering it. What is
+# ~250 m/s with `extraRounds=0` (mlib.py:14309/:14452) licenses lowering it. What is
 # not licensed is moving it on instinct (RISK 3).
 maxCorrectionDvMps         = 550
 correctionTriggerAltsMeters       = []
