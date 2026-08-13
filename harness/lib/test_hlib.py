@@ -4912,17 +4912,26 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
         # control is the one item still owed.
         "V12-eeloo-player-loop.toml":       "calibration-discipline - FLOWN TWICE GREEN 2026-08-13 (_0053 wall 48 s / _0055 wall 49 s, both PASS attempt 1, byte-identical on every measured token) and ARMED on those measurements: a ten-token required list (plumbing trio + the ENGAGED classification + the member topology + cadence==5x synodic to the digit + the loiter cut and the tof-dominated compressedSpan ratio), V9's two decline reasons forbidden, and count re-pinned {6,6} from the interim window. It measured no defect, so the armed set is a regression floor for a HEALTHY ENGAGED reading at the program's deepest span>synodic ratio. Claims no coverage cells (the value is the measurement and the floor); operator tier is the ordinary promotion call and a negative control is still owed",
         # V12A is V12's missing half and V10's shape on the Eeloo fixture: the
-        # TimeJump lane that actually reaches the per-window synthesizer. It is
-        # operator by the calibration discipline for a reason stronger than V10's -
-        # it is a TWO-PASS lane BY CONSTRUCTION. Its seven brackets are arithmetic on
-        # one recording's replay clock AND on the product's own re-aimed soiEntryUT,
-        # which is a different conic's SOI crossing than the recorded arrival (V10
-        # iteration 1 measured that difference at 18,067 s), so pass 1 seeds estimates
-        # and pass 2 recomputes every UT from pass 1's log. What it DOES arm pre-flight
-        # is the pair of tokens derivable to the digit from source - the 6.15 deg tilt
-        # bound and the e=0.26 tof band that discharges the M-MIS-3 placeholder debt -
-        # and the census pair stays deliberately unarmed for V10's recorded reason.
-        "V12A-eeloo-loop-arrival.toml":     "calibration-discipline - a TWO-PASS TimeJump observation lane: its seven brackets are arithmetic on one recording's replay clock and on the product's own re-aimed soiEntryUT, so pass 1 flies estimates and pass 2 recomputes them from pass 1's log. Armed pre-flight only on what source makes derivable to the digit (the 6.15 deg tilt bound pair, and the e=0.26 tof band that pins the M-MIS-3 EccGain placeholder); the tilt disposition, the arrival geometry digits and the seam-endpoint census are deliberately unarmed - the census because reaching it reproduces the filed line-blink detector gap",
+        # TimeJump lane that actually reaches the per-window synthesizer. It WAS a
+        # TWO-PASS lane by construction and BOTH PASSES ARE NOW FLOWN - pass 1
+        # (`_0120`) printed the five replay-clock quantities, pass 2 recomputed all
+        # seven jump UTs from them and flew twice byte-identically (`_1513`/`_1515`),
+        # and the lane is ARMED, negative-controlled and reverted (`_1536`/`_1537`/
+        # `_1539`). So the post-reading arming call this entry used to wait on is
+        # DONE, and the entry stays only because the completeness cell keys on
+        # `tier == "operator"` rather than on the `flown` tag.
+        # WHAT THE MEASUREMENT SAYS, and it is not what the lane predicted: the tilt
+        # came back `state=noop reason=in-plane`, because the solved conic's 4.0725 deg
+        # is BELOW the 6.6500 deg bound so the excessive-tilt gate never opened. Eeloo
+        # therefore tested the BOUND ARITHMETIC and NOT the retention branch, which
+        # remains Eve-only-validated - the tilt plan's claim scope is NOT widened by
+        # this lane (filed REAIM-TILT-NOOP-AT-EELOO-6.15-DEG). The M-MIS-3 claim is
+        # likewise NARROWER than the pre-flight header asserted: the band is pinned as
+        # COMPUTED at e=0.26 but was never WALKED (step 0 accepted, devFromRecorded=0s),
+        # so the behavioural half of that debt is still open
+        # (M-MIS-3-BAND-COMPUTED-NOT-EXERCISED). The census stays unarmed for a reason
+        # now better understood than V10's carried one.
+        "V12A-eeloo-loop-arrival.toml":     "calibration-discipline - BOTH PASSES FLOWN AND ARMED 2026-08-13: a two-pass TimeJump observation lane whose seven brackets are arithmetic on one recording's replay clock and on the product's own re-aimed soiEntryUT (pass 1 `_0120` printed them, pass 2 `_1513`/`_1515` flew the recomputed shape byte-identically, `_1536` armed PASS, `_1537` negative control correctly PARSEK-FAIL(expectation) naming the one inverted digit, `_1539` reverted PASS). ARMED on 13 tokens - the measured noop tilt literal plus its derivable bound pair, the e=0.26 band, all three synth-geometry proximity checks including the MEASURED Eeloo SOI constant, and the ready line - with count re-pinned {6,6} and the decline forbid narrowed to `state=declined reason=unreachable-plane`. TWO FINDINGS LIMIT WHAT IT PROVES, both filed: the tilt read noop/in-plane because the solved conic sat BELOW the bound, so Eeloo tested the bound arithmetic and NOT the retention branch (still Eve-only-validated); and the tof band is pinned as COMPUTED but never WALKED (step 0 accepted), so the behavioural half of M-MIS-3 stays open. The seam-endpoint census stays a documented reading - its summary rides a shared 5 s rate-limit key primed by jump 1, so a ~55 s lane cannot read it at the arrival even with the bracket dead on the seam. Operator tier is the ordinary promotion call, not a debt",
         # The V2 dwell is operator BY THE CALIBRATION DISCIPLINE (V1 precedent):
         # its first flight is a deliberately under-gated READING run whose red,
         # if any, is evidence; promotion is the post-reading arming call, not a
