@@ -54,13 +54,24 @@ fixture ("the band widens substantially toward the geometric tof, the sanctioned
 M-MIS-3 direction") and no fixture had demonstrated it live until now. It is pinned as
 a required token, so narrowing that law reds V11A.
 
-**THE CADENCE DIFFERS FROM DRES, AND THE DISCRIMINATOR IS THE SPAN.** V11 measured
-`cadence == synodic` EXACTLY (2,909,172.3997171265 for both), i.e. ONE synodic period,
-where V9 measured Dres landing on TWO (22,785,806.61 against 11,392,903.31). The
-difference is where the span sits: this unit spans 2,884,092.9 game s against a
-2,909,172.4 s synodic, a ratio of **0.9914**, where Dres spanned ~1.79 synodic. Both
-are the planner choosing a whole multiple; WHICH multiple falls out of the span. The
-spec deliberately refused to predict it and pinned what the product printed.
+**THE CADENCE DIFFERS FROM DRES, AND THE DISCRIMINATOR IS THE SPAN -- but the
+byte-equality is partly an artifact, so state it carefully.** V11 measured
+`cadence == synodic` at 2,909,172.3997171265 for both, i.e. the unit schedules on ONE
+window spacing where V9 measured Dres landing on TWO (22,785,806.61 against
+11,392,903.31). The difference is where the span sits: 2,884,066.6 game s against that
+divisor is **0.9914**, where Dres spanned ~1.79.
+
+What the byte-equality is NOT is an independent measurement.
+`ReaimWindowPlanner.PadAlignLaunch` quantizes the synodic to a whole Kerbin sidereal day
+and then assigns the cadence THE SAME VARIABLE (`r.SynodicPeriodSeconds =
+quantizedSynodic; r.CadenceSeconds = quantizedSynodic;`), so the two tokens are equal BY
+CONSTRUCTION whenever pad-align applies and the multiple is one. Two consequences:
+the pinned value is EXACTLY 135 sidereal days (135 x 21,549.4251830898), not the physical
+Kerbin-Moho synodic of 2,918,346.4 s (0.314% away, ratio 0.9883 against the physical
+divisor -- the conclusion survives either way); and V9's Dres pin is the RAW synodic
+because pad-align was SKIPPED there, so the two lanes pin different quantities under one
+name. **The measured fact is the MULTIPLE** -- one here, two at Dres -- and that
+pad-align applied here and not there. That is what the tokens are armed for.
 
 **THE COHESION FIX HOLDS ON A SECOND BODY.** `member#1 segs=18 startBody=Kerbin
 supported=True target=Moho` with `transferMemberSegs=18 plan.Supported=True` -- the PR
@@ -140,9 +151,15 @@ Had the ceiling held, PLAN-CAPTURE had a clean arrival to arm on. This flight wa
 warp frame from a capture.
 
 **Fix, APPLIED 2026-08-12 on an explicit decision to touch shared machinery.** Latch the clamp:
-once `tts` has been observed finite and `<= window` for the current target, hold the cap
-until the target SOI is actually entered (or the encounter is genuinely abandoned, e.g.
-a body change or a re-plan), so an intermittent unread frame cannot re-open the ceiling.
+once `tts` has been observed finite and `<= window` FOR THE TARGET (`next_body ==
+target_body`), hold the cap until the target SOI is actually entered, so an intermittent
+unread frame cannot re-open the ceiling. There is deliberately NO "encounter abandoned"
+release: engage already requires next_body to BE the target, so a lost or re-planned
+encounter simply stops re-engaging. The residual cost of that choice, named rather than
+hidden: after engaging, a PERMANENTLY lost encounter crawls at the cap until the WALL
+budget kills the run, where fail-open would have reached the game-time give-up sooner --
+the bound that fires is the less diagnosable one. Low likelihood, and the alternative is
+the defect this fixes.
 Shipped as a new pure predicate `mlib.approach_latch_state` plus an `approach_latched`
 state field and a `latched=False` keyword on `approach_warp_clamp` -- so every lane that
 does not arm the clamp, and every existing caller, is BYTE-IDENTICAL (all 1,496
@@ -192,6 +209,19 @@ alone here because B19 is live-proven green with it.) Nine cells added beside
 `ApproachWarpClampTests`: the fail-open regression guard for the unlatched heliocentric
 leg, the non-target-boundary guard pinned on the measured Mun/Sun frames, a blank
 next_body fail-closed guard, and a Moho sibling of the Dres sizing claim.
+
+**A COVERAGE GAP LEFT OPEN, named rather than papered over.** All nine cells exercise
+the PURE predicates; none drives `b5_decide` end to end through engage -> blink -> hold
+-> arrival-release. That matters, because the one bug this fix shipped with (engaging on
+ANY SOI boundary) was caught by clean-context review and NOT by a cell -- predicate-level
+coverage is exactly what missed it. A decide-level cell was attempted and removed rather
+than committed weak: on a hand-built COAST fixture the machine takes an early return
+before the latch computation when the warp command already equals the desired factor, so
+the cell asserted a state the frame never reached. Finding and pinning that entry
+condition is real work and is left as follow-up. What DOES back the fix end to end today
+is the live flight: run `_2331`'s log shows the ceiling holding at x100 across the
+measured blink (`tts=nan` at ut 2,780,709 and again at 2,835,750) where flight 3 read
+x100,000 and overshot, and the capture arming on `ttPe=+3152.474`.
 
 Cheaper alternative CONSIDERED AND REJECTED: a much smaller `soiLeadSeconds` on the
 theory that `tts` reads reliably closer in. That is a guess about read stability, and a

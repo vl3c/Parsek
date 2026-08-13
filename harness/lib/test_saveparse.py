@@ -964,10 +964,11 @@ class CommittedFixtureSweepTests(unittest.TestCase):
         # THE SPAN IS THE INTERESTING DIFFERENCE, and V11 will care: 2.884M game
         # seconds against the Dres fixture's 20.393M. This flight's
         # Kerbin->Moho ejection window fell ~398,000 s out (B19's Dres wait was
-        # ~8.4M), so the unit is a FIFTH of a synodic (Kerbin->Moho synodic
-        # ~2.918M s) where the Dres unit was ~1.79 of one. Whatever cadence the
-        # loop machinery derives from that is a MEASUREMENT for V11, not
-        # something to predict here.
+        # ~8.4M), so almost the whole span is transfer rather than LKO loiter.
+        # The unit spans ~0.99 of a Kerbin->Moho synodic (2,884,066.6 game s
+        # against a physical 2,918,346.4) where the Dres unit was ~1.79 of one.
+        # V11 MEASURED what the loop machinery derives from that: the unit
+        # schedules on ONE window spacing where Dres took two.
         "moho-orbit-recorded": {
             "trees": 1, "committedTrees": 1, "recordings": 5,
             "supersedes": 0, "tombstones": 0, "rewind_points": 0,

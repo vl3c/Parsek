@@ -104,16 +104,20 @@ id = "B20-moho-orbit"
 #                                  gives coplanar v_inf ~2,349 m/s; tilting the
 #                                  transfer into Moho's 7 deg plane raises it to
 #                                  ~2,545, i.e. ~1,803 m/s from the park
-#   corrections                    <= 700 per round (the cap below, re-derived)
-#   capture                        ~1,845 to ~3,862 (above)
-#   => ~5,050 to ~7,100 m/s against B18's MEASURED 7,483 (1,803 + 1,400 + 1,845
-#   at the cheap end; 1,803 + 2,400 + 3,862 at the dear one). The margin runs
-#   from ~1.48x at a periapsis encounter down to ~1.05x at the worst one, against
-#   Dres's uniform 2.3x. THIS IS THE ONE BUDGET ON THIS LANE THAT MAY NOT CLOSE,
-#   and it is written as a range rather than a point estimate because pretending
-#   otherwise would make a propellant-exhaustion red look like a surprise.
-#   B19 reached its Dres commit with 3,933 m/s still in the stage; Moho can ask
-#   for all of it.
+#   corrections                    the MEASURED encounter-creating round is
+#                                  ~1,090 m/s (flight 3); the cap is 1200 per
+#                                  round, restored to B19's value -- see the
+#                                  maxCorrectionDvMps block, which carries the
+#                                  authoritative arithmetic
+#   capture                        ~1,845 to ~3,862 (above); MEASURED 2,639.9
+#   => the maxCorrectionDvMps block below is the SINGLE SOURCE for this budget,
+#   anchored on flight 1's measured 5,724 m/s remaining after ejection rather
+#   than on a pre-flight estimate. Summarised: the realistic case leaves ~4,434
+#   m/s against a worst-case ~3,862 capture and closes with ~572 spare; the one
+#   combination that does NOT close is both rounds landing on the 1200 ceiling
+#   AND the worst-case r=sma encounter. FLIGHT 1 MEASURED the cheap end of that:
+#   1,735.5 ejection + ~1,090 corrections + 2,639.9 capture = ~5,465 m/s spent,
+#   ~1,991 m/s still in the stage at the Moho commit.
 #
 # THE BURN-TIME RISK, named ahead of the flight so the failure mode is legible.
 # A ~3,862 m/s capture on ~13.85 t at the LV-N's 60 kN / Isp 800 is mdot
@@ -128,15 +132,50 @@ id = "B20-moho-orbit"
 # Moho HAS NO MOONS, so nothing physical constrains the park (the reason the park
 # windows below are loose is the same reason B19's were).
 # =====================================================================================
-# NOT YET FLOWN. Every number below is DERIVED -- from B18's measured craft, from
-# B19's measured green flight, and from the stated Moho arithmetic -- and the
-# DERIVED ones are named as such at their parameters. RE-PIN to the MEASURED
-# values after the first green flight; do not leave a derived pin standing.
+# FLOWN GREEN 2026-08-12 (run `_2331`, PASS attempt 1, wall 4,791 s, every verifier
+# green, all six mission assertions met). The road there took FIVE flights and three
+# defects, ONLY ONE of which was in this lane's own sizing:
+#   flights 1-2  INVALID. This lane's `maxCorrectionDvMps`, DERIVED from a dv-reserve
+#                share as 700, discarded the 1,089.5 m/s encounter-CREATING correction
+#                MechJeb planned -- six times per flight, in both attempts. B19's
+#                untouched 1200 would have flown it. Filed as
+#                CORRECTION-CAP-DERIVED-BELOW-THE-PLANNED-CORRECTION; cap restored.
+#   flight 3     INVALID, but it REACHED MOHO'S SOI: the correction flew, created the
+#                encounter, and the arrival geometry was clean (`pe=450629.528
+#                ttPe=+3154.010`). It died on `capture-never-armed (past-periapsis)`
+#                because the SHARED approach clamp fails open on a blinking
+#                time_to_soi and one frame covered 55,041 game s. Filed as
+#                APPROACH-WARP-CLAMP-FAILS-OPEN-ON-AN-INTERMITTENT-TTS; fixed with a
+#                latch, on an explicit decision to change shared machinery.
+#   flight 4     killed pre-emptively: the latch's first implementation engaged on ANY
+#                SOI boundary (it latched on the Mun transit) and was caught in
+#                clean-context review before it could bias a fixture.
+#   flight 5     GREEN.
+#
+# THE SIZING IN THIS SPEC WAS VINDICATED, which is worth stating because it was the
+# part most likely to be wrong: the clamp stair-down halted at `tts=100000.353`,
+# `soiLeadSeconds` to the digit, and `approachMaxWarpFactor = 4` sampled the approach
+# at ~50 game s per poll exactly as derived. Wall 4,791 s against a predicted ~4,750.
+#
+# MEASURED ON THE GREEN RUN, the numbers a re-pin or a re-derivation should start from:
+#   jettison        2 pops, hand-off at avThr=60,000 N (the LV-N)
+#   ejection        node 1,735.5 m/s -- +4.5% over the ~1,661 COPLANAR derivation, and
+#                   NOT evidence the 7 deg was folded in: the transfer came out
+#                   `inc=0.007`, and the plane is bought by the correction instead
+#   corrections     2 rounds; the encounter-CREATING one measured ~1,090 m/s
+#   Sun->Moho SOI   first in-SOI frame `pe=450629.528 ttPe=+3154.010` (flight 3) /
+#                   `pe=517587.798 ttPe=+3152.474` (flight 5) -- periapsis AHEAD,
+#                   which is the whole point of the clamp and its latch
+#   capture         node 2,639.9 m/s, executed by MechJeb's NodeExecutor
+#   park            526.7 x 510.1 km, ecc 0.0108, ORBITING
+#   commit          terminalOrbitBody=Moho
+#   fuel            405.402 units of LF at commit -> ~1,991 m/s still in the stage
+#   recordings      5, named by UT in the fixture's provenance block
 # =====================================================================================
 tier = "operator"
 description = "Moho ORBIT across a heliocentric traverse, on the stock Duna Rocket: 700 km park, PRE-TRANSFER JETTISON of the spent chemical stack onto the LV-N, ejection at the Kerbin->Moho window, corrections, CAPTURE inside Moho's SOI, held park and a mid-mission CommitTree -- the flight whose committed recording becomes the moho-orbit-recorded fixture, and with it the re-aim synthesizer's own documented failure case (7 deg, ecc ~0.2) as read evidence."
 instanceProfile = "stock-minimal"
-tags = ["B20", "moho", "orbit", "mechjeb", "interplanetary", "cross-soi", "capture", "commit-in-foreign-soi", "jettison"]
+tags = ["B20", "moho", "orbit", "mechjeb", "interplanetary", "cross-soi", "capture", "commit-in-foreign-soi", "jettison", "flown"]
 
 [fixture]
 # B18's committed pad fixture, REUSED UNCHANGED: the Duna Rocket PRELAUNCH on the
@@ -434,28 +473,21 @@ D14 = ["kerbin", "moho", "soi-count", "warp-rails", "warp-high", "scene-flight",
 allowedAnomalies = []
 
 [expectations.recordings]
-# WIDE ON PURPOSE, THEN RE-PIN -- B19's OWN FIRST-FLIGHT POSTURE, followed
-# deliberately rather than short-cut. B19 flew its first attempts on
-# { min = 3, max = 12 } and tightened to { min = 5, max = 5 } only after the
-# green flight named all five recordings by UT.
-#
-# THE DERIVED EXPECTATION IS 5, and it is a strong one: the recording population
-# is a property of the CRAFT and the ASCENT PROFILE, both identical to B19 --
-#   +1  the main recording -- terminal Orbiting, terminalOrbitBody=Moho
-#   +2  the two radial booster stacks shed at istg 6 during ascent (B18's
-#       measured population on this craft), terminal Destroyed
-#   +1  the core Mainsail stack, dropped by MechJeb AUTOSTAGE during the ascent
-#   +1  the Skipper stack, dropped by the JETTISON's two pops
-# Nothing after the jettison stages, so the transfer and capture add none.
-#
-# IT IS NOT PINNED AT 5 ANYWAY, and the reason is a cost argument rather than a
-# doubt: this lane's PRODUCT is the recording, a flight costs ~1.5 wall hours,
-# and a count pin is the one gate that can red a flight which otherwise produced
-# exactly the fixture the program needs. min 3 gates the ascent population that
-# IS measured; max 12 absorbs any jettison-debris difference. A count outside
-# THAT is a real finding.
-# RE-PIN TO THE MEASURED VALUE AFTER FLIGHT 1 -- do NOT leave this wide.
-count = { min = 3, max = 12 }
+# PINNED AT 5, RE-PINNED FROM THE GREEN FLIGHT (2026-08-12 `_2331`) per this spec's
+# own instruction, and the topology is NAMED rather than merely counted:
+#   +1  the main recording -- terminal Orbiting, terminalOrbitBody=Moho, ut 26.3 ->
+#       2,884,092.9, 1,834 points
+#   +2  the two radial booster stacks shed at istg 6 during ascent (B18's measured
+#       population on this craft), ut 97.1 -> ~149, terminal Destroyed
+#   +1  the core Mainsail stack, dropped by MechJeb AUTOSTAGE during ascent,
+#       ut 1,697.2 -> 1,716.6, Orbiting/Kerbin
+#   +1  the Skipper stack, dropped by the JETTISON's two pops, ut 2,699.1 -> 2,703.9,
+#       Orbiting/Kerbin -- exactly the JETTISON phase window
+# The four debris point counts (68/67/27/21) reproduced EXACTLY across two flights of
+# this profile, which is what makes 5 a pin rather than one run's snapshot.
+# The pre-flight window was the deliberately wide {3,12} B19 also flew on; it did its
+# job and is now closed.
+count = { min = 5, max = 5 }
 
 [expectations.logContracts]
 # Every token sourced from its ACTUAL emitting call site; the interplanetary
