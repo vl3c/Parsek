@@ -10217,12 +10217,15 @@ B19_JETTISON_PARAMS = replace(
 
 class ApproachWarpClampTests(unittest.TestCase):
     """The TARGET-SOI approach clamp (B19 flight 4). No I/O. Every cell here is
-    pure-predicate EXCEPT the final decide-level one, which builds snapshots and
-    drives `b5_decide`; that asymmetry is the point of the last cell.
+    pure-predicate or pure arithmetic EXCEPT
+    `test_decide_holds_the_ceiling_across_a_blink_and_releases_on_arrival`,
+    which builds snapshots and drives `b5_decide`; that asymmetry is the point of
+    that cell.
 
-    Sizing used throughout mirrors B19's armed values -- soi_lead 100,000 game s,
-    window 200,000, cap factor 5 -- and the numbers in the names are the MEASURED
-    ones from run 2026-08-11_2352."""
+    Sizing mirrors B19's armed values -- soi_lead 100,000 game s, window 200,000,
+    cap factor 5 -- EXCEPT the decide-level cell, which runs on B20's (cap factor
+    4, because Moho's SOI-entry -> periapsis coast is ~8x shorter). The numbers in
+    the names are the MEASURED ones from run 2026-08-11_2352."""
 
     LEAD, WINDOW, CAP = 100000.0, 200000.0, 5
 
