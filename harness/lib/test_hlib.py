@@ -4918,7 +4918,7 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
         # changes. Armed on its measurements; the one thing it deliberately does
         # not arm (the seam-endpoint census pair) is documented in the spec with
         # the trade that forced it.
-        "V10-dres-loop-arrival.toml":       "calibration-discipline - a TimeJump observation lane whose brackets come from one recording's replay clock; armed on the tilt/geometry/ready tokens PLUS, as of 2026-08-14 (branch `line-blink-census`), the census pair `evaluated=1 outsideSoi=0`. Iteration 5 executed iteration 4's own restoration recipe: both instrument blockers were closed upstream (a WINDOW-EXIT exemption on the line-blink detector, and a class-split census rate-limit key), and iteration 3's -900/-300/+600 escape bracket was restored. It is KEPT not for the census -- which reads without it, falsifying iteration 4's pre-D0 conclusion -- but because the restored pre-D0 jumps make this lane the LIVE REGRESSION FLOOR for the exemption, which visibly fires there (`line-blink-suppressed ... offEdgeOutsideRenderWindow=True` at currentUT=31276442.520, the very UT that red three times)",
+        "V10-dres-loop-arrival.toml":       "calibration-discipline - a TimeJump observation lane whose brackets come from one recording's replay clock; armed on the tilt/geometry/ready tokens PLUS, as of 2026-08-14 (branch `line-blink-census`), the census pair `evaluated=1 outsideSoi=0`. Iteration 5 executed iteration 4's own restoration recipe: both instrument blockers were closed upstream (a WINDOW-EXIT exemption on the line-blink detector, and a class-split census rate-limit key), and iteration 3's -900/-300/+600 escape bracket was restored. It is KEPT not for the census -- which reads without it, falsifying iteration 4's pre-D0 conclusion -- but because the restored pre-D0 jumps make this lane the LIVE REGRESSION FLOOR for the exemption, which visibly fires there (`line-blink-suppressed ... offEdgeOutsideRenderWindow=True bodyChanged=False` at currentUT~31276442, the very UT that red three times)",
         # V12 is V9's shape on the Eeloo fixture and it has now reached V9's FINISHING
         # point: it flew twice green on 2026-08-13 (_0053/_0055, byte-identical on
         # every measured token) and is ARMED on those measurements. The three headline
@@ -5754,7 +5754,7 @@ class AnomalyGroundTruthEnumerationTests(unittest.TestCase):
         # Anti-vacuity for the scanner itself: an empty / near-empty walk would make
         # every set assertion below trivially true.
         self.assertGreaterEqual(len(self.raised), 15)
-        self.assertIn("Source/Parsek/MapRenderProbe.cs:990",
+        self.assertIn("Source/Parsek/MapRenderProbe.cs:1009",
                       self.raised.get("icon-teleport", []))
         self.assertIn("Source/Parsek/GameActions/FacilityStatePatcher.cs:158",
                       self.raised.get("ledger-vs-truth", []))
@@ -5795,9 +5795,9 @@ class AnomalyGroundTruthEnumerationTests(unittest.TestCase):
         # claim; it is renamed rather than re-numbered because the COUNT was never
         # the contract - the membership is.
         self.assertEqual(
-            [("unaccounted-drawn-recording", "Source/Parsek/MapRenderProbe.cs:537"),
+            [("unaccounted-drawn-recording", "Source/Parsek/MapRenderProbe.cs:542"),
              ("factory-parity", "Source/Parsek/MapRender/ShadowRenderDriver.cs:709"),
-             ("seam-endpoint-outside-soi", "Source/Parsek/MapRenderProbe.cs:2266")],
+             ("seam-endpoint-outside-soi", "Source/Parsek/MapRenderProbe.cs:2285")],
             list(hlib.ANOMALY_REASONS_RAISED_UNGATED),
             "the report-only instrument list changed - that is a calibration "
             "decision (defect signal vs instrument), not a bookkeeping edit")

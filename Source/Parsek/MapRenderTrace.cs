@@ -1088,8 +1088,9 @@ namespace Parsek
         /// <para><b>Why this cannot mask a real blink.</b> A real line-blink is a line that toggles off
         /// and back on while the ghost is STILL INSIDE its rendered window. Inside the window the patch
         /// darkens the line only through <c>polyline-owns-phase</c>,
-        /// <c>director-traced-path-suppress</c>, <c>below-atmosphere</c>,
-        /// <c>stale-segment-awaiting-reseed</c>, <c>post-polyline-release-grace</c> or
+        /// <c>director-traced-path-suppress</c>, <c>below-atmosphere</c> /
+        /// <c>terminal-below-atmosphere</c>, <c>stale-segment-awaiting-reseed</c>,
+        /// <c>post-polyline-release-grace</c> or
         /// <c>director-terminal-suppress</c> - none of which stamp
         /// <paramref name="intentOutsideRenderWindow"/> - so conjunct (4) is false and the blink
         /// raises. The exemption's precondition is a POSITIVE measurement that the clock is OUTSIDE the
@@ -1127,15 +1128,32 @@ namespace Parsek
         /// <para>No prior verdict = no exemption. The caller stamps the verdict at EVERY toggle, so a
         /// missing entry means the pid's first toggle, which <see cref="IsLineBlink"/> already declines
         /// to report.</para>
+        ///
+        /// <para><b>BOTH-EDGES-OUTSIDE is NOT exempt</b>
+        /// (<paramref name="currentToggleIsOutsideWindowOn"/>), and this conjunct is what makes the
+        /// cannot-mask argument a MEASUREMENT rather than a definition. Judging the pair from the OFF
+        /// half alone would exempt a pair whose ON half is ALSO outside the window - and exactly one
+        /// decision can produce that: <c>parking-conic-loiter-hold</c>, which deliberately holds the
+        /// line LIT past the window end and sits in the same <c>pastEnd || beforeStart</c> block. If
+        /// that per-pid hold ever armed one frame out of step with <c>pastEnd</c>, the sequence
+        /// dark(f) <c>past-body-frame-end</c> -&gt; lit(f+1) <c>parking-conic-loiter-hold</c> is a REAL
+        /// on-screen flicker with both edges outside the window, and the OFF-half-only rule would have
+        /// silently eaten it. The exemption is therefore declined whenever this frame's own ON decision
+        /// is itself an outside-window decision: a legitimate window transition returns the line to a
+        /// clock the recording COVERS, so a lit edge that is still outside the window is not one.</para>
         /// </summary>
         internal static bool ResolveOffEdgeOutsideRenderWindow(
             bool lineIsLit,
             bool currentToggleIsWindowExitOff,
             bool hasPriorToggleVerdict,
-            bool priorToggleWasWindowExitOff)
+            bool priorToggleWasWindowExitOff,
+            bool currentToggleIsOutsideWindowOn = false)
         {
             if (!lineIsLit)
                 return currentToggleIsWindowExitOff;
+            // Both edges outside the window: a flicker in the dark region, not a transition into it.
+            if (currentToggleIsOutsideWindowOn)
+                return false;
             return hasPriorToggleVerdict && priorToggleWasWindowExitOff;
         }
 

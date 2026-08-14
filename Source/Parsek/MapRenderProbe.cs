@@ -128,6 +128,11 @@ namespace Parsek
         // sinceFrames=1) whose OFF half was the before-body-frame-start decision one frame earlier.
         // Stamped at EVERY toggle (removed when the toggle was not a window exit), so a stale verdict
         // can never outlive its pair. See MapRenderTrace.ResolveOffEdgeOutsideRenderWindow.
+        // ACCEPTED COST of stamping at EVERY toggle: a DEGENERATE read landing between a window-exit
+        // OFF and the return to "True" is itself a toggle (the truth value is a string, so any
+        // inequality counts), which clears the stamp and lets the following lit edge raise. That is
+        // OVER-raising on an unknown read, which is the same fail-closed policy the offWindowCovered
+        // accounting already applies to degenerate frames - never under-raising.
         private readonly HashSet<uint> lastLineToggleWindowExitOff = new HashSet<uint>();
         // Pids whose CURRENT proto-orbit-line DARK WINDOW has had at least one frame that NOTHING
         // covered - the line read inactive and the trajectory polyline painted no line at all for that
@@ -802,11 +807,22 @@ namespace Parsek
                 // legitimate window transition (there is no recorded arc to draw at that clock), not a
                 // flicker: LINE-BLINK-JUMP-STRADDLE-DETECTOR-GAP. Both filed shapes route through here,
                 // from opposite edges - see the lastLineToggleWindowExitOff field comment.
+                // currentToggleIsOutsideWindowOn: THIS frame's decision is an ON that is ITSELF outside
+                // the window (only parking-conic-loiter-hold can be that). Both edges outside means a
+                // flicker in the dark region rather than a transition into it, so the exemption is
+                // declined - see ResolveOffEdgeOutsideRenderWindow.
                 bool offEdgeOutsideRenderWindow = MapRenderTrace.ResolveOffEdgeOutsideRenderWindow(
                     lineIsLit: lineIsLit,
                     currentToggleIsWindowExitOff: currentToggleIsWindowExitOff,
+                    // Presence in lastLineToggleFrame, not in lastLineToggleWindowExitOff: the two are
+                    // stamped together at every toggle, so a pid present in the former has an
+                    // authoritative verdict in the latter (absent from the set means "that toggle was
+                    // not a window exit", never "unknown").
                     hasPriorToggleVerdict: hasLastToggle,
-                    priorToggleWasWindowExitOff: lastLineToggleWindowExitOff.Contains(pid));
+                    priorToggleWasWindowExitOff: lastLineToggleWindowExitOff.Contains(pid),
+                    currentToggleIsOutsideWindowOn:
+                        lineIsLit && hasFreshLineIntent
+                        && lineIntent.LineActive && lineIntent.OutsideRenderWindow);
                 if (MapRenderTrace.IsLineBlink(
                         toggled: true,
                         hasLastToggleFrame: hasLastToggle,
@@ -835,6 +851,10 @@ namespace Parsek
                     // recId is passed (the sibling suppressed-line below always did): without it the
                     // envelope's recId field renders "<none>" on every raise, which is what forced the
                     // pid+frame join across all 13 archived raises.
+                    // READ intentReason AS "THIS FRAME'S DECISION", NOT "the OFF half's". On the dark
+                    // edge (lineActive=False) they are the same line. On the RE-ACTIVATION edge -
+                    // three of the four archived raises - this frame is the ON, so intentReason names
+                    // the ON decision and the OFF half's reason is one frame back, off this line.
                     MapRenderTrace.EmitAnomaly(
                         MapRenderTrace.RenderSurface.ProtoOrbitLine, pidKey, currentUT, currentUT,
                         "line-blink",
@@ -862,22 +882,21 @@ namespace Parsek
                     // WHICH guard fired is now stated per-flag instead of being hardcoded True: this
                     // branch covers the painted-dark-window guard AND the window-exit guard, and a
                     // reader auditing "is the exemption over-firing?" needs to know which one ate the
-                    // raise. intentReason names the authoritative decision that produced the OFF.
-                    // ATTRIBUTION CAVEAT, stated so nobody has to rediscover it: bodyChanged
-                    // short-circuits inside IsLineBlink AHEAD of both coverage guards and is not
-                    // carried here, so a pair a body change would ALSO have exempted reads as a
-                    // coverage suppression. That overstates these two guards' reach, never
-                    // understates it - the safe direction for an over-firing audit.
+                    // raise. bodyChanged rides along too even though it is not in this branch's
+                    // condition: IsLineBlink checks it FIRST, so a pair that a body change would also
+                    // have exempted would otherwise read as a coverage suppression and overstate these
+                    // two guards' reach. intentReason is THIS FRAME'S decision - on the re-activation
+                    // edge that is the ON, not the OFF half (see the raise branch above).
                     MapRenderTrace.EmitOnChange(
                         "line-blink-suppressed",
                         MapRenderTrace.RenderSurface.ProtoOrbitLine, pidKey, currentUT, currentUT,
                         string.Format(ic,
                             "lineActive={0} prevActive={1} lastToggleFrame={2} sinceFrames={3} body={4} "
                             + "offWindowCovered={5} polylinePainted={6} polylineOwns={7} "
-                            + "offEdgeOutsideRenderWindow={8} intentReason={9}",
+                            + "offEdgeOutsideRenderWindow={8} bodyChanged={9} intentReason={10}",
                             lineActive, prevLineActive, lastToggle, frame - lastToggle, bodyName,
                             offWindowCovered, polylinePainted, polylineOwns,
-                            offEdgeOutsideRenderWindow,
+                            offEdgeOutsideRenderWindow, toggleCrossedBody,
                             hasFreshLineIntent ? lineIntent.Reason : "(no-fresh-intent)"),
                         recId);
                 }

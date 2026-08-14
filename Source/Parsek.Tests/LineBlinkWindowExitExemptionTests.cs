@@ -77,8 +77,9 @@ namespace Parsek.Tests
         public void WindowExitOffToggle_InsideWindowReason_IsNotWindowExit()
         {
             // THE load-bearing conjunct. Every within-window OFF reason (polyline-owns-phase,
-            // director-traced-path-suppress, below-atmosphere, stale-segment-awaiting-reseed,
-            // post-polyline-release-grace, director-terminal-suppress) leaves this false.
+            // director-traced-path-suppress, below-atmosphere / terminal-below-atmosphere,
+            // stale-segment-awaiting-reseed, post-polyline-release-grace,
+            // director-terminal-suppress) leaves this false.
             Assert.False(MapRenderTrace.IsWindowExitOffToggle(
                 lineDefinitivelyOff: true,
                 hasFreshIntent: true,
@@ -125,6 +126,60 @@ namespace Parsek.Tests
                 lineIsLit: true,
                 currentToggleIsWindowExitOff: true,
                 hasPriorToggleVerdict: false,
+                priorToggleWasWindowExitOff: true));
+        }
+
+        [Fact]
+        public void OffEdgeResolve_BothEdgesOutsideWindow_IsNotExempt()
+        {
+            // THE BOTH-EDGES-OUTSIDE PIN, and the cell that makes the cannot-mask claim a
+            // measurement instead of a definition. `parking-conic-loiter-hold` is the ONE decision
+            // that can hold the line LIT while the clock is outside the window, and it lives in the
+            // same pastEnd || beforeStart block as the window-exit OFF. A pair
+            // dark(past-body-frame-end) -> lit(parking-conic-loiter-hold) is a REAL on-screen flicker
+            // in the dark region, and an OFF-half-only rule would have silently eaten it. Identical to
+            // OffEdgeResolve_LitEdge_UsesPriorToggleVerdict(true) except for this one flag.
+            Assert.False(MapRenderTrace.ResolveOffEdgeOutsideRenderWindow(
+                lineIsLit: true,
+                currentToggleIsWindowExitOff: false,
+                hasPriorToggleVerdict: true,
+                priorToggleWasWindowExitOff: true,
+                currentToggleIsOutsideWindowOn: true));
+        }
+
+        [Fact]
+        public void OffEdgeResolve_LitEdgeInsideWindow_StaysExempt()
+        {
+            // The control for the cell above: the SAME pair with a lit edge decided INSIDE the window
+            // (the flown V10 shape, whose ON is `director-stockconic-visible`) is still exempt. If this
+            // ever flips, the both-edges guard has over-reached and V10 reds.
+            Assert.True(MapRenderTrace.ResolveOffEdgeOutsideRenderWindow(
+                lineIsLit: true,
+                currentToggleIsWindowExitOff: false,
+                hasPriorToggleVerdict: true,
+                priorToggleWasWindowExitOff: true,
+                currentToggleIsOutsideWindowOn: false));
+        }
+
+        [Fact]
+        public void OffEdgeResolve_DarkEdge_IgnoresTheOutsideWindowOnFlag()
+        {
+            // On the dark edge there is no ON half to judge, so the new flag must not interfere.
+            Assert.True(MapRenderTrace.ResolveOffEdgeOutsideRenderWindow(
+                lineIsLit: false,
+                currentToggleIsWindowExitOff: true,
+                hasPriorToggleVerdict: true,
+                priorToggleWasWindowExitOff: false,
+                currentToggleIsOutsideWindowOn: true));
+        }
+
+        [Fact]
+        public void OffEdgeResolve_DefaultOutsideWindowOn_PreservesTheFourArgBehaviour()
+        {
+            Assert.True(MapRenderTrace.ResolveOffEdgeOutsideRenderWindow(
+                lineIsLit: true,
+                currentToggleIsWindowExitOff: false,
+                hasPriorToggleVerdict: true,
                 priorToggleWasWindowExitOff: true));
         }
 
@@ -197,13 +252,15 @@ namespace Parsek.Tests
             int lastToggleFrame,
             int currentFrame,
             bool bodyChanged,
-            bool offWindowCovered)
+            bool offWindowCovered,
+            bool currentToggleIsOutsideWindowOn = false)
         {
             bool offEdge = MapRenderTrace.ResolveOffEdgeOutsideRenderWindow(
                 lineIsLit: lineIsLit,
                 currentToggleIsWindowExitOff: currentToggleIsWindowExitOff,
                 hasPriorToggleVerdict: true,
-                priorToggleWasWindowExitOff: priorToggleWasWindowExitOff);
+                priorToggleWasWindowExitOff: priorToggleWasWindowExitOff,
+                currentToggleIsOutsideWindowOn: currentToggleIsOutsideWindowOn);
             return MapRenderTrace.IsLineBlink(
                 toggled: true,
                 hasLastToggleFrame: true,
@@ -295,6 +352,16 @@ namespace Parsek.Tests
                 priorToggleWasWindowExitOff: false,
                 lastToggleFrame: 7611, currentFrame: 7618,
                 bodyChanged: false, offWindowCovered: false));
+
+            // AND the both-edges-outside shape, end to end: the V10 _0627 geometry with a genuine
+            // window-exit OFF behind it, but a lit edge that is ITSELF outside the window
+            // (parking-conic-loiter-hold). A flicker in the dark region must still red the lane.
+            Assert.True(RaisesAfterExemption(
+                lineIsLit: true, currentToggleIsWindowExitOff: false,
+                priorToggleWasWindowExitOff: true,
+                lastToggleFrame: 7218, currentFrame: 7219,
+                bodyChanged: false, offWindowCovered: false,
+                currentToggleIsOutsideWindowOn: true));
         }
 
         // ---------------------------------------------------------------------------------
