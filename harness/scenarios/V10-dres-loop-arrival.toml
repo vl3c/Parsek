@@ -163,7 +163,7 @@ id = "V10-dres-loop-arrival"
 #     now requires BOTH halves proven): readings `_1956` / `_1959` both PASS with the census
 #     pair and the suppressed line byte-identical, control `_2002` correctly
 #     PARSEK-FAIL(expectation) with mismatches=2 naming BOTH inverted tokens
-#     (`outsideSoi=9` and `bodyChanged=True`), reverted `_2005` PASS. Earlier ledgers on
+#     (`outsideSoi=9` and `bodyChanged=True`), reverted `_2006` PASS. Earlier ledgers on
 #     superseded predicate cuts: `_1842`/`_1844`/`_1849`/`_1852`/`_1855`, then `_1920`.
 # =====================================================================================
 tier = "operator"

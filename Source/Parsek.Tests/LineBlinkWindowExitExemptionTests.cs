@@ -288,6 +288,10 @@ namespace Parsek.Tests
             //   sinceFrames=4 body=Eve offWindowCovered=False polylinePainted=False
             // Same frame 7843 decision: reason=past-body-frame-end lineActive=False
             //   currentUT=30451100.0 bounds=[30360218.8,30450249.6]  => clock 850.4 s PAST the end.
+            // priorToggle IS LOAD-BEARING and is measured, not assumed: frame 7839's decision in the
+            //   same log reads reason=director-stockconic-visible lineActive=True
+            //   currentUT=30360400.2 bounds=[30360218.8,30450249.6], i.e. a proven InsideWindowOn -
+            //   and note the bounds are IDENTICAL to the dark half's.
             Assert.False(RaisesAfterExemption(
                 lineIsLit: false, thisFrameCoverage: Coverage.Outside,
                 priorToggle: Verdict.InsideWindowOn,
@@ -301,6 +305,11 @@ namespace Parsek.Tests
             //   lineActive=False prevActive=True lastToggleFrame=7611 sinceFrames=7 body=Sun
             // Same frame 7618 decision: reason=past-body-frame-end lineActive=False
             //   currentUT=30360400.0 bounds=[26616878.0,30360218.8]  => 181.2 s PAST the end.
+            // priorToggle measured: frame 7611 reads reason=visible-body-frame lineActive=True
+            //   bounds=[26616878.0,30360218.8] - a proven InsideWindowOn, and the ONE archived pair
+            //   whose two halves are BOTH body-frame decisions (the other five pair an
+            //   applied-segment Inside with a body-frame Outside, though all six happen to carry
+            //   identical bounds - see LINE-BLINK-EXEMPTION-DOES-NOT-PIN-THE-BOUNDARY).
             Assert.False(RaisesAfterExemption(
                 lineIsLit: false, thisFrameCoverage: Coverage.Outside,
                 priorToggle: Verdict.InsideWindowOn,
@@ -453,6 +462,21 @@ namespace Parsek.Tests
                 "RecordLineIntent must have EXACTLY one production call site (GhostOrbitLinePatch's "
                 + "LogOrbitLineDecision); found " + callSites + ". A second writer could stamp coverage "
                 + "without tripping the enum-spelling gate above.");
+
+            // AND close the hole the two gates above leave BY CONSTRUCTION: the spelling gate skips
+            // MapRenderTrace.cs (it legitimately compares against the enum inside ClassifyLineToggle),
+            // and the call-site count skips it too (it declares RecordLineIntent). So a second writer
+            // added INSIDE the tracer - `lineIntentByPid[key] = new LineRenderIntent { WindowCoverage =
+            // RenderWindowCoverage.Inside }` - would trip neither. The intent store is the single
+            // channel every stamp must pass through, so pin its assignment sites directly: exactly one,
+            // the one inside RecordLineIntent.
+            var storeWriteRe = new Regex(
+                @"lineIntentByPid\s*\[[^\]]*\]\s*=", RegexOptions.CultureInvariant);
+            int storeWrites = storeWriteRe.Matches(trace).Count;
+            Assert.True(storeWrites == 1,
+                "lineIntentByPid must have EXACTLY one assignment site (inside RecordLineIntent); found "
+                + storeWrites + ". A second writer inside MapRenderTrace.cs is invisible to both gates "
+                + "above, because each of them deliberately skips that file.");
         }
 
         private static string ResolveRepoRoot()

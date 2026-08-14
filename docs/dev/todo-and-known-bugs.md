@@ -11858,6 +11858,74 @@ So the widened band was COMPUTED and never EXERCISED. Whether the eccentricity-g
 
 **What would exercise it:** a fixture whose STEP-0 TOF IS REJECTED, forcing the search off the recorded centre. This fixture's is not - it resolves immediately, which is the healthy outcome and precisely why it cannot probe the expansion. A candidate shape is a recorded transfer whose replay-clock departure no longer admits the recorded tof (a target whose phase has drifted far enough across the synodic multiple), or the geom-centered sibling path `BuildParkingCandidateTofs`, which is a different function and unexercised here (`parking=False` on every run). **Do not mark M-MIS-3 closed off the Eeloo pin alone.**
 
+## LINE-BLINK-EXEMPTION-DOES-NOT-PIN-THE-BOUNDARY - the window-transition exemption proves "one half read Outside, the other Inside", not "the SAME boundary was crossed" (found by review 2026-08-14, branch `line-blink-census`; UNEVIDENCED across all 13 archived raises; filed rather than fixed, and the OBVIOUS fix is measurably the wrong one)
+
+**The gap.** `MapRenderTrace.ResolveWindowTransitionExempt` exempts a `line-blink` pair
+when one half classifies `WindowExitOff` and the other `InsideWindowOn`. Each half is a
+real measurement made by the decision site whose branch condition IS that measurement -
+but `LineRenderIntent` carries only the three-state `RenderWindowCoverage`, never the
+BOUNDS the site measured against. So the exemption proves two independent claims and
+presents them as one transition across a single boundary. Two consequences:
+
+**(a) A bounds FLAP is indistinguishable from a clock transition.** If the window moves
+while the clock does not, the same clock reads Inside on one frame and Outside on the
+next, and a genuine one-frame dark flash is exempted. This is INHERENT to the exemption's
+premise as the design authority now states it: the instrument has no bounds-stability
+signal and never had one. It is not a regression introduced by this work - the same
+blindness sat behind the un-exempted detector, which simply raised on everything.
+**And the flap is not hypothetical:** in `logs/2026-08-12_0627_V10-dres-loop-arrival`
+one ghost's bounds walk `[31276682.1,43162584.0]` (frame 7189) ->
+`[31276682.7,43162584.5]` (7218) -> `[31276742.8,43162644.6]` (7248) while the lane
+re-aims, i.e. the window edge advances ~0.02 s per frame on a re-aiming lane.
+
+**(b) The sharper half: the two halves prove their claims against STRUCTURALLY DIFFERENT
+bound sets.** `director-stockconic-visible` stamps `Inside` after checking
+`appliedBoundsCoverHead` - the APPLIED SEGMENT bounds (`segStartUT`/`segEndUT`). The
+`past-body-frame-end` / `before-body-frame-start` block stamps `Outside` against the
+BODY-FRAME bounds (`startUT`/`endUT`). Nothing makes those the same interval, so the
+exemption can in principle be satisfied by a pair that never crossed one boundary at all.
+
+**UNEVIDENCED, and measured that way rather than asserted.** Across all 13 archived
+raises there is no pair whose exemption rests on mismatched boundaries.
+
+**THE OBVIOUS FIX - "carry startUT/endUT and require the two halves' bounds to be equal" -
+IS NOT THE FIX, and the reason is a measurement that also CORRECTS the prediction that
+motivated this entry.** The review expected equality to break 5 of the 6 now-exempted
+raises, on the reasoning in (b): five of them pair an applied-segment `Inside` with a
+body-frame `Outside`, so their bounds "must" differ. Read against the logs, **that is
+wrong - all six pairs carry BYTE-IDENTICAL bounds on both halves**:
+
+| raise | dark half | lit half | bounds (both halves) |
+|---|---|---|---|
+| V8 `_1111` | f7843 `past-body-frame-end` | f7839 `director-stockconic-visible` | `[30360218.8,30450249.6]` |
+| V8 `_1114` | f7618 `past-body-frame-end` | f7611 `visible-body-frame` | `[26616878.0,30360218.8]` |
+| V10 `_0627` | f7218 `before-body-frame-start` | f7219 `director-stockconic-visible` | `[31276682.7,43162584.5]` |
+| V10 `_0630`a | f7232 `before-body-frame-start` | f7233 `director-stockconic-visible` | `[31276552.7,43162454.6]` |
+| V10 `_0630`b | f7262 `before-body-frame-start` | f7263 `director-stockconic-visible` | `[31276682.5,43162584.3]` |
+| V10 `_0632` | f7237 `before-body-frame-start` | f7238 `director-stockconic-visible` | `[31276442.6,43162344.4]` |
+
+So (b) is a STRUCTURAL gap, not an observed divergence: on this corpus the applied
+segment and the body frame COINCIDE numerically at every pair, and only `_1114` is a
+both-halves-body-frame pair by construction. Equality would therefore have un-exempted
+NOTHING today - the lanes would stay green.
+
+**Which is exactly why equality is still the wrong rule.** It is satisfiable on the
+corpus by coincidence, and it is fragile against the drift measured in (a): the pairs
+that satisfy it are 1 frame apart (V10) or 4-7 frames apart with a window that happened
+not to move (V8), while the same logs show the window moving ~0.02 s/frame during a
+re-aim. An equality check is therefore a TOLERANCE question disguised as an identity one,
+and picking a tolerance without measuring the drift distribution is the trap the rest of
+this work avoided. Whoever picks this up needs a COHERENCE rule designed from measurement
+- e.g. what relationship the `Inside` bounds must bear to the `Outside` bounds for the two
+to describe one boundary (containment? shared edge? edge within a measured drift budget?)
+- and the first step is measuring how the applied-segment and body-frame intervals relate
+across a corpus, not adding an `==`.
+
+**Cross-reference:** the exemption itself and its cannot-mask argument are the resolved
+LINE-BLINK-JUMP-STRADDLE-DETECTOR-GAP entry below; this entry is the one thing that
+review left standing, and it is a sharpening of the exemption's PREMISE rather than a
+hole in its implementation.
+
 ## ~~SEAM-ENDPOINT-CENSUS-UNREADABLE-ON-A-SHORT-LANE~~ - the census summary rides a SHARED 5 s rate-limit key, so on a ~55 s lane the first ghost-bearing frame consumes the only reported pass (measured 2026-08-13, branch `eeloo-loop-lanes`, four V12A runs; an INSTRUMENT limit, not a product defect) [FIXED 2026-08-14, branch `line-blink-census`, by CLASS-SPLITTING the key - see the resolution at the end]
 
 **The measurement.** V12A's arrival bracket was retargeted onto the product's own `soiEntryUT` (the V10 iteration-1 lesson), all three bracket jumps landing within +-190 s of `95851632.03180024` - and the census STILL read, byte-identically on all four runs:
@@ -12042,6 +12110,12 @@ carries the KSP.log + result JSON for the three post-fix readings (`_1956` V10,
 `collect-logs.py` snapshots the DEV instance, which never runs a harness flight -
 so a harness line has to be carried over from `harness/results/<run>_shots/`
 explicitly, which is what that subfolder is.
+
+**ONE THING THIS DOES NOT PROVE, filed separately:** the exemption establishes that one
+half read `Outside` and the other `Inside`, not that both measured the SAME boundary -
+see LINE-BLINK-EXEMPTION-DOES-NOT-PIN-THE-BOUNDARY above. Unevidenced across all 13
+archived raises (all six exempted pairs carry byte-identical bounds on both halves), and
+the obvious bounds-equality fix is measurably the wrong one.
 
 **LIVE PROOF, on the shape that red three times running.** `V10-dres-loop-arrival` had
 its iteration-3 escape bracket (-900 / -300 / +600) RESTORED and flown: run
