@@ -10216,11 +10216,16 @@ B19_JETTISON_PARAMS = replace(
 
 
 class ApproachWarpClampTests(unittest.TestCase):
-    """The TARGET-SOI approach clamp (B19 flight 4). Pure: no I/O, no snapshot.
+    """The TARGET-SOI approach clamp (B19 flight 4). No I/O. Every cell here is
+    pure-predicate or pure arithmetic EXCEPT
+    `test_decide_holds_the_ceiling_across_a_blink_and_releases_on_arrival`,
+    which builds snapshots and drives `b5_decide`; that asymmetry is the point of
+    that cell.
 
-    Sizing used throughout mirrors B19's armed values -- soi_lead 100,000 game s,
-    window 200,000, cap factor 5 -- and the numbers in the names are the MEASURED
-    ones from run 2026-08-11_2352."""
+    Sizing mirrors B19's armed values -- soi_lead 100,000 game s, window 200,000,
+    cap factor 5 -- EXCEPT the decide-level cell, which runs on B20's (cap factor
+    4, because Moho's SOI-entry -> periapsis coast is ~8x shorter). The numbers in
+    the names are the MEASURED ones from run 2026-08-11_2352."""
 
     LEAD, WINDOW, CAP = 100000.0, 200000.0, 5
 
@@ -10357,6 +10362,100 @@ class ApproachWarpClampTests(unittest.TestCase):
         """window = 0 is every lane that does not arm the clamp."""
         self.assertFalse(mlib.approach_latch_state(
             150000.0, "Moho", 0.0, "Sun", "Moho", False))
+
+    # --- DECIDE-LEVEL (the follow-up to PR #1472) -------------------------
+    # Everything above is pure-predicate. That is the coverage shape that MISSED
+    # this latch's own shipped bug, so the cell below drives the real machine.
+
+    def test_decide_holds_the_ceiling_across_a_blink_and_releases_on_arrival(self):
+        """Drives the REAL `b5_decide` through B20's measured approach shape:
+        via-body transit, heliocentric coast, target approach, THE BLINK,
+        arrival.
+
+        THE ASSERTION THE PREDICATE CELLS STRUCTURALLY CANNOT MAKE is the f2/f4
+        PAIR. Both frames are `tts=nan` on `body=Sun`, so a stateless clamp
+        cannot tell them apart; the unlatched one emits the raw coastWarpFactor
+        7 (x100,000) and the latched one emits the cap 4 (x100). That one-digit
+        difference IS the latch, and it is the frame that cost B20 flight 3 its
+        capture -- one x100,000 poll covered 55,041 game s through the remaining
+        lead, the SOI boundary and the whole 2,168-4,119 s approach coast.
+        Verified independently that the ut/apsides deltas between f2 and f4 are
+        decision-inert, so the latch is the SOLE discriminator.
+
+        WHAT THIS CELL CATCHES THAT NOTHING ELSE DOES, stated precisely because
+        the first draft of this docstring overclaimed it: mutating the clamp to
+        fail open when latched, or dropping the `next_body` condition, ALSO reds
+        the predicate cells above. The breakages only this cell catches are the
+        RELEASE on the COAST -> TARGET-FLYBY hop and the CALL-SITE WIRING (pass
+        a literal False instead of the threaded state and every predicate cell
+        still passes). Those two are the reason it exists.
+
+        THE FIXTURE IS THE REAL LANE'S, deliberately: `via_bodies`,
+        `coast_timeout` and the correction triggers are B20-moho-orbit.toml's
+        own values, with `correction_rounds_done=2` putting the state where a
+        real flight is by tts ~ 100k. An earlier draft emptied the trigger list
+        instead, which reaches the coast branch by DISARMING the thing a real
+        flight has merely finished -- and with the real triggers restored, f3
+        would hop to PLAN-CORRECTION and the latch would never engage at all.
+
+        `via_bodies` is load-bearing in a non-obvious way: `_b5_coast_bodies`
+        (mlib.py) allows only `("", home) + via_bodies`, so without "Sun" the
+        first heliocentric frame is rejected as "left home SOI without reaching
+        the target", sets done=True, and the idempotence guard then swallows
+        every later frame -- the arrival hop becomes UNREACHABLE with no
+        diagnostic pointing at it.
+        """
+        params = replace(B19_JETTISON_PARAMS, target_body="Moho",
+                         soi_lead=100000.0, approach_window=200000.0,
+                         approach_max_warp_factor=4, coast_warp_factor=7,
+                         flyby_warp_factor=3, correction_trigger_alts=(),
+                         # B20-moho-orbit.toml's own values, not a disarmed list.
+                         correction_trigger_time_to_soi=(2000000.0, 150000.0),
+                         via_bodies=("Sun", "Mun"), coast_timeout=1.6e7)
+        st = replace(mlib.b5_initial_state(params),
+                     phase=mlib.B5_COAST_TO_TARGET, phase_entry_ut=100.0,
+                     # where a real B20 flight is by the time tts ~ 100k.
+                     correction_rounds_done=2)
+
+        # (ut, time_to_soi, next_body, body)
+        frames = ((400000.0, 45901.038, "Mun", "Kerbin"),   # via-body transit
+                  (1000000.0, float("nan"), "", "Sun"),     # heliocentric, no encounter
+                  (2780694.0, 100001.413, "Moho", "Sun"),   # the target approach
+                  (2780709.0, float("nan"), "", "Sun"),     # THE BLINK
+                  (2880658.0, float("nan"), "", "Moho"))    # arrival
+        seen = []
+        for i, (ut, tts, nb, body) in enumerate(frames):
+            st, actions = mlib.b5_decide(st, snap(
+                ut=ut, time_to_soi=tts, next_body=nb, body=body,
+                altitude=1.0e10 + i * 1e6, apoapsis=1.0e10 + i * 1e6,
+                periapsis=4.7e9 + i * 1e5, situation="ORBITING"))
+            seen.append((st.phase, st.approach_latched, actions))
+
+        # No frame tripped a give-up (f5 leaves the coast branch BY DESIGN, so
+        # this asserts liveness, not that every frame stayed in COAST).
+        self.assertFalse(st.done, "no frame may end the mission")
+
+        # f1: inside the window, but the boundary is the MUN's -- no latch. The
+        # clamp caps it anyway (stateless, it caps any finite tts <= window),
+        # which is precisely why a capped factor ALONE is not latch evidence.
+        self.assertFalse(seen[0][1],
+                         "a via-body transit must not latch the target ceiling")
+        self.assertIn(Action(mlib.ACTION_SET_RAILS_WARP, 4.0), seen[0][2],
+                      "the stateless clamp caps f1 without any latch")
+
+        # THE PAIR. Same nan-tts frame either side of the engage.
+        self.assertFalse(seen[1][1])
+        self.assertIn(Action(mlib.ACTION_SET_RAILS_WARP, 7.0), seen[1][2],
+                      "unlatched, a blind frame keeps the raw coast factor")
+        self.assertTrue(seen[3][1], "the blink must not drop the ceiling")
+        self.assertIn(Action(mlib.ACTION_SET_RAILS_WARP, 4.0), seen[3][2],
+                      "latched, the same blind frame is capped -- THE FIX")
+
+        self.assertTrue(seen[2][1], "an approach to the TARGET latches")
+
+        # Arrival hops and RELEASES: the latch cannot outlive its approach.
+        self.assertEqual(mlib.B5_TARGET_FLYBY, seen[4][0])
+        self.assertFalse(seen[4][1], "arrival must release the latch")
 
     def test_one_frame_cannot_swallow_the_moho_approach(self):
         """B20's sibling of the Dres sizing claim, as arithmetic. Moho's
