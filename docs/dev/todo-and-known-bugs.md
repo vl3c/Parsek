@@ -12035,6 +12035,14 @@ string grep. `CoverageStamp_DefaultsToUnknown_AndHasOneWriter` pins `RecordLineI
 a single production call site so nothing else can write coverage at all. Both gate
 directions were negative-controlled and confirmed red.
 
+The line above is reproducible from a collected artifact, not just from a run
+directory: `logs/2026-08-14_2309_line-blink-census-postfix/harness-runs/`
+carries the KSP.log + result JSON for the three post-fix readings (`_1956` V10,
+`_1957` V11A, `_1958` V12A) and the V10 negative control (`_2002`). Note that
+`collect-logs.py` snapshots the DEV instance, which never runs a harness flight -
+so a harness line has to be carried over from `harness/results/<run>_shots/`
+explicitly, which is what that subfolder is.
+
 **LIVE PROOF, on the shape that red three times running.** `V10-dres-loop-arrival` had
 its iteration-3 escape bracket (-900 / -300 / +600) RESTORED and flown: run
 `2026-08-14_1956` PASS, zero anomalies, and the exemption visibly fired at the very UT
