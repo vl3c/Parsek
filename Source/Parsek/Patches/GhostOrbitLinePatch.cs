@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Globalization;
 using HarmonyLib;
 using UnityEngine;
@@ -705,6 +705,16 @@ namespace Parsek.Patches
                 HighLogic.LoadedScene);
         }
 
+        /// <param name="outsideRenderWindow">Pass true ONLY from a branch whose own condition IS the
+        /// measurement "the drive clock is outside the recording's rendered body-frame window"
+        /// (<c>currentUT &gt; endUT</c> / <c>currentUT &lt; startUT</c>). It rides the render intent to
+        /// the end-of-frame probe, where it is the positive discriminator that keeps the gated
+        /// <c>line-blink</c> anomaly from raising on a LEGITIMATE window transition
+        /// (LINE-BLINK-JUMP-STRADDLE-DETECTOR-GAP). Defaults false, and every other branch MUST leave
+        /// it false - including the ones that merely log bounds beside a different reason, and
+        /// especially <c>stale-segment-awaiting-reseed</c>, whose "outside bounds" is the APPLIED
+        /// SEGMENT bounds lagging INSIDE the window. Widening this is how the exemption would start
+        /// masking real blinks; <c>LineBlinkWindowExitStampSiteTests</c> pins the site count.</param>
         private static void LogOrbitLineDecision(
             uint vesselPid,
             string reason,
@@ -715,14 +725,16 @@ namespace Parsek.Patches
             bool hasBounds,
             double currentUT,
             double startUT,
-            double endUT)
+            double endUT,
+            bool outsideRenderWindow = false)
         {
             // Record the authoritative line/icon decision so the end-of-frame MapRenderProbe can
             // reconcile it against the actually-rendered state on this same frame (decision-vs-truth,
             // second cut). Guarded by IsEnabled so disabled play never pays the drawIcons.ToString().
             if (MapRenderTrace.IsEnabled)
             {
-                MapRenderTrace.RecordLineIntent(vesselPid, lineActive, drawIcons.ToString(), reason);
+                MapRenderTrace.RecordLineIntent(
+                    vesselPid, lineActive, drawIcons.ToString(), reason, outsideRenderWindow);
 
                 // Unified LineVisibilityChange EVENT: pair the decision/reason side (recordingId + WHY the
                 // proto orbit line / icon appeared / disappeared / was suppressed) with the probe's pid-only
@@ -991,7 +1003,12 @@ namespace Parsek.Patches
                             hasBounds: true,
                             currentUT,
                             startUT,
-                            endUT);
+                            endUT,
+                            // Honest: this branch is only reachable with the clock outside the window.
+                            // It decides the line ON, so the line-blink exemption (which consults the
+                            // OFF half of a toggle pair) never reads it; stamped so the intent record
+                            // states the geometry rather than a convenient false.
+                            outsideRenderWindow: true);
                         return;
                     }
 
@@ -1007,7 +1024,13 @@ namespace Parsek.Patches
                         hasBounds: true,
                         currentUT,
                         startUT,
-                        endUT);
+                        endUT,
+                        // THE window-exit OFF. The enclosing branch condition IS the measurement
+                        // (pastEnd || beforeStart against the body-frame bounds), so the darkness is
+                        // "there is no recorded arc at this clock", not a flicker. This is the ONE
+                        // decision the line-blink exemption is built on - see
+                        // MapRenderTrace.IsWindowExitOffToggle.
+                        outsideRenderWindow: true);
                     return;
                 }
 

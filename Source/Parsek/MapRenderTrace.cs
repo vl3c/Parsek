@@ -1030,7 +1030,8 @@ namespace Parsek
             int lastToggleFrame,
             int currentFrame,
             bool bodyChanged = false,
-            bool offWindowCovered = false)
+            bool offWindowCovered = false,
+            bool offEdgeOutsideRenderWindow = false)
         {
             if (!toggled)
                 return false;
@@ -1045,8 +1046,97 @@ namespace Parsek
             // dark.
             if (offWindowCovered)
                 return false;
+            // The OFF half of this toggle pair was decided BECAUSE the drive clock left the
+            // recording's rendered body-frame window. The line is correctly dark: there is no
+            // recorded arc to draw at that clock. See ResolveOffEdgeOutsideRenderWindow.
+            if (offEdgeOutsideRenderWindow)
+                return false;
             int sinceLast = currentFrame - lastToggleFrame;
             return sinceLast >= 0 && sinceLast <= LineBlinkFrameWindow;
+        }
+
+        /// <summary>
+        /// PURE: was THIS frame's toggle a WINDOW-EXIT OFF - i.e. did the authoritative decision site
+        /// turn the proto orbit line dark on this frame BECAUSE the drive clock is outside the
+        /// recording's rendered body-frame window?
+        ///
+        /// <para>This is the positive discriminator behind <see cref="IsLineBlink"/>'s
+        /// <c>offEdgeOutsideRenderWindow</c> guard, and every one of its four conjuncts is a
+        /// FAIL-CLOSED requirement rather than a convenience:</para>
+        /// <para>(1) <paramref name="lineDefinitivelyOff"/> - the end-of-frame truth read must be a
+        /// clean <c>"False"</c>. A DEGENERATE read ("(line-null)" / "(no-renderer)" / "(read-err:...)")
+        /// means we do not know what the line did, which is never evidence of a legitimate
+        /// transition. Same rule the <c>offWindowCovered</c> accounting already uses.</para>
+        /// <para>(2) <paramref name="hasFreshIntent"/> - <c>GhostOrbitLinePatch</c>'s Postfix must have
+        /// actually DECIDED this frame (<see cref="IntentFreshnessFrames"/> = same frame only). A frame
+        /// on which our decision hook never ran carries no measurement, so it earns no exemption: a
+        /// line KSP or another patch darkened behind our back still raises.</para>
+        /// <para>(3) <paramref name="intentLineActive"/> false - the decision and the truth must AGREE
+        /// that the line is dark. A decision of ON against a truth of OFF is the
+        /// <c>decision-vs-truth</c> anomaly's business and must not be laundered into an exemption
+        /// here.</para>
+        /// <para>(4) <paramref name="intentOutsideRenderWindow"/> - the decision site must have
+        /// stamped, from its OWN branch condition, that the clock is outside the rendered window. Only
+        /// <c>GhostOrbitLinePatch</c>'s <c>past-body-frame-end</c> / <c>before-body-frame-start</c>
+        /// branches stamp it, because only there IS the branch condition the measurement
+        /// (<c>currentUT &gt; endUT</c> / <c>currentUT &lt; startUT</c> against the body-frame bounds).
+        /// It is deliberately NOT derived generically from whatever bounds a site happens to log:
+        /// <c>stale-segment-awaiting-reseed</c> also reads "clock outside bounds", but those are the
+        /// APPLIED SEGMENT bounds lagging the head INSIDE the rendered window - a reseed lag, exactly
+        /// the shape a real flicker could hide behind.</para>
+        ///
+        /// <para><b>Why this cannot mask a real blink.</b> A real line-blink is a line that toggles off
+        /// and back on while the ghost is STILL INSIDE its rendered window. Inside the window the patch
+        /// darkens the line only through <c>polyline-owns-phase</c>,
+        /// <c>director-traced-path-suppress</c>, <c>below-atmosphere</c>,
+        /// <c>stale-segment-awaiting-reseed</c>, <c>post-polyline-release-grace</c> or
+        /// <c>director-terminal-suppress</c> - none of which stamp
+        /// <paramref name="intentOutsideRenderWindow"/> - so conjunct (4) is false and the blink
+        /// raises. The exemption's precondition is a POSITIVE measurement that the clock is OUTSIDE the
+        /// window, which is the negation of the condition a real blink is defined by; the two cannot
+        /// both hold. Every other outcome (no decision, disagreeing decision, degenerate read) falls
+        /// through to a raise.</para>
+        /// </summary>
+        internal static bool IsWindowExitOffToggle(
+            bool lineDefinitivelyOff,
+            bool hasFreshIntent,
+            bool intentLineActive,
+            bool intentOutsideRenderWindow)
+        {
+            return lineDefinitivelyOff
+                && hasFreshIntent
+                && !intentLineActive
+                && intentOutsideRenderWindow;
+        }
+
+        /// <summary>
+        /// PURE: pick the OFF half of the toggle pair being judged, and report whether THAT half was a
+        /// window-exit (see <see cref="IsWindowExitOffToggle"/>).
+        ///
+        /// <para>A toggle pair is one dark edge and one lit edge. Which one is "this frame" depends on
+        /// the direction the detector caught it in:</para>
+        /// <para>- DARK edge (<paramref name="lineIsLit"/> false): the line just went out, so THIS
+        /// frame is the OFF half and <paramref name="currentToggleIsWindowExitOff"/> is the answer.
+        /// Both measured reproductions of LINE-BLINK-JUMP-STRADDLE-DETECTOR-GAP land here.</para>
+        /// <para>- LIT edge (<paramref name="lineIsLit"/> true): the line just came back, so the OFF
+        /// half is the PREVIOUS toggle and the answer is the verdict the caller STAMPED at that toggle
+        /// (<paramref name="priorToggleWasWindowExitOff"/>, guarded by
+        /// <paramref name="hasPriorToggleVerdict"/>). This covers the clock jumping past a window and
+        /// then back inside it within the frame window.</para>
+        ///
+        /// <para>No prior verdict = no exemption. The caller stamps the verdict at EVERY toggle, so a
+        /// missing entry means the pid's first toggle, which <see cref="IsLineBlink"/> already declines
+        /// to report.</para>
+        /// </summary>
+        internal static bool ResolveOffEdgeOutsideRenderWindow(
+            bool lineIsLit,
+            bool currentToggleIsWindowExitOff,
+            bool hasPriorToggleVerdict,
+            bool priorToggleWasWindowExitOff)
+        {
+            if (!lineIsLit)
+                return currentToggleIsWindowExitOff;
+            return hasPriorToggleVerdict && priorToggleWasWindowExitOff;
         }
 
         /// <summary>
@@ -1558,6 +1648,15 @@ namespace Parsek
             public bool LineActive;
             public string DrawIcons;
             public string Reason;
+
+            /// <summary>True IFF the decision site reached its branch BECAUSE the drive clock is
+            /// outside the recording's rendered body-frame window - i.e. the branch condition WAS the
+            /// measurement <c>currentUT &gt; endUT</c> / <c>currentUT &lt; startUT</c>. Stamped only by
+            /// <c>GhostOrbitLinePatch</c>'s past-body-frame-end / before-body-frame-start block; false
+            /// everywhere else, including the sites that merely LOG bounds alongside another reason.
+            /// Consumed by <see cref="IsWindowExitOffToggle"/>; see its remarks for why a generic
+            /// bounds comparison would be the wrong signal.</summary>
+            public bool OutsideRenderWindow;
         }
 
         private static readonly Dictionary<string, LineRenderIntent> lineIntentByPid =
@@ -1566,7 +1665,9 @@ namespace Parsek
         /// <summary>Record the authoritative orbit-line decision for a pid this frame (called from
         /// GhostOrbitLinePatch). Keyed by pid; stamped with the current Unity frame. No-op when
         /// disabled.</summary>
-        internal static void RecordLineIntent(uint pid, bool lineActive, string drawIcons, string reason)
+        internal static void RecordLineIntent(
+            uint pid, bool lineActive, string drawIcons, string reason,
+            bool outsideRenderWindow = false)
         {
             if (!IsEnabled)
                 return;
@@ -1575,7 +1676,8 @@ namespace Parsek
                 Frame = CurrentFrameCount(),
                 LineActive = lineActive,
                 DrawIcons = drawIcons,
-                Reason = reason
+                Reason = reason,
+                OutsideRenderWindow = outsideRenderWindow
             };
         }
 
