@@ -1097,11 +1097,30 @@ OTHER members, so it cannot be written mid-loop), then appends a clause to the
 `[ReaimDiag] member#N` line and to the unit-level decline line. A member is annotated
 only when it declined with `ReaimClassifier.MissingHeliocentricLegReason` (hoisted to
 a constant so the predicate cannot drift from the emitter), carries a `ChainId`, sits
-in a >=2-member chain group where NO member classified Supported, and some member of
-that group records a strict ancestor of the group's launch body. Both sides of a cut
-are annotated, from their own side: the parking half names the sibling that holds the
-`'Sun'` leg, and the Sun-started half names the sibling that holds the launch-body
-legs. Grep token `split-sibling-transfer`; every clause carries this entry's id.
+in a >=2-member chain group where NO member classified Supported, and **the group's
+UNION of segments classifies Supported** -- the real `ReaimClassifier.Classify`, run
+over the members concatenated in UT order the way Design C would read them. Both sides
+of a cut are annotated, from their own side: the parking half names the sibling that
+holds the common-ancestor leg, and the ancestor-started half names the sibling that
+holds the launch-body legs. Grep token `split-sibling-transfer`; every clause carries
+this entry's id, and each leads with the union verdict (`classify Supported as
+Kerbin->Duna via 'Sun'`) -- the measured proof behind the claim.
+
+**Why the union classify is the gate, and not "a sibling records a strict ancestor".**
+That weaker predicate was the first implementation, and it FALSELY annotates two
+reachable shapes (both caught in review before merge, both now pinned as
+must-not-annotate cells). (a) `[Kerbin parking] + [Sun coast, no arrival]` -- a probe
+ejected to solar orbit, or a recording ending mid-coast: joined it still declines `no
+target arrival leg after the heliocentric coast`, so there is no transfer to announce.
+(b) `[Mun orbit] + [Kerbin orbit]` -- a Mun return cut at the SOI exit, i.e. the
+deliberately preserved burn-split calibration row: Kerbin IS a strict ancestor of Mun,
+so the weak predicate announced a "'Kerbin'-legged transfer" that is not an
+interplanetary transfer at all. Running the real classifier over the union makes "no
+SINGLE member carries this whole" literally true. A second review finding fixed with
+it: the carrier-side clause must not assert that the common-ancestor body has no parent
+-- true only when the ancestor is the Sun, false for a Mun->Kerbin->Minmus group whose
+ancestor is Kerbin. It now states the fact the classifier actually acted on (this
+member recorded nothing at a strict ancestor of its OWN earliest body).
 
 **The lane trap this had to dodge, recorded because it nearly cost three guards.**
 `V9-dres-player-loop`, `V11-moho-player-loop` and `V12-eeloo-player-loop` forbid the

@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 
 namespace Parsek.Reaim
 {
@@ -17,10 +18,20 @@ namespace Parsek.Reaim
     // cost a full reading run to find.
     //
     // WHAT THIS DOES. Nothing but talk. It reads the per-member classify verdicts the builder
-    // already has, notices when a declining member's CHAIN GROUP (the `CopySplitIdentityFields`
-    // topology marker: same ChainId, launch guids that do not conclusively differ) does carry the
-    // heliocentric leg the member lacks, and returns a clause the caller appends to its log lines.
-    // No classification outcome changes, no plan field is written, no schema moves.
+    // already has, RE-RUNS the classifier over the chain group's UNION of segments (grouped by the
+    // `CopySplitIdentityFields` topology marker: same ChainId, launch guids that do not
+    // conclusively differ), and when that union classifies Supported it returns a clause the caller
+    // appends to its log lines. No classification outcome changes, no plan field is written, no
+    // schema moves - the union plan is used for its ANSWER STRINGS and then discarded.
+    //
+    // WHY THE UNION CLASSIFY IS THE GATE. "Some member records a strict ancestor of the group's
+    // launch body" is NOT sufficient to claim the group holds a transfer: Classify also requires a
+    // direct-child arrival, a single hop, and a cross-parent LCA. Two shapes would otherwise be
+    // annotated falsely - `[Kerbin parking] + [Sun coast, no arrival]` (a probe ejected to solar
+    // orbit, or a recording that ends mid-coast) and `[Mun orbit] + [Kerbin orbit]` (a Mun return
+    // split at the SOI exit, which is exactly the preserved burn-split calibration row). Running
+    // the real classifier over the union makes the emitted claim "no SINGLE member carries this
+    // whole" literally true, and it is the same reading Design C would need.
     //
     // WHY IT LIVES HERE AND NOT IN THE CLASSIFIER. The classifier is handed ONE member's segments
     // by design (the playtest interleaving bug that forced per-member classification is documented
@@ -53,8 +64,8 @@ namespace Parsek.Reaim
             public string RecordedVesselGuid;
             public bool Supported;
             public string DeclineReason;
-            /// <summary>Non-predicted, body-named segment bodies in startUT order (may repeat).</summary>
-            public List<string> SegmentBodyNames = new List<string>();
+            /// <summary>Non-predicted, body-named segments in startUT order.</summary>
+            public List<OrbitSegment> Segments = new List<OrbitSegment>();
             /// <summary>startUT of the member's earliest usable segment; NaN when it has none.</summary>
             public double EarliestSegmentStartUT = double.NaN;
             /// <summary>Body of that earliest segment - what the classifier calls the launch body.</summary>
@@ -69,8 +80,6 @@ namespace Parsek.Reaim
         {
             public string[] MemberClauses = Array.Empty<string>();
             public string AggregateClause;
-
-            internal bool Any => AggregateClause != null;
 
             internal string ClauseFor(int index)
             {
@@ -102,7 +111,7 @@ namespace Parsek.Reaim
                 OrbitSegment s = segs[i];
                 if (s.isPredicted || string.IsNullOrEmpty(s.bodyName))
                     continue;
-                facts.SegmentBodyNames.Add(s.bodyName);
+                facts.Segments.Add(s);
                 if (double.IsNaN(facts.EarliestSegmentStartUT) || s.startUT < facts.EarliestSegmentStartUT)
                 {
                     facts.EarliestSegmentStartUT = s.startUT;
@@ -133,15 +142,15 @@ namespace Parsek.Reaim
         ///   3. its chain group has at least two segment-bearing members;
         ///   4. NO member of that group classified Supported (if one did, the transfer IS whole
         ///      inside a single member and "spread across members" would be a false claim);
-        ///   5. some member of the group records a STRICT ANCESTOR of the group's launch body -
-        ///      i.e. the heliocentric leg exists in the group even though this member lacks it.
+        ///   5. the group's UNION of segments classifies Supported - i.e. the transfer really is
+        ///      there, and really is only visible when the members are read together.
         /// </summary>
         internal static Diagnosis Diagnose(IReadOnlyList<MemberFacts> members, IBodyInfo bodyInfo)
         {
             int n = members?.Count ?? 0;
             var result = new Diagnosis { MemberClauses = new string[n] };
-            // A single member cannot be a split sibling, and without a body graph there is no
-            // ancestor relation to test.
+            // A single member cannot be a split sibling, and without a body graph the classifier
+            // cannot run at all.
             if (n < 2 || bodyInfo == null)
                 return result;
 
@@ -170,7 +179,7 @@ namespace Parsek.Reaim
             for (int i = 0; i < members.Count; i++)
             {
                 MemberFacts m = members[i];
-                if (m == null || string.IsNullOrEmpty(m.ChainId) || m.SegmentBodyNames.Count == 0)
+                if (m == null || string.IsNullOrEmpty(m.ChainId) || m.Segments.Count == 0)
                     continue;
                 List<MemberFacts> target = null;
                 for (int g = 0; g < groups.Count && target == null; g++)
@@ -211,36 +220,24 @@ namespace Parsek.Reaim
                     return null;
             }
 
-            // The GROUP's launch body: the body of the earliest segment anywhere in the group.
-            // (The declining member's own earliest body is not it - that is exactly the bug: the
-            // second half of a split starts at the Sun and so has no strict ancestor of its own.)
-            MemberFacts earliest = group[0];
-            for (int i = 1; i < group.Count; i++)
-            {
-                if (group[i].EarliestSegmentStartUT < earliest.EarliestSegmentStartUT)
-                    earliest = group[i];
-            }
-            string groupLaunchBody = earliest.EarliestSegmentBodyName;
-            if (string.IsNullOrEmpty(groupLaunchBody))
+            // (5) THE GATE. Read the group the way Design C would - one vessel's non-overlapping
+            //     time slices concatenated in UT order - and run the REAL classifier over it. Only
+            //     a Supported union proves the group holds a transfer that no single member
+            //     carries. The plan is used for its answer strings (launch / target / common
+            //     ancestor) and then discarded; nothing downstream ever sees it.
+            var union = new List<OrbitSegment>();
+            for (int i = 0; i < group.Count; i++)
+                union.AddRange(group[i].Segments);
+            union.Sort((a, b) => a.startUT.CompareTo(b.startUT));
+            ReaimMissionPlan unionPlan = ReaimClassifier.Classify(union, bodyInfo);
+            if (!unionPlan.Supported)
                 return null;
 
-            // (5) The nearest STRICT ancestor of the group launch body that the group actually
-            //     recorded. Nearest-first so a Kerbin->Sun group names 'Sun', not a pack's root.
-            List<string> ancestors = MissionPeriodicity.AncestorChain(groupLaunchBody, bodyInfo);
-            string ancestorBody = null;
-            for (int a = 1; a < ancestors.Count && ancestorBody == null; a++)
-            {
-                for (int i = 0; i < group.Count; i++)
-                {
-                    if (Records(group[i], ancestors[a]))
-                    {
-                        ancestorBody = ancestors[a];
-                        break;
-                    }
-                }
-            }
-            if (ancestorBody == null)
-                return null;   // the group genuinely never recorded a heliocentric leg
+            string launchBody = unionPlan.LaunchBody;
+            string ancestorBody = unionPlan.CommonAncestor;
+            string targetBody = unionPlan.TargetBody;
+            if (string.IsNullOrEmpty(launchBody) || string.IsNullOrEmpty(ancestorBody))
+                return null;
 
             var annotated = new List<int>();
             for (int i = 0; i < group.Count; i++)
@@ -251,8 +248,8 @@ namespace Parsek.Reaim
 
                 bool carriesAncestor = Records(m, ancestorBody);
                 MemberFacts sibling = carriesAncestor
-                    ? FindSibling(group, m, groupLaunchBody)   // who holds the launch-body legs?
-                    : FindSibling(group, m, ancestorBody);     // who holds the heliocentric leg?
+                    ? FindSibling(group, m, launchBody)     // who holds the launch-body legs?
+                    : FindSibling(group, m, ancestorBody);  // who holds the heliocentric leg?
                 if (sibling == null)
                     continue;
 
@@ -260,22 +257,29 @@ namespace Parsek.Reaim
                 if (slot < 0)
                     continue;
 
+                // Both clauses state only what was MEASURED. In particular the carrier variant does
+                // NOT claim the common-ancestor body has no parent - false whenever the ancestor is
+                // not the Sun (a Mun->Kerbin->Minmus group's ancestor is Kerbin, whose parent IS the
+                // Sun). It states the fact the classifier actually acted on: this member recorded
+                // nothing at a strict ancestor of its OWN earliest body.
                 clauses[slot] = carriesAncestor
-                    ? string.Format(
-                        " | {0}: NOT a missing transfer - THIS member records the '{1}' "
-                        + "(common-ancestor) leg but its own earliest body is '{2}', which has no "
-                        + "strict ancestor, so Classify declines it; the launch-body legs are in "
-                        + "sibling member#{3} of the same chain group (chainId={4} members={5}). "
-                        + "The transfer is SPLIT across the group and Classify only ever sees one "
-                        + "member ({6})",
-                        GrepToken, ancestorBody, m.EarliestSegmentBodyName, sibling.Ordinal,
-                        m.ChainId, group.Count, FindingId)
-                    : string.Format(
-                        " | {0}: NOT a missing transfer - sibling member#{1} of the same chain "
-                        + "group (chainId={2} members={3}) records the '{4}' (common-ancestor) leg "
-                        + "this member lacks. The transfer is SPLIT across the group and Classify "
-                        + "only ever sees one member ({5})",
-                        GrepToken, sibling.Ordinal, m.ChainId, group.Count, ancestorBody, FindingId);
+                    ? string.Format(CultureInfo.InvariantCulture,
+                        " | {0}: NOT a missing transfer - this chain group's segments classify "
+                        + "Supported as {1}->{2} via '{3}'. THIS member records the '{3}' "
+                        + "(common-ancestor) leg but recorded no segment at a strict ancestor of "
+                        + "its own earliest body '{4}', so Classify declines it; the '{1}' legs are "
+                        + "in sibling member#{5} (chainId={6} members={7}). The transfer is SPLIT "
+                        + "across the group and Classify only ever sees one member ({8})",
+                        GrepToken, launchBody, targetBody, ancestorBody, m.EarliestSegmentBodyName,
+                        sibling.Ordinal, m.ChainId, group.Count, FindingId)
+                    : string.Format(CultureInfo.InvariantCulture,
+                        " | {0}: NOT a missing transfer - this chain group's segments classify "
+                        + "Supported as {1}->{2} via '{3}', and sibling member#{4} "
+                        + "(chainId={5} members={6}) records the '{3}' (common-ancestor) leg this "
+                        + "member lacks. The transfer is SPLIT across the group and Classify only "
+                        + "ever sees one member ({7})",
+                        GrepToken, launchBody, targetBody, ancestorBody, sibling.Ordinal,
+                        m.ChainId, group.Count, FindingId);
                 annotated.Add(m.Ordinal);
             }
             if (annotated.Count == 0)
@@ -283,25 +287,29 @@ namespace Parsek.Reaim
 
             var ordinals = new string[annotated.Count];
             for (int i = 0; i < annotated.Count; i++)
-                ordinals[i] = "#" + annotated[i].ToString(System.Globalization.CultureInfo.InvariantCulture);
-            return string.Format(
-                " | {0}: chainId={1} members=[{2}] jointly record a '{3}'-legged transfer that no "
-                + "SINGLE member carries whole - a load-time split, not a mission without a "
-                + "transfer ({4})",
-                GrepToken, group[0].ChainId, string.Join(",", ordinals), ancestorBody, FindingId);
+                ordinals[i] = "#" + annotated[i].ToString(CultureInfo.InvariantCulture);
+            return string.Format(CultureInfo.InvariantCulture,
+                " | {0}: chainId={1} members=[{2}] jointly classify Supported as {3}->{4} via "
+                + "'{5}', which no SINGLE member does - a load-time split, not a mission without a "
+                + "transfer ({6})",
+                GrepToken, group[0].ChainId, string.Join(",", ordinals),
+                launchBody, targetBody, ancestorBody, FindingId);
         }
 
         private static bool Records(MemberFacts m, string bodyName)
         {
-            for (int i = 0; i < m.SegmentBodyNames.Count; i++)
+            for (int i = 0; i < m.Segments.Count; i++)
             {
-                if (string.Equals(m.SegmentBodyNames[i], bodyName, StringComparison.Ordinal))
+                if (string.Equals(m.Segments[i].bodyName, bodyName, StringComparison.Ordinal))
                     return true;
             }
             return false;
         }
 
-        // The earliest OTHER member of the group that records the wanted body.
+        // The EARLIEST other member of the group that records the wanted body. "Earliest" is the
+        // deliberate choice rather than an accident of iteration order: with three or more slices
+        // the launch-body legs can appear in several, and the earliest is the one a reader walks
+        // back to. Pinned by ThreeSliceGroupNamesTheEarliestMatchingSibling.
         private static MemberFacts FindSibling(List<MemberFacts> group, MemberFacts self, string bodyName)
         {
             MemberFacts best = null;

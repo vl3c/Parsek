@@ -592,7 +592,13 @@ namespace Parsek
             // emitted in a second pass (same order, same gate, same text) because the split-sibling
             // annotation below is a statement about the member's SIBLINGS - it cannot be written
             // while the siblings are still unclassified. Nothing else about pass 1 changed.
-            var memberVerdicts = new List<ReaimMemberVerdict>();
+            //
+            // The gate is read ONCE and the list stays null when logging is off, so a suppressed
+            // build allocates nothing here and pins no member's segment list alive past its own
+            // iteration - the diagnostic really is skipped entirely, not merely unprinted.
+            bool diagEnabled = !SuppressLogging;
+            List<ReaimMemberVerdict> memberVerdicts =
+                diagEnabled ? new List<ReaimMemberVerdict>() : null;
             for (int mi = 0; mi < memberIndices.Count; mi++)
             {
                 int midx = memberIndices[mi];
@@ -605,13 +611,14 @@ namespace Parsek
                 var msegs = new List<OrbitSegment>(mrec.OrbitSegments);
                 msegs.Sort((a, b) => a.startUT.CompareTo(b.startUT));
                 ReaimMissionPlan mp = ReaimClassifier.Classify(msegs, bodyInfo);
-                memberVerdicts.Add(new ReaimMemberVerdict
-                {
-                    Ordinal = mi,
-                    Recording = mrec,
-                    Segments = msegs,
-                    Plan = mp
-                });
+                if (diagEnabled)
+                    memberVerdicts.Add(new ReaimMemberVerdict
+                    {
+                        Ordinal = mi,
+                        Recording = mrec,
+                        Segments = msegs,
+                        Plan = mp
+                    });
                 if (mp.Supported && transferSegments == null)
                 {
                     plan = mp;
@@ -629,12 +636,13 @@ namespace Parsek
             // REAIM-CLASSIFIER-FRAGILE-TO-MEMBER-SPLITS, cheap interim: a load-time split spreads
             // one transfer across two chain-group siblings, and then every member declines with the
             // missing-heliocentric-leg reason - indistinguishable from a mission that never recorded
-            // a transfer. Annotate the decline when a SIBLING in the same chain group (the
-            // CopySplitIdentityFields marker: same ChainId + launch guid) does carry the leg.
-            // DIAGNOSTIC ONLY: `plan` is not touched, so no classification outcome moves. Skipped
-            // entirely when logging is off - the clauses have no consumer but the log lines.
+            // a transfer. Annotate the decline when the chain group (the CopySplitIdentityFields
+            // marker: same ChainId + launch guid) classifies Supported as a WHOLE while no single
+            // member does. DIAGNOSTIC ONLY: `plan` is not touched and the union plan the diagnostic
+            // computes is discarded inside it, so no classification outcome moves. Skipped entirely
+            // when logging is off - the clauses have no consumer but the log lines.
             ReaimSplitSiblingDiag.Diagnosis splitDiag = null;
-            if (!SuppressLogging)
+            if (diagEnabled)
             {
                 var facts = new List<ReaimSplitSiblingDiag.MemberFacts>(memberVerdicts.Count);
                 for (int i = 0; i < memberVerdicts.Count; i++)
