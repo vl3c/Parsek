@@ -705,16 +705,21 @@ namespace Parsek.Patches
                 HighLogic.LoadedScene);
         }
 
-        /// <param name="outsideRenderWindow">Pass true ONLY from a branch whose own condition IS the
-        /// measurement "the drive clock is outside the recording's rendered body-frame window"
-        /// (<c>currentUT &gt; endUT</c> / <c>currentUT &lt; startUT</c>). It rides the render intent to
-        /// the end-of-frame probe, where it is the positive discriminator that keeps the gated
-        /// <c>line-blink</c> anomaly from raising on a LEGITIMATE window transition
-        /// (LINE-BLINK-JUMP-STRADDLE-DETECTOR-GAP). Defaults false, and every other branch MUST leave
-        /// it false - including the ones that merely log bounds beside a different reason, and
-        /// especially <c>stale-segment-awaiting-reseed</c>, whose "outside bounds" is the APPLIED
-        /// SEGMENT bounds lagging INSIDE the window. Widening this is how the exemption would start
-        /// masking real blinks; <c>LineBlinkWindowExitStampSiteTests</c> pins the site count.</param>
+        /// <param name="windowCoverage">Pass a NON-Unknown value ONLY from a branch whose own
+        /// condition IS a measurement of the drive clock against the recording's rendered body-frame
+        /// window. <c>Outside</c> where the condition is <c>currentUT &gt; endUT</c> /
+        /// <c>currentUT &lt; startUT</c>; <c>Inside</c> where the branch verified covering bounds. It
+        /// rides the render intent to the end-of-frame probe, where the two together are the positive
+        /// discriminator that keeps the gated <c>line-blink</c> anomaly from raising on a LEGITIMATE
+        /// window transition (LINE-BLINK-JUMP-STRADDLE-DETECTOR-GAP).
+        ///
+        /// <para>Defaults <c>Unknown</c>, and every other branch MUST leave it there - the ones that
+        /// merely log bounds beside a different reason; <c>stale-segment-awaiting-reseed</c>, whose
+        /// "outside bounds" is the APPLIED SEGMENT bounds lagging INSIDE the window; and
+        /// <c>terminal-visible</c>, which is LIT past the recorded window with no bounds at all and
+        /// must therefore never read as covered. Widening this is how the exemption would start masking
+        /// real blinks; <c>LineBlinkWindowExitExemptionTests</c> source-gates every stamp site by
+        /// enum-value spelling and count.</para></param>
         private static void LogOrbitLineDecision(
             uint vesselPid,
             string reason,
@@ -726,7 +731,8 @@ namespace Parsek.Patches
             double currentUT,
             double startUT,
             double endUT,
-            bool outsideRenderWindow = false)
+            MapRenderTrace.RenderWindowCoverage windowCoverage =
+                MapRenderTrace.RenderWindowCoverage.Unknown)
         {
             // Record the authoritative line/icon decision so the end-of-frame MapRenderProbe can
             // reconcile it against the actually-rendered state on this same frame (decision-vs-truth,
@@ -734,7 +740,7 @@ namespace Parsek.Patches
             if (MapRenderTrace.IsEnabled)
             {
                 MapRenderTrace.RecordLineIntent(
-                    vesselPid, lineActive, drawIcons.ToString(), reason, outsideRenderWindow);
+                    vesselPid, lineActive, drawIcons.ToString(), reason, windowCoverage);
 
                 // Unified LineVisibilityChange EVENT: pair the decision/reason side (recordingId + WHY the
                 // proto orbit line / icon appeared / disappeared / was suppressed) with the probe's pid-only
@@ -954,7 +960,13 @@ namespace Parsek.Patches
                     hasBounds: true,
                     currentUT,
                     segStartUT,
-                    segEndUT);
+                    segEndUT,
+                    // LIT and provably INSIDE covered bounds: the branch is gated on
+                    // appliedBoundsCoverHead, i.e. currentUT is within the applied segment's own
+                    // range. The line-blink exemption needs this POSITIVE fact for the lit half of a
+                    // toggle pair - "not stamped Outside" would wrongly admit terminal-visible, which
+                    // is lit PAST the recorded window. See MapRenderTrace.ClassifyLineToggle.
+                    windowCoverage: MapRenderTrace.RenderWindowCoverage.Inside);
                 return;
             }
 
@@ -1004,11 +1016,14 @@ namespace Parsek.Patches
                             currentUT,
                             startUT,
                             endUT,
-                            // Honest: this branch is only reachable with the clock outside the window.
-                            // It decides the line ON, so the line-blink exemption (which consults the
-                            // OFF half of a toggle pair) never reads it; stamped so the intent record
-                            // states the geometry rather than a convenient false.
-                            outsideRenderWindow: true);
+                            // LIT, and OUTSIDE the window - this branch is only reachable under
+                            // pastEnd || beforeStart. Load-bearing for the line-blink exemption rather
+                            // than bookkeeping: this is the ONE decision that holds the line lit out
+                            // there, so a toggle pair that pivots on it has NOTHING inside the window
+                            // and is a real on-screen flash. Stamping Outside (not Inside, and not
+                            // Unknown) is what makes ResolveWindowTransitionExempt decline it from
+                            // both edges.
+                            windowCoverage: MapRenderTrace.RenderWindowCoverage.Outside);
                         return;
                     }
 
@@ -1027,10 +1042,10 @@ namespace Parsek.Patches
                         endUT,
                         // THE window-exit OFF. The enclosing branch condition IS the measurement
                         // (pastEnd || beforeStart against the body-frame bounds), so the darkness is
-                        // "there is no recorded arc at this clock", not a flicker. This is the ONE
-                        // decision the line-blink exemption is built on - see
-                        // MapRenderTrace.IsWindowExitOffToggle.
-                        outsideRenderWindow: true);
+                        // "there is no recorded arc at this clock", not a flicker. This is the dark
+                        // half the line-blink exemption is built on - see
+                        // MapRenderTrace.ClassifyLineToggle.
+                        windowCoverage: MapRenderTrace.RenderWindowCoverage.Outside);
                     return;
                 }
 
@@ -1081,7 +1096,11 @@ namespace Parsek.Patches
                     hasBounds: true,
                     currentUT,
                     startUT,
-                    endUT);
+                    endUT,
+                    // LIT and provably INSIDE the body-frame window: control only reaches here after
+                    // the pastEnd || beforeStart block returned, so currentUT is within
+                    // [startUT, endUT]. The lit half's positive fact - see ClassifyLineToggle.
+                    windowCoverage: MapRenderTrace.RenderWindowCoverage.Inside);
                 return;
             }
 

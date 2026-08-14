@@ -225,35 +225,51 @@ floating-origin / zero-velocity carve-outs):
   `bodyChanged` (the toggle pair straddles a reference-body / segment seam),
   `offWindowCovered` (every frame of the dark window had an actual trajectory-polyline
   line painted for the same recording — nothing went dark), and, since
-  LINE-BLINK-JUMP-STRADDLE-DETECTOR-GAP was closed, `offEdgeOutsideRenderWindow` —
-  **the OFF half of the toggle pair was decided because the drive clock left the
-  recording's rendered body-frame window.** That third one is the only exemption that
-  reads the DECISION side rather than the truth side: `GhostOrbitLinePatch`'s
-  `past-body-frame-end` / `before-body-frame-start` block — the one place where the
-  branch condition IS the measurement `currentUT > endUT` / `currentUT < startUT` —
-  stamps `outsideRenderWindow` onto the frame's `LineRenderIntent`, and the probe
-  resolves which half of the pair was the OFF (this frame on the dark edge, the
-  stamped prior-toggle verdict on the re-activation edge; both directions occur in the
-  archive). It is deliberately NOT a generic "clock outside whatever bounds this site
-  logged" comparison: `stale-segment-awaiting-reseed` also reads outside-bounds, but
-  those are the APPLIED SEGMENT bounds lagging INSIDE the window, which is exactly the
-  shape a real flicker could hide behind.
+  LINE-BLINK-JUMP-STRADDLE-DETECTOR-GAP was closed, `windowTransitionExempt` — **the pair
+  left the recording's rendered body-frame window and came back onto a clock the
+  recording COVERS.** That third one is the only exemption that reads the DECISION side
+  rather than the truth side. `GhostOrbitLinePatch` stamps a three-state
+  `RenderWindowCoverage` onto each frame's `LineRenderIntent`, and only where the branch
+  condition IS the measurement: `Outside` at `past-body-frame-end` /
+  `before-body-frame-start` and at `parking-conic-loiter-hold`, `Inside` at
+  `director-stockconic-visible` and `visible-body-frame`, `Unknown` everywhere else.
+  `ClassifyLineToggle` reduces one toggle to `WindowExitOff` / `InsideWindowOn` /
+  `Other`; `ResolveWindowTransitionExempt` exempts only when BOTH halves are proven, one
+  of each kind, with the probe stamping each toggle's verdict per pid so whichever edge
+  the detector catches has the other half on record.
+
+  BOTH HALVES, because one is never enough — in either direction.
+  `parking-conic-loiter-hold` holds the line LIT while the clock is outside the window
+  and sits in the same `pastEnd || beforeStart` block as the window-exit OFF, so a pair
+  pivoting on it has nothing inside the window and is a real on-screen flash: dark →
+  hold (caught on the lit edge) and hold → dark one frame later (caught on the dark edge,
+  where its partner has already aged past the frame window, so a dark-half-only rule made
+  the whole flash raise NOTHING). The coverage is also deliberately NOT a generic "clock
+  outside whatever bounds this site logged": `stale-segment-awaiting-reseed` reads
+  outside-bounds but those are the APPLIED SEGMENT bounds lagging INSIDE the window, and
+  `terminal-visible` is LIT past the recorded window while stamping nothing — which is
+  why `Inside` must be a positive fact rather than "not `Outside`".
 
   CANNOT-MASK CONTRACT (the house analogue is the log validator's
-  `ParseSuppressionList` refusing to suppress FMT/WRN). A real blink is a line that
-  toggles off and back on while the ghost is STILL INSIDE its rendered window — the
-  negation of the exemption's precondition — so the two are mutually exclusive by
-  construction. Every within-window OFF reason (`polyline-owns-phase`,
-  `director-traced-path-suppress`, `below-atmosphere`, `stale-segment-awaiting-reseed`,
-  `post-polyline-release-grace`, `director-terminal-suppress`) leaves the stamp false
-  and still raises, as do a frame where our Postfix never decided, a decision that
-  disagrees with the truth read, and a degenerate line read. Pinned by
-  `LineBlinkWindowExitExemptionTests`, whose
-  `WindowExitStamp_IsConfinedToTheTwoWindowExitDecisions` cell is a SOURCE gate: the
-  literal `outsideRenderWindow: true` may appear in exactly one file, exactly twice.
-  Both COVERAGE suppressions log a `line-blink-suppressed` line carrying BOTH guards'
-  values (`offWindowCovered=` / `offEdgeOutsideRenderWindow=`) plus the decision's
-  `intentReason=`, because a silent guard on a gated token is undebuggable. Read the
+  `ParseSuppressionList` refusing to suppress FMT/WRN). Every conjunct is fail-closed:
+  anything unproven lands in `Other`, and `Other` never exempts on either edge — so the
+  exemption fires only on a pair whose two halves were each MEASURED by the site whose
+  branch condition is that measurement, never on absence of evidence. Every within-window
+  OFF reason (`polyline-owns-phase`, `director-traced-path-suppress`, `below-atmosphere` /
+  `terminal-below-atmosphere`, `stale-segment-awaiting-reseed`,
+  `post-polyline-release-grace`, `director-terminal-suppress`) still raises, as do a frame
+  where the Postfix never ran, a decision that disagrees with the truth read, and a
+  degenerate line read. Pinned by `LineBlinkWindowExitExemptionTests`, whose
+  `CoverageStamps_AreConfinedToTheFourMeasuringDecisions` cell is a SOURCE gate — the stamp
+  is an ENUM VALUE, so any widening must spell `RenderWindowCoverage.Inside` / `.Outside`
+  and is counted, catching the trailing POSITIONAL argument a string grep would miss — and
+  `CoverageStamp_DefaultsToUnknown_AndHasOneWriter` pins `RecordLineIntent` to one
+  production call site.
+
+  Both coverage suppressions log a `line-blink-suppressed` line carrying every guard flag
+  (`offWindowCovered=` / `windowTransitionExempt=` / `bodyChanged=`), the two toggle
+  verdicts (`toggleVerdict=` / `priorToggleVerdict=`, so a reader sees WHICH proof was
+  missing) and the decision's `intentReason=`, because a silent guard on a gated token is undebuggable. Read the
   attribution precisely: `bodyChanged` short-circuits AHEAD of both and never reaches
   that line, so a toggle pair a body change would also have exempted is attributed to
   whichever coverage guard is true. That overstates the coverage guards' reach rather

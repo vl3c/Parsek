@@ -144,22 +144,27 @@ id = "V10-dres-loop-arrival"
 #     side); the key was.
 #
 #     THE BRACKET IS RESTORED ANYWAY, for a different and better reason than the census.
-#     Run `2026-08-14_1920` flew iteration 3's -900 / -300 / +600 verbatim: PASS, zero
+#     Run `2026-08-14_1956` flew iteration 3's -900 / -300 / +600 verbatim: PASS, zero
 #     anomalies, and the exemption VISIBLY fired at the very UT that red three times --
-#     `line-blink-suppressed ... currentUT=31276442.080 lineActive=True prevActive=False
+#     `line-blink-suppressed ... currentUT=31276442.240 lineActive=True prevActive=False
 #     sinceFrames=1 body=Sun offWindowCovered=False polylinePainted=False
-#     offEdgeOutsideRenderWindow=True bodyChanged=False
-#     intentReason=director-stockconic-visible`. Note `offWindowCovered=False` AND
-#     `bodyChanged=False`: all three other guards are demonstrably inactive, so the
-#     suppression is the new discriminator and nothing else. (`sinceFrames` reads 1 or 2
-#     depending on frame timing across runs - do not pin it.) Keeping
+#     windowTransitionExempt=True bodyChanged=False toggleVerdict=InsideWindowOn
+#     priorToggleVerdict=WindowExitOff intentReason=director-stockconic-visible`. Note
+#     `offWindowCovered=False` AND `bodyChanged=False`: all three other guards are
+#     demonstrably inactive, so the suppression is the window-transition exemption and
+#     nothing else. The two verdicts show BOTH halves proven, one of each kind - which is
+#     what the exemption requires after the review pass that found a one-sided rule
+#     swallows a real flash in EITHER direction. (`sinceFrames` reads 1 or 2 depending on
+#     frame timing across runs - deliberately NOT pinned.) Keeping
 #     those two jumps makes this lane the LIVE REGRESSION FLOOR for that exemption --
 #     strip it and the lane reds again, exactly as it did in iterations 1-3.
-#     Reading runs `_1842` / `_1844` both PASS with the census pair byte-identical; ARMED `_1849`,
-#     control `_1852` correctly PARSEK-FAIL(expectation), reverted `_1855`. The FINAL code state
-#     was re-flown as `_1920` after a review pass narrowed the exemption (a pair with BOTH edges
-#     outside the window is no longer exempt) and put `bodyChanged=` on the suppressed line:
-#     PASS, zero anomalies, every armed token unchanged.
+#     ARMING LEDGER on the FINAL predicate (a clean-context review found that judging a
+#     toggle pair from ONE half swallows a real flash in either direction, so the exemption
+#     now requires BOTH halves proven): readings `_1956` / `_1959` both PASS with the census
+#     pair and the suppressed line byte-identical, control `_2002` correctly
+#     PARSEK-FAIL(expectation) with mismatches=2 naming BOTH inverted tokens
+#     (`outsideSoi=9` and `bodyChanged=True`), reverted `_2005` PASS. Earlier ledgers on
+#     superseded predicate cuts: `_1842`/`_1844`/`_1849`/`_1852`/`_1855`, then `_1920`.
 # =====================================================================================
 tier = "operator"
 description = "The Dres program's final measurement, ARMED -- TimeJump into the re-aimed Kerbin->Dres transfer so the per-window synthesizer runs, to read the tilt disposition at Dres's 5 deg inclination, the seam-endpoint census at the arrival, and the cycle-0 re-aimed-transfer-ready line. ITERATION 5: both instrument blockers closed upstream, so iteration 3's escape bracket is restored and the census pair (evaluated=1 outsideSoi=0) is ARMED alongside the synth-geometry claim. The restored pre-D0 jumps make this lane the live regression floor for the line-blink WINDOW-EXIT exemption."
@@ -329,6 +334,15 @@ required = [
   "xfer-vs-Dres@soi=32832839m \\(SOI=32832840\\)",
   # THE CENSUS PAIR (armed iteration 5): the renderer's own arrival proof.
   "seam-endpoint summary evaluated=1 outsideSoi=0",
+  # THE EXEMPTION FLOOR, and it is armed POSITIVELY on purpose. `allowedAnomalies = []`
+  # already reds this lane if the WINDOW-EXIT exemption is stripped, but that is a
+  # negative floor: if a future render change simply stops producing the pre-D0
+  # window-exit toggle at all, the lane goes green with nothing left to protect and the
+  # floor is silently gone. This token asserts the suppression ACTUALLY HAPPENED.
+  # `sinceFrames` is deliberately omitted - it reads 1 or 2 across runs by frame timing.
+  # `bodyChanged=False` is load-bearing: with all three other guards reading False, the
+  # line states that the window-transition exemption and nothing else ate the raise.
+  "line-blink-suppressed .* offWindowCovered=False .* windowTransitionExempt=True bodyChanged=False",
   # Cycle 0 re-aims to a real Dres encounter with no deviation.
   "re-aimed transfer ready: departUT=31276742.826743945",
   "devFromRecorded=0s",

@@ -3,20 +3,23 @@ using System.IO;
 using System.Text.RegularExpressions;
 using Xunit;
 
+using Coverage = Parsek.MapRenderTrace.RenderWindowCoverage;
+using Verdict = Parsek.MapRenderTrace.LineToggleVerdict;
+
 namespace Parsek.Tests
 {
     /// <summary>
-    /// LINE-BLINK-JUMP-STRADDLE-DETECTOR-GAP: the WINDOW-EXIT exemption on the gated Tier-C
+    /// LINE-BLINK-JUMP-STRADDLE-DETECTOR-GAP: the WINDOW-TRANSITION exemption on the gated Tier-C
     /// <c>line-blink</c> anomaly, plus the cells that pin it CANNOT mask a real blink.
     ///
-    /// <para>The exemption's whole claim is a single sentence: <b>a line that goes dark because the
-    /// drive clock left the recording's rendered body-frame window is a legitimate transition, not a
-    /// flicker.</b> A REAL blink is its negation - a line that toggles off and back on while the ghost
-    /// is STILL INSIDE its window - so the two are mutually exclusive by construction rather than by
-    /// threshold. These cells hold that line from both directions: the "still raises" cells here would
-    /// fail the moment the exemption widened past its positive discriminator, and
-    /// <see cref="WindowExitStamp_IsConfinedToTheTwoWindowExitDecisions"/> fails if a new decision site
-    /// starts claiming the exemption at the source.</para>
+    /// <para>The exemption's claim is one sentence: <b>a toggle pair that leaves the recording's
+    /// rendered body-frame window and comes back onto a clock the recording COVERS is two legitimate
+    /// transitions, not a flicker.</b> Both halves must be PROVEN - and that is the whole lesson of
+    /// this file's history. Judging from ONE half looks sufficient and is not:
+    /// <c>parking-conic-loiter-hold</c> holds the line LIT while the clock is outside the window, so a
+    /// pair pivoting on it has nothing inside the window and is a real on-screen flash. A
+    /// dark-half-only rule swallows it from one edge; a lit-half-only rule swallows it from the
+    /// other.</para>
     ///
     /// <para>Fixture UTs / frames / bodies below are the ARCHIVED values from the four measured raises,
     /// not invented ones - see each cell's citation.</para>
@@ -24,163 +27,180 @@ namespace Parsek.Tests
     public class LineBlinkWindowExitExemptionTests
     {
         // ---------------------------------------------------------------------------------
-        // IsWindowExitOffToggle - the positive discriminator, one cell per FAIL-CLOSED conjunct
+        // ClassifyLineToggle - the positive discriminator, one cell per FAIL-CLOSED conjunct
         // ---------------------------------------------------------------------------------
 
         [Fact]
-        public void WindowExitOffToggle_AllFourConjuncts_IsWindowExit()
+        public void Classify_DarkAndMeasuredOutside_IsWindowExitOff()
         {
-            Assert.True(MapRenderTrace.IsWindowExitOffToggle(
-                lineDefinitivelyOff: true,
-                hasFreshIntent: true,
-                intentLineActive: false,
-                intentOutsideRenderWindow: true));
+            Assert.Equal(Verdict.WindowExitOff, MapRenderTrace.ClassifyLineToggle(
+                lineDefinitivelyOff: true, lineDefinitivelyLit: false,
+                hasFreshIntent: true, intentLineActive: false,
+                intentWindowCoverage: Coverage.Outside));
         }
 
         [Fact]
-        public void WindowExitOffToggle_DegenerateLineRead_IsNotWindowExit()
+        public void Classify_LitAndMeasuredInside_IsInsideWindowOn()
         {
-            // "(line-null)" / "(no-renderer)" / "(read-err:...)" reads land here: we do not know what
-            // the line did, and not knowing is never evidence of a legitimate transition.
-            Assert.False(MapRenderTrace.IsWindowExitOffToggle(
-                lineDefinitivelyOff: false,
-                hasFreshIntent: true,
-                intentLineActive: false,
-                intentOutsideRenderWindow: true));
+            Assert.Equal(Verdict.InsideWindowOn, MapRenderTrace.ClassifyLineToggle(
+                lineDefinitivelyOff: false, lineDefinitivelyLit: true,
+                hasFreshIntent: true, intentLineActive: true,
+                intentWindowCoverage: Coverage.Inside));
         }
 
         [Fact]
-        public void WindowExitOffToggle_NoFreshIntent_IsNotWindowExit()
+        public void Classify_DegenerateLineRead_IsOther()
         {
-            // Our decision hook did not run this frame, so nothing measured the clock against the
-            // window. A line KSP or another patch darkened behind our back must still raise.
-            Assert.False(MapRenderTrace.IsWindowExitOffToggle(
-                lineDefinitivelyOff: true,
-                hasFreshIntent: false,
-                intentLineActive: false,
-                intentOutsideRenderWindow: true));
+            // "(line-null)" / "(no-renderer)" / "(read-err:...)" land here: neither definitively off
+            // nor definitively lit. Not knowing is never evidence of a legitimate transition.
+            Assert.Equal(Verdict.Other, MapRenderTrace.ClassifyLineToggle(
+                lineDefinitivelyOff: false, lineDefinitivelyLit: false,
+                hasFreshIntent: true, intentLineActive: false,
+                intentWindowCoverage: Coverage.Outside));
         }
 
         [Fact]
-        public void WindowExitOffToggle_DecisionDisagreesWithTruth_IsNotWindowExit()
+        public void Classify_NoFreshIntent_IsOther()
         {
-            // Decision says ON, truth reads OFF. That is the decision-vs-truth anomaly's business and
-            // must not be laundered into a line-blink exemption.
-            Assert.False(MapRenderTrace.IsWindowExitOffToggle(
-                lineDefinitivelyOff: true,
-                hasFreshIntent: true,
-                intentLineActive: true,
-                intentOutsideRenderWindow: true));
+            // Our Postfix did not run, so nothing measured the clock. BLOCKER-2 route (a): a line lit
+            // behind our back after a stamped window-exit OFF must not complete an exemption.
+            // Dark half, no decision this frame:
+            Assert.Equal(Verdict.Other, MapRenderTrace.ClassifyLineToggle(
+                lineDefinitivelyOff: true, lineDefinitivelyLit: false,
+                hasFreshIntent: false, intentLineActive: false,
+                intentWindowCoverage: Coverage.Outside));
+            // Lit half, no decision this frame:
+            Assert.Equal(Verdict.Other, MapRenderTrace.ClassifyLineToggle(
+                lineDefinitivelyOff: false, lineDefinitivelyLit: true,
+                hasFreshIntent: false, intentLineActive: true,
+                intentWindowCoverage: Coverage.Inside));
         }
 
         [Fact]
-        public void WindowExitOffToggle_InsideWindowReason_IsNotWindowExit()
+        public void Classify_DecisionDisagreesWithTruth_IsOther()
         {
-            // THE load-bearing conjunct. Every within-window OFF reason (polyline-owns-phase,
-            // director-traced-path-suppress, below-atmosphere / terminal-below-atmosphere,
-            // stale-segment-awaiting-reseed, post-polyline-release-grace,
-            // director-terminal-suppress) leaves this false.
-            Assert.False(MapRenderTrace.IsWindowExitOffToggle(
-                lineDefinitivelyOff: true,
-                hasFreshIntent: true,
-                intentLineActive: false,
-                intentOutsideRenderWindow: false));
+            // That disagreement is the decision-vs-truth anomaly's business and must not be laundered
+            // into a line-blink exemption.
+            // Truth dark, decision says ON:
+            Assert.Equal(Verdict.Other, MapRenderTrace.ClassifyLineToggle(
+                lineDefinitivelyOff: true, lineDefinitivelyLit: false,
+                hasFreshIntent: true, intentLineActive: true,
+                intentWindowCoverage: Coverage.Outside));
+            // Truth lit, decision says OFF:
+            Assert.Equal(Verdict.Other, MapRenderTrace.ClassifyLineToggle(
+                lineDefinitivelyOff: false, lineDefinitivelyLit: true,
+                hasFreshIntent: true, intentLineActive: false,
+                intentWindowCoverage: Coverage.Inside));
+        }
+
+        [Fact]
+        public void Classify_DarkButNotMeasuredOutside_IsOther()
+        {
+            // THE load-bearing conjunct for the dark half. Every within-window OFF reason
+            // (polyline-owns-phase, director-traced-path-suppress, below-atmosphere /
+            // terminal-below-atmosphere, stale-segment-awaiting-reseed, post-polyline-release-grace,
+            // director-terminal-suppress) leaves coverage Unknown and still raises.
+            foreach (Coverage coverage in new[] { Coverage.Unknown, Coverage.Inside })
+            {
+                Assert.Equal(Verdict.Other, MapRenderTrace.ClassifyLineToggle(
+                    lineDefinitivelyOff: true, lineDefinitivelyLit: false,
+                    hasFreshIntent: true, intentLineActive: false,
+                    intentWindowCoverage: coverage));
+            }
+        }
+
+        [Fact]
+        public void Classify_LitButNotMeasuredInside_IsOther()
+        {
+            // THE load-bearing conjunct for the lit half, and BLOCKER-2 route (b). `Inside` is
+            // POSITIVE, not "not Outside": `terminal-visible` is LIT past the recorded window and
+            // stamps NOTHING (Unknown), so a not-Outside test would read it as covered. `Outside` is
+            // `parking-conic-loiter-hold`. Both must be Other.
+            foreach (Coverage coverage in new[] { Coverage.Unknown, Coverage.Outside })
+            {
+                Assert.Equal(Verdict.Other, MapRenderTrace.ClassifyLineToggle(
+                    lineDefinitivelyOff: false, lineDefinitivelyLit: true,
+                    hasFreshIntent: true, intentLineActive: true,
+                    intentWindowCoverage: coverage));
+            }
         }
 
         // ---------------------------------------------------------------------------------
-        // ResolveOffEdgeOutsideRenderWindow - picking the OFF half of the toggle pair
+        // ResolveWindowTransitionExempt - BOTH halves, symmetric across the two edges
         // ---------------------------------------------------------------------------------
+
+        [Fact]
+        public void Resolve_LitEdge_InsideOnAfterWindowExitOff_IsExempt()
+        {
+            // The V10 dres shape: dark(before-body-frame-start) -> lit(director-stockconic-visible).
+            Assert.True(MapRenderTrace.ResolveWindowTransitionExempt(
+                lineIsLit: true, currentToggle: Verdict.InsideWindowOn,
+                hasPriorToggle: true, priorToggle: Verdict.WindowExitOff));
+        }
+
+        [Fact]
+        public void Resolve_DarkEdge_WindowExitOffAfterInsideOn_IsExempt()
+        {
+            // The V8 eve shape: lit(inside) -> dark(past-body-frame-end).
+            Assert.True(MapRenderTrace.ResolveWindowTransitionExempt(
+                lineIsLit: false, currentToggle: Verdict.WindowExitOff,
+                hasPriorToggle: true, priorToggle: Verdict.InsideWindowOn));
+        }
+
+        [Fact]
+        public void Resolve_LitEdge_LitHalfNotProvenInside_StillRaises()
+        {
+            // BLOCKER 2 at the predicate: the lit half is `parking-conic-loiter-hold` or
+            // `terminal-visible` or an undecided frame. A pair with nothing inside the window is a
+            // real on-screen flash.
+            Assert.False(MapRenderTrace.ResolveWindowTransitionExempt(
+                lineIsLit: true, currentToggle: Verdict.Other,
+                hasPriorToggle: true, priorToggle: Verdict.WindowExitOff));
+        }
+
+        [Fact]
+        public void Resolve_DarkEdge_PriorLitHalfNotProvenInside_StillRaises()
+        {
+            // BLOCKER 1, THE MIRROR, and the cell whose ABSENCE was the gap. Sequence: dark
+            // (past-body-frame-end, stamped) -> ... >8 frames ... -> lit (parking-conic-loiter-hold,
+            // stamped Other, no raise because it is out of the frame window) -> the hold disarms one
+            // frame later -> dark (past-body-frame-end). Caught on the DARK edge with sinceFrames=1.
+            // A dark-half-only rule exempted this, so the whole 1-frame lit flash in the dark region
+            // produced ZERO raises. The prior toggle was not a proven inside-window ON, so it raises.
+            Assert.False(MapRenderTrace.ResolveWindowTransitionExempt(
+                lineIsLit: false, currentToggle: Verdict.WindowExitOff,
+                hasPriorToggle: true, priorToggle: Verdict.Other));
+        }
+
+        [Fact]
+        public void Resolve_HalvesMustBeOppositeKinds_OtherwiseRaises()
+        {
+            // A pair is one dark half and one lit half. Two of the same kind is not a transition.
+            var cases = new[]
+            {
+                new object[] { true,  Verdict.InsideWindowOn, Verdict.InsideWindowOn },
+                new object[] { true,  Verdict.WindowExitOff,  Verdict.WindowExitOff },
+                new object[] { false, Verdict.WindowExitOff,  Verdict.WindowExitOff },
+                new object[] { false, Verdict.InsideWindowOn, Verdict.InsideWindowOn },
+            };
+            foreach (object[] c in cases)
+            {
+                Assert.False(MapRenderTrace.ResolveWindowTransitionExempt(
+                    lineIsLit: (bool)c[0], currentToggle: (Verdict)c[1],
+                    hasPriorToggle: true, priorToggle: (Verdict)c[2]));
+            }
+        }
 
         [Theory]
         [InlineData(true)]
         [InlineData(false)]
-        public void OffEdgeResolve_DarkEdge_UsesThisFramesVerdict(bool currentVerdict)
+        public void Resolve_NoPriorToggle_IsNotExempt(bool lineIsLit)
         {
-            // Line just went out => THIS frame is the OFF half. Both V8 straddles land here.
-            Assert.Equal(currentVerdict, MapRenderTrace.ResolveOffEdgeOutsideRenderWindow(
-                lineIsLit: false,
-                currentToggleIsWindowExitOff: currentVerdict,
-                hasPriorToggleVerdict: true,
-                priorToggleWasWindowExitOff: !currentVerdict));
-        }
-
-        [Theory]
-        [InlineData(true)]
-        [InlineData(false)]
-        public void OffEdgeResolve_LitEdge_UsesPriorToggleVerdict(bool priorVerdict)
-        {
-            // Line just came back => the OFF half was the PREVIOUS toggle. All three V10 raises land
-            // here. Note the current verdict is deliberately the OPPOSITE and must be ignored: a LIT
-            // frame is never the OFF half of its own pair.
-            Assert.Equal(priorVerdict, MapRenderTrace.ResolveOffEdgeOutsideRenderWindow(
-                lineIsLit: true,
-                currentToggleIsWindowExitOff: !priorVerdict,
-                hasPriorToggleVerdict: true,
-                priorToggleWasWindowExitOff: priorVerdict));
-        }
-
-        [Fact]
-        public void OffEdgeResolve_LitEdge_NoPriorVerdict_IsNotExempt()
-        {
-            Assert.False(MapRenderTrace.ResolveOffEdgeOutsideRenderWindow(
-                lineIsLit: true,
-                currentToggleIsWindowExitOff: true,
-                hasPriorToggleVerdict: false,
-                priorToggleWasWindowExitOff: true));
-        }
-
-        [Fact]
-        public void OffEdgeResolve_BothEdgesOutsideWindow_IsNotExempt()
-        {
-            // THE BOTH-EDGES-OUTSIDE PIN, and the cell that makes the cannot-mask claim a
-            // measurement instead of a definition. `parking-conic-loiter-hold` is the ONE decision
-            // that can hold the line LIT while the clock is outside the window, and it lives in the
-            // same pastEnd || beforeStart block as the window-exit OFF. A pair
-            // dark(past-body-frame-end) -> lit(parking-conic-loiter-hold) is a REAL on-screen flicker
-            // in the dark region, and an OFF-half-only rule would have silently eaten it. Identical to
-            // OffEdgeResolve_LitEdge_UsesPriorToggleVerdict(true) except for this one flag.
-            Assert.False(MapRenderTrace.ResolveOffEdgeOutsideRenderWindow(
-                lineIsLit: true,
-                currentToggleIsWindowExitOff: false,
-                hasPriorToggleVerdict: true,
-                priorToggleWasWindowExitOff: true,
-                currentToggleIsOutsideWindowOn: true));
-        }
-
-        [Fact]
-        public void OffEdgeResolve_LitEdgeInsideWindow_StaysExempt()
-        {
-            // The control for the cell above: the SAME pair with a lit edge decided INSIDE the window
-            // (the flown V10 shape, whose ON is `director-stockconic-visible`) is still exempt. If this
-            // ever flips, the both-edges guard has over-reached and V10 reds.
-            Assert.True(MapRenderTrace.ResolveOffEdgeOutsideRenderWindow(
-                lineIsLit: true,
-                currentToggleIsWindowExitOff: false,
-                hasPriorToggleVerdict: true,
-                priorToggleWasWindowExitOff: true,
-                currentToggleIsOutsideWindowOn: false));
-        }
-
-        [Fact]
-        public void OffEdgeResolve_DarkEdge_IgnoresTheOutsideWindowOnFlag()
-        {
-            // On the dark edge there is no ON half to judge, so the new flag must not interfere.
-            Assert.True(MapRenderTrace.ResolveOffEdgeOutsideRenderWindow(
-                lineIsLit: false,
-                currentToggleIsWindowExitOff: true,
-                hasPriorToggleVerdict: true,
-                priorToggleWasWindowExitOff: false,
-                currentToggleIsOutsideWindowOn: true));
-        }
-
-        [Fact]
-        public void OffEdgeResolve_DefaultOutsideWindowOn_PreservesTheFourArgBehaviour()
-        {
-            Assert.True(MapRenderTrace.ResolveOffEdgeOutsideRenderWindow(
-                lineIsLit: true,
-                currentToggleIsWindowExitOff: false,
-                hasPriorToggleVerdict: true,
-                priorToggleWasWindowExitOff: true));
+            Assert.False(MapRenderTrace.ResolveWindowTransitionExempt(
+                lineIsLit: lineIsLit,
+                currentToggle: lineIsLit ? Verdict.InsideWindowOn : Verdict.WindowExitOff,
+                hasPriorToggle: false,
+                priorToggle: lineIsLit ? Verdict.WindowExitOff : Verdict.InsideWindowOn));
         }
 
         // ---------------------------------------------------------------------------------
@@ -188,87 +208,76 @@ namespace Parsek.Tests
         // ---------------------------------------------------------------------------------
 
         [Fact]
-        public void IsLineBlink_DefaultOffEdgeOutsideRenderWindow_PreservesLegacyBehavior()
+        public void IsLineBlink_DefaultWindowTransitionExempt_PreservesLegacyBehavior()
         {
             // Every pre-existing call site omits the new argument and must be byte-identical.
             Assert.True(MapRenderTrace.IsLineBlink(
-                toggled: true,
-                hasLastToggleFrame: true,
-                lastToggleFrame: 100,
-                currentFrame: 103));
+                toggled: true, hasLastToggleFrame: true,
+                lastToggleFrame: 100, currentFrame: 103));
         }
 
         [Fact]
-        public void IsLineBlink_WithinWindow_OffEdgeOutsideRenderWindow_NotBlink()
+        public void IsLineBlink_WithinWindow_WindowTransitionExempt_NotBlink()
         {
             Assert.False(MapRenderTrace.IsLineBlink(
-                toggled: true,
-                hasLastToggleFrame: true,
-                lastToggleFrame: 100,
-                currentFrame: 103,
-                bodyChanged: false,
-                offWindowCovered: false,
-                offEdgeOutsideRenderWindow: true));
+                toggled: true, hasLastToggleFrame: true,
+                lastToggleFrame: 100, currentFrame: 103,
+                bodyChanged: false, offWindowCovered: false,
+                windowTransitionExempt: true));
         }
 
         [Fact]
-        public void IsLineBlink_WithinWindow_OffEdgeInsideRenderWindow_StillBlink()
+        public void IsLineBlink_WithinWindow_NotAWindowTransition_StillBlink()
         {
-            // THE CANNOT-MASK PIN. Identical to the cell above in every parameter except the
-            // discriminator. If the exemption ever widened to "any OFF near a window", this reds.
+            // THE CANNOT-MASK PIN. Identical to the cell above in every parameter but the
+            // discriminator.
             Assert.True(MapRenderTrace.IsLineBlink(
-                toggled: true,
-                hasLastToggleFrame: true,
-                lastToggleFrame: 100,
-                currentFrame: 103,
-                bodyChanged: false,
-                offWindowCovered: false,
-                offEdgeOutsideRenderWindow: false));
+                toggled: true, hasLastToggleFrame: true,
+                lastToggleFrame: 100, currentFrame: 103,
+                bodyChanged: false, offWindowCovered: false,
+                windowTransitionExempt: false));
         }
 
         [Fact]
-        public void IsLineBlink_NoToggle_OffEdgeOutsideRenderWindow_StillNotBlink()
+        public void IsLineBlink_NoToggle_WindowTransitionExempt_StillNotBlink()
         {
-            // The new guard must not invent a raise where there was no toggle.
             Assert.False(MapRenderTrace.IsLineBlink(
-                toggled: false,
-                hasLastToggleFrame: true,
-                lastToggleFrame: 100,
-                currentFrame: 103,
-                bodyChanged: false,
-                offWindowCovered: false,
-                offEdgeOutsideRenderWindow: true));
+                toggled: false, hasLastToggleFrame: true,
+                lastToggleFrame: 100, currentFrame: 103,
+                bodyChanged: false, offWindowCovered: false,
+                windowTransitionExempt: true));
         }
 
         // ---------------------------------------------------------------------------------
-        // The FOUR archived raises, replayed end to end through both predicates
+        // The FOUR archived raises, replayed end to end through the whole chain
         // ---------------------------------------------------------------------------------
 
-        /// <summary>Replay one archived raise: resolve the OFF half, then ask the detector.</summary>
+        /// <summary>Replay one archived raise: classify this frame's half, resolve against the stamped
+        /// other half, then ask the detector. Coverage values are the ones the cited decision lines
+        /// carry.</summary>
         private static bool RaisesAfterExemption(
             bool lineIsLit,
-            bool currentToggleIsWindowExitOff,
-            bool priorToggleWasWindowExitOff,
+            Coverage thisFrameCoverage,
+            Verdict priorToggle,
             int lastToggleFrame,
             int currentFrame,
-            bool bodyChanged,
-            bool offWindowCovered,
-            bool currentToggleIsOutsideWindowOn = false)
+            bool bodyChanged = false,
+            bool offWindowCovered = false)
         {
-            bool offEdge = MapRenderTrace.ResolveOffEdgeOutsideRenderWindow(
-                lineIsLit: lineIsLit,
-                currentToggleIsWindowExitOff: currentToggleIsWindowExitOff,
-                hasPriorToggleVerdict: true,
-                priorToggleWasWindowExitOff: priorToggleWasWindowExitOff,
-                currentToggleIsOutsideWindowOn: currentToggleIsOutsideWindowOn);
+            Verdict current = MapRenderTrace.ClassifyLineToggle(
+                lineDefinitivelyOff: !lineIsLit,
+                lineDefinitivelyLit: lineIsLit,
+                hasFreshIntent: true,
+                intentLineActive: lineIsLit,
+                intentWindowCoverage: thisFrameCoverage);
+            bool exempt = MapRenderTrace.ResolveWindowTransitionExempt(
+                lineIsLit: lineIsLit, currentToggle: current,
+                hasPriorToggle: true, priorToggle: priorToggle);
             return MapRenderTrace.IsLineBlink(
-                toggled: true,
-                hasLastToggleFrame: true,
-                lastToggleFrame: lastToggleFrame,
-                currentFrame: currentFrame,
-                bodyChanged: bodyChanged,
-                offWindowCovered: offWindowCovered,
-                offEdgeOutsideRenderWindow: offEdge);
+                toggled: true, hasLastToggleFrame: true,
+                lastToggleFrame: lastToggleFrame, currentFrame: currentFrame,
+                bodyChanged: bodyChanged, offWindowCovered: offWindowCovered,
+                windowTransitionExempt: exempt);
         }
 
         [Fact]
@@ -279,15 +288,10 @@ namespace Parsek.Tests
             //   sinceFrames=4 body=Eve offWindowCovered=False polylinePainted=False
             // Same frame 7843 decision: reason=past-body-frame-end lineActive=False
             //   currentUT=30451100.0 bounds=[30360218.8,30450249.6]  => clock 850.4 s PAST the end.
-            bool windowExit = MapRenderTrace.IsWindowExitOffToggle(
-                lineDefinitivelyOff: true, hasFreshIntent: true,
-                intentLineActive: false, intentOutsideRenderWindow: true);
-            Assert.True(windowExit);
             Assert.False(RaisesAfterExemption(
-                lineIsLit: false, currentToggleIsWindowExitOff: windowExit,
-                priorToggleWasWindowExitOff: false,
-                lastToggleFrame: 7839, currentFrame: 7843,
-                bodyChanged: false, offWindowCovered: false));
+                lineIsLit: false, thisFrameCoverage: Coverage.Outside,
+                priorToggle: Verdict.InsideWindowOn,
+                lastToggleFrame: 7839, currentFrame: 7843));
         }
 
         [Fact]
@@ -298,10 +302,9 @@ namespace Parsek.Tests
             // Same frame 7618 decision: reason=past-body-frame-end lineActive=False
             //   currentUT=30360400.0 bounds=[26616878.0,30360218.8]  => 181.2 s PAST the end.
             Assert.False(RaisesAfterExemption(
-                lineIsLit: false, currentToggleIsWindowExitOff: true,
-                priorToggleWasWindowExitOff: false,
-                lastToggleFrame: 7611, currentFrame: 7618,
-                bodyChanged: false, offWindowCovered: false));
+                lineIsLit: false, thisFrameCoverage: Coverage.Outside,
+                priorToggle: Verdict.InsideWindowOn,
+                lastToggleFrame: 7611, currentFrame: 7618));
         }
 
         [Fact]
@@ -311,12 +314,11 @@ namespace Parsek.Tests
             //   lineActive=True prevActive=False lastToggleFrame=7218 sinceFrames=1 body=Sun
             // The OFF half is frame 7218: reason=before-body-frame-start lineActive=False
             //   currentUT=31276682.660 bounds=[31276682.7,43162584.5]  => BEFORE the window start.
-            // The OPPOSITE edge from the V8 pair, which is why the prior-toggle stamp exists at all.
+            // The lit edge's own decision is director-stockconic-visible, i.e. INSIDE.
             Assert.False(RaisesAfterExemption(
-                lineIsLit: true, currentToggleIsWindowExitOff: false,
-                priorToggleWasWindowExitOff: true,
-                lastToggleFrame: 7218, currentFrame: 7219,
-                bodyChanged: false, offWindowCovered: false));
+                lineIsLit: true, thisFrameCoverage: Coverage.Inside,
+                priorToggle: Verdict.WindowExitOff,
+                lastToggleFrame: 7218, currentFrame: 7219));
         }
 
         [Fact]
@@ -324,102 +326,133 @@ namespace Parsek.Tests
         {
             // logs/2026-08-12_0632_V10-dres-loop-arrival/KSP.log:11618
             //   currentUT=31276442.640 lineActive=True prevActive=False lastToggleFrame=7237
-            //   sinceFrames=1 body=Sun. Iteration 3's moved escape bracket - the blink FOLLOWED the
-            //   middle jump to its new UT, which is what proved the trigger is "any pre-D0 jump".
+            //   sinceFrames=1 body=Sun. Iteration 3's moved escape bracket.
             Assert.False(RaisesAfterExemption(
-                lineIsLit: true, currentToggleIsWindowExitOff: false,
-                priorToggleWasWindowExitOff: true,
-                lastToggleFrame: 7237, currentFrame: 7238,
-                bodyChanged: false, offWindowCovered: false));
+                lineIsLit: true, thisFrameCoverage: Coverage.Inside,
+                priorToggle: Verdict.WindowExitOff,
+                lastToggleFrame: 7237, currentFrame: 7238));
         }
 
         [Fact]
-        public void ArchivedRaiseGeometry_ButOffHalfInsideWindow_StillRaises()
+        public void ArchivedRaiseGeometry_ButAHalfIsNotProven_StillRaises()
         {
-            // THE NEGATIVE CONTROL for all four cells above: byte-identical frame geometry to the V10
-            // _0627 raise (lit edge, sinceFrames=1, same body, uncovered dark window) with ONE fact
-            // changed - the OFF half was decided INSIDE the window (e.g. polyline-owns-phase or a
-            // stale-segment reseed lag). A real flicker at a real seam must still red the lane.
-            Assert.True(RaisesAfterExemption(
-                lineIsLit: true, currentToggleIsWindowExitOff: false,
-                priorToggleWasWindowExitOff: false,
-                lastToggleFrame: 7218, currentFrame: 7219,
-                bodyChanged: false, offWindowCovered: false));
+            // THE NEGATIVE CONTROLS for all four cells above: byte-identical frame geometry, with ONE
+            // fact changed each time. All four must still red the lane.
 
-            // And the dark-edge direction of the same control (the V8 _1114 geometry).
+            // (1) LIT edge, V10 _0627 geometry, but the OFF half was decided INSIDE the window
+            //     (polyline-owns-phase, a stale-segment reseed lag, ...).
             Assert.True(RaisesAfterExemption(
-                lineIsLit: false, currentToggleIsWindowExitOff: false,
-                priorToggleWasWindowExitOff: false,
-                lastToggleFrame: 7611, currentFrame: 7618,
-                bodyChanged: false, offWindowCovered: false));
+                lineIsLit: true, thisFrameCoverage: Coverage.Inside,
+                priorToggle: Verdict.Other,
+                lastToggleFrame: 7218, currentFrame: 7219));
 
-            // AND the both-edges-outside shape, end to end: the V10 _0627 geometry with a genuine
-            // window-exit OFF behind it, but a lit edge that is ITSELF outside the window
-            // (parking-conic-loiter-hold). A flicker in the dark region must still red the lane.
+            // (2) LIT edge, same geometry, but the LIT half is itself OUTSIDE the window
+            //     (parking-conic-loiter-hold). Nothing in the pair is inside: a real flash.
             Assert.True(RaisesAfterExemption(
-                lineIsLit: true, currentToggleIsWindowExitOff: false,
-                priorToggleWasWindowExitOff: true,
-                lastToggleFrame: 7218, currentFrame: 7219,
-                bodyChanged: false, offWindowCovered: false,
-                currentToggleIsOutsideWindowOn: true));
+                lineIsLit: true, thisFrameCoverage: Coverage.Outside,
+                priorToggle: Verdict.WindowExitOff,
+                lastToggleFrame: 7218, currentFrame: 7219));
+
+            // (3) DARK edge, V8 _1114 geometry, but the OFF is not a window exit.
+            Assert.True(RaisesAfterExemption(
+                lineIsLit: false, thisFrameCoverage: Coverage.Unknown,
+                priorToggle: Verdict.InsideWindowOn,
+                lastToggleFrame: 7611, currentFrame: 7618));
+
+            // (4) DARK edge, same geometry, but the PRIOR lit half was not proven inside - BLOCKER 1's
+            //     swallowed sequence end to end.
+            Assert.True(RaisesAfterExemption(
+                lineIsLit: false, thisFrameCoverage: Coverage.Outside,
+                priorToggle: Verdict.Other,
+                lastToggleFrame: 7611, currentFrame: 7618));
         }
 
         // ---------------------------------------------------------------------------------
-        // SOURCE GATE: the exemption may only be claimed by the two window-exit decisions
+        // SOURCE GATE: only the four measuring decisions may stamp coverage
         // ---------------------------------------------------------------------------------
 
         /// <summary>
-        /// The strongest anti-over-reach pin, and the one that survives a future refactor: the
-        /// <c>outsideRenderWindow: true</c> stamp must exist in EXACTLY ONE file
-        /// (<c>GhostOrbitLinePatch.cs</c>) and EXACTLY TWICE - the two
-        /// <c>LogOrbitLineDecision</c> calls inside the <c>pastEnd || beforeStart</c> block, whose
-        /// branch condition IS the measurement. Any new site claiming the stamp widens the exemption
-        /// and reds here rather than silently swallowing raises on a gated lane. The house analogue is
-        /// the log validator's cannot-mask guarantee (<c>ParseSuppressionList</c> refusing to suppress
-        /// FMT/WRN).
+        /// The strongest anti-over-reach pin, and the one that survives a refactor. Because the stamp
+        /// is an ENUM VALUE rather than a bare <c>true</c>, any stamp - named argument, positional
+        /// argument, or via a local - must spell <c>RenderWindowCoverage.Inside</c> /
+        /// <c>.Outside</c>, so counting those spellings catches every widening the earlier
+        /// <c>outsideRenderWindow: true</c> grep would have missed (a trailing positional
+        /// <c>..., endUT, true)</c> slipped straight past it).
+        ///
+        /// <para>EXACTLY four stamp sites, all in <c>GhostOrbitLinePatch.cs</c>: two <c>Outside</c>
+        /// (the window-exit OFF, and the parking-conic hold that is LIT out there) and two
+        /// <c>Inside</c> (<c>director-stockconic-visible</c>, <c>visible-body-frame</c>). Every other
+        /// decision - including <c>terminal-visible</c>, which is lit PAST the recorded window, and
+        /// <c>stale-segment-awaiting-reseed</c>, whose "outside bounds" is the applied-segment bounds
+        /// lagging INSIDE the window - must leave it <c>Unknown</c>.</para>
         /// </summary>
         [Fact]
-        public void WindowExitStamp_IsConfinedToTheTwoWindowExitDecisions()
+        public void CoverageStamps_AreConfinedToTheFourMeasuringDecisions()
         {
             string repoRoot = ResolveRepoRoot();
             string sourceDir = Path.Combine(repoRoot, "Source", "Parsek");
             Assert.True(Directory.Exists(sourceDir), "Source/Parsek missing: " + sourceDir);
 
-            var stampRe = new Regex(@"outsideRenderWindow\s*:\s*true", RegexOptions.CultureInvariant);
-            int totalStamps = 0;
+            var stampRe = new Regex(
+                @"RenderWindowCoverage\s*\.\s*(Inside|Outside)", RegexOptions.CultureInvariant);
+            int inside = 0, outside = 0;
             foreach (string file in Directory.GetFiles(sourceDir, "*.cs", SearchOption.AllDirectories))
             {
-                int hits = stampRe.Matches(File.ReadAllText(file)).Count;
-                if (hits == 0)
+                // MapRenderTrace.cs DECLARES the enum and COMPARES against it inside ClassifyLineToggle.
+                // Those are reads, not stamps; the writers are LogOrbitLineDecision's callers. Its sole
+                // write path (RecordLineIntent) is pinned to one call site by the sibling cell below.
+                if (string.Equals(Path.GetFileName(file), "MapRenderTrace.cs", StringComparison.Ordinal))
+                    continue;
+                MatchCollection hits = stampRe.Matches(File.ReadAllText(file));
+                if (hits.Count == 0)
                     continue;
                 Assert.True(
                     string.Equals(Path.GetFileName(file), "GhostOrbitLinePatch.cs", StringComparison.Ordinal),
-                    "The line-blink window-exit exemption may only be stamped by GhostOrbitLinePatch's "
-                    + "past-body-frame-end / before-body-frame-start block, but 'outsideRenderWindow: true' "
-                    + "appears in: " + file + ". Widening the stamp widens the exemption - see "
-                    + "MapRenderTrace.IsWindowExitOffToggle.");
-                totalStamps += hits;
+                    "Only GhostOrbitLinePatch's four measuring decisions may stamp render-window "
+                    + "coverage, but RenderWindowCoverage.Inside/.Outside appears in: " + file
+                    + ". Widening the stamp widens the line-blink exemption - see "
+                    + "MapRenderTrace.ClassifyLineToggle.");
+                foreach (Match m in hits)
+                {
+                    if (m.Groups[1].Value == "Inside") inside++; else outside++;
+                }
             }
 
-            Assert.True(totalStamps == 2,
-                "Expected EXACTLY 2 'outsideRenderWindow: true' stamps in GhostOrbitLinePatch.cs (the "
-                + "line-active parking-conic hold and the line-inactive window exit, both inside the "
-                + "pastEnd || beforeStart block); found " + totalStamps + ".");
+            Assert.True(outside == 2,
+                "Expected EXACTLY 2 RenderWindowCoverage.Outside stamps (past-body-frame-end / "
+                + "before-body-frame-start, and the parking-conic loiter hold); found " + outside + ".");
+            Assert.True(inside == 2,
+                "Expected EXACTLY 2 RenderWindowCoverage.Inside stamps (director-stockconic-visible, "
+                + "visible-body-frame); found " + inside + ".");
         }
 
-        /// <summary>The stamp must stay OPT-IN: both the patch helper and the trace recorder default it
-        /// to false, so a decision site that says nothing claims nothing.</summary>
+        /// <summary>The stamp must stay OPT-IN and single-sourced: both seams default to
+        /// <c>Unknown</c>, and <c>RecordLineIntent</c> has exactly ONE production call site, so
+        /// <c>GhostOrbitLinePatch</c> is provably the only thing that can write coverage at all.</summary>
         [Fact]
-        public void WindowExitStamp_DefaultsToFalseAtBothSeams()
+        public void CoverageStamp_DefaultsToUnknown_AndHasOneWriter()
         {
             string repoRoot = ResolveRepoRoot();
-            string patch = File.ReadAllText(
-                Path.Combine(repoRoot, "Source", "Parsek", "Patches", "GhostOrbitLinePatch.cs"));
-            string trace = File.ReadAllText(
-                Path.Combine(repoRoot, "Source", "Parsek", "MapRenderTrace.cs"));
+            string sourceDir = Path.Combine(repoRoot, "Source", "Parsek");
 
-            Assert.Contains("bool outsideRenderWindow = false", patch);
-            Assert.Contains("bool outsideRenderWindow = false", trace);
+            string patch = File.ReadAllText(
+                Path.Combine(sourceDir, "Patches", "GhostOrbitLinePatch.cs"));
+            string trace = File.ReadAllText(Path.Combine(sourceDir, "MapRenderTrace.cs"));
+            Assert.Contains("RenderWindowCoverage.Unknown", patch);
+            Assert.Contains("RenderWindowCoverage windowCoverage = RenderWindowCoverage.Unknown", trace);
+
+            var callRe = new Regex(@"RecordLineIntent\s*\(", RegexOptions.CultureInvariant);
+            int callSites = 0;
+            foreach (string file in Directory.GetFiles(sourceDir, "*.cs", SearchOption.AllDirectories))
+            {
+                if (string.Equals(Path.GetFileName(file), "MapRenderTrace.cs", StringComparison.Ordinal))
+                    continue;   // the declaration itself
+                callSites += callRe.Matches(File.ReadAllText(file)).Count;
+            }
+            Assert.True(callSites == 1,
+                "RecordLineIntent must have EXACTLY one production call site (GhostOrbitLinePatch's "
+                + "LogOrbitLineDecision); found " + callSites + ". A second writer could stamp coverage "
+                + "without tripping the enum-spelling gate above.");
         }
 
         private static string ResolveRepoRoot()
