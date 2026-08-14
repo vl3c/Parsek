@@ -1,4 +1,4 @@
-﻿using Parsek.MapRender;
+using Parsek.MapRender;
 using Xunit;
 
 namespace Parsek.Tests
