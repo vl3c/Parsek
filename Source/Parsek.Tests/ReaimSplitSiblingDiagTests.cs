@@ -198,7 +198,7 @@ namespace Parsek.Tests
             return line.Substring(i);
         }
 
-        // --- The pin: today both shapes decline with the SAME reason ---------------------
+        // --- The pin: the CLASSIFICATION is unchanged; only the diagnostics moved ---------
 
         [Fact]
         public void TheClassifierReasonIsIdenticalForASplitTransferAndForNoTransferAtAll()
@@ -229,11 +229,12 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void TodayTheSplitAndTheNoTransferVerdictTailsAreByteIdentical()
+        public void TheSplitAndTheNoTransferVerdictTailsAreNoLongerByteIdentical()
         {
-            // THE DEFECT, stated as an assertion: a reader of KSP.log cannot tell "this mission
-            // never recorded a transfer" from "this mission's transfer is spread across two
-            // members", because every emitted verdict tail is the same bytes.
+            // THE DEFECT WAS: a reader of KSP.log could not tell "this mission never recorded a
+            // transfer" from "this mission's transfer is spread across two members", because every
+            // emitted verdict tail was the same bytes. Before this interim landed, the two lists
+            // below were Assert.Equal. Now the split names its sibling and the control does not.
             SplitTransferChain(out Recording sa, out Recording sb);
             List<string> split = MemberVerdictLines(BuildTwoMemberChain(sa, sb))
                 .Select(VerdictTail).ToList();
@@ -242,7 +243,253 @@ namespace Parsek.Tests
             List<string> control = MemberVerdictLines(BuildTwoMemberChain(na, nb))
                 .Select(VerdictTail).ToList();
 
-            Assert.Equal(control, split);
+            Assert.NotEqual(control, split);
+
+            // The control - a mission that genuinely never recorded a heliocentric leg - stays
+            // exactly as it was: no annotation, nothing to chase.
+            Assert.All(control, t => Assert.DoesNotContain(ReaimSplitSiblingDiag.GrepToken, t));
+
+            // The split says so on BOTH members, each from its own side of the cut.
+            Assert.Equal(2, split.Count);
+            Assert.All(split, t => Assert.Contains(ReaimSplitSiblingDiag.GrepToken, t));
+            Assert.All(split, t => Assert.Contains(ReaimSplitSiblingDiag.FindingId, t));
+            // member#0 holds the parking and LACKS the Sun leg -> it points at member#1.
+            Assert.Contains("sibling member#1 of the same chain group", split[0]);
+            Assert.Contains("records the 'Sun' (common-ancestor) leg this member lacks", split[0]);
+            // member#1 IS the Sun-leg carrier; it declines because its own earliest body is the
+            // Sun, which has no strict ancestor -> it points back at member#0.
+            Assert.Contains("THIS member records the 'Sun' (common-ancestor) leg", split[1]);
+            Assert.Contains("sibling member#0 of the same chain group", split[1]);
+            Assert.Contains("chainId=chain-A members=2", split[0]);
+            Assert.Contains("chainId=chain-A members=2", split[1]);
+        }
+
+        [Fact]
+        public void TheAggregateDeclineLineAnnotatesTheSplitAndKeepsTheCommittedLaneSubstrings()
+        {
+            SplitTransferChain(out Recording sa, out Recording sb);
+            string splitDecline = DeclineLine(BuildTwoMemberChain(sa, sb));
+            NoTransferChain(out Recording na, out Recording nb);
+            string controlDecline = DeclineLine(BuildTwoMemberChain(na, nb));
+
+            // THE TRAP GUARD. Three committed harness lanes (V9-dres-player-loop,
+            // V11-moho-player-loop, V12-eeloo-player-loop) forbid the exact substring
+            // `not re-aim \(no member yields a re-aim transfer\); faithful` as their ENGAGED
+            // regression floor, and V10 / V11A forbid the bare `no member yields a re-aim
+            // transfer`. Those patterns are applied with re.search over the log body, so the
+            // annotation MUST be a suffix - splicing it into the parentheses would leave three
+            // lanes green while their guard silently stopped matching.
+            const string laneFloor = "not re-aim (no member yields a re-aim transfer); faithful";
+            Assert.Contains(laneFloor, splitDecline);
+            Assert.Contains(laneFloor, controlDecline);
+            Assert.Contains("no member yields a re-aim transfer", splitDecline);
+            Assert.Contains("no member yields a re-aim transfer", controlDecline);
+            // The suffix starts immediately after the pinned text, so the pinned text is intact.
+            Assert.EndsWith(laneFloor, controlDecline);
+            int floorEnd = splitDecline.IndexOf(laneFloor, StringComparison.Ordinal) + laneFloor.Length;
+            Assert.StartsWith(" | " + ReaimSplitSiblingDiag.GrepToken, splitDecline.Substring(floorEnd));
+
+            // And the aggregate is loud about WHICH members jointly hold the transfer.
+            Assert.Contains("chainId=chain-A members=[#0,#1] jointly record a 'Sun'-legged transfer",
+                splitDecline);
+            Assert.DoesNotContain(ReaimSplitSiblingDiag.GrepToken, controlDecline);
+        }
+
+        // --- The pure core -----------------------------------------------------------------
+
+        private static ReaimSplitSiblingDiag.MemberFacts Facts(
+            int ordinal, string chainId, string guid, ReaimMissionPlan plan, params OrbitSegment[] segs)
+        {
+            return ReaimSplitSiblingDiag.BuildFacts(ordinal, chainId, guid, segs, plan);
+        }
+
+        private static ReaimMissionPlan Declined()
+        {
+            return ReaimMissionPlan.Unsupported(
+                "Kerbin", ReaimClassifier.MissingHeliocentricLegReason);
+        }
+
+        private static ReaimMissionPlan Supported()
+        {
+            return new ReaimMissionPlan { Supported = true, TargetBody = "Duna" };
+        }
+
+        [Fact]
+        public void TheDiagnosticRecognizesTheClassifiersOwnMissingHeliocentricDecline()
+        {
+            // Drift guard: the predicate matches the string the classifier ACTUALLY emits, not a
+            // copy of it. Kerbin parking -> Duna arrival, no Sun segment anywhere.
+            ReaimMissionPlan plan = ReaimClassifier.Classify(
+                new List<OrbitSegment> { Seg("Kerbin", 0, 100), Seg("Duna", 100, 200) },
+                new SolBodies());
+            Assert.False(plan.Supported);
+            Assert.True(ReaimSplitSiblingDiag.IsMissingHeliocentricLegDecline(plan.Reason),
+                "the predicate must recognize the classifier's live output: " + plan.Reason);
+            Assert.False(ReaimSplitSiblingDiag.IsMissingHeliocentricLegDecline(null));
+            Assert.False(ReaimSplitSiblingDiag.IsMissingHeliocentricLegDecline(
+                "no target arrival leg after the heliocentric coast"));
+        }
+
+        [Fact]
+        public void ASingleMemberIsNeverASplitSibling()
+        {
+            var one = new List<ReaimSplitSiblingDiag.MemberFacts>
+            {
+                Facts(0, "chain-A", "g", Declined(), Seg("Kerbin", 0, 100))
+            };
+            Assert.Null(ReaimSplitSiblingDiag.Diagnose(one, new SolBodies()).AggregateClause);
+        }
+
+        [Fact]
+        public void NoBodyInfoOrNoMembersDiagnosesNothing()
+        {
+            Assert.Null(ReaimSplitSiblingDiag.Diagnose(null, new SolBodies()).AggregateClause);
+            var two = new List<ReaimSplitSiblingDiag.MemberFacts>
+            {
+                Facts(0, "chain-A", "g", Declined(), Seg("Kerbin", 0, 100)),
+                Facts(1, "chain-A", "g", Declined(), Seg("Sun", 100, 200))
+            };
+            Assert.Null(ReaimSplitSiblingDiag.Diagnose(two, null).AggregateClause);
+        }
+
+        [Fact]
+        public void AGroupThatNeverRecordedAHeliocentricLegDiagnosesNothing()
+        {
+            var noHelio = new List<ReaimSplitSiblingDiag.MemberFacts>
+            {
+                Facts(0, "chain-A", "g", Declined(), Seg("Kerbin", 0, 100)),
+                Facts(1, "chain-A", "g", Declined(), Seg("Duna", 100, 200))
+            };
+            ReaimSplitSiblingDiag.Diagnosis d = ReaimSplitSiblingDiag.Diagnose(noHelio, new SolBodies());
+            Assert.Null(d.AggregateClause);
+            Assert.All(d.MemberClauses, Assert.Null);
+        }
+
+        [Fact]
+        public void AGroupWithASupportedMemberDiagnosesNothing()
+        {
+            // The transfer is whole inside member#0; the other member's decline is not a split
+            // artifact and claiming "spread across members" would be a false statement.
+            var withSupported = new List<ReaimSplitSiblingDiag.MemberFacts>
+            {
+                Facts(0, "chain-A", "g", Supported(),
+                    Seg("Kerbin", 0, 100), Seg("Sun", 100, 200), Seg("Duna", 200, 300)),
+                Facts(1, "chain-A", "g", Declined(), Seg("Kerbin", 0, 300))
+            };
+            Assert.Null(ReaimSplitSiblingDiag.Diagnose(withSupported, new SolBodies()).AggregateClause);
+        }
+
+        [Fact]
+        public void MembersWithoutAChainIdAreNotSplitSiblings()
+        {
+            // No ChainId = no CopySplitIdentityFields marker = these two are unrelated recordings
+            // that merely ride the same mission, not two halves of one split.
+            var unchained = new List<ReaimSplitSiblingDiag.MemberFacts>
+            {
+                Facts(0, null, "g", Declined(), Seg("Kerbin", 0, 100)),
+                Facts(1, null, "g", Declined(), Seg("Sun", 100, 200))
+            };
+            Assert.Null(ReaimSplitSiblingDiag.Diagnose(unchained, new SolBodies()).AggregateClause);
+        }
+
+        [Fact]
+        public void DifferentChainIdsAreDifferentGroups()
+        {
+            var twoChains = new List<ReaimSplitSiblingDiag.MemberFacts>
+            {
+                Facts(0, "chain-A", "g", Declined(), Seg("Kerbin", 0, 100)),
+                Facts(1, "chain-B", "g", Declined(), Seg("Sun", 100, 200))
+            };
+            Assert.Null(ReaimSplitSiblingDiag.Diagnose(twoChains, new SolBodies()).AggregateClause);
+        }
+
+        [Fact]
+        public void ConclusivelyDifferentLaunchGuidsSplitTheChainGroup()
+        {
+            // CLAUDE.md launch identity: a ChainId match is not proof of the same launch when the
+            // guids conclusively differ. An UNKNOWN guid is never conclusive, so the second pair
+            // (empty guids) still groups.
+            var differentLaunches = new List<ReaimSplitSiblingDiag.MemberFacts>
+            {
+                Facts(0, "chain-A", "11111111111111111111111111111111", Declined(), Seg("Kerbin", 0, 100)),
+                Facts(1, "chain-A", "22222222222222222222222222222222", Declined(), Seg("Sun", 100, 200))
+            };
+            Assert.Null(ReaimSplitSiblingDiag.Diagnose(differentLaunches, new SolBodies()).AggregateClause);
+
+            var unknownGuids = new List<ReaimSplitSiblingDiag.MemberFacts>
+            {
+                Facts(0, "chain-A", null, Declined(), Seg("Kerbin", 0, 100)),
+                Facts(1, "chain-A", "", Declined(), Seg("Sun", 100, 200))
+            };
+            Assert.NotNull(ReaimSplitSiblingDiag.Diagnose(unknownGuids, new SolBodies()).AggregateClause);
+        }
+
+        [Fact]
+        public void APredictedHeliocentricTailIsNotARecordedTransfer()
+        {
+            // The classifier ignores predicted segments, so the diagnostic must too - otherwise it
+            // would claim a sibling records a leg the classifier was never shown.
+            var predictedOnly = new List<ReaimSplitSiblingDiag.MemberFacts>
+            {
+                Facts(0, "chain-A", "g", Declined(), Seg("Kerbin", 0, 100)),
+                Facts(1, "chain-A", "g", Declined(),
+                    new OrbitSegment { bodyName = "Sun", startUT = 100, endUT = 200, isPredicted = true })
+            };
+            Assert.Null(ReaimSplitSiblingDiag.Diagnose(predictedOnly, new SolBodies()).AggregateClause);
+        }
+
+        [Fact]
+        public void OnlyTheMissingHeliocentricDeclineClassIsAnnotated()
+        {
+            // Scope, deliberately narrow (see the entry): another decline class in a split group
+            // stays unannotated rather than inheriting a claim nobody measured.
+            var otherReason = new List<ReaimSplitSiblingDiag.MemberFacts>
+            {
+                Facts(0, "chain-A", "g",
+                    ReaimMissionPlan.Unsupported("Kerbin", "no target arrival leg after the heliocentric coast"),
+                    Seg("Kerbin", 0, 100), Seg("Sun", 100, 200)),
+                Facts(1, "chain-A", "g",
+                    ReaimMissionPlan.Unsupported("Sun", "more than one heliocentric leg (multi-hop / gravity assist) - deferred"),
+                    Seg("Sun", 200, 300))
+            };
+            Assert.Null(ReaimSplitSiblingDiag.Diagnose(otherReason, new SolBodies()).AggregateClause);
+        }
+
+        [Fact]
+        public void TheNearestRecordedStrictAncestorIsTheOneNamed()
+        {
+            // Ike via Duna via Sun: the group launches from Ike, and the nearest strict ancestor
+            // the group actually recorded is Duna, not the Sun further up the chain.
+            var moonBodies = new IkeBodies();
+            var group = new List<ReaimSplitSiblingDiag.MemberFacts>
+            {
+                Facts(0, "chain-A", "g", Declined(), Seg("Ike", 0, 100)),
+                Facts(1, "chain-A", "g", Declined(), Seg("Duna", 100, 200), Seg("Sun", 200, 300))
+            };
+            ReaimSplitSiblingDiag.Diagnosis d = ReaimSplitSiblingDiag.Diagnose(group, moonBodies);
+            Assert.NotNull(d.AggregateClause);
+            Assert.Contains("'Duna'-legged transfer", d.AggregateClause);
+            Assert.Contains("records the 'Duna' (common-ancestor) leg this member lacks", d.MemberClauses[0]);
+        }
+
+        // Ike -> Duna -> Sun, for the nearest-ancestor cell.
+        private sealed class IkeBodies : IBodyInfo
+        {
+            public double RotationPeriod(string b) => double.NaN;
+            public double OrbitPeriod(string b) => double.NaN;
+            public string ReferenceBodyName(string b)
+            {
+                if (b == "Ike") return "Duna";
+                if (b == "Duna") return "Sun";
+                return null;
+            }
+            public double SoiRadius(string b) => double.NaN;
+            public double OrbitalVelocity(string b) => double.NaN;
+            public double GravParameter(string b) => 1.0e12;
+            public double Radius(string b) => 6.0e5;
+            public bool TryGetVesselOrbit(uint pid, string recordedVesselGuid,
+                out double periodSeconds, out string orbitBodyName)
+            { periodSeconds = double.NaN; orbitBodyName = null; return false; }
         }
     }
 }
