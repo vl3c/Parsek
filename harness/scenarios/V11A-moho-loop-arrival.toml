@@ -80,10 +80,10 @@ id = "V11A-moho-loop-arrival"
 # and V10 iteration 1 proved that bracketing the RECORDED arrival instead answers
 # `evaluated=0 skip.no-usable-ratio=1`, because it asks about a seam the re-aimed arc
 # does not have. This lane's readings PRINTED that soiEntryUT (5,806,509.28), so the
-# bracket is now derivable. It is still not taken, because reaching `evaluated=1`
-# requires a PRE-D0 jump and every pre-D0 jump reproduces the filed line-blink
-# detector gap: the census and a green verdict cannot both be had today. See the
-# arming ledger below for the trade, stated rather than buried.
+# bracket is now derivable. IT IS STILL NOT TAKEN, AND AS OF 2026-08-14 IT IS NOT
+# NEEDED -- see the 2026-08-14 addendum in the arming ledger below: the census reads
+# `evaluated=1 outsideSoi=0` on this lane's EXISTING jump shape, with no bracket added
+# and no pre-D0 jump, because the blocker was never the geometry.
 #
 # ARMING LEDGER.
 #   READING RUNS  2026-08-13 `_0107` and its sibling, both PASS attempt 1. Every
@@ -101,6 +101,22 @@ id = "V11A-moho-loop-arrival"
 #                 the renderer. If the detector gap is ever closed, add V10
 #                 iteration 3's escape bracket (-900 / -300 / +600) and arm the
 #                 census pair too.
+#   ADDENDUM 2026-08-14 -- THE CENSUS PAIR IS NOW ARMED, and the paragraph above is
+#                 kept verbatim because it is a good record of a WRONG DIAGNOSIS
+#                 honestly reached. Two instrument fixes landed on branch
+#                 `line-blink-census`: the line-blink detector got a WINDOW-EXIT
+#                 exemption, and the census summary's SHARED 5 s rate-limit key was
+#                 CLASS-SPLIT (measured vs skip-only). The SECOND one is what mattered
+#                 here. Re-flown with NO spec change at all (`2026-08-14_1839` and
+#                 `_1845`, both PASS attempt 1, zero anomalies), this lane emits BOTH
+#                 census lines -- `evaluated=0 skip.no-usable-ratio=1` AND
+#                 `evaluated=1 outsideSoi=0` -- byte-identically on both runs. So the
+#                 lens had been REACHING the arrival seam the whole time and the
+#                 measuring pass was being eaten by a key the first jump primed. No
+#                 pre-D0 jump, no escape bracket, and no change to the flown shape was
+#                 needed: `evaluated=1 outsideSoi=0` is armed on those two readings.
+#                 The synth-geometry token stays; the two now corroborate each other
+#                 from the synthesizer and the renderer independently.
 #   ARMED         on the tilt, the geometry, the ready line and ENGAGED, with
 #                 `state=declined` and the cohesion decline reason FORBIDDEN.
 # =====================================================================================
@@ -205,6 +221,14 @@ count = { min = 6, max = 6 }
 required = [
   "MissionConfig",
   "StartLoopPlayback",
+  # THE CENSUS PAIR (ARMED 2026-08-14): the RENDERED-arrival proof, from the map
+  # render path and independent of the synthesizer's own geometry claim -- one
+  # destination-approach check actually performed at the arrival seam, reading INSIDE
+  # the destination sphere. Unarmable until 2026-08-14 because the summary rode a
+  # SHARED 5 s rate-limit key that this lane's jump 1 primed; the key is now
+  # class-split (measured vs skip-only), so a skip-only pass can no longer shadow the
+  # measuring one. Reproduced byte-identically on two consecutive runs.
+  "seam-endpoint summary evaluated=1 outsideSoi=0",
   "ENGAGED re-aim Kerbin->Moho via Sun",
   # THE TILT at 7 deg -- the program's headline.
   "tilt-correction inc-before=23.5906 bound=7.5000 targetInc=7.0000 incAch=3.3633 inc-after=NaN state=retained reason=unreachable-plane",

@@ -11841,8 +11841,28 @@ refuses a ghostless frame, so neither key can be primed at scene entry - the
 the ghostless-frame guard is asserted unchanged.
 
 Note the SECOND blocker on the same lanes was closed in the same pass: see
-LINE-BLINK-JUMP-STRADDLE-DETECTOR-GAP below. Reading the arrival census needed BOTH -
-V10's escape bracket reproduces the detector gap, and V12A's short lane hits this key.
+LINE-BLINK-JUMP-STRADDLE-DETECTOR-GAP below.
+
+**FLOWN, AND IT FALSIFIED THE OTHER HALF OF THE DIAGNOSIS.** All three arrival lanes
+were re-flown with NO spec change (`V10 2026-08-14_1837`, `V11A _1839`, `V12A _1840`,
+each PASS attempt 1, zero anomalies) and ALL THREE emitted the measuring pass that none
+of them had ever been able to print:
+
+```
+seam-endpoint summary evaluated=0 outsideSoi=0 skip.no-usable-ratio=1
+seam-endpoint summary evaluated=1 outsideSoi=0
+```
+
+So the key was the WHOLE blocker on every lane, and **V10 iteration 4's conclusion -
+"the census evaluating at all depends on the render having passed through the pre-D0
+state" - does not survive**: iteration 4's own no-pre-D0 shape had been reaching the
+lens all along and having its second line eaten. V12A had already falsified the pre-D0
+correlation from the other side; this settles it. The escape-bracket half of V10's
+restoration recipe turned out to be neither necessary nor sufficient for the census (it
+was restored anyway, as the live regression floor for the detector exemption - see
+below). `evaluated=1 outsideSoi=0` is now an ARMED required token on all three lanes,
+each with two byte-identical readings, an armed PASS, a negative control that correctly
+red `PARSEK-FAIL(expectation)` naming the inverted token, and a reverted PASS.
 
 ## ~~LINE-BLINK-JUMP-STRADDLE-DETECTOR-GAP~~ - back-to-back seam TimeJumps raise the gated `line-blink` on legitimate window transitions (measured 2026-08-11, branch `eve-loop-lanes`; two PARSEK-FAIL artifacts; lane re-paced, detector NOT modified) [RE-MEASURED across the whole 13-raise archive and FIXED 2026-08-14, branch `line-blink-census`, with a WINDOW-EXIT exemption - see the resolution at the end of this entry]
 
@@ -11928,6 +11948,28 @@ one stamp in a different file, each red the cell with the intended message). Bot
 suppression paths emit a `line-blink-suppressed` line naming WHICH guard fired, because
 a silent guard on a gated token is undebuggable. `allowedAnomalies` stays `[]` on every
 lane - this is a sharper detector, not an exemption list.
+
+**LIVE PROOF, on the shape that red three times running.** `V10-dres-loop-arrival` had
+its iteration-3 escape bracket (-900 / -300 / +600) RESTORED and flown: run
+`2026-08-14_1842` PASS, zero anomalies, and the exemption visibly fired at the very UT
+iteration 3 measured its raise at -
+
+```
+phase=line-blink-suppressed surface=ProtoOrbitLine pid=3671646689
+recId=6e8c8be6c35347d7a6641fa3595e6bd4 frame=3889 currentUT=31276442.520
+lineActive=True prevActive=False lastToggleFrame=3887 sinceFrames=2 body=Sun
+offWindowCovered=False polylinePainted=False polylineOwns=False
+offEdgeOutsideRenderWindow=True intentReason=director-stockconic-visible
+```
+
+Three things to read there. `offWindowCovered=False polylinePainted=False` - the two
+PRE-EXISTING guards demonstrably do not cover this shape, so the suppression is the new
+discriminator and nothing else. `lineActive=True prevActive=False` - the RE-ACTIVATION
+edge, so the verdict came from the STAMPED prior toggle, exercising the half of
+`ResolveOffEdgeOutsideRenderWindow` the V8 pair never reached (and `intentReason` is the
+ON decision, as it must be on that edge). And `recId=` carries a real id, where all 13
+archived raises rendered `<none>`. The lane KEEPS those pre-D0 jumps, so it is now the
+live regression floor: strip the exemption and V10 reds again.
 
 ## TODO - D11 `loiter-compression` is UNCOVERED and ~~CANNOT be covered by any committed fixture~~ NOW REACHABLE (first non-zero measurement 2026-08-11, branch `eve-loop-lanes`; the cell itself stays UNCLAIMED until a lane pins a cut token)
 
