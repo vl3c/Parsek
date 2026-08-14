@@ -4882,7 +4882,7 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
         # V11's measured D0/tof, so it is re-derived rather than re-run when the
         # fixture changes. Pass 1 reads the tilt; the census bracket needs a
         # soiEntryUT only pass 1 can print.
-        "V11A-moho-loop-arrival.toml":      "calibration-discipline - a TimeJump observation lane whose brackets come from V11's measured loop-unit line, so it is re-derived rather than re-run when the fixture changes. ARMED on the tilt disposition at Moho's 7 deg (state=retained, the TOP of the band the synthesizer's comments call its failing population), the arrival geometry, the ready line and the eccentric-band token, with state=declined forbidden. The one thing it deliberately does NOT arm -- the seam-endpoint census -- is documented in the spec with the trade that forced it",
+        "V11A-moho-loop-arrival.toml":      "calibration-discipline - a TimeJump observation lane whose brackets come from V11's measured loop-unit line, so it is re-derived rather than re-run when the fixture changes. ARMED on the tilt disposition at Moho's 7 deg (state=retained, the TOP of the band the synthesizer's comments call its failing population), the arrival geometry, the ready line and the eccentric-band token, with state=declined forbidden. The seam-endpoint census WAS the one thing it deliberately did not arm; it is ARMED as of 2026-08-14 (branch `line-blink-census`) with NO change to the flown shape. The blocker was never the geometry: the census summary rode a SHARED 5 s rate-limit key that this lane's first jump primed, and class-splitting that key (measured vs skip-only) made `evaluated=1 outsideSoi=0` readable on the existing jumps. Re-flown verbatim twice green, armed, negative-controlled and reverted",
         # B21 is B19's profile RETARGETED, and it is operator by the same
         # calibration discipline for a reason that is Eeloo's alone: e = 0.26 makes
         # the transfer TIME a 2x band rather than a number, so the arrival end
@@ -4918,7 +4918,7 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
         # changes. Armed on its measurements; the one thing it deliberately does
         # not arm (the seam-endpoint census pair) is documented in the spec with
         # the trade that forced it.
-        "V10-dres-loop-arrival.toml":       "calibration-discipline - a TimeJump observation lane whose brackets come from one recording's replay clock; armed on the tilt/geometry/ready tokens, with the census pair deliberately unarmed because reaching it reproduces the filed line-blink detector gap",
+        "V10-dres-loop-arrival.toml":       "calibration-discipline - a TimeJump observation lane whose brackets come from one recording's replay clock; armed on the tilt/geometry/ready tokens PLUS, as of 2026-08-14 (branch `line-blink-census`), the census pair `evaluated=1 outsideSoi=0`. Iteration 5 executed iteration 4's own restoration recipe: both instrument blockers were closed upstream (a WINDOW-EXIT exemption on the line-blink detector, and a class-split census rate-limit key), and iteration 3's -900/-300/+600 escape bracket was restored. It is KEPT not for the census -- which reads without it, falsifying iteration 4's pre-D0 conclusion -- but because the restored pre-D0 jumps make this lane the LIVE REGRESSION FLOOR for the exemption, which visibly fires there (`line-blink-suppressed ... windowTransitionExempt=True toggleVerdict=InsideWindowOn priorToggleVerdict=WindowExitOff` at currentUT~31276442, the very UT that red three times, and now ARMED as a required token so the floor cannot go vacuous)",
         # V12 is V9's shape on the Eeloo fixture and it has now reached V9's FINISHING
         # point: it flew twice green on 2026-08-13 (_0053/_0055, byte-identical on
         # every measured token) and is ARMED on those measurements. The three headline
@@ -4956,7 +4956,7 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
         # so the behavioural half of that debt is still open
         # (M-MIS-3-BAND-COMPUTED-NOT-EXERCISED). The census stays unarmed for a reason
         # now better understood than V10's carried one.
-        "V12A-eeloo-loop-arrival.toml":     "calibration-discipline - BOTH PASSES FLOWN AND ARMED 2026-08-13: a two-pass TimeJump observation lane whose seven brackets are arithmetic on one recording's replay clock and on the product's own re-aimed soiEntryUT (pass 1 `_0120` printed them, pass 2 `_1513`/`_1515` flew the recomputed shape byte-identically, `_1536` armed PASS, `_1537` negative control correctly PARSEK-FAIL(expectation) naming the one inverted digit, `_1539` reverted PASS). ARMED on 13 tokens - the measured noop tilt literal plus its derivable bound pair, the e=0.26 band, all three synth-geometry proximity checks including the MEASURED Eeloo SOI constant, and the ready line - with count re-pinned {6,6} and the decline forbid narrowed to `state=declined reason=unreachable-plane`. TWO FINDINGS LIMIT WHAT IT PROVES, both filed: the tilt read noop/in-plane because the solved conic sat BELOW the bound, so Eeloo tested the bound arithmetic and NOT the retention branch (still Eve-only-validated); and the tof band is pinned as COMPUTED but never WALKED (step 0 accepted), so the behavioural half of M-MIS-3 stays open. The seam-endpoint census stays a documented reading - its summary rides a shared 5 s rate-limit key primed by jump 1, so a ~55 s lane cannot read it at the arrival even with the bracket dead on the seam. Operator tier is the ordinary promotion call, not a debt",
+        "V12A-eeloo-loop-arrival.toml":     "calibration-discipline - BOTH PASSES FLOWN AND ARMED 2026-08-13: a two-pass TimeJump observation lane whose seven brackets are arithmetic on one recording's replay clock and on the product's own re-aimed soiEntryUT (pass 1 `_0120` printed them, pass 2 `_1513`/`_1515` flew the recomputed shape byte-identically, `_1536` armed PASS, `_1537` negative control correctly PARSEK-FAIL(expectation) naming the one inverted digit, `_1539` reverted PASS). ARMED on 13 tokens - the measured noop tilt literal plus its derivable bound pair, the e=0.26 band, all three synth-geometry proximity checks including the MEASURED Eeloo SOI constant, and the ready line - with count re-pinned {6,6} and the decline forbid narrowed to `state=declined reason=unreachable-plane`. TWO FINDINGS LIMIT WHAT IT PROVES, both filed: the tilt read noop/in-plane because the solved conic sat BELOW the bound, so Eeloo tested the bound arithmetic and NOT the retention branch (still Eve-only-validated); and the tof band is pinned as COMPUTED but never WALKED (step 0 accepted), so the behavioural half of M-MIS-3 stays open. The seam-endpoint census was a documented reading until 2026-08-14, when the shared-key blocker this lane DIAGNOSED was fixed on branch `line-blink-census` by class-splitting the key (measured vs skip-only); re-flown verbatim twice green, `evaluated=1 outsideSoi=0` is now armed as a 14th token, confirming the bracket was dead on the seam all along and the census merely silent. Operator tier is the ordinary promotion call, not a debt",
         # The V2 dwell is operator BY THE CALIBRATION DISCIPLINE (V1 precedent):
         # its first flight is a deliberately under-gated READING run whose red,
         # if any, is evidence; promotion is the post-reading arming call, not a
@@ -5754,7 +5754,7 @@ class AnomalyGroundTruthEnumerationTests(unittest.TestCase):
         # Anti-vacuity for the scanner itself: an empty / near-empty walk would make
         # every set assertion below trivially true.
         self.assertGreaterEqual(len(self.raised), 15)
-        self.assertIn("Source/Parsek/MapRenderProbe.cs:911",
+        self.assertIn("Source/Parsek/MapRenderProbe.cs:1012",
                       self.raised.get("icon-teleport", []))
         self.assertIn("Source/Parsek/GameActions/FacilityStatePatcher.cs:158",
                       self.raised.get("ledger-vs-truth", []))
@@ -5795,9 +5795,9 @@ class AnomalyGroundTruthEnumerationTests(unittest.TestCase):
         # claim; it is renamed rather than re-numbered because the COUNT was never
         # the contract - the membership is.
         self.assertEqual(
-            [("unaccounted-drawn-recording", "Source/Parsek/MapRenderProbe.cs:517"),
+            [("unaccounted-drawn-recording", "Source/Parsek/MapRenderProbe.cs:544"),
              ("factory-parity", "Source/Parsek/MapRender/ShadowRenderDriver.cs:709"),
-             ("seam-endpoint-outside-soi", "Source/Parsek/MapRenderProbe.cs:2187")],
+             ("seam-endpoint-outside-soi", "Source/Parsek/MapRenderProbe.cs:2288")],
             list(hlib.ANOMALY_REASONS_RAISED_UNGATED),
             "the report-only instrument list changed - that is a calibration "
             "decision (defect signal vs instrument), not a bookkeeping edit")

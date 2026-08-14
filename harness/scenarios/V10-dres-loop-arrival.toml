@@ -101,7 +101,7 @@ id = "V10-dres-loop-arrival"
 #     which is exactly the filed V8 detector gap (`bodyChanged` cannot see a
 #     clock-leaves-window transition). This lane did not open that gap and cannot
 #     close it by pacing.
-#   iteration 4 (THIS REVISION) -- FLOWN 2026-08-12_0333 and _0335, both PASS, zero
+#   iteration 4 -- FLOWN 2026-08-12_0333 and _0335, both PASS, zero
 #     anomalies, and ARMED on them. The pre-D0 jumps are REMOVED; the escape leg
 #     keeps one post-seam observation (+600).
 #
@@ -124,9 +124,50 @@ id = "V10-dres-loop-arrival"
 #     rather than the renderer, and it is deterministic on every run.
 #     If the detector gap is ever closed, restore iteration 3's escape bracket
 #     (-900 / -300 / +600) and arm the census pair too.
+#   iteration 5 (THIS REVISION) -- BOTH BLOCKERS CLOSED UPSTREAM 2026-08-14 (branch
+#     `line-blink-census`), recipe executed, census ARMED. Two instrument fixes landed
+#     first: LINE-BLINK-JUMP-STRADDLE-DETECTOR-GAP got a WINDOW-EXIT exemption (the OFF
+#     half of a toggle pair decided because the drive clock left the recording's
+#     rendered window is a legitimate transition), and the census summary's SHARED 5 s
+#     rate-limit key was CLASS-SPLIT so a skip-only pass can no longer shadow a
+#     measuring one.
+#
+#     ITERATION 4'S CENTRAL CONCLUSION DOES NOT SURVIVE, and this is the finding worth
+#     recording. It read: "the census evaluating at all depends on the render having
+#     passed through the pre-D0 state, and reaching that state reproduces the filed
+#     detector gap. The two cannot both be had in one lane today." Re-flown UNCHANGED
+#     on the fixed instrument (`2026-08-14_1837`), iteration 4's own no-pre-D0 shape
+#     emitted BOTH census lines -- `evaluated=0 skip.no-usable-ratio=1` AND
+#     `evaluated=1 outsideSoi=0`. So iteration 4 had been REACHING the lens all along;
+#     the second line was being eaten by the shared rate-limit key. The pre-D0
+#     correlation was never the mechanism (V12A had already falsified it from the other
+#     side); the key was.
+#
+#     THE BRACKET IS RESTORED ANYWAY, for a different and better reason than the census.
+#     Run `2026-08-14_1956` flew iteration 3's -900 / -300 / +600 verbatim: PASS, zero
+#     anomalies, and the exemption VISIBLY fired at the very UT that red three times --
+#     `line-blink-suppressed ... currentUT=31276442.240 lineActive=True prevActive=False
+#     sinceFrames=1 body=Sun offWindowCovered=False polylinePainted=False
+#     windowTransitionExempt=True bodyChanged=False toggleVerdict=InsideWindowOn
+#     priorToggleVerdict=WindowExitOff intentReason=director-stockconic-visible`. Note
+#     `offWindowCovered=False` AND `bodyChanged=False`: all three other guards are
+#     demonstrably inactive, so the suppression is the window-transition exemption and
+#     nothing else. The two verdicts show BOTH halves proven, one of each kind - which is
+#     what the exemption requires after the review pass that found a one-sided rule
+#     swallows a real flash in EITHER direction. (`sinceFrames` reads 1 or 2 depending on
+#     frame timing across runs - deliberately NOT pinned.) Keeping
+#     those two jumps makes this lane the LIVE REGRESSION FLOOR for that exemption --
+#     strip it and the lane reds again, exactly as it did in iterations 1-3.
+#     ARMING LEDGER on the FINAL predicate (a clean-context review found that judging a
+#     toggle pair from ONE half swallows a real flash in either direction, so the exemption
+#     now requires BOTH halves proven): readings `_1956` / `_1959` both PASS with the census
+#     pair and the suppressed line byte-identical, control `_2002` correctly
+#     PARSEK-FAIL(expectation) with mismatches=2 naming BOTH inverted tokens
+#     (`outsideSoi=9` and `bodyChanged=True`), reverted `_2006` PASS. Earlier ledgers on
+#     superseded predicate cuts: `_1842`/`_1844`/`_1849`/`_1852`/`_1855`, then `_1920`.
 # =====================================================================================
 tier = "operator"
-description = "The Dres program's final measurement, ARMED -- TimeJump into the re-aimed Kerbin->Dres transfer so the per-window synthesizer runs, to read the tilt disposition at Dres's 5 deg inclination, the seam-endpoint census at the arrival, and the cycle-0 re-aimed-transfer-ready line."
+description = "The Dres program's final measurement, ARMED -- TimeJump into the re-aimed Kerbin->Dres transfer so the per-window synthesizer runs, to read the tilt disposition at Dres's 5 deg inclination, the seam-endpoint census at the arrival, and the cycle-0 re-aimed-transfer-ready line. ITERATION 5: both instrument blockers closed upstream, so iteration 3's escape bracket is restored and the census pair (evaluated=1 outsideSoi=0) is ARMED alongside the synth-geometry claim. The restored pre-D0 jumps make this lane the live regression floor for the line-blink WINDOW-EXIT exemption."
 instanceProfile = "stock-minimal"
 tags = ["V10", "dres", "loop", "playback", "reaim", "tilt", "flown"]
 
@@ -176,14 +217,25 @@ steps = [
   # first two jumps back to back and measured `line-blink ... sinceFrames=1` at
   # 31,276,682.680 on the Sun-leg line -- one visual frame apart, inside the
   # 8-frame detector window.
-  # POST-SEAM ONLY (iteration 4). The pre-D0 jumps are GONE, and the reason is a
-  # measurement rather than a preference -- see the iteration history: whichever UT
-  # the pre-seam jump landed on (31,276,682 twice, then 31,276,442), it reproduced
-  # `line-blink ... sinceFrames=1 body=Sun`, the FILED V8 detector gap where a proto
-  # line toggles because the CLOCK left its window rather than the body changing.
-  # Those jumps answer none of this lane's three questions -- the tilt fires at
-  # mid-transfer, the census at the arrival bracket, the ready line at unit build --
-  # so the lane drops them instead of chasing a detector gap it did not open.
+  # RESTORED IN ITERATION 5 -- iteration 3's full -900 / -300 / +600 bracket, which
+  # iteration 4 had stripped to the +600 jump alone. This is exactly the recipe
+  # iteration 4 wrote for this moment ("if the detector gap is ever closed, restore
+  # iteration 3's escape bracket and arm the census pair too"), and the gap IS closed:
+  # LINE-BLINK-JUMP-STRADDLE-DETECTOR-GAP was fixed 2026-08-14 with a WINDOW-EXIT
+  # exemption on `MapRenderTrace.IsLineBlink`. Whichever UT the pre-seam jump landed on
+  # (31,276,682 twice, then 31,276,442), iterations 1-3 all reproduced
+  # `line-blink ... sinceFrames=1 body=Sun` -- the proto line toggling because the CLOCK
+  # left its window rather than the body changing. That is now recognised as the
+  # legitimate window transition it always was, and these two jumps are KEPT precisely
+  # so this lane is the LIVE REGRESSION FLOOR for that exemption: strip the exemption
+  # and the pre-D0 jumps red the lane again, exactly as they did three times running.
+  # `allowedAnomalies` stays [] -- the detector got sharper, nothing got exempted.
+  { cmd = "TimeJump", args = { ut = "31275842" }, expect = "OK", budget = 300 },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "TimeJump", args = { ut = "31276442" }, expect = "OK", budget = 300 },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
   { cmd = "TimeJump", args = { ut = "31277342" }, expect = "OK", budget = 300 },
   { cmd = "RecordingState",                                                  expect = "OK" },
   { cmd = "RecordingState",                                                  expect = "OK" },
@@ -256,8 +308,17 @@ count = { min = 6, max = 6 }
 #   THE ARRIVAL GEOMETRY, which is the rendered-arrival claim carried by the
 #   synthesizer: `xfer-vs-Dres@arrival=0m` and `xfer-vs-Dres@soi=32832839m
 #   (SOI=32832840)` -- the re-aimed conic meets Dres's sphere of influence to within
-#   one metre. See the iteration history for why this, and not the census pair,
-#   is the armed form of that claim.
+#   one metre. It is now JOINED by the census pair rather than standing in for it --
+#   see iteration 5.
+#
+#   THE CENSUS PAIR, ARMED IN ITERATION 5 and the whole point of that iteration:
+#   `seam-endpoint summary evaluated=1 outsideSoi=0`. This is the RENDERED-arrival
+#   proof, from the map render path, independent of the synthesizer's own geometry
+#   claim above -- one destination-approach check actually performed at the arrival
+#   seam, reading INSIDE Dres's sphere. Iterations 2 and 3 measured exactly this and
+#   could not arm it because reaching it reproduced the line-blink detector gap;
+#   iteration 4 could not even emit it. Both blockers are now closed (see iteration 5),
+#   and the number reproduced on two consecutive runs of the armed shape.
 #
 #   THE READY LINE: `devFromRecorded=0s` with `encounter=Dres` at the departUT this
 #   spec's own arithmetic derived. Cycle 0 re-aims to a real Dres encounter with
@@ -271,6 +332,17 @@ required = [
   # The arrival geometry: the re-aimed conic reaches Dres, to the metre.
   "xfer-vs-Dres@arrival=0m",
   "xfer-vs-Dres@soi=32832839m \\(SOI=32832840\\)",
+  # THE CENSUS PAIR (armed iteration 5): the renderer's own arrival proof.
+  "seam-endpoint summary evaluated=1 outsideSoi=0",
+  # THE EXEMPTION FLOOR, and it is armed POSITIVELY on purpose. `allowedAnomalies = []`
+  # already reds this lane if the WINDOW-EXIT exemption is stripped, but that is a
+  # negative floor: if a future render change simply stops producing the pre-D0
+  # window-exit toggle at all, the lane goes green with nothing left to protect and the
+  # floor is silently gone. This token asserts the suppression ACTUALLY HAPPENED.
+  # `sinceFrames` is deliberately omitted - it reads 1 or 2 across runs by frame timing.
+  # `bodyChanged=False` is load-bearing: with all three other guards reading False, the
+  # line states that the window-transition exemption and nothing else ate the raise.
+  "line-blink-suppressed .* offWindowCovered=False .* windowTransitionExempt=True bodyChanged=False",
   # Cycle 0 re-aims to a real Dres encounter with no deviation.
   "re-aimed transfer ready: departUT=31276742.826743945",
   "devFromRecorded=0s",

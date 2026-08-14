@@ -117,6 +117,25 @@ namespace Parsek
         // orbit) from a true same-geometry flicker. Without this, a Kerbin-escape -> Sun-heliocentric
         // handoff under high warp compresses two correct toggles below the frame window and reads as a blink.
         private readonly Dictionary<uint, string> lastLineToggleBody = new Dictionary<uint, string>();
+        // The VERDICT stamped at each pid's LAST line.active toggle: was it the dark half of a window
+        // transition (WindowExitOff), the lit half (InsideWindowOn), or neither (Other, the fail-closed
+        // bucket)? The blink exemption requires BOTH halves of a toggle pair to be proven, and the
+        // detector only ever sees one of them on the current frame - so the other must have been
+        // stamped when it happened. Both edge directions occur in the archive: the V8 eve straddles
+        // raise on the DARK edge (this frame is the WindowExitOff, the prior toggle must have been the
+        // InsideWindowOn), while all three V10 dres raises are RE-ACTIVATION edges (lineActive=True
+        // prevActive=False sinceFrames=1, this frame is the InsideWindowOn and the prior toggle was the
+        // before-body-frame-start one frame earlier).
+        //
+        // Stamped at EVERY toggle, so a stale verdict can never outlive its pair, and absence means the
+        // pid's first toggle rather than "unknown". ACCEPTED COST of stamping at every toggle: a
+        // DEGENERATE read landing mid-pair is itself a toggle (the truth value is a string, so any
+        // inequality counts) and overwrites the verdict with Other, which makes the following edge
+        // RAISE. That is over-raising on an unknown read - the same fail-closed policy the
+        // offWindowCovered accounting applies to degenerate frames, never under-raising.
+        // See MapRenderTrace.ResolveWindowTransitionExempt.
+        private readonly Dictionary<uint, MapRenderTrace.LineToggleVerdict> lastLineToggleVerdict =
+            new Dictionary<uint, MapRenderTrace.LineToggleVerdict>();
         // Pids whose CURRENT proto-orbit-line DARK WINDOW has had at least one frame that NOTHING
         // covered - the line read inactive and the trajectory polyline painted no line at all for that
         // recording. Membership is the blink predicate's dark-vs-not discriminator: a window that never
@@ -256,6 +275,7 @@ namespace Parsek
             lastIconSuppressed.Clear();
             lastLineToggleFrame.Clear();
             lastLineToggleBody.Clear();
+            lastLineToggleVerdict.Clear();
             lineOffWindowUncovered.Clear();
             prevSampleUT.Clear();
             suppressedLastSample.Clear();
@@ -347,6 +367,7 @@ namespace Parsek
                     lastLineActive.Remove(gone);
                     lastLineToggleFrame.Remove(gone);
                     lastLineToggleBody.Remove(gone);
+                    lastLineToggleVerdict.Remove(gone);
                     lineOffWindowUncovered.Remove(gone);
                 }
             }
@@ -388,7 +409,13 @@ namespace Parsek
             if (Parsek.MapRender.SeamEndpointOracle.ShouldEmitPassSummary(
                     seamEndpointEvaluatedCount, seamEndpointSkipCounts.Count))
             {
-                ParsekLog.VerboseRateLimited(MapRenderTrace.Tag, "seam-endpoint-summary",
+                // The key is CLASS-SPLIT (measured vs skip-only), not one shared key: a pass that
+                // reached the lens and measured nothing must not shadow the first pass that actually
+                // measured. See SeamEndpointOracle.ResolvePassSummaryRateKey for the V12A measurement
+                // that forced this.
+                ParsekLog.VerboseRateLimited(MapRenderTrace.Tag,
+                    Parsek.MapRender.SeamEndpointOracle.ResolvePassSummaryRateKey(
+                        seamEndpointEvaluatedCount),
                     Parsek.MapRender.SeamEndpointOracle.FormatPassSummary(
                         seamEndpointEvaluatedCount, seamEndpointOutsideSoiCount, seamEndpointSkipCounts),
                     5.0);
@@ -652,7 +679,10 @@ namespace Parsek
             // e.g. KSP skipped the renderer's LateUpdate) is dropped by the freshness check, not
             // flagged. The line.active half stays dormant while the read is "(field-missing)"; the
             // drawIcons half is live now.
-            if (MapRenderTrace.TryGetFreshLineIntent(pidKey, frame, out var lineIntent))
+            // Hoisted (was inline in the if): the line-blink guard below needs the SAME fresh intent,
+            // because the intent is where the authoritative decision states WHY the line is dark.
+            bool hasFreshLineIntent = MapRenderTrace.TryGetFreshLineIntent(pidKey, frame, out var lineIntent);
+            if (hasFreshLineIntent)
             {
                 string mismatch = MapRenderTrace.ReconcileLineState(lineIntent, lineActive, drawIcons);
                 if (!string.IsNullOrEmpty(mismatch))
@@ -741,6 +771,20 @@ namespace Parsek
             else
                 lineOffWindowUncovered.Remove(pid);
 
+            // --- WINDOW-TRANSITION verdict for THIS frame (feeds the line-blink guard below) ---
+            // Which half of a window transition, if either, is this frame's toggle? Computed EVERY
+            // frame (not only on a toggle) so the stamp below is always the verdict FOR the toggle it
+            // is stamped at. Fail-closed on every conjunct - a degenerate truth read, a frame where our
+            // Postfix never decided, a decision that disagrees with the truth, or a coverage the
+            // decision site never measured all yield Other, which never exempts. See
+            // MapRenderTrace.ClassifyLineToggle.
+            MapRenderTrace.LineToggleVerdict currentToggleVerdict = MapRenderTrace.ClassifyLineToggle(
+                lineDefinitivelyOff: lineActive == "False",
+                lineDefinitivelyLit: lineActive == "True",
+                hasFreshIntent: hasFreshLineIntent,
+                intentLineActive: lineIntent.LineActive,
+                intentWindowCoverage: lineIntent.WindowCoverage);
+
             // --- Tier-C line-blink anomaly (line.active toggled within N frames) ---
             // A toggle is line.active != the previous sample's value. The blink
             // predicate fires only when the PREVIOUS toggle was within the window,
@@ -761,13 +805,32 @@ namespace Parsek
                 // the emit comment below, which is the only place a reader can be misled about that.
                 bool offWindowCovered =
                     lineWasOff && lineIsLit && !lineOffWindowUncovered.Contains(pid);
+                // BOTH halves of THIS toggle pair proven: the dark half left the recording's rendered
+                // window and the lit half sits on a clock it covers. That is a legitimate window
+                // transition, not a flicker: LINE-BLINK-JUMP-STRADDLE-DETECTOR-GAP. Judging from ONE
+                // half is how a real blink gets swallowed in either direction - see
+                // ResolveWindowTransitionExempt for the parking-conic-loiter-hold sequences that
+                // defeat a one-sided rule. Both filed shapes route through here from opposite edges;
+                // see the lastLineToggleVerdict field comment.
+                MapRenderTrace.LineToggleVerdict priorToggleVerdict;
+                if (!lastLineToggleVerdict.TryGetValue(pid, out priorToggleVerdict))
+                    priorToggleVerdict = MapRenderTrace.LineToggleVerdict.Other;
+                bool windowTransitionExempt = MapRenderTrace.ResolveWindowTransitionExempt(
+                    lineIsLit: lineIsLit,
+                    currentToggle: currentToggleVerdict,
+                    // Presence in lastLineToggleFrame, not in lastLineToggleVerdict: the two are stamped
+                    // together at every toggle, so a pid present in the former has an authoritative
+                    // verdict in the latter.
+                    hasPriorToggle: hasLastToggle,
+                    priorToggle: priorToggleVerdict);
                 if (MapRenderTrace.IsLineBlink(
                         toggled: true,
                         hasLastToggleFrame: hasLastToggle,
                         lastToggleFrame: lastToggle,
                         currentFrame: frame,
                         bodyChanged: toggleCrossedBody,
-                        offWindowCovered: offWindowCovered))
+                        offWindowCovered: offWindowCovered,
+                        windowTransitionExempt: windowTransitionExempt))
                 {
                     // The three coverage fields ride the line so a collected log states WHICH shape
                     // raised. READ THEM WITH lineActive/prevActive: on the RE-ACTIVATION edge
@@ -779,16 +842,37 @@ namespace Parsek
                     // future window to judge it against). polylinePainted is the coverage input this
                     // frame; polylineOwns is carried alongside precisely because the two DISAGREE in
                     // the inter-leg gaps.
+                    // windowTransitionExempt rides the line for the same reason the coverage fields
+                    // do: it is FALSE on every raise by construction (a true value suppresses), so its
+                    // value here states "this pair was NOT a proven window transition" - the fact that
+                    // separates a real flicker from the filed jump-straddle shape. toggleVerdict names
+                    // WHICH half (if either) this frame was, and priorToggleVerdict the other half, so a
+                    // reader can see exactly which of the two proofs was missing. intentReason names the
+                    // authoritative decision behind this frame's state, so a reader never has to join to
+                    // the adjacent LineVisibilityChange line to learn WHY the line is where it is.
+                    // recId is passed (the sibling suppressed-line below always did): without it the
+                    // envelope's recId field renders "<none>" on every raise, which is what forced the
+                    // pid+frame join across all 13 archived raises.
+                    // READ intentReason AS "THIS FRAME'S DECISION", NOT "the OFF half's". On the dark
+                    // edge (lineActive=False) they are the same line. On the RE-ACTIVATION edge -
+                    // three of the four archived raises - this frame is the ON, so intentReason names
+                    // the ON decision and the OFF half's reason is one frame back, off this line.
                     MapRenderTrace.EmitAnomaly(
                         MapRenderTrace.RenderSurface.ProtoOrbitLine, pidKey, currentUT, currentUT,
                         "line-blink",
                         string.Format(ic,
                             "lineActive={0} prevActive={1} lastToggleFrame={2} sinceFrames={3} body={4} "
-                            + "offWindowCovered={5} polylinePainted={6} polylineOwns={7}",
+                            + "offWindowCovered={5} polylinePainted={6} polylineOwns={7} "
+                            + "windowTransitionExempt={8} bodyChanged={9} toggleVerdict={10} "
+                            + "priorToggleVerdict={11} intentReason={12}",
                             lineActive, prevLineActive, lastToggle, frame - lastToggle, bodyName,
-                            offWindowCovered, polylinePainted, polylineOwns));
+                            offWindowCovered, polylinePainted, polylineOwns,
+                            windowTransitionExempt, toggleCrossedBody,
+                            currentToggleVerdict, priorToggleVerdict,
+                            hasFreshLineIntent ? lineIntent.Reason : "(no-fresh-intent)"),
+                        recId);
                 }
-                else if (offWindowCovered && hasLastToggle
+                else if ((offWindowCovered || windowTransitionExempt) && hasLastToggle
                          && frame - lastToggle >= 0 && frame - lastToggle <= MapRenderTrace.LineBlinkFrameWindow)
                 {
                     // THE GUARD FIRED: a raise the pre-guard detector would have made was suppressed
@@ -799,18 +883,35 @@ namespace Parsek
                     // countable NON-gating signal, so a future run can show the guard is not
                     // over-firing. VerboseOnChange-free: this is rare (once per painted window) and the
                     // frame numbers make each occurrence distinct.
+                    // WHICH guard fired is now stated per-flag instead of being hardcoded True: this
+                    // branch covers the painted-dark-window guard AND the window-exit guard, and a
+                    // reader auditing "is the exemption over-firing?" needs to know which one ate the
+                    // raise. bodyChanged rides along too even though it is not in this branch's
+                    // condition: IsLineBlink checks it FIRST, so a pair that a body change would also
+                    // have exempted would otherwise read as a coverage suppression and overstate these
+                    // two guards' reach. intentReason is THIS FRAME'S decision - on the re-activation
+                    // edge that is the ON, not the OFF half (see the raise branch above).
                     MapRenderTrace.EmitOnChange(
                         "line-blink-suppressed",
                         MapRenderTrace.RenderSurface.ProtoOrbitLine, pidKey, currentUT, currentUT,
                         string.Format(ic,
                             "lineActive={0} prevActive={1} lastToggleFrame={2} sinceFrames={3} body={4} "
-                            + "offWindowCovered=True polylinePainted={5} polylineOwns={6}",
+                            + "offWindowCovered={5} polylinePainted={6} polylineOwns={7} "
+                            + "windowTransitionExempt={8} bodyChanged={9} toggleVerdict={10} "
+                            + "priorToggleVerdict={11} intentReason={12}",
                             lineActive, prevLineActive, lastToggle, frame - lastToggle, bodyName,
-                            polylinePainted, polylineOwns),
+                            offWindowCovered, polylinePainted, polylineOwns,
+                            windowTransitionExempt, toggleCrossedBody,
+                            currentToggleVerdict, priorToggleVerdict,
+                            hasFreshLineIntent ? lineIntent.Reason : "(no-fresh-intent)"),
                         recId);
                 }
                 lastLineToggleFrame[pid] = frame;
                 lastLineToggleBody[pid] = bodyName;
+                // Stamp THIS toggle's verdict so the NEXT toggle - which is the other half of the
+                // pair, from whichever edge it is caught - can read it. Written unconditionally
+                // (including Other) so a stale verdict can never outlive its pair.
+                lastLineToggleVerdict[pid] = currentToggleVerdict;
             }
 
             // --- Tier-A FirstPosition (probe-derived MVP variant) ---

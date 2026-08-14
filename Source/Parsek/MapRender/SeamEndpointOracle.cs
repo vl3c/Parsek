@@ -232,6 +232,43 @@ namespace Parsek.MapRender
             return evaluated > 0 || distinctSkipReasons > 0;
         }
 
+        /// <summary>Rate-limit key for a pass that actually MEASURED at least one destination-approach
+        /// check.</summary>
+        internal const string PassSummaryRateKeyMeasured = "seam-endpoint-summary-measured";
+
+        /// <summary>Rate-limit key for a pass that reached the lens but measured NOTHING - every ghost
+        /// landed in a <c>skip.</c> bucket.</summary>
+        internal const string PassSummaryRateKeySkipOnly = "seam-endpoint-summary-skip-only";
+
+        /// <summary>
+        /// Which rate-limit key does this pass's summary ride?
+        ///
+        /// <para><b>The single shared key was itself a defect, measured by V12A-eeloo-loop-arrival
+        /// (2026-08-13, runs <c>_1536</c> / <c>_1537</c>).</b> <see cref="ShouldEmitPassSummary"/> above
+        /// correctly stops a GHOSTLESS frame from priming the limiter - but it deliberately admits a
+        /// pass that reached the lens and measured nothing (<c>distinctSkipReasons &gt; 0</c> alone),
+        /// and on a short lane that is the same failure one step later. V12A's jump 1 (a Kerbin-frame
+        /// escape hyperbola whose cross-body successor destination is the Sun, so
+        /// <c>no-usable-ratio</c>) emitted <c>evaluated=0 outsideSoi=0 skip.no-usable-ratio=1</c> at
+        /// <c>currentUT=53970043.597</c> and primed the one 5.0 s key; the whole remaining ~55 s lane,
+        /// all three arrival-bracket jumps included, then executed inside that shadow. The census could
+        /// not be read at the arrival even with the bracket dead on the seam - independently confirmed
+        /// from the render side, where jump 6 closed the proto line with
+        /// <c>reason=past-body-frame-end bounds=[54007648.2,95851632.0]</c>, i.e. ending at the
+        /// re-aimed <c>soiEntryUT</c> to the digit.</para>
+        ///
+        /// <para><b>The fix is to make the key match WHAT IT SUMMARISES</b>, not to widen the interval
+        /// or drop the limiter. A pass that MEASURED and a pass that measured NOTHING are two different
+        /// statements, so they get two independent budgets: a skip-only pass can no longer shadow the
+        /// first measuring pass, which is the reading every arrival lane is actually after. Within each
+        /// class the 5.0 s limiter is untouched, so this cannot raise steady-state log volume above one
+        /// extra line per 5 s - and only on a pass that genuinely changed class.</para>
+        /// </summary>
+        internal static string ResolvePassSummaryRateKey(int evaluated)
+        {
+            return evaluated > 0 ? PassSummaryRateKeyMeasured : PassSummaryRateKeySkipOnly;
+        }
+
         /// <summary>
         /// Render one pass summary. Field grammar mirrors the faithful-parity line exactly
         /// (<c>&lt;lens&gt; summary &lt;counter&gt;=&lt;n&gt; ... skip.&lt;reason&gt;=&lt;n&gt;</c>) so a

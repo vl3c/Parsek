@@ -9034,22 +9034,22 @@ Ground truth, DERIVED FROM SOURCE (not hand-listed): `hlib.ANOMALY_REASONS_RAISE
 
 | Raised reason | In ANOMALY_TOKENS? | Producer (decision site) |
 |---|---|---|
-| `parity-drift` | yes | `MapRenderProbe.cs:1363`, `:1619`, `:2116` (via `MapRenderTrace.AnomalyParityDrift`) |
-| `line-blink` | yes | `MapRenderProbe.cs:782` |
-| `decision-vs-truth` | yes | `MapRenderProbe.cs:659` |
-| `polyline-orbit-overlap` | yes | `MapRenderProbe.cs:679` |
+| `parity-drift` | yes | `MapRenderProbe.cs:1464`, `:1720`, `:2349` (via `MapRenderTrace.AnomalyParityDrift`) |
+| `line-blink` | yes | `MapRenderProbe.cs:860` |
+| `decision-vs-truth` | yes | `MapRenderProbe.cs:689` |
+| `polyline-orbit-overlap` | yes | `MapRenderProbe.cs:709` |
 | `rigid-seam-tangent-discontinuity` | yes | `MapRender/CrossMemberSeamStitcher.cs:419` |
 | `ledger-vs-truth` | yes | `GameActions/KspStatePatcher.cs` x6, `FacilityStatePatcher.cs:158` |
-| `icon-teleport` | yes (promoted 2026-08-04) | `MapRenderProbe.cs:911` |
-| `icon-off-orbit` | yes (promoted 2026-08-04) | `MapRenderProbe.cs:992` |
-| `unaccounted-drawn-recording` | **NO** (report-only instrument) | `MapRenderProbe.cs:517` |
+| `icon-teleport` | yes (promoted 2026-08-04) | `MapRenderProbe.cs:1012` |
+| `icon-off-orbit` | yes (promoted 2026-08-04) | `MapRenderProbe.cs:1093` |
+| `unaccounted-drawn-recording` | **NO** (report-only instrument) | `MapRenderProbe.cs:544` |
 | `gap-vs-retire` | yes (promoted 2026-08-04) | `MapRender/GhostRenderReconciler.cs:240` |
 | `decision-vs-old-truth` | yes (promoted 2026-08-04) | `MapRender/GhostRenderReconciler.cs:260` |
 | `clock-not-ready` | yes (promoted 2026-08-04) | `MapRender/ShadowRenderDriver.cs:316` -> `MapRenderTrace.EmitClockNotReady` (`:1417`) |
 | `retire-not-held` | yes (promoted 2026-08-04) | `MapRender/ShadowRenderDriver.cs:394` -> `MapRenderTrace.EmitRetireNotHeld` (`:1440`) |
 | `anchor-resolve-fail` | yes (promoted 2026-08-04) | `MapRender/AnchorFrameResolver.cs:87` -> `MapRenderTrace.EmitAnchorResolveFail` (`:1465`) |
 | `factory-parity` | **NO** (report-only instrument) | `MapRender/ShadowRenderDriver.cs:709` -> `MapRenderTrace.EmitFactoryParity` (`:1495`) |
-| `seam-endpoint-outside-soi` | **NO** (report-only instrument, added with the ENCOUNTER-GEOMETRY lens) | `MapRenderProbe.cs:2187` (`TrySampleAndEmitSeamEndpoint`; decision core `MapRender/SeamEndpointOracle.cs`). READ THE PASS SUMMARY BEFORE READING THE SILENCE: `seam-endpoint summary evaluated=<n> outsideSoi=<n> skip.<reason>=<n>` (Verbose, `[Parsek][VERBOSE][MapRenderTrace]`, one per probe pass, 5 s rate-limited) says how many destination-approach checks actually ran; a zero-raise run with `evaluated=0` measured nothing at all. WHY REPORT-ONLY, because this one differs from the two instruments above: a raise WOULD be a real finding, and it took the same report-only first lap the seven promoted tokens each took. (This clause used to read "but the lens has never flown"; the 2026-08-09 census below retired that, and left the clause standing inside the very row that records the retirement. Corrected: flight is no longer a blocker - `hlib.ANOMALY_REASONS_RAISED_UNGATED`'s comment block names the three that are.) It measures the RENDERED conic at a recorded cross-body SOI handoff against the destination body's sphere - both terms propagated to the seam UT via `getTruePositionAtUT`, never a current-anchored position - and raises on `dist/soi > 1.005`. That tolerance is calibrated between two MEASURED populations: healthy = the S1.8 seam continuity, 10,146.3 m (Kerbin->Sun) and 7,284.0 m (Sun->Duna), i.e. 1.2e-4 / 1.5e-4 of the crossed sphere against a 25 km pin; defect = the 2026-06-15 looped re-aim, 1.027 (Duna) / 1.043 (Kerbin - a CALIBRATION reference only; that quantity is unproducible by the field capture, see limit (1) in the M-06 entry). KNOWN BENIGN POPULATION still to be measured: a FAITHFUL loop replay of an interplanetary transfer reads far above 1.0 by design (the destination has moved on in inertial space by the loop shift), so a raise needs the line's `seed=` / `loopShift=` fields read before it is called a defect. Deliberately NOT re-aim-gated - the whole point is that the parity oracle skips exactly those members. **FIRST REAL-GEOMETRY CENSUS 2026-08-09, and it FALSIFIED the offline derivation on two of five lanes** (full write-up + the UT arithmetic under the M-06 re-aim entry). The five V-lanes re-flown with the census on read: V4 `evaluated=1 outsideSoi=0` (Sun->Duna arrival seam - the geometry class the 1.027 defect lived in, measured INSIDE the sphere, on a frame where the faithful-parity sibling stood down `skip.reaimed-or-foreign-seed=1`), V7M `evaluated=1 outsideSoi=0` (Kerbin->Minmus arrival seam, faithful / phase-locked / same-parent, also inside), and V6M / V6T / V7T all `evaluated=0 outsideSoi=0 skip.no-cross-body-successor=1`. ZERO raises anywhere and no verdict moved (V7T's red is its own `icon-off-orbit` finding), so the report-only registration behaves. The lens is therefore NO LONGER UNPROVEN on real geometry - two healthy readings, each reproduced bit-identically on three consecutive flights, and `evaluated=[1-9]` is now REQUIRED on V4 + V7M. STILL NOT MEASURED, and both are why this stays report-only: the RATIO (printed only on a raise, so `outsideSoi=0` proves reach but not margin) and the RAISE itself |
+| `seam-endpoint-outside-soi` | **NO** (report-only instrument, added with the ENCOUNTER-GEOMETRY lens) | `MapRenderProbe.cs:2288` (`TrySampleAndEmitSeamEndpoint`; decision core `MapRender/SeamEndpointOracle.cs`). READ THE PASS SUMMARY BEFORE READING THE SILENCE: `seam-endpoint summary evaluated=<n> outsideSoi=<n> skip.<reason>=<n>` (Verbose, `[Parsek][VERBOSE][MapRenderTrace]`, one per probe pass, 5 s rate-limited) says how many destination-approach checks actually ran; a zero-raise run with `evaluated=0` measured nothing at all. WHY REPORT-ONLY, because this one differs from the two instruments above: a raise WOULD be a real finding, and it took the same report-only first lap the seven promoted tokens each took. (This clause used to read "but the lens has never flown"; the 2026-08-09 census below retired that, and left the clause standing inside the very row that records the retirement. Corrected: flight is no longer a blocker - `hlib.ANOMALY_REASONS_RAISED_UNGATED`'s comment block names the three that are.) It measures the RENDERED conic at a recorded cross-body SOI handoff against the destination body's sphere - both terms propagated to the seam UT via `getTruePositionAtUT`, never a current-anchored position - and raises on `dist/soi > 1.005`. That tolerance is calibrated between two MEASURED populations: healthy = the S1.8 seam continuity, 10,146.3 m (Kerbin->Sun) and 7,284.0 m (Sun->Duna), i.e. 1.2e-4 / 1.5e-4 of the crossed sphere against a 25 km pin; defect = the 2026-06-15 looped re-aim, 1.027 (Duna) / 1.043 (Kerbin - a CALIBRATION reference only; that quantity is unproducible by the field capture, see limit (1) in the M-06 entry). KNOWN BENIGN POPULATION still to be measured: a FAITHFUL loop replay of an interplanetary transfer reads far above 1.0 by design (the destination has moved on in inertial space by the loop shift), so a raise needs the line's `seed=` / `loopShift=` fields read before it is called a defect. Deliberately NOT re-aim-gated - the whole point is that the parity oracle skips exactly those members. **FIRST REAL-GEOMETRY CENSUS 2026-08-09, and it FALSIFIED the offline derivation on two of five lanes** (full write-up + the UT arithmetic under the M-06 re-aim entry). The five V-lanes re-flown with the census on read: V4 `evaluated=1 outsideSoi=0` (Sun->Duna arrival seam - the geometry class the 1.027 defect lived in, measured INSIDE the sphere, on a frame where the faithful-parity sibling stood down `skip.reaimed-or-foreign-seed=1`), V7M `evaluated=1 outsideSoi=0` (Kerbin->Minmus arrival seam, faithful / phase-locked / same-parent, also inside), and V6M / V6T / V7T all `evaluated=0 outsideSoi=0 skip.no-cross-body-successor=1`. ZERO raises anywhere and no verdict moved (V7T's red is its own `icon-off-orbit` finding), so the report-only registration behaves. The lens is therefore NO LONGER UNPROVEN on real geometry - two healthy readings, each reproduced bit-identically on three consecutive flights, and `evaluated=[1-9]` is now REQUIRED on V4 + V7M. STILL NOT MEASURED, and both are why this stays report-only: the RATIO (printed only on a raise, so `outsideSoi=0` proves reach but not margin) and the RAISE itself |
 | `loop-seam-teleport` | yes (gated at birth 2026-08-07, flight-arrival lane) | `ParsekFlight.cs` `TrackLoopSeamTeleport` -> `GhostRenderTrace.EmitAnomaly` (the third tracer signature; walker taught in the same change). SENSITIVITY, because silence gets cited as evidence: it raises on a SINGLE-FRAME world delta above `max(GhostRenderTrace.LoopSeamTeleportFloorMeters = 1,000,000 m, expected motion * dt * multiplier)`, so a clean sweep excludes discontinuities over 1,000 km between consecutive frames and nothing finer |
 
 That WAS nine ungated reasons, not five (seven now gated per the RESOLUTION below; the table's per-row flags carry the current truth). **The first version of this table listed five**, and the four it missed are the wrapper-routed rows: the cutover-hardening raises, which reach `EmitAnomaly` through thin once-per-event `MapRenderTrace` wrappers instead of calling it at the guard site, so a grep for `EmitAnomaly` call sites does not land on them. They emit the same `phase=Anomaly ... reason=<token>` line as any direct raise (all four route through `MapRenderTrace`'s shared `EmitRaw(true, "Anomaly", ...)`), so all four were genuinely ungated then (three are promoted now; `factory-parity` stays the declared instrument). Understating the ungated count understates the size of the fail-open, which is the one thing this entry existed to size, hence the source-derived gate above. `clock-not-ready` in particular is the cold-load UT<=0 defer - a defect class this project already tracks separately.
@@ -11858,7 +11858,75 @@ So the widened band was COMPUTED and never EXERCISED. Whether the eccentricity-g
 
 **What would exercise it:** a fixture whose STEP-0 TOF IS REJECTED, forcing the search off the recorded centre. This fixture's is not - it resolves immediately, which is the healthy outcome and precisely why it cannot probe the expansion. A candidate shape is a recorded transfer whose replay-clock departure no longer admits the recorded tof (a target whose phase has drifted far enough across the synodic multiple), or the geom-centered sibling path `BuildParkingCandidateTofs`, which is a different function and unexercised here (`parking=False` on every run). **Do not mark M-MIS-3 closed off the Eeloo pin alone.**
 
-## SEAM-ENDPOINT-CENSUS-UNREADABLE-ON-A-SHORT-LANE - the census summary rides a SHARED 5 s rate-limit key, so on a ~55 s lane the first ghost-bearing frame consumes the only reported pass (measured 2026-08-13, branch `eeloo-loop-lanes`, four V12A runs; an INSTRUMENT limit, not a product defect, and NOT fixed here)
+## LINE-BLINK-EXEMPTION-DOES-NOT-PIN-THE-BOUNDARY - the window-transition exemption proves "one half read Outside, the other Inside", not "the SAME boundary was crossed" (found by review 2026-08-14, branch `line-blink-census`; UNEVIDENCED across all 13 archived raises; filed rather than fixed, and the OBVIOUS fix is measurably the wrong one)
+
+**The gap.** `MapRenderTrace.ResolveWindowTransitionExempt` exempts a `line-blink` pair
+when one half classifies `WindowExitOff` and the other `InsideWindowOn`. Each half is a
+real measurement made by the decision site whose branch condition IS that measurement -
+but `LineRenderIntent` carries only the three-state `RenderWindowCoverage`, never the
+BOUNDS the site measured against. So the exemption proves two independent claims and
+presents them as one transition across a single boundary. Two consequences:
+
+**(a) A bounds FLAP is indistinguishable from a clock transition.** If the window moves
+while the clock does not, the same clock reads Inside on one frame and Outside on the
+next, and a genuine one-frame dark flash is exempted. This is INHERENT to the exemption's
+premise as the design authority now states it: the instrument has no bounds-stability
+signal and never had one. It is not a regression introduced by this work - the same
+blindness sat behind the un-exempted detector, which simply raised on everything.
+**And the flap is not hypothetical:** in `logs/2026-08-12_0627_V10-dres-loop-arrival`
+one ghost's bounds walk `[31276682.1,43162584.0]` (frame 7189) ->
+`[31276682.7,43162584.5]` (7218) -> `[31276742.8,43162644.6]` (7248) while the lane
+re-aims, i.e. the window edge advances ~0.02 s per frame on a re-aiming lane.
+
+**(b) The sharper half: the two halves prove their claims against STRUCTURALLY DIFFERENT
+bound sets.** `director-stockconic-visible` stamps `Inside` after checking
+`appliedBoundsCoverHead` - the APPLIED SEGMENT bounds (`segStartUT`/`segEndUT`). The
+`past-body-frame-end` / `before-body-frame-start` block stamps `Outside` against the
+BODY-FRAME bounds (`startUT`/`endUT`). Nothing makes those the same interval, so the
+exemption can in principle be satisfied by a pair that never crossed one boundary at all.
+
+**UNEVIDENCED, and measured that way rather than asserted.** Across all 13 archived
+raises there is no pair whose exemption rests on mismatched boundaries.
+
+**THE OBVIOUS FIX - "carry startUT/endUT and require the two halves' bounds to be equal" -
+IS NOT THE FIX, and the reason is a measurement that also CORRECTS the prediction that
+motivated this entry.** The review expected equality to break 5 of the 6 now-exempted
+raises, on the reasoning in (b): five of them pair an applied-segment `Inside` with a
+body-frame `Outside`, so their bounds "must" differ. Read against the logs, **that is
+wrong - all six pairs carry BYTE-IDENTICAL bounds on both halves**:
+
+| raise | dark half | lit half | bounds (both halves) |
+|---|---|---|---|
+| V8 `_1111` | f7843 `past-body-frame-end` | f7839 `director-stockconic-visible` | `[30360218.8,30450249.6]` |
+| V8 `_1114` | f7618 `past-body-frame-end` | f7611 `visible-body-frame` | `[26616878.0,30360218.8]` |
+| V10 `_0627` | f7218 `before-body-frame-start` | f7219 `director-stockconic-visible` | `[31276682.7,43162584.5]` |
+| V10 `_0630`a | f7232 `before-body-frame-start` | f7233 `director-stockconic-visible` | `[31276552.7,43162454.6]` |
+| V10 `_0630`b | f7262 `before-body-frame-start` | f7263 `director-stockconic-visible` | `[31276682.5,43162584.3]` |
+| V10 `_0632` | f7237 `before-body-frame-start` | f7238 `director-stockconic-visible` | `[31276442.6,43162344.4]` |
+
+So (b) is a STRUCTURAL gap, not an observed divergence: on this corpus the applied
+segment and the body frame COINCIDE numerically at every pair, and only `_1114` is a
+both-halves-body-frame pair by construction. Equality would therefore have un-exempted
+NOTHING today - the lanes would stay green.
+
+**Which is exactly why equality is still the wrong rule.** It is satisfiable on the
+corpus by coincidence, and it is fragile against the drift measured in (a): the pairs
+that satisfy it are 1 frame apart (V10) or 4-7 frames apart with a window that happened
+not to move (V8), while the same logs show the window moving ~0.02 s/frame during a
+re-aim. An equality check is therefore a TOLERANCE question disguised as an identity one,
+and picking a tolerance without measuring the drift distribution is the trap the rest of
+this work avoided. Whoever picks this up needs a COHERENCE rule designed from measurement
+- e.g. what relationship the `Inside` bounds must bear to the `Outside` bounds for the two
+to describe one boundary (containment? shared edge? edge within a measured drift budget?)
+- and the first step is measuring how the applied-segment and body-frame intervals relate
+across a corpus, not adding an `==`.
+
+**Cross-reference:** the exemption itself and its cannot-mask argument are the resolved
+LINE-BLINK-JUMP-STRADDLE-DETECTOR-GAP entry below; this entry is the one thing that
+review left standing, and it is a sharpening of the exemption's PREMISE rather than a
+hole in its implementation.
+
+## ~~SEAM-ENDPOINT-CENSUS-UNREADABLE-ON-A-SHORT-LANE~~ - the census summary rides a SHARED 5 s rate-limit key, so on a ~55 s lane the first ghost-bearing frame consumes the only reported pass (measured 2026-08-13, branch `eeloo-loop-lanes`, four V12A runs; an INSTRUMENT limit, not a product defect) [FIXED 2026-08-14, branch `line-blink-census`, by CLASS-SPLITTING the key - see the resolution at the end]
 
 **The measurement.** V12A's arrival bracket was retargeted onto the product's own `soiEntryUT` (the V10 iteration-1 lesson), all three bracket jumps landing within +-190 s of `95851632.03180024` - and the census STILL read, byte-identically on all four runs:
 
@@ -11874,13 +11942,210 @@ So the widened band was COMPUTED and never EXERCISED. Whether the eccentricity-g
 
 **What would fix it:** free the rate-limit key near the seam, or move the summary to a per-onset / per-pid key so one primed shared key cannot suppress every later seam. Both are instrument changes to a shared gated tracer and neither belongs on a lane branch - the same call V1/V8 made for `line-blink`. Note for whoever restores V10's census bracket (`-900 / -300 / +600`): on a short lane that recipe is **necessary but not sufficient**, because the shared key suppresses the arrival sample even when the bracket is dead on the seam.
 
-## LINE-BLINK-JUMP-STRADDLE-DETECTOR-GAP - back-to-back seam TimeJumps raise the gated `line-blink` on legitimate window transitions (measured 2026-08-11, branch `eve-loop-lanes`; two PARSEK-FAIL artifacts; lane re-paced, detector NOT modified)
+### RESOLUTION 2026-08-14 (branch `line-blink-census`) - the key now matches WHAT IT SUMMARISES
+
+Neither of the two options above was taken verbatim. Widening the interval or dropping
+the limiter would raise log volume on every lane to buy one lane's reading, and a
+per-pid key multiplies the line by the ghost count for a summary that is per-PASS by
+definition. What the measurement actually shows is narrower than "the key is shared":
+**a pass that reached the lens and measured NOTHING shadowed the pass that measured
+something.** Those are two different statements, so they now ride two keys -
+`seam-endpoint-summary-measured` and `seam-endpoint-summary-skip-only`, selected by the
+pure `SeamEndpointOracle.ResolvePassSummaryRateKey(evaluated)`.
+
+A skip-only pass can therefore no longer consume the budget for the first measuring
+pass, which is the reading every arrival lane is after. Within each class the 5.0 s
+limiter is untouched, so steady-state volume rises by at most one line per 5 s and only
+when a pass genuinely changes class. `ShouldEmitPassSummary` is UNCHANGED and still
+refuses a ghostless frame, so neither key can be primed at scene entry - the
+`probe frame summary` failure mode that guard was written for stays closed. Pinned by
+`SeamEndpointOracleTests`: the two keys differ, every measuring pass shares one key, and
+the ghostless-frame guard is asserted unchanged.
+
+Note the SECOND blocker on the same lanes was closed in the same pass: see
+LINE-BLINK-JUMP-STRADDLE-DETECTOR-GAP below.
+
+**FLOWN, AND IT FALSIFIED THE OTHER HALF OF THE DIAGNOSIS.** All three arrival lanes
+were re-flown with NO spec change (`V10 2026-08-14_1837`, `V11A _1839`, `V12A _1840`,
+each PASS attempt 1, zero anomalies) and ALL THREE emitted the measuring pass that none
+of them had ever been able to print:
+
+```
+seam-endpoint summary evaluated=0 outsideSoi=0 skip.no-usable-ratio=1
+seam-endpoint summary evaluated=1 outsideSoi=0
+```
+
+So the key was the WHOLE blocker on every lane, and **V10 iteration 4's conclusion -
+"the census evaluating at all depends on the render having passed through the pre-D0
+state" - does not survive**: iteration 4's own no-pre-D0 shape had been reaching the
+lens all along and having its second line eaten. V12A had already falsified the pre-D0
+correlation from the other side; this settles it. The escape-bracket half of V10's
+restoration recipe turned out to be neither necessary nor sufficient for the census (it
+was restored anyway, as the live regression floor for the detector exemption - see
+below). `evaluated=1 outsideSoi=0` is now an ARMED required token on all three lanes,
+each with two byte-identical readings, an armed PASS, a negative control that correctly
+red `PARSEK-FAIL(expectation)` naming the inverted token, and a reverted PASS.
+
+## ~~LINE-BLINK-JUMP-STRADDLE-DETECTOR-GAP~~ - back-to-back seam TimeJumps raise the gated `line-blink` on legitimate window transitions (measured 2026-08-11, branch `eve-loop-lanes`; two PARSEK-FAIL artifacts; lane re-paced, detector NOT modified) [RE-MEASURED across the whole 13-raise archive and FIXED 2026-08-14, branch `line-blink-census`, with a WINDOW-EXIT exemption - see the resolution at the end of this entry]
 
 **The measurement.** Two V8-eve-player-loop iterations PARSEK-FAILed on the gated Tier-C `line-blink` with every other verifier green: run `2026-08-11_0810` (Eve-leg proto line, `sinceFrames=4`, at a TimeJump landing 850 s PAST the phase window end 30,450,249.6 - the ghost retires, `GuardSkip mission-loop-unit-inactive`, and the line's ON-at-rebind -> OFF-at-retire pair lands inside the detector window) and run `2026-08-11_0814` (Sun-leg proto line, `sinceFrames=7`, at the arrival bracket's third jump - the line toggles ON at one jump's rebind and OFF at the next jump's `past-body-frame-end`, the two jumps executing ~7 visual frames apart in WALL time regardless of the 240 game-seconds between them). Both collected-log folders exist (non-PASS runs collect); both raises are legitimate-transition pairs, not flickers - nothing a player can produce, because only the seam can slam two epoch shifts inside `LineBlinkFrameWindow = 8` visual frames.
 
 **The gap, precisely.** `MapRenderTrace.IsLineBlink` already carries a `bodyChanged` exemption whose own comment says "a toggle pair that crosses a reference-body / segment boundary is two legitimate transitions at a real geometry seam, not a flicker" - which describes BOTH sightings - but the flag cannot see either shape: the line's body does not change when the CLOCK leaves its window (`past-body-frame-end`) or when the unit retires; `offWindowCovered` does not apply (no polyline painted the dark window; both raises read `offWindowCovered=False polylinePainted=False`). A jump-rebind exemption analogous to `loop-seam-teleport`'s clock-delta rebind exemption would close it; NOT built here - the detector is a shared gated instrument and V1's closed diagnosis (see V1-REPLAY-LINE-BLINK above) shows its guards are calibrated on evidence per mechanism, so the fix deserves its own measured pass rather than a rider on a lane branch.
 
 **What the lane did instead (and why it is not softening):** V8 paces its bracket jumps with `RecordingState` spacer pairs so adjacent seam-straddling jumps land more than 8 visual frames apart - a player-scale clock instead of a detector-window-scale one. `allowedAnomalies` stays `[]`; the two artifacts stand as the record of what un-paced jumps do; runs `2026-08-11_0818`/`_0819` prove the paced shape green with clean sweeps twice consecutively.
+
+### RESOLUTION 2026-08-14 (branch `line-blink-census`) - a WINDOW-EXIT exemption, measured against the whole archive first
+
+**FIRST, TWO CORRECTIONS TO THE MEASUREMENT ABOVE**, both found by re-reading the raw
+logs rather than the summary:
+
+1. **The run folders named above do not exist under those names.** `collect-logs.py`
+   names its folder by COLLECT time, not run id, so the two artifacts are
+   `logs/2026-08-11_1111_V8-eve-player-loop/` and `logs/2026-08-11_1114_V8-eve-player-loop/`
+   (both `git-state.txt` reads `Branch: eve-loop-lanes`; every discriminating field
+   matches). Same run-id-vs-collect-time split this doc already records elsewhere for
+   `2026-07-30_1955` / `2026-07-30_2322`.
+2. **The corpus is 13 raises across 9 runs, not 2, and it splits by EDGE DIRECTION** -
+   which is what the fix turns on. Archive-wide `grep -c "reason=line-blink"`: V1
+   `2026-07-30_2251`/`_2322`/`_2357` (2 each), `2026-08-01_1925` (1), V8
+   `2026-08-11_1111`/`_1114` (1 each), V10 `2026-08-12_0627` (1), `_0630` (2), `_0632`
+   (1). Moho and Eeloo have ZERO. The two V8 straddles are the DARK edge
+   (`lineActive=False prevActive=True`); **all three V10 raises are the RE-ACTIVATION
+   edge** (`lineActive=True prevActive=False sinceFrames=1 body=Sun`), whose OFF half
+   was the `before-body-frame-start` decision ONE FRAME EARLIER. The entry above,
+   written from the V8 pair alone, describes only the dark-edge half. (Also: the token
+   is `reason=line-blink` on a `phase=Anomaly` line - there is no `anomaly=` key - and
+   `recId` rendered `<none>` on all 13 because the raise call site never passed it.
+   That is now fixed too.)
+
+**THE FRAME-LEVEL EVIDENCE, both directions.** V8 `_1114` `KSP.log:12099` raises at
+frame 7618 with `sinceFrames=7 body=Sun offWindowCovered=False polylinePainted=False`;
+the SAME frame's authoritative decision (`:12096`) reads
+`reason=past-body-frame-end lineActive=False currentUT=30360400.0
+bounds=[26616878.0,30360218.8]` - the clock is 181.2 s PAST the window end. V8 `_1111`
+is the same shape 850.4 s past `bounds=[30360218.8,30450249.6]`. V10 `_0627`
+`KSP.log:11582` raises at frame 7219 on the LIT edge; the OFF half at frame 7218 reads
+`reason=before-body-frame-start lineActive=False currentUT=31276682.660
+bounds=[31276682.7,43162584.5]` - BEFORE the window start. In every case the line was
+correctly dark: **there is no recorded arc to draw at that clock.**
+
+**THE FIX - a positive discriminator on BOTH halves, not a widened window.**
+`GhostOrbitLinePatch` now stamps a three-state `RenderWindowCoverage` onto each frame's
+`LineRenderIntent`, and ONLY where the branch condition IS a measurement of the drive
+clock against the recording's rendered body-frame window. Four sites, no more:
+`Outside` at `past-body-frame-end` / `before-body-frame-start` (the dark half) and at
+`parking-conic-loiter-hold` (which holds the line LIT out there); `Inside` at
+`director-stockconic-visible` and `visible-body-frame` (the two branches that verified
+covering bounds). Everything else stays `Unknown`.
+
+`MapRenderTrace.ClassifyLineToggle` turns one toggle into `WindowExitOff` /
+`InsideWindowOn` / `Other`, and `ResolveWindowTransitionExempt` exempts a pair **only
+when both halves are proven**: the dark half left the window AND the lit half sits on a
+clock the recording covers. The probe stamps each toggle's verdict per pid, so whichever
+edge the detector catches, the other half is the stamped one. Both pure, Unity-free,
+directly unit-tested.
+
+**ONE HALF IS NEVER ENOUGH, and that is a measured lesson rather than a design taste.**
+The first cut judged the pair from the OFF half alone. `parking-conic-loiter-hold`
+defeats that, and it defeats the mirror rule too - it is the ONE decision that holds the
+line lit while the clock is outside the window, and it lives in the same
+`pastEnd || beforeStart` block as the window-exit OFF, so a pair pivoting on it has
+NOTHING inside the window and is a real on-screen flash:
+
+- `past-body-frame-end` (dark) -> `parking-conic-loiter-hold` (lit): caught on the LIT
+  edge. A dark-half-only rule exempts it.
+- ... hold (lit) -> hold disarms -> `past-body-frame-end` (dark): the same flash going
+  out one frame later, caught on the DARK edge at `sinceFrames=1`. Its partner has
+  already aged past `LineBlinkFrameWindow`, so under a dark-half-only rule the ENTIRE
+  flash raised nothing - gating exactly the direction `MapRenderProbe`'s own emit comment
+  calls "deliberately ungated (a conic flashing on for a couple of frames ... is its own
+  visible artefact)".
+
+Both directions now decline. The old cannot-mask paragraph "held" only because it
+DEFINED a real blink as an inside-window toggle and these pairs are outside; that is
+proof by definition, and it is exactly the kind worth distrusting.
+
+**WHAT IT COVERS AND WHAT IT DOES NOT.** It covers exactly one statement: the pair left
+the rendered window and came back onto a clock the recording covers, both halves proven
+by the decision site's own branch condition. It does NOT cover, and all of these still
+raise:
+
+- any OFF decided INSIDE the window - `polyline-owns-phase`,
+  `director-traced-path-suppress`, `below-atmosphere` / `terminal-below-atmosphere`,
+  `post-polyline-release-grace`, `director-terminal-suppress`, and **especially
+  `stale-segment-awaiting-reseed`**, whose own "clock outside bounds" is the APPLIED
+  SEGMENT bounds lagging INSIDE the window. A generic bounds comparison would have
+  swallowed that one; the stamp is deliberately per-branch instead;
+- any ON that is not PROVEN inside - `parking-conic-loiter-hold` (stamped `Outside`) and
+  **`terminal-visible`**, which is lit past the recorded window with no bounds at all and
+  stamps nothing. `Inside` is a positive fact for exactly this reason: a "not `Outside`"
+  test would have read `terminal-visible` as covered;
+- either half on a frame where our Postfix never ran (no measurement = no exemption), so
+  a line KSP or another patch lit or darkened behind our back still raises;
+- either half where the decision DISAGREES with the truth read (that is
+  `decision-vs-truth`'s job);
+- either half on a degenerate line read.
+
+**WHY IT CANNOT MASK A REAL BLINK.** Every conjunct is fail-closed: anything unproven
+lands in `Other`, and `Other` never exempts on either edge. So the exemption fires only
+on a pair whose two halves were each MEASURED, by the site whose branch condition is that
+measurement - never on absence of evidence. Pinned by
+`LineBlinkWindowExitExemptionTests`: the four archived raises replay to "exempt";
+`ArchivedRaiseGeometry_ButAHalfIsNotProven_StillRaises` replays byte-identical frame
+geometry with one fact changed, four ways, and asserts each STILL RAISES;
+`Resolve_DarkEdge_PriorLitHalfNotProvenInside_StillRaises` and
+`Resolve_LitEdge_LitHalfNotProvenInside_StillRaises` pin the two flash directions; and
+`CoverageStamps_AreConfinedToTheFourMeasuringDecisions` is a SOURCE gate - because the
+stamp is an ENUM VALUE rather than a bare `true`, any widening must spell
+`RenderWindowCoverage.Inside` / `.Outside` and is counted, which catches the trailing
+POSITIONAL argument (`..., endUT, true)`) that would have slipped past the first cut's
+string grep. `CoverageStamp_DefaultsToUnknown_AndHasOneWriter` pins `RecordLineIntent` to
+a single production call site so nothing else can write coverage at all. Both gate
+directions were negative-controlled and confirmed red.
+
+The line above is reproducible from a collected artifact, not just from a run
+directory: `logs/2026-08-14_2309_line-blink-census-postfix/harness-runs/`
+carries the KSP.log + result JSON for the three post-fix readings (`_1956` V10,
+`_1957` V11A, `_1958` V12A) and the V10 negative control (`_2002`). Note that
+`collect-logs.py` snapshots the DEV instance, which never runs a harness flight -
+so a harness line has to be carried over from `harness/results/<run>_shots/`
+explicitly, which is what that subfolder is.
+
+**ONE THING THIS DOES NOT PROVE, filed separately:** the exemption establishes that one
+half read `Outside` and the other `Inside`, not that both measured the SAME boundary -
+see LINE-BLINK-EXEMPTION-DOES-NOT-PIN-THE-BOUNDARY above. Unevidenced across all 13
+archived raises (all six exempted pairs carry byte-identical bounds on both halves), and
+the obvious bounds-equality fix is measurably the wrong one.
+
+**LIVE PROOF, on the shape that red three times running.** `V10-dres-loop-arrival` had
+its iteration-3 escape bracket (-900 / -300 / +600) RESTORED and flown: run
+`2026-08-14_1956` PASS, zero anomalies, and the exemption visibly fired at the very UT
+iteration 3 measured its raise at -
+
+```
+phase=line-blink-suppressed surface=ProtoOrbitLine pid=2085490815
+recId=05cb08259cba4ad2b8257c88727b91d4 frame=6183 currentUT=31276442.240
+lineActive=True prevActive=False lastToggleFrame=6182 sinceFrames=1 body=Sun
+offWindowCovered=False polylinePainted=False polylineOwns=False
+windowTransitionExempt=True bodyChanged=False toggleVerdict=InsideWindowOn
+priorToggleVerdict=WindowExitOff intentReason=director-stockconic-visible
+```
+
+FIVE things to read there. `offWindowCovered=False polylinePainted=False
+bodyChanged=False` - ALL THREE other guards are demonstrably inactive, so the
+suppression is the window-transition exemption and nothing else; that is the whole
+attribution claim, stated by the line rather than inferred. `toggleVerdict=InsideWindowOn
+priorToggleVerdict=WindowExitOff` - BOTH halves proven, one of each kind, which is
+exactly what the corrected predicate requires; a reader auditing a raise sees which of
+the two proofs was missing instead of guessing. `lineActive=True prevActive=False` - the
+RE-ACTIVATION edge, so the dark half came from the STAMPED prior toggle. `intentReason`
+is THIS FRAME'S decision, which on this edge is the ON
+(`director-stockconic-visible`, i.e. INSIDE the window - the lit half's positive proof).
+And `recId=` carries a real id, where all 13 archived raises rendered `<none>`.
+`sinceFrames` reads 1 or 2 depending on frame timing across runs; it is deliberately not
+pinned. The lane KEEPS those pre-D0 jumps and now arms this line POSITIVELY, so the floor
+cannot go vacuous: strip the exemption and V10 reds on `allowedAnomalies`, stop producing
+the toggle at all and V10 reds on the missing token.
 
 ## TODO - D11 `loiter-compression` is UNCOVERED and ~~CANNOT be covered by any committed fixture~~ NOW REACHABLE (first non-zero measurement 2026-08-11, branch `eve-loop-lanes`; the cell itself stays UNCLAIMED until a lane pins a cut token)
 

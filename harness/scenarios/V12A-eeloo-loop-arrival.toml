@@ -535,8 +535,10 @@ id = "V12A-eeloo-loop-arrival"
 # =====================================================================================
 # WHAT IS STILL DELIBERATELY NOT ARMED, EACH WITH ITS REASON
 #
-#   THE CENSUS PAIR. STILL A DOCUMENTED READING, and after the retarget the reason is
-#   BETTER UNDERSTOOD than V10's rather than merely inherited -- see iteration 2 (iii).
+#   ~~THE CENSUS PAIR~~ -- ARMED 2026-08-14. The paragraph below is kept verbatim as the
+#   record of the measurement that DIAGNOSED the blocker (correctly, and better than
+#   V10's inherited guess), followed by the addendum recording that the blocker is now
+#   fixed and the pair armed with NO change to this lane's flown shape.
 #   Measured here, byte-identical on both runs:
 #       `[MapRenderTrace] seam-endpoint summary evaluated=0 outsideSoi=0
 #        skip.no-usable-ratio=1`
@@ -558,6 +560,26 @@ id = "V12A-eeloo-loop-arrival"
 #   needed here, because on a ~55 s lane the shared key alone suppresses the arrival
 #   sample even when the bracket is dead on the seam. Both are instrument changes, and
 #   neither is this lane's business.
+#
+#   ADDENDUM 2026-08-14 -- FIXED UPSTREAM AND ARMED. Branch `line-blink-census` closed
+#   BOTH instrument blockers this lane named. The one that bound HERE was the key: the
+#   census summary now rides a CLASS-SPLIT rate-limit key
+#   (`SeamEndpointOracle.ResolvePassSummaryRateKey` -> `seam-endpoint-summary-measured`
+#   vs `-skip-only`), so a pass that measured NOTHING can no longer consume the budget
+#   for the first pass that measured something. This lane's own diagnosis is what the
+#   fix was shaped to -- not a widened interval, not a per-pid key, but two budgets for
+#   the two statements the summary makes.
+#   RE-FLOWN WITH NO SPEC CHANGE: `2026-08-14_1840` and `_1845`, both PASS attempt 1,
+#   zero anomalies, and BOTH census lines present byte-identically on both runs --
+#   `evaluated=0 outsideSoi=0 skip.no-usable-ratio=1` (jump 1, the Kerbin escape
+#   hyperbola whose successor destination is the Sun, correctly bucketed) AND
+#   `evaluated=1 outsideSoi=0` (the arrival seam, one check performed, INSIDE Eeloo's
+#   sphere). The `evaluated=1` line is what this lane could never see, and it confirms
+#   iteration 2's render-side inference exactly: the bracket WAS dead on the seam, and
+#   the census was silent rather than negative. `evaluated=1 outsideSoi=0` is now armed
+#   as a required token. The V10 restoration recipe carried above turned out to be
+#   NEITHER necessary NOR sufficient for this lane -- the escape bracket was never the
+#   blocker here, the key was.
 #
 #   `suppressed=122` AND THE EFFECTIVE-SEGMENTS LINE. Stable across both runs, but it is
 #   a render-side count whose stability rests on two runs of ONE jump shape, and it would
@@ -607,7 +629,7 @@ id = "V12A-eeloo-loop-arrival"
 #     Parsek, and deliberately not gated.
 # =====================================================================================
 tier = "operator"
-description = "ARMED: the Eeloo program's arrival lane -- TimeJump into the re-aimed Kerbin->Eeloo transfer so the per-window synthesizer runs, pinning the tilt disposition at Eeloo's 6.15 deg inclination, the eccentric-target tof band at e=0.26, the three synth-geometry proximity checks including the MEASURED Eeloo SOI constant, and the cycle-0 re-aimed-transfer-ready line. THE HEADLINE IS A FINDING: the tilt came back state=noop reason=in-plane, not the predicted retained -- the solved conic's 4.0725 deg sits BELOW the 6.6500 deg bound, so the excessive-tilt gate never opened and the retention branch was NOT exercised at Eeloo. The seam-endpoint census stays a documented reading (its summary rides a shared 5 s rate-limit key primed by jump 1)."
+description = "ARMED: the Eeloo program's arrival lane -- TimeJump into the re-aimed Kerbin->Eeloo transfer so the per-window synthesizer runs, pinning the tilt disposition at Eeloo's 6.15 deg inclination, the eccentric-target tof band at e=0.26, the three synth-geometry proximity checks including the MEASURED Eeloo SOI constant, and the cycle-0 re-aimed-transfer-ready line. THE HEADLINE IS A FINDING: the tilt came back state=noop reason=in-plane, not the predicted retained -- the solved conic's 4.0725 deg sits BELOW the 6.6500 deg bound, so the excessive-tilt gate never opened and the retention branch was NOT exercised at Eeloo. ITERATION 4 (2026-08-14): the shared-key blocker was fixed upstream, so the seam-endpoint census pair `evaluated=1 outsideSoi=0` is now ARMED as a 14th token -- with no change to the flown shape, confirming the arrival seam was being reached all along."
 instanceProfile = "stock-minimal"
 tags = ["V12A", "eeloo", "loop", "playback", "reaim", "tilt", "flown"]
 
@@ -749,6 +771,14 @@ count = { min = 6, max = 6 }
 required = [
   "MissionConfig",
   "StartLoopPlayback",
+  # THE CENSUS PAIR (ARMED 2026-08-14): the RENDERED-arrival proof, from the map
+  # render path and independent of the synthesizer's own geometry claim -- one
+  # destination-approach check actually performed at the arrival seam, reading INSIDE
+  # the destination sphere. Unarmable until 2026-08-14 because the summary rode a
+  # SHARED 5 s rate-limit key that this lane's jump 1 primed; the key is now
+  # class-split (measured vs skip-only), so a skip-only pass can no longer shadow the
+  # measuring one. Reproduced byte-identically on two consecutive runs.
+  "seam-endpoint summary evaluated=1 outsideSoi=0",
   # The classification: cycle 0 re-aims rather than replaying faithfully.
   "ENGAGED re-aim Kerbin->Eeloo via Sun",
   # THE HEADLINE, armed on the measurement and NOT on the prediction: the disposition at
