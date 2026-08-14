@@ -863,6 +863,11 @@ namespace Parsek
                     // branch covers the painted-dark-window guard AND the window-exit guard, and a
                     // reader auditing "is the exemption over-firing?" needs to know which one ate the
                     // raise. intentReason names the authoritative decision that produced the OFF.
+                    // ATTRIBUTION CAVEAT, stated so nobody has to rediscover it: bodyChanged
+                    // short-circuits inside IsLineBlink AHEAD of both coverage guards and is not
+                    // carried here, so a pair a body change would ALSO have exempted reads as a
+                    // coverage suppression. That overstates these two guards' reach, never
+                    // understates it - the safe direction for an over-firing audit.
                     MapRenderTrace.EmitOnChange(
                         "line-blink-suppressed",
                         MapRenderTrace.RenderSurface.ProtoOrbitLine, pidKey, currentUT, currentUT,

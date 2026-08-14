@@ -251,8 +251,13 @@ floating-origin / zero-velocity carve-outs):
   `LineBlinkWindowExitExemptionTests`, whose
   `WindowExitStamp_IsConfinedToTheTwoWindowExitDecisions` cell is a SOURCE gate: the
   literal `outsideRenderWindow: true` may appear in exactly one file, exactly twice.
-  Both suppression paths log a `line-blink-suppressed` line naming which guard fired,
-  because a silent guard on a gated token is undebuggable.
+  Both COVERAGE suppressions log a `line-blink-suppressed` line carrying BOTH guards'
+  values (`offWindowCovered=` / `offEdgeOutsideRenderWindow=`) plus the decision's
+  `intentReason=`, because a silent guard on a gated token is undebuggable. Read the
+  attribution precisely: `bodyChanged` short-circuits AHEAD of both and never reaches
+  that line, so a toggle pair a body change would also have exempted is attributed to
+  whichever coverage guard is true. That overstates the coverage guards' reach rather
+  than hiding it, which is the safe direction for an over-firing audit.
 - `orbit-discontinuity`: sma / ecc / body changed between truth reads without a
   `SegmentApplied` (second cut) or SOI change explaining it. In the MVP this degrades
   to a plain change-log; the "without an explaining event" qualifier needs the decision

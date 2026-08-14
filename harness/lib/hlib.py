@@ -343,7 +343,7 @@ ANOMALY_TOKENS: Tuple[str, ...] = (
 ANOMALY_REASONS_RAISED_UNGATED: Tuple[Tuple[str, str], ...] = (
     ("unaccounted-drawn-recording", "Source/Parsek/MapRenderProbe.cs:537"),
     ("factory-parity", "Source/Parsek/MapRender/ShadowRenderDriver.cs:709"),
-    ("seam-endpoint-outside-soi", "Source/Parsek/MapRenderProbe.cs:2261"),
+    ("seam-endpoint-outside-soi", "Source/Parsek/MapRenderProbe.cs:2266"),
 )
 
 # RETIRED tokens: gated once, raised by nothing, REMOVED from ANOMALY_TOKENS

@@ -731,6 +731,16 @@ The tracer's tiered model is the contract every new component emits through:
   `rigid-seam-tangent-discontinuity` (G1 descent seam), `parity-drift` (the oracle below),
   `retire-not-held` (a terminal member that held instead of hiding), `anchor-resolve-fail`
   (BodyAnchor / parent-anchor resolution failed → fail-closed), `clock-not-ready` (sampled at UT≤0).
+  `line-blink` carries THREE exemptions, each a POSITIVE fact about a real transition and never a
+  widened window: `bodyChanged` (SOI / segment seam), `offWindowCovered` (the dark window was
+  polyline-painted end to end), and `offEdgeOutsideRenderWindow` (the OFF half of the toggle pair was
+  decided because the drive clock left the recording's rendered body-frame window —
+  LINE-BLINK-JUMP-STRADDLE-DETECTOR-GAP, closed 2026-08-14). The third is stamped ONLY by
+  `GhostOrbitLinePatch`'s `past-body-frame-end` / `before-body-frame-start` block, where the branch
+  condition IS the measurement; deriving it generically from whatever bounds a site logs would swallow
+  `stale-segment-awaiting-reseed`, whose "outside bounds" is the applied-segment bounds lagging INSIDE
+  the window. Source-gated to one file, exactly twice, by `LineBlinkWindowExitExemptionTests`; the
+  cannot-mask argument and its pinning cells are in `design-map-ts-render-tracer.md` §Tier-C.
 - **New trace surfaces:** extend `RenderSurface` so every owned draw (proto orbit line, forward arc,
   polyline, marker) and every new phase/seam/lifecycle event appears in the appear/disappear EVENT
   logging. **Every per-frame / per-ghost line uses warp-stable rate-limit keys** — never key on a value
