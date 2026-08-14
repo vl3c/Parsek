@@ -1061,9 +1061,12 @@ traversal while burning -> split"). A mission flown that way would reproduce the
 exact V9 symptom -- `no member yields a re-aim transfer`, a FAITHFUL replay, and a
 reason string that blames a missing heliocentric leg the recording actually contains.
 
-**Why it is not loud.** Nothing distinguishes "this recording has no transfer" from
+**Why it is not loud.** ~~Nothing distinguishes "this recording has no transfer" from
 "this recording's transfer is spread across two members". Both emit the same
-decline. That is what made the original defect cost a full reading run to find.
+decline.~~ **LANDED 2026-08-14, branch `reaim-loud-decline`** -- see "the interim, as
+shipped" below. That is what made the original defect cost a full reading run to find.
+THE ENTRY STAYS OPEN: the interim only makes the failure diagnosable; Design C is
+still the structural cure and is NOT implemented.
 
 **The direction, and why it is viable** (Design C of the plan, rejected for that
 branch only to keep V9's re-measure attributable to one change). The topology marker
@@ -1081,10 +1084,61 @@ member", per-member heliocentric substitution in `ReaimPlaybackResolver`); a pla
 spanning two members would strain them. That is the actual work, and it is why this
 is a separate entry rather than a follow-up commit.
 
-**Cheaper interim option worth considering first:** make the failure LOUD rather than
+**Cheaper interim option worth considering first:** ~~make the failure LOUD rather than
 robust -- when a decline's reason is "no heliocentric leg" but a sibling member in the
-same chain group HAS one, say so in the reason string. That converts a silent
-misclassification into a diagnosable one for a fraction of the cost.
+same chain group HAS one, say so in the reason string.~~ **DONE 2026-08-14** (branch
+`reaim-loud-decline`). That converts a silent misclassification into a diagnosable one
+for a fraction of the cost.
+
+**The interim, as shipped.** `Source/Parsek/Reaim/ReaimSplitSiblingDiag.cs` -- pure,
+diagnostic-only, no classification outcome moves. `ApplyReaim` now classifies every
+member first and logs in a second pass (sibling awareness is a statement about the
+OTHER members, so it cannot be written mid-loop), then appends a clause to the
+`[ReaimDiag] member#N` line and to the unit-level decline line. A member is annotated
+only when it declined with `ReaimClassifier.MissingHeliocentricLegReason` (hoisted to
+a constant so the predicate cannot drift from the emitter), carries a `ChainId`, sits
+in a >=2-member chain group where NO member classified Supported, and **the group's
+UNION of segments classifies Supported** -- the real `ReaimClassifier.Classify`, run
+over the members concatenated in UT order the way Design C would read them. Both sides
+of a cut are annotated, from their own side: the parking half names the sibling that
+holds the common-ancestor leg, and the ancestor-started half names the sibling that
+holds the launch-body legs. Grep token `split-sibling-transfer`; every clause carries
+this entry's id, and each leads with the union verdict (`classify Supported as
+Kerbin->Duna via 'Sun'`) -- the measured proof behind the claim.
+
+**Why the union classify is the gate, and not "a sibling records a strict ancestor".**
+That weaker predicate was the first implementation, and it FALSELY annotates two
+reachable shapes (both caught in review before merge, both now pinned as
+must-not-annotate cells). (a) `[Kerbin parking] + [Sun coast, no arrival]` -- a probe
+ejected to solar orbit, or a recording ending mid-coast: joined it still declines `no
+target arrival leg after the heliocentric coast`, so there is no transfer to announce.
+(b) `[Mun orbit] + [Kerbin orbit]` -- a Mun return cut at the SOI exit, i.e. the
+deliberately preserved burn-split calibration row: Kerbin IS a strict ancestor of Mun,
+so the weak predicate announced a "'Kerbin'-legged transfer" that is not an
+interplanetary transfer at all. Running the real classifier over the union makes "no
+SINGLE member carries this whole" literally true. A second review finding fixed with
+it: the carrier-side clause must not assert that the common-ancestor body has no parent
+-- true only when the ancestor is the Sun, false for a Mun->Kerbin->Minmus group whose
+ancestor is Kerbin. It now states the fact the classifier actually acted on (this
+member recorded nothing at a strict ancestor of its OWN earliest body).
+
+**The lane trap this had to dodge, recorded because it nearly cost three guards.**
+`V9-dres-player-loop`, `V11-moho-player-loop` and `V12-eeloo-player-loop` forbid the
+literal `not re-aim \(no member yields a re-aim transfer\); faithful`, and `V10` /
+`V11A` forbid the bare `no member yields a re-aim transfer` -- their ENGAGED regression
+floors. Rewriting that text would have left all five lanes green while their guard
+silently stopped matching. The clause is therefore APPENDED AFTER `faithful` (the
+patterns are applied with `re.search`, so a suffix keeps every one matching) and
+`plan.Reason` is untouched. No spec file changed. Guarded in-repo by
+`ReaimSplitSiblingDiagTests.TheAggregateDeclineLineAnnotatesTheSplitAndKeepsTheCommittedLaneSubstrings`.
+
+**What is still open.** Design C (per-chain-group classification), the product-visible
+member seam, and every downstream single-transfer-member assumption listed above.
+Also note the interim's deliberate narrowness: only the missing-heliocentric-leg
+decline class is annotated. Other split shapes can decline for other reasons (a first
+half with parking + coast but no arrival would emit `no target arrival leg after the
+heliocentric coast`), and those stay unannotated -- widening the predicate without a
+measured instance would be guessing.
 
 ## RECORDER-LABELS-ON-RAILS-CHECKPOINTS-EXOPROPULSIVE: a packed vessel cannot thrust, but the recorder still stamps some on-rails checkpoint re-emissions ExoPropulsive [FILED 2026-08-12 as the hygiene follow-up to OPTIMIZER-SPLIT-DEFEATS-REAIM-CLASSIFIER (open question 3, recommendation accepted: file it, do not act on it yet). LOW PRIORITY - the consumer that was misled has been fixed]
 
