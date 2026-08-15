@@ -6,10 +6,11 @@ using Xunit;
 
 namespace Parsek.Tests
 {
-    // M-MIS-3-BAND-COMPUTED-NOT-EXERCISED, the behavioural half: the eccentricity-gated tof band is pinned
-    // as COMPUTED at Eeloo's e=0.26 (V12A armed `halfWidthFraction=0.1900`) but has never been WALKED -
-    // across the whole log archive no accepted candidate has sat OUTSIDE the base band (79 devFromRecorded
-    // emissions, 4 genuine non-zero accepts, max |k| = 7 against baseSteps 12).
+    // M-MIS-3-BAND-COMPUTED-NOT-EXERCISED, the behavioural half. THE DEBT AS IT STOOD: the band was pinned
+    // as COMPUTED at Eeloo's e=0.26 (V12A armed `halfWidthFraction=0.1900`) but had never been WALKED -
+    // across the whole PRIOR log archive no accepted candidate sat OUTSIDE the base band (79
+    // devFromRecorded emissions, 4 genuine non-zero accepts, max |k| = 7 against baseSteps 12). It was
+    // CLOSED on 2026-08-15 by the in-game cell these cells predict for and are the regression floor of.
     //
     // WHAT THESE CELLS ARE FOR. They answer, unattended and off-game, whether a departure exists at which
     // the search first succeeds in the eccentricity-WIDENED region, and they are the regression floor for

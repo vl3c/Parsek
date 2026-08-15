@@ -11889,10 +11889,13 @@ Five tokens armed in `M2-periodicity-solver.toml`, all on the cell's own line or
 for the driven member, never on the `re-aimed transfer ready:` emissions the V-lanes arm. Run
 accounting, in full: **8 flights plus 2 pre-flight spec rejections**. The rejections were the harness
 refusing an unescaped `(` in a required token (required tokens are regexes) - caught before launch
-rather than after. Of the flights: first attempt SKIPPED (`_1514`), reading run (`_1517`), armed PASS
-on the first token set (`_1521`), negative control, re-reading after the review narrowed the tokens
-(`_1551`), armed PASS, negative control PARSEK-FAIL(expectation) naming the one flipped digit, and
-reverted PASS (`_1555`).
+rather than after. **A PASS run collects no logs**, so only the non-PASS flights have an archived
+folder and the ids below are attached accordingly: first attempt SKIPPED (`_1514`), reading run on
+the old tally (`_1517`), armed PASS on the first token set (no log), its negative control (`_1521`),
+re-reading after the review narrowed the tokens (`_1551`), armed PASS (no log), negative control
+PARSEK-FAIL(expectation) naming the one flipped digit (`_1555`), and the reverted PASS (no log). The
+measured values quoted above therefore come from `_1551`; `_1555` carries the same band-walk lines
+and differs only in the one deliberately corrupted token.
 
 **The route, for the record, was not per-window replay.** It was the fixture's own pinned scan: the
 in-game cell picks `midIdx = CenterOfLongestRunIndex`, the centre of the longest run of departures whose
@@ -11936,11 +11939,21 @@ The open statement, in the form that can be closed: **no accepted candidate has 
 
 **(3) `BuildParkingCandidateTofs` is NOT unexercised.** `logs/2026-08-11_1514_M2-periodicity-solver/KSP.log:11901,11906` shows members `reaim-e2e-parking-w0` / `-wN` emitting `tof=6524002.7336873859 (geom=6524002.7336873859 [parking band center; recorded NOT used] eTarget=0.0510 halfWidthFraction=0.0855 devFromGeom=0s)` - the geom-centered builder, accepted at its own step 0. It is driven by the batch-executable Periodicity cell `Reaim_KerbinToDuna_ParkingDeparture_TransferStartsAtParkEnd` (`ReaimEndToEndInGameTest.cs:1476`). The `parking=False` token that suggested otherwise is a DIFFERENT field (`plan.DepartedFromHeliocentricPark`, emitted by `MissionLoopUnitBuilder.cs:673,1314`), not a statement about which builder ran. That half of the debt is closed; only the `BuildCandidateTofs` expansion region remains open.
 
-### The mechanism that actually gates acceptance (measured 2026-08-15)
+### The mechanism that INFLUENCES acceptance (measured 2026-08-15)
 
-The band does not decide acceptance; the **tilt gate** does. A candidate whose natural transfer-plane inclination `inc(r1, r2(tof))` exceeds `InclinationBoundDegrees(launchInc, targetInc)` takes the correction path, gets its plane re-pinned, and then generally fails the encounter check. The first candidate whose inclination falls UNDER the bound takes the `noop` path and is accepted. At the M2 Eeloo window 1 (`bound = 6.6500`) inclination falls ~0.0235 deg per step on the `-k` side, `inc@k=0` is 6.8115, and the first sub-bound candidate is k=-7 at 6.6469 - a 0.0031 deg margin. Hence:
+The band does not decide acceptance. The **tilt gate** is the first filter, and PatchedConics is the
+arbiter: a candidate whose natural transfer-plane inclination `inc(r1, r2(tof))` exceeds
+`InclinationBoundDegrees(launchInc, targetInc)` takes the correction path and has its plane re-pinned,
+after which it may still be accepted if the corrected conic finds the encounter - which is exactly what
+happens at scan indices 0 and 1. A candidate under the bound takes the `noop` path. So a gate opening
+outside the base band is NECESSARY for a walk and not SUFFICIENT.
 
-> accepting OUTSIDE the base band requires a departure with `inc@k=0 > bound + 12*slope`, while still `< bound + 38*slope`. For this fixture that is **inc@k=0 in (6.9322, 7.5436)**.
+At the M2 Eeloo window 1 (`bound = 6.6500`) inclination falls ~0.0235 deg per step on the `-k` side,
+`inc@k=0` is 6.8115, and the first sub-bound candidate is k=-7 at 6.6469 - a 0.0031 deg margin. That
+window-1 slope is LOCAL to that departure and does NOT generalise: the interval it implies
+(`inc@k=0` in (6.9322, 7.5436)) is satisfied by none of the three confirmed walkers, whose `inc@k=0`
+are 27.1810, 29.6150 and 10.0910 because their per-step slope is ~1 deg rather than 0.0235. Quote the
+window-1 numbers as a worked example of the mechanism, never as a fixture-wide predicate.
 
 This is a PURE, headlessly computable predicate: `UvLambert` and `ReaimTransferSynthesizer`'s plane helpers are Unity-free, and `EveCycleZeroGeometry` is the standing precedent for driving them off-game. A two-body model of Kerbin/Eeloo reproduces all 15 logged candidate inclinations of M2 window 1 to the log's full 4-decimal precision, on two independent windows.
 
