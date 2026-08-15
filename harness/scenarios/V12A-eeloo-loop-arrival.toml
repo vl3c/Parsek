@@ -523,11 +523,16 @@ id = "V12A-eeloo-loop-arrival"
 #   (2) `devFromRecorded=0s` MEANS CYCLE 0 WAS ACCEPTED AT CANDIDATE STEP 0. The
 #       expansion steps (baseSteps+1 .. maxSteps) were NEVER WALKED -- not one candidate
 #       past step 0 was probed, on any of the three runs.
-# So the widened band was COMPUTED and never EXERCISED. Whether the eccentricity-gated
-# expansion BEHAVES -- whether those 26 extra steps land where the law intends, in the
-# order it intends, and whether a window that NEEDS them resolves -- IS STILL UNTESTED.
-# THE DEBT IS NOT CLOSED. Filed as M-MIS-3-BAND-COMPUTED-NOT-EXERCISED. Discharging the
-# behavioural half needs a fixture whose STEP-0 TOF IS REJECTED, which this one's is not.
+# So on THIS lane the widened band was COMPUTED and never EXERCISED, and the reading above
+# stands unchanged: nothing here walks the expansion.
+# THE DEBT IS CLOSED AS OF 2026-08-15, elsewhere -- by the M2-periodicity-solver cell
+# Reaim_KerbinToEeloo_BandWalk_AcceptsOutsideTheBaseBand, which measured three departures
+# accepting outside the base band, deepest at 0.1550 of the recorded tof, and drove the
+# deepest through the real resolver. THIS PARAGRAPH'S OWN PREDICTION WAS CORRECT: closing
+# the behavioural half did need a fixture whose STEP-0 TOF IS REJECTED, and the closure
+# found exactly that -- not in a new fixture, but at the step-0-INFEASIBLE departures of
+# this same pinned scan, the ones the mid-band pick is built to skip. What this lane
+# measures is unaffected; only the "still untested" verdict moved.
 # (A separate geom-CENTERED function, `BuildParkingCandidateTofs`, serves the
 # heliocentric-parking-departure path. `parking=False` on every run here, so that is not
 # our path and this lane says nothing about it.)

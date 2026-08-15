@@ -11839,7 +11839,7 @@ The prediction was `state=retained reason=unreachable-plane`, extrapolated from 
 
 **Recorded as a FINDING, not a failure, per the lane's own posture** - V12A declared all four tilt outcomes findings-to-report-verbatim in advance, and the noop literal is now ARMED as its regression floor (with `bound=6.6500 targetInc=6.1500` armed separately so a red distinguishes "the solved conic moved" from "the bound arithmetic moved"; proved on the negative control `2026-08-13_1537`, where inverting one digit of `inc-before` red the literal while the pair still matched). Note also that a Noop DOES emit a tilt line, so ABSENCE of a tilt line means the synth never reached the tilt block at all - a different and larger finding.
 
-## ~~M-MIS-3-BAND-COMPUTED-NOT-EXERCISED~~ CLOSED 2026-08-15 - the eccentricity-gated tof band is now WALKED AND MEASURED: three departures accept outside the base band, deepest at 0.1550 of the recorded tof against a 0.0600 base (branch `reaim-band-walk`, M2-periodicity-solver run `2026-08-15_1517`, armed PASS + negative control)
+## ~~M-MIS-3-BAND-COMPUTED-NOT-EXERCISED~~ CLOSED 2026-08-15 - the eccentricity-gated tof band is now WALKED AND MEASURED: three departures accept outside the base band, deepest at 0.1550 of the recorded tof against a 0.0600 base (branch `reaim-band-walk`, M2-periodicity-solver: armed PASS attempt 1 + negative control `_1555`; the measurements are read off the reading run `_1551`, and a PASS run collects no logs so no id names the PASS)
 
 ### CLOSED (2026-08-15). What the arbiter measured
 
