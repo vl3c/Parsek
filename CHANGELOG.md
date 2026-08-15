@@ -30,9 +30,10 @@ All notable changes to Parsek are documented here.
   first flight time tried, so as far as evidence went the widened part of the search was dead. The
   reason turned out to be built into the test rather than into the solver - it picks the most
   comfortable launch date in its range by construction, and at a comfortable date the first guess
-  always works. Driving the awkward dates instead, three of them now resolve on a flight time 2.6
-  times further out than the ordinary search reaches, well inside the widened range and clear of its
-  ceiling; the resulting mission replays across all five of its windows. Two things were corrected
+  always works. Driving the awkward dates instead, three of them now resolve on a flight time beyond
+  what the ordinary search reaches - the furthest of the three at about two and a half times that
+  limit, still comfortably inside the widened range and clear of its ceiling - and that furthest one
+  goes on to replay as a real mission rather than only solving on paper. Two things were corrected
   along the way and are worth recording because both had been believed for a while: a log line that
   reads "fired" during this search marks a course correction that SUCCEEDED, not a rejected
   candidate, and a second, differently-centred search used for missions that depart from a parking

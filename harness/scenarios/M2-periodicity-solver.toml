@@ -31,7 +31,7 @@ tags = ["periodicity", "reaim", "solver", "M2", "D11"]
 
 [fixture]
 # fresh-sandbox (see M1): vessel-less, so TestCommandLoadGame.DecideLoadRoute settles at
-# SPACECENTER, which is where 10 of the category's 11 tests live. The solver tests need
+# SPACECENTER, which is where 12 of the category's 13 tests live. The solver tests need
 # nothing from the save except a loaded game and a populated FlightGlobals.Bodies.
 # No [expectations.ledger] block: this scenario asserts nothing about the economy, so it
 # never meets the no-pools seed-baseline gate that blocks L1-passive-sandbox.
@@ -112,9 +112,11 @@ count = { min = 0, max = 0 }
 # scan through the product's own candidate list and its own accept/reject arbiter
 # (ReaimTransferSynthesizer.TrySynthesizeTransfer), and asserts that at least one accepts
 # OUTSIDE the recorded +-6% base band. MEASURED on the 2026-08-15 flight
-# (logs/2026-08-15_1517_M2-periodicity-solver): 15 of 48 departures are step-0-infeasible,
+# (logs/2026-08-15_1551_M2-periodicity-solver): 15 of 48 departures are step-0-infeasible,
 # 3 of those accept outside the base band, 10 inside, 2 decline entirely, deepest walk
-# 0.1550 of the recorded tof against a 0.0600 base and a 0.1900 scaled band.
+# 0.1550 of the recorded tof against a 0.0600 base and a 0.1900 scaled band. The deepest of
+# the three is then driven through the real resolver, which accepts it and says so on its own
+# line: devFromRecorded=5948596.215220049s.
 # skipped stays 4: the cell declares neither Scene = FLIGHT nor AllowBatchExecution =
 # false. Its skip routes are the eTarget guard (stock ecc no longer widening the band) and
 # the fixture guards inherited from BuildPinnedScanOrSkip - either would move passed 9 -> 8
@@ -167,17 +169,45 @@ count = { min = 0, max = 0 }
 # point of the scenario is that these solvers actually ran.
 required  = [
   "BATCH_COMPLETE v1 total=13 passed=9 failed=0 skipped=4 category=Periodicity scene=SPACECENTER",
-  # M-MIS-3 BEHAVIOURAL CLOSURE, armed 2026-08-15 off logs/2026-08-15_1517_M2-periodicity-solver.
-  # The load-bearing token is `outsideBaseBand=3`: three step-0-infeasible departures accept a
-  # candidate beyond the 0.06 base band, i.e. the eccentricity-widened region is ENTERED AND USED
-  # rather than merely computed. `deepestWalk=0.1550` pins how far - 2.6x the base-band edge, and
-  # still inside the 0.1900 scaled band, so invariant (c) is visible in the same line.
-  # Deliberately a token on the cell's OWN line, not on ReaimPlaybackResolver's
-  # `re-aimed transfer ready:` line, which V12A arms adjacent substrings of.
-  "band walk Kerbin->Eeloo: scanSteps=48 step0Infeasible=15 outsideBaseBand=3 insideBaseBand=10 declined=2 deepestWalk=0.1550 baseHalfWidth=0.0600 scaledHalfWidth=0.1900 eTarget=0.2600",
-  # The closure is product-visible, not only synthesizer-level: the deepest-walking departure's
-  # windows all RESOLVE through the real resolver.
-  "band walk Kerbin->Eeloo resolver end-to-end: scanIdx=24 map=RRRRR resolved=5 declined=0",
+
+  # ---- M-MIS-3 BEHAVIOURAL CLOSURE, armed 2026-08-15 off logs/2026-08-15_1551_M2-periodicity-solver. ----
+  #
+  # WHY THESE TOKENS ARE NARROW. TrySynthesizeTransfer's PatchedConics tail is NOT reproducible run to
+  # run: two runs of this cell five minutes apart (logs/2026-08-15_1517 and _1521, same DLL, same
+  # fixture) disagreed at scanIdx=36, where the first accepted candidate moved k=+2 -> k=+3. That flip
+  # stayed inside the base band and moved none of the armed numbers, but a flip at a departure near the
+  # 0.06 edge WOULD move `insideBaseBand` / `declined` / `step0Infeasible`. So the cell emits the stable
+  # quantities FIRST, as one contiguous run, and everything volatile after the first `|` - and only the
+  # stable run is armed. The volatile counts stay in the log for a reader; they are not a gate.
+  #
+  # The load-bearing token is `outsideBaseBand=3`: three step-0-infeasible departures accept a candidate
+  # beyond the 0.06 base band, i.e. the eccentricity-widened region is ENTERED AND USED rather than
+  # merely computed. `deepestWalk=0.1550` pins how far - 2.6x the base-band edge, still inside the
+  # 0.1900 scaled band, so invariant (c) is visible in the same token. The three walking departures sit
+  # at candidates 32/48/62, deep in the expansion and nowhere near a boundary; they reproduced exactly
+  # across all three runs, which is why these are the safe fields to pin.
+  "band walk Kerbin->Eeloo: outsideBaseBand=3 deepestWalk=0.1550 baseHalfWidth=0.0600 scaledHalfWidth=0.1900 eTarget=0.2600",
+
+  # The closure is product-visible, not only synthesizer-level: the DEEPEST-walking departure (scanIdx
+  # 26, dev 0.1550) is driven through the real resolver. `map=` / `resolved=` are deliberately NOT armed
+  # - requireAllWindowsResolve is false, so a later window declining cleanly is a legal outcome for an
+  # awkward departure and must not red the closure. Only window 0 is asserted, by the cell itself.
+  "band walk Kerbin->Eeloo resolver end-to-end: scanIdx=26 deepestWalk=0.1550",
+
+  # THE PRIMARY EVIDENCE, and stronger than either line above: this is ReaimPlaybackResolver's OWN
+  # `re-aimed transfer ready:` line, not the cell's re-walk. The resolver itself chose
+  # tof=44326636.313413888 against recorded=38378040.098193839 - devFromRecorded=5948596.215220049s,
+  # which is 0.1550 of the recorded tof. It is the FIRST devFromRecorded outside the base band in the
+  # entire log archive: the prior 79 emissions max out at |k| = 7 (0.035). Split in two so the derived
+  # departure UT is not pinned: identity first, then the payload.
+  #
+  # NOT a collision with the V-lanes that arm this same line shape. They arm their own logs (V12A/V10/
+  # V11A arm `re-aimed transfer ready: departUT=<their UT>`, V8 arms the bare prefix), and a required
+  # token is scoped to the scenario that declares it.
+  "member=reaim-e2e-eeloo-bandwalk-26 window=0 re-aimed transfer ready:",
+  # NOTE: required tokens are applied with re.search, so the literal `(` is escaped - and the
+  # backslash is DOUBLED because TOML consumes one before the regex engine sees it.
+  "tof=44326636.313413888 \\(recorded=38378040.098193839 geom=34266107.23053021 eTarget=0.2600 halfWidthFraction=0.1900 devFromRecorded=5948596.215220049s",
 ]
 forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
 

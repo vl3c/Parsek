@@ -207,9 +207,12 @@ namespace Parsek.Tests
 
             Assert.Equal(new[] { 0, 1, 24, 25, 26 }, outsideBase.ToArray());
 
-            // Two departures admit NO candidate at all - the window would decline to faithful. Pinned
-            // because it is the other end of the same mechanism: too much inclination excess and 38 steps
-            // are not enough to walk under the bound.
+            // Two departures open the tilt gate at NO candidate at all - too much inclination excess for
+            // 38 steps to walk under the bound. Pinned because it is the other end of the same mechanism.
+            // Note this says nothing about what the RESOLVER does there; deriving a decline-to-faithful from
+            // a closed tilt gate is the inference this file's header records as falsified. It happens to be
+            // corroborated - the 2026-08-15 flight reported `declined=2` at these same two indices - and it
+            // is the flight, not this model, that established it.
             Assert.Equal(new[] { 2, 3 }, declined.ToArray());
         }
 

@@ -100,7 +100,7 @@ namespace Parsek.Tests
         /// <summary>
         /// The geometric Hohmann tof, from the PRODUCT'S OWN helper rather than a re-derivation
         /// (<see cref="TransferWindowMath.HohmannTransferTimeSeconds"/>, the same call
-        /// <c>ReaimEndToEndInGameTest.BuildGeometryOrSkip</c> makes at ReaimEndToEndInGameTest.cs:1140).
+        /// <c>ReaimEndToEndInGameTest.BuildGeometryOrSkip</c> makes at ReaimEndToEndInGameTest.cs:1375).
         /// </summary>
         internal static double GeomTofSeconds =>
             TransferWindowMath.HohmannTransferTimeSeconds(
@@ -108,7 +108,7 @@ namespace Parsek.Tests
 
         /// <summary>
         /// The fixture's STAND-IN recorded tof: <c>geomTof * (1 + RecordedTofOffsetFraction)</c>, the same
-        /// construction as ReaimEndToEndInGameTest.cs:1148. Displaced +12% so geomTof lands OUTSIDE the
+        /// construction as ReaimEndToEndInGameTest.cs:1385. Displaced +12% so geomTof lands OUTSIDE the
         /// recorded +-6% base band but INSIDE Eeloo's 0.19 scaled band.
         /// </summary>
         internal static double RecordedTofSeconds => GeomTofSeconds * (1.0 + RecordedTofOffsetFraction);
@@ -120,7 +120,7 @@ namespace Parsek.Tests
         /// <summary>
         /// The pinned scan grid: <c>PinnedScanBaseUT + synodic*i/ScanSteps</c>, the departure UT
         /// <c>BuildPinnedScanOrSkip</c> evaluates at step <paramref name="i"/>
-        /// (ReaimEndToEndInGameTest.cs:1179).
+        /// (ReaimEndToEndInGameTest.cs:1415).
         /// </summary>
         internal static double ScanDepartureUT(int i) => PinnedScanBaseUT + (SynodicSeconds * i) / ScanSteps;
 

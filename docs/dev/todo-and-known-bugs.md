@@ -11846,22 +11846,53 @@ The prediction was `state=retained reason=unreachable-plane`, extrapolated from 
 `Reaim_KerbinToEeloo_BandWalk_AcceptsOutsideTheBaseBand` (Periodicity, batch-executable) walks every
 step-0-INFEASIBLE departure in the pinned Kerbin->Eeloo scan through the product's own candidate list
 and its own accept/reject arbiter (`ReaimTransferSynthesizer.TrySynthesizeTransfer`, PatchedConics tail
-included). On `logs/2026-08-15_1517_M2-periodicity-solver`:
+included), then drives the DEEPEST-walking departure through the real resolver. On
+`logs/2026-08-15_1551_M2-periodicity-solver`:
 
 ```
-band walk Kerbin->Eeloo: scanSteps=48 step0Infeasible=15 outsideBaseBand=3 insideBaseBand=10
-declined=2 deepestWalk=0.1550 baseHalfWidth=0.0600 scaledHalfWidth=0.1900 eTarget=0.2600
-| 24:cand=32,dev=0.0800 25:cand=48,dev=0.1200 26:cand=62,dev=0.1550 ...
-band walk Kerbin->Eeloo resolver end-to-end: scanIdx=24 map=RRRRR resolved=5 declined=0
+band walk Kerbin->Eeloo: outsideBaseBand=3 deepestWalk=0.1550 baseHalfWidth=0.0600
+scaledHalfWidth=0.1900 eTarget=0.2600 | scanSteps=48 step0Infeasible=15 insideBaseBand=10
+declined=2 ... | 24:cand=32,dev=0.0800 25:cand=48,dev=0.1200 26:cand=62,dev=0.1550 ...
+band walk Kerbin->Eeloo resolver end-to-end: scanIdx=26 deepestWalk=0.1550 map=RRRRR resolved=5
 ```
 
 **Three accepted candidates sit OUTSIDE the base band**, the deepest at 0.1550 of the recorded tof -
 2.6x the base-band edge, inside the 0.1900 scaled band. The eccentricity-widened region is entered and
-USED, not merely computed, and the closure target is met. `MaxHalfWidthFraction` is now APPROACHED
-(0.155 of 0.19) rather than untouched, though still not reached; that remains the one unmeasured
-constant. Both tokens are armed in `M2-periodicity-solver.toml` on the cell's OWN log line, never on
-`re-aimed transfer ready:` (V12A arms substrings of that one). Reading run, armed PASS attempt 1,
-negative control PARSEK-FAIL(expectation) on one flipped digit, reverted PASS.
+USED, not merely computed.
+
+**The primary evidence is the resolver's OWN line, not the cell's re-walk.** Driving scanIdx 26 end to
+end makes `ReaimPlaybackResolver` itself choose the out-of-band tof and say so:
+
+```
+member=reaim-e2e-eeloo-bandwalk-26 window=0 re-aimed transfer ready: ... tof=44326636.313413888
+(recorded=38378040.098193839 geom=34266107.23053021 eTarget=0.2600 halfWidthFraction=0.1900
+devFromRecorded=5948596.215220049s ...) encounter=Eeloo
+```
+
+`5948596.215220049 / 38378040.098193839 = 0.1550` exactly. This is the **first `devFromRecorded`
+outside the base band in the entire log archive** - the prior 79 emissions max out at |k| = 7 (0.035).
+
+`MaxHalfWidthFraction` is now APPROACHED (0.155 of 0.19) rather than untouched, though still not
+reached; that remains the one unmeasured constant.
+
+**The pin is deliberately NARROW, because the measurement is not run-to-run deterministic.**
+`TrySynthesizeTransfer`'s PatchedConics tail does not reproduce exactly: two runs of this cell five
+minutes apart (`logs/2026-08-15_1517` and `_1521`, same DLL, same fixture) disagreed at scanIdx=36,
+where the first accepted candidate moved k=+2 -> k=+3. That flip stayed inside the base band and moved
+no armed number, but a flip near the 0.06 edge would move `insideBaseBand` / `declined` /
+`step0Infeasible`. The cell therefore emits the stable quantities FIRST as one contiguous run and the
+volatile counts after a `|`, and only the stable run is armed. The three walking departures sit at
+candidates 32/48/62 - deep in the expansion, nowhere near a boundary - and reproduced exactly across
+every run.
+
+Five tokens armed in `M2-periodicity-solver.toml`, all on the cell's own line or on the resolver's line
+for the driven member, never on the `re-aimed transfer ready:` emissions the V-lanes arm. Run
+accounting, in full: **8 flights plus 2 pre-flight spec rejections**. The rejections were the harness
+refusing an unescaped `(` in a required token (required tokens are regexes) - caught before launch
+rather than after. Of the flights: first attempt SKIPPED (`_1514`), reading run (`_1517`), armed PASS
+on the first token set (`_1521`), negative control, re-reading after the review narrowed the tokens
+(`_1551`), armed PASS, negative control PARSEK-FAIL(expectation) naming the one flipped digit, and
+reverted PASS (`_1555`).
 
 **The route, for the record, was not per-window replay.** It was the fixture's own pinned scan: the
 in-game cell picks `midIdx = CenterOfLongestRunIndex`, the centre of the longest run of departures whose
@@ -11903,7 +11934,7 @@ The open statement, in the form that can be closed: **no accepted candidate has 
 
 **(2) The step count is not the candidate count.** At e=0.26 the expansion is steps k=13..38 - **26 steps = 52 candidates** of the 77 derived. The earlier "26 of the derived 77 candidates" conflated the two.
 
-**(3) `BuildParkingCandidateTofs` is NOT unexercised.** `logs/2026-08-11_1514_M2-periodicity-solver/KSP.log:11901,11906` shows members `reaim-e2e-parking-w0` / `-wN` emitting `tof=6524002.7336873859 (geom=6524002.7336873859 [parking band center; recorded NOT used] eTarget=0.0510 halfWidthFraction=0.0855 devFromGeom=0s)` - the geom-centered builder, accepted at its own step 0. It is driven by the batch-executable Periodicity cell `Reaim_KerbinToDuna_ParkingDeparture_TransferStartsAtParkEnd` (`ReaimEndToEndInGameTest.cs:1240`). The `parking=False` token that suggested otherwise is a DIFFERENT field (`plan.DepartedFromHeliocentricPark`, emitted by `MissionLoopUnitBuilder.cs:673,1314`), not a statement about which builder ran. That half of the debt is closed; only the `BuildCandidateTofs` expansion region remains open.
+**(3) `BuildParkingCandidateTofs` is NOT unexercised.** `logs/2026-08-11_1514_M2-periodicity-solver/KSP.log:11901,11906` shows members `reaim-e2e-parking-w0` / `-wN` emitting `tof=6524002.7336873859 (geom=6524002.7336873859 [parking band center; recorded NOT used] eTarget=0.0510 halfWidthFraction=0.0855 devFromGeom=0s)` - the geom-centered builder, accepted at its own step 0. It is driven by the batch-executable Periodicity cell `Reaim_KerbinToDuna_ParkingDeparture_TransferStartsAtParkEnd` (`ReaimEndToEndInGameTest.cs:1476`). The `parking=False` token that suggested otherwise is a DIFFERENT field (`plan.DepartedFromHeliocentricPark`, emitted by `MissionLoopUnitBuilder.cs:673,1314`), not a statement about which builder ran. That half of the debt is closed; only the `BuildCandidateTofs` expansion region remains open.
 
 ### The mechanism that actually gates acceptance (measured 2026-08-15)
 
@@ -11924,19 +11955,26 @@ Per-window replay was the leading hypothesis. It does not work, for a structural
 
 ### The reachable closure: the fixture's OWN pinned scan already contains it
 
-`BuildPinnedScanOrSkip` (`ReaimEndToEndInGameTest.cs:1165-1192`) sweeps `tDep(i) = PinnedScanBaseUT + synodic*i/ScanSteps` for i = 0..47 (`PinnedScanBaseUT = 5000000.0`, `ScanSteps = 48`). At i = 14 that is 7851536.4286 - **exactly** the departUT the M2 Eeloo member logged, confirming the grid. Evaluating the acceptance predicate across all 48:
+`BuildPinnedScanOrSkip` (`ReaimEndToEndInGameTest.cs:1401-1428`) sweeps `tDep(i) = PinnedScanBaseUT + synodic*i/ScanSteps` for i = 0..47 (`PinnedScanBaseUT = 5000000.0`, `ScanSteps = 48`). At i = 14 that is 7851536.4286 - **exactly** the departUT the M2 Eeloo member logged, confirming the grid. Evaluating the acceptance predicate across all 48:
 
-| scanIdx | inc@k=0 | first accepting k | abs(dev)/recordedTof |
-|---|---|---|---|
-| 0 | 35.2454 | +29 | 0.145 |
-| 1 | 44.1826 | +37 | 0.185 |
-| 24 | 27.1810 | +16 | 0.080 |
-| 25 | 29.6150 | +24 | 0.120 |
-| 26 | 10.0910 | +31 | 0.155 |
+The pure tilt-gate model evaluated across all 48 gives the departures whose gate FIRST OPENS outside
+the base band. **This table is the model's prediction, and two of its five rows were falsified by the
+2026-08-15 flight** - it is kept because the three that survived are the closure, and because the shape
+of the error is the useful part:
 
-All five accept OUTSIDE the 0.06 base band. The cell picks `midIdx = ReaimFeasibilityScan.CenterOfLongestRunIndex(ctx.Scan, cyclic: true)` = 14 - the centre of the longest run of departures whose step-0 tof synthesizes, i.e. BY CONSTRUCTION the most comfortable departure in the band. **That is precisely why the band was never walked.** The five expansion-only indices are exactly the ones the mid-band pick is built to avoid: `scan[i]` tests the recorded tof ALONE, so a departure whose step 0 is rejected reads false and is skipped over.
+| scanIdx | inc@k=0 | first k the TILT GATE admits | abs(dev)/recordedTof | what the live arbiter did |
+|---|---|---|---|---|
+| 0 | 35.2454 | +29 | 0.145 | **accepted STEP 0** - correction fired AND encounter succeeded |
+| 1 | 44.1826 | +37 | 0.185 | **accepted STEP 0** - same |
+| 24 | 27.1810 | +16 | 0.080 | accepted candidate 32, dev 0.0800 - as predicted |
+| 25 | 29.6150 | +24 | 0.120 | accepted candidate 48, dev 0.1200 - as predicted |
+| 26 | 10.0910 | +31 | 0.155 | accepted candidate 62, dev 0.1550 - as predicted |
 
-**The headless instrument exists as of 2026-08-15** (`Source/Parsek.Tests/EelooBandWalkGeometry.cs` + `EelooBandWalkTests.cs`, 9 cells, unattended, no KSP). It reuses `EveCycleZeroGeometry`'s ephemeris rather than copying it, drives the PRODUCT's own `ReaimTofSearch.BuildCandidateTofs` / `TransferWindowMath` / `InclinationBoundDegrees`, and is licensed by a CALIBRATION cell that reproduces all fifteen logged window-1 inclinations plus the window-0 value to the log's own four decimals. It carries its own negative control (at the mid-band index the gate opens at step 0, so the cells cannot fire on today's geometry) and a counterfactual (at eTarget=0 the opening candidates do not exist in the 25-candidate band). A 0.1 deg perturbation of Eeloo's LAN reds exactly the three calibration cells, so the calibration is sensitive rather than vacuous.
+The column is "first k the TILT GATE admits", NOT "first accepting k": the gate is a filter, not the
+arbiter, and a fired-correction conic can still find the encounter and be accepted. Three of the five
+walk; the model's error was additive (it named two extra), not directional (it missed none). The cell picks `midIdx = ReaimFeasibilityScan.CenterOfLongestRunIndex(ctx.Scan, cyclic: true)` = 14 - the centre of the longest run of departures whose step-0 tof synthesizes, i.e. BY CONSTRUCTION the most comfortable departure in the band. **That is precisely why the band was never walked.** The five expansion-only indices are exactly the ones the mid-band pick is built to avoid: `scan[i]` tests the recorded tof ALONE, so a departure whose step 0 is rejected reads false and is skipped over.
+
+**The headless instrument exists as of 2026-08-15** (`Source/Parsek.Tests/EelooBandWalkGeometry.cs` + `EelooBandWalkTests.cs`, 10 cells, unattended, no KSP). It reuses `EveCycleZeroGeometry`'s ephemeris rather than copying it, drives the PRODUCT's own `ReaimTofSearch.BuildCandidateTofs` / `TransferWindowMath` / `InclinationBoundDegrees`, and is licensed by a CALIBRATION cell that reproduces all fifteen logged window-1 inclinations plus the window-0 value to the log's own four decimals. It carries its own negative control (at the mid-band index the gate opens at step 0, so the cells cannot fire on today's geometry) and a counterfactual (at eTarget=0 the opening candidates do not exist in the 25-candidate band). A 0.1 deg perturbation of Eeloo's LAN reds exactly the three calibration cells, so the calibration is sensitive rather than vacuous.
 
 **Caveat on what the headless prediction proves.** It evaluates the tilt gate, which is pure. Final acceptance additionally requires the PatchedConics encounter check, which is Unity-bound. The prediction is therefore FALSIFIABLE and the in-game cell is the arbiter, not a formality.
 
