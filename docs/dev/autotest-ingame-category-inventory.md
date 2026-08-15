@@ -132,7 +132,7 @@ Two limits of this table, stated so nobody over-reads it:
 | `PartEventFX` | 6 | 6 | 0 | 0 | 0 | 6 | - | B |
 | `PartEventFidelity` | 5 | 5 | 0 | 0 | 0 | 5 | H37 | A |
 | `PartEventTiming` | 2 | 2 | 0 | 0 | 0 | 0 | - | B |
-| `Periodicity` | 12 | 1 | 8 | 0 | 3 | 5 | M2 | B |
+| `Periodicity` | 13 | 1 | 9 | 0 | 3 | 5 | M2 | B |
 | `Pipeline-Anchor` | 7 | 7 | 0 | 0 | 0 | 0 | H11 | A |
 | `Pipeline-Anchor-BubbleEntry` | 2 | 2 | 0 | 0 | 0 | 0 | - | B |
 | `Pipeline-AnchorPropagate` | 1 | 1 | 0 | 0 | 0 | 0 | - | B |
@@ -194,8 +194,8 @@ Two limits of this table, stated so nobody over-reads it:
 
 ## Triage
 
-Totals, re-derived: **104 categories / 579 declarations**. Buckets **A 32 categories
-(220 declarations)**, **B 72 categories (359 declarations)**, **C 0 categories (0
+Totals, re-derived: **104 categories / 580 declarations**. Buckets **A 32 categories
+(220 declarations)**, **B 72 categories (360 declarations)**, **C 0 categories (0
 declarations)**. Driven by a committed spec: **41 of 104 categories**, up from 35
 across six waves - `ReFlyWorldPreservation` via S4.2, `RecordedSignals` via H33,
 `SnapshotBaseline` via H32, and `Logistics` via H34 all landed together in one merge
