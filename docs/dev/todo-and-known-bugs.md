@@ -11482,7 +11482,7 @@ Every Tier 1 merge-queue item below LANDED on `main` (verified 2026-07-11 via `g
 - ~~**M-MIS-5 P2** (L) - lift the undock->undock shuttle mid-recording start-trim limitation (`MidRecordingStartTrimUnsupported=9`); unlocks multi-stop shuttle logistics routes rejected today. Prereq: #1239.~~ **SHIPPED 2026-07-08** via #1251 (P2a detector) + #1254 (P2b start-trim lift). Supported shape accepted, degenerate shapes still rejected (NOT a full removal of status 9): an undock->undock mid-tree docked origin with a committed tree, `>=2` completed connection windows, and a finite non-overlapping origin window is now admitted with origin = the first window's undock UT (`RouteAnalysisEngine.IsSupportedMidTreeDockedOrigin` wired into the analysis gate + stand-downs; `RouteBuilder` mid-tree-origin plumbing; `RouteBackingMission.ComputeStartExcludedIntervalKeys`; `Route.RecordedOriginUndockUT` persisted; updated reject text in `RouteCreationFormatters`). Status `MidRecordingStartTrimUnsupported=9` still fires for the degenerate remainder (null/legacy `AnalyzeRecording` tree, origin window overlapping the next stop, inverted origin window, the mid-tree-origin-proof variant), which stay intentionally out of scope per `docs/dev/done/plans/plan-mmis5-p2b-start-trim.md` section 7.
 
 ### Tier 3 - LATER: verification + hygiene
-- **Validation debt (the real bottleneck)** - code-complete-but-in-game-unconfirmed fixes, clustering onto ~4-5 playtest sessions: (1) career-economy (Rec-1 #1242 gate PASSED in-game 2026-07-08; still open: career-freeze milestone-storm, contract-discard-desync, OnMainMenuTransition); (2) looped re-aim descent-render (reaim-descent cluster, arc truncation, M-MIS-2 P4, cross-SOI encounter observation); (3) eccentric-target Eeloo/Moho constant pinning (M-MIS-3) - HALF DISCHARGED 2026-08-13: V12A pinned the COMPUTATION at Eeloo (e=0.26 -> `halfWidthFraction=0.1900`, cap unengaged) but the expansion band was never WALKED because step 0 was accepted, so the behavioural half is open - see M-MIS-3-BAND-COMPUTED-NOT-EXERCISED; (4) cross-parent station resupply (M4c); (5) in-game test-runner camera-survival batch. KSP cannot run headless, so this is playtest-bound.
+- **Validation debt (the real bottleneck)** - code-complete-but-in-game-unconfirmed fixes, clustering onto ~4-5 playtest sessions: (1) career-economy (Rec-1 #1242 gate PASSED in-game 2026-07-08; still open: career-freeze milestone-storm, contract-discard-desync, OnMainMenuTransition); (2) looped re-aim descent-render (reaim-descent cluster, arc truncation, M-MIS-2 P4, cross-SOI encounter observation); (3) eccentric-target Eeloo/Moho constant pinning (M-MIS-3) - HALF DISCHARGED 2026-08-13: V12A pinned the COMPUTATION at Eeloo (e=0.26 -> `halfWidthFraction=0.1900`, cap unengaged) but no accepted candidate has ever sat OUTSIDE the base band (archive max |k| = 7 against baseSteps 12), so the behavioural half is open; the closure is reachable at five departures inside the fixture's own pinned scan - see M-MIS-3-BAND-COMPUTED-NOT-EXERCISED; (4) cross-parent station resupply (M4c); (5) in-game test-runner camera-survival batch. KSP cannot run headless, so this is playtest-bound.
 - **M-MIS-10 archetype verification sweep** - constellation deploy / booster flyback / off-Kerbin launch / claw couples / Elcano; cheap verify-and-file, no known break.
 - **Remove `MapRenderWarpControl`** temporary debug aid once re-aim descent-render is signed off.
 - ~~**Doc hygiene** - flip the stale "In progress - Forward trajectory rendering" header (shipped 0.10.2) + add SHIPPED markers to roadmap §19.4 M3/M4.~~ DONE (verified 2026-07-11): roadmap §19.4 already marks M1-M5 SHIPPED and no "In progress / Forward trajectory rendering" header remains in the roadmap or this file.
@@ -11839,9 +11839,9 @@ The prediction was `state=retained reason=unreachable-plane`, extrapolated from 
 
 **Recorded as a FINDING, not a failure, per the lane's own posture** - V12A declared all four tilt outcomes findings-to-report-verbatim in advance, and the noop literal is now ARMED as its regression floor (with `bound=6.6500 targetInc=6.1500` armed separately so a red distinguishes "the solved conic moved" from "the bound arithmetic moved"; proved on the negative control `2026-08-13_1537`, where inverting one digit of `inc-before` red the literal while the pair still matched). Note also that a Noop DOES emit a tilt line, so ABSENCE of a tilt line means the synth never reached the tilt block at all - a different and larger finding.
 
-## M-MIS-3-BAND-COMPUTED-NOT-EXERCISED - the eccentricity-gated tof band is now PINNED AS COMPUTED at Eeloo's e=0.26, but was never WALKED, because candidate step 0 is accepted (measured 2026-08-13, branch `eeloo-loop-lanes`, four green V12A runs; the validation debt is HALF discharged, not closed)
+## M-MIS-3-BAND-COMPUTED-NOT-EXERCISED - the eccentricity-gated tof band is PINNED AS COMPUTED at Eeloo's e=0.26 but has never been WALKED: no accepted candidate has ever sat outside the base band (measured 2026-08-13 branch `eeloo-loop-lanes`; RE-MEASURED AND CORRECTED 2026-08-15 branch `reaim-band-walk`, which also refuted the leading closure hypothesis and located a reachable one)
 
-**What is now proven - the computation half.** `ReaimTofSearch.HalfWidthFraction(e) = clamp(BaseHalfWidthFraction + EccGain*e, BaseHalfWidthFraction, MaxHalfWidthFraction)` = clamp(0.06 + 0.5 x 0.26, 0.06, 0.20) = **0.19 exactly**, and the product emitted it, on four runs, byte-identically:
+**What is proven - the computation half.** `ReaimTofSearch.HalfWidthFraction(e) = clamp(BaseHalfWidthFraction + EccGain*e, BaseHalfWidthFraction, MaxHalfWidthFraction)` = clamp(0.06 + 0.5 x 0.26, 0.06, 0.20) = **0.19 exactly**, and the product emitted it, on four runs, byte-identically:
 
 ```
 [ReaimPlayback] ... eTarget=0.2600 halfWidthFraction=0.1900 devFromRecorded=0s devFromGeom=7577876.6049437672s
@@ -11849,14 +11849,54 @@ The prediction was `state=retained reason=unreachable-plane`, extrapolated from 
 
 So at e = 0.26 the band law COMPUTES correctly on the shipped constants, and the 0.20 cap is NOT engaged: engaging it needs `EccGain >= (0.20 - 0.06)/0.26 = 0.5385`, so the shipped 0.5 sits 7.7% below engagement. This is the first real measurement the two `PLACEHOLDER - pin against the Eeloo fixture` comments (`EccGain`, `MaxHalfWidthFraction`) have ever had, and the token is ARMED in V12A.
 
-**What is NOT proven - the behavioural half, and this is why the debt stays open.** `ReaimTofSearch.BuildCandidateTofs` is **recorded-centered, not geom-centered**: step 0 is ALWAYS the recorded tof (the source's invariant b), the band is `recordedTof +- k*step` with `step = recordedTof * stepFraction`, and `geomTof` chooses only which SIDE is probed first (`towardSign`) and nothing else. Two consequences:
+**What is NOT proven - the behavioural half.** `ReaimTofSearch.BuildCandidateTofs` is recorded-centered: step 0 is ALWAYS the recorded tof (invariant b), the band is `recordedTof +- k*step` with `step = recordedTof * stepFraction`, and `geomTof` chooses only which SIDE is probed first (`towardSign`). So `devFromGeom` exceeding 0.19 x geom is **irrelevant** - the band is never measured against geom, and a large devFromGeom is not a band violation.
 
-1. `devFromGeom=7577876.6049437672s` exceeding 0.19 x geom is **irrelevant** - the band is never measured against geom, so a large devFromGeom is not a band violation and must not be read as one. (The lane's own pre-flight header nearly made that mistake.)
-2. `devFromRecorded=0s` means **cycle 0 was accepted at candidate step 0**. The expansion steps (`baseSteps+1 .. maxSteps`, i.e. 26 of the derived 77 candidates) were **never walked** - not one candidate past step 0 was probed, on any of the four runs.
+The open statement, in the form that can be closed: **no accepted candidate has ever sat outside the base band.** Archive census 2026-08-15 over every `KSP.log` under `logs/`: **79 `devFromRecorded=` emissions, 69 zero and 10 nonzero**, the 10 being **5 distinct values each emitted twice**. One of the five (`-2870561.2028224487`) is a PARKING-path artifact where `devFromRecorded` is meaningless (`recorded NOT used`), leaving **4 genuine `BuildCandidateTofs` accepts: k = +2, -1, +5, -7**. Max |k| = 7 against `baseSteps` 12. The eccentricity-WIDENED region (|k| > 12) has never been entered, and `MaxHalfWidthFraction` remains an unreached ceiling.
 
-So the widened band was COMPUTED and never EXERCISED. Whether the eccentricity-gated expansion BEHAVES - whether those extra steps land where the law intends, in the order it intends, and whether a window that NEEDS them resolves - is still untested, and so is `MaxHalfWidthFraction` as anything but an unreached ceiling.
+**CLOSURE TARGET:** accept a candidate with `|devFromRecorded| > 0.06 * recordedTof` - outside the base band, in the region only the eccentricity gain opens.
 
-**What would exercise it:** a fixture whose STEP-0 TOF IS REJECTED, forcing the search off the recorded centre. This fixture's is not - it resolves immediately, which is the healthy outcome and precisely why it cannot probe the expansion. A candidate shape is a recorded transfer whose replay-clock departure no longer admits the recorded tof (a target whose phase has drifted far enough across the synodic multiple), or the geom-centered sibling path `BuildParkingCandidateTofs`, which is a different function and unexercised here (`parking=False` on every run). **Do not mark M-MIS-3 closed off the Eeloo pin alone.**
+### Three corrections to this entry's earlier text (2026-08-15, all measured)
+
+**(1) `state=fired` is not a rejection.** It is the tilt correction's SUCCESS disposition (`ReaimTransferSynthesizer.cs:631-634`, `LogTiltCorrection(..., "fired", "ok")`), emitted on `[ReaimSeam]`, not from the candidate loop. The 14 consecutive `state=fired` lines at `logs/2026-08-11_1514_M2-periodicity-solver/KSP.log:11991-12007` are 14 candidates whose plane was successfully re-pinned to `incAch=5.9863` and which then died DOWNSTREAM at the PatchedConics encounter check. Reading them as band rejections misattributes the mechanism.
+
+**(2) The step count is not the candidate count.** At e=0.26 the expansion is steps k=13..38 - **26 steps = 52 candidates** of the 77 derived. The earlier "26 of the derived 77 candidates" conflated the two.
+
+**(3) `BuildParkingCandidateTofs` is NOT unexercised.** `logs/2026-08-11_1514_M2-periodicity-solver/KSP.log:11901,11906` shows members `reaim-e2e-parking-w0` / `-wN` emitting `tof=6524002.7336873859 (geom=6524002.7336873859 [parking band center; recorded NOT used] eTarget=0.0510 halfWidthFraction=0.0855 devFromGeom=0s)` - the geom-centered builder, accepted at its own step 0. It is driven by the batch-executable Periodicity cell `Reaim_KerbinToDuna_ParkingDeparture_TransferStartsAtParkEnd` (`ReaimEndToEndInGameTest.cs:1240`). The `parking=False` token that suggested otherwise is a DIFFERENT field (`plan.DepartedFromHeliocentricPark`, emitted by `MissionLoopUnitBuilder.cs:673,1314`), not a statement about which builder ran. That half of the debt is closed; only the `BuildCandidateTofs` expansion region remains open.
+
+### The mechanism that actually gates acceptance (measured 2026-08-15)
+
+The band does not decide acceptance; the **tilt gate** does. A candidate whose natural transfer-plane inclination `inc(r1, r2(tof))` exceeds `InclinationBoundDegrees(launchInc, targetInc)` takes the correction path, gets its plane re-pinned, and then generally fails the encounter check. The first candidate whose inclination falls UNDER the bound takes the `noop` path and is accepted. At the M2 Eeloo window 1 (`bound = 6.6500`) inclination falls ~0.0235 deg per step on the `-k` side, `inc@k=0` is 6.8115, and the first sub-bound candidate is k=-7 at 6.6469 - a 0.0031 deg margin. Hence:
+
+> accepting OUTSIDE the base band requires a departure with `inc@k=0 > bound + 12*slope`, while still `< bound + 38*slope`. For this fixture that is **inc@k=0 in (6.9322, 7.5436)**.
+
+This is a PURE, headlessly computable predicate: `UvLambert` and `ReaimTransferSynthesizer`'s plane helpers are Unity-free, and `EveCycleZeroGeometry` is the standing precedent for driving them off-game. A two-body model of Kerbin/Eeloo reproduces all 15 logged candidate inclinations of M2 window 1 to the log's full 4-decimal precision, on two independent windows.
+
+### REFUTED: replaying a later window of a committed fixture cannot reach the zone
+
+Per-window replay was the leading hypothesis. It does not work, for a structural reason:
+
+- The lane's cadence is **4 x synodic = 0.2491 of Eeloo's orbital period**, so successive windows walk a near-period-4 subgrid of departure phase, revisiting four transfer angles (79 / 120 / 134 / 103 deg) indefinitely. Peak `inc@k=0` over windows 0..39 is **6.8286** and DECAYING; the zone needs > 6.9322. Max |k| ever required is 7.
+- No synodic multiple m = 1..12 reaches the zone within 60 windows either.
+- Independently: every committed V-lane resolves **window 0 only** (`V2`/`V4`/`V5`/`V3C` Duna, `V8`/`V8T` Eve, `V10` Dres, `V11A` Moho, `V12A` Eeloo). There is no window-k knob on them to turn. Only the M2 synthetic solver cell walks windows.
+- The zone is not intrinsically unreachable - ~4.5% of arbitrary departure phases land in it, in the near-antiparallel regime (transfer angle -> 180 deg) where the plane through r1 and r2 is ill-conditioned and the inclination spikes. The cadence-locked subgrid simply never samples it.
+
+### The reachable closure: the fixture's OWN pinned scan already contains it
+
+`BuildPinnedScanOrSkip` (`ReaimEndToEndInGameTest.cs:1165-1192`) sweeps `tDep(i) = PinnedScanBaseUT + synodic*i/ScanSteps` for i = 0..47 (`PinnedScanBaseUT = 5000000.0`, `ScanSteps = 48`). At i = 14 that is 7851536.4286 - **exactly** the departUT the M2 Eeloo member logged, confirming the grid. Evaluating the acceptance predicate across all 48:
+
+| scanIdx | inc@k=0 | first accepting k | abs(dev)/recordedTof |
+|---|---|---|---|
+| 0 | 35.2454 | +29 | 0.145 |
+| 1 | 44.1826 | +37 | 0.185 |
+| 24 | 27.1810 | +16 | 0.080 |
+| 25 | 29.6150 | +24 | 0.120 |
+| 26 | 10.0910 | +31 | 0.155 |
+
+All five accept OUTSIDE the 0.06 base band. The cell picks `midIdx = ReaimFeasibilityScan.CenterOfLongestRunIndex(ctx.Scan, cyclic: true)` = 14 - the centre of the longest run of departures whose step-0 tof synthesizes, i.e. BY CONSTRUCTION the most comfortable departure in the band. **That is precisely why the band was never walked.** The five expansion-only indices are exactly the ones the mid-band pick is built to avoid: `scan[i]` tests the recorded tof ALONE, so a departure whose step 0 is rejected reads false and is skipped over.
+
+**Caveat on what the headless prediction proves.** It evaluates the tilt gate, which is pure. Final acceptance additionally requires the PatchedConics encounter check, which is Unity-bound. The prediction is therefore FALSIFIABLE and the in-game cell is the arbiter, not a formality.
+
+**Do not mark M-MIS-3 closed off the Eeloo computation pin alone.**
 
 ## LINE-BLINK-EXEMPTION-DOES-NOT-PIN-THE-BOUNDARY - the window-transition exemption proves "one half read Outside, the other Inside", not "the SAME boundary was crossed" (found by review 2026-08-14, branch `line-blink-census`; UNEVIDENCED across all 13 archived raises; filed rather than fixed, and the OBVIOUS fix is measurably the wrong one)
 
