@@ -21,12 +21,18 @@ namespace Parsek.Tests
     //   3. NEGATIVE CONTROL - at the departure the product CURRENTLY drives, the answer is "step 0",
     //                     i.e. these cells do not fire on today's geometry and would not have found a
     //                     walk that was not there.
-    //   4. THE MEASUREMENT - five of the 48 pinned scan departures open the tilt gate only outside the
+    //   4. THE MEASUREMENT - five of the 48 pinned scan departures open the TILT GATE only outside the
     //                     base band, at |k| = 16..37.
+    //   5. THE LIVE CROSS-CHECK - the three of those five the in-game arbiter confirmed, pinned at the
+    //                     candidate indices it measured.
     //
-    // WHAT THEY DO NOT PROVE. The tilt gate is pure and is modelled here; final acceptance additionally
-    // needs the PatchedConics encounter check, which is Unity-bound. These cells predict WHICH CANDIDATE
-    // THE TILT GATE FIRST ADMITS. The in-game cell is the arbiter of whether it is then accepted.
+    // WHAT THEY DO NOT PROVE, MEASURED RATHER THAN REASONED. The tilt gate is pure and is modelled here;
+    // acceptance additionally needs the PatchedConics encounter check, which is Unity-bound. The
+    // 2026-08-15 flight (logs/2026-08-15_1517_M2-periodicity-solver) showed the gap is real and bounded:
+    // at scan indices 24, 25 and 26 the live synthesizer accepts EXACTLY the candidate these cells name
+    // (32, 48, 62), and at scan indices 0 and 1 it accepts step 0 instead, because there the fired
+    // correction's conic still finds the encounter. So a gate opening outside the base band is necessary
+    // for a walk but not sufficient, and these cells are read that way throughout.
     public class EelooBandWalkTests
     {
         // The log quotes inclinations to four decimals; the model agrees far tighter than that, so four
@@ -139,7 +145,7 @@ namespace Parsek.Tests
         // ----- 4. THE MEASUREMENT. -----
 
         [Fact]
-        public void EelooBandWalk_FivePinnedScanDepartures_OpenOnlyOutsideTheBaseBand()
+        public void EelooBandWalk_FivePinnedScanDepartures_OpenTheTiltGateOnlyOutsideTheBaseBand()
         {
             // scanIdx -> (candidate index, step index k, |dev| as a fraction of the recorded tof).
             // |dev|/recordedTof is EXACT by construction (|k| * DefaultStepFraction), which is why it is
@@ -179,7 +185,7 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void EelooBandWalk_ExactlyFiveOf48ScanDepartures_OpenOutsideTheBaseBand()
+        public void EelooBandWalk_ExactlyFiveOf48ScanDepartures_OpenTheTiltGateOutsideTheBaseBand()
         {
             // The census, so the five above are known to be the WHOLE set rather than five that happened to
             // be looked at - and so a future re-pin of the band law, the tolerance or the stock ephemeris
@@ -228,6 +234,43 @@ namespace Parsek.Tests
                 Assert.True(candidateIndex >= baseBandOnly.Count,
                     $"scan index {scanIndex.ToString(CultureInfo.InvariantCulture)} must open at a candidate " +
                     "the zero-eccentricity band does not contain");
+            }
+        }
+
+        // ----- 5. THE LIVE CROSS-CHECK. -----
+
+        [Fact]
+        public void EelooBandWalk_TheLiveArbiterConfirmedThree_AtTheCandidatesThisModelNames()
+        {
+            // MEASURED on logs/2026-08-15_1517_M2-periodicity-solver by
+            // Reaim_KerbinToEeloo_BandWalk_AcceptsOutsideTheBaseBand, which walked the product's own
+            // candidate list through ReaimTransferSynthesizer.TrySynthesizeTransfer (PatchedConics tail
+            // included) at every step-0-infeasible departure and logged:
+            //
+            //   band walk Kerbin->Eeloo: scanSteps=48 step0Infeasible=15 outsideBaseBand=3
+            //   insideBaseBand=10 declined=2 deepestWalk=0.1550 ... | 24:cand=32,dev=0.0800
+            //   25:cand=48,dev=0.1200 26:cand=62,dev=0.1550 ...
+            //
+            // These three are the M-MIS-3 behavioural closure, and this cell is their headless regression
+            // floor: it fails if the model stops agreeing with what the arbiter measured, which is the
+            // signal that the fixture, the band law or the stock ephemeris moved.
+            var liveConfirmed = new (int ScanIndex, int CandidateIndex, double DevFraction)[]
+            {
+                (24, 32, 0.0800),
+                (25, 48, 0.1200),
+                (26, 62, 0.1550),
+            };
+
+            foreach (var e in liveConfirmed)
+            {
+                Assert.True(EelooBandWalkGeometry.TryFirstTiltGateOpening(
+                    EelooBandWalkGeometry.ScanDepartureUT(e.ScanIndex),
+                    out int candidateIndex, out _, out double stepIndex, out _));
+
+                Assert.Equal(e.CandidateIndex, candidateIndex);
+                Assert.Equal(e.DevFraction,
+                    Math.Abs(stepIndex) * ReaimTofSearch.DefaultStepFraction, 10);
+                Assert.True(EelooBandWalkGeometry.IsOutsideBaseBand(stepIndex));
             }
         }
     }

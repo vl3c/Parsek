@@ -21,6 +21,24 @@ All notable changes to Parsek are documented here.
 
 ### Features
 
+- A safety allowance in the replay's transfer solver is now known to actually WORK, not merely
+  to compute the right number. When a looped mission is re-aimed at an eccentric target - Eeloo,
+  whose distance from the Sun varies by about a quarter - the solver may search a wider range of
+  flight times than usual, because the real trip length genuinely changes that much between launch
+  windows. That widening had been confirmed to compute correctly, but across every test flight ever
+  recorded it had never once been USED: every window the tests happened to fly resolved on the very
+  first flight time tried, so as far as evidence went the widened part of the search was dead. The
+  reason turned out to be built into the test rather than into the solver - it picks the most
+  comfortable launch date in its range by construction, and at a comfortable date the first guess
+  always works. Driving the awkward dates instead, three of them now resolve on a flight time 2.6
+  times further out than the ordinary search reaches, well inside the widened range and clear of its
+  ceiling; the resulting mission replays across all five of its windows. Two things were corrected
+  along the way and are worth recording because both had been believed for a while: a log line that
+  reads "fired" during this search marks a course correction that SUCCEEDED, not a rejected
+  candidate, and a second, differently-centred search used for missions that depart from a parking
+  orbit had been written down as never exercised when in fact it runs on every one of these test
+  batches. Test-tooling only; no gameplay change.
+
 - The test harness's fixture-stamping flights now verify their crew actually boarded. The game's automation interface has a quiet failure mode: asked to launch a craft with a named crew member who is unavailable — already flying another vessel, say — it launches the craft anyway, with an empty seat, and reports nothing. One committed test fixture was stamped exactly that way (its pod was empty; nobody noticed for a week because that particular craft also carries a probe core and flies fine uncrewed), and the same mistake then cost a full test flight on a craft that has no probe core and sat on the pad, uncontrollable, for its whole time budget. The pad-stamping flight now refuses to declare itself done unless the requested number of kerbals actually reads aboard — by default it requires everyone who was requested, without needing to be told how many — and when boarding silently failed it reports the measured shortfall against the required count instead of timing out with a generic message, distinguishing a boarding failure from a crew-count reading that never succeeded. The orbital stamping flight already had this check and now shares its machinery. The affected flight spec was corrected to request a kerbal who is actually free, the flight was re-flown (the new check confirmed her aboard, live), the fixture was re-stamped with a genuinely crewed pod, and its consumer scenario flew the new fixture to a full pass the same day. Test-tooling only; no gameplay change.
 
 - A solar panel, antenna or radiator that BREAKS now stays broken on the replay. Snapping a panel off - deploying it too fast, overspeeding a deployed array, flying into something - is one of the most conspicuous things that can happen to a craft, and until now the replay did not know about it at all: the ghost carried on with the panel intact for the rest of the recording, every time you watched it. Now the panel disappears at the moment it broke, exactly as it did on the real craft. If a kerbal later goes out and repairs it, the replay shows the panel come back folded and ready to deploy again - instantly, the way the real repair happens, rather than reappearing open and then closing - and if it was then re-deployed, it deploys. A craft that was ALREADY missing a panel when the recording started replays that way from its first frame, rather than starting whole and never losing it. Background craft are covered too, so an unattended station that loses an array while you are somewhere else replays with the array gone.

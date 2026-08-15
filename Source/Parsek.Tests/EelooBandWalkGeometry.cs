@@ -10,22 +10,29 @@ namespace Parsek.Tests
     // (|k| > baseSteps) is where the search first succeeds? The debt's open half is the statement "no
     // accepted candidate has ever sat outside the base band" (archive max |k| = 7 against baseSteps 12).
     //
-    // WHY THIS CAN BE ANSWERED HEADLESSLY. Acceptance is not decided by the band; it is decided by the
-    // TILT GATE. ReaimTransferSynthesizer.TrySynthesizeTransfer solves a Lambert conic per candidate tof,
-    // measures the transfer plane's inclination, and compares it against
-    // ReaimTransferSynthesizer.InclinationBoundDegrees. A candidate ABOVE the bound takes the correction
-    // path (state=fired) and in this geometry then dies at the PatchedConics encounter check; the FIRST
-    // candidate whose inclination falls UNDER the bound takes the noop path and is the one accepted. That
-    // predicate - plane(r1, r2(tof)) vs the bound - is PURE, so it can be evaluated without Unity.
+    // WHAT THIS MODELS, AND EXACTLY WHAT IT DOES NOT. ReaimTransferSynthesizer.TrySynthesizeTransfer
+    // solves a Lambert conic per candidate tof, measures the transfer plane's inclination, and compares it
+    // against ReaimTransferSynthesizer.InclinationBoundDegrees. A candidate ABOVE the bound takes the
+    // correction path (state=fired); one UNDER it takes the noop path. That predicate -
+    // plane(r1, r2(tof)) vs the bound - is PURE, so this file evaluates it without Unity.
     //
-    // WHAT IT DOES NOT PROVE, and the reason the in-game cell is the arbiter rather than a formality:
-    // final acceptance ALSO requires PatchedConics to find the encounter, which is Unity-bound. This model
-    // predicts WHICH CANDIDATE THE TILT GATE FIRST ADMITS. The prediction is falsifiable in game.
+    // IT MODELS THE TILT GATE, NOT ACCEPTANCE, and the distinction was MEASURED rather than reasoned.
+    // Acceptance additionally requires PatchedConics to find the encounter, which is Unity-bound. An
+    // earlier version of this file assumed a fired correction then dies at that check - true at the M2
+    // window-1 geometry, and NOT a law. The 2026-08-15 flight
+    // (logs/2026-08-15_1517_M2-periodicity-solver) settled it: of the five departures whose tilt gate
+    // first opens outside the base band, the live synthesizer ACCEPTS STEP 0 at two of them (scan indices
+    // 0 and 1, whose step-0 inclinations are 35 and 44 deg - the correction fires AND the encounter
+    // succeeds) and accepts exactly where this model says at the other three (scan indices 24, 25, 26, at
+    // candidates 32, 48, 62). So: TryFirstTiltGateOpening answers "which candidate does the tilt gate
+    // first admit", full stop. Where the ANSWER has been confirmed against the live arbiter it is pinned
+    // as such, and where it has not, nothing here claims it.
     //
     // FAITHFULNESS IS MEASURED, NOT ASSUMED. EelooBandWalk_Window1InclinationSequence_MatchesTheLiveM2Run
     // reproduces all fifteen candidate inclinations the 2026-08-11 M2-periodicity-solver run logged for
     // the Eeloo member's window 1, to the log's full four-decimal precision, and the window-0 value too.
-    // That cell is the licence for every other number in this file.
+    // That cell is the licence for every other number in this file, and it survived the 2026-08-15 flight
+    // untouched - the correction above narrowed what the model CLAIMS, not what it computes.
     //
     // EPHEMERIS REUSE (deliberate). The two-body Kepler propagation, the Y-up frame relabel and the
     // inclination/plane helpers are EveCycleZeroGeometry's, not copies of them. That file's own header
@@ -159,10 +166,12 @@ namespace Parsek.Tests
         }
 
         /// <summary>
-        /// Walks <see cref="CandidateTofs"/> in order and reports the FIRST candidate the tilt gate admits
-        /// (inclination &lt;= <see cref="InclinationBoundDegrees"/>) - the candidate that takes the noop
-        /// path and, in this geometry, is the one the resolver accepts. Returns false when every candidate
-        /// sits above the bound (the window would decline to faithful). Pure.
+        /// Walks <see cref="CandidateTofs"/> in order and reports the FIRST candidate the TILT GATE admits
+        /// (inclination &lt;= <see cref="InclinationBoundDegrees"/>), i.e. the first to take the noop path.
+        /// This is NOT necessarily the candidate the resolver accepts: a candidate the gate sends down the
+        /// correction path can still be accepted when PatchedConics finds the encounter, which is exactly
+        /// what the live arbiter does at scan indices 0 and 1. Returns false when every candidate sits
+        /// above the bound. Pure.
         /// </summary>
         internal static bool TryFirstTiltGateOpening(
             double departureUT, out int candidateIndex, out double tofSeconds,

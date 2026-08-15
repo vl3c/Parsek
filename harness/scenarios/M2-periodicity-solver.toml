@@ -106,15 +106,39 @@ count = { min = 0, max = 0 }
 # an InGameAssert.Skip when the pinned scan band contains no retaining departure - which
 # would move passed 8 -> 7 AND skipped 4 -> 5 (InGameTestRunner.RecordSkip sets TestStatus.Skipped; total stays 12). Either way the pinned line mismatches and the gate reds.
 #
+# RE-PINNED 2026-08-15 (+1 total, +1 passed) for the M-MIS-3 BAND WALK cell,
+# Reaim_KerbinToEeloo_BandWalk_AcceptsOutsideTheBaseBand - the closure of the behavioural
+# half of M-MIS-3. It walks every step-0-INFEASIBLE departure in the pinned Kerbin->Eeloo
+# scan through the product's own candidate list and its own accept/reject arbiter
+# (ReaimTransferSynthesizer.TrySynthesizeTransfer), and asserts that at least one accepts
+# OUTSIDE the recorded +-6% base band. MEASURED on the 2026-08-15 flight
+# (logs/2026-08-15_1517_M2-periodicity-solver): 15 of 48 departures are step-0-infeasible,
+# 3 of those accept outside the base band, 10 inside, 2 decline entirely, deepest walk
+# 0.1550 of the recorded tof against a 0.0600 base and a 0.1900 scaled band.
+# skipped stays 4: the cell declares neither Scene = FLIGHT nor AllowBatchExecution =
+# false. Its skip routes are the eTarget guard (stock ecc no longer widening the band) and
+# the fixture guards inherited from BuildPinnedScanOrSkip - either would move passed 9 -> 8
+# AND skipped 4 -> 5, mismatching this line, which is the intended behavior.
+#
+# THE FIRST ATTEMPT AT THIS CELL SKIPPED, and the reason is worth keeping. It pinned five
+# departures a headless tilt-gate model predicted would walk; the live synthesizer accepted
+# step 0 at the first of them, the premise guard fired, and the batch read
+# `total=13 passed=8 skipped=5`. The model was not wrong about the tilt gate - it
+# reproduces the logged candidate inclinations exactly - it was wrong to assume a fired
+# tilt correction then dies at the PatchedConics encounter check. That holds at the M2
+# window-1 geometry and is not a law. The cell now MEASURES the map instead of pinning a
+# prediction, and the three departures it finds (scanIdx 24, 25, 26 at candidates 32, 48,
+# 62) are exactly three of the five the model named - the model's error was additive, not
+# directional.
 # The pre-flight derivation below was written from the [InGameTest] attributes and the
 # live line confirmed it token for token. This category is the one where a naive
 # "total=N passed=N skipped=0" pin would be WRONG, so the derivation is kept as the
 # explanation of WHY each number is what it is:
-#  - total=12: exactly 12 [InGameTest(Category = "Periodicity")] methods exist
-#    (ReaimEndToEndInGameTest 10, CrossParentReaimCanaryInGameTest 1,
+#  - total=13: exactly 13 [InGameTest(Category = "Periodicity")] methods exist
+#    (ReaimEndToEndInGameTest 11, CrossParentReaimCanaryInGameTest 1,
 #    ReaimLandingCoincidenceInGameTest 1 - and that last one is FLIGHT-scene).
 #    Re-derive with `grep -c 'Category = "Periodicity"'` over those three files; the
-#    10 + 1 + 1 must equal the pinned total. BATCH_COMPLETE's total is
+#    11 + 1 + 1 must equal the pinned total. BATCH_COMPLETE's total is
 #    `allTests.Count(Status != NotRun)`, which counts every filtered test too.
 #  - skipped=4, from TWO different filters applied in order by RunCategory:
 #      * FilterSceneEligibleBatchCandidates first drops the 1 Scene = GameScenes.FLIGHT
@@ -125,10 +149,11 @@ count = { min = 0, max = 0 }
 #        ReaimEndToEndInGameTest.cs:827/836/1015 - measurement artifacts, single-run-only
 #        by design).
 #    Both filters mark the test Skipped, so all 4 land in the skipped tally.
-#  - passed=8: the remaining 8 batch-eligible SPACECENTER tests execute - the other 7 of
-#    ReaimEndToEndInGameTest's 10 (EveryWindowResolvesSaneTransfer, BandEdgeWindows,
+#  - passed=9: the remaining 9 batch-eligible SPACECENTER tests execute - the other 8 of
+#    ReaimEndToEndInGameTest's 11 (EveryWindowResolvesSaneTransfer, BandEdgeWindows,
 #    ObservedEdgeDeparture, KerbinToMoho / KerbinToEeloo StructuralContract,
-#    KerbinToEve UnreachablePlaneRetainsTiltAndStillEncounters, ParkingDeparture) plus
+#    KerbinToEve UnreachablePlaneRetainsTiltAndStillEncounters, ParkingDeparture,
+#    KerbinToEeloo BandWalk_AcceptsOutsideTheBaseBand) plus
 #    the CrossParentReaimCanary. Their
 #    InGameAssert.Skip guards fire only on a non-stock body graph, degenerate live orbit
 #    data, a fixture offset that stock eccentricity drift has pushed outside the
@@ -140,7 +165,20 @@ count = { min = 0, max = 0 }
 # tripping one of those guards now reds here with the exact number to re-derive from.
 # That is the intended behavior. Do NOT relax this back to a bare failed=0 - the whole
 # point of the scenario is that these solvers actually ran.
-required  = ["BATCH_COMPLETE v1 total=12 passed=8 failed=0 skipped=4 category=Periodicity scene=SPACECENTER"]
+required  = [
+  "BATCH_COMPLETE v1 total=13 passed=9 failed=0 skipped=4 category=Periodicity scene=SPACECENTER",
+  # M-MIS-3 BEHAVIOURAL CLOSURE, armed 2026-08-15 off logs/2026-08-15_1517_M2-periodicity-solver.
+  # The load-bearing token is `outsideBaseBand=3`: three step-0-infeasible departures accept a
+  # candidate beyond the 0.06 base band, i.e. the eccentricity-widened region is ENTERED AND USED
+  # rather than merely computed. `deepestWalk=0.1550` pins how far - 2.6x the base-band edge, and
+  # still inside the 0.1900 scaled band, so invariant (c) is visible in the same line.
+  # Deliberately a token on the cell's OWN line, not on ReaimPlaybackResolver's
+  # `re-aimed transfer ready:` line, which V12A arms adjacent substrings of.
+  "band walk Kerbin->Eeloo: scanSteps=48 step0Infeasible=15 outsideBaseBand=3 insideBaseBand=10 declined=2 deepestWalk=0.1550 baseHalfWidth=0.0600 scaledHalfWidth=0.1900 eTarget=0.2600",
+  # The closure is product-visible, not only synthesizer-level: the deepest-walking departure's
+  # windows all RESOLVE through the real resolver.
+  "band walk Kerbin->Eeloo resolver end-to-end: scanIdx=24 map=RRRRR resolved=5 declined=0",
+]
 forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
 
 [runtime]

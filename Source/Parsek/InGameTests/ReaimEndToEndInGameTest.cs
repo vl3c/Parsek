@@ -563,6 +563,202 @@ namespace Parsek.InGameTests
                 combinedInclinationCase: false);
         }
 
+        // ----- The BAND WALK cell (M-MIS-3 behavioural half): the expansion region is USED, not just computed. -----
+        //
+        // WHAT WAS OPEN. V12A pinned the band as COMPUTED at Eeloo's e=0.26 (`halfWidthFraction=0.1900`), but
+        // across the whole log archive no ACCEPTED candidate ever sat outside the recorded +-6% base band: 79
+        // `devFromRecorded` emissions, 4 genuine non-zero accepts, max |k| = 7 against baseSteps 12. So the
+        // eccentricity-widened region (|k| > 12) had never been entered and MaxHalfWidthFraction was an
+        // unreached ceiling. This cell is the closure: it drives departures at which the FIRST candidate the
+        // synthesizer accepts lies in that region.
+        //
+        // WHY THE SIBLING CELL COULD NEVER SHOW THIS, and it is not a defect in it. RunEccentricTargetWindows
+        // drives `midIdx = ReaimFeasibilityScan.CenterOfLongestRunIndex(ctx.Scan, cyclic: true)` - the centre
+        // of the longest run of departures whose STEP-0 tof synthesizes, i.e. BY CONSTRUCTION the most
+        // comfortable departure in the band. At such a departure step 0 is accepted immediately and no
+        // expansion step is ever probed. The departures that walk the band are exactly the ones `ctx.Scan`
+        // marks INFEASIBLE (scan[i] tests the recorded tof ALONE), which the mid-band pick is built to skip.
+        // This cell drives those, and asserts that premise rather than assuming it.
+        //
+        // WHAT ACTUALLY GATES ACCEPTANCE (measured 2026-08-15, and the reason this is reachable at all). The
+        // band does not decide; the TILT GATE does. A candidate whose transfer-plane inclination exceeds
+        // ReaimTransferSynthesizer.InclinationBoundDegrees takes the correction path (`state=fired`) and then
+        // dies at the PatchedConics encounter check; the first candidate whose inclination falls UNDER the
+        // bound takes the noop path and is accepted. Inclination walks ~0.0235 deg per probe step here, so an
+        // out-of-band accept needs a departure whose step-0 inclination clears the bound by more than twelve
+        // steps' worth. Five of the 48 pinned scan departures do.
+        //
+        // WHY IT DRIVES TrySynthesizeTransfer DIRECTLY rather than reading the resolved segments. The accepted
+        // tof is NOT recoverable from the assembled transfer segment: ReaimPlaybackResolver clamps the render
+        // span with `newArrivalUT = min(rawArrivalUT, plan.RecordedArrivalUT)` (ReaimPlaybackResolver.cs:571),
+        // so a LONGER-than-recorded accepted tof - which is exactly what every walking departure here produces
+        // - reads back as the recorded tof and the assertion would silently pass on the wrong quantity.
+        // TrySynthesizeTransfer IS the accept/reject arbiter the resolver consults, PatchedConics tail
+        // included, so walking the product's own candidate list through it measures the real thing. The
+        // resolver is then driven once end to end, so the cell also states that a walking departure produces a
+        // window that actually resolves.
+        //
+        // COST: the candidate walk short-circuits at the first accept, so this is a few hundred synth calls -
+        // a small fraction of the manual-only feasibility sweep's work, and batch-safe.
+        //
+        // The headless siblings (Source/Parsek.Tests/EelooBandWalkTests.cs) PREDICT these indices and step
+        // counts from a calibrated two-body model; they cannot prove acceptance because the encounter check is
+        // Unity-bound. This cell is that prediction's arbiter, so a disagreement is a real finding either way.
+        [InGameTest(Category = "Periodicity", Scene = GameScenes.SPACECENTER,
+            Description = "Re-aim band WALK (Eeloo, e=0.26): at pinned-scan departures whose step-0 tof is infeasible, the FIRST accepted candidate sits OUTSIDE the recorded +-6% base band - the eccentricity-widened region is entered and USED, not merely computed (M-MIS-3 behavioural half)")]
+        public void Reaim_KerbinToEeloo_BandWalk_AcceptsOutsideTheBaseBand()
+        {
+            var ic = CultureInfo.InvariantCulture;
+            ScanContext ctx = BuildPinnedScanOrSkip(KerbinToEeloo());
+            if (ctx == null)
+                return;
+
+            double eTarget = ctx.TargetBody.orbit != null ? ctx.TargetBody.orbit.eccentricity : 0.0;
+            double scaledHalfWidth = ReaimTofSearch.HalfWidthFraction(eTarget);
+            if (!(scaledHalfWidth > ReaimTofSearch.BaseHalfWidthFraction))
+            {
+                InGameAssert.Skip(
+                    $"{ctx.TargetBodyName} eTarget={eTarget.ToString("F4", ic)} no longer widens the band past " +
+                    $"the {ReaimTofSearch.BaseHalfWidthFraction.ToString("F2", ic)} base - there is no expansion " +
+                    "region to walk (stock ecc drifted); re-pin the fixture");
+                return;
+            }
+
+            // READING POSTURE (2026-08-15). This cell MEASURES where the first accepted candidate lands at
+            // every departure in the pinned scan and logs the map; the closure assertion is armed only for
+            // what the map shows. It is deliberately not pinned to a headless prediction: the first
+            // attempt pinned five departures the pure tilt-gate model said would walk, and the live
+            // synthesizer ACCEPTED step 0 at the first of them. The model was not wrong about the tilt gate
+            // - it reproduces the logged inclinations exactly - it was wrong to assume a fired correction
+            // then dies at the encounter check. That is true at the M2 window-1 geometry and is NOT a law,
+            // and it is precisely the Unity-bound half a headless cell cannot see. So the arbiter measures.
+            IReadOnlyList<double> candidateTofs = ReaimTofSearch.BuildCandidateTofs(
+                ctx.TofSeconds, ctx.GeomTofSeconds, eTarget);
+
+            // NEGATIVE CONTROL: at the departure the sibling cell drives, the very first candidate is
+            // accepted. Without this, a map showing walks everywhere would be a statement about the fixture
+            // rather than about the band.
+            int midIdx = ReaimFeasibilityScan.CenterOfLongestRunIndex(ctx.Scan, cyclic: true);
+            if (midIdx >= 0)
+            {
+                int midAccepted = FirstAcceptedCandidateIndex(ctx, ctx.ScanDepartureUTs[midIdx], candidateTofs);
+                InGameAssert.AreEqual(0, midAccepted,
+                    $"NEGATIVE CONTROL: the mid-band departure (scanIdx={midIdx.ToString(ic)}) must accept at " +
+                    "candidate 0 (the recorded tof), which is why the band was never walked there");
+            }
+
+            // The map. Only step-0-INFEASIBLE departures can possibly walk (scan[i] tests the recorded tof
+            // alone), so the walk search runs on those; a feasible departure accepts at candidate 0 by
+            // definition of the scan and is counted without re-driving the synthesizer.
+            int walked = 0;
+            int declinedEntirely = 0;
+            int acceptedInsideBase = 0;
+            int firstWalking = -1;
+            double deepestWalkFraction = 0.0;
+            var detail = new StringBuilder();
+            for (int idx = 0; idx < ctx.Scan.Length; idx++)
+            {
+                if (ctx.Scan[idx])
+                    continue; // step 0 synthesizes here; nothing to walk
+
+                double depUT = ctx.ScanDepartureUTs[idx];
+                int accepted = FirstAcceptedCandidateIndex(ctx, depUT, candidateTofs);
+                if (accepted < 0)
+                {
+                    declinedEntirely++;
+                    detail.Append($" {idx.ToString(ic)}:declined");
+                    continue;
+                }
+
+                double usedTof = candidateTofs[accepted];
+                double devFraction = System.Math.Abs(usedTof - ctx.TofSeconds) / ctx.TofSeconds;
+
+                // Invariant (c) holds regardless of where the walk lands: the widening is BOUNDED. This one
+                // is safe to assert unconditionally because it is a property of the band law, not of the
+                // geometry, and a breach would mean the law leaked rather than that the window walked.
+                InGameAssert.IsTrue(devFraction <= scaledHalfWidth + 1e-9,
+                    $"scanIdx={idx.ToString(ic)} accepted at |dev|/recordedTof={devFraction.ToString("F4", ic)} " +
+                    $"beyond the scaled half-width {scaledHalfWidth.ToString("F4", ic)} (invariant c)");
+
+                if (devFraction > ReaimTofSearch.BaseHalfWidthFraction)
+                {
+                    walked++;
+                    if (firstWalking < 0)
+                        firstWalking = idx;
+                    if (devFraction > deepestWalkFraction)
+                        deepestWalkFraction = devFraction;
+                }
+                else
+                {
+                    acceptedInsideBase++;
+                }
+                detail.Append($" {idx.ToString(ic)}:cand={accepted.ToString(ic)}" +
+                              $",dev={devFraction.ToString("F4", ic)}");
+            }
+
+            // Grep-stable measurement line. A NEW line deliberately, NOT a token appended to
+            // ReaimPlaybackResolver's `re-aimed transfer ready:` line - V12A arms adjacent substrings of that
+            // line and a sibling lane arms more, so editing it would red correct runs elsewhere.
+            ParsekLog.Info("ReaimE2E",
+                $"band walk {ctx.LaunchBodyName}->{ctx.TargetBodyName}: scanSteps={ctx.Scan.Length.ToString(ic)} " +
+                $"step0Infeasible={(walked + declinedEntirely + acceptedInsideBase).ToString(ic)} " +
+                $"outsideBaseBand={walked.ToString(ic)} insideBaseBand={acceptedInsideBase.ToString(ic)} " +
+                $"declined={declinedEntirely.ToString(ic)} " +
+                $"deepestWalk={deepestWalkFraction.ToString("F4", ic)} " +
+                $"baseHalfWidth={ReaimTofSearch.BaseHalfWidthFraction.ToString("F4", ic)} " +
+                $"scaledHalfWidth={scaledHalfWidth.ToString("F4", ic)} eTarget={eTarget.ToString("F4", ic)} " +
+                $"recordedTof={ctx.TofSeconds.ToString("F0", ic)} geomTof={ctx.GeomTofSeconds.ToString("F0", ic)} |" +
+                detail.ToString());
+
+            // THE CLOSURE ASSERTION (M-MIS-3 behavioural half): at least one departure must accept OUTSIDE
+            // the recorded +-6% base band, i.e. in the region only the eccentricity gain opens. ARMED
+            // 2026-08-15 off the reading run that measured the map above.
+            InGameAssert.IsTrue(walked >= 1,
+                $"at least one step-0-infeasible departure must accept OUTSIDE the base band - that is the " +
+                $"M-MIS-3 behavioural closure (outsideBaseBand={walked.ToString(ic)} " +
+                $"insideBaseBand={acceptedInsideBase.ToString(ic)} declined={declinedEntirely.ToString(ic)})");
+
+            // End to end: a walking departure must also produce a window the RESOLVER resolves, so the closure
+            // is a product-visible outcome and not only a synthesizer-level one.
+            if (firstWalking >= 0)
+            {
+                DriveWindowsResolveOrDeclineCleanly(
+                    ctx, ctx.ScanDepartureUTs[firstWalking],
+                    "reaim-e2e-eeloo-bandwalk-" + firstWalking.ToString(ic),
+                    requireWindow0Resolve: true, requireAllWindowsResolve: false,
+                    out string map, out int resolvedCount, out int declinedCount, out long retainedTiltTotal);
+
+                ParsekLog.Info("ReaimE2E",
+                    $"band walk {ctx.LaunchBodyName}->{ctx.TargetBodyName} resolver end-to-end: " +
+                    $"scanIdx={firstWalking.ToString(ic)} map={map} resolved={resolvedCount.ToString(ic)} " +
+                    $"declined={declinedCount.ToString(ic)} retainedTilt={retainedTiltTotal.ToString(ic)}");
+            }
+        }
+
+        /// <summary>
+        /// Walks <paramref name="candidateTofs"/> in the builder's own order and returns the index of the
+        /// FIRST candidate <see cref="ReaimTransferSynthesizer.TrySynthesizeTransfer"/> accepts for a
+        /// departure at <paramref name="departureUT"/>, or -1 when every candidate is rejected. This is the
+        /// same arbiter, in the same order, that ReaimPlaybackResolver's candidate loop consults
+        /// (ReaimPlaybackResolver.cs:461-476), so the index it returns IS the candidate the resolver would
+        /// use. Short-circuits at the first accept.
+        /// </summary>
+        private static int FirstAcceptedCandidateIndex(
+            ScanContext ctx, double departureUT, IReadOnlyList<double> candidateTofs)
+        {
+            for (int i = 0; i < candidateTofs.Count; i++)
+            {
+                double tof = candidateTofs[i];
+                if (tof <= 0.0)
+                    continue;
+                if (ReaimTransferSynthesizer.TrySynthesizeTransfer(
+                        ctx.LaunchBody, ctx.TargetBody, departureUT, tof, prograde: true,
+                        out _, out _, out _, out _))
+                    return i;
+            }
+            return -1;
+        }
+
         // ----- Inclined-target RETENTION cell (Kerbin->Eve): the 2026-08-11 disposition change, in-game. -----
         //
         // WHAT THIS PROVES that no other cell here does. The Duna cells prove the tilt correction FIRES and the
