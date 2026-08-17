@@ -14,6 +14,94 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## REAIM-SOLVED-INCLINATION-IS-UNCORRELATED-WITH-TARGET-INCLINATION: the four-lane tilt table [MEASURED 2026-08-17, NOT A DEFECT]
+
+**READ THIS BEFORE GENERALISING FROM A SINGLE LANE'S TILT READING.**
+`REAIM-TILT-NOOP-AT-EELOO-6.15-DEG` says Eeloo "tested the BOUND ARITHMETIC, not the
+retention branch". That is true OF EELOO, and it is easy to misread as a statement about
+the program -- it is not. `V10-dres-loop-arrival` and `V11A-moho-loop-arrival` both ARM
+`state=retained`, and the `MOHO-PROGRAM-MEASUREMENTS-COMPLETE` table in this file already
+tabulates both. THE RETENTION BRANCH IS EXERCISED. Any claim that it is not, or that some
+newly-flown lane is the first to approach the gate, should be checked against the table
+below before it is written down.
+
+### What the four lanes actually measure
+
+All four re-flown / re-read 2026-08-17 off their own logs:
+
+| lane | target | targetInc | bound | SOLVED inc | state |
+|---|---|---:|---:|---:|---|
+| V10  | Dres  |  5.0000 | 5.5000 | **13.1958** | `retained` (incAch 3.6426) |
+| V11A | Moho  |  7.0000 | 7.5000 | **23.5906** | `retained` (incAch 3.3633) |
+| V12A | Eeloo |  6.1500 | 6.6500 |   4.0725 | `noop reason=in-plane` |
+| V13A | Jool  |  1.3040 | 1.8040 |   1.6174 | `noop reason=in-plane` |
+
+**THE RETENTION BRANCH IS EXERCISED, at Dres and at Moho.** Any statement that it is not
+is wrong.
+
+### The reading that is actually new
+
+The SOLVED transfer's inclination is **not** a function of the target's. Sorted by target
+inclination the solved values are 1.6174 (Jool 1.304), 13.1958 (Dres 5.0), 4.0725 (Eeloo
+6.15), 23.5906 (Moho 7.0) -- no ordering at all. The bound tracks the target
+(`Max(Max(l,t),0) + 0.5`); the solved plane does not, so which side of the gate a lane
+lands on is a property of the SOLVED TRANSFER and cannot be predicted from the
+destination.
+
+Jool's narrow contribution, stated at its true size: among the two lanes that read `noop`,
+it is the closer to its bound -- 1.6174 / 1.8040 = 89.7%, against Eeloo's 4.0725 / 6.6500
+= 61.2%. That is a fourth point on an uncorrelated scatter, not a trend and not a lead.
+
+### Consequence for lane selection
+
+Choosing destinations by target inclination does not control which branch gets exercised.
+If more retention coverage is wanted, the selector is the solved conic's inclination,
+which is only known after a solve -- so the cheap move is to read `synth geometry` on
+fixtures that already exist rather than to fly a new destination hoping for a steep solve.
+
+---
+
+## REAIM-SYNTH-GEOMETRY-SOI-CHECK: the third proximity check differs because THE PATH DIFFERS [DIAGNOSED 2026-08-17, NOT A DEFECT]
+
+`xfer-vs-<target>@soi` reads ~0 m at Eeloo and 2,072,273,069 m (0.84 SOI) at Jool. Read
+across all four arrival lanes that resolves, and the answer is in the line's own label:
+
+| lane | label | soiEntryUT vs arrivalUT | `xfer-vs-<target>@soi` | SOI |
+|---|---|---|---:|---:|
+| V10  | `(patched-conic)` | 43,144,578 < 43,162,645 | 32,832,839 | 32,832,840 |
+| V11A | `(patched-conic)` |  5,806,509 <  5,807,872 |  9,646,663 |  9,646,663 |
+| V12A | `(proximity)`     | 95,851,632 = 95,851,632 |          0 | 119,082,942 |
+| V13A | `(proximity)`     | 55,582,515 < 56,745,407 | 2,072,273,069 | 2,455,985,185 |
+
+**On the `patched-conic` path the check reads the SOI radius to within 1 m** -- which is
+the physically correct reading, because `soiEntryUT` there IS the boundary crossing.
+
+**On the `proximity` path it does not.** At Eeloo `soiEntryUT` degenerated to equal
+`arrivalUT`, so the conic is at the body's centre and the check reads 0 m. At Jool the
+proximity path found a genuinely earlier time, and the conic is 0.844 of the way out --
+inside the sphere, but NOT on its boundary.
+
+So the two readings are not inconsistent with each other; they are two different code
+paths, and **the `proximity` path's `soiEntryUT` is not a boundary crossing.** Eeloo's 0 m
+is the degenerate extreme of that, not a healthy reference value.
+
+NOT A FAILURE, and nothing here reds: the independent seam-endpoint census reads
+`evaluated=1 outsideSoi=0` on all four lanes, so every arrival is genuinely inside its
+sphere. What it does mean is that `xfer-vs-<target>@soi` is NOT comparable across the two
+paths, and no lane should be written as though it were.
+
+STILL OPEN, and narrowed to something answerable: should the `proximity` path's
+`soiEntryUT` be a boundary crossing like the patched-conic path's? If yes, Eeloo's 0 m and
+Jool's 0.84 are both symptoms and the fix is in the path. If no, the field name is
+misleading on that path and should say what it measures. Whoever picks this up should
+start from the two labels rather than from the numbers.
+
+The distance is deliberately NOT armed in V13A -- the lane pins `(SOI=2455985185)` alone.
+Pinning a number whose meaning depends on an unresolved path question would freeze the
+question shut.
+
+---
+
 ## FINDING-16D-MISCITED-DIRECTION-AND-DENOMINATOR: nine committed comment sites quote finding 16d's `956-1,142 km` band against a 250 km request that never produced it [RECORD CORRECTION 2026-08-15, found while sizing `B22-jool-orbit`'s aim]
 
 **THIS IS A RECORD CORRECTION, NOT A PRODUCT DEFECT.** Nothing in Parsek or in the
