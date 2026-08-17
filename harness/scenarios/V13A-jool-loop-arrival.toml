@@ -1,0 +1,282 @@
+schema = 1
+id = "V13A-jool-loop-arrival"
+# =====================================================================================
+# V13A: THE JOOL PROGRAM'S ARRIVAL LANE -- TimeJump into the re-aimed Kerbin->Jool
+# transfer so the PER-WINDOW SYNTHESIZER actually runs, and read what it says about the
+# tilt disposition, the tof band, the three synth-geometry proximity checks and the
+# seam-endpoint census at the largest SOI in the system.
+#
+# WHY A SEPARATE LANE FROM V13: the loop-unit classification (V13) and the per-window
+# SYNTHESIS are different code running at different times. V13 measured the schedule --
+# ENGAGED, 25 segments, synodic, cadence, the loiter cut -- off the loop-unit builder.
+# The tilt / band / geometry lines come from ReaimTransferSynthesizer during a resolve,
+# which only happens when playback actually reaches a window. That is what the TimeJumps
+# below are for, and it is why V13's log carries none of those tokens.
+#
+# ARMED AT PASS 2. It shipped as a pass-1 reading run -- plumbing pair only, no tilt /
+# band / geometry / census literal armed -- and this is the arming commit, off pass 1's
+# own bytes (`2026-08-17_2107`), re-flown on the corrected shape (`_2112`, PASS, wall
+# 54 s) with all fourteen tokens green.
+#
+# WHAT PASS 1 WAS FOR, AND WHY IT WAS NOT SKIPPABLE: the seven jumps were computed from
+# V13's loop-unit clock as D0 + tof = 56,745,406.81. THE SYNTHESIZER EMITTED
+# soiEntryUT = 55,582,515.124523856 INSTEAD -- 1,162,892 s EARLIER, and equal to neither
+# D0 + tof nor anything derivable from the loop-unit line. D0 + tof is the geometry
+# line's `arrivalUT`, which is NOT the seam. Pass 1's arrival bracket therefore sat on
+# the wrong instant, and its census came back as the measuring line PLUS a skip-only
+# `evaluated=0 ... skip.body-mismatch=1`. Pass 2 re-derived all three bracket jumps from
+# the EMITTED soiEntryUT and the skip-only line disappeared. A one-pass lane would have
+# armed a bracket that misses the seam and never known.
+#
+# ----- THE PREDICTION SCORECARD -----------------------------------------------------
+#
+#   TILT   bound       PREDICTED 1.8040        MEASURED 1.8040        EXACT
+#          targetInc   PREDICTED 1.3040        MEASURED 1.3040        EXACT
+#          disposition PREDICTED noop/in-plane MEASURED noop/in-plane CONFIRMED
+#   BAND   eTarget     PREDICTED 0.0500        MEASURED 0.0500        EXACT
+#          halfWidth   PREDICTED 0.0850        MEASURED 0.0850        EXACT, cap unengaged
+#   GEOM   SOI literal PREDICTED 2455985185    MEASURED 2455985185    EXACT
+#   CENSUS evaluated=1 outsideSoi=0 on two consecutive greens.
+#
+# TWO READINGS WORTH MORE THAN THE CONFIRMATIONS:
+#
+#   (a) JOOL IS THE TIGHTEST TILT MARGIN THE PROGRAM HAS EVER MEASURED, at its LOWEST
+#       target inclination. The solved conic's 1.6174 deg sits at 89.7% of the 1.8040
+#       bound -- margin 0.1866 deg. Eeloo, at a 6.15 deg target, solved 4.0725 against a
+#       6.6500 bound: 61.2%, margin 2.5775. So a LOWER target inclination produced a
+#       TIGHTER approach to the gate, which is the opposite of the intuition that the
+#       retention branch is reached by aiming at more inclined targets. It STILL does not
+#       discharge the tilt debt -- noop is noop -- but it says the gate is nearer here
+#       than at any inclined target yet flown, and that is a lead worth recording.
+#
+#   (b) `xfer-vs-Jool@soi` READS 2,072,273,069 m, NOT ~0 AS AT EELOO. That is 84.4% of
+#       the 2,455,985,185 m SOI, i.e. comfortably INSIDE -- and the independent census
+#       agrees (`outsideSoi=0`, tolerance ratio > 1.005). It is armed only via the SOI
+#       constant `(SOI=2455985185)` and NOT via the distance, because the distance is an
+#       unexplained difference from the Eeloo reading rather than a understood quantity.
+#       FILED AS OPEN: why the third proximity check reads ~0 at Eeloo and 0.84 SOI at
+#       Jool. It is not a lane failure -- both the census and the run agree the arrival is
+#       inside the sphere -- but it is not understood either, and pinning a number nobody
+#       can derive would convert an open question into a false regression floor.
+#
+# ----- THE JUMP SCHEDULE, AND WHERE EVERY NUMBER COMES FROM -------------------------
+#
+# V12A's seven jumps decode into a pattern relative to its own measured departUT
+# (54,007,648.196326263) and soiEntryUT (95,851,632.03180024). Recomputed here against
+# V13's MEASURED Jool schedule -- D0 = 34,417,886.418945849 and tof = 22,327,520.392697673
+# from `MissionLoopUnit: ... ENGAGED re-aim Kerbin->Jool via Sun`, run `2026-08-17_2055`,
+# reproduced byte-identically on `_2101` -- giving soiEntryUT = D0 + tof =
+# 56,745,406.811643526:
+#
+#   pattern (V12A)        offset                 Jool value
+#   pre-departure         departUT - 37,604.599  34,380,281.820
+#   depart + 600          departUT + 600         34,418,486.419
+#   coast midpoint        departUT + tof/2       45,581,646.615
+#   arrival - 190         soiEntryUT - 190       56,745,216.812
+#   arrival - 60          soiEntryUT - 60        56,745,346.812
+#   arrival + 180         soiEntryUT + 180       56,745,586.812
+#   post-arrival          soiEntryUT + 68,475.565 56,813,882.377
+#
+# NOTE THE MIDPOINT IS tof/2 AND NOT V12A'S ABSOLUTE OFFSET. V12A's jump 3 is
+# departUT + 20,921,991.918, which IS its own tof/2 -- copying that absolute number to
+# Jool would land 9.76e6 s past the Jool midpoint, well into the arrival half of a
+# shorter coast. The pattern is proportional, not absolute.
+#
+# THESE ARE PASS-1 APPROXIMATIONS, AND THE HEADER SAYS SO. D0 is the loop-unit's phase
+# anchor; the synthesizer emits its own `departUT=` and `soiEntryUT=` on the
+# `re-aimed transfer ready:` line, and at Eeloo those differed from D0 by ~0.107 s. The
+# three-jump ARRIVAL BRACKET (-190 / -60 / +180) is the part that actually depends on
+# hitting the seam, so pass 2 re-derives all seven from the emitted values rather than
+# from D0.
+#
+# ----- WHAT PASS 1 SHOULD PRINT (PREDICTED, DELIBERATELY NOT ARMED) -----------------
+#
+# (1) TILT. `InclinationBoundDegrees(launchInc, targetInc) = Max(Max(l,t),0) + 0.5`
+#     (ReaimTransferSynthesizer.cs:93-97, InclinationToleranceDegrees = 0.5 at :62).
+#     Kerbin 0.0, Jool 1.30400002002716 -> bound 1.80400002002716, rendered F4 as
+#     `bound=1.8040 targetInc=1.3040`. That pair is FULLY DERIVABLE and is the one tilt
+#     literal that could have been armed pre-flight; it is left unarmed anyway, because
+#     arming half a line whose other half is unmeasured invites a pass-2 edit that
+#     silently changes what the lane checks.
+#     PREDICTED DISPOSITION: `state=noop reason=in-plane`, a fortiori from
+#     REAIM-TILT-NOOP-AT-EELOO-6.15-DEG -- at Eeloo the solved conic's 4.0725 sat below
+#     a 6.6500 bound and the excessive-tilt gate never opened. Jool's 1.304 deg is
+#     MILDER than Eve 2.1, Dres 5.0, Eeloo 6.15 and Moho 7.0, so if Eeloo was noop then
+#     Jool is noop. EITHER READING IS A RESULT.
+#
+#     AND THIS LANE CANNOT DISCHARGE THE TILT DEBT. Jool is the LOWEST inclination in
+#     the ladder -- it probes BELOW the already-covered Eve point. A noop here adds a
+#     confirming point at the easy end, not coverage of the retention branch. DO NOT
+#     BOOK V13A AS TILT COVERAGE.
+#
+# (2) BAND. `HalfWidthFraction(e) = clamp(0.06 + 0.5*e, 0.06, 0.20)`
+#     (ReaimTofSearch.cs:78-89). Jool e = 0.0500000007450581 -> 0.08500000037, F4
+#     `eTarget=0.0500 halfWidthFraction=0.0850`. The 0.20 cap is nowhere near engaged
+#     (engaging it needs EccGain >= 0.5385 at e=0.26; the shipped 0.5 sits 7.7% below).
+#     NOT A NOVEL LOW-e POINT: `eTarget=0.0510 halfWidthFraction=0.0855` is already on
+#     record from a Kerbin->Duna PARKING departure. What Jool would add is the CONSUMER
+#     -- `BuildCandidateTofs`, the recorded-centered builder -- not the eccentricity.
+#     M-MIS-3's behavioural half is CLOSED as of 2026-08-15; only the constant-pinning
+#     judgement on EccGain / MaxHalfWidthFraction remains.
+#
+#     The candidate count computes to 35 (1 + 2x12 base steps + 2x5 expansion steps 13-17,
+#     at DefaultStepFraction 0.005). DO NOT ARM IT: the count is emitted ONLY on the
+#     FAILURE path (ReaimPlaybackResolver.cs:483 and :497-499). On a successful synth it
+#     never appears, so arming it would require the lane to fail.
+#
+# (3) GEOMETRY. Three proximity checks, `xfer-vs-Kerbin@depart`, `xfer-vs-Jool@arrival`,
+#     `xfer-vs-Jool@soi`, the last carrying the SOI constant as
+#     `sphereOfInfluence.ToString("F0")`. For Jool that is 2455985185 -- derived from the
+#     provisioned instance's own sharedassets9.assets (GeeASL/Radius -> Mass -> SOI), the
+#     same derivation that reproduces Eeloo's 119082942 exactly. THE KSP-WIKI FIGURE
+#     2,455,985,200 IS ~14.6 m ABOVE THE RUNTIME VALUE and would render a different
+#     string; do not use it. Parentheses must be escaped in the armed pattern --
+#     LogContractPatternCompilabilityTests re.compiles every one, and V8F's iteration 1
+#     PARSEK-FAILed on exactly that.
+#
+# (4) SEAM CENSUS. `seam-endpoint summary evaluated=1 outsideSoi=0` -- one
+#     destination-approach check actually performed at the arrival seam, reading INSIDE
+#     the destination sphere (SeamEndpointOracle.cs:287-306, emitted from
+#     MapRenderProbe.cs:414-421, gated on the mapRenderTracing setting the plumbing sets
+#     below). V10, V11A and V12A all arm this exact literal. THE CAVEAT BOTH CARRY: it
+#     must be MEASURED GREEN TWICE before arming -- V12A read `evaluated=0` for four runs
+#     before the rate-limit key was class-split on 2026-08-14. Pass 1 reads it; arming
+#     waits for the second green.
+#
+# (5) RENDER SIDE, A READING AND NOT A GATE. At r 590.3 Mm a Vector3 polyline point has a
+#     ~70 m float32 grid and the ~200 s parked arc spans ~137 km -- SUB-PIXEL at Jool map
+#     scale. Expect the destination tail to fall through to the IsIconSuppressed marker
+#     floor. DO NOT PIN A POLYLINE TOKEN AT JOOL.
+#
+# ----- ARMING FORM, AGREED WITH THE SIBLING M-MIS-3 LANE ----------------------------
+#
+# V12A arms the band as ONE contiguous span, `eTarget=0.2600 halfWidthFraction=0.1900`.
+# Both tokens sit on the `re-aimed transfer ready:` line -- precisely the line a sibling
+# lane may insert a candidateIndex/step token into. Pass 2 of THIS lane arms them as
+# SEPARATE key=value fragments, so an insertion between them cannot break it. Same rule
+# for the tilt line, whose `bound=`/`targetInc=` pair V12A also arms contiguously.
+# =====================================================================================
+tier = "operator"
+description = "PASS 1, A READING RUN (not armed): the Jool program's arrival lane -- TimeJump into the re-aimed Kerbin->Jool transfer so the per-window synthesizer runs, and read the tilt disposition, the tof band, the three synth-geometry proximity checks and the seam-endpoint census at the largest SOI in the system. The seven jumps are recomputed from V13's MEASURED schedule (D0 34,417,886.418945849, tof 22,327,520.392697673 -> soiEntryUT 56,745,406.811643526) on V12A's pattern, with the coast midpoint taken as tof/2 rather than V12A's absolute offset, which would land 9.76e6 s late on a shorter coast. PREDICTED and deliberately unarmed: tilt bound=1.8040 targetInc=1.3040 with state=noop reason=in-plane (a fortiori from the Eeloo finding), band eTarget=0.0500 halfWidthFraction=0.0850 cap not engaged, SOI literal 2455985185 from the asset derivation. The candidate count 35 is NOT armable -- it is emitted only on the failure path. CANNOT DISCHARGE THE TILT DEBT: Jool's 1.304 deg is the LOWEST inclination in the V-lane ladder, below the already-covered Eve point."
+instanceProfile = "stock-minimal"
+tags = ["V13A", "jool", "loop", "playback", "reaim", "tilt", "flown"]
+
+[fixture]
+saveTemplate       = "fixtures/saves/jool-orbit-recorded"
+injectedRecordings = "none"
+craft              = []
+
+[driver]
+kind = "seam"
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  { cmd = "StopRecording",                                                   expect = "OK" },
+  { cmd = "DiscardTree",                                                     expect = "OK" },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "ghostRenderTracing", value = "true" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "mapRenderTracing",   value = "true" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "verboseLogging",     value = "true" }, expect = "OK" },
+  { cmd = "MissionConfig",     args = { tree = "6ec68e87b782476f970a71df8c8b4685", loop = "true" }, expect = "OK" },
+  { cmd = "StartLoopPlayback", args = { tree = "6ec68e87b782476f970a71df8c8b4685" }, expect = "OK", budget = 300 },
+  # pre-departure
+  { cmd = "TimeJump", args = { ut = "34380281.820" }, expect = "OK", budget = 300 },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  # departure + 600
+  { cmd = "TimeJump", args = { ut = "34418486.419" }, expect = "OK", budget = 300 },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  # coast midpoint = departUT + tof/2
+  { cmd = "TimeJump", args = { ut = "45581646.615" }, expect = "OK", budget = 300 },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  # the three-jump ARRIVAL BRACKET around soiEntryUT
+  { cmd = "TimeJump", args = { ut = "55582325.125" }, expect = "OK", budget = 300 },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "TimeJump", args = { ut = "55582455.125" }, expect = "OK", budget = 300 },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "TimeJump", args = { ut = "55582695.125" }, expect = "OK", budget = 300 },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  # post-arrival
+  { cmd = "TimeJump", args = { ut = "55650990.690" }, expect = "OK", budget = 300 },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "FlushAndQuit",                                                    expect = "OK" },
+]
+
+[dimensionsCovered]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+# The same 6 V13 measured on this fixture (5 committed + the loop-unit seam's one).
+count = { min = 6, max = 6 }
+
+[expectations.logContracts]
+# PASS 1: THE PLUMBING PAIR PLUS THE CLASSIFICATION V13 ALREADY MEASURED. No tilt, band,
+# geometry or census literal is armed -- every one of those is what this pass exists to
+# READ. Arming a predicted value here would make the lane a test of the header's
+# arithmetic rather than a measurement of the product.
+required = [
+  "MissionConfig",
+  "StartLoopPlayback",
+  # THE CENSUS PAIR, armed on the SECOND consecutive green read exactly as V10/V11A/
+  # V12A require -- one destination-approach check actually PERFORMED at the arrival
+  # seam, reading INSIDE the destination sphere. Pass 1 read it alongside a skip-only
+  # `evaluated=0 ... skip.body-mismatch=1` line because its bracket sat on arrivalUT
+  # rather than the emitted soiEntryUT; pass 2, with the corrected bracket, emitted the
+  # measuring line ALONE. That is the RENDERED-arrival proof, independent of the
+  # synthesizer's own geometry claim above.
+  "seam-endpoint summary evaluated=1 outsideSoi=0",
+  "ENGAGED re-aim Kerbin->Jool via Sun",
+  # ARMED off PASS 1's own bytes (run `2026-08-17_2107`). THE TILT LINE, whole, as V12A
+  # arms its own: the solved conic's 1.6174 sits below the 1.8040 bound so the
+  # excessive-tilt gate never opened -- state=noop, incAch NaN, inc-after == inc-before.
+  # PREDICTED noop/in-plane a fortiori from Eeloo; CONFIRMED.
+  "tilt-correction inc-before=1.6174 bound=1.8040 targetInc=1.3040 incAch=NaN inc-after=1.6174 state=noop reason=in-plane",
+  # The DERIVABLE half armed separately on purpose, exactly as V12A does:
+  # Max(Max(0.0, 1.30400002002716), 0) + 0.5 = 1.8040, both F4 and adjacent.
+  "bound=1.8040 targetInc=1.3040",
+  # THE BAND, armed as TWO SEPARATE FRAGMENTS rather than V12A's contiguous span. Both
+  # sit on the `re-aimed transfer ready:` line, which a sibling lane may insert a
+  # candidateIndex/step token into; separate key=value fragments survive an insertion
+  # between them, a contiguous span does not. clamp(0.06 + 0.5 x 0.05, 0.06, 0.20)
+  # = 0.0850 exactly, cap NOT engaged.
+  "eTarget=0.0500",
+  "halfWidthFraction=0.0850",
+  # devFromRecorded=0s: step 0 was accepted, so the eccentricity-widened EXPANSION band
+  # was not walked here. Jool pins the COMPUTATION half only, same as Eeloo did.
+  "devFromRecorded=0s",
+  "encounter=Jool",
+  # THE SCHEDULE ENDPOINTS, separate fragments for the same insertion reason.
+  "departUT=34417886.418945849",
+  "soiEntryUT=55582515.124523856",
+  # GEOMETRY. The two proximity checks that read ~0, plus the SOI constant on its own.
+  # 2455985185 is sphereOfInfluence.ToString("F0") derived from the provisioned
+  # instance's sharedassets9.assets -- NOT the KSP-wiki 2,455,985,200, which is ~14.6 m
+  # above the runtime value and renders a different string. Parens escaped: the
+  # compilability gate re.compiles every pattern and V8F's iteration 1 failed on exactly
+  # this.
+  "xfer-vs-Kerbin@depart=0m",
+  "xfer-vs-Jool@arrival=0m",
+  "\\(SOI=2455985185\\)",
+]
+# The plane-decline is NOT forbidden on pass 1. If Jool's geometry declines on the plane
+# the lane must RECORD it, not red on it -- the same reason V13 shipped with its decline
+# reasons unforbidden.
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "state=declined reason=unreachable-plane",
+]
+
+[runtime]
+budgetSeconds = 2400
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

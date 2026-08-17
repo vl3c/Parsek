@@ -14,6 +14,77 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## REAIM-TILT-GATE-NEAREST-AT-JOOL-1.304-DEG: the LOWEST target inclination produced the TIGHTEST approach to the excessive-tilt gate [MEASURED 2026-08-17 by V13A-jool-loop-arrival, NOT A DEFECT]
+
+`REAIM-TILT-NOOP-AT-EELOO-6.15-DEG` established that a TARGET inclination sets the BOUND
+while the SOLVED transfer's own plane is what trips the gate. Jool sharpens that, in the
+direction nobody was expecting.
+
+    Eeloo   targetInc 6.1500   bound 6.6500   solved 4.0725   = 61.2% of bound, margin 2.5775
+    Jool    targetInc 1.3040   bound 1.8040   solved 1.6174   = 89.7% of bound, margin 0.1866
+
+**A target 4.7x LESS inclined came 13.8x CLOSER to opening the gate.** The bound scales
+with the target inclination (`Max(Max(l,t),0) + 0.5`), but the solved conic's plane does
+not scale with it -- so a low-inclination target gets a TIGHT bound that its own solved
+transfer very nearly exceeds. Jool at 1.6174 against 1.8040 is the nearest any lane has
+come.
+
+WHAT THIS DOES NOT DO: discharge the tilt debt. `state=noop reason=in-plane` -- the gate
+did not open and the RETENTION BRANCH IS STILL UNEXERCISED. V13A must not be booked as
+tilt coverage.
+
+WHAT IT IS: a lead on where to look. The intuition behind the V-lane ladder (Eve 2.1 ->
+Dres 5.0 -> Eeloo 6.15 -> Moho 7.0) is that the retention branch is reached by aiming at
+MORE inclined targets. This measurement says the opposite may be true -- that the gate is
+approached from BELOW, by a target whose bound is tight. A destination with a low
+inclination but a plane-inclined solved transfer is the shape to try, and the cheapest
+next probe is arithmetic rather than a flight: for which target does the solved conic
+exceed `targetInc + 0.5`?
+
+Measured on run `2026-08-17_2107` and reproduced on `_2112` / `_2117`; armed in
+`V13A-jool-loop-arrival` as the full tilt line.
+
+---
+
+## REAIM-SYNTH-GEOMETRY-SOI-CHECK-READS-0.84-SOI-AT-JOOL-VS-ZERO-AT-EELOO: the third proximity check disagrees between lanes and nobody can derive why [OPEN, OBSERVATION 2026-08-17, not a lane failure]
+
+`ReaimTransferSynthesizer.LogSynthGeometry` emits three proximity checks. The first two
+behave identically at both destinations:
+
+    xfer-vs-Kerbin@depart=0m (~0)      both lanes
+    xfer-vs-<target>@arrival=0m (~0)   both lanes
+
+The third does not:
+
+    V12A (Eeloo)   xfer-vs-Eeloo@soi=0m           (SOI=119082942)
+    V13A (Jool)    xfer-vs-Jool@soi=2072273069m   (SOI=2455985185)
+
+2,072,273,069 / 2,455,985,185 = **0.8438**, i.e. comfortably INSIDE the sphere, and the
+INDEPENDENT seam-endpoint census agrees (`evaluated=1 outsideSoi=0`, whose raise
+threshold is ratio > 1.005). So the arrival is genuinely inside and NOTHING IS FAILING --
+but a check that reads ~0 at one destination and 0.84-of-SOI at another is not
+understood, and the two candidate explanations have different consequences:
+
+  (a) the check measures distance-at-`soiEntryUT` and Jool's `soiEntryUT` is simply not
+      at the boundary -- in which case Eeloo's 0m is the surprising reading, not Jool's;
+  (b) the check is a RESIDUAL that should be ~0 at both, and Jool exposes a scale
+      sensitivity that Eeloo's 20.6x smaller SOI hides.
+
+**Deliberately NOT armed in V13A.** The lane arms the SOI constant `(SOI=2455985185)` on
+its own and leaves the distance out, because pinning a number nobody can derive converts
+an open question into a false regression floor. Whoever settles this should read
+`LogSynthGeometry` against both lanes' logs and then either arm the Jool distance or fix
+the check.
+
+RELATED, AND ALREADY COSTED A PASS: `soiEntryUT` (55,582,515.124523856) is 1,162,892 s
+EARLIER than the geometry line's own `arrivalUT` (56,745,406.811643526, which is exactly
+the loop unit's D0 + tof). V13A's pass 1 bracketed `arrivalUT` by mistake and its census
+came back with an extra skip-only `evaluated=0 ... skip.body-mismatch=1` line; pass 2
+bracketed the emitted `soiEntryUT` and that line disappeared. ANY FUTURE LANE COMPUTING AN
+ARRIVAL BRACKET MUST USE THE EMITTED `soiEntryUT`, NEVER D0 + tof.
+
+---
+
 ## FINDING-16D-MISCITED-DIRECTION-AND-DENOMINATOR: nine committed comment sites quote finding 16d's `956-1,142 km` band against a 250 km request that never produced it [RECORD CORRECTION 2026-08-15, found while sizing `B22-jool-orbit`'s aim]
 
 **THIS IS A RECORD CORRECTION, NOT A PRODUCT DEFECT.** Nothing in Parsek or in the

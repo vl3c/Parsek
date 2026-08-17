@@ -4976,6 +4976,9 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
         # V13 is V12's shape on the Jool fixture, shipped as a READING run until its
         # measurements come back.
         "V13-jool-player-loop.toml":        "calibration-discipline - ARMED AND CONFIRMED 2026-08-17: shipped in the V8/V9/V11 iteration-1 reading posture, then armed off the reading run's own bytes and flown twice green (`_2055`/`_2101`) with the measured payload byte-identical across both. Synodic, cadence, the 25-segment classification and the loiter cut are all pinned from measurement, and the decline reasons are now forbidden because ENGAGED is measured. It stays operator because the completeness cell keys on tier==operator rather than on the flown tag, not because anything is outstanding",
+        # V13A is V13's missing half and V12A's shape on the Jool fixture: the two-pass
+        # TimeJump lane whose brackets are arithmetic on V13's replay clock.
+        "V13A-jool-loop-arrival.toml":      "calibration-discipline - ARMED AT PASS 2 AND CONFIRMED 2026-08-17. The two-pass shape earned itself: pass 1's bracket was computed as D0 + tof and the synthesizer emitted a soiEntryUT 1,162,892 s earlier, so a one-pass lane would have armed a bracket that misses the arrival seam. Pass 2 re-derived it from the emitted value, the skip-only census line disappeared, and all 15 tokens are pinned from measurement across three green runs. It stays operator because the completeness cell keys on tier==operator rather than on the flown tag",
         # The V2 dwell is operator BY THE CALIBRATION DISCIPLINE (V1 precedent):
         # its first flight is a deliberately under-gated READING run whose red,
         # if any, is evidence; promotion is the post-reading arming call, not a
