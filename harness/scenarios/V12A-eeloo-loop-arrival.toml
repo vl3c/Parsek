@@ -810,6 +810,17 @@ required = [
   # 119082941 -- see the header. @soi=0m rather than Dres's 32832839m because soiEntryUT
   # == arrivalUT on this lane.
   "xfer-vs-Kerbin@depart=0m",
+  # THE CONIC'S SHAPE, armed 2026-08-17 to close a gap the whole arrival family shared:
+  # every one of these four lanes pinned the transfer's ENDPOINTS (departUT / soiEntryUT /
+  # encounter), its PLANE (the tilt line's inc) and its TIMING (tof, band), but NONE of
+  # them pinned `sma` or `ecc`. A regression that changed the conic's SHAPE while
+  # preserving those would have passed every arrival lane in the suite. Two ellipses
+  # through the same two points, at the same two times, in the same plane are heavily
+  # constrained -- so the hole was narrow -- but it was real, and it is cheap to close.
+  # Armed as SEPARATE key=value fragments, so a token inserted between them on this line
+  # cannot break the lane.
+  "sma=47537901349.02877",
+  "ecc=0.7529",
   "xfer-vs-Eeloo@arrival=0m",
   "xfer-vs-Eeloo@soi=0m \\(SOI=119082942\\)",
   # The ready line: cycle 0 re-aims to a real Eeloo encounter at candidate step 0, and

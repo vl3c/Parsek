@@ -14,6 +14,271 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## REAIM-SOLVED-INCLINATION-IS-UNCORRELATED-WITH-TARGET-INCLINATION: the four-lane tilt table [MEASURED 2026-08-17, NOT A DEFECT]
+
+**READ THIS BEFORE GENERALISING FROM A SINGLE LANE'S TILT READING.**
+`REAIM-TILT-NOOP-AT-EELOO-6.15-DEG` says Eeloo "tested the BOUND ARITHMETIC, not the
+retention branch". That is true OF EELOO, and it is easy to misread as a statement about
+the program -- it is not. `V10-dres-loop-arrival` and `V11A-moho-loop-arrival` both ARM
+`state=retained`, and the `MOHO-PROGRAM-MEASUREMENTS-COMPLETE` table in this file already
+tabulates both. THE RETENTION BRANCH IS EXERCISED. Any claim that it is not, or that some
+newly-flown lane is the first to approach the gate, should be checked against the table
+below before it is written down.
+
+### What the four lanes actually measure
+
+All four re-flown / re-read 2026-08-17 off their own logs:
+
+| lane | target | targetInc | bound | SOLVED inc | state |
+|---|---|---:|---:|---:|---|
+| V10  | Dres  |  5.0000 | 5.5000 | **13.1958** | `retained` (incAch 3.6426) |
+| V11A | Moho  |  7.0000 | 7.5000 | **23.5906** | `retained` (incAch 3.3633) |
+| V12A | Eeloo |  6.1500 | 6.6500 |   4.0725 | `noop reason=in-plane` |
+| V13A | Jool  |  1.3040 | 1.8040 |   1.6174 | `noop reason=in-plane` |
+
+**THE RETENTION BRANCH IS EXERCISED, at Dres and at Moho.** Any statement that it is not
+is wrong.
+
+### The reading that is actually new
+
+The SOLVED transfer's inclination is **not** a function of the target's. Sorted by target
+inclination the solved values are 1.6174 (Jool 1.304), 13.1958 (Dres 5.0), 4.0725 (Eeloo
+6.15), 23.5906 (Moho 7.0) -- no ordering at all. The bound tracks the target
+(`Max(Max(l,t),0) + 0.5`); the solved plane does not, so which side of the gate a lane
+lands on is a property of the SOLVED TRANSFER and cannot be predicted from the
+destination.
+
+Jool's narrow contribution, stated at its true size: among the two lanes that read `noop`,
+it is the closer to its bound -- 1.6174 / 1.8040 = 89.7%, against Eeloo's 4.0725 / 6.6500
+= 61.2%. That is a fourth point on an uncorrelated scatter, not a trend and not a lead.
+
+### Consequence for lane selection
+
+Choosing destinations by target inclination does not control which branch gets exercised.
+If more retention coverage is wanted, the selector is the solved conic's inclination,
+which is only known after a solve -- so the cheap move is to read `synth geometry` on
+fixtures that already exist rather than to fly a new destination hoping for a steep solve.
+
+---
+
+## REAIM-SYNTH-GEOMETRY-SOI-CHECK: the third proximity check differs because THE PATH DIFFERS [DIAGNOSED 2026-08-17, NOT A DEFECT]
+
+`xfer-vs-<target>@soi` reads ~0 m at Eeloo and 2,072,273,069 m (0.84 SOI) at Jool. Read
+across all four arrival lanes that resolves, and the answer is in the line's own label:
+
+| lane | label | soiEntryUT vs arrivalUT | `xfer-vs-<target>@soi` | SOI |
+|---|---|---|---:|---:|
+| V10  | `(patched-conic)` | 43,144,578 < 43,162,645 | 32,832,839 | 32,832,840 |
+| V11A | `(patched-conic)` |  5,806,509 <  5,807,872 |  9,646,663 |  9,646,663 |
+| V12A | `(proximity)`     | 95,851,632 = 95,851,632 |          0 | 119,082,942 |
+| V13A | `(proximity)`     | 55,582,515 < 56,745,407 | 2,072,273,069 | 2,455,985,185 |
+
+**On the `patched-conic` path the check reads the SOI radius to within 1 m** -- which is
+the physically correct reading, because `soiEntryUT` there IS the boundary crossing.
+
+**On the `proximity` path it does not.** At Eeloo `soiEntryUT` degenerated to equal
+`arrivalUT`, so the conic is at the body's centre and the check reads 0 m. At Jool the
+proximity path found a genuinely earlier time, and the conic is 0.844 of the way out --
+inside the sphere, but NOT on its boundary.
+
+So the two readings are not inconsistent with each other; they are two different code
+paths, and **the `proximity` path's `soiEntryUT` is not a boundary crossing.** Eeloo's 0 m
+is the degenerate extreme of that, not a healthy reference value.
+
+NOT A FAILURE, and nothing here reds: the independent seam-endpoint census reads
+`evaluated=1 outsideSoi=0` on all four lanes, so every arrival is genuinely inside its
+sphere. What it does mean is that `xfer-vs-<target>@soi` is NOT comparable across the two
+paths, and no lane should be written as though it were.
+
+STILL OPEN, and narrowed to something answerable: should the `proximity` path's
+`soiEntryUT` be a boundary crossing like the patched-conic path's? If yes, Eeloo's 0 m and
+Jool's 0.84 are both symptoms and the fix is in the path. If no, the field name is
+misleading on that path and should say what it measures. Whoever picks this up should
+start from the two labels rather than from the numbers.
+
+The distance is deliberately NOT armed in V13A -- the lane pins `(SOI=2455985185)` alone.
+Pinning a number whose meaning depends on an unresolved path question would freeze the
+question shut.
+
+---
+
+## FINDING-16D-MISCITED-DIRECTION-AND-DENOMINATOR: nine committed comment sites quote finding 16d's `956-1,142 km` band against a 250 km request that never produced it [RECORD CORRECTION 2026-08-15, found while sizing `B22-jool-orbit`'s aim]
+
+**THIS IS A RECORD CORRECTION, NOT A PRODUCT DEFECT.** Nothing in Parsek or in the
+mission machines behaves wrongly. What is wrong is the program's own written account of
+what finding 16d says, and nine committed comment sites across seven files repeat the
+mis-denominated number (most of them also inverting the direction). Every flight cited
+below passed; nothing here changes a verdict.
+
+**WHAT FINDING 16D ACTUALLY SAYS.** There is no standalone entry titled "16d" -- its only
+definition is embedded mid-paragraph in this file's flight-26 record, the entry that opens
+`NO-1X CERTIFICATION ACHIEVED (twenty-sixth flight, 2026-07-22)`. Every citation below
+into THIS file is by that kind of content anchor and never by line number: entries are
+prepended at the top, so a self-referential line number is stale the moment the next entry
+lands -- this entry's own 174 lines already shifted the three records it cites:
+
+> Finding 16d root cause (flights 22-25, nextPe forensics): MechJeb's
+> OperationCourseCorrection systematically under-prices low-periapsis targets by ~an
+> order of magnitude (a 9.5 m/s in-window plan claiming 60 km moved the prediction
+> +2.7 km where ~39 m/s was needed) while always burning the correct direction -- so the
+> fix is target margin (60 -> 250 km, the contract is the 10 km FLOOR)
+
+The stated root cause is **UNDER-delivery**: the corrector under-prices the burn, so it
+does not reach the periapsis it was asked for. Raising the request is a sensible fix
+*because* delivery falls short. Most citing sites state the opposite -- but NOT all, and
+the TWO exceptions matter because they show the errors are independent
+(`B5-mun-flyby.toml:73-74` also states UNDER-DELIVERS):
+`harness/scenarios/B11-mun-orbit.toml:260-261` gets the DIRECTION right ("systematically
+under-delivers toward low periapsis targets (finding 16d)") and then carries the WRONG
+DENOMINATOR in the very next clause ("B5's certified flights turned this 250 km request
+into 956-1,142 km actual arrivals"). Direction and denominator must be corrected
+separately; fixing one does not fix the other.
+
+**THE NUMBER IS ON THE WRONG DENOMINATOR.** The quoted `956-1,142 km` band is B5 flight 21
+(956 km, `Flight 21 (2026-07-22): full-stack PASS` -- "flyby 956 km") and B5 flight 9
+(1,142 km); flights 15 and 16 flew **1,138 km**, not 1,142. Every one of them flew
+`courseCorrectPeriapsisMeters = 60000`, not 250,000 -- which is the part that matters, and
+it holds for all of them regardless of which flights the band's two endpoints belong to. Verified in this repo rather than inferred: the 60 -> 250 km change is commit
+`c41a6b5eb` ("Finding 16d: B5 course-correct target 60 km -> 250 km (planner bias
+margin)", 2026-07-22 19:23:27), and every archived B5 flight predates it. The FIRST B5
+flight ever flown at 250 km is flight 26, ten minutes later (`122a1b496`, 19:33:26), and
+it delivered **138.9 km** (same `NO-1X CERTIFICATION ACHIEVED` record) -- UNDER by ~111 km,
+exactly as the root cause says. "250 km became 956-1,142 km" therefore divides a
+60 km-request outcome by a 250 km request.
+
+**THE BAND'S UPPER ENDPOINT IS A DOCUMENTED ARTEFACT, NOT A CORRECTOR MEASUREMENT.**
+This file's `Live finding 9 (first B6 flight + B5-pass forensics, 2026-07-22)` record
+attributes the 1,142 km flyby to **flight 9**: "a wild off-axis burn whose ap 11.5M ->
+17.5M accident produced the 1,142 km flyby. THE B5 PASS WAS LUCKY". That is evidence of an
+attitude-gate sign bug, not of corrector bias. Note the chronology, which is the check
+that settles the attribution: finding 9 is dated 2026-07-22 and flight 15 is recorded as
+flown "under the full finding-1..12 stack", so finding 9 cannot be describing flight 15 --
+flight 15 is the honest re-proof that REPLACED the lucky pass ("this re-proof replaces
+it"). An earlier draft of this entry pinned the artefact on flight 15 and had the band as
+flights 15/16/21; both were wrong and are corrected here.
+
+**THE COMPANION B7 CLAIM IS CORRECT AND MUST NOT BE "FIXED".** `B15-eve-flyby.toml:499`
+also says "B7 turned 300 km into ~564 km derived from the recorded arrival elements", and
+that half checks out end to end: run `logs/2026-07-25_1216_B7-duna-flyby` pins commit
+`aedc47092`, whose `B7-duna-flyby.toml` reads `courseCorrectPeriapsisMeters = 300000`, and
+that run's own sidecar carries a Duna-referenced `ORBIT_SEGMENT` with
+`sma = -364453.712`, `ecc = 3.426796`, giving
+`sma*(1-ecc) - R_Duna = 564,454.795 m`. The figure, the denominator and the stated
+provenance are all right, and 564/300 = 1.88 sits inside this corpus's own Duna row
+(k = 0.77 - 2.39). An earlier draft of this entry called both halves of that sentence
+wrong; only the B5 half is. Correcting a correct citation is the same failure mode this
+entry exists to fix, so it is recorded here rather than quietly dropped.
+
+**THE REAL STRUCTURE**, over the 25 correction-complete points the 2026-08-15 forensic
+pass recovered from archived mission stdout logs and `.prec.txt` sidecars (7 bodies, only
+4 distinct requested values, 16 of the 25 sharing one 300 km request). The delivered
+arrival periapsis is better described NOT as a multiple of the request but as a
+**body-specific fraction of the target's SOI**, largely independent of what was asked
+for. Fitted over the corpus, `D = g x SOI` gives g = 0.482% / 3.350% / 9.525%
+(lo/median/hi), CV **0.678**; the multiplicative law `D = k x req` gives k = 0.545 /
+1.502 / 37.81, a 69.4x spread at CV 2.179. No law fits tightly -- the fraction-of-SOI one
+merely fits least badly -- AND B22 SUBSEQUENTLY REFUTED IT: law (d) predicted an 88.3 Mm median independent of the request and the flight delivered 590.3 Mm on a 600 Mm request (see M2 in B22-jool-orbit.toml). The ordering is unambiguous, and the ordering is what the
+citations get wrong.
+
+**AND THE BIAS INVERTS.** Sorted by `req / SOI`, k collapses monotonically:
+
+| body | req / SOI | k = delivered / requested | delivered / SOI |
+| --- | --- | --- | --- |
+| Eeloo | 0.252% | 35.36 - 37.81 | 8.91 - 9.53% |
+| Duna | 0.626% | 0.77 - 2.39 | 0.48 - 1.50% |
+| Minmus | 0.890% | 1.89 - 1.92 | 1.68 - 1.71% |
+| Dres | 0.914% | 2.90 - 3.67 | 2.65 - 3.35% |
+| Moho | 3.110% | 1.43 - 1.73 | 4.44 - 5.37% |
+| Eve | 5.875% | 0.997 | 5.86% |
+| Mun | 10.290% | 0.545 - 0.563 | 5.61 - 5.79% |
+| **Jool** | **24.430%** | **0.974** | **24.04%** |
+
+**Above `req/SOI ~= 4%` the "arrives higher" bias disappears and inverts.** The folklore
+is entirely a `req/SOI < 1%` phenomenon: a large k means the request was tiny relative to
+the scale the corrector naturally delivers at, not that the corrector overshoots. Two
+honesty limits on that table, both of which must travel with it: the `req/SOI >= 4%`
+regime had **n = 2** when this was written (one Eve flight, five Mun flights of a single
+lane) and is **n = 3** since B22 flew Jool at 24.430%, and within-body
+repeatability is good everywhere (Eeloo +-3.5%, Moho +-9%, Dres +-12%, Mun +-1.6%,
+Minmus +-0.9%) EXCEPT Duna, which spans 230.9 - 718.2 km on an identical 300 km request,
+a factor of 3.1. Any sizing built on this must be built against a ~3x spread rather than
+a point estimate.
+
+**THE NINE SITES CARRYING THE MIS-DENOMINATED BAND** (measured with
+`grep -rn "956" harness/scenarios/*.toml docs/dev/autotest-status.md`, not listed from
+memory; all still committed, and correcting them is the work this entry files). Each is
+marked with which of the two errors it carries -- DENOMINATOR (quoting `956-1,142 km`
+against a 250 km request) and/or DIRECTION (calling the bias "arrives HIGHER"):
+
+- `harness/scenarios/B5-mun-flyby.toml:80` -- "the proven passes flew 956-1,142 km".
+  DENOMINATOR, at the source. Also inherits the flight-attribution error corrected above.
+- `harness/scenarios/B11-mun-orbit.toml:187` -- "certified flights arrived at
+  956-1,142 km", sizing a worst case. DENOMINATOR.
+- `harness/scenarios/B11-mun-orbit.toml:260-263` -- DIRECTION **correct**
+  ("under-delivers"), DENOMINATOR wrong ("this 250 km request into 956-1,142 km").
+- `harness/scenarios/B11-mun-orbit.toml:298-299` -- the band used to justify a capture
+  window ("anything from 15 km to 2,000 km altitude is a legitimate ..."). DENOMINATOR,
+  and load-bearing.
+- `harness/scenarios/B15-eve-flyby.toml:499` -- "arrives HIGHER than requested (B5 turned
+  250 km into 956-1,142 km; B7 turned 300 km into ~564 km ...)". DENOMINATOR + DIRECTION
+  in the B5 half only -- **the B7 half is correct**, see above.
+- `harness/scenarios/B16-eve-orbit.toml:371-373` -- "arrives HIGHER than requested (B5
+  turned 250 km into 956-1,142 km) - so even a 2x overshoot lands at ~10,000 km".
+  DENOMINATOR + DIRECTION.
+- `harness/scenarios/B19-dres-orbit.toml:249-253` -- "arrives HIGHER than requested (B5
+  turned 250 km into 956-1,142 km)". DENOMINATOR + DIRECTION.
+- `harness/scenarios/B20-moho-orbit.toml:270-274` -- "A B5-scale overshoot (250 km ->
+  956-1,142 km) still lands far inside Moho's SOI". DENOMINATOR + DIRECTION, and this is
+  the lane whose own arrival is one of the corpus points below.
+- `harness/scenarios/B21-eeloo-orbit.toml:1206-1209` -- the same parenthetical, retargeted
+  to Eeloo. DENOMINATOR + DIRECTION.
+
+Two further sites carry the FRAMING without the number, and are worth touching in the same
+pass because they are where a reader meets it first:
+
+- `docs/dev/autotest-status.md:1046` (the B6 row) -- "20 km course-correct target predates
+  finding 16d ... re-target ~150 km only if it reds".
+- `docs/dev/autotest-status.md:1708-1709` -- "planner-bias margin targets (finding 16d)",
+  the phrase wrapping across those two lines. "Planner-bias margin" is the folklore in
+  shorthand.
+
+`B22-jool-orbit.toml` quotes the band too, but only inside its own statement of this
+correction, so it is not on the fix list.
+
+The `autotest-status.md` line numbers are as of the commit that files this entry (which
+inserts one scenario table row above the last of them); cite by content if they drift.
+
+**WHY IT MATTERED ENOUGH TO WRITE DOWN.** `B22-jool-orbit` aims at 600,000,000 m, which is
+24.43% of Jool's 2,455,985,185 m SOI (600e6 / 2,455,985,185 = 0.2443) -- deeper into the
+inverted regime than anything ever flown. Sized on the folklore ("it arrives higher, so
+aim low and the bias is safe") the lane would be aimed at a periapsis the only two
+in-regime points say it will UNDER-shoot. Sized on the measurement, the aim is the
+*smallest* request whose low tail still clears Pol. The direction of the bias IS the
+sizing argument at Jool, and the record had it backwards.
+
+**Fix:** correct the nine sites to stop quoting `956-1,142 km` against a 250 km request,
+and correct the five that also invert the direction to state under-delivery at low
+`req/SOI` with the inversion above ~4%. Prefer the one
+measured 250 km B5 outcome (138.9 km) and the `delivered/SOI` framing. No code change; no
+verdict changes.
+
+---
+
+## AUTOTEST-STATUS-B20-PE-MISDESCRIBED: flight `_1855`'s 450.6 km periapsis is called "a 200 km periapsis altitude" [RECORD CORRECTION 2026-08-15, found in passing]
+
+`docs/dev/autotest-status.md:1110` (the B20-moho-orbit row) reads: the first in-SOI frame
+read `pe=450629.528 ttPe=+3154.010`, **"a 200 km periapsis altitude"** with periapsis
+3,154 s ahead. `pe=450629.528` is a **450.6 km** altitude. 200 km is neither that altitude
+nor Moho's 250 km radius, so it is not a units slip in either direction -- just a wrong
+number in prose. The surrounding claim (the geometry was right; the flight was one warp
+frame from a capture) is unaffected, and no enforcing cell reads the figure.
+
+**Fix:** change "a 200 km periapsis altitude" to "a 450.6 km periapsis altitude" at that
+site. Deliberately NOT done in the commit that files this entry, which is scoped to the
+scenario-count total and the new B22 row.
+
+---
+
 ## MOHO-PROGRAM-MEASUREMENTS-COMPLETE: the tilt disposition at 7 deg, the cadence at a ~1.0-synodic span, and the eccentric tof band earning its keep [RECORDED 2026-08-13 by `V11-moho-player-loop` + `V11A-moho-loop-arrival`. NOT A DEFECT - the closing measurement record for the Moho program]
 
 **THE HEADLINE: the tilt-retention fix holds at the TOP of its own documented failing
