@@ -275,6 +275,17 @@ required = [
   # compilability gate re.compiles every pattern and V8F's iteration 1 failed on exactly
   # this.
   "xfer-vs-Kerbin@depart=0m",
+  # THE CONIC'S SHAPE, armed 2026-08-17 to close a gap the whole arrival family shared:
+  # every one of these four lanes pinned the transfer's ENDPOINTS (departUT / soiEntryUT /
+  # encounter), its PLANE (the tilt line's inc) and its TIMING (tof, band), but NONE of
+  # them pinned `sma` or `ecc`. A regression that changed the conic's SHAPE while
+  # preserving those would have passed every arrival lane in the suite. Two ellipses
+  # through the same two points, at the same two times, in the same plane are heavily
+  # constrained -- so the hole was narrow -- but it was real, and it is cheap to close.
+  # Armed as SEPARATE key=value fragments, so a token inserted between them on this line
+  # cannot break the lane.
+  "sma=43265201216.624687",
+  "ecc=0.6872",
   "xfer-vs-Jool@arrival=0m",
   "\\(SOI=2455985185\\)",
 ]
