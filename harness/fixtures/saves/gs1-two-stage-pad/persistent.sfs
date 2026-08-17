@@ -19,7 +19,7 @@ GAME
 	envInfo =  - Environment Info - Win32NT 7FFFFFFFFFFFFFFF  Args: KSP_x64.exe  - 
 	versionFull = 1.12.5.3190 (WindowsPlayer x64)
 	versionCreated = 1.12.5.3190 (WindowsPlayer x64)
-	persistentTimestamp = 2026-08-05T07:21:15.5152965Z
+	persistentTimestamp = 2026-08-12T15:53:35.2780085Z
 	RemovedROCs
 	{
 	}
@@ -129,6 +129,7 @@ GAME
 			autoLoopIntervalSeconds = 30
 			autoLoopTimeUnit = 0
 			transitedBodyRotationModeIndex = 1
+			forceFaithfulLoopPlayback = False
 			ghostAudioVolume = 0.7
 		}
 		CommNetParams
@@ -594,7 +595,7 @@ GAME
 		name = ParsekScenario
 		scene = 7, 5, 8, 6
 		missionHideArchived = False
-		gameStateEventCount = 1
+		gameStateEventCount = 2
 	}
 	FLIGHTSTATE
 	{
@@ -727,7 +728,7 @@ GAME
 		}
 		VESSEL
 		{
-			pid = 2d54fd1a0b8b4b81bf542f4e1e044c8e
+			pid = ec23bab238d64b1f895871ce96ffe2bb
 			persistentId = 2200110033
 			name = GS1 Auto-Chute Booster
 			type = Ship
@@ -741,20 +742,20 @@ GAME
 			displaylandedAt = #autoLOC_6002112
 			splashed = False
 			met = 0
-			lct = 25.339999999999549
+			lct = 25.319999999999549
 			lastUT = 25.339999999999549
 			distanceTraveled = 0
 			root = 0
-			lat = -0.097207806779909672
-			lon = -74.557674124770386
-			alt = 75.761955558205955
-			hgt = 3.33680868
-			nrm = 8.50856304E-05,1,5.81741333E-05
-			rot = -0.701013029,-0.0921855345,-0.0972380415,0.700447917
-			CoM = -5.06639481E-06,-1.45483565,-3.39746475E-06
+			lat = -0.097207807741541141
+			lon = -74.55767393419238
+			alt = 75.760625417577103
+			hgt = 3.33644676
+			nrm = 8.83936882E-05,1.00000024,6.02006912E-05
+			rot = -0.701013923,-0.0921842232,-0.0972370952,0.70044744
+			CoM = -4.17232513E-06,-1.41522825,-2.44379044E-06
 			stg = 3
 			prst = False
-			ref = 3339780889
+			ref = 322872598
 			ctrl = True
 			PQSMin = 2
 			PQSMax = 10
@@ -769,12 +770,12 @@ GAME
 			cMod = 0
 			ORBIT
 			{
-				SMA = 300819.51372560416
-				ECC = 0.99479847463510362
-				INC = 0.097207799852161131
-				LPE = 89.998632572727672
-				LAN = 105.86701791806934
-				MNA = 3.1415926658518933
+				SMA = 300819.53305647383
+				ECC = 0.99479847369231933
+				INC = 0.097207800672721834
+				LPE = 89.998256361062175
+				LAN = 105.86739434180464
+				MNA = 3.141592649794029
 				EPH = 25.339999999999549
 				REF = 1
 			}
@@ -782,8 +783,8 @@ GAME
 			{
 				name = mk1pod.v2
 				cid = 4200000001
-				uid = 3339780889
-				mid = 3857463334
+				uid = 322872598
+				mid = 238089110
 				persistentId = 1500092604
 				launchID = 2
 				parent = 0
@@ -802,12 +803,12 @@ GAME
 				srfN = , -1
 				attN = bottom, 2
 				attN = top, 1
-				mass = 0.70600003
+				mass = 0.800000072
 				shielded = False
-				temp = 310.09363559401794
-				tempExt = 310.35159911357675
-				tempExtUnexp = 310.35108972837185
-				staticPressureAtm = 0.98882314219405376
+				temp = 310.05791271005972
+				tempExt = 310.30340354431752
+				tempExtUnexp = 310.30323616011628
+				staticPressureAtm = 0.98882336808286297
 				expt = 0.5
 				state = 0
 				PreFailState = 0
@@ -820,6 +821,7 @@ GAME
 				modMass = 0
 				moduleVariantName = Basic
 				moduleCargoStackableQuantity = 1
+				crew = Valentina Kerman
 				EVENTS
 				{
 				}
@@ -1808,10 +1810,10 @@ GAME
 							DragLosses = 0
 							GravityLosses = 0
 							SteeringLosses = 0
-							MarkLAN = 105.86506464698019
-							MarkLatitude = -0.097207800958647547
-							MarkLongitude = -74.557674880147161
-							MarkAltitude = 74.307120239222428
+							MarkLAN = 105.86481852450015
+							MarkLatitude = -0.097207801760483006
+							MarkLongitude = -74.557674692171574
+							MarkAltitude = 74.34539769593394
 							MarkBodyIndex = 1
 							MaxDragGees = 0
 							UnlockParts = 
@@ -1889,8 +1891,8 @@ GAME
 			{
 				name = parachuteSingle
 				cid = 4200000002
-				uid = 515332533
-				mid = 3857463334
+				uid = 948371754
+				mid = 238089110
 				persistentId = 1500046302
 				launchID = 2
 				parent = 0
@@ -1910,10 +1912,10 @@ GAME
 				attN = bottom, 0
 				mass = 0.100000001
 				shielded = False
-				temp = 310.09498369420527
-				tempExt = 310.34391700839211
-				tempExtUnexp = 310.34384470036065
-				staticPressureAtm = 0.98872661237624904
+				temp = 310.0592731591891
+				tempExt = 310.2906646311643
+				tempExtUnexp = 310.29115466089206
+				staticPressureAtm = 0.98872676296878848
 				expt = 0.5
 				state = 0
 				PreFailState = 0
@@ -2098,8 +2100,8 @@ GAME
 			{
 				name = Decoupler.1
 				cid = 4200000003
-				uid = 3799490433
-				mid = 3857463334
+				uid = 3987357317
+				mid = 238089110
 				persistentId = 1500054019
 				launchID = 2
 				parent = 0
@@ -2120,10 +2122,10 @@ GAME
 				attN = bottom, 3
 				mass = 0.0399999991
 				shielded = False
-				temp = 310.09544207079472
-				tempExt = 310.21893592596359
-				tempExtUnexp = 310.2185413256538
-				staticPressureAtm = 0.98888992998531178
+				temp = 310.05977033887081
+				tempExt = 310.18304215392379
+				tempExtUnexp = 310.18266757591965
+				staticPressureAtm = 0.98889015587412099
 				expt = 0.5
 				state = 0
 				PreFailState = 0
@@ -2316,8 +2318,8 @@ GAME
 			{
 				name = probeCoreOcto2.v2
 				cid = 4200000004
-				uid = 437226924
-				mid = 3857463334
+				uid = 2976228784
+				mid = 238089110
 				persistentId = 1500100321
 				launchID = 2
 				parent = 2
@@ -2338,10 +2340,10 @@ GAME
 				attN = top, 2
 				mass = 0.0399999991
 				shielded = False
-				temp = 310.09333427958211
-				tempExt = 310.17496902598771
-				tempExtUnexp = 310.17473678497919
-				staticPressureAtm = 0.98890596809076603
+				temp = 310.05769641245286
+				tempExt = 310.14086138904719
+				tempExtUnexp = 310.14062821576232
+				staticPressureAtm = 0.98890611868330558
 				expt = 0
 				state = 0
 				PreFailState = 0
@@ -2686,7 +2688,7 @@ GAME
 				RESOURCE
 				{
 					name = ElectricCharge
-					amount = 4.8866000025347009
+					amount = 4.8878000025078787
 					maxAmount = 5
 					flowState = True
 					isTweakable = True
@@ -2699,8 +2701,8 @@ GAME
 			{
 				name = fuelTankSmall
 				cid = 4200000005
-				uid = 311605262
-				mid = 3857463334
+				uid = 2507381302
+				mid = 238089110
 				persistentId = 1500108038
 				launchID = 2
 				parent = 3
@@ -2721,10 +2723,10 @@ GAME
 				attN = bottom, 5
 				mass = 0.125
 				shielded = False
-				temp = 310.09328311374088
-				tempExt = 310.13130313413058
-				tempExtUnexp = 310.13123229867887
-				staticPressureAtm = 0.98899647420699166
+				temp = 310.05765604010469
+				tempExt = 310.09797684462939
+				tempExtUnexp = 310.09789864081552
+				staticPressureAtm = 0.98899662479953121
 				expt = 0.5
 				state = 0
 				PreFailState = 0
@@ -2869,8 +2871,8 @@ GAME
 			{
 				name = liquidEngine2
 				cid = 4200000006
-				uid = 626353648
-				mid = 3857463334
+				uid = 116059165
+				mid = 238089110
 				persistentId = 1500061736
 				launchID = 2
 				parent = 4
@@ -2891,10 +2893,10 @@ GAME
 				attN = bottom, -1
 				mass = 1.5
 				shielded = False
-				temp = 310.09305118930666
-				tempExt = 310.11136583621465
-				tempExtUnexp = 310.11131979070927
-				staticPressureAtm = 0.98921046620558839
+				temp = 310.05741825802528
+				tempExt = 310.07765174300806
+				tempExtUnexp = 310.07760113829096
+				staticPressureAtm = 0.98921061679812783
 				expt = 0.5
 				state = 0
 				PreFailState = 0
@@ -3209,8 +3211,8 @@ GAME
 			{
 				name = parachuteRadial
 				cid = 4200000010
-				uid = 3122704879
-				mid = 3857463334
+				uid = 2502139030
+				mid = 238089110
 				persistentId = 1500000000
 				launchID = 2
 				parent = 4
@@ -3234,648 +3236,9 @@ GAME
 				srfN = srfAttach, 4
 				mass = 0.100000001
 				shielded = False
-				temp = 310.09314385229226
-				tempExt = 310.11533045543661
-				tempExtUnexp = 310.11525619127275
-				staticPressureAtm = 0.98895972962735934
-				expt = 0.5
-				state = 0
-				PreFailState = 0
-				attached = True
-				autostrutMode = Off
-				rigidAttachment = False
-				flag = 
-				rTrf = parachuteRadial
-				modCost = 0
-				modMass = 0
-				moduleVariantName = 
-				moduleCargoStackableQuantity = 1
-				EVENTS
-				{
-				}
-				ACTIONS
-				{
-					ToggleSameVesselInteraction
-					{
-						actionGroup = None
-						wasActiveBeforePartWasAdjusted = False
-					}
-					SetSameVesselInteraction
-					{
-						actionGroup = None
-						wasActiveBeforePartWasAdjusted = False
-					}
-					RemoveSameVesselInteraction
-					{
-						actionGroup = None
-						wasActiveBeforePartWasAdjusted = False
-					}
-					AutostrutOff
-					{
-						actionGroup = None
-						wasActiveBeforePartWasAdjusted = False
-					}
-					AutostrutRoot
-					{
-						actionGroup = None
-						wasActiveBeforePartWasAdjusted = False
-					}
-					AutostrutHeaviest
-					{
-						actionGroup = None
-						wasActiveBeforePartWasAdjusted = False
-					}
-					AutostrutGrandparent
-					{
-						actionGroup = None
-						wasActiveBeforePartWasAdjusted = False
-					}
-					ResourcesEnableFlow
-					{
-						actionGroup = None
-						active = False
-						wasActiveBeforePartWasAdjusted = False
-					}
-					ResourcesDisableFlow
-					{
-						actionGroup = None
-						active = False
-						wasActiveBeforePartWasAdjusted = False
-					}
-				}
-				PARTDATA
-				{
-				}
-				MODULE
-				{
-					name = ModuleParachute
-					isEnabled = True
-					persistentState = STOWED
-					animTime = 0
-					minAirPressureToOpen = 0.0399999991
-					deployAltitude = 1000
-					spreadAngle = 7
-					automateSafeDeploy = 0
-					stagingEnabled = True
-					EVENTS
-					{
-					}
-					ACTIONS
-					{
-						DeployAction
-						{
-							actionGroup = None
-							wasActiveBeforePartWasAdjusted = False
-						}
-						CutAction
-						{
-							actionGroup = None
-							wasActiveBeforePartWasAdjusted = False
-						}
-					}
-					UPGRADESAPPLIED
-					{
-					}
-				}
-				MODULE
-				{
-					name = ModuleTestSubject
-					isEnabled = True
-					stagingEnabled = True
-					EVENTS
-					{
-					}
-					ACTIONS
-					{
-					}
-					UPGRADESAPPLIED
-					{
-					}
-				}
-				MODULE
-				{
-					name = ModuleDragModifier
-					isEnabled = True
-					stagingEnabled = True
-					EVENTS
-					{
-					}
-					ACTIONS
-					{
-					}
-					UPGRADESAPPLIED
-					{
-					}
-				}
-				MODULE
-				{
-					name = ModuleDragModifier
-					isEnabled = True
-					stagingEnabled = True
-					EVENTS
-					{
-					}
-					ACTIONS
-					{
-					}
-					UPGRADESAPPLIED
-					{
-					}
-				}
-				MODULE
-				{
-					name = ModuleCargoPart
-					isEnabled = True
-					packedVolume = 100
-					beingAttached = False
-					beingSettled = False
-					reinitResourcesOnStoreInVessel = False
-					stagingEnabled = True
-					EVENTS
-					{
-					}
-					ACTIONS
-					{
-					}
-					UPGRADESAPPLIED
-					{
-					}
-				}
-				MODULE
-				{
-					name = KOSNameTag
-					isEnabled = True
-					nameTag = 
-					stagingEnabled = True
-					EVENTS
-					{
-					}
-					ACTIONS
-					{
-					}
-					UPGRADESAPPLIED
-					{
-					}
-				}
-			}
-			PART
-			{
-				name = parachuteRadial
-				cid = 4200000011
-				uid = 2873936193
-				mid = 3857463334
-				persistentId = 1500007717
-				launchID = 2
-				parent = 4
-				position = 0.31150001287460327,-0.93241214752197266,0.53953385353088379
-				rotation = 0,0.258819073,0,0.965925872
-				mirror = 1,1,1
-				symMethod = Radial
-				istg = 1
-				resPri = 0
-				dstg = 2
-				sqor = 1
-				sepI = 1
-				sidx = 0
-				attm = 1
-				sameVesselCollision = False
-				sym = 6
-				sym = 8
-				sym = 9
-				sym = 10
-				sym = 11
-				srfN = srfAttach, 4
-				mass = 0.100000001
-				shielded = False
-				temp = 310.09314385229226
-				tempExt = 310.11533045543661
-				tempExtUnexp = 310.11525619127275
-				staticPressureAtm = 0.98895972962735934
-				expt = 0.5
-				state = 0
-				PreFailState = 0
-				attached = True
-				autostrutMode = Off
-				rigidAttachment = False
-				flag = 
-				rTrf = parachuteRadial
-				modCost = 0
-				modMass = 0
-				moduleVariantName = 
-				moduleCargoStackableQuantity = 1
-				EVENTS
-				{
-				}
-				ACTIONS
-				{
-					ToggleSameVesselInteraction
-					{
-						actionGroup = None
-						wasActiveBeforePartWasAdjusted = False
-					}
-					SetSameVesselInteraction
-					{
-						actionGroup = None
-						wasActiveBeforePartWasAdjusted = False
-					}
-					RemoveSameVesselInteraction
-					{
-						actionGroup = None
-						wasActiveBeforePartWasAdjusted = False
-					}
-					AutostrutOff
-					{
-						actionGroup = None
-						wasActiveBeforePartWasAdjusted = False
-					}
-					AutostrutRoot
-					{
-						actionGroup = None
-						wasActiveBeforePartWasAdjusted = False
-					}
-					AutostrutHeaviest
-					{
-						actionGroup = None
-						wasActiveBeforePartWasAdjusted = False
-					}
-					AutostrutGrandparent
-					{
-						actionGroup = None
-						wasActiveBeforePartWasAdjusted = False
-					}
-					ResourcesEnableFlow
-					{
-						actionGroup = None
-						active = False
-						wasActiveBeforePartWasAdjusted = False
-					}
-					ResourcesDisableFlow
-					{
-						actionGroup = None
-						active = False
-						wasActiveBeforePartWasAdjusted = False
-					}
-				}
-				PARTDATA
-				{
-				}
-				MODULE
-				{
-					name = ModuleParachute
-					isEnabled = True
-					persistentState = STOWED
-					animTime = 0
-					minAirPressureToOpen = 0.0399999991
-					deployAltitude = 1000
-					spreadAngle = 7
-					automateSafeDeploy = 0
-					stagingEnabled = True
-					EVENTS
-					{
-					}
-					ACTIONS
-					{
-						DeployAction
-						{
-							actionGroup = None
-							wasActiveBeforePartWasAdjusted = False
-						}
-						CutAction
-						{
-							actionGroup = None
-							wasActiveBeforePartWasAdjusted = False
-						}
-					}
-					UPGRADESAPPLIED
-					{
-					}
-				}
-				MODULE
-				{
-					name = ModuleTestSubject
-					isEnabled = True
-					stagingEnabled = True
-					EVENTS
-					{
-					}
-					ACTIONS
-					{
-					}
-					UPGRADESAPPLIED
-					{
-					}
-				}
-				MODULE
-				{
-					name = ModuleDragModifier
-					isEnabled = True
-					stagingEnabled = True
-					EVENTS
-					{
-					}
-					ACTIONS
-					{
-					}
-					UPGRADESAPPLIED
-					{
-					}
-				}
-				MODULE
-				{
-					name = ModuleDragModifier
-					isEnabled = True
-					stagingEnabled = True
-					EVENTS
-					{
-					}
-					ACTIONS
-					{
-					}
-					UPGRADESAPPLIED
-					{
-					}
-				}
-				MODULE
-				{
-					name = ModuleCargoPart
-					isEnabled = True
-					packedVolume = 100
-					beingAttached = False
-					beingSettled = False
-					reinitResourcesOnStoreInVessel = False
-					stagingEnabled = True
-					EVENTS
-					{
-					}
-					ACTIONS
-					{
-					}
-					UPGRADESAPPLIED
-					{
-					}
-				}
-				MODULE
-				{
-					name = KOSNameTag
-					isEnabled = True
-					nameTag = 
-					stagingEnabled = True
-					EVENTS
-					{
-					}
-					ACTIONS
-					{
-					}
-					UPGRADESAPPLIED
-					{
-					}
-				}
-			}
-			PART
-			{
-				name = parachuteRadial
-				cid = 4200000012
-				uid = 468494624
-				mid = 3857463334
-				persistentId = 1500015434
-				launchID = 2
-				parent = 4
-				position = -0.31150001287460327,-0.93241214752197266,0.53953385353088379
-				rotation = 0,-0.258819073,0,0.965925872
-				mirror = 1,1,1
-				symMethod = Radial
-				istg = 1
-				resPri = 0
-				dstg = 2
-				sqor = 1
-				sepI = 1
-				sidx = 0
-				attm = 1
-				sameVesselCollision = False
-				sym = 6
-				sym = 7
-				sym = 9
-				sym = 10
-				sym = 11
-				srfN = srfAttach, 4
-				mass = 0.100000001
-				shielded = False
-				temp = 310.09327381822447
-				tempExt = 310.12961241699639
-				tempExtUnexp = 310.12952557648561
-				staticPressureAtm = 0.988959804923629
-				expt = 0.5
-				state = 0
-				PreFailState = 0
-				attached = True
-				autostrutMode = Off
-				rigidAttachment = False
-				flag = 
-				rTrf = parachuteRadial
-				modCost = 0
-				modMass = 0
-				moduleVariantName = 
-				moduleCargoStackableQuantity = 1
-				EVENTS
-				{
-				}
-				ACTIONS
-				{
-					ToggleSameVesselInteraction
-					{
-						actionGroup = None
-						wasActiveBeforePartWasAdjusted = False
-					}
-					SetSameVesselInteraction
-					{
-						actionGroup = None
-						wasActiveBeforePartWasAdjusted = False
-					}
-					RemoveSameVesselInteraction
-					{
-						actionGroup = None
-						wasActiveBeforePartWasAdjusted = False
-					}
-					AutostrutOff
-					{
-						actionGroup = None
-						wasActiveBeforePartWasAdjusted = False
-					}
-					AutostrutRoot
-					{
-						actionGroup = None
-						wasActiveBeforePartWasAdjusted = False
-					}
-					AutostrutHeaviest
-					{
-						actionGroup = None
-						wasActiveBeforePartWasAdjusted = False
-					}
-					AutostrutGrandparent
-					{
-						actionGroup = None
-						wasActiveBeforePartWasAdjusted = False
-					}
-					ResourcesEnableFlow
-					{
-						actionGroup = None
-						active = False
-						wasActiveBeforePartWasAdjusted = False
-					}
-					ResourcesDisableFlow
-					{
-						actionGroup = None
-						active = False
-						wasActiveBeforePartWasAdjusted = False
-					}
-				}
-				PARTDATA
-				{
-				}
-				MODULE
-				{
-					name = ModuleParachute
-					isEnabled = True
-					persistentState = STOWED
-					animTime = 0
-					minAirPressureToOpen = 0.0399999991
-					deployAltitude = 1000
-					spreadAngle = 7
-					automateSafeDeploy = 0
-					stagingEnabled = True
-					EVENTS
-					{
-					}
-					ACTIONS
-					{
-						DeployAction
-						{
-							actionGroup = None
-							wasActiveBeforePartWasAdjusted = False
-						}
-						CutAction
-						{
-							actionGroup = None
-							wasActiveBeforePartWasAdjusted = False
-						}
-					}
-					UPGRADESAPPLIED
-					{
-					}
-				}
-				MODULE
-				{
-					name = ModuleTestSubject
-					isEnabled = True
-					stagingEnabled = True
-					EVENTS
-					{
-					}
-					ACTIONS
-					{
-					}
-					UPGRADESAPPLIED
-					{
-					}
-				}
-				MODULE
-				{
-					name = ModuleDragModifier
-					isEnabled = True
-					stagingEnabled = True
-					EVENTS
-					{
-					}
-					ACTIONS
-					{
-					}
-					UPGRADESAPPLIED
-					{
-					}
-				}
-				MODULE
-				{
-					name = ModuleDragModifier
-					isEnabled = True
-					stagingEnabled = True
-					EVENTS
-					{
-					}
-					ACTIONS
-					{
-					}
-					UPGRADESAPPLIED
-					{
-					}
-				}
-				MODULE
-				{
-					name = ModuleCargoPart
-					isEnabled = True
-					packedVolume = 100
-					beingAttached = False
-					beingSettled = False
-					reinitResourcesOnStoreInVessel = False
-					stagingEnabled = True
-					EVENTS
-					{
-					}
-					ACTIONS
-					{
-					}
-					UPGRADESAPPLIED
-					{
-					}
-				}
-				MODULE
-				{
-					name = KOSNameTag
-					isEnabled = True
-					nameTag = 
-					stagingEnabled = True
-					EVENTS
-					{
-					}
-					ACTIONS
-					{
-					}
-					UPGRADESAPPLIED
-					{
-					}
-				}
-			}
-			PART
-			{
-				name = parachuteRadial
-				cid = 4200000013
-				uid = 1913756422
-				mid = 3857463334
-				persistentId = 1500023151
-				launchID = 2
-				parent = 4
-				position = -0.62300002574920654,-0.93241214752197266,0
-				rotation = 0,-0.707106829,0,0.707106829
-				mirror = 1,1,1
-				symMethod = Radial
-				istg = 1
-				resPri = 0
-				dstg = 2
-				sqor = 1
-				sepI = 1
-				sidx = 0
-				attm = 1
-				sameVesselCollision = False
-				sym = 6
-				sym = 7
-				sym = 8
-				sym = 10
-				sym = 11
-				srfN = srfAttach, 4
-				mass = 0.100000001
-				shielded = False
-				temp = 310.09314385229226
-				tempExt = 310.11533045543661
-				tempExtUnexp = 310.11525619127275
+				temp = 310.05751956029644
+				tempExt = 310.08211416109549
+				tempExtUnexp = 310.08203194772028
 				staticPressureAtm = 0.98895988021989878
 				expt = 0.5
 				state = 0
@@ -4060,9 +3423,648 @@ GAME
 			PART
 			{
 				name = parachuteRadial
+				cid = 4200000011
+				uid = 1842911762
+				mid = 238089110
+				persistentId = 1500007717
+				launchID = 2
+				parent = 4
+				position = 0.31150001287460327,-0.93241214752197266,0.53953385353088379
+				rotation = 0,0.258819073,0,0.965925872
+				mirror = 1,1,1
+				symMethod = Radial
+				istg = 1
+				resPri = 0
+				dstg = 2
+				sqor = 1
+				sepI = 1
+				sidx = 0
+				attm = 1
+				sameVesselCollision = False
+				sym = 6
+				sym = 8
+				sym = 9
+				sym = 10
+				sym = 11
+				srfN = srfAttach, 4
+				mass = 0.100000001
+				shielded = False
+				temp = 310.05751956029644
+				tempExt = 310.08211416109549
+				tempExtUnexp = 310.08203194772028
+				staticPressureAtm = 0.98895988021989878
+				expt = 0.5
+				state = 0
+				PreFailState = 0
+				attached = True
+				autostrutMode = Off
+				rigidAttachment = False
+				flag = 
+				rTrf = parachuteRadial
+				modCost = 0
+				modMass = 0
+				moduleVariantName = 
+				moduleCargoStackableQuantity = 1
+				EVENTS
+				{
+				}
+				ACTIONS
+				{
+					ToggleSameVesselInteraction
+					{
+						actionGroup = None
+						wasActiveBeforePartWasAdjusted = False
+					}
+					SetSameVesselInteraction
+					{
+						actionGroup = None
+						wasActiveBeforePartWasAdjusted = False
+					}
+					RemoveSameVesselInteraction
+					{
+						actionGroup = None
+						wasActiveBeforePartWasAdjusted = False
+					}
+					AutostrutOff
+					{
+						actionGroup = None
+						wasActiveBeforePartWasAdjusted = False
+					}
+					AutostrutRoot
+					{
+						actionGroup = None
+						wasActiveBeforePartWasAdjusted = False
+					}
+					AutostrutHeaviest
+					{
+						actionGroup = None
+						wasActiveBeforePartWasAdjusted = False
+					}
+					AutostrutGrandparent
+					{
+						actionGroup = None
+						wasActiveBeforePartWasAdjusted = False
+					}
+					ResourcesEnableFlow
+					{
+						actionGroup = None
+						active = False
+						wasActiveBeforePartWasAdjusted = False
+					}
+					ResourcesDisableFlow
+					{
+						actionGroup = None
+						active = False
+						wasActiveBeforePartWasAdjusted = False
+					}
+				}
+				PARTDATA
+				{
+				}
+				MODULE
+				{
+					name = ModuleParachute
+					isEnabled = True
+					persistentState = STOWED
+					animTime = 0
+					minAirPressureToOpen = 0.0399999991
+					deployAltitude = 1000
+					spreadAngle = 7
+					automateSafeDeploy = 0
+					stagingEnabled = True
+					EVENTS
+					{
+					}
+					ACTIONS
+					{
+						DeployAction
+						{
+							actionGroup = None
+							wasActiveBeforePartWasAdjusted = False
+						}
+						CutAction
+						{
+							actionGroup = None
+							wasActiveBeforePartWasAdjusted = False
+						}
+					}
+					UPGRADESAPPLIED
+					{
+					}
+				}
+				MODULE
+				{
+					name = ModuleTestSubject
+					isEnabled = True
+					stagingEnabled = True
+					EVENTS
+					{
+					}
+					ACTIONS
+					{
+					}
+					UPGRADESAPPLIED
+					{
+					}
+				}
+				MODULE
+				{
+					name = ModuleDragModifier
+					isEnabled = True
+					stagingEnabled = True
+					EVENTS
+					{
+					}
+					ACTIONS
+					{
+					}
+					UPGRADESAPPLIED
+					{
+					}
+				}
+				MODULE
+				{
+					name = ModuleDragModifier
+					isEnabled = True
+					stagingEnabled = True
+					EVENTS
+					{
+					}
+					ACTIONS
+					{
+					}
+					UPGRADESAPPLIED
+					{
+					}
+				}
+				MODULE
+				{
+					name = ModuleCargoPart
+					isEnabled = True
+					packedVolume = 100
+					beingAttached = False
+					beingSettled = False
+					reinitResourcesOnStoreInVessel = False
+					stagingEnabled = True
+					EVENTS
+					{
+					}
+					ACTIONS
+					{
+					}
+					UPGRADESAPPLIED
+					{
+					}
+				}
+				MODULE
+				{
+					name = KOSNameTag
+					isEnabled = True
+					nameTag = 
+					stagingEnabled = True
+					EVENTS
+					{
+					}
+					ACTIONS
+					{
+					}
+					UPGRADESAPPLIED
+					{
+					}
+				}
+			}
+			PART
+			{
+				name = parachuteRadial
+				cid = 4200000012
+				uid = 2695795159
+				mid = 238089110
+				persistentId = 1500015434
+				launchID = 2
+				parent = 4
+				position = -0.31150001287460327,-0.93241214752197266,0.53953385353088379
+				rotation = 0,-0.258819073,0,0.965925872
+				mirror = 1,1,1
+				symMethod = Radial
+				istg = 1
+				resPri = 0
+				dstg = 2
+				sqor = 1
+				sepI = 1
+				sidx = 0
+				attm = 1
+				sameVesselCollision = False
+				sym = 6
+				sym = 7
+				sym = 9
+				sym = 10
+				sym = 11
+				srfN = srfAttach, 4
+				mass = 0.100000001
+				shielded = False
+				temp = 310.05764764414465
+				tempExt = 310.09635636002935
+				tempExtUnexp = 310.09626119268751
+				staticPressureAtm = 0.98895995551616855
+				expt = 0.5
+				state = 0
+				PreFailState = 0
+				attached = True
+				autostrutMode = Off
+				rigidAttachment = False
+				flag = 
+				rTrf = parachuteRadial
+				modCost = 0
+				modMass = 0
+				moduleVariantName = 
+				moduleCargoStackableQuantity = 1
+				EVENTS
+				{
+				}
+				ACTIONS
+				{
+					ToggleSameVesselInteraction
+					{
+						actionGroup = None
+						wasActiveBeforePartWasAdjusted = False
+					}
+					SetSameVesselInteraction
+					{
+						actionGroup = None
+						wasActiveBeforePartWasAdjusted = False
+					}
+					RemoveSameVesselInteraction
+					{
+						actionGroup = None
+						wasActiveBeforePartWasAdjusted = False
+					}
+					AutostrutOff
+					{
+						actionGroup = None
+						wasActiveBeforePartWasAdjusted = False
+					}
+					AutostrutRoot
+					{
+						actionGroup = None
+						wasActiveBeforePartWasAdjusted = False
+					}
+					AutostrutHeaviest
+					{
+						actionGroup = None
+						wasActiveBeforePartWasAdjusted = False
+					}
+					AutostrutGrandparent
+					{
+						actionGroup = None
+						wasActiveBeforePartWasAdjusted = False
+					}
+					ResourcesEnableFlow
+					{
+						actionGroup = None
+						active = False
+						wasActiveBeforePartWasAdjusted = False
+					}
+					ResourcesDisableFlow
+					{
+						actionGroup = None
+						active = False
+						wasActiveBeforePartWasAdjusted = False
+					}
+				}
+				PARTDATA
+				{
+				}
+				MODULE
+				{
+					name = ModuleParachute
+					isEnabled = True
+					persistentState = STOWED
+					animTime = 0
+					minAirPressureToOpen = 0.0399999991
+					deployAltitude = 1000
+					spreadAngle = 7
+					automateSafeDeploy = 0
+					stagingEnabled = True
+					EVENTS
+					{
+					}
+					ACTIONS
+					{
+						DeployAction
+						{
+							actionGroup = None
+							wasActiveBeforePartWasAdjusted = False
+						}
+						CutAction
+						{
+							actionGroup = None
+							wasActiveBeforePartWasAdjusted = False
+						}
+					}
+					UPGRADESAPPLIED
+					{
+					}
+				}
+				MODULE
+				{
+					name = ModuleTestSubject
+					isEnabled = True
+					stagingEnabled = True
+					EVENTS
+					{
+					}
+					ACTIONS
+					{
+					}
+					UPGRADESAPPLIED
+					{
+					}
+				}
+				MODULE
+				{
+					name = ModuleDragModifier
+					isEnabled = True
+					stagingEnabled = True
+					EVENTS
+					{
+					}
+					ACTIONS
+					{
+					}
+					UPGRADESAPPLIED
+					{
+					}
+				}
+				MODULE
+				{
+					name = ModuleDragModifier
+					isEnabled = True
+					stagingEnabled = True
+					EVENTS
+					{
+					}
+					ACTIONS
+					{
+					}
+					UPGRADESAPPLIED
+					{
+					}
+				}
+				MODULE
+				{
+					name = ModuleCargoPart
+					isEnabled = True
+					packedVolume = 100
+					beingAttached = False
+					beingSettled = False
+					reinitResourcesOnStoreInVessel = False
+					stagingEnabled = True
+					EVENTS
+					{
+					}
+					ACTIONS
+					{
+					}
+					UPGRADESAPPLIED
+					{
+					}
+				}
+				MODULE
+				{
+					name = KOSNameTag
+					isEnabled = True
+					nameTag = 
+					stagingEnabled = True
+					EVENTS
+					{
+					}
+					ACTIONS
+					{
+					}
+					UPGRADESAPPLIED
+					{
+					}
+				}
+			}
+			PART
+			{
+				name = parachuteRadial
+				cid = 4200000013
+				uid = 2097365741
+				mid = 238089110
+				persistentId = 1500023151
+				launchID = 2
+				parent = 4
+				position = -0.62300002574920654,-0.93241214752197266,0
+				rotation = 0,-0.707106829,0,0.707106829
+				mirror = 1,1,1
+				symMethod = Radial
+				istg = 1
+				resPri = 0
+				dstg = 2
+				sqor = 1
+				sepI = 1
+				sidx = 0
+				attm = 1
+				sameVesselCollision = False
+				sym = 6
+				sym = 7
+				sym = 8
+				sym = 10
+				sym = 11
+				srfN = srfAttach, 4
+				mass = 0.100000001
+				shielded = False
+				temp = 310.05751956029644
+				tempExt = 310.08211416109549
+				tempExtUnexp = 310.08203194772028
+				staticPressureAtm = 0.98896003081243822
+				expt = 0.5
+				state = 0
+				PreFailState = 0
+				attached = True
+				autostrutMode = Off
+				rigidAttachment = False
+				flag = 
+				rTrf = parachuteRadial
+				modCost = 0
+				modMass = 0
+				moduleVariantName = 
+				moduleCargoStackableQuantity = 1
+				EVENTS
+				{
+				}
+				ACTIONS
+				{
+					ToggleSameVesselInteraction
+					{
+						actionGroup = None
+						wasActiveBeforePartWasAdjusted = False
+					}
+					SetSameVesselInteraction
+					{
+						actionGroup = None
+						wasActiveBeforePartWasAdjusted = False
+					}
+					RemoveSameVesselInteraction
+					{
+						actionGroup = None
+						wasActiveBeforePartWasAdjusted = False
+					}
+					AutostrutOff
+					{
+						actionGroup = None
+						wasActiveBeforePartWasAdjusted = False
+					}
+					AutostrutRoot
+					{
+						actionGroup = None
+						wasActiveBeforePartWasAdjusted = False
+					}
+					AutostrutHeaviest
+					{
+						actionGroup = None
+						wasActiveBeforePartWasAdjusted = False
+					}
+					AutostrutGrandparent
+					{
+						actionGroup = None
+						wasActiveBeforePartWasAdjusted = False
+					}
+					ResourcesEnableFlow
+					{
+						actionGroup = None
+						active = False
+						wasActiveBeforePartWasAdjusted = False
+					}
+					ResourcesDisableFlow
+					{
+						actionGroup = None
+						active = False
+						wasActiveBeforePartWasAdjusted = False
+					}
+				}
+				PARTDATA
+				{
+				}
+				MODULE
+				{
+					name = ModuleParachute
+					isEnabled = True
+					persistentState = STOWED
+					animTime = 0
+					minAirPressureToOpen = 0.0399999991
+					deployAltitude = 1000
+					spreadAngle = 7
+					automateSafeDeploy = 0
+					stagingEnabled = True
+					EVENTS
+					{
+					}
+					ACTIONS
+					{
+						DeployAction
+						{
+							actionGroup = None
+							wasActiveBeforePartWasAdjusted = False
+						}
+						CutAction
+						{
+							actionGroup = None
+							wasActiveBeforePartWasAdjusted = False
+						}
+					}
+					UPGRADESAPPLIED
+					{
+					}
+				}
+				MODULE
+				{
+					name = ModuleTestSubject
+					isEnabled = True
+					stagingEnabled = True
+					EVENTS
+					{
+					}
+					ACTIONS
+					{
+					}
+					UPGRADESAPPLIED
+					{
+					}
+				}
+				MODULE
+				{
+					name = ModuleDragModifier
+					isEnabled = True
+					stagingEnabled = True
+					EVENTS
+					{
+					}
+					ACTIONS
+					{
+					}
+					UPGRADESAPPLIED
+					{
+					}
+				}
+				MODULE
+				{
+					name = ModuleDragModifier
+					isEnabled = True
+					stagingEnabled = True
+					EVENTS
+					{
+					}
+					ACTIONS
+					{
+					}
+					UPGRADESAPPLIED
+					{
+					}
+				}
+				MODULE
+				{
+					name = ModuleCargoPart
+					isEnabled = True
+					packedVolume = 100
+					beingAttached = False
+					beingSettled = False
+					reinitResourcesOnStoreInVessel = False
+					stagingEnabled = True
+					EVENTS
+					{
+					}
+					ACTIONS
+					{
+					}
+					UPGRADESAPPLIED
+					{
+					}
+				}
+				MODULE
+				{
+					name = KOSNameTag
+					isEnabled = True
+					nameTag = 
+					stagingEnabled = True
+					EVENTS
+					{
+					}
+					ACTIONS
+					{
+					}
+					UPGRADESAPPLIED
+					{
+					}
+				}
+			}
+			PART
+			{
+				name = parachuteRadial
 				cid = 4200000014
-				uid = 3537630270
-				mid = 3857463334
+				uid = 3653013429
+				mid = 238089110
 				persistentId = 1500030868
 				launchID = 2
 				parent = 4
@@ -4086,10 +4088,10 @@ GAME
 				srfN = srfAttach, 4
 				mass = 0.100000001
 				shielded = False
-				temp = 310.09314385229226
-				tempExt = 310.11533045543661
-				tempExtUnexp = 310.11525619127275
-				staticPressureAtm = 0.988959804923629
+				temp = 310.05751956029644
+				tempExt = 310.08211416109549
+				tempExtUnexp = 310.08203194772028
+				staticPressureAtm = 0.98895995551616855
 				expt = 0.5
 				state = 0
 				PreFailState = 0
@@ -4274,8 +4276,8 @@ GAME
 			{
 				name = parachuteRadial
 				cid = 4200000015
-				uid = 2408276156
-				mid = 3857463334
+				uid = 82111279
+				mid = 238089110
 				persistentId = 1500038585
 				launchID = 2
 				parent = 4
@@ -4299,10 +4301,10 @@ GAME
 				srfN = srfAttach, 4
 				mass = 0.100000001
 				shielded = False
-				temp = 310.09314385229226
-				tempExt = 310.11533045543661
-				tempExtUnexp = 310.11525619127275
-				staticPressureAtm = 0.98895972962735934
+				temp = 310.05751956029644
+				tempExt = 310.08211416109549
+				tempExtUnexp = 310.08203194772028
+				staticPressureAtm = 0.98895988021989878
 				expt = 0.5
 				state = 0
 				PreFailState = 0
@@ -4487,8 +4489,8 @@ GAME
 			{
 				name = basicFin
 				cid = 4200000020
-				uid = 2015913449
-				mid = 3857463334
+				uid = 694693106
+				mid = 238089110
 				persistentId = 1500069453
 				launchID = 2
 				parent = 4
@@ -4509,10 +4511,10 @@ GAME
 				srfN = srfAttach, 4
 				mass = 0.00999999978
 				shielded = False
-				temp = 310.09173091168736
-				tempExt = 310.08352722276538
-				tempExtUnexp = 310.08347829299839
-				staticPressureAtm = 0.98904052252478869
+				temp = 310.05628950989075
+				tempExt = 310.05047382109109
+				tempExtUnexp = 310.0504173456236
+				staticPressureAtm = 0.98904067311732813
 				expt = 0.100000001
 				state = 0
 				PreFailState = 0
@@ -4636,8 +4638,8 @@ GAME
 			{
 				name = basicFin
 				cid = 4200000021
-				uid = 3558316731
-				mid = 3857463334
+				uid = 189415596
+				mid = 238089110
 				persistentId = 1500077170
 				launchID = 2
 				parent = 4
@@ -4658,10 +4660,10 @@ GAME
 				srfN = srfAttach, 4
 				mass = 0.00999999978
 				shielded = False
-				temp = 310.09858454946544
-				tempExt = 310.1710878904442
-				tempExtUnexp = 310.17086804160994
-				staticPressureAtm = 0.98904059782105846
+				temp = 310.06295141290281
+				tempExt = 310.13635048597808
+				tempExtUnexp = 310.13626907777086
+				staticPressureAtm = 0.9890407484135979
 				expt = 0.100000001
 				state = 0
 				PreFailState = 0
@@ -4785,8 +4787,8 @@ GAME
 			{
 				name = basicFin
 				cid = 4200000022
-				uid = 1413987974
-				mid = 3857463334
+				uid = 2219179755
+				mid = 238089110
 				persistentId = 1500084887
 				launchID = 2
 				parent = 4
@@ -4807,10 +4809,10 @@ GAME
 				srfN = srfAttach, 4
 				mass = 0.00999999978
 				shielded = False
-				temp = 310.09175596244637
-				tempExt = 310.08382259081674
-				tempExtUnexp = 310.08377339938539
-				staticPressureAtm = 0.98904052252478869
+				temp = 310.05631422984828
+				tempExt = 310.05076869444616
+				tempExtUnexp = 310.05071194994582
+				staticPressureAtm = 0.98904067311732813
 				expt = 0.100000001
 				state = 0
 				PreFailState = 0
@@ -4984,7 +4986,7 @@ GAME
 				}
 				CommNetVessel
 				{
-					controlState = ProbeFull
+					controlState = KerbalFull
 					canComm = True
 				}
 			}
@@ -5080,7 +5082,7 @@ GAME
 			inactiveTimeEnd = 0
 			gExperienced = 0
 			outDueToG = False
-			ToD = 2021.8399999999997
+			ToD = 2021.8799999999997
 			idx = 0
 			extraXP = 0
 			hasHelmetOn = False
@@ -5997,13 +5999,13 @@ GAME
 			badS = True
 			veteran = True
 			tour = False
-			state = Available
+			state = Assigned
 			inactive = False
 			inactiveTimeEnd = 0
 			gExperienced = 0
 			outDueToG = False
 			ToD = 0
-			idx = -1
+			idx = 0
 			extraXP = 0
 			hasHelmetOn = False
 			hasNeckRingOn = False
@@ -6016,7 +6018,16 @@ GAME
 			hero = True
 			INVENTORY
 			{
+				name = ModuleInventoryPart
+				isEnabled = True
+				stagingEnabled = True
 				inventory = evaChute,evaJetpack
+				EVENTS
+				{
+				}
+				ACTIONS
+				{
+				}
 				STOREDPARTS
 				{
 					STOREDPART
@@ -6029,10 +6040,10 @@ GAME
 						PART
 						{
 							name = evaChute
-							cid = 4294804522
+							cid = 4294883624
 							uid = 0
 							mid = 0
-							persistentId = 0
+							persistentId = 1781719222
 							launchID = 0
 							parent = 0
 							position = 0,0,0
@@ -6141,6 +6152,22 @@ GAME
 								{
 								}
 							}
+							MODULE
+							{
+								name = KOSNameTag
+								isEnabled = True
+								nameTag = 
+								stagingEnabled = True
+								EVENTS
+								{
+								}
+								ACTIONS
+								{
+								}
+								UPGRADESAPPLIED
+								{
+								}
+							}
 						}
 					}
 					STOREDPART
@@ -6153,10 +6180,10 @@ GAME
 						PART
 						{
 							name = evaJetpack
-							cid = 4294804584
+							cid = 4294883690
 							uid = 0
 							mid = 0
-							persistentId = 0
+							persistentId = 1546671139
 							launchID = 0
 							parent = 0
 							position = 0,0,0
@@ -6265,6 +6292,22 @@ GAME
 								{
 								}
 							}
+							MODULE
+							{
+								name = KOSNameTag
+								isEnabled = True
+								nameTag = 
+								stagingEnabled = True
+								EVENTS
+								{
+								}
+								ACTIONS
+								{
+								}
+								UPGRADESAPPLIED
+								{
+								}
+							}
 							RESOURCE
 							{
 								name = EVA Propellant
@@ -6278,6 +6321,9 @@ GAME
 							}
 						}
 					}
+				}
+				UPGRADESAPPLIED
+				{
 				}
 			}
 			CAREER_LOG

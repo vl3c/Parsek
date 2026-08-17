@@ -992,6 +992,20 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Display-name prefix stamped onto every Parsek-authored ghost map
+        /// ProtoVessel. Presentation only - <see cref="IsGhostMapVessel"/> is the
+        /// canonical identity check.
+        /// <para>
+        /// Do NOT build a ConfigNode-level "is this a serialized ghost" guard on
+        /// this prefix. Ghosts never reach a save: <c>ParsekScenario.OnSave</c>
+        /// calls <see cref="StripFromSave"/> on every save and KSP writes the
+        /// SCENARIO nodes before FLIGHTSTATE, so a name-keyed guard could only
+        /// ever match a player craft genuinely named "Ghost: ...".
+        /// </para>
+        /// </summary>
+        internal const string GhostVesselNamePrefix = "Ghost: ";
+
+        /// <summary>
         /// O(1) check: is this ghost's native icon currently suppressed (below atmosphere)?
         /// When true, DrawMapMarkers draws our custom icon at the ghost mesh position instead.
         /// </summary>
@@ -10846,7 +10860,7 @@ namespace Parsek
                 double.PositiveInfinity, double.PositiveInfinity);
 
             vtype = ResolveVesselType(traj.VesselSnapshot);
-            vesselName = "Ghost: " + (traj.VesselName ?? "Unknown");
+            vesselName = GhostVesselNamePrefix + (traj.VesselName ?? "Unknown");
 
             ConfigNode vesselNode = ProtoVessel.CreateVesselNode(
                 vesselName, vtype, orbit, 0,
@@ -12922,7 +12936,13 @@ namespace Parsek
             {
                 try
                 {
-                    realVesselExists = FlightRecorder.FindVesselByPid(rec.VesselPersistentId) != null;
+                    // Launch-Guid gated (FindLaunchMatchedVesselForRecording, not the bare pid
+                    // lookup): "materialized" must mean THIS recording's vessel is in the world.
+                    // A preserved relaunch of the same craft carries the same craft-baked pid,
+                    // and counting it here would retire the recording's map presence while its
+                    // own vessel is nowhere in the scene.
+                    realVesselExists =
+                        FlightRecorder.FindLaunchMatchedVesselForRecording(rec) != null;
                 }
                 catch (Exception)
                 {

@@ -33,9 +33,11 @@ tier = "daily"
 #      icon-off-orbit, gap-vs-retire, decision-vs-old-truth, clock-not-ready,
 #      retire-not-held, anchor-resolve-fail). `icon-jump` is DEAD and retired to
 #      ANOMALY_TOKENS_DEAD - no producer anywhere passes it as a reason (the
-#      probe raises `reason=icon-teleport`, MapRenderProbe.cs:871). Two raised
-#      reasons stay ungated as REPORT-ONLY instruments
-#      (unaccounted-drawn-recording, factory-parity) via
+#      probe raises `reason=icon-teleport`, from the icon-drift block in
+#      MapRenderProbe.Sample). The reasons that stay ungated as REPORT-ONLY
+#      instruments - THREE at 2026-08-09 (unaccounted-drawn-recording,
+#      factory-parity, seam-endpoint-outside-soi), and read
+#      hlib.ANOMALY_REASONS_RAISED_UNGATED rather than this list - surface via
 #      anomalySweep.unlistedReasons; see the drift entry in
 #      docs/dev/todo-and-known-bugs.md;
 #   3. the oracle ACTUALLY MEASURED (the anti-vacuity conjunct below).
@@ -163,7 +165,7 @@ tier = "daily"
 #   fidelity (rendered == the seed the producer fed the drive). Whether the
 #   producer's re-aimed seed is the RIGHT arc is a separate question this cell
 #   does not ask.
-# - NOTHING about the 272-recording corpus rendering correctly. The corpus is
+# - NOTHING about the 274-recording corpus rendering correctly. The corpus is
 #   staged (and its survival is pinned) but the parity tests build their own
 #   synthetic ghosts; they do not replay corpus recordings on the map.
 #
@@ -184,7 +186,7 @@ tags = ["playback", "render-parity", "S1.6", "ghost", "map"]
 # LaunchPad), so TestCommandLoadGame.DecideLoadRoute takes the FOCUSABLE route
 # (FlightDriver.StartAndFocusVessel) and the batch runs in FLIGHT with a live
 # active vessel - the precondition every GhostMap FLIGHT test needs.
-# injectedRecordings = "all-synthetic" seeds the same 272-tree corpus.
+# injectedRecordings = "all-synthetic" seeds the same 274-tree corpus.
 saveTemplate = "fixtures/saves/gloops-airshow"
 injectedRecordings = "all-synthetic"
 craft = []
@@ -264,11 +266,21 @@ D14 = ["sandbox", "scene-flight"]
 allowedAnomalies = []
 
 [expectations.recordings]
-# The injected corpus, unchanged. Same 272 pin as S1.4 / H5 on stock-minimal: the
+# The injected corpus, unchanged. Same 274 pin as S1.4 / H5 on stock-minimal: the
 # GhostMap parity tests swap RecordingStore's committed list for their own
 # synthetic recording and restore it in a finally, so a count drift here means a
 # test leaked a recording into the save or the corpus failed to load.
-count = { min = 272, max = 272 }
+# NOTE 2026-08-11 (recorded-signal-fixes): the shared InjectAllRecordings corpus
+# grew 272 -> 274 (chute-repack + surface-rover showcase rows). MEASURED
+# 2026-08-11 - the +2 was a derivation when it landed and is now confirmed:
+# H5-invariants-corpus flew that day (run `2026-08-11_1119`, PASS attempt 1) and
+# the harness counted exactly 274 .prec sidecars
+# (`expectations.observed.recordings.count = 274`, mismatches 0), with the same
+# count independently re-read by H33-recorded-signals (run `2026-08-11_1118`,
+# PASS). H5's in-game walk measured the hydrated pair in the same run at
+# `recordings=308 trees=278`, also as derived. If this pin ever reds, read the
+# actual count off the collected KSP.log before touching anything else.
+count = { min = 274, max = 274 }
 
 [expectations.logContracts]
 # 1. The gate (mirrors S1.4/H5): the driven category's batch reported no failures.

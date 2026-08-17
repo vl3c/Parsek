@@ -81,6 +81,20 @@ namespace Parsek
         internal const string AnomalyAnchorResolveFail = "anchor-resolve-fail";
         internal const string AnomalyClockNotReady = "clock-not-ready";
         internal const string AnomalyFactoryParity = "factory-parity";
+        //  - seam-endpoint-outside-soi: the ENCOUNTER-GEOMETRY instrument. At a recorded cross-body SOI
+        //    handoff, the arc the pipeline is ACTUALLY rendering sits OUTSIDE the destination body's
+        //    sphere of influence at the handoff instant - i.e. the drawn transfer dead-ends in open
+        //    space instead of arriving. Every other lens is blind to it: RenderParityOracle measures
+        //    each segment against its OWN reference (blind to the gap BETWEEN segments) and explicitly
+        //    skips re-aimed members, loop-seam-teleport measures the ghost TRANSFORM rather than the
+        //    line, and the re-aim solver's own probes measure the SOLVE. Decision core is the pure
+        //    Parsek.MapRender.SeamEndpointOracle; raised once-per-onset from MapRenderProbe. REPORT-ONLY
+        //    (hlib.ANOMALY_REASONS_RAISED_UNGATED). This line used to end "until it has flown"; the
+        //    2026-08-09 seam-endpoint census retired that criterion - it HAS flown, healthy, on two
+        //    lanes. Flight is no longer the blocker; hlib's entry names the two that are (the raise
+        //    itself has never fired, and the benign faithful-interplanetary population is unmeasured).
+        //    Read that entry, not this line, before any promotion decision.
+        internal const string AnomalySeamEndpointOutsideSoi = "seam-endpoint-outside-soi";
 
         // ---- Phase 7 Tier-A structural EVENT: fail-closed-to-faithful (design §14 / migration plan §9) ----
         //
@@ -1016,7 +1030,8 @@ namespace Parsek
             int lastToggleFrame,
             int currentFrame,
             bool bodyChanged = false,
-            bool offWindowCovered = false)
+            bool offWindowCovered = false,
+            bool windowTransitionExempt = false)
         {
             if (!toggled)
                 return false;
@@ -1031,8 +1046,144 @@ namespace Parsek
             // dark.
             if (offWindowCovered)
                 return false;
+            // BOTH halves of this toggle pair are proven: the dark half left the recording's
+            // rendered body-frame window, and the lit half sits on a clock the recording covers.
+            // That is one legitimate transition out and one back, not a flicker. See
+            // ResolveWindowTransitionExempt - in particular why one half is never enough.
+            if (windowTransitionExempt)
+                return false;
             int sinceLast = currentFrame - lastToggleFrame;
             return sinceLast >= 0 && sinceLast <= LineBlinkFrameWindow;
+        }
+
+        /// <summary>
+        /// How a line decision measured the drive clock against the recording's RENDERED body-frame
+        /// window. Stamped by <c>GhostOrbitLinePatch</c> only where the branch condition IS that
+        /// measurement; <see cref="Unknown"/> is the FAIL-CLOSED default that every other decision
+        /// keeps, and it never earns a line-blink exemption on either edge.
+        /// </summary>
+        internal enum RenderWindowCoverage
+        {
+            /// <summary>The decision site did not measure the clock against the rendered window.
+            /// Covers every branch that hides or shows the line for some OTHER reason, and every
+            /// frame on which our Postfix did not run at all.</summary>
+            Unknown = 0,
+            /// <summary>The site VERIFIED the clock sits inside covered, renderable bounds
+            /// (<c>director-stockconic-visible</c>, <c>visible-body-frame</c>).</summary>
+            Inside,
+            /// <summary>The site MEASURED the clock outside the rendered window - <c>currentUT &gt;
+            /// endUT</c> / <c>currentUT &lt; startUT</c> (<c>past-body-frame-end</c>,
+            /// <c>before-body-frame-start</c>, and the <c>parking-conic-loiter-hold</c> that holds the
+            /// line LIT out there).</summary>
+            Outside,
+        }
+
+        /// <summary>What one <c>line.active</c> toggle was, for line-blink purposes. Only the two
+        /// NAMED verdicts can participate in a window-transition exemption; <see cref="Other"/> is the
+        /// fail-closed bucket and always raises.</summary>
+        internal enum LineToggleVerdict
+        {
+            /// <summary>Anything not provably one of the two below: a decision made for another
+            /// reason, a lit edge OUTSIDE the window (<c>parking-conic-loiter-hold</c>,
+            /// <c>terminal-visible</c>), a frame with no fresh decision, a decision that disagrees
+            /// with the truth read, or a degenerate line read.</summary>
+            Other = 0,
+            /// <summary>The line went DARK because the clock left the rendered window.</summary>
+            WindowExitOff,
+            /// <summary>The line came back LIT onto a clock the recording COVERS.</summary>
+            InsideWindowOn,
+        }
+
+        /// <summary>
+        /// PURE: classify ONE <c>line.active</c> toggle. This is the positive discriminator behind the
+        /// line-blink window-transition exemption, and it is FAIL-CLOSED on every conjunct - anything
+        /// unproven lands in <see cref="LineToggleVerdict.Other"/>, which never exempts.
+        ///
+        /// <para>(1) No fresh intent =&gt; <c>Other</c>. <c>GhostOrbitLinePatch</c>'s Postfix must have
+        /// actually DECIDED this frame (<see cref="IntentFreshnessFrames"/> = same frame only). Frames
+        /// where it does not run are real - the <c>line == null</c> early return, the
+        /// <c>vessel == null</c> / non-ghost returns, and KSP simply skipping
+        /// <c>OrbitRendererBase.LateUpdate</c> - so a line lit or darkened behind our back carries no
+        /// measurement and earns nothing.</para>
+        /// <para>(2) The truth read must be DEFINITIVE. A degenerate read ("(line-null)" /
+        /// "(no-renderer)" / "(read-err:...)") means we do not know what the line did, which is never
+        /// evidence of a legitimate transition - the same rule the <c>offWindowCovered</c> accounting
+        /// applies.</para>
+        /// <para>(3) The decision and the truth must AGREE on lit-vs-dark. A decision of ON against a
+        /// truth of OFF is the <c>decision-vs-truth</c> anomaly's business and must not be laundered
+        /// into an exemption here.</para>
+        /// <para>(4) The coverage must be the MEASURED one for that direction:
+        /// <see cref="RenderWindowCoverage.Outside"/> for a dark toggle,
+        /// <see cref="RenderWindowCoverage.Inside"/> for a lit one. Both are stamped only where the
+        /// branch condition IS the measurement. <c>Inside</c> is deliberately POSITIVE rather than
+        /// "not Outside": <c>terminal-visible</c> is a LIT decision whose own comment says the proto is
+        /// parked "past the recorded window" and which stamps nothing, so a not-Outside test would read
+        /// it as covered. It is not, and it lands in <c>Other</c>.</para>
+        /// </summary>
+        internal static LineToggleVerdict ClassifyLineToggle(
+            bool lineDefinitivelyOff,
+            bool lineDefinitivelyLit,
+            bool hasFreshIntent,
+            bool intentLineActive,
+            RenderWindowCoverage intentWindowCoverage)
+        {
+            if (!hasFreshIntent)
+                return LineToggleVerdict.Other;
+            if (lineDefinitivelyOff && !intentLineActive
+                && intentWindowCoverage == RenderWindowCoverage.Outside)
+                return LineToggleVerdict.WindowExitOff;
+            if (lineDefinitivelyLit && intentLineActive
+                && intentWindowCoverage == RenderWindowCoverage.Inside)
+                return LineToggleVerdict.InsideWindowOn;
+            return LineToggleVerdict.Other;
+        }
+
+        /// <summary>
+        /// PURE: is this toggle pair a LEGITIMATE WINDOW TRANSITION rather than a flicker? Feeds
+        /// <see cref="IsLineBlink"/>'s <c>windowTransitionExempt</c> guard.
+        ///
+        /// <para>A pair is exempt IFF <b>both halves are proven</b>: the dark half left the rendered
+        /// window, AND the lit half sits on a clock the recording covers. The detector catches a pair
+        /// from whichever edge came last, so the caller passes this frame's verdict plus the verdict it
+        /// STAMPED at the previous toggle, and the rule reads the same in both directions:</para>
+        /// <para>- LIT edge: this frame must be <c>InsideWindowOn</c> and the prior toggle
+        /// <c>WindowExitOff</c>. Three of the four archived raises land here.</para>
+        /// <para>- DARK edge: this frame must be <c>WindowExitOff</c> and the prior toggle
+        /// <c>InsideWindowOn</c>. The two V8 straddles land here.</para>
+        ///
+        /// <para><b>BOTH HALVES, because judging from one is how a real blink gets swallowed - in
+        /// EITHER direction.</b> The first cut asked only about the dark half, and
+        /// <c>parking-conic-loiter-hold</c> defeats that: it is the one decision that holds the line
+        /// LIT while the clock is outside the window, and it sits in the same
+        /// <c>pastEnd || beforeStart</c> block as the window-exit OFF. Two sequences follow, one per
+        /// edge, and both are REAL on-screen artefacts with nothing inside the window:</para>
+        /// <para>- <c>past-body-frame-end</c> (dark) -&gt; <c>parking-conic-loiter-hold</c> (lit): a
+        /// conic flashing ON in the dark region. The LIT edge declines because the hold stamps
+        /// <c>Outside</c>, not <c>Inside</c>.</para>
+        /// <para>- ... hold (lit) -&gt; hold disarms -&gt; <c>past-body-frame-end</c> (dark): the same
+        /// flash going OUT one frame later. The DARK edge declines because the prior toggle was
+        /// <c>Other</c>, not <c>InsideWindowOn</c>. Under a dark-half-only rule that pair was
+        /// suppressed while its partner had already aged out of the frame window, so the whole flash
+        /// raised NOTHING - gating exactly the direction <c>MapRenderProbe</c>'s emit comment calls
+        /// "deliberately ungated".</para>
+        ///
+        /// <para>No prior toggle = no exemption. The caller stamps a verdict at EVERY toggle, so a
+        /// missing entry means the pid's first toggle, which <see cref="IsLineBlink"/> already declines
+        /// to report.</para>
+        /// </summary>
+        internal static bool ResolveWindowTransitionExempt(
+            bool lineIsLit,
+            LineToggleVerdict currentToggle,
+            bool hasPriorToggle,
+            LineToggleVerdict priorToggle)
+        {
+            if (!hasPriorToggle)
+                return false;
+            if (lineIsLit)
+                return currentToggle == LineToggleVerdict.InsideWindowOn
+                    && priorToggle == LineToggleVerdict.WindowExitOff;
+            return currentToggle == LineToggleVerdict.WindowExitOff
+                && priorToggle == LineToggleVerdict.InsideWindowOn;
         }
 
         /// <summary>
@@ -1544,6 +1695,16 @@ namespace Parsek
             public bool LineActive;
             public string DrawIcons;
             public string Reason;
+
+            /// <summary>How this decision site measured the drive clock against the recording's
+            /// rendered body-frame window. Stamped only where the branch condition IS the measurement -
+            /// <c>Outside</c> by <c>GhostOrbitLinePatch</c>'s past-body-frame-end /
+            /// before-body-frame-start block and its parking-conic loiter HOLD, <c>Inside</c> by the two
+            /// branches that verified covering bounds. <c>Unknown</c> everywhere else, including the
+            /// sites that merely LOG bounds alongside another reason. Consumed by
+            /// <see cref="ClassifyLineToggle"/>; see its remarks for why a generic bounds comparison
+            /// would be the wrong signal and why <c>Inside</c> must be positive.</summary>
+            public RenderWindowCoverage WindowCoverage;
         }
 
         private static readonly Dictionary<string, LineRenderIntent> lineIntentByPid =
@@ -1552,7 +1713,9 @@ namespace Parsek
         /// <summary>Record the authoritative orbit-line decision for a pid this frame (called from
         /// GhostOrbitLinePatch). Keyed by pid; stamped with the current Unity frame. No-op when
         /// disabled.</summary>
-        internal static void RecordLineIntent(uint pid, bool lineActive, string drawIcons, string reason)
+        internal static void RecordLineIntent(
+            uint pid, bool lineActive, string drawIcons, string reason,
+            RenderWindowCoverage windowCoverage = RenderWindowCoverage.Unknown)
         {
             if (!IsEnabled)
                 return;
@@ -1561,7 +1724,8 @@ namespace Parsek
                 Frame = CurrentFrameCount(),
                 LineActive = lineActive,
                 DrawIcons = drawIcons,
-                Reason = reason
+                Reason = reason,
+                WindowCoverage = windowCoverage
             };
         }
 

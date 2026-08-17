@@ -63,7 +63,7 @@ The important product decision is: compatibility is intentionally not a goal. A 
   - [x] `RecordingStorageFixtures`
   - [x] `ScenarioWriter`
   - [x] synthetic/showcase recording injection outputs use v0/generation-1 for generated recordings
-  - [blocked] `Source/Parsek.Tests/Fixtures/DefaultCareer/` remains pre-reset and is explicitly excluded by `InjectAllRecordings` until rebaked
+  - [x] ~~`Source/Parsek.Tests/Fixtures/DefaultCareer/` remains pre-reset and is explicitly excluded by `InjectAllRecordings` until rebaked~~ CLOSED 2026-08-12 by DELETION, not by rebake. The rebake this item waited on was scoped as module M-A4, which never shipped and is absent from `docs/dev/autotest-status.md`; the outcome it existed to produce arrived instead as the harness's own harvested corpus (50 real recordings at format 1 / generation 4 under `harness/fixtures/saves/`). A rebake would never have started from this data anyway - the no-migration policy forbids reading the old bytes, so it always meant "fly something new and harvest it". See FIXTURE-DEFAULTCAREER-DELETED in `docs/dev/todo-and-known-bugs.md`.
   - [n/a] `VesselSnapshotBuilder` has no recording-format stamp to flip
 - [~] Replace compatibility tests with v0/current-contract tests:
   - [x] rewrite `FormatVersionTests` into discriminator refusal tests
@@ -89,7 +89,7 @@ The important product decision is: compatibility is intentionally not a goal. A 
   - `dotnet test Source/Parsek.Tests/Parsek.Tests.csproj --filter InjectAllRecordings`
   - `scripts/grep-audit-non-loop-live-pid.ps1`
   - `scripts/grep-audit-ers-els.ps1`
-  - [x] new version-literal grep gate: only v0 survives outside negative-test fixtures and the explicitly excluded `DefaultCareer` corpus
+  - [x] new version-literal grep gate: only v0 survives outside negative-test fixtures (the `DefaultCareer` carve-out is moot since that corpus was deleted 2026-08-12)
   - fresh v0 in-game smoke: Watch, active Re-Fly, map view, KSC ghost view, no `[ERROR]` lines in `KSP.log`
 
 ## First implementation pass

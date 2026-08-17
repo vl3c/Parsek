@@ -56,11 +56,58 @@ namespace Parsek
         public string cachedAudioBodyName;                   // body name the cache was built for
         public Dictionary<ulong, RoboticGhostInfo> roboticInfos; // key = EncodeEngineKey(pid, moduleIndex)
         public Dictionary<uint, DeployableGhostInfo> deployableInfos;
+        // S2: the deployable families with an interpolated stow<->deploy transition in flight this
+        // frame. Entries are appended by ApplyDeployableState's animated path and dropped by
+        // UpdateActiveDeployables at progress >= 1, so a ghost with nothing moving pays one
+        // null/Count check per frame. Cleared wholesale on a loop cycle (a mid-transition panel
+        // must re-stow, not resume against the new cycle's clock).
+        internal List<DeployableGhostInfo> activeDeployableTransitions;
+        // S3: gimbals / control surfaces / sun-tracking pivots discovered at build time. Null when
+        // the craft carries none, which is the common case and costs one null check per frame.
+        internal SynthesizedMotionGhostInfos synthesizedMotionInfos;
+        // S3 attitude derivative. The ghost's APPLIED world rotation on the previous synthesis
+        // frame, and the UT it was applied at. Deliberately the applied TRANSFORM and never a
+        // TrajectoryPoint.rotation read out of a flat Points list: in a RELATIVE track section that
+        // field is an anchor-local rotation, not srfRelRotation, and differencing the two would be
+        // frame-mixing. The transform is post-resolution on every playback path.
+        internal Quaternion prevSynthRotation = Quaternion.identity;
+        internal double prevSynthUT = double.NaN;
+        /// <summary>EMA-smoothed body-axis angular velocity, deg/s, in the ghost's own local frame.</summary>
+        internal Vector3 smoothedAngularVelocity;
+        // S3 wheel steering: the ghost's previous ground-track heading (unit vector, world) and the
+        // UT it was sampled at. One per ghost, shared by every steered wheel.
+        internal Vector3 prevGroundHeading;
+        internal double prevGroundHeadingUT = double.NaN;
+        internal float smoothedHeadingRateDegPerSec;
+        // S3 launch dust. Built lazily on the first frame the gate chain opens, under the same
+        // per-frame build cap the lazy reentry build uses. groundRefAltitude is the latched
+        // sea-level altitude of the ground under the launch site, derived from a surface section's
+        // recordedGroundClearance; NaN means "never latched" and no dust is ever emitted.
+        internal LaunchDustInfo launchDustInfo;
+        internal bool launchDustPendingBuild;
+        internal double launchDustGroundRefAltitude = double.NaN;
+        // S4 EVA: the three recorded flags plus the lazily-built jetpack puff. The flags live on
+        // the state rather than being re-derived from the event stream each frame so the plume gate
+        // is a pure read of three bools (GhostPlaybackLogic.ShouldEmitEvaJetpackPlume) and the
+        // loop-cycle reset has something to clear. A non-EVA ghost never sets any of them and never
+        // builds a plume.
+        internal bool evaJetpackDeployed;
+        internal bool evaJetpackThrusting;
+        internal bool evaRagdoll;
+        internal EvaJetpackPlumeInfo evaJetpackPlumeInfo;
+        /// <summary>True once a plume build was attempted and failed, so it is never re-tried.</summary>
+        internal bool evaJetpackPlumeUnavailable;
         public Dictionary<uint, HeatGhostInfo> heatInfos;
         public Dictionary<uint, LightGhostInfo> lightInfos;
         public Dictionary<uint, LightPlaybackState> lightPlaybackStates;
         public Dictionary<uint, List<ColorChangerGhostInfo>> colorChangerInfos;
         public Dictionary<uint, FairingGhostInfo> fairingInfos;
+        // M1 build-time module baselines read from the ghost snapshot, keyed by
+        // persistentId. Applied once at spawn (after the stow/cold baselines, before the
+        // prefix event replay) and re-applied on every loop cycle, so cycle N+1 restarts
+        // from the recorded look instead of the all-stowed prefab look. Null when the
+        // snapshot carried nothing readable.
+        public Dictionary<uint, SnapshotPartBaseline> snapshotBaselines;
         public List<CompoundPartGhostInfo> compoundPartInfos;
         public Dictionary<uint, GameObject> fakeCanopies;
         public ReentryFxInfo reentryFxInfo;
@@ -106,6 +153,9 @@ namespace Parsek
         public Vector3 lastInterpolatedVelocity;
         public string lastInterpolatedBodyName;
         public double lastInterpolatedAltitude;
+        // Ground-contact gate memo for RoboticVisualMode.WheelGroundSpeed spin. See
+        // WheelGroundContactMemo and GhostPlaybackLogic.ResolveWheelGroundContact.
+        internal WheelGroundContactMemo wheelGroundContact;
         public Vector3 lastValidHorizonForward; // fallback forward direction when velocity near zero
         public RenderingZone currentZone = RenderingZone.Physics; // distance-based rendering zone
         public double lastDistance; // meters from active vessel, updated per frame in ApplyZonePolicy
@@ -134,13 +184,37 @@ namespace Parsek
             audioPaused = false;
             cachedAudioBody = null;
             cachedAudioBodyName = null;
+            wheelGroundContact = default;
             roboticInfos = null;
             deployableInfos = null;
+            activeDeployableTransitions = null;
+            synthesizedMotionInfos = null;
+            prevSynthRotation = Quaternion.identity;
+            prevSynthUT = double.NaN;
+            smoothedAngularVelocity = Vector3.zero;
+            prevGroundHeading = Vector3.zero;
+            prevGroundHeadingUT = double.NaN;
+            smoothedHeadingRateDegPerSec = 0f;
+            // launchDustInfo holds Unity objects. GhostVisualBuilder.DestroyLaunchDust releases
+            // them from DestroyGhostResourcesWithMetrics BEFORE this runs, exactly as
+            // DestroyReentryFxResources does for reentryFxInfo - the child GameObject would go
+            // with the ghost, but the Material and the generated Texture2D would not.
+            launchDustInfo = null;
+            launchDustPendingBuild = false;
+            launchDustGroundRefAltitude = double.NaN;
+            // S4: same contract as launchDustInfo - DestroyEvaJetpackPlume has already released the
+            // Material and the generated Texture2D by the time this runs.
+            evaJetpackPlumeInfo = null;
+            evaJetpackPlumeUnavailable = false;
+            evaJetpackDeployed = false;
+            evaJetpackThrusting = false;
+            evaRagdoll = false;
             heatInfos = null;
             lightInfos = null;
             lightPlaybackStates = null;
             colorChangerInfos = null;
             fairingInfos = null;
+            snapshotBaselines = null;
             compoundPartInfos = null;
             fakeCanopies = null;
             reentryFxInfo = null;
@@ -199,5 +273,25 @@ namespace Parsek
             bodyName = body;
             altitude = alt;
         }
+    }
+
+    /// <summary>
+    /// Per-ghost memo of the last resolved wheel ground-contact answer, so the ground-contact gate
+    /// costs one pair of double compares on a steady-state frame instead of an O(sections) scan.
+    /// Owned by <see cref="GhostPlaybackState.wheelGroundContact"/>; resolved and updated only by
+    /// <see cref="GhostPlaybackLogic.ResolveWheelGroundContact"/>.
+    ///
+    /// The window is the resolved <see cref="TrackSection"/>'s own [startUT, endUT) span, so it
+    /// invalidates itself at every section change (and at a loop restart, where the UT jumps
+    /// backwards out of the window). Half-open on purpose: <c>FindTrackSectionForUT</c> treats the
+    /// LAST section's end as inclusive, so a probe at exactly that endUT re-resolves rather than
+    /// reading a cached answer — a miss, never a wrong answer.
+    /// </summary>
+    internal struct WheelGroundContactMemo
+    {
+        public bool hasValue;
+        public double startUT;
+        public double endUT;
+        public bool onGround;
     }
 }

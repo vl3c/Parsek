@@ -958,6 +958,7 @@ namespace Parsek
                 case PartEventType.ParachuteDeployed:
                 case PartEventType.ParachuteSemiDeployed:
                 case PartEventType.ParachuteCut:
+                case PartEventType.ParachuteRepacked:
                 case PartEventType.ParachuteDestroyed:
                 case PartEventType.ShroudJettisoned:
                 case PartEventType.DeployableExtended:
@@ -971,6 +972,14 @@ namespace Parsek
                 case PartEventType.Undocked:
                 case PartEventType.InventoryPartPlaced:
                 case PartEventType.InventoryPartRemoved:
+                // P8: DeployableBroken is the ONLY new member that earns a prewarm — it hides a
+                // mesh subtree, so a hidden ghost that skipped it would render an intact panel
+                // the moment it becomes visible. The other eight are self-correcting overlays:
+                // the converter running loop is a pure function of (UT - activeSinceUT) and
+                // re-derives its phase on the first visible frame, and the EVA jetpack pose /
+                // plume / ragdoll flags are re-established by the prefix replay when the ghost
+                // is actually built. Prewarming a ghost build for those would buy nothing.
+                case PartEventType.DeployableBroken:
                     return true;
                 default:
                     return false;
@@ -3632,6 +3641,28 @@ namespace Parsek
             {
                 GhostPlaybackLogic.ApplyPartEvents(index, traj, ut, state, allowTransientEffects);
                 // Flag events are applied earlier in RenderInRangeGhost, before zone check (#249).
+
+                // Continuous robotic motion (rotor RPM, and wheel spin derived from ground speed)
+                // is driven from HERE rather than from inside ApplyPartEvents, which early-returns
+                // when a recording has no PartEvents at all. Wheel spin no longer depends on any
+                // recorded event, so a rover recording that happens to carry zero part events must
+                // still roll its wheels — under the old call site it silently would not. Rotors are
+                // unaffected: with no events their `active` flag is false and this is a no-op.
+                //
+                // The sections are the wheel-spin ground-contact gate's only input; a null / empty
+                // list holds the wheels still (see GhostPlaybackLogic.ResolveWheelGroundContact).
+                GhostPlaybackLogic.UpdateActiveRobotics(state, ut, traj?.TrackSections);
+
+                // S2: advance any deployable stow<->deploy clip in flight. Progress is a pure
+                // function of the RECORDED event UT, so this call is idempotent within a frame and
+                // correct after a scrub, a warp change or a prefix catch-up with no extra state.
+                GhostPlaybackLogic.UpdateActiveDeployables(state, ut);
+
+                // S3: gimbal / control-surface / sun-tracking synthesis, driven off the ghost's own
+                // APPLIED world rotation. Placed here, after ApplyPartEvents, for the same reason
+                // UpdateActiveRobotics is: it must run on every visible frame, including for a
+                // recording that carries no part events at all.
+                GhostPlaybackLogic.UpdateSynthesizedMotion(state, ut);
             }
 
             bool priorVisualFxSuppressed = state.visualFxSuppressed;
@@ -3655,11 +3686,22 @@ namespace Parsek
                 GhostPlaybackLogic.StopAllRcsFx(state);
                 GhostPlaybackLogic.StopAllRcsEmissions(state);
                 GhostPlaybackLogic.ResetReentryFx(state, index);
+                DriveLaunchDustToZero(state);
                 GhostPlaybackLogic.MuteAllAudio(state);
             }
             else
             {
                 UpdateReentryFx(index, state, traj.VesselName, warpRate);
+                UpdateLaunchDust(index, state, traj, warpRate);
+
+                // S4 SELF-HEAL, and it belongs beside launch dust for the same reason dust is here:
+                // a ParticleSystem.Play() only takes on an ACTIVE hierarchy, and a ghost is inactive
+                // for the whole of its spawn-time prefix replay (BuildTimelineGhostFromSnapshot ends
+                // with root.SetActive(false); ActivateGhostVisualsIfNeeded runs later). Dust gets the
+                // retry for free by re-calling Play every frame; the plume is EVENT-driven, so
+                // without this a ghost spawning mid-burst stayed dark for the entire burst. Gated on
+                // the one flag that can want a plume, so every non-EVA ghost pays one bool read.
+                GhostPlaybackLogic.UpdateEvaJetpackPlumeForFrame(state);
                 GhostPlaybackLogic.RestoreAllRcsEmissions(state);
                 // Boundary-overlap secondary gets NO audio (plan invariant 3): it borrows the overlap
                 // STORAGE but must never be audible. The spawn-time MuteAllAudio is a one-shot flag, and
@@ -5916,6 +5958,121 @@ namespace Parsek
                 && state.reentryFxInfo == null
                 && state.deferVisibilityUntilPlaybackSync
                 && state.appearanceCount == 0;
+        }
+
+        /// <summary>
+        /// S3 launch dust, driven once per visible frame. Built lazily on the first frame the gate
+        /// chain opens, under the SAME per-frame build cap the lazy reentry build uses — a pad full
+        /// of simultaneously-launching looped ghosts must not all instantiate a particle system on
+        /// one frame, which is the exact hitch #450 exists to avoid.
+        ///
+        /// Gate order is cheapest-first: no engine power, nothing else runs. The ground reference
+        /// is latched once per ghost and NEVER invented — a recording whose points carry no
+        /// recordedGroundClearance (every non-surface recording) raises no dust, permanently.
+        /// </summary>
+        private void UpdateLaunchDust(
+            int recIdx, GhostPlaybackState state, IPlaybackTrajectory traj, float warpRate)
+        {
+            if (state == null || state.ghost == null) return;
+
+            if (GhostPlaybackLogic.ShouldSuppressVisualFx(warpRate))
+            {
+                DriveLaunchDustToZero(state);
+                return;
+            }
+
+            float enginePower = GhostPlaybackLogic.SumEnginePower(state);
+            if (enginePower <= 0f)
+            {
+                DriveLaunchDustToZero(state);
+                return;
+            }
+
+            if (double.IsNaN(state.launchDustGroundRefAltitude) && !state.launchDustPendingBuild
+                && state.launchDustInfo == null)
+            {
+                if (!GhostPlaybackLogic.TryLatchLaunchDustGroundReference(
+                        traj?.Points, out double groundRef))
+                {
+                    ParsekLog.VerboseRateLimited("GhostVisual", $"launch-dust-noground-{recIdx}",
+                        $"Launch dust disabled for ghost #{recIdx} \"{state.vesselName}\": no " +
+                        "trajectory point carries a finite recordedGroundClearance, so there is no " +
+                        "honest ground reference to measure AGL against", 60.0);
+                    state.launchDustGroundRefAltitude = double.NegativeInfinity;  // latched "never"
+                    return;
+                }
+                state.launchDustGroundRefAltitude = groundRef;
+                state.launchDustPendingBuild = true;
+            }
+
+            if (double.IsInfinity(state.launchDustGroundRefAltitude))
+                return;
+
+            if (!GhostPlaybackLogic.TryComputeLaunchDustIntensity(
+                    enginePower, state.lastInterpolatedAltitude,
+                    state.launchDustGroundRefAltitude, out float intensity))
+            {
+                DriveLaunchDustToZero(state);
+                return;
+            }
+
+            if (state.launchDustInfo == null)
+            {
+                if (!state.launchDustPendingBuild) return;
+                if (frameLazyReentryBuildCount >= GhostPlayback.MaxLazyReentryBuildsPerFrame)
+                {
+                    ParsekLog.VerboseRateLimited("GhostVisual", $"launch-dust-throttle-{recIdx}",
+                        $"Launch dust build throttled for ghost #{recIdx}; retrying next frame " +
+                        $"(used {frameLazyReentryBuildCount}/{GhostPlayback.MaxLazyReentryBuildsPerFrame})", 1.0);
+                    return;   // pending flag stays set — retry while the gate is still open
+                }
+                frameLazyReentryBuildCount++;
+                state.launchDustPendingBuild = false;
+                state.launchDustInfo = GhostVisualBuilder.TryBuildLaunchDust(
+                    state.ghost, state.vesselName);
+                if (state.launchDustInfo == null)
+                {
+                    state.launchDustGroundRefAltitude = double.NegativeInfinity;  // never re-try
+                    return;
+                }
+            }
+
+            ParticleSystem ps = state.launchDustInfo.particles;
+            if (ps == null) return;
+
+            var emission = ps.emission;
+            emission.rateOverTimeMultiplier = GhostPlaybackLogic.LaunchDustEmissionMax * intensity;
+            var main = ps.main;
+            main.startSizeMultiplier = Mathf.Lerp(
+                GhostPlaybackLogic.LaunchDustSizeMin, GhostPlaybackLogic.LaunchDustSizeMax, intensity);
+            if (!ps.isPlaying) ps.Play();
+            state.launchDustInfo.lastIntensity = intensity;
+
+            ParsekLog.VerboseRateLimited("GhostVisual", $"launch-dust-{recIdx}",
+                $"Launch dust ghost #{recIdx} \"{state.vesselName}\" " +
+                $"intensity={intensity.ToString("F3", CultureInfo.InvariantCulture)} " +
+                $"power={enginePower.ToString("F2", CultureInfo.InvariantCulture)} " +
+                $"alt={state.lastInterpolatedAltitude.ToString("F1", CultureInfo.InvariantCulture)} " +
+                $"groundRef={state.launchDustGroundRefAltitude.ToString("F1", CultureInfo.InvariantCulture)}",
+                5.0);
+        }
+
+        /// <summary>
+        /// Drives the dust to nothing. The early-out is on the SYSTEM STILL PLAYING rather than on
+        /// the cached lastIntensity: ResetForLoopCycle zeroes that memo without being able to touch
+        /// Unity, so a memo-only guard would then refuse to stop a system that is still emitting.
+        /// (In practice ReapplySpawnTimeModuleBaselinesForLoopCycle always follows and stops it,
+        /// but a truth-vs-memo disagreement should not need a second method to be safe.)
+        /// </summary>
+        private static void DriveLaunchDustToZero(GhostPlaybackState state)
+        {
+            LaunchDustInfo info = state?.launchDustInfo;
+            if (info?.particles == null) return;
+            info.lastIntensity = 0f;
+            if (!info.particles.isPlaying) return;
+            var emission = info.particles.emission;
+            emission.rateOverTimeMultiplier = 0f;
+            info.particles.Stop(true, ParticleSystemStopBehavior.StopEmitting);
         }
 
         /// <summary>
@@ -8199,6 +8356,15 @@ namespace Parsek
                 ParsekLog.Verbose("GhostAudio", $"Cleanup: stopped {audioStopped} audio source(s) for '{state.vesselName}'");
 
             DestroyReentryFxResources(state.reentryFxInfo);
+            // S3: the dust system's GameObject is a child of the ghost and goes with it, but the
+            // material and the generated texture are Parsek-created assets that Unity does NOT
+            // collect with the hierarchy — the same reason DestroyReentryFxResources exists.
+            GhostVisualBuilder.DestroyLaunchDust(state.launchDustInfo);
+            state.launchDustInfo = null;
+            // S4: the EVA jetpack puff owns a Material and a generated Texture2D on exactly the
+            // same terms, so it needs the same explicit release.
+            GhostVisualBuilder.DestroyEvaJetpackPlume(state.evaJetpackPlumeInfo);
+            state.evaJetpackPlumeInfo = null;
 
             if (state.ghost != null)
                 UnityEngine.Object.Destroy(state.ghost);

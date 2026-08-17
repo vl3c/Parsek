@@ -1151,18 +1151,27 @@ class SpecSyncTests(unittest.TestCase):
         self.assertNotIn("CommitTree", cmds)
 
     def test_the_forge_launches_the_craft_the_builder_writes(self):
+        # The craft is committed once in the shared library and overlaid into the
+        # forge's save at stage time, so the pairing this asserts is: the builder
+        # writes the ship the forge launches, that file exists, and the forge's own
+        # saveTemplate is declared a consumer of it in shared-ships.toml. The last
+        # clause is the load-bearing one - without a manifest row the staged save
+        # gets no Ships/VAB at all and kRPC launch_vessel cannot resolve
+        # <save>/Ships/VAB/<craftName>.craft.
         path = os.path.join(_HARNESS, "tools", "build_gs1_craft.py")
         spec = importlib.util.spec_from_file_location("build_gs1_craft_sync", path)
         builder = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(builder)
         self.assertEqual(builder.SHIP_NAME,
                          self.forge["driver"]["missionParams"]["craftName"])
-        self.assertEqual("fixtures/saves/%s" % builder.BASE_NAME,
-                         self.forge["fixture"]["saveTemplate"])
         self.assertTrue(os.path.isfile(builder.CRAFT_PATH),
-                        "the forge base must actually carry the craft it launches; "
-                        "kRPC launch_vessel resolves "
-                        "<save>/Ships/VAB/<craftName>.craft")
+                        "the shared ship library must carry the craft the forge launches")
+        with open(os.path.join(_HARNESS, "fixtures", "shared-ships.toml"), "rb") as fh:
+            manifest = tomllib.load(fh)["ships"]
+        leaf = self.forge["fixture"]["saveTemplate"].rsplit("/", 1)[-1]
+        self.assertIn(builder.SHIP_NAME, manifest.get(leaf, []),
+                      "the forge base %r must declare %r in shared-ships.toml, or the "
+                      "staged save carries no craft to launch" % (leaf, builder.SHIP_NAME))
 
     def test_the_forge_seeds_the_crew_the_pod_needs(self):
         # mk1pod.v2's ModuleCommand carries minimumCrew = 1, so an EMPTY pod is an

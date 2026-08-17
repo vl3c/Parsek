@@ -1344,8 +1344,14 @@ namespace Parsek.Tests
             Assert.Equal(2, seed.moduleIndex);
         }
 
+        /// <summary>
+        /// Was <c>..._ReliesOnSpawnBaseline</c> and pinned an EMPTY tail. That premise died
+        /// with M1: a tail no longer spawns at the all-stowed prefab pose but at whatever
+        /// its snapshot says — and a split TIP's snapshot is a COPY of the parent's
+        /// launch-time one, so "retracted" has to be STATED rather than assumed.
+        /// </summary>
         [Fact]
-        public void SplitAtSection_DeployableRetractedBeforeSplit_ReliesOnSpawnBaseline()
+        public void SplitAtSection_DeployableRetractedBeforeSplit_SeedsTheRetract()
         {
             var rec = MakeRecordingWithSections(17000, 17030, 17060,
                 SegmentEnvironment.Atmospheric, SegmentEnvironment.ExoBallistic);
@@ -1368,11 +1374,21 @@ namespace Parsek.Tests
 
             var second = RecordingOptimizer.SplitAtSection(rec, 1);
 
-            Assert.Empty(second.PartEvents);
+            var seed = Assert.Single(second.PartEvents);
+            Assert.Equal(PartEventType.DeployableRetracted, seed.eventType);
+            Assert.Equal(17030, seed.ut);
+            Assert.Equal((uint)300, seed.partPersistentId);
+            Assert.Equal(2, seed.moduleIndex);
         }
 
+        /// <summary>
+        /// Deployables are PID-COLLAPSED (one DeployableGhostInfo per part), so the second
+        /// module's retract overwrites the first module's extend in the reducer and the tail
+        /// gets ONE retract seed carrying the later event's module index. Same post-M1
+        /// reason as the cell above: pre-fix this asserted an empty tail.
+        /// </summary>
         [Fact]
-        public void SplitAtSection_DeployableRetractedOnSamePartDifferentModule_ReliesOnSpawnBaseline()
+        public void SplitAtSection_DeployableRetractedOnSamePartDifferentModule_SeedsOneRetract()
         {
             var rec = MakeRecordingWithSections(17000, 17030, 17060,
                 SegmentEnvironment.Atmospheric, SegmentEnvironment.ExoBallistic);
@@ -1395,7 +1411,9 @@ namespace Parsek.Tests
 
             var second = RecordingOptimizer.SplitAtSection(rec, 1);
 
-            Assert.Empty(second.PartEvents);
+            var seed = Assert.Single(second.PartEvents);
+            Assert.Equal(PartEventType.DeployableRetracted, seed.eventType);
+            Assert.Equal(1, seed.moduleIndex);
         }
 
         [Fact]
@@ -1507,8 +1525,15 @@ namespace Parsek.Tests
             Assert.Equal(2, evt.moduleIndex);
         }
 
+        /// <summary>
+        /// Was <c>..._ClearsDeploySeedWithoutForwardingCut</c> and pinned an EMPTY tail. The
+        /// cut is now forwarded: post-M1 a tail's canopy pose comes from its snapshot, and
+        /// the "cut" state is exactly the one a stale DEPLOYED baseline would contradict.
+        /// (ParachuteDESTROYED is still not seeded here — <c>ForwardPermanentStateEvents</c>
+        /// owns that one; see <c>RecordingOptimizerSplitAtUTTests</c>.)
+        /// </summary>
         [Fact]
-        public void SplitAtSection_ParachuteCutBeforeSplit_ClearsDeploySeedWithoutForwardingCut()
+        public void SplitAtSection_ParachuteCutBeforeSplit_ForwardsTheCut()
         {
             var rec = MakeRecordingWithSections(17000, 17030, 17060,
                 SegmentEnvironment.Atmospheric, SegmentEnvironment.ExoBallistic);
@@ -1529,7 +1554,10 @@ namespace Parsek.Tests
 
             var second = RecordingOptimizer.SplitAtSection(rec, 1);
 
-            Assert.Empty(second.PartEvents);
+            var seed = Assert.Single(second.PartEvents);
+            Assert.Equal(PartEventType.ParachuteCut, seed.eventType);
+            Assert.Equal(17030, seed.ut);
+            Assert.Equal((uint)405, seed.partPersistentId);
         }
 
         [Fact]

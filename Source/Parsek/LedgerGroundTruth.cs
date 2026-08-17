@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Text;
@@ -107,6 +107,14 @@ namespace Parsek
 
         /// <summary>Names of the strategies the save reports as active.</summary>
         public HashSet<string> ActiveStrategyIds = new HashSet<string>(StringComparer.Ordinal);
+
+        /// <summary>
+        /// Per-kerbal career-log entries parsed from ROSTER &gt; KERBAL &gt; CAREER_LOG. The
+        /// unit stock derives experience from - XP itself is never stored, it is recomputed
+        /// from this log, so the log IS the ground truth for the KerbalXp facet.
+        /// </summary>
+        public Dictionary<string, HashSet<KerbalCareerLogEntry>> KerbalCareerLog =
+            new Dictionary<string, HashSet<KerbalCareerLogEntry>>(StringComparer.Ordinal);
     }
 
     /// <summary>A kerbal parsed from GAME &gt; ROSTER &gt; KERBAL.</summary>
@@ -262,6 +270,13 @@ namespace Parsek
 
         /// <summary>Active strategy ids, when a surface ever exists.</summary>
         public HashSet<string> ActiveStrategyIds = new HashSet<string>(StringComparer.Ordinal);
+
+        /// <summary>
+        /// Per-kerbal career-log entries the reconstruction credits, read off the
+        /// KerbalsModule accumulator.
+        /// </summary>
+        public Dictionary<string, HashSet<KerbalCareerLogEntry>> KerbalCareerLog =
+            new Dictionary<string, HashSet<KerbalCareerLogEntry>>(StringComparer.Ordinal);
     }
 
     /// <summary>
@@ -299,6 +314,15 @@ namespace Parsek
         Milestone,
         Vessel,
 
+        /// <summary>
+        /// Per-kerbal career-log entries (P9a). REPORT-ONLY: deliberately absent from
+        /// <see cref="LedgerDivergenceReport.IsAlwaysHard"/>, matching the SubjectScience
+        /// posture. A kerbal's career log legitimately carries entries the ledger never saw
+        /// (pre-Parsek flights, stand-ins, mod-written entries), so a mismatch here is
+        /// information rather than corruption until a scenario proves otherwise.
+        /// </summary>
+        KerbalXp,
+
         /// <summary>GAME &gt; ROSTER kerbals (report-only).</summary>
         Roster,
 
@@ -310,6 +334,7 @@ namespace Parsek
 
         /// <summary>StrategySystem active strategies (report-only, shape-only).</summary>
         Strategy
+
     }
 
     /// <summary>What kind of disagreement a divergence represents.</summary>
@@ -398,7 +423,7 @@ namespace Parsek
         ///
         /// When <paramref name="strict"/> is true, ALSO promotes the report-only
         /// per-identity facets (SubjectScience / Facility / Contract / Milestone /
-        /// Roster / TechNode / PartPurchase / Strategy), phantoms, and
+        /// KerbalXp / Roster / TechNode / PartPurchase / Strategy), phantoms, and
         /// uncorroborated (pid-only) recovery Consistency entries.
         /// </summary>
         internal List<LedgerDivergence> HardFailures(bool strict)

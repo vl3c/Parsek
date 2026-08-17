@@ -38,7 +38,67 @@ namespace Parsek
         ParachuteSemiDeployed, // 33 - parachute entered semi-deployed (streamer) state
         // Explicit value for serialization stability. Values 0-33 are contiguous;
         // new values must be explicitly numbered.
-        ThermalAnimationMedium = 34 // ModuleAnimateHeat entered medium visual state
+        ThermalAnimationMedium = 34, // ModuleAnimateHeat entered medium visual state
+        // A CUT chute was repacked back to STOWED by an EVA kerbal (stock
+        // ModuleParachute.Repack: cap re-shown, canopy hidden). Distinct from
+        // ParachuteCut, which hides the cap permanently — before this member
+        // existed the recorder collapsed STOWED/ACTIVE/CUT into one state and a
+        // repack emitted ParachuteCut, so a repacked chute rendered as an empty
+        // can for the rest of playback.
+        ParachuteRepacked = 35,
+
+        // ------------------------------------------------------------------
+        // P8 (part-event fidelity). Members 36-44, explicit and append-only.
+        //
+        // FORWARD-COMPAT NOTE, verified rather than assumed: neither reader gates
+        // these out destructively. TrajectorySidecarBinary.ReadPartEventList raw-casts
+        // `(PartEventType)reader.ReadInt32()`, so an OLDER build reading a newer .prec
+        // materialises an undefined member and carries it; the legacy text codec gates on
+        // Enum.IsDefined and skips it. Every reachable consumer of an unrecognised member
+        // degrades conservatively (ApplyPartEvents: unhandled switch arm;
+        // IsPermanentVisualStateEvent: false; IsGhostingTrigger: true + a Verbose line),
+        // which is why members 34/35 shipped without a schema-generation bump and why
+        // these do too. See RecordedSignalFixTests
+        // .BinarySidecar_RawCastsAnUndefinedPartEventType_AndEveryConsumerDegradesGracefully.
+        // ------------------------------------------------------------------
+
+        /// A ModuleDeployablePart entered BROKEN. Deliberately its OWN member rather
+        /// than a value-flagged DeployableRetracted: BROKEN renders differently (the
+        /// break subtree is HIDDEN, not posed stowed), and a value flag would poison
+        /// every boolean consumer that reads the deployable family — the split-seed
+        /// reducer (family 3), the snapshot baseline resolver, the S2 interpolator and
+        /// the sun-tracking gate all ask "extended or not?" and none of them can answer
+        /// "gone". Seeded VERBATIM through the reducer, exactly like the parachute trio.
+        /// REVERSIBLE: stock eventRepairExternal returns the panel to RETRACTED, so a
+        /// later DeployableRetracted un-hides the subtree.
+        DeployableBroken = 36,
+
+        /// First BaseConverter on the part became active (ModuleResourceConverter or
+        /// ModuleResourceHarvester — cachedConverters is List&lt;BaseConverter&gt;). Drives
+        /// the ModuleAnimationGroup running-loop animation on playback (drill spinning,
+        /// ISRU churning).
+        ConverterActivated = 37,
+        /// Last BaseConverter on the part went inactive: the running loop stops.
+        ConverterDeactivated = 38,
+
+        /// KerbalEVA jetpack extended (KerbalEVA.JetpackDeployed true).
+        EvaJetpackDeployed = 39,
+        /// KerbalEVA jetpack stowed.
+        EvaJetpackStowed = 40,
+        /// KerbalEVA jetpack began sustained thrust (value = 1.0). DEBOUNCED on the same
+        /// frame threshold as RCS — KerbalEVA.JetpackIsThrusting is rewritten every
+        /// FixedUpdate from a fuel-flow comparison and flickers on a single tap.
+        EvaJetpackThrustStarted = 41,
+        /// KerbalEVA jetpack thrust ended.
+        EvaJetpackThrustStopped = 42,
+
+        /// KerbalEVA went ragdoll. EVENTS ONLY — the ragdoll POSE is deliberately not
+        /// recorded or replayed (it is a physics outcome with no clip to sample, so a
+        /// replayed pose would be invention). The events gate the thrust plume and mark
+        /// the timeline.
+        EvaRagdollStarted = 43,
+        /// KerbalEVA recovered from ragdoll.
+        EvaRagdollEnded = 44
     }
 
     internal enum HeatLevel { Cold, Medium, Hot }

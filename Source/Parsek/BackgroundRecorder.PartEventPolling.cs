@@ -11,6 +11,34 @@ namespace Parsek
         #region Part Event Polling
 
         /// <summary>
+        /// Background mirror of <c>FlightRecorder.ShouldPollCachedModule</c> (M5). Returns true when
+        /// a cached engine / RCS / robotic entry is still on the BG vessel being polled; logs once
+        /// per key when it is not. The identity comparison is the same live-object one the
+        /// foreground uses — see <see cref="FlightRecorder.DecideCachedModulePoll(bool,bool,bool,bool)"/>.
+        /// </summary>
+        private static bool ShouldPollCachedBackgroundModule(
+            Part part, PartModule module, Vessel v, BackgroundVesselState state,
+            ulong key, string family)
+        {
+            var decision = FlightRecorder.DecideCachedModulePoll(part, module, v);
+            if (decision == FlightRecorder.CachedModulePollDecision.Poll)
+                return true;
+
+            if (decision == FlightRecorder.CachedModulePollDecision.SkipForeignVessel
+                && state != null && state.loggedForeignCachedModuleKeys.Add(key))
+            {
+                uint pid; int midx;
+                FlightRecorder.DecodeEngineKey(key, out pid, out midx);
+                ParsekLog.Info("BgRecorder",
+                    $"Cached {family} module dropped from poll: pid={pid} midx={midx} " +
+                    $"'{part?.partInfo?.name ?? "unknown"}' is no longer on bg vessel {state.vesselPid} " +
+                    $"— events for it would have landed in rec={state.recordingId}");
+            }
+
+            return false;
+        }
+
+        /// <summary>
         /// Polls all part event types for a background vessel in loaded/physics mode.
         /// Duplicates the Layer 2 wrapper methods from FlightRecorder, calling the
         /// same Layer 1 static transition methods.
@@ -18,11 +46,11 @@ namespace Parsek
         /// Part Event Coverage Audit (BackgroundRecorder vs FlightRecorder):
         ///
         ///   POLLED (per-physics-frame, in PollPartEvents):
-        ///     [x] CheckParachuteState        - ParachuteDeployed / ParachuteCut / ParachuteSemiDeployed
+        ///     [x] CheckParachuteState        - ParachuteDeployed / ParachuteCut / ParachuteSemiDeployed / ParachuteRepacked
         ///     [x] CheckJettisonState          - ShroudJettisoned
         ///     [x] CheckEngineState            - EngineIgnited / EngineShutdown / EngineThrottle
         ///     [x] CheckRcsState               - RCSActivated / RCSStopped / RCSThrottle
-        ///     [x] CheckDeployableState        - DeployableExtended / DeployableRetracted
+        ///     [x] CheckDeployableState        - DeployableExtended / DeployableRetracted / DeployableBroken
         ///     [x] CheckLadderState            - DeployableExtended / DeployableRetracted (ladders)
         ///     [x] CheckAnimationGroupState    - DeployableExtended / DeployableRetracted (anim groups)
         ///     [x] CheckAeroSurfaceState       - DeployableExtended / DeployableRetracted (aero surfaces)
@@ -35,6 +63,12 @@ namespace Parsek
         ///     [x] CheckCargoBayState          - CargoBayOpened / CargoBayClosed
         ///     [x] CheckFairingState           - FairingJettisoned
         ///     [x] CheckRoboticState           - RoboticMotionStarted / RoboticPositionSample / RoboticMotionStopped
+        ///                                       (wheel MOTOR spin excluded — derived from ground speed at playback)
+        ///     [x] CheckConverterState         - ConverterActivated / ConverterDeactivated
+        ///     [x] CheckEvaState               - EvaJetpackDeployed / EvaJetpackStowed / EvaRagdollStarted / EvaRagdollEnded
+        ///                                       (jetpack THRUST is flight-only by nature: a background
+        ///                                        kerbal receives no input, so the edge never fires. That
+        ///                                        is parity with reality, not a coverage gap.)
         ///
         ///   GAME-EVENT DRIVEN (via SubscribePartEvents):
         ///     [x] onPartDie                   - Destroyed / ParachuteDestroyed (OnBackgroundPartDie)
@@ -50,7 +84,7 @@ namespace Parsek
             // Count delta before/after pattern: all CheckXState methods only
             // mutate treeRec.PartEvents (no Points/OrbitSegments/etc changes),
             // so a single post-polling dirty mark guarded on count-delta covers
-            // all 17 child checks without 19 inline MarkFilesDirty calls.
+            // all 19 child checks without 19 inline MarkFilesDirty calls.
             // If no events were emitted this poll, the mark is skipped — keeps
             // the frequent per-physics-frame poll cheap.
             int prePartEventCount = treeRec.PartEvents.Count;
@@ -72,6 +106,8 @@ namespace Parsek
             CheckCargoBayState(v, state, treeRec, ut);
             CheckFairingState(v, state, treeRec, ut);
             CheckRoboticState(v, state, treeRec, ut);
+            CheckConverterState(v, state, treeRec, ut);
+            CheckEvaState(v, state, treeRec, ut);
 
             if (treeRec.PartEvents.Count > prePartEventCount)
                 treeRec.MarkFilesDirty();
@@ -90,9 +126,17 @@ namespace Parsek
                 var chute = p.FindModuleImplementing<ModuleParachute>();
                 if (chute == null) continue;
 
-                int chuteState = chute.deploymentState == ModuleParachute.deploymentStates.DEPLOYED ? 2
-                    : chute.deploymentState == ModuleParachute.deploymentStates.SEMIDEPLOYED ? 1
-                    : 0;
+                // Same four-state classifier the foreground recorder uses, so a repack observed on
+                // a background vessel emits ParachuteRepacked rather than ParachuteCut.
+                //
+                // This path is not theoretical — it is the LIKELIER of the two. Stock
+                // ModuleParachute.Repack is [KSPEvent(externalToEVAOnly = true, unfocusedRange = 4f)],
+                // so a repack is performed BY an EVA kerbal ON another craft. The kerbal is the
+                // active vessel; the craft whose chute is being repacked is a loaded vessel in the
+                // background map, i.e. exactly this poll. (Background polling early-returns on
+                // packed/on-rails vessels, and a repack requires a loaded one, so the gate and the
+                // action agree.)
+                int chuteState = FlightRecorder.ClassifyParachuteState(chute.deploymentState);
 
                 var evt = FlightRecorder.CheckParachuteTransition(
                     p.persistentId, p.partInfo?.name ?? "unknown", chuteState, state.parachuteStates, ut);
@@ -181,19 +225,107 @@ namespace Parsek
                 if (deployable == null) continue;
 
                 var ds = deployable.deployState;
-                if (ds == ModuleDeployablePart.DeployState.BROKEN) continue;
+                string partName = p.partInfo?.name ?? "unknown";
+                bool isBroken = ds == ModuleDeployablePart.DeployState.BROKEN;
+
+                // S6 BG parity: a background station's solar panel snapping off is one of the
+                // visible cases (a micrometeorite / overspeed break on an unattended base), so
+                // the BG wrapper polls the same edge through the same pure transition.
+                var brokenEvt = FlightRecorder.CheckDeployableBrokenTransition(
+                    p.persistentId, partName, isBroken, state.brokenDeployables,
+                    state.extendedDeployables, ut);
+                if (brokenEvt.HasValue)
+                {
+                    treeRec.PartEvents.Add(brokenEvt.Value);
+                    ParsekLog.Verbose("BgRecorder", $"Part event: {brokenEvt.Value.eventType} '{brokenEvt.Value.partName}' " +
+                        $"pid={brokenEvt.Value.partPersistentId} (bg vessel {state.vesselPid}, deployable-broken edge)");
+                }
+
+                if (isBroken) continue;
                 if (ds == ModuleDeployablePart.DeployState.EXTENDING) continue;
                 if (ds == ModuleDeployablePart.DeployState.RETRACTING) continue;
 
                 bool isExtended = ds == ModuleDeployablePart.DeployState.EXTENDED;
 
                 var evt = FlightRecorder.CheckDeployableTransition(
-                    p.persistentId, p.partInfo?.name ?? "unknown", isExtended, state.extendedDeployables, ut);
+                    p.persistentId, partName, isExtended, state.extendedDeployables, ut);
                 if (evt.HasValue)
                 {
                     treeRec.PartEvents.Add(evt.Value);
                     ParsekLog.Verbose("BgRecorder", $"Part event: {evt.Value.eventType} '{evt.Value.partName}' " +
                         $"pid={evt.Value.partPersistentId} (bg vessel {state.vesselPid})");
+                }
+            }
+        }
+
+        /// <summary>
+        /// S7 BG parity - and this is the case that MATTERS most for converters: a mining base you
+        /// left behind keeps producing while you are elsewhere, and that is exactly when the base is
+        /// a background vessel. Same Layer-1 transition, no window machinery (the harvest window is
+        /// a flight-side resource-attribution device, unrelated to this visual).
+        /// </summary>
+        private void CheckConverterState(Vessel v, BackgroundVesselState state,
+            Recording treeRec, double ut)
+        {
+            if (v == null || v.parts == null) return;
+
+            for (int i = 0; i < v.parts.Count; i++)
+            {
+                Part p = v.parts[i];
+                if (p == null) continue;
+
+                var evt = FlightRecorder.CheckConverterTransition(
+                    p.persistentId, p.partInfo?.name ?? "unknown",
+                    FlightRecorder.IsAnyConverterActiveOnPart(p), state.activeConverterParts, ut);
+                if (evt.HasValue)
+                {
+                    treeRec.PartEvents.Add(evt.Value);
+                    ParsekLog.Verbose("BgRecorder", $"Part event: {evt.Value.eventType} '{evt.Value.partName}' " +
+                        $"pid={evt.Value.partPersistentId} (bg vessel {state.vesselPid}, converter)");
+                }
+            }
+        }
+
+        /// <summary>
+        /// S4 BG parity for the two NON-momentary EVA signals. A background kerbal being knocked
+        /// ragdoll is a real, visible case (a rover runs him over while you fly something else), and
+        /// his jetpack pose persists across the span.
+        ///
+        /// THRUST is absent, and that is parity rather than a gap: JetpackIsThrusting is recomputed
+        /// from fuel flow driven by player INPUT, and a background kerbal receives none - so the
+        /// edge can never fire and a wrapper for it would be dead code.
+        /// </summary>
+        private void CheckEvaState(Vessel v, BackgroundVesselState state,
+            Recording treeRec, double ut)
+        {
+            if (v == null || !v.isEVA || v.parts == null) return;
+
+            for (int i = 0; i < v.parts.Count; i++)
+            {
+                Part p = v.parts[i];
+                if (p == null) continue;
+
+                var eva = p.FindModuleImplementing<KerbalEVA>();
+                if (eva == null) continue;
+
+                string partName = p.partInfo?.name ?? "unknown";
+
+                var jetpackEvt = FlightRecorder.CheckEvaJetpackTransition(
+                    p.persistentId, partName, eva.JetpackDeployed, state.jetpackDeployedParts, ut);
+                if (jetpackEvt.HasValue)
+                {
+                    treeRec.PartEvents.Add(jetpackEvt.Value);
+                    ParsekLog.Verbose("BgRecorder", $"Part event: {jetpackEvt.Value.eventType} '{partName}' " +
+                        $"pid={p.persistentId} (bg vessel {state.vesselPid}, eva)");
+                }
+
+                var ragdollEvt = FlightRecorder.CheckEvaRagdollTransition(
+                    p.persistentId, partName, eva.isRagdoll, state.ragdollParts, ut);
+                if (ragdollEvt.HasValue)
+                {
+                    treeRec.PartEvents.Add(ragdollEvt.Value);
+                    ParsekLog.Verbose("BgRecorder", $"Part event: {ragdollEvt.Value.eventType} '{partName}' " +
+                        $"pid={p.persistentId} (bg vessel {state.vesselPid}, eva)");
                 }
             }
         }
@@ -378,6 +510,10 @@ namespace Parsek
                 if (part == null || engine == null) continue;
 
                 ulong key = FlightRecorder.EncodeEngineKey(part.persistentId, moduleIndex);
+                // M5 ownership guard, background mirror: a booster staged off a BG-loaded vessel
+                // keeps a live ModuleEngines in this cache and would otherwise write its burn into
+                // the parent's recording. Same pure core as the foreground poll.
+                if (!ShouldPollCachedBackgroundModule(part, engine, v, state, key, "engine")) continue;
                 bool ignited = FlightRecorder.ShouldRecordEngineAsIgnited(
                     engine.EngineIgnited, engine.isOperational, engine.finalThrust);
                 float recordedPower = FlightRecorder.ComputeRecordedEnginePower(
@@ -429,6 +565,7 @@ namespace Parsek
                 if (part == null || rcs == null) continue;
 
                 ulong key = FlightRecorder.EncodeEngineKey(part.persistentId, moduleIndex);
+                if (!ShouldPollCachedBackgroundModule(part, rcs, v, state, key, "rcs")) continue;
                 bool active = rcs.rcs_active && rcs.rcsEnabled;
                 uint pid = part.persistentId;
                 string partName = part.partInfo?.name ?? "unknown";
@@ -799,6 +936,25 @@ namespace Parsek
                 if (part == null || module == null) continue;
 
                 ulong key = FlightRecorder.EncodeEngineKey(part.persistentId, moduleIndex);
+                if (!ShouldPollCachedBackgroundModule(part, module, v, state, key, "robotic")) continue;
+
+                // Mirrors the foreground gate: wheel motor spin and wheel steering deflection are
+                // both derived from the ghost's own ground motion at playback, not recorded. See
+                // FlightRecorder.IsDerivedWheelVisualModuleName.
+                // Logged once per key, exactly as FlightRecorder.CheckRoboticState does — a silent
+                // skip here would leave the BG half of the gate invisible in KSP.log, and the BG
+                // half is the one a rover-on-a-background-vessel report lands on.
+                if (FlightRecorder.IsDerivedWheelVisualModuleName(moduleName))
+                {
+                    if (state.loggedRoboticModuleKeys.Add(key))
+                    {
+                        ParsekLog.Verbose("BgRecorder", $"Robotics: derived wheel visual not recorded for " +
+                            $"'{part.partInfo?.name}' pid={part.persistentId} midx={moduleIndex} " +
+                            $"module={moduleName} (bg vessel {state.vesselPid}); " +
+                            $"derived from ghost ground motion at playback");
+                    }
+                    continue;
+                }
 
                 bool hasPosition = FlightRecorder.TryGetRoboticPositionValue(
                     module, moduleName, out float positionValue, out float deadband, out string sourceField);

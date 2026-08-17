@@ -1,4 +1,4 @@
-# In-game test category inventory (all 99 categories)
+# In-game test category inventory (all 100 categories)
 
 Machine-derived from `Source/Parsek` by `hlib.parse_ingame_test_declarations` +
 `hlib.derive_batch_tally`. Do NOT hand-edit the table: re-derive it. The generator
@@ -117,10 +117,10 @@ Two limits of this table, stated so nobody over-reads it:
 | `KSP` | 6 | 6 | 4 | 4 | 0 | 0 | H13 | A |
 | `KspApiSanity` | 5 | 5 | 3 | 3 | 0 | 3 | H24 | A |
 | `Ledger` | 4 | 0 | 4 | 0 | 0 | 4 | - | B |
-| `LedgerGroundTruth` | 1 | 1 | 0 | 0 | 0 | 1 | - | B |
+| `LedgerGroundTruth` | 2 | 2 | 0 | 0 | 0 | 1 | - | B |
 | `LocalizedName` | 3 | 3 | 3 | 3 | 0 | 0 | H29 | A |
 | `LogContracts` | 10 | 10 | 8 | 8 | 0 | 2 | H26 | A |
-| `Logistics` | 47 | 8 | 2 | 1 | 38 | 46 | - | B |
+| `Logistics` | 47 | 8 | 2 | 1 | 38 | 46 | H34 (SPACECENTER slice), H35 (FLIGHT slice) | B |
 | `LogisticsGrapple` | 4 | 3 | 0 | 0 | 1 | 2 | - | B |
 | `MapPresence` | 5 | 5 | 3 | 3 | 0 | 2 | H28 | A |
 | `MapRender` | 22 | 21 | 0 | 0 | 1 | 14 | S1.7 | B |
@@ -130,8 +130,9 @@ Two limits of this table, stated so nobody over-reads it:
 | `Missions` | 12 | 7 | 5 | 0 | 0 | 9 | M1 | B |
 | `Optimizer` | 2 | 0 | 2 | 0 | 0 | 2 | - | B |
 | `PartEventFX` | 6 | 6 | 0 | 0 | 0 | 6 | - | B |
+| `PartEventFidelity` | 5 | 5 | 0 | 0 | 0 | 5 | H37 | A |
 | `PartEventTiming` | 2 | 2 | 0 | 0 | 0 | 0 | - | B |
-| `Periodicity` | 11 | 1 | 7 | 0 | 3 | 5 | M2 | B |
+| `Periodicity` | 13 | 1 | 9 | 0 | 3 | 5 | M2 | B |
 | `Pipeline-Anchor` | 7 | 7 | 0 | 0 | 0 | 0 | H11 | A |
 | `Pipeline-Anchor-BubbleEntry` | 2 | 2 | 0 | 0 | 0 | 0 | - | B |
 | `Pipeline-AnchorPropagate` | 1 | 1 | 0 | 0 | 0 | 0 | - | B |
@@ -140,8 +141,11 @@ Two limits of this table, stated so nobody over-reads it:
 | `Pipeline-Smoothing` | 4 | 4 | 0 | 0 | 0 | 1 | H18 | A |
 | `Pipeline-Terrain` | 1 | 1 | 0 | 0 | 0 | 1 | - | B |
 | `PlaybackControl` | 1 | 0 | 0 | 0 | 1 | 1 | - | B |
+| `PlaybackFidelity` | 7 | 7 | 0 | 0 | 0 | 7 | H36 | A |
 | `QuickloadResume` | 3 | 1 | 0 | 0 | 2 | 1 | - | B |
+| `ReFlyWorldPreservation` | 6 | 6 | 0 | 0 | 0 | 6 | S4.2 | A |
 | `ReStockCompat` | 9 | 9 | 0 | 0 | 0 | 9 | - | B |
+| `RecordedSignals` | 3 | 3 | 1 | 1 | 0 | 2 | H33 | A |
 | `Recording` | 1 | 0 | 1 | 0 | 0 | 0 | - | B |
 | `RecordingFinalization` | 3 | 3 | 0 | 0 | 0 | 0 | H19 | A |
 | `RecordingInvariants` | 2 | 2 | 0 | 0 | 0 | 0 | H5 | B |
@@ -160,7 +164,8 @@ Two limits of this table, stated so nobody over-reads it:
 | `SceneAndPatch` | 7 | 4 | 3 | 2 | 0 | 4 | - | B |
 | `SceneExitMerge` | 2 | 0 | 0 | 0 | 2 | 2 | H21 | A |
 | `Serialization` | 4 | 4 | 4 | 4 | 0 | 1 | H25 | A |
-| `Settings` | 3 | 2 | 2 | 3 | 0 | 0 | - | B |
+| `Settings` | 4 | 3 | 2 | 3 | 0 | 1 | - | B |
+| `SnapshotBaseline` | 7 | 7 | 0 | 0 | 0 | 7 | H32 | A |
 | `SoiCrossingPlayback` | 3 | 3 | 0 | 0 | 0 | 3 | S1.8 | A |
 | `SpawnCollision` | 2 | 2 | 0 | 0 | 0 | 2 | - | B |
 | `SpawnHealth` | 3 | 3 | 3 | 3 | 0 | 0 | H16 | A |
@@ -189,12 +194,110 @@ Two limits of this table, stated so nobody over-reads it:
 
 ## Triage
 
-Totals, re-derived: **99 categories / 549 declarations**. Buckets **A 27 categories
-(192 declarations)**, **B 72 categories (357 declarations)**, **C 0 categories (0
-declarations)**. Driven by a committed spec: **35 of 99 categories**, up from 34
-(the S1.8 SoiCrossingPlayback wave; before that 28, and 8 two waves earlier).
-Measured against declarations rather than categories, that is 317 of 549 inside a
-driven category (was 314; 263 the wave before).
+Totals, re-derived: **104 categories / 581 declarations**. Buckets **A 32 categories
+(220 declarations)**, **B 72 categories (361 declarations)**, **C 0 categories (0
+declarations)**. Driven by a committed spec: **41 of 104 categories**, up from 35
+across six waves - `ReFlyWorldPreservation` via S4.2, `RecordedSignals` via H33,
+`SnapshotBaseline` via H32, and `Logistics` via H34 all landed together in one merge
+(the S1.8 SoiCrossingPlayback wave had taken it to 35 from 34, and 28 and 8 the waves
+before), then `PlaybackFidelity` via H36 and `PartEventFidelity` via H37. Measured
+against declarations rather than categories, that is 393 of 579 inside a driven
+category (was 318 before these waves: 324 after S4.2, 327 after H33, 334 after H32,
+381 once `Logistics` counted, 388 with `PlaybackFidelity`, and 393 with
+`PartEventFidelity`). `H35-logistics-route-proof` (2026-08-11) moves NEITHER number -
+it is the second spec on a category H34 already counted - which is exactly the
+distortion the paragraph after next is about.
+
+`ReFlyWorldPreservation` (6, driven by `S4.2-refly-world-preservation`) arrived with
+its driver rather than as an undriven category: it was authored for the
+REFLY-DELETES-NON-SLOT-WORLD fix, whose xUnit coverage is ConfigNode-level and
+pure-predicate and therefore cannot observe the live post-load scene where the bug's
+second deleting layer lived. All six members are Scene = FLIGHT and batch-allowed,
+and all six self-skip with a named requirement when no Re-Fly session is live, so the
+category is safe in any batch and vacuous in none.
+
+`PlaybackFidelity` (7 declarations, wired as `H36-playback-fidelity`) is the live
+half of P5/P6 - plume magnitude, deployable interpolation and synthesized motion. It
+arrived with its driver rather than as an undriven backlog row, on the same ground
+`ReFlyWorldPreservation` did: the headless suite owns every pure decision these
+features make, and what is left over is exactly what needs a scene - a captured FX
+baseline on a CLONED `KSPParticleEmitter`, an interpolated pose on a real
+`Transform`, and `Quaternion.AngleAxis`, a native call that throws in a headless
+process. All seven are Scene = FLIGHT and batch-allowed, so its attribute-derived
+skip floor is 0; all seven ALSO self-skip with a named requirement when the install
+gives them no usable prefab, which is why `H36` ships with an interim (loose
+`passed=` / `skipped=`) pin until a flight measures the split. Bucket A1 by
+admission criterion 1 and A1's exception 2 - the same standing `H26` / `H28` / `H31`
+have.
+
+`RecordedSignals` (3 declarations, wired as `H33-recorded-signals`) exists for the
+live half of the 2026-08-09 part-action recording audit - the one step of the
+wheel-spin fix (Unity's `AngleAxis` handedness) that no headless cell can reach, the
+parachute cap restore at transform level, and the ground-contact gate that keeps a
+rover riding a launch vehicle from spinning its wheels at orbital speed. Two of its
+three cells carry run-time self-skips (its row's "Members with self-skip" column
+reads 2), which is why its spec was pinned interim when it landed; the 2026-08-11
+flight measured `total=3 passed=3 failed=0 skipped=0` and the pin is now whole.
+
+`SnapshotBaseline` (7, driven by `H32-snapshot-baseline`) likewise arrived ALREADY in
+bucket A rather than as a bucket-B backlog row: the category was authored together
+with its scenario, for the M1 ghost snapshot-baseline fix. Its spec was also pinned
+interim on landing, on the expectation that the stock-minimal profile might carry
+neither Breaking Ground robotics nor deployable prefabs whose clips separate stow
+from deploy; the 2026-08-11 flight measured `total=7 passed=7 failed=0 skipped=0` and
+disproved both, so that pin is whole too.
+
+`PartEventFidelity` (5 declarations, wired as `H37-part-event-fidelity`) is the live
+half of P8, and it arrived with its driver on the same ground as the two above. Four
+of its cells cover the wave's new signals - a broken deployable's subtree hide plus
+its repair un-hide and loop-cycle re-show, the converter running loop's motion and
+cyclic wrap and stop, the empty-deploy-name (large ISRU) shape of that loop, and the
+EVA jetpack plume's lazy build and three-flag gate. THE FIFTH IS DIFFERENT IN KIND and
+worth naming: it pins a NEGATIVE decision. P8 deliberately records nothing for the
+science timeline because the science-experiment deploy visual was ALREADY recorded
+through the ModuleAnimateGeneric path, and the audit's §2 wording was imprecise enough
+to make that verdict look wrong. The cell asserts both halves of the claim on a live
+prefab, so if the verdict ever stops being true it REDS instead of a doc sentence
+quietly rotting. All five are Scene = FLIGHT and batch-allowed (attribute-derived skip
+floor 0) and all five self-skip with a named requirement when the install gives them
+no usable prefab. `H37` shipped with an interim `passed=` pin and is now LIVE-PROVEN:
+after a first flight that red 3/5, the 2026-08-12 re-fly measured `total=5 passed=5
+failed=0 skipped=0`, all five guards satisfied on stock-minimal, so the pin is literal,
+no `RUNTIME_SKIPS` entry is owed and `IngameBatchWiringGroupTests.INTERIM_PIN_IDS` is
+EMPTY again. Bucket A1, same standing as `H36`.
+
+WHAT ITS FIRST FLIGHT COST AND BOUGHT, because it is the most useful thing this category
+has produced so far: neither non-green cell was the install shortfall the interim pin was
+hedging against. The RED was a PRODUCT defect (`ParticleSystem.Play()` on a ghost that is
+not `activeInHierarchy` is a SILENT no-op, and a ghost is inactive throughout its
+spawn-time prefix replay, so an EVA ghost spawning mid-burst stayed dark for the whole
+burst while the log claimed it was emitting). The SKIP was a TEST defect - the Goo cell's
+precondition tested POSITION only while a science canister's `Deploy` clip swings its
+doors, and the re-fly's measured `span(pos=0 rot=29.99998deg)` is that diagnosis in one
+number. The transferable lesson is about CELL STYLE rather than about either bug: the
+other four cells passed on that first flight while the plume cell measured a lie, because
+they read `activeSelf` flags and sampled poses, both of which are readable on an INACTIVE
+hierarchy. Anything Unity silently refuses to do while inactive is invisible to that style
+of cell, so a category whose claims depend on Unity ACTING should activate its fixture
+through the production seam (`GhostPlaybackEngine.ActivateGhostVisualsIfNeededForTesting`),
+as `H37` now does.
+
+READ THAT 381 CAREFULLY - the last 47 of it are the largest single-spec jump in
+this row's history and the least representative. `Logistics` contributes all 47 of its declarations to
+"inside a driven category" while its two specs between them EXECUTE **6 distinct
+declarations**: H34 runs 2 at SPACECENTER (the inter-body builder-shape gate and the
+AnyScene tooltip cell) and H35 runs 5 at FLIGHT (the probe-admission cell, the
+prelaunch origin-proof cell, the active-as-initiator route-proof cell, the mid-tree
+shuttle cell, and the same AnyScene tooltip cell, which is why the union is 6 and
+not 7). The other 41 never execute anywhere: 38 carry
+`AllowBatchExecution = false`, and 3 self-skip on fixture shape. The declaration
+measure has always counted category membership rather than execution, so this is not
+a new distortion, but at 47 declarations it is the first time the gap is big enough
+to mislead on its own - and adding a SECOND spec to the category moved the honest
+number from 2 to 6 while moving the headline number by zero. The bucket letters are
+unchanged: `Logistics` stays **B**, on the same footing as `GhostMap` (S1.6),
+`GhostPlayback` (S1.4) and `Missions` (M1) - driven, partially, without meeting
+bucket A1's whole-category admission shape.
 
 The 2026-08-05 wave (`wire-wave-2`, H26-H31) wired exactly the list the previous
 revision of this doc named as "the honest next wave": all five B6 members that
@@ -442,6 +545,43 @@ where the "specs that all Skip" warning bites: wiring them now produces green-lo
 specs that execute nothing. Each needs its guard preconditions read and a fixture
 chosen to satisfy them - real work, one category at a time.
 
+`Logistics` IS NOW PARTLY WIRED, and the shape of that wiring is the worked example
+this paragraph asks for. `H34-logistics-inter-body` (2026-08-11, flown under its
+pre-rename id `H32-logistics-inter-body`) drives the category
+at SPACECENTER rather than FLIGHT, which is where its two scene-eligible members
+live: the `RouteInterBodyBuilderShapeInGameTest` inter-body builder-shape gate and
+the AnyScene tooltip cell. Measured tally `total=47 passed=2 failed=0 skipped=45`
+- so the 45 skips are entirely the ATTRIBUTE floor (FLIGHT-scoped or
+batch-disabled declarations) and ZERO members self-skipped at run time, despite the
+inter-body cell carrying three live guards. That is a narrow slice deliberately: the
+FLIGHT bulk (38 batch-disabled, most of the self-skip-guarded remainder) is still
+unwired and still needs the per-guard fixture read above. What the slice settles is
+that the guards this paragraph warns about are readable and satisfiable one spec at
+a time, and that a partial category can be wired honestly as long as the pin carries
+the skip floor rather than hiding it.
+
+`H35-logistics-route-proof` (2026-08-11, flown as `H33-logistics-route-proof`)
+then wired the OTHER slice - the 8
+FLIGHT-eligible declarations - and it is the sharper worked example, because it is
+the case where the fixture, not the guard, was the whole problem. Its five
+route-proof cells are pure READ-SIDE walkers: they inspect state a PRIOR recording
+session wrote and Skip when the loaded save has nothing to walk, which is precisely
+the "specs that all Skip" hazard in its purest form. The answer was not a guard read
+but a RECORDED fixture - `bdock-recorded`, harvested `--keep-parsek` from a green
+BDOCK-1 flight, carrying two committed trees and a real dock/undock
+`ROUTE_CONNECTION_WINDOWS` node. Measured tally
+`total=47 passed=5 failed=0 skipped=42`, i.e. the 39-declaration attribute floor
+plus THREE run-time self-skips, and the three are the useful reading: two of the
+five proof cells still cannot fire on this fixture (one because the single window's
+target pid equals the recording's own, putting it on the initiator branch and out of
+reach of both the target and the cross-tree predicates; one because no committed
+mission profile STARTS docked to a non-PRELAUNCH partner, so the save carries zero
+`ROUTE_ORIGIN_PROOF` nodes). Two lessons for the remaining B4 work. First, a
+recorded fixture can un-skip read-side cells that no guard read would have fixed.
+Second, "wired" is not "covered": going from a recording-free fixture to a recorded
+one took this category's executed count from 2 to 6 of 47, and the residue is
+FIXTURE SHAPE, which is a harvest problem rather than a spec problem.
+
 An earlier revision of this paragraph opened the list with `Rewind` (37) and closed
 "the payoff is high for `Rewind` and `GhostLifecycle` in particular". Half of that
 resolved as predicted and half was measured WRONG, and the correction is the load-
@@ -491,7 +631,7 @@ deliberately.
 `ContinuationIntegrity` (2), `MissionPhasing` (2), `PartEventTiming` (2),
 `Pipeline-Frame` (1), `Pipeline-Outlier` (1), `Pipeline-Terrain` (1),
 `Pipeline-AnchorPropagate` (1), `ForwardRender` (1), `ResourceManifest` (1),
-`StockWarpLimits` (1), `RouteLiveAnchor` (1), `LedgerGroundTruth` (1) and similar.
+`StockWarpLimits` (1), `RouteLiveAnchor` (1), `LedgerGroundTruth` (2) and similar.
 Several are zero-self-skip and would pass immediately; they are simply not worth a
 KSP boot each at one or two tests. They are the strongest argument for a future
 multi-category batch contract, and the honest answer today is "not worth wiring",

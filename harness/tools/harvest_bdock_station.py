@@ -64,6 +64,7 @@ Stdlib only; ASCII only; no em dashes.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import os
 import re
 import shutil
@@ -72,6 +73,12 @@ import sys
 _HERE = os.path.dirname(os.path.abspath(__file__))
 _HARNESS_ROOT = os.path.dirname(_HERE)                       # harness/
 _FIXTURES_SAVES = os.path.join(_HARNESS_ROOT, "fixtures", "saves")
+# The shared craft library. A produced save's Ships/VAB carries whatever craft the
+# forge launched, which is usually a craft the library ALREADY holds -- harvesting
+# it verbatim is how the fixture tree accumulated 27 duplicate copies in the first
+# place. Step 3b below drops such a copy and tells the operator to declare the
+# fixture a consumer in shared-ships.toml instead.
+_FIXTURES_SHIPS = os.path.join(_HARNESS_ROOT, "fixtures", "ships")
 
 # Files copied verbatim from the produced save (the bootable pad state + the craft
 # the Interceptor re-launches). Everything else (quicksaves, Parsek state,
@@ -84,6 +91,23 @@ _KEEP_DIRS = ("Ships", "AddOns")
 # points / journals, and pre-Parsek safety backups the mod drops).
 _PRUNE_DIR_NAMES = ("Parsek",)
 _PRUNE_DIR_PREFIXES = (".parsek-backup", ".parsek-backup-staging")
+# Readable SNAPSHOT mirrors are never committed to a fixture (see
+# _ignore_pruned_keep_parsek for why, and CommittedFixtureMirrorTests for the
+# gate). `.prec.txt` is deliberately NOT in this tuple - the trajectory mirror IS
+# committed, because scenario headers cite values out of it.
+_PRUNE_MIRROR_SUFFIXES = ("_vessel.craft.txt", "_ghost.craft.txt")
+# Directories under Parsek/ that a fixture must never carry. `Saves` is where
+# Parsek writes the legacy Rewind-to-LAUNCH quicksaves (`parsek_rw_*.sfs`) AND the
+# career-start snapshot (`parsek_career_start.sfs`, via the same
+# `RecordingPaths.BuildRewindSaveRelativePath` root). --keep-parsek used to copy
+# the directory verbatim: 137,355 lines over 7 files that no spec and no seam verb
+# reaches, and that the one analyzer rule which looks (`Inv9RewindPoint`) only
+# existence-checks. No committed fixture carries a career-start snapshot today, so
+# pruning the directory wholesale is safe; a fixture that ever needs one must
+# narrow this to the `parsek_rw_` prefix rather than widen the keep set. NOT to be
+# confused with `RewindPoints`, which IS payload -
+# `RewindInvoker.PartLoaderPrecondition.Check` deep-parses those.
+_PRUNE_PARSEK_SUBDIRS = ("Saves",)
 
 
 def log(msg: str) -> None:
@@ -96,6 +120,39 @@ def resolve_save_dir(args) -> str:
     if args.instance:
         return os.path.abspath(os.path.join(args.instance, "saves", args.run_save))
     raise SystemExit("harvest: pass --save-dir <path> OR --instance <dir> [--run-save NAME]")
+
+
+def strip_rewind_save_hints(text: str):
+    """Clear `rewindSave = parsek_rw_*` pointers, returning (text, cleared).
+
+    WHY THIS EXISTS. `_PRUNE_PARSEK_SUBDIRS` drops `Parsek/Saves` wholesale, so
+    the Rewind-to-LAUNCH quicksaves never reach a fixture -- but the RECORDING
+    nodes that referenced them kept pointing at the pruned files. That is a
+    DANGLING REFERENCE, and the committed contract forbids both halves of it:
+    `CommittedFixtureRewindSaveTests.test_no_fixture_commits_a_rewind_to_launch_quicksave`
+    forbids the payload and `..._no_fixture_persistent_save_carries_a_dangling_rewind_hint`
+    forbids the pointer, so a fixture must carry NEITHER.
+
+    Found by `moho-orbit-recorded` (B20, 2026-08-12), the first harvested
+    fixture whose flight actually produced a rewind point --
+    `rewindSave = parsek_rw_1ee581` survived the prune and red the gate.
+    dres-orbit-recorded never hit it because its flight produced none, so the
+    tool has been shipping this hole unexercised. Fixed HERE rather than by
+    hand-editing the fixture, so the committed bytes stay tool-produced and
+    every future harvest is clean.
+
+    Only the VALUE is cleared, not the key: the line is part of the recording's
+    serialized shape, and Parsek reads an empty value as "no rewind save".
+    """
+    out, cleared = [], 0
+    for line in text.split("\n"):
+        stripped = line.strip()
+        if stripped.startswith("rewindSave = parsek_rw_"):
+            out.append(line[:line.index("rewindSave")] + "rewindSave = ")
+            cleared += 1
+        else:
+            out.append(line)
+    return "\n".join(out), cleared
 
 
 def normalize_title(sfs_text: str, title: str) -> str:
@@ -285,8 +342,14 @@ def harvest(save_dir: str, target_name: str, title: str, force: bool,
         shutil.rmtree(target)
     os.makedirs(target)
 
-    # 1) persistent.sfs with the normalized title.
+    # 1) persistent.sfs with the normalized title, and with any rewind-save
+    #    pointer cleared (its payload is pruned with Parsek/Saves, so leaving
+    #    the pointer would commit a dangling reference).
     normalized = normalize_title(sfs_text, title)
+    normalized, cleared_hints = strip_rewind_save_hints(normalized)
+    if cleared_hints:
+        log("cleared %d dangling rewindSave hint(s) (payload lives in the "
+            "pruned Parsek/Saves)" % cleared_hints)
     with open(os.path.join(target, "persistent.sfs"), "w", encoding="utf-8",
               newline="\n") as fh:
         fh.write(normalized)
@@ -325,16 +388,62 @@ def harvest(save_dir: str, target_name: str, title: str, force: bool,
         # The refusal gate ran BEFORE the write (Sanity 3); this is the tally.
         log("fixture Parsek/Recordings: %d file(s)" % len(sidecars))
 
+    # 3b) drop any harvested craft the shared library already holds. The produced
+    # save carries the craft the forge launched, and that is normally a library
+    # craft; committing it again is the duplication the library exists to remove,
+    # and SharedShipsManifestTests would red on it. Byte-identity is the test, so a
+    # genuinely MODIFIED craft of the same name is kept and reported instead.
+    shared = _drop_shared_library_craft(target)
+
     craft = os.path.join(target, "Ships", "VAB")
     craft_files = sorted(os.listdir(craft)) if os.path.isdir(craft) else []
     log("fixture Ships/VAB: %s" % (craft_files or "<none>"))
-    if not craft_files:
+    if shared:
+        log("dropped %d craft already in the shared library: %s"
+            % (len(shared), ", ".join(shared)))
+        log("ACTION REQUIRED: add this row to harness/fixtures/shared-ships.toml so "
+            "the craft is overlaid at stage time --")
+        log('  "%s" = [%s]'
+            % (os.path.basename(target), ", ".join('"%s"' % s for s in shared)))
+    if not craft_files and not shared:
         log("warning: the fixture has no Ships/VAB craft; any consumer that calls "
             "launch_vessel on it will fail to resolve <save>/Ships/VAB/<name>.craft "
             "(harmless for a fixture whose scenario never launches anything)")
 
     log("harvested -> %s" % target)
     return 0
+
+
+def _digest(path: str) -> str:
+    with open(path, "rb") as fh:
+        return hashlib.sha256(fh.read()).hexdigest()
+
+
+def _drop_shared_library_craft(target: str) -> list:
+    """Remove craft under ``<target>/Ships/VAB`` that the shared library already
+    holds byte-for-byte; return their ship names (sorted).
+
+    Content-addressed rather than name-matched on purpose: a harvest that renamed
+    the ship still produced a duplicate, and a craft that merely SHARES a name with
+    a library entry but differs in content is a real divergence the operator needs
+    to see, not something to silently delete."""
+    vab = os.path.join(target, "Ships", "VAB")
+    if not os.path.isdir(vab) or not os.path.isdir(_FIXTURES_SHIPS):
+        return []
+    library = {}
+    for name in os.listdir(_FIXTURES_SHIPS):
+        if name.endswith(".craft"):
+            library[_digest(os.path.join(_FIXTURES_SHIPS, name))] = name[:-len(".craft")]
+    dropped = []
+    for name in sorted(os.listdir(vab)):
+        path = os.path.join(vab, name)
+        if not os.path.isfile(path):
+            continue
+        ship = library.get(_digest(path))
+        if ship is not None:
+            os.remove(path)
+            dropped.append(ship)
+    return sorted(dropped)
 
 
 def _ignore_pruned(directory, names):
@@ -346,10 +455,30 @@ def _ignore_pruned(directory, names):
 
 
 def _ignore_pruned_keep_parsek(directory, names):
-    """--keep-parsek copytree filter: only the backup-staging dirs are pruned;
-    the Parsek dir (the recording sidecars) is the fixture's payload."""
-    return set(n for n in names
-               if any(n.startswith(p) for p in _PRUNE_DIR_PREFIXES))
+    """--keep-parsek copytree filter: the backup-staging dirs are pruned, and so
+    are the readable snapshot mirrors; the Parsek dir (the recording sidecars) is
+    otherwise the fixture's payload.
+
+    WHY THE MIRRORS ARE PRUNED. Parsek writes a readable text mirror beside each
+    authoritative sidecar (default-on diagnostics). For the trajectory that mirror
+    is worth committing - four scenario headers cite values read straight out of a
+    `.prec.txt`. For the two SNAPSHOT mirrors it is not: nothing cites one, and
+    they cost 334,023 lines across 99 files, 1.85x the craft duplication the shared
+    ship library removed (both mirror kinds together would be 3.04x it). They are also strictly derived from the
+    authoritative `_vessel.craft` / `_ghost.craft` binaries, which ARE committed:
+    an offline decode reconstructs all 99 byte-for-byte. Load the fixture in KSP
+    to get them back (the vessel mirror through
+    `ReconcileReadableSidecarMirrors`'s `AuthoritativeSidecar` fallback, the ghost
+    mirror through load-time snapshot hydration - see harness/README.md)."""
+    pruned = set(n for n in names
+                 if any(n.startswith(p) for p in _PRUNE_DIR_PREFIXES)
+                 or n.endswith(_PRUNE_MIRROR_SUFFIXES))
+    # Drop Parsek/Saves wholesale (see _PRUNE_PARSEK_SUBDIRS). Matched on the
+    # PARENT being the Parsek dir so a same-named directory elsewhere in the tree
+    # is untouched.
+    if os.path.basename(directory) == "Parsek":
+        pruned |= set(n for n in names if n in _PRUNE_PARSEK_SUBDIRS)
+    return pruned
 
 
 def _prune_state(root: str, keep_parsek: bool = False):

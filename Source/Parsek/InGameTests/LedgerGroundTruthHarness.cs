@@ -1,4 +1,4 @@
-using System.Collections.Generic;
+﻿using System.Collections.Generic;
 using System.Globalization;
 using Parsek.InGameTests.Helpers;
 using UnityEngine;
@@ -318,6 +318,10 @@ namespace Parsek.InGameTests
                     if (kvp.Value.IsPermanent)
                         recon.PermanentlyGoneKerbals.Add(kvp.Key);
                 }
+
+                // Per-kerbal career-log entries (P9a, report-only KerbalXp facet). Read off
+                // the module accumulator, which is rebuilt from the ELS walk on every recalc.
+                recon.KerbalCareerLog = kerbals.SnapshotCareerEntries();
             }
 
             // Researched-tech surface (report-only facet), DELTA-only.
@@ -342,7 +346,8 @@ namespace Parsek.InGameTests
                 $"ledgerCreatedKerbals={recon.LedgerCreatedKerbals.Count.ToString(IC)} " +
                 $"permanentlyGoneKerbals={recon.PermanentlyGoneKerbals.Count.ToString(IC)} " +
                 $"techSurface={recon.HasTechSurface.ToString(IC)} " +
-                $"researchedTech={recon.ResearchedTechIds.Count.ToString(IC)}");
+                $"researchedTech={recon.ResearchedTechIds.Count.ToString(IC)} " +
+                $"kerbalCareerLogs={recon.KerbalCareerLog.Count.ToString(IC)}");
 
             return recon;
         }

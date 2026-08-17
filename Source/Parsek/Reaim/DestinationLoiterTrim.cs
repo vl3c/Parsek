@@ -27,8 +27,13 @@ namespace Parsek.Reaim
     // reduces the frozen hold by more than the alignment tolerance.
     //
     // PURE: no Unity; all live-body data comes through the IBodyInfo seam, all timeline data through
-    // the LoiterRun / LoopCut structs. UNWIRED this phase; the builder wiring (run partition by
-    // EndUT, the same-launch gather, the final cut assembly) is P4.2.
+    // the LoiterRun / LoopCut structs. WIRED: MissionLoopUnitBuilder calls TrySolveDestinationLoiterTrim
+    // and, on `destTrim.Applied`, reassigns `loiterCuts = p4Cuts`. (This read "UNWIRED this phase; the
+    // builder wiring ... is P4.2" long after P4.2 shipped, and it is the first thing a reader hits when
+    // asking whether destination-loiter trimming exists at all - it answered a flat no for a live path.)
+    // WIRED is NOT EXERCISED, though: no archived log has ever emitted `dest-trim`, and D11
+    // `loiter-compression` is uncovered by every committed fixture - read the D11 entry in
+    // docs/dev/todo-and-known-bugs.md before claiming coverage from this wiring.
     internal static class DestinationLoiterTrim
     {
         /// <summary>The default cap on kept destination-loiter revolutions (plan section 8 decision 2):

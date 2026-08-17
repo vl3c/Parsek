@@ -11,7 +11,7 @@ tier = "nightly"
 # DISCOVERED LATER. SpawnedPidConsistency only counts violations among recordings
 # with SpawnedVesselPersistentId != 0, and the injected corpus contains none. So that
 # cell runs, passes, and asserts over an empty subset. The other two are genuinely
-# exercised across all 272 recordings.
+# exercised across all 274 recordings.
 #
 # WHY THE CORPUS HAS NONE - the ACTUAL invariant, not the one first written here. An
 # earlier draft of this comment blamed
@@ -22,10 +22,14 @@ tier = "nightly"
 # inject-recordings.ps1 without -CleanStart, so PARSEK_INJECT_CLEAN_START=0 and the
 # whole block is skipped). The real invariants are: (1)
 # `RecordingBuilder.WithSpawnedPid` has ZERO callers, so every synthetic recording
-# serializes with spawnedPid == 0 and the key is never emitted; and (2)
-# `AddRealCareerRecordings` injects RECORDING_TREE nodes only, so the one
-# `spawnedPid` that does exist in the frozen career fixture sits in a standalone
-# RECORDING node that is never injected.
+# serializes with spawnedPid == 0 and the key is never emitted; and (2) the corpus
+# writer injects NO real-career recordings at all, so no `spawnedPid` can arrive
+# that way. Invariant (2) used to be narrower and is worth restating rather than
+# re-deriving: the injector's real-career path (`AddRealCareerRecordings`) added
+# RECORDING_TREE nodes only, so the one `spawnedPid` in the frozen career fixture
+# sat in a standalone RECORDING node that was never injected. That path and its
+# fixture are both GONE (fixture deleted in PR #1461, the dead helper in #1463), so
+# the invariant now holds by construction and greps for those names find nothing.
 # DO NOT "fix" this by adding -CleanStart to the harness inject. CleanSaveStart also
 # runs RemoveVesselBlocksFromFlightState + ResetActiveVessel, which would leave
 # activeVessel = -1 with zero VESSEL nodes; DecideLoadRoute would then return
@@ -65,7 +69,17 @@ D14 = ["sandbox", "scene-flight"]
 allowedAnomalies = []
 
 [expectations.recordings]
-count = { min = 272, max = 272 }
+# NOTE 2026-08-11 (recorded-signal-fixes): the shared InjectAllRecordings corpus
+# grew 272 -> 274 (chute-repack + surface-rover showcase rows). MEASURED
+# 2026-08-11 - the +2 was a derivation when it landed and is now confirmed:
+# H5-invariants-corpus flew that day (run `2026-08-11_1119`, PASS attempt 1) and
+# the harness counted exactly 274 .prec sidecars
+# (`expectations.observed.recordings.count = 274`, mismatches 0), with the same
+# count independently re-read by H33-recorded-signals (run `2026-08-11_1118`,
+# PASS). H5's in-game walk measured the hydrated pair in the same run at
+# `recordings=308 trees=278`, also as derived. If this pin ever reds, read the
+# actual count off the collected KSP.log before touching anything else.
+count = { min = 274, max = 274 }
 
 [expectations.logContracts]
 # ANTI-VACUITY: tally pinned WHOLE, plus the count pin above for the two cells that

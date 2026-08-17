@@ -35,13 +35,15 @@ steps = [
 [dimensionsCovered]
 # HONEST: the four cells read each recording's craft + ghost-geometry sidecars back
 # into a live GhostVisualBuilder mesh and resolve its part names through the real
-# PartLoader (D16 sidecar-craft, sidecar-pcrf - the two sidecars a ghost mesh is
-# built FROM). SANDBOX, FLIGHT-scene host (D14). NOT claimed: any D6 playback token
-# - a mesh is built and inspected, never positioned or played back, which is
-# S1.4's job; and no D7 part-event / FX token - no engine or RCS effect is built
-# here.
+# PartLoader (D16 sidecar-craft - the `_vessel.craft` / `_ghost.craft` pair a ghost
+# mesh is built FROM). SANDBOX, FLIGHT-scene host (D14).
+# NOT claimed: the retired `sidecar-pcrf` token - the current pipeline writes no
+# `.pcrf` and none exists in the tree, so claiming it was coverage of nothing; any
+# D6 playback token - a mesh is built and inspected, never positioned or played
+# back, which is S1.4's job; and no D7 part-event / FX token - no engine or RCS
+# effect is built here.
 D14 = ["sandbox", "scene-flight"]
-D16 = ["sidecar-craft", "sidecar-pcrf"]
+D16 = ["sidecar-craft"]
 
 [expectations]
 # PLACEMENT IS LOAD-BEARING (see H7).
@@ -50,7 +52,17 @@ allowedAnomalies = []
 [expectations.recordings]
 # The injected corpus, unchanged. This count is the anti-vacuity guard for the two
 # silently-bailing cells named in the header.
-count = { min = 272, max = 272 }
+# NOTE 2026-08-11 (recorded-signal-fixes): the shared InjectAllRecordings corpus
+# grew 272 -> 274 (chute-repack + surface-rover showcase rows). MEASURED
+# 2026-08-11 - the +2 was a derivation when it landed and is now confirmed:
+# H5-invariants-corpus flew that day (run `2026-08-11_1119`, PASS attempt 1) and
+# the harness counted exactly 274 .prec sidecars
+# (`expectations.observed.recordings.count = 274`, mismatches 0), with the same
+# count independently re-read by H33-recorded-signals (run `2026-08-11_1118`,
+# PASS). H5's in-game walk measured the hydrated pair in the same run at
+# `recordings=308 trees=278`, also as derived. If this pin ever reds, read the
+# actual count off the collected KSP.log before touching anything else.
+count = { min = 274, max = 274 }
 
 [expectations.logContracts]
 # ANTI-VACUITY: tally pinned WHOLE, plus the fixture-level guard above.
@@ -81,7 +93,7 @@ forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
 [runtime]
 # 720, the same as the rest of the group. This spec briefly carried 1200 on a
 # pre-flight worry that AllSnapshotsBuildWithoutCrash - a `void` cell, so SINGLE
-# FRAME - would be slow because it builds up to 272 full part-mesh hierarchies in one
+# FRAME - would be slow because it builds up to 274 full part-mesh hierarchies in one
 # frame and holds them all via runner.TrackForCleanup until the cell ends. The worry
 # was reasonable (its failure mode is not a red: the watchdog kills the tree, the
 # verdict is KILLED, no BATCH_COMPLETE is printed, and retry-once burns a second full

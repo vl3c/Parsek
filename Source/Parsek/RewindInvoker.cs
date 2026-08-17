@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
@@ -422,6 +422,12 @@ namespace Parsek
         /// the <see cref="StartInvoke"/> pre-load phase; the post-load phase
         /// is driven by <see cref="ParsekScenario.OnLoad"/> calling
         /// <see cref="ConsumePostLoad"/> once the scene reload lands.
+        /// <para>
+        /// The body carries the pre-invoke advisory (audit item C2): what the
+        /// revert takes back, which sibling craft become replays, and what is
+        /// preserved. It is informational only — it changes no control flow and
+        /// adds no button. See <see cref="ComposeReFlyAdvisoryBody"/>.
+        /// </para>
         /// </summary>
         internal static void ShowDialog(RewindPoint rp, int selectedSlotListIndex)
         {
@@ -444,6 +450,57 @@ namespace Parsek
                 "Do you want to fly this again? This will take you to the moment after " +
                 "separation and you will be in control of the craft / Kerbal.";
 
+            // Pre-invoke advisory (audit C2). Wrapped: a broken RecordingStore /
+            // slot map must not cost the player the whole Re-Fly dialog, so the
+            // advisory degrades to absent rather than throwing out of ShowDialog.
+            //
+            // Skipped when the selected slot is null: selectedSlotId then falls
+            // back to the LIST index, which is not a SlotIndex, so the sibling
+            // resolver could not exclude the re-fly target and would name it as
+            // a craft being put away. StartInvoke refuses this shape anyway
+            // ("invalid slot"); a wrong advisory is worse than none.
+            if (selected == null)
+            {
+                ParsekLog.Warn(InvokeTag,
+                    $"Pre-invoke advisory: skipped rp={rp.RewindPointId ?? "<null>"} " +
+                    $"listIndex={selectedSlotListIndex} reason=null-selected-slot");
+            }
+            else
+            {
+                try
+                {
+                    // Compose fully BEFORE mutating the dialog message so the outer
+                    // catch's "shown without the advisory" claim is true on every
+                    // path it can catch: a throw from name resolution or body
+                    // composition leaves `message` untouched. The log emit runs
+                    // after the append has succeeded, so a throw there would leave
+                    // the advisory IN the dialog — it gets its own guard with the
+                    // opposite wording instead of sharing the outer catch.
+                    var siblingNames = ResolveReFlySiblingSlotNames(
+                        rp, selectedSlotId, RecordingStore.CommittedRecordings);
+                    string advisoryBody = ComposeReFlyAdvisoryBody(siblingNames);
+                    message += "\n\n" + advisoryBody;
+                    try
+                    {
+                        LogReFlyAdvisory(rp.RewindPointId, selectedSlotId, rp.UT, siblingNames);
+                    }
+                    catch (Exception logEx)
+                    {
+                        ParsekLog.Warn(InvokeTag,
+                            $"Pre-invoke advisory: log emit failed rp={rp.RewindPointId ?? "<null>"} " +
+                            $"slot={selectedSlotId} exType={logEx.GetType().Name} " +
+                            $"message={logEx.Message ?? "<null>"} — dialog DOES carry the advisory");
+                    }
+                }
+                catch (Exception ex)
+                {
+                    ParsekLog.Warn(InvokeTag,
+                        $"Pre-invoke advisory: skipped rp={rp.RewindPointId ?? "<null>"} " +
+                        $"slot={selectedSlotId} exType={ex.GetType().Name} " +
+                        $"message={ex.Message ?? "<null>"} — dialog shown without the advisory");
+                }
+            }
+
             var capturedRp = rp;
             var capturedSlotListIdx = selectedSlotListIndex;
             var capturedSlotId = selectedSlotId;
@@ -457,6 +514,10 @@ namespace Parsek
                     message,
                     title,
                     HighLogic.UISkin,
+                    // Explicit width: MultiOptionDialog's no-width ctor defaults
+                    // to a 300 px dialogRect, and the advisory body would render
+                    // as a very tall, very narrow column at that width.
+                    AdvisoryDialogWidth,
                     new DialogGUIButton("Fly", () =>
                     {
                         ParsekLog.Info(UITag,
@@ -471,6 +532,246 @@ namespace Parsek
                     })
                 ),
                 false, HighLogic.UISkin);
+        }
+
+        // ---------------------------------------------------------------------
+        // Pre-invoke advisory (part-action audit item C2). Purely informational:
+        // it names what the revert takes back before the player commits to it,
+        // and it changes NO control flow — no extra button, no new refusal, no
+        // mutation. Composition is pure/static so the exact player-facing strings
+        // are pinned by unit tests (ReFlyPreInvokeAdvisoryTests).
+        // ---------------------------------------------------------------------
+
+        /// <summary>
+        /// Maximum sibling-slot craft names enumerated in the advisory (dialog
+        /// body and log line alike). Mirrors <see cref="MaxPreservedNamesLogged"/>
+        /// and the project's batch-logging convention: cap the enumeration and
+        /// report the remainder as a count.
+        /// </summary>
+        internal const int MaxAdvisorySlotNamesShown = 8;
+
+        /// <summary>
+        /// Width (px) passed to the Re-Fly confirmation <c>MultiOptionDialog</c>.
+        /// The no-width constructor defaults to a 300 px <c>dialogRect</c>, which
+        /// renders the advisory body as a tall narrow column; 420 px keeps it to a
+        /// readable paragraph shape without dominating the screen.
+        /// </summary>
+        internal const float AdvisoryDialogWidth = 420f;
+
+        /// <summary>
+        /// Plain-English roll-up of the seven career facets
+        /// <c>KspStatePatcher.PatchAll</c> re-applies after the rewind load
+        /// (<c>KspStatePatcher.cs:87-93</c>: science, tech tree, funds,
+        /// reputation, facilities, milestones, contracts). Everything else in the
+        /// save is whatever the RP quicksave holds, i.e. it reverts to
+        /// <c>rp.UT</c>. Single source for the advisory's "outside these" claim
+        /// so the dialog and the log line cannot drift apart.
+        /// </summary>
+        internal const string PatchedCareerFacetsSummary =
+            "science, tech tree, funds, reputation, facility upgrades, milestones and contracts";
+
+        /// <summary>
+        /// Resolves the display names of the OTHER slots of this rewind point —
+        /// the vessels the pre-load scrub removes from the loaded save so their
+        /// recordings replay as ghosts (see
+        /// <see cref="ScrubQuicksaveToSelectedSlotForReFly"/>).
+        /// <para>
+        /// Keyed on <see cref="ChildSlot.SlotIndex"/>, not the list index,
+        /// because the scrub's own <c>BuildNonSelectedSlotPidSet</c> compares
+        /// against the slot-map VALUES, which are <c>SlotIndex</c>. A slot that
+        /// appears in NEITHER <see cref="RewindPoint.PidSlotMap"/> nor
+        /// <see cref="RewindPoint.RootPartPidMap"/> is deliberately omitted: the
+        /// scrub cannot match its vessel, so nothing of it is removed and
+        /// promising the player otherwise would be a false statement.
+        /// </para>
+        /// <para>
+        /// Names come from the origin recording's <c>VesselName</c> via a raw
+        /// id lookup — deliberately NOT an ERS-visible lookup. A sibling slot
+        /// superseded by an earlier Re-Fly is hidden from the ERS while its
+        /// vessel is still in the quicksave and still gets removed, so the raw
+        /// list is the correct source for "what leaves the world". Falls back to
+        /// <c>slot N</c> when the origin recording cannot be resolved.
+        /// </para>
+        /// </summary>
+        internal static List<string> ResolveReFlySiblingSlotNames(
+            RewindPoint rp,
+            int selectedSlotIndex,
+            IReadOnlyList<Recording> recordings)
+        {
+            var names = new List<string>();
+            if (rp == null || rp.ChildSlots == null || rp.ChildSlots.Count == 0)
+                return names;
+
+            var mappedSlotIndices = new HashSet<int>();
+            AddMappedSlotIndices(rp.PidSlotMap, mappedSlotIndices);
+            AddMappedSlotIndices(rp.RootPartPidMap, mappedSlotIndices);
+
+            var byId = new Dictionary<string, Recording>(StringComparer.Ordinal);
+            if (recordings != null)
+            {
+                for (int i = 0; i < recordings.Count; i++)
+                {
+                    var rec = recordings[i];
+                    if (rec == null || string.IsNullOrEmpty(rec.RecordingId)) continue;
+                    byId[rec.RecordingId] = rec;
+                }
+            }
+
+            for (int i = 0; i < rp.ChildSlots.Count; i++)
+            {
+                var slot = rp.ChildSlots[i];
+                if (slot == null) continue;
+                if (slot.SlotIndex == selectedSlotIndex) continue;
+                if (!mappedSlotIndices.Contains(slot.SlotIndex)) continue;
+
+                string name = null;
+                if (!string.IsNullOrEmpty(slot.OriginChildRecordingId)
+                    && byId.TryGetValue(slot.OriginChildRecordingId, out Recording origin)
+                    && origin != null
+                    && !string.IsNullOrEmpty(origin.VesselName))
+                {
+                    name = origin.VesselName;
+                }
+
+                names.Add(name ?? $"slot {slot.SlotIndex.ToString(CultureInfo.InvariantCulture)}");
+            }
+
+            return names;
+        }
+
+        private static void AddMappedSlotIndices(
+            Dictionary<uint, int> map, HashSet<int> into)
+        {
+            if (map == null) return;
+            foreach (var kv in map)
+            {
+                if (kv.Key == 0u) continue;
+                into.Add(kv.Value);
+            }
+        }
+
+        /// <summary>
+        /// Composes the player-facing advisory block appended to the Re-Fly
+        /// confirmation dialog body. Three statements, in the order a player
+        /// needs them: what the revert takes back, which of this rewind point's
+        /// other craft become replays, and what is preserved. Pure — no KSP
+        /// singletons, no <see cref="RecordingStore"/> read.
+        /// </summary>
+        internal static string ComposeReFlyAdvisoryBody(IReadOnlyList<string> siblingNames)
+        {
+            string affected = (siblingNames == null || siblingNames.Count == 0)
+                ? "No other craft from this separation are put away."
+                : "Put away and replayed as ghosts, from this same separation: "
+                  + FormatCappedProseList(siblingNames, MaxAdvisorySlotNamesShown) + ".";
+
+            return
+                "The world goes back to how it stood at this rewind point. Your "
+                + PatchedCareerFacetsSummary + " are carried forward. Anything outside "
+                + "those goes back with the clock: kerbal experience earned since then, "
+                + "resource-survey unlocks, contract waypoint progress, and "
+                + "deployed-science gathered since then.\n\n"
+                + affected + "\n\n"
+                + "Craft you recovered after this point are back in flight, and their "
+                + "recovery rewards are returned to the ledger.\n\n"
+                + "Everything else stays where it is - your other vessels, stations, "
+                + "tracked asteroids and comets, and planted flags are all preserved.";
+        }
+
+        /// <summary>
+        /// Emits the advisory to KSP.log at <c>Info</c> under the
+        /// <c>[Rewind]</c> subsystem. Separate from the formatter so the emit
+        /// itself is exercised by a log-capture cell rather than only the string.
+        /// </summary>
+        internal static void LogReFlyAdvisory(
+            string rewindPointId,
+            int selectedSlotIndex,
+            double rewindUT,
+            IReadOnlyList<string> siblingNames)
+        {
+            ParsekLog.Info(InvokeTag,
+                FormatReFlyAdvisoryLogLine(
+                    rewindPointId, selectedSlotIndex, rewindUT, siblingNames));
+        }
+
+        /// <summary>
+        /// Grep-stable single-line record of the same facts the dialog states,
+        /// so a KSP.log shows what the player was told even when they Cancel.
+        /// Emitted at <c>Info</c> under the <c>[Rewind]</c> subsystem.
+        /// </summary>
+        internal static string FormatReFlyAdvisoryLogLine(
+            string rewindPointId,
+            int selectedSlotIndex,
+            double rewindUT,
+            IReadOnlyList<string> siblingNames)
+        {
+            var ic = CultureInfo.InvariantCulture;
+            int count = siblingNames != null ? siblingNames.Count : 0;
+            return
+                $"Pre-invoke advisory: rp={rewindPointId ?? "<null>"} " +
+                $"slot={selectedSlotIndex.ToString(ic)} rewindUT={rewindUT.ToString("F1", ic)} " +
+                $"worldRevertsOutsideFacets='{PatchedCareerFacetsSummary}' " +
+                $"siblingSlotsPutAway={count.ToString(ic)} " +
+                $"names={FormatCappedNameList(siblingNames, MaxAdvisorySlotNamesShown)} " +
+                $"preserved=unrelated-vessels+stations+asteroids+comets+flags";
+        }
+
+        /// <summary>
+        /// Player-facing sibling of <see cref="FormatCappedNameList"/>: same cap
+        /// and same overflow count, rendered as a bare comma list with no
+        /// brackets, because the dialog body is prose and the log line is not.
+        /// Empty / null renders as an empty string (callers must not reach this
+        /// with an empty list — <see cref="ComposeReFlyAdvisoryBody"/> branches
+        /// to its own "no other craft" sentence first).
+        /// </summary>
+        internal static string FormatCappedProseList(IReadOnlyList<string> names, int cap)
+        {
+            if (names == null || names.Count == 0) return "";
+            if (cap < 1) cap = 1;
+
+            var sb = new System.Text.StringBuilder();
+            int shown = 0;
+            for (int i = 0; i < names.Count && shown < cap; i++)
+            {
+                if (shown > 0) sb.Append(", ");
+                sb.Append(string.IsNullOrEmpty(names[i]) ? "<unnamed>" : names[i]);
+                shown++;
+            }
+            if (names.Count > shown)
+            {
+                sb.Append(" (+")
+                  .Append((names.Count - shown).ToString(CultureInfo.InvariantCulture))
+                  .Append(" more)");
+            }
+            return sb.ToString();
+        }
+
+        /// <summary>
+        /// Renders a name list as <c>[a, b, c]</c>, capped at
+        /// <paramref name="cap"/> entries with the remainder reported as
+        /// <c>(+N more)</c>. Empty / null renders as <c>[]</c>. Log-line form —
+        /// the dialog uses <see cref="FormatCappedProseList"/>.
+        /// </summary>
+        internal static string FormatCappedNameList(IReadOnlyList<string> names, int cap)
+        {
+            if (names == null || names.Count == 0) return "[]";
+            if (cap < 1) cap = 1;
+
+            var sb = new System.Text.StringBuilder("[");
+            int shown = 0;
+            for (int i = 0; i < names.Count && shown < cap; i++)
+            {
+                if (shown > 0) sb.Append(", ");
+                sb.Append(string.IsNullOrEmpty(names[i]) ? "<unnamed>" : names[i]);
+                shown++;
+            }
+            sb.Append("]");
+            if (names.Count > shown)
+            {
+                sb.Append(" (+")
+                  .Append((names.Count - shown).ToString(CultureInfo.InvariantCulture))
+                  .Append(" more)");
+            }
+            return sb.ToString();
         }
 
         /// <summary>
@@ -715,6 +1016,12 @@ namespace Parsek
             // comment / edge-case finding #4). The failed-load rollback (TryRestoreBundle)
             // uses the parameterless overload, so it retires nothing and the pre-rewind
             // ledger is restored intact.
+            // Rec-1's route-retire cutoff, hoisted so the #15 resurrected-recovery
+            // retirement downstream reuses the identical value rather than recomputing a
+            // slightly different one after the onFlightReady deferral.
+            double liveUTForCutoff = SafeNow();
+            double retireCutoffUT = liveUTForCutoff > 0.0 ? liveUTForCutoff : rp.UT;
+
             if (hasBundle)
             {
                 try
@@ -729,8 +1036,7 @@ namespace Parsek
                     // world, which the re-fly would then double-apply (edge-case review
                     // finding #4). Fall back to rp.UT if the live UT is unavailable
                     // (SafeNow returns 0.0 on failure).
-                    double liveUT = SafeNow();
-                    double retireCutoffUT = liveUT > 0.0 ? liveUT : rp.UT;
+                    double liveUT = liveUTForCutoff;
                     ParsekLog.Info(InvokeTag,
                         $"ConsumePostLoad: restoring bundle with route-retire cutoffUT={retireCutoffUT.ToString("R", System.Globalization.CultureInfo.InvariantCulture)} (liveUT={liveUT.ToString("R", System.Globalization.CultureInfo.InvariantCulture)}, rp.UT={rp.UT.ToString("R", System.Globalization.CultureInfo.InvariantCulture)})");
                     ReconciliationBundle.Restore(bundle, retireCutoffUT);
@@ -764,16 +1070,22 @@ namespace Parsek
             // CheckpointB) still holds because Strip + Activate +
             // AtomicMarkerWrite still run as one synchronous block when the
             // callback fires.
-            if (IsFlightReady())
+            //
+            // Readiness is asserted against the SELECTED SLOT's pids, not against a
+            // non-empty vessel list: the preserved fleet makes Vessels.Count > 0 true
+            // before the slot's own vessel exists (#16 item 6).
+            ReFlySlotPidSets readinessPids = BuildSlotPidSets(rp, slotIdx);
+            if (IsFlightReady(readinessPids))
             {
-                RunStripActivateMarker(rp, selected, sessionId, slotIdx, tempPath);
+                RunStripActivateMarker(rp, selected, sessionId, slotIdx, tempPath, retireCutoffUT);
             }
             else
             {
                 ParsekLog.Info(InvokeTag,
                     $"ConsumePostLoad deferred to onFlightReady: sess={sessionId} " +
                     $"rp={rp.RewindPointId} slot={slotIdx} " +
-                    "(FlightGlobals.Vessels not yet populated after async scene load)");
+                    $"selectedSlotUnmapped={readinessPids.SelectedSlotIsUnmapped} " +
+                    "(selected slot's vessel not yet present after async scene load)");
                 // Pass tempPath separately so the timeout branch in
                 // `WaitForFlightReadyAndInvoke` can delete the root-level
                 // Parsek_Rewind_*.sfs copy without reaching the action's
@@ -781,8 +1093,9 @@ namespace Parsek
                 // that never fires onFlightReady would leak the temp file
                 // and leave RewindInvokeContext half-cleared.
                 DeferUntilFlightReady(
-                    () => RunStripActivateMarker(rp, selected, sessionId, slotIdx, tempPath),
-                    tempPath);
+                    () => RunStripActivateMarker(rp, selected, sessionId, slotIdx, tempPath, retireCutoffUT),
+                    tempPath,
+                    readinessPids);
             }
         }
 
@@ -791,7 +1104,8 @@ namespace Parsek
             ChildSlot selected,
             string sessionId,
             int slotIdx,
-            string tempPath)
+            string tempPath,
+            double retireCutoffUT)
         {
             try
             {
@@ -799,10 +1113,19 @@ namespace Parsek
                 PostLoadStripResult stripResult;
                 try
                 {
+                    // stripUnmatchedVessels stays FALSE so the LeftAlone branch
+                    // is live: a vessel matching no slot in this RP is unrelated
+                    // to the re-fly and design doc §6.4 step 4 says leave it
+                    // alone. Strict mode here (plus the pre-load scrub) used to
+                    // delete the player's whole fleet - stations, satellites,
+                    // rovers, discovered asteroids/comets and planted flags -
+                    // and made the Flag carve-out below unreachable. Prior-career
+                    // debris that trips stock patched conics is removed by the
+                    // narrow #587 name-matched pass, not by this flag.
                     stripResult = PostLoadStripper.Strip(
                         rp,
                         slotIdx,
-                        stripUnmatchedVessels: true);
+                        stripUnmatchedVessels: false);
                 }
                 catch (Exception ex)
                 {
@@ -834,6 +1157,38 @@ namespace Parsek
                     return;
                 }
 
+                // Step 3a (#16 item 7): a DISABLED slot's vessel is still in the world.
+                // PostLoadStripper keys on PidSlotMap, and a slot disabled at author time
+                // ("no-live-vessel") has no entry there, so the strip cannot see its craft
+                // even though the RP's own topology says that sibling belongs to this split.
+                // The old strict strip removed it as collateral; with the fleet preserved it
+                // now stays, and it is BOTH a real vessel and a replaying ghost. Every other
+                // non-selected slot has its vessel removed and its recording continued as
+                // history, so this restores that invariant for PID-STABLE disabled slots -
+                // narrowly, via the launch-identity gate, so no unrelated preserved craft is
+                // touched. A disabled slot's craft live under a DIFFERENT vessel pid (docking pid
+                // churn between recording and RP capture) is outside the pass's reach and stays
+                // as it is today; see the ResolveDisabledSlotVesselsToStrip remarks.
+                //
+                // Runs AFTER Activate deliberately: the selected vessel is the active one by
+                // then, so no Die() here can land on the vessel the player is about to fly
+                // even if some future refactor loosened the pid exclusions. Its kills are
+                // appended to stripResult.StrippedPids so the reconcile below subtracts them
+                // too - Vessel.Die() does not remove the matching ProtoVessel, so a disabled
+                // slot's recording would otherwise keep reading as "still spawned".
+                try
+                {
+                    var disabledSlotKills = StripDisabledSlotVessels(
+                        rp, slotIdx, stripResult.SelectedPid);
+                    if (disabledSlotKills.Count > 0 && stripResult.StrippedPids != null)
+                        stripResult.StrippedPids.AddRange(disabledSlotKills);
+                }
+                catch (Exception ex)
+                {
+                    ParsekLog.Warn(InvokeTag,
+                        $"Disabled-slot strip supplement threw (non-fatal): {ex.Message}");
+                }
+
                 // Reconcile committed recordings whose SpawnedVesselPersistentId
                 // points at a vessel the strip just removed (#168 analogue for
                 // the Re-Fly load path). A prior merge can leave a sibling
@@ -851,12 +1206,12 @@ namespace Parsek
                 // list is the save-shape mirror and does not auto-sync with
                 // Vessel.Die(). So a survivor set built from protoVessels alone
                 // still contains every stripped capsule's PID, which masks the
-                // bug ShouldResetSpawnState is supposed to detect. The fix is
-                // to subtract stripResult.StrippedPids explicitly here before
-                // calling the reconcile helper. Keeping the helper itself
-                // unchanged — its other callers (revert path at
-                // ParsekScenario.cs:1701, defense-in-depth at :2405) may have
-                // different invariants and are out of scope for this PR.
+                // bug ShouldResetSpawnState is supposed to detect. So
+                // ReconcilePostStripSpawnState subtracts stripResult.StrippedPids
+                // explicitly, and routes (pid, launch-guid) identities to the
+                // GUID-AWARE reconcile overload — the bare-pid one cannot tell a
+                // relaunch of the same craft from the recorded launch, which the
+                // preserved-fleet world makes a common case.
                 try
                 {
                     var fsReconcile = HighLogic.CurrentGame?.flightState;
@@ -865,20 +1220,20 @@ namespace Parsek
                         var committed = RecordingStore.CommittedRecordings;
                         if (committed != null && committed.Count > 0)
                         {
-                            var protoVesselPids = new List<uint>();
-                            if (fsReconcile.protoVessels != null)
-                            {
-                                for (int i = 0; i < fsReconcile.protoVessels.Count; i++)
-                                    protoVesselPids.Add(fsReconcile.protoVessels[i].persistentId);
-                            }
+                            // (pid, launch-guid) identities, NOT bare pids: see
+                            // ReconcilePostStripSpawnState. Same collector the
+                            // revert path uses (ParsekScenario.cs:3376).
+                            var protoVesselIdentities =
+                                ParsekScenario.CollectSurvivingVesselIdentities(
+                                    fsReconcile.protoVessels);
 
                             // The survivor-set + log + reconcile glue is extracted
                             // into ReconcilePostStripSpawnState so it is directly
-                            // xUnit-testable. The Unity-only protoVessel-PID collection
-                            // above stays here because ProtoVessel cannot be built in
+                            // xUnit-testable. The Unity-only ProtoVessel walk above
+                            // stays here because ProtoVessel cannot be built in
                             // xUnit.
                             ReconcilePostStripSpawnState(
-                                protoVesselPids, stripResult.StrippedPids, committed);
+                                protoVesselIdentities, stripResult.StrippedPids, committed);
                         }
                     }
                 }
@@ -886,6 +1241,31 @@ namespace Parsek
                 {
                     ParsekLog.Warn(InvokeTag,
                         $"Post-strip spawn-state reconcile threw (non-fatal): {ex.Message}");
+                }
+
+                // Step 3b (#15): retire the recovery rewards of every vessel this Re-Fly
+                // just put back in the world. The strip preserved unrelated vessels, so a
+                // craft the player had RECOVERED after the rewind point is now flying again
+                // while its recovery funds/science/crew rows are still banked. Retiring them
+                // here — after the post-strip reconcile, so the surviving identities are
+                // settled, and BEFORE the marker write and the Step-5
+                // RecalculateAndPatch(double.MaxValue) with authoritativeReduction=true, so
+                // the funds/science reduction is not clamp-blocked by the drawdown guard.
+                //
+                // The retirement is DURABLE: Re-Fly discard prunes attempt topology, it does
+                // not reload the pre-invoke world, so the resurrection outlives both merge
+                // and discard and the tombstones must too. (The failed-LoadGame rollback via
+                // TryRestoreBundle restores the pre-invoke tombstone list — correct, because
+                // that path never loaded the world. Post-strip failure paths return without
+                // rollback while the world IS loaded, so tombstones persisting matches it.)
+                try
+                {
+                    RetireResurrectedVesselRecoveryRows(selected, retireCutoffUT);
+                }
+                catch (Exception ex)
+                {
+                    ParsekLog.Warn(InvokeTag,
+                        $"Resurrected-recovery retirement threw (non-fatal): {ex.Message}");
                 }
 
                 // Step 4: §6.3 step 4 phases 1 + 2 — atomic provisional + marker write.
@@ -1010,38 +1390,236 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Post-strip spawn-state reconcile glue (coverage-gap follow-up for the Re-Fly
-        /// load path). Extracted from <see cref="RunStripActivateMarker"/> so the
-        /// "protoVessel PIDs minus stripped PIDs -> survivor set -> summary log ->
-        /// reconcile" wiring is directly unit-testable. The Unity-only step (enumerating
-        /// <c>HighLogic.CurrentGame.flightState.protoVessels</c> for their PIDs) stays at
-        /// the call site because <c>ProtoVessel</c> cannot be constructed in xUnit; this
-        /// method takes the pre-collected PID lists. Behavior matches the prior inline
-        /// block exactly; the returned count is additive for test assertions.
+        /// Writes the <see cref="LedgerTombstone"/> rows that retire the recovery rewards of
+        /// every vessel this Re-Fly resurrected (#15). Pure classification is delegated to
+        /// <see cref="ResurrectionRetirementEligibility.Classify"/>; this is the live-side
+        /// wrapper that gathers the surviving identities, writes the rows, and logs.
+        ///
+        /// <para>
+        /// <b>Crew note.</b> Retiring a <see cref="GameActionType.KerbalAssignment"/> with end
+        /// state <see cref="KerbalEndState.Recovered"/> also removes the Parsek reservation
+        /// that row implied. That is correct and not a protection gap: the crew are aboard the
+        /// resurrected vessel in the loaded world, so the LIVE roster (Assigned to that
+        /// vessel) is what protects them from here, exactly as it does for any other crew in
+        /// flight.
+        /// </para>
+        ///
+        /// <para>
+        /// [ERS-exempt] Reads the RAW <c>Ledger.Actions</c> and the RAW committed list, for the
+        /// same reason <c>SupersedeCommit.CommitTombstones</c> does: this BUILDS a tombstone
+        /// set, and ELS is defined as "ledger minus tombstones", so reading ELS here would hide
+        /// exactly the rows that need retiring. The committed-list read is a physical
+        /// live-vessel-to-recording identity correlation, not a visibility walk.
+        /// </para>
+        /// </summary>
+        internal static void RetireResurrectedVesselRecoveryRows(
+            ChildSlot selected, double retireCutoffUT)
+        {
+            var scenario = ParsekScenario.Instance;
+            if (object.ReferenceEquals(null, scenario))
+            {
+                ParsekLog.Verbose(InvokeTag,
+                    "Resurrected-recovery retirement: no ParsekScenario instance — skipping");
+                return;
+            }
+
+            var flightState = HighLogic.CurrentGame?.flightState;
+            if (flightState == null || flightState.protoVessels == null)
+            {
+                ParsekLog.Verbose(InvokeTag,
+                    "Resurrected-recovery retirement: no flightState — skipping");
+                return;
+            }
+
+            var survivingIdentities =
+                ParsekScenario.CollectSurvivingVesselIdentities(flightState.protoVessels);
+
+            var classified = ResurrectionRetirementEligibility.Classify(
+                survivingIdentities,
+                RecordingStore.CommittedRecordings,
+                Ledger.Actions,
+                retireCutoffUT);
+
+            var ic = CultureInfo.InvariantCulture;
+            if (classified.Count == 0)
+            {
+                ParsekLog.Info(InvokeTag,
+                    $"Resurrected-recovery retirement: none " +
+                    $"(survivors={survivingIdentities.Count.ToString(ic)} " +
+                    $"cutoffUT={retireCutoffUT.ToString("F1", ic)})");
+                return;
+            }
+
+            // RetiringRecordingId is the REWOUND origin recording, not the session's
+            // provisional, and the reason that decides it is simply that the provisional does
+            // not exist yet: AtomicMarkerWrite creates it after this point, so there is no id
+            // to write. (Inv7TreeTopology also requires the id to resolve to a real recording,
+            // so a synthetic placeholder would raise a `badlink ... kind=dangling` finding.)
+            //
+            // A discard-durability argument was originally offered alongside it and is
+            // OVERSTATED: TreeDiscardPurge.PurgeLedgerTombstones classifies primarily by the
+            // RETIRED ACTION's owning recording, indexed from Ledger.Actions, and falls back
+            // to RetiringRecordingId only when the target action is no longer in the ledger.
+            // These tombstones target actions owned by the origin recording, which a Re-Fly
+            // discard does not purge, so the primary path already leaves them alone whichever
+            // id is written here. Reason 1 stands on its own.
+            string retiringRecordingId = selected?.OriginChildRecordingId;
+
+            if (scenario.LedgerTombstones == null)
+                scenario.LedgerTombstones = new List<LedgerTombstone>();
+
+            var alreadyTombstoned = new HashSet<string>(StringComparer.Ordinal);
+            for (int i = 0; i < scenario.LedgerTombstones.Count; i++)
+            {
+                var existing = scenario.LedgerTombstones[i];
+                if (existing != null && !string.IsNullOrEmpty(existing.ActionId))
+                    alreadyTombstoned.Add(existing.ActionId);
+            }
+
+            string nowIso = DateTime.UtcNow.ToString("o", ic);
+            double mergeUT = retireCutoffUT;
+            int written = 0;
+            int skippedDuplicate = 0;
+
+            for (int i = 0; i < classified.Count; i++)
+            {
+                var entry = classified[i];
+                for (int a = 0; a < entry.RetiredActionIds.Count; a++)
+                {
+                    string actionId = entry.RetiredActionIds[a];
+                    if (string.IsNullOrEmpty(actionId)) continue;
+                    if (!alreadyTombstoned.Add(actionId))
+                    {
+                        skippedDuplicate++;
+                        continue;
+                    }
+
+                    scenario.LedgerTombstones.Add(new LedgerTombstone
+                    {
+                        TombstoneId = "tomb_" + Guid.NewGuid().ToString("N"),
+                        ActionId = actionId,
+                        RetiringRecordingId = retiringRecordingId,
+                        UT = mergeUT,
+                        CreatedRealTime = nowIso,
+                    });
+                    written++;
+                }
+
+                ParsekLog.Info(InvokeTag,
+                    $"Resurrected-recovery retirement: rec={entry.RecordingId} " +
+                    $"pid={entry.LiveVesselPid.ToString(ic)} " +
+                    $"anchorUT={entry.AnchorUT.ToString("F1", ic)} " +
+                    $"fallbackAnchor={entry.UsedFallbackAnchor} " +
+                    $"actions={entry.RetiredActionIds.Count.ToString(ic)}");
+            }
+
+            if (written > 0)
+                scenario.BumpTombstoneStateVersion();
+
+            ParsekLog.Info(InvokeTag,
+                $"Resurrected-recovery retirement: recordings={classified.Count.ToString(ic)} " +
+                $"tombstonesWritten={written.ToString(ic)} " +
+                $"alreadyRetired={skippedDuplicate.ToString(ic)} " +
+                $"retiring={retiringRecordingId ?? "<none>"} " +
+                $"cutoffUT={retireCutoffUT.ToString("F1", ic)}");
+        }
+
+        /// <summary>
+        /// Post-strip spawn-state reconcile for the Re-Fly load path.
+        /// <para>
+        /// Extracted from <see cref="RunStripActivateMarker"/> so the
+        /// "identities minus stripped PIDs -> survivor set -> summary log ->
+        /// reconcile" wiring is directly unit-testable. The Unity-only step
+        /// (enumerating <c>HighLogic.CurrentGame.flightState.protoVessels</c>)
+        /// stays at the call site because <c>ProtoVessel</c> cannot be
+        /// constructed in xUnit; this method takes the pre-collected lists.
+        /// </para>
+        /// <para>
+        /// Takes (pid, launch-guid) IDENTITIES rather than bare pids and routes to
+        /// the guid-aware <c>ReconcileSpawnStateAfterStrip</c> overload. The bare-pid
+        /// overload is wrong here for the reason CLAUDE.md pins: <c>persistentId</c>
+        /// is craft-baked, not launch-unique, so a survivor that merely shares a
+        /// recording's <c>SpawnedVesselPersistentId</c> may be a DIFFERENT launch of
+        /// the same craft. Under a pid-only decision such a survivor keeps the
+        /// recording at <c>VesselSpawned=true</c> pointing at a stranger, and
+        /// <c>ShouldSpawnAtRecordingEnd</c>'s dedup gate then blocks the terminal
+        /// ghost spawn permanently - nothing recovers it, because the liveness
+        /// re-check is itself pid-only. That was masked while the Re-Fly load left
+        /// exactly one vessel in scene; preserving unrelated vessels makes the
+        /// collision reachable, and a relaunch of the same craft is the common case.
+        /// </para>
         /// </summary>
         /// <returns>The number of committed recordings whose spawn state was reset.</returns>
         internal static int ReconcilePostStripSpawnState(
-            IReadOnlyList<uint> protoVesselPids,
+            IReadOnlyList<(uint pid, string guid)> protoVesselIdentities,
             IReadOnlyList<uint> strippedPids,
             IReadOnlyList<Recording> committed)
         {
             if (committed == null || committed.Count == 0)
                 return 0;
 
-            int protoCount = protoVesselPids != null ? protoVesselPids.Count : 0;
+            int protoCount = protoVesselIdentities != null ? protoVesselIdentities.Count : 0;
             int strippedCount = strippedPids != null ? strippedPids.Count : 0;
 
-            var survivors = ParsekScenario.ComputeSurvivorsFromProtoVesselPids(
-                protoVesselPids, strippedPids);
+            // PostLoadStripper.Strip removes vessels via Vessel.Die() but does NOT
+            // remove the matching ProtoVessel from flightState.protoVessels, so the
+            // stripped pids must be subtracted explicitly or they read as survivors
+            // and mask the very bug ShouldResetSpawnState detects.
+            var strippedSet = new HashSet<uint>();
+            if (strippedPids != null)
+            {
+                for (int i = 0; i < strippedPids.Count; i++)
+                    strippedSet.Add(strippedPids[i]);
+            }
+
+            var survivors = new List<(uint pid, string guid)>();
+            if (protoVesselIdentities != null)
+            {
+                for (int i = 0; i < protoVesselIdentities.Count; i++)
+                {
+                    var identity = protoVesselIdentities[i];
+                    if (identity.pid == 0u) continue;
+                    if (strippedSet.Contains(identity.pid)) continue;
+                    survivors.Add(identity);
+                }
+            }
+
+            int withGuid = 0;
+            for (int i = 0; i < survivors.Count; i++)
+            {
+                if (!string.IsNullOrEmpty(survivors[i].guid))
+                    withGuid++;
+            }
 
             ParsekLog.Info(InvokeTag,
                 $"Post-strip reconcile: strippedPids={strippedCount} " +
-                $"protoVesselsRemaining={protoCount} survivorPidCount={survivors.Count}");
+                $"protoVesselsRemaining={protoCount} survivorPidCount={survivors.Count} " +
+                $"survivorsWithLaunchGuid={withGuid}");
 
             return ParsekScenario.ReconcileSpawnStateAfterStrip(survivors, committed);
         }
 
-        private static bool IsFlightReady()
+        /// <summary>
+        /// Readiness gate for the Strip / Activate / Marker critical section.
+        ///
+        /// <para>
+        /// <c>Vessels.Count &gt; 0</c> was a sufficient proxy for "the save's vessels are
+        /// loaded" only while a Re-Fly load produced a ONE-vessel world. With the fleet
+        /// preserved, the preserved population can be live several frames before the selected
+        /// slot's own vessel is, so a non-empty list no longer implies the thing the caller
+        /// actually needs; Strip then finds no candidate and the invocation bails with
+        /// "Activate failed: selected vessel not present on reload". This now asserts the
+        /// SELECTED SLOT specifically, by vessel pid or root-part pid (the same two keys
+        /// <see cref="ClassifySlotAffinity"/> matches on).
+        /// </para>
+        /// <para>
+        /// An RP whose selected slot maps no pid at all
+        /// (<see cref="ReFlySlotPidSets.SelectedSlotIsUnmapped"/>) keeps the old count-only
+        /// answer: there is nothing to assert, and refusing would turn a strip that declines
+        /// cleanly into a wait that runs out the deferral budget first.
+        /// </para>
+        /// </summary>
+        private static bool IsFlightReady(ReFlySlotPidSets selectedSlotPids)
         {
             if (FlightReadyProbeOverrideForTesting != null)
                 return FlightReadyProbeOverrideForTesting();
@@ -1050,7 +1628,20 @@ namespace Parsek
             {
                 if (!FlightGlobals.ready) return false;
                 var vessels = FlightGlobals.Vessels;
-                return vessels != null && vessels.Count > 0;
+                if (vessels == null || vessels.Count == 0) return false;
+                if (selectedSlotPids.SelectedSlotIsUnmapped) return true;
+
+                for (int i = 0; i < vessels.Count; i++)
+                {
+                    Vessel v = vessels[i];
+                    if (v == null) continue;
+                    uint rootPartPid = 0u;
+                    Part root = v.rootPart;
+                    if (root != null) rootPartPid = root.persistentId;
+                    if (SelectedSlotVesselIsPresent(v.persistentId, rootPartPid, selectedSlotPids))
+                        return true;
+                }
+                return false;
             }
             catch
             {
@@ -1058,7 +1649,212 @@ namespace Parsek
             }
         }
 
-        private static void DeferUntilFlightReady(Action action, string tempPath)
+        /// <summary>
+        /// Live half of the #16 item-7 disabled-slot supplement: resolves the vessels the
+        /// pure <see cref="ResolveDisabledSlotVesselsToStrip"/> names and <c>Die()</c>s them.
+        /// The Unity walk stays here; the decision is pure and unit-tested.
+        /// </summary>
+        private static List<uint> StripDisabledSlotVessels(
+            RewindPoint rp, int selectedSlotIndex, uint selectedVesselPid)
+        {
+            var killed = new List<uint>();
+            var liveVessels = FlightGlobals.Vessels;
+            if (rp == null || liveVessels == null) return killed;
+
+            var identities = new List<(uint pid, string guid)>();
+            for (int i = 0; i < liveVessels.Count; i++)
+            {
+                Vessel v = liveVessels[i];
+                if (v == null) continue;
+                if (GhostMapPresence.IsGhostMapVessel(v.persistentId)) continue;
+                identities.Add((v.persistentId, AnchorDetector.TryReadLiveVesselGuid(v)));
+            }
+
+            var scenario = ParsekScenario.Instance;
+            var supersedes = object.ReferenceEquals(null, scenario)
+                ? null : scenario.RecordingSupersedes;
+            var kill = ResolveDisabledSlotVesselsToStrip(
+                rp, selectedSlotIndex,
+                RecordingStore.CommittedRecordings, supersedes, identities,
+                selectedVesselPid);
+            if (kill.Count == 0) return killed;
+
+            var killSet = new HashSet<uint>(kill);
+            var killTargets = SnapshotKillTargets(
+                liveVessels, killSet, v => v == null ? 0u : v.persistentId);
+
+            var killedNames = new List<string>();
+            for (int i = 0; i < killTargets.Count; i++)
+            {
+                Vessel v = killTargets[i];
+                if (v == null) continue;
+                string name = v.vesselName ?? "<unnamed>";
+                uint pid = v.persistentId;
+                try
+                {
+                    using (SuppressionGuard.Crew())
+                    {
+                        v.Die();
+                    }
+                    killed.Add(pid);
+                    killedNames.Add(name);
+                }
+                catch (Exception ex)
+                {
+                    ParsekLog.Warn(InvokeTag,
+                        $"Disabled-slot strip: Die() threw for v={pid} " +
+                        $"name='{name}': {ex.Message}");
+                }
+            }
+
+            if (killed.Count > 0)
+            {
+                ParsekLog.Warn(InvokeTag,
+                    $"Disabled-slot strip: removed {killed.Count} vessel(s) belonging to DISABLED " +
+                    $"child slot(s) of rp={rp.RewindPointId}: [{string.Join(", ", killedNames.ToArray())}] " +
+                    "(no PidSlotMap entry, so PostLoadStripper could not see them; they would " +
+                    "otherwise be present as a real vessel AND a replaying ghost)");
+            }
+
+            return killed;
+        }
+
+        /// <summary>
+        /// Pure decision for the #16 item-7 supplement: which live vessels belong to a
+        /// DISABLED, non-selected child slot of <paramref name="rp"/> and must therefore be
+        /// removed alongside the enabled non-selected slots?
+        ///
+        /// <para>
+        /// A slot is disabled when the RP author could not correlate its origin recording to a
+        /// live vessel (<c>DisabledReason="no-live-vessel"</c>), which is exactly why it has no
+        /// <c>PidSlotMap</c> entry and why <see cref="PostLoadStripper"/> classifies its craft
+        /// as unrelated. Matching is done on launch identity against the slot's EFFECTIVE tip
+        /// recording (supersede-walked, so a re-flown slot resolves to the recording that
+        /// actually stands), never by name: name matching is what the #587 pass needs and it
+        /// would delete a player's unrelated same-named craft here.
+        /// </para>
+        /// <para>
+        /// The two identity arms are deliberately asymmetric. The SPAWN arm goes through
+        /// <see cref="VesselLaunchIdentity.CandidateMatchesRecording"/> (spawn pids are
+        /// KSP-unique; an adoption stamp there already refuses a conclusive guid disagreement).
+        /// The SOURCE arm requires a POSITIVE guid match
+        /// (<see cref="VesselLaunchIdentity.LiveVesselIsPositivelyRecordedLaunch"/>) rather than
+        /// the family's degrading <c>LiveVesselIsRecordedLaunch</c>, because the unknown-guid
+        /// fallback direction is destructive HERE: everywhere else pid-only IS the pre-guid
+        /// behavior being preserved, but the pre-guid behavior of this pass (the preserved-fleet
+        /// world) was to leave the vessel alone, so degrading would aim a pid coincidence at
+        /// <c>Die()</c>. The consequence is deliberate: a disabled slot whose recording carries
+        /// no guid strips nothing, leaving the #587 third-facet shape (real vessel + replaying
+        /// ghost) rather than risking a stranger.
+        /// </para>
+        /// <para>
+        /// Known escape (safe direction, filed as a todo follow-up): a disabled slot's craft that
+        /// is live under a DIFFERENT vessel pid than the recording carries - docking pid churn
+        /// between recording and RP capture, which is the very reason the author could not
+        /// correlate it - matches neither <c>PidSlotMap</c> nor this pass, so it stays both a real
+        /// vessel and a replaying ghost. This pass restores the invariant for pid-stable disabled
+        /// slots only.
+        /// </para>
+        /// <para>
+        /// Three exclusions keep the pass narrow: a pid the RP maps to ANY slot is left to the
+        /// normal strip (it is either the selected vessel or an already-handled sibling), the
+        /// selected slot itself is never a candidate even if it is somehow marked disabled, and
+        /// <paramref name="selectedVesselPid"/> - the pid the strip actually RESOLVED as the
+        /// re-fly target - is protected outright. That last one is not redundant: the stripper
+        /// can resolve the selected vessel through <c>RootPartPidMap</c> when KSP regenerated its
+        /// vessel pid on load, in which case that pid is absent from <c>PidSlotMap</c>, and a
+        /// craft-baked pid collision with a disabled sibling's recording could otherwise name
+        /// the vessel the player is about to fly.
+        /// </para>
+        /// </summary>
+        internal static List<uint> ResolveDisabledSlotVesselsToStrip(
+            RewindPoint rp,
+            int selectedSlotIndex,
+            IReadOnlyList<Recording> recordings,
+            IReadOnlyList<RecordingSupersedeRelation> supersedes,
+            IReadOnlyList<(uint pid, string guid)> liveVessels,
+            uint selectedVesselPid = 0u)
+        {
+            var kill = new List<uint>();
+            if (rp == null || rp.ChildSlots == null
+                || recordings == null || recordings.Count == 0
+                || liveVessels == null || liveVessels.Count == 0)
+            {
+                return kill;
+            }
+
+            for (int s = 0; s < rp.ChildSlots.Count; s++)
+            {
+                ChildSlot slot = rp.ChildSlots[s];
+                if (slot == null || !slot.Disabled) continue;
+                if (slot.SlotIndex == selectedSlotIndex) continue;
+                if (string.IsNullOrEmpty(slot.OriginChildRecordingId)) continue;
+
+                string effectiveId = slot.EffectiveRecordingId(supersedes);
+                Recording rec = null;
+                for (int r = 0; r < recordings.Count; r++)
+                {
+                    if (recordings[r] != null
+                        && string.Equals(recordings[r].RecordingId, effectiveId, StringComparison.Ordinal))
+                    {
+                        rec = recordings[r];
+                        break;
+                    }
+                }
+                if (rec == null) continue;
+
+                for (int i = 0; i < liveVessels.Count; i++)
+                {
+                    uint pid = liveVessels[i].pid;
+                    if (pid == 0u) continue;
+                    // Never the vessel the strip resolved as the re-fly target.
+                    if (selectedVesselPid != 0u && pid == selectedVesselPid) continue;
+                    // A mapped pid is the normal strip's business (selected or enabled sibling).
+                    if (rp.PidSlotMap != null && rp.PidSlotMap.ContainsKey(pid)) continue;
+                    if (kill.Contains(pid)) continue;
+                    bool matches =
+                        // Spawn arm: a genuine Parsek spawn pid is KSP-unique and an adoption
+                        // stamp already refuses a conclusive guid disagreement, so the shared
+                        // gate is the right one there.
+                        VesselLaunchIdentity.CandidateMatchesRecording(
+                            rec, pid, liveVessels[i].guid, matchSource: false, matchSpawn: true)
+                        // Source arm: CONCLUSIVE guid match only, no pid-only fallback.
+                        || VesselLaunchIdentity.LiveVesselIsPositivelyRecordedLaunch(
+                            rec, pid, liveVessels[i].guid);
+                    if (matches)
+                    {
+                        kill.Add(pid);
+                    }
+                }
+            }
+
+            return kill;
+        }
+
+        /// <summary>
+        /// Pure half of <see cref="IsFlightReady"/>: does this live vessel's
+        /// (vesselPid, rootPartPid) pair identify the RP's SELECTED slot? Matches on either
+        /// key, mirroring <see cref="ClassifySlotAffinity"/> - the strip resolves the selected
+        /// vessel through the root-part map when the vessel pid was regenerated on load, so a
+        /// vessel-pid-only readiness test would wait out the full deferral for a slot that is
+        /// in fact present.
+        /// </summary>
+        internal static bool SelectedSlotVesselIsPresent(
+            uint vesselPid, uint rootPartPid, ReFlySlotPidSets selectedSlotPids)
+        {
+            if (vesselPid != 0u
+                && selectedSlotPids.SelectedVesselPids != null
+                && selectedSlotPids.SelectedVesselPids.Contains(vesselPid))
+            {
+                return true;
+            }
+            return rootPartPid != 0u
+                && selectedSlotPids.SelectedRootPartPids != null
+                && selectedSlotPids.SelectedRootPartPids.Contains(rootPartPid);
+        }
+
+        private static void DeferUntilFlightReady(
+            Action action, string tempPath, ReFlySlotPidSets selectedSlotPids)
         {
             if (DeferUntilFlightReadyOverrideForTesting != null)
             {
@@ -1075,7 +1871,8 @@ namespace Parsek
             // method has a null Target. A per-frame poll on the scenario's
             // MonoBehaviour sidesteps the EvtDelegate issue entirely and is
             // still deterministic: it fires on the first Unity frame after
-            // `FlightGlobals.ready && Vessels.Count > 0` flips true.
+            // `FlightGlobals.ready` plus the SELECTED SLOT's own vessel flips true
+            // (a non-empty vessel list is no longer proof of that - see IsFlightReady).
             var scenario = ParsekScenario.Instance;
             if (object.ReferenceEquals(null, scenario))
             {
@@ -1096,26 +1893,30 @@ namespace Parsek
                 return;
             }
 
-            scenario.StartCoroutine(WaitForFlightReadyAndInvoke(action, tempPath));
+            scenario.StartCoroutine(
+                WaitForFlightReadyAndInvoke(action, tempPath, selectedSlotPids));
         }
 
-        private static System.Collections.IEnumerator WaitForFlightReadyAndInvoke(Action action, string tempPath)
+        private static System.Collections.IEnumerator WaitForFlightReadyAndInvoke(
+            Action action, string tempPath, ReFlySlotPidSets selectedSlotPids)
         {
             // Bound the wait so a scene-load that never finishes (catastrophic
             // failure) doesn't leak the coroutine. 300 frames at 60 fps is 5 s,
             // well past the ~1.4 s observed async-load completion.
             const int MaxFrames = 300;
             int frame = 0;
-            while (frame < MaxFrames && !IsFlightReady())
+            while (frame < MaxFrames && !IsFlightReady(selectedSlotPids))
             {
                 frame++;
                 yield return null;
             }
 
-            if (!IsFlightReady())
+            if (!IsFlightReady(selectedSlotPids))
             {
                 ParsekLog.Error(InvokeTag,
-                    $"Deferred flight-ready wait timed out after {MaxFrames} frames — rewind aborted");
+                    $"Deferred flight-ready wait timed out after {MaxFrames} frames — rewind aborted " +
+                    $"(selected slot's vessel never appeared; selectedSlotUnmapped=" +
+                    $"{selectedSlotPids.SelectedSlotIsUnmapped})");
                 // The action's own finally block never runs on timeout, so
                 // the temp quicksave (Parsek_Rewind_*.sfs at save root) would
                 // be orphaned — user-visible clutter and a violation of the
@@ -1409,8 +2210,9 @@ namespace Parsek
                 try
                 {
                     if (ParsekScenario.Instance != null)
-                        ParsekScenario.Instance.ActiveReFlySessionMarker = null;
-                    Parsek.Rendering.RenderSessionState.Clear("marker-cleared");
+                        ParsekScenario.Instance.ClearActiveReFlySessionMarker("marker-cleared");
+                    else
+                        Parsek.Rendering.RenderSessionState.Clear("marker-cleared");
                     ReFlyRevertButtonGate.Apply("AtomicMarkerWrite:rollback");
                 }
                 catch { /* idempotent rollback; swallow secondary failure */ }
@@ -1445,6 +2247,12 @@ namespace Parsek
                 ParsekLog.Warn(InvokeTag,
                     $"AtomicMarkerWrite: quickload trim-scope refresh threw (non-fatal): {ex.Message}");
             }
+
+            // A new session owns the retirement hand-over slot: drop anything an
+            // earlier session left there so a stale Recording reference can never
+            // outlive its session (TryTake also gates on SessionId, so this is
+            // lifetime hygiene rather than correctness).
+            ReFlyProvisionalRetirement.Clear("new-refly-session");
 
             ParsekLog.Info(SessionTag,
                 $"Started sess={sessionId} rp={rp.RewindPointId} slot={selected.SlotIndex} " +
@@ -1917,6 +2725,15 @@ namespace Parsek
             public bool Applied;
             public int VesselCountBefore;
             public int VesselsKept;
+
+            /// <summary>
+            /// Subset of <see cref="VesselsKept"/> that is not part of this RP's
+            /// slot set at all: pre-existing stations, satellites, rovers,
+            /// <c>SpaceObject</c> asteroids/comets and planted flags. Preserved
+            /// per design doc §6.4 step 4 ("Else: leave alone").
+            /// </summary>
+            public int VesselsPreserved;
+
             public int VesselsRemoved;
             public int SelectedActiveIndex;
             public int ThrottleResets;
@@ -1953,9 +2770,11 @@ namespace Parsek
                 return result;
             }
 
-            var selectedVesselPids = BuildSelectedSlotPidSet(rp.PidSlotMap, selectedSlotIndex);
-            var selectedRootPartPids = BuildSelectedSlotPidSet(rp.RootPartPidMap, selectedSlotIndex);
-            if (selectedVesselPids.Count == 0 && selectedRootPartPids.Count == 0)
+            // ONE classification source, shared with the in-game world-preservation
+            // guard (see BuildSlotPidSets): the sets are built once here and the
+            // per-vessel test below is ClassifySlotAffinity.
+            ReFlySlotPidSets slotPids = BuildSlotPidSets(rp, selectedSlotIndex);
+            if (slotPids.SelectedSlotIsUnmapped)
             {
                 ParsekLog.Warn(InvokeTag,
                     $"Re-Fly save scrub skipped: selected slot has no pid mapping " +
@@ -1963,33 +2782,81 @@ namespace Parsek
                 return result;
             }
 
+            // Removal is scoped to this RP's OTHER slots. A vessel that is in no
+            // slot map at all is unrelated to the re-fly (pre-existing station,
+            // satellite, rover, SpaceObject asteroid/comet, planted flag) and is
+            // left alone, per design doc §6.4 step 4. PostLoadStripper.Strip is
+            // the authoritative matcher after load and reports these as
+            // LeftAlone; the narrow #587 debris kill
+            // (StripPreExistingDebrisForInPlaceContinuation) still runs and is
+            // the mechanism that removes prior-career debris which would trip
+            // stock patched conics. Widening this predicate must NOT be
+            // "re-narrowed" here to fix a phantom-encounter regression - that
+            // belongs in the #587 name-matched pass.
+
             ConfigNode[] vesselNodes = flightState.GetNodes("VESSEL");
             result.VesselCountBefore = vesselNodes.Length;
             var remove = new List<ConfigNode>();
+            var preservedNames = new List<string>();
             int keptIndex = 0;
             for (int i = 0; i < vesselNodes.Length; i++)
             {
                 ConfigNode vessel = vesselNodes[i];
-                uint vesselPid = ParseUInt(vessel.GetValue("persistentId"));
-                uint rootPartPid = GetRootPartPersistentId(vessel);
-                bool keep = (vesselPid != 0u && selectedVesselPids.Contains(vesselPid))
-                    || (rootPartPid != 0u && selectedRootPartPids.Contains(rootPartPid));
+                ReFlySlotAffinity affinity = ClassifySlotAffinity(vessel, slotPids);
 
-                if (keep)
+                // No ghost-node carve-out is needed here, and adding one is a
+                // trap: ParsekScenario.OnSave strips ghost map ProtoVessels out
+                // of HighLogic.CurrentGame.flightState (ParsekScenario.cs:1091-1097
+                // -> GhostMapPresence.StripFromSave) on EVERY save, and KSP writes
+                // the SCENARIO nodes before FLIGHTSTATE, so ghosts never reach a
+                // quicksave in the first place. A name-prefix guard here would
+                // only delete a player craft actually named "Ghost: ..." - and
+                // because it would run before the selected-slot test, if that
+                // craft WERE the re-fly target the whole Re-Fly would refuse.
+                if (affinity == ReFlySlotAffinity.OtherSlot)
                 {
+                    remove.Add(vessel);
+                    continue;
+                }
+
+                if (affinity == ReFlySlotAffinity.SelectedSlot)
+                {
+                    // Throttle-zeroing is scoped to the re-flown slot only: an
+                    // unrelated vessel's control state is its own business and
+                    // must survive the scrub untouched.
                     result.ThrottleResets += ForceReFlyVesselThrottleClosed(vessel);
                     if (result.SelectedActiveIndex < 0)
                         result.SelectedActiveIndex = keptIndex;
-                    keptIndex++;
-                    result.VesselsKept++;
                 }
                 else
                 {
-                    remove.Add(vessel);
+                    result.VesselsPreserved++;
+                    if (preservedNames.Count < MaxPreservedNamesLogged)
+                    {
+                        preservedNames.Add(vessel.GetValue("name")
+                            ?? $"pid={ParseUInt(vessel.GetValue("persistentId"))}");
+                    }
                 }
+
+                keptIndex++;
+                result.VesselsKept++;
             }
 
-            if (result.VesselsKept == 0)
+            if (result.VesselsPreserved > 0)
+            {
+                string overflow = result.VesselsPreserved > preservedNames.Count
+                    ? $" (+{result.VesselsPreserved - preservedNames.Count} more)"
+                    : "";
+                ParsekLog.Verbose(InvokeTag,
+                    $"Re-Fly save scrub preserved {result.VesselsPreserved} unrelated vessel(s) " +
+                    $"[{string.Join(", ", preservedNames.ToArray())}]{overflow}");
+            }
+
+            // Guard on the SELECTED slot specifically, not on "anything kept":
+            // now that unrelated vessels survive, VesselsKept > 0 no longer
+            // implies the re-fly target was found, and repointing activeVessel
+            // at an unrelated survivor would be worse than not scrubbing.
+            if (result.SelectedActiveIndex < 0)
             {
                 ParsekLog.Warn(InvokeTag,
                     $"Re-Fly save scrub skipped: selected slot vessel not found " +
@@ -2013,6 +2880,7 @@ namespace Parsek
             ParsekLog.Info(InvokeTag,
                 $"Re-Fly save scrub applied: rp={rp.RewindPointId} slot={selectedSlotIndex} " +
                 $"vesselsBefore={result.VesselCountBefore} kept={result.VesselsKept} " +
+                $"preserved={result.VesselsPreserved} " +
                 $"removed={result.VesselsRemoved} activeVessel={result.SelectedActiveIndex} " +
                 $"throttleResets={result.ThrottleResets} " +
                 $"sidecarEpochsRefreshed={result.SidecarEpochsRefreshed} " +
@@ -2108,6 +2976,91 @@ namespace Parsek
             }
         }
 
+        /// <summary>
+        /// Which of a rewind point's slots a save <c>VESSEL</c> node belongs to.
+        /// <see cref="Unrelated"/> is the preserved population (design §6.4 step 4:
+        /// pre-existing station / satellite / rover / <c>SpaceObject</c> / flag).
+        /// </summary>
+        internal enum ReFlySlotAffinity
+        {
+            Unrelated = 0,
+            SelectedSlot = 1,
+            OtherSlot = 2,
+        }
+
+        /// <summary>
+        /// The four pid sets the selected-slot classification needs, built ONCE per
+        /// scrub pass so the per-vessel test stays O(1).
+        /// </summary>
+        internal struct ReFlySlotPidSets
+        {
+            public HashSet<uint> SelectedVesselPids;
+            public HashSet<uint> SelectedRootPartPids;
+            public HashSet<uint> OtherSlotVesselPids;
+            public HashSet<uint> OtherSlotRootPartPids;
+
+            /// <summary>
+            /// True when this RP maps NO pid to the selected slot on either key, i.e.
+            /// nothing can be matched and the scrub must decline rather than guess.
+            /// </summary>
+            public bool SelectedSlotIsUnmapped =>
+                (SelectedVesselPids == null || SelectedVesselPids.Count == 0)
+                && (SelectedRootPartPids == null || SelectedRootPartPids.Count == 0);
+        }
+
+        /// <summary>
+        /// Builds the <see cref="ReFlySlotPidSets"/> for one selected slot of
+        /// <paramref name="rp"/>.
+        /// <para>
+        /// SINGLE SOURCE for "which slot does this vessel belong to". The pre-load
+        /// scrub (<see cref="ScrubQuicksaveToSelectedSlotForReFly"/>) and the in-game
+        /// <c>ReFlyWorldPreservation</c> guard both classify through this pair, so a
+        /// guard asserting the preserved world cannot drift from the predicate that
+        /// produced it.
+        /// </para>
+        /// </summary>
+        internal static ReFlySlotPidSets BuildSlotPidSets(RewindPoint rp, int selectedSlotIndex)
+        {
+            return new ReFlySlotPidSets
+            {
+                SelectedVesselPids = BuildSelectedSlotPidSet(rp?.PidSlotMap, selectedSlotIndex),
+                SelectedRootPartPids = BuildSelectedSlotPidSet(rp?.RootPartPidMap, selectedSlotIndex),
+                OtherSlotVesselPids = BuildNonSelectedSlotPidSet(rp?.PidSlotMap, selectedSlotIndex),
+                OtherSlotRootPartPids = BuildNonSelectedSlotPidSet(rp?.RootPartPidMap, selectedSlotIndex),
+            };
+        }
+
+        /// <summary>
+        /// Classifies one save <c>VESSEL</c> node against <paramref name="sets"/>.
+        /// Selected wins over other-slot (a pid in both maps is the re-fly target,
+        /// never a sibling to remove), and a vessel matching neither map is
+        /// <see cref="ReFlySlotAffinity.Unrelated"/> - the preserved population.
+        /// Pure: reads only <c>persistentId</c> and the root <c>PART</c>'s
+        /// <c>persistentId</c>, never <c>type</c> or <c>name</c>.
+        /// </summary>
+        internal static ReFlySlotAffinity ClassifySlotAffinity(
+            ConfigNode vessel, ReFlySlotPidSets sets)
+        {
+            if (vessel == null) return ReFlySlotAffinity.Unrelated;
+
+            uint vesselPid = ParseUInt(vessel.GetValue("persistentId"));
+            uint rootPartPid = GetRootPartPersistentId(vessel);
+
+            bool isSelectedSlot =
+                (vesselPid != 0u && sets.SelectedVesselPids != null
+                    && sets.SelectedVesselPids.Contains(vesselPid))
+                || (rootPartPid != 0u && sets.SelectedRootPartPids != null
+                    && sets.SelectedRootPartPids.Contains(rootPartPid));
+            if (isSelectedSlot) return ReFlySlotAffinity.SelectedSlot;
+
+            bool isOtherSlot =
+                (vesselPid != 0u && sets.OtherSlotVesselPids != null
+                    && sets.OtherSlotVesselPids.Contains(vesselPid))
+                || (rootPartPid != 0u && sets.OtherSlotRootPartPids != null
+                    && sets.OtherSlotRootPartPids.Contains(rootPartPid));
+            return isOtherSlot ? ReFlySlotAffinity.OtherSlot : ReFlySlotAffinity.Unrelated;
+        }
+
         private static HashSet<uint> BuildSelectedSlotPidSet(
             Dictionary<uint, int> map, int selectedSlotIndex)
         {
@@ -2116,6 +3069,32 @@ namespace Parsek
             foreach (var kv in map)
             {
                 if (kv.Key != 0u && kv.Value == selectedSlotIndex)
+                    result.Add(kv.Key);
+            }
+            return result;
+        }
+
+        /// <summary>
+        /// Cap on how many preserved vessel names the scrub summary names, per the
+        /// batch-counting logging convention (one summary line, not one line per
+        /// item - a large career can preserve dozens of vessels).
+        /// </summary>
+        private const int MaxPreservedNamesLogged = 8;
+
+        /// <summary>
+        /// Pids this RP maps to a slot OTHER than the selected one. Together with
+        /// serialized ghost nodes these are the only vessels the temp-save scrub
+        /// removes; anything absent from the slot maps entirely is unrelated to
+        /// the re-fly and is preserved.
+        /// </summary>
+        private static HashSet<uint> BuildNonSelectedSlotPidSet(
+            Dictionary<uint, int> map, int selectedSlotIndex)
+        {
+            var result = new HashSet<uint>();
+            if (map == null) return result;
+            foreach (var kv in map)
+            {
+                if (kv.Key != 0u && kv.Value != selectedSlotIndex)
                     result.Add(kv.Key);
             }
             return result;
@@ -2888,33 +3867,45 @@ namespace Parsek
         }
 
         /// <summary>
-        /// #fix-refly-preserve-flag-vessels survey-level skip predicate. Returns
-        /// true when a live vessel must be excluded from the
-        /// <c>leftAlonePidNames</c> list built by
-        /// <see cref="StripPreExistingDebrisForInPlaceContinuation"/>. Currently
-        /// only <see cref="VesselType.Flag"/>: planted flags are durable
-        /// FlagPlant career milestones that
-        /// <see cref="PostLoadStripper.ShouldPreserveVesselType"/> already
-        /// bypasses at the primary strip path, and that the secondary kill walk
-        /// must NOT silently Die() on a name-collision with an in-scope
-        /// recording. Keyed on actual <c>VesselType</c> (not on
-        /// <see cref="PostLoadStripResult.PreservedFlagPids"/> membership) so
-        /// the skip is robust against any future divergence between strip
-        /// bookkeeping and live vessel state. Pure / static so unit tests can
-        /// pin it against the <see cref="IStrippableVessel"/> contract.
+        /// Bug #587 kill-survey eligibility: ONLY <see cref="VesselType.Debris"/>
+        /// may become a candidate for the name-matched pre-existing-debris kill.
+        /// <para>
+        /// This predicate used to be the inverse - "skip <see cref="VesselType.Flag"/>,
+        /// survey everything else" - which was harmless only because the survey
+        /// set was empty in practice: the Re-Fly temp-save scrub deleted every
+        /// vessel but the selected slot, and the selected pid is excluded upstream,
+        /// so <see cref="ResolveInPlaceContinuationDebrisToKill"/> never had a
+        /// candidate in production. Once the scrub was narrowed to preserve
+        /// unrelated vessels, "survey everything else" meant the player's whole
+        /// fleet, and the kill matches on EXACT vessel name against a set that
+        /// includes the active recording's parent chain - so a prior-career craft
+        /// sharing the re-flown craft's name (KSP's default naming makes that the
+        /// common case) would be silently <c>Die()</c>d inside a crew-suppression
+        /// guard, with no ledger row.
+        /// </para>
+        /// <para>
+        /// Debris-only matches the mechanism's own documented intent (`#587` was
+        /// filed and changelogged as removing "pre-existing DEBRIS vessels ...
+        /// whose name matches a Destroyed-terminal recording"), so a real craft is
+        /// now ineligible regardless of name collision. Fails CLOSED: an
+        /// unreadable <see cref="IStrippableVessel.VesselType"/> yields "not a
+        /// candidate", because including a vessel of unknown type risks killing a
+        /// real one. That is the opposite of the old predicate's fail direction,
+        /// and deliberately so - the old one failed toward "protect", this one
+        /// fails toward "protect" as well, but the branch that means protection
+        /// has moved.
+        /// </para>
         /// </summary>
-        internal static bool ShouldSkipFromLeftAloneSurvey(IStrippableVessel v)
+        internal static bool IsDebrisKillSurveyCandidate(IStrippableVessel v)
         {
             if (v == null) return false;
             VesselType type;
             // Mirror LiveVesselAdapter.VesselType's defensive try/catch: KSP's
             // Vessel getter walks managed Unity state and can throw on a
-            // half-destroyed GameObject mid-strip. On throw we fall through to
-            // the conservative "don't skip" branch so a defective vessel still
-            // gets the kill-set protection layer.
+            // half-destroyed GameObject mid-strip.
             try { type = v.VesselType; }
             catch { return false; }
-            return type == VesselType.Flag;
+            return type == VesselType.Debris;
         }
 
         /// <summary>
@@ -2933,12 +3924,13 @@ namespace Parsek
         ///     from <c>FlightGlobals</c> yet).</description></item>
         ///   <item><description><see cref="PostLoadStripResult.SelectedPid"/>
         ///     (#573 contract: the actively re-flown vessel).</description></item>
-        ///   <item><description><see cref="VesselType.Flag"/> vessels
-        ///     (<see cref="ShouldSkipFromLeftAloneSurvey"/>): the user-requested
-        ///     belt-and-suspenders that resolves the original review note at
-        ///     the source — a preserved flag must never enter the leftAlone
-        ///     survey, even if its <c>vesselName</c> happens to collide with a
-        ///     Destroyed-terminal / session-suppressed / parent-chain
+        ///   <item><description>Every non-debris vessel
+        ///     (<see cref="IsDebrisKillSurveyCandidate"/>): only
+        ///     <see cref="VesselType.Debris"/> may become a kill candidate. This
+        ///     subsumes the old Flag-only skip and is what keeps the preserved
+        ///     fleet out of the name-matched kill — a real craft must never enter
+        ///     the leftAlone survey, even if its <c>vesselName</c> collides with
+        ///     a Destroyed-terminal / session-suppressed / parent-chain
         ///     recording.</description></item>
         /// </list>
         /// Returns an empty list (never null) on null/empty input. Pure /
@@ -2954,16 +3946,16 @@ namespace Parsek
             if (liveVessels == null || liveVessels.Count == 0) return result;
             Func<uint, bool> ghostCheck = isGhostMapVessel ?? (_ => false);
 
-            int skippedFlags = 0;
+            int skippedNonDebris = 0;
             int skippedGhostMap = 0;
             int skippedStripped = 0;
             int skippedSelected = 0;
             int includedCount = 0;
-            // First flag's identifiers captured for the one-shot Verbose log,
-            // so playtest log readers can confirm the skip ran without spamming
-            // a line per vessel.
-            uint firstFlagPid = 0u;
-            string firstFlagName = null;
+            // First skipped vessel's identifiers captured for the one-shot
+            // Verbose log, so playtest log readers can confirm the skip ran
+            // without spamming a line per vessel.
+            uint firstSkippedPid = 0u;
+            string firstSkippedName = null;
 
             for (int i = 0; i < liveVessels.Count; i++)
             {
@@ -2985,18 +3977,21 @@ namespace Parsek
                     skippedSelected++;
                     continue;
                 }
-                // Survey-level flag skip -- the user-requested upstream defense
-                // alongside BuildProtectedPidsForInPlaceContinuation's
-                // PreservedFlagPids branch.
-                if (ShouldSkipFromLeftAloneSurvey(v))
+                // Survey-level eligibility: DEBRIS ONLY. See
+                // IsDebrisKillSurveyCandidate -- this subsumes the old
+                // VesselType.Flag skip (a flag is not debris) and is what keeps
+                // the preserved fleet out of a name-matched kill.
+                // BuildProtectedPidsForInPlaceContinuation's PreservedFlagPids
+                // branch is retained as the downstream safety net.
+                if (!IsDebrisKillSurveyCandidate(v))
                 {
-                    if (skippedFlags == 0)
+                    if (skippedNonDebris == 0)
                     {
-                        firstFlagPid = pid;
-                        try { firstFlagName = v.VesselName; }
-                        catch { firstFlagName = null; }
+                        firstSkippedPid = pid;
+                        try { firstSkippedName = v.VesselName; }
+                        catch { firstSkippedName = null; }
                     }
-                    skippedFlags++;
+                    skippedNonDebris++;
                     continue;
                 }
                 string name;
@@ -3007,13 +4002,13 @@ namespace Parsek
                 includedCount++;
             }
 
-            if (skippedFlags > 0 && !ParsekLog.SuppressLogging)
+            if (skippedNonDebris > 0 && !ParsekLog.SuppressLogging)
             {
-                string safeName = string.IsNullOrEmpty(firstFlagName) ? "<unnamed>" : firstFlagName;
+                string safeName = string.IsNullOrEmpty(firstSkippedName) ? "<unnamed>" : firstSkippedName;
                 ParsekLog.Verbose(InvokeTag,
-                    $"Strip post-supplement: skipping flag v={firstFlagPid} name='{safeName}' " +
-                    $"from leftAlone survey -- preserved by PostLoadStripper " +
-                    $"(totalFlagsSkipped={skippedFlags} included={includedCount} " +
+                    $"Strip post-supplement: skipping non-debris v={firstSkippedPid} name='{safeName}' " +
+                    $"from leftAlone survey -- only VesselType.Debris is kill-eligible " +
+                    $"(totalNonDebrisSkipped={skippedNonDebris} included={includedCount} " +
                     $"skippedGhostMap={skippedGhostMap} skippedStripped={skippedStripped} " +
                     $"skippedSelected={skippedSelected})");
             }
@@ -3041,14 +4036,17 @@ namespace Parsek
         ///     paths, so the flag is never recorded in
         ///     <see cref="PostLoadStripResult.StrippedPids"/> and never
         ///     receives a <c>Vessel.Die()</c> from <c>PostLoadStripper</c>.</description></item>
-        ///   <item><description><b>Survey-level skip:</b>
-        ///     <see cref="BuildLeftAlonePidNamesForInPlaceContinuation"/> filters
-        ///     <see cref="VesselType.Flag"/> entries out of the
-        ///     <c>leftAlonePidNames</c> list at the survey step, so a
-        ///     name-colliding flag never even enters the kill-set construction.
-        ///     This is the user-requested layer that resolves the original
-        ///     review note's concern at the source: a preserved flag must not
-        ///     reach the resolver in the first place.</description></item>
+        ///   <item><description><b>Survey-level gate:</b>
+        ///     <see cref="BuildLeftAlonePidNamesForInPlaceContinuation"/> admits
+        ///     ONLY <see cref="VesselType.Debris"/> into the
+        ///     <c>leftAlonePidNames</c> list, via
+        ///     <see cref="IsDebrisKillSurveyCandidate"/> — so a name-colliding
+        ///     flag never enters the kill-set construction, and neither does any
+        ///     other real craft. This layer used to be the inverse (skip
+        ///     <c>Flag</c>, survey everything else), which was safe only while
+        ///     the Re-Fly scrub left a single vessel in scene; the debris-only
+        ///     gate resolves the original review note's concern at the source
+        ///     for the whole preserved fleet, not just for flags.</description></item>
         ///   <item><description><b>Kill-set protection:</b>
         ///     <see cref="BuildProtectedPidsForInPlaceContinuation"/> still adds
         ///     <see cref="PostLoadStripResult.PreservedFlagPids"/> to the
@@ -3099,12 +4097,13 @@ namespace Parsek
             // Protect the selected slot vessel + the marker's active recording's pid
             // (#573 contract: never kill the actively re-flown vessel) + every
             // VesselType.Flag pid the stripper preserved (#fix-refly-preserve-flag-vessels
-            // follow-up: belt-and-suspenders alongside the survey-level skip above.
-            // Even though BuildLeftAlonePidNamesForInPlaceContinuation now filters
-            // VesselType.Flag entries at the source, this kill-set protection stays
-            // as a redundant safety net so a future refactor that accidentally
-            // bypasses the survey helper cannot silently revive name-collision
-            // Die() on a planted-flag career milestone).
+            // follow-up: belt-and-suspenders alongside the survey-level gate above.
+            // Even though BuildLeftAlonePidNamesForInPlaceContinuation now admits
+            // ONLY VesselType.Debris at the source (so a Flag cannot reach the
+            // resolver at all), this kill-set protection stays as a redundant
+            // safety net so a future refactor that accidentally bypasses the
+            // survey helper cannot silently revive name-collision Die() on a
+            // planted-flag career milestone).
             var protectedPids = BuildProtectedPidsForInPlaceContinuation(
                 stripResult, marker, RecordingStore.CommittedRecordings);
 

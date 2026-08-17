@@ -1,3 +1,5 @@
+using System.Collections.Generic;
+using System.Globalization;
 using Parsek.Reaim;
 using Xunit;
 
@@ -250,6 +252,117 @@ namespace Parsek.Tests
             Assert.True(incDeg < 90.0, $"and still prograde (inc={incDeg} deg < 90)");
         }
 
+        // ============ E2: the solver on the REAL Eve cycle-0 endpoints (plan section 3, E2) ============
+        //
+        // WHY THESE CELLS EXIST. The 2026-08-11 V8-eve-player-loop measurement showed all 27 tof
+        // candidates reaching the tilt gate with a finite inclination, which means the Lambert solve
+        // CONVERGED on every one of them - there is no solver defect behind the Eve decline, and the fix
+        // (retain the un-corrected conic instead of killing the candidate) rests on the conic in hand
+        // being a real, prograde, target-reaching transfer. That premise is now a permanent guard rather
+        // than an inference from the logs. Geometry comes from EveCycleZeroGeometry (stock constants,
+        // KSP-world Y-up frame); the handedness axis is built exactly as
+        // ReaimTransferSynthesizer.cs:359-361 builds it (r1 x v_launch at the departure anchor).
+        //
+        // These are also the cells that pin hypothesis H1's MECHANISM: v1 comes back in span(r1, r2)
+        // (UvLambert.cs:218), so the conic's plane IS plane(r1, r2) by construction - the double-digit
+        // tilt the gate rejects is the geometry, not solver error.
+        //
+        // BRANCH NOTE (two different "transfer angles" live here; do not conflate them). Step 0 is the
+        // RECORDED tof - the direct departure path's band center (ReaimPlaybackResolver.cs:456-458 ->
+        // ReaimTofSearch.BuildCandidateTofs) - where the UNSIGNED geometric angle between r1 and r2 is
+        // 174.9920 deg, just short of antiparallel. The solver nevertheless sweeps the LONG way there
+        // (dnu = 185.0080 = 360 - 174.9920): dot(r1 x r2, launchPlaneNormal) is negative at this
+        // geometry, so the short arc would run retrograde and the prograde branch must take the long one.
+        // Both statements describe the same conic. The mix varies across the band - the longest-tof edge
+        // is long-way as well (dnu 200.4958) while the shortest-tof edge is short-way (dnu 168.9306) -
+        // and all three come back PROGRADE with respect to the supplied normal, which is what (b) asserts
+        // and what keeps the synth's direction guard from being the thing that declines these candidates.
+
+        [Fact]
+        public void Solve_EveCycleZeroEndpoints_ConvergeProgradeAndReachR2()
+        {
+            EveCycleZeroGeometry.StateAt(EveCycleZeroGeometry.Kerbin, EveCycleZeroGeometry.DepartureUT,
+                out Vector3d r1, out Vector3d vLaunch);
+            Vector3d planeNormal = EveCycleZeroGeometry.LaunchPlaneNormal(r1, vLaunch);
+
+            foreach (var probe in EveCycleZeroBandProbes())
+            {
+                double tof = probe.Value;
+                EveCycleZeroGeometry.StateAt(EveCycleZeroGeometry.Eve,
+                    EveCycleZeroGeometry.DepartureUT + tof, out Vector3d r2, out _);
+
+                // (a) The solve must converge - every candidate reached the tilt gate in game.
+                bool ok = UvLambert.Solve(EveCycleZeroGeometry.SunMu, r1, r2, tof, prograde: true,
+                    planeNormal, out Vector3d v1, out _);
+                Assert.True(ok, $"{probe.Key}: the Eve cycle-0 Lambert solve must converge (tof={F0(tof)})");
+
+                // (b) PROGRADE with respect to the supplied handedness axis: the conic travels the same
+                // way the launch body does, so the synth's direction guard passes and the tilt gate - not
+                // IsRetrogradeTransfer - is what declines the candidate today.
+                double hDotN = Vector3d.Dot(Vector3d.Cross(r1, v1), planeNormal);
+                Assert.True(hDotN > 0.0,
+                    $"{probe.Key}: the solved conic must be prograde wrt the launch-plane normal (dot={E3(hDotN)})");
+
+                // (c) FAIL-CLOSED CORRECTNESS: the solved departure velocity actually reaches Eve's
+                // arrival position. This is the property Design A leans on - the un-corrected conic in
+                // hand passes through Eve's center at arrival, so the downstream proximity check has
+                // something real to accept.
+                Vector3d end = PropagateTwoBody(r1, v1, EveCycleZeroGeometry.SunMu, tof);
+                double miss = (end - r2).magnitude;
+                Assert.True(miss < 1e-6 * r2.magnitude,
+                    $"{probe.Key}: the solved conic must reach r2 (miss={E3(miss)} m of |r2|={E3(r2.magnitude)} m)");
+            }
+        }
+
+        [Fact]
+        public void Solve_EveCycleZeroEndpoints_V1LiesInThePlaneOfR1AndR2()
+        {
+            // H1's mechanism, pinned: v1 = (r2 - f*r1)/g lies in span(r1, r2), so the transfer plane is
+            // plane(r1, r2) exactly - which is why the near-180 geometry amplifies Eve's out-of-plane
+            // offset into the double-digit inclination the 2.6-deg bound rejects, and why no "better
+            // plane construction" exists for a single conic (plan section 2, Design B/H4).
+            EveCycleZeroGeometry.StateAt(EveCycleZeroGeometry.Kerbin, EveCycleZeroGeometry.DepartureUT,
+                out Vector3d r1, out Vector3d vLaunch);
+            Vector3d planeNormal = EveCycleZeroGeometry.LaunchPlaneNormal(r1, vLaunch);
+
+            foreach (var probe in EveCycleZeroBandProbes())
+            {
+                double tof = probe.Value;
+                EveCycleZeroGeometry.StateAt(EveCycleZeroGeometry.Eve,
+                    EveCycleZeroGeometry.DepartureUT + tof, out Vector3d r2, out _);
+                Assert.True(UvLambert.Solve(EveCycleZeroGeometry.SunMu, r1, r2, tof, prograde: true,
+                    planeNormal, out Vector3d v1, out _), probe.Key);
+
+                Vector3d endpointNormal = EveCycleZeroGeometry.PlaneNormalOfEndpoints(r1, r2).normalized;
+                double outOfPlane = System.Math.Abs(Vector3d.Dot(v1.normalized, endpointNormal));
+                Assert.True(outOfPlane < 1e-6,
+                    $"{probe.Key}: v1 must lie in span(r1,r2) (|dot(v1-hat, n-hat)|={E3(outOfPlane)})");
+
+                // And therefore the conic's inclination equals plane(r1,r2)'s - the quantity E1 asserts
+                // exceeds the 2.6-deg bound for every candidate.
+                double conicInc = EveCycleZeroGeometry.InclinationOfNormalDegrees(Vector3d.Cross(r1, v1));
+                double endpointInc = EveCycleZeroGeometry.InclinationOfNormalDegrees(
+                    EveCycleZeroGeometry.PlaneNormalOfEndpoints(r1, r2));
+                Assert.Equal(endpointInc, conicInc, 6);
+            }
+        }
+
+        // The three band probes the plan names: step 0 (the geometric center) and both band edges (the
+        // longest and shortest candidate the product's own band law produces for this window).
+        private static IEnumerable<KeyValuePair<string, double>> EveCycleZeroBandProbes()
+        {
+            IReadOnlyList<double> tofs = EveCycleZeroGeometry.CandidateTofs();
+            double longest = tofs[0], shortest = tofs[0];
+            foreach (double t in tofs)
+            {
+                if (t > longest) longest = t;
+                if (t < shortest) shortest = t;
+            }
+            yield return new KeyValuePair<string, double>("step0", tofs[0]);
+            yield return new KeyValuePair<string, double>("band-edge-long", longest);
+            yield return new KeyValuePair<string, double>("band-edge-short", shortest);
+        }
+
         [Fact]
         public void Solve_DegenerateInputs_ReturnFalse()
         {
@@ -279,6 +392,11 @@ namespace Parsek.Tests
             Assert.Equal(0.5, UvLambert.StumpffC(1e-12), 6);
             Assert.Equal(0.5, UvLambert.StumpffC(-1e-12), 6);
         }
+
+        // InvariantCulture formatting for assertion messages (house rule: a comma-locale must not
+        // reshape a failure message into something a log grep cannot match).
+        private static string F0(double value) => value.ToString("F0", CultureInfo.InvariantCulture);
+        private static string E3(double value) => value.ToString("E3", CultureInfo.InvariantCulture);
 
         // Simple RK4 two-body propagator for the round-trip test (test-only, not production).
         private static Vector3d PropagateTwoBody(Vector3d r0, Vector3d v0, double mu, double tof)

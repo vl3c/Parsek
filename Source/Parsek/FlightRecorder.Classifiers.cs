@@ -10,11 +10,72 @@ namespace Parsek
 {
     public partial class FlightRecorder
     {
+        /// <summary>
+        /// The four parachute visual states the recorder tracks, as stored in the
+        /// <c>parachuteStates</c> maps. Stowed is the map's implicit default: a pid absent from the
+        /// map reads as <see cref="ParachuteStateStowed"/>, and reaching Stowed removes the entry,
+        /// so the map only ever holds chutes that are NOT in their build-time pose.
+        ///
+        /// These are Parsek's states, not a 1:1 copy of KSP's five-member
+        /// <c>ModuleParachute.deploymentStates</c>: STOWED and ACTIVE both map to Stowed because an
+        /// armed-but-undeployed chute is visually identical to a packed one (see
+        /// <see cref="ClassifyParachuteState"/>).
+        /// </summary>
+        internal const int ParachuteStateStowed = 0;
+        internal const int ParachuteStateSemiDeployed = 1;
+        internal const int ParachuteStateDeployed = 2;
+        internal const int ParachuteStateCut = 3;
+
+        /// <summary>
+        /// Maps a stock <c>ModuleParachute.deploymentStates</c> onto Parsek's four tracked states.
+        /// The single source of truth for this mapping — the foreground recorder
+        /// (<c>CheckParachuteState</c>), the background recorder (<c>BackgroundRecorder</c>'s
+        /// own <c>CheckParachuteState</c>) and <c>PartStateSeeder.SeedParachutes</c> all route
+        /// through here so their shared <c>parachuteStates</c> dictionary carries one encoding.
+        ///
+        /// CUT is kept DISTINCT from STOWED (it used to collapse into it). That distinction is the
+        /// whole point: without it the CUT -> STOWED transition a stock <c>Repack()</c> performs is
+        /// indistinguishable from DEPLOYED -> CUT, and the recorder emitted ParachuteCut for both —
+        /// which playback rendered as a permanently empty can.
+        /// ACTIVE stays folded into Stowed — it is the armed-but-undeployed state, which has no
+        /// distinct visual (canopy still hidden, cap still on).
+        /// </summary>
+        internal static int ClassifyParachuteState(ModuleParachute.deploymentStates deployState)
+        {
+            switch (deployState)
+            {
+                case ModuleParachute.deploymentStates.SEMIDEPLOYED:
+                    return ParachuteStateSemiDeployed;
+                case ModuleParachute.deploymentStates.DEPLOYED:
+                    return ParachuteStateDeployed;
+                case ModuleParachute.deploymentStates.CUT:
+                    return ParachuteStateCut;
+                default:
+                    // STOWED and ACTIVE — no canopy, cap on.
+                    return ParachuteStateStowed;
+            }
+        }
+
+        /// <summary>
+        /// True when the tracked state is one where a canopy is actually out (semi or full), which
+        /// is what makes a part death an aero-destroyed chute rather than an ordinary part loss.
+        ///
+        /// Deliberately NOT <c>state &gt; 0</c>: <see cref="ParachuteStateCut"/> is 3, so the old
+        /// truthy test would classify a part that dies carrying an already-CUT chute as
+        /// ParachuteDestroyed. Before the four-state split a cut chute was erased from the map
+        /// entirely, so <c>state &gt; 0</c> happened to be right; it is not right any more.
+        /// </summary>
+        internal static bool IsDeployedParachuteState(int state)
+        {
+            return state == ParachuteStateSemiDeployed || state == ParachuteStateDeployed;
+        }
+
         internal static PartEventType ClassifyPartDeath(
             uint partPersistentId, bool hasParachuteModule, Dictionary<uint, int> parachuteStates)
         {
             int state;
-            if (hasParachuteModule && parachuteStates.TryGetValue(partPersistentId, out state) && state > 0)
+            if (hasParachuteModule && parachuteStates.TryGetValue(partPersistentId, out state) &&
+                IsDeployedParachuteState(state))
             {
                 parachuteStates.Remove(partPersistentId);
                 return PartEventType.ParachuteDestroyed;
@@ -134,6 +195,275 @@ namespace Parsek
                 isClosed = false;
                 isOpen = false;
             }
+        }
+
+        /// <summary>
+        /// What the per-frame poll should do with one entry of a cached module list
+        /// (<c>cachedEngines</c> / <c>cachedRcsModules</c> / <c>cachedRoboticModules</c>).
+        /// </summary>
+        internal enum CachedModulePollDecision
+        {
+            /// <summary>Entry is live and still on the recorded vessel — poll it.</summary>
+            Poll,
+            /// <summary>The Part or the PartModule has been destroyed — nothing to read.</summary>
+            SkipNullEntry,
+            /// <summary>
+            /// The Part survives but no longer belongs to the recorded vessel (staged away,
+            /// undocked, decoupled, or mid-transition with a null <c>Part.vessel</c>).
+            /// </summary>
+            SkipForeignVessel
+        }
+
+        /// <summary>
+        /// Pure decision core for the cached-module ownership guard.
+        ///
+        /// <para>
+        /// The caches are built once per <c>ResetPartEventTrackingState</c> (and now refreshed from
+        /// <c>onVesselWasModified</c>) and hold direct <c>Part</c>/<c>PartModule</c> references. A
+        /// staged-away booster's <c>Part</c> is NOT destroyed — it moves to a brand-new debris
+        /// <c>Vessel</c> and keeps burning. The old poll only checked <c>part == null</c>, so those
+        /// still-live modules kept writing EngineIgnited / EngineThrottle / EngineShutdown (and the
+        /// RCS / robotic equivalents) into the PARENT recording under the booster's own part pid.
+        /// </para>
+        /// <para>
+        /// The comparison the live caller feeds this predicate is a LIVE OBJECT comparison
+        /// (<c>ReferenceEquals(part.vessel, recordedVessel)</c>), not a persistent-id or guid
+        /// comparison, so the CLAUDE.md "persistentId is craft-baked, not launch-unique" rule does
+        /// not apply here: there is exactly one in-memory <c>Vessel</c> instance per live vessel
+        /// within a session, and nothing is compared across saves or against stored recordings.
+        /// </para>
+        /// </summary>
+        /// <param name="hasPart">False when the cached <c>Part</c> reference is null/destroyed.</param>
+        /// <param name="hasModule">False when the cached <c>PartModule</c> reference is null/destroyed.</param>
+        /// <param name="hasPartVessel">False when <c>part.vessel</c> is null (mid-split frame).</param>
+        /// <param name="partVesselIsRecordedVessel">
+        /// True when <c>part.vessel</c> is the same live <c>Vessel</c> instance the recorder is
+        /// recording.
+        /// </param>
+        internal static CachedModulePollDecision DecideCachedModulePoll(
+            bool hasPart, bool hasModule, bool hasPartVessel, bool partVesselIsRecordedVessel)
+        {
+            if (!hasPart || !hasModule)
+                return CachedModulePollDecision.SkipNullEntry;
+
+            // A null Part.vessel is the one-frame window between a decoupler firing and KSP
+            // reparenting the part onto its new vessel. It is not our vessel right now, and
+            // guessing "probably still ours" is exactly the bug this guard closes.
+            if (!hasPartVessel)
+                return CachedModulePollDecision.SkipForeignVessel;
+
+            return partVesselIsRecordedVessel
+                ? CachedModulePollDecision.Poll
+                : CachedModulePollDecision.SkipForeignVessel;
+        }
+
+        /// <summary>How many keys the departed-part prune removed, per family.</summary>
+        internal struct DepartedKeyPruneResult
+        {
+            public int engineKeys;
+            public int rcsKeys;
+            public int roboticKeys;
+            public int Total { get { return engineKeys + rcsKeys + roboticKeys; } }
+        }
+
+        /// <summary>
+        /// True when the surviving-pid set is trustworthy enough to prune against.
+        ///
+        /// <para>
+        /// A vessel that momentarily reads as having no parts at all is a transient mid-split read,
+        /// not proof that every tracked module left. Declining to prune on that frame costs nothing:
+        /// <c>onVesselWasModified</c> fires again on the settled structure.
+        /// </para>
+        /// </summary>
+        internal static bool CanPruneAgainstSurvivingPids(int survivingPartPidCount)
+        {
+            return survivingPartPidCount > 0;
+        }
+
+        /// <summary>
+        /// Pure core of the departed-part key prune.
+        ///
+        /// <para>
+        /// The ownership guard (<see cref="DecideCachedModulePoll(bool, bool, bool, bool)"/>) makes a
+        /// departed booster's burnout UNOBSERVABLE, so its key never leaves
+        /// <c>activeEngineKeys</c>. The terminal emit
+        /// (<c>EmitTerminalEventsAndClearActiveState</c> at the rails transition, and
+        /// <c>FinalizeRecordingState</c> at stop) walks the ACTIVE sets and would write an
+        /// EngineShutdown / RCSStopped / RoboticMotionStopped into the PARENT recording for a pid
+        /// that left minutes earlier — at the TAIL, where
+        /// <c>RecordingOptimizer.IsInertPartEventForTailTrim</c> treats EngineShutdown as non-inert
+        /// and the #263 boring-tail trim is therefore defeated.
+        /// </para>
+        /// <para>
+        /// The prune is SILENT: no synthetic event is written for the departed pid. The Decoupled
+        /// event already hides the subtree at playback, and the child recording owns the burn.
+        /// </para>
+        /// <para>
+        /// <paramref name="survivingPartPids"/> is the UNION of the rebuilt cache lists and the live
+        /// <c>Vessel.parts</c> pids, not the cache lists alone. The cache lists are the narrower set
+        /// (a part whose module list momentarily reads empty drops out of them while the part itself
+        /// is still on the vessel), and pruning against the narrower set would turn a transient
+        /// module read into a permanently forgotten burn.
+        /// </para>
+        /// <para>
+        /// Engine and RCS keys are MOVED, not dropped: their last observed throttle lands in
+        /// <paramref name="departedEngineThrottles"/> / <paramref name="departedRcsThrottles"/> so
+        /// the deferred #298 breakup snapshot (<c>InheritedEngineState.FromRecorder</c>, which runs a
+        /// whole coalescer window AFTER the split) can still tell the child debris recording that
+        /// its engine was burning when it came off. Nothing polls or terminal-emits from those maps.
+        /// Robotic keys have no inheritance path and are simply dropped. A pid that comes BACK
+        /// (re-dock) clears its own carry-over entries so a stale throttle cannot outlive the part's
+        /// return.
+        /// </para>
+        /// </summary>
+        internal static DepartedKeyPruneResult PruneDepartedTrackingKeys(
+            HashSet<uint> survivingPartPids,
+            HashSet<ulong> activeEngineKeys,
+            Dictionary<ulong, float> lastThrottle,
+            HashSet<ulong> allEngineKeys,
+            HashSet<ulong> activeRcsKeys,
+            Dictionary<ulong, float> lastRcsThrottle,
+            Dictionary<ulong, int> rcsActiveFrameCount,
+            HashSet<ulong> activeRoboticKeys,
+            Dictionary<ulong, float> lastRoboticPosition,
+            Dictionary<ulong, double> lastRoboticSampleUT,
+            Dictionary<ulong, float> departedEngineThrottles,
+            Dictionary<ulong, float> departedRcsThrottles)
+        {
+            var result = new DepartedKeyPruneResult();
+            if (survivingPartPids == null
+                || !CanPruneAgainstSurvivingPids(survivingPartPids.Count))
+                return result;
+
+            bool Departed(ulong key)
+            {
+                uint pid; int midx;
+                DecodeEngineKey(key, out pid, out midx);
+                return !survivingPartPids.Contains(pid);
+            }
+
+            List<ulong> DepartedKeysIn(IEnumerable<ulong> keys)
+            {
+                var found = new List<ulong>();
+                if (keys == null) return found;
+                foreach (ulong key in keys)
+                    if (Departed(key)) found.Add(key);
+                return found;
+            }
+
+            float ThrottleOf(Dictionary<ulong, float> map, ulong key)
+            {
+                float value;
+                return map != null && map.TryGetValue(key, out value) ? value : 0f;
+            }
+
+            // --- engines: move to carry-over, then drop from every live engine map ---
+            foreach (ulong key in DepartedKeysIn(activeEngineKeys))
+            {
+                if (departedEngineThrottles != null)
+                    departedEngineThrottles[key] = ThrottleOf(lastThrottle, key);
+                activeEngineKeys.Remove(key);
+                result.engineKeys++;
+            }
+            foreach (ulong key in DepartedKeysIn(lastThrottle != null ? lastThrottle.Keys : null))
+                lastThrottle.Remove(key);
+            // allEngineKeys is the #298 "engines present on this vessel" sentinel set. A departed
+            // engine is not present, and leaving it in makes a later seed emit an EngineShutdown
+            // sentinel under a pid this vessel no longer carries.
+            foreach (ulong key in DepartedKeysIn(allEngineKeys))
+                allEngineKeys.Remove(key);
+
+            // --- RCS: same shape ---
+            foreach (ulong key in DepartedKeysIn(activeRcsKeys))
+            {
+                if (departedRcsThrottles != null)
+                    departedRcsThrottles[key] = ThrottleOf(lastRcsThrottle, key);
+                activeRcsKeys.Remove(key);
+                result.rcsKeys++;
+            }
+            foreach (ulong key in DepartedKeysIn(lastRcsThrottle != null ? lastRcsThrottle.Keys : null))
+                lastRcsThrottle.Remove(key);
+            foreach (ulong key in DepartedKeysIn(rcsActiveFrameCount != null ? rcsActiveFrameCount.Keys : null))
+                rcsActiveFrameCount.Remove(key);
+
+            // --- robotics: no inheritance path, so no carry-over ---
+            foreach (ulong key in DepartedKeysIn(activeRoboticKeys))
+            {
+                activeRoboticKeys.Remove(key);
+                result.roboticKeys++;
+            }
+            foreach (ulong key in DepartedKeysIn(lastRoboticPosition != null ? lastRoboticPosition.Keys : null))
+                lastRoboticPosition.Remove(key);
+            foreach (ulong key in DepartedKeysIn(lastRoboticSampleUT != null ? lastRoboticSampleUT.Keys : null))
+                lastRoboticSampleUT.Remove(key);
+
+            // A part that came back owns its live state again; drop its carry-over so the deferred
+            // #298 snapshot cannot resurrect a throttle the live poll has since superseded.
+            if (departedEngineThrottles != null)
+                foreach (ulong key in new List<ulong>(departedEngineThrottles.Keys))
+                {
+                    uint pid; int midx;
+                    DecodeEngineKey(key, out pid, out midx);
+                    if (survivingPartPids.Contains(pid)) departedEngineThrottles.Remove(key);
+                }
+            if (departedRcsThrottles != null)
+                foreach (ulong key in new List<ulong>(departedRcsThrottles.Keys))
+                {
+                    uint pid; int midx;
+                    DecodeEngineKey(key, out pid, out midx);
+                    if (survivingPartPids.Contains(pid)) departedRcsThrottles.Remove(key);
+                }
+
+            return result;
+        }
+
+        /// <summary>
+        /// Merges the departed-part carry-over back into the #298 inheritance snapshot: an active
+        /// key wins over a carry-over key of the same id (the live poll is newer). Returns null
+        /// collections when the union is empty so <c>InheritedEngineState.FromRecorder</c> keeps its
+        /// "nothing was running" contract.
+        /// <para>
+        /// CONTRACT CHANGE vs the pre-M5b whole-dict copy, believed unreachable: an id present in
+        /// the active key set but ABSENT from the throttle dictionary now inherits throttle 0
+        /// (this method writes 0 for it), where the old copy fell through to
+        /// <c>MergeInheritedEngineState</c>'s 1.0 default. Both the seed and poll paths maintain
+        /// active-implies-throttle-present, so no reachable route was found - recorded so a future
+        /// path that breaks that invariant knows which default it lands on.
+        /// </para>
+        /// </summary>
+        internal static void UnionDepartedIntoInheritedState(
+            HashSet<ulong> activeKeys,
+            Dictionary<ulong, float> activeThrottles,
+            Dictionary<ulong, float> departedThrottles,
+            out HashSet<ulong> unionKeys,
+            out Dictionary<ulong, float> unionThrottles)
+        {
+            unionKeys = null;
+            unionThrottles = null;
+
+            var keys = new HashSet<ulong>();
+            var throttles = new Dictionary<ulong, float>();
+
+            if (departedThrottles != null)
+                foreach (var kvp in departedThrottles)
+                {
+                    keys.Add(kvp.Key);
+                    throttles[kvp.Key] = kvp.Value;
+                }
+
+            if (activeKeys != null)
+                foreach (ulong key in activeKeys)
+                {
+                    keys.Add(key);
+                    float t;
+                    throttles[key] = activeThrottles != null && activeThrottles.TryGetValue(key, out t)
+                        ? t
+                        : 0f;
+                }
+
+            if (keys.Count == 0) return;
+            unionKeys = keys;
+            unionThrottles = throttles;
         }
     }
 }

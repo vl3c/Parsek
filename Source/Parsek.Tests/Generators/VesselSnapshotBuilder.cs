@@ -232,6 +232,32 @@ namespace Parsek.Tests.Generators
             return this;
         }
 
+        /// <summary>
+        /// Adds a MODULE node to the part at the given index, with the supplied
+        /// persisted key/value pairs. MODULE nodes are appended in call order, which is
+        /// the order <c>ProtoPartSnapshot</c> serializes <c>part.Modules</c> in — so a
+        /// caller reproducing a real part's module list must add them in prefab order
+        /// for any ordinal-sensitive parse (robotic servos) to line up.
+        /// </summary>
+        public VesselSnapshotBuilder AddModuleToPart(
+            int partIndex, string moduleName, params (string key, string value)[] values)
+        {
+            var parts = partsContainer.GetNodes("PART");
+            if (partIndex < 0 || partIndex >= parts.Length)
+                throw new ArgumentOutOfRangeException(nameof(partIndex),
+                    $"Part index {partIndex} out of range (0..{parts.Length - 1})");
+
+            var moduleNode = parts[partIndex].AddNode("MODULE");
+            moduleNode.AddValue("name", moduleName);
+            moduleNode.AddValue("isEnabled", "True");
+            if (values != null)
+            {
+                for (int i = 0; i < values.Length; i++)
+                    moduleNode.AddValue(values[i].key, values[i].value);
+            }
+            return this;
+        }
+
         private static string D(double v) => v.ToString("R", IC);
 
         private static string F(float v) => v.ToString("R", IC);

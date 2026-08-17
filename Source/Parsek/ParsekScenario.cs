@@ -4146,10 +4146,20 @@ namespace Parsek
             // Defense-in-depth: reconcile spawn state after all strips (#168).
             // ResetAllPlaybackState already zeroed spawn PIDs, so this should be a no-op,
             // but guards against any future code path that restores PIDs before the strip.
+            //
+            // (pid, launch-guid) IDENTITIES, not bare pids: the strips above REMOVE the
+            // stripped ProtoVessels from flightState.protoVessels, so the list is already the
+            // survivor set — but a survivor that merely shares a recording's craft-baked
+            // SpawnedVesselPersistentId can be a DIFFERENT launch of the same craft, which
+            // under a pid-only decision keeps the recording at VesselSpawned=true pointing at
+            // a stranger and permanently blocks its terminal spawn. Same collector and same
+            // guid-aware overload as the revert path above and the Re-Fly path in
+            // RewindInvoker.ReconcilePostStripSpawnState.
             {
                 var fsReconcile = HighLogic.CurrentGame?.flightState;
                 if (fsReconcile != null)
-                    ReconcileSpawnStateAfterStrip(fsReconcile.protoVessels, recordings);
+                    ReconcileSpawnStateAfterStrip(
+                        CollectSurvivingVesselIdentities(fsReconcile.protoVessels), recordings);
             }
 
             // Rescue crew orphaned by vessel stripping (#116).
@@ -4237,6 +4247,39 @@ namespace Parsek
         }
 
         /// <summary>
+        /// THE marker-clearing helper: drops <see cref="ActiveReFlySessionMarker"/> and, in the
+        /// same breath, the transient <see cref="ReFlyProvisionalRetirement"/> hand-over note.
+        ///
+        /// <para>
+        /// The note is a same-process slot naming a provisional a prune pass retired, meant to be
+        /// consumed by that session's conclusion. Its own session gate cannot protect it once the
+        /// marker is gone: a later marker can legitimately carry the SAME SessionId (an F9 re-arms
+        /// it), so a note left behind by a session that ENDED is adoptable by the next one. Two
+        /// clear sites paired the drop by hand and the remaining nine did not, so the pairing
+        /// lives here and every session-ending clear routes through it. The residual was a leaked
+        /// reference rather than a wrong decision on any established route - this is hardening,
+        /// not a bug fix.
+        /// </para>
+        /// <para>
+        /// Deliberately NOT routed through here: <c>LoadRewindStagingState</c>'s reset. That runs
+        /// on every OnLoad and the marker is repopulated from the just-loaded node immediately
+        /// after, while the note is SUPPOSED to survive the scene change between the scene-exit
+        /// finalize that wrote it and the merge-dialog answer that consumes it. Clearing it there
+        /// would break the one route the note exists for.
+        /// </para>
+        /// </summary>
+        internal void ClearActiveReFlySessionMarker(string reason)
+        {
+            ActiveReFlySessionMarker = null;
+            // The T4 pairing (every marker clear also clears the render session's anchor
+            // epsilon map, or stale epsilons leak into post-session renders) now lives here
+            // too, so one helper owns everything that dies with the session and no site can
+            // half-remember. Callers pass the reason both logs carry.
+            Parsek.Rendering.RenderSessionState.Clear(reason);
+            ReFlyProvisionalRetirement.Clear(reason);
+        }
+
+        /// <summary>
         /// Clears a loaded active Re-Fly marker while the plain rewind OnLoad branch resumes replay.
         /// </summary>
         internal bool ClearActiveReFlyMarkerForPlainRewind()
@@ -4252,8 +4295,7 @@ namespace Parsek
 
             // This discards only stale session state; supersede caches do not
             // depend on the marker and should not be bumped for this cleanup.
-            ActiveReFlySessionMarker = null;
-            Parsek.Rendering.RenderSessionState.Clear("plain-rewind");
+            ClearActiveReFlySessionMarker("plain-rewind");
             // Plain rewind loads before FlightDriver state is ready, so Apply is
             // normally a logged no-op here. Keep it paired with marker clears.
             ReFlyRevertButtonGate.Apply("PlainRewind:clear-refly-marker");
@@ -6067,63 +6109,14 @@ namespace Parsek
             return !quicksavePids.Contains(persistentId);
         }
 
-        /// <summary>
-        /// After vessel stripping, reconcile recording spawn state with the actual flightState.
-        /// If a recording's SpawnedVesselPersistentId points to a vessel that was stripped
-        /// (no longer in flightState), reset the spawn tracking so the vessel can be re-spawned
-        /// at the correct time. Without this, the PID dedup check in ShouldSpawnAtRecordingEnd
-        /// blocks respawning permanently (#168).
-        /// </summary>
-        internal static int ReconcileSpawnStateAfterStrip(
-            List<ProtoVessel> remainingVessels, IReadOnlyList<Recording> recordings)
-        {
-            return ReconcileSpawnStateAfterStrip(CollectSurvivingPids(remainingVessels), recordings);
-        }
-
-        /// <summary>
-        /// Testable overload that takes pre-collected surviving PIDs.
-        /// </summary>
-        internal static int ReconcileSpawnStateAfterStrip(
-            HashSet<uint> survivingPids, IReadOnlyList<Recording> recordings)
-        {
-            if (recordings == null || recordings.Count == 0)
-                return 0;
-
-            int reconciled = 0;
-            for (int i = 0; i < recordings.Count; i++)
-            {
-                if (ShouldResetSpawnState(recordings[i].SpawnedVesselPersistentId, survivingPids))
-                {
-                    uint oldPid = recordings[i].SpawnedVesselPersistentId;
-                    recordings[i].SpawnedVesselPersistentId = 0;
-                    recordings[i].VesselSpawned = false;
-                    recordings[i].SpawnAttempts = 0;
-                    recordings[i].SpawnDeathCount = 0;
-                    TerminalOrbitSpawnSafety.Clear(recordings[i]);
-                    ParsekLog.Info("Scenario",
-                        $"Reconciled spawn state for recording #{i} \"{recordings[i].VesselName}\": " +
-                        $"pid={oldPid} no longer in flightState — reset for re-spawn");
-                    reconciled++;
-                }
-            }
-
-            if (reconciled > 0)
-                ParsekLog.Info("Scenario",
-                    $"ReconcileSpawnStateAfterStrip: reset {reconciled} recording(s) whose spawned vessel was stripped");
-
-            return reconciled;
-        }
-
-        /// <summary>
-        /// Pure decision: should this recording's spawn state be reset?
-        /// Returns true when spawnedPid is non-zero but not found in the surviving vessel set.
-        /// </summary>
-        internal static bool ShouldResetSpawnState(uint spawnedPid, HashSet<uint> survivingPids)
-        {
-            if (spawnedPid == 0)
-                return false;
-            return survivingPids == null || !survivingPids.Contains(spawnedPid);
-        }
+        // The pid-only ReconcileSpawnStateAfterStrip overloads (List<ProtoVessel> and
+        // HashSet<uint>) and their ShouldResetSpawnState(uint, HashSet<uint>) predicate were
+        // DELETED (#16) once their last production caller — the plain Rewind-to-Launch OnLoad
+        // path — moved to (pid, launch-guid) identities. A bare craft-baked pid cannot tell a
+        // preserved relaunch of the same craft from the recording's own vessel, and in the
+        // post-Re-Fly preserved-fleet world that stranger keeps VesselSpawned=true forever and
+        // permanently blocks the recording's terminal spawn. The guid-aware overload below is
+        // now the ONLY reconcile surface, so no future caller can pick the unsafe one.
 
         /// <summary>
         /// BUG-H: launch-identity-aware reconcile. A recording is reset only when its spawned vessel
@@ -6510,60 +6503,16 @@ namespace Parsek
             return null;
         }
 
-        /// <summary>
-        /// Collects persistent IDs from all remaining protoVessels.
-        /// </summary>
-        private static HashSet<uint> CollectSurvivingPids(List<ProtoVessel> protoVessels)
-        {
-            var pids = new HashSet<uint>();
-            if (protoVessels == null)
-                return pids;
-            for (int i = 0; i < protoVessels.Count; i++)
-                pids.Add(protoVessels[i].persistentId);
-            return pids;
-        }
+        // CollectSurvivingPids was deleted with the pid-only ReconcileSpawnStateAfterStrip
+        // overloads (#16): every production reconcile now collects (pid, launch-guid)
+        // identities through CollectSurvivingVesselIdentities, because a bare craft-baked pid
+        // cannot tell a preserved relaunch from the recording's own vessel.
 
-        /// <summary>
-        /// Builds the post-strip survivor PID set from the raw
-        /// <c>flightState.protoVessels</c> PID enumeration minus
-        /// <see cref="PostLoadStripResult.StrippedPids"/>. Pure function
-        /// extracted for direct xUnit coverage — the production input shape
-        /// (raw <c>List&lt;ProtoVessel&gt;</c> from KSP) cannot be constructed
-        /// outside KSP, but the PID-level subtraction logic can be.
-        ///
-        /// <para>
-        /// The Re-Fly post-load contract requires this subtraction:
-        /// <see cref="PostLoadStripper.Strip"/> removes vessels via
-        /// <see cref="Vessel.Die"/> but does NOT remove the matching
-        /// <see cref="ProtoVessel"/> from
-        /// <c>HighLogic.CurrentGame.flightState.protoVessels</c>. That list is
-        /// the save-shape mirror and is not auto-synchronized with
-        /// <c>Vessel.Die()</c>. Without subtracting <c>StrippedPids</c>, a
-        /// recording's stale <c>SpawnedVesselPersistentId</c> still appears
-        /// "alive" and the reconcile silently leaves <c>VesselSpawned=true</c>.
-        /// </para>
-        /// </summary>
-        internal static HashSet<uint> ComputeSurvivorsFromProtoVesselPids(
-            IEnumerable<uint> protoVesselPids, IEnumerable<uint> strippedPids)
-        {
-            var stripped = new HashSet<uint>();
-            if (strippedPids != null)
-            {
-                foreach (uint p in strippedPids)
-                    stripped.Add(p);
-            }
-
-            var survivors = new HashSet<uint>();
-            if (protoVesselPids == null)
-                return survivors;
-
-            foreach (uint pid in protoVesselPids)
-            {
-                if (!stripped.Contains(pid))
-                    survivors.Add(pid);
-            }
-            return survivors;
-        }
+        // ComputeSurvivorsFromProtoVesselPids was DELETED (#16). It had no production
+        // caller and stated the stripped-pid subtraction contract at pid level; that contract
+        // now lives — over (pid, launch-guid) identities, which is the shape both post-strip
+        // reconciles actually use — in RewindInvoker.ReconcilePostStripSpawnState, and is
+        // pinned by the ReconcilePostStrip_* cells in SpawnStateReconciliationTests.
 
         /// <summary>
         /// Saves versioned recording metadata and ghost-geometry metadata.

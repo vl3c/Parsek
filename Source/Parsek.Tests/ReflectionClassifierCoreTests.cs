@@ -19,6 +19,9 @@ namespace Parsek.Tests
         private readonly Dictionary<string, float> vectorMagnitudes = new Dictionary<string, float>();
         private readonly Dictionary<string, float> rotationAngles = new Dictionary<string, float>();
 
+        private bool hasScalarModuleScalar;
+        private float scalarModuleScalar;
+
         private bool sawDeployEvent;
         private bool sawRetractEvent;
         private bool canDeploy;
@@ -26,6 +29,7 @@ namespace Parsek.Tests
 
         internal readonly List<string> ProbedFieldNames = new List<string>();
         internal int EventActivityReadCount;
+        internal int ScalarModuleReadCount;
         internal DeployEventKeywordSet? RequestedKeywordSet;
 
         internal FakeModuleFieldValues WithBool(string fieldName, bool value)
@@ -55,6 +59,18 @@ namespace Parsek.Tests
         internal FakeModuleFieldValues WithRotationAngle(string fieldName, float angleDegrees)
         {
             rotationAngles[fieldName] = angleDegrees;
+            return this;
+        }
+
+        /// <summary>
+        /// Registers the module as implementing <c>IScalarModule</c> with the given
+        /// <c>GetScalar</c>. A fake that never calls this reads as "does not implement the
+        /// interface", exactly like a PartModule that does not.
+        /// </summary>
+        internal FakeModuleFieldValues WithScalarModuleScalar(float value)
+        {
+            hasScalarModuleScalar = true;
+            scalarModuleScalar = value;
             return this;
         }
 
@@ -109,6 +125,13 @@ namespace Parsek.Tests
         {
             ProbedFieldNames.Add(fieldName);
             return rotationAngles.TryGetValue(fieldName, out angleDegrees);
+        }
+
+        public bool TryGetScalarModuleScalar(out float scalar)
+        {
+            ScalarModuleReadCount++;
+            scalar = scalarModuleScalar;
+            return hasScalarModuleScalar;
         }
 
         public void ReadDeployRetractEventActivity(

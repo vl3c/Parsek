@@ -310,6 +310,61 @@ namespace Parsek
             return false;
         }
 
+        /// <summary>
+        /// Launch-identity gate for a LIVE anchor candidate: true when the live vessel that
+        /// resolved to <paramref name="candidateRecording"/> may be used as that recording's
+        /// anchor pose source.
+        ///
+        /// <para>
+        /// A live vessel resolves to a recording by <c>persistentId</c> (BackgroundMap key /
+        /// active-recording pid), and <c>persistentId</c> is craft-baked, not launch-unique
+        /// (CLAUDE.md). Since Re-Fly stopped emptying the world on load, a DIFFERENT launch of
+        /// the same craft can be standing in the scene carrying the same baked pid. Binding an
+        /// anchor to that stranger is not a cosmetic mistake: the recorder writes
+        /// <c>ReferenceFrame.Relative</c> frames as metre offsets from the anchor's world pose,
+        /// so a stranger anchor silently writes a corrupted trajectory for the vessel being
+        /// recorded, and nothing downstream can tell the offsets were measured against the wrong
+        /// body.
+        /// </para>
+        /// <para>
+        /// The gate is deliberately one-sided: it rejects ONLY a conclusive launch-Guid mismatch
+        /// (<see cref="VesselLaunchIdentity.GuidsConclusivelyDiffer"/>). An unknown Guid on either
+        /// side falls back to today's pid-only behaviour, so a legacy recording with no
+        /// <see cref="Recording.RecordedVesselGuid"/> keeps anchoring exactly as before. It does
+        /// NOT additionally require a pid match: several BackgroundMap writers key the map on a
+        /// live pid that is not the recording's <c>VesselPersistentId</c> (post-switch
+        /// continuation segments), and demanding equality there would drop legitimate anchors.
+        /// </para>
+        /// </summary>
+        internal static bool LiveAnchorLaunchMatches(Recording candidateRecording, string liveVesselGuid)
+        {
+            if (candidateRecording == null)
+                return false;
+            return !VesselLaunchIdentity.GuidsConclusivelyDiffer(
+                candidateRecording.RecordedVesselGuid, liveVesselGuid);
+        }
+
+        /// <summary>
+        /// Reads the launch Guid (<c>Vessel.id</c>) of a live vessel in the normalized "N" form
+        /// <see cref="Recording.RecordedVesselGuid"/> stores, or null when unavailable. Tolerates
+        /// the headless / mid-teardown case where the Unity property throws.
+        /// </summary>
+        internal static string TryReadLiveVesselGuid(Vessel vessel)
+        {
+            if (vessel == null)
+                return null;
+            try
+            {
+                return vessel.id != System.Guid.Empty
+                    ? vessel.id.ToString("N")
+                    : null;
+            }
+            catch (System.Exception)
+            {
+                return null;
+            }
+        }
+
         internal static bool IsSealedRecordingAnchor(Recording recording)
         {
             return recording != null && recording.MergeState == MergeState.Immutable;

@@ -1,0 +1,286 @@
+version = 1
+recordingSchemaGeneration = 4
+recordingId = f049901e1f4641ffae490b2f52b1d55e
+sidecarEpoch = 2
+sectionAuthoritative = True
+PART_EVENT
+{
+	ut = 8949.2879785488967
+	pid = 1592830016
+	type = 6
+	part = liquidEngine2-2.v2
+	value = 0
+	midx = 0
+}
+PART_EVENT
+{
+	ut = 8949.2879785488967
+	pid = 888131109
+	type = 6
+	part = liquidEngine2-2.v2
+	value = 0
+	midx = 0
+}
+PART_EVENT
+{
+	ut = 8949.4479785489
+	pid = 639034694
+	type = 20
+	part = RCSBlock.v2
+	value = 0
+	midx = 0
+}
+PART_EVENT
+{
+	ut = 8949.4479785489
+	pid = 1508885107
+	type = 20
+	part = RCSBlock.v2
+	value = 0
+	midx = 0
+}
+PART_EVENT
+{
+	ut = 8949.4479785489
+	pid = 3020600480
+	type = 20
+	part = RCSBlock.v2
+	value = 0
+	midx = 0
+}
+PART_EVENT
+{
+	ut = 8949.4479785489
+	pid = 4154034431
+	type = 20
+	part = RCSBlock.v2
+	value = 0
+	midx = 0
+}
+PART_EVENT
+{
+	ut = 8950.5479785489242
+	pid = 1716890335
+	type = 0
+	part = dockingPort2
+	value = 0
+	midx = 0
+}
+PART_EVENT
+{
+	ut = 8950.5479785489242
+	pid = 2526815811
+	type = 0
+	part = mk1-3pod
+	value = 0
+	midx = 0
+}
+PART_EVENT
+{
+	ut = 8950.5479785489242
+	pid = 57152010
+	type = 19
+	part = unknown
+	value = 0
+	midx = 0
+}
+PART_EVENT
+{
+	ut = 8950.5479785489242
+	pid = 2687907421
+	type = 19
+	part = unknown
+	value = 0
+	midx = 0
+}
+PART_EVENT
+{
+	ut = 8950.5479785489242
+	pid = 2531965597
+	type = 19
+	part = unknown
+	value = 0
+	midx = 0
+}
+PART_EVENT
+{
+	ut = 8950.5479785489242
+	pid = 2526055972
+	type = 19
+	part = unknown
+	value = 0
+	midx = 0
+}
+PART_EVENT
+{
+	ut = 8950.5479785489242
+	pid = 1069938422
+	type = 19
+	part = unknown
+	value = 0
+	midx = 0
+}
+PART_EVENT
+{
+	ut = 8950.5479785489242
+	pid = 2578918728
+	type = 19
+	part = unknown
+	value = 0
+	midx = 0
+}
+PART_EVENT
+{
+	ut = 8950.5479785489242
+	pid = 1871408180
+	type = 19
+	part = unknown
+	value = 0
+	midx = 0
+}
+PART_EVENT
+{
+	ut = 8950.5479785489242
+	pid = 176632389
+	type = 19
+	part = unknown
+	value = 0
+	midx = 0
+}
+PART_EVENT
+{
+	ut = 8950.5479785489242
+	pid = 4006921209
+	type = 19
+	part = unknown
+	value = 0
+	midx = 0
+}
+PART_EVENT
+{
+	ut = 8950.5479785489242
+	pid = 2526815811
+	type = 19
+	part = unknown
+	value = 0
+	midx = 0
+}
+PART_EVENT
+{
+	ut = 8950.5479785489242
+	pid = 639034694
+	type = 19
+	part = unknown
+	value = 0
+	midx = 0
+}
+PART_EVENT
+{
+	ut = 8950.5479785489242
+	pid = 1508885107
+	type = 19
+	part = unknown
+	value = 0
+	midx = 0
+}
+PART_EVENT
+{
+	ut = 8950.5479785489242
+	pid = 3020600480
+	type = 19
+	part = unknown
+	value = 0
+	midx = 0
+}
+PART_EVENT
+{
+	ut = 8950.5479785489242
+	pid = 4154034431
+	type = 19
+	part = unknown
+	value = 0
+	midx = 0
+}
+PART_EVENT
+{
+	ut = 8950.5479785489242
+	pid = 1237610176
+	type = 19
+	part = unknown
+	value = 0
+	midx = 0
+}
+PART_EVENT
+{
+	ut = 8950.5479785489242
+	pid = 3821578598
+	type = 19
+	part = unknown
+	value = 0
+	midx = 0
+}
+PART_EVENT
+{
+	ut = 8950.5479785489242
+	pid = 3475369208
+	type = 19
+	part = unknown
+	value = 0
+	midx = 0
+}
+PART_EVENT
+{
+	ut = 8950.5479785489242
+	pid = 1181442400
+	type = 19
+	part = unknown
+	value = 0
+	midx = 0
+}
+TRACK_SECTION
+{
+	env = 2
+	ref = 0
+	startUT = 8949.2879785488967
+	endUT = 8950.5479785489242
+	sampleRate = 1.58730161
+	minAlt = 116942.258
+	maxAlt = 116949.789
+	POINT
+	{
+		ut = 8949.3279785488976
+		lat = 0.020865095626126096
+		lon = -77.95646393624169
+		alt = 116949.7855492041
+		rotX = 0.2306113
+		rotY = -0.240837052
+		rotZ = -0.670297861
+		rotW = 0.6629606
+		body = Kerbin
+		velX = -893.3624
+		velY = 3.036798
+		velZ = -2019.23535
+		funds = 0
+		science = 0
+		rep = 0
+	}
+	POINT
+	{
+		ut = 8950.5479785489242
+		lat = 0.021161295403881952
+		lon = -77.76156634695937
+		alt = 116942.25559217623
+		rotX = 0.230431929
+		rotY = -0.240599245
+		rotZ = -0.670437455
+		rotW = 0.6629682
+		body = Kerbin
+		velX = -886.4149
+		velY = 3.03400683
+		velZ = -2022.31775
+		funds = 0
+		science = 0
+		rep = 0
+		flags = 1
+	}
+}

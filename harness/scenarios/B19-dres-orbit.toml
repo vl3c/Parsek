@@ -1,0 +1,522 @@
+schema = 1
+id = "B19-dres-orbit"
+# =====================================================================================
+# B19: DRES ORBIT -- the Dres program's step 2, and the flight whose PRODUCT IS THE
+# RECORDING. Kerbin LKO -> pre-transfer jettison -> ejection at the Kerbin->Dres
+# window -> heliocentric coast with corrections -> CAPTURE into a Dres orbit ->
+# held park -> mid-mission CommitTree, then FlushAndQuit so the produced save
+# carries the whole committed tree.
+#
+#   PRELAUNCH -> MJ-ASCENT (700 km) -> CIRCULARIZE (+ park round-out) ->
+#   ORBIT -> **JETTISON** -> PLAN-TRANSFER (INTERPLANETARY) -> TRANSFER-BURN
+#   (ejection, hyperbolic ecc evidence) -> COAST-TO-TARGET (heliocentric, 2
+#   time-to-SOI correction rounds) -> TARGET-FLYBY (capture arming) ->
+#   PLAN-CAPTURE -> CAPTURE-BURN -> PARK -> ORBIT-COMMIT -> ORBIT-COMMITTED
+#
+# THE B16 -> B17 PRECEDENT, ONE MORE TIME: the transfer and capture halves are a
+# PARAMETER CHANGE, not new machinery. `b5_decide` is target-generic
+# (docs/dev/design-testing-unified.md S190), `b19_dres_orbit` is a thin alias
+# carrying B7's five interplanetary params plus B11/B12's capture tail, and this
+# spec reads B16's recording discipline verbatim (autoRecordOnLaunch true, ONE
+# mid-mission commit, no post-mission CommitTree).
+#
+# =====================================================================================
+# THE ONE REAL MACHINE CHANGE: THE JETTISON PHASE, and it comes from B18's
+# MEASUREMENT rather than from anything about Dres.
+#
+# B18 measured the Duna Rocket in its park carrying 20.775 t of SPENT CHEMICAL
+# HARDWARE -- core Mainsail, its tanks, the fairing, and an unlit Skipper -- with
+# a CHEMICAL engine still live. MechJeb autostage sheds none of it: autostage
+# fires only on EMPTY stages and the core Mainsail still held ~40% of its LFO at
+# insertion. The LV-N that must fly the transfer sits four stages down the list.
+#
+# WHY IT CANNOT BE CARRIED. The LV-N is 60 kN. Against the full 74.3 t stack that
+# is 0.08 g, and a ~1,600 m/s ejection stops being a burn and becomes a spiral no
+# node executor will fly. After the jettison the same engine pushes 18.2 t at
+# 0.34 g and the burn is ~7 minutes -- which is the number the budgets below are
+# sized on. Separately, planning a transfer node against a vehicle about to lose
+# two thirds of its mass sizes the burn for the wrong ship.
+#
+# WHY NOT THE EXISTING WATCHDOG. `_b5_flameout_stage` fires only on OBSERVED zero
+# available thrust under a COMMANDED burn. This jettison happens at throttle 0
+# with nothing commanded, so the watchdog is structurally blind to it. There was
+# no clean pre-transfer staging hook in the B5 machine -- I looked; the phase
+# list ran CIRCULARIZE -> ORBIT -> PLAN-TRANSFER with no seam between them --
+# so JETTISON is a NEW phase, added default-off (`jettisonMaxActivations = 0` leaves
+# every existing lane byte-identical, guarded by its own regression cell).
+#
+# THE CONTRACT, in B-DOCK's proven two-step SEPARATE shape (and reusing its
+# SHARED pure `separation_evidence` counter, not a copy):
+#   step 1 POP  -- ONE ACTION_ACTIVATE_STAGE at a time, re-observing between
+#                  pops, capped at jettisonMaxActivations for the phase. Each pop
+#                  is gated THRUST-SAFE (throttle at zero AND no node pending)
+#                  and OBSERVED (K frames since the previous pop, so the
+#                  post-pop state is read before another pop is judged needed).
+#   step 2 CERTIFY -- vessel_count above the phase-entry baseline (the spent
+#                  stack really became its own vessel) AND live thrust strictly
+#                  positive, both debounced K frames, AND the live thrust at or
+#                  below jettisonMaxLiveThrustNewtons.
+# Both channels FAIL CLOSED (vessel_count defaults 0 unread, available_thrust
+# defaults NaN), and the give-up names which of the three failures happened.
+#
+# WHY 4 IS A CAP AND NOT A COUNT -- corrected by FLIGHT 1 (2026-08-11_2215),
+# which is the single most useful thing that run produced. The craft's staging
+# list says four stages separate the park from the LV-N:
+#   istg 5  Decoupler.2  -> drops the core Mainsail + 2x Rockomax64 + fairing
+#   istg 4  Skipper      -> ignites (harmlessly, at throttle 0)
+#   istg 3  Decoupler.1  -> drops the Skipper + its tanks
+#   istg 2  nuclearEngine-> IGNITES THE LV-N            <- the intended end state
+#   istg 1  (MUST NOT FIRE) -> the LV-N's OWN four radial LF drop tanks
+#   istg 0  (MUST NOT FIRE) -> Decoupler.1 under the pod, chutes, solar, antenna
+# But that count is only right FROM B18's 80 km park, where the core Mainsail was
+# still live. Flight 1 climbed to 700 km, which ran the core dry, so MechJeb
+# autostage had ALREADY popped istg 5 and istg 4 and the flight reached its park
+# with the SKIPPER live -- measured directly, `avThr=650000.000` (the Skipper's
+# 650 kN) in the CIRCULARIZE telemetry. Four blind pops from that state would
+# have fired istg 3, 2, 1 and 0: shedding the transfer propellant AND separating
+# the pod. The run was killed before the jettison for exactly that reason.
+#
+# So the phase is EVIDENCE-DRIVEN: it pops one stage at a time, re-observes, and
+# STOPS the moment the live-thrust signature says the LV-N is lit -- two pops
+# from the Skipper-live state, four from the Mainsail-live state, with the same
+# parameter. 4 remains as the CAP because it is the worst case; reaching it means
+# the signature was never satisfied, which is a named give-up rather than a
+# silent walk down the staging list.
+#
+# HOW "THE LIVE ENGINE IS THE NERV" IS ACTUALLY VERIFIED, since no part-level
+# telemetry exists: by THRUST SIGNATURE. The craft's three engines differ by an
+# order of magnitude -- Nerv 60 kN, Skipper 650 kN, Mainsail 1,500 kN -- so a
+# ceiling of 120,000 N (2x the Nerv, 5.4x under the Skipper) separates "the
+# nuclear stage is lit" from "a chemical stage is still lit" unambiguously. A
+# naive "some engine is lit" check would pass on the Skipper; this one names it.
+#
+# THE FOUR RADIAL LF DROP TANKS ARE DELIBERATELY KEPT for the whole mission. They
+# are the LV-N's own propellant, autostage will not drop them while they hold
+# fuel, and with 7,483 m/s measured the dead tankage is irrelevant -- so this
+# lane spends no machine verb on them.
+# =====================================================================================
+# DELTA-V, and why this lane does not need the argument B16 needed. Every input
+# MEASURED by B18 (run 2026-08-11_2138, confirmed _2150), not derived:
+#   LV-N stage      18.220 t wet / 7.020 t burnout, Isp 800 s
+#                   => 800 * 9.80665 * ln(18.220/7.020) = 7,483 m/s
+#   pure LiquidFuel 2,240.00 units at park on BOTH flights == the craft file's
+#                   2,240, i.e. the ascent spends ZERO nuclear propellant. This
+#                   is the load-bearing fact: the transfer stage arrives at the
+#                   park FULL regardless of what the ascent did, and it is
+#                   unaffected by raising the park from 80 km to 700 km (that
+#                   extra ~330 m/s is chemical, and the chemical stage had
+#                   ~2,023 m/s spare).
+# COST, DERIVED (mu_Dres 2.1484489e11, R 138 km, SOI 32,832,840 m; Hohmann from
+# r_Kerbin 13,599,840,256 m to r_Dres sma 40,839,348,203 m, mu_Sun 1.1723328e18):
+#   ejection from the 700 km park  v_inf 2,089 m/s -> ~1,482 m/s, plus Dres's
+#                                  5 deg inclination folded in => ~1,600-1,700
+#   corrections                    <= 450 (the cap below)
+#   capture, circularize at peri   v_inf ~1,571 m/s; at a ~300 km periapsis
+#                                  dv = sqrt(v_inf^2 + 2mu/r) - sqrt(mu/r)
+#                                     ~= 1,136 m/s
+#   => ~3,200 m/s against 7,483. A ~2.3x margin, with the ~2,000 m/s of
+#   jettisoned chemical residual thrown away ON PURPOSE: it buys a single-engine,
+#   single-Isp transfer with no mid-burn staging, which is worth more to a
+#   machine-flown mission than the fuel.
+# NOTE Dres is CHEAPER to capture at LOW altitude, the inverse of Eve: v_inf is
+# large relative to Dres's small mu, so the dv-optimal capture radius sits near
+# the surface and there is no high-park temptation. And Dres HAS NO MOONS, so
+# there is no Ike/Gilly exclusion to design the park around -- the reason the
+# park windows below are loose is that nothing physical is fighting them.
+# =====================================================================================
+# FLOWN GREEN 2026-08-12 (run 2026-08-12_0047, PASS attempt 1, 2,981 s wall,
+# every verifier PASS/SKIPPED, all six mission assertions met). The five-run road
+# there and what each run bought is in docs/dev/autotest-status.md; the two
+# machine findings it produced (the jettison redesign and the approach warp
+# clamp) are documented at their own parameters below.
+#
+# MEASURED ON THE GREEN RUN, the numbers a re-pin or a re-derivation should start
+# from:
+#   jettison        2 pops, hand-off at avThr=60,000 N (the LV-N), lf=2,240.000
+#                   -- the transfer stage's full load, nuclear propellant
+#                   untouched by the ascent
+#   ejection        node 1,337.5 m/s class; TRANSFER-BURN ut 2,704 -> 8,447,964
+#                   (the window wait is inside that span, autowarped)
+#   corrections     2 rounds, both BURNED (round 1 ut 8,584,968; round 2
+#                   ut 19,785,503)
+#   Sun->Dres SOI   ut 20,378,838.0, and the first in-SOI frame read
+#                   ttPe=+14,196.1 -- periapsis AHEAD, which is the whole point
+#                   of the approach clamp (flight 4 read -9,741.9 here)
+#   capture         node 1,717.4 m/s, CAPTURE-BURN ut 20,385,705 -> 20,393,228
+#   park            1,110.4 x 1,089.7 km, ecc 0.0084, ORBITING
+#   commit          ut 20,393,408.2, terminalOrbitBody=Dres
+#   fuel            lf 913.859 at commit -> 3,933 m/s still in the LV-N stage
+tier = "operator"
+description = "Dres ORBIT across a heliocentric traverse, on the stock Duna Rocket: 700 km park, PRE-TRANSFER JETTISON of the spent chemical stack onto the LV-N, ejection at the Kerbin->Dres window, corrections, CAPTURE inside Dres's SOI, held park and a mid-mission CommitTree -- the flight whose committed recording becomes the dres-orbit-recorded fixture."
+instanceProfile = "stock-minimal"
+tags = ["B19", "dres", "orbit", "mechjeb", "interplanetary", "cross-soi", "capture", "commit-in-foreign-soi", "jettison", "flown"]
+
+[fixture]
+# B18's committed pad fixture: the Duna Rocket PRELAUNCH on the LaunchPad with
+# VALENTINA aboard (not Jebediah -- see FORGE-b18-dres-pad's header for why
+# naming an already-Assigned kerbal silently produces an uncontrollable rocket).
+saveTemplate       = "fixtures/saves/b18-dres-pad"
+injectedRecordings = "none"
+craft              = []
+
+[driver]
+kind    = "autopilot"
+# Thin alias over the body-parameterized B5 machine (b19_dres_orbit.py). No
+# b19_decide. The ONLY new mlib code in this lane is the JETTISON phase, which is
+# default-off and shared, not lane-private.
+mission = "b19_dres_orbit"
+
+# `steps` MUST stay in the [driver] table, ABOVE the [driver.missionParams]
+# header (a key after the sub-table header would be TOML-scoped into it and the
+# spec would validate as having zero steps).
+#
+# RECORDING DISCIPLINE, copied from B16 because this lane's product IS the
+# recording: autoRecordOnLaunch true so the tree starts at launch and covers the
+# whole flight, and EXACTLY ONE commit -- the MID-MISSION one the machine fires
+# from ORBIT-COMMIT. There is deliberately NO post-mission CommitTree: the seam's
+# CommitTreeImpl answers ERROR no-active-tree once the tree is closed, which
+# would make every green flight driver-INVALID (the B11/B12/B16 accounting rule).
+#
+# SaveGame IS included, unlike B16, for B18's reason: this flight is meant to be
+# HARVESTED into a dres-orbit-recorded fixture (the eve-orbit-recorded pattern),
+# and the harvest reads the produced persistent.sfs. FlushAndQuit alone would
+# leave the committed tree's own save write to chance.
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 240 },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "true" }, expect = "OK" },
+  { phase = "mission",  expect = "MISSION-OK", budget = 5400 },
+  { cmd = "SaveGame",   args = { name = "persistent" },                      expect = "OK" },
+  { cmd = "FlushAndQuit",                                                    expect = "OK" },
+]
+
+[driver.missionParams]
+# --- ASCENT to a HIGH park. 700 km is B16's value and it is a WARP decision, not
+# a fuel one: KSP's stock rails table caps warp by ALTITUDE, and Kerbin's ladder
+# needs 600 km before 100,000x is legal (at a 100 km park the ceiling is 50x,
+# which cannot cover a multi-million-second Kerbin->Dres window wait inside any
+# sane wall budget). The apsis windows are B16's 150 km, which on a 700 km target
+# is the same ~21% band B18 measured this craft holding at 80 km.
+targetApoapsisMeters       = 700000
+targetPeriapsisMeters      = 700000
+apoErrorMeters             = 150000
+periErrorMeters            = 150000
+ascentTimeoutSeconds       = 2400
+circularizeTimeoutSeconds  = 12000
+# The B15 blocker, inherited: MechJeb's interplanetary ejection planner sizes the
+# burn at the park's SEMI-MAJOR AXIS and applies it at a different radius, so an
+# eccentric park under-ejects and the heliocentric leg never reaches the target's
+# orbit. B18 measured this craft circularizing to ecc 0.00444 unaided, so the
+# round-out should be a no-op here -- it is armed anyway, because a capture that
+# arrives off-target has no periapsis to circularize at.
+parkTrimEccMax             = 0.02
+
+# --- THE JETTISON (see the header for the full derivation).
+jettisonMaxActivations        = 4
+# GAME seconds, spanning the pops AND the certification. The pops are one per
+# frame and the debounce is a handful more, so this is ~2 orders above the
+# expected cost; it bounds a craft that never splits, which the named give-up
+# then explains.
+jettisonTimeoutSeconds        = 600
+# NEWTONS. 2x the Nerv's 60 kN, 5.4x under the Skipper's 650 kN: the signature
+# that says WHICH stage is live.
+jettisonMaxLiveThrustNewtons  = 120000
+jettisonMinSplits             = 1
+
+# --- INTERPLANETARY TRANSFER (B7's five params, retargeted at Dres).
+targetBodyName             = "Dres"
+homeBodyName               = "Kerbin"
+interplanetaryTransfer     = true
+transferMinApoapsisMeters  = 0
+# B16 MEASURED that B7's outward-calibrated 1.05 floor is wrong for an INWARD
+# transfer and re-derived 1.001. Kerbin->Dres is OUTWARD like Duna, and needs
+# MORE C3 than Duna (v_inf 2,089 vs ~918 m/s), so the outward floor is the right
+# family here and 1.05 has large margin. Kept at B7's value deliberately rather
+# than copying B16's inward number, which would be a floor calibrated on the
+# opposite direction.
+ejectionEccFloor           = 1.05
+# "Mun" carried from B16's flight-2 evidence: a Kerbin departure legitimately
+# transits a moon's SOI on the way out, and that is ordinary KSP behaviour rather
+# than "went somewhere wrong". The via list catches a WRONG destination, and the
+# Mun is inside the home system on the way out.
+viaBodyNames               = ["Sun", "Mun"]
+# In CAPTURE mode this is the FAILURE body, not a success terminal: reading it
+# from TARGET-FLYBY means "left the target SOI without capturing". "Sun" is where
+# an uncaptured Dres arrival actually goes, so naming it makes the failure
+# self-explaining. A diagnosis-quality choice, never a pass/fail one.
+returnBodyName             = "Sun"
+
+# --- CORRECTIONS (B16's shape and cap).
+# 300 km requested. Finding 16d's documented bias is that MechJeb's
+# OperationCourseCorrection arrives HIGHER than requested (B5 turned 250 km into
+# 956-1,142 km), and on Dres that bias is harmless in both directions: the SOI is
+# 32,832 km so there is enormous room above, and the capture cost curve is nearly
+# flat across that band (~1,136 m/s at 300 km, ~1,238 at 1,000 km).
+courseCorrectPeriapsisMeters = 300000
+# RAISED from B16's 450. On this lane the correction has to CREATE the encounter
+# rather than refine one (the flight-2 measurement: MechJeb's transfer put the
+# craft on a heliocentric ellipse reaching Dres's perihelion band with no
+# intercept), and an encounter-creating correction on a 13M game-second Dres
+# transfer is a bigger burn than the 378.5 m/s B15 measured refining an Eve one.
+# B15's own lesson is that a cap BELOW the needed burn silently discards the node
+# and the coast flies the raw intercept. AFFORDABLE by a wide margin: the LV-N
+# stage has ~6,146 m/s left after the measured 1,337.5 m/s ejection, against a
+# ~1,136 m/s capture, so even both rounds landing on this ceiling leaves ~2,700.
+maxCorrectionDvMps         = 1200
+correctionTriggerAltsMeters       = []
+correctionTriggerTimeToSoiSeconds = [20000000, 500000]
+# RAISED FROM B7/B16's 300 BY FLIGHT 2's MEASUREMENT, and this is a real defect
+# in copying that number rather than a tolerance choice. planTimeoutSeconds is
+# GAME seconds, and PLAN-CORRECTION is entered from a coast running at
+# coastWarpFactor 7 = RAILS x100,000. Flight 2 measured what that means: both
+# correction rounds entered at `warp=RAILSx100000.000`, and the phase advanced
+# 39,001 and 41,001 GAME seconds respectively -- i.e. ONE poll frame -- so a 300
+# game-second budget expired before MechJeb was given a single real frame to
+# produce a node. Both rounds returned to the coast with `nodeDv=nan`, no
+# encounter was ever created, and COAST-TO-TARGET then ran out its own budget.
+# The lanes this value was copied from do not hit it because their correction
+# rounds fire on time-to-SOI, which only exists once an encounter is already
+# there and warp has come down.
+# 300,000 game s is ~7 frames at x100,000, which comfortably spans the warp-down
+# to the commanded factor 2 plus the plan itself. It bounds SLOW; the named
+# no-node give-up still bounds BROKEN.
+planTimeoutSeconds         = 300000
+planRetrySeconds           = 10
+# GAME seconds. B16 uses 18,000,000 to carry its ejection-window wait inside the
+# NodeExecutor's autowarp; the Kerbin->Dres synodic period is ~2.4x Kerbin's year
+# and the window wait can run to ~11.4M game s, so B16's value is the right
+# order and is kept. This budget is NOT the burn duration -- the ~7 minute LV-N
+# ejection is a rounding error inside it.
+transferBurnTimeoutSeconds = 18000000
+# Dres's transfer is LONGER than Eve's (tof ~13.0M game s against Eve's ~6M), so
+# B16's 7,000,000 would reap a healthy coast. Doubled with margin.
+coastTimeoutSeconds        = 16000000
+flybyTimeoutSeconds        = 600000
+coastWarpFactor            = 7
+# IN-SOI WARP, LOWERED FROM B16's 5/6 BY FLIGHT 3's MEASUREMENT. Flight 3 reached
+# Dres cleanly and then died on the NAMED give-up
+#   `capture-never-armed (past-periapsis) ... pe=870357.886 ttPe=-9119.015`
+# -- the arrival flew THROUGH the capture point before PLAN-CAPTURE could arm.
+# The mechanism is a body-size effect, not a defect: Dres's SOI is 32,832 km
+# against Eve's 85,109 km (2.6x smaller), so the SOI-entry -> periapsis coast is
+# far shorter in game time, while factor 6 (x10,000) advances ~10,000 game
+# seconds per poll frame. B16 gets away with 5/6 because Eve's approach gives it
+# an order of magnitude more frames to work with.
+# 3/4 (x50 / x100) samples the same approach ~100x more finely. The cost is
+# bounded and small: the in-SOI arrival is a few tens of thousands of game
+# seconds, so even at x100 it is tens of wall seconds, and flybyTimeoutSeconds
+# still bounds SLOW.
+# FLOWN AT THIS SETTING (flight 4, 2026-08-11_2352) AND IT DID NOT FIX IT. The
+# give-up reproduced with barely-moved numbers -- ttPe=-10,421.8 against flight
+# 3's -9,119.0 -- so the ~10,000 game-second overshoot is NOT in-SOI warp
+# granularity. It is the COAST phase's final warp step: COAST-TO-TARGET runs at
+# coastWarpFactor 7 (x100,000), where ONE poll frame advances ~50,000 game
+# seconds, and Dres's whole SOI-entry -> periapsis coast is only ~25,000. The
+# coast blows through BOTH the SOI boundary and periapsis before TARGET-FLYBY
+# ever gets a frame, so lowering the flyby factors samples an arrival that is
+# already behind the craft. NEXT THING TO TRY (untested): raise soiLeadSeconds
+# from 30 far enough that the coast's warp target lands more than one x100,000
+# frame ahead of SOI entry, and/or drop coastWarpFactor for the final approach.
+# These finer factors are KEPT because they are correct on their own terms and
+# cost only tens of wall seconds; they are simply not the fix.
+flybyWarpFactor            = 3
+flybyMaxWarpFactor         = 4
+nodeArrivalMarginSeconds   = 15
+planWarpFactor             = 2
+# --- THE ARRIVAL FIX (flight 4's finding), TWO KNOBS, BOTH REQUIRED.
+# Flight 4 measured the coast's native warp stopping EXACTLY where it promised:
+# `tts=29.904 warp=NONEx1.000`, 30 game seconds short of the Dres boundary. So
+# soiLeadSeconds=30 was not broken -- it was just far too small to matter. The
+# NEXT poll read `body=Dres ut=+27,596 s warp=RAILSx8738.770 ttPe=-9,741`: ONE
+# frame crossed the boundary and the whole ~25,000 game-second approach, so
+# TARGET-FLYBY's first frame already had periapsis behind it.
+#
+# (1) HAND OFF EARLY. 100,000 game s is >= 2x the measured 27,596 s single-frame
+# advance (and >= 2x the ~50,000 s a full-rate x100,000 poll can cover), so the
+# machine regains control at least two worst-case frames before the boundary
+# instead of 30 game seconds before it.
+soiLeadSeconds             = 100000
+# (2) HOLD A LOW CEILING FROM THERE TO THE BOUNDARY. A bigger lead ALONE only
+# moves where control is regained -- whatever factor is in force for the
+# remaining approach can still swallow it in one poll, which is exactly what
+# happened. The window opens the ceiling 200,000 game s out (2x the lead, so it
+# is already in force when the native warp hands off) and factor 5 = x1,000
+# advances ~500-1,000 game s per poll: under 1/25 of Dres's ~25,000 s
+# SOI-entry -> periapsis coast, comfortably inside the "one frame <= 1/5 of the
+# approach" sizing rule. Bounded cost: 200,000 game s at x1,000 is ~200 wall s,
+# which the re-sized mission budget absorbs.
+approachWindowSeconds      = 200000
+approachMaxWarpFactor      = 5
+flipPhysicsWarpFactor      = 1
+# Dres has NO atmosphere; its peaks reach ~5.7 km. 50 km is ~9x the highest
+# terrain and asserts the whole in-SOI stay (arrival AND park) stayed in clean
+# vacuum well clear of the ground.
+targetPeriapsisFloorMeters = 50000
+
+# --- BURN LIVENESS, widened ~2x for the LV-N (the coordinator's instruction and
+# the BDOCK node-executor lesson). At 0.34 g the ejection burns ~440 s of
+# continuous thrust, which is longer than any burn the existing watchdogs were
+# calibrated on -- B16's Poodle burns are tens of seconds. A stagnation window
+# shorter than the burn itself would abort a perfectly healthy ejection.
+burnStagnantSeconds        = 240
+# MechJeb's pre-ignition WARPALIGN hold is ~600 game-s and body-independent; the
+# no-start window must clear it with room, and the LV-N's flip on an 18 t stack
+# is slower than the Kerbal X's.
+burnNoStartSeconds         = 1200
+correctionThrottle         = 0.25
+correctionCutDvMps         = 2.0
+correctionSettleSeconds    = 10
+maxAttitudeErrorDeg        = 30
+frozenTelemetrySamples     = 10
+
+# --- CAPTURE + PARK + COMMIT (B11/B12/B16 tail, Dres numbers).
+captureEnabled             = true
+capturePlanTimeoutSeconds  = 300
+# GAME seconds. Dres's SOI edge is 32,832 km out and the executor autowarps the
+# SOI-entry -> periapsis coast; B16 sized 400,000 for Eve's 85,109 km edge, so
+# Dres's is comfortably smaller. Kept at B16's value as a SLOW bound -- the
+# named executor/window/under-burn watchdogs bound BROKEN.
+captureBurnTimeoutSeconds  = 400000
+# THE PARK WINDOW, deliberately LOOSE (the coordinator's call, and Dres earns it:
+# no moons means nothing physical constrains the park). What each conjunct still
+# does:
+#   parkMinPeriapsisMeters 50 km    - ~9x Dres's highest terrain. Certifies a
+#                                     VACUUM park that will not decay, and is the
+#                                     conjunct that caught B12 flight 3's
+#                                     under-burn.
+#   parkMaxApoapsisMeters  20,000 km- LOAD-BEARING as the captured-or-not
+#                                     evidence: a hyperbolic (uncaptured)
+#                                     approach reads a NEGATIVE apoapsis in the
+#                                     Dres frame, so "0 < ap <= ceiling" cannot
+#                                     be faked by flying past. 20,000 km sits
+#                                     inside the 32,832 km SOI with margin, so it
+#                                     also asserts the orbit is genuinely bound.
+#   parkMaxEccentricity    0.25     - B11/B12/B16's value. MechJeb circularizes
+#                                     AT PERIAPSIS, so a healthy capture lands
+#                                     far under this; the slack absorbs a partial
+#                                     burn that is still a stable park.
+parkMinPeriapsisMeters     = 50000
+parkMaxApoapsisMeters      = 20000000
+parkMaxEccentricity        = 0.25
+parkMaxAngularVelocityRadPerSec = 0.05
+parkSituations             = ["ORBITING"]
+# 180 game-s held at 1x, B11/B12/B16's value. This dwell IS the recorded
+# parked-in-foreign-SOI coverage the harvested fixture will carry, so it is
+# deliberately not warped.
+parkDwellSeconds           = 180
+parkDebounceFrames         = 3
+parkTimeoutSeconds         = 600
+commitTimeoutSeconds       = 300
+
+# CLAIM-IS-NOT-GATE: every cell below is backed by a gate in this spec's own
+# contract. D1 auto-record-launch by the SetSetting step + the Recording-started
+# token; D1 commit-in-foreign-soi by the terminalOrbitBody=Dres commit token; the
+# D14 bodies by the SOI-traverse tokens; the warp cells by the mission's rails
+# policy the coast cannot complete without.
+# NOT claimed: D14 "dres" is claimed (the Sun->Dres token gates it), but D3
+# parent-anchored-debris is NOT -- B18 pins that token on the ascent, and this
+# lane deliberately does not re-require it while the jettison's own debris
+# topology is unmeasured.
+[dimensionsCovered]
+D1  = ["auto-record-launch", "commit-in-foreign-soi"]
+D3  = ["orbital-checkpoint"]
+D4  = ["atmospheric", "exo-propulsive", "exo-ballistic", "cohesive-cross-body-coast"]
+D14 = ["kerbin", "dres", "soi-count", "warp-rails", "warp-high", "scene-flight", "sandbox"]
+
+[expectations]
+# PLACEMENT IS LOAD-BEARING: allowedAnomalies must precede every
+# [expectations.<sub>] header or TOML scopes it into the sub-table
+# (hlib.validate_spec rejects the misplaced form).
+allowedAnomalies = []
+
+[expectations.recordings]
+# PINNED FROM THE GREEN FLIGHT (2026-08-12_0047, PASS attempt 1): observed
+# count = 5, and the topology is NAMED rather than merely counted, which is what
+# makes the pin tight rather than lucky:
+#   +1  the main recording -- terminal Orbiting, terminalOrbitBody=Dres
+#   +2  the two radial booster stacks shed at istg 6 during ascent (the exact
+#       population B18 measured on this craft), terminal Destroyed
+#   +1  the core Mainsail stack, dropped by MechJeb AUTOSTAGE during the ascent
+#       (recorded span ut 1,697.3 -> 1,703.3, i.e. before ORBIT at 2,698.4),
+#       terminal Orbiting / terminalOrbitBody=KERBIN
+#   +1  the Skipper stack, dropped by the JETTISON (recorded span ut 2,699.5 ->
+#       2,704.2, exactly the JETTISON phase window 2,698.9 -> 2,703.7), also
+#       Orbiting / KERBIN -- both are left in the 700 km parking orbit
+# CORRECTED FROM THE HARVESTED BYTES: an earlier draft of this note said the
+# jettison shed BOTH stacks. The per-recording span UTs say otherwise, and they
+# are the same fact the 2-pop jettison implies -- the core was ALREADY gone
+# (that is why the Skipper was the live engine at the park), so the jettison's
+# two pops dropped the Skipper stack and lit the Nerv, shedding exactly ONE new
+# stack. 5 = 3 (B18's measured ascent population) + 1 autostage core drop
+# + 1 jettison drop, and every one of the five is accounted for by UT. saveParse agrees: trees 1, committedTrees 1,
+# terminalStates {Orbiting 3, Destroyed 2}, branchPoints {JointBreak 3},
+# points total 1,729 (largest 1,546, smallest 21, trivial 0, unparsed 0),
+# supersedeRows 0, tombstones 0, rewindPoints 0.
+# RE-PIN CONTRACT: if a later run legitimately differs, re-pin to the measured
+# value and record which recordings it produced; do NOT widen. B18 MEASURED the ascent
+# half at exactly 3 (1 main + 2 radial-booster debris children), but THIS lane
+# adds the jettison, which shears off two more stacks (the core Mainsail group
+# and the Skipper group) at a point no flight has yet recorded. Whether KSP
+# authors those as one vessel each, and whether Parsek opens a debris child for
+# each, is exactly what this run measures. min 3 gates the ascent population that
+# IS measured; max 12 absorbs the jettison debris. RE-PIN to the measured value
+# once green -- do NOT leave this wide.
+count = { min = 5, max = 5 }
+
+[expectations.logContracts]
+# Every token sourced from its ACTUAL emitting call site; the interplanetary
+# format is VERIFIED against a real flight log
+# (logs/2026-07-25_1216_B7-duna-flyby/KSP.log carries `Kerbin to Sun` verbatim).
+#   "Recording started" / "Recording stopped" -- the lifecycle pair.
+#   the two SOI tokens -- ParsekFlight.HandleSoiChangeSplit's tree-mode branch;
+#       together they assert the full Kerbin -> Sun -> Dres traverse, which is
+#       what makes "capture after a heliocentric traverse" a CHECKED claim.
+#   "CommitTreeFlight: starting tree commit at UT=" -- the commit path ran.
+#   "committree committed=true" -- the MID-MISSION seam verb reached its OK.
+#   "CommitTreeFlight terminal: ... terminalOrbitBody=Dres" -- the ONLY real
+#       evidence for the headline: the first two commit tokens would be
+#       byte-identical for a tree that ended around KERBIN.
+required = [
+  "Recording started",
+  "Recording stopped",
+  "SOI change boundary suppressed in tree mode: Kerbin to Sun",
+  "SOI change boundary suppressed in tree mode: Sun to Dres",
+  "CommitTreeFlight: starting tree commit at UT=",
+  "committree committed=true",
+  "CommitTreeFlight terminal: rec=\\w+ terminalState=Orbiting terminalOrbitBody=Dres",
+]
+forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
+
+[runtime]
+# 240 LoadGame + 5400 mission + SaveGame / FlushAndQuit + margin.
+#
+# RE-SIZED FROM FLIGHT 1's MEASURED PHASE COSTS, because the first sizing copied
+# B16's measured 1,825-1,843 s total and that number does not contain what this
+# profile actually does. Flight 1 measured, on this craft and this park:
+#   MJ-ASCENT + coast-to-apoapsis   ~400 wall  (the 700 km park's coast is long
+#                                   and runs at 1x)
+#   CIRCULARIZE incl. PARK TRIM     ~600 wall  -- THE ONE THE FIRST SIZING
+#                                   MISSED. MechJeb left the 700 km park at
+#                                   ecc 0.083, so the round-out really fires,
+#                                   and its node sat ~484 GAME seconds ahead
+#                                   with the executor holding at 1x. B16 arms
+#                                   the same trim but its measured wall does not
+#                                   show this cost.
+# Still to come, each priced off B16's own measured behaviour: MechJeb's ~600
+# game-second pre-ignition WARPALIGN hold before the ejection AND again before
+# the capture (body-independent, 1x, so ~600 wall each), the ~440 s LV-N
+# ejection burn (0.34 g -- longer than any burn in the suite), the warped
+# heliocentric coast (~100-200 wall), the capture burn, and the 180 s park dwell
+# held at 1x. That totals ~3,500-4,000 wall EXPECTED, so the original 3,600
+# mission budget had ~2% margin against its own point estimate -- a budget flake
+# waiting to happen rather than a bound on BROKEN. 5,400 is ~1.4x the expected
+# worst case, the same ratio B12/B16 carry and defend.
+budgetSeconds = 5800
+
+[retry]
+# A first flight of a new profile: one retry absorbs a transient (a node-executor
+# abort, a plan that needs re-issuing) without absorbing a systematic failure,
+# which reds both attempts identically and names itself.
+policy = "once"
+
+[expectedFail]
+bugId = ""

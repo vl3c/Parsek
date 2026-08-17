@@ -1,0 +1,16 @@
+vesselCount = 4
+UT = 8951.7879785489513
+gameMode = SANDBOX
+gameNull = False
+kspVersion = 1.12.5
+funds = 0
+science = 0
+reputationPercent = 0
+ongoingContracts = 0
+missionCurrentScore = 0
+missionIsStarted = False
+missionIsEnded = False
+missionHistoryId = 00000000-0000-0000-0000-000000000000
+missionExpansionVersion = 
+saveMD5 = 
+lastWriteTime = 639220633430395900

@@ -1,0 +1,45 @@
+# Shared craft overlay for the committed save fixtures.
+#
+# WHY THIS FILE EXISTS. A save fixture needs its craft under `<save>/Ships/VAB/`,
+# because that is the directory kRPC's `SpaceCenter.launch_vessel("VAB", <name>, ...)`
+# resolves `<save>/Ships/VAB/<name>.craft` against (`mission_runner.py`, ACTION_LAUNCH_VESSEL).
+# Committing a physical copy per save satisfied that, and cost 180,799 duplicated
+# lines across 27 files -- twelve byte-identical copies of `Kerbal X.craft` alone.
+# Worse than the size: each copy was an independent drift risk, which is why
+# `build_dd1_craft.py` had grown a `COMMITTED_CRAFT_PATHS` tuple naming "EVERY
+# committed copy of the craft" so its byte-level gate could walk all of them.
+#
+# THE CONTRACT. One copy of each shared craft lives in `harness/fixtures/ships/`.
+# This file names, per save fixture, which of them are overlaid into
+# `<save>/Ships/VAB/` when `run.py::stage_fixture` stages that save. The overlay
+# is ADDITIVE and runs after the template copytree; a craft used by exactly one
+# fixture stays physically in that fixture and is NOT listed here
+# (`gloops-airshow/Ships/VAB/Auto-Saved Ship.craft` is the only one today).
+#
+# THE INVARIANT, and where it is enforced. No committed file under
+# `fixtures/saves/` may be byte-identical to a file in `fixtures/ships/`; every
+# ship named here must exist in the library; every library ship must have at
+# least two consumers; and no save may declare a ship it also carries physically.
+# All four are gated by `SharedShipsManifestTests` in `harness/lib/test_hlib.py`,
+# so a re-introduced copy reds the suite instead of silently restoring the
+# duplication. The pure resolver is `hlib.plan_shared_ship_overlay`.
+#
+# ADDING A FIXTURE that needs a shared craft: add the save's row here rather than
+# copying the .craft into it. Promoting a craft to shared: move the single copy
+# into `fixtures/ships/`, delete the others, and list every consumer here.
+
+[ships]
+"b17-duna-pad" = ["DD1 Duna Direct Probe", "GS1 Auto-Chute Booster", "Kerbal X"]
+"b18-dres-pad" = ["DD1 Duna Direct Probe", "Duna Rocket", "GS1 Auto-Chute Booster", "Kerbal X"]
+"bdock-forge-base" = ["DD1 Duna Direct Probe", "Duna Rocket", "GS1 Auto-Chute Booster", "Kerbal X"]
+"bdock-recorded" = ["Kerbal X"]
+"bdock-station-craft" = ["Kerbal X"]
+"bdock-station-pad" = ["Kerbal X"]
+"dres-orbit-recorded" = ["DD1 Duna Direct Probe", "Duna Rocket", "GS1 Auto-Chute Booster", "Kerbal X"]
+"moho-orbit-recorded" = ["DD1 Duna Direct Probe", "Duna Rocket", "GS1 Auto-Chute Booster", "Kerbal X"]
+"duna-direct-recorded" = ["DD1 Duna Direct Probe", "GS1 Auto-Chute Booster", "Kerbal X"]
+"eeloo-orbit-recorded" = ["DD1 Duna Direct Probe", "Duna Rocket", "GS1 Auto-Chute Booster", "Kerbal X"]
+"eva2-lko-crewed" = ["Kerbal X"]
+"eva3-pad-3crew" = ["Kerbal X"]
+"gs1-two-stage-pad" = ["GS1 Auto-Chute Booster", "Kerbal X"]
+"gs2-orbital-stack" = ["GS1 Auto-Chute Booster", "Kerbal X"]

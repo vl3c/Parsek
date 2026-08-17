@@ -69,7 +69,8 @@
 #    defect-signal reasons into the gated hlib.ANOMALY_TOKENS set - so a raise
 #    of any gated token now reds this spec via allowedAnomalies = []. The
 #    `anomalySweep.unlistedReasons` + `hitCounts` channels remain the
-#    calibration output for the two report-only instruments.
+#    calibration output for the report-only instruments (three at 2026-08-09;
+#    hlib.ANOMALY_REASONS_RAISED_UNGATED is the list, not this sentence).
 #  - claim-is-not-gate: only D6 recorded-vs-rendered-parity and D14 scene-map
 #    are claimed, and each is named to the required token / observed assertion
 #    that actually gates it on a green run.
@@ -261,8 +262,9 @@ D14 = ["scene-map"]
 # how line-blink gave V1 its first honest PARSEK-FAIL(anomaly) on 2026-07-30,
 # and why the fix was a sharper raise predicate rather than a `maxCount = 2`
 # tolerance here (see todo V1-REPLAY-LINE-BLINK: a budget cannot tell a benign
-# handoff from a real dark frame at the same count). The two report-only
-# instruments (unaccounted-drawn-recording, factory-parity) still land in
+# handoff from a real dark frame at the same count). The report-only
+# instruments - unaccounted-drawn-recording, factory-parity, and since
+# 2026-08-09 seam-endpoint-outside-soi - still land in
 # `anomalySweep.unlistedReasons` without moving the verdict.
 allowedAnomalies = []
 

@@ -328,6 +328,106 @@ Safe to prune by hand if the disk ever demands it: old `_shots/` dirs and old
 are exclusive-create and load-bearing (see the ownership boundary above);
 deleting one lets a future run overwrite an earlier run's records.
 
+## Fixture saves and the shared craft library
+
+`fixtures/saves/<name>/` holds committed KSP save templates; `run.py::stage_fixture`
+copies one verbatim into the provisioned instance's `saves/` for each run. Their
+contents and the pinned career constants are documented in
+`fixtures/saves/README.md`.
+
+A craft flown by two or more of those fixtures is committed ONCE under
+`fixtures/ships/` and overlaid into the staged save's `Ships/VAB/` at stage time,
+per `fixtures/shared-ships.toml`. That directory is what kRPC's
+`SpaceCenter.launch_vessel("VAB", <name>, ...)` resolves
+`<save>/Ships/VAB/<name>.craft` against, so the craft has to BE there at run time -
+it just no longer has to be there in git. Committing a physical copy per save cost
+180,799 duplicated lines across 27 files (twelve byte-identical `Kerbal X.craft`),
+and made every copy an independent drift risk: `build_dd1_craft.py` had grown a
+three-path gate purely to chase its own copies.
+
+Two rules when adding or harvesting a fixture:
+
+- **Needs a shared craft?** Add the save's row to `shared-ships.toml`. Do NOT copy
+  the `.craft` into the fixture - `SharedShipsManifestTests` (in `lib/test_hlib.py`)
+  hashes the whole fixture tree and reds on any file byte-identical to a library
+  craft, including one that was renamed.
+- **Craft used by exactly one fixture?** It stays physically in that fixture and is
+  NOT listed (`gloops-airshow/Ships/VAB/Auto-Saved Ship.craft` is the only one
+  today). The same test reds a library craft that drops to one consumer.
+
+### Recording sidecars: what is committed and what is derived
+
+A fixture's `Parsek/Recordings/` carries the AUTHORITATIVE sidecars - `<id>.prec`
+(trajectory) and `<id>_vessel.craft` / `<id>_ghost.craft` (snapshots), all binary -
+plus ONE derived text mirror, `<id>.prec.txt`.
+
+Parsek writes a readable text mirror beside each of the three at runtime
+(default-on diagnostics). Only the trajectory one is committed, because scenario
+headers cite values read straight out of it (`V6M-mun-player-loop`,
+`V6T-mun-ts-arrival`, `V7M-minmus-player-loop`, `M1-mission-loop-unit`). The two
+SNAPSHOT mirrors are not committed: nothing cites one, they cost 334,023 lines
+over 99 files, and they are strictly derived - an offline decode reconstructs all
+99 byte-for-byte from the retained binaries, which are a strict superset of the
+text. **To read one, load the fixture in KSP**; the text is regenerated from the
+binary that is still in git. The two halves come back by different routes, which
+is worth knowing before relying on either: the VESSEL mirror has a real write-path
+fallback (`ReconcileReadableSidecarMirrors`'s `AuthoritativeSidecar` branch,
+`RecordingSidecarStore.cs:1313-1321`), while the GHOST mirror has none - it comes
+back only because `LoadSnapshotSidecarsFromPaths` hydrates the snapshot from the
+binary at load (`:443-449`), so the in-memory branch fires on the next save. Gated by
+`CommittedFixtureMirrorTests`, which also asserts the binaries and the cited
+`.prec.txt` are still there - dropping a mirror is only safe while the thing it is
+rebuilt from survives.
+
+### What a fixture must NOT carry
+
+Harvesting a produced save brings along everything KSP and Parsek wrote beside
+the state a scenario needs. Three populations are exhaust, all pruned by
+`harvest_bdock_station.py` and gated in `lib/test_hlib.py` /
+`lib/test_saveparse.py`:
+
+| Not committed | Why | Gate |
+| --- | --- | --- |
+| `*_vessel.craft.txt`, `*_ghost.craft.txt` | derived; the mod rebuilds them from the committed binaries | `CommittedFixtureMirrorTests` |
+| `Parsek/Saves/parsek_rw_*.sfs` + their `rewindSave =` hints | legacy Rewind-to-LAUNCH quicksaves; no spec or seam verb reaches them, and the one analyzer rule that looks (`Inv9RewindPoint`) only checks existence and parseability, never content | `CommittedFixtureRewindSaveTests` |
+| `quicksave.sfs` / `quicksave.loadmeta` | near-copy of the fixture's own `persistent.sfs`; every in-game quickload uses a NAMED slot | `test_no_fixture_commits_a_quicksave` |
+
+Two look like exhaust and are **payload** - do not confuse them:
+
+- `Parsek/RewindPoints/rp_*.sfs` is deep-parsed by
+  `RewindInvoker.PartLoaderPrecondition.Check`, and `test_saveparse` pins the
+  count. Rewind-to-SEPARATION (the `InvokeRewind` seam verb) is a different
+  system from the Rewind-to-LAUNCH quicksaves above.
+- `<id>.prec.txt` is a live test input, not just a review surface:
+  `OptimizerTransferCohesionTests` globs every fixture's `*.prec.txt` recursively
+  and `ReaimTransferSynthesizerTests` names one directly.
+
+The file/hint pairing matters: deleting a `parsek_rw_*.sfs` while leaving its
+`rewindSave =` key dangles the reference, which `Inv9RewindPoint` WARNs on and
+escalates to FAIL for a `CommittedProvisional` recording - analyzer RED under the
+Forbid fresh-save gate. Both halves go together, which is what the gate pins.
+
+`tools/harvest_bdock_station.py` drops harvested craft the library already holds
+and prints the manifest row to add, and prunes the snapshot mirrors and
+`Parsek/Saves` so a harvest cannot re-commit them. The overlay fails CLOSED, pre-boot, as `INVALID(staging)` on every way it can be
+unsatisfiable - a declared craft missing from the library, a fixture that both
+declares and commits one, and a manifest that is missing or unparseable. Never
+silently, because the symptom otherwise surfaces minutes later as a
+`launch_vessel` failure classified against a perfectly good spec. The
+missing-manifest case is deliberately NOT treated as "degrade to the pre-library
+behaviour": before the dedup a verbatim copytree carried the craft, and now it
+carries nothing, so degrading would stage twelve fixtures craftless and report
+success. A save with no manifest row is legitimate (most fixtures need no shared
+craft) and logs a `no rows for save=` line, so the harness log can always tell
+"overlay ran" from "no row".
+
+The consumer-side gate is `test_every_spec_that_launches_a_craft_can_resolve_it`:
+every spec with a `driver.missionParams.craftName` must resolve that craft from
+its own fixture either physically or through a manifest row. That is the cell
+that catches a dropped row before it costs a flight - the weaker "the saveTemplate
+names a real directory" form stays green when a row goes missing. Pure resolution:
+`hlib.plan_shared_ship_overlay` / `hlib.validate_shared_ships_manifest`.
+
 ## Running the tests
 
 ```

@@ -198,21 +198,83 @@ namespace Parsek.Tests.Rendering
                 }
             }
 
-            // Sanity: we expect at least the eight production sites we
-            // hooked in T4 (LoadTimeSweep + 3× MergeJournalOrchestrator +
-            // ParsekScenario.LoadRewindStagingState + RewindInvoker rollback
-            // + SupersedeCommit + 3× RevertInterceptor + TreeDiscardPurge
-            // ≥ 8). If this drops, a clear site was likely deleted without
-            // the matching anchor-map clear migration.
-            Assert.True(total >= 8,
-                "Expected at least 8 ActiveReFlySessionMarker = null "
-                + "production sites; found " + total
+            // Sanity floor. The former roster (LoadTimeSweep + 3x
+            // MergeJournalOrchestrator + RewindInvoker rollback + SupersedeCommit +
+            // 3x RevertInterceptor + TreeDiscardPurge) was CENTRALIZED in #16 item 8:
+            // those sites now call ParsekScenario.ClearActiveReFlySessionMarker, which
+            // owns the pairing (marker + RenderSessionState.Clear + the prune hand-over
+            // note). What remains as a raw assignment is the helper itself,
+            // LoadRewindStagingState's OnLoad reset, and the in-game fixture teardowns -
+            // so the floor is the two production sites plus those fixtures. The scan
+            // still catches a NEW raw site that forgets the pair, which is its whole job.
+            Assert.True(total >= 2,
+                "Expected at least the 2 remaining raw ActiveReFlySessionMarker = null "
+                + "production sites (the helper + LoadRewindStagingState); found " + total
                 + ". Did a refactor remove a clear site without preserving the pairing?");
             Assert.True(failures.Count == 0,
                 "T4 contract violated: every ActiveReFlySessionMarker = null "
                 + "must pair with a RenderSessionState.Clear(...) call "
                 + "within ±8 lines. Unpaired sites:\n  - "
                 + string.Join("\n  - ", failures));
+        }
+
+        [Fact]
+        public void SessionEndingMarkerClears_RouteThroughTheOneHelper()
+        {
+            // The other half of the T4 contract after #16 item 8: a production file
+            // outside ParsekScenario must not null the marker itself, because doing so
+            // skips BOTH paired drops (the anchor epsilon map AND the prune hand-over
+            // note, whose session gate cannot see an F9 re-arming the same SessionId).
+            // The scan above only proves a nearby RenderSessionState.Clear exists; this
+            // proves the session-ending sites go through the helper that does all three.
+            string repoRoot = ResolveRepoRoot();
+            string sourceRoot = Path.Combine(repoRoot, "Source", "Parsek");
+            var offenders = new List<string>();
+            int helperCalls = 0;
+
+            foreach (string file in Directory.EnumerateFiles(
+                sourceRoot, "*.cs", SearchOption.AllDirectories))
+            {
+                string name = Path.GetFileName(file);
+                string text = File.ReadAllText(file);
+                helperCalls += CountOccurrences(text, "ClearActiveReFlySessionMarker(");
+
+                // ParsekScenario owns the helper and the OnLoad reset;
+                // ReconciliationBundle's is a fresh-struct default;
+                // InGameTests null it in fixture teardown (paired, see the scan above).
+                if (string.Equals(name, "ParsekScenario.cs", StringComparison.OrdinalIgnoreCase)
+                    || string.Equals(name, "ReconciliationBundle.cs", StringComparison.OrdinalIgnoreCase)
+                    || file.IndexOf("InGameTests", StringComparison.OrdinalIgnoreCase) >= 0)
+                {
+                    continue;
+                }
+
+                if (text.IndexOf("ActiveReFlySessionMarker = null", StringComparison.Ordinal) >= 0)
+                    offenders.Add(name);
+            }
+
+            Assert.True(offenders.Count == 0,
+                "These production files null ActiveReFlySessionMarker directly instead of "
+                + "calling ParsekScenario.ClearActiveReFlySessionMarker: "
+                + string.Join(", ", offenders));
+            // Guard the inverse: if the helper stopped being called, the routing above
+            // would pass vacuously. 10 = the centralized session-ending sites + the
+            // helper declaration + ParsekScenario's own plain-rewind call.
+            Assert.True(helperCalls >= 10,
+                "Expected the marker-clear helper to still be the route for the "
+                + "session-ending sites; found " + helperCalls + " reference(s).");
+        }
+
+        private static int CountOccurrences(string haystack, string needle)
+        {
+            int count = 0;
+            int at = 0;
+            while ((at = haystack.IndexOf(needle, at, StringComparison.Ordinal)) >= 0)
+            {
+                count++;
+                at += needle.Length;
+            }
+            return count;
         }
 
         // ----- helpers -----------------------------------------------------

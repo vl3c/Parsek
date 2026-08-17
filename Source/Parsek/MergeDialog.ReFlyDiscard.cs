@@ -287,6 +287,17 @@ namespace Parsek
             int prunedCommittedTreeEntries = PruneAttemptRecordingsFromCommittedTrees(
                 attemptIds, marker);
             int transientCleared = ClearReFlyAttemptTransientFields(tree, marker, attemptIds);
+            // Retire-time tag re-home, same contract as
+            // SupersedeCommit.ConcludeRetiredProvisional: this path already purges the
+            // attempt's store events and files but never touched Ledger.Actions, so a payout
+            // earned during the attempt kept a tag pointing at a recording this discard
+            // deletes. RecordingId is the tombstone scoping key
+            // (TombstoneAttributionHelper.InSupersedeScope, no UT guard) and FundsEarning /
+            // ScienceEarning are tombstone-eligible, so a stale tag can later scope a
+            // tombstone onto a REAL payout. Clearing keeps the row and its career effect.
+            // Accepted exposure: untagged rows become eligible for PruneOrphanActionsAfterUT,
+            // identical to the exposure the existing discard re-home already accepts.
+            int ledgerTagsCleared = Ledger.ClearRecordingTagForRecordings(attemptIds);
             bool committedTreeDetached = !CommittedTreeExists(tree.Id);
             bool rpPromoted = PromoteOriginRewindPointForDiscard(scenario, marker);
             int discardedSessionRps = PurgeDiscardedSessionRewindPoints(scenario, marker);
@@ -297,8 +308,7 @@ namespace Parsek
             GameStateRecorder.PendingScienceSubjects.Clear();
             RecordingStore.ClearRewindReplayTargetScope();
 
-            scenario.ActiveReFlySessionMarker = null;
-            Parsek.Rendering.RenderSessionState.Clear("marker-cleared");
+            scenario.ClearActiveReFlySessionMarker("marker-cleared");
             scenario.ActiveMergeJournal = null;
             // Live variant (route-timeline events): the Re-Fly discard dialog
             // choice is player-driven; a route whose sources this discard
@@ -306,6 +316,9 @@ namespace Parsek
             scenario.BumpSupersedeStateVersionLive();
             ReFlyRevertButtonGate.Apply("MergeDialog:discard-refly-attempt");
             SupersedeCommit.ClearPreReFlyAnchorSnapshotsForSession(sessionId);
+            // Discard is a terminal conclusion too: the prune hand-over must not
+            // outlive the session that owned it. Dropped by
+            // ClearActiveReFlySessionMarker above - the pairing is central now.
 
             LedgerOrchestrator.RecalculateAndPatchForCurrentTimelineIfFutureActions(
                 ParsekScenario.GetCurrentTimelineUTForLedgerRecalc(),
@@ -323,6 +336,7 @@ namespace Parsek
                 $"purgedEvents={purgedEvents}, deletedFiles={deletedFiles}, " +
                 $"prunedCommittedTreeEntries={prunedCommittedTreeEntries}, " +
                 $"transientCleared={transientCleared}, " +
+                $"ledgerTagsCleared={ledgerTagsCleared}, " +
                 $"rpPromoted={rpPromoted}, discardedSessionRps={discardedSessionRps}, " +
                 $"restoredCommittedTree={restoredCommittedTree}, durableSaved={durableSaved})");
             ParsekLog.Info("ReFlySession",

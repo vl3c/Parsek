@@ -5218,12 +5218,13 @@ class ForgeMachineTests(unittest.TestCase):
 
 
 class ForgeAssertionTests(unittest.TestCase):
-    def test_both_assertions_met(self):
+    def test_all_assertions_met(self):
         frames = [snap(situation="PRE_LAUNCH")]
         outs = mlib.evaluate_forge_assertions(
             frames, FORGE_PARAMS,
             phases_reached=(mlib.FORGE_PRELAUNCH, mlib.FORGE_LAUNCH, mlib.FORGE_SETTLED))
-        self.assertEqual([o.name for o in outs], ["launched", "settledOnPad"])
+        self.assertEqual([o.name for o in outs],
+                         ["launched", "crewAboard", "settledOnPad"])
         self.assertTrue(all(o.met for o in outs))
 
     def test_settled_unmet_without_settled_phase(self):
@@ -5232,7 +5233,7 @@ class ForgeAssertionTests(unittest.TestCase):
             [snap(situation="FLYING")], FORGE_PARAMS,
             phases_reached=(mlib.FORGE_PRELAUNCH, mlib.FORGE_LAUNCH))
         self.assertTrue(outs[0].met)      # launched
-        self.assertFalse(outs[1].met)     # settledOnPad
+        self.assertFalse(outs[2].met)     # settledOnPad
 
     def test_settled_unmet_with_wrong_final_situation(self):
         # Reached SETTLED but the final frame situation is not a settle situation
@@ -5240,7 +5241,180 @@ class ForgeAssertionTests(unittest.TestCase):
         outs = mlib.evaluate_forge_assertions(
             [snap(situation="FLYING")], FORGE_PARAMS,
             phases_reached=(mlib.FORGE_PRELAUNCH, mlib.FORGE_LAUNCH, mlib.FORGE_SETTLED))
+        self.assertFalse(outs[2].met)
+
+    def test_crew_aboard_auto_met_when_gate_off(self):
+        # minCrew=0 (every pre-guard spec): the row is met even though no crew
+        # read ever happened (crew_count stays the -1 sentinel).
+        outs = mlib.evaluate_forge_assertions(
+            [snap(situation="PRE_LAUNCH")], FORGE_PARAMS,
+            phases_reached=(mlib.FORGE_PRELAUNCH, mlib.FORGE_LAUNCH, mlib.FORGE_SETTLED))
+        crew = outs[1]
+        self.assertEqual(crew.name, "crewAboard")
+        self.assertTrue(crew.met)
+        self.assertIsNone(crew.value)
+
+    def test_crew_aboard_unmet_on_unread_sentinel_with_floor(self):
+        # minCrew=1 and no finite post-launch crew read -> UNMET (fail closed):
+        # an uncrewed stamp can never read green off the -1 sentinel.
+        params = replace(FORGE_PARAMS, min_crew=1)
+        outs = mlib.evaluate_forge_assertions(
+            [snap(), snap(situation="PRE_LAUNCH")], params,
+            phases_reached=(mlib.FORGE_PRELAUNCH, mlib.FORGE_LAUNCH, mlib.FORGE_SETTLED))
         self.assertFalse(outs[1].met)
+
+    def test_crew_aboard_unmet_when_pod_is_empty(self):
+        # The original gs1-two-stage-pad stamp: launch_vessel seated nobody, the
+        # pad settles fine, crew_count reads a real 0 -> crewAboard UNMET.
+        params = replace(FORGE_PARAMS, min_crew=1)
+        outs = mlib.evaluate_forge_assertions(
+            [snap(), snap(situation="PRE_LAUNCH", crew_count=0)], params,
+            phases_reached=(mlib.FORGE_PRELAUNCH, mlib.FORGE_LAUNCH, mlib.FORGE_SETTLED))
+        self.assertFalse(outs[1].met)
+        self.assertEqual(outs[1].value, 0)
+
+    def test_crew_aboard_met_with_crew_at_floor(self):
+        params = replace(FORGE_PARAMS, min_crew=1)
+        outs = mlib.evaluate_forge_assertions(
+            [snap(), snap(situation="PRE_LAUNCH", crew_count=1)], params,
+            phases_reached=(mlib.FORGE_PRELAUNCH, mlib.FORGE_LAUNCH, mlib.FORGE_SETTLED))
+        self.assertTrue(outs[1].met)
+        self.assertEqual(outs[1].value, 1)
+
+    def test_crew_aboard_ignores_the_boot_base_frame(self):
+        # Frame 0 is read BEFORE launch_vessel fires, while the active vessel is
+        # still the (crewed) forge base. A finite frame-0 read must never
+        # certify the forged craft: with every post-launch read faulted to the
+        # -1 sentinel, the row stays UNMET despite the base's crew=3.
+        params = replace(FORGE_PARAMS, min_crew=1)
+        outs = mlib.evaluate_forge_assertions(
+            [snap(crew_count=3),
+             snap(situation="PRE_LAUNCH", crew_count=-1),
+             snap(situation="PRE_LAUNCH", crew_count=-1)], params,
+            phases_reached=(mlib.FORGE_PRELAUNCH, mlib.FORGE_LAUNCH))
+        self.assertFalse(outs[1].met)
+        self.assertIsNone(outs[1].value)
+
+
+class ForgeCrewGateMachineTests(unittest.TestCase):
+    """Guards the pad-forge minCrew gate (the FORGE-LKO gate, ported): kRPC
+    launch_vessel silently seats NOBODY when a requested name is unseatable
+    (Jebediah `Assigned` in bdock-forge-base -> the committed gs1-two-stage-pad
+    fixture's empty pod). With the gate armed, that run must flake ON THE PAD
+    naming the crew -- never settle into an uncrewed SaveGame stamp."""
+
+    PARAMS = mlib.ForgeParams(
+        craft_name="GS1 Auto-Chute Booster",
+        launch_site="LaunchPad",
+        crew_names=("Valentina Kerman",),
+        min_crew=1,
+        launch_timeout=120.0,
+        settle_debounce=3,
+    )
+
+    def test_empty_pod_never_settles_and_flake_names_the_crew(self):
+        # The exact gs1 failure shape: the craft settles PRE_LAUNCH every frame
+        # but crew_count reads a real 0 the whole time.
+        state = mlib.forge_initial_state(self.PARAMS)
+        state, _ = mlib.forge_decide(state, snap(ut=0.0))
+        for ut in (5.0, 10.0, 15.0, 20.0):
+            state, _ = mlib.forge_decide(
+                state, snap(ut=ut, situation="PRE_LAUNCH", crew_count=0))
+            self.assertEqual(state.settle_streak, 0)
+            self.assertFalse(state.done)
+        self.assertTrue(state.launch_crew_short_seen)
+        state, _ = mlib.forge_decide(
+            state, snap(ut=125.0, situation="PRE_LAUNCH", crew_count=0))
+        self.assertTrue(state.done)
+        self.assertEqual(state.verdict, mlib.MISSION_FLAKE)
+        self.assertEqual(state.flake_phase, mlib.FORGE_LAUNCH)
+        self.assertIn("crew_count=0", state.flake_reason)
+        self.assertIn("minCrew=1", state.flake_reason)
+        self.assertIn("UNCREWED", state.flake_reason)
+        # resolve_flight_verdict surfaces the named reason, not the generic line.
+        verdict, reason = mlib.resolve_flight_verdict(state, [])
+        self.assertEqual(verdict, mlib.MISSION_FLAKE)
+        self.assertIn("crew seeding", reason)
+
+    def test_unread_sentinel_fails_closed(self):
+        # crew_count -1 (shell forgot read_crew / read faulted): the streak may
+        # never advance -- fail closed, exactly like the flko gate.
+        state = mlib.forge_initial_state(self.PARAMS)
+        state, _ = mlib.forge_decide(state, snap(ut=0.0))
+        state, _ = mlib.forge_decide(
+            state, snap(ut=5.0, situation="PRE_LAUNCH", crew_count=-1))
+        self.assertEqual(state.settle_streak, 0)
+
+    def test_crewed_pad_settles_normally(self):
+        state = mlib.forge_initial_state(self.PARAMS)
+        frames = [
+            snap(ut=0.0),
+            snap(ut=5.0, situation="PRE_LAUNCH", crew_count=1),
+            snap(ut=10.0, situation="PRE_LAUNCH", crew_count=1),
+            snap(ut=15.0, situation="PRE_LAUNCH", crew_count=1),
+        ]
+        state, _ = drive_forge(state, frames)
+        self.assertTrue(state.done)
+        self.assertEqual(state.phase, mlib.FORGE_SETTLED)
+        self.assertIsNone(state.verdict)
+
+    def test_never_settled_flake_names_the_settle_not_the_crew(self):
+        # The craft never reads PRE_LAUNCH at all: a settle failure, not a crew
+        # failure -- the flake names the accepted situations (the flko wording)
+        # and must NOT blame the crew.
+        state = mlib.forge_initial_state(self.PARAMS)
+        state, _ = mlib.forge_decide(state, snap(ut=0.0))
+        state, _ = mlib.forge_decide(
+            state, snap(ut=125.0, situation="FLYING", crew_count=0))
+        self.assertTrue(state.done)
+        self.assertEqual(state.verdict, mlib.MISSION_FLAKE)
+        self.assertIn("never settled", state.flake_reason)
+        self.assertNotIn("crew", state.flake_reason)
+
+    def test_crew_read_fault_flake_names_the_unread_sentinel(self):
+        # A persistent crew-telemetry fault (every read degrades to -1) latches
+        # the same crew-short flake a seeding failure would; the message must
+        # say the give-up read was the UNREAD sentinel so the operator does not
+        # hunt a seating bug when the read never succeeded.
+        state = mlib.forge_initial_state(self.PARAMS)
+        state, _ = mlib.forge_decide(state, snap(ut=0.0))
+        state, _ = mlib.forge_decide(
+            state, snap(ut=5.0, situation="PRE_LAUNCH", crew_count=-1))
+        state, _ = mlib.forge_decide(
+            state, snap(ut=125.0, situation="PRE_LAUNCH", crew_count=-1))
+        self.assertTrue(state.done)
+        self.assertEqual(state.verdict, mlib.MISSION_FLAKE)
+        self.assertIn("crew_count=-1", state.flake_reason)
+        self.assertIn("UNREAD sentinel", state.flake_reason)
+
+    def test_min_crew_parsed_explicit_derived_and_disabled(self):
+        # Explicit minCrew wins.
+        parsed = mlib.forge_params_from_dict(
+            {"craftName": "X", "launchTimeoutSeconds": 60, "minCrew": 1})
+        self.assertEqual(parsed.min_crew, 1)
+        # No crewNames, no minCrew -> gate off.
+        defaulted = mlib.forge_params_from_dict(
+            {"craftName": "X", "launchTimeoutSeconds": 60})
+        self.assertEqual(defaulted.min_crew, 0)
+        # crewNames WITHOUT minCrew -> floor derives to len(crewNames): a spec
+        # that requests names and forgets the floor is gated by default (the
+        # recurrence route the hand-maintained floor left open).
+        derived = mlib.forge_params_from_dict(
+            {"craftName": "X", "launchTimeoutSeconds": 60,
+             "crewNames": ["Valentina Kerman", "Bob Kerman"]})
+        self.assertEqual(derived.min_crew, 2)
+        # An explicit 0 still disables the gate even with crewNames present.
+        disabled = mlib.forge_params_from_dict(
+            {"craftName": "X", "launchTimeoutSeconds": 60,
+             "crewNames": ["Valentina Kerman"], "minCrew": 0})
+        self.assertEqual(disabled.min_crew, 0)
+        # The FORGE-LKO parser resolves the floor through the same helper.
+        flko_derived = mlib.forge_lko_params_from_dict(
+            {"craftName": "X", "crewNames": ["Valentina Kerman"]})
+        self.assertEqual(flko_derived.min_crew, 1)
+        flko_disabled = mlib.forge_lko_params_from_dict(
+            {"craftName": "X", "crewNames": ["Valentina Kerman"], "minCrew": 0})
+        self.assertEqual(flko_disabled.min_crew, 0)
 
 
 # ===========================================================================
@@ -10022,6 +10196,462 @@ class LandingParamParseTests(unittest.TestCase):
         changes = mlib.diff_machine_state(
             _b13_state(mlib.B5_DESCENT), st)
         self.assertTrue(any("landingEngaged" in c for c in changes), changes)
+
+
+# ---------------------------------------------------------------------------
+# Pre-transfer JETTISON (B19). The phase is ARMED by jettisonActivations > 0 and
+# ABSENT otherwise, so the first cell here is the one that protects every other
+# lane in the suite.
+# ---------------------------------------------------------------------------
+
+B19_JETTISON_PARAMS = replace(
+    B11_PARAMS,
+    target_body="Dres",
+    interplanetary_transfer=True,
+    jettison_activations=4,   # a CAP, not a plan
+    jettison_timeout=600.0,
+    jettison_max_live_thrust=120000.0,
+    jettison_min_splits=1,
+)
+
+
+class ApproachWarpClampTests(unittest.TestCase):
+    """The TARGET-SOI approach clamp (B19 flight 4). No I/O. Every cell here is
+    pure-predicate or pure arithmetic EXCEPT
+    `test_decide_holds_the_ceiling_across_a_blink_and_releases_on_arrival`,
+    which builds snapshots and drives `b5_decide`; that asymmetry is the point of
+    that cell.
+
+    Sizing mirrors B19's armed values -- soi_lead 100,000 game s, window 200,000,
+    cap factor 5 -- EXCEPT the decide-level cell, which runs on B20's (cap factor
+    4, because Moho's SOI-entry -> periapsis coast is ~8x shorter). The numbers in
+    the names are the MEASURED ones from run 2026-08-11_2352."""
+
+    LEAD, WINDOW, CAP = 100000.0, 200000.0, 5
+
+    def clamp(self, tts, desired=7, native=None, ut=1000.0,
+              lead=None, window=None, cap=None):
+        return mlib.approach_warp_clamp(
+            tts, ut,
+            self.LEAD if lead is None else lead,
+            self.WINDOW if window is None else window,
+            self.CAP if cap is None else cap,
+            desired, native)
+
+    def test_off_by_default_is_byte_identical(self):
+        """window = 0 is the state every other lane is in; the inputs must come
+        back untouched, which is what keeps B5/B7/B11/B12/B16 unchanged."""
+        self.assertEqual((7, 12345.0),
+                         self.clamp(50.0, desired=7, native=12345.0, window=0.0))
+
+    def test_far_from_the_boundary_nothing_is_clamped(self):
+        """Outside the window the coast keeps its full factor -- the clamp must
+        not tax the 13M game-second heliocentric leg."""
+        self.assertEqual((7, 9e9), self.clamp(5_000_000.0, desired=7, native=9e9))
+
+    def test_inside_the_window_the_factor_is_capped(self):
+        desired, _ = self.clamp(150000.0, desired=7)
+        self.assertEqual(self.CAP, desired)
+
+    def test_the_clamp_only_ever_lowers(self):
+        """A factor already below the cap is left alone -- the clamp is a
+        ceiling, never a floor, so it can never speed a lane up."""
+        desired, _ = self.clamp(150000.0, desired=3)
+        self.assertEqual(3, desired)
+
+    def test_native_target_is_pulled_back_to_the_lead_point(self):
+        """A native warp aimed past the lead point is the frame that overshot;
+        it must be pulled back to ut + tts - lead."""
+        _, native = self.clamp(150000.0, native=1e12, ut=1000.0)
+        self.assertAlmostEqual(1000.0 + 150000.0 - self.LEAD, native)
+
+    def test_inside_the_lead_window_the_native_warp_is_dropped_entirely(self):
+        """THE MEASURED FRAME. At tts=29.904 the old code still had a native
+        warp armed and the next poll advanced 27,596 game seconds across the
+        boundary. Inside the lead there is no valid native target left, so it is
+        dropped and the frame falls back to the capped rails intent."""
+        desired, native = self.clamp(29.904, desired=0, native=1e12)
+        self.assertIsNone(native)
+        self.assertEqual(self.CAP, desired)
+
+    def test_a_dropped_native_target_does_not_raise_an_existing_factor(self):
+        desired, native = self.clamp(29.904, desired=2, native=1e12)
+        self.assertIsNone(native)
+        self.assertEqual(2, desired)
+
+    def test_unread_or_nonpositive_time_to_soi_fails_open(self):
+        """An unread clock must never trigger a clamp (fail OPEN), because the
+        heliocentric leg legitimately reads tts=nan for most of its length."""
+        self.assertEqual((7, 5.0), self.clamp(float("nan"), desired=7, native=5.0))
+        self.assertEqual((7, 5.0), self.clamp(-3.0, desired=7, native=5.0))
+
+    # --- THE LATCH (B20 flight 3, 2026-08-12) -----------------------------
+    # The clamp is pure and stateless, so it fails OPEN on an unread tts. That
+    # is right on the heliocentric leg and wrong once the approach is entered:
+    # B20 measured the stair-down halt at tts=100000.353, then a read blink to
+    # nan, then ONE unclamped frame advance 55,041 game s through the lead, the
+    # boundary and the whole coast, landing past periapsis.
+
+    def test_an_unread_clock_still_fails_open_when_unlatched(self):
+        """THE REGRESSION GUARD FOR THE HELIOCENTRIC LEG: unlatched, a nan tts
+        must still leave the inputs untouched, or the clamp would tax the whole
+        2.7M game-second coast."""
+        self.assertEqual((7, 5.0),
+                         self.clamp(float("nan"), desired=7, native=5.0))
+
+    def test_a_blinking_clock_cannot_reopen_the_ceiling_once_latched(self):
+        """THE MEASURED FRAME. Latched, an unread tts holds the cap instead of
+        returning the caller's x100,000 intent -- the single frame that cost
+        B20 flight 3 its capture."""
+        desired, native = mlib.approach_warp_clamp(
+            float("nan"), 1000.0, self.LEAD, self.WINDOW, self.CAP,
+            7, 1e12, True)
+        self.assertEqual(self.CAP, desired)
+        self.assertIsNone(native, "a stale native target must not survive the blink")
+
+    def test_the_latched_hold_only_ever_lowers(self):
+        """A factor already under the cap is left alone: the latch is a
+        ceiling, never a floor, so it can never speed a lane up."""
+        desired, _ = mlib.approach_warp_clamp(
+            float("nan"), 1000.0, self.LEAD, self.WINDOW, self.CAP, 2, None, True)
+        self.assertEqual(2, desired)
+
+    def test_the_latch_engages_only_inside_the_window(self):
+        latch = lambda tts, prev=False, body="Sun", nxt="Moho": (
+            mlib.approach_latch_state(tts, nxt, self.WINDOW, body, "Moho", prev))
+        self.assertFalse(latch(5_000_000.0), "far out must not latch")
+        self.assertFalse(latch(float("nan")), "an unread clock must not latch")
+        self.assertTrue(latch(150000.0), "inside the window latches")
+        self.assertTrue(latch(float("nan"), prev=True), "and then HOLDS")
+
+    def test_the_latch_does_not_engage_on_a_non_target_boundary(self):
+        """THE BUG THIS PREDICATE SHIPPED WITH, caught in review before it flew,
+        pinned on B20's OWN MEASURED escape frames. `time_to_soi` is time to the
+        NEXT SOI transition of ANY kind:
+
+            body=Kerbin tts=45901.038  nextBody=Mun    <- a via-body transit
+            body=Kerbin tts=309757.221 nextBody=Sun
+            body=Sun    tts=1255575.618 nextBody=Moho  <- the real approach
+
+        Both Kerbin frames sit inside a 200,000 s window, so a latch keyed on
+        tts alone engaged on the MUN transit and -- since release requires
+        arrival at the target -- held the ceiling across the whole heliocentric
+        coast, taxing the exact leg the clamp exists to leave alone."""
+        latch = lambda tts, nxt, body: mlib.approach_latch_state(
+            tts, nxt, self.WINDOW, body, "Moho", False)
+        self.assertFalse(latch(45901.038, "Mun", "Kerbin"),
+                         "a via-body transit must NOT latch the target ceiling")
+        self.assertFalse(latch(150000.0, "Sun", "Kerbin"),
+                         "the heliocentric handoff must NOT latch it either")
+        self.assertTrue(latch(150000.0, "Moho", "Sun"),
+                        "only an approach to the TARGET latches")
+
+    def test_a_blank_next_body_never_engages(self):
+        """Fail CLOSED on an unread discriminator, the `arrival_bad` discipline:
+        a blank next_body is not evidence of an approach to anything."""
+        self.assertFalse(mlib.approach_latch_state(
+            150000.0, "", self.WINDOW, "Sun", "Moho", False))
+
+    def test_the_latch_releases_on_arrival(self):
+        """It must not outlive the approach it describes: once the craft is in
+        the target SOI the in-SOI flyby factors govern."""
+        self.assertFalse(mlib.approach_latch_state(
+            float("nan"), "", self.WINDOW, "Moho", "Moho", True))
+
+    def test_an_unarmed_lane_never_latches(self):
+        """window = 0 is every lane that does not arm the clamp."""
+        self.assertFalse(mlib.approach_latch_state(
+            150000.0, "Moho", 0.0, "Sun", "Moho", False))
+
+    # --- DECIDE-LEVEL (the follow-up to PR #1472) -------------------------
+    # Everything above is pure-predicate. That is the coverage shape that MISSED
+    # this latch's own shipped bug, so the cell below drives the real machine.
+
+    def test_decide_holds_the_ceiling_across_a_blink_and_releases_on_arrival(self):
+        """Drives the REAL `b5_decide` through B20's measured approach shape:
+        via-body transit, heliocentric coast, target approach, THE BLINK,
+        arrival.
+
+        THE ASSERTION THE PREDICATE CELLS STRUCTURALLY CANNOT MAKE is the f2/f4
+        PAIR. Both frames are `tts=nan` on `body=Sun`, so a stateless clamp
+        cannot tell them apart; the unlatched one emits the raw coastWarpFactor
+        7 (x100,000) and the latched one emits the cap 4 (x100). That one-digit
+        difference IS the latch, and it is the frame that cost B20 flight 3 its
+        capture -- one x100,000 poll covered 55,041 game s through the remaining
+        lead, the SOI boundary and the whole 2,168-4,119 s approach coast.
+        Verified independently that the ut/apsides deltas between f2 and f4 are
+        decision-inert, so the latch is the SOLE discriminator.
+
+        WHAT THIS CELL CATCHES THAT NOTHING ELSE DOES, stated precisely because
+        the first draft of this docstring overclaimed it: mutating the clamp to
+        fail open when latched, or dropping the `next_body` condition, ALSO reds
+        the predicate cells above. The breakages only this cell catches are the
+        RELEASE on the COAST -> TARGET-FLYBY hop and the CALL-SITE WIRING (pass
+        a literal False instead of the threaded state and every predicate cell
+        still passes). Those two are the reason it exists.
+
+        THE FIXTURE IS THE REAL LANE'S, deliberately: `via_bodies`,
+        `coast_timeout` and the correction triggers are B20-moho-orbit.toml's
+        own values, with `correction_rounds_done=2` putting the state where a
+        real flight is by tts ~ 100k. An earlier draft emptied the trigger list
+        instead, which reaches the coast branch by DISARMING the thing a real
+        flight has merely finished -- and with the real triggers restored, f3
+        would hop to PLAN-CORRECTION and the latch would never engage at all.
+
+        `via_bodies` is load-bearing in a non-obvious way: `_b5_coast_bodies`
+        (mlib.py) allows only `("", home) + via_bodies`, so without "Sun" the
+        first heliocentric frame is rejected as "left home SOI without reaching
+        the target", sets done=True, and the idempotence guard then swallows
+        every later frame -- the arrival hop becomes UNREACHABLE with no
+        diagnostic pointing at it.
+        """
+        params = replace(B19_JETTISON_PARAMS, target_body="Moho",
+                         soi_lead=100000.0, approach_window=200000.0,
+                         approach_max_warp_factor=4, coast_warp_factor=7,
+                         flyby_warp_factor=3, correction_trigger_alts=(),
+                         # B20-moho-orbit.toml's own values, not a disarmed list.
+                         correction_trigger_time_to_soi=(2000000.0, 150000.0),
+                         via_bodies=("Sun", "Mun"), coast_timeout=1.6e7)
+        st = replace(mlib.b5_initial_state(params),
+                     phase=mlib.B5_COAST_TO_TARGET, phase_entry_ut=100.0,
+                     # where a real B20 flight is by the time tts ~ 100k.
+                     correction_rounds_done=2)
+
+        # (ut, time_to_soi, next_body, body)
+        frames = ((400000.0, 45901.038, "Mun", "Kerbin"),   # via-body transit
+                  (1000000.0, float("nan"), "", "Sun"),     # heliocentric, no encounter
+                  (2780694.0, 100001.413, "Moho", "Sun"),   # the target approach
+                  (2780709.0, float("nan"), "", "Sun"),     # THE BLINK
+                  (2880658.0, float("nan"), "", "Moho"))    # arrival
+        seen = []
+        for i, (ut, tts, nb, body) in enumerate(frames):
+            st, actions = mlib.b5_decide(st, snap(
+                ut=ut, time_to_soi=tts, next_body=nb, body=body,
+                altitude=1.0e10 + i * 1e6, apoapsis=1.0e10 + i * 1e6,
+                periapsis=4.7e9 + i * 1e5, situation="ORBITING"))
+            seen.append((st.phase, st.approach_latched, actions))
+
+        # No frame tripped a give-up (f5 leaves the coast branch BY DESIGN, so
+        # this asserts liveness, not that every frame stayed in COAST).
+        self.assertFalse(st.done, "no frame may end the mission")
+
+        # f1: inside the window, but the boundary is the MUN's -- no latch. The
+        # clamp caps it anyway (stateless, it caps any finite tts <= window),
+        # which is precisely why a capped factor ALONE is not latch evidence.
+        self.assertFalse(seen[0][1],
+                         "a via-body transit must not latch the target ceiling")
+        self.assertIn(Action(mlib.ACTION_SET_RAILS_WARP, 4.0), seen[0][2],
+                      "the stateless clamp caps f1 without any latch")
+
+        # THE PAIR. Same nan-tts frame either side of the engage.
+        self.assertFalse(seen[1][1])
+        self.assertIn(Action(mlib.ACTION_SET_RAILS_WARP, 7.0), seen[1][2],
+                      "unlatched, a blind frame keeps the raw coast factor")
+        self.assertTrue(seen[3][1], "the blink must not drop the ceiling")
+        self.assertIn(Action(mlib.ACTION_SET_RAILS_WARP, 4.0), seen[3][2],
+                      "latched, the same blind frame is capped -- THE FIX")
+
+        self.assertTrue(seen[2][1], "an approach to the TARGET latches")
+
+        # Arrival hops and RELEASES: the latch cannot outlive its approach.
+        self.assertEqual(mlib.B5_TARGET_FLYBY, seen[4][0])
+        self.assertFalse(seen[4][1], "arrival must release the latch")
+
+    def test_one_frame_cannot_swallow_the_moho_approach(self):
+        """B20's sibling of the Dres sizing claim, as arithmetic. Moho's
+        SOI-entry -> periapsis coast is 2,168-4,119 game s (measured band; the
+        lane sizes against a pessimistic 2,000 floor), so the Dres cap of 5
+        FAILS here and 4 passes."""
+        self.assertGreater(mlib.RAILS_WARP_RATES[5] * 1.0, 2000.0 / 5.0)
+        self.assertLessEqual(mlib.RAILS_WARP_RATES[4] * 1.0, 2000.0 / 5.0)
+
+    def test_one_frame_cannot_swallow_the_dres_approach(self):
+        """The sizing claim, stated as arithmetic rather than prose. Dres's
+        SOI-entry -> periapsis coast measured ~25,000 game s (the flight-4 frame
+        crossed 27,596). A poll is ~0.5-1.0 s wall, so the capped factor must
+        advance well under a fifth of that per frame."""
+        rate = mlib.RAILS_WARP_RATES[self.CAP]
+        self.assertLessEqual(rate * 1.0, 25000.0 / 5.0)
+
+
+class B5PreTransferJettisonTests(unittest.TestCase):
+    """The optional pre-transfer jettison: armed, it pops an EXACT number of
+    stages thrust-safe and then certifies BOTH that a stack separated and that
+    the engine now live is the intended one. Unarmed, it does not exist."""
+
+    def _at_orbit(self, params):
+        st = mlib.b5_initial_state(params)
+        return replace(st, phase=mlib.B5_ORBIT, phase_entry_ut=100.0)
+
+    def test_unarmed_orbit_hands_straight_to_plan_transfer(self):
+        """THE REGRESSION GUARD FOR EVERY OTHER LANE: with the default
+        jettison_activations = 0 the ORBIT waypoint must behave exactly as it
+        did before the phase existed -- straight to PLAN-TRANSFER, emitting the
+        target + plan actions, never entering JETTISON."""
+        st = self._at_orbit(B11_PARAMS)
+        out, actions = mlib.b5_decide(st, snap(ut=200.0, vessel_count=3))
+        self.assertEqual(mlib.B5_PLAN_TRANSFER, out.phase)
+        self.assertNotIn(mlib.B5_JETTISON, out.phases_reached)
+        kinds = [a.kind for a in actions]
+        self.assertIn(mlib.ACTION_SET_TARGET_BODY, kinds)
+
+    def test_armed_orbit_enters_jettison_and_cuts_throttle(self):
+        """Armed, ORBIT hands to JETTISON instead, baselines the vessel count,
+        and the ENTRY action is the thrust-safe throttle cut."""
+        st = self._at_orbit(B19_JETTISON_PARAMS)
+        out, actions = mlib.b5_decide(st, snap(ut=200.0, vessel_count=3))
+        self.assertEqual(mlib.B5_JETTISON, out.phase)
+        self.assertEqual(3, out.jettison_baseline_vessel_count)
+        self.assertEqual([mlib.ACTION_CUT_THROTTLE], [a.kind for a in actions])
+
+    def _in_jettison(self, baseline=3, done=0, **over):
+        st = mlib.b5_initial_state(B19_JETTISON_PARAMS)
+        return replace(st, phase=mlib.B5_JETTISON, phase_entry_ut=100.0,
+                       jettison_baseline_vessel_count=baseline,
+                       jettison_activations_done=done,
+                       # mirrors the primed entry value in b5_decide
+                       jettison_frames_since_pop=mlib.DEFAULT_DEBOUNCE_K, **over)
+
+    def _drive(self, thrust_by_pop, vessel_count_by_pop=None, frames=60):
+        """Drive the phase with a thrust reading that DEPENDS on how many pops
+        have happened -- i.e. a fake staging stack. Returns (state, pops)."""
+        st = self._in_jettison()
+        pops = 0
+        for i in range(frames):
+            thr = thrust_by_pop[min(pops, len(thrust_by_pop) - 1)]
+            vc = 3
+            if vessel_count_by_pop is not None:
+                vc = vessel_count_by_pop[min(pops, len(vessel_count_by_pop) - 1)]
+            # apoapsis VARIES per frame on purpose: bit-identical orbit fields
+            # across 10 frames trip the frozen-telemetry vessel-lost watchdog,
+            # which would end the phase for a reason that has nothing to do with
+            # the jettison.
+            st, actions = mlib.b5_decide(
+                st, snap(ut=200.0 + i, vessel_count=vc, throttle=0.0,
+                         apoapsis=700000.0 + i, periapsis=690000.0 + i,
+                         available_thrust=thr))
+            pops += sum(1 for a in actions if a.kind == mlib.ACTION_ACTIVATE_STAGE)
+            if st.done or st.phase == mlib.B5_PLAN_TRANSFER:
+                return st, pops
+        # Trailing frame past the 600 s phase budget so a phase that can never
+        # certify reaches its bounded give-up instead of idling (the budget is
+        # GAME seconds; the frames above advance it one second at a time).
+        thr = thrust_by_pop[min(pops, len(thrust_by_pop) - 1)]
+        vc = 3 if vessel_count_by_pop is None else vessel_count_by_pop[
+            min(pops, len(vessel_count_by_pop) - 1)]
+        st, _ = mlib.b5_decide(
+            st, snap(ut=100.0 + 700.0, vessel_count=vc, throttle=0.0,
+                     apoapsis=700500.0, periapsis=690500.0,
+                     available_thrust=thr))
+        return st, pops
+
+    def test_stops_at_two_pops_when_the_skipper_is_already_live(self):
+        """THE REGRESSION THIS PHASE WAS REWRITTEN FOR (B19 flight 1,
+        2026-08-11_2215). The 700 km ascent ran the core dry, so autostage had
+        already popped it and the park was reached with the SKIPPER live -- only
+        TWO stages from the Nerv. The old fixed-count phase would have popped
+        four, shedding the transfer stage's own drop tanks and firing the pod
+        decoupler. Evidence-driven, it must stop at two.
+
+        Stack, by pops taken: 0 -> Skipper 650 kN (lit, too strong), 1 -> 0 N
+        (Skipper dropped), 2 -> Nerv 60 kN (in signature -> STOP)."""
+        st, pops = self._drive([650000.0, 0.0, 60000.0],
+                               vessel_count_by_pop=[3, 4, 4])
+        self.assertEqual(2, pops)
+        self.assertEqual(mlib.B5_PLAN_TRANSFER, st.phase)
+        self.assertFalse(st.done)
+
+    def test_takes_four_pops_when_the_mainsail_is_still_live(self):
+        """The OTHER measured state (B18's 80 km park): the core Mainsail is
+        live and four stages separate it from the Nerv. The SAME evidence-driven
+        phase must walk all four -- 0 -> Mainsail 1,500 kN, 1 -> 0, 2 -> Skipper
+        650 kN, 3 -> 0, 4 -> Nerv 60 kN."""
+        st, pops = self._drive([1500000.0, 0.0, 650000.0, 0.0, 60000.0],
+                               vessel_count_by_pop=[3, 4, 4, 5, 5])
+        self.assertEqual(4, pops)
+        self.assertEqual(mlib.B5_PLAN_TRANSFER, st.phase)
+
+    def test_never_pops_past_the_cap(self):
+        """The safety rail: a stack that never reaches its signature stops at
+        the cap and flakes, rather than walking the whole staging list."""
+        st, pops = self._drive([650000.0], vessel_count_by_pop=[4])
+        self.assertEqual(4, pops)
+        self.assertTrue(st.done)
+        self.assertIn("WRONG ONE", st.loss_reason)
+
+    def test_pops_are_spaced_so_the_post_pop_state_is_observed(self):
+        """Without the observe-between-pops gate the whole cap would fire in
+        consecutive frames and overshoot the intended stage."""
+        st = self._in_jettison()
+        st, a0 = mlib.b5_decide(st, snap(ut=200.0, vessel_count=3, throttle=0.0,
+                                         apoapsis=700000.0, periapsis=690000.0,
+                                         available_thrust=650000.0))
+        self.assertEqual(1, sum(1 for a in a0 if a.kind == mlib.ACTION_ACTIVATE_STAGE))
+        st, a1 = mlib.b5_decide(st, snap(ut=201.0, vessel_count=3, throttle=0.0,
+                                         apoapsis=700001.0, periapsis=690001.0,
+                                         available_thrust=650000.0))
+        self.assertEqual([], [a.kind for a in a1])
+
+    def test_a_pop_is_never_issued_under_thrust_or_with_a_node_pending(self):
+        """Thrust-safe gate (the B-DOCK prox-ops rule applied to staging)."""
+        st = self._in_jettison()
+        out, actions = mlib.b5_decide(
+            st, snap(ut=200.0, vessel_count=3, throttle=0.6))
+        self.assertEqual([], [a.kind for a in actions])
+        self.assertEqual(0, out.jettison_activations_done)
+        out2, actions2 = mlib.b5_decide(
+            st, snap(ut=200.0, vessel_count=3, throttle=0.0, node_count=1))
+        self.assertEqual([], [a.kind for a in actions2])
+        self.assertEqual(0, out2.jettison_activations_done)
+
+    def _certify(self, thrust, vessel_count=4, frames=8):
+        """Drive a fully-popped JETTISON to its conclusion. The trailing frame
+        jumps GAME time past `jettison_timeout` (600 s from the 100.0 entry) so
+        a phase that CANNOT certify actually reaches its bounded give-up -- the
+        budget is game seconds, and eight one-second frames never reach it."""
+        last = self._in_jettison(done=4, jettison_split_confirmed=False)
+        for i in range(frames):
+            last, _ = mlib.b5_decide(
+                last, snap(ut=200.0 + i, vessel_count=vessel_count,
+                           apoapsis=700000.0 + i, periapsis=690000.0 + i,
+                           throttle=0.0, available_thrust=thrust))
+            if last.done or last.phase == mlib.B5_PLAN_TRANSFER:
+                return last
+        last, _ = mlib.b5_decide(
+            last, snap(ut=100.0 + 700.0, vessel_count=vessel_count,
+                       apoapsis=700099.0, periapsis=690099.0,
+                       throttle=0.0, available_thrust=thrust))
+        return last
+
+    def test_certifies_and_advances_when_split_and_the_right_engine_is_lit(self):
+        """60 kN (the Nerv) is under the 120 kN signature ceiling -> advance."""
+        out = self._certify(60000.0)
+        self.assertEqual(mlib.B5_PLAN_TRANSFER, out.phase)
+        self.assertFalse(out.done)
+
+    def test_a_heavier_engine_still_lit_is_a_named_failure(self):
+        """650 kN (the Skipper) is POSITIVE thrust and would satisfy a naive
+        'an engine is lit' check -- the signature ceiling is what catches it,
+        and the reason names the actual fault."""
+        out = self._certify(650000.0)
+        self.assertTrue(out.done)
+        self.assertEqual(mlib.MISSION_FLAKE, out.verdict)
+        self.assertIn("WRONG ONE", out.loss_reason)
+
+    def test_no_split_is_a_named_failure_distinct_from_no_ignition(self):
+        no_split = self._certify(60000.0, vessel_count=3)
+        self.assertTrue(no_split.done)
+        self.assertIn("no separation observed", no_split.loss_reason)
+        no_ign = self._certify(0.0, vessel_count=4)
+        self.assertTrue(no_ign.done)
+        self.assertIn("nothing is lit", no_ign.loss_reason)
+
+    def test_unread_channels_fail_closed(self):
+        """vessel_count defaults 0 and available_thrust defaults NaN; neither
+        may ever certify a step."""
+        out = self._certify(float("nan"), vessel_count=0)
+        self.assertTrue(out.done)
+        self.assertFalse(out.jettison_split_confirmed)
 
 
 if __name__ == "__main__":

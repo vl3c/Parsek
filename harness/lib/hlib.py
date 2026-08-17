@@ -93,8 +93,9 @@ TIERS: Tuple[str, ...] = ("perpr", "daily", "nightly", "weekly", "pending-fixtur
 INSTANCE_PROFILES: Tuple[str, ...] = ("stock-minimal", "modded-compat")
 
 # v1 injectedRecordings value set (design S4). Any other value is rejected;
-# broad preset/corpus-scoped injection is DEFERRED to M-A4 / M-B5. Two named fixture
-# presets are added ahead of that, and they are SIBLINGS - same shape, one difference:
+# broad preset/corpus-scoped injection is DEFERRED to M-A4 / M-B5. Three named fixture
+# presets are added ahead of that, and they are SIBLINGS - same rewindable shape, one
+# difference each:
 #   "rewind-b9"        - the B9 rewindable-tree fixture (committed tree with a
 #                        CREWLESS crashed booster sibling + a Rewind-to-Separation
 #                        RewindPoint), `--filter InjectRewindB9`, for S4.1 / S1.5 / R1.
@@ -103,10 +104,21 @@ INSTANCE_PROFILES: Tuple[str, ...] = ("stock-minimal", "modded-compat")
 #                        crew is what puts a KerbalAssignment+KerbalEndState.Dead row
 #                        in the supersede subtree, which is the only way a merge can
 #                        be observed tombstoning a kerbal death.
+#   "refly-world-preservation" - the same shape with an UNRELATED FLEET inside the RP
+#                        quicksave (a Station, the host save's own asteroids/comets
+#                        re-admitted verbatim, a Flag, and a Probe + Debris pair both
+#                        name-colliding with the re-flown craft),
+#                        `--filter InjectReFlyWorldPreservation`, for
+#                        S4.2-refly-world-preservation. Every OTHER rewind fixture's
+#                        sidecar holds one vessel per slot and nothing else, which is
+#                        the exact shape REFLY-DELETES-NON-SLOT-WORLD hid under: with
+#                        no fleet in the fixture, a re-fly that deletes the fleet reds
+#                        nothing.
 # Keep in step with run.py's RP_SIDECAR_BY_PRESET (the fail-closed inject
 # postcondition) and scripts/inject-recordings.ps1's $injectFilterByPreset.
 INJECTED_RECORDINGS: Tuple[str, ...] = ("none", "all-synthetic", "rewind-b9",
                                         "rewind-crew-loss",
+                                        "refly-world-preservation",
                                         "looped-interplanetary")
 
 # Retry policies (design [retry].policy).
@@ -217,10 +229,16 @@ RESERVED_SEAM_VERBS: Tuple[str, ...] = (
 #   * 155 tracer-on historical runs with ZERO raises of any of the seven.
 #   * Every raise site is probe- or shadow-spine-gated (verified in the C# source),
 #     so a raise needs the tracer armed AND the probe actually sampling.
-# BLAST RADIUS is bounded and named: only S1.4 / S1.6 / S1.7 / V1 arm
-# `mapRenderTracing`, and all four declare `allowedAnomalies = []`. The RED DIRECTION
-# of this gate is already live-proven - `line-blink` red'd V1 `PARSEK-FAIL(anomaly)`
-# on 2026-07-30 - so promotion buys real coverage, not a decorative widening.
+# BLAST RADIUS is bounded and named. AS OF THE 2026-08-04 PROMOTION that was
+# S1.4 / S1.6 / S1.7 / V1; the V-lane program has since widened it to ELEVEN specs,
+# and the count is the thing that goes stale, so re-derive it rather than trusting
+# this list: `grep -l mapRenderTracing harness/scenarios/*.toml`. At 2026-08-09 that
+# is S1.4, S1.6, S1.7, V1, V2, V4, V5, V6M, V6T, V7M, V7T - and every one of them
+# declares `allowedAnomalies = []`, which is the property this paragraph actually
+# depends on (a widened gate can only red a spec that budgets nothing). The RED
+# DIRECTION of this gate is already live-proven - `line-blink` red'd V1
+# `PARSEK-FAIL(anomaly)` on 2026-07-30, and `icon-off-orbit` reds V7T on every
+# flight - so promotion buys real coverage, not a decorative widening.
 #
 # ORDERING IS A CONTRACT: hits come back in THIS tuple's order (grep_anomaly_tokens),
 # so the original six stay first and the seven promoted follow. Do not re-sort.
@@ -272,12 +290,60 @@ ANOMALY_TOKENS: Tuple[str, ...] = (
 #     the compared factory NEVER drives a draw. A disagreement is diagnostic
 #     evidence for the render cutover, not a user-visible defect, so a raise should
 #     inform the cutover rather than fail the flight that observed it.
+#   * `seam-endpoint-outside-soi` is the ENCOUNTER-GEOMETRY instrument, and it is
+#     here for the OPPOSITE reason to the two above: not because a raise would be
+#     uninteresting, but because its evidence is not yet complete. It measures the
+#     RENDERED conic at a recorded cross-body SOI handoff against the destination
+#     body's sphere (pure core `Parsek.MapRender.SeamEndpointOracle`; raises on
+#     ratio > 1.005, calibrated between two MEASURED populations - the S1.8 healthy
+#     seam continuity at 1.2e-4 / 1.5e-4 of the crossed sphere against a 25 km pin,
+#     and the 2026-06-15 looped-re-aim defect at 1.027 / 1.043).
+#     UPDATED 2026-08-09 - IT HAS NOW FLOWN. The line above used to read "it has
+#     NEVER FLOWN"; the seam-endpoint census re-flew the five V-lanes and TWO of
+#     them exercised the lens on real geometry - V4 on the Sun->Duna arrival seam
+#     and V7M on Kerbin->Minmus, both `evaluated=1 outsideSoi=0` (inside the
+#     sphere), each reproduced bit-identically on three consecutive flights, with
+#     ZERO raises across all five. So the "stays SILENT on real geometry" reading
+#     that every token promoted on 2026-08-04 earned its gate from now EXISTS here
+#     too, and this entry is no longer blocked on the lens being unflown.
+#     WHAT STILL BLOCKS PROMOTION. Three blockers were recorded here; the Eve
+#     lanes (2026-08-11, branch eve-loop-lanes) MEASURED the first two, and the
+#     measurement is what now blocks gating, harder than the ignorance did:
+#     (1) ~~The RAISE has never fired~~ MEASURED: the raise fired for the first
+#     time on V8-eve-player-loop (ratio 4.6216, Sun->Eve, reproduced
+#     bit-identically on five consecutive runs) - and the route was an ENGAGED
+#     unit whose cycle-0 window TILT-DECLINED to a faithful window, i.e. a
+#     genuine missing-encounter rendering (the 2026-06-15 defect class; see
+#     that todo entry's first-raise paragraph). The detection path works.
+#     (2) ~~The benign FAITHFUL-interplanetary population is unmeasured~~
+#     MEASURED AND PINNED on V8F-eve-loop-faithful: a deliberate
+#     forceFaithfulLoopPlayback loop raises five times per run - four Sun->Eve
+#     arrival seams (one per self-overlap instance, ratios 52.70 / 47.51 /
+#     138.21 / 203.20) plus a Kerbin->Mun TRANSIT seam (4.80; a moon encounter
+#     recorded inside the span does not recur at shifted epochs - a benign
+#     shape this entry had not catalogued). V8F REQUIRES outsideSoi=[1-9]:
+#     on that lane the raise IS the designed reading.
+#     THE CALIBRATION FACT THAT NOW BLOCKS GATING OUTRIGHT: the benign ratios
+#     (4.80-203.2) STRADDLE the defect reading (4.6216). Ratio cannot separate
+#     the populations; any gate must discriminate on unit MODE and seed
+#     provenance (engaged-with-declined-window vs deliberate-faithful vs
+#     re-aimed), which the raise line only carries as context fields today.
+#     (3) UNCHANGED: the RE-TIMED re-aimed population (the F2 parking-departure
+#     path searches transfer times around the geometric Hohmann time, NOT the
+#     recorded tof - the s15 fixture's recorded tof is ~1.44x Hohmann - and
+#     trims the render span to the new EARLIER arrival, so measuring at the
+#     recorded seam is WRONG, not merely uncalibrated). The C# capture REFUSES
+#     that sample (`skip.reaimed-seam-instant-unknown`, keyed on the driven
+#     seed's own end disagreeing with the recorded seam); the parking path is
+#     still exercised by NO committed lane, so nothing has flown it either way.
+#     mapRenderTracing-gated, so only specs that arm that tracer can raise it.
 #
-# Promoting either one later needs the same thing the seven needed: a measurement
+# Promoting any of them later needs the same thing the seven needed: a measurement
 # that it stays silent on real geometry, plus a reason to call a raise a defect.
 ANOMALY_REASONS_RAISED_UNGATED: Tuple[Tuple[str, str], ...] = (
-    ("unaccounted-drawn-recording", "Source/Parsek/MapRenderProbe.cs:477"),
+    ("unaccounted-drawn-recording", "Source/Parsek/MapRenderProbe.cs:544"),
     ("factory-parity", "Source/Parsek/MapRender/ShadowRenderDriver.cs:709"),
+    ("seam-endpoint-outside-soi", "Source/Parsek/MapRenderProbe.cs:2288"),
 )
 
 # RETIRED tokens: gated once, raised by nothing, REMOVED from ANOMALY_TOKENS
@@ -2379,6 +2445,186 @@ def evaluate_response_stream(
 
 
 # ---------------------------------------------------------------------------
+# Shared craft overlay (harness/fixtures/shared-ships.toml). Pure.
+# ---------------------------------------------------------------------------
+
+# A save fixture's craft must sit at `<save>/Ships/VAB/<name>.craft`, because that
+# is what kRPC's `SpaceCenter.launch_vessel("VAB", <name>, ...)` resolves against.
+# Satisfying that with a physical copy per save cost 180,799 duplicated lines over
+# 27 files (twelve byte-identical `Kerbal X.craft`), and every copy was its own
+# drift risk -- `build_dd1_craft.py` had grown a three-path gate to chase them.
+# One library copy under `fixtures/ships/` is now overlaid into the staged save
+# per `shared-ships.toml`. The manifest's rationale and invariants live in that
+# file's header; the enforcement lives in test_hlib's SharedShipsManifestTests.
+SHARED_SHIPS_DIRNAME = "ships"
+SHARED_SHIPS_MANIFEST_NAME = "shared-ships.toml"
+# Where the overlay lands inside a staged save, as path SEGMENTS (the shell joins
+# them with its own os.sep). KSP reads craft from the save's VAB subdirectory.
+SHARED_SHIPS_DEST_SEGMENTS = ("Ships", "VAB")
+SHARED_SHIP_SUFFIX = ".craft"
+
+# Ship names become filename leaves under fixtures/ships/ AND under the staged
+# save, so they take filename discipline: alphanumerics, dash, underscore, space
+# and DOT. `\Z` not `$`, because Python's `$` also matches before a trailing
+# newline -- `re.match(r"^[A-Za-z0-9 ]+$", "Kerbal X\n")` succeeds, and a name is
+# a path component where that is never wanted.
+#
+# Dots are ALLOWED, unlike `_SAVE_NAME_RE`'s stance for runSaveName, because real
+# KSP craft names carry them ("Mk1-3 Pod v2.1") and a blanket exclusion would
+# reject a perfectly good library craft while blaming its name. The traversal
+# tokens dots exist to smuggle are rejected explicitly instead, by
+# `_is_safe_ship_name`: no name that is "." or "..", starts with a dot, or
+# contains "..". That is a strictly smaller hole than the character class was
+# hiding, and it is the part that actually matters.
+_SHIP_NAME_RE = re.compile(r"^[A-Za-z0-9 ._-]+\Z")
+
+
+def _is_safe_ship_name(ship: str) -> bool:
+    """True when ``ship`` is safe to use as a path component (pure).
+
+    Character class plus the explicit dotted-token rejections; see `_SHIP_NAME_RE`.
+    A ship still has to exist in the library before anything is written, so this is
+    defence in depth rather than the only gate."""
+    if not ship or not _SHIP_NAME_RE.match(ship):
+        return False
+    if ship in (".", "..") or ship.startswith(".") or ".." in ship:
+        return False
+    return True
+
+
+@dataclass(frozen=True)
+class SharedShipOverlay:
+    """Plan for one staged save: which library craft to copy where.
+
+    ``entries`` are ``(library_leaf, dest_leaf)`` basename pairs -- the shell joins
+    the first under ``fixtures/ships/`` and the second under
+    ``<staged-save>/Ships/VAB/``. ``errors`` non-empty means DO NOT STAGE: the
+    fixture tree and the manifest disagree, and staging anyway would boot a save
+    whose `launch_vessel` cannot resolve its craft (a driver-INVALID discovered
+    minutes later, after a full KSP boot, instead of pre-boot with the cause named).
+
+    When ``errors`` is non-empty ``entries`` is PARTIAL, not empty: the rows that
+    did resolve are still listed, for the diagnostic. Gate on ``errors``, never on
+    ``entries`` being empty -- an unlisted save legitimately plans zero entries.
+    """
+    entries: Tuple[Tuple[str, str], ...]
+    errors: Tuple[str, ...]
+
+
+def parse_shared_ships_manifest(manifest: Optional[Dict]) -> Dict[str, Tuple[str, ...]]:
+    """Normalize the parsed `shared-ships.toml` into ``{save: (ship, ...)}`` (pure).
+
+    Accepts the whole parsed document (with its ``[ships]`` table) or the table
+    itself, so a caller that already descended does not have to care. A malformed
+    body yields ``{}`` rather than raising: the callers below turn an unresolved
+    save into a NAMED error, which is a better failure than a traceback out of
+    staging. Non-string ship entries are dropped here and re-reported as errors by
+    ``plan_shared_ship_overlay`` (via the name check) so there is exactly one place
+    that decides what a bad name looks like.
+    """
+    if not isinstance(manifest, dict):
+        return {}
+    table = manifest.get("ships") if isinstance(manifest.get("ships"), dict) else manifest
+    out: Dict[str, Tuple[str, ...]] = {}
+    for save, ships in table.items():
+        if not isinstance(save, str) or not isinstance(ships, (list, tuple)):
+            continue
+        out[save] = tuple(s for s in ships if isinstance(s, str))
+    return out
+
+
+def plan_shared_ship_overlay(run_save_name: str,
+                             manifest: Dict[str, Tuple[str, ...]],
+                             library_ships: Iterable[str],
+                             existing_vab_files: Iterable[str]) -> SharedShipOverlay:
+    """Resolve the craft overlay for one staged save (pure).
+
+    ``library_ships`` are the ship names present in `fixtures/ships/` (basenames
+    minus `.craft`); ``existing_vab_files`` are the basenames the template's own
+    `Ships/VAB/` already carries after the copytree. A save absent from the
+    manifest overlays nothing and is NOT an error -- most fixtures (the fresh-*
+    KSC templates, gloops-airshow's own `Auto-Saved Ship.craft`) need no shared
+    craft at all.
+
+    Three conditions are errors, all of them fixture-tree defects rather than
+    spec defects, and all caught before a KSP boot:
+      * a declared ship missing from the library (the manifest outlived the file);
+      * a name outside `_SHIP_NAME_RE` (traversal / empty);
+      * a declared ship the save ALSO carries physically -- ambiguous, and the
+        signal that the dedup regressed, so it fails loudly instead of letting
+        an overlay silently overwrite a divergent committed copy.
+    """
+    lib = set(library_ships)
+    present_lower = set(f.lower() for f in existing_vab_files)
+    entries: List[Tuple[str, str]] = []
+    errors: List[str] = []
+    seen: Set[str] = set()
+    for ship in manifest.get(run_save_name, ()):  # declaration order is the copy order
+        if ship in seen:
+            continue
+        seen.add(ship)
+        if not _is_safe_ship_name(ship):
+            errors.append("shared-ships[%s]: ship name %r not filename-safe "
+                          "(alphanumerics, dash, underscore, space, dot; no leading "
+                          "dot and no '..')" % (run_save_name, ship))
+            continue
+        leaf = ship + SHARED_SHIP_SUFFIX
+        if ship not in lib:
+            errors.append("shared-ships[%s]: %r not in the ship library "
+                          "(expected fixtures/%s/%s)"
+                          % (run_save_name, ship, SHARED_SHIPS_DIRNAME, leaf))
+            continue
+        # Case-insensitive, because Windows and macOS filesystems are: a committed
+        # `kerbal x.craft` beside a declared `Kerbal X` is the same collision, and
+        # overwriting it silently is what this branch exists to prevent.
+        if leaf.lower() in present_lower:
+            errors.append("shared-ships[%s]: %r is declared shared AND committed under "
+                          "the fixture's own Ships/VAB -- remove one (the shared-library "
+                          "copy is canonical)" % (run_save_name, ship))
+            continue
+        entries.append((leaf, leaf))
+    return SharedShipOverlay(tuple(entries), tuple(errors))
+
+
+def validate_shared_ships_manifest(manifest: Dict[str, Tuple[str, ...]],
+                                   library_ships: Iterable[str],
+                                   known_saves: Iterable[str]) -> Tuple[str, ...]:
+    """Repo-level manifest invariants (pure); the guard test's decision half.
+
+    Beyond the per-save resolution above this checks the two whole-tree
+    properties: every save named here exists as a fixture directory (a renamed or
+    deleted fixture leaves a row that resolves for nobody), and every library ship
+    has at least TWO consumers. The second is what keeps the library honest -- a
+    craft used once belongs in the fixture that uses it, where it is visible beside
+    the save it serves rather than indirected through a manifest row for nothing.
+    """
+    lib = set(library_ships)
+    saves = set(known_saves)
+    errors: List[str] = []
+    consumers: Dict[str, int] = {ship: 0 for ship in lib}
+    for save in sorted(manifest):
+        if save not in saves:
+            errors.append("shared-ships: %r is not a fixture directory under "
+                          "fixtures/saves/" % (save,))
+        for ship in manifest[save]:
+            if ship in consumers:
+                consumers[ship] += 1
+            elif not _is_safe_ship_name(ship):
+                errors.append("shared-ships[%s]: ship name %r not filename-safe" % (save, ship))
+            else:
+                errors.append("shared-ships[%s]: %r not in the ship library" % (save, ship))
+    for ship in sorted(consumers):
+        if consumers[ship] == 0:
+            errors.append("shared-ships: library craft %r has no consumer -- delete it or "
+                          "move it back into the one fixture that needs it" % (ship,))
+        elif consumers[ship] == 1:
+            errors.append("shared-ships: library craft %r has ONE consumer -- a craft used "
+                          "once belongs in that fixture's own Ships/VAB, not the library"
+                          % (ship,))
+    return tuple(errors)
+
+
+# ---------------------------------------------------------------------------
 # Spec validation (design Spec-validation rules / validate_spec). Pure.
 # ---------------------------------------------------------------------------
 
@@ -3681,12 +3927,18 @@ def unlisted_anomaly_reasons(log_text: Optional[str]) -> List[str]:
     """Anomaly reasons RAISED but absent from ``ANOMALY_TOKENS`` (REPORT-ONLY).
 
     Non-gating by design. The mod raises reasons the harness set does not carry
-    (post-2026-08-04: the two report-only instruments in
-    ANOMALY_REASONS_RAISED_UNGATED), so a run can contain a real Tier-C raise
+    (the report-only instruments in ANOMALY_REASONS_RAISED_UNGATED - THREE at
+    2026-08-09, since the encounter-geometry lens joined the two the 2026-08-04
+    promotion left behind; read the tuple rather than any count written in
+    prose, because understating it understates the size of this exact
+    fail-open), so a run can contain a real Tier-C raise
     that the sweep is structurally blind to. Widening the gating set is a
-    decision with verdict consequences for the tracer-armed specs (S1.4, S1.6,
-    S1.7, V1 - the only specs that pin ``mapRenderTracing``); surfacing the
-    drift is not. Sorted for a stable log line.
+    decision with verdict consequences for every spec that pins
+    ``mapRenderTracing`` - eleven of them at 2026-08-09 (S1.4, S1.6, S1.7, V1,
+    V2, V4, V5, V6M, V6T, V7M, V7T), not the four this docstring used to name;
+    re-derive with ``grep -l mapRenderTracing harness/scenarios/*.toml`` rather
+    than trusting the list. Surfacing the drift is not such a decision. Sorted
+    for a stable log line.
     """
     return sorted(r for r in _anomaly_reasons(log_text) if r not in ANOMALY_TOKENS)
 

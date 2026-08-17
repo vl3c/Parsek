@@ -293,6 +293,10 @@ namespace Parsek
                     // also survives for diagnostic/manual recovery.
                 }
 
+                // Re-snapshot live Active contracts BEFORE the save, so the RP's own .sfs
+                // carries the rows and the snapshot UT is exactly the quicksave UT.
+                CaptureActiveContractSnapshots(rp, ctx);
+
                 // Perform stock KSP save to a temporary filename in the save root.
                 string tempName = $"Parsek_TempRP_{rp.RewindPointId}";
                 string saveFolder = paths.GetSaveFolder();
@@ -482,10 +486,140 @@ namespace Parsek
             }
         }
 
+        /// <summary>
+        /// One live Active contract's guid + serialized state, captured at RP time.
+        /// </summary>
+        internal struct ActiveContractCapture
+        {
+            public string Guid;
+            public ConfigNode Node;
+        }
+
+        /// <summary>
+        /// Re-snapshots every live Active contract into <see cref="GameStateStore"/> tagged
+        /// with this RP's id and UT, so a later merge that tombstones one of them can
+        /// reinstate it with the progress it actually had at the rewind point instead of
+        /// rebuilding it from the zero-progress accept-time snapshot.
+        ///
+        /// <para>
+        /// Runs inside the deferred body BEFORE the quicksave, so the snapshot UT is exactly
+        /// the quicksave UT — the two cannot drift, because nothing advances the clock
+        /// between them.
+        /// </para>
+        ///
+        /// <para>
+        /// <b>Where these rows actually live.</b> NOT in the RP's own <c>.sfs</c>: the RP
+        /// quicksave runs <c>ParsekScenario.OnSave</c>, whose
+        /// <c>PersistGameStateAndMilestones</c> writes only a <c>gameStateEventCount</c> value
+        /// into the save node and pushes the store itself out through
+        /// <c>GameStateStore.SaveEventFile</c>, which is SAVE-SCOPED
+        /// (<c>&lt;save&gt;/Parsek/GameState/events.pgse</c>) and shared by every quicksave in
+        /// the save. That is STRONGER than a per-.sfs copy for the cutoff-selection contract
+        /// this feature depends on: <see cref="GameStateStore.GetContractSnapshotForPatch"/>
+        /// picks a snapshot by RP-tagged UT against a cutoff, so every RP's snapshot has to be
+        /// visible from whichever save is loaded, not only from the one .sfs it was taken
+        /// alongside. The rows are reaped with their RP via
+        /// <c>GameStateStore.PurgeContractSnapshotsForRewindPoint</c>, so the shared file does
+        /// not grow without bound.
+        /// </para>
+        ///
+        /// Per-contract try/catch mirrors the accept-time precedent: one contract whose
+        /// <c>Save</c> throws must not cost the other contracts their snapshots.
+        /// </summary>
+        internal static void CaptureActiveContractSnapshots(
+            RewindPoint rp, RewindPointAuthorContext ctx)
+        {
+            if (rp == null || string.IsNullOrEmpty(rp.RewindPointId))
+                return;
+
+            var source = ctx?.ActiveContractSource ?? DefaultActiveContractSource;
+            List<ActiveContractCapture> captures;
+            try
+            {
+                captures = source();
+            }
+            catch (Exception ex)
+            {
+                ParsekLog.Warn("RewindSave",
+                    $"Contract re-snapshot enumeration threw for rp={rp.RewindPointId}: {ex.Message} " +
+                    "— reinstatement falls back to accept-time snapshots");
+                return;
+            }
+
+            if (captures == null || captures.Count == 0)
+            {
+                ParsekLog.Verbose("RewindSave",
+                    $"Contract re-snapshot: no active contracts for rp={rp.RewindPointId}");
+                return;
+            }
+
+            int stored = 0;
+            int failed = 0;
+            for (int i = 0; i < captures.Count; i++)
+            {
+                var capture = captures[i];
+                if (string.IsNullOrEmpty(capture.Guid) || capture.Node == null)
+                {
+                    failed++;
+                    continue;
+                }
+                try
+                {
+                    GameStateStore.AddContractSnapshotAtRp(
+                        capture.Guid, capture.Node, rp.UT, rp.RewindPointId);
+                    stored++;
+                }
+                catch (Exception ex)
+                {
+                    failed++;
+                    ParsekLog.Warn("RewindSave",
+                        $"Contract re-snapshot store failed for guid={capture.Guid} " +
+                        $"rp={rp.RewindPointId}: {ex.Message}");
+                }
+            }
+
+            ParsekLog.Info("RewindSave",
+                $"Contract re-snapshot: rp={rp.RewindPointId} stored={stored} failed={failed} " +
+                $"ut={rp.UT.ToString("R", CultureInfo.InvariantCulture)}");
+        }
+
         // --- Default implementations of injected seams ---
 
         internal static readonly Func<string, string, string> DefaultSaveAction =
             (tempName, saveFolder) => GamePersistence.SaveGame(tempName, saveFolder, SaveMode.OVERWRITE);
+
+        /// <summary>
+        /// Enumerates every live Active contract and serializes it. Each contract's own
+        /// <c>Save</c> is guarded so one bad contract cannot abort the sweep.
+        /// </summary>
+        internal static readonly Func<List<ActiveContractCapture>> DefaultActiveContractSource = () =>
+        {
+            var result = new List<ActiveContractCapture>();
+            var system = Contracts.ContractSystem.Instance;
+            if (system == null || system.Contracts == null)
+                return result;
+
+            for (int i = 0; i < system.Contracts.Count; i++)
+            {
+                var contract = system.Contracts[i];
+                if (contract == null || contract.ContractState != Contracts.Contract.State.Active)
+                    continue;
+
+                string guid = contract.ContractGuid.ToString();
+                try
+                {
+                    var node = new ConfigNode("CONTRACT");
+                    contract.Save(node);
+                    result.Add(new ActiveContractCapture { Guid = guid, Node = node });
+                }
+                catch (Exception ex)
+                {
+                    ParsekLog.Warn("RewindSave",
+                        $"Contract re-snapshot: Save threw for guid={guid}: {ex.Message} — skipping");
+                }
+            }
+            return result;
+        };
 
         internal interface IScenePaths
         {
@@ -581,5 +715,12 @@ namespace Parsek
         /// <see cref="RewindPointAuthor.Begin"/> captures up-front.
         /// </summary>
         public ParsekScenario Scenario;
+
+        /// <summary>
+        /// Supplies the live Active contracts to re-snapshot at RP capture. When null the
+        /// author walks <c>ContractSystem.Instance.Contracts</c>. Unit tests inject a list
+        /// so the capture is drivable without the game runtime.
+        /// </summary>
+        public Func<List<RewindPointAuthor.ActiveContractCapture>> ActiveContractSource;
     }
 }

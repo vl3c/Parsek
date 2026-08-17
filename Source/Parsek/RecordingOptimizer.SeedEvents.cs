@@ -10,6 +10,26 @@ namespace Parsek
         /// <summary>
         /// Checks if a part event represents a permanent one-way visual state change
         /// that must be seeded in subsequent segments after a split.
+        ///
+        /// ParachuteRepacked is deliberately NOT here, and neither is ParachuteCut — both belong to
+        /// the reversible family. The reasoning, since a repack undoing a cut is exactly the case
+        /// that makes "is a cut permanent?" a live question:
+        ///
+        /// A cut was never in this family to begin with. ParachuteDestroyed is (the part is gone for
+        /// good and the tail must keep it hidden), but a cut leaves the part present, and a stock EVA
+        /// Repack turns it back into a stowed chute — so cut is not one-way and a repack has no
+        /// permanence to revoke. Both stay in the reversible family, where the parachute state
+        /// machine collapses a per-part run of events to its last state and
+        /// <see cref="AppendReversibleStateSeeds"/> emits that last state VERBATIM, in either
+        /// direction: a head ending Cut seeds ParachuteCut, a head ending Repacked seeds
+        /// ParachuteRepacked, and the two render differently (cut = canopy gone AND cap hidden;
+        /// repacked = canopy gone WITH the cap back on). Only ParachuteDestroyed is skipped by the
+        /// inactive emitter, because ForwardPermanentStateEvents copies it instead.
+        ///
+        /// Before the bidirectional emitter, both inactive states fell through to "no seed at all",
+        /// which happened to render correctly ONLY because the tail's ghost spawned at the stowed
+        /// prefab pose. That is no longer true once a TIP spawns from a snapshot baseline, so the
+        /// terminal state now has to be stated rather than implied.
         /// </summary>
         internal static bool IsPermanentVisualStateEvent(PartEventType type)
         {
@@ -89,6 +109,10 @@ namespace Parsek
             var lightBlinkStates = new Dictionary<ulong, TransientPartState>();
             var heatStates = new Dictionary<ulong, TransientPartState>();
             var parachuteStates = new Dictionary<ulong, TransientPartState>();
+            var roboticStates = new Dictionary<ulong, TransientPartState>();
+            var converterStates = new Dictionary<ulong, TransientPartState>();
+            var evaJetpackStates = new Dictionary<ulong, TransientPartState>();
+            var evaRagdollStates = new Dictionary<ulong, TransientPartState>();
 
             for (int i = 0; i < indexedEvents.Count; i++)
             {
@@ -121,6 +145,16 @@ namespace Parsek
                     case PartEventType.DeployableRetracted:
                         deployableStates[key] = BuildTransientState(
                             evt, active: false, value: 0f, seedEventType: PartEventType.DeployableRetracted);
+                        break;
+                    // S6: the PARACHUTE-TRIO pattern. Retracted and Broken are both "panel not
+                    // extended", but they are NOT interchangeable poses — retracted renders a
+                    // folded panel, broken renders NO panel — so the seed carries evt.eventType
+                    // VERBATIM rather than one shared inactive type. `active: false` only routes
+                    // it past the active-direction emitter; AppendReversibleStateSeeds still
+                    // emits it, because DeployableBroken is not an IsPermanentVisualStateEvent.
+                    case PartEventType.DeployableBroken:
+                        deployableStates[key] = BuildTransientState(
+                            evt, active: false, value: 0f, seedEventType: evt.eventType);
                         break;
                     case PartEventType.GearDeployed:
                         gearStates[key] = BuildTransientState(
@@ -179,8 +213,58 @@ namespace Parsek
                         break;
                     case PartEventType.ParachuteCut:
                     case PartEventType.ParachuteDestroyed:
+                    // All three are "canopy not flying", but they are NOT interchangeable poses, so
+                    // the seed carries `evt.eventType` verbatim rather than one shared inactive
+                    // type: Cut renders canopy-gone-and-cap-hidden, Repacked renders
+                    // canopy-gone-with-cap-on (stock Repack() restores the cap), Destroyed hides the
+                    // whole part. `Active=false` only routes them past the active-direction emitter;
+                    // AppendReversibleStateSeeds still emits Cut and Repacked, and skips only
+                    // Destroyed (ForwardPermanentStateEvents owns that one).
+                    case PartEventType.ParachuteRepacked:
                         parachuteStates[key] = BuildTransientState(
                             evt, active: false, value: 0f, seedEventType: evt.eventType);
+                        break;
+                    case PartEventType.EvaJetpackDeployed:
+                        evaJetpackStates[key] = BuildTransientState(
+                            evt, active: true, value: 0f, seedEventType: PartEventType.EvaJetpackDeployed);
+                        break;
+                    case PartEventType.EvaJetpackStowed:
+                        evaJetpackStates[key] = BuildTransientState(
+                            evt, active: false, value: 0f, seedEventType: PartEventType.EvaJetpackStowed);
+                        break;
+                    case PartEventType.EvaRagdollStarted:
+                        evaRagdollStates[key] = BuildTransientState(
+                            evt, active: true, value: 0f, seedEventType: PartEventType.EvaRagdollStarted);
+                        break;
+                    case PartEventType.EvaRagdollEnded:
+                        evaRagdollStates[key] = BuildTransientState(
+                            evt, active: false, value: 0f, seedEventType: PartEventType.EvaRagdollEnded);
+                        break;
+                    // The THRUST pair follows the RCS RULE and is absent from this reducer on
+                    // purpose: "not thrusting" is the prefab default, so only the ACTIVE direction
+                    // could ever need a seed - and a thrust burst that was still running at a split
+                    // is a momentary input the tail's own next frame re-establishes. See
+                    // AppendActiveStateSeeds' call-site comment for the same argument on heat.
+                    case PartEventType.ConverterActivated:
+                        converterStates[key] = BuildTransientState(
+                            evt, active: true, value: 0f, seedEventType: PartEventType.ConverterActivated);
+                        break;
+                    case PartEventType.ConverterDeactivated:
+                        converterStates[key] = BuildTransientState(
+                            evt, active: false, value: 0f, seedEventType: PartEventType.ConverterDeactivated);
+                        break;
+                    case PartEventType.RoboticMotionStarted:
+                    case PartEventType.RoboticPositionSample:
+                    case PartEventType.RoboticMotionStopped:
+                        // Robotic state is "last sampled value", not on/off: the pose at the
+                        // cut is whatever the newest event carried. `active` records whether
+                        // the servo was still travelling, kept for the log only — the seed is
+                        // emitted unconditionally (see AppendRoboticStateSeeds).
+                        roboticStates[key] = BuildTransientState(
+                            evt,
+                            active: evt.eventType != PartEventType.RoboticMotionStopped,
+                            value: evt.value,
+                            seedEventType: PartEventType.RoboticMotionStopped);
                         break;
                 }
             }
@@ -255,20 +339,42 @@ namespace Parsek
             }
 
             int visualStateSeeds = 0;
-            visualStateSeeds += AppendActiveStateSeeds(deployableStates, seeds, splitUT);
-            visualStateSeeds += AppendActiveStateSeeds(lightPowerStates, seeds, splitUT);
-            visualStateSeeds += AppendActiveStateSeeds(lightBlinkStates, seeds, splitUT);
-            visualStateSeeds += AppendActiveStateSeeds(gearStates, seeds, splitUT);
-            visualStateSeeds += AppendActiveStateSeeds(cargoBayStates, seeds, splitUT);
-            visualStateSeeds += AppendActiveStateSeeds(parachuteStates, seeds, splitUT);
+            int visualStateOffSeeds = 0;
+            visualStateSeeds += AppendReversibleStateSeeds(
+                deployableStates, seeds, splitUT, ref visualStateOffSeeds);
+            visualStateSeeds += AppendReversibleStateSeeds(
+                lightPowerStates, seeds, splitUT, ref visualStateOffSeeds);
+            visualStateSeeds += AppendReversibleStateSeeds(
+                lightBlinkStates, seeds, splitUT, ref visualStateOffSeeds);
+            visualStateSeeds += AppendReversibleStateSeeds(
+                gearStates, seeds, splitUT, ref visualStateOffSeeds);
+            visualStateSeeds += AppendReversibleStateSeeds(
+                cargoBayStates, seeds, splitUT, ref visualStateOffSeeds);
+            visualStateSeeds += AppendReversibleStateSeeds(
+                parachuteStates, seeds, splitUT, ref visualStateOffSeeds);
+            visualStateSeeds += AppendReversibleStateSeeds(
+                converterStates, seeds, splitUT, ref visualStateOffSeeds);
+            visualStateSeeds += AppendReversibleStateSeeds(
+                evaJetpackStates, seeds, splitUT, ref visualStateOffSeeds);
+            visualStateSeeds += AppendReversibleStateSeeds(
+                evaRagdollStates, seeds, splitUT, ref visualStateOffSeeds);
+            // Heat stays ACTIVE-ONLY on purpose. The inactive direction here is
+            // ThermalAnimationCold, and cold is what the spawn pass already lays down
+            // unconditionally (PopulateHeatInfos / step 3a of the loop-cycle re-apply) —
+            // AND the M1 snapshot parser reads no heat key at all, so there is no stale
+            // baseline for a cold seed to correct. Emitting one would be pure storage cost
+            // per part per split for a state nothing can have got wrong.
             visualStateSeeds += AppendActiveStateSeeds(heatStates, seeds, splitUT);
+
+            int roboticSeeds = AppendRoboticStateSeeds(roboticStates, seeds, splitUT);
 
             if (seeds.Count > 0)
                 ParsekLog.Info("Optimizer",
                     $"Built {seeds.Count} transient state seed event(s) at UT={splitUT:F1} " +
                     $"(enginesOn={engineIgnitedSeeds} engineIdle={engineIdleSeeds} " +
                     $"engineSentinels={engineShutdownSeeds} rcsOn={rcsSeeds} " +
-                    $"visualStates={visualStateSeeds})");
+                    $"visualStates={visualStateSeeds} visualStatesOff={visualStateOffSeeds} " +
+                    $"robotics={roboticSeeds})");
 
             return seeds;
         }
@@ -343,6 +449,12 @@ namespace Parsek
                         || (boundaryEvent.eventType == PartEventType.RCSThrottle && boundaryEvent.value <= 0f);
                 case PartEventType.LightBlinkEnabled:
                     return boundaryEvent.eventType == PartEventType.LightBlinkEnabled;
+                case PartEventType.RoboticMotionStopped:
+                    // Any robotic event at the same key on the boundary already carries a
+                    // pose for this servo, so the seed would only re-apply the same value
+                    // (RoboticMotionStarted / PositionSample also re-arm the motion the
+                    // seed deliberately parks). All three cover the seed.
+                    return IsRoboticVisualStateEvent(boundaryEvent.eventType);
                 default:
                     return boundaryEvent.eventType == seed.eventType;
             }
@@ -375,6 +487,9 @@ namespace Parsek
             {
                 case PartEventType.DeployableExtended:
                 case PartEventType.DeployableRetracted:
+                // S6: reversible because stock repair (eventRepairExternal -> DoRepair) takes a
+                // BROKEN panel back to RETRACTED. NOT a permanent state event.
+                case PartEventType.DeployableBroken:
                 case PartEventType.GearDeployed:
                 case PartEventType.GearRetracted:
                 case PartEventType.CargoBayOpened:
@@ -391,10 +506,39 @@ namespace Parsek
                 case PartEventType.ParachuteDeployed:
                 case PartEventType.ParachuteCut:
                 case PartEventType.ParachuteDestroyed:
+                case PartEventType.ParachuteRepacked:
+                // Robotic servo poses are many-valued AND reversible, so they belong to the
+                // latest-state-wins reducer, never to ForwardPermanentStateEvents (which
+                // copies every matching event verbatim and would dump every position sample
+                // of the head span at the cut).
+                case PartEventType.RoboticMotionStarted:
+                case PartEventType.RoboticPositionSample:
+                case PartEventType.RoboticMotionStopped:
+                // S7: the converter running loop is a plain reversible on/off pair - a player
+                // toggle. The INACTIVE direction is not redundant: nothing else stops the loop, so
+                // a tail whose head span ended with the drill switched off needs to be told, or the
+                // tail's ghost would spin a drill the recording says is idle.
+                case PartEventType.ConverterActivated:
+                case PartEventType.ConverterDeactivated:
+                // S4: the jetpack POSE and the ragdoll FLAG are both reversible two-state signals,
+                // so both directions seed. The THRUST pair is deliberately absent - it follows the
+                // RCS rule (active-direction only, and even that is momentary), so it is not a
+                // transient VISUAL STATE a tail has to be told about.
+                case PartEventType.EvaJetpackDeployed:
+                case PartEventType.EvaJetpackStowed:
+                case PartEventType.EvaRagdollStarted:
+                case PartEventType.EvaRagdollEnded:
                     return true;
                 default:
                     return false;
             }
+        }
+
+        internal static bool IsRoboticVisualStateEvent(PartEventType type)
+        {
+            return type == PartEventType.RoboticMotionStarted
+                || type == PartEventType.RoboticPositionSample
+                || type == PartEventType.RoboticMotionStopped;
         }
 
         private static bool IsSameTransientVisualStateFamily(PartEventType a, PartEventType b)
@@ -411,6 +555,20 @@ namespace Parsek
             {
                 case PartEventType.DeployableExtended:
                 case PartEventType.DeployableRetracted:
+                // S6: BROKEN joins the deployable family rather than getting its own, so the
+                // reducer collapses a per-part run of extend/retract/break to its LAST state
+                // and the boundary dedupe treats all three as one opinion about one pivot.
+                //
+                // INHERITED LIMITATION, worth naming because BROKEN makes it more visible: this
+                // family is PID-COLLAPSED (TransientVisualStateKey), and ladders, animation groups
+                // and aero/control surfaces all speak DeployableExtended/Retracted under the same
+                // pid. On a part combining a breakable ModuleDeployablePart with one of those - mod
+                // parts only; no stock part does it - a head-span DeployableBroken can be overwritten
+                // by a later same-pid DeployableExtended from the OTHER module, and the tail seeds an
+                // intact panel. Pre-existing for extend/retract (a folded ladder could already lose
+                // to an extended panel); fixing it means module-scoping the whole family's key, which
+                // is a change to five event types' storage, not to this member.
+                case PartEventType.DeployableBroken:
                     return 3;
                 case PartEventType.GearDeployed:
                 case PartEventType.GearRetracted:
@@ -433,7 +591,21 @@ namespace Parsek
                 case PartEventType.ParachuteDeployed:
                 case PartEventType.ParachuteCut:
                 case PartEventType.ParachuteDestroyed:
+                case PartEventType.ParachuteRepacked:
                     return 9;
+                case PartEventType.RoboticMotionStarted:
+                case PartEventType.RoboticPositionSample:
+                case PartEventType.RoboticMotionStopped:
+                    return 10;
+                case PartEventType.ConverterActivated:
+                case PartEventType.ConverterDeactivated:
+                    return 11;
+                case PartEventType.EvaJetpackDeployed:
+                case PartEventType.EvaJetpackStowed:
+                    return 12;
+                case PartEventType.EvaRagdollStarted:
+                case PartEventType.EvaRagdollEnded:
+                    return 13;
                 default:
                     return 0;
             }
@@ -441,7 +613,12 @@ namespace Parsek
 
         private static ulong TransientVisualStateKey(PartEvent evt)
         {
-            if (IsEngineVisualStateEvent(evt.eventType) || IsRcsVisualStateEvent(evt.eventType))
+            // Robotics are module-scoped like engines/RCS (one part can carry several
+            // servos, each with its own robotic ordinal), not pid-collapsed like the
+            // deployable / light / parachute families.
+            if (IsEngineVisualStateEvent(evt.eventType)
+                || IsRcsVisualStateEvent(evt.eventType)
+                || IsRoboticVisualStateEvent(evt.eventType))
                 return FlightRecorder.EncodeEngineKey(evt.partPersistentId, evt.moduleIndex);
 
             return evt.partPersistentId;
@@ -455,7 +632,8 @@ namespace Parsek
         {
             TransientPartState state;
             if (!states.TryGetValue(key, out state))
-                state = BuildTransientState(evt, activeWhenUnseen, evt.value);
+                state = BuildTransientState(
+                    evt, activeWhenUnseen, evt.value, stateKnown: false);
             else
             {
                 state.PartPersistentId = evt.partPersistentId;
@@ -477,7 +655,11 @@ namespace Parsek
             TransientPartState state;
             if (!states.TryGetValue(key, out state))
                 state = BuildTransientState(
-                    evt, active: false, value: evt.value, seedEventType: PartEventType.LightBlinkDisabled);
+                    evt, active: false, value: evt.value,
+                    seedEventType: PartEventType.LightBlinkDisabled,
+                    // A bare rate change says nothing about whether the lamp is blinking:
+                    // the inactive emitter must not read this as "blink was off".
+                    stateKnown: false);
             else
             {
                 state.PartPersistentId = evt.partPersistentId;
@@ -491,6 +673,11 @@ namespace Parsek
             states[key] = state;
         }
 
+        /// <summary>
+        /// ACTIVE-DIRECTION-ONLY emitter, kept for the ONE family whose inactive direction
+        /// is genuinely redundant (heat — see the call site's comment). Every other
+        /// reversible family goes through <see cref="AppendReversibleStateSeeds"/>.
+        /// </summary>
         private static int AppendActiveStateSeeds(
             Dictionary<ulong, TransientPartState> states,
             List<PartEvent> seeds,
@@ -521,11 +708,115 @@ namespace Parsek
             return added;
         }
 
+        /// <summary>
+        /// Emits ONE seed per key in BOTH directions — the extension of the robotics rule
+        /// (<see cref="AppendRoboticStateSeeds"/>) to the reversible on/off families.
+        ///
+        /// WHY THE INACTIVE DIRECTION IS NOT REDUNDANT. Pre-M1 it was: "inactive" meant the
+        /// all-stowed prefab pose, which is exactly what the tail's ghost already spawned
+        /// at, so a GearRetracted seed said nothing. Post-M1 the tail's ghost spawns at the
+        /// pose its SNAPSHOT describes, and a split TIP's snapshot is a COPY of the parent's
+        /// launch-time snapshot (<c>SplitAtSection</c> step 8). Gear down on the pad +
+        /// GearRetracted during ascent + any routine env-boundary split then left the TIP
+        /// rendering gear DOWN for its whole span, with no seed able to say otherwise — a
+        /// regression against pre-M1 rather than a leftover of it.
+        ///
+        /// Two states deliberately get no inactive seed:
+        /// <list type="bullet">
+        /// <item><description><see cref="IsPermanentVisualStateEvent"/> types (only
+        /// ParachuteDestroyed overlaps): <see cref="ForwardPermanentStateEvents"/> copies
+        /// those verbatim, and it runs AFTER <c>InsertTransientStateSeeds</c>, so the
+        /// boundary-dedupe cannot see the forwarded copy yet and we would emit a
+        /// duplicate.</description></item>
+        /// <item><description>States whose activeness was never OBSERVED
+        /// (<c>StateKnown == false</c>): the light-blink reducer synthesises an inactive
+        /// state from a bare LightBlinkRate event, and turning blink OFF off the back of a
+        /// rate change would assert knowledge the head span never carried.</description></item>
+        /// </list>
+        ///
+        /// Storage: one extra PartEvent per inactive family per part per split.
+        /// </summary>
+        private static int AppendReversibleStateSeeds(
+            Dictionary<ulong, TransientPartState> states,
+            List<PartEvent> seeds,
+            double splitUT,
+            ref int inactiveAdded)
+        {
+            if (states == null || states.Count == 0) return 0;
+
+            int added = 0;
+            var keys = new List<ulong>(states.Keys);
+            keys.Sort();
+            for (int i = 0; i < keys.Count; i++)
+            {
+                var state = states[keys[i]];
+                if (!state.Active)
+                {
+                    if (!state.StateKnown) continue;
+                    if (IsPermanentVisualStateEvent(state.SeedEventType)) continue;
+                }
+
+                seeds.Add(new PartEvent
+                {
+                    ut = splitUT,
+                    partPersistentId = state.PartPersistentId,
+                    eventType = state.SeedEventType,
+                    partName = state.PartName,
+                    value = state.Value,
+                    moduleIndex = state.ModuleIndex
+                });
+                added++;
+                if (!state.Active)
+                    inactiveAdded++;
+            }
+
+            return added;
+        }
+
+        /// <summary>
+        /// Emits one <c>RoboticMotionStopped</c> seed per servo key, UNCONDITIONALLY —
+        /// unlike <see cref="AppendActiveStateSeeds"/>, which only emits for `Active`
+        /// states. A servo parked mid-stroke is not the default pose: without a seed the
+        /// tail's ghost would render it at the prefab pose (gear up / arm folded) until the
+        /// tail's own first robotic event fires, which on a rewind fork may be never.
+        /// <c>RoboticMotionStopped</c> is the right carrier because
+        /// <c>GhostPlaybackLogic.ApplyRoboticEvent</c> applies the pose and parks the
+        /// motion; a still-travelling servo is re-armed by the tail's own next sample.
+        /// </summary>
+        private static int AppendRoboticStateSeeds(
+            Dictionary<ulong, TransientPartState> states,
+            List<PartEvent> seeds,
+            double splitUT)
+        {
+            if (states == null || states.Count == 0) return 0;
+
+            int added = 0;
+            var keys = new List<ulong>(states.Keys);
+            keys.Sort();
+            for (int i = 0; i < keys.Count; i++)
+            {
+                var state = states[keys[i]];
+                seeds.Add(new PartEvent
+                {
+                    ut = splitUT,
+                    partPersistentId = state.PartPersistentId,
+                    eventType = PartEventType.RoboticMotionStopped,
+                    partName = state.PartName,
+                    value = state.Value,
+                    moduleIndex = state.ModuleIndex
+                });
+                added++;
+            }
+
+            return added;
+        }
+
         private static TransientPartState BuildTransientState(
             PartEvent evt,
             bool active,
             float value,
-            PartEventType? seedEventType = null)
+            PartEventType? seedEventType = null,
+            bool stateKnown = true)
         {
             return new TransientPartState
             {
@@ -534,6 +825,7 @@ namespace Parsek
                 PartName = evt.partName,
                 Value = value,
                 Active = active,
+                StateKnown = stateKnown,
                 SeedEventType = seedEventType.HasValue ? seedEventType.Value : evt.eventType
             };
         }
@@ -551,6 +843,15 @@ namespace Parsek
             public string PartName;
             public float Value;
             public bool Active;
+            /// <summary>
+            /// True when <see cref="Active"/> came from an event that actually STATES the
+            /// on/off direction, false when it was synthesised by a value-only reducer
+            /// (throttle / blink-rate) that saw no explicit state event for this key.
+            /// <see cref="AppendReversibleStateSeeds"/> refuses to emit an inactive seed
+            /// off an unobserved state; the engine / RCS loops ignore the flag entirely
+            /// because they emit in both directions from their own explicit rules.
+            /// </summary>
+            public bool StateKnown;
             public PartEventType SeedEventType;
         }
     }

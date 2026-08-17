@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using Xunit;
 
@@ -437,6 +437,23 @@ namespace Parsek.Tests
             {
                 return false;
             }
+            // P9a: the XP re-assert reads and appends career-log entries. This fake models a
+            // roster with no career logs at all, which exercises the "kerbal absent from the
+            // career-log surface" skip path rather than the append path (covered by
+            // KerbalExperienceFacetTests' own fake).
+            public System.Collections.Generic.List<KerbalCareerLogEntry> GetCareerLogEntries(
+                string kerbalName)
+            {
+                return null;
+            }
+
+            public int AppendCareerLogEntries(
+                string kerbalName,
+                System.Collections.Generic.IReadOnlyList<KerbalCareerLogEntry> entries)
+            {
+                return -1;
+            }
+
         }
     }
 }

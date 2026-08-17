@@ -1,0 +1,269 @@
+schema = 1
+id = "V11A-moho-loop-arrival"
+# =====================================================================================
+# V11A: THE MOHO PROGRAM'S HEADLINE MEASUREMENT -- the tilt disposition at SEVEN
+# DEGREES, which is the re-aim synthesizer's OWN DOCUMENTED FAILURE CASE.
+#
+# WHY THIS LANE EXISTS, and why V11 could not do it. The per-window synthesizer runs
+# from `ReaimPlaybackResolver` during playback OF the re-aimed leg. V11 quits ~1 s
+# after StartLoopPlayback, so it never enters that leg and measured exactly zero tilt
+# lines -- the same structural gap V9 hit on Dres, and the same reason V10 existed.
+# This lane TimeJumps the replay clock into the middle of the re-aimed heliocentric
+# transfer so the synth actually runs, and reads what it decides.
+#
+# WHAT IS AT STAKE. The synthesizer's own comments place its failing population
+# between Duna's 0.06 deg and MOHO'S 7, and
+# `docs/dev/done/plans/reaim-eccentric-tof-reliability.md` S4.2.3 calls Moho "the
+# COMBINED case" -- high inclination AND a small SOI AND moderate eccentricity. The
+# program has now walked that band from below:
+#     Duna 0.06 deg  always safe
+#     Eve  2.1  deg  achievability gate DECLINED all 27 tof candidates
+#                    (`unreachable-plane`), pre-tilt-retention
+#     Dres 5    deg  V10 measured `state=retained reason=unreachable-plane`
+#                    (incAch 3.6426 < targetInc 5.0000) -- the gate is UNSAFE and
+#                    the retention fix's third arm holds the un-corrected conic
+#     Moho 7    deg  THIS LANE. The top of the documented band.
+#
+# `state=retained`, with the synth-geometry token showing the conic actually meeting
+# Moho's SOI, is the headline result. ANY OTHER DISPOSITION IS A FINDING and gets
+# reported verbatim and unsoftened -- a decline here would mean the retention fix has
+# a ceiling between 5 and 7 degrees, which is exactly the thing worth knowing and
+# exactly the thing a softened report would bury.
+#
+# =====================================================================================
+# THE BRACKETS, derived from V11's own measured loop-unit line rather than from the
+# recording's clock. V11 measured, byte-identical on two runs:
+#     D0       = 3361722.05233201
+#     tof      = 2446149.5876669968
+#     relaunch = 3318637.7781958329
+#     cadence  = synodic = 2909172.3997171265   (ONE window spacing; Dres: two)
+# so the re-aimed arc departs at D0 and arrives at D0 + tof = 5,807,871.64.
+#
+# A NOTE ON THE SYNODIC TOKENS V11 ARMS, carried here so this lane's reader does not
+# have to rediscover it: `ReaimWindowPlanner.PadAlignLaunch` quantizes the synodic to a
+# whole Kerbin sidereal day and assigns the cadence THE SAME VARIABLE, so V11's
+# `cadence == synodic` byte-equality is BY CONSTRUCTION, and the pinned
+# 2,909,172.3997171265 is exactly 135 sidereal days rather than the physical
+# 2,918,346.4 s. The measured fact is the MULTIPLE (one, where Dres was two).
+#
+#   (a) cycle-0 just after the relaunch, 3,322,200 -- the Kerbin ascent leg of the
+#       replay. V10 kept its equivalent; the jumps iteration 4 REMOVED were the ones
+#       bracketing the escape seam from BELOW, not this one.
+#   (b) the escape leg, POST-SEAM ONLY at D0 + 600 = 3,362,322. V10 iteration 4's
+#       shape verbatim: whichever UT a PRE-seam jump landed on, it reproduced
+#       `line-blink ... sinceFrames=1 body=Sun`, the filed V8 detector gap where a
+#       proto line toggles because the CLOCK left its window rather than the body
+#       changing. Those jumps answer none of this lane's questions, so the lane does
+#       not take them.
+#   (c) MID-TRANSFER at D0 + tof/2 = 4,584,797 -- THE STEP V11 STRUCTURALLY COULD NOT
+#       TAKE. This parks the clock in the middle of the re-aimed heliocentric leg so
+#       ReaimPlaybackResolver resolves it and the per-window synthesizer -- and with
+#       it the tilt gate -- actually runs.
+#
+# PACING SPACERS ARE LOAD-BEARING, the V8 finding verbatim: `MapRenderTrace.IsLineBlink`
+# raises when a proto line's ON/OFF toggle pair lands within LineBlinkFrameWindow = 8
+# visual frames, and two back-to-back seam TimeJumps execute ~4-7 frames apart in WALL
+# time regardless of the game-seconds between them. The RecordingState pairs put wall
+# frames between jumps. `allowedAnomalies` stays [] -- if the detector fires anyway,
+# THAT IS THE READING.
+#
+# NO EnterWatchMode, deliberately, following V10: watch verdicts on a cross-body
+# replay are a separate question with their own open finding
+# (WATCH-ENTRY-REFUSED-INSIDE-QUOTED-RANGE), and an unexpected OK would read
+# INVALID(driver-verdict-mismatch) and discard this lane's actual measurement.
+#
+# =====================================================================================
+# THE CENSUS SEAM IS DELIBERATELY NOT BRACKETED, and this shape is final rather than
+# a first pass. The reasoning was worked through in the order it had to be: the census
+# must sit on the RE-AIMED arc's own `soiEntryUT`, which appears only on the product's
+# `re-aimed transfer ready` line -- i.e. only AFTER jump (c) has made the synth run --
+# and V10 iteration 1 proved that bracketing the RECORDED arrival instead answers
+# `evaluated=0 skip.no-usable-ratio=1`, because it asks about a seam the re-aimed arc
+# does not have. This lane's readings PRINTED that soiEntryUT (5,806,509.28), so the
+# bracket is now derivable. IT IS STILL NOT TAKEN, AND AS OF 2026-08-14 IT IS NOT
+# NEEDED -- see the 2026-08-14 addendum in the arming ledger below: the census reads
+# `evaluated=1 outsideSoi=0` on this lane's EXISTING jump shape, with no bracket added
+# and no pre-D0 jump, because the blocker was never the geometry.
+#
+# ARMING LEDGER.
+#   READING RUNS  2026-08-13 `_0107` and its sibling, both PASS attempt 1. Every
+#                 measured field compared and byte-identical: the tilt line, the
+#                 geometry triple, departUT, soiEntryUT and the census pair.
+#   PASS 2 IS NOT NEEDED, and that is a decision rather than an omission. The census
+#                 read `evaluated=0 outsideSoi=0 skip.no-usable-ratio=1` -- EXACTLY
+#                 V10 iteration 4's reading, for exactly V10's reason: reaching
+#                 `evaluated=1` requires a pre-D0 jump, and every pre-D0 jump
+#                 reproduces the filed line-blink detector gap
+#                 (LINE-BLINK-JUMP-STRADDLE-DETECTOR-GAP). The census and a green
+#                 verdict cannot both be had today. The armed lane is the GREEN one,
+#                 and the same arrival claim is carried deterministically by the
+#                 synth-geometry token instead -- from the synthesizer rather than
+#                 the renderer. If the detector gap is ever closed, add V10
+#                 iteration 3's escape bracket (-900 / -300 / +600) and arm the
+#                 census pair too.
+#   ADDENDUM 2026-08-14 -- THE CENSUS PAIR IS NOW ARMED, and the paragraph above is
+#                 kept verbatim because it is a good record of a WRONG DIAGNOSIS
+#                 honestly reached. Two instrument fixes landed on branch
+#                 `line-blink-census`: the line-blink detector got a WINDOW-EXIT
+#                 exemption, and the census summary's SHARED 5 s rate-limit key was
+#                 CLASS-SPLIT (measured vs skip-only). The SECOND one is what mattered
+#                 here. Re-flown with NO spec change at all (`2026-08-14_1839` and
+#                 `_1845`, both PASS attempt 1, zero anomalies), this lane emits BOTH
+#                 census lines -- `evaluated=0 skip.no-usable-ratio=1` AND
+#                 `evaluated=1 outsideSoi=0` -- byte-identically on both runs. So the
+#                 lens had been REACHING the arrival seam the whole time and the
+#                 measuring pass was being eaten by a key the first jump primed. No
+#                 pre-D0 jump, no escape bracket, and no change to the flown shape was
+#                 needed: `evaluated=1 outsideSoi=0` is armed on those two readings.
+#                 The synth-geometry token stays; the two now corroborate each other
+#                 from the synthesizer and the renderer independently.
+#   ARMED         on the tilt, the geometry, the ready line and ENGAGED, with
+#                 `state=declined` and the cohesion decline reason FORBIDDEN.
+# =====================================================================================
+tier = "operator"
+description = "ARMED: TimeJump into the re-aimed Kerbin->Moho transfer so the per-window synthesizer runs, to read THE TILT DISPOSITION AT SEVEN DEGREES -- the top of the band the synthesizer's own comments call its failing population, and the case reaim-eccentric-tof-reliability.md S4.2.3 names 'the COMBINED case'. Brackets derived from V11's measured D0/tof."
+instanceProfile = "stock-minimal"
+tags = ["V11A", "moho", "loop", "playback", "reaim", "tilt", "flown"]
+
+[fixture]
+# The same committed B20 recording V11 consumes, harvested --keep-parsek.
+saveTemplate       = "fixtures/saves/moho-orbit-recorded"
+injectedRecordings = "none"
+craft              = []
+
+[driver]
+kind = "seam"
+
+# V11's plumbing verbatim (stub-kill triple + the three tracers + MissionConfig +
+# StartLoopPlayback), then the jumps V11 lacked.
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  { cmd = "StopRecording",                                                   expect = "OK" },
+  { cmd = "DiscardTree",                                                     expect = "OK" },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "ghostRenderTracing", value = "true" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "mapRenderTracing",   value = "true" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "verboseLogging",     value = "true" }, expect = "OK" },
+  { cmd = "MissionConfig",     args = { tree = "da917056e4c042658ded6ae13f28437b", loop = "true" }, expect = "OK" },
+  { cmd = "StartLoopPlayback", args = { tree = "da917056e4c042658ded6ae13f28437b" }, expect = "OK", budget = 300 },
+
+  # (a) Cycle-0 just after the relaunch (3,318,637.78): the Kerbin ascent leg.
+  { cmd = "TimeJump", args = { ut = "3322200" }, expect = "OK", budget = 300 },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+
+  # (b) The escape leg, POST-SEAM ONLY: D0 + 600.
+  { cmd = "TimeJump", args = { ut = "3362322" }, expect = "OK", budget = 300 },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+
+  # (c) MID-TRANSFER, D0 + tof/2. THE STEP THAT MAKES THE SYNTH -- AND THE TILT
+  # GATE -- RUN. Everything this lane exists to measure comes from here.
+  { cmd = "TimeJump", args = { ut = "4584797" }, expect = "OK", budget = 300 },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+
+  { cmd = "FlushAndQuit",                                                    expect = "OK" },
+]
+
+# NOTHING CLAIMED on a reading run.
+[dimensionsCovered]
+
+[expectations]
+# PLACEMENT IS LOAD-BEARING: allowedAnomalies must precede every [expectations.<sub>]
+# header or TOML scopes it into the sub-table.
+#
+# EMPTY. An anomaly raised here IS the reading; exempting one in advance would
+# discard the evidence. The V8 precedent: two line-blink reds were filed as a
+# detector gap rather than exempted.
+allowedAnomalies = []
+
+[expectations.recordings]
+# 6, carried from V11's ARMED pin rather than re-derived: identical fixture,
+# identical stub-kill triple, and recording is OFF throughout, so the TimeJumps
+# cannot author anything.
+count = { min = 6, max = 6 }
+
+[expectations.logContracts]
+# ARMED 2026-08-13 on the two-consecutive-runs discipline. Every token below was
+# byte-identical across both readings.
+#
+#   THE TILT, AND IT IS THIS LANE'S AND THIS PROGRAM'S HEADLINE. Moho at 7 deg is
+#   the TOP of the band the synthesizer's own comments call its failing population,
+#   and `reaim-eccentric-tof-reliability.md` S4.2.3 calls it "the COMBINED case".
+#   The disposition is RETAINED. The achievability gate is UNSAFE here exactly as it
+#   was at Eve's 2.1 and Dres's 5 (incAch 3.3633 against targetInc 7.0000), and the
+#   retention fix's third arm holds the un-corrected conic instead of killing the
+#   window. PRE-FIX THAT COMBINATION DECLINED. The band, walked from below:
+#       Duna 0.06  always safe
+#       Eve  2.1   declined all 27 tof candidates (unreachable-plane), pre-fix
+#       Dres 5     retained, incAch 3.6426 < targetInc 5.0000   (V10)
+#       Moho 7     retained, incAch 3.3633 < targetInc 7.0000   (HERE)
+#   Pinning the exact numbers means a change in either the gate or the disposition
+#   reds this lane.
+#
+#   THE ARRIVAL GEOMETRY, the rendered-arrival claim carried by the synthesizer:
+#   `xfer-vs-Moho@arrival=0m` and `xfer-vs-Moho@soi=9646663m (SOI=9646663)` -- the
+#   re-aimed conic meets Moho's sphere of influence EXACTLY, to the metre with zero
+#   error (V10 measured Dres to within one metre). See the arming ledger for why
+#   this, and not the census pair, is the armed form of that claim.
+#
+#   THE READY LINE, and it carries a SECOND finding worth pinning. `devFromRecorded=0s`
+#   with `encounter=Moho`: cycle 0 re-aims to a real Moho encounter with zero
+#   deviation from the recorded transfer time. But `eTarget=0.2000
+#   halfWidthFraction=0.1600` is stage B's ECCENTRICITY-SCALED TOF BAND doing real
+#   work -- the `0.06 + 0.5*ecc` law giving 0.16 for Moho's 0.2 eccentricity. The
+#   geometric tof sits 211,482 s from the recorded one (`devFromGeom=-211482.317s`),
+#   i.e. 8.6% away, so THE OLD FIXED +-6% BAND WOULD HAVE DECLINED THIS WINDOW.
+#   Moho resolves BECAUSE of the stage-B widening. That is the outcome
+#   `reaim-eccentric-tof-reliability.md` S4.2.3 predicted for the Moho fixture, and
+#   this is the first live demonstration of it.
+required = [
+  "MissionConfig",
+  "StartLoopPlayback",
+  # THE CENSUS PAIR (ARMED 2026-08-14): the RENDERED-arrival proof, from the map
+  # render path and independent of the synthesizer's own geometry claim -- one
+  # destination-approach check actually performed at the arrival seam, reading INSIDE
+  # the destination sphere. Unarmable until 2026-08-14 because the summary rode a
+  # SHARED 5 s rate-limit key that this lane's jump 1 primed; the key is now
+  # class-split (measured vs skip-only), so a skip-only pass can no longer shadow the
+  # measuring one. Reproduced byte-identically on two consecutive runs.
+  "seam-endpoint summary evaluated=1 outsideSoi=0",
+  "ENGAGED re-aim Kerbin->Moho via Sun",
+  # THE TILT at 7 deg -- the program's headline.
+  "tilt-correction inc-before=23.5906 bound=7.5000 targetInc=7.0000 incAch=3.3633 inc-after=NaN state=retained reason=unreachable-plane",
+  # The arrival geometry: the re-aimed conic reaches Moho's SOI exactly.
+  "xfer-vs-Moho@arrival=0m",
+  "xfer-vs-Moho@soi=9646663m \\(SOI=9646663\\)",
+  # Cycle 0 re-aims to a real Moho encounter with no deviation...
+  "re-aimed transfer ready: departUT=3361722.05233201",
+  "devFromRecorded=0s",
+  "encounter=Moho",
+  # ...and it only resolves because the eccentricity-scaled band is wide enough.
+  "eTarget=0.2000 halfWidthFraction=0.1600",
+]
+# The ERROR floor, plus the two dispositions whose appearance would void every
+# measurement above.
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  # The cohesion fix's decline reason -- if this lane ever sees it, the fix
+  # regressed and the whole measurement is void.
+  "no member yields a re-aim transfer",
+  # THE PRE-TILT-RETENTION DISPOSITION. `state=declined` at an unreachable plane is
+  # what dropped Eve's cycle-0 window to a faithful replay; seeing it at Moho's 7
+  # deg would mean the retention fix has a ceiling somewhere below the top of its
+  # own documented band.
+  "state=declined",
+]
+
+[runtime]
+# V10's budget class for the same seam-driven shape. No flight: a LoadGame, ~16 seam
+# verbs and a quit; the epoch jumps are instant, so the budget is dominated by the
+# KSP boot and the fixture load.
+budgetSeconds = 2400
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

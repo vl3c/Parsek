@@ -2735,6 +2735,34 @@ class IngameBatchWiringGroupTests(unittest.TestCase):
         "H29-localized-name":        ("LocalizedName", 3, "FLIGHT"),
         "H30-ghost-audio":           ("GhostAudio", 9, "FLIGHT"),
         "H31-crew-reservation":      ("CrewReservation", 15, "FLIGHT"),
+        "H32-snapshot-baseline":     ("SnapshotBaseline", 7, "FLIGHT"),
+        "H33-recorded-signals":      ("RecordedSignals", 3, "FLIGHT"),
+        # The first member whose category is only PARTLY reachable at its boot
+        # scene: 45 of the 47 Logistics declarations are FLIGHT-scoped and
+        # scene-skip at SPACECENTER, so its skip floor is 45 where every FLIGHT
+        # member's is 0 or 1. That floor is ATTRIBUTE-derived, so it needs no
+        # RUNTIME_SKIPS entry - the measured run skipped nothing at run time.
+        # (Flown as `H32-logistics-inter-body`; renamed H34 post-merge after a
+        # sibling lane landed a different H32 on main first. Nothing re-flown.)
+        "H34-logistics-inter-body":  ("Logistics", 47, "SPACECENTER"),
+        # The OTHER half of the SAME category, at the other scene - the first
+        # time two members share a category, and it needs nothing special: the
+        # tally is derived PER MEMBER from (category, scene), so H34's
+        # SPACECENTER slice (45 scene-skipped, 2 executable) and H35's FLIGHT
+        # slice (1 scene-skipped + 38 batch-skipped, 8 executable) each check
+        # against their own derivation off the same 47 declarations. Adding a
+        # Logistics [InGameTest] moves BOTH pins, in the same commit.
+        # (Flown as `H33-logistics-route-proof`; renamed H35 post-merge for the
+        # same collision.)
+        "H35-logistics-route-proof": ("Logistics", 47, "FLIGHT"),
+        # P5/P6's live half. Flown twice (PARSEK-FAIL 5/7 on two product defects,
+        # then PASS 7/7 after both fixes), so its tally is now pinned WHOLE and it
+        # has left INTERIM_PIN_IDS - see that set's comment for the measurement.
+        "H36-playback-fidelity":     ("PlaybackFidelity", 7, "FLIGHT"),
+        # P8's live half. LIVE-PROVEN 2026-08-12 on the re-fly (`total=5 passed=5 failed=0
+        # skipped=0`) after a first flight that red 3/5 on one product defect and one
+        # fixture bug; the pin is whole and the id has left INTERIM_PIN_IDS.
+        "H37-part-event-fidelity":   ("PartEventFidelity", 5, "FLIGHT"),
     }
 
     # Declared MEASURED run-time skips per member: InGameAssert.Skip firings the
@@ -2775,20 +2803,28 @@ class IngameBatchWiringGroupTests(unittest.TestCase):
         # fixture x preset (ScenarioWriter.AddCrewReplacement has zero callers).
         # Fixture property, and the spec says so.
         "H31-crew-reservation": 3,
+        # H35: three, MEASURED identically on all three 2026-08-11 runs (flown
+        # under its pre-rename id `H33-logistics-route-proof`), on top
+        # of an attribute floor of 39 (1 scene-skip + 38 AllowBatchExecution=
+        # false) for a pinned skipped=42. All three are FIXTURE properties of
+        # bdock-recorded, stated in the spec's STATUS block:
+        #   * RouteProof_ActiveAsTargetDockWindow - the save's ONE route
+        #     connection window has TransferTargetVesselPid == the recording's
+        #     own pid (the same-craft-twice baked pid), so it satisfies the
+        #     INITIATOR predicate and the target predicate is its strict
+        #     complement.
+        #   * RouteProof_CrossTreeCommittedPartner - its predicate short-circuits
+        #     on the initiator case first (LogisticsRouteProofRuntimeTests.cs:
+        #     81-82, "covered by sibling test"), so the same one window can never
+        #     reach the cross-tree walk. NOT a claim that the fixture is
+        #     single-tree: BDOCK-1 genuinely docks two committed trees.
+        #   * RouteOriginProof_StartedDockedToNonKsc - the save carries ZERO
+        #     ROUTE_ORIGIN_PROOF nodes because both BDOCK-1 flights start
+        #     PRELAUNCH on the pad; the cell needs a mission that STARTS docked
+        #     to a non-PRELAUNCH partner, which no committed profile produces.
+        "H35-logistics-route-proof": 3,
     }
 
-    # EMPTY, and deliberately kept rather than deleted. H20 was the one member that
-    # carried the loose interim pin, because both its cells have run-time
-    # InGameAssert.Skip guards and one of them (the walkback endpoint-overlap probe,
-    # a live Physics.OverlapBox) is not decidable from source. It was re-flown ALONE
-    # on 2026-07-27 so its log would survive the sweep, measured
-    # `total=2 passed=2 failed=0 skipped=0`, and is now pinned whole like the rest.
-    # So every member of the group pins its tally whole, and
-    # test_the_interim_pin_member_is_declared_and_deliberately_loose now asserts that
-    # NONE of them is loose - which is the guard worth having, because the interim
-    # form accepts 1-of-N by design and re-introducing one silently would be a real
-    # weakening. Add an id back here only alongside a written reason in the spec.
-    #
     # NOTE the asymmetry this leaves: for 13 of the 16, the skipped= floor is
     # DERIVABLE from the attributes plus a reachable-Skip scan. For H20 it is MEASURED only - the
     # attributes put a floor of 0 on it and nothing more, and a fixture change that
@@ -2805,7 +2841,68 @@ class IngameBatchWiringGroupTests(unittest.TestCase):
     # guard on whether KSP built a Vectrosity orbit line for a synthetic ghost that
     # session, which no attribute predicts. The 2026-07-30 flight measured all three
     # satisfied.
-    INTERIM_PIN_IDS = set()
+    # EMPTY, and that is the healthy state: an interim pin is a temporary weakening
+    # (the form accepts 1-of-N by design), so it should exist only between a spec
+    # landing and its first PASSING flight. Three members passed through it, all gone:
+    #
+    #   H32-snapshot-baseline FLEW 2026-08-11 (run `2026-08-11_1111`, PASS) reading
+    #   `total=7 passed=7 failed=0 skipped=0`. BOTH pre-flight reasons for leaving it
+    #   loose turned out not to hold - the stock-minimal profile DOES carry Breaking
+    #   Ground (the Clone phase junctions the dev install's whole
+    #   `GameData/SquadExpansion`, Serenity robotics included), and the four
+    #   deployable cells found stock prefabs whose animation clips do separate stow
+    #   from deploy. So a future interim pin justified by "the profile lacks X" should
+    #   CHECK the provisioned instance rather than reason from the profile's name.
+    #
+    #   H33-recorded-signals FLEW 2026-08-11 (run `2026-08-11_1118`, PASS attempt 1)
+    #   reading `total=3 passed=3 failed=0 skipped=0`. Both cells whose run-time Skip
+    #   guards motivated the loose form EXECUTED on stock-minimal - the stock chute
+    #   prefab resolves both a canopy and a cap transform, and the stock rover wheel
+    #   satisfied all four of its guards (motor module, resolved spin transform, a
+    #   body-relative surface normal, and a spin axis not parallel to it) - so no
+    #   RUNTIME_SKIPS entry is owed for either.
+    #
+    #   H36-playback-fidelity took TWO flights. EVERY one of its seven cells carries a
+    #   run-time InGameAssert.Skip keyed on what the provisioned install loaded and on
+    #   what the ghost builder resolved (an engine whose FX clone yields a captured
+    #   magnitude baseline, an RCS block ditto, a deployable whose sampled poses
+    #   differ, a resolvable ModuleGimbal / ModuleWheelSteering transform, a tracking
+    #   pivot), so no attribute predicted the split. The first flight (2026-08-11, run
+    #   `2026-08-12_0015`) was PARSEK-FAIL 5/7 on two PRODUCT defects, NOT on any of
+    #   those guards - which is worth recording, because a red is not a measurement and
+    #   the id stayed interim through it. The RE-FLY after both fixes (2026-08-12, run
+    #   `2026-08-11_2211`, PASS attempt 1) read `total=7 passed=7 failed=0 skipped=0`:
+    #   all seven guards were satisfied on stock-minimal, so no RUNTIME_SKIPS entry is
+    #   owed and the pin is now whole.
+    #
+    #   H37-part-event-fidelity (P8) also took TWO flights, and its first one is the
+    #   sharpest illustration yet of why this set exists. All five cells carry a run-time
+    #   InGameAssert.Skip keyed on what the install loaded AND on what the ghost builder
+    #   resolved, so no attribute predicted the split. The FIRST flight (2026-08-12) read
+    #   `total=5 passed=3 failed=1 skipped=1`, and NEITHER non-green cell was a fixture
+    #   shortfall of the kind the loose pin was hedging against:
+    #     * the RED was a PRODUCT defect - ParticleSystem.Play() on a ghost that is not
+    #       activeInHierarchy is a SILENT no-op, and a ghost is inactive for the whole of
+    #       its spawn-time prefix replay, so an EVA ghost spawning mid-burst stayed dark
+    #       for the entire burst while the log claimed it was emitting; and
+    #     * the SKIP was a FIXTURE BUG, not an install property - the cell's precondition
+    #       tested POSITION only while a science canister's Deploy clip swings its doors,
+    #       so it was blind to the one motion the part has. The re-fly measured
+    #       `span(pos=0 rot=29.99998)` on mk2LanderCabin.v2: a literally ZERO position
+    #       span, which is the diagnosis in one number.
+    #   THE LESSON, which is the durable part: a loose `passed=` hedges against the
+    #   install, but the things it actually caught here were a product bug and a test bug.
+    #   Do not read a non-green interim flight as "the profile lacks X" - measure which of
+    #   the three it is. The RE-FLY after both fixes (2026-08-12, PASS attempt 1) read
+    #   `total=5 passed=5 failed=0 skipped=0`, every verifier green (analyzer red=0,
+    #   anomalySweep hits=[], expectations mismatches=0, unityExceptions 0), so all five
+    #   guards were satisfied on stock-minimal, no RUNTIME_SKIPS entry is owed, and the pin
+    #   is now whole.
+    #
+    # All four specs now pin their tallies whole, so the set is empty again. It must stay a
+    # `set()` call rather than a `{}` literal, which would be an empty DICT - the two
+    # membership cells below would then answer False for every id and pass vacuously.
+    INTERIM_PIN_IDS: set = set()
 
     # Every committed spec whose id matches this is an H-SERIES batch spec.
     # Membership is DISCOVERED from disk and then compared for set equality against
@@ -2850,8 +2947,8 @@ class IngameBatchWiringGroupTests(unittest.TestCase):
         # cell below cannot catch either, because it compares two sets that shrink
         # together. Same shape as CommittedBatchTallySourceSyncTests's
         # test_the_source_tree_is_actually_readable.
-        self.assertEqual(24, len(self.GROUP),
-                         "the H7-H20 + H22-H31 group is 24 specs; if it genuinely changed "
+        self.assertEqual(30, len(self.GROUP),
+                         "the H7-H20 + H22-H37 group is 30 specs; if it genuinely changed "
                          "size, update this floor AND the counts in "
                          "docs/dev/autotest-ingame-category-inventory.md and "
                          "docs/dev/autotest-status.md in the same commit")
@@ -3031,9 +3128,42 @@ class IngameBatchWiringGroupTests(unittest.TestCase):
         # cells bail through a SILENT return on an empty ghost-map pid set -
         # exactly the fourth-trap shape this cell exists for) and H30 (the
         # engine-level pause/unpause cell iterates the live ghost set).
+        # H33 is in this set for a DIFFERENT reason than the other seven, and the
+        # difference is worth stating: its three cells do NOT walk RecordingStore
+        # (each builds its own single-part ghost from a PartLoader prefab), so
+        # injection is not an anti-vacuity guard for the cells. It injects because
+        # its subject IS the two corpus rows `recorded-signal-fixes` added (the
+        # chute-repack showcase and the surface rover drive), and its count pin is
+        # the only committed assertion that those two land through the sidecar /
+        # schema-gate load path. Same requirement either way: inject AND pin
+        # non-zero, so a corpus that silently stopped landing reds.
         corpus_backed = {"H14-corpus-data-health", "H15-corpus-ghost-visuals",
                          "H16-corpus-spawn-health", "H17-flight-integration",
-                         "H27-diagnostics", "H28-map-presence", "H30-ghost-audio"}
+                         "H27-diagnostics", "H28-map-presence", "H30-ghost-audio",
+                         "H33-recorded-signals"}
+        # THE THIRD SHAPE (wave 3, the spec now called H35). A RECORDED-FIXTURE member injects
+        # NOTHING - `injectedRecordings = "none"`, same as the zero-pin majority -
+        # but its saveTemplate is a harvested save whose own COMMITTED recordings
+        # ARE the payload the batch walks. So the zero-pin rule is not merely
+        # wrong for it, it is backwards: pinning 0/0 would demand the fixture's
+        # entire point leak out of the produced save. It still owes the same
+        # anti-vacuity guarantee the corpus-backed set owes, discharged three
+        # ways: a nonzero count, an EXACT count (min == max - a range would let a
+        # fixture quietly shrink toward the vacuous end), and a template that
+        # really carries .prec sidecars on disk, checked mechanically below so a
+        # future re-harvest that dropped them reds HERE rather than as a batch of
+        # silent Skips on the next flight.
+        # NOTE (post-review cross-reference): this bucket's anti-vacuity
+        # guarantee is deliberately DISTRIBUTED - the on-disk check below only
+        # proves sidecars exist; the payload's IDENTITY and full shape are
+        # owned by test_saveparse.py's committed-fixture closure
+        # (test_fixture_set_is_exactly_the_committed_set forces every
+        # fixtures/saves/ dir into either the zero-recording set or the fully
+        # pinned RECORDED_FIXTURES). A wrong-but-present payload reds THERE.
+        recorded_fixture = {"H35-logistics-route-proof"}
+        self.assertEqual(set(), corpus_backed & recorded_fixture,
+                         "a member cannot be both corpus-backed and "
+                         "recorded-fixture; the two rules contradict")
         for sid, spec in sorted(self.specs.items()):
             with self.subTest(spec=sid):
                 fixture = spec.get("fixture", {}) or {}
@@ -3045,6 +3175,38 @@ class IngameBatchWiringGroupTests(unittest.TestCase):
                                        "%s must pin a non-zero corpus count - it is "
                                        "the only guard against a store walk over "
                                        "nothing" % sid)
+                elif sid in recorded_fixture:
+                    self.assertEqual("none", fixture.get("injectedRecordings"),
+                                     "%s carries its payload in the TEMPLATE; "
+                                     "injecting on top would make the pinned count "
+                                     "un-attributable" % sid)
+                    self.assertGreater(count.get("min", 0), 0,
+                                       "%s must pin a non-zero count - its whole "
+                                       "premise is that the batch walks recorded "
+                                       "state" % sid)
+                    self.assertEqual(count.get("min"), count.get("max"),
+                                     "%s must pin its count EXACTLY (min == max): a "
+                                     "range cannot tell a load-time optimizer split "
+                                     "from a leaked promotion stub" % sid)
+                    template = fixture.get("saveTemplate", "")
+                    self.assertTrue(template.startswith("fixtures/saves/"), sid)
+                    rec_dir = os.path.join(
+                        HARNESS_ROOT, template.replace("/", os.sep),
+                        "Parsek", "Recordings")
+                    self.assertTrue(os.path.isdir(rec_dir),
+                                    "%s: %s carries no Parsek/Recordings, so the "
+                                    "batch would walk nothing" % (sid, template))
+                    precs = [f for f in os.listdir(rec_dir) if f.endswith(".prec")]
+                    self.assertGreater(
+                        len(precs), 0,
+                        "%s: %s carries no .prec sidecars - the recorded payload is "
+                        "gone and every read-side cell would silently Skip"
+                        % (sid, template))
+                    self.assertGreaterEqual(
+                        count.get("min", 0), len(precs),
+                        "%s pins count=%s but its template stages %d .prec files; "
+                        "the pin must be at least the staged floor"
+                        % (sid, count.get("min"), len(precs)))
                 else:
                     self.assertEqual("none", fixture.get("injectedRecordings"))
                     self.assertEqual({"min": 0, "max": 0}, count,
@@ -4605,6 +4767,7 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
                                        "reset need a career fixture the sandbox host lacks; the "
                                        "self-authored RewindPoint needs a multi-controllable "
                                        "split plus a seam channel. No unattended run discharges them.",
+        # S4.2-refly-world-preservation DROPPED 2026-08-12 - see DROPPED_2026_08_12.
     }
 
     # Untagged specs that are CANDIDATES - they MENTION the token, or they are
@@ -4612,6 +4775,25 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
     # each classified by hand. A NEW one reds
     # `test_every_untagged_candidate_is_classified` until someone decides.
     REVIEWED_UNTAGGED = {
+        # tier=operator by PROMOTION POLICY, not debt. Flown three times on
+        # 2026-08-11 (one under-gated reading run, two confirms on the pinned
+        # shape), all PASS attempt 1, fully unattended - so nothing technical is
+        # outstanding and no human work is owed. What is open is the ordinary
+        # operator -> daily CADENCE call, which is a human decision on whether the
+        # largest in-game category belongs on the daily tier, exactly the shape
+        # recorded for GS-1 / GS-2 / GS-3 above. (Those runs flew under the
+        # pre-rename id `H32-logistics-inter-body`; the file is H34 since the
+        # post-merge id collision with the sibling lane's H32.)
+        "H34-logistics-inter-body.toml":    "FLOWN 3x 2026-08-11 (reading + two confirms, all PASS attempt 1) and PINNED WHOLE; operator tier is an open PROMOTION call, not debt",
+        # Same shape as H34 above, and for the same reason: the OTHER half of the
+        # Logistics split, flown three times on 2026-08-11 (one under-gated
+        # reading run, two confirms), all PASS attempt 1, fully unattended. The
+        # three run-time skips it pins are FIXTURE properties recorded in
+        # RUNTIME_SKIPS and in the spec's STATUS block, not outstanding work; the
+        # route-CANDIDACY gap they sit next to is a product finding with its own
+        # todo entry, not a debt this tag can carry. (Flown as
+        # `H33-logistics-route-proof`; renamed H35 for the same collision.)
+        "H35-logistics-route-proof.toml":   "FLOWN 3x 2026-08-11 (reading + two confirms, all PASS attempt 1) and PINNED WHOLE; operator tier is an open PROMOTION call, not debt",
         "H5-invariants-corpus.toml":        "discharged - 'resolving the former PENDING-OPERATOR check'",
         "H6-route-rewind-timeline.toml":    "discharged - 'The former PENDING-OPERATOR ...'",
         "M1-mission-loop-unit.toml":        "discharged - 'CLOSED by the 2026-07-26 flights'",
@@ -4662,6 +4844,119 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
         # build_dd1_craft.py) onto the pad UNCREWED. Flown + harvested
         # 2026-08-06; the tier is the forge mechanism, not a review debt.
         "FORGE-b17-duna-pad.toml":          "forge-mechanism - manual by design; FLOWN 2026-08-06 (PASS attempt 1 after the UInt32 uid finding), fixture b17-duna-pad committed + registered",
+        # The SIXTH forge, same mechanism argument as the five above: it launches
+        # the committed stock `Duna Rocket` (KerbalX, Steltuck) onto the pad with
+        # one named crew for the Dres program. Flown + harvested 2026-08-11.
+        "FORGE-b18-dres-pad.toml":          "forge-mechanism - manual by design; FLOWN 2026-08-11 (PASS attempt 1, 105 s wall), fixture b18-dres-pad committed + registered",
+        # B18 is operator BY THE CALIBRATION DISCIPLINE (the V1/V2 precedent), and
+        # for a reason particular to it: it is the FIRST flight of a DOWNLOADED
+        # human-built craft, so its recordings-count window and its debris
+        # logContract token are deliberately unpinned on the first run and the
+        # run's job is to measure them. Promotion is the post-measurement
+        # re-pinning call, which is a recorded human decision and not a debt this
+        # tag would name.
+        "B18-dres-lko-ascent.toml":         "calibration-discipline - the first flight of an unmeasured downloaded craft is a READING run by construction (count window min=1/max=12 and the debris token are unpinned on purpose); promotion waits on the re-pin, not on outstanding work",
+        # B19 is operator by the SAME calibration discipline as B16 (whose first
+        # flight shape it copies) plus one reason of its own: it is the FIRST
+        # flight of the new pre-transfer JETTISON phase, so its recordings-count
+        # window stays unpinned until the jettison's debris topology has been
+        # measured once. Promotion is that post-measurement re-pinning call.
+        "B19-dres-orbit.toml":              "calibration-discipline - first flight of a new profile AND of the pre-transfer JETTISON phase; the recordings count window is unpinned pending the jettison debris topology, and promotion waits on that re-pin rather than on outstanding work",
+        # B20 is operator for B19's FIRST reason but not its second: the jettison
+        # debris topology is now MEASURED, so what is unpinned here is the Moho
+        # ARRIVAL rather than the staging. Three of its numbers are DERIVED from
+        # arithmetic rather than from a flight -- the approach ceiling (lowered
+        # 5 -> 4 because Moho's SOI-entry -> periapsis coast is 2,168-4,119 game
+        # s against Dres's measured ~25,000), the two correction triggers (scaled
+        # to a ~2.7M game-second tof), and the wall budget the lower ceiling's
+        # ~2,000 s approach traversal drives. Promotion is the post-flight re-pin
+        # of those, plus the recordings count.
+        "B20-moho-orbit.toml":              "calibration-discipline - first flight of a new destination whose approach sizing is DERIVED rather than measured (approachMaxWarpFactor lowered to 4 by Moho's short SOI coast, correction triggers scaled to the ~2.7M s tof, wall budget driven by the lower ceiling); the recordings count window is deliberately wide on the B19 first-flight precedent, and promotion waits on re-pinning those to measured values rather than on outstanding work",
+        # V11 is a pure READING RUN in V9's original posture: nothing armed
+        # beyond the plumbing triple, count window deliberately wide, and the
+        # decline reasons V9 forbids left UNFORBIDDEN here on purpose -- if
+        # Moho declines, this lane must RECORD that rather than red on it.
+        # Promotion is the post-reading arming call, a recorded human decision.
+        "V11-moho-player-loop.toml":        "calibration-discipline - it began as a READING run (V8/V9 iteration-1 pattern) and is now ARMED on what those readings measured: the ENGAGED classification, the schedule (the unit takes ONE window spacing where Dres took two), the loiter cut on a ~398,000 s LKO wait, and count {6,6}, with the two cohesion decline reasons forbidden. Two byte-identical readings, an armed run and a reverted negative control back it. Operator tier is now the ordinary promotion call, not outstanding work",
+        # V11A is a TimeJump observation lane whose brackets are derived from
+        # V11's measured D0/tof, so it is re-derived rather than re-run when the
+        # fixture changes. Pass 1 reads the tilt; the census bracket needs a
+        # soiEntryUT only pass 1 can print.
+        "V11A-moho-loop-arrival.toml":      "calibration-discipline - a TimeJump observation lane whose brackets come from V11's measured loop-unit line, so it is re-derived rather than re-run when the fixture changes. ARMED on the tilt disposition at Moho's 7 deg (state=retained, the TOP of the band the synthesizer's comments call its failing population), the arrival geometry, the ready line and the eccentric-band token, with state=declined forbidden. The seam-endpoint census WAS the one thing it deliberately did not arm; it is ARMED as of 2026-08-14 (branch `line-blink-census`) with NO change to the flown shape. The blocker was never the geometry: the census summary rode a SHARED 5 s rate-limit key that this lane's first jump primed, and class-splitting that key (measured vs skip-only) made `evaluated=1 outsideSoi=0` readable on the existing jumps. Re-flown verbatim twice green, armed, negative-controlled and reverted",
+        # B21 is B19's profile RETARGETED, and it is operator by the same
+        # calibration discipline for a reason that is Eeloo's alone: e = 0.26 makes
+        # the transfer TIME a 2x band rather than a number, so the arrival end
+        # MechJeb's window lands on is unknowable pre-flight and every game-second
+        # budget is sized on the aphelion worst case. FLOWN GREEN TWICE 2026-08-12
+        # (`_2003` and `_2239`, both PASS attempt 1) with NOT ONE PARAMETER CHANGED,
+        # and the recordings count is now RE-PINNED {5,5} off `_2239`'s produced save
+        # with every span UT named -- so the re-pin this entry used to wait on is
+        # DONE. THE ENTRY STAYS ANYWAY, and not as residue: this list's completeness
+        # cell keys on `tier == "operator"` and NOT on the `flown` tag, so every
+        # operator-tier spec owes a recorded human call here for as long as it is
+        # operator-tier, green or not. What the call now says is that operator tier
+        # is the ORDINARY promotion judgement for a ~52-minute interplanetary lane
+        # (its wall measured 3,092 s), not an outstanding debt. No ASSERTION is
+        # loosened for the retarget beyond one derived park ceiling; three budgets
+        # ARE widened and the correction cap is LOWERED (1,200 -> 550, because the
+        # cap is per round and this lane can fire FOUR capped rounds -- the two the
+        # spec schedules plus up to two arrival-quality extras granted at
+        # mlib.py:10343-10376 on their own MAX_ARRIVAL_EXTRA_ROUNDS = 2 counter --
+        # so the worst correction spend is 4 x cap, and 550 is the largest round
+        # value surviving that tail on the sizing geometry), each with its
+        # arithmetic in the spec.
+        "B21-eeloo-orbit.toml":             "calibration-discipline - LIVE-PROVEN 2026-08-12, green twice (`_2003` / `_2239`, both PASS attempt 1) with no parameter re-tuned, and the recordings count re-pinned {5,5} from the measured flight with every span UT named, so the re-pin this entry once waited on is discharged; it stays only because the completeness cell keys on tier==operator rather than on the flown tag, and the call it records is that operator tier is the ordinary promotion judgement for a ~52-minute interplanetary lane whose arrival end (Eeloo e=0.26 makes the transfer time a 2x band, 23.3M-46.5M game s) is unknowable pre-flight - not an outstanding debt",
+        # V9 began as a pure READING RUN and did its job: it measured the optimizer
+        # split defeating the re-aim classifier. That finding is now FIXED and V9 is
+        # ARMED as its regression floor, so the post-reading arming call it was
+        # waiting on has been taken. What remains is the ordinary operator -> cadence
+        # promotion decision, which is a human call and not a debt this tag names.
+        "V9-dres-player-loop.toml":         "calibration-discipline - it began as a reading run (V8 iteration-1 pattern), MEASURED the optimizer/re-aim defect, and is now ARMED as that fix's regression floor (classification + schedule + count tokens, two decline reasons forbidden, control run recorded). Operator tier is the ordinary promotion call; the tilt disposition it could not reach is V10's lane, not outstanding work here",
+        # V10 is operator by the same calibration discipline: it is a TimeJump
+        # observation lane whose brackets are derived from a specific recording's
+        # replay clock, so it is re-derived rather than re-run when the fixture
+        # changes. Armed on its measurements; the one thing it deliberately does
+        # not arm (the seam-endpoint census pair) is documented in the spec with
+        # the trade that forced it.
+        "V10-dres-loop-arrival.toml":       "calibration-discipline - a TimeJump observation lane whose brackets come from one recording's replay clock; armed on the tilt/geometry/ready tokens PLUS, as of 2026-08-14 (branch `line-blink-census`), the census pair `evaluated=1 outsideSoi=0`. Iteration 5 executed iteration 4's own restoration recipe: both instrument blockers were closed upstream (a WINDOW-EXIT exemption on the line-blink detector, and a class-split census rate-limit key), and iteration 3's -900/-300/+600 escape bracket was restored. It is KEPT not for the census -- which reads without it, falsifying iteration 4's pre-D0 conclusion -- but because the restored pre-D0 jumps make this lane the LIVE REGRESSION FLOOR for the exemption, which visibly fires there (`line-blink-suppressed ... windowTransitionExempt=True toggleVerdict=InsideWindowOn priorToggleVerdict=WindowExitOff` at currentUT~31276442, the very UT that red three times, and now ARMED as a required token so the floor cannot go vacuous)",
+        # V12 is V9's shape on the Eeloo fixture and it has now reached V9's FINISHING
+        # point: it flew twice green on 2026-08-13 (_0053/_0055, byte-identical on
+        # every measured token) and is ARMED on those measurements. The three headline
+        # quantities it was waiting on all came back - cadence 48,883,481.633 is
+        # EXACTLY 5x the 9,776,696.327 s synodic at a 4.8111-synodic raw span (the
+        # program's first multiple past Dres's and Eve's 2), the compressor cut
+        # 5,086,416 s of the LKO ejection wait, and the member reads segs=20
+        # supported=True target=Eeloo. Unlike V9 it measured no defect, so the armed
+        # set is a regression floor for a HEALTHY reading; V9's two decline forbids
+        # come with it because a decline here is now a regression rather than a
+        # reading. Operator tier is the ordinary promotion call. THE NEGATIVE CONTROL
+        # IS RUN AND PASSED, not owed: `_0114` inverted the last digit of the armed
+        # cadence token in the required array only and the lane red
+        # PARSEK-FAIL(expectation) naming exactly `cadence=48883481.632992939`, with
+        # the other nine tokens and every other verifier still green; `_0116` reverted
+        # exactly and re-flew PASS.
+        "V12-eeloo-player-loop.toml":       "calibration-discipline - FLOWN TWICE GREEN 2026-08-13 (_0053 wall 48 s / _0055 wall 49 s, both PASS attempt 1, byte-identical on every measured token) and ARMED on those measurements: a ten-token required list (plumbing trio + the ENGAGED classification + the member topology + cadence==5x synodic to the digit + the loiter cut and the 10.8% compressedSpan cut fraction), V9's two decline reasons forbidden, and count re-pinned {6,6} from the interim window. It measured no defect, so the armed set is a regression floor for a HEALTHY ENGAGED reading at the program's deepest span>synodic ratio. Claims no coverage cells (the value is the measurement and the floor); operator tier is the ordinary promotion call, not a debt - the negative control is RUN AND PASSED (`_0114` inverted the armed cadence token's last digit in the required array only and red PARSEK-FAIL(expectation) naming exactly `cadence=48883481.632992939` with every other token and verifier green; `_0116` reverted exactly and re-flew PASS)",
+        # V12A is V12's missing half and V10's shape on the Eeloo fixture: the
+        # TimeJump lane that actually reaches the per-window synthesizer. It WAS a
+        # TWO-PASS lane by construction and BOTH PASSES ARE NOW FLOWN - pass 1
+        # (`_0120`) printed the five replay-clock quantities, pass 2 recomputed all
+        # seven jump UTs from them and flew twice byte-identically (`_1513`/`_1515`),
+        # and the lane is ARMED, negative-controlled and reverted (`_1536`/`_1537`/
+        # `_1539`). So the post-reading arming call this entry used to wait on is
+        # DONE, and the entry stays only because the completeness cell keys on
+        # `tier == "operator"` rather than on the `flown` tag.
+        # WHAT THE MEASUREMENT SAYS, and it is not what the lane predicted: the tilt
+        # came back `state=noop reason=in-plane`, because the solved conic's 4.0725 deg
+        # is BELOW the 6.6500 deg bound so the excessive-tilt gate never opened. Eeloo
+        # therefore tested the BOUND ARITHMETIC and NOT the retention branch, which
+        # remains Eve-only-validated - the tilt plan's claim scope is NOT widened by
+        # this lane (filed REAIM-TILT-NOOP-AT-EELOO-6.15-DEG). The M-MIS-3 claim is
+        # likewise NARROWER than the pre-flight header asserted: the band is pinned as
+        # COMPUTED at e=0.26 but was never WALKED (step 0 accepted, devFromRecorded=0s),
+        # so the behavioural half of that debt is still open
+        # (M-MIS-3-BAND-COMPUTED-NOT-EXERCISED). The census stays unarmed for a reason
+        # now better understood than V10's carried one.
+        "V12A-eeloo-loop-arrival.toml":     "calibration-discipline - BOTH PASSES FLOWN AND ARMED 2026-08-13: a two-pass TimeJump observation lane whose seven brackets are arithmetic on one recording's replay clock and on the product's own re-aimed soiEntryUT (pass 1 `_0120` printed them, pass 2 `_1513`/`_1515` flew the recomputed shape byte-identically, `_1536` armed PASS, `_1537` negative control correctly PARSEK-FAIL(expectation) naming the one inverted digit, `_1539` reverted PASS). ARMED on 13 tokens - the measured noop tilt literal plus its derivable bound pair, the e=0.26 band, all three synth-geometry proximity checks including the MEASURED Eeloo SOI constant, and the ready line - with count re-pinned {6,6} and the decline forbid narrowed to `state=declined reason=unreachable-plane`. TWO FINDINGS LIMIT WHAT IT PROVES, both filed: the tilt read noop/in-plane because the solved conic sat BELOW the bound, so Eeloo tested the bound arithmetic and NOT the retention branch (still Eve-only-validated); and the tof band is pinned as COMPUTED but never WALKED (step 0 accepted), so the behavioural half of M-MIS-3 stays open. The seam-endpoint census was a documented reading until 2026-08-14, when the shared-key blocker this lane DIAGNOSED was fixed on branch `line-blink-census` by class-splitting the key (measured vs skip-only); re-flown verbatim twice green, `evaluated=1 outsideSoi=0` is now armed as a 14th token, confirming the bracket was dead on the seam all along and the census merely silent. Operator tier is the ordinary promotion call, not a debt",
         # The V2 dwell is operator BY THE CALIBRATION DISCIPLINE (V1 precedent):
         # its first flight is a deliberately under-gated READING run whose red,
         # if any, is evidence; promotion is the post-reading arming call, not a
@@ -4710,6 +5005,9 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
         "V6T-mun-ts-arrival.toml":          "FLOWN GREEN 2026-08-08 (2026-08-08_1559 reading, PASS attempt 1, 50 s) - the TS host materialized the looped faithful moon member (`created 1 ghost vessel(s)`, Mun-framed hyperbola, `factory chain ... reaimed=False`, V5's token inverted). ARMED on both save-structure blocks (armed run 2026-08-08_1641 PASS attempt 1; negative control shared with V6M's 1644). Operator tier is now an open PROMOTION call, not debt",
         "V7M-minmus-player-loop.toml":      "FLOWN GREEN 2026-08-08 after one falsification and one calibration (_1600 INVALID: the pinned watch OK was wrong because being inside the 300 km figure V4 quotes is NOT sufficient for entry - refused at 144-199 km, entered at 51.5 km, so the entry boundary brackets in (51.5 km, 144.3 km); the MECHANISM behind that boundary is UNESTABLISHED and the 120 km render-zone explanation first written for it was retracted 2026-08-09, see docs/dev/todo-and-known-bugs.md -> WATCH-ENTRY-REFUSED-INSIDE-QUOTED-RANGE; _1607 calibration located an in-boundary epoch; _1613 PASS attempt 1, 53 s, with the suite's FIRST watch-mode entry). ARMED on both save-structure blocks (armed run 2026-08-08_1642 PASS attempt 1; negative control shared with V6M's 1644). Carries one report-only product finding (a teardown NRE in WatchModeController.RestoreCameraAfterWatchExit when a run ends inside watch mode) which is FILED, not owed by this spec - and deliberately NOT armed as a unityExceptions ceiling, since the two green flights of the identical shape counted 1 and 5 raw NREs. Operator tier is now an open PROMOTION call, not debt",
         "V7T-minmus-ts-arrival.toml":       "FLOWN 2026-08-08, RED BY FINDING and deliberately kept red (2026-08-08_1614 and _1616, both PARSEK-FAIL(anomaly), both `icon-off-orbit angleIconVsOrbitEff=131.22` to the decimal - deterministic, not a flake). Every other verifier green, all 16 steps met. The V1-map-dwell-mun-orbit precedent applies: a red-by-finding lane is an outcome, not a debt this tag would name. What a human owns here is the icon question itself, and it is written up in the spec header with a named discriminating experiment; report-only, nothing armed",
+        "V8-eve-player-loop.toml":          "FLOWN GREEN 2026-08-11 through four reading iterations on the new eve-orbit-recorded fixture - the program's first ENGAGED inward transfer and its first span>synodic loop unit (_0802 arm-and-read; _0807 brackets, PASS, and the FIRST-EVER seam-endpoint-outside-soi raise, ratio 4.6216 on the Sun->Eve seam after the tilt gate declined all 27 tof candidates to a faithful window; _0810 and _0814 PARSEK-FAIL(anomaly) on a line-blink detector gap at back-to-back seam-straddling TimeJumps, both filed with artifacts in todo-and-known-bugs.md, spec re-paced with RecordingState spacers rather than any anomaly exemption; _0818 and _0819 both PASS attempt 1 with clean sweeps - two consecutive flights of the final shape, the raise reproducing bit-identically at ratio=4.6216 on every bracketed run). ARMED on both save-structure blocks (armed run 2026-08-11_0828 PASS attempt 1, gating=True mismatches=0; negative control _0830 PARSEK-FAIL(save-structure) on the single inverted window `rewind.supersedeRows 0 < min 1`, reverted). The finding trio (tilt-decline, faithful window, the seam-endpoint raise) plus the D11 cut token are REQUIRED - the GS-3-style regression floor: a change that un-declines Eve's windows or moves the arrival geometry reds this lane and forces a re-read. FIX ERA (2026-08-11, branch reaim-inclined-targets): the tilt-retention fix red the floor BY DESIGN (_1242, exactly the three trio mismatches) and the lane was re-pinned to the healthy state (re-aimed transfer ready devFromRecorded=0s, state=retained, census outsideSoi=0; readings _1244/_1245, control _1246) with the old trio inverted into forbidden. Operator tier is calibration discipline, not debt",
+        "V8T-eve-ts-arrival.toml":          "FLOWN GREEN 2026-08-11 (reading _0835 a1 INVALID on the TS-LOADGAME-RECORDING-ACTIVE-RACE, sighting 3, filed; _0836 a2 PASS clean; armed _0843 PASS attempt 1, gating=True mismatches=0; control shared with V8's _0830). First TS observation of a looped inward-transfer arrival: Eve-framed inbound materialized (created 1 ghost vessel(s), body=Eve TS token gates the D14 eve claim), factory reaimed=False (V5's Duna pin inverted - the tilt-declined faithful-window shape), census structural zero told from blindness, and the parity pair V5 omitted carried here. Surfaced + filed TS-FLUSHED-SAVE-DROPS-DEBRIS-TERMINALSTATE (byte-verified). FIX ERA (2026-08-11): the tilt-retention fix flipped the TS chain to genuinely re-aimed (baseline _1247 red on the reaimed=False pin; live reaimed=True phases=11); re-pinned to reaimed=True with fallback tokens forbidden (readings _1252/_1253). Operator tier is calibration discipline, not debt",
+        "V8F-eve-loop-faithful.toml":       "FLOWN GREEN 2026-08-11 (iteration 1 PARSEK-FAIL on the author's own unescaped-parens regex, fixed; then two consecutive PASS runs with the five-raise set reproducing (four of five ratios to four decimals, the fifth 1 ulp: 138.2108/138.2109); armed same day, control shared with V8's _0830). The deliberate-faithful A/B half: FORCED FAITHFUL required + ENGAGED forbidden, the forced unit measured SELF-OVERLAPPING (overlapCadence = span/20, where the ENGAGED unit reads overlaps=no), and the hlib promotion blocker (2) population measured and PINNED - the first outsideSoi=[1-9] census pin, four per-instance Sun->Eve arrival raises (52.70-203.20) plus a Kerbin->Mun transit-seam raise (4.80). Calibration fact filed: benign ratios straddle V8's 4.6216 defect reading, so ratio cannot separate the classes. FIX ERA (2026-08-11): confirmed BYTE-IDENTICAL on the tilt-retention-fixed DLL (_1250 PASS - forced faithful bypasses the synth, the knob isolation held). Operator tier is calibration discipline, not debt",
     }
 
     def _specs(self):
@@ -4777,8 +5075,21 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
         "L1-upgrade-facility-career.toml",    # proven live at -150,000, hardDivergences=0
     )
 
+    # The 2026-08-12 drop, on the entry's OWN written rule ("DROP THIS ENTRY on that
+    # green run") and S4.1's quoted rule that the tag "stays until that first green
+    # run". Discharged by run `2026-08-11_2111` attempt 2 (PASS, wall 62 s): the three
+    # post-fix conclusion tokens the entry was still holding for
+    # (`outcome=retired-empty-provisional`, `AppendRelations
+    # outcome=refused-unflown-provisional`, `outcome=concluded-no-supersede`) all fired
+    # verbatim, both pre-fix `forbidden` cascade lines stayed absent, and expectations
+    # read mismatches=0. Attempt 1 was INVALID(driver, seam-timeout) and is recorded as
+    # a driver flake in the spec header - an INVALID is not a failed green run.
+    DROPPED_2026_08_12 = (
+        "S4.2-refly-world-preservation.toml",  # own rule: "DROP THIS ENTRY on that green run"
+    )
+
     def test_the_specs_promoted_out_stay_out(self):
-        for name in self.DROPPED_2026_07_31:
+        for name in self.DROPPED_2026_07_31 + self.DROPPED_2026_08_12:
             tags = load_spec(name).get("tags") or []
             self.assertNotIn("pending-operator", tags,
                              "%s was live-proven and owes no operator work" % name)
@@ -5028,7 +5339,24 @@ class SaveStructureVerifierWiringTests(unittest.TestCase):
                        # second gate armed on top of it.
                        "V6M-mun-player-loop.toml",
                        "V6T-mun-ts-arrival.toml",
-                       "V7M-minmus-player-loop.toml"}
+                       "V7M-minmus-player-loop.toml",
+                       # V8: armed 2026-08-11 off the two consecutive clean
+                       # reading runs of the final paced shape (_0818/_0819,
+                       # saveParse REPORT all-zero rewind facets, trees=1,
+                       # committedTrees=1); armed + negative-control run ids
+                       # on the spec header's ARMING LEDGER and the status
+                       # row.
+                       "V8-eve-player-loop.toml",
+                       # V8T: armed 2026-08-11 off its reading run (_0836
+                       # a2, all-zero rewind facets, trees=1,
+                       # committedTrees=1); negative control shared with
+                       # V8's _0830 (the shared-evaluator precedent).
+                       "V8T-eve-ts-arrival.toml",
+                       # V8F: armed 2026-08-11 off its two consecutive
+                       # clean runs (_0853/_0854, the five-raise set; four
+                       # of five ratios to four decimals, fifth 1 ulp; armed run
+                       # _0857); control shared with V8's _0830.
+                       "V8F-eve-loop-faithful.toml"}
 
     def test_no_committed_spec_arms_gating(self):
         armed = []
@@ -5161,7 +5489,8 @@ class AnomalyGrepAnchoringTests(unittest.TestCase):
         # not-a-hit example when icon-teleport was PROMOTED into the gate 2026-08-04.
         #
         # PHASE anchor. `line-blink-suppressed` is the Tier-B line the dark-window
-        # guard emits when it eats a would-be raise (MapRenderProbe.cs:762 ->
+        # guard emits when it eats a would-be raise (the `line-blink-suppressed`
+        # EmitOnChange in MapRenderProbe's proto-orbit-line block ->
         # MapRenderTrace.EmitOnChange -> `phase=line-blink-suppressed`, NOT
         # phase=Anomaly), and its phase token CONTAINS the gated `line-blink`. A
         # substring sweep would red a green V1 dwell on the very line that proves
@@ -5187,11 +5516,14 @@ class AnomalyGrepAnchoringTests(unittest.TestCase):
                          hlib.grep_anomaly_tokens(log))
 
     def test_unlisted_reasons_are_reported_not_gated(self):
-        # The report-not-gate channel, exercised on the TWO reasons that are still
-        # deliberately ungated after the 2026-08-04 promotion (both INSTRUMENTS:
-        # `factory-parity` is a shadow comparator that never drives a draw,
-        # `unaccounted-drawn-recording` is the S0 polyline-coverage probe). They must
-        # surface without changing the verdict; the gated token alongside them must.
+        # The report-not-gate channel, exercised on two of the reasons that are
+        # deliberately ungated (both INSTRUMENTS: `factory-parity` is a shadow
+        # comparator that never drives a draw, `unaccounted-drawn-recording` is the
+        # S0 polyline-coverage probe). Two of them, not "the two" - the ungated set
+        # is three since the encounter-geometry lens joined it on 2026-08-09, and
+        # `test_the_ungated_list_is_the_settled_instrument_set` owns the membership
+        # claim. They must surface without changing the verdict; the gated token
+        # alongside them must.
         log = "\n".join(
             "[Parsek][INFO][MapRenderTrace] phase=Anomaly pid=1 reason=" + t
             for t in ("factory-parity", "unaccounted-drawn-recording", "parity-drift"))
@@ -5321,7 +5653,14 @@ class IngameCategoryInventoryDocTests(unittest.TestCase):
     def test_the_stated_totals_match_the_table(self):
         stated_decls = sum(r[0] for r in self.rows.values())
         body = "\n".join(self.lines)
-        self.assertIn("**99 categories / %d declarations**" % stated_decls, body,
+        # The category COUNT is hardcoded here on purpose: it is the one token the
+        # table cannot self-check (a row added AND the totals line updated by hand
+        # would agree with each other while both drifted from the source). 99 -> 100
+        # with the `ReFlyWorldPreservation` category (S4.2), 100 -> 101 with
+        # `RecordedSignals` (H33), 101 -> 102 with `SnapshotBaseline` (H32),
+        # 102 -> 103 with `PlaybackFidelity` (H36), 103 -> 104 with
+        # `PartEventFidelity` (H37).
+        self.assertIn("**104 categories / %d declarations**" % stated_decls, body,
                       "the triage totals line disagrees with the table it summarises "
                       "(table sums to %d declarations across %d categories)"
                       % (stated_decls, len(self.rows)))
@@ -5449,10 +5788,12 @@ class AnomalyGroundTruthEnumerationTests(unittest.TestCase):
     exists to size, so it is derived from the C# source here.
 
     The 2026-08-04 calibration sweep PROMOTED seven of the nine into
-    ANOMALY_TOKENS, leaving two declared instruments. That changes what these cells
-    guard but not why they exist: the partition still has to hold, and now a raise
-    site added without a decision lands as an un-gated, un-declared reason and
-    reds here."""
+    ANOMALY_TOKENS, leaving two declared instruments; the encounter-geometry lens
+    made it three on 2026-08-09. That changes what these cells guard but not why
+    they exist: the partition still has to hold, and now a raise site added without
+    a decision lands as an un-gated, un-declared reason and reds here. Membership,
+    never a count, is the contract - a count written in prose is the thing that
+    goes stale, and understating it understates the fail-open."""
 
     def setUp(self):
         self.assertTrue(os.path.isdir(PARSEK_SRC_DIR),
@@ -5464,7 +5805,7 @@ class AnomalyGroundTruthEnumerationTests(unittest.TestCase):
         # Anti-vacuity for the scanner itself: an empty / near-empty walk would make
         # every set assertion below trivially true.
         self.assertGreaterEqual(len(self.raised), 15)
-        self.assertIn("Source/Parsek/MapRenderProbe.cs:871",
+        self.assertIn("Source/Parsek/MapRenderProbe.cs:1012",
                       self.raised.get("icon-teleport", []))
         self.assertIn("Source/Parsek/GameActions/FacilityStatePatcher.cs:158",
                       self.raised.get("ledger-vs-truth", []))
@@ -5483,23 +5824,55 @@ class AnomalyGroundTruthEnumerationTests(unittest.TestCase):
             "listed in ANOMALY_REASONS_RAISED_UNGATED (or a listed one no longer "
             "exists) - re-derive the todo-doc table in the same change")
 
-    def test_the_ungated_count_is_two_instruments(self):
+    def test_the_ungated_list_is_the_settled_instrument_set(self):
         # After the 2026-08-04 calibration promotion the ungated list is no longer a
         # backlog to be worked down - it is the SETTLED instrument list, and its
-        # membership is the claim worth pinning. Exactly two survive, and each
-        # survives for a written reason (see the tuple's comment block): a raise from
-        # either reports an instrumentation/diagnostic condition, not a rendered
-        # defect, so gating it would red a flight for the probe's own gap.
+        # membership is the claim worth pinning. Each entry survives for a written
+        # reason (see the tuple's comment block), and the reasons are NOT all the
+        # same shape, which is why the cell pins membership rather than a count:
+        #   - `unaccounted-drawn-recording` / `factory-parity`: a raise reports an
+        #     instrumentation/diagnostic condition, not a rendered defect, so gating
+        #     it would red a flight for the probe's own gap.
+        #   - `seam-endpoint-outside-soi` (added with the encounter-geometry
+        #     instrument): a raise WOULD be a real finding. This comment used to say
+        #     the instrument had never flown; the 2026-08-09 seam-endpoint census
+        #     retired that - it flew, healthy, on V4 and V7M. The blockers hlib's
+        #     tuple comment names are now the RAISE never having fired, plus TWO
+        #     unmeasured benign populations (a faithful loop replay of an
+        #     interplanetary transfer, and a re-aimed member whose arrival the
+        #     producer re-timed). Read that comment, not this list, for the current
+        #     promotion decision.
+        # The cell was named `..._count_is_two_instruments` while two was the whole
+        # claim; it is renamed rather than re-numbered because the COUNT was never
+        # the contract - the membership is.
         self.assertEqual(
-            [("unaccounted-drawn-recording", "Source/Parsek/MapRenderProbe.cs:477"),
-             ("factory-parity", "Source/Parsek/MapRender/ShadowRenderDriver.cs:709")],
+            [("unaccounted-drawn-recording", "Source/Parsek/MapRenderProbe.cs:544"),
+             ("factory-parity", "Source/Parsek/MapRender/ShadowRenderDriver.cs:709"),
+             ("seam-endpoint-outside-soi", "Source/Parsek/MapRenderProbe.cs:2288")],
             list(hlib.ANOMALY_REASONS_RAISED_UNGATED),
             "the report-only instrument list changed - that is a calibration "
             "decision (defect signal vs instrument), not a bookkeeping edit")
-        # ...and both are still genuinely RAISED. An instrument nobody raises is a
-        # dead token and belongs in ANOMALY_TOKENS_DEAD, not here.
+        # ...and every one is still genuinely RAISED. An instrument nobody raises is
+        # a dead token and belongs in ANOMALY_TOKENS_DEAD, not here.
         for reason, _ in hlib.ANOMALY_REASONS_RAISED_UNGATED:
             self.assertIn(reason, self.raised)
+        # ...and the pinned file:line POINTER still resolves, which nothing checked
+        # until 2026-08-09 - the seam entry's line had already gone stale twice inside
+        # one branch by then, once while the author was fixing stale line citations.
+        # The tuple's own comment block declares the convention: the pointer is the
+        # DECISION site, which for a wrapper-routed raise (of the live entries, only
+        # `factory-parity`) is the guard rather than the EmitAnomaly call the scanner
+        # sees. Those are exempted by name; everything else must match a site the C#
+        # scan actually found, so a pointer cannot rot silently.
+        wrapper_routed_pointer = {"factory-parity"}
+        for reason, pointer in hlib.ANOMALY_REASONS_RAISED_UNGATED:
+            if reason in wrapper_routed_pointer:
+                continue
+            self.assertIn(
+                pointer, self.raised[reason],
+                "ANOMALY_REASONS_RAISED_UNGATED pins %s at %s, but the C# scan finds "
+                "its EmitAnomaly at %s - re-derive the pointer here, in the literal "
+                "above, and in the todo-doc table" % (reason, pointer, self.raised[reason]))
 
     def test_the_four_wrapper_routed_raises_are_accounted_for(self):
         # The 2026-07-26 first pass listed 5 of 9 ungated reasons because these four
@@ -5562,8 +5935,11 @@ class AnomalyGroundTruthEnumerationTests(unittest.TestCase):
     def test_status_doc_names_every_report_only_instrument(self):
         # autotest-status.md is declared the single status authority for this
         # system, and its gate-0 list is what a reader acts on. It said FIVE for
-        # one commit; keep it tied to the source-derived tuple - which after the
-        # 2026-08-04 promotion is the two-instrument list, not nine.
+        # one commit; keep it tied to the tuple rather than to any number spelled
+        # out here. The cell asserts NAME PRESENCE per entry and deliberately counts
+        # nothing, so it stays correct as the set grows (it went two -> three on
+        # 2026-08-09) - which is also why it never caught the count prose that did
+        # drift.
         with open(AUTOTEST_STATUS_DOC, encoding="utf-8") as fh:
             body = fh.read()
         for reason, _ in hlib.ANOMALY_REASONS_RAISED_UNGATED:
@@ -10207,3 +10583,356 @@ class FxFingerprintReportTests(unittest.TestCase):
         lines = hlib.format_fx_fingerprint_diff(d, "stock minimal", "modded compat")
         self.assertTrue(lines[0].startswith("fx-fingerprint-diff "))
         self.assertTrue(lines[1].startswith("only-in-a side=stock minimal part='"))
+
+
+# ---------------------------------------------------------------------------
+# Shared craft library (harness/fixtures/ships + shared-ships.toml).
+# ---------------------------------------------------------------------------
+
+
+FIXTURES_DIR = os.path.join(HARNESS_ROOT, "fixtures")
+FIXTURE_SAVES_DIR = os.path.join(FIXTURES_DIR, "saves")
+SHIPS_DIR = os.path.join(FIXTURES_DIR, hlib.SHARED_SHIPS_DIRNAME)
+SHARED_SHIPS_PATH = os.path.join(FIXTURES_DIR, hlib.SHARED_SHIPS_MANIFEST_NAME)
+
+
+def _library_ship_names():
+    suffix = hlib.SHARED_SHIP_SUFFIX
+    if not os.path.isdir(SHIPS_DIR):
+        return []
+    return sorted(n[:-len(suffix)] for n in os.listdir(SHIPS_DIR) if n.endswith(suffix))
+
+
+def _fixture_save_names():
+    if not os.path.isdir(FIXTURE_SAVES_DIR):
+        return []
+    return sorted(n for n in os.listdir(FIXTURE_SAVES_DIR)
+                  if os.path.isdir(os.path.join(FIXTURE_SAVES_DIR, n)))
+
+
+def _read_manifest():
+    with open(SHARED_SHIPS_PATH, "rb") as fh:
+        return hlib.parse_shared_ships_manifest(tomllib.load(fh))
+
+
+class SharedShipOverlayPlanTests(unittest.TestCase):
+    """Pure resolution of the per-save craft overlay (hlib.plan_shared_ship_overlay).
+
+    Guards the decision half of the fixture dedup: a save fixture no longer commits
+    its own copy of a craft two or more fixtures share, so the copy has to arrive at
+    stage time or `launch_vessel` cannot resolve `<save>/Ships/VAB/<name>.craft`.
+    """
+
+    MAN = {"a-save": ("Kerbal X", "Duna Rocket"), "b-save": ("Kerbal X",)}
+    LIB = ("Kerbal X", "Duna Rocket")
+
+    def test_a_declared_save_resolves_its_craft_in_declaration_order(self):
+        plan = hlib.plan_shared_ship_overlay("a-save", self.MAN, self.LIB, [])
+        self.assertEqual((), plan.errors)
+        self.assertEqual([("Kerbal X.craft", "Kerbal X.craft"),
+                          ("Duna Rocket.craft", "Duna Rocket.craft")], list(plan.entries))
+
+    def test_a_save_absent_from_the_manifest_overlays_nothing_and_is_not_an_error(self):
+        # Most fixtures (the fresh-* KSC templates) carry no craft at all; an
+        # unlisted save must stage exactly as a verbatim copytree would.
+        plan = hlib.plan_shared_ship_overlay("fresh-career", self.MAN, self.LIB, [])
+        self.assertEqual((), plan.entries)
+        self.assertEqual((), plan.errors)
+
+    def test_a_declared_ship_missing_from_the_library_is_an_error_not_a_silent_skip(self):
+        # The resolvable sibling still appears in entries -- the plan is partial,
+        # not empty. The shell must gate on `errors` and never on `entries` being
+        # empty, which is what the staging-abort test below pins.
+        plan = hlib.plan_shared_ship_overlay("a-save", self.MAN, ("Kerbal X",), [])
+        self.assertEqual([("Kerbal X.craft", "Kerbal X.craft")], list(plan.entries))
+        self.assertEqual(1, len(plan.errors))
+        self.assertIn("Duna Rocket", plan.errors[0])
+        self.assertIn("not in the ship library", plan.errors[0])
+
+    def test_a_ship_both_declared_and_committed_physically_is_an_error(self):
+        # This is the dedup-regressed shape: silently overlaying would overwrite a
+        # committed copy that may have diverged, hiding exactly the drift the
+        # shared library exists to prevent.
+        plan = hlib.plan_shared_ship_overlay("b-save", self.MAN, self.LIB, ["Kerbal X.craft"])
+        self.assertEqual((), plan.entries)
+        self.assertEqual(1, len(plan.errors))
+        self.assertIn("declared shared AND committed", plan.errors[0])
+
+    def test_an_unrelated_committed_craft_beside_the_overlay_is_left_alone(self):
+        plan = hlib.plan_shared_ship_overlay("b-save", self.MAN, self.LIB, ["Auto-Saved Ship.craft"])
+        self.assertEqual((), plan.errors)
+        self.assertEqual([("Kerbal X.craft", "Kerbal X.craft")], list(plan.entries))
+
+    def test_a_traversal_ship_name_is_rejected(self):
+        man = {"a-save": ("../../../etc/passwd", "..")}
+        plan = hlib.plan_shared_ship_overlay("a-save", man, self.LIB, [])
+        self.assertEqual((), plan.entries)
+        self.assertEqual(2, len(plan.errors))
+        self.assertTrue(all("not filename-safe" in e for e in plan.errors))
+
+    def test_a_duplicate_row_entry_copies_once(self):
+        man = {"a-save": ("Kerbal X", "Kerbal X")}
+        plan = hlib.plan_shared_ship_overlay("a-save", man, self.LIB, [])
+        self.assertEqual((), plan.errors)
+        self.assertEqual(1, len(plan.entries))
+
+    def test_a_malformed_manifest_body_parses_to_empty_rather_than_raising(self):
+        # Staging turns an unresolved save into a named error; a traceback out of
+        # the TOML shape would lose that naming.
+        self.assertEqual({}, hlib.parse_shared_ships_manifest(None))
+        self.assertEqual({}, hlib.parse_shared_ships_manifest({"ships": "not-a-table"}))
+        self.assertEqual({"s": ("Kerbal X",)},
+                         hlib.parse_shared_ships_manifest({"ships": {"s": ["Kerbal X", 7]}}))
+
+    def test_a_bare_table_without_the_ships_wrapper_is_accepted(self):
+        self.assertEqual({"s": ("Kerbal X",)},
+                         hlib.parse_shared_ships_manifest({"s": ["Kerbal X"]}))
+
+
+class SharedShipsManifestTests(unittest.TestCase):
+    """The COMMITTED fixture tree against the COMMITTED manifest.
+
+    This is the regression floor for the dedup itself. Before it, a craft flown by
+    several fixtures was committed once per fixture: 27 files, 180,799 duplicated
+    lines, twelve byte-identical copies of `Kerbal X.craft` alone -- and each copy
+    drifted independently, which is why `build_dd1_craft.py` had grown a tuple
+    naming "EVERY committed copy of the craft" so its byte gate could walk them.
+    A re-introduced copy reds HERE instead of quietly restoring that state.
+    """
+
+    def test_the_committed_manifest_satisfies_every_invariant(self):
+        errors = hlib.validate_shared_ships_manifest(
+            _read_manifest(), _library_ship_names(), _fixture_save_names())
+        self.assertEqual((), errors, "shared-ships.toml invariants: %s" % (errors,))
+
+    def test_no_committed_fixture_file_duplicates_a_shared_library_craft(self):
+        # The anti-regression sweep. Hash every committed file under fixtures/saves
+        # and assert none is byte-identical to a library craft. Content-addressed on
+        # purpose: a re-introduced copy under a DIFFERENT name (a rename, a harvest
+        # that renamed the ship) is the same duplication and must red the same way.
+        import hashlib
+        lib_digests = {}
+        for name in os.listdir(SHIPS_DIR):
+            path = os.path.join(SHIPS_DIR, name)
+            with open(path, "rb") as fh:
+                lib_digests[hashlib.sha256(fh.read()).hexdigest()] = name
+        offenders = []
+        for dirpath, _, filenames in os.walk(FIXTURE_SAVES_DIR):
+            for fn in filenames:
+                path = os.path.join(dirpath, fn)
+                with open(path, "rb") as fh:
+                    digest = hashlib.sha256(fh.read()).hexdigest()
+                if digest in lib_digests:
+                    offenders.append("%s duplicates fixtures/%s/%s"
+                                     % (os.path.relpath(path, FIXTURES_DIR).replace("\\", "/"),
+                                        hlib.SHARED_SHIPS_DIRNAME, lib_digests[digest]))
+        self.assertEqual([], sorted(offenders),
+                         "committed fixture files duplicate a shared library craft; add a "
+                         "shared-ships.toml row instead of copying the .craft in")
+
+    def test_every_manifest_row_resolves_against_the_committed_library(self):
+        manifest, lib = _read_manifest(), _library_ship_names()
+        for save in sorted(manifest):
+            vab = os.path.join(FIXTURE_SAVES_DIR, save, *hlib.SHARED_SHIPS_DEST_SEGMENTS)
+            existing = os.listdir(vab) if os.path.isdir(vab) else []
+            plan = hlib.plan_shared_ship_overlay(save, manifest, lib, existing)
+            self.assertEqual((), plan.errors, "%s: %s" % (save, plan.errors))
+            self.assertEqual(len(manifest[save]), len(plan.entries), save)
+
+    def test_every_spec_that_launches_a_craft_can_resolve_it(self):
+        """The consumer-side gate, and the one that stops a dedup slip costing a flight.
+
+        A spec that drives `launch_vessel` names its craft in
+        `driver.missionParams.craftName`, and kRPC resolves it against
+        `<save>/Ships/VAB/<craftName>.craft` in the STAGED save. Post-dedup that
+        file arrives one of two ways: physically in the fixture, or via a
+        `shared-ships.toml` row. Neither present means the save stages craftless
+        and `stage_fixture` reports success -- an unlisted save resolves zero
+        entries AND zero errors by design, because most fixtures need no shared
+        craft at all. The run then boots and dies minutes later inside the mission
+        as a driver-INVALID against a perfectly good spec, which is the exact
+        misdirection the overlay's fail-closed path exists to prevent.
+
+        An earlier version of this cell asserted only that each saveTemplate leaf
+        was a real directory and that EXISTING rows resolve -- both of which stay
+        true when a row is dropped, so it could not see the failure it was named
+        for. This is the strong form: physical-or-declared, per launching spec."""
+        manifest = _read_manifest()
+        library = set(_library_ship_names())
+        unresolved = []
+        for name in sorted(n for n in os.listdir(SCENARIOS_DIR) if n.endswith(".toml")):
+            with open(os.path.join(SCENARIOS_DIR, name), "rb") as fh:
+                spec = tomllib.load(fh)
+            params = ((spec.get("driver", {}) or {}).get("missionParams", {}) or {})
+            craft = params.get("craftName")
+            if not craft:
+                continue
+            leaf = ((spec.get("fixture", {}) or {}).get("saveTemplate", "")
+                    ).replace("\\", "/").rstrip("/").rsplit("/", 1)[-1]
+            physical = os.path.isfile(os.path.join(
+                FIXTURE_SAVES_DIR, leaf, *(hlib.SHARED_SHIPS_DEST_SEGMENTS
+                                           + (craft + hlib.SHARED_SHIP_SUFFIX,))))
+            declared = craft in manifest.get(leaf, ()) and craft in library
+            if not (physical or declared):
+                unresolved.append("%s: %s launches %r from %r, which carries it "
+                                  "neither physically nor via shared-ships.toml"
+                                  % (name, name[:-5], craft, leaf))
+        self.assertEqual([], unresolved, "\n".join(unresolved))
+
+    def test_every_spec_saveTemplate_names_a_real_fixture(self):
+        manifest = _read_manifest()
+        saves = set(_fixture_save_names())
+        for name in sorted(n for n in os.listdir(SCENARIOS_DIR) if n.endswith(".toml")):
+            path = os.path.join(SCENARIOS_DIR, name)
+            with open(path, "rb") as fh:
+                spec = tomllib.load(fh)
+            template = (spec.get("fixture", {}) or {}).get("saveTemplate", "")
+            if not template:
+                continue
+            leaf = template.replace("\\", "/").rstrip("/").rsplit("/", 1)[-1]
+            self.assertIn(leaf, saves,
+                          "%s: saveTemplate %r names no fixture directory"
+                          % (os.path.basename(path), template))
+            for ship in manifest.get(leaf, ()):
+                self.assertTrue(
+                    os.path.isfile(os.path.join(SHIPS_DIR, ship + hlib.SHARED_SHIP_SUFFIX)),
+                    "%s: fixture %s declares missing library craft %r"
+                    % (os.path.basename(path), leaf, ship))
+
+
+class CommittedFixtureMirrorTests(unittest.TestCase):
+    """No readable SNAPSHOT mirror may be committed under `fixtures/saves/`.
+
+    Parsek writes a readable text mirror beside each authoritative sidecar
+    (default-on diagnostics), and harvesting a produced save used to bring all
+    three into the fixture tree. The two snapshot mirrors cost 334,023 lines over
+    99 files - 1.85x the craft duplication the shared ship library removed -
+    and are strictly derived from the committed `_vessel.craft` / `_ghost.craft`
+    binaries: an offline decode reconstructs all 99 byte-for-byte, the binary being
+    a strict superset of the text. Loading the fixture in KSP rewrites them - the
+    vessel mirror through `ReconcileReadableSidecarMirrors`'s `AuthoritativeSidecar`
+    fallback, the ghost mirror through load-time snapshot hydration (there is no
+    ghost write-path fallback; `GhostSource` is only ever `InMemory`). So the
+    observability is regenerable and the committed copies are pure redundancy.
+
+    The TRAJECTORY mirror (`.prec.txt`) is deliberately NOT gated: four scenario
+    headers cite values read straight out of one, so it stays committed. This test
+    asserts BOTH halves, so a later sweep cannot quietly take the cited surface
+    with it."""
+
+    SNAPSHOT_MIRROR_SUFFIXES = ("_vessel.craft.txt", "_ghost.craft.txt")
+
+    def _committed(self):
+        out = []
+        for dirpath, _, filenames in os.walk(FIXTURE_SAVES_DIR):
+            for fn in filenames:
+                out.append(os.path.relpath(os.path.join(dirpath, fn),
+                                           FIXTURE_SAVES_DIR).replace("\\", "/"))
+        return out
+
+    def test_no_snapshot_mirror_is_committed(self):
+        offenders = sorted(f for f in self._committed()
+                           if f.endswith(self.SNAPSHOT_MIRROR_SUFFIXES))
+        self.assertEqual([], offenders,
+                         "readable snapshot mirrors are derived from the committed "
+                         "_vessel.craft / _ghost.craft binaries and must not be "
+                         "committed; harvest_bdock_station.py prunes them")
+
+    def test_the_authoritative_snapshot_binaries_are_still_committed(self):
+        # The other half of the trade: the mirrors are safe to drop only BECAUSE
+        # the binaries they are rebuilt from are here. A sweep that took both would
+        # destroy the fixture, and this cell is what catches that.
+        committed = self._committed()
+        precs = [f for f in committed if f.endswith(".prec")]
+        vessels = [f for f in committed if f.endswith("_vessel.craft")]
+        self.assertTrue(precs, "no committed .prec trajectory sidecars remain")
+        self.assertTrue(vessels, "no committed _vessel.craft snapshot sidecars remain")
+        # Every recording with a trajectory must keep its authoritative snapshot.
+        for prec in precs:
+            stem = prec[:-len(".prec")]
+            self.assertIn(stem + "_vessel.craft", committed,
+                          "%s lost its authoritative vessel snapshot" % prec)
+
+    def test_every_committed_trajectory_keeps_its_readable_mirror(self):
+        """`.prec.txt` is a LIVE TEST INPUT, and the gate has to be per-file.
+
+        `OptimizerTransferCohesionTests` globs a fixture's Recordings dir for
+        `*.prec.txt` (line 91) and sweeps every fixture recursively (line 530);
+        `ReaimTransferSynthesizerTests:639` names one directly. Four scenario
+        headers also quote values read out of one.
+
+        An earlier version asserted only that at least ONE `.prec.txt` survived
+        anywhere under fixtures/saves/. That could not trip until the last mirror
+        in the repo went - deleting every mirror from two whole fixtures left it
+        green. The real invariant is that the mirror set tracks the trajectory set,
+        so this pairs them one to one."""
+        committed = set(self._committed())
+        missing = sorted(p[:-len(".prec")] for p in committed
+                         if p.endswith(".prec") and (p + ".txt") not in committed)
+        self.assertEqual([], missing,
+                         "these recordings lost the readable trajectory mirror that "
+                         "OptimizerTransferCohesionTests globs: %s" % (missing,))
+
+
+class CommittedFixtureRewindSaveTests(unittest.TestCase):
+    """No fixture may carry a legacy Rewind-to-LAUNCH quicksave, or a hint to one.
+
+    `Parsek/Saves/parsek_rw_*.sfs` is `Recording.RewindSaveFileName` payload, and
+    arrived in six recorded fixtures as harvest exhaust rather than by decision:
+    137,355 lines over 7 files. Nothing automated reads it - no spec names one, no
+    seam verb reaches it (`InvokeRewind` is Rewind-to-SEPARATION and targets
+    `Parsek/RewindPoints/<rpId>.sfs` through `RewindInvoker`, a different system),
+    and the analyzer's Inv9RewindPoint only does existence + parse checks.
+
+    The FILE and the HINT must go together. A `rewindSave = ` key pointing at a
+    deleted file is a dangling reference: Inv9RewindPoint raises WARN for it, and
+    escalates to FAIL when the owning recording is `CommittedProvisional`
+    (`Inv9RewindPoint.cs:136`) - which `bdock-recorded` carries three of, so
+    deleting the payload alone would turn the analyzer RED under the harness's
+    Forbid fresh-save gate. This cell pins both halves.
+
+    KNOWN, TOLERATED RESIDUAL: `bdock-recorded/Parsek/RewindPoints/rp_*.sfs` embed
+    their own copies of the ParsekScenario, hints included, and are NOT edited -
+    they are byte-sensitive payload (`RewindInvoker.PartLoaderPrecondition.Check`
+    deep-parses their PART names) and `test_saveparse` pins `rewind_points: 3`.
+    Those hints only surface if a run actually invokes a rewind against
+    `bdock-recorded`, and neither consuming spec (`BDOCK-1-station-interceptor`,
+    `H35-logistics-route-proof`) has an `InvokeRewind` step. A spec that adds one
+    must re-check this."""
+
+    def test_no_fixture_commits_a_rewind_to_launch_quicksave(self):
+        offenders = []
+        for dirpath, _, filenames in os.walk(FIXTURE_SAVES_DIR):
+            norm = dirpath.replace("\\", "/")
+            if norm.endswith("/Parsek/Saves"):
+                offenders.extend(
+                    os.path.relpath(os.path.join(dirpath, f),
+                                    FIXTURE_SAVES_DIR).replace("\\", "/")
+                    for f in filenames)
+        self.assertEqual([], sorted(offenders),
+                         "Parsek/Saves is harvest exhaust nothing automated reads; "
+                         "harvest_bdock_station.py prunes it")
+
+    def test_no_fixture_persistent_save_carries_a_dangling_rewind_hint(self):
+        offenders = []
+        for name in sorted(os.listdir(FIXTURE_SAVES_DIR)):
+            path = os.path.join(FIXTURE_SAVES_DIR, name, "persistent.sfs")
+            if not os.path.isfile(path):
+                continue
+            with open(path, "r", encoding="utf-8", errors="replace") as fh:
+                for lineno, line in enumerate(fh, 1):
+                    if re.match(r"^\s*rewindSave = parsek_rw_\w+\s*$", line):
+                        offenders.append("%s:%d" % (name, lineno))
+        self.assertEqual([], offenders,
+                         "a rewindSave hint whose payload is not committed is a "
+                         "dangling reference: Inv9RewindPoint WARNs, and FAILs when "
+                         "the owning recording is CommittedProvisional")
+
+    def test_the_rewind_points_payload_is_untouched(self):
+        # The other half of the trade. RewindPoints are NOT exhaust - they are
+        # deep-parsed payload, and a sweep that confused the two would break
+        # bdock-recorded. `test_saveparse` pins the count at 3; this pins the files.
+        rp_dir = os.path.join(FIXTURE_SAVES_DIR, "bdock-recorded", "Parsek", "RewindPoints")
+        self.assertTrue(os.path.isdir(rp_dir), "bdock-recorded lost its RewindPoints")
+        rps = sorted(f for f in os.listdir(rp_dir) if f.endswith(".sfs"))
+        self.assertEqual(3, len(rps), "expected 3 committed rewind points, got %s" % (rps,))
