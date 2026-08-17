@@ -18,11 +18,9 @@ namespace Parsek
         private Rect lastSettingsWindowRect;
         private bool settingsWindowHeightRemeasurePending;
         private bool tooltipShownLastDraw;
-        // Set on the pass that releases the height, cleared when the fitted height lands
+        // Armed on the pass that releases the height, cleared when the fitted height lands
         // (or when the wait below runs out). Only drives logging - never layout.
-        private bool awaitingHeightFit;
-        private float heightAtHeightFitPass;
-        private int heightFitLogPassesRemaining;
+        private SettingsWindowPresentation.HeightFitLogState heightFitLog;
         /// <summary>
         /// Draw passes to wait for a released height to come back before reporting the fit
         /// as a no-change. GUILayout applies it within the same frame, so this is generous;
@@ -56,6 +54,10 @@ namespace Parsek
             if (!showSettingsWindow)
             {
                 ReleaseInputLock();
+                // A pending fit REPORT cannot outlive the window: no pass runs while closed,
+                // so reopening later would otherwise announce a fit for a long-dead switch.
+                // The fit REQUEST deliberately survives (see RequestHeightRemeasure).
+                heightFitLog = default(SettingsWindowPresentation.HeightFitLogState);
                 return;
             }
 
@@ -77,16 +79,14 @@ namespace Parsek
             // reset + Width-only call caused the title-bar spacing to look off).
             //
             // The ONE exception is a pending re-measure (see RequestHeightRemeasure), which
-            // both DROPS the Height option and hands GUILayout a zero-height rect for that
-            // single Layout pass. Both halves are needed, and the rect is the load-bearing
-            // one: a window's new height is Mathf.Clamp(passedHeight, contentMin, contentMax)
-            // (`GUILayoutUtility.LayoutSingleGroup`, the isWindow branch), and this window's
-            // contentMax sits well above the height an over-tall window already has, so
-            // passing the current height clamps straight back to itself. That is exactly the
-            // reported bug - Advanced -> Basic kept the taller Advanced height, while
-            // Basic -> Advanced only appeared to work because contentMin pushes a too-SHORT
-            // window up. Releasing the height resolves the clamp to contentMin, the true fit,
-            // in both directions.
+            // both DROPS the Height option and hands GUILayout a zero-height RECT for that
+            // single Layout pass. The rect is the load-bearing half: a GUILayout window
+            // resolves to Max(passedHeight, contentMin), so dropping the Height option on its
+            // own leaves an over-tall window exactly as tall as it was - grow-only, and true
+            // of every GUILayout window rather than of this one's content (the full chain is
+            // on SettingsWindowPresentation.BuildHeightFitLayoutRect). That is exactly the
+            // reported bug: Advanced -> Basic kept the taller Advanced height, while
+            // Basic -> Advanced only appeared to work because it is the direction that grows.
             //
             // Held back while the bottom tooltip box is showing: the mode toggle is the
             // control the mouse rests on right after the click, and measuring then would
@@ -136,39 +136,36 @@ namespace Parsek
             // latch runs in Update, so the request is always honoured on the next frame.
             var ric = System.Globalization.CultureInfo.InvariantCulture;
             if (heightFitPass)
-            {
                 settingsWindowHeightRemeasurePending = false;
-                awaitingHeightFit = true;
-                heightAtHeightFitPass = settingsWindowRect.height;
-                heightFitLogPassesRemaining = HeightFitLogPassBudget;
-                ParsekLog.Verbose("UI",
-                    $"Settings window height released for content fit: " +
-                    $"h={heightAtHeightFitPass.ToString("F0", ric)} mode={ParsekUI.AppliedUiComplexityMode}");
-            }
-            else if (awaitingHeightFit)
-            {
-                heightFitLogPassesRemaining--;
-            }
 
             // Report the fit where it actually lands, never on the pass that asked for it.
-            switch (SettingsWindowPresentation.ClassifyHeightFitLog(
-                awaitingHeightFit,
-                heightAtHeightFitPass,
-                settingsWindowRect.height,
-                heightFitLogPassesRemaining))
+            SettingsWindowPresentation.HeightFitLogStep fitStep =
+                SettingsWindowPresentation.AdvanceHeightFitLog(
+                    heightFitLog, heightFitPass, settingsWindowRect.height, HeightFitLogPassBudget);
+            heightFitLog = fitStep.State;
+
+            if (heightFitPass)
+            {
+                ParsekLog.Verbose("UI",
+                    $"Settings window height released for content fit: " +
+                    $"h={heightFitLog.HeightAtFitPass.ToString("F0", ric)} " +
+                    $"mode={ParsekUI.AppliedUiComplexityMode}");
+            }
+
+            switch (fitStep.Outcome)
             {
                 case SettingsWindowPresentation.HeightFitLogOutcome.Applied:
-                    awaitingHeightFit = false;
                     ParsekLog.Verbose("UI",
                         $"Settings window height fit applied: " +
                         $"h={settingsWindowRect.height.ToString("F0", ric)} " +
-                        $"was={heightAtHeightFitPass.ToString("F0", ric)}");
+                        $"was={heightFitLog.HeightAtFitPass.ToString("F0", ric)} " +
+                        $"mode={ParsekUI.AppliedUiComplexityMode}");
                     break;
                 case SettingsWindowPresentation.HeightFitLogOutcome.NoChange:
-                    awaitingHeightFit = false;
                     ParsekLog.Verbose("UI",
                         $"Settings window height fit left the height unchanged: " +
-                        $"h={settingsWindowRect.height.ToString("F0", ric)}");
+                        $"h={settingsWindowRect.height.ToString("F0", ric)} " +
+                        $"mode={ParsekUI.AppliedUiComplexityMode}");
                     break;
             }
 

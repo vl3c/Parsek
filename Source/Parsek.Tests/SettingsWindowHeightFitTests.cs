@@ -127,5 +127,86 @@ namespace Parsek.Tests
                 SettingsWindowPresentation.ClassifyHeightFitLog(
                     awaitingFit: true, heightAtFitPass: 948f, currentHeight: 636f, passesRemaining: 0));
         }
+
+        // ------------------------------------------------------------------
+        // The state transition itself (not just the classification): capturing
+        // the baseline a pass late would make every reported `was=` wrong, and
+        // losing the awaiting guard would run the countdown forever.
+        // ------------------------------------------------------------------
+
+        [Fact]
+        public void TheFitPassArmsTheReportAgainstThePreFitHeight()
+        {
+            var step = SettingsWindowPresentation.AdvanceHeightFitLog(
+                default(SettingsWindowPresentation.HeightFitLogState),
+                fitPass: true, currentHeight: 948f, passBudget: 12);
+
+            Assert.True(step.State.AwaitingFit);
+            // 948 is the height the window still has on the fit pass - the baseline the
+            // landed fit is compared against.
+            Assert.Equal(948f, step.State.HeightAtFitPass);
+            Assert.Equal(12, step.State.PassesRemaining);
+            // The fit pass itself can never report: the fitted height has not landed yet.
+            Assert.Equal(SettingsWindowPresentation.HeightFitLogOutcome.None, step.Outcome);
+        }
+
+        [Fact]
+        public void TheReportLandsOnThePassThatCarriesTheFittedHeightBack()
+        {
+            var armed = SettingsWindowPresentation.AdvanceHeightFitLog(
+                default(SettingsWindowPresentation.HeightFitLogState),
+                fitPass: true, currentHeight: 948f, passBudget: 12).State;
+
+            // One quiet pass: still 948, nothing to say, one pass off the budget.
+            var quiet = SettingsWindowPresentation.AdvanceHeightFitLog(
+                armed, fitPass: false, currentHeight: 948f, passBudget: 12);
+            Assert.Equal(SettingsWindowPresentation.HeightFitLogOutcome.None, quiet.Outcome);
+            Assert.True(quiet.State.AwaitingFit);
+            Assert.Equal(11, quiet.State.PassesRemaining);
+
+            // The fitted height lands.
+            var landed = SettingsWindowPresentation.AdvanceHeightFitLog(
+                quiet.State, fitPass: false, currentHeight: 636f, passBudget: 12);
+            Assert.Equal(SettingsWindowPresentation.HeightFitLogOutcome.Applied, landed.Outcome);
+            Assert.False(landed.State.AwaitingFit);
+            Assert.Equal(948f, landed.State.HeightAtFitPass);
+        }
+
+        [Fact]
+        public void TheReportIsDisarmedOnceAndOnlyOnce()
+        {
+            var state = SettingsWindowPresentation.AdvanceHeightFitLog(
+                default(SettingsWindowPresentation.HeightFitLogState),
+                fitPass: true, currentHeight: 948f, passBudget: 1).State;
+
+            // Budget of one: the next quiet pass exhausts it and reports the no-change.
+            var expired = SettingsWindowPresentation.AdvanceHeightFitLog(
+                state, fitPass: false, currentHeight: 948f, passBudget: 1);
+            Assert.Equal(SettingsWindowPresentation.HeightFitLogOutcome.NoChange, expired.Outcome);
+            Assert.False(expired.State.AwaitingFit);
+
+            // Every later pass is silent, and the counter cannot run away once disarmed.
+            var after = SettingsWindowPresentation.AdvanceHeightFitLog(
+                expired.State, fitPass: false, currentHeight: 636f, passBudget: 1);
+            Assert.Equal(SettingsWindowPresentation.HeightFitLogOutcome.None, after.Outcome);
+            Assert.Equal(expired.State.PassesRemaining, after.State.PassesRemaining);
+        }
+
+        [Fact]
+        public void ASecondRequestReArmsAgainstTheHeightItFindsNow()
+        {
+            var landed = SettingsWindowPresentation.AdvanceHeightFitLog(
+                SettingsWindowPresentation.AdvanceHeightFitLog(
+                    default(SettingsWindowPresentation.HeightFitLogState),
+                    fitPass: true, currentHeight: 948f, passBudget: 12).State,
+                fitPass: false, currentHeight: 636f, passBudget: 12).State;
+
+            var reArmed = SettingsWindowPresentation.AdvanceHeightFitLog(
+                landed, fitPass: true, currentHeight: 636f, passBudget: 12);
+
+            Assert.True(reArmed.State.AwaitingFit);
+            Assert.Equal(636f, reArmed.State.HeightAtFitPass);
+            Assert.Equal(12, reArmed.State.PassesRemaining);
+        }
     }
 }

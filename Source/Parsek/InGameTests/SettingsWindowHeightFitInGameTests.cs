@@ -6,19 +6,20 @@ namespace Parsek.InGameTests
     /// Runtime gate for the Settings window's height fit across a Basic / Advanced switch
     /// (design `docs/dev/design-ui-basic-advanced.md` section 7.2, step 4).
     ///
-    /// <para>This covers what headless xUnit structurally cannot. A GUILayout window's new
-    /// height is <c>Mathf.Clamp(passedHeight, contentMin, contentMax)</c>
-    /// (`GUILayoutUtility.LayoutSingleGroup`), and that clamp only exists inside a live
-    /// IMGUI pass. The original fix dropped the <c>GUILayout.Height</c> option and looked
-    /// correct in review, but kept passing the CURRENT height in the rect - and because
-    /// this window's <c>contentMax</c> sits above the height an over-tall window already
-    /// has, the clamp returned that same height. Growth still worked (<c>contentMin</c>
-    /// pushes a too-short window up), so only the shrink direction was broken, which is
-    /// exactly the half no headless test could see.</para>
+    /// <para>This covers what headless xUnit structurally cannot: a GUILayout window resolves
+    /// to <c>Max(passedHeight, contentMin)</c>, and that only happens inside a live IMGUI
+    /// pass. The original fix dropped the <c>GUILayout.Height</c> option and looked correct
+    /// in review, but kept passing the CURRENT height in the rect, which is what that
+    /// grow-only resolution reads - so the window never shrank. Growth still worked, being
+    /// the direction that grows, so only the shrink half was broken: exactly the half no
+    /// headless test could see.</para>
     ///
     /// <para>NOTE: in-game test (Ctrl+Shift+T / Settings &gt; Diagnostics); FLIGHT only, to
-    /// match the rest of the mode gates. Career-independent and non-destructive: it opens
-    /// the Settings window and flips the mode, both restored in a finally.</para>
+    /// match the rest of the mode gates - the bug was reported from the Space Centre, but the
+    /// window and its fit path are the same object in both scenes
+    /// (<c>SettingsWindowUI.DrawIfOpen</c> has no scene branch). Career-independent and
+    /// non-destructive: it shows the Parsek UI, opens the Settings window and flips the mode,
+    /// all three restored in a finally.</para>
     /// </summary>
     public class SettingsWindowHeightFitInGameTests
     {
@@ -46,12 +47,18 @@ namespace Parsek.InGameTests
                 yield break;
             }
 
-            SettingsWindowUI settings = ui.GetSettingsWindowUI();
-            if (settings == null)
+            // Opening the window is not enough to DRAW it: every window draw sits inside
+            // ParsekFlight's `if (showUI)`, and nothing clicks the toolbar in an unattended
+            // batch. Without this the fit pass never runs and the test skips itself into
+            // uselessness in exactly the run that would catch a regression.
+            ParsekFlight flight = ParsekFlight.Instance;
+            if (flight == null)
             {
-                InGameAssert.Skip("No Settings window on the live ParsekUI");
+                InGameAssert.Skip("No live ParsekFlight - the Parsek UI cannot be shown");
                 yield break;
             }
+
+            SettingsWindowUI settings = ui.GetSettingsWindowUI();
 
             if (IsGloopsRecording())
             {
@@ -63,10 +70,15 @@ namespace Parsek.InGameTests
 
             UiComplexityMode originalMode = ParsekUI.AppliedUiComplexityMode;
             bool originalOpen = settings.IsOpen;
+            bool originalShowUi = flight.ShowUIForTesting;
 
             try
             {
+                flight.ShowUIForTesting = true;
                 settings.IsOpen = true;
+                // One frame so the window is drawn (and, on first open, positioned) before
+                // anything below reads or fits its rect.
+                yield return null;
 
                 ParsekUI.SetUiComplexityMode(UiComplexityMode.Advanced);
                 yield return WaitForAppliedMode(UiComplexityMode.Advanced);
@@ -80,7 +92,7 @@ namespace Parsek.InGameTests
 
                 if (advancedHeight <= 0f)
                 {
-                    InGameAssert.Skip("The Settings window has not been laid out yet (height=0)");
+                    InGameAssert.Skip("The Settings window was never laid out (height=0)");
                     yield break;
                 }
 
@@ -90,8 +102,9 @@ namespace Parsek.InGameTests
                     // designed behaviour, not a defect - but it means no measurement ran,
                     // so there is nothing to assert against.
                     InGameAssert.Skip(
-                        "The baseline height fit never ran (held by the tooltip gate) - "
-                        + "move the pointer off the Settings window and re-run");
+                        "The baseline height fit never ran - the pointer is resting on a "
+                        + "Settings control whose tooltip holds the fit back; move it off "
+                        + "the window and re-run");
                     yield break;
                 }
 
@@ -102,27 +115,32 @@ namespace Parsek.InGameTests
                 if (settings.HeightRemeasurePendingForTesting)
                 {
                     InGameAssert.Skip(
-                        "The Basic height fit never ran (held by the tooltip gate) - "
-                        + "move the pointer off the Settings window and re-run");
+                        "The Basic height fit never ran - the pointer is resting on a "
+                        + "Settings control whose tooltip holds the fit back; move it off "
+                        + "the window and re-run");
                     yield break;
                 }
 
                 float basicHeight = settings.WindowRectForTesting.height;
+                var ic = System.Globalization.CultureInfo.InvariantCulture;
                 ParsekLog.Info("TestRunner",
-                    $"Settings height fit: advanced={advancedHeight:F0} basic={basicHeight:F0} "
-                    + $"shrink={(advancedHeight - basicHeight):F0}px");
+                    $"Settings height fit: advanced={advancedHeight.ToString("F0", ic)} "
+                    + $"basic={basicHeight.ToString("F0", ic)} "
+                    + $"shrink={(advancedHeight - basicHeight).ToString("F0", ic)}px");
 
                 InGameAssert.IsLessThan(
                     basicHeight,
                     advancedHeight - MinimumShrinkPixels,
                     $"the Settings window must shrink on entering Basic - Basic drops the "
                     + $"Diagnostics and Sample Density sections, yet the window is "
-                    + $"{basicHeight:F0}px against an Advanced {advancedHeight:F0}px "
-                    + $"(an unchanged height means the GUILayout clamp kept the taller one)");
+                    + $"{basicHeight.ToString("F0", ic)}px against an Advanced "
+                    + $"{advancedHeight.ToString("F0", ic)}px (an unchanged height means the "
+                    + $"grow-only GUILayout resolution kept the taller one)");
             }
             finally
             {
                 settings.IsOpen = originalOpen;
+                flight.ShowUIForTesting = originalShowUi;
                 RestoreMode(originalMode);
                 // Leave the window fitted to whatever mode the player is back on.
                 settings.RequestHeightRemeasure();
