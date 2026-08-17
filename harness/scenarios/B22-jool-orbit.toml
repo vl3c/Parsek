@@ -38,9 +38,15 @@ id = "B22-jool-orbit"
 #   M5  CORRECTION MAGNITUDES, AND THE CAPTURE NODE. Round 1 = 124.10 m/s, round 2 =
 #       72.91 m/s, both `classified fly (cap 1200.0, floor 0.5); plan accepted`; total
 #       197.01 m/s against the 500 the expected ladder assumed. The capture node reads
-#       `nodeDv=1292.177`. Taking v_inf from the first in-SOI `vspd` (1,726.748, inside
-#       the derived [1,659, 1,854] band), the IDEAL at r 590,327,171 is 1,292.848 -- so
-#       the node is 0.05% UNDER ideal, i.e. essentially optimal.
+#       `nodeDv=1292.177`. Taking v_inf from the RECORDED ORBIT_SEGMENT CONIC -- the
+#       sidecar channel this header mandates at the M1 cross-check, `sma =
+#       -94,839,949.006929711`, `ecc = 7.224456857`, so `v_inf = sqrt(mu/|a|)` =
+#       1,725.977, inside the derived [1,659, 1,854] band -- the IDEAL at r 590,327,171
+#       is 1,292.177. THE NODE IS OPTIMAL TO THE PRINTED PRECISION. (That same conic
+#       returns `sma*(1-ecc) - R` = 584,327,170.914 against M1's telemetry-channel
+#       584,327,170.912 -- the two agree to 2 mm, which is what licenses using the conic
+#       here. Do NOT take v_inf from the frame's `vspd`: that is the RADIAL component,
+#       not the speed.)
 #       >>> THE +34% MECHJEB CAPTURE BIAS THE EELOO RECORD IMPLIES DOES NOT REPRODUCE
 #       HERE. Whatever produced it at Eeloo is regime-specific, not a general property of
 #       circularize-at-periapsis. The dv ledger below is correspondingly PESSIMISTIC, and
@@ -90,13 +96,13 @@ id = "B22-jool-orbit"
 # Valentina, same PRELAUNCH state; a pad does not know where the rocket is going).
 #
 # A leaf-by-leaf tomllib diff of the two PARSED specs (flatten to dotted keys,
-# compare) finds EIGHTEEN values changed, and NINE of them sit inside
+# compare) finds SEVENTEEN values changed, and NINE of them sit inside
 # [driver.missionParams]: targetBodyName, courseCorrectPeriapsisMeters,
 # maxCorrectionDvMps, flybyTimeoutSeconds, targetPeriapsisFloorMeters,
 # capturePlanTimeoutSeconds, captureBurnTimeoutSeconds, parkMinPeriapsisMeters and
-# parkMaxApoapsisMeters. The other nine are id, description, tags,
+# parkMaxApoapsisMeters. The other eight are id, description, tags,
 # dimensionsCovered.D14, driver.mission, driver.steps (the mission step's budget
-# 9,000 -> 10,800), expectations.recordings.count.max (5 -> 6),
+# 9,000 -> 10,800), 
 # expectations.logContracts.required and runtime.budgetSeconds. THE COUNT IS A
 # MEASUREMENT, not a claim: the diff script is pasted in this file's landing report
 # and every changed leaf below is one this header derives.
@@ -126,7 +132,8 @@ id = "B22-jool-orbit"
 # 60 kN, Skipper 650 kN, Mainsail 1,500 kN), not a body constant; it transfers only
 # because B22 flies the same craft.
 #
-# THIS LANE HAS NOT FLOWN. There is no `flown` tag and no flight-results block, and
+# THIS SECTION IS THE ORIGINAL PRE-FLIGHT AUTHORING RATIONALE, kept as history. The lane
+# HAS since flown -- see the FLOWN block at the top of this file -- and
 # every prediction below says so where it is made.
 # =====================================================================================
 # THE SCOPE FENCE: THE PLANET ONLY. THE MOONS ARE DELIBERATELY OUT OF SCOPE.
@@ -224,7 +231,8 @@ id = "B22-jool-orbit"
 # EVERY SPEC THAT CITES IT STATES THE OPPOSITE ("arrives HIGHER than requested"),
 # including B21's own courseCorrectPeriapsisMeters block. The supporting number is
 # mis-attributed as well:
-#   - The `956-1,142 km` band is B5 flights 15, 16 and 21, and those flew
+#   - The `956-1,142 km` band is B5 flight 21 (956 km) and B5 flight 9 (1,142 km);
+#     flights 15 and 16 flew 1,138 km. ALL of them flew
 #     `courseCorrectPeriapsisMeters = 60000`, NOT 250000. Proven by
 #     `git show <commit>:harness/scenarios/B5-mun-flyby.toml` at each archived run's
 #     commit: the 60 -> 250 km change is commit `c41a6b5eb` (2026-07-22 19:23:27) and
@@ -234,14 +242,21 @@ id = "B22-jool-orbit"
 #   - THE ONLY B5 FLIGHT EVER FLOWN AT 250 km DELIVERED 138.9 km -- under by ~111 km,
 #     exactly as the root cause says (same `NO-1X CERTIFICATION ACHIEVED` record).
 #   - One member of the quoted band is a documented artefact: the todo file's
-#     `Live finding 9 (first B6 flight + B5-pass forensics, 2026-07-22)` record notes
-#     flight 15's 1,142 km as coming from "a wild off-axis burn whose ap 11.5M ->
-#     17.5M accident produced the 1,142 km flyby. THE B5 PASS WAS LUCKY". That is not
-#     a corrector measurement at all.
-#   - The companion folklore "B7 turned 300 km into ~564 km" conflates two runs: B7's
-#     passing flight requested 50 km and got 546 km (the todo file's
-#     `B7 LIVE-PROVEN (seventh flight, 2026-07-22)` record); the 564 km figure is a
-#     different run (`2026-07-25_1216`) that did request 300 km.
+#     `Live finding 9 (first B6 flight + B5-pass forensics, 2026-07-22)` record
+#     attributes the 1,142 km flyby to FLIGHT 9 -- "a wild off-axis burn whose ap
+#     11.5M -> 17.5M accident produced the 1,142 km flyby. THE B5 PASS WAS LUCKY".
+#     That is not a corrector measurement at all. NOTE THE CHRONOLOGY, which settles
+#     the attribution: finding 9 is dated 2026-07-22 and flight 15 is recorded as
+#     flown "under the full finding-1..12 stack", so finding 9 cannot describe
+#     flight 15 -- flight 15 is the honest re-proof that REPLACED the lucky pass.
+#   - THE COMPANION "B7 turned 300 km into ~564 km derived from the recorded arrival
+#     elements" CITATION IS CORRECT AND MUST NOT BE "FIXED". Run
+#     `logs/2026-07-25_1216_B7-duna-flyby` pins commit `aedc47092`, whose
+#     `B7-duna-flyby.toml` reads `courseCorrectPeriapsisMeters = 300000`, and that
+#     run's own sidecar gives `sma*(1-ecc) - R_Duna = 564,454.795 m`. The figure, the
+#     denominator and the stated provenance are all right; ONLY THE B5 HALF of that
+#     sentence is wrong. Correcting a correct citation is the same failure mode this
+#     correction exists to fix.
 #
 # ----- (2) THE REAL STRUCTURE, OVER 25 CORRECTION-COMPLETE POINTS ACROSS 7 BODIES ----
 #
@@ -505,7 +520,7 @@ id = "B22-jool-orbit"
 #   (An earlier draft asserted 8.0e5 and 630 m per m/s for a 1,270x ratio; neither endpoint
 #   was sourced and neither reproduces. The corrected numbers make the hazard WORSE, not
 #   better.) At 3.55e6 m per m/s, `_BURN_STATIC_EPS = 50.0`
-#   (mlib.py:8452) demands 6.2e-5 m/s of velocity stability at 1x, below float32 ulp on
+#   (mlib.py:8452) demands 1.4e-5 m/s of velocity stability at 1x, below float32 ulp on
 #   a 2.1 km/s velocity. `burnStagnantSeconds` / `burnNoStartSeconds` CANNOT TRIP.
 #   THEY ARE ALREADY DARK AT EELOO: measured on green `_2239`, `burnStaticAge` took
 #   only {none, 0.520, 4.200, 5.780, 11.040} during CAPTURE-BURN -- longest static run
@@ -543,9 +558,12 @@ id = "B22-jool-orbit"
 #
 # R6 -- THE DROP-TANK SHED PRODUCES A SIXTH RECORDING. The four radial LF tanks hold
 #   1,440 of the LV-N stage's 2,240 units; emptying them is 3,944.7 m/s of cumulative
-#   spend. The EXPECTED flight reaches 3,796.1 -- UNDER by 149.9 m/s. The worst
-#   realistic geometry (1,964.7 ejection + 2 x 317 correction + 1,357 capture) reaches
-#   3,955.7 -- OVER by 9.7 m/s. Any cap-1200 round crosses comfortably. B21's own
+#   spend. The EXPECTED flight reaches 3,796.1 -- UNDER by 148.6 m/s. The worst
+#   realistic geometry reaches 3,962.49 -- OVER by 17.79 m/s. That total is 1,964.7 worst
+#   ejection + 2 x 317 correction ALLOWANCE + 1,363.79 capture, the capture figure being
+#   this file's OWN high-tail row (r 833.7 Mm at v_inf 1,763.2) rather than the unsourced
+#   1,357 an earlier draft carried; the 317 is a per-round ALLOWANCE, NOT a measurement --
+#   the flight planned 124.10 and 72.91 (M5), so it is 2.6x the larger measured round. Any cap-1200 round crosses comfortably. B21's own
 #   margin was 0.452 LF units of 1,440 (0.03 %), and a different capture altitude is
 #   exactly the perturbation that spends it.
 #   SIGNATURE: `PARSEK-FAIL(expectation)`, `recordings.count 6 > max`.
@@ -613,7 +631,7 @@ id = "B22-jool-orbit"
 #   IS A LIGHTER MISSION, NOT A BIGGER CAP.
 #
 # M6 -- WHETHER THE DROP-TANK SHED FIRES (5 RECORDINGS OR 6). Expected flight sits
-#   149.9 m/s under the threshold; the sizing worst case is 9.7 m/s over. OPEN BOTH
+#   148.6 m/s under the threshold; the sizing worst case is 11.0 m/s over. OPEN BOTH
 #   WAYS. Re-pin `[expectations.recordings] count` from the answer.
 #
 # M7 -- `phaseWarpIssues` AT JOOL'S SEGMENT LENGTHS. Measured 2 at Eeloo across a
@@ -724,10 +742,11 @@ id = "B22-jool-orbit"
 tier = "operator"
 description = "Jool ORBIT across a heliocentric traverse, on the stock Duna Rocket: 700 km park, PRE-TRANSFER JETTISON of the spent chemical stack onto the LV-N, ejection at the Kerbin->Jool window, corrections, CAPTURE into a moon-clear Jool orbit (aim 600 Mm altitude, above Pol's 205.666 Mm clearance edge), held park and a mid-mission CommitTree -- the flight whose committed recording becomes the jool-orbit-recorded fixture. THE PLANET ONLY: Laythe / Vall / Tylo / Bop / Pol are deliberately out of scope."
 instanceProfile = "stock-minimal"
-# NO `flown` TAG. This lane has not flown; B19/B20/B21 all carry it and B22 must not
+# THE `flown` TAG WAS ADDED AFTER THE 2026-08-17 GREEN RUN, and was deliberately absent
+# at authoring time: B19/B20/B21 all carry it and B22 must not have
 # until a green run exists, because the tag is how a reader tells a measurement from a
 # prediction at a glance.
-tags = ["B22", "jool", "orbit", "mechjeb", "interplanetary", "cross-soi", "capture", "commit-in-foreign-soi", "jettison"]
+tags = ["B22", "jool", "orbit", "mechjeb", "interplanetary", "cross-soi", "capture", "commit-in-foreign-soi", "jettison", "flown"]
 
 [fixture]
 # B18's committed pad fixture, UNCHANGED and SHARED with B19/B20/B21: the Duna Rocket
@@ -975,9 +994,9 @@ targetPeriapsisFloorMeters = 1000000
 # bound: a live burn moves the apsides at km/s, so a longer burn does not need a longer
 # window. Raising it to 480 is a category error that only delays diagnosis by 120 game
 # s. BOTH BURN WATCHDOGS ARE DARK AT JOOL ANYWAY (R3): `_BURN_STATIC_EPS = 50.0`
-# (mlib.py:8452) demands 6.2e-5 m/s of velocity stability at a capture-point apsis
+# (mlib.py:8452) demands 1.4e-5 m/s of velocity stability at a capture-point apsis
 # sensitivity of 3.55e6 m per m/s (50/3.55e6 = 1.41e-5 m/s) -- an order of magnitude below
-# float32 ulp (2.44e-4) on the 2,010 m/s periapsis velocity. They
+# float32 ulp (1.22e-4) on the 2,010 m/s periapsis velocity. They
 # were already dark at Eeloo (measured `burnStaticAge` max 11.04 game s on `_2239`).
 # NOT MITIGABLE BY ANY SPEC KEY; the eps-independent executor-disabled signal is what
 # actually fires.
@@ -1092,7 +1111,7 @@ allowedAnomalies = []
 [expectations.recordings]
 # A WINDOW, NOT A PIN, AND DELIBERATELY SO. B19's re-pin contract ("re-pin to the
 # measured value; do NOT widen") applies to the FIRST GREEN RUN OF A LANE -- and this
-# lane has not flown. B21's committed {5, 5} is not a safe thing to copy: it rests on
+# lane had not yet flown. B21's committed {5, 5} was not safe to copy: it rests on
 # the four radial LF drop tanks RETAINING 0.452 units of 1,440 -- 0.03 % of the group --
 # measured on `_2239` (2,240.000 units at TRANSFER-BURN entry -> 1,305.522 at
 # CAPTURE-BURN entry -> 800.452 at ORBIT-COMMIT). `_2003` retained 1.135.
@@ -1101,11 +1120,12 @@ allowedAnomalies = []
 # The shed threshold is 3,944.7 m/s of cumulative LV-N spend -- B21's committed
 # derivation, 7,845.32 x ln(18.220/11.020) = 3,944.690, printed as 3,944.7 at
 # B21-eeloo-orbit.toml:319, :325 and :1242. (An earlier draft of this header carried
-# 3,946.0, unsourced; at the ~10 m/s resolution where R6/M6 is decided that 1.3 m/s drift
+# 3,944.7, unsourced; at the ~10 m/s resolution where R6/M6 is decided that 1.3 m/s drift
 # is a real error, so the committed number is used.) This flight's EXPECTED
 # ladder reaches 3,796.1 (ejection 1,928.6 + round 1 ~250 + round 2 ~250 + plane change
-# ~40 at Jool's 1.304 deg + capture 1,327.5) -- UNDER by 149.9 m/s. The worst REALISTIC
-# geometry (1,964.7 + 2 x 317 + 1,357) reaches 3,955.7 -- OVER by 9.7 m/s. It is a coin
+# ~40 at Jool's 1.304 deg + capture 1,327.5) -- UNDER by 148.6 m/s. The worst REALISTIC
+# geometry (1,964.7 + a 2 x 317 allowance + 1,363.79 from the high-tail row) reaches
+# 3,962.49 -- OVER by 17.79 m/s. It is a coin
 # flip (R6 / M6): if it lands heads, MechJeb autostage sheds istg 1 and a SIXTH
 # recording appears, and a pinned {5, 5} would red an ENTIRELY CORRECT FLIGHT as
 # `PARSEK-FAIL(expectation)`.

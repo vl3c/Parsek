@@ -115,7 +115,7 @@ definition is embedded mid-paragraph in this file's flight-26 record, the entry 
 `NO-1X CERTIFICATION ACHIEVED (twenty-sixth flight, 2026-07-22)`. Every citation below
 into THIS file is by that kind of content anchor and never by line number: entries are
 prepended at the top, so a self-referential line number is stale the moment the next entry
-lands -- this entry's own 128 lines already shifted the three records it cites:
+lands -- this entry's own 174 lines already shifted the three records it cites:
 
 > Finding 16d root cause (flights 22-25, nextPe forensics): MechJeb's
 > OperationCourseCorrection systematically under-prices low-periapsis targets by ~an
@@ -126,7 +126,8 @@ lands -- this entry's own 128 lines already shifted the three records it cites:
 The stated root cause is **UNDER-delivery**: the corrector under-prices the burn, so it
 does not reach the periapsis it was asked for. Raising the request is a sensible fix
 *because* delivery falls short. Most citing sites state the opposite -- but NOT all, and
-the exception matters because it shows the two errors are independent:
+the TWO exceptions matter because they show the errors are independent
+(`B5-mun-flyby.toml:73-74` also states UNDER-DELIVERS):
 `harness/scenarios/B11-mun-orbit.toml:260-261` gets the DIRECTION right ("systematically
 under-delivers toward low periapsis targets (finding 16d)") and then carries the WRONG
 DENOMINATOR in the very next clause ("B5's certified flights turned this 250 km request
@@ -176,7 +177,7 @@ arrival periapsis is better described NOT as a multiple of the request but as a
 for. Fitted over the corpus, `D = g x SOI` gives g = 0.482% / 3.350% / 9.525%
 (lo/median/hi), CV **0.678**; the multiplicative law `D = k x req` gives k = 0.545 /
 1.502 / 37.81, a 69.4x spread at CV 2.179. No law fits tightly -- the fraction-of-SOI one
-merely fits least badly -- but the ordering is unambiguous, and the ordering is what the
+merely fits least badly -- AND B22 SUBSEQUENTLY REFUTED IT: law (d) predicted an 88.3 Mm median independent of the request and the flight delivered 590.3 Mm on a 600 Mm request (see M2 in B22-jool-orbit.toml). The ordering is unambiguous, and the ordering is what the
 citations get wrong.
 
 **AND THE BIAS INVERTS.** Sorted by `req / SOI`, k collapses monotonically:
@@ -190,12 +191,14 @@ citations get wrong.
 | Moho | 3.110% | 1.43 - 1.73 | 4.44 - 5.37% |
 | Eve | 5.875% | 0.997 | 5.86% |
 | Mun | 10.290% | 0.545 - 0.563 | 5.61 - 5.79% |
+| **Jool** | **24.430%** | **0.974** | **24.04%** |
 
 **Above `req/SOI ~= 4%` the "arrives higher" bias disappears and inverts.** The folklore
 is entirely a `req/SOI < 1%` phenomenon: a large k means the request was tiny relative to
 the scale the corrector naturally delivers at, not that the corrector overshoots. Two
 honesty limits on that table, both of which must travel with it: the `req/SOI >= 4%`
-regime has **n = 2** (one Eve flight, five Mun flights of a single lane), and within-body
+regime had **n = 2** when this was written (one Eve flight, five Mun flights of a single
+lane) and is **n = 3** since B22 flew Jool at 24.430%, and within-body
 repeatability is good everywhere (Eeloo +-3.5%, Moho +-9%, Dres +-12%, Mun +-1.6%,
 Minmus +-0.9%) EXCEPT Duna, which spans 230.9 - 718.2 km on an identical 300 km request,
 a factor of 3.1. Any sizing built on this must be built against a ~3x spread rather than
@@ -254,7 +257,7 @@ in-regime points say it will UNDER-shoot. Sized on the measurement, the aim is t
 sizing argument at Jool, and the record had it backwards.
 
 **Fix:** correct the nine sites to stop quoting `956-1,142 km` against a 250 km request,
-and correct the eight that also invert the direction to state under-delivery at low
+and correct the five that also invert the direction to state under-delivery at low
 `req/SOI` with the inversion above ~4%. Prefer the one
 measured 250 km B5 outcome (138.9 km) and the `delivered/SOI` framing. No code change; no
 verdict changes.

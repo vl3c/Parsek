@@ -18,21 +18,26 @@ id = "V13-jool-player-loop"
 #
 #   SYNODIC     predicted 10,090,901.7102799       MEASURED 10,090,901.710279949
 #               agreement 4.8e-8 s. The asset-extracted mu_Sun derivation reproduces the
-#               product's own live-ephemeris read to sixteen significant figures.
+#               product's own live-ephemeris read to fifteen significant figures.
 #   CADENCE     predicted multiple 3               MEASURED 3.000000 exactly
 #               (30,272,705.130839847 / 10,090,901.710279949). span/synodic = 2.7537,
 #               Ceiling 3. Prior points: Moho 1x, Dres 2x, Eeloo 5x, and now Jool 3x.
 #   ENGAGED     predicted (open either way)        MEASURED ENGAGED, 25 segments
 #   LOITER CUT  deliberately NOT predicted         MEASURED 4,105,620 s = 14.8% of span
 #
-# THE LOITER-CUT READING IS THE ONE THAT ADDS A DATA POINT RATHER THAN CONFIRMING ONE.
-# Ordered by span, the compressor's purchase is monotone DECREASING:
-#     Dres    span 12.04e6   cut 41.4%
-#     Jool    span 27.79e6   cut 14.8%
-#     Eeloo   span 47.04e6   cut 10.8%
-# Jool lands between the two existing points, in order, on a span between theirs -- so it
-# CONFIRMS the program's reading that the compressor's purchase shrinks as the coast
-# lengthens, rather than the composition inverting. tof is 80.4% of span here against
+# THE LOITER-CUT READING, AND WHAT IT DOES *NOT* SUPPORT. The program has FIVE measured
+# loiter cuts, every one a committed armed literal. Ordered by span:
+#     Moho    span  2.88e6   cut 13.57%   (V11: cutSeconds=391267)
+#     Eve     span 15.76e6   cut 74.98%   (V8:  cutSeconds=11819849)
+#     Dres    span 20.39e6   cut 41.37%   (V9:  cutSeconds=8436248)
+#     Jool    span 27.79e6   cut 14.78%   (this lane: cutSeconds=4105620)
+#     Eeloo   span 47.04e6   cut 10.81%   (V12: cutSeconds=5086416)
+# THAT IS NOT MONOTONE. "The compressor's purchase shrinks as the coast lengthens" holds
+# between Dres, Jool and Eeloo and is NOT the program's reading: Moho has the SMALLEST
+# span in the program and a cut fraction BELOW Jool's, and Eve has the largest cut in the
+# suite at three-quarters of its span. V12 stated the shrinking claim honestly, scoped to
+# a TWO-POINT Dres-vs-Eeloo comparison; do not promote a three-point subset to a program
+# reading when the two omitted points falsify it. tof is 80.4% of span here against
 # Eeloo's 89.0%.
 #
 # ----- THE FIXTURE ------------------------------------------------------------------
@@ -134,7 +139,7 @@ id = "V13-jool-player-loop"
 # judgement on EccGain / MaxHalfWidthFraction remains open.
 # =====================================================================================
 tier = "operator"
-description = "ARMED: the player loop workflow on the Jool program's committed B22 recording. Shipped as an iteration-1 READING run (plumbing triple, wide count, decline reasons unforbidden so a Jool decline could be recorded rather than red) and armed off the reading run's own bytes (`2026-08-17_2055`, PASS, wall 48 s). Jool ENGAGES: re-aim Kerbin->Jool via Sun on a 25-segment member, synodic 10,090,901.710279949 measured against a pre-flight prediction of 10,090,901.7102799 (agreement 4.8e-8 s), cadence 30,272,705.130839847 = EXACTLY 3x the synodic as predicted from span/synodic 2.7537 -> Ceiling 3, against Moho 1x / Dres 2x / Eeloo 5x. The loiter compressor cuts 4,105,620 s = 14.8% of the 27,787,292 s span (tof 80.4%), which places Jool between Dres (41.4% on a 12.04e6 span) and Eeloo (10.8% on 47.04e6) IN SPAN ORDER -- a third point confirming that the compressor purchase shrinks as the coast lengthens. Count pinned at the measured 6. Fixture verified moons=0 on its harvested bytes. Does NOT discharge the tilt debt: Jool's 1.304 deg is the LOWEST inclination in the V-lane ladder."
+description = "ARMED: the player loop workflow on the Jool program's committed B22 recording. Shipped as an iteration-1 READING run (plumbing triple, wide count, decline reasons unforbidden so a Jool decline could be recorded rather than red) and armed off the reading run's own bytes (`2026-08-17_2055`, PASS, wall 48 s). Jool ENGAGES: re-aim Kerbin->Jool via Sun on a 25-segment member, synodic 10,090,901.710279949 measured against a pre-flight prediction of 10,090,901.7102799 (agreement 4.8e-8 s), cadence 30,272,705.130839847 = EXACTLY 3x the synodic as predicted from span/synodic 2.7537 -> Ceiling 3, against Moho 1x / Dres 2x / Eeloo 5x. The loiter compressor cuts 4,105,620 s = 14.8% of the 27,787,292 s span (tof 80.4%), which places Jool between Dres (41.4% on a 20.39e6 span) and Eeloo (10.8% on 47.04e6) in span order -- but the program has FIVE such measurements, and Moho (13.6% on the smallest span in the suite) and Eve (75.0%) break that ordering, so the shrinking reading holds for Dres/Jool/Eeloo only and is not a program-wide trend. Count pinned at the measured 6. Fixture verified moons=0 on its harvested bytes. Does NOT discharge the tilt debt: Jool's 1.304 deg is the LOWEST inclination in the V-lane ladder."
 instanceProfile = "stock-minimal"
 tags = ["V13", "jool", "loop", "playback", "flown", "reaim", "engaged"]
 
@@ -170,10 +175,10 @@ allowedAnomalies = []
 count = { min = 6, max = 6 }
 
 [expectations.logContracts]
-# THE PLUMBING TRIPLE ONLY. Every measured quantity -- synodic, cadence, loiterCuts,
-# cutSeconds, compressedSpan, the member/segs line -- is deliberately ABSENT until the
-# reading run measures it. Arming a predicted value would make this lane a test of my
-# arithmetic instead of a measurement of the product.
+# ARMED. This lane SHIPPED with the plumbing triple only -- synodic, cadence, loiterCuts,
+# cutSeconds, compressedSpan and the member/segs line deliberately ABSENT -- so that the
+# reading run measured them instead of confirming the header's arithmetic. They are armed
+# below off that run's own bytes.
 required = [
   "MissionConfig",
   "StartLoopPlayback",
