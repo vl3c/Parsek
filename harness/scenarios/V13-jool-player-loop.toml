@@ -1,0 +1,222 @@
+schema = 1
+id = "V13-jool-player-loop"
+# =====================================================================================
+# V13: THE JOOL PROGRAM'S READING LANE -- the player loop workflow on B22's committed
+# recording. Mark the B22 tree a loop unit, start loop playback, and read what the
+# re-aim synthesizer does with the largest-SOI destination in the system.
+#
+# ARMED 2026-08-17 off the reading run's own bytes. It SHIPPED as an iteration-1
+# reading run in the V8/V9/V11 posture -- plumbing triple only, wide count window, and
+# the decline reasons deliberately UNFORBIDDEN so that a Jool decline would come back as
+# a RECORDED reading rather than a red run, because a lane that reds on its own headline
+# finding cannot report it. The reading run (`2026-08-17_2055`, PASS, wall 48 s) settled
+# that question: Jool ENGAGES. The arming commit follows, and every literal armed below
+# is MEASURED.
+#
+# THE PREDICTION SCORECARD -- this lane wrote its predictions down BEFORE flying, which
+# is the only way they can count for anything afterwards:
+#
+#   SYNODIC     predicted 10,090,901.7102799       MEASURED 10,090,901.710279949
+#               agreement 4.8e-8 s. The asset-extracted mu_Sun derivation reproduces the
+#               product's own live-ephemeris read to sixteen significant figures.
+#   CADENCE     predicted multiple 3               MEASURED 3.000000 exactly
+#               (30,272,705.130839847 / 10,090,901.710279949). span/synodic = 2.7537,
+#               Ceiling 3. Prior points: Moho 1x, Dres 2x, Eeloo 5x, and now Jool 3x.
+#   ENGAGED     predicted (open either way)        MEASURED ENGAGED, 25 segments
+#   LOITER CUT  deliberately NOT predicted         MEASURED 4,105,620 s = 14.8% of span
+#
+# THE LOITER-CUT READING IS THE ONE THAT ADDS A DATA POINT RATHER THAN CONFIRMING ONE.
+# Ordered by span, the compressor's purchase is monotone DECREASING:
+#     Dres    span 12.04e6   cut 41.4%
+#     Jool    span 27.79e6   cut 14.8%
+#     Eeloo   span 47.04e6   cut 10.8%
+# Jool lands between the two existing points, in order, on a span between theirs -- so it
+# CONFIRMS the program's reading that the compressor's purchase shrinks as the coast
+# lengthens, rather than the composition inverting. tof is 80.4% of span here against
+# Eeloo's 89.0%.
+#
+# ----- THE FIXTURE ------------------------------------------------------------------
+#
+# jool-orbit-recorded, harvested --keep-parsek --expect-situation ORBITING from a
+# SNAPSHOT COPY of B22's produced save (run 2026-08-17_1959, PASS attempt 1, wall
+# 2,441 s). Structure read back through saveparse.observed_structure_facets: 1 tree,
+# 1 committed, 5 recordings, terminals {Orbiting 3, Destroyed 2}, branch points
+# {JointBreak 3}, 20 authoritative sidecars, schemaGeneration 4 -- SHAPE-IDENTICAL to
+# eeloo-orbit-recorded, which is the cheapest evidence B22 really was a retarget of
+# B21's profile rather than a differently-shaped flight.
+#
+# THE PRECONDITION THIS LANE DEPENDS ON, VERIFIED ON THE HARVESTED BYTES: moons=0.
+# The recordings reference Kerbin, Sun and Jool ONLY -- zero Laythe / Vall / Tylo /
+# Bop / Pol occurrences across all five .prec.txt sidecars. (The five hits in
+# persistent.sfs are KSP's own celestial BodyName roster, not recorded legs.)
+# THIS MATTERS BEYOND TIDINESS: a recording that already contains moon legs stays
+# classified Supported and silently routes onto the never-live-flown M-MIS-6
+# multi-moon path, so a moons>0 fixture would make this lane measure something other
+# than what it claims to. Jool's moons are OUT OF SCOPE for the whole program.
+#
+# ----- WHAT THE READING RUN SHOULD PRINT, AND WHAT IS ONLY PREDICTED ----------------
+#
+# (1) THE SYNODIC. PREDICTED 10,090,901.7102799 s, from the two stock periods
+#     T_Kerbin = 9,203,544.617501 s and T_Jool = 104,661,432.107989 s computed on the
+#     ASSET-EXTRACTED mu_Sun 1.1723327948324905e18 (not a rounded 1.1723328e18, which
+#     lands 0.022 s away). The product derives it from LIVE orbit.period reads, so the
+#     MEASURED value is the one that gets armed; this prediction exists to be compared
+#     against, never copied into an arm.
+#
+# (2) THE CADENCE MULTIPLE. PREDICTED 3. The law is
+#     cadence = Max(1, Ceiling(span/synodic - 1e-9)) * synodic
+#     (ReaimWindowPlanner.cs:145-147). B22's recording spans roughly UT 2,704 to the
+#     commit at 27,787,318.98, i.e. ~27.785e6 s, and 27,785,000 / 10,090,901.71 =
+#     2.7535 -> Ceiling 3 -> cadence ~30,272,705. Prior points: Dres 2x, Moho 1x,
+#     Eeloo 5x. Margin to either Ceiling boundary is ~2.5e6 s, so this is not a
+#     knife-edge prediction -- but the SPAN is the input and the span is measured, so
+#     the multiple is read off the run rather than asserted here.
+#
+#     WHY THIS CADENCE READING IS A REAL MEASUREMENT AND NOT AN ARTEFACT: the Moho lane
+#     found that PadAlignLaunch quantizes the synodic AND assigns cadence the same
+#     variable, so byte-equality between the two there is an artefact rather than a
+#     measurement. That does NOT apply here. PadAlignLaunch returns Applied=false at
+#     its Math.Abs(cadenceSeconds - synodicPeriodSeconds) > 1.0 gate
+#     (ReaimWindowPlanner.cs:222-224) whenever span > synodic, and B22's span is 2.75
+#     synodics. Jool flies the same disposition Dres and Eeloo already do.
+#
+# (3) THE LOITER CUT. The compressor cuts whole revolutions of the LKO ejection wait
+#     (ReaimLoiterCompressor.cs:140-141, wholeRevs >= 1). Eeloo measured
+#     loiterCuts=1 cutSeconds=5086416, 10.8% of its span, with tof 89.0%; Dres cut
+#     41.4% on a span 2.31x smaller. The program's reading so far is that the
+#     compressor's purchase SHRINKS as the coast lengthens rather than the composition
+#     inverting. NOT PREDICTED NUMERICALLY here -- the ejection wait depends on where
+#     in the window B22 launched, which is a fact about the flight, not derivable.
+#
+# (4) NO DESTINATION LOITER CUT IS EXPECTED, and that costs this lane nothing. B22's
+#     park period is ~5.35e6 s (r 590.3 Mm) against a parked tail of a few hundred
+#     seconds, so wholeRevs at the destination is 0 and no LoiterRun is emitted there.
+#     DestinationLoiterTrim fails CLOSED (no-destination-loiter,
+#     DestinationLoiterTrim.cs:162) leaving the span clock byte-identical, and it is
+#     additionally gated on !destSet.HasLandingRotation which an orbit mission never
+#     sets. dest-trim has never fired in any archived log (todo-and-known-bugs.md).
+#
+#     THE DE-RISK THIS RESTS ON, ESTABLISHED HEADLESSLY BEFORE B22 FLEW: the schedule
+#     does NOT come from fitting the sampled track. ReaimWindowPlanner.Plan takes only
+#     the two bodies' orbital PERIODS (analytic, from ephemerides), the recorded
+#     departure UT, the recorded tof and the span, and has exactly four failure modes
+#     (degenerate periods, degenerate tof, NaN UT, no synodic) -- none arc-, sample- or
+#     period-fraction-related. Proven by running the product sources byte-identical
+#     against Jool numbers at tail = 200 s, 20 s and 0 s: byte-identical schedule.
+#     And the premise that prior fixtures had meaningful parked-arc coverage is FALSE --
+#     no committed fixture records an elliptical destination orbit at all; all seven
+#     destination arcs are hyperbolic with period = NaN, and the V-lanes have always
+#     resolved their schedules from exactly that.
+#
+# (5) RENDER SIDE, A READING AND NOT A GATE. At r 590.3 Mm a Vector3 polyline point has
+#     a ~70 m float32 grid, and a ~200 s parked arc spans ~137 km -- geometrically fine
+#     but SUB-PIXEL at Jool map scale. Expect the destination tail to fall through to
+#     the IsIconSuppressed marker floor rather than drawing a visible line. DO NOT pin
+#     a polyline token at Jool.
+#
+# ----- WHAT THIS LANE CANNOT DO -----------------------------------------------------
+#
+# IT CANNOT DISCHARGE THE TILT DEBT. Jool's inclination is 1.304 deg -- the LOWEST in
+# the V-lane ladder (Eve 2.1 -> Dres 5.0 -> Eeloo 6.15 -> Moho 7.0). A tilt reading here
+# probes BELOW the already-covered Eve point. The bound is derivable
+# (InclinationBoundDegrees(0.0, 1.30400002002716) = 1.8040,
+# ReaimTransferSynthesizer.cs:93-97) and state=noop reason=in-plane is PREDICTED a
+# fortiori from REAIM-TILT-NOOP-AT-EELOO-6.15-DEG, where the solved conic's 4.0725 sat
+# below a 6.6500 bound. Either reading is a result; neither closes the debt. DO NOT
+# BOOK THIS LANE AS TILT COVERAGE.
+#
+# The band law reads clamp(0.06 + 0.5*e, 0.06, 0.20) = 0.0850 at Jool's
+# e = 0.0500000007450581, cap nowhere near engaged. Note this is NOT a novel low-e
+# point: todo-and-known-bugs.md already records eTarget=0.0510 halfWidthFraction=0.0855
+# from a Kerbin->Duna PARKING departure. The distinction Jool would add is the CONSUMER
+# (BuildCandidateTofs, the recorded-centered builder) rather than the eccentricity.
+# M-MIS-3's behavioural half is CLOSED as of 2026-08-15; only the constant-pinning
+# judgement on EccGain / MaxHalfWidthFraction remains open.
+# =====================================================================================
+tier = "operator"
+description = "ARMED: the player loop workflow on the Jool program's committed B22 recording. Shipped as an iteration-1 READING run (plumbing triple, wide count, decline reasons unforbidden so a Jool decline could be recorded rather than red) and armed off the reading run's own bytes (`2026-08-17_2055`, PASS, wall 48 s). Jool ENGAGES: re-aim Kerbin->Jool via Sun on a 25-segment member, synodic 10,090,901.710279949 measured against a pre-flight prediction of 10,090,901.7102799 (agreement 4.8e-8 s), cadence 30,272,705.130839847 = EXACTLY 3x the synodic as predicted from span/synodic 2.7537 -> Ceiling 3, against Moho 1x / Dres 2x / Eeloo 5x. The loiter compressor cuts 4,105,620 s = 14.8% of the 27,787,292 s span (tof 80.4%), which places Jool between Dres (41.4% on a 12.04e6 span) and Eeloo (10.8% on 47.04e6) IN SPAN ORDER -- a third point confirming that the compressor purchase shrinks as the coast lengthens. Count pinned at the measured 6. Fixture verified moons=0 on its harvested bytes. Does NOT discharge the tilt debt: Jool's 1.304 deg is the LOWEST inclination in the V-lane ladder."
+instanceProfile = "stock-minimal"
+tags = ["V13", "jool", "loop", "playback", "flown", "reaim", "engaged"]
+
+[fixture]
+saveTemplate       = "fixtures/saves/jool-orbit-recorded"
+injectedRecordings = "none"
+craft              = []
+
+[driver]
+kind = "seam"
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  { cmd = "StopRecording",                                                   expect = "OK" },
+  { cmd = "DiscardTree",                                                     expect = "OK" },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "ghostRenderTracing", value = "true" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "mapRenderTracing",   value = "true" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "verboseLogging",     value = "true" }, expect = "OK" },
+  { cmd = "MissionConfig",     args = { tree = "6ec68e87b782476f970a71df8c8b4685", loop = "true" }, expect = "OK" },
+  { cmd = "StartLoopPlayback", args = { tree = "6ec68e87b782476f970a71df8c8b4685" }, expect = "OK", budget = 300 },
+  { cmd = "FlushAndQuit",                                                    expect = "OK" },
+]
+
+[dimensionsCovered]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+# RE-PINNED FROM THE READING RUN (`2026-08-17_2055`, PASS, wall 48 s): SIX. The fixture
+# carries 5 and the loop-unit seam adds one, exactly as V12 measured on the 5-recording
+# Eeloo fixture.
+count = { min = 6, max = 6 }
+
+[expectations.logContracts]
+# THE PLUMBING TRIPLE ONLY. Every measured quantity -- synodic, cadence, loiterCuts,
+# cutSeconds, compressedSpan, the member/segs line -- is deliberately ABSENT until the
+# reading run measures it. Arming a predicted value would make this lane a test of my
+# arithmetic instead of a measurement of the product.
+required = [
+  "MissionConfig",
+  "StartLoopPlayback",
+  "Recording stopped",
+  # ARMED 2026-08-17 off the reading run's own bytes (`2026-08-17_2055`). Every literal
+  # below was MEASURED, not predicted; the predictions this lane shipped with are scored
+  # against them in the header.
+  "member#1 segs=25 startBody=Kerbin supported=True target=Jool",
+  "transferMemberSegs=25 plan.Supported=True",
+  "ENGAGED re-aim Kerbin->Jool via Sun",
+  # THE SYNODIC, armed as its OWN fragment rather than inside a longer span: a sibling
+  # lane may insert tokens into these lines, and a single key=value survives an insertion
+  # where a contiguous multi-token span does not. MEASURED 10090901.710279949 against a
+  # pre-flight prediction of 10090901.7102799 -- agreement to 4.8e-8 s, the
+  # asset-extracted mu_Sun derivation reproducing the product's live-ephemeris read.
+  "synodic=10090901.710279949",
+  # THE CADENCE, likewise its own fragment. 30272705.130839847 / 10090901.710279949 is
+  # EXACTLY 3 -- the multiple predicted from span/synodic = 2.7537 -> Ceiling 3
+  # (ReaimWindowPlanner.cs:145-147). Prior points: Moho 1x, Dres 2x, Eeloo 5x.
+  # A REAL measurement, not the Moho byte-equality artefact: PadAlignLaunch returns
+  # Applied=false whenever span > synodic, and this span is 2.75 synodics.
+  "cadence=30272705.130839847",
+  # THE LOITER CUT -- the one adjacent pair kept contiguous, because it is emitted that
+  # way and no sibling lane writes this line. 4,105,620 s = 14.8% of the 27,787,292 s
+  # span, tof 22,327,520 = 80.4%.
+  "loiterCuts=1 cutSeconds=4105620",
+  "compressedSpan=23681672/27787292",
+]
+# THE DECLINE REASONS ARE NOW FORBIDDEN, because the reading run MEASURED ENGAGED.
+# They were deliberately absent on iteration 1 so a Jool decline could come back as a
+# recorded reading rather than a red run; that question is settled, so they become a
+# regression floor.
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "no member yields a re-aim transfer",
+  "not re-aim \\(no member yields a re-aim transfer\\); faithful",
+]
+
+[runtime]
+budgetSeconds = 2400
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""
