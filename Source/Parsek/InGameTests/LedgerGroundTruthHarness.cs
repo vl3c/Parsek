@@ -328,11 +328,11 @@ namespace Parsek.InGameTests
             recon.ResearchedTechIds = ScanResearchedTechIds(out bool hasTechSurface);
             recon.HasTechSurface = hasTechSurface;
 
-            // NOT populated, deliberately: HasPartPurchaseSurface and
-            // HasStrategySurface. The recalc has no purchased-part set (part unlock
-            // is derived at patch time from KSP's own part list) and StrategiesModule
-            // keeps its active set private, so both facets stay save-side censuses
-            // rather than diffs against an invented reconstruction.
+            // NO purchased-part or active-strategy reconstruction surface exists (the
+            // recalc has no purchased-part set - part unlock is derived at patch time
+            // from KSP's own part list - and StrategiesModule keeps its active set
+            // private), so both facets are save-side CENSUSES in the diff, with no
+            // compare half and no snapshot field to fill.
 
             ParsekLog.Verbose(Tag,
                 $"BuildReconstructionSnapshot: funds={recon.Funds.ToString("R", IC)} " +
@@ -637,7 +637,7 @@ namespace Parsek.InGameTests
                 ParsekLog.Info(Tag,
                     $"strategies saveStrategies={save.Strategies.Count.ToString(IC)} " +
                     $"saveActive={save.ActiveStrategyIds.Count.ToString(IC)} " +
-                    $"reconSurface={recon.HasStrategySurface.ToString(IC)} (shape-only, report-only)");
+                    $"(save-side census only; no reconstruction strategy surface exists)");
             }
         }
 

@@ -22,8 +22,11 @@ namespace Parsek.Tests
     /// the ledger; this test diffs the two independent producers, exactly the
     /// LedgerGroundTruthHarness contract but headless.
     ///
-    /// Module registration mirrors LedgerOrchestrator.Initialize's tier order (design
-    /// doc 1.8). Kept in step by RegistrationMirrorsOrchestratorTierOrder below.
+    /// The replay runs the PRODUCTION registration: LedgerOrchestrator.Initialize()
+    /// registers all nine modules in its own tier order and the test reads the pools
+    /// back through its module accessors. A hand-rolled mirror of that registration
+    /// would be a second copy to keep in step, and a drifted copy would replay a
+    /// module graph production never uses.
     /// </summary>
     [Collection("Sequential")]
     public class C2CareerLedgerReplayTests : IDisposable
@@ -40,35 +43,30 @@ namespace Parsek.Tests
         private const double SeedScience = 750.0;
         private const double SeedReputation = 0.0;
 
-        private readonly List<string> logLines = new List<string>();
-
         public C2CareerLedgerReplayTests()
         {
+            LedgerOrchestrator.ResetForTesting();
             ParsekLog.ResetTestOverrides();
-            ParsekLog.SuppressLogging = false;
-            ParsekLog.TestSinkForTesting = line => logLines.Add(line);
-            Ledger.ResetForTesting();
-            RecalculationEngine.ClearModules();
+            ParsekLog.SuppressLogging = true;
+            LedgerOrchestrator.Initialize();
         }
 
         public void Dispose()
         {
-            RecalculationEngine.ClearModules();
-            Ledger.ResetForTesting();
+            LedgerOrchestrator.ResetForTesting();
             ParsekLog.ResetTestOverrides();
             ParsekLog.SuppressLogging = true;
         }
 
         // ================================================================
-        // Fixture resolution (pattern: SyntheticRecordingTests.ResolveDefaultCareerFixtureDir)
+        // Fixture resolution
         // ================================================================
 
         private static string ResolveFixtureDir()
         {
-            // xUnit runs from Source/Parsek.Tests/bin/Debug/net472/ - five levels up
-            // is the repo root.
-            string root = Path.GetFullPath(Path.Combine(
-                AppDomain.CurrentDomain.BaseDirectory, "..", "..", "..", "..", ".."));
+            // Shared root resolver: walks up probing for Source/Parsek.sln rather than
+            // hard-coding how deep the xUnit output directory sits.
+            string root = SyntheticRecordingTests.ResolveProjectRoot();
             string dir = Path.Combine(root, "Source", "Parsek.Tests", "Fixtures", "C2Career");
             Assert.True(Directory.Exists(dir), $"C2Career fixture dir not found at '{dir}'");
             return dir;
@@ -90,36 +88,6 @@ namespace Parsek.Tests
             CareerSaveSnapshot snap = CareerSaveParser.Parse(root);
             Assert.True(snap.Parsed, $"CareerSaveParser rejected the fixture save: {snap.Reason}");
             return snap;
-        }
-
-        /// <summary>
-        /// Registers all nine production modules in LedgerOrchestrator.Initialize's tier
-        /// order and returns the pool-owning three for reading back results.
-        /// </summary>
-        private static (FundsModule funds, ScienceModule science, ReputationModule rep)
-            RegisterProductionModules()
-        {
-            var science = new ScienceModule();
-            var milestones = new MilestonesModule();
-            var contracts = new ContractsModule();
-            var funds = new FundsModule();
-            var route = new RouteModule();
-            var rep = new ReputationModule();
-            var facilities = new FacilitiesModule();
-            var strategies = new StrategiesModule();
-            var kerbals = new KerbalsModule();
-
-            RecalculationEngine.RegisterModule(milestones, RecalculationEngine.ModuleTier.FirstTier);
-            RecalculationEngine.RegisterModule(contracts, RecalculationEngine.ModuleTier.FirstTier);
-            RecalculationEngine.RegisterModule(science, RecalculationEngine.ModuleTier.FirstTier);
-            RecalculationEngine.RegisterModule(kerbals, RecalculationEngine.ModuleTier.FirstTier);
-            RecalculationEngine.RegisterModule(strategies, RecalculationEngine.ModuleTier.Strategy);
-            RecalculationEngine.RegisterModule(funds, RecalculationEngine.ModuleTier.SecondTier);
-            RecalculationEngine.RegisterModule(route, RecalculationEngine.ModuleTier.SecondTier);
-            RecalculationEngine.RegisterModule(rep, RecalculationEngine.ModuleTier.SecondTier);
-            RecalculationEngine.RegisterModule(facilities, RecalculationEngine.ModuleTier.Facilities);
-
-            return (funds, science, rep);
         }
 
         // ================================================================
@@ -146,20 +114,61 @@ namespace Parsek.Tests
         }
 
         // ================================================================
+        // A.0 - the leak stated STRUCTURALLY (fixture-independent)
+        // ================================================================
+
+        [Fact]
+        public void FixtureLedger_StrategyExchange_HasAFundsCreditAndNoScienceDebit()
+        {
+            // STRATEGY-SCIENCE-CONVERSION-LEAK stated by SHAPE, not by magnitude. The
+            // pinned-delta cell below proves the leak is exactly 108.84 points on THIS
+            // fixture; this one proves the STRUCTURE that produces it, so it survives a
+            // re-forged fixture: at the strategy's UT the ledger carries the currency
+            // exchange's FUNDS credit (FundsEarning, FundsSource.Strategy) and carries
+            // NO science row of any kind - neither the matching debit nor anything else.
+            // Both capture doors drop the science leg (GameStateRecorder.OnScienceChanged
+            // has no StrategyInput forward; GameStateEventConverter's ScienceChanged case
+            // returns null unconditionally), so the credit arrives unpaired.
+            var actions = LoadFixtureLedger();
+
+            var strategyFundsRows = actions.FindAll(a =>
+                a.Type == GameActionType.FundsEarning
+                && a.FundsSource == FundsEarningSource.Strategy);
+            Assert.NotEmpty(strategyFundsRows);
+
+            foreach (var credit in strategyFundsRows)
+            {
+                // No science row of ANY type shares the exchange's UT. A debit would be
+                // a ScienceSpending; an offsetting credit would be a ScienceEarning.
+                // Neither exists - that IS the leak.
+                var scienceRowsAtUT = actions.FindAll(a =>
+                    Math.Abs(a.UT - credit.UT) < 0.001
+                    && (a.Type == GameActionType.ScienceSpending
+                        || a.Type == GameActionType.ScienceEarning));
+                Assert.True(scienceRowsAtUT.Count == 0,
+                    $"expected NO science row at the strategy exchange UT " +
+                    $"{credit.UT.ToString("R", IC)}; found {scienceRowsAtUT.Count.ToString(IC)}. " +
+                    "If the leak is FIXED, this cell and the pinned-magnitude cell both " +
+                    "flip deliberately.");
+            }
+        }
+
+        // ================================================================
         // A.0 - the adjudication: real engine vs KSP's own save
         // ================================================================
 
         [Fact]
         public void RealEngine_ReplaysC2Ledger_PoolsVsSave()
         {
-            var (funds, science, rep) = RegisterProductionModules();
+            // PRODUCTION registration: the ctor called LedgerOrchestrator.Initialize(),
+            // so the module graph under replay is the one production builds.
             var actions = LoadFixtureLedger();
 
             RecalculationEngine.Recalculate(actions);
 
-            double reconFunds = funds.GetRunningBalance();
-            double reconScience = science.GetRunningScience();
-            double reconRep = rep.GetRunningRep();
+            double reconFunds = LedgerOrchestrator.Funds.GetRunningBalance();
+            double reconScience = LedgerOrchestrator.Science.GetRunningScience();
+            double reconRep = LedgerOrchestrator.Reputation.GetRunningRep();
 
             string report =
                 $"funds: recon={reconFunds.ToString("R", IC)} save={SaveFunds.ToString("R", IC)} d={(reconFunds - SaveFunds).ToString("R", IC)} | " +

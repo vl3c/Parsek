@@ -3408,8 +3408,8 @@ Those two conditions say stock promoted an encounter and the closest one is our 
 ## STRATEGY-SCIENCE-CONVERSION-LEAK: a stock strategy's science-to-funds exchange has its FUNDS leg captured and its SCIENCE leg dropped, so the recalc reconstructs science 108.84 too high [FOUND 2026-08-17 by career-ledger-lane task A.0, the first real-ledger replay. NOT FIXED - pinned, not worked around]
 
 **Measured, on a committed fixture.** `C2CareerLedgerReplayTests` (fixture
-`Source/Parsek.Tests/Fixtures/C2Career/`) registers all nine production modules in
-`LedgerOrchestrator.Initialize`'s tier order, runs the REAL
+`Source/Parsek.Tests/Fixtures/C2Career/`) calls `LedgerOrchestrator.Initialize()` so
+the module graph under replay IS the production one, runs the REAL
 `RecalculationEngine.Recalculate` over the fixture's 68-row `ledger.pgld`, and
 diffs the result against the same save's `persistent.sfs` pools. Non-circular:
 KSP wrote the pools, Parsek's observers wrote the ledger.

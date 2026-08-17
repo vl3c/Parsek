@@ -247,29 +247,12 @@ namespace Parsek
         /// </summary>
         public HashSet<string> ResearchedTechIds = new HashSet<string>(StringComparer.Ordinal);
 
-        /// <summary>
-        /// True when the reconstruction has a purchased-part surface. NOTHING sets
-        /// this today, deliberately: the recalc models tech-node RESEARCH, and part
-        /// unlock is derived at patch time from KSP's own part list
-        /// (KspStatePatcher.AddPurchasedPartsForTech), so there is no ledger-side
-        /// purchased-part set to diff. The flag exists so the facet can report the
-        /// save side honestly instead of inventing a reconstruction.
-        /// </summary>
-        public bool HasPartPurchaseSurface;
-
-        /// <summary>Purchased part names, when a surface ever exists.</summary>
-        public HashSet<string> PurchasedPartNames = new HashSet<string>(StringComparer.Ordinal);
-
-        /// <summary>
-        /// True when the reconstruction has an active-strategy surface. NOTHING
-        /// sets this today: StrategiesModule keeps its active set private (only
-        /// GetActiveStrategyCount / IsStrategyActive are exposed) and the
-        /// career-ledger plan lands strategies SHAPE-ONLY with no D8 claim.
-        /// </summary>
-        public bool HasStrategySurface;
-
-        /// <summary>Active strategy ids, when a surface ever exists.</summary>
-        public HashSet<string> ActiveStrategyIds = new HashSet<string>(StringComparer.Ordinal);
+        // NO purchased-part or active-strategy surface, deliberately: the recalc
+        // models tech-node RESEARCH (part unlock is derived at patch time from KSP's
+        // own part list, KspStatePatcher.AddPurchasedPartsForTech) and StrategiesModule
+        // keeps its active set private. Both facets are save-side CENSUS ONLY in
+        // LedgerGroundTruthDiff; a field nothing ever fills would only make an
+        // unreachable compare half look reachable.
 
         /// <summary>
         /// Per-kerbal career-log entries the reconstruction credits, read off the
@@ -327,14 +310,11 @@ namespace Parsek
         Roster,
 
         /// <summary>ResearchAndDevelopment Tech unlock set (report-only).</summary>
-        TechNode,
+        TechNode
 
-        /// <summary>Purchased parts listed inside the Tech nodes (report-only).</summary>
-        PartPurchase,
-
-        /// <summary>StrategySystem active strategies (report-only, shape-only).</summary>
-        Strategy
-
+        // NO PartPurchase / Strategy members: those two facets are save-side census
+        // only (no reconstruction surface produces either set), so no divergence can
+        // ever be tagged with them. Add a member back WITH the producer.
     }
 
     /// <summary>What kind of disagreement a divergence represents.</summary>

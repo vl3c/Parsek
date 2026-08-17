@@ -45,13 +45,12 @@ namespace Parsek.Tests
         }
 
         /// <summary>
-        /// xUnit runs from Source/Parsek.Tests/bin/Debug/net472/ - five levels up is
-        /// the repo root (pattern: C2CareerLedgerReplayTests.ResolveFixtureDir).
+        /// The shared root resolver: walks up probing for Source/Parsek.sln rather than
+        /// hard-coding how deep the xUnit output directory sits.
         /// </summary>
         private static string RepoRoot()
         {
-            return Path.GetFullPath(Path.Combine(
-                AppDomain.CurrentDomain.BaseDirectory, "..", "..", "..", "..", ".."));
+            return SyntheticRecordingTests.ResolveProjectRoot();
         }
 
         private static CareerSaveSnapshot ParseSave(string path)

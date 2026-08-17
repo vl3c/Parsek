@@ -144,14 +144,12 @@ namespace Parsek.Tests
             // Documented behavior: refused, NOT deducted, NOT clamped to zero.
             Assert.False(actions[1].Affordable, "the spend was not covered and must be marked unaffordable");
 
-            // The balance is the seed plus the later earning: the 90 never left.
+            // The balance is the seed plus the later earning: the 90 never left. This is
+            // also the divergence the refusal produces - the reconstruction ends exactly
+            // one full cost HIGH relative to a walk that had deducted the spend, the
+            // magnitude the parked c1 finding measured (+90.0 there, cost 90 here).
             double keptBalance = (double)85.3f + 50.0;
             Assert.Equal(keptBalance, science.GetRunningScience(), 3);
-
-            // Stated as the divergence it produces: the reconstruction ends exactly one
-            // full cost HIGH relative to a walk that had deducted the spend. That is the
-            // magnitude the parked c1 finding measured (+90.0 there, cost 90 here).
-            Assert.Equal(90.0, science.GetRunningScience() - (keptBalance - 90.0), 3);
 
             Assert.Contains(logLines, l =>
                 l.Contains("[ScienceModule]")

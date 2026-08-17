@@ -1,4 +1,4 @@
-# Career-ledger automated coverage — plan (rev 3)
+# Career-ledger automated coverage - plan (rev 3)
 
 Status: **IN PROGRESS.** **Phase A is COMPLETE** and committed on
 `career-ledger-lane` (A.0's fixture + replay test + the adjudication below, A.1's
@@ -9,11 +9,11 @@ un-deferred L1 roster assertion, LIVE-PROVEN on run
 Rev 3 adds the `c2` subject (a short career played 2026-08-17 on current code,
 specifically to exercise the ledger) and the candidate strategy-conversion gap it
 exposed. It answers rev 2's open question 4: **Phase C's forge is no longer
-needed** — c2 is the manufactured subject, made by hand.
+needed** - c2 is the manufactured subject, made by hand.
 
 Rev 2 supersedes rev 1 after a five-lens independent review (fact audit, premise
 critique, blocker hunt, completeness, conventions). The review overturned enough
-of rev 1 that the phase order changed. §6 lists every correction, so a reader who
+of rev 1 that the phase order changed. Section 6 lists every correction, so a reader who
 saw rev 1 can diff the reasoning rather than re-read the whole thing.
 
 ## 1. Premise
@@ -29,19 +29,19 @@ throughout:
 
 | Use | Trustworthy on c1? | Why |
 | --- | --- | --- |
-| **Value oracle** — "the ledger must reproduce these pools" | **NO** | A divergence may be an artifact of the code that recorded it |
-| **Shape reference** — what a real ROSTER / Tech / STRATEGY node looks like | **YES** | Node shapes are KSP's, and do not rot when we fix our bugs |
-| **Mechanism corpus** — does the recalc survive 323 ordered actions | **PARTLY** | Robustness holds; any assertion on the *values* does not |
+| **Value oracle** - "the ledger must reproduce these pools" | **NO** | A divergence may be an artifact of the code that recorded it |
+| **Shape reference** - what a real ROSTER / Tech / STRATEGY node looks like | **YES** | Node shapes are KSP's, and do not rot when we fix our bugs |
+| **Mechanism corpus** - does the recalc survive 323 ordered actions | **PARTLY** | Robustness holds; any assertion on the *values* does not |
 
 ## 2. What the review changed (read this before the phases)
 
-Three findings reshaped the plan. Each is evidenced in §6.
+Three findings reshaped the plan. Each is evidenced in section 6.
 
 1. **The highest-value task needs no new fixture at all.** Closing D8
    `ground-truth-harness` (the brief's part 1) was sequenced behind the forge.
-   It does not need it: every precondition `LedgerGroundTruthHarness` declares —
+   It does not need it: every precondition `LedgerGroundTruthHarness` declares -
    CAREER mode, live Funding/R&D/Reputation instances, no pending or uncommitted
-   tree, `Scene = FLIGHT` — is already satisfied by the **committed
+   tree, `Scene = FLIGHT` - is already satisfied by the **committed
    `career-pad-craft` fixture**. That reading run is also the cheapest available
    answer to the strict-mode question. It moves to the front.
 2. **The forge cannot settle the one live-defect lead, by construction.** The
@@ -52,7 +52,7 @@ Three findings reshaped the plan. Each is evidenced in §6.
    `GameStateEventConverter.ConvertScienceSubjects`, and no committed mission
    collects science. Worse, `KscAction` pre-refuses an unaffordable research at
    the door, so a forged ledger cannot contain the unaffordable-spend shape at
-   all. But `ScienceModule.ProcessSpending` is pure — the finding is reproducible
+   all. But `ScienceModule.ProcessSpending` is pure - the finding is reproducible
    in a **two-action synthetic unit test today**. It moves to the front too.
 3. **Closing `INV8-CAREER-DIFF` cannot gate, and is not this lane's job.**
    `Inv8Ledger.cs:109` is explicit: *"ANY divergence (hard or report-only) -> WARN
@@ -72,18 +72,18 @@ A deliberate short career (`Kerbal Space Program/saves/c2`, 1.4 MB, 39 files)
 played on current code: two flights auto-recorded and merged, one contract
 accepted and completed, one strategy applied, tech nodes unlocked. Measured:
 
-- **CAREER, Parsek-native** — `parsek_career_start.sfs` present (33000 funds /
+- **CAREER, Parsek-native** - `parsek_career_start.sfs` present (33000 funds /
   750 sci / 0 rep custom start; all difficulty multipliers 1.0), ledger and
   recordings at generation 4.
 - **68 ledger actions** on current code: 36 FundsSpending, **11 ScienceEarning
-  (real flight science — the shape §2 finding 2 proved a forge can never
+  (real flight science - the shape section 2 finding 2 proved a forge can never
   produce)**, 7 Milestone, 4 ScienceSpending, 3 FundsEarning, 1 ContractAccept +
   1 ContractComplete, 1 StrategyActivate + 1 StrategyDeactivate
   (`researchIPsellout`, commitment 0.05), 3 seeds.
 - **Passes the analyzer Forbid gate as-is**: `FAIL=0 WARN=1 INFO=2 RED=0`, no
   `baseline.cfg`. This was the constraint that disqualified c1 from the harness;
   c2 clears it today. The one WARN is `INV5-ORPHAN-SIDECAR` (a third `.prec`
-  from a discarded recording — decide at fixture time: keep as a benign real-file
+  from a discarded recording - decide at fixture time: keep as a benign real-file
   or drop the orphan).
 - **No VESSEL nodes** (both flights recovered), so c2 trips the harvester's
   focusability gate exactly as `fresh-career` did, and cannot host a
@@ -91,7 +91,7 @@ accepted and completed, one strategy applied, tech nodes unlocked. Measured:
   `career-pad-craft` stays the in-game subject for Phase B.** For committing c2
   as a fixture, either file-construct it directly (sanctioned; the harvester is
   not the only door) or record one more pad-vessel flight into it.
-- **Strategy end-state is empty** — the strategy was activated and deactivated,
+- **Strategy end-state is empty** - the strategy was activated and deactivated,
   so no on-disk `STRATEGY` node exists (which is why the machine-wide search
   found none). The *ledger* now carries current-code strategy rows; the save-side
   StrategySystem shape reference still comes from the single stale sample.
@@ -154,7 +154,7 @@ report-only; Vessel HARD only when guid-corroborated.
 549 `[InGameTest]` declarations across 99 categories, 62 undriven (215
 declarations, 39%). Exactly one save machine-wide carries a `STRATEGY` node.
 `harvest_bdock_station.py:106` hardcodes the `(SANDBOX)` title suffix.
-S4.1 and CL-3 already own both poles of load→rewind→assert, driven unattended.
+S4.1 and CL-3 already own both poles of load->rewind->assert, driven unattended.
 
 **Corrected.**
 
@@ -162,7 +162,7 @@ S4.1 and CL-3 already own both poles of load→rewind→assert, driven unattende
   `strategies`, `tombstones`, `ers-els-routing`, `ground-truth-harness`. Two
   reviewers independently re-derived this with the harness's own
   `hlib.compute_coverage`. Rev 1 dropped `milestones`, which is plausibly the
-  cheapest new cell available to this lane — `CL-2` explicitly declines to claim
+  cheapest new cell available to this lane - `CL-2` explicitly declines to claim
   it (`CL-2-pod-impact-ledger.toml:238`).
 - **The "pure recalc core" claim was overstated.** The *import statements* are
   `System*`-only, but KSP's Assembly-CSharp types live in the **global namespace**
@@ -171,7 +171,7 @@ S4.1 and CL-3 already own both poles of load→rewind→assert, driven unattende
   `ConfigNode` parameters (`:481`, `:1912`); `LedgerOrchestrator` carries 14 such
   references. Correct statement: **the recalc dispatch path is KSP-free; the KSP
   touches are null-guarded and off the `ProcessAction` walk.**
-- **`RestoreBatchFlightBaselineAfterExecution` is 72 declarations, not 51** —
+- **`RestoreBatchFlightBaselineAfterExecution` is 72 declarations, not 51** -
   38 of them in `Logistics` alone, so the hazard is fenceable by skipping one
   category rather than auditing 72 sites.
 - **The `head-tip-split` negative does not survive.** Rev 1 claimed no c1
@@ -180,38 +180,38 @@ S4.1 and CL-3 already own both poles of load→rewind→assert, driven unattende
   `explicitStartUT`/`explicitEndUT`. Measured against **the predicate the splitter
   itself uses** (`Recording.TryGetActualTrajectoryBounds`, `Recording.cs:476-509`,
   applied at `RecordingTreeSplitter.cs:539-543`), **two other c1 recordings do
-  strictly span it** — `14c10c43…` (475517.1 → 2054279.4) and `6a15ca9e…`
-  (287015.8 → 2054358.8), both backed by real samples rather than predicted tails.
+  strictly span it** - `14c10c43...` (475517.1 -> 2054279.4) and `6a15ca9e...`
+  (287015.8 -> 2054358.8), both backed by real samples rather than predicted tails.
   D9 `head-tip-split` is therefore **not** ruled out on c1. Revisit in Phase E.
 - **Task 2.0 (rev 1's biggest unknown) resolves affirmatively.** `validate_spec`
   imposes no step-count or one-`KscAction` rule; a reviewer validated a synthetic
-  4×`KscAction` spec clean with a 4-entry manifest, and `oracle.compute_expected`
+  4x`KscAction` spec clean with a 4-entry manifest, and `oracle.compute_expected`
   accumulated all four. A multi-action forge can be one spec.
 
-**Still true and still binding:** `strategies` cannot be claimed — one sample
+**Still true and still binding:** `strategies` cannot be claimed - one sample
 machine-wide, no data to gate on.
 
 ## 4. Phases
 
 Ordered de-risk-first: the cheapest tasks now settle the biggest questions.
 
-### Phase A — Settle the defect lead and the parser, headlessly
+### Phase A - Settle the defect lead and the parser, headlessly
 
 No KSP, no fixture, no harness run.
 
 | # | Task | Cost | Gates? |
 | --- | --- | --- | --- |
-| A.0 **DONE 2026-08-17** | **Run the real recalc engine over c2's ledger, headlessly; diff vs c2's save pools.** Adjudicates the strategy-conversion candidate finding (§2b) and doubles as the suite's first many-action real-ledger walk (rev 2's 3.1, now with a trustworthy subject). Fixture: commit c2's `ledger.pgld` + `persistent.sfs` (~160 KB) under `Source/Parsek.Tests/Fixtures/` (precedent: `DefaultCareer`). **Shipped as `Fixtures/C2Career/` + `C2CareerLedgerReplayTests.cs`; verdict in 2b.** | M | **yes** |
-| A.1 **DONE 2026-08-17** (`ScienceSpendingOrderingTests.cs`) | **Reproduce the parked science finding synthetically.** Two actions — `ScienceEarning` at UT_e, `ScienceSpending` cost 90 at UT_s — exercising `SortActions`' earning-before-spending tiebreak (`RecalculationEngine.cs:273-285`) and `ProcessSpending`'s affordability gate (`ScienceModule.cs:271-292`), plus the c1-shaped variant where the earning's commit-anchored UT falls *after* the spend. **This settles Phase E's question without any career subject.** | S | **yes** |
-| A.2 **DONE 2026-08-17** | `CareerSaveParser` → **ROSTER** (needs a `gameNode.GetNode("ROSTER")` path; `FindScenario` cannot reach it). **Shipped as `ParseRoster` + `SaveKerbal` (name/gender/type/trait/state); nameless KERBAL skipped, empty ROSTER = facet present with zero kerbals.** | M | **yes** |
-| A.3 **DONE 2026-08-17** | `CareerSaveParser` → **tech-node unlock set** + **part purchases** (both inside the already-opened SCENARIO). **Shipped as `ParseTechTree` off the R&D node ParseScience opens: `UnlockedTechIds` + `PurchasedPartNames` (the REPEATED `part` values) + `TechNodePartCounts`; `HasTechTree` is independent of `HasScience`.** | S | **yes** |
-| A.4 **DONE 2026-08-17** | `CareerSaveParser` → **StrategySystem**, shape-only. **Report-only, no D8 claim.** **Shipped as `ParseStrategies` + `SaveStrategy`. SHAPE CORRECTION: the real stock node is `STRATEGY { name, date, factor, EFFECT{} }` with NO `isActive` field - presence in STRATEGIES IS the active signal (an explicit `isActive = False` is honoured defensively). Every committed fixture's block is empty and parses to zero strategies.** | S | no |
-| A.5 **DONE 2026-08-17** | Matching `LedgerGroundTruthDiff` facets for A.2–A.4, landed **report-only**. **Shipped as `CompareRoster` / `CompareTechNodes` / `ComparePartPurchases` / `CompareStrategies`, each gated on a `recon.HasXSurface` flag: with no reconstruction surface the facet logs the save-side census and stays UNCOMPARED (`FacetsCompared` untouched) rather than diffing against an invented recon. Layer B wires two surfaces only - roster (KerbalsModule created / permanently-gone) and researched tech (affordable `ScienceSpending` NodeIds off the ELS); part purchases and strategies have NO recalc surface and stay censuses. The tech facet emits the PHANTOM direction only (the ledger's set is delta-only, the save's is absolute, so "unlocked but unclaimed" is counted in the log, never emitted per id).** | M | report-only |
-| A.6 **DONE 2026-08-17** | Un-defer the roster assertion in `L1-dismiss-kerbal-career`. **Touches a protected spec — approve or cut.** **Approved (§7.1) and landed as the full chain: `ReportWriter` exports `hasRoster` + a sorted `roster` array (analyzerVersion 3 -> 4, additive), `oracle.diff_world_roster` evaluates `[expectations.world.roster]` `present` / `absent` name claims (both HARD; a declared block against `hasRoster=false` is one hard `missing`, so an armed claim cannot green on a missing input), `run.py` calls it where the M-B2 `roster sub-facet deferred` Verbose line stood, and the spec declares `absent = ["Bill Kerman"]` + the three bystanders. No `ARMED_ALLOWLIST` change was needed (that allowlist is the saveparse `gating = true` set); a new `WorldRosterDeclarerTests` pins the declarer set and cross-checks the absent name against the driver's own dismiss step. LIVE-PROVEN 2026-08-17 on run `2026-08-17_2049_L1-dismiss-kerbal-career` (wall 54 s, PASS): the armed sub-facet read `declared=True present=3 absent=1 divergences=0` against a produced save exporting `hasRoster=true` and four kerbals, Bill Kerman gone and the three bystanders untouched.** | S | **yes** |
+| A.0 **DONE 2026-08-17** | **Run the real recalc engine over c2's ledger, headlessly; diff vs c2's save pools.** Adjudicates the strategy-conversion candidate finding (section 2b) and doubles as the suite's first many-action real-ledger walk (rev 2's 3.1, now with a trustworthy subject). Fixture: commit c2's `ledger.pgld` + `persistent.sfs` (~160 KB) under `Source/Parsek.Tests/Fixtures/` (precedent: `DefaultCareer`). **Shipped as `Fixtures/C2Career/` + `C2CareerLedgerReplayTests.cs`; verdict in 2b.** | M | **yes** |
+| A.1 **DONE 2026-08-17** (`ScienceSpendingOrderingTests.cs`) | **Reproduce the parked science finding synthetically.** Two actions - `ScienceEarning` at UT_e, `ScienceSpending` cost 90 at UT_s - exercising `SortActions`' earning-before-spending tiebreak (`RecalculationEngine.cs:273-285`) and `ProcessSpending`'s affordability gate (`ScienceModule.cs:271-292`), plus the c1-shaped variant where the earning's commit-anchored UT falls *after* the spend. **This settles Phase E's question without any career subject.** | S | **yes** |
+| A.2 **DONE 2026-08-17** | `CareerSaveParser` -> **ROSTER** (needs a `gameNode.GetNode("ROSTER")` path; `FindScenario` cannot reach it). **Shipped as `ParseRoster` + `SaveKerbal` (name/gender/type/trait/state); nameless KERBAL skipped, empty ROSTER = facet present with zero kerbals.** | M | **yes** |
+| A.3 **DONE 2026-08-17** | `CareerSaveParser` -> **tech-node unlock set** + **part purchases** (both inside the already-opened SCENARIO). **Shipped as `ParseTechTree` off the R&D node ParseScience opens: `UnlockedTechIds` + `PurchasedPartNames` (the REPEATED `part` values) + `TechNodePartCounts`; `HasTechTree` is independent of `HasScience`.** | S | **yes** |
+| A.4 **DONE 2026-08-17** | `CareerSaveParser` -> **StrategySystem**, shape-only. **Report-only, no D8 claim.** **Shipped as `ParseStrategies` + `SaveStrategy`. SHAPE CORRECTION: the real stock node is `STRATEGY { name, date, factor, EFFECT{} }` with NO `isActive` field - presence in STRATEGIES IS the active signal (an explicit `isActive = False` is honoured defensively). Every committed fixture's block is empty and parses to zero strategies.** | S | no |
+| A.5 **DONE 2026-08-17** | Matching `LedgerGroundTruthDiff` facets for A.2-A.4, landed **report-only**. **Shipped as `CompareRoster` / `CompareTechNodes` / `ComparePartPurchases` / `CompareStrategies`. The first two are gated on a `recon.HasXSurface` flag: with no reconstruction surface the facet logs the save-side census and stays UNCOMPARED (`FacetsCompared` untouched) rather than diffing against an invented recon. Layer B wires exactly those two surfaces - roster (KerbalsModule created / permanently-gone) and researched tech (affordable `ScienceSpending` NodeIds off the ELS); part purchases and strategies have NO recalc surface, so they are CENSUS ONLY with no compare half at all (an unreachable compare half reads like coverage it cannot provide). The tech facet emits the PHANTOM direction only (the ledger's set is delta-only, the save's is absolute, so "unlocked but unclaimed" is counted in the log, never emitted per id).** | M | report-only |
+| A.6 **DONE 2026-08-17** | Un-defer the roster assertion in `L1-dismiss-kerbal-career`. **Touches a protected spec - approve or cut.** **Approved (section 7.1) and landed as the full chain: `ReportWriter` exports `hasRoster` + a sorted `roster` array (analyzerVersion 3 -> 4, additive), `oracle.diff_world_roster` evaluates `[expectations.world.roster]` `present` / `absent` name claims (both HARD; a declared block against `hasRoster=false` is one hard `missing`, so an armed claim cannot green on a missing input), `run.py` calls it where the M-B2 `roster sub-facet deferred` Verbose line stood, and the spec declares `absent = ["Bill Kerman"]` + the three bystanders. No `ARMED_ALLOWLIST` change was needed (that allowlist is the saveparse `gating = true` set); a new `WorldRosterDeclarerTests` pins the declarer set and cross-checks the absent name against the driver's own dismiss step. LIVE-PROVEN 2026-08-17 on run `2026-08-17_2049_L1-dismiss-kerbal-career` (wall 54 s, PASS): the armed sub-facet read `declared=True present=3 absent=1 divergences=0` against a produced save exporting `hasRoster=true` and four kerbals, Bill Kerman gone and the three bystanders untouched.** | S | **yes** |
 
-c1 is used in A.2–A.4 as a **shape reference only**; asserted values are authored.
+c1 is used in A.2-A.4 as a **shape reference only**; asserted values are authored.
 
-### Phase B — Close D8 `ground-truth-harness` on an existing fixture
+### Phase B - Close D8 `ground-truth-harness` on an existing fixture
 
 The brief's part 1. No new fixture, no new C#.
 
@@ -227,74 +227,74 @@ needs **no edit** (rev 1 named an edit that does not exist). If the new spec tak
 an H-series id, `IngameBatchWiringGroupTests.GROUP` needs a row **and** its
 anti-vacuity floor `assertEqual(24, len(GROUP))` must be bumped.
 
-### Phase C — Manufacture a career subject (**largely obsolete — c2 exists**)
+### Phase C - Manufacture a career subject (**largely obsolete - c2 exists**)
 
-Rev 2 demoted this phase to "only if B shows it is needed"; c2 (§2b) now covers
-the need directly — a hand-played career on current code beats a forged one (it
+Rev 2 demoted this phase to "only if B shows it is needed"; c2 (section 2b) now covers
+the need directly - a hand-played career on current code beats a forged one (it
 contains flight science, a real contract cycle and strategy rows, none of which
 the seam can produce). What survives of this phase: the harvester title fix
-(C.3) as an independent small chore, and — only if c2 is ever promoted into a
-*harness* fixture — the focusability question (§2b). The forge tasks C.1/C.2
+(C.3) as an independent small chore, and - only if c2 is ever promoted into a
+*harness* fixture - the focusability question (section 2b). The forge tasks C.1/C.2
 are retained below for reference but should not be scheduled.
 
 | # | Task | Cost | Gates? |
 | --- | --- | --- | --- |
 | C.1 | **Forge from `career-pad-craft`, not `fresh-career`.** `fresh-career` has `activeVessel = -1` and zero VESSEL nodes; the harvester's focusability gate `SystemExit`s on that (`harvest_bdock_station.py:232-237`). A PRELAUNCH craft also keeps a FLIGHT-scene batch possible later, and `autoRecordOnLaunch=false` keeps it recording-free and analyzer-clean. | M | **yes** |
-| C.2 | **Resolve the harvester's ledger/recordings contradiction *before* designing the forge.** The ledger is at `Parsek/GameState/ledger.pgld` — inside the dir default-mode prunes — and `--keep-parsek` hard-refuses when `Parsek/Recordings` is empty, which is exactly the recording-free fixture we want. Pick one: author one recording, relax the sanity gate for a ledger-only payload, or teach the harvester a ledger-only mode. **Unbudgeted in rev 1.** | M | **yes** |
+| C.2 | **Resolve the harvester's ledger/recordings contradiction *before* designing the forge.** The ledger is at `Parsek/GameState/ledger.pgld` - inside the dir default-mode prunes - and `--keep-parsek` hard-refuses when `Parsek/Recordings` is empty, which is exactly the recording-free fixture we want. Pick one: author one recording, relax the sanity gate for a ledger-only payload, or teach the harvester a ledger-only mode. **Unbudgeted in rev 1.** | M | **yes** |
 | C.3 | Harvester title fix: derive the suffix from `Mode` (`:106` hardcodes `(SANDBOX)`). | S | **yes** |
-| C.4 | Pin in the correct fixture table (`RECORDED_FIXTURES` vs `EXPECTED_SCENARIO_PRESENCE` — rev 1 named the wrong one for a recording-free payload). | S | **yes** |
+| C.4 | Pin in the correct fixture table (`RECORDED_FIXTURES` vs `EXPECTED_SCENARIO_PRESENCE` - rev 1 named the wrong one for a recording-free payload). | S | **yes** |
 | C.5 | **Expected-pools table.** Every constant must be derivable from stock data or a measured curve **without reading the produced save**; anything else is recorded as "measured off run `<id>`", never as an author constant. | S | doc |
 
 **Rationale, corrected.** Rev 1 said a known action list makes the pools "an
 oracle by construction". That is false and it is the exact mistake this repo has
-already paid for — the hire cost was authored at −24000 and measured at −62113,
+already paid for - the hire cost was authored at -24000 and measured at -62113,
 and `harness/fixtures/saves/README.md` still carries the warning that *a ledger
 which agrees with a stale spec proves nothing*. The honest rationale: **only KSP
 can author the pools; the ledger is Parsek's independent claim; the diff is the
-test.** Forging preserves non-circularity — KSP writes the pools at
+test.** Forging preserves non-circularity - KSP writes the pools at
 `FlushAndQuit`, Parsek's observers write the ledger, and
 `TestCommandKscAction.cs:26-28` states the verb itself never writes a ledger row.
 Two independent producers.
 
 **Known ceiling:** a forged career covers funds / facility / kerbal ordering only.
-It can **never** cover science ordering (§2 finding 2). Do not scope it to.
+It can **never** cover science ordering (section 2 finding 2). Do not scope it to.
 
-### Phase D — c1 re-examination (needs a trusted baseline)
+### Phase D - c1 re-examination (needs a trusted baseline)
 
 | # | Task | Cost |
 | --- | --- | --- |
 | D.1 | Replay the headless recalc over c1; classify each divergence as era artifact, fixture artifact, or live defect. | M |
-| D.2 | Re-test **D9 `head-tip-split`** against c1 using the splitter's own predicate — rev 1 wrongly ruled this out (§3). Two recordings qualify. | S |
-| D.3 | Decide whether c1 earns a place as a committed **regression floor** (its analyzer baseline matched 30/30 across an analyzerVersion 2→3 bump). | S |
+| D.2 | Re-test **D9 `head-tip-split`** against c1 using the splitter's own predicate - rev 1 wrongly ruled this out (section 3). Two recordings qualify. | S |
+| D.3 | Decide whether c1 earns a place as a committed **regression floor** (its analyzer baseline matched 30/30 across an analyzerVersion 2->3 bump). | S |
 
 **The parked finding, restated with its status.** A headless walk of c1's ledger
 reproduced **funds bit-exactly** (400199.2742919922 vs 400199.27429199219) and
 **reputation to float32** (45.54322814941406 vs 45.5432281); science came out
 **+90.0** (119.30025362968445 vs 29.3002529). Proximate cause:
 `ScienceModule.ProcessSpending` deducts only when affordable and otherwise warns
-and keeps the balance. One c1 action trips it — `heavyRocketry`, cost 90,
+and keeps the balance. One c1 action trips it - `heavyRocketry`, cost 90,
 ut=475457.99765590986, reconstructed balance 85.30028700828552; bypassing the gate
 yields 29.30025291442871, float32-identical to the save.
-**Status: UNCONFIRMED against current code — c1 predates many fixes. Task A.1
+**Status: UNCONFIRMED against current code - c1 predates many fixes. Task A.1
 settles the mechanism synthetically without waiting for any of this.**
 
-### Phase E — Corpus sweeps (optional)
+### Phase E - Corpus sweeps (optional)
 
 Six undriven read-only categories whose assertion volume scales with store size:
 `TreeIntegrity` (4), `GhostChains` (4), `TerminalOrbit` (2),
-`ContinuationIntegrity` (2), `RewindSaves` (1), `CrewReservationLive` (2) — all
+`ContinuationIntegrity` (2), `RewindSaves` (1), `CrewReservationLive` (2) - all
 `Scene=ANY`, batch-executable. Needs a rich save to be non-vacuous, so it depends
 on D.3.
 
 ## 5. Out of scope
 
-- **Closing `INV8-CAREER-DIFF`** — split to its own lane (§2 finding 3).
-- **A third rewind→assert scenario** — S4.1 and CL-3 own both poles.
-- **Asserting the ledger as a ledger after a rewind** — blocked three ways
+- **Closing `INV8-CAREER-DIFF`** - split to its own lane (section 2 finding 3).
+- **A third rewind->assert scenario** - S4.1 and CL-3 own both poles.
+- **Asserting the ledger as a ledger after a rewind** - blocked three ways
   (`saveparse` has no `ledger.pgld` reader, `[expectations.ledger]` is banned with
   `InvokeRewind`, ERS/ELS counters are never serialized). This is the L4
   rewound-career oracle: a design decision, not a task.
-- **The live re-fly session lane (R7b)** — never committed, abandoned after
+- **The live re-fly session lane (R7b)** - never committed, abandoned after
   finding `R7-SESSION-BATCH-ISOLATION`; four items still RECORDED-not-fixed.
 - Editing the six L1 specs or CL-1/CL-2, except A.6 which asks first.
 
@@ -302,19 +302,19 @@ on D.3.
 
 | Rev 1 said | Actually | Severity |
 | --- | --- | --- |
-| D8 13 of 18 covered, 5 uncovered | **12 of 18**, 6 uncovered — `milestones` omitted | major |
+| D8 13 of 18 covered, 5 uncovered | **12 of 18**, 6 uncovered - `milestones` omitted | major |
 | Recalc core is pure, "no KSP" | Import-only claim; `KerbalsModule`/`LedgerOrchestrator` reach global-namespace KSP types | major |
-| Purity guard (grep `using` lines) | **Vacuous** — would certify a false green on day one; must grep type names | major |
-| Mechanism tests over synthetic ledgers | **Already covered 3×**: `LedgerStateFuzzerTests`, `FullCareerTimelineTests`, `CrossTierIntegrationTests`. Cut to the uncovered large-N case or drop | major |
-| `ResetDerivedFields` "exists precisely for this" | `LedgerStateFuzzerTests.cs:52-61` is a KNOWN BLIND SPOT block — deleting it reds nothing | minor |
-| Close INV8, "Gates? yes", highest leverage | **Cannot gate** — WARN by documented design; B.2 is the highest-leverage item | major |
-| Phase 3 depends on Phase 2 | **False** — `career-pad-craft` satisfies every `LedgerGroundTruth` precondition | blocker |
-| Harvest with `--keep-parsek` + "few or no recordings" | **Mutually exclusive** — the mode hard-refuses a recording-free save | blocker |
+| Purity guard (grep `using` lines) | **Vacuous** - would certify a false green on day one; must grep type names | major |
+| Mechanism tests over synthetic ledgers | **Already covered 3x**: `LedgerStateFuzzerTests`, `FullCareerTimelineTests`, `CrossTierIntegrationTests`. Cut to the uncovered large-N case or drop | major |
+| `ResetDerivedFields` "exists precisely for this" | `LedgerStateFuzzerTests.cs:52-61` is a KNOWN BLIND SPOT block - deleting it reds nothing | minor |
+| Close INV8, "Gates? yes", highest leverage | **Cannot gate** - WARN by documented design; B.2 is the highest-leverage item | major |
+| Phase 3 depends on Phase 2 | **False** - `career-pad-craft` satisfies every `LedgerGroundTruth` precondition | blocker |
+| Harvest with `--keep-parsek` + "few or no recordings" | **Mutually exclusive** - the mode hard-refuses a recording-free save | blocker |
 | Forge from `fresh-career` | **Rejected by the harvester** (`activeVessel = -1`, zero VESSEL) | blocker |
 | Pools "an oracle by construction" | Circular rationale; pools come from KSP's cost curves | major |
-| `head-tip-split` verified negative on c1 | **Wrong candidate set and wrong predicate** — two recordings qualify | major |
+| `head-tip-split` verified negative on c1 | **Wrong candidate set and wrong predicate** - two recordings qualify | major |
 | 51 `RestoreBatchFlightBaseline` declarations | **72** (38 in `Logistics`) | major |
-| Add category to `CommittedBatchTallySourceSyncTests` | That edit does not exist — discovery is from disk | major |
+| Add category to `CommittedBatchTallySourceSyncTests` | That edit does not exist - discovery is from disk | major |
 | No docs-per-commit accounting | CHANGELOG + todo-and-known-bugs + autotest-status required in the **same** commit | major |
 
 **Docs-per-commit (missing from rev 1 entirely).** Every task producing a
@@ -328,7 +328,7 @@ the status doc disagree.
 
 Answered by Vlad:
 
-1. **A.6 approved** — the one surgical edit to `L1-dismiss-kerbal-career` may land
+1. **A.6 approved** - the one surgical edit to `L1-dismiss-kerbal-career` may land
    once the roster parser exists. **LANDED 2026-08-17.** Scope note for whoever
    reads this next: "one surgical edit" was the SPEC edit; the assertion needed the
    whole chain behind it (analyzer export -> oracle facet -> `run.py` call site),
@@ -338,16 +338,16 @@ Answered by Vlad:
 2. **c2 is committed headless-only** (`Source/Parsek.Tests/Fixtures/C2Career/`,
    ledger + persistent + career-start). No harness promotion; `career-pad-craft`
    stays the in-game subject.
-3. **`milestones` is claimed only if A.0 gates it** — per-claim unit cell required.
+3. **`milestones` is claimed only if A.0 gates it** - per-claim unit cell required.
 4. **Build order: A.0 first**, then the rest of Phase A as one PR.
 
 Superseded question list kept for history:
 
-1. **A.6** touches a protected spec — approve or cut.
+1. **A.6** touches a protected spec - approve or cut.
 2. **C.2** must be resolved before Phase C is designed at all.
 3. **`milestones`** is newly visible as an uncovered D8 cell in this lane's subject
    area. Claim it or defer it with a stated reason.
-4. ~~Does Phase C survive Phase B at all?~~ **Answered by c2 (§2b): no forge
+4. ~~Does Phase C survive Phase B at all?~~ **Answered by c2 (section 2b): no forge
    needed.** Remaining sub-question: is c2 committed as a headless xUnit fixture
    only (cheap, do it), or also promoted to a harness fixture (needs the
    focusability answer)?
@@ -356,9 +356,9 @@ Superseded question list kept for history:
 
 ## 8. Artifacts
 
-- `Parsek/c1-snapshot-20260809/` — verified byte-identical copy of c1 (834/834
+- `Parsek/c1-snapshot-20260809/` - verified byte-identical copy of c1 (834/834
   files, SHA-256 matched), outside git.
-- `Parsek/c2-snapshot-20260817/` — verified byte-identical copy of c2 (39/39
+- `Parsek/c2-snapshot-20260817/` - verified byte-identical copy of c2 (39/39
   files, SHA-256 matched), outside git.
 - Worktree `Parsek-career-ledger-lane/`, branch `career-ledger-lane`, clean at
   `origin/main` (b83a3a2b3).

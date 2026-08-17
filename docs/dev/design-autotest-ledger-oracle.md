@@ -332,9 +332,10 @@ are report-only facets. Determinism: keys sorted, floats InvariantCulture "R",
 "\n" line endings, mirroring `ReportWriter` (the existing writer is already
 byte-deterministic). CREW ROSTER was NOT on `CareerSaveSnapshot` at v1 and was NOT
 added then (that would have been new parse behavior); see the `world` roster note in
-Behavior. **LANDED 2026-08-17** (career-ledger lane A.2/A.6): the parser gained the
-`GAME > ROSTER` read and the export gained `hasRoster` plus a `roster` array of
-`{name, gender, type, trait, state}`, sorted by (name, type, trait). The tech /
+Behavior. The parser later gained the `GAME > ROSTER` read and the export gained
+`hasRoster` plus a `roster` array of `{name, gender, type, trait, state}`, sorted by
+(name, type, trait) - status in `docs/dev/autotest-status.md`, the single status
+authority. The tech /
 part-purchase / strategy domains the parser also reads are deliberately NOT
 exported - no Python consumer parses them, and an exported field nobody reads is
 surface to keep in step for nothing.
@@ -923,11 +924,11 @@ Recorded so they are not lost; none blocks the v1 B10 passive-safety oracle.
   x 3 career modes need the KscAction seam commands and the `gameevents-captured`
   provenance; v1 delivers only the zero-delta B10 cross-check. The manifest format
   already carries the entry schema those scripts populate.
-- ~~**Roster world sub-facet.**~~ **DONE 2026-08-17** (career-ledger lane A.2/A.6).
-  The additive `Roster` parse landed in `CareerSaveParser`, the analyzer exports it,
-  and `oracle.diff_world_roster` activates the `present` / `absent` half of the
-  semantics above for `L1-dismiss-kerbal-career`. Per-kerbal STATUS claims remain
-  deferred with zero declarers.
+- **Roster world sub-facet.** The additive `Roster` parse in `CareerSaveParser`, its
+  analyzer export, and `oracle.diff_world_roster`'s `present` / `absent` half of the
+  semantics above (declared by `L1-dismiss-kerbal-career`) - status in
+  `docs/dev/autotest-status.md`, the single status authority. Per-kerbal STATUS
+  claims remain deferred with zero declarers.
 - **Stock-award capture enumeration completeness.** The v1 EN enumeration is
   conservative and safe for the zero-delta cross-check; a NONZERO L1 scenario must
   confirm each enumerated line against a live EN KSP.log (PENDING-OPERATOR) and,
