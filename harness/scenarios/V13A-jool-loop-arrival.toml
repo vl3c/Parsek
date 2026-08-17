@@ -40,24 +40,38 @@ id = "V13A-jool-loop-arrival"
 #
 # TWO READINGS WORTH MORE THAN THE CONFIRMATIONS:
 #
-#   (a) JOOL IS THE TIGHTEST TILT MARGIN THE PROGRAM HAS EVER MEASURED, at its LOWEST
-#       target inclination. The solved conic's 1.6174 deg sits at 89.7% of the 1.8040
-#       bound -- margin 0.1866 deg. Eeloo, at a 6.15 deg target, solved 4.0725 against a
-#       6.6500 bound: 61.2%, margin 2.5775. So a LOWER target inclination produced a
-#       TIGHTER approach to the gate, which is the opposite of the intuition that the
-#       retention branch is reached by aiming at more inclined targets. It STILL does not
-#       discharge the tilt debt -- noop is noop -- but it says the gate is nearer here
-#       than at any inclined target yet flown, and that is a lead worth recording.
+#   (a) THE SOLVED INCLINATION IS UNCORRELATED WITH THE TARGET'S, and Jool is the fourth
+#       point proving it. Read across all four arrival lanes on 2026-08-17:
+#           Dres  targetInc 5.0000  bound 5.5000  SOLVED 13.1958  state=retained
+#           Moho  targetInc 7.0000  bound 7.5000  SOLVED 23.5906  state=retained
+#           Eeloo targetInc 6.1500  bound 6.6500  SOLVED  4.0725  state=noop
+#           Jool  targetInc 1.3040  bound 1.8040  SOLVED  1.6174  state=noop
+#       Sorted by target inclination the solved values have NO ordering. The bound tracks
+#       the target; the solved plane does not, so which side of the gate a lane lands on
+#       is a property of the SOLVED TRANSFER and is not predictable from the destination.
+#       JOOL'S CONTRIBUTION AT ITS TRUE SIZE: among the two lanes that read noop, it is
+#       the closer to its bound (89.7% against Eeloo's 61.2%). That is a point on an
+#       uncorrelated scatter, NOT a trend and NOT a lead.
+#       CORRECTION: an earlier draft of this header claimed Jool came closest of ANY lane
+#       to opening the gate and that the retention branch was unexercised program-wide.
+#       Both were false -- Dres and Moho BOTH read state=retained, and V10/V11A have
+#       armed exactly that all along. Recorded so the mistake is visible rather than
+#       silently overwritten.
 #
-#   (b) `xfer-vs-Jool@soi` READS 2,072,273,069 m, NOT ~0 AS AT EELOO. That is 84.4% of
-#       the 2,455,985,185 m SOI, i.e. comfortably INSIDE -- and the independent census
-#       agrees (`outsideSoi=0`, tolerance ratio > 1.005). It is armed only via the SOI
-#       constant `(SOI=2455985185)` and NOT via the distance, because the distance is an
-#       unexplained difference from the Eeloo reading rather than a understood quantity.
-#       FILED AS OPEN: why the third proximity check reads ~0 at Eeloo and 0.84 SOI at
-#       Jool. It is not a lane failure -- both the census and the run agree the arrival is
-#       inside the sphere -- but it is not understood either, and pinning a number nobody
-#       can derive would convert an open question into a false regression floor.
+#   (b) `xfer-vs-Jool@soi` READS 2,072,273,069 m (0.844 of SOI), NOT ~0 AS AT EELOO --
+#       and reading all four lanes DIAGNOSED why. The difference is THE PATH, which the
+#       line labels itself:
+#           Dres / Moho   `synth geometry (patched-conic)`  reads the SOI radius to <=1 m
+#           Eeloo / Jool  `synth geometry (proximity)`      reads 0 m / 0.844 SOI
+#       On the patched-conic path `soiEntryUT` IS the boundary crossing, so the check
+#       reads the SOI radius -- physically correct. On the proximity path it is not: at
+#       Eeloo `soiEntryUT` degenerated to equal `arrivalUT` (conic at the body centre,
+#       hence 0 m), and at Jool it found a genuinely earlier time inside the sphere.
+#       So Eeloo's 0 m is the DEGENERATE EXTREME of the proximity path, not a healthy
+#       reference. NOT A FAILURE -- the independent census reads evaluated=1 outsideSoi=0
+#       on all four lanes. STILL ARMED ONLY VIA `(SOI=2455985185)`, never the distance:
+#       whether the proximity path's soiEntryUT SHOULD be a boundary crossing is the open
+#       question, and pinning the number would freeze it shut.
 #
 # ----- THE JUMP SCHEDULE, AND WHERE EVERY NUMBER COMES FROM -------------------------
 #
@@ -261,6 +275,17 @@ required = [
   # compilability gate re.compiles every pattern and V8F's iteration 1 failed on exactly
   # this.
   "xfer-vs-Kerbin@depart=0m",
+  # THE CONIC'S SHAPE, armed 2026-08-17 to close a gap the whole arrival family shared:
+  # every one of these four lanes pinned the transfer's ENDPOINTS (departUT / soiEntryUT /
+  # encounter), its PLANE (the tilt line's inc) and its TIMING (tof, band), but NONE of
+  # them pinned `sma` or `ecc`. A regression that changed the conic's SHAPE while
+  # preserving those would have passed every arrival lane in the suite. Two ellipses
+  # through the same two points, at the same two times, in the same plane are heavily
+  # constrained -- so the hole was narrow -- but it was real, and it is cheap to close.
+  # Armed as SEPARATE key=value fragments, so a token inserted between them on this line
+  # cannot break the lane.
+  "sma=43265201216.624687",
+  "ecc=0.6872",
   "xfer-vs-Jool@arrival=0m",
   "\\(SOI=2455985185\\)",
 ]

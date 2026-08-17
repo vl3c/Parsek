@@ -14,74 +14,96 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
-## REAIM-TILT-GATE-NEAREST-AT-JOOL-1.304-DEG: the LOWEST target inclination produced the TIGHTEST approach to the excessive-tilt gate [MEASURED 2026-08-17 by V13A-jool-loop-arrival, NOT A DEFECT]
+## REAIM-SOLVED-INCLINATION-IS-UNCORRELATED-WITH-TARGET-INCLINATION: the four-lane table, and a retraction [MEASURED 2026-08-17, NOT A DEFECT]
 
-`REAIM-TILT-NOOP-AT-EELOO-6.15-DEG` established that a TARGET inclination sets the BOUND
-while the SOLVED transfer's own plane is what trips the gate. Jool sharpens that, in the
-direction nobody was expecting.
+**THIS ENTRY REPLACES A WRONG ONE.** An earlier version of it, filed the same day as
+`REAIM-TILT-GATE-NEAREST-AT-JOOL-1.304-DEG`, claimed that Jool's 1.304 deg target came
+closer to opening the excessive-tilt gate than any other lane, and that the retention
+branch was still unexercised program-wide. **BOTH CLAIMS WERE FALSE**, and the evidence
+refuting them was already committed in this repository when they were written:
+`V10-dres-loop-arrival` and `V11A-moho-loop-arrival` both ARM `state=retained`, and the
+`MOHO-PROGRAM-MEASUREMENTS-COMPLETE` table in this file already tabulated both.
 
-    Eeloo   targetInc 6.1500   bound 6.6500   solved 4.0725   = 61.2% of bound, margin 2.5775
-    Jool    targetInc 1.3040   bound 1.8040   solved 1.6174   = 89.7% of bound, margin 0.1866
+The error was an over-generalisation of `REAIM-TILT-NOOP-AT-EELOO-6.15-DEG`, which says
+Eeloo "tested the BOUND ARITHMETIC, not the retention branch". That is true OF EELOO. It
+was read as a statement about the program, without checking the two lanes that do
+exercise the branch.
 
-**A target 4.7x LESS inclined came 13.8x CLOSER to opening the gate.** The bound scales
-with the target inclination (`Max(Max(l,t),0) + 0.5`), but the solved conic's plane does
-not scale with it -- so a low-inclination target gets a TIGHT bound that its own solved
-transfer very nearly exceeds. Jool at 1.6174 against 1.8040 is the nearest any lane has
-come.
+### What the four lanes actually measure
 
-WHAT THIS DOES NOT DO: discharge the tilt debt. `state=noop reason=in-plane` -- the gate
-did not open and the RETENTION BRANCH IS STILL UNEXERCISED. V13A must not be booked as
-tilt coverage.
+All four re-flown / re-read 2026-08-17 off their own logs:
 
-WHAT IT IS: a lead on where to look. The intuition behind the V-lane ladder (Eve 2.1 ->
-Dres 5.0 -> Eeloo 6.15 -> Moho 7.0) is that the retention branch is reached by aiming at
-MORE inclined targets. This measurement says the opposite may be true -- that the gate is
-approached from BELOW, by a target whose bound is tight. A destination with a low
-inclination but a plane-inclined solved transfer is the shape to try, and the cheapest
-next probe is arithmetic rather than a flight: for which target does the solved conic
-exceed `targetInc + 0.5`?
+| lane | target | targetInc | bound | SOLVED inc | state |
+|---|---|---:|---:|---:|---|
+| V10  | Dres  |  5.0000 | 5.5000 | **13.1958** | `retained` (incAch 3.6426) |
+| V11A | Moho  |  7.0000 | 7.5000 | **23.5906** | `retained` (incAch 3.3633) |
+| V12A | Eeloo |  6.1500 | 6.6500 |   4.0725 | `noop reason=in-plane` |
+| V13A | Jool  |  1.3040 | 1.8040 |   1.6174 | `noop reason=in-plane` |
 
-Measured on run `2026-08-17_2107` and reproduced on `_2112` / `_2117`; armed in
-`V13A-jool-loop-arrival` as the full tilt line.
+**THE RETENTION BRANCH IS EXERCISED, at Dres and at Moho.** Any statement that it is not
+is wrong.
+
+### The reading that is actually new
+
+The SOLVED transfer's inclination is **not** a function of the target's. Sorted by target
+inclination the solved values are 1.6174 (Jool 1.304), 13.1958 (Dres 5.0), 4.0725 (Eeloo
+6.15), 23.5906 (Moho 7.0) -- no ordering at all. The bound tracks the target
+(`Max(Max(l,t),0) + 0.5`); the solved plane does not, so which side of the gate a lane
+lands on is a property of the SOLVED TRANSFER and cannot be predicted from the
+destination.
+
+Jool's narrow contribution, stated at its true size: among the two lanes that read `noop`,
+it is the closer to its bound -- 1.6174 / 1.8040 = 89.7%, against Eeloo's 4.0725 / 6.6500
+= 61.2%. That is a fourth point on an uncorrelated scatter, not a trend and not a lead.
+
+### Consequence for lane selection
+
+Choosing destinations by target inclination does not control which branch gets exercised.
+If more retention coverage is wanted, the selector is the solved conic's inclination,
+which is only known after a solve -- so the cheap move is to read `synth geometry` on
+fixtures that already exist rather than to fly a new destination hoping for a steep solve.
 
 ---
 
-## REAIM-SYNTH-GEOMETRY-SOI-CHECK-READS-0.84-SOI-AT-JOOL-VS-ZERO-AT-EELOO: the third proximity check disagrees between lanes and nobody can derive why [OPEN, OBSERVATION 2026-08-17, not a lane failure]
+## REAIM-SYNTH-GEOMETRY-SOI-CHECK: the third proximity check differs because THE PATH DIFFERS [DIAGNOSED 2026-08-17, superseding the open question filed the same day]
 
-`ReaimTransferSynthesizer.LogSynthGeometry` emits three proximity checks. The first two
-behave identically at both destinations:
+An earlier version of this entry recorded, as OPEN, that `xfer-vs-<target>@soi` reads ~0 m
+at Eeloo and 2,072,273,069 m (0.84 SOI) at Jool, with no derivable explanation. Reading
+all four lanes settles it, and the answer is in the line's own label:
 
-    xfer-vs-Kerbin@depart=0m (~0)      both lanes
-    xfer-vs-<target>@arrival=0m (~0)   both lanes
+| lane | label | soiEntryUT vs arrivalUT | `xfer-vs-<target>@soi` | SOI |
+|---|---|---|---:|---:|
+| V10  | `(patched-conic)` | 43,144,578 < 43,162,645 | 32,832,839 | 32,832,840 |
+| V11A | `(patched-conic)` |  5,806,509 <  5,807,872 |  9,646,663 |  9,646,663 |
+| V12A | `(proximity)`     | 95,851,632 = 95,851,632 |          0 | 119,082,942 |
+| V13A | `(proximity)`     | 55,582,515 < 56,745,407 | 2,072,273,069 | 2,455,985,185 |
 
-The third does not:
+**On the `patched-conic` path the check reads the SOI radius to within 1 m** -- which is
+the physically correct reading, because `soiEntryUT` there IS the boundary crossing.
 
-    V12A (Eeloo)   xfer-vs-Eeloo@soi=0m           (SOI=119082942)
-    V13A (Jool)    xfer-vs-Jool@soi=2072273069m   (SOI=2455985185)
+**On the `proximity` path it does not.** At Eeloo `soiEntryUT` degenerated to equal
+`arrivalUT`, so the conic is at the body's centre and the check reads 0 m. At Jool the
+proximity path found a genuinely earlier time, and the conic is 0.844 of the way out --
+inside the sphere, but NOT on its boundary.
 
-2,072,273,069 / 2,455,985,185 = **0.8438**, i.e. comfortably INSIDE the sphere, and the
-INDEPENDENT seam-endpoint census agrees (`evaluated=1 outsideSoi=0`, whose raise
-threshold is ratio > 1.005). So the arrival is genuinely inside and NOTHING IS FAILING --
-but a check that reads ~0 at one destination and 0.84-of-SOI at another is not
-understood, and the two candidate explanations have different consequences:
+So the two readings are not inconsistent with each other; they are two different code
+paths, and **the `proximity` path's `soiEntryUT` is not a boundary crossing.** Eeloo's 0 m
+is the degenerate extreme of that, not a healthy reference value.
 
-  (a) the check measures distance-at-`soiEntryUT` and Jool's `soiEntryUT` is simply not
-      at the boundary -- in which case Eeloo's 0m is the surprising reading, not Jool's;
-  (b) the check is a RESIDUAL that should be ~0 at both, and Jool exposes a scale
-      sensitivity that Eeloo's 20.6x smaller SOI hides.
+NOT A FAILURE, and nothing here reds: the independent seam-endpoint census reads
+`evaluated=1 outsideSoi=0` on all four lanes, so every arrival is genuinely inside its
+sphere. What it does mean is that `xfer-vs-<target>@soi` is NOT comparable across the two
+paths, and no lane should be written as though it were.
 
-**Deliberately NOT armed in V13A.** The lane arms the SOI constant `(SOI=2455985185)` on
-its own and leaves the distance out, because pinning a number nobody can derive converts
-an open question into a false regression floor. Whoever settles this should read
-`LogSynthGeometry` against both lanes' logs and then either arm the Jool distance or fix
-the check.
+STILL OPEN, and narrowed to something answerable: should the `proximity` path's
+`soiEntryUT` be a boundary crossing like the patched-conic path's? If yes, Eeloo's 0 m and
+Jool's 0.84 are both symptoms and the fix is in the path. If no, the field name is
+misleading on that path and should say what it measures. Whoever picks this up should
+start from the two labels rather than from the numbers.
 
-RELATED, AND ALREADY COSTED A PASS: `soiEntryUT` (55,582,515.124523856) is 1,162,892 s
-EARLIER than the geometry line's own `arrivalUT` (56,745,406.811643526, which is exactly
-the loop unit's D0 + tof). V13A's pass 1 bracketed `arrivalUT` by mistake and its census
-came back with an extra skip-only `evaluated=0 ... skip.body-mismatch=1` line; pass 2
-bracketed the emitted `soiEntryUT` and that line disappeared. ANY FUTURE LANE COMPUTING AN
-ARRIVAL BRACKET MUST USE THE EMITTED `soiEntryUT`, NEVER D0 + tof.
+The distance is deliberately NOT armed in V13A -- the lane pins `(SOI=2455985185)` alone.
+Pinning a number whose meaning depends on an unresolved path question would freeze the
+question shut.
 
 ---
 
