@@ -1,8 +1,9 @@
 # Career-ledger automated coverage — plan (rev 3)
 
-Status: **IN PROGRESS.** Task A.0 is DONE and committed on
-`career-ledger-lane` (fixture + replay test + the adjudication below); everything
-else is unstarted.
+Status: **IN PROGRESS.** Tasks A.0-A.5 are DONE and committed on
+`career-ledger-lane` (A.0's fixture + replay test + the adjudication below, A.1's
+synthetic ordering pin, and the A.2-A.5 parser + report-only diff facets).
+A.6 and Phases B onward are open.
 
 Rev 3 adds the `c2` subject (a short career played 2026-08-17 on current code,
 specifically to exercise the ledger) and the candidate strategy-conversion gap it
@@ -140,10 +141,11 @@ files already drive `RecalculationEngine`). `Inv8Ledger` emits the
 passes `fresh_gate=True` as a literal with no spec escape, so a fixture carrying
 `analysis/baseline.cfg` or a non-baselined FAIL reds `PARSEK-FAIL(analyzer)`.
 `hlib.validate_spec` hard-bans `[expectations.ledger]` alongside `InvokeRewind` /
-`AnswerMergeDialog`. `CareerSaveParser` parses exactly seven domains
+`AnswerMergeDialog`. `CareerSaveParser` parsed exactly seven domains at rev 3
 (`CareerSaveParser.cs:74-80`), with ROSTER structurally unreachable (a `GAME`
 child, not a `SCENARIO`) and tech/parts sitting inside the node `ParseScience`
-already opens (`:153` calls only `GetNodes("Science")`). Facet policy: Funds /
+already opens (`:153` calls only `GetNodes("Science")`) — **superseded by A.2-A.4,
+which added those three domains for a current total of ten.** Facet policy: Funds /
 SciencePool / Reputation HARD; SubjectScience, Facility, Contract, Milestone
 report-only; Vessel HARD only when guid-corroborated.
 `StrictPerIdentityForTesting` is `internal static bool = false`
@@ -199,11 +201,11 @@ No KSP, no fixture, no harness run.
 | # | Task | Cost | Gates? |
 | --- | --- | --- | --- |
 | A.0 **DONE 2026-08-17** | **Run the real recalc engine over c2's ledger, headlessly; diff vs c2's save pools.** Adjudicates the strategy-conversion candidate finding (§2b) and doubles as the suite's first many-action real-ledger walk (rev 2's 3.1, now with a trustworthy subject). Fixture: commit c2's `ledger.pgld` + `persistent.sfs` (~160 KB) under `Source/Parsek.Tests/Fixtures/` (precedent: `DefaultCareer`). **Shipped as `Fixtures/C2Career/` + `C2CareerLedgerReplayTests.cs`; verdict in 2b.** | M | **yes** |
-| A.1 | **Reproduce the parked science finding synthetically.** Two actions — `ScienceEarning` at UT_e, `ScienceSpending` cost 90 at UT_s — exercising `SortActions`' earning-before-spending tiebreak (`RecalculationEngine.cs:273-285`) and `ProcessSpending`'s affordability gate (`ScienceModule.cs:271-292`), plus the c1-shaped variant where the earning's commit-anchored UT falls *after* the spend. **This settles Phase E's question without any career subject.** | S | **yes** |
-| A.2 | `CareerSaveParser` → **ROSTER** (needs a `gameNode.GetNode("ROSTER")` path; `FindScenario` cannot reach it). | M | **yes** |
-| A.3 | `CareerSaveParser` → **tech-node unlock set** + **part purchases** (both inside the already-opened SCENARIO). | S | **yes** |
-| A.4 | `CareerSaveParser` → **StrategySystem**, shape-only. **Report-only, no D8 claim.** | S | no |
-| A.5 | Matching `LedgerGroundTruthDiff` facets for A.2–A.4, landed **report-only**. | M | report-only |
+| A.1 **DONE 2026-08-17** (`ScienceSpendingOrderingTests.cs`) | **Reproduce the parked science finding synthetically.** Two actions — `ScienceEarning` at UT_e, `ScienceSpending` cost 90 at UT_s — exercising `SortActions`' earning-before-spending tiebreak (`RecalculationEngine.cs:273-285`) and `ProcessSpending`'s affordability gate (`ScienceModule.cs:271-292`), plus the c1-shaped variant where the earning's commit-anchored UT falls *after* the spend. **This settles Phase E's question without any career subject.** | S | **yes** |
+| A.2 **DONE 2026-08-17** | `CareerSaveParser` → **ROSTER** (needs a `gameNode.GetNode("ROSTER")` path; `FindScenario` cannot reach it). **Shipped as `ParseRoster` + `SaveKerbal` (name/gender/type/trait/state); nameless KERBAL skipped, empty ROSTER = facet present with zero kerbals.** | M | **yes** |
+| A.3 **DONE 2026-08-17** | `CareerSaveParser` → **tech-node unlock set** + **part purchases** (both inside the already-opened SCENARIO). **Shipped as `ParseTechTree` off the R&D node ParseScience opens: `UnlockedTechIds` + `PurchasedPartNames` (the REPEATED `part` values) + `TechNodePartCounts`; `HasTechTree` is independent of `HasScience`.** | S | **yes** |
+| A.4 **DONE 2026-08-17** | `CareerSaveParser` → **StrategySystem**, shape-only. **Report-only, no D8 claim.** **Shipped as `ParseStrategies` + `SaveStrategy`. SHAPE CORRECTION: the real stock node is `STRATEGY { name, date, factor, EFFECT{} }` with NO `isActive` field - presence in STRATEGIES IS the active signal (an explicit `isActive = False` is honoured defensively). Every committed fixture's block is empty and parses to zero strategies.** | S | no |
+| A.5 **DONE 2026-08-17** | Matching `LedgerGroundTruthDiff` facets for A.2–A.4, landed **report-only**. **Shipped as `CompareRoster` / `CompareTechNodes` / `ComparePartPurchases` / `CompareStrategies`, each gated on a `recon.HasXSurface` flag: with no reconstruction surface the facet logs the save-side census and stays UNCOMPARED (`FacetsCompared` untouched) rather than diffing against an invented recon. Layer B wires two surfaces only - roster (KerbalsModule created / permanently-gone) and researched tech (affordable `ScienceSpending` NodeIds off the ELS); part purchases and strategies have NO recalc surface and stay censuses. The tech facet emits the PHANTOM direction only (the ledger's set is delta-only, the save's is absolute, so "unlocked but unclaimed" is counted in the log, never emitted per id).** | M | report-only |
 | A.6 | Un-defer the roster assertion in `L1-dismiss-kerbal-career`. **Touches a protected spec — approve or cut.** | S | **yes** |
 
 c1 is used in A.2–A.4 as a **shape reference only**; asserted values are authored.

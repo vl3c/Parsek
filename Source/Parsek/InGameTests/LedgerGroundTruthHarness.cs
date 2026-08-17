@@ -298,6 +298,38 @@ namespace Parsek.InGameTests
             // Recovery credits (vessel facet input).
             recon.RecoveryCredits = ScanRecoveryCredits();
 
+            // Roster surface (report-only facet): the KerbalsModule's DELTA claims -
+            // kerbals the ledger created, and kerbals it holds permanently reserved
+            // (permanent reservation == dead, never freed). There is no full-roster
+            // reconstruction, so the diff only checks those two claims against the
+            // save's ROSTER (see LedgerGroundTruthDiff.CompareRoster).
+            var kerbals = LedgerOrchestrator.Kerbals;
+            if (kerbals != null)
+            {
+                recon.HasRosterSurface = true;
+                foreach (string name in kerbals.LedgerCreatedKerbals)
+                {
+                    if (!string.IsNullOrEmpty(name))
+                        recon.LedgerCreatedKerbals.Add(name);
+                }
+                foreach (var kvp in kerbals.Reservations)
+                {
+                    if (string.IsNullOrEmpty(kvp.Key) || kvp.Value == null) continue;
+                    if (kvp.Value.IsPermanent)
+                        recon.PermanentlyGoneKerbals.Add(kvp.Key);
+                }
+            }
+
+            // Researched-tech surface (report-only facet), DELTA-only.
+            recon.ResearchedTechIds = ScanResearchedTechIds(out bool hasTechSurface);
+            recon.HasTechSurface = hasTechSurface;
+
+            // NOT populated, deliberately: HasPartPurchaseSurface and
+            // HasStrategySurface. The recalc has no purchased-part set (part unlock
+            // is derived at patch time from KSP's own part list) and StrategiesModule
+            // keeps its active set private, so both facets stay save-side censuses
+            // rather than diffs against an invented reconstruction.
+
             ParsekLog.Verbose(Tag,
                 $"BuildReconstructionSnapshot: funds={recon.Funds.ToString("R", IC)} " +
                 $"science={recon.SciencePool.ToString("R", IC)} rep={recon.Reputation.ToString("R", IC)} " +
@@ -305,9 +337,60 @@ namespace Parsek.InGameTests
                 $"facilities={recon.FacilityLevel.Count.ToString(IC)} " +
                 $"activeContracts={recon.ActiveContractGuids.Count.ToString(IC)} " +
                 $"creditedMilestones={recon.CreditedMilestoneIds.Count.ToString(IC)} " +
-                $"recoveryCredits={recon.RecoveryCredits.Count.ToString(IC)}");
+                $"recoveryCredits={recon.RecoveryCredits.Count.ToString(IC)} " +
+                $"rosterSurface={recon.HasRosterSurface.ToString(IC)} " +
+                $"ledgerCreatedKerbals={recon.LedgerCreatedKerbals.Count.ToString(IC)} " +
+                $"permanentlyGoneKerbals={recon.PermanentlyGoneKerbals.Count.ToString(IC)} " +
+                $"techSurface={recon.HasTechSurface.ToString(IC)} " +
+                $"researchedTech={recon.ResearchedTechIds.Count.ToString(IC)}");
 
             return recon;
+        }
+
+        /// <summary>
+        /// Scans the Effective Ledger Set (ELS, the REQUIRED ERS/ELS routing) for the
+        /// tech nodes the ledger claims were researched: every AFFORDABLE
+        /// ScienceSpending row's NodeId (the same predicate
+        /// <see cref="KspStatePatcher.BuildTargetTechIdsForPatch"/> applies to the
+        /// action list). An UNAFFORDABLE row did not deduct and did not research, so
+        /// it is not a claim.
+        ///
+        /// <paramref name="hasSurface"/> is false only when the ELS itself is
+        /// unavailable; an EMPTY ELS is still a surface (the ledger claims nothing,
+        /// which is a real claim the diff can check).
+        /// </summary>
+        private static HashSet<string> ScanResearchedTechIds(out bool hasSurface)
+        {
+            var ids = new HashSet<string>(System.StringComparer.Ordinal);
+
+            var els = EffectiveState.ComputeELS();
+            if (els == null)
+            {
+                hasSurface = false;
+                ParsekLog.Verbose(Tag, "ScanResearchedTechIds: ELS unavailable -> no tech surface");
+                return ids;
+            }
+
+            hasSurface = true;
+            int unaffordable = 0;
+            foreach (var a in els)
+            {
+                if (a == null) continue;
+                if (a.Type != GameActionType.ScienceSpending) continue;
+                if (string.IsNullOrEmpty(a.NodeId)) continue;
+                if (!a.Affordable)
+                {
+                    unaffordable++;
+                    continue;
+                }
+                ids.Add(a.NodeId);
+            }
+
+            ParsekLog.Verbose(Tag,
+                $"ScanResearchedTechIds: researchedNodeIds={ids.Count.ToString(IC)} " +
+                $"unaffordableSkipped={unaffordable.ToString(IC)}");
+
+            return ids;
         }
 
         /// <summary>
@@ -527,6 +610,29 @@ namespace Parsek.InGameTests
                 ParsekLog.Info(Tag,
                     $"reputation save={save.Reputation.ToString("R", IC)} recon={recon.Reputation.ToString("R", IC)} " +
                     $"delta={delta.ToString("R", IC)} tol={FacetTolerances.Default.Reputation.ToString("R", IC)}");
+            }
+            if (save.HasRoster)
+            {
+                ParsekLog.Info(Tag,
+                    $"roster saveKerbals={save.Roster.Count.ToString(IC)} " +
+                    $"reconSurface={recon.HasRosterSurface.ToString(IC)} " +
+                    $"reconCreated={recon.LedgerCreatedKerbals.Count.ToString(IC)} " +
+                    $"reconPermanentlyGone={recon.PermanentlyGoneKerbals.Count.ToString(IC)}");
+            }
+            if (save.HasTechTree)
+            {
+                ParsekLog.Info(Tag,
+                    $"tech saveUnlocked={save.UnlockedTechIds.Count.ToString(IC)} " +
+                    $"saveParts={save.PurchasedPartNames.Count.ToString(IC)} " +
+                    $"reconSurface={recon.HasTechSurface.ToString(IC)} " +
+                    $"reconResearched={recon.ResearchedTechIds.Count.ToString(IC)}");
+            }
+            if (save.HasStrategySystem)
+            {
+                ParsekLog.Info(Tag,
+                    $"strategies saveStrategies={save.Strategies.Count.ToString(IC)} " +
+                    $"saveActive={save.ActiveStrategyIds.Count.ToString(IC)} " +
+                    $"reconSurface={recon.HasStrategySurface.ToString(IC)} (shape-only, report-only)");
             }
         }
 

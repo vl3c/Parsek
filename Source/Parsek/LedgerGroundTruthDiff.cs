@@ -18,6 +18,11 @@ namespace Parsek
     ///     and phantoms: REPORT-ONLY by default, promoted to hard only when
     ///     StrictPerIdentityForTesting is true.
     ///   - Vessel recovery consistency: HARD when guid-corroborated, else report-only.
+    ///   - Roster / TechNode / PartPurchase / Strategy: REPORT-ONLY, same promotion
+    ///     rule as the other per-identity facets. Each of these ALSO requires the
+    ///     reconstruction to declare a surface (recon.HasXSurface); with no surface
+    ///     the facet logs the save-side census and is left UNCOMPARED rather than
+    ///     diffing against an invented reconstruction.
     ///   - A facet is skipped entirely when the save lacks it (save.HasX false).
     ///
     /// See docs/dev/design-ledger-groundtruth-harness.md.
@@ -67,6 +72,10 @@ namespace Parsek
             CompareContracts(save, recon, report);
             CompareMilestones(save, recon, report);
             CompareRecovery(save, recon, report);
+            CompareRoster(save, recon, report);
+            CompareTechNodes(save, recon, report);
+            ComparePartPurchases(save, recon, report);
+            CompareStrategies(save, recon, report);
 
             int hard = report.HardFailures(StrictPerIdentityForTesting).Count;
             int reportOnly = report.All.Count - hard;
@@ -569,6 +578,332 @@ namespace Parsek
                 $"CompareRecovery: credits={recon.RecoveryCredits.Count.ToString(IC)} " +
                 $"hardViolations={hardViolations.ToString(IC)} " +
                 $"reportOnly={reportOnly.ToString(IC)} consistent={consistent.ToString(IC)}");
+        }
+
+        // ----------------------------------------------------------------
+        // Roster (REPORT-ONLY)
+        // ----------------------------------------------------------------
+
+        /// <summary>
+        /// Compares the ledger's kerbal claims against the save's ROSTER.
+        ///
+        /// WHAT IS ACTUALLY COMPARED (the reconstruction has no full roster, so
+        /// this is deliberately not a roster-vs-roster diff):
+        ///   - every kerbal the ledger believes IT created must EXIST in the save
+        ///     roster; one that does not is a <see cref="DivergenceKind.PhantomInRecon"/>;
+        ///   - every kerbal the ledger holds permanently reserved (dead) must NOT
+        ///     be listed alive in the save roster; one that is, is a
+        ///     <see cref="DivergenceKind.Consistency"/> entry naming the save state.
+        /// The opposite direction (save kerbals the ledger never mentions) is NOT a
+        /// divergence: the ledger is delta-only and the stock starting four plus
+        /// every applicant are legitimately unmentioned.
+        ///
+        /// With no reconstruction surface the facet logs the save-side census and
+        /// is left UNCOMPARED (FacetsCompared is not incremented).
+        /// </summary>
+        private static void CompareRoster(
+            CareerSaveSnapshot save, LedgerReconstructionSnapshot recon,
+            LedgerDivergenceReport report)
+        {
+            if (!save.HasRoster || save.Roster.Count == 0)
+            {
+                ParsekLog.Verbose(Tag, "CompareRoster: save has no roster facet -> skip");
+                return;
+            }
+
+            // Save-side census, emitted whether or not a reconstruction exists.
+            int crew = 0;
+            int deadInSave = 0;
+            var rosterNames = new HashSet<string>(StringComparer.Ordinal);
+            var stateByName = new Dictionary<string, string>(StringComparer.Ordinal);
+            foreach (var k in save.Roster)
+            {
+                if (string.IsNullOrEmpty(k.Name))
+                    continue;
+                rosterNames.Add(k.Name);
+                stateByName[k.Name] = k.State ?? "";
+                if (string.Equals(k.Type, "Crew", StringComparison.Ordinal))
+                    crew++;
+                if (string.Equals(k.State, "Dead", StringComparison.Ordinal))
+                    deadInSave++;
+            }
+
+            if (!recon.HasRosterSurface)
+            {
+                ParsekLog.Verbose(Tag,
+                    $"CompareRoster: no reconstruction roster surface -> save-side census only " +
+                    $"(saveRoster={rosterNames.Count.ToString(IC)} crew={crew.ToString(IC)} " +
+                    $"dead={deadInSave.ToString(IC)}) uncompared");
+                return;
+            }
+            report.FacetsCompared++;
+
+            int phantoms = 0;
+            foreach (string name in recon.LedgerCreatedKerbals)
+            {
+                if (string.IsNullOrEmpty(name))
+                    continue;
+                if (!rosterNames.Contains(name))
+                {
+                    report.All.Add(new LedgerDivergence
+                    {
+                        Facet = DivergenceFacet.Roster,
+                        Kind = DivergenceKind.PhantomInRecon,
+                        Identity = name,
+                        ExpectedFromSave = double.NaN,
+                        Reconstructed = double.NaN,
+                        Detail = "kerbal created in recon but absent from the save roster"
+                    });
+                    phantoms++;
+                }
+            }
+
+            int aliveButGone = 0;
+            foreach (string name in recon.PermanentlyGoneKerbals)
+            {
+                if (string.IsNullOrEmpty(name))
+                    continue;
+                if (!stateByName.TryGetValue(name, out string state))
+                    continue; // absent from the roster is exactly what "gone" means.
+                if (string.Equals(state, "Dead", StringComparison.Ordinal)
+                    || string.Equals(state, "Missing", StringComparison.Ordinal))
+                {
+                    continue;
+                }
+
+                report.All.Add(new LedgerDivergence
+                {
+                    Facet = DivergenceFacet.Roster,
+                    Kind = DivergenceKind.Consistency,
+                    Identity = name,
+                    ExpectedFromSave = double.NaN,
+                    Reconstructed = double.NaN,
+                    Detail = $"recon holds kerbal permanently gone but the save roster lists " +
+                             $"state='{state}' guidCorroborated=false"
+                });
+                aliveButGone++;
+            }
+
+            ParsekLog.Verbose(Tag,
+                $"CompareRoster: saveRoster={rosterNames.Count.ToString(IC)} crew={crew.ToString(IC)} " +
+                $"deadInSave={deadInSave.ToString(IC)} " +
+                $"reconCreated={recon.LedgerCreatedKerbals.Count.ToString(IC)} " +
+                $"reconPermanentlyGone={recon.PermanentlyGoneKerbals.Count.ToString(IC)} " +
+                $"phantoms={phantoms.ToString(IC)} aliveButGone={aliveButGone.ToString(IC)}");
+        }
+
+        // ----------------------------------------------------------------
+        // Tech nodes (REPORT-ONLY)
+        // ----------------------------------------------------------------
+
+        /// <summary>
+        /// Compares the tech nodes the ledger claims were researched against the
+        /// save's unlocked set.
+        ///
+        /// ONE DIRECTION ONLY, deliberately: the reconstruction's set comes from the
+        /// ledger's ScienceSpending rows, which are a DELTA (nodes researched while
+        /// Parsek was installed), while the save's set is ABSOLUTE (every node ever
+        /// unlocked). "Unlocked in the save but not claimed by recon" is therefore
+        /// the NORMAL state of every mixed-history career and would emit one noise
+        /// entry per pre-Parsek node; it is counted in the summary log instead. The
+        /// meaningful claim is the other way round: a node the ledger says it
+        /// researched that the save does NOT list unlocked
+        /// (<see cref="DivergenceKind.PhantomInRecon"/>).
+        /// </summary>
+        private static void CompareTechNodes(
+            CareerSaveSnapshot save, LedgerReconstructionSnapshot recon,
+            LedgerDivergenceReport report)
+        {
+            if (!save.HasTechTree || save.UnlockedTechIds.Count == 0)
+            {
+                ParsekLog.Verbose(Tag, "CompareTechNodes: save has no tech facet -> skip");
+                return;
+            }
+
+            if (!recon.HasTechSurface)
+            {
+                ParsekLog.Verbose(Tag,
+                    $"CompareTechNodes: no reconstruction tech surface -> save-side count only " +
+                    $"(saveUnlocked={save.UnlockedTechIds.Count.ToString(IC)}) uncompared");
+                return;
+            }
+            report.FacetsCompared++;
+
+            int phantoms = 0;
+            foreach (string id in recon.ResearchedTechIds)
+            {
+                if (string.IsNullOrEmpty(id))
+                    continue;
+                if (!save.UnlockedTechIds.Contains(id))
+                {
+                    report.All.Add(new LedgerDivergence
+                    {
+                        Facet = DivergenceFacet.TechNode,
+                        Kind = DivergenceKind.PhantomInRecon,
+                        Identity = id,
+                        ExpectedFromSave = double.NaN,
+                        Reconstructed = double.NaN,
+                        Detail = "tech node researched in recon but not unlocked in the save"
+                    });
+                    phantoms++;
+                }
+            }
+
+            // Counted, NOT emitted per id (see the method doc): the delta-vs-absolute
+            // asymmetry makes this number expected, not a divergence.
+            int unlockedNotClaimed = 0;
+            foreach (string id in save.UnlockedTechIds)
+            {
+                if (!recon.ResearchedTechIds.Contains(id))
+                    unlockedNotClaimed++;
+            }
+
+            ParsekLog.Verbose(Tag,
+                $"CompareTechNodes: saveUnlocked={save.UnlockedTechIds.Count.ToString(IC)} " +
+                $"reconResearched={recon.ResearchedTechIds.Count.ToString(IC)} " +
+                $"phantoms={phantoms.ToString(IC)} " +
+                $"unlockedNotClaimedByRecon={unlockedNotClaimed.ToString(IC)} (expected: recon is delta-only)");
+        }
+
+        // ----------------------------------------------------------------
+        // Part purchases (REPORT-ONLY; no reconstruction surface today)
+        // ----------------------------------------------------------------
+
+        /// <summary>
+        /// Reports the save's purchased-part totals and, IF a reconstruction ever
+        /// declares a purchased-part surface, diffs the recon-claimed purchases
+        /// against them (phantom direction only, same delta-vs-absolute reasoning as
+        /// <see cref="CompareTechNodes"/>).
+        ///
+        /// Today NOTHING declares that surface: the recalc models tech-node RESEARCH
+        /// and part unlock is derived at patch time from KSP's own part list
+        /// (KspStatePatcher.AddPurchasedPartsForTech), so there is no ledger-side
+        /// purchase set. The facet is then a save-side census, left UNCOMPARED - an
+        /// honest "nothing to diff" rather than a fabricated reconstruction.
+        /// </summary>
+        private static void ComparePartPurchases(
+            CareerSaveSnapshot save, LedgerReconstructionSnapshot recon,
+            LedgerDivergenceReport report)
+        {
+            if (!save.HasTechTree || save.PurchasedPartNames.Count == 0)
+            {
+                ParsekLog.Verbose(Tag, "ComparePartPurchases: save has no part-purchase facet -> skip");
+                return;
+            }
+
+            if (!recon.HasPartPurchaseSurface)
+            {
+                ParsekLog.Verbose(Tag,
+                    $"ComparePartPurchases: no reconstruction part-purchase surface -> save-side " +
+                    $"census only (saveParts={save.PurchasedPartNames.Count.ToString(IC)} " +
+                    $"techNodesWithParts={save.TechNodePartCounts.Count.ToString(IC)}) uncompared");
+                return;
+            }
+            report.FacetsCompared++;
+
+            int phantoms = 0;
+            foreach (string partName in recon.PurchasedPartNames)
+            {
+                if (string.IsNullOrEmpty(partName))
+                    continue;
+                if (!save.PurchasedPartNames.Contains(partName))
+                {
+                    report.All.Add(new LedgerDivergence
+                    {
+                        Facet = DivergenceFacet.PartPurchase,
+                        Kind = DivergenceKind.PhantomInRecon,
+                        Identity = partName,
+                        ExpectedFromSave = double.NaN,
+                        Reconstructed = double.NaN,
+                        Detail = "part purchased in recon but not purchased in the save"
+                    });
+                    phantoms++;
+                }
+            }
+
+            ParsekLog.Verbose(Tag,
+                $"ComparePartPurchases: saveParts={save.PurchasedPartNames.Count.ToString(IC)} " +
+                $"reconParts={recon.PurchasedPartNames.Count.ToString(IC)} " +
+                $"phantoms={phantoms.ToString(IC)}");
+        }
+
+        // ----------------------------------------------------------------
+        // Strategies (REPORT-ONLY, SHAPE-ONLY; no reconstruction surface today)
+        // ----------------------------------------------------------------
+
+        /// <summary>
+        /// Reports the save's active-strategy set and, IF a reconstruction ever
+        /// declares an active-strategy surface, diffs it BOTH ways (a strategy set
+        /// is small and absolute on both sides, so neither direction is structural
+        /// noise the way the tech delta is).
+        ///
+        /// Today NOTHING declares that surface: StrategiesModule keeps its active
+        /// set private (only GetActiveStrategyCount / IsStrategyActive are exposed)
+        /// and the career-ledger plan lands strategies SHAPE-ONLY with no coverage
+        /// claim. The facet is then a save-side census, left UNCOMPARED.
+        /// </summary>
+        private static void CompareStrategies(
+            CareerSaveSnapshot save, LedgerReconstructionSnapshot recon,
+            LedgerDivergenceReport report)
+        {
+            if (!save.HasStrategySystem)
+            {
+                ParsekLog.Verbose(Tag, "CompareStrategies: save has no StrategySystem facet -> skip");
+                return;
+            }
+
+            if (!recon.HasStrategySurface)
+            {
+                ParsekLog.Verbose(Tag,
+                    $"CompareStrategies: no reconstruction strategy surface -> save-side census " +
+                    $"only (saveStrategies={save.Strategies.Count.ToString(IC)} " +
+                    $"saveActive={save.ActiveStrategyIds.Count.ToString(IC)}) uncompared");
+                return;
+            }
+            report.FacetsCompared++;
+
+            int phantoms = 0;
+            foreach (string id in recon.ActiveStrategyIds)
+            {
+                if (string.IsNullOrEmpty(id))
+                    continue;
+                if (!save.ActiveStrategyIds.Contains(id))
+                {
+                    report.All.Add(new LedgerDivergence
+                    {
+                        Facet = DivergenceFacet.Strategy,
+                        Kind = DivergenceKind.PhantomInRecon,
+                        Identity = id,
+                        ExpectedFromSave = double.NaN,
+                        Reconstructed = double.NaN,
+                        Detail = "strategy active in recon but not active in the save"
+                    });
+                    phantoms++;
+                }
+            }
+
+            int missing = 0;
+            foreach (string id in save.ActiveStrategyIds)
+            {
+                if (!recon.ActiveStrategyIds.Contains(id))
+                {
+                    report.All.Add(new LedgerDivergence
+                    {
+                        Facet = DivergenceFacet.Strategy,
+                        Kind = DivergenceKind.MissingInRecon,
+                        Identity = id,
+                        ExpectedFromSave = double.NaN,
+                        Reconstructed = double.NaN,
+                        Detail = "strategy active in the save but not active in recon"
+                    });
+                    missing++;
+                }
+            }
+
+            ParsekLog.Verbose(Tag,
+                $"CompareStrategies: saveActive={save.ActiveStrategyIds.Count.ToString(IC)} " +
+                $"reconActive={recon.ActiveStrategyIds.Count.ToString(IC)} " +
+                $"phantoms={phantoms.ToString(IC)} missing={missing.ToString(IC)}");
         }
     }
 }
