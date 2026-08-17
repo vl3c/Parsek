@@ -1279,10 +1279,12 @@ class SpecValidationRejectTests(unittest.TestCase):
         # THE B.4 DEFERRAL, PINNED. `strict` promotes the ground-truth diff's
         # report-only per-identity divergences to hard failures, and the one committed
         # spec that drives that diff (L2-ledger-groundtruth-career) measured
-        # `reportOnly=0` on career-pad-craft - nothing to promote, so arming there buys
-        # a gate that cannot bite on either a good or a bad day. Arming waits on a
-        # subject with populated per-identity facets (on current evidence: c2, or any
-        # future career fixture with recorded crewed recoveries).
+        # `reportOnly=0` on career-pad-craft - nothing to promote, so arming there adds
+        # NO coverage for a value-drift regression. It would still catch a
+        # recon-invents-an-identity regression (a phantom does not need a populated
+        # fixture), so the gate is not inert; the deferral stands because the SUBJECT is
+        # thin. Arming waits on a subject with populated per-identity facets (on current
+        # evidence: c2, or any future career fixture with recorded crewed recoveries).
         #
         # This cell is what makes that a DECISION rather than a comment: a spec that
         # starts declaring `strict` reds here, and the fix is to record the subject and
@@ -4657,7 +4659,7 @@ class UnityExceptionScanTests(unittest.TestCase):
         # The HARD SAFETY PROPERTY, in its post-calibration form. This cell asserted the
         # EMPTY set ("nothing declares the block, so the scan cannot move any nightly
         # verdict") from the day the scan shipped until the 2026-08-04 calibration sweep.
-        # It is now an explicit ALLOWLIST of what that sweep MEASURED, so a 15th spec
+        # It is now an explicit ALLOWLIST of what that sweep MEASURED, so a 16th spec
         # arming the gate still reds here until its own evidence is recorded - and so
         # LOOSENING a ceiling is a deliberate edit in this file too, not a quiet widening
         # in a spec nobody re-reads.

@@ -35,8 +35,10 @@ tier = "nightly"
 #
 # STILL NOT ARMED, deliberately: strict per-identity mode (RunTests' `strict` arg,
 # career-ledger B.4). B.1 measured `reportOnly=0` here, so there is nothing for strict
-# to promote and the gate could not bite on either a good or a bad day. The seam exists
-# and is unit-covered; the SUBJECT for it does not. See the strict note below.
+# to promote and arming it adds NO coverage for a value-drift regression. It would
+# still catch a recon-invents-an-identity regression, so the gate is not inert - the
+# SUBJECT is what is thin. The seam exists and is unit-covered; the subject for it does
+# not. See the strict note below.
 description = "Armed: drive the LedgerGroundTruth category against a committed CAREER pad fixture and gate that the non-circular recalc-vs-save loop closes unattended with zero hard divergences."
 instanceProfile = "stock-minimal"
 # `reading-run` was dropped in B.2: the posture it named ended when the gates went
@@ -89,12 +91,14 @@ kind = "seam"
 # career-ledger B.4 made LedgerGroundTruthDiff.StrictPerIdentityForTesting settable per
 # scenario through that arg (absent = the default, non-strict diff). It is not used
 # HERE because B.1 measured `reportOnly=0` on this fixture: strict promotes report-only
-# per-identity divergences to hard failures, and with none to promote the gate cannot
-# bite on a good day or a bad one. Arming it needs a subject with populated per-identity
-# facets - on current evidence c2, whose harness promotion has an open focusability
-# question, or any future career fixture carrying recorded crewed recoveries. The
-# `strict=False` token in the logContracts below is what keeps this decision honest: an
-# arg added here without re-pinning that line reds the run.
+# per-identity divergences to hard failures, and with none to promote it adds NO
+# coverage for a value-drift regression on this subject. It would still catch a
+# recon-invents-an-identity regression - a phantom does not need a populated fixture -
+# so the gate is not inert; what is thin is the SUBJECT. Arming it needs a subject with
+# populated per-identity facets - on current evidence c2, whose harness promotion has an
+# open focusability question, or any future career fixture carrying recorded crewed
+# recoveries. The `strict=False` token in the logContracts below is what keeps this
+# decision honest: an arg added here without re-pinning that line reds the run.
 steps = [
   { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
   { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
@@ -238,8 +242,9 @@ count = { min = 0, max = 0 }
 #     stopped comparing (a parser regression, a guard that started standing down)
 #     reds here instead of greening on an empty loop. 7 is measured, not aspirational
 #     - see the facet-by-facet breakdown in the tally note above.
-#   - `reportOnly=0` is what B.4 acted on: nothing to promote, so strict mode is
-#     mis-targeted at this fixture (see the strict note under the ledger block).
+#   - `reportOnly=0` is what B.4 acted on: nothing to promote, so strict mode adds no
+#     value-drift coverage on this fixture and is mis-targeted here (it would still
+#     catch a recon phantom - see the strict note under the ledger block).
 #   - `strict=False` pins that this run is the DEFAULT diff, not the armed one. The
 #     `strict` seam exists (RunTests' `strict` arg, career-ledger B.4) and this spec
 #     deliberately does not use it; if a future edit arms it, this token reds and the
@@ -366,15 +371,30 @@ bugId = ""
 # ===========================================================================
 # THE ARMING RUN LEDGER (career-ledger B.2, 2026-08-18)
 #
-# All four flights below ran the SAME provisioned DLL, built from this branch and
-# deployed by `python provision/provision.py --profile stock-minimal` before the
-# first of them. The deployed `automation/stock-minimal/GameData/Parsek/Plugins/
-# Parsek.dll` was grep-verified to carry B.4's new seam (`TryParseStrictArg` utf8=1,
-# `strict-arg-invalid` utf16=3), and the armed run's own log confirms it ran:
-# `runtests start category=LedgerGroundTruth isolated=false strict=false`.
+# THE FOUR FLIGHTS RAN TWO DIFFERENT DLLs, and the split is stated here because an
+# earlier draft of this block claimed one DLL for all four, which is FALSE.
 #
-#   `2026-08-17_2202`  B.1 READING RUN. PASS, 75 s. Nothing armed; produced every
-#                      measurement the gates below stand on.
+#   B.1 (`2026-08-17_2202`) flew the PRE-B.4 DLL. Its log reads
+#   `runtests start category=LedgerGroundTruth isolated=false` with NO `strict=`
+#   token, because the seam did not exist yet.
+#
+#   The three ARMING flights (`_2228`, `_2231`, `_2233`) flew the B.4 DLL, built from
+#   this branch and deployed by `python provision/provision.py --profile
+#   stock-minimal`. The deployed `automation/stock-minimal/GameData/Parsek/Plugins/
+#   Parsek.dll` was grep-verified to carry the new seam (`TryParseStrictArg` utf8=1,
+#   `strict-arg-invalid` utf16=3), and each of the three logs carries the new echo
+#   `runtests start category=LedgerGroundTruth isolated=false strict=false` - which is
+#   what VERIFIES the DLL rather than merely asserting it.
+#
+# The two measured surfaces the gates below stand on came out IDENTICAL across both
+# DLLs: `BATCH_COMPLETE v1 total=2 passed=1 failed=0 skipped=1
+# category=LedgerGroundTruth scene=FLIGHT` and `result: hardFailures=0 reportOnly=0
+# facetsCompared=7 strict=False`.
+# That agreement is itself evidence that the B.4 change did not perturb the surface
+# these gates measure - the pins are not carried across a DLL boundary on trust.
+#
+#   `2026-08-17_2202`  B.1 READING RUN, on the PRE-B.4 DLL. PASS, 75 s. Nothing armed;
+#                      produced every measurement the gates below stand on.
 #
 #   `2026-08-17_2228`  NEGATIVE CONTROL 1 - the ledger gate. A single bogus manifest
 #                      entry (`kind = "milestone"`, `funds = 12345.0`) was added to

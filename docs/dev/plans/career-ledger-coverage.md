@@ -225,7 +225,7 @@ The brief's part 1. No new fixture, no new C#.
 | B.1 **DONE 2026-08-17** | **Reading run:** drive the `LedgerGroundTruth` category against the committed `career-pad-craft`, report-only. Confirms the category executes rather than skips, and produces the measured tally. **Shipped as `harness/scenarios/L2-ledger-groundtruth-career.toml`; LIVE-PROVEN on run `2026-08-17_2202_L2-ledger-groundtruth-career` (PASS attempt 1, 75 s, every verifier PASS/REPORT). Findings in 4b below.** | M | no (reading) |
 | B.2 **DONE 2026-08-18** | **Armed run + negative control**, tally pinned from B.1. Claims D8 `ground-truth-harness`. **Shipped: `[expectations.ledger]` (empty manifest, expected == seed), `[expectations.unityExceptions] maxTotal = 0` (+ the `test_hlib` armed-allowlist row), a second required token `result: hardFailures=0 reportOnly=0 facetsCompared=7 strict=False`, and the D8 claim worded "the non-circular recalc-vs-save loop closes unattended". TWO negative controls, both red as predicted: `2026-08-17_2228` PARSEK-FAIL(ledger) on a bogus 12345 funds manifest entry (`ledger-drift facet=funds expected=512345.0 parsed=500000.0`), `2026-08-17_2231` PARSEK-FAIL(expectation) on `facetsCompared=9`. ARMED RUN `2026-08-17_2233` PASS attempt 1, 59 s, every verifier PASS/REPORT with all gates live.** | M | **yes** |
 | B.3 **DONE 2026-08-18** | **Per-claim unit cell** for the claimed cell, in the style of `Cl2CoverageClaimTests`. The six L1 specs and B10 lack these; do not repeat that. **Shipped as `harness/lib/test_l2_ledger_groundtruth.py` (21 cells, 5 classes): the claim exists in the registry and is backed by BOTH required tokens; the scope fence is written as "every OTHER D8 value stays unclaimed" so a registry that grows a value needs no edit; the armed blocks are checked through `hlib.validate_ledger_expectations` / `capture_cross_check_gates`; the B.4 strict fence is pinned per-spec.** | S | **yes** |
-| B.4 **DONE 2026-08-18, ARMING DEFERRED** | **Strict mode.** Made `StrictPerIdentityForTesting` settable per-scenario through a new `strict` arg on the `RunTests` seam verb (`TestCommandRunTests.TryParseStrictArg`, `TryParseIsolatedArg`'s contract verbatim; the addon assigns the static UNCONDITIONALLY before `RunBatchSelector`, so absent = default and no batch inherits a previous one's strictness). Deliberately NOT a `SettingWhitelist` entry - every name in that table is a real player-visible `ParsekSettings` field, and a diff-strictness knob that only one in-game category reads is a test seam, not a preference. Harness side: one row in `hlib.VERB_SCOPED_CLOSED_ARGS` gives it the same pre-launch spelling gate `isolated` / `scene` / `site` have. **NO COMMITTED SPEC ARMS IT** - see the deferral below. | M | **yes** |
+| B.4 **DONE 2026-08-18, ARMING DEFERRED** | **Strict mode.** Made `StrictPerIdentityForTesting` settable per-scenario through a new `strict` arg on the `RunTests` seam verb (`TestCommandRunTests.TryParseStrictArg`, `TryParseIsolatedArg`'s contract verbatim; the addon assigns the static UNCONDITIONALLY before `RunBatchSelector`, so absent = default and no batch inherits a previous one's strictness, and the three AUTORUN dispatches in `TestRunnerShortcut` reset it to `false` before their own batch so the same holds for an autorun batch that never touches the seam; the hand-driven buttons are out of scope by decision - review follow-up 2026-08-18). Deliberately NOT a `SettingWhitelist` entry - every name in that table is a real player-visible `ParsekSettings` field, and a diff-strictness knob that only one in-game category reads is a test seam, not a preference. Harness side: one row in `hlib.VERB_SCOPED_CLOSED_ARGS` gives it the same pre-launch spelling gate `isolated` / `scene` / `site` have. **NO COMMITTED SPEC ARMS IT** - see the deferral below. | M | **yes** |
 
 Wiring note: `CommittedBatchTallySourceSyncTests` discovers owners from disk and
 needs **no edit** (rev 1 named an edit that does not exist). If the new spec takes
@@ -257,10 +257,12 @@ the shape of the tasks that follow.
    (funds 500000, science 100, rep 0), vessel pid sets matched. **Zero divergences
    of any kind** - so there is no triage backlog blocking B.2.
 
-3. **B.4 STRICT MODE WOULD BE A NO-OP ON THIS FIXTURE.**
+3. **B.4 STRICT MODE ADDS NO VALUE-DRIFT COVERAGE ON THIS FIXTURE.**
    `StrictPerIdentityForTesting` promotes report-only divergences to hard failures.
-   `reportOnly=0`, so on `career-pad-craft` there is nothing to promote: arming it
-   here buys a gate that cannot bite, on either a good or a bad day. B.4 is not
+   `reportOnly=0`, so on `career-pad-craft` there is nothing to promote and arming it
+   here buys no coverage for a value-drift regression. It would still catch a
+   *recon-invents-an-identity* regression (a phantom is fixture-independent), so the
+   gate is not inert - the deferral is about the thin SUBJECT. B.4 is not
    *blocked* - it is **mis-targeted**. It needs a subject with populated
    per-identity facets, which on current evidence means c2, and c2 is committed
    headless-only (decision 2) with an unanswered focusability question for harness
@@ -289,7 +291,7 @@ the reading run existed to observe. Measured: the patch is a no-op here
 (`PatchScience: balance unchanged (current=100.0, target=100.0)`) and the produced
 save came out at the seed, so B.2 can arm it - with the inert-rep-half caveat above.
 (b) No `[expectations.unityExceptions]` ceiling: the block is armed-only and its
-armed set is a hardcoded 14-spec allowlist in `harness/lib/test_hlib.py`, so
+armed set is a hardcoded allowlist in `harness/lib/test_hlib.py` (then 14, now 15), so
 declaring one is an allowlist edit. Measured report-only: `total=0` across all four
 counted classes. That is one reading, the first half of what an armed 0 needs.
 
@@ -315,9 +317,20 @@ validates is not evidence.
 | `2026-08-17_2231` | `facetsCompared=7` -> `9` in the required `result:` token | `PARSEK-FAIL(expectation)`, `logContracts.required not matched: result: hardFailures=0 reportOnly=0 facetsCompared=9 strict=False` |
 
 The armed run is `2026-08-17_2233`, PASS attempt 1, 59 s, every verifier PASS or
-REPORT with all three gates live. All four flights ran the same provisioned DLL
-(built from this branch, deployed before the first, grep-verified, and confirmed in
-the log by the new `runtests start ... strict=false` echo).
+REPORT with all three gates live.
+
+**The four flights ran TWO DLLs**, corrected here because an earlier draft claimed
+one. B.1 (`2026-08-17_2202`) flew the **pre-B.4 DLL**: its log reads `runtests start
+category=LedgerGroundTruth isolated=false` with no `strict=` token, because the seam
+did not exist yet. The three arming flights (`_2228`, `_2231`, `_2233`) flew the
+**B.4 DLL** - built from this branch, deployed by `provision.py --profile
+stock-minimal`, grep-verified in the automation instance (`TryParseStrictArg` utf8=1,
+`strict-arg-invalid` utf16=3), and confirmed on each of the three by the new
+`runtests start ... isolated=false strict=false` echo. Both measured surfaces came out
+IDENTICAL across the two DLLs - the `BATCH_COMPLETE v1 total=2 passed=1 failed=0
+skipped=1` tally and the `result: hardFailures=0 reportOnly=0 facetsCompared=7
+strict=False` line - which is itself evidence that the B.4 change did not perturb the
+surface these gates measure.
 
 **STRICT ARMING IS DEFERRED, and the subject is named.** `StrictPerIdentityForTesting`
 is now settable per scenario (`RunTests strict="true"`), unit-covered end to end
@@ -326,7 +339,9 @@ non-vacuous is **c2 promoted to a harness fixture** - which has an open focusabi
 question (section 2b) and is today committed headless-only - **or any future career
 fixture carrying recorded crewed recoveries**. `career-pad-craft` is not that
 subject and cannot become one by being re-flown: B.1 measured `reportOnly=0`, so
-strict there promotes nothing on a good day and nothing on a bad one. Two mechanical
+strict there adds no coverage for a value-drift regression - there is nothing to
+promote. It would still catch a recon-invents-an-identity regression, so the gate is
+not inert; the deferral stands because the subject is thin. Two mechanical
 fences hold the deferral: `test_hlib.test_no_committed_spec_arms_the_runtests_strict_arg`
 (lane-wide) and L2's own pinned `strict=False` token (per-spec).
 

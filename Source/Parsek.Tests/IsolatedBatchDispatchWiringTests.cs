@@ -281,6 +281,42 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void TheNonSeamEntryPointsResetTheStrictStatic()
+        {
+            // career-ledger B.4 review follow-up. The seam's UNCONDITIONAL assignment
+            // (cell above) makes the flag per-SCENARIO, but only for batches that go
+            // through the seam. The three AUTORUN dispatches call RunBatchSelector
+            // directly, so a strict seam batch would LATCH the static for every later
+            // autorun batch in the same process - a headless-invisible, Unity-side
+            // one-liner exactly like the seam assignment it mirrors.
+            //
+            // The fix is a reset at each of those dispatches, and the property pinned
+            // here is ADJACENCY: the reset must sit immediately before the dispatch it
+            // guards, so a batch cannot start on an inherited value. The seam remains the
+            // only writer of `true` anywhere in the product - asserted below. (The
+            // hand-driven surfaces are out of scope by decision: they call the four entry
+            // points directly, pinned by
+            // TheInteractiveSurfacesStillCallTheEntryPointsDirectly, and no driven run
+            // reaches them.)
+            string region = StripComments(Between(
+                ReadSource("InGameTests", "TestRunnerShortcut.cs"),
+                "private void FireAutorun()", "private bool MarkerWouldReconcile()"));
+
+            const string reset =
+                "LedgerGroundTruthDiff.StrictPerIdentityForTesting = false;";
+            Assert.Equal(3, Count(region, reset));
+            Assert.Equal(3, Count(region, "runner.RunBatchSelector("));
+            // One reset per dispatch, each ADJACENT to it (only whitespace between).
+            Assert.Equal(3, Regex.Matches(region,
+                @"StrictPerIdentityForTesting = false;\s*runner\.RunBatchSelector\(").Count);
+
+            // And the reset is a reset, never an arm: nothing outside the RunTests seam
+            // may assign `true`. `= strict;` (the seam) lives in ParsekTestCommandAddon
+            // and is pinned by the cell above; here the shortcut must carry no `= true`.
+            Assert.DoesNotContain("StrictPerIdentityForTesting = true", region);
+        }
+
+        [Fact]
         public void EveryAutorunBranchRoutesThroughTheSingleDispatch()
         {
             string region = StripComments(Between(

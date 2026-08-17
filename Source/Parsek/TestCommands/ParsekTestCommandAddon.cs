@@ -1675,9 +1675,11 @@ namespace Parsek.TestCommands
 
             // Career-ledger B.4. UNCONDITIONAL assignment, including the absent-arg
             // `false`: that is what makes the flag per-scenario instead of sticky for the
-            // rest of the process. The static is the ONLY seam - nothing else in the
-            // product writes it - and the batch reads it inside
-            // LedgerGroundTruthHarness / Inv8Ledger via
+            // rest of the process. This is the ONLY writer of `true` in the product; the
+            // three AUTORUN dispatches in TestRunnerShortcut reset the static to `false`
+            // immediately before their own RunBatchSelector call, so a strict batch here
+            // cannot latch it for a later autorun batch. The batch reads
+            // it inside LedgerGroundTruthHarness / Inv8Ledger via
             // LedgerDivergenceReport.HardFailures(strict). Set BEFORE RunBatchSelector so
             // the very first cell of the batch already sees it.
             LedgerGroundTruthDiff.StrictPerIdentityForTesting = strict;

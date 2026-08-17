@@ -1163,9 +1163,12 @@ SWITCHCLICK_SITE_VALUES: Tuple[str, ...] = ("map", "ts", "ksc")
 # harness-side contract.
 #
 # NO COMMITTED SPEC DECLARES IT (career-ledger B.4, 2026-08-18): L2's own reading run
-# measured reportOnly=0 on career-pad-craft, so strict there would be a gate that
-# cannot bite. The row exists so the first spec that DOES have a subject for it gets
-# the spelling gate on day one instead of discovering it on a flight.
+# measured reportOnly=0 on career-pad-craft, so strict there adds NO coverage for a
+# value-drift regression - there is nothing to promote. It WOULD still catch a
+# recon-invents-an-identity regression, which is fixture-independent, so the gate is not
+# inert; the deferral stands because the SUBJECT is thin. The row exists so the first
+# spec that DOES have a subject for it gets the spelling gate on day one instead of
+# discovering it on a flight.
 RUNTESTS_STRICT_KEY = "strict"
 RUNTESTS_STRICT_VALUES: Tuple[str, ...] = ("true", "false")
 
@@ -2961,10 +2964,13 @@ def validate_spec(spec: Dict, registry: Dict, bug_ids: Optional[Sequence[str]] =
                     % (i, BATCH_ISOLATED_KEY, raw,
                        " or ".join(repr(v) for v in BATCH_ISOLATED_VALUES),
                        BATCH_ISOLATED_KEY))
-        # R12 verb-scoped closed-value args (LoadGame scene=, SimulateStockSwitchClick
-        # site=). Same three failures the isolated guard above catches -- a case-variant
-        # KEY, the arg on a verb that does not read it, and a value outside the closed
-        # set -- caught pre-launch instead of costing a KSP boot to learn.
+        # R12 verb-scoped closed-value args, one row each in VERB_SCOPED_CLOSED_ARGS:
+        #   LoadGame                   scene=
+        #   SimulateStockSwitchClick   site=
+        #   RunTests                   strict=   (career-ledger B.4)
+        # Same three failures the isolated guard above catches -- a case-variant KEY, the
+        # arg on a verb that does not read it, and a value outside the closed set --
+        # caught pre-launch instead of costing a KSP boot to learn.
         for arg_key, (owner_verb, allowed) in sorted(VERB_SCOPED_CLOSED_ARGS.items()):
             for key in step_args:
                 if (isinstance(key, str) and key != arg_key

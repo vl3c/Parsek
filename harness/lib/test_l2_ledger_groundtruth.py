@@ -90,7 +90,6 @@ class L2CoverageClaimTests(unittest.TestCase):
         # count is pinned rather than left as a wildcard. 7 is B.1's measurement.
         matching = [p for p in self.required if p.startswith("result: hardFailures=")][0]
         self.assertIn("facetsCompared=7", matching)
-        self.assertNotIn("facetsCompared=0", matching)
 
     def test_the_result_token_pins_strict_off(self):
         # career-ledger B.4's deferral, made mechanical: this spec runs the DEFAULT
