@@ -1,0 +1,157 @@
+version = 1
+MILESTONE
+{
+	id = d85bf4e195484110801b548fd33665ab
+	startUT = 0
+	endUT = 1171.6762774657855
+	recordingId = 
+	committed = True
+	lastReplayedIdx = 7
+	GAME_STATE_EVENT
+	{
+		ut = 30.499999999999439
+		type = 18
+		key = RecordsSpeed
+		detail = funds=24000;rep=3;sci=1
+		recordingId = ddcc6d007ff54a9c8246c7958011883a
+	}
+	GAME_STATE_EVENT
+	{
+		ut = 31.479999999999418
+		type = 18
+		key = FirstLaunch
+		detail = funds=800;rep=0;sci=0
+		recordingId = ddcc6d007ff54a9c8246c7958011883a
+	}
+	GAME_STATE_EVENT
+	{
+		ut = 37.560000000000272
+		type = 18
+		key = RecordsAltitude
+		detail = funds=24000;rep=3;sci=1
+		recordingId = ddcc6d007ff54a9c8246c7958011883a
+	}
+	GAME_STATE_EVENT
+	{
+		ut = 52.920000000002673
+		type = 18
+		key = RecordsDistance
+		detail = funds=24000;rep=3;sci=1
+		recordingId = ddcc6d007ff54a9c8246c7958011883a
+	}
+	GAME_STATE_EVENT
+	{
+		ut = 177.06000000001677
+		type = 18
+		key = RecordsDistance
+		detail = funds=0;rep=0;sci=0
+		recordingId = ddcc6d007ff54a9c8246c7958011883a
+	}
+	GAME_STATE_EVENT
+	{
+		ut = 224.4998919678126
+		type = 18
+		key = RecordsAltitude
+		detail = funds=0;rep=0;sci=0
+		recordingId = ddcc6d007ff54a9c8246c7958011883a
+	}
+	GAME_STATE_EVENT
+	{
+		ut = 224.53989196781259
+		type = 18
+		key = ReachedSpace
+		detail = funds=8000;rep=1;sci=0
+		recordingId = ddcc6d007ff54a9c8246c7958011883a
+	}
+	GAME_STATE_EVENT
+	{
+		ut = 224.57989196781259
+		type = 18
+		key = RecordsSpeed
+		detail = funds=0;rep=0;sci=0
+		recordingId = ddcc6d007ff54a9c8246c7958011883a
+	}
+}
+MILESTONE
+{
+	id = 6b14d544c28e4fbd97d5e9c7b292637e
+	startUT = 1171.6762774657855
+	endUT = 4113914.1377319535
+	recordingId = 
+	committed = True
+	lastReplayedIdx = 0
+	GAME_STATE_EVENT
+	{
+		ut = 1689.8761260985307
+		type = 18
+		key = Orbit
+		detail = funds=12000;rep=2;sci=1
+		recordingId = ddcc6d007ff54a9c8246c7958011883a
+	}
+}
+MILESTONE
+{
+	id = 69fa3cba5a00410c8864e4288d3ce199
+	startUT = 4113914.1377319535
+	endUT = 14256165.118742978
+	recordingId = 
+	committed = True
+	lastReplayedIdx = 2
+	GAME_STATE_EVENT
+	{
+		ut = 4145181.2881059996
+		type = 18
+		key = Kerbin/Escape
+		detail = funds=13200;rep=2;sci=1
+		recordingId = ddcc6d007ff54a9c8246c7958011883a
+	}
+	GAME_STATE_EVENT
+	{
+		ut = 4145181.2881059996
+		type = 18
+		key = Sun/Flyby
+		detail = funds=19000;rep=1;sci=0
+		recordingId = ddcc6d007ff54a9c8246c7958011883a
+	}
+	GAME_STATE_EVENT
+	{
+		ut = 4145181.2881059996
+		type = 18
+		key = Orbit
+		detail = funds=18240;rep=1;sci=0
+		recordingId = ddcc6d007ff54a9c8246c7958011883a
+	}
+}
+MILESTONE
+{
+	id = cd4addc2785d4bdab75840f5d7cc81e7
+	startUT = 14256165.118742978
+	endUT = 27787151.259514619
+	recordingId = 
+	committed = True
+	lastReplayedIdx = 2
+	GAME_STATE_EVENT
+	{
+		ut = 26472701.680803671
+		type = 18
+		key = Jool/Flyby
+		detail = funds=25000;rep=1;sci=0
+		recordingId = ddcc6d007ff54a9c8246c7958011883a
+	}
+	GAME_STATE_EVENT
+	{
+		ut = 26472701.680803671
+		type = 18
+		key = Sun/Escape
+		detail = funds=13680;rep=1;sci=0
+		recordingId = ddcc6d007ff54a9c8246c7958011883a
+	}
+	GAME_STATE_EVENT
+	{
+		ut = 27787091.959515944
+		type = 18
+		key = Orbit
+		detail = funds=24000;rep=1;sci=0
+		recordingId = ddcc6d007ff54a9c8246c7958011883a
+	}
+}

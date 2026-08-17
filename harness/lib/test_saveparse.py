@@ -1032,6 +1032,50 @@ class CommittedFixtureSweepTests(unittest.TestCase):
                              "d8bfbb2c7c654b0fa83f1a6d43394833"],
             "schemaGeneration": 4,
         },
+        # --- THE JOOL ORBIT FIXTURE --------------------------------------
+        # PROVENANCE: jool-orbit-recorded <- B22-jool-orbit, run
+        # 2026-08-17_1959, PASS attempt 1, wall 2441 s, every verifier PASS
+        # or SKIPPED (result JSON in harness/results/). Harvested with
+        # `harvest_bdock_station.py --keep-parsek --expect-situation
+        # ORBITING` from a SNAPSHOT COPY of the produced b18-dres-pad save,
+        # taken the instant run.py returned -- that leaf is shared by
+        # B18-B21 and the machine lock does not protect a finished run's
+        # save (HARNESS-PRODUCED-SAVE-CLOBBERED-BY-SIBLING-RUN).
+        #
+        # Every number below is READ BACK through this cell's own parser
+        # (saveparse.observed_structure_facets), never counted by hand.
+        # The topology is SHAPE-IDENTICAL to eeloo-orbit-recorded above --
+        # same tree count, same 5 recordings, same {Orbiting 3, Destroyed 2}
+        # terminals, same {JointBreak 3} branch points, same 20 authoritative
+        # sidecars -- which is what a clean RETARGET of the same profile
+        # should produce, and is the cheapest evidence that it was one.
+        #
+        # THE V-LANE PRECONDITION, VERIFIED ON THE HARVESTED BYTES: the
+        # recordings reference Kerbin, Sun and Jool ONLY -- zero Laythe /
+        # Vall / Tylo / Bop / Pol occurrences across all five `.prec.txt`
+        # sidecars (the five hits in persistent.sfs are KSP's own celestial
+        # `BodyName =` roster, not recorded legs). So `moons=0` off the
+        # dest-constraints line, and this fixture cannot silently route a
+        # consumer onto the never-live-flown M-MIS-6 multi-moon path.
+        #
+        # The arrival this fixture carries: requested 600,000,000 m ALTITUDE,
+        # delivered 584,327,170.912 (k = 0.9739) = 590,327,171 m RADIUS,
+        # 2.789x Pol's 211,666,345 m clearance edge, 24.04% of Jool's SOI.
+        # Terminal park ap 584,330,474.177 / pe 584,321,095.004, ecc 8e-6.
+        "jool-orbit-recorded": {
+            "trees": 1, "committedTrees": 1, "recordings": 5,
+            "supersedes": 0, "tombstones": 0, "rewind_points": 0,
+            "rewind_retirements": 0,
+            "terminalStates": {"Orbiting": 3, "Destroyed": 2},
+            "branchPoints": {"JointBreak": 3},
+            "minAuthoritativeSidecars": 20,
+            "recordingIds": ["1d6fa27e66bd47fc85baffe90522bef3",
+                             "98c11e0d19804aecb1b7e66a94f8ede7",
+                             "ad34ea8948ba4c1fb839bbc691f21deb",
+                             "b13418e758764bb8adf061cff8236f1b",
+                             "ddcc6d007ff54a9c8246c7958011883a"],
+            "schemaGeneration": 4,
+        },
         # --- THE ROUTE-PROOF (DOCKING) FIXTURE ---------------------------
         # PROVENANCE: bdock-recorded <- BDOCK-1-station-interceptor, run
         # 2026-08-11_1606, PASS attempt 1, wall 2146 s / mission 2093 s
