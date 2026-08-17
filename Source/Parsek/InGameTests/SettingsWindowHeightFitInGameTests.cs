@@ -141,6 +141,12 @@ namespace Parsek.InGameTests
             {
                 settings.IsOpen = originalOpen;
                 flight.ShowUIForTesting = originalShowUi;
+                // This test is the first thing that makes the window actually DRAW, so it can
+                // take the window's CAMERACONTROLS lock if the pointer happens to rest inside
+                // it. DrawIfOpen frees that lock on its next call - which never comes once the
+                // window is closed AND the UI hidden in the same Update, so the player would
+                // be left unable to move the camera. Releasing here is idempotent.
+                settings.ReleaseInputLock();
                 RestoreMode(originalMode);
                 // Leave the window fitted to whatever mode the player is back on.
                 settings.RequestHeightRemeasure();

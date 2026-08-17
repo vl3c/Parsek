@@ -117,12 +117,13 @@ namespace Parsek
         /// every draw); the difference is that this window is fixed-height the rest of the
         /// time, so it releases the height for ONE Layout pass rather than always.</para>
         ///
-        /// <para>The zero is not entirely invisible: <c>ClickThruBlocker</c> forwards whatever
-        /// rect it is handed to <c>CTBWin.PreventInFlightClickthrough</c>, which reads a
-        /// zero-height rect as "mouse not over the window" and frees its focus lock for that
-        /// pass. The next pass hands over the real rect and re-locks, and Parsek's own
-        /// CAMERACONTROLS lock is unaffected (it uses the stored rect, kept intact by
-        /// <see cref="KeepStoredHeightAcrossFitPass"/>).</para>
+        /// <para>The zero is not entirely invisible: <c>ClickThruBlocker</c> passes
+        /// <c>GUILayout.Window</c>'s RETURN to <c>CTBWin.PreventInFlightClickthrough</c>, and on
+        /// a fit pass that return is the zero-height rect we handed in (see
+        /// <see cref="KeepStoredHeightAcrossFitPass"/>), which it reads as "mouse not over the
+        /// window" and frees its focus lock for that pass. The next pass returns the real rect
+        /// and re-locks. Parsek's own CAMERACONTROLS lock is unaffected - it uses the stored
+        /// rect, kept intact below.</para>
         /// </summary>
         internal static Rect BuildHeightFitLayoutRect(Rect stored, bool releaseHeight)
         {
@@ -133,15 +134,27 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Keeps the caller's stored height across a fit pass. The rect a fit pass returns is
-        /// the zero-height rect that was passed in - GUILayout applies the fitted size after
-        /// the call - and the stored rect is not just a draw position: it is the hit rect
-        /// behind the window's CAMERACONTROLS input lock and
-        /// <c>ParsekUI.IsPointerOverOpenWindow</c>, which both require a positive height.
-        /// Storing the zero would drop and re-take that lock for a pass, and would leave the
-        /// stored height wrong for any reader that runs before the fitted height lands.
-        /// <para>x / y / width come from the RETURNED rect so nothing else the pass resolved
-        /// is discarded.</para>
+        /// Keeps the caller's stored height across a fit pass.
+        ///
+        /// <para>A fit pass RETURNS the zero-height rect it was handed, not the fitted one.
+        /// That is measured, not assumed: the pre-fix build logged this very return as
+        /// <c>h=636</c> on a Layout pass whose content had already grown to 948, and the 948
+        /// only appeared in the stored rect on a later pass. The fitted height therefore
+        /// arrives on the NEXT event's return - in practice the same frame's Repaint - and
+        /// that is the channel the whole scheme rides on.</para>
+        ///
+        /// <para>Handing the stale height back in the meantime is harmless because a Repaint
+        /// never re-runs layout (<c>GUI.CallWindowDelegate</c> only calls
+        /// <c>GUILayoutUtility.Layout</c> on a Layout event), so nothing re-forces the window
+        /// before the fitted height has been stored. The same log proves the pickup beats the
+        /// next Layout pass: that pass hands over <c>GUILayout.Height(stale)</c>, which WOULD
+        /// force the window back - and the grown height stuck.</para>
+        ///
+        /// <para>What the stored rect must not become is zero, because it is not just a draw
+        /// position: it is the hit rect behind the window's CAMERACONTROLS input lock and
+        /// <c>ParsekUI.IsPointerOverOpenWindow</c>, which both require a positive height. x / y
+        /// / width come from the RETURNED rect so nothing else the pass resolved is
+        /// discarded.</para>
         /// </summary>
         internal static Rect KeepStoredHeightAcrossFitPass(Rect drawn, float storedHeight, bool releaseHeight)
         {
