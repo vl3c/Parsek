@@ -217,7 +217,7 @@ The brief's part 1. No new fixture, no new C#.
 
 | # | Task | Cost | Gates? |
 | --- | --- | --- | --- |
-| B.1 | **Reading run:** drive the `LedgerGroundTruth` category against the committed `career-pad-craft`, report-only. Confirms the category executes rather than skips, and produces the measured tally. | M | no (reading) |
+| B.1 **DONE 2026-08-17** | **Reading run:** drive the `LedgerGroundTruth` category against the committed `career-pad-craft`, report-only. Confirms the category executes rather than skips, and produces the measured tally. **Shipped as `harness/scenarios/L2-ledger-groundtruth-career.toml`; LIVE-PROVEN on run `2026-08-17_2202_L2-ledger-groundtruth-career` (PASS attempt 1, 75 s, every verifier PASS/REPORT). Findings in 4b below.** | M | no (reading) |
 | B.2 | **Armed run + negative control**, tally pinned from B.1. Claims D8 `ground-truth-harness`. | M | **yes** |
 | B.3 | **Per-claim unit cell** for the claimed cell, in the style of `Cl2CoverageClaimTests`. The six L1 specs and B10 lack these; do not repeat that. | S | **yes** |
 | B.4 | **Strict mode.** B.1's report-only output *is* the evidence the brief asked for. Make `StrictPerIdentityForTesting` settable per-scenario and arm only if B.1's divergences are all explainable. | M | **yes** |
@@ -226,6 +226,74 @@ Wiring note: `CommittedBatchTallySourceSyncTests` discovers owners from disk and
 needs **no edit** (rev 1 named an edit that does not exist). If the new spec takes
 an H-series id, `IngameBatchWiringGroupTests.GROUP` needs a row **and** its
 anti-vacuity floor `assertEqual(24, len(GROUP))` must be bumped.
+
+### 4b. What B.1 measured (2026-08-17), and what it does to B.2/B.4
+
+Run `2026-08-17_2202_L2-ledger-groundtruth-career`, PASS attempt 1, 75 s wall,
+every verifier PASS or REPORT. Four things came out of it, and two of them change
+the shape of the tasks that follow.
+
+1. **THE CATEGORY HAS TWO DECLARATIONS, NOT ONE.** Rev 3 (and the B.1 brief) said
+   `LedgerGroundTruth` holds exactly one `[InGameTest]`. It holds two: the harness
+   cell plus `KerbalExperienceReassertTest.SurvivingCareerLogEntriesAreOnTheLiveRoster`
+   (P9a), whose own XML doc says it chose the category *"deliberately - no committed
+   harness spec pins that category's tally, so this cell does not move a pinned
+   `BATCH_COMPLETE` number"*. That premise is now retired: the category is pinned.
+   `CommittedBatchTallySourceSyncTests` caught the error locally, before any flight.
+   Measured tally: `total=2 passed=1 failed=0 skipped=1 category=LedgerGroundTruth
+   scene=FLIGHT`. The P9a cell skips correctly (no `KerbalExperience` rows in the
+   ELS on a fixture with no recorded crewed recovery).
+
+2. **The category EXECUTES rather than skips, and the loop closes.** The harness
+   cell cleared all six run-time guards in 35.9 ms: quicksave (101,259 bytes),
+   independent re-parse off disk, `RecalculateAndPatch` over the fixture's 2-action
+   ledger, then `Compare: result divergences=0 hardFailures=0 reportOnly=0
+   facetsCompared=7 strict=False`. Seeded pools all `delta=0`
+   (funds 500000, science 100, rep 0), vessel pid sets matched. **Zero divergences
+   of any kind** - so there is no triage backlog blocking B.2.
+
+3. **B.4 STRICT MODE WOULD BE A NO-OP ON THIS FIXTURE.**
+   `StrictPerIdentityForTesting` promotes report-only divergences to hard failures.
+   `reportOnly=0`, so on `career-pad-craft` there is nothing to promote: arming it
+   here buys a gate that cannot bite, on either a good or a bad day. B.4 is not
+   *blocked* - it is **mis-targeted**. It needs a subject with populated
+   per-identity facets, which on current evidence means c2, and c2 is committed
+   headless-only (decision 2) with an unanswered focusability question for harness
+   promotion. Recommend B.4 be re-scoped to "make the flag settable per-scenario
+   AND name the subject that makes it non-vacuous", or deferred behind that subject.
+
+4. **The subject is thin, and B.2's D8 claim must be worded to match.** Of the 7
+   compared facets only the three seeded pools are genuinely two-sided. Per-subject
+   science compares 0 against 0. Facilities, roster and researched-tech compare an
+   EMPTY delta-only reconstruction against a populated save (`reconFacilities=0
+   saveFacilities=10`; `saveUnlocked=1 reconResearched=0
+   unlockedNotClaimedByRecon=1` - the documented delta-only direction, counted not
+   emitted). Contracts, milestones, recovery credits and kerbal career logs SKIP
+   outright for want of a facet. What B.2 can honestly claim for D8
+   `ground-truth-harness` is that **the loop runs end to end unattended and closes
+   on a clean career** - not that rich-career facet accuracy is gated. One further
+   caveat found while reading: `PatchReputation: module has no ReputationInitial
+   seed - skipping to preserve KSP values`, so the rep facet's 0-vs-0 agreement is
+   not evidence that a rep drift would be caught here.
+
+**Two things B.1 deliberately did NOT do**, both because doing them is arming and
+B.1 is reading. (a) No `[expectations.ledger]` block: the M-B2 oracle has no
+report-only mode (a hard pool drift classifies `PARSEK-FAIL(ledger)` outright), and
+this cell patches then restores the live pools, which is exactly the interaction
+the reading run existed to observe. Measured: the patch is a no-op here
+(`PatchScience: balance unchanged (current=100.0, target=100.0)`) and the produced
+save came out at the seed, so B.2 can arm it - with the inert-rep-half caveat above.
+(b) No `[expectations.unityExceptions]` ceiling: the block is armed-only and its
+armed set is a hardcoded 14-spec allowlist in `harness/lib/test_hlib.py`, so
+declaring one is an allowlist edit. Measured report-only: `total=0` across all four
+counted classes. That is one reading, the first half of what an armed 0 needs.
+
+**Tier discipline used, and reusable.** The spec shipped `tier = "operator"` for
+exactly as long as its `BATCH_COMPLETE` pin was a prediction, and was promoted to
+`nightly` in the same commit that pinned the measurement. `pending-fixture` would
+have been a lie (the fixture is committed). An `operator` tier that outlives the
+measuring run becomes an unrecorded standing human call, so the promotion is part
+of the pinning commit, never a follow-up.
 
 ### Phase C - Manufacture a career subject (**largely obsolete - c2 exists**)
 

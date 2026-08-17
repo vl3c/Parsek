@@ -836,6 +836,16 @@
         "2026-08-05T06:59:32Z": 52.0
       }
     },
+    "L2-ledger-groundtruth-career": {
+      "last": 75.0,
+      "lastVsP50": 1.0,
+      "n": 1,
+      "p50": 75.0,
+      "p95": 75.0,
+      "samples": {
+        "2026-08-17T22:04:11Z": 75.0
+      }
+    },
     "M1-mission-loop-unit": {
       "last": 46.0,
       "lastVsP50": 1.0,

@@ -1,0 +1,226 @@
+schema = 1
+id = "L2-ledger-groundtruth-career"
+# PROMOTED operator -> nightly 2026-08-17, on the reading run that measured the pin
+# (run `2026-08-17_2202_L2-ledger-groundtruth-career`, PASS attempt 1, 75 s wall,
+# every verifier PASS or REPORT, `expectations mismatches=0`). It shipped `operator`
+# for exactly as long as its tally was a prediction; the promotion is what that tier
+# was holding the place for. `nightly` rather than `daily` is the batch-only shape's
+# home (H26/H31 next door on this same fixture) - the L1 ledger family is daily
+# because it gates the M-B2 oracle, which this spec deliberately does not declare.
+tier = "nightly"
+# WHAT THIS IS. The B.1 READING RUN for D8 `ground-truth-harness`. It drives the
+# `LedgerGroundTruth` in-game category (Source/Parsek/InGameTests/
+# LedgerGroundTruthHarness.cs) against a committed career fixture, and its whole
+# purpose is to produce EVIDENCE: does the category execute rather than skip, what
+# is the real tally, and what does LedgerGroundTruthDiff report per facet on a
+# fixture career. NOTHING new is armed here - no [expectations.ledger] block, no
+# unityExceptions ceiling, no D8 claim. Those are Phase B.2/B.4 decisions and they
+# are deliberately taken AFTER this run rather than alongside it.
+description = "Reading run: drive the one-test LedgerGroundTruth category against a committed CAREER pad fixture, so the non-circular recalc-vs-save diff reports its facets unattended for the first time."
+instanceProfile = "stock-minimal"
+tags = ["ledger", "L2", "ingame-batch", "ground-truth", "reading-run"]
+
+[fixture]
+# career-pad-craft, and the choice is what makes this task need no new fixture. The
+# in-game cell's four Skip guards are satisfied here and only here among the
+# committed career saves:
+#   1. `HighLogic.CurrentGame != null`             - any driven boot.
+#   2. `Mode == Game.Modes.CAREER`                 - GAME { Mode = CAREER }.
+#   3. Funding / ResearchAndDevelopment / Reputation singletons initialized - the
+#      save carries all three SCENARIO nodes.
+#   4. no pending tree, no active uncommitted tree, NO LIVE RECORDER - the craft
+#      sits at PRELAUNCH and the SetSetting step below keeps auto-record off.
+# The cell is also Scene = GameScenes.FLIGHT, which fresh-career cannot host: it
+# has zero VESSEL nodes, so LoadGame routes NoVesselSpaceCenter and the batch would
+# scene-skip the only declaration (the exact vacuity defect B10 and
+# L1-passive-sandbox were re-flown to fix). career-pad-craft carries one VESSEL with
+# FLIGHTSTATE activeVessel = 0, so LoadGame takes the Focusable route to FLIGHT -
+# MEASURED by H26-log-contracts, R7a and the CL family, which all pin scene=FLIGHT
+# over this same template.
+saveTemplate = "fixtures/saves/career-pad-craft"
+# LOAD-BEARING, not a default. all-synthetic would put recordings into the store,
+# and the cell's guard set plus the recordings.count = 0 pin below both rest on the
+# store staying empty. The reconstruction this run reads is the ledger's, over a
+# career whose ledger is the fixture's own.
+injectedRecordings = "none"
+craft = []
+
+[driver]
+kind = "seam"
+# NO isolated arg, and the derivation is one line: the single LedgerGroundTruth
+# declaration carries AllowBatchExecution = true, so the ordinary admission filter
+# (`if (test.AllowBatchExecution)`) already admits it and the isolated filter would
+# admit exactly the same set. It ALSO carries
+# RestoreBatchFlightBaselineAfterExecution = true, which is what makes the arg
+# tempting - but that flag only widens the ISOLATED filter, and adding the arg here
+# would trip CommittedBatchTallySourceSyncTests
+# .test_an_isolated_spec_would_red_if_its_isolated_arg_were_dropped: the tally would
+# be satisfiable on the ordinary path too, so the spec would have to pin the seam
+# echo as a discriminator for a route it does not need.
+#
+# SetSetting mirrors H26/R7a on this same fixture: PRELAUNCH craft, nothing here
+# should start a recording, and guard 4 above is the reason it is mandatory rather
+# than cosmetic - a live recorder makes the cell Skip instead of run.
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "RunTests",   args = { category = "LedgerGroundTruth" },          expect = "OK", budget = 540 },
+  { cmd = "FlushAndQuit",                                                   expect = "OK" },
+]
+
+[dimensionsCovered]
+# DELIBERATELY NO D8 CELL, and `ground-truth-harness` least of all. Claiming it is
+# task B.2's job and it is gated on B.2's own arming decision: a claim is a promise
+# that a GATING assertion backs the cell, and this spec is a reading run whose tier
+# keeps it out of every cadence. Claiming the cell here would put it in the coverage
+# registry on the strength of a prediction. Only the environment axes are claimed,
+# and both are facts of the boot rather than of any assertion.
+D14 = ["career", "scene-flight"]
+
+[expectations]
+# PLACEMENT IS LOAD-BEARING: run.py reads `expectations.allowedAnomalies`, and a
+# bare key written after an [expectations.<sub>] header is TOML-scoped to that
+# sub-table and silently never read. hlib.validate_spec rejects the misplaced form.
+allowedAnomalies = []
+
+[expectations.recordings]
+# Zero, and it is an assertion rather than a formality: auto-record is off, the
+# fixture injects nothing, and the in-game cell writes no recording. A non-zero
+# count means something recorded that should not have. count.max == 0 also selects
+# the B1 recording-rules log-validation suppression, so a legitimately
+# recording-free run does not red on REC-001/REC-003.
+count = { min = 0, max = 0 }
+
+[expectations.logContracts]
+# ANTI-VACUITY: the tally is pinned WHOLE (hlib.batch_contract_vacuity_gap rejects a
+# RunTests spec whose contract an empty / all-skipped batch could satisfy).
+#
+# ############ MEASURED 2026-08-17, PREDICTION CONFIRMED ############
+# The line below is read TOKEN FOR TOKEN out of the collected KSP.log of run
+# `2026-08-17_2202_L2-ledger-groundtruth-career` (KSP.log:12799):
+#
+#   BATCH_COMPLETE v1 total=2 passed=1 failed=0 skipped=1 category=LedgerGroundTruth scene=FLIGHT
+#
+# It is the SAME line the interim pin predicted, so this is a confirmation rather
+# than a re-pin. The derivation below is kept verbatim because it is now evidence:
+# every claim in it was tested by a live run and none of it moved. What the run
+# ADDED is the run-time half the derivation explicitly declined to predict - both
+# cells behaved exactly as argued, and the skip reason is quoted at the bottom.
+#
+# WHAT IS DERIVABLE (hlib.derive_batch_tally over the C# attributes):
+#  - total=2, NOT 1. THE PLAN DOC AND THE AUTHORING BRIEF BOTH SAID ONE, and the
+#    source says two - caught by CommittedBatchTallySourceSyncTests before this ever
+#    flew, which is the gate working. The second declaration is
+#    KerbalExperienceReassertTest.SurvivingCareerLogEntriesAreOnTheLiveRoster (P9a),
+#    also Scene = GameScenes.FLIGHT, AllowBatchExecution defaulted true. Its own
+#    XML doc says it chose this category "deliberately - no committed harness spec
+#    pins that category's tally, so this cell does not move a pinned
+#    BATCH_COMPLETE number". THIS SPEC ENDS THAT: the category is pinned from here
+#    on, and adding a third LedgerGroundTruth declaration now reds locally in
+#    harness/lib rather than on some later nightly.
+#  - scene-skipped = 0: both declarations are Scene = GameScenes.FLIGHT and this
+#    fixture routes LoadGame to FLIGHT (see the [fixture] note).
+#  - batch-skipped = 0: the harness cell sets AllowBatchExecution = true explicitly
+#    and the P9a cell takes the default true, so the ordinary admission filter
+#    admits both.
+#  - executable = 2. The attribute floor on `skipped` is therefore 0, and
+#    batch_tally_pin_mismatches will accept any measured skipped >= 0.
+#
+# WHAT IS NOT DERIVABLE, and is the whole subject of the reading run: BOTH cells
+# carry run-time InGameAssert.Skip guards, and the runner cannot predict them.
+#  - The harness cell has six (null game, non-CAREER mode, uninitialised
+#    singletons, live/pending tree, unloadable or unparseable ground-truth
+#    quicksave, null recalc modules). Every one is argued satisfied in [fixture]
+#    above, but "argued" is not "measured".
+#  - The P9a cell is PREDICTED TO SKIP, and its skip is CORRECT here rather than a
+#    shortfall: it needs an ELS carrying at least one GameActionType.KerbalExperience
+#    row, which requires a recorded crewed recovery. career-pad-craft injects no
+#    recordings and its craft has never flown, so `expectedByKerbal.Count == 0` and
+#    the cell skips with "No KerbalExperience rows in the effective ledger". That
+#    cell's subject is a REWIND, which this scenario does not perform.
+#
+# WHAT THE RUN MEASURED, and it is the whole point of the split.
+#  - passed=1 is the GROUND-TRUTH cell EXECUTING (35.9 ms), not merely admitted.
+#    It cleared all six guards, quicksaved to `parsek_ledger_groundtruth` (101,259
+#    bytes), re-parsed that file off disk, ran RecalculateAndPatch over the
+#    fixture's 2-action ledger, and diffed: `Compare: result divergences=0
+#    hardFailures=0 reportOnly=0 facetsCompared=7 strict=False`, with the three
+#    seeded pools reading `funds save=500000 recon=500000 delta=0`,
+#    `science save=100 recon=100 delta=0`, `reputation save=0 recon=0 delta=0`.
+#    Also clean: `vessel parse-sanity: save and live vessel pid sets match`.
+#  - skipped=1 is the P9a cell, skipping for the PREDICTED reason and quoted here
+#    so a future change of reason is visible as a diff rather than a number:
+#      "No KerbalExperience rows in the effective ledger - recover a crewed vessel
+#       first, then rerun."
+#    That is correct on this fixture and stays correct as long as the fixture
+#    records no crewed recovery. If it ever reads passed=2, the fixture changed.
+#
+# ANTI-VACUITY, STATED HONESTLY. `failed=0` gates the cell's own
+# `InGameAssert.IsTrue(hard == 0)`, so this pin is a real assertion about the
+# recalc-vs-save diff - but the SUBJECT is thin, and pretending otherwise would be
+# the trap this harness keeps re-learning. career-pad-craft's ledger holds 2 actions
+# (the funds and science seeds), so of the 7 compared facets only the three seeded
+# pools carry a two-sided comparison; per-subject science compares 0 against 0, and
+# facilities / roster / tech compare an EMPTY delta-only reconstruction against a
+# populated save (`reconFacilities=0 saveFacilities=10`, `saveUnlocked=1
+# reconResearched=0 unlockedNotClaimedByRecon=1`), which is the documented
+# delta-only direction and not a divergence. Contracts, milestones, recovery and
+# kerbal career logs SKIPPED outright for want of a facet. What this spec therefore
+# proves is that the ground-truth LOOP runs end to end unattended and closes on a
+# clean career - which is exactly D8 `ground-truth-harness`, and exactly not a
+# claim about rich-career facet accuracy. A richer subject is a separate scenario.
+# RE-PIN CONTRACT: a flight whose tally differs gets this line replaced with the
+# measured one plus its run id, never adjusted toward what was expected.
+# ###############################################################
+required  = ["BATCH_COMPLETE v1 total=2 passed=1 failed=0 skipped=1 category=LedgerGroundTruth scene=FLIGHT"]
+# The cell reports every facet at Warn (report.Format()), never at Error, so a
+# Parsek ERROR line here is a genuine defect signal and not the diff talking.
+forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
+
+# NO [expectations.ledger] BLOCK, and this is a decision rather than an omission.
+# The M-B2 oracle has no report-only mode: a hard pool drift (funds / science /
+# reputation) classifies PARSEK-FAIL(ledger) outright. The B10 / L1-passive-sandbox
+# precedent - an EMPTY manifest asserting expected == seed - is therefore a GATE on
+# zero economy delta, and this scenario is the one place that assertion is not
+# obviously safe to arm blind: the cell deliberately calls
+# LedgerOrchestrator.RecalculateAndPatch(), which WRITES the reconstruction into the
+# live Funding / R&D / Reputation singletons, and only then restores the pre-test
+# pools in a finally. Whether the produced save comes out bit-identical to the seed
+# across that patch-then-restore is precisely one of the things this reading run is
+# here to measure. Arming it as part of the reading run would make a report into a
+# gate on an unmeasured interaction. Revisit in B.2 with the measurement in hand.
+# MEASURED 2026-08-17: the patch-then-restore is a NO-OP on this fixture - the
+# reconstruction equals the live state, so `PatchScience: balance unchanged
+# (current=100.0, target=100.0)` and the funds/rep patches likewise moved nothing,
+# and the produced save came out at the seed. One caveat B.2 must weigh before
+# arming: `PatchReputation: module has no ReputationInitial seed - skipping to
+# preserve KSP values`, so the rep facet's 0-vs-0 agreement is not evidence that
+# the rep path would be caught if it drifted. An oracle block armed on this fixture
+# would be a zero-delta gate with a genuinely inert rep half.
+#
+# NO [expectations.unityExceptions] BLOCK either, for two independent reasons.
+# (1) The block is ARMED-ONLY: hlib.evaluate_unity_exceptions gates when maxTotal is
+# declared, and test_hlib.py pins the armed set as a hardcoded 14-spec allowlist, so
+# declaring one here reds the harness suite until the allowlist grows - i.e. arming,
+# which B.1 is explicitly not doing. (2) Measure-first: every armed 0 in that table
+# is a measurement off that spec's own flown runs, and this spec has none. The scan
+# still RUNS report-only on every driver-valid run (run.py records the count in
+# `detail.unityExceptions` regardless), so B.1 gets the number without the gate.
+# MEASURED 2026-08-17, report-only: `unityExceptions status=REPORT gating=False
+# total=0` (NullReferenceException 0, MissingReferenceException 0,
+# IndexOutOfRangeException 0, ArgumentException: GUILayout 0). That is ONE reading,
+# which is the first half of the evidence an armed 0 needs; arming it also costs an
+# edit to the hardcoded allowlist in harness/lib/test_hlib.py, and both belong to
+# B.2 rather than here.
+
+[runtime]
+# 720 matches the H26/H31 batch-only shape on this fixture: 300 (LoadGame) + 540
+# (RunTests) exceeds it on paper, but those are per-step ceilings and the measured
+# walls for a one-category batch on this template are ~50-60 s.
+budgetSeconds = 720
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

@@ -4807,6 +4807,17 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
         "L1-upgrade-facility-career.toml":  "discharged - OPERATOR-VERIFIED; tag dropped 2026-07-31",
         # Found by this cell on its first run, absent from the hand-written list.
         "L1-passive-sandbox.toml":          "discharged - records its own 2026-07-26 drop",
+        # NOTE, no entry owed: `L2-ledger-groundtruth-career` was authored
+        # `operator` for the length of one reading run - the tier that keeps a
+        # PREDICTED BATCH_COMPLETE pin out of every cadence - and was promoted to
+        # `nightly` the same day by the run that measured the pin
+        # (`2026-08-17_2202_L2-ledger-groundtruth-career`). It never owed operator
+        # work: seam driver, no RequiresFlight verb, 75 s wall, PASS attempt 1
+        # unattended. Recorded here rather than left silent because the transient
+        # operator tier is the pattern a future reading run will reuse, and the
+        # rule it must follow is the one this comment states: promote off
+        # `operator` in the same commit that pins the measurement, or the tier
+        # becomes an unrecorded standing call.
         # ANSWERED by flight 7 (2026-07-26), per its own status row - the prose
         # that reads like a live debt is a PRE-FLIGHT risk note. Tagged here on
         # 2026-08-01 and reverted the same day; see the spec's comment.
