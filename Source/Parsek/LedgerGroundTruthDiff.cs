@@ -44,6 +44,28 @@ namespace Parsek
         /// and guid-corroborated recovery consistency fail on a real
         /// mixed-history career. Set true only on a clean test career flown
         /// entirely under Parsek tracking.
+        ///
+        /// <para>
+        /// THE ONLY WRITERS are xUnit cells and the <c>RunTests</c> verb's
+        /// <c>strict</c> arg (career-ledger B.4,
+        /// <see cref="TestCommands.TestCommandRunTests.TryParseStrictArg"/>), which
+        /// assigns it unconditionally from the parsed value before starting the batch -
+        /// so an unattended scenario declares strictness on the step that starts the
+        /// batch, and a batch with no <c>strict</c> arg always runs at the default.
+        /// It is deliberately NOT a <c>SettingWhitelist</c> entry: every name in that
+        /// table is a real player-visible <c>ParsekSettings</c> field, and the
+        /// strictness of a diff that runs only inside one in-game test category is a
+        /// test seam, not a preference.
+        /// </para>
+        ///
+        /// <para>
+        /// NO COMMITTED SCENARIO ARMS IT (career-ledger B.4, 2026-08-18). The one
+        /// committed spec that drives the ground-truth category,
+        /// <c>L2-ledger-groundtruth-career</c>, measured <c>reportOnly=0</c> on
+        /// <c>career-pad-craft</c>: with nothing to promote, strict there would be a
+        /// gate that cannot bite on either a good or a bad day. Arming waits on a
+        /// subject with populated per-identity facets.
+        /// </para>
         /// </summary>
         internal static bool StrictPerIdentityForTesting = false;
 

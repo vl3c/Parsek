@@ -1222,6 +1222,82 @@ class SpecValidationRejectTests(unittest.TestCase):
                             for e in v.errors),
                         "site= on a non-switchclick step not rejected: %s" % list(v.errors))
 
+    def test_runtests_strict_arg_is_validated_pre_launch(self):
+        # career-ledger B.4. The `strict` arg is the per-scenario seam for
+        # LedgerGroundTruthDiff.StrictPerIdentityForTesting, and its C# parse
+        # (TestCommandRunTests.TryParseStrictArg) is TryParseIsolatedArg's contract
+        # verbatim - fail-closed and case-sensitive. So the three ways of getting it
+        # wrong are the same three, and each must red here rather than after a boot.
+        #
+        # The strict/non-strict difference is INVISIBLE in the tally: `strict` changes
+        # how one in-game cell classifies divergences it already found, not which tests
+        # run. A spec that meant to arm it and misspelled it would therefore fly, green,
+        # having asserted the looser thing - which is precisely why the spelling gate is
+        # the whole harness-side contract for this arg.
+        def _strict(value):
+            # MUTATE the existing RunTests step rather than insert a second one:
+            # SINGLE_BATCH_SELECTOR_RULE permits only one batch selector, and a spurious
+            # second-selector error would mask the arg error this cell is reading.
+            def m(s):
+                for step in s["driver"]["steps"]:
+                    if step.get("cmd") == "RunTests":
+                        step.setdefault("args", {})["strict"] = value
+            return m
+
+        for good in ("true", "false"):
+            with self.subTest(strict=good):
+                v = self._reject(_strict(good))
+                self.assertFalse(any("args.strict" in e for e in v.errors),
+                                 "%r wrongly flagged: %s" % (good, list(v.errors)))
+        # `True` is the exact spelling a TOML bool puts on the wire
+        # (run.py::encode_value is str(value)), and the C# parse REJECTS it.
+        for bad in ("True", "False", "TRUE", "1", "yes", ""):
+            with self.subTest(strict=bad):
+                v = self._reject(_strict(bad))
+                self.assertTrue(any("args.strict" in e for e in v.errors),
+                                "%r not rejected: %s" % (bad, list(v.errors)))
+
+        # The arg on a verb that does not read it is silently inert on the wire, and
+        # inert in the unsafe direction: the author believes the diff is strict.
+        def wrong_verb(s):
+            s["driver"]["steps"].insert(
+                1, {"cmd": "RecordingState", "args": {"strict": "true"}, "expect": "OK"})
+        v = self._reject(wrong_verb)
+        self.assertTrue(any("args.strict" in e and "only the RunTests verb" in e
+                            for e in v.errors),
+                        "strict= on a non-RunTests step not rejected: %s" % list(v.errors))
+
+        # A case-variant KEY is sent verbatim and missed by the C# exact dictionary
+        # lookup, so it is caught on the KEY rather than on the value.
+        v = self._reject(lambda s: [
+            step.setdefault("args", {}).__setitem__("Strict", "true")
+            for step in s["driver"]["steps"] if step.get("cmd") == "RunTests"])
+        self.assertTrue(any("args.Strict" in e for e in v.errors),
+                        "case-variant strict key not rejected: %s" % list(v.errors))
+
+    def test_no_committed_spec_arms_the_runtests_strict_arg(self):
+        # THE B.4 DEFERRAL, PINNED. `strict` promotes the ground-truth diff's
+        # report-only per-identity divergences to hard failures, and the one committed
+        # spec that drives that diff (L2-ledger-groundtruth-career) measured
+        # `reportOnly=0` on career-pad-craft - nothing to promote, so arming there buys
+        # a gate that cannot bite on either a good or a bad day. Arming waits on a
+        # subject with populated per-identity facets (on current evidence: c2, or any
+        # future career fixture with recorded crewed recoveries).
+        #
+        # This cell is what makes that a DECISION rather than a comment: a spec that
+        # starts declaring `strict` reds here, and the fix is to record the subject and
+        # the reading run that justified it, then delete this cell - never to widen it.
+        armed = []
+        for name in sorted(n for n in os.listdir(SCENARIOS_DIR) if n.endswith(".toml")):
+            with open(os.path.join(SCENARIOS_DIR, name), "rb") as fh:
+                spec = tomllib.load(fh)
+            for step in ((spec.get("driver") or {}).get("steps") or []):
+                if ((step or {}).get("args") or {}).get(hlib.RUNTESTS_STRICT_KEY) is not None:
+                    armed.append(name)
+        self.assertEqual([], armed,
+                         "a committed spec declares RunTests strict= with no recorded "
+                         "subject justifying it (career-ledger B.4)")
+
     def test_eva4_chute_verb_is_deferred_and_capped(self):
         # EVA-4: EvaChuteDeploy holds the FIFO head through the kerbal's whole chuted
         # descent, so it MUST be in the deferred family (the 540 s per-step cap governs
@@ -4590,12 +4666,28 @@ class UnityExceptionScanTests(unittest.TestCase):
         # run that did not fly measures the abort, not the lane, which is why CL-3's two
         # nonzero collected-log readings (1 and 2, both mission aborts) are excluded.
         #
-        #   MAX 0 (11 specs) - every driver-valid reading of each is 0, across the
+        #   MAX 0 (12 specs) - every driver-valid reading of each is 0, across the
         #   failure-population collected logs, the archived green result JSONs, and the
         #   fresh all-green 2026-08-04 daily pass plus the singles flown beside it. The
         #   thinnest is L1-passive-sandbox, armed on its own fresh 0 plus the six-spec L1
         #   family's homogeneity (14+ readings, every one 0, one boot profile); the
         #   widest are V1 (8x0), CL-2 (9x0) and CL-3 (6x0 driver-valid).
+        #
+        #   The 12th is L2-ledger-groundtruth-career, armed in career-ledger B.2 and the
+        #   THINNEST sample in the table: n=4, all 0 in each of the four counted
+        #   classes. The readings are its reading run `2026-08-17_2202`
+        #   (`status=REPORT gating=False total=0`), the two arming negative controls
+        #   `_2228` and `_2231` (both driver-valid PARSEK-FAILs on OTHER verifiers, so
+        #   the scan's own reading counts), and the armed run `_2233`. Three of those
+        #   four came after the decision to arm, so the honest statement of the evidence
+        #   AT ARMING TIME is one reading plus a borrowed half: L2 boots the same
+        #   LoadGame -> SetSetting -> RunTests -> FlushAndQuit shape, on the same
+        #   stock-minimal profile, over a career pad fixture, as B10 and the six L1
+        #   specs above - eleven zeros on one boot profile - and L2 adds no vessel
+        #   loading, no scene churn and no GUI surface of its own. Stated plainly so a
+        #   future nonzero is read as what it is: the first raise this shape has ever
+        #   produced, and a finding rather than a flake to be papered over with a
+        #   ceiling.
         #
         #   CEILINGS (3 specs) - each has at least one nonzero driver-valid reading, so
         #   0 would be a flake rather than a gate:
@@ -4617,6 +4709,7 @@ class UnityExceptionScanTests(unittest.TestCase):
             "L1-research-node-career.toml": 0,
             "L1-research-node-science.toml": 0,
             "L1-upgrade-facility-career.toml": 0,
+            "L2-ledger-groundtruth-career.toml": 0,
             "M1-mission-loop-unit.toml": 0,
             "V1-map-dwell-mun-orbit.toml": 0,
             "H23-tracking-station.toml": 6,

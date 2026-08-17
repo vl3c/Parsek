@@ -6,19 +6,43 @@ id = "L2-ledger-groundtruth-career"
 # for exactly as long as its tally was a prediction; the promotion is what that tier
 # was holding the place for. `nightly` rather than `daily` is the batch-only shape's
 # home (H26/H31 next door on this same fixture) - the L1 ledger family is daily
-# because it gates the M-B2 oracle, which this spec deliberately does not declare.
+# because it gates the M-B2 oracle, which this spec deliberately did not declare.
+#
+# B.2 CORRECTION (2026-08-18): it declares one now, and the tier was re-decided
+# rather than left to follow that sentence. It STAYS nightly. The L1 family is daily
+# because each of those specs drives a seam action that MOVES a pool, so their
+# manifests are the oracle's own arithmetic under test; this spec's manifest is EMPTY
+# and its ledger claim is "nothing moved", which is a cheap invariant on a
+# batch-only boot rather than a daily-cadence check of the oracle's machinery.
 tier = "nightly"
-# WHAT THIS IS. The B.1 READING RUN for D8 `ground-truth-harness`. It drives the
-# `LedgerGroundTruth` in-game category (Source/Parsek/InGameTests/
-# LedgerGroundTruthHarness.cs) against a committed career fixture, and its whole
-# purpose is to produce EVIDENCE: does the category execute rather than skip, what
-# is the real tally, and what does LedgerGroundTruthDiff report per facet on a
-# fixture career. NOTHING new is armed here - no [expectations.ledger] block, no
-# unityExceptions ceiling, no D8 claim. Those are Phase B.2/B.4 decisions and they
-# are deliberately taken AFTER this run rather than alongside it.
-description = "Reading run: drive the one-test LedgerGroundTruth category against a committed CAREER pad fixture, so the non-circular recalc-vs-save diff reports its facets unattended for the first time."
+# WHAT THIS IS. The career-ledger lane's D8 `ground-truth-harness` scenario. It drives
+# the `LedgerGroundTruth` in-game category (Source/Parsek/InGameTests/
+# LedgerGroundTruthHarness.cs) against a committed career fixture: quicksave the live
+# career, re-parse that .sfs INDEPENDENTLY of the ledger, RecalculateAndPatch, and diff
+# the reconstruction against KSP's own on-disk serialization.
+#
+# IT SHIPPED AS A READING RUN (B.1) AND IS NOW ARMED (B.2). Its whole first purpose was
+# to produce EVIDENCE - does the category execute rather than skip, what is the real
+# tally, what does LedgerGroundTruthDiff report per facet - and NOTHING was armed on it
+# until that evidence existed. Every gate below therefore names the measurement it
+# stands on, and the pre-arming doubt is kept alongside rather than deleted:
+#   - the pinned BATCH_COMPLETE tally      B.1, confirmed not re-pinned
+#   - the ground-truth `result:` line      B.2, read out of the same B.1 log
+#   - [expectations.ledger], empty manifest  B.2, on B.1's measured no-op patch
+#   - [expectations.unityExceptions] = 0     B.2, on B.1's measured total=0
+#   - D8 `ground-truth-harness`              B.2, worded to B.1's triage
+# NEGATIVE CONTROL for the arming: see the run-id block at the bottom of this file.
+#
+# STILL NOT ARMED, deliberately: strict per-identity mode (RunTests' `strict` arg,
+# career-ledger B.4). B.1 measured `reportOnly=0` here, so there is nothing for strict
+# to promote and the gate could not bite on either a good or a bad day. The seam exists
+# and is unit-covered; the SUBJECT for it does not. See the strict note below.
+description = "Armed: drive the LedgerGroundTruth category against a committed CAREER pad fixture and gate that the non-circular recalc-vs-save loop closes unattended with zero hard divergences."
 instanceProfile = "stock-minimal"
-tags = ["ledger", "L2", "ingame-batch", "ground-truth", "reading-run"]
+# `reading-run` was dropped in B.2: the posture it named ended when the gates went
+# live. The evidence the reading run produced is kept in the comments below, but the
+# tag would now advertise a spec that asserts nothing.
+tags = ["ledger", "L2", "ingame-batch", "ground-truth"]
 
 [fixture]
 # career-pad-craft, and the choice is what makes this task need no new fixture. The
@@ -61,6 +85,16 @@ kind = "seam"
 # SetSetting mirrors H26/R7a on this same fixture: PRELAUNCH craft, nothing here
 # should start a recording, and guard 4 above is the reason it is mandatory rather
 # than cosmetic - a live recorder makes the cell Skip instead of run.
+# NO `strict` ARG ON THE RunTests STEP, and it is a decision with a date on it.
+# career-ledger B.4 made LedgerGroundTruthDiff.StrictPerIdentityForTesting settable per
+# scenario through that arg (absent = the default, non-strict diff). It is not used
+# HERE because B.1 measured `reportOnly=0` on this fixture: strict promotes report-only
+# per-identity divergences to hard failures, and with none to promote the gate cannot
+# bite on a good day or a bad one. Arming it needs a subject with populated per-identity
+# facets - on current evidence c2, whose harness promotion has an open focusability
+# question, or any future career fixture carrying recorded crewed recoveries. The
+# `strict=False` token in the logContracts below is what keeps this decision honest: an
+# arg added here without re-pinning that line reds the run.
 steps = [
   { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
   { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
@@ -69,12 +103,31 @@ steps = [
 ]
 
 [dimensionsCovered]
-# DELIBERATELY NO D8 CELL, and `ground-truth-harness` least of all. Claiming it is
-# task B.2's job and it is gated on B.2's own arming decision: a claim is a promise
-# that a GATING assertion backs the cell, and this spec is a reading run whose tier
-# keeps it out of every cadence. Claiming the cell here would put it in the coverage
-# registry on the strength of a prediction. Only the environment axes are claimed,
-# and both are facts of the boot rather than of any assertion.
+# CLAIMED IN B.2 (2026-08-18), and the wording of the claim is the whole point.
+#
+# WHAT `ground-truth-harness` MEANS HERE: **the non-circular recalc-vs-save loop
+# closes unattended.** Quicksave the live career -> re-parse that .sfs off disk
+# INDEPENDENTLY of the ledger -> RecalculateAndPatch -> diff the reconstruction
+# against KSP's own serialization -> zero hard failures. Every link of that chain is
+# gated by the two required tokens below, and B.1 measured all of them on run
+# `2026-08-17_2202`.
+#
+# WHAT IT DOES NOT MEAN, stated here rather than left to be inferred: it is NOT a
+# claim about rich-career facet accuracy. B.1's triage (plan doc 4b, finding 4)
+# measured the subject as THIN - of 7 compared facets only the three seeded pools are
+# genuinely two-sided; per-subject science compares 0 against 0; facilities / roster /
+# tech compare an EMPTY delta-only reconstruction against a populated save; contracts,
+# milestones, recovery credits and kerbal career logs skip outright for want of a
+# facet. A richer subject is a separate scenario, and D8 has separate cells for the
+# facets themselves (`funds`, `science`, `reputation`, `facilities`, ...) which this
+# spec deliberately does NOT claim - the loop is what is proven, not the coverage of
+# what flows through it.
+#
+# CLAIM-IS-NOT-GATE: backed by `result: hardFailures=0 ... facetsCompared=7` (the line
+# whose `hard` feeds the cell's own InGameAssert) AND by the `failed=0` half of the
+# pinned tally. Cross-checked mechanically in harness/lib/test_l2_ledger_groundtruth.py.
+D8 = ["ground-truth-harness"]
+# Both environment axes are facts of the boot rather than of any assertion.
 D14 = ["career", "scene-flight"]
 
 [expectations]
@@ -172,11 +225,96 @@ count = { min = 0, max = 0 }
 # RE-PIN CONTRACT: a flight whose tally differs gets this line replaced with the
 # measured one plus its run id, never adjusted toward what was expected.
 # ###############################################################
-required  = ["BATCH_COMPLETE v1 total=2 passed=1 failed=0 skipped=1 category=LedgerGroundTruth scene=FLIGHT"]
+#
+# ############ B.2 ADDED THE SECOND TOKEN (2026-08-18) ############
+# `result: hardFailures=0 reportOnly=0 facetsCompared=7 strict=False` is
+# LedgerGroundTruthHarness's own Info line, read token for token out of the same B.1
+# log. It is what makes the D8 `ground-truth-harness` claim a GATE rather than a
+# label, and it says four separate things the tally alone cannot:
+#   - `hardFailures=0` is the value the cell's InGameAssert.IsTrue(hard == 0) reads,
+#     so the pin and the assertion cannot drift apart.
+#   - `facetsCompared=7` is the ANTI-VACUITY half. A diff that compared NOTHING would
+#     also report zero hard failures; pinning the count means a facet that silently
+#     stopped comparing (a parser regression, a guard that started standing down)
+#     reds here instead of greening on an empty loop. 7 is measured, not aspirational
+#     - see the facet-by-facet breakdown in the tally note above.
+#   - `reportOnly=0` is what B.4 acted on: nothing to promote, so strict mode is
+#     mis-targeted at this fixture (see the strict note under the ledger block).
+#   - `strict=False` pins that this run is the DEFAULT diff, not the armed one. The
+#     `strict` seam exists (RunTests' `strict` arg, career-ledger B.4) and this spec
+#     deliberately does not use it; if a future edit arms it, this token reds and the
+#     arming has to be recorded rather than slipped in.
+# RE-PIN CONTRACT applies to this line exactly as to the tally: a flight that measures
+# a different one gets it REPLACED with the measured text plus the run id, and the
+# facet count re-derived deliberately - never nudged toward what was expected.
+# ################################################################
+required  = ["BATCH_COMPLETE v1 total=2 passed=1 failed=0 skipped=1 category=LedgerGroundTruth scene=FLIGHT",
+             "result: hardFailures=0 reportOnly=0 facetsCompared=7 strict=False"]
 # The cell reports every facet at Warn (report.Format()), never at Error, so a
 # Parsek ERROR line here is a genuine defect signal and not the diff talking.
 forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
 
+####################### B.2 ARMING (2026-08-18) #######################
+# Both blocks below were argued in B.1 and DELIBERATELY left off it. The reasoning
+# they replace is kept underneath, unedited, because it is the evidence trail: each
+# block is armed on a measurement that block's own comment names, and a reader who
+# wants to know why it was safe should be able to read the pre-arming doubt as well
+# as the post-arming answer.
+#######################################################################
+
+# THE M-B2 ORACLE, ARMED WITH AN EMPTY MANIFEST (B10 / L1-passive-sandbox precedent):
+# expected == seed, i.e. boot, run one batch, quit, and the three career pools must
+# not have moved. It is a real gate - the oracle has no report-only mode, so a hard
+# pool drift classifies PARSEK-FAIL(ledger) outright.
+#
+# WHAT MADE IT SAFE, and it is a measurement rather than an argument. The cell calls
+# LedgerOrchestrator.RecalculateAndPatch(), which WRITES the reconstruction into the
+# live Funding / R&D / Reputation singletons and only then restores the pre-test pools
+# in a finally - so "does the produced save come out bit-identical to the seed across
+# a patch-then-restore?" is a real question, and it is exactly the one B.1 existed to
+# answer. Measured on `2026-08-17_2202`: the patch is a NO-OP on this fixture
+# (`PatchScience: balance unchanged (current=100.0, target=100.0)`, funds and rep
+# likewise moved nothing), the restore therefore never fires either (each arm is
+# gated on |delta| > 0.01), and the produced save came out at the seed.
+#
+# THE CAVEAT, STATED HONESTLY BECAUSE IT WEAKENS THE GATE: B.1 also measured
+# `PatchReputation: module has no ReputationInitial seed - skipping to preserve KSP
+# values`. The reputation leg of this manifest is therefore INERT - rep reads 0 on
+# both sides because the patcher declines to touch it, not because a drift would be
+# caught. What this block genuinely gates is the FUNDS and SCIENCE zero-delta; the
+# rep half is carried along and will start meaning something the day the fixture
+# grows a ReputationInitial seed. It is not removable (the oracle's facet set is not
+# per-facet selectable) and pretending it gates is the trap this harness keeps
+# re-learning, so it is written down instead.
+#
+# captureCrossCheck is NOT declared, so it stays report-only (the armed set is
+# CL-2-only). The empty-manifest any-capture-reds property still holds as a reading:
+# with no seam entries, any captured stock award is unexpected - and this batch should
+# produce none, because the only pool writes it performs are the no-op patch above.
+[expectations.ledger]
+seedFrom     = "template"   # parse the staged fixture save for the seed baseline.
+tolerances   = "default"    # FacetTolerances.Default (funds 1.0, science 0.1, rep 0.1).
+rec3CarveOut = false        # no route residual in a batch-only scenario.
+# No [[expectations.ledger.manifest]] entries: empty manifest = zero expected delta.
+
+# The raw-Unity-exception scan (hlib.scan_unity_exceptions), ARMED AT ZERO.
+# AT ARMING TIME the evidence was ONE driver-valid reading - `2026-08-17_2202`
+# measured `unityExceptions status=REPORT gating=False total=0`, zero across all four
+# counted classes (NullReferenceException, MissingReferenceException,
+# IndexOutOfRangeException, ArgumentException: GUILayout) - standing on the
+# eleven-spec zero-armed family that shares this boot profile, of which the six L1
+# specs and B10 boot the same LoadGame-batch-quit shape on the same instance profile.
+# The three arming flights that followed all read 0 as well (`_2228`, `_2231`,
+# `_2233`), taking it to n=4, but they are evidence AFTER the decision and the
+# allowlist comment in harness/lib/test_hlib.py says so rather than back-dating them.
+# Arming also costs an edit to that hardcoded armed allowlist, which is where the
+# whole table and its per-spec evidence live; this spec's row is one of the zeros.
+[expectations.unityExceptions]
+maxTotal = 0
+
+# ---------------------------------------------------------------------------
+# THE B.1 REASONING THESE TWO BLOCKS REPLACE, kept verbatim.
+# ---------------------------------------------------------------------------
 # NO [expectations.ledger] BLOCK, and this is a decision rather than an omission.
 # The M-B2 oracle has no report-only mode: a hard pool drift (funds / science /
 # reputation) classifies PARSEK-FAIL(ledger) outright. The B10 / L1-passive-sandbox
@@ -224,3 +362,50 @@ policy = "once"
 
 [expectedFail]
 bugId = ""
+
+# ===========================================================================
+# THE ARMING RUN LEDGER (career-ledger B.2, 2026-08-18)
+#
+# All four flights below ran the SAME provisioned DLL, built from this branch and
+# deployed by `python provision/provision.py --profile stock-minimal` before the
+# first of them. The deployed `automation/stock-minimal/GameData/Parsek/Plugins/
+# Parsek.dll` was grep-verified to carry B.4's new seam (`TryParseStrictArg` utf8=1,
+# `strict-arg-invalid` utf16=3), and the armed run's own log confirms it ran:
+# `runtests start category=LedgerGroundTruth isolated=false strict=false`.
+#
+#   `2026-08-17_2202`  B.1 READING RUN. PASS, 75 s. Nothing armed; produced every
+#                      measurement the gates below stand on.
+#
+#   `2026-08-17_2228`  NEGATIVE CONTROL 1 - the ledger gate. A single bogus manifest
+#                      entry (`kind = "milestone"`, `funds = 12345.0`) was added to
+#                      the otherwise-empty manifest, making expected != seed.
+#                      MEASURED: `PARSEK-FAIL(ledger)`, 59 s, on
+#                      `ledger-drift facet=funds expected=512345.0 parsed=500000.0`
+#                      / `ledgerOracle status=FAIL hardDivergences=1`. Reverted.
+#                      This run ALSO green-lit the other two arms in passing:
+#                      `unityExceptions status=PASS gating=True total=0` and
+#                      `expectations mismatches=0` (i.e. the new `result:` token
+#                      matched a real flight).
+#
+#   `2026-08-17_2231`  NEGATIVE CONTROL 2 - the D8 backing token. `facetsCompared=7`
+#                      in the required `result:` line was changed to `9`, nothing
+#                      else. MEASURED: `PARSEK-FAIL(expectation)`, 59 s, on
+#                      `logContracts.required not matched: result: hardFailures=0
+#                      reportOnly=0 facetsCompared=9 strict=False`. Reverted. This
+#                      is what makes the D8 claim falsifiable rather than a label:
+#                      the run that satisfies the claim is the run that matches this
+#                      token, and a token that did not match reds the flight.
+#                      `ledgerOracle` PASSED on this same run with the real empty
+#                      manifest, which is the armed ledger block's own green reading.
+#
+#   `2026-08-17_2233`  ARMED RUN. PASS attempt 1, 59 s wall, every verifier PASS or
+#                      REPORT with all three gates live: driverValidity PASS,
+#                      batchComplete PASS, analyzer red=0, logValidate PASS,
+#                      anomalySweep `hits=[] counts={}`, unityExceptions PASS
+#                      `gating=True total=0`, expectations `mismatches=0`,
+#                      ledgerOracle PASS `hardDivergences=0 reportOnly=0`, saveParse
+#                      REPORT clean, recordings 0 exactly as pinned. The tally and
+#                      the `result:` line both re-measured IDENTICAL to B.1's.
+#                      Coverage after: D8 `ground-truth-harness` moved from
+#                      UNCOVERED to `coveredBy=1 lastGreen=2026-08-17T22:34:33Z`.
+# ===========================================================================
