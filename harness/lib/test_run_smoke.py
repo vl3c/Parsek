@@ -2110,13 +2110,29 @@ class LedgerOracleEndToEndTests(unittest.TestCase):
 
     def test_world_roster_unexported_roster_reds_rather_than_greens(self):
         # An analyzer that never exported the roster (hasRoster false) must not let a
-        # declared roster claim pass unverified.
+        # declared roster claim pass unverified. The run still reds - fail-closed is the
+        # property under test - but it reds as INVALID(tooling), because a missing
+        # analyzer export is a tooling fault, not a Parsek ledger defect.
         career = self._career_with_roster([], has_roster=False)
         world = {"roster": {"absent": ["Bill Kerman"]}}
         result, drift, tooling = run._run_ledger_oracle(
             None, world, career, None, "", "e2e-roster-unexported", self.logger)
+        self.assertEqual("INVALID", result["status"])
+        self.assertEqual("tooling", result["subkind"])
+        self.assertNotEqual("PASS", result["status"], "must never green on a missing input")
+        self.assertFalse(drift, "a missing analyzer export is not ledger drift")
+        self.assertTrue(tooling)
+
+    def test_world_roster_declared_against_empty_but_exported_roster_still_diffs(self):
+        # hasRoster TRUE with an empty roster is a REAL state (a wiped roster), not a
+        # tooling fault: the tooling route must not swallow it. `present` claims red.
+        career = self._career_with_roster([], has_roster=True)
+        world = {"roster": {"present": ["Jebediah Kerman"]}}
+        result, drift, tooling = run._run_ledger_oracle(
+            None, world, career, None, "", "e2e-roster-empty-exported", self.logger)
         self.assertEqual("FAIL", result["status"])
         self.assertTrue(drift)
+        self.assertFalse(tooling)
 
     def test_world_block_without_a_roster_declaration_is_unaffected(self):
         # Every existing world declarer must be byte-unaffected by the new sub-facet.

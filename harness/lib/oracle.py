@@ -1148,8 +1148,11 @@ def diff_world_roster(
       bystanders the action must not have touched). Gone -> ``missing``.
 
     A declared block against a save carrying NO roster facet (``hasRoster`` false -
-    an unparsed or pre-roster-export analyzer) is ONE hard ``missing``: an armed
-    assertion must never green on a missing input. An EMPTY roster with
+    an unparsed or pre-roster-export analyzer) is a TOOLING fault, not a Parsek
+    defect, and ``run.py`` intercepts it BEFORE calling here, routing it to
+    ``INVALID(tooling)`` the same way it routes a ``parsed=false`` careerSave. The
+    hard ``missing`` below is the DEFENSIVE last resort for any other caller: an
+    armed assertion must never green on a missing input. An EMPTY roster with
     ``hasRoster`` true is a real state and is diffed normally.
 
     NOT activated: per-kerbal status (active / reserved / retired / stand-in). Those

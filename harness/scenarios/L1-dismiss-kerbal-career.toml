@@ -90,11 +90,16 @@ rec3CarveOut = false
   provenance = "seam-declared"
 
 # The ROSTER assertion this spec deferred from the day it was written. It states the
-# dismissal in the produced save's own terms: the dismissed kerbal is GONE and the three
-# other stock crew are UNTOUCHED. Correlated by name (a kerbal's name is its roster
-# identity) and HARD - unlike the all-zero pool manifest, "Bill Kerman is absent" is NOT
-# equally true of an action that never ran, so this is the assertion the spec's own header
-# says the log-contract pair was standing in for.
+# dismissal in the produced save's own terms: the dismissed kerbal's NAME is GONE from the
+# roster and the three other stock crew NAMES are STILL LISTED. Correlated by name (a
+# kerbal's name is its roster identity) and HARD - unlike the all-zero pool manifest,
+# "Bill Kerman is absent" is NOT equally true of an action that never ran, so this is the
+# assertion the spec's own header says the log-contract pair was standing in for.
+#
+# WHAT `present` DOES AND DOES NOT CLAIM: NAME PRESENCE ONLY. It proves the three
+# bystanders were not removed from the roster; it does NOT check their rosterStatus, their
+# type, or anything else about them, so "untouched" would overclaim it. Per-kerbal STATUS
+# claims are a separate, undeclared surface (see design-autotest-ledger-oracle.md).
 #
 # Names come from the STAGED TEMPLATE, not from a run: fixtures/saves/fresh-career carries
 # exactly five kerbals (Jebediah / Bill / Bob / Valentina, Crew; Verhat, Applicant), pinned

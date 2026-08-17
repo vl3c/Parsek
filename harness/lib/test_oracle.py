@@ -694,7 +694,10 @@ class WorldRosterDiffTests(unittest.TestCase):
 
     def test_no_roster_facet_reds_rather_than_greens(self):
         # hasRoster false = an unparsed / pre-export analyzer. An armed assertion must
-        # never pass on a missing input (the pools' missing-facet rule).
+        # never pass on a missing input (the pools' missing-facet rule). This is the
+        # DEFENSIVE guard: run.py intercepts the same condition one level up and
+        # classifies it INVALID(tooling) instead (see run._run_ledger_oracle), so a
+        # production run never reaches this branch.
         career = self._career([], has_roster=False)
         diffs = oracle.diff_world_roster({"absent": ["Bill Kerman"]}, career)
         self.assertEqual(len(diffs), 1)

@@ -9059,6 +9059,55 @@ class LedgerSpecSurfaceValidationTests(unittest.TestCase):
         self.assertEqual([], spec["expectations"]["ledger"].get("manifest", []))
 
 
+class WorldRosterSpecSurfaceValidationTests(unittest.TestCase):
+    """Guards the [expectations.world.roster] spec surface: a malformed roster block
+    is a spec-invalid INVALID (no KSP boot). Two shapes are silent no-ops without the
+    gate - an unknown key (asserts nothing) and a scalar string (the oracle would
+    iterate CHARACTERS and red for the wrong reason)."""
+
+    def test_valid_lists_ok(self):
+        self.assertEqual([], hlib.validate_world_roster_expectations(
+            {"absent": ["Bill Kerman"],
+             "present": ["Jebediah Kerman", "Bob Kerman", "Valentina Kerman"]}))
+
+    def test_empty_block_ok(self):
+        # A block declaring nothing is a no-op by design (every non-declaring spec is
+        # byte-unaffected); it is not a spec ERROR.
+        self.assertEqual([], hlib.validate_world_roster_expectations({}))
+        self.assertEqual([], hlib.validate_world_roster_expectations(
+            {"present": [], "absent": []}))
+
+    def test_scalar_string_rejected(self):
+        for key in ("present", "absent"):
+            errs = hlib.validate_world_roster_expectations({key: "Bill Kerman"})
+            self.assertTrue(any(("world.roster.%s" % key) in e for e in errs),
+                            "a bare string must be a spec error; errs=%s" % (errs,))
+
+    def test_unknown_key_rejected(self):
+        errs = hlib.validate_world_roster_expectations({"dead": ["Bill Kerman"]})
+        self.assertTrue(any("unknown key" in e for e in errs), errs)
+        errs = hlib.validate_world_roster_expectations({"presnt": ["Bill Kerman"]})
+        self.assertTrue(any("unknown key" in e for e in errs), errs)
+
+    def test_non_string_and_blank_names_rejected(self):
+        errs = hlib.validate_world_roster_expectations({"absent": ["Bill Kerman", "", 7]})
+        self.assertEqual(2, len(errs), errs)
+
+    def test_non_table_rejected(self):
+        errs = hlib.validate_world_roster_expectations(["Bill Kerman"])
+        self.assertTrue(any("must be a table" in e for e in errs), errs)
+
+    def test_wired_into_validate_spec(self):
+        reg = load_registry()
+        spec = load_spec("L1-dismiss-kerbal-career.toml")
+        self.assertTrue(hlib.validate_spec(spec, reg).ok,
+                        "the committed L1 roster block must validate")
+        spec["expectations"]["world"]["roster"]["absent"] = "Bill Kerman"
+        v = hlib.validate_spec(spec, reg)
+        self.assertFalse(v.ok)
+        self.assertTrue(any("world.roster.absent" in e for e in v.errors), v.errors)
+
+
 # NOTE: MergeDurationsTests was DELETED when the orbit branch's sample-based
 # merge_durations superseded this branch's minimal "keep the richer entry"
 # rule. Its seven cells encoded the OLD contract (summary-only entries,
