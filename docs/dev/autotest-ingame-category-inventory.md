@@ -164,7 +164,7 @@ Two limits of this table, stated so nobody over-reads it:
 | `SceneAndPatch` | 7 | 4 | 3 | 2 | 0 | 4 | - | B |
 | `SceneExitMerge` | 2 | 0 | 0 | 0 | 2 | 2 | H21 | A |
 | `Serialization` | 4 | 4 | 4 | 4 | 0 | 1 | H25 | A |
-| `Settings` | 3 | 2 | 2 | 3 | 0 | 0 | - | B |
+| `Settings` | 4 | 3 | 2 | 3 | 0 | 1 | - | B |
 | `SnapshotBaseline` | 7 | 7 | 0 | 0 | 0 | 7 | H32 | A |
 | `SoiCrossingPlayback` | 3 | 3 | 0 | 0 | 0 | 3 | S1.8 | A |
 | `SpawnCollision` | 2 | 2 | 0 | 0 | 0 | 2 | - | B |
@@ -194,8 +194,8 @@ Two limits of this table, stated so nobody over-reads it:
 
 ## Triage
 
-Totals, re-derived: **104 categories / 580 declarations**. Buckets **A 32 categories
-(220 declarations)**, **B 72 categories (360 declarations)**, **C 0 categories (0
+Totals, re-derived: **104 categories / 581 declarations**. Buckets **A 32 categories
+(220 declarations)**, **B 72 categories (361 declarations)**, **C 0 categories (0
 declarations)**. Driven by a committed spec: **41 of 104 categories**, up from 35
 across six waves - `ReFlyWorldPreservation` via S4.2, `RecordedSignals` via H33,
 `SnapshotBaseline` via H32, and `Logistics` via H34 all landed together in one merge
