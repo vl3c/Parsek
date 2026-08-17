@@ -1,6 +1,75 @@
 schema = 1
 id = "B22-jool-orbit"
 # =====================================================================================
+# FLOWN 2026-08-17, RUN `2026-08-17_1959`, PASS ON ATTEMPT 1, WALL 2,441 s.
+# Deployed DLL hash-verified `75ec107f...` = this worktree's own build of origin/main
+# @ 9c087ffca, checked before launch. Every verifier PASS or SKIPPED: analyzer red=0
+# failNonBaselined=0, anomalySweep no hits, logValidate PASS, mission MISSION-OK,
+# testResults 0 failures, unityExceptions all 0, expectations recordings.count=5.
+# Produced save snapshotted the instant run.py returned (the B18-B21 shared-leaf race).
+#
+# WHAT THE FLIGHT MEASURED -- the M1-M7 questions this header states as open, answered.
+# Each is a MEASUREMENT off the run's own log; none is a re-derivation.
+#
+#   M1  DELIVERED ARRIVAL PERIAPSIS. Requested 600,000,000 m ALTITUDE; the first in-SOI
+#       frame (`body=Jool`) reads `pe=584,327,170.912`. k = delivered/requested = 0.9739.
+#       As a RADIUS that is 590,327,170.912 m = 2.789x the 211,666,345.392302 m Pol
+#       clearance edge, and 24.04% of the SOI. The round-2 `nextPe` prediction
+#       (583,867,031.954) agreed to 460,139 m = 0.079%, so the two channels corroborate.
+#   M2  IS THE DELIVERY REQUEST-BEARING AT JOOL'S SCALE? YES -- and the tightest GLOBAL
+#       fit is REFUTED. Law (d) `D = g*SOI` (CV 0.678, best of the seven tested)
+#       predicted a median 88.3 Mm RADIUS INDEPENDENT of the request; the flight
+#       delivered 590.3 Mm on a 600 Mm request. The request dominates. Jool is now the
+#       THIRD point at req/SOI >= 4% (Mun 0.545 @ 10.29%, Eve 0.997 @ 5.875%, Jool 0.974
+#       @ 24.43%) and it lands at the EVE end. The inversion finding holds: no
+#       over-delivery in this regime, a 2.6% shortfall.
+#   M3  THE IN-SOI COAST AND ITS PHASE SPLIT. SOI entry UT 26,472,745.092 -> capture node
+#       UT 27,786,991.751 = 1,314,246.659 game s: INSIDE the 1.26e6-1.37e6 band derived
+#       below, and UNDER the 1,361,783 pin the budgets were sized against.
+#       `captureBurnTimeoutSeconds` 3,000,000 / 1,314,247 = 2.28x. B21's 400,000 would
+#       have expired 30% of the way through -- the "certain reap" claimed below, now
+#       MEASURED rather than derived. The split is even more extreme than the predicted
+#       ~12/88: TARGET-FLYBY registered NO machine-state poll at all, appearing only in
+#       the single telemetry frame that caught SOI entry. Fully inverted from Eeloo's
+#       measured 75/25.
+#   M4  ARE THE ARRIVAL-QUALITY EXTRAS REACHABLE AT A 1,000,000 m FLOOR? NO.
+#       `extraRounds=0` throughout. The effective round count is TWO, as predicted --
+#       which is the entire arithmetic basis for the cap sizing.
+#   M5  CORRECTION MAGNITUDES, AND THE CAPTURE NODE. Round 1 = 124.10 m/s, round 2 =
+#       72.91 m/s, both `classified fly (cap 1200.0, floor 0.5); plan accepted`; total
+#       197.01 m/s against the 500 the expected ladder assumed. The capture node reads
+#       `nodeDv=1292.177`. Taking v_inf from the first in-SOI `vspd` (1,726.748, inside
+#       the derived [1,659, 1,854] band), the IDEAL at r 590,327,171 is 1,292.848 -- so
+#       the node is 0.05% UNDER ideal, i.e. essentially optimal.
+#       >>> THE +34% MECHJEB CAPTURE BIAS THE EELOO RECORD IMPLIES DOES NOT REPRODUCE
+#       HERE. Whatever produced it at Eeloo is regime-specific, not a general property of
+#       circularize-at-periapsis. The dv ledger below is correspondingly PESSIMISTIC, and
+#       is knowingly left so rather than re-fitted to one flight.
+#   M6  RECORDINGS: FIVE. See the re-pin at `[expectations.recordings]`.
+#   M7  `phaseWarpIssues` maxed at 3 against the 500 that raises `coast-warp-thrash`
+#       (167x margin; B21 measured 2). Empirically dead at Jool's segment lengths, though
+#       the structural argument still does not close.
+#
+#   THE COMMITTED TERMINAL: ap 584,330,474.177 / pe 584,321,095.004, ecc 8e-6 -- circular
+#   to 9,379 m on a 590.3 Mm orbit -- `body=Jool`, `sit=ORBITING`, throttle zero, no
+#   pending nodes. Park-gate margins: apoapsis at 39% of the 1.5e9 ceiling, periapsis
+#   584x the 1e6 floor, eccentricity 8e-6 against 0.25.
+#   Recording points: 5 recordings, 1,517 total, largest 1,334, smallest 21, 0 trivial.
+#
+#   WHAT THE FLIGHT DID NOT SETTLE: M8. Jool's 1.304 deg is the LOWEST inclination in the
+#   V-lane ladder, so the tilt disposition is a V13A reading and THIS LANE CANNOT
+#   DISCHARGE THE TILT DEBT. Do not book B22 as tilt coverage.
+#
+#   ONE SIZING CALL THE FLIGHT REFUTES, RECORDED HONESTLY: J2 raised maxCorrectionDvMps
+#   from B21's 550 to 1200 on the judgement that Jool's reserve licensed it. The largest
+#   plan this flight produced is 124.10 m/s -- 9.7x below the cap set and 4.4x below
+#   B21's. The raise was harmless (a too-high cap bites only on four consecutive at-cap
+#   plans, which `extraRounds=0` makes unreachable) but it was NOT NEEDED, and the
+#   reviewer who would have kept 550 was right. Left at 1200 because re-tuning a
+#   parameter off one flight is the instinct-move B21's own rule forbids; the licensing
+#   evidence for lowering it is now on the record instead.
+# =====================================================================================
+# =====================================================================================
 # B22: JOOL ORBIT -- the Jool program's step 1, and the flight whose PRODUCT IS THE
 # RECORDING. Kerbin LKO -> pre-transfer jettison -> ejection at the Kerbin->Jool
 # window -> heliocentric coast with corrections -> CAPTURE into a Jool orbit -> held
@@ -1046,13 +1115,21 @@ allowedAnomalies = []
 # the Skipper stack dropped by the JETTISON phase). The sixth, if it appears, is a
 # debris recording whose span UT falls inside a correction or the capture burn.
 #
-# WHAT TO DO AFTER THE FLIGHT: RE-PIN to the measured value and NAME each recording
-# with its measured span UT off the produced save's bytes, exactly as B21 does. DO NOT
-# leave the window in place once a measurement exists, and DO NOT widen it further.
+# RE-PINNED FROM THE MEASUREMENT (run `2026-08-17_1959`, PASS attempt 1): FIVE. The
+# window {5,6} this shipped with is discharged. The shed did NOT fire, and the margin is
+# not a knife edge: the LV-N stage entered with 2,240 LF units and the terminal frame
+# reads 945.082 remaining, so 1,294.918 were burned against the 1,440 held by the four
+# radial drop tanks -- 145.082 units still in them, 10.1% of their capacity. Contrast
+# B21, whose own {5,5} rests on 0.452 units (0.03%): this pin sits ~300x further from its
+# boundary than the precedent's. It is comfortable because two sizing pessimisms did not
+# reproduce -- the corrections cost 197.01 m/s against an assumed 500, and the capture
+# node came in AT the ideal rather than the +34% the Eeloo record implied.
 # SECOND-ORDER NOTE, and it is why maxCorrectionDvMps is priced at TWO rounds: with
 # istg 1 shed, the next `_b5_flameout_stage` pop lands on istg 0 -- the POD decoupler,
-# which separates the pod and destroys this lane's product.
-count = { min = 5, max = 6 }
+# which separates the pod and destroys this lane's product. A future flight spending
+# ~430 m/s more in corrections than this one is the case that would shed; that is the
+# number to check before treating {5,5} as unconditional.
+count = { min = 5, max = 5 }
 
 [expectations.logContracts]
 # Every token sourced from its ACTUAL emitting call site; the interplanetary format is
