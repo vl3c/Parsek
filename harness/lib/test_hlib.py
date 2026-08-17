@@ -5399,6 +5399,57 @@ class SaveStructureVerifierWiringTests(unittest.TestCase):
                          "every armed window needs its own report-only reading run first")
 
 
+class WorldRosterDeclarerTests(unittest.TestCase):
+    """The world ROSTER sub-facet is HARD (a declared claim reds the run), so its
+    declarer set is a deliberate, reviewed list exactly like the save-structure
+    arming allowlist above - not something a spec picks up by accident.
+
+    L1-dismiss-kerbal-career is the FIRST and only declarer. Its claim is discharged
+    by the STAGED TEMPLATE rather than by a run: fresh-career carries the four stock
+    crew, and the spec dismisses one of them. That is why it needs no report-only
+    reading run the way a measured window does - the names are authored, not
+    observed.
+    """
+
+    ROSTER_DECLARERS = {"L1-dismiss-kerbal-career.toml"}
+
+    def _declarers(self):
+        out = []
+        for name in sorted(n for n in os.listdir(SCENARIOS_DIR) if n.endswith(".toml")):
+            with open(os.path.join(SCENARIOS_DIR, name), "rb") as fh:
+                spec = tomllib.load(fh)
+            world = (spec.get("expectations") or {}).get("world") or {}
+            roster = world.get("roster") or {}
+            if roster.get("present") or roster.get("absent"):
+                out.append(name)
+        return out
+
+    def test_declarer_set_is_pinned(self):
+        self.assertEqual(sorted(self.ROSTER_DECLARERS), self._declarers(),
+                         "the set of specs declaring [expectations.world.roster] changed; "
+                         "the sub-facet is HARD, so add the spec here in the same commit "
+                         "that declares it, with the fixture row backing its names")
+
+    def test_l1_declares_the_dismissed_kerbal_absent_and_the_bystanders_present(self):
+        spec = load_spec("L1-dismiss-kerbal-career.toml")
+        roster = spec["expectations"]["world"]["roster"]
+        self.assertEqual(["Bill Kerman"], roster["absent"])
+        self.assertEqual(
+            {"Jebediah Kerman", "Bob Kerman", "Valentina Kerman"}, set(roster["present"]))
+        # The absent name MUST be the kerbal the driver actually dismisses, or the
+        # assertion would certify a dismissal that never happened.
+        dismissed = [s["args"]["kerbal"] for s in spec["driver"]["steps"]
+                     if s.get("cmd") == "KscAction"
+                     and (s.get("args") or {}).get("action") == "dismiss-kerbal"]
+        self.assertEqual(["Bill Kerman"], dismissed)
+        # ...and no declared-present name may be the dismissed one.
+        self.assertNotIn("Bill Kerman", roster["present"])
+        # The key set is pinned so a COUNT / status claim cannot be appended without
+        # review: applicant slots are stock's to regenerate and are not this
+        # scenario's claim.
+        self.assertEqual({"absent", "present"}, set(roster))
+
+
 class AnomalyGrepAnchoringTests(unittest.TestCase):
     """The sweep must match an actual EmitAnomaly RAISE, not a token appearing
     anywhere in KSP.log.
@@ -9006,6 +9057,55 @@ class LedgerSpecSurfaceValidationTests(unittest.TestCase):
         # The block is present with the expected v1 surface.
         self.assertEqual("template", spec["expectations"]["ledger"]["seedFrom"])
         self.assertEqual([], spec["expectations"]["ledger"].get("manifest", []))
+
+
+class WorldRosterSpecSurfaceValidationTests(unittest.TestCase):
+    """Guards the [expectations.world.roster] spec surface: a malformed roster block
+    is a spec-invalid INVALID (no KSP boot). Two shapes are silent no-ops without the
+    gate - an unknown key (asserts nothing) and a scalar string (the oracle would
+    iterate CHARACTERS and red for the wrong reason)."""
+
+    def test_valid_lists_ok(self):
+        self.assertEqual([], hlib.validate_world_roster_expectations(
+            {"absent": ["Bill Kerman"],
+             "present": ["Jebediah Kerman", "Bob Kerman", "Valentina Kerman"]}))
+
+    def test_empty_block_ok(self):
+        # A block declaring nothing is a no-op by design (every non-declaring spec is
+        # byte-unaffected); it is not a spec ERROR.
+        self.assertEqual([], hlib.validate_world_roster_expectations({}))
+        self.assertEqual([], hlib.validate_world_roster_expectations(
+            {"present": [], "absent": []}))
+
+    def test_scalar_string_rejected(self):
+        for key in ("present", "absent"):
+            errs = hlib.validate_world_roster_expectations({key: "Bill Kerman"})
+            self.assertTrue(any(("world.roster.%s" % key) in e for e in errs),
+                            "a bare string must be a spec error; errs=%s" % (errs,))
+
+    def test_unknown_key_rejected(self):
+        errs = hlib.validate_world_roster_expectations({"dead": ["Bill Kerman"]})
+        self.assertTrue(any("unknown key" in e for e in errs), errs)
+        errs = hlib.validate_world_roster_expectations({"presnt": ["Bill Kerman"]})
+        self.assertTrue(any("unknown key" in e for e in errs), errs)
+
+    def test_non_string_and_blank_names_rejected(self):
+        errs = hlib.validate_world_roster_expectations({"absent": ["Bill Kerman", "", 7]})
+        self.assertEqual(2, len(errs), errs)
+
+    def test_non_table_rejected(self):
+        errs = hlib.validate_world_roster_expectations(["Bill Kerman"])
+        self.assertTrue(any("must be a table" in e for e in errs), errs)
+
+    def test_wired_into_validate_spec(self):
+        reg = load_registry()
+        spec = load_spec("L1-dismiss-kerbal-career.toml")
+        self.assertTrue(hlib.validate_spec(spec, reg).ok,
+                        "the committed L1 roster block must validate")
+        spec["expectations"]["world"]["roster"]["absent"] = "Bill Kerman"
+        v = hlib.validate_spec(spec, reg)
+        self.assertFalse(v.ok)
+        self.assertTrue(any("world.roster.absent" in e for e in v.errors), v.errors)
 
 
 # NOTE: MergeDurationsTests was DELETED when the orbit branch's sample-based

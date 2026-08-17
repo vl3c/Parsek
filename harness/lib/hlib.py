@@ -3322,6 +3322,14 @@ def validate_spec(spec: Dict, registry: Dict, bug_ids: Optional[Sequence[str]] =
     if "ledger" in expectations:
         errors.extend(validate_ledger_expectations(expectations.get("ledger")))
 
+    # [expectations.world.roster] (the career-ledger lane's roster sub-facet). Same
+    # rationale as the ledger block: an unknown key or a scalar-string name list is a
+    # claim that asserts nothing (or asserts per-character), so it must be a
+    # pre-launch rejection rather than a flight that greens having proved nothing.
+    world_block = expectations.get("world")
+    if isinstance(world_block, dict) and "roster" in world_block:
+        errors.extend(validate_world_roster_expectations(world_block.get("roster")))
+
     # M-C2 (R9) save-parse verifier spec surfaces: [expectations.rewind],
     # [expectations.recordings.structure] and (gate 12)
     # [expectations.recordings.points]. Same rationale as the unityExceptions
@@ -4420,6 +4428,48 @@ def validate_ledger_expectations(ledger_block: Optional[Dict]) -> List[str]:
             errs.append("expectations.ledger.%s: %r not in %s"
                         % (LEDGER_CAPTURE_CROSS_CHECK_KEY, mode,
                            list(LEDGER_CAPTURE_CROSS_CHECK_VALUES)))
+    return errs
+
+
+# The only keys `[expectations.world.roster]` accepts. Both are LISTS of kerbal
+# names; the oracle correlates by name (oracle.diff_world_roster).
+WORLD_ROSTER_KEYS = ("present", "absent")
+
+
+def validate_world_roster_expectations(roster_block: Optional[Dict]) -> List[str]:
+    """Validate the ``[expectations.world.roster]`` spec-surface block.
+
+    Same rationale as ``validate_ledger_expectations``: a malformed roster block
+    must never launch KSP. Two shapes matter, and both are silent no-ops without
+    this gate:
+
+    - An UNKNOWN key (``presnt = [...]``, ``dead = [...]``) contributes no claim,
+      so the flight greens having asserted nothing. Rejected.
+    - A SCALAR string (``absent = "Bill Kerman"``) is the natural TOML slip for a
+      single name. The oracle iterates its declared sequences, so a bare string
+      iterates CHARACTERS - it would assert on "B", "i", "l", ... and red for the
+      wrong reason. Rejected: each key must be a LIST of non-empty strings.
+
+    Returns every failing rule (mirrors validate_spec)."""
+    if not isinstance(roster_block, dict):
+        return ["expectations.world.roster: must be a table"]
+    errs: List[str] = []
+    for key in sorted(roster_block.keys()):
+        if key not in WORLD_ROSTER_KEYS:
+            errs.append("expectations.world.roster.%s: unknown key (accepted: %s)"
+                        % (key, list(WORLD_ROSTER_KEYS)))
+    for key in WORLD_ROSTER_KEYS:
+        if key not in roster_block:
+            continue
+        val = roster_block.get(key)
+        if not isinstance(val, list):
+            errs.append("expectations.world.roster.%s: %r must be an array of kerbal "
+                        "names (a bare string iterates characters)" % (key, val))
+            continue
+        for idx, name in enumerate(val):
+            if not isinstance(name, str) or not name.strip():
+                errs.append("expectations.world.roster.%s[%d]: %r must be a non-empty "
+                            "kerbal name" % (key, idx, name))
     return errs
 
 

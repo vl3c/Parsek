@@ -3405,6 +3405,114 @@ Those two conditions say stock promoted an encounter and the closest one is our 
 
 ---
 
+## STRATEGY-SCIENCE-CONVERSION-LEAK: a stock strategy's science-to-funds exchange has its FUNDS leg captured and its SCIENCE leg dropped, so the recalc reconstructs science 108.84 too high [FOUND 2026-08-17 by career-ledger-lane task A.0, the first real-ledger replay. NOT FIXED - pinned, not worked around]
+
+**Measured, on a committed fixture.** `C2CareerLedgerReplayTests` (fixture
+`Source/Parsek.Tests/Fixtures/C2Career/`) calls `LedgerOrchestrator.Initialize()` so
+the module graph under replay IS the production one, runs the REAL
+`RecalculationEngine.Recalculate` over the fixture's 68-row `ledger.pgld`, and
+diffs the result against the same save's `persistent.sfs` pools. Non-circular:
+KSP wrote the pools, Parsek's observers wrote the ledger.
+
+| Pool | Reconstructed | Save | Delta |
+| --- | --- | --- | --- |
+| Funds | 85166.315673828125 | 85166.31533847659 | **+0.00034** (float32 print noise) |
+| Science | 750.63200151920319 | 641.790283 | **+108.8417185192** |
+| Reputation | 5.02047253 | 5.02411318 | -0.00364 |
+
+The subject: save `c2`, hand-played 2026-08-17 on current code, schema generation
+4. Two flights auto-recorded and merged, one contract accepted and completed,
+tech nodes researched, and the strategy `researchIPsellout` (Patents Licensing,
+commitment 0.05) activated and then deactivated from the Administration building.
+
+**The science delta is not a share of the science EARNINGS.** Every
+`ScienceEarning` row in the whole c2 ledger sums to 46.664 awarded / 42.632
+effective after `ScienceModule`'s subject hard cap - less than half the missing
+108.84. The missing science therefore came out of the 750-point career seed, not
+out of the flights. It is also not a dropped `ScienceSpending`: tech-node costs
+are integers and every subset of them sums to an integer, while 108.84171851920314
+is not one.
+
+**What the ledger does and does not contain at the strategy UT.** All three
+strategy-adjacent rows share one KSC-frozen UT, `8599.8755059835421`:
+
+    type=2  FundsEarning     fundsAwarded=4574.84863  fundsSource=6 (Strategy)
+    type=18 StrategyActivate strategyId=researchIPsellout commitment=0.05
+                             sourceResource=0 targetResource=0
+                             setupCost=0 setupSci=0 setupRep=0
+    type=19 StrategyDeactivate strategyId=researchIPsellout
+
+The funds OUTPUT leg is there; there is **no science row of any kind** at that UT.
+That asymmetry is exactly why funds reconstruct to 0.00034 and science does not.
+
+**Root cause: the CurrencyExchanger carve-out was built for two currencies out of
+three.** The Bail-Out Grant fix (`docs/dev/plans/fix-bailout-grant-currency-exchange-capture.md`)
+added a dedicated capture for a stock strategy's direct currency moves, in two
+places, twice each - and science got neither:
+
+- `GameStateRecorder.OnFundsChanged` forwards `TransactionReasons.StrategyOutput`
+  straight to the ledger; `GameStateRecorder.OnReputationChanged` forwards
+  `TransactionReasons.StrategyInput`. `GameStateRecorder.OnScienceChanged` emits
+  its `ScienceChanged` event and forwards **nothing** - it has no StrategyInput
+  twin.
+- `GameStateEventConverter.ConvertEvent` carves `FundsChanged` out to
+  `ConvertStrategyExchangeFunds` and `ReputationChanged` out to
+  `ConvertStrategyExchangeReputation`. `ScienceChanged` is still in the
+  unconditional `return null` group, and there is no
+  `ConvertStrategyExchangeScience` in the file.
+
+So KSP's science debit under the exchange is observed, emitted as a
+`GameStateEvent`, and then dropped on the floor by both capture doors. The recalc
+path could not compensate even in principle: `StrategiesModule` documents itself
+as transforming **contract rewards only** ("Strategies divert a percentage of one
+contract reward resource into another"), and neither `ScienceModule` nor
+`FundsModule` consults it during earning processing.
+
+**Secondary observation - the recorded flow direction is wrong too.** The
+`StrategyActivate` row carries `sourceResource = 0, targetResource = 0`
+(`StrategyResource.Funds` both sides) for a strategy that actually moves Science
+into Funds. That is the fallback
+`GameStateRecorder.Handlers.OnStrategyActivated` writes when
+`TryExtractStrategyResourceFlow` fails to recognise a CurrencyConverter effect on
+the strategy. It is display-only today (`StrategiesModule` stores it,
+`GameActionDisplay` renders it), so it is NOT the cause of the delta - but any fix
+that models the exchange rather than capturing its legs would need it to be right,
+and WHY it missed on `researchIPsellout` is UNESTABLISHED (no KSP.log in the
+fixture).
+
+**Also UNESTABLISHED: the exact stock trigger.** That KSP moved ~108.84 science
+out and 4574.84863 funds in at that one UT is measured. Whether stock fires that
+on `Activate()`, on `Deactivate()`, or continuously across the frozen KSC UT is
+inferred from a save plus a ledger and was not observed live. Do not write a fix
+against the guess; reproduce it in-game first, with `[Parsek]` capture on.
+
+**Reputation, recorded not chased.** `-0.00364` is above float32 print noise at
+that magnitude and far below display precision. It is pinned as a `0.01` window,
+not a value. Whether it is a second small leak or curve-rounding is unknown;
+re-measure it once the science leak is closed rather than guessing now.
+
+**The divergence is PINNED, so a fix must flip the pin deliberately.**
+`C2CareerLedgerReplayTests.RealEngine_ReplaysC2Ledger_PoolsVsSave` asserts the
+science delta stays within 0.001 of `108.84171851920314`. That cell reds on any
+movement in either direction - including the fix. Whoever fixes this replaces the
+pin with `Assert.True(Math.Abs(reconScience - SaveScience) < 0.01, ...)` in the
+same commit, and says in the CHANGELOG that the fixture's reconstruction now
+closes.
+
+**Fix shape (not chosen, not started).** The symmetric one is cheapest and
+matches the precedent exactly: add the `TransactionReasons.StrategyInput`
+forward to `OnScienceChanged` and a `ConvertStrategyExchangeScience` case for
+`ScienceChanged`, both mirroring the reputation pair (which already handles the
+sign, the direct-forward gate, and the no-live-recorder KSC case). Watch the
+double-count hazard the `ScienceChanged` comment block warns about at length:
+science earnings already flow through `ConvertScienceSubjects`, so the new case
+must key on the `StrategyInput` reason ONLY, exactly as the funds case keys on
+`StrategyOutput` only. A fixture-shaped unit cell over
+`GameStateEventConverter` plus a re-run of `C2CareerLedgerReplayTests` is the
+minimum proof; a live KSC activation is the real one.
+
+---
+
 ## WATCH-ENTRY-REFUSED-INSIDE-QUOTED-RANGE: watch-mode auto-select refuses far inside the 300 km range term it actually evaluates, and WHICH conjunction term refuses is UNESTABLISHED [BOUNDARY FOUND 2026-08-08 by V7M-minmus-player-loop, measured four times; MECHANISM CORRECTED 2026-08-09]
 
 **THIS ENTRY IS THE SINGLE AUTHORITY for the watch-entry finding.** Every other

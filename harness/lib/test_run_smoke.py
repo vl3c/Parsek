@@ -2070,6 +2070,81 @@ class LedgerOracleEndToEndTests(unittest.TestCase):
         self.assertEqual("PASS", result["status"])
         self.assertFalse(drift)
 
+    # ---- world ROSTER sub-facet (the L1 dismiss claim), through the REAL verifier ----
+
+    @staticmethod
+    def _kerbal(name, state="Available"):
+        return {"name": name, "gender": "Male", "type": "Crew",
+                "trait": "Pilot", "state": state}
+
+    def _career_with_roster(self, roster, has_roster=True):
+        block = self._career_block()
+        block["hasRoster"] = has_roster
+        block["roster"] = list(roster)
+        return block
+
+    def test_world_roster_dismissed_kerbal_still_present_reds(self):
+        # The L1 shape: the spec declares the dismissed kerbal absent, the produced
+        # save still carries him -> hard drift -> PARSEK-FAIL(ledger).
+        career = self._career_with_roster([
+            self._kerbal("Jebediah Kerman"), self._kerbal("Bill Kerman")])
+        world = {"roster": {"absent": ["Bill Kerman"],
+                            "present": ["Jebediah Kerman"]}}
+        result, drift, tooling = run._run_ledger_oracle(
+            None, world, career, None, "", "e2e-roster-red", self.logger)
+        self.assertEqual("FAIL", result["status"])
+        self.assertTrue(drift)
+        self.assertFalse(tooling)
+
+    def test_world_roster_dismissal_applied_passes(self):
+        career = self._career_with_roster([
+            self._kerbal("Jebediah Kerman"), self._kerbal("Bob Kerman"),
+            self._kerbal("Valentina Kerman")])
+        world = {"roster": {"absent": ["Bill Kerman"],
+                            "present": ["Jebediah Kerman", "Bob Kerman",
+                                        "Valentina Kerman"]}}
+        result, drift, tooling = run._run_ledger_oracle(
+            None, world, career, None, "", "e2e-roster-ok", self.logger)
+        self.assertEqual("PASS", result["status"])
+        self.assertFalse(drift)
+
+    def test_world_roster_unexported_roster_reds_rather_than_greens(self):
+        # An analyzer that never exported the roster (hasRoster false) must not let a
+        # declared roster claim pass unverified. The run still reds - fail-closed is the
+        # property under test - but it reds as INVALID(tooling), because a missing
+        # analyzer export is a tooling fault, not a Parsek ledger defect.
+        career = self._career_with_roster([], has_roster=False)
+        world = {"roster": {"absent": ["Bill Kerman"]}}
+        result, drift, tooling = run._run_ledger_oracle(
+            None, world, career, None, "", "e2e-roster-unexported", self.logger)
+        self.assertEqual("INVALID", result["status"])
+        self.assertEqual("tooling", result["subkind"])
+        self.assertNotEqual("PASS", result["status"], "must never green on a missing input")
+        self.assertFalse(drift, "a missing analyzer export is not ledger drift")
+        self.assertTrue(tooling)
+
+    def test_world_roster_declared_against_empty_but_exported_roster_still_diffs(self):
+        # hasRoster TRUE with an empty roster is a REAL state (a wiped roster), not a
+        # tooling fault: the tooling route must not swallow it. `present` claims red.
+        career = self._career_with_roster([], has_roster=True)
+        world = {"roster": {"present": ["Jebediah Kerman"]}}
+        result, drift, tooling = run._run_ledger_oracle(
+            None, world, career, None, "", "e2e-roster-empty-exported", self.logger)
+        self.assertEqual("FAIL", result["status"])
+        self.assertTrue(drift)
+        self.assertFalse(tooling)
+
+    def test_world_block_without_a_roster_declaration_is_unaffected(self):
+        # Every existing world declarer must be byte-unaffected by the new sub-facet.
+        career = self._career_with_roster([self._kerbal("Bill Kerman")])
+        world = {"vessels": {"entry": []}}
+        result, drift, tooling = run._run_ledger_oracle(
+            None, world, career, None, "", "e2e-roster-undeclared", self.logger)
+        self.assertEqual("PASS", result["status"])
+        self.assertEqual(0, result["hardDivergences"])
+        self.assertEqual(0, result["reportOnly"])
+        self.assertFalse(drift)
+
 
 class SubprocessScopedRetrySmokeTests(unittest.TestCase):
     """M-A5.1 item 1 over the REAL run loop (fake runtime): a wedged analyzer
