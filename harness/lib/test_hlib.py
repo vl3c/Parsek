@@ -4957,6 +4957,22 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
         # (M-MIS-3-BAND-COMPUTED-NOT-EXERCISED). The census stays unarmed for a reason
         # now better understood than V10's carried one.
         "V12A-eeloo-loop-arrival.toml":     "calibration-discipline - BOTH PASSES FLOWN AND ARMED 2026-08-13: a two-pass TimeJump observation lane whose seven brackets are arithmetic on one recording's replay clock and on the product's own re-aimed soiEntryUT (pass 1 `_0120` printed them, pass 2 `_1513`/`_1515` flew the recomputed shape byte-identically, `_1536` armed PASS, `_1537` negative control correctly PARSEK-FAIL(expectation) naming the one inverted digit, `_1539` reverted PASS). ARMED on 13 tokens - the measured noop tilt literal plus its derivable bound pair, the e=0.26 band, all three synth-geometry proximity checks including the MEASURED Eeloo SOI constant, and the ready line - with count re-pinned {6,6} and the decline forbid narrowed to `state=declined reason=unreachable-plane`. TWO FINDINGS LIMIT WHAT IT PROVES, both filed: the tilt read noop/in-plane because the solved conic sat BELOW the bound, so Eeloo tested the bound arithmetic and NOT the retention branch (still Eve-only-validated); and the tof band is pinned as COMPUTED but never WALKED (step 0 accepted), so the behavioural half of M-MIS-3 stays open. The seam-endpoint census was a documented reading until 2026-08-14, when the shared-key blocker this lane DIAGNOSED was fixed on branch `line-blink-census` by class-splitting the key (measured vs skip-only); re-flown verbatim twice green, `evaluated=1 outsideSoi=0` is now armed as a 14th token, confirming the bracket was dead on the seam all along and the census merely silent. Operator tier is the ordinary promotion call, not a debt",
+        # B22 is B21's flown Eeloo profile RETARGETED to Jool, and it is operator by
+        # B20's half of the calibration discipline rather than B19's: the pre-transfer
+        # JETTISON debris topology is MEASURED, so what is DERIVED here is the ARRIVAL.
+        # Nine of the 56 missionParams changed and the AIM drives the rest --
+        # courseCorrectPeriapsisMeters 600,000,000 m is 24.43% of Jool's 2,455,985,185 m
+        # SOI (600e6 / 2,455,985,185 = 0.2443), a req/SOI regime only TWO of the corpus's
+        # 25 correction-complete points have ever been flown in (Eve at 5.875%, k=0.997;
+        # the Mun at 10.29%, k=0.545-0.563), so the delivered periapsis is an
+        # extrapolation past the end of the data by more than an order of magnitude in
+        # SOI. Everything downstream of the aim is arithmetic on it rather than on a
+        # flight: parkMaxApoapsisMeters 1,500,000,000 (1,506 Mm radius = 61.3% of SOI),
+        # the targetPeriapsisFloorMeters / parkMinPeriapsisMeters pair at 1,000,000 (5x
+        # Jool's 200 km atmosphere top), capturePlanTimeoutSeconds 300,000 and
+        # captureBurnTimeoutSeconds 3,000,000 (2.20x the worst 1,361,783 s in-SOI coast).
+        # Promotion is the post-flight re-pin of those plus the recordings count.
+        "B22-jool-orbit.toml":              "calibration-discipline - first flight of a new destination whose approach sizing is DERIVED rather than measured (the 600,000,000 m aim is 24.43% of Jool's 2,455,985,185 m SOI and is sized off the only two in-regime corrector points ever flown, Eve k=0.997 at req/SOI 5.875% and the Mun k=0.545-0.563 at 10.29%; the park ceiling 1,500,000,000, the 1,000,000 floor/park-minimum pair and the capture budgets are arithmetic on that aim, not on a flight); the recordings count window {5,6} is deliberately wide on the B19/B20 first-flight precedent because the drop-tank shed at 3,946.0 m/s cumulative sits within 9.7 m/s of the worst-geometry predicted spend and so is a coin flip on this flight; promotion waits on re-pinning those to measured values rather than on outstanding work",
         # The V2 dwell is operator BY THE CALIBRATION DISCIPLINE (V1 precedent):
         # its first flight is a deliberately under-gated READING run whose red,
         # if any, is evidence; promotion is the post-reading arming call, not a
