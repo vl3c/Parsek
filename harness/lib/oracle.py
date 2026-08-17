@@ -1107,6 +1107,82 @@ def diff_world_vessels(
 
 
 # ---------------------------------------------------------------------------
+# World roster sub-facet (design "ROSTER states" ~545 / "Roster world sub-facet"
+# ~904). DEFERRED at M-B2 because `CareerSaveSnapshot` carried no roster; landed
+# with the career-ledger lane's A.2 roster parse + its `careerSave.roster` export.
+# ---------------------------------------------------------------------------
+
+
+def _roster_names(parsed_roster: Optional[Sequence[Dict]]) -> Dict[str, Dict]:
+    """name -> kerbal entry, for the parsed ``careerSave.roster`` array."""
+    out: Dict[str, Dict] = {}
+    for k in parsed_roster or ():
+        name = str((k or {}).get("name", "") or "")
+        if name:
+            out[name] = k
+    return out
+
+
+def diff_world_roster(
+    declared: Optional[Dict],
+    career_save: Optional[Dict],
+) -> List[OracleDivergence]:
+    """Diff a declared ``[expectations.world.roster]`` block against the produced
+    save's parsed roster.
+
+    Correlation is BY NAME (design ~545): a kerbal's name is its roster identity and
+    the save carries no other stable key for one. Two claims are activated, both
+    HARD, because each is a direct statement about what the scenario's action did:
+
+    - ``absent = ["Bill Kerman"]`` - the named kerbal must NOT be in the produced
+      roster (the dismiss / death claim). Still present -> ``phantom``.
+    - ``present = ["Jebediah Kerman", ...]`` - each named kerbal MUST be in it (the
+      bystanders the action must not have touched). Gone -> ``missing``.
+
+    A declared block against a save carrying NO roster facet (``hasRoster`` false -
+    an unparsed or pre-roster-export analyzer) is ONE hard ``missing``: an armed
+    assertion must never green on a missing input. An EMPTY roster with
+    ``hasRoster`` true is a real state and is diffed normally.
+
+    NOT activated: per-kerbal status (active / reserved / retired / stand-in). Those
+    SEMANTICS are defined in the design, but no committed scenario declares them, and
+    an evaluator with zero declarers is surface to keep in step for nothing.
+    """
+    declared = declared or {}
+    present_names = [str(n) for n in (declared.get("present") or ()) if str(n)]
+    absent_names = [str(n) for n in (declared.get("absent") or ()) if str(n)]
+    if not present_names and not absent_names:
+        return []
+
+    career_save = career_save or {}
+    has_roster = bool(career_save.get("hasRoster", False))
+    if not has_roster:
+        return [OracleDivergence(
+            "roster", "missing", "", None, None, (None, None), True,
+            "roster assertions declared (present=%r absent=%r) but the produced save "
+            "carries no roster facet (hasRoster=false)" % (present_names, absent_names))]
+
+    parsed = _roster_names(career_save.get("roster") or ())
+
+    divergences: List[OracleDivergence] = []
+    for name in sorted(present_names):
+        if name not in parsed:
+            divergences.append(OracleDivergence(
+                "roster", "missing", name, None, None, (None, None), True,
+                "kerbal %s declared present but absent from the produced save roster "
+                "(parsedRoster=%d)" % (name, len(parsed))))
+    for name in sorted(absent_names):
+        if name in parsed:
+            entry = parsed[name] or {}
+            divergences.append(OracleDivergence(
+                "roster", "phantom", name, None, None, (None, None), True,
+                "kerbal %s declared absent but still in the produced save roster "
+                "(type=%r state=%r)" % (name, entry.get("type"), entry.get("state"))))
+
+    return divergences
+
+
+# ---------------------------------------------------------------------------
 # Verifier-row result (design ~478: the ledgerOracle result slot). Deterministic.
 # ---------------------------------------------------------------------------
 

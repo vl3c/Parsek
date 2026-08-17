@@ -1832,7 +1832,24 @@ def _run_ledger_oracle(ledger_block: Optional[Dict], world_block: Optional[Dict]
             logger.info("Verify", "world-vessel corr=%s kind=%s expected=%s parsed=%s hard=%s detail=%s"
                         % (d.identity, d.kind, d.expected, d.parsed, d.hard, d.detail))
         divergences += world_divs
-        logger.verbose("Verify", "world: roster sub-facet deferred (no CareerSaveSnapshot roster)")
+
+        # Roster sub-facet: DEFERRED at M-B2 ("no CareerSaveSnapshot roster") and
+        # un-deferred by the career-ledger lane once CareerSaveParser gained the
+        # ROSTER parse and the analyzer exported `careerSave.roster`. Correlated by
+        # name, present/absent claims only, and HARD - the claim IS the scenario's
+        # action. A block declaring nothing returns nothing, so every spec that does
+        # not declare a roster is byte-unaffected.
+        roster_block = (world_block or {}).get("roster") or {}
+        roster_divs = oracle.diff_world_roster(roster_block, career_block)
+        for d in roster_divs:
+            logger.info("Verify", "world-roster name=%s kind=%s hard=%s detail=%s"
+                        % (d.identity or "(facet)", d.kind, d.hard, d.detail))
+        divergences += roster_divs
+        logger.verbose("Verify", "world: roster sub-facet declared=%s present=%d absent=%d divergences=%d"
+                       % (bool(roster_block),
+                          len(roster_block.get("present") or ()),
+                          len(roster_block.get("absent") or ()),
+                          len(roster_divs)))
 
     for d in divergences:
         if d.hard:

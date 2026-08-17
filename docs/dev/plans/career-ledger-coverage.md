@@ -1,9 +1,9 @@
 # Career-ledger automated coverage — plan (rev 3)
 
-Status: **IN PROGRESS.** Tasks A.0-A.5 are DONE and committed on
+Status: **IN PROGRESS.** **Phase A is COMPLETE** and committed on
 `career-ledger-lane` (A.0's fixture + replay test + the adjudication below, A.1's
-synthetic ordering pin, and the A.2-A.5 parser + report-only diff facets).
-A.6 and Phases B onward are open.
+synthetic ordering pin, the A.2-A.5 parser + report-only diff facets, and A.6's
+un-deferred L1 roster assertion). Phases B onward are open.
 
 Rev 3 adds the `c2` subject (a short career played 2026-08-17 on current code,
 specifically to exercise the ledger) and the candidate strategy-conversion gap it
@@ -144,7 +144,7 @@ passes `fresh_gate=True` as a literal with no spec escape, so a fixture carrying
 `AnswerMergeDialog`. `CareerSaveParser` parsed exactly seven domains at rev 3
 (`CareerSaveParser.cs:74-80`), with ROSTER structurally unreachable (a `GAME`
 child, not a `SCENARIO`) and tech/parts sitting inside the node `ParseScience`
-already opens (`:153` calls only `GetNodes("Science")`) — **superseded by A.2-A.4,
+already opens (`:153` calls only `GetNodes("Science")`) - **superseded by A.2-A.4,
 which added those three domains for a current total of ten.** Facet policy: Funds /
 SciencePool / Reputation HARD; SubjectScience, Facility, Contract, Milestone
 report-only; Vessel HARD only when guid-corroborated.
@@ -206,7 +206,7 @@ No KSP, no fixture, no harness run.
 | A.3 **DONE 2026-08-17** | `CareerSaveParser` → **tech-node unlock set** + **part purchases** (both inside the already-opened SCENARIO). **Shipped as `ParseTechTree` off the R&D node ParseScience opens: `UnlockedTechIds` + `PurchasedPartNames` (the REPEATED `part` values) + `TechNodePartCounts`; `HasTechTree` is independent of `HasScience`.** | S | **yes** |
 | A.4 **DONE 2026-08-17** | `CareerSaveParser` → **StrategySystem**, shape-only. **Report-only, no D8 claim.** **Shipped as `ParseStrategies` + `SaveStrategy`. SHAPE CORRECTION: the real stock node is `STRATEGY { name, date, factor, EFFECT{} }` with NO `isActive` field - presence in STRATEGIES IS the active signal (an explicit `isActive = False` is honoured defensively). Every committed fixture's block is empty and parses to zero strategies.** | S | no |
 | A.5 **DONE 2026-08-17** | Matching `LedgerGroundTruthDiff` facets for A.2–A.4, landed **report-only**. **Shipped as `CompareRoster` / `CompareTechNodes` / `ComparePartPurchases` / `CompareStrategies`, each gated on a `recon.HasXSurface` flag: with no reconstruction surface the facet logs the save-side census and stays UNCOMPARED (`FacetsCompared` untouched) rather than diffing against an invented recon. Layer B wires two surfaces only - roster (KerbalsModule created / permanently-gone) and researched tech (affordable `ScienceSpending` NodeIds off the ELS); part purchases and strategies have NO recalc surface and stay censuses. The tech facet emits the PHANTOM direction only (the ledger's set is delta-only, the save's is absolute, so "unlocked but unclaimed" is counted in the log, never emitted per id).** | M | report-only |
-| A.6 | Un-defer the roster assertion in `L1-dismiss-kerbal-career`. **Touches a protected spec — approve or cut.** | S | **yes** |
+| A.6 **DONE 2026-08-17** | Un-defer the roster assertion in `L1-dismiss-kerbal-career`. **Touches a protected spec — approve or cut.** **Approved (§7.1) and landed as the full chain: `ReportWriter` exports `hasRoster` + a sorted `roster` array (analyzerVersion 3 -> 4, additive), `oracle.diff_world_roster` evaluates `[expectations.world.roster]` `present` / `absent` name claims (both HARD; a declared block against `hasRoster=false` is one hard `missing`, so an armed claim cannot green on a missing input), `run.py` calls it where the M-B2 `roster sub-facet deferred` Verbose line stood, and the spec declares `absent = ["Bill Kerman"]` + the three bystanders. No `ARMED_ALLOWLIST` change was needed (that allowlist is the saveparse `gating = true` set); a new `WorldRosterDeclarerTests` pins the declarer set and cross-checks the absent name against the driver's own dismiss step. NOT re-flown: proven headlessly, the next L1 daily run is the first live exercise.** | S | **yes** |
 
 c1 is used in A.2–A.4 as a **shape reference only**; asserted values are authored.
 
@@ -328,7 +328,12 @@ the status doc disagree.
 Answered by Vlad:
 
 1. **A.6 approved** — the one surgical edit to `L1-dismiss-kerbal-career` may land
-   once the roster parser exists.
+   once the roster parser exists. **LANDED 2026-08-17.** Scope note for whoever
+   reads this next: "one surgical edit" was the SPEC edit; the assertion needed the
+   whole chain behind it (analyzer export -> oracle facet -> `run.py` call site),
+   because the M-B2 deferral was in the pipeline, not in the spec. The `run.py`
+   change is 12 lines at the exact site whose Verbose line said "roster sub-facet
+   deferred", so no new verifier row, no new verdict, and no other spec is touched.
 2. **c2 is committed headless-only** (`Source/Parsek.Tests/Fixtures/C2Career/`,
    ledger + persistent + career-start). No harness promotion; `career-pad-craft`
    stays the in-game subject.
