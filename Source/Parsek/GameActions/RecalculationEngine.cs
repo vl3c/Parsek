@@ -323,11 +323,23 @@ namespace Parsek
             switch (type)
             {
                 case GameActionType.ScienceSpending:
-                // Strategy currency-exchange science leg: a science DEBIT, and the
-                // exchange's paired funds credit lands at the SAME KSC-frozen UT, so
-                // this must sort after earnings or the debit runs against a balance
-                // that has not been credited yet.
-                case GameActionType.StrategyScienceDebit:
+                // GameActionType.StrategyScienceDebit is DELIBERATELY ABSENT. Two facts,
+                // in this order:
+                //   (1) it would be INERT for ordering. SortActions keys its secondary
+                //       level on IsEarningType ONLY ("earning ? 0 : 1"), so every
+                //       non-earning type already sorts after earnings at a shared UT.
+                //       The exchange's same-UT funds credit / science debit pair is
+                //       correctly ordered without an arm here (pinned by
+                //       StrategyCaptureTests' same-UT end-to-end cell).
+                //   (2) it would be HARMFUL for pruning. The real consumer of
+                //       IsSpendingType is Ledger.Reconcile, whose spending branch prunes
+                //       any row with UT > maxUT even when a valid RecordingId owns it.
+                //       A BUG-F-family cold-load Reconcile runs with maxUT = 0
+                //       (Planetarium reports UT 0 on a cold OnLoad), which would
+                //       PERMANENTLY DELETE a flight-tagged exchange debit while KSP keeps
+                //       the science removed - re-opening the very leak this type closes.
+                //       Falling through to Reconcile's generic branch keeps a
+                //       valid-id-tagged row regardless of maxUT.
                 case GameActionType.FundsSpending:
                 // Logistics gross dispatch charge (Option A): a funds spending in the
                 // recalc walk, so it sorts after earnings at a shared UT.

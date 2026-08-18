@@ -55,9 +55,20 @@ namespace Parsek
 
             // Convert events using the same converter path as normal commits.
             // Use null recordingId since we can't reliably map old events to specific recordings.
+            //
+            // MIGRATION-CONTEXT FILTER (not a converter behavior change): the KSC and
+            // commit doors must keep converting ScienceChanged(StrategyInput) into a
+            // StrategyScienceDebit, but this retro-fill path must NOT. A null recordingId
+            // scope matches EVERY stored event, so an old save's strategy exchange would
+            // be retro-created as a debit while the science EARNINGS of that same era are
+            // not reconstructible here (they rode PendingScienceSubjects, never a
+            // GameStateEvent). Retro-filling one side biases the reconstruction LOW and
+            // trips the drawdown-guard clamp + player toast on every old-save load.
+            // Pre-fix history stays pre-fix.
             double minUT = 0;
             double maxUT = double.MaxValue;
-            var actions = GameStateEventConverter.ConvertEvents(events, null, minUT, maxUT);
+            var convertible = FilterMigrationConvertibleEvents(events);
+            var actions = GameStateEventConverter.ConvertEvents(convertible, null, minUT, maxUT);
 
             if (actions.Count > 0)
             {
@@ -75,6 +86,62 @@ namespace Parsek
                 ParsekLog.Info(LedgerOrchestrator.Tag,
                     $"MigrateOldSaveEvents: {events.Count} events produced 0 convertible actions");
             }
+        }
+
+        /// <summary>
+        /// Pure: the event types <see cref="MigrateOldSaveEvents"/> is allowed to convert.
+        /// Everything is convertible EXCEPT <see cref="GameStateEventType.ScienceChanged"/>
+        /// - see <see cref="IsMigrationConvertibleEvent"/> for why.
+        /// </summary>
+        internal static List<GameStateEvent> FilterMigrationConvertibleEvents(
+            IReadOnlyList<GameStateEvent> events)
+        {
+            var kept = new List<GameStateEvent>(events == null ? 0 : events.Count);
+            if (events == null)
+                return kept;
+
+            int excluded = 0;
+            for (int i = 0; i < events.Count; i++)
+            {
+                if (IsMigrationConvertibleEvent(events[i].eventType))
+                    kept.Add(events[i]);
+                else
+                    excluded++;
+            }
+
+            if (excluded > 0)
+            {
+                ParsekLog.Verbose(LedgerOrchestrator.Tag,
+                    $"MigrateOldSaveEvents: excluded {excluded.ToString(CultureInfo.InvariantCulture)} " +
+                    "ScienceChanged event(s) from the retro-fill conversion (pre-fix history " +
+                    "stays pre-fix; a retro-created strategy science debit has no " +
+                    "reconstructible earning to balance it)");
+            }
+
+            return kept;
+        }
+
+        /// <summary>
+        /// Pure: true when <see cref="MigrateOldSaveEvents"/> may convert an event of this
+        /// type. Only <see cref="GameStateEventType.ScienceChanged"/> is excluded.
+        ///
+        /// <para>The converter's ScienceChanged carve-out
+        /// (<c>ConvertStrategyExchangeScience</c>, STRATEGY-SCIENCE-CONVERSION-LEAK) is
+        /// correct at the live KSC door and at commit time, where the surrounding science
+        /// EARNINGS are captured by the same era of code. It is wrong on the retro-fill
+        /// path: this migration converts with a NULL recording scope, so it matches every
+        /// stored event regardless of age, and an old save's science earnings rode
+        /// <c>PendingScienceSubjects</c> rather than a <c>GameStateEvent</c> - they cannot
+        /// be reconstructed here. Retro-creating only the debit half biases the
+        /// reconstruction LOW by the traded amount and trips the drawdown-guard clamp
+        /// (plus its one-shot player toast) on the old save's very first load.</para>
+        ///
+        /// <para>This is a MIGRATION-CONTEXT filter, deliberately NOT a change to
+        /// <c>GameStateEventConverter</c>: the KSC and commit doors keep converting.</para>
+        /// </summary>
+        internal static bool IsMigrationConvertibleEvent(GameStateEventType type)
+        {
+            return type != GameStateEventType.ScienceChanged;
         }
 
         /// <summary>

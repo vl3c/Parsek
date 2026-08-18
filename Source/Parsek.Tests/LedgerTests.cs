@@ -380,6 +380,55 @@ namespace Parsek.Tests
                 l.Contains("[Ledger]") && l.Contains("kept=2") && l.Contains("prunedEarnings=0"));
         }
 
+        [Fact]
+        public void Reconcile_ColdLoadMaxUtZero_KeepsTaggedStrategyScienceDebit()
+        {
+            // STRATEGY-SCIENCE-CONVERSION-LEAK. RecalculationEngine.IsSpendingType
+            // deliberately has NO StrategyScienceDebit arm, and THIS is why: Reconcile's
+            // spending branch prunes any row with UT > maxUT even when a valid
+            // RecordingId owns it, and a BUG-F-family cold load runs Reconcile with
+            // maxUT = 0 (Planetarium reports UT 0 on a cold OnLoad). An arm in
+            // IsSpendingType would therefore PERMANENTLY DELETE a flight-tagged exchange
+            // debit while KSP keeps the science removed - re-opening the leak. Falling
+            // through to the generic branch keeps a valid-id row at any maxUT.
+            //
+            // Mutation check: adding `case GameActionType.StrategyScienceDebit:` back to
+            // IsSpendingType reds this cell.
+            Ledger.AddAction(new GameAction
+            {
+                UT = 8599.8755059835421,
+                Type = GameActionType.StrategyScienceDebit,
+                RecordingId = "rec_001",
+                Cost = 108.84171851920314f
+            });
+
+            Ledger.Reconcile(new HashSet<string> { "rec_001" }, maxUT: 0.0);
+
+            Assert.Single(Ledger.Actions);
+            Assert.Equal(GameActionType.StrategyScienceDebit, Ledger.Actions[0].Type);
+            Assert.Equal(108.84171851920314f, Ledger.Actions[0].Cost);
+        }
+
+        [Fact]
+        public void Reconcile_StrategyScienceDebitTaggedToADeletedRecording_IsStillPruned()
+        {
+            // The complement of the cell above: falling through to the generic branch
+            // does NOT make the row immortal. A tag pointing at a recording that no
+            // longer exists still prunes, so a discarded branch's exchange debit cannot
+            // linger and double-debit.
+            Ledger.AddAction(new GameAction
+            {
+                UT = 8599.875,
+                Type = GameActionType.StrategyScienceDebit,
+                RecordingId = "rec_deleted",
+                Cost = 50f
+            });
+
+            Ledger.Reconcile(new HashSet<string> { "rec_001" }, maxUT: 99999.0);
+
+            Assert.Empty(Ledger.Actions);
+        }
+
         // ================================================================
         // ClearRecordingTagForRecording(s) - the retire-time tag re-home
         // ================================================================

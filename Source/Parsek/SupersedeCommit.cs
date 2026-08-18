@@ -1944,6 +1944,18 @@ namespace Parsek
                 // to undo here. A NEW type does not inherit the exclusions above - with no
                 // case it falls through to `return true`.
                 case GameActionType.KerbalExperience:
+                // StrategyScienceDebit (STRATEGY-SCIENCE-CONVERSION-LEAK): the science
+                // INPUT leg of a stock currency-exchange strategy. Listed EXPLICITLY,
+                // against this method's twice-stated warning that a NEW type falls
+                // through to `return true` and would then strict-block / retry-block a
+                // supersede on a row that must not block one. The merge itself already
+                // RETIRES these rows - IsSupersedeTombstoneEligible returns true for the
+                // type - so there is nothing left for a strict block to protect; blocking
+                // would only refuse a merge over a row the same merge is about to
+                // tombstone. Consistency note: IsRetryBlockingRecordingAction is
+                // ScienceEarning-only, so it already answered false for this type both
+                // before and after this arm; only the strict gate changes.
+                case GameActionType.StrategyScienceDebit:
                     return false;
             }
 

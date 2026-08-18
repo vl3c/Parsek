@@ -133,10 +133,13 @@ namespace Parsek.Tests
             // GameStateRecorder.OnScienceChanged, ConvertStrategyExchangeScience, and
             // GameActionType.StrategyScienceDebit): it changes what NEW recordings
             // capture and cannot retro-fill this committed ledger.pgld. So this cell
-            // keeps asserting the pre-fix shape and keeps PASSING after the fix. It
-            // flips only on a post-fix re-harvest of c2 (or a new fixture captured on
-            // post-fix code), at which point the expectation becomes "a
-            // StrategyScienceDebit row shares the credit's UT".
+            // keeps asserting the pre-fix shape and keeps PASSING after the fix.
+            //
+            // The predicate below therefore includes StrategyScienceDebit, the row a
+            // post-fix capture WOULD write. That is what makes a post-fix re-harvest of
+            // c2 actually FLIP this cell instead of leaving it silently green against a
+            // fixture that now carries the debit: a predicate naming only the pre-fix
+            // science types could never see the new row.
             var actions = LoadFixtureLedger();
 
             var strategyFundsRows = actions.FindAll(a =>
@@ -146,19 +149,22 @@ namespace Parsek.Tests
 
             foreach (var credit in strategyFundsRows)
             {
-                // No science row of ANY type shares the exchange's UT. A debit would be
-                // a ScienceSpending; an offsetting credit would be a ScienceEarning.
-                // Neither exists - that IS the leak.
+                // No science row of ANY type shares the exchange's UT. Post-fix the debit
+                // would be a StrategyScienceDebit; pre-fix a debit could only have been a
+                // ScienceSpending, and an offsetting credit a ScienceEarning. None
+                // exists - that IS the leak.
                 var scienceRowsAtUT = actions.FindAll(a =>
                     Math.Abs(a.UT - credit.UT) < 0.001
                     && (a.Type == GameActionType.ScienceSpending
-                        || a.Type == GameActionType.ScienceEarning));
+                        || a.Type == GameActionType.ScienceEarning
+                        || a.Type == GameActionType.StrategyScienceDebit));
                 Assert.True(scienceRowsAtUT.Count == 0,
                     $"expected NO science row at the strategy exchange UT " +
                     $"{credit.UT.ToString("R", IC)}; found {scienceRowsAtUT.Count.ToString(IC)}. " +
                     "This fixture is frozen pre-fix data; a capture-side fix cannot move " +
                     "it. Movement here means the FIXTURE changed (a re-harvest), not the " +
-                    "product.");
+                    "product - and on a re-harvest the expectation becomes 'a " +
+                    "StrategyScienceDebit shares the credit's UT'.");
             }
         }
 

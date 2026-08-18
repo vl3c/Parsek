@@ -316,11 +316,19 @@ namespace Parsek
         /// for a tech-node purchase the reconstruction is re-deciding, but wrong here -
         /// KSP has ALREADY moved this science out of the pool, so refusing would make the
         /// reconstruction diverge in the opposite direction. The subtraction is therefore
-        /// unconditional and an unaffordable case only WARNs.</para>
+        /// unconditional, and an unaffordable case only logs a rate-limited Verbose (it is
+        /// an ordering artefact of the walk, not a defect - see the log line's comment).</para>
         ///
         /// <para>Deliberately does NOT set <see cref="GameAction.Affordable"/>: that
         /// field is the tech-node contract <c>KspStatePatcher</c> reads to decide which
         /// nodes to unlock, and this row is not a tech node.</para>
+        ///
+        /// <para>Deliberately does NOT gate on <see cref="GameAction.Effective"/> either.
+        /// That is CONSISTENT with <see cref="ProcessSpending"/>, which is also
+        /// unconditional on that flag: <c>Effective</c> is the duplicate-suppression flag
+        /// the EARNING channels carry (ScienceEarning / ContractComplete /
+        /// MilestoneAchievement), and no producer clears it on a spending row. No
+        /// behavior change is intended here.</para>
         /// </summary>
         internal void ProcessStrategyScienceDebit(GameAction action)
         {
@@ -344,10 +352,20 @@ namespace Parsek
             }
             else
             {
-                ParsekLog.Warn("ScienceModule",
-                    $"StrategyScienceDebit NOT affordable: cost={cost.ToString("R", IC)}, " +
+                // NOT a Warn. A mid-walk negative balance here is EXPECTED on a
+                // legitimate ledger, so a Warn would fire routinely and train the reader
+                // to ignore it: commit-stamped science earnings land at their recording's
+                // END UT while the exchange debit carries the exchange's TRUE UT, so the
+                // walk can reach the debit before the earnings that funded it. The final
+                // totals are unaffected - the walk is a sum, and every row is applied
+                // exactly once regardless of the order the balance dips through. There is
+                // deliberately no affordability REFUSAL to warn about either (see the
+                // summary): KSP already removed this science.
+                ParsekLog.VerboseRateLimited("ScienceModule", "strategy-science-debit-unaffordable",
+                    $"StrategyScienceDebit ahead of its earnings: cost={cost.ToString("R", IC)}, " +
                     $"runningScience={runningScience.ToString("R", IC)} - deducted anyway " +
-                    "(KSP already removed this science from the pool)");
+                    "(KSP already removed this science from the pool; a mid-walk negative " +
+                    "balance is expected when commit-stamped earnings sort after the debit)");
             }
         }
 

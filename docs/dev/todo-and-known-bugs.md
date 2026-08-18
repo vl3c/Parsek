@@ -3778,9 +3778,14 @@ input-direction only, mirroring the reputation pair exactly:
 
 - `GameStateRecorder.OnScienceChanged` now forwards
   `TransactionReasons.StrategyInput` to `LedgerOrchestrator.OnKscSpending`, gated
-  on `ShouldForwardDirectLedgerEvent`, placed AFTER the `Emit` so
-  `ReconcileKscAction` can pair against the just-emitted event. Byte-symmetric with
-  the funds (`StrategyOutput`) and reputation (`StrategyInput`) forwards.
+  on `ShouldForwardDirectLedgerEvent`, placed AFTER the `Emit` so the event is in
+  `GameStateStore` before the recalc that call runs at its tail reads the store
+  (the pending-debit helper below must see it to net it against the row being
+  written). NOT for `ReconcileKscAction` pairing - `ClassifyAction` returns
+  `Transformed` for this type and the reconcile short-circuits before any leg is
+  matched, so no pairing ever happens; the original write-up said otherwise and was
+  wrong. Byte-symmetric with the funds (`StrategyOutput`) and reputation
+  (`StrategyInput`) forwards.
 - `GameStateEventConverter.ConvertStrategyExchangeScience` converts a NEGATIVE
   `ScienceChanged`/`StrategyInput` delta; `ScienceChanged` moved out of the
   unconditional `return null` group into the carve-out group beside
@@ -3802,7 +3807,83 @@ input-direction only, mirroring the reputation pair exactly:
   ProcessSpending refuses to deduct when unaffordable, but KSP has already removed
   this science from the pool, so a refusal would diverge the reconstruction in the
   opposite direction. It never sets `action.Affordable` (that field is the
-  tech-node contract `KspStatePatcher` reads).
+  tech-node contract `KspStatePatcher` reads), and it does not gate on
+  `action.Effective` either - consistent with `ProcessSpending`, which is also
+  ungated (that flag is the EARNING channels' duplicate suppressor). The
+  unaffordable branch is a rate-limited Verbose, NOT a Warn: commit-stamped
+  earnings land at their recording's END UT while the exchange debit carries the
+  exchange's TRUE UT, so a mid-walk negative balance is the expected shape on a
+  legitimate ledger and the final totals are unaffected.
+
+**Review-batch follow-ups (2026-08-18, same branch).** Applied after the first
+build was reviewed; each closes a way the leak re-opened or a way the fix made
+noise:
+
+- **Migration retro-fill excluded.** `LedgerLoadMigration.MigrateOldSaveEvents`
+  converts with a NULL recording scope, so it matches every stored event
+  regardless of age and would retro-create a `StrategyScienceDebit` for an OLD
+  save's exchange - while that era's science EARNINGS are not reconstructible here
+  (they rode `PendingScienceSubjects`, never a `GameStateEvent`). Reconstructing
+  one half biases LOW and trips the drawdown-guard clamp + player toast on the
+  first load. `IsMigrationConvertibleEvent` excludes `ScienceChanged` on that path
+  ONLY; the KSC and commit doors keep converting. Pre-fix history stays pre-fix.
+- **Pending-adjustment mechanism added** (the third member of the family beside
+  the RnDTechResearch debit and the KSC science credit). On the LIVE-RECORDER
+  branch KSP debits the pool immediately while the ledger row lands only at
+  commit, so without it the drawdown guard fired `GUARDED UPLIFT clamped` - WARN
+  plus a player ScreenMessage - on every recalc for the rest of the flight, and
+  the rewind read-back's byte-identity broke.
+  `LedgerOrchestrator.ComputePendingUncommittedStrategyScienceDebit` +
+  `KspStatePatcher.AdjustSciencePatchTargetForPendingStrategyScienceDebit`, wired
+  into the same two call sites as the tech-research adjuster (the patch target and
+  `ComputePendingAdjustedRunningScience`). SHAPE DEVIATION, deliberate: the two
+  siblings window on `|evt.ut - nowUt| <= KscReconcileEpsilonSeconds` because
+  their races close within a frame; this race stays open until commit, so the
+  window is instead "observed-but-not-yet-ingested" and drains to zero when the
+  commit lands the row. Both sides are the same population, so an ownerless KSC
+  exchange cancels itself and a discard's re-homed untagged row cancels its
+  orphaned event.
+- **Discard door closed.** A flight-tagged exchange discarded on the NON-rewind
+  path lost its debit while KSP kept the science removed - the leak straight back
+  open. `PreserveIrreversibleLiveGameplayOnDiscard` now re-homes it through a
+  key-aware `IsIrreversibleLiveGameplayEvent(GameStateEvent)` overload, the same
+  shape contract terminals and milestones use. (The type-only overload's stale
+  "Science is handled separately" note is corrected there.)
+- **`RecalculationEngine.IsSpendingType` arm REMOVED.** It was inert for ordering
+  (`SortActions` keys its secondary level on `IsEarningType` only) and harmful for
+  pruning: `Ledger.Reconcile`'s spending branch drops any row with `UT > maxUT`
+  even when a valid `RecordingId` owns it, and a BUG-F-family cold load runs with
+  `maxUT = 0`, which would have permanently DELETED the debit.
+- **Coalescing identity now includes the event KEY.** `GameStateStore.AddEvent`
+  merged two same-type events within 0.1 s regardless of transaction reason, so an
+  exchange landing beside an unrelated same-type move could erase one reason and
+  fold the other's magnitude into it.
+- **`SupersedeCommit.IsWorldStateChangingRecordingAction`** gained an explicit
+  exclusion arm (the file warns twice that a new type falls through to
+  `return true`): the merge already retires these rows via
+  `IsSupersedeTombstoneEligible`, so a strict block would only refuse a merge over
+  a row that same merge is about to tombstone.
+
+**RESIDUAL: the dedup key disambiguates by AMOUNT, so two identical-amount
+exchanges at one frozen KSC UT still collapse.** `GetActionKey` gives
+`StrategyScienceDebit` a `RecordingId` + `Cost` key so distinct amounts survive
+`DeduplicateAgainstLedger` (pinned by a cell). Two exchanges of the SAME amount at
+the same UT still merge into one and one debit is lost. No ordinal was invented to
+close it: an ordinal would have to be stable across save/load and re-derivable at
+every producer, and nothing at that seam can supply one. Separately, the key
+governs the DEDUP path only - the direct KSC door (`OnKscSpending` straight from
+`GameStateRecorder`) performs no dedup at all.
+
+**RESIDUAL: a mid-recovery exchange costs the recovered science its recording
+attribution.** `GameStateRecorder.OnScienceChanged` clears
+`latestScienceChangeCapture` on any non-positive delta, which the exchange debit
+is. The clear itself is right (that cache is for POSITIVE subject awards and a
+stale capture would mis-attribute one) and is deliberately NOT changed here, but
+it is not free: an exchange firing between a recovery's `ScienceChanged` credit
+and its `OnScienceReceived` callbacks drops the `reasonKey` the capture carried,
+so `LedgerOrchestrator.ResolveKscScienceRecordingId` no longer sees
+`VesselRecovery` and the recovered science is credited UNTAGGED instead of to its
+recording. Interleave-dependent, science total unaffected, attribution lost.
 
 **NAMED RESIDUAL: only ONE DIRECTION PER CURRENCY is captured, and that is
 deliberate.** Today the carve-out captures funds OUT (`StrategyOutput`),

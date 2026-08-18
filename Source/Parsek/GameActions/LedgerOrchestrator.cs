@@ -593,11 +593,12 @@ namespace Parsek
                             deltas.EmittedSciDelta -= a.Cost;
                             break;
                         case GameActionType.StrategyScienceDebit:
-                            // ComputeEarningsWindowStoreDeltas sums EVERY in-window
-                            // ScienceChanged delta unconditionally, so without this
-                            // emitted-side arm a currency exchange landing inside a
-                            // flight commit window fires a false "missing earning
-                            // channel" science WARN.
+                            // ComputeEarningsWindowStoreDeltas sums every in-window
+                            // ScienceChanged delta that passes its RECORDING-SCOPE filter
+                            // (EventMatchesRecordingScope) regardless of the event's
+                            // reason key, so without this emitted-side arm a currency
+                            // exchange landing inside a flight commit window fires a false
+                            // "missing earning channel" science WARN.
                             deltas.EmittedSciDelta -= a.Cost;
                             break;
                     }
@@ -927,6 +928,20 @@ namespace Parsek
                 // case. The amount is the only available disambiguator. The funds leg
                 // (RecordingId alone, above) carries the un-disambiguated version of this
                 // same limitation and is deliberately left as-is.
+                //
+                // TWO HONEST LIMITATIONS of this key, both recorded as residuals on the
+                // STRATEGY-SCIENCE-CONVERSION-LEAK entry in docs/dev/todo-and-known-bugs.md:
+                //   (1) It disambiguates by AMOUNT, so two exchanges of the SAME amount at
+                //       the same frozen KSC UT still collapse into one and one debit is
+                //       lost. Distinct amounts survive (pinned by a dedup cell). No
+                //       ordinal is invented to close this: an ordinal would have to be
+                //       stable across save/load and re-derivable at every producer, and
+                //       nothing at this seam can supply one.
+                //   (2) It governs the DEDUP path only (DeduplicateAgainstLedger, used by
+                //       the discard re-home and the recovery migrations). The direct KSC
+                //       door - OnKscSpending straight from GameStateRecorder - performs no
+                //       dedup at all, so a stock double-fire of the same ScienceChanged
+                //       event would write two rows regardless of this key.
                 case GameActionType.StrategyScienceDebit:
                     return (a.RecordingId ?? "") + ":" +
                            a.Cost.ToString("R", CultureInfo.InvariantCulture);
@@ -3129,8 +3144,16 @@ namespace Parsek
         /// moment they happen and cannot be cleanly undone without a quicksave reload:
         /// contract terminal outcomes and world-record / progress milestone achievements.
         /// These must survive a recording discard (see
-        /// <see cref="PreserveIrreversibleLiveGameplayOnDiscard"/>). Science is handled
-        /// separately (it rides <c>PendingScienceSubjects</c>, not a GameStateEvent).
+        /// <see cref="PreserveIrreversibleLiveGameplayOnDiscard"/>).
+        ///
+        /// <para>Science EARNINGS are handled separately (they ride
+        /// <c>PendingScienceSubjects</c>, not a GameStateEvent) - see step 2 of
+        /// <see cref="PreserveIrreversibleLiveGameplayOnDiscard"/>. A science DEBIT from a
+        /// stock strategy currency exchange is NOT covered by this type-only overload
+        /// because <see cref="GameStateEventType.ScienceChanged"/> as a whole is not
+        /// irreversible (most of its reasons are); the key-aware
+        /// <see cref="IsIrreversibleLiveGameplayEvent(GameStateEvent)"/> overload picks
+        /// out the one reason that is.</para>
         /// </summary>
         internal static bool IsIrreversibleLiveGameplayEvent(GameStateEventType type)
         {
@@ -3138,6 +3161,39 @@ namespace Parsek
                 || type == GameStateEventType.ContractFailed
                 || type == GameStateEventType.ContractCancelled
                 || type == GameStateEventType.MilestoneAchieved;
+        }
+
+        /// <summary>
+        /// Key-aware form of <see cref="IsIrreversibleLiveGameplayEvent(GameStateEventType)"/>,
+        /// used by <see cref="PreserveIrreversibleLiveGameplayOnDiscard"/>. Adds exactly
+        /// one event beyond the type-only set: a NEGATIVE
+        /// <see cref="GameStateEventType.ScienceChanged"/> keyed
+        /// <c>TransactionReasons.StrategyInput</c> - the science INPUT leg of a stock
+        /// CurrencyExchanger (Patents Licensing; STRATEGY-SCIENCE-CONVERSION-LEAK).
+        ///
+        /// <para>Without this the leak re-opens through the DISCARD door: a flight-tagged
+        /// exchange's debit is only converted at commit, so discarding the recording on a
+        /// NON-rewind path (which has no quicksave to roll KSP back) drops the debit while
+        /// KSP keeps the science removed - the ledger runs high by the traded amount
+        /// exactly as it did before the fix. Re-homing it as an untagged
+        /// <see cref="GameActionType.StrategyScienceDebit"/> preserves what KSP already
+        /// applied, the same way a completed contract's terminal row is re-homed.</para>
+        ///
+        /// <para>Sign gate: only the debit direction is preserved. A non-negative
+        /// StrategyInput delta is not something KSP took away, and
+        /// <c>ConvertStrategyExchangeScience</c> returns null for it anyway.</para>
+        /// </summary>
+        internal static bool IsIrreversibleLiveGameplayEvent(GameStateEvent e)
+        {
+            if (IsIrreversibleLiveGameplayEvent(e.eventType))
+                return true;
+
+            return e.eventType == GameStateEventType.ScienceChanged
+                && string.Equals(
+                    e.key,
+                    GameStateEventConverter.StrategyInputReasonKey,
+                    StringComparison.Ordinal)
+                && e.valueAfter < e.valueBefore;
         }
 
         /// <summary>
@@ -3149,7 +3205,8 @@ namespace Parsek
         /// silent fund drop), or un-crediting collected science / achieved milestones.
         ///
         /// Re-homes the discarded recordings' tagged irreversible terminal events
-        /// (ContractCompleted/Failed/Cancelled, MilestoneAchieved) and their collected
+        /// (ContractCompleted/Failed/Cancelled, MilestoneAchieved, and a stock strategy
+        /// currency exchange's ScienceChanged(StrategyInput) debit) and their collected
         /// science subjects into DIRECT ledger actions (recordingId cleared), so the ledger
         /// keeps what KSP applied while the discard still drops the ghost / trajectory. The
         /// contract / milestone reward (funds / rep / science) rides the re-homed action
@@ -3192,7 +3249,7 @@ namespace Parsek
             // 1. Tagged irreversible terminal events from the discarded recordings ->
             //    direct ledger actions (ConvertEvent with recordingId=null clears the tag).
             var rehomed = new List<GameAction>();
-            int contractEvents = 0, milestoneEvents = 0;
+            int contractEvents = 0, milestoneEvents = 0, strategyExchangeEvents = 0;
             var storeEvents = GameStateStore.Events;
             for (int i = 0; i < storeEvents.Count; i++)
             {
@@ -3206,7 +3263,7 @@ namespace Parsek
                 // keeps committed history out of the re-home input entirely.)
                 if (RecordingStore.IsCommittedRecordingId(e.recordingId))
                     continue;
-                if (!IsIrreversibleLiveGameplayEvent(e.eventType))
+                if (!IsIrreversibleLiveGameplayEvent(e))
                     continue;
 
                 var action = GameStateEventConverter.ConvertEvent(e, recordingId: null);
@@ -3214,6 +3271,7 @@ namespace Parsek
                     continue;
                 rehomed.Add(action);
                 if (e.eventType == GameStateEventType.MilestoneAchieved) milestoneEvents++;
+                else if (e.eventType == GameStateEventType.ScienceChanged) strategyExchangeEvents++;
                 else contractEvents++;
             }
 
@@ -3289,6 +3347,7 @@ namespace Parsek
                 $"{rehomed.Count.ToString(CultureInfo.InvariantCulture)} direct action(s) " +
                 $"(contract={contractEvents.ToString(CultureInfo.InvariantCulture)}, " +
                 $"milestone={milestoneEvents.ToString(CultureInfo.InvariantCulture)}, " +
+                $"strategyExchange={strategyExchangeEvents.ToString(CultureInfo.InvariantCulture)}, " +
                 $"science={scienceSubjectCount.ToString(CultureInfo.InvariantCulture)}, " +
                 $"deduped={deduped.ToString(CultureInfo.InvariantCulture)}, " +
                 $"subjectsRemoved={subjectsRemoved.ToString(CultureInfo.InvariantCulture)}) " +
@@ -4287,6 +4346,108 @@ namespace Parsek
                 GameStateStore.Events,
                 Ledger.Actions,
                 GetNowUT());
+        }
+
+        /// <summary>
+        /// Pure helper for the LIVE-RECORDER strategy currency-exchange race - the third
+        /// member of the pending family beside
+        /// <see cref="ComputePendingRecentKscTechResearchScienceDebit"/> and
+        /// <see cref="ComputePendingRecentKscScienceCredit"/>.
+        ///
+        /// <para>When a stock CurrencyExchanger fires while a flight recorder owns the
+        /// event (Patents Licensing converting science earned mid-flight), KSP debits the
+        /// pool IMMEDIATELY but the matching
+        /// <see cref="GameActionType.StrategyScienceDebit"/> row only lands at recording
+        /// COMMIT. In between, the reconstruction's running balance sits ABOVE live and
+        /// the drawdown guard fires "GUARDED UPLIFT clamped" (WARN + a player
+        /// ScreenMessage) on every recalc for the rest of the flight, and the rewind
+        /// read-back's byte-identity against the patch discriminator breaks.</para>
+        ///
+        /// <para>SHAPE DEVIATION from the two siblings, deliberate: they window on
+        /// <c>|evt.ut - nowUt| &lt;= KscReconcileEpsilonSeconds</c> because their races
+        /// close within a frame (a KSC door writes its row synchronously). This race stays
+        /// open until commit, which can be an hour of flight later, so a recent-UT window
+        /// would never see it. The window here is instead
+        /// "observed-but-not-yet-ingested": every stored StrategyInput science debit minus
+        /// every <see cref="GameActionType.StrategyScienceDebit"/> already in the ledger.
+        /// It therefore drains to zero the moment the commit lands the row.</para>
+        ///
+        /// <para>BOTH SIDES ARE THE SAME POPULATION (tagged and untagged alike), for the
+        /// same reason <see cref="ComputePendingRecentKscScienceCredit"/> does not filter
+        /// its committed side on <c>RecordingId</c>: an ownerless KSC-door exchange writes
+        /// its row synchronously, so it appears on both sides and cancels to zero - the
+        /// recording-TAGGED exchange is the only population that can produce a nonzero
+        /// result. Keeping the populations symmetric is also what makes the unbounded
+        /// window safe across a DISCARD: a non-rewind discard re-homes the debit as an
+        /// UNTAGGED row (<see cref="PreserveIrreversibleLiveGameplayOnDiscard"/>), which
+        /// stays on the committed side and cancels the orphaned event.</para>
+        ///
+        /// <param name="visibilityFilter">Optional per-event gate. Production passes
+        /// <c>GameStateStore.IsEventVisibleToCurrentTimeline</c> so a retired timeline's
+        /// events cannot hold a phantom adjustment open; tests pass null.</param>
+        /// </summary>
+        internal static double ComputePendingUncommittedStrategyScienceDebit(
+            IReadOnlyList<GameStateEvent> events,
+            IReadOnlyList<GameAction> ledgerActions,
+            Func<GameStateEvent, bool> visibilityFilter = null)
+        {
+            double observedDebit = 0.0;
+            if (events != null)
+            {
+                for (int i = 0; i < events.Count; i++)
+                {
+                    var evt = events[i];
+                    if (evt.eventType != GameStateEventType.ScienceChanged)
+                        continue;
+                    if (!string.Equals(
+                            evt.key,
+                            GameStateEventConverter.StrategyInputReasonKey,
+                            StringComparison.Ordinal))
+                    {
+                        continue;
+                    }
+                    if (evt.valueAfter >= evt.valueBefore)
+                        continue;
+                    if (visibilityFilter != null && !visibilityFilter(evt))
+                        continue;
+
+                    observedDebit += evt.valueBefore - evt.valueAfter;
+                }
+            }
+
+            if (observedDebit <= 0.1)
+                return 0.0;
+
+            double committedDebit = 0.0;
+            if (ledgerActions != null)
+            {
+                for (int i = 0; i < ledgerActions.Count; i++)
+                {
+                    var action = ledgerActions[i];
+                    if (action == null)
+                        continue;
+                    if (action.Type != GameActionType.StrategyScienceDebit)
+                        continue;
+
+                    committedDebit += action.Cost;
+                }
+            }
+
+            double pendingDebit = observedDebit - committedDebit;
+            return pendingDebit > 0.1 ? pendingDebit : 0.0;
+        }
+
+        /// <summary>
+        /// Live wrapper over <see cref="ComputePendingUncommittedStrategyScienceDebit"/>.
+        /// Passes the current GameStateStore / ledger state and the current-timeline
+        /// visibility gate.
+        /// </summary>
+        internal static double GetPendingUncommittedStrategyScienceDebit()
+        {
+            return ComputePendingUncommittedStrategyScienceDebit(
+                GameStateStore.Events,
+                Ledger.Actions,
+                GameStateStore.IsEventVisibleToCurrentTimeline);
         }
 
         /// <summary>

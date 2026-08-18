@@ -231,8 +231,10 @@ namespace Parsek
         /// <summary>
         /// Converts a single GameStateEvent to a GameAction.
         /// Returns null for event types that have no GameAction equivalent
-        /// (FundsChanged, ScienceChanged, ReputationChanged, CrewStatusChanged,
-        /// CrewRemoved, ContractOffered, ContractDeclined, FacilityDowngraded).
+        /// (CrewStatusChanged, CrewRemoved, ContractOffered, ContractDeclined,
+        /// FacilityDowngraded). FundsChanged / ReputationChanged / ScienceChanged
+        /// return null for every reason EXCEPT their one strategy currency-exchange
+        /// carve-out each - see the comment block on those three cases below.
         /// </summary>
         internal static GameAction ConvertEvent(GameStateEvent evt, string recordingId)
         {

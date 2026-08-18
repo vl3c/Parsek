@@ -1110,9 +1110,16 @@ namespace Parsek.Tests
             module.ProcessAction(debit);
 
             Assert.Equal(-98.84, module.GetRunningScience(), 2);
+            // The unaffordable case is a rate-limited VERBOSE, not a Warn: on a
+            // legitimate ledger a commit-stamped earning lands at its recording's END UT
+            // while the exchange debit carries the exchange's TRUE UT, so the walk
+            // routinely dips negative here and a Warn would fire as routine noise.
             Assert.Contains(logLines, l =>
+                l.Contains("[VERBOSE]") &&
                 l.Contains("[ScienceModule]") &&
-                l.Contains("StrategyScienceDebit NOT affordable"));
+                l.Contains("StrategyScienceDebit ahead of its earnings"));
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("[WARN]") && l.Contains("StrategyScienceDebit"));
             // Affordable is the tech-node contract KspStatePatcher reads; this row is
             // not a tech node and must never claim it.
             Assert.False(debit.Affordable);
@@ -1134,7 +1141,8 @@ namespace Parsek.Tests
             Assert.Contains(logLines, l =>
                 l.Contains("[ScienceModule]") &&
                 l.Contains("StrategyScienceDebit: cost="));
-            Assert.DoesNotContain(logLines, l => l.Contains("StrategyScienceDebit NOT affordable"));
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("StrategyScienceDebit ahead of its earnings"));
         }
 
         [Fact]

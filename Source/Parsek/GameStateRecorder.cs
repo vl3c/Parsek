@@ -565,14 +565,27 @@ namespace Parsek
             // fix-bailout-grant-currency-exchange-capture.md and the
             // STRATEGY-SCIENCE-CONVERSION-LEAK entry in docs/dev/todo-and-known-bugs.md.
             //
-            // Ordering invariant: this call MUST follow the Emit(...ScienceChanged)
-            // above so OnKscSpending -> ReconcileKscAction can pair the action against
-            // the just-emitted event in GameStateStore.
+            // Ordering invariant: this call MUST follow the Emit(...ScienceChanged) above
+            // so the event is IN GameStateStore before OnKscSpending's downstream reads.
+            // NOT for ReconcileKscAction pairing - ClassifyAction returns Transformed for
+            // StrategyScienceDebit and the reconcile short-circuits before any leg is
+            // matched, so no pairing ever happens. What DOES read the store synchronously
+            // inside this call is OnKscSpending's recalc tail:
+            // ComputePendingUncommittedStrategyScienceDebit (which must see this event to
+            // net it against the row being written) and ComputeEarningsWindowStoreDeltas.
             //
             // Two live traps, both intentional: this method early-returns above when
             // |delta| < ScienceThreshold (0.001), so a sub-milli-point exchange is not
-            // captured at all; and a negative delta clears latestScienceChangeCapture,
-            // which is correct - that cache exists for POSITIVE subject awards only.
+            // captured at all; and a negative delta CLEARS latestScienceChangeCapture.
+            // The clear is kept (that cache is for POSITIVE subject awards and a stale
+            // capture would mis-attribute one), but it is not free: an exchange firing
+            // between a recovery's ScienceChanged credit and its OnScienceReceived
+            // callbacks drops the reasonKey the capture carried, so
+            // LedgerOrchestrator.ResolveKscScienceRecordingId no longer sees
+            // VesselRecovery and the recovered science loses its recording attribution
+            // (it stays credited, untagged). Recorded as a residual on the
+            // STRATEGY-SCIENCE-CONVERSION-LEAK entry in docs/dev/todo-and-known-bugs.md;
+            // not changed here.
             if (reason == TransactionReasons.StrategyInput &&
                 ShouldForwardDirectLedgerEvent(sciEvt.recordingId, HasLiveRecorder()))
                 LedgerOrchestrator.OnKscSpending(sciEvt);

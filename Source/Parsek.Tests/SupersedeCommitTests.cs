@@ -181,13 +181,14 @@ namespace Parsek.Tests
             // neither strict-blocks nor retry-blocks an auto-seal.
             yield return new object[] { GameActionType.KerbalExperience, false, false };
             // StrategyScienceDebit (STRATEGY-SCIENCE-CONVERSION-LEAK): a ledger-only
-            // science debit from a stock currency-exchange strategy. Matches the
-            // ScienceSpending row exactly - it is a KSC-scene player action that cannot
-            // reach the retry gate with a flight-recording tag (Emit stamps a tag only in
-            // FLIGHT with a live recorder), so it never auto-seals a Re-Fly retry; but it
-            // has no route-style exclusion in IsWorldStateChangingRecordingAction, so the
-            // legacy strict gate still observes it for audit / reconciliation callers.
-            yield return new object[] { GameActionType.StrategyScienceDebit, false, true };
+            // science debit from a stock currency-exchange strategy. Neither gate blocks.
+            // Retry: IsRetryBlockingRecordingAction is ScienceEarning-only, so it was
+            // never retry-blocking. Strict: an EXPLICIT exclusion arm in
+            // IsWorldStateChangingRecordingAction (a new type would otherwise fall
+            // through to `return true`) - the merge itself already retires these rows via
+            // IsSupersedeTombstoneEligible, so a strict block would only refuse a merge
+            // over a row that same merge is about to tombstone.
+            yield return new object[] { GameActionType.StrategyScienceDebit, false, false };
         }
 
         [Fact]
