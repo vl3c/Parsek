@@ -14,6 +14,31 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## STRATEGY-PREFIX-HOLDBACK-PERMANENT: on a pre-fix save, an exchanger event with no matching row holds back the pending science adjustment forever [FILED 2026-08-19 off the strategy-multi-live session. NOT FIXED - small follow-up]
+
+`ComputePendingUncommittedStrategyScienceDebit` nets the observed population
+(stored `ScienceChanged`/`StrategyInput` events) against the ingested one
+(committed `StrategyScienceDebit` rows). On a save whose exchange predates the
+capture fix (PR #1483), the event exists but the row never will, so the
+adjustment holds the patch target back by the take on EVERY recalc and the
+drawdown guard clamps each time. Measured live: the test career's original
+`researchIPsellout` exchange holds back exactly 108.84 science permanently
+(collected snapshot `logs/2026-08-19_0002_strategy-multi-live`, the 00:01:23
+`PatchScience: GUARDED DRAWDOWN clamped` line; the rework build report predicted
+this residual verbatim). Cosmetic only - the guard preserves live values and
+post-fix careers are unaffected - but it is unbounded WARN noise on any pre-fix
+save that ever ran an exchanger strategy.
+
+**Fix shape:** bound the observed side so an event that can no longer gain a row
+stops counting - either an age gate (event older than the current session and no
+matching row after a full recalc means the row is unrecoverable) or a one-time
+load-sweep reconciliation that marks such events adjusted. Do NOT widen the
+guard or suppress the WARN generically; the clamp is correct, the pending
+adjustment is what overstays. Test: a store carrying a pre-fix-shaped
+`StrategyInput` event with no row must produce zero pending adjustment after the
+bound, while a fresh in-session event still produces the full hold-back
+(the L3 lane's cells cover the fresh case).
+
 ## REAIM-SOLVED-INCLINATION-IS-UNCORRELATED-WITH-TARGET-INCLINATION: the four-lane tilt table [MEASURED 2026-08-17, NOT A DEFECT]
 
 **READ THIS BEFORE GENERALISING FROM A SINGLE LANE'S TILT READING.**
