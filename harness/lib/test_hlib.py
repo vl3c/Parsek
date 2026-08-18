@@ -5023,7 +5023,18 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
         # is why the structure block is absent rather than guessed. NOTHING is
         # armed. Promotion is the post-measurement re-pinning call, a recorded
         # human decision, not a debt this tag would name.
-        "B23-ike-orbit.toml":               "calibration-discipline - first flight of the machine's new ORBIT-START entry door AND of the suite's first non-Kerbin-rooted recording; the recordings window is a derived range, the Ike arrival periapsis and the two-tree produced-save topology are unmeasured, and nothing is armed. Promotion waits on the re-pin, not on outstanding work",
+        "B23-ike-orbit.toml":               "calibration-discipline - LIVE-PROVEN 2026-08-18 on FLIGHT 2 (`_2308`, PASS attempt 1, wall 370.5 s): fresh standalone Duna-rooted tree, one Duna->Ike boundary, terminal Orbiting/Ike, produced save harvested as the committed `ike-orbit-recorded` fixture. FLIGHT 1 (`_2242`) was ALSO PASS attempt 1 on the same parameters and produced a structurally wrong subject (the seam StartRecording no-opped onto a re-resumed COMMITTED recording), which no verifier could see - fixed by the fixture, filed report-only. Nothing armed: the count window is still a derived range and no save-structure block is declared. Operator tier is now the ordinary promotion call plus the arming pass, not outstanding work",
+        # THE V14 PAIR, and they are operator for the same calibration discipline for a
+        # reason that is theirs alone: they are the FIRST loop lanes whose subject is not
+        # rooted at Kerbin (B23's Duna->Ike recording), and the first to reach a TIDALLY
+        # LOCKED constraint pair - Rotation(Duna) 65,517.859375 s against Orbital(Ike)
+        # 65,517.862350 s, |dP| 0.002975 s inside a 0.065518 s equality band. That predicts a
+        # routing outcome (`method=tidal-collapse`, `zeroDrift=no`, a uniform one-period
+        # cadence) NO existing lane has measured, so every bracket UT in both specs is a
+        # derived CALIBRATION SEED rather than a pin, and both ship with nothing armed and
+        # only the ERROR floor forbidden. Promotion is the post-reading arming call.
+        "V14M-ike-player-loop.toml":         "calibration-discipline - iteration-1 READING RUN on the V6M/V8/V11 pattern, never flown; the TimeJump brackets are derived from a solver branch this pair is the first to reach (tidal-collapse predicts phaseAnchorUt 9,225,915.966 and a uniform 65,517.862 s cadence), nothing is armed, and V6M's re-aim forbid trio + backward-jump token are deliberately UNFORBIDDEN so a surprising routing is recorded rather than red. Promotion waits on the arming pass, not on outstanding work",
+        "V14T-ike-ts-arrival.toml":          "calibration-discipline - the TS half of the same iteration-1 reading pair, never flown; V6T's chain verbatim (re-kill pair included) against a fixture whose shape makes V5's promotion-recorder re-arm race more likely, with V6T's `body=X scene=TRACKSTATION` proto pin and `reaimed=False` mode pin deliberately NOT required until measured. Promotion waits on the arming pass, not on outstanding work",
         # V11 is a pure READING RUN in V9's original posture: nothing armed
         # beyond the plumbing triple, count window deliberately wide, and the
         # decline reasons V9 forbids left UNFORBIDDEN here on purpose -- if

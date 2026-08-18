@@ -14,7 +14,7 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
-## SEAM-STARTRECORDING-JOINS-COMMITTED-TREE: a seam `StartRecording` on a vessel that is a committed tree's own launch cannot open a standalone tree - it no-ops onto the recording the committed-restore path re-resumed [MEASURED 2026-08-18 by `B23-ike-orbit` flight 1. REPORT-ONLY: a HARNESS/FIXTURE constraint on the automation surface, NOT a proposed product change]
+## SEAM-STARTRECORDING-JOINS-COMMITTED-TREE: a seam `StartRecording` on a vessel that is a committed tree's own launch cannot open a standalone tree - it no-ops onto the recording the committed-restore path re-resumed [MEASURED 2026-08-18 by `B23-ike-orbit` flight 1; WORKAROUND LIVE-PROVEN the same day by flight 2. REPORT-ONLY: a HARNESS/FIXTURE constraint on the automation surface, NOT a proposed product change]
 
 `B23-ike-orbit` exists to produce the suite's first recording whose LAUNCH BODY
 is not Kerbin: the DD1 starts already parked in Duna orbit and hops to Ike, so the
@@ -104,13 +104,35 @@ the byte-level "no `Parsek/` and no scenario children" check, and the count
 arithmetic), because a one-string revert would restore the defect with every
 verifier still green.
 
-**NO PRODUCT CHANGE IS PROPOSED BY THIS LANE.** The observed behaviour is
+**THE WORKAROUND IS LIVE-PROVEN, and the proof is the same day's flight 2.** Run
+`2026-08-18_2308` (PASS attempt 1, mission wall 370.5 s, zero Unity exceptions)
+flew the identical spec against `duna-park-probe` and the seam answered
+
+    startrecording recordingId=05ceee33806d4079a1d9d125a1359115 already=false
+
+(KSP.log line 10509 in `harness/results/2026-08-18_2308_B23-ike-orbit_shots`) -
+`already=FALSE`, the exact inversion of flight 1's line, and the whole point of
+the strip. It minted a FRESH STANDALONE tree
+`f55918afd70b45e284006e01729d9e9a`, crossed the boundary exactly once (`SOI change
+boundary suppressed in tree mode: Duna to Ike`, 11176), and committed with
+`CommitTreeFlight terminal: rec=05ceee33... terminalState=Orbiting
+terminalOrbitBody=Ike` (11863). saveParse on the produced save: ONE recording, 200
+points, zero supersede / tombstone / rewind rows. That save is now the committed
+`ike-orbit-recorded` fixture, and its one-recording topology is pinned in
+`harness/lib/test_saveparse.py::CommittedFixtureSweepTests.RECORDED_FIXTURES` -
+where a 2 or a 3 would mean this defect is back.
+
+So the entry stands as a CONSTRAINT with a proven workaround, not as an open
+problem. **NO PRODUCT CHANGE IS PROPOSED BY THIS LANE.** The observed behaviour is
 arguably correct - a committed tree's vessel IS still that recording's subject,
 and silently forking a standalone tree on top of it would be its own hazard. What
 is recorded here is (a) the automation-surface constraint, so the next spec author
-does not spend a flight rediscovering it, and (b) the fact that a committed
-recording can legally span a multi-million-second gap, which is a property any
-future consumer of committed spans should not assume away.
+does not spend a flight rediscovering it, (b) the fact that a committed recording
+can legally span a multi-million-second gap, which is a property any future
+consumer of committed spans should not assume away, and (c) the shape of the fix,
+which is a two-step fixture derivation and NOT a spec re-ordering: no arrangement
+of the seam steps closes the window, because the re-resume happens before any step
+can run.
 
 ---
 
