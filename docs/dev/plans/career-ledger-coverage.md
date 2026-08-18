@@ -4,7 +4,12 @@ Status: **IN PROGRESS.** **Phase A is COMPLETE** and committed on
 `career-ledger-lane` (A.0's fixture + replay test + the adjudication below, A.1's
 synthetic ordering pin, the A.2-A.5 parser + report-only diff facets, and A.6's
 un-deferred L1 roster assertion, LIVE-PROVEN on run
-`2026-08-17_2049_L1-dismiss-kerbal-career`). Phases B onward are open.
+`2026-08-17_2049_L1-dismiss-kerbal-career`). **Phase B is COMPLETE** on
+`career-ledger-phase-b`: B.1's reading run, B.2's arming + two negative controls +
+armed run (`2026-08-17_2233`), B.3's per-claim cells, and B.4's per-scenario strict
+seam - which ships settable and DELIBERATELY UNARMED, with the subject that would
+make it non-vacuous named in 4c. D8 `ground-truth-harness` is closed. Phases C
+onward are open (C is largely obsolete - see below).
 
 Rev 3 adds the `c2` subject (a short career played 2026-08-17 on current code,
 specifically to exercise the ledger) and the candidate strategy-conversion gap it
@@ -113,7 +118,18 @@ its three numbers did not survive.
 - **Science - CONFIRMED live defect.** The reconstruction runs
   `+108.84171851920314` HIGH against the save (`recon 750.632` vs `save 641.790`).
   Filed as **STRATEGY-SCIENCE-CONVERSION-LEAK** in
-  `docs/dev/todo-and-known-bugs.md`.
+  `docs/dev/todo-and-known-bugs.md`. **FIXED 2026-08-18 on
+  `strategy-science-leak-fix`, capture-side, LIVE PROOF PENDING** - the
+  `TransactionReasons.StrategyInput` forward in `GameStateRecorder.OnScienceChanged`,
+  `GameStateEventConverter.ConvertStrategyExchangeScience`, and the new
+  `GameActionType.StrategyScienceDebit = 32`. c2's `ledger.pgld` is FROZEN PRE-FIX
+  DATA that a capture-side fix cannot retro-fill, so both C2 cells (the structural
+  one and the `108.84171851920314` magnitude pin) stay GREEN and UNCHANGED; they
+  flip only on a post-fix re-harvest. That todo entry is the single authority for
+  the fix shape, the pending live proof, and the named residuals (only one
+  direction per currency is captured; identical-amount same-UT exchanges collapse
+  under the dedup key; a mid-recovery exchange costs the recovered science its
+  recording attribution).
 - **Reputation - small real divergence, noted not chased.** `d = -0.0036`, above
   float32 print noise at that magnitude but far below display precision. Pinned as
   a `0.01` window rather than a value; recorded as a secondary observation on the
@@ -217,15 +233,135 @@ The brief's part 1. No new fixture, no new C#.
 
 | # | Task | Cost | Gates? |
 | --- | --- | --- | --- |
-| B.1 | **Reading run:** drive the `LedgerGroundTruth` category against the committed `career-pad-craft`, report-only. Confirms the category executes rather than skips, and produces the measured tally. | M | no (reading) |
-| B.2 | **Armed run + negative control**, tally pinned from B.1. Claims D8 `ground-truth-harness`. | M | **yes** |
-| B.3 | **Per-claim unit cell** for the claimed cell, in the style of `Cl2CoverageClaimTests`. The six L1 specs and B10 lack these; do not repeat that. | S | **yes** |
-| B.4 | **Strict mode.** B.1's report-only output *is* the evidence the brief asked for. Make `StrictPerIdentityForTesting` settable per-scenario and arm only if B.1's divergences are all explainable. | M | **yes** |
+| B.1 **DONE 2026-08-17** | **Reading run:** drive the `LedgerGroundTruth` category against the committed `career-pad-craft`, report-only. Confirms the category executes rather than skips, and produces the measured tally. **Shipped as `harness/scenarios/L2-ledger-groundtruth-career.toml`; LIVE-PROVEN on run `2026-08-17_2202_L2-ledger-groundtruth-career` (PASS attempt 1, 75 s, every verifier PASS/REPORT). Findings in 4b below.** | M | no (reading) |
+| B.2 **DONE 2026-08-18** | **Armed run + negative control**, tally pinned from B.1. Claims D8 `ground-truth-harness`. **Shipped: `[expectations.ledger]` (empty manifest, expected == seed), `[expectations.unityExceptions] maxTotal = 0` (+ the `test_hlib` armed-allowlist row), a second required token `result: hardFailures=0 reportOnly=0 facetsCompared=7 strict=False`, and the D8 claim worded "the non-circular recalc-vs-save loop closes unattended". TWO negative controls, both red as predicted: `2026-08-17_2228` PARSEK-FAIL(ledger) on a bogus 12345 funds manifest entry (`ledger-drift facet=funds expected=512345.0 parsed=500000.0`), `2026-08-17_2231` PARSEK-FAIL(expectation) on `facetsCompared=9`. ARMED RUN `2026-08-17_2233` PASS attempt 1, 59 s, every verifier PASS/REPORT with all gates live.** | M | **yes** |
+| B.3 **DONE 2026-08-18** | **Per-claim unit cell** for the claimed cell, in the style of `Cl2CoverageClaimTests`. The six L1 specs and B10 lack these; do not repeat that. **Shipped as `harness/lib/test_l2_ledger_groundtruth.py` (21 cells, 5 classes): the claim exists in the registry and is backed by BOTH required tokens; the scope fence is written as "every OTHER D8 value stays unclaimed" so a registry that grows a value needs no edit; the armed blocks are checked through `hlib.validate_ledger_expectations` / `capture_cross_check_gates`; the B.4 strict fence is pinned per-spec.** | S | **yes** |
+| B.4 **DONE 2026-08-18, ARMING DEFERRED** | **Strict mode.** Made `StrictPerIdentityForTesting` settable per-scenario through a new `strict` arg on the `RunTests` seam verb (`TestCommandRunTests.TryParseStrictArg`, `TryParseIsolatedArg`'s contract verbatim; the addon assigns the static UNCONDITIONALLY before `RunBatchSelector`, so absent = default and no batch inherits a previous one's strictness, and the three AUTORUN dispatches in `TestRunnerShortcut` reset it to `false` before their own batch so the same holds for an autorun batch that never touches the seam; the hand-driven buttons are out of scope by decision - review follow-up 2026-08-18). Deliberately NOT a `SettingWhitelist` entry - every name in that table is a real player-visible `ParsekSettings` field, and a diff-strictness knob that only one in-game category reads is a test seam, not a preference. Harness side: one row in `hlib.VERB_SCOPED_CLOSED_ARGS` gives it the same pre-launch spelling gate `isolated` / `scene` / `site` have. **NO COMMITTED SPEC ARMS IT** - see the deferral below. | M | **yes** |
 
 Wiring note: `CommittedBatchTallySourceSyncTests` discovers owners from disk and
 needs **no edit** (rev 1 named an edit that does not exist). If the new spec takes
 an H-series id, `IngameBatchWiringGroupTests.GROUP` needs a row **and** its
 anti-vacuity floor `assertEqual(24, len(GROUP))` must be bumped.
+
+### 4b. What B.1 measured (2026-08-17), and what it does to B.2/B.4
+
+Run `2026-08-17_2202_L2-ledger-groundtruth-career`, PASS attempt 1, 75 s wall,
+every verifier PASS or REPORT. Four things came out of it, and two of them change
+the shape of the tasks that follow.
+
+1. **THE CATEGORY HAS TWO DECLARATIONS, NOT ONE.** Rev 3 (and the B.1 brief) said
+   `LedgerGroundTruth` holds exactly one `[InGameTest]`. It holds two: the harness
+   cell plus `KerbalExperienceReassertTest.SurvivingCareerLogEntriesAreOnTheLiveRoster`
+   (P9a), whose own XML doc says it chose the category *"deliberately - no committed
+   harness spec pins that category's tally, so this cell does not move a pinned
+   `BATCH_COMPLETE` number"*. That premise is now retired: the category is pinned.
+   `CommittedBatchTallySourceSyncTests` caught the error locally, before any flight.
+   Measured tally: `total=2 passed=1 failed=0 skipped=1 category=LedgerGroundTruth
+   scene=FLIGHT`. The P9a cell skips correctly (no `KerbalExperience` rows in the
+   ELS on a fixture with no recorded crewed recovery).
+
+2. **The category EXECUTES rather than skips, and the loop closes.** The harness
+   cell cleared all six run-time guards in 35.9 ms: quicksave (101,259 bytes),
+   independent re-parse off disk, `RecalculateAndPatch` over the fixture's 2-action
+   ledger, then `Compare: result divergences=0 hardFailures=0 reportOnly=0
+   facetsCompared=7 strict=False`. Seeded pools all `delta=0`
+   (funds 500000, science 100, rep 0), vessel pid sets matched. **Zero divergences
+   of any kind** - so there is no triage backlog blocking B.2.
+
+3. **B.4 STRICT MODE ADDS NO VALUE-DRIFT COVERAGE ON THIS FIXTURE.**
+   `StrictPerIdentityForTesting` promotes report-only divergences to hard failures.
+   `reportOnly=0`, so on `career-pad-craft` there is nothing to promote and arming it
+   here buys no coverage for a value-drift regression. It would still catch a
+   *recon-invents-an-identity* regression (a phantom is fixture-independent), so the
+   gate is not inert - the deferral is about the thin SUBJECT. B.4 is not
+   *blocked* - it is **mis-targeted**. It needs a subject with populated
+   per-identity facets, which on current evidence means c2, and c2 is committed
+   headless-only (decision 2) with an unanswered focusability question for harness
+   promotion. Recommend B.4 be re-scoped to "make the flag settable per-scenario
+   AND name the subject that makes it non-vacuous", or deferred behind that subject.
+
+4. **The subject is thin, and B.2's D8 claim must be worded to match.** Of the 7
+   compared facets only the three seeded pools are genuinely two-sided. Per-subject
+   science compares 0 against 0. Facilities, roster and researched-tech compare an
+   EMPTY delta-only reconstruction against a populated save (`reconFacilities=0
+   saveFacilities=10`; `saveUnlocked=1 reconResearched=0
+   unlockedNotClaimedByRecon=1` - the documented delta-only direction, counted not
+   emitted). Contracts, milestones, recovery credits and kerbal career logs SKIP
+   outright for want of a facet. What B.2 can honestly claim for D8
+   `ground-truth-harness` is that **the loop runs end to end unattended and closes
+   on a clean career** - not that rich-career facet accuracy is gated. One further
+   caveat found while reading: `PatchReputation: module has no ReputationInitial
+   seed - skipping to preserve KSP values`, so the rep facet's 0-vs-0 agreement is
+   not evidence that a rep drift would be caught here.
+
+**Two things B.1 deliberately did NOT do**, both because doing them is arming and
+B.1 is reading. (a) No `[expectations.ledger]` block: the M-B2 oracle has no
+report-only mode (a hard pool drift classifies `PARSEK-FAIL(ledger)` outright), and
+this cell patches then restores the live pools, which is exactly the interaction
+the reading run existed to observe. Measured: the patch is a no-op here
+(`PatchScience: balance unchanged (current=100.0, target=100.0)`) and the produced
+save came out at the seed, so B.2 can arm it - with the inert-rep-half caveat above.
+(b) No `[expectations.unityExceptions]` ceiling: the block is armed-only and its
+armed set is a hardcoded allowlist in `harness/lib/test_hlib.py` (then 14, now 15), so
+declaring one is an allowlist edit. Measured report-only: `total=0` across all four
+counted classes. That is one reading, the first half of what an armed 0 needs.
+
+### 4c. What B.2-B.4 shipped (2026-08-18), and the one thing left open
+
+**The arming.** L2 now carries three gates and one claim, each naming the B.1
+measurement it stands on: `[expectations.ledger]` with an EMPTY manifest (expected
+== seed, on B.1's measured no-op patch), `[expectations.unityExceptions] maxTotal =
+0` (on B.1's measured `total=0`, plus an allowlist row in `harness/lib/test_hlib.py`
+recording that this is the table's THINNEST sample - ONE reading at arming time,
+n=4 now that the three arming flights have also read 0 - and why the eleven-zero
+same-boot-shape family is the borrowed other half), a second required token `result:
+hardFailures=0 reportOnly=0 facetsCompared=7 strict=False`, and D8
+`ground-truth-harness` worded exactly as 4b's finding 4 permits.
+
+**The negative controls, both mandatory and both red.** They are recorded here as
+well as in the spec because a control that is only described in the thing it
+validates is not evidence.
+
+| Run | What was broken | Measured |
+| --- | --- | --- |
+| `2026-08-17_2228` | one bogus manifest entry (`funds = 12345.0`) on the empty manifest | `PARSEK-FAIL(ledger)`, `ledger-drift facet=funds expected=512345.0 parsed=500000.0`, `ledgerOracle status=FAIL hardDivergences=1` |
+| `2026-08-17_2231` | `facetsCompared=7` -> `9` in the required `result:` token | `PARSEK-FAIL(expectation)`, `logContracts.required not matched: result: hardFailures=0 reportOnly=0 facetsCompared=9 strict=False` |
+
+The armed run is `2026-08-17_2233`, PASS attempt 1, 59 s, every verifier PASS or
+REPORT with all three gates live.
+
+**The four flights ran TWO DLLs**, corrected here because an earlier draft claimed
+one. B.1 (`2026-08-17_2202`) flew the **pre-B.4 DLL**: its log reads `runtests start
+category=LedgerGroundTruth isolated=false` with no `strict=` token, because the seam
+did not exist yet. The three arming flights (`_2228`, `_2231`, `_2233`) flew the
+**B.4 DLL** - built from this branch, deployed by `provision.py --profile
+stock-minimal`, grep-verified in the automation instance (`TryParseStrictArg` utf8=1,
+`strict-arg-invalid` utf16=3), and confirmed on each of the three by the new
+`runtests start ... isolated=false strict=false` echo. Both measured surfaces came out
+IDENTICAL across the two DLLs - the `BATCH_COMPLETE v1 total=2 passed=1 failed=0
+skipped=1` tally and the `result: hardFailures=0 reportOnly=0 facetsCompared=7
+strict=False` line - which is itself evidence that the B.4 change did not perturb the
+surface these gates measure.
+
+**STRICT ARMING IS DEFERRED, and the subject is named.** `StrictPerIdentityForTesting`
+is now settable per scenario (`RunTests strict="true"`), unit-covered end to end
+headlessly, and armed by NOTHING. On current evidence the subject that would make it
+non-vacuous is **c2 promoted to a harness fixture** - which has an open focusability
+question (section 2b) and is today committed headless-only - **or any future career
+fixture carrying recorded crewed recoveries**. `career-pad-craft` is not that
+subject and cannot become one by being re-flown: B.1 measured `reportOnly=0`, so
+strict there adds no coverage for a value-drift regression - there is nothing to
+promote. It would still catch a recon-invents-an-identity regression, so the gate is
+not inert; the deferral stands because the subject is thin. Two mechanical
+fences hold the deferral: `test_hlib.test_no_committed_spec_arms_the_runtests_strict_arg`
+(lane-wide) and L2's own pinned `strict=False` token (per-spec).
+
+**Tier discipline used, and reusable.** The spec shipped `tier = "operator"` for
+exactly as long as its `BATCH_COMPLETE` pin was a prediction, and was promoted to
+`nightly` in the same commit that pinned the measurement. `pending-fixture` would
+have been a lie (the fixture is committed). An `operator` tier that outlives the
+measuring run becomes an unrecorded standing human call, so the promotion is part
+of the pinning commit, never a follow-up.
 
 ### Phase C - Manufacture a career subject (**largely obsolete - c2 exists**)
 

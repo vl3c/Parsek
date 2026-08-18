@@ -1310,6 +1310,21 @@ namespace Parsek.Tests
                 l.Contains("[Timeline]") && l.Contains("Unknown GameActionType"));
         }
 
+        [Fact]
+        public void MapGameActionType_StrategyScienceDebit_MapsToScienceSpendingSilently()
+        {
+            // STRATEGY-SCIENCE-CONVERSION-LEAK. The type reuses the ScienceSpending
+            // display bucket (accurate: the player took this action at the Administration
+            // building) rather than adding a TimelineEntryType. Without the arm every
+            // such row hits the default above and WARNs on EVERY timeline build, so the
+            // silence is the load-bearing half of this cell.
+            var result = TimelineEntryDisplay.MapGameActionType(
+                GameActionType.StrategyScienceDebit);
+
+            Assert.Equal(TimelineEntryType.ScienceSpending, result);
+            Assert.DoesNotContain(logLines, l => l.Contains("Unknown GameActionType"));
+        }
+
         // ================================================================
         // 25. Recording with StartUT == EndUT produces valid entries
         // ================================================================

@@ -330,6 +330,14 @@ namespace Parsek
             GameEvents.OnScienceChanged.Add(OnScienceChanged);
             GameEvents.OnReputationChanged.Add(OnReputationChanged);
 
+            // Query-family strategy door (STRATEGY-SCIENCE-CONVERSION-LEAK /
+            // STRATEGY-FUNDS-YIELD-DRIFT). OnCurrencyModified - NOT
+            // OnCurrencyModifierQuery, which stock's 33 display sites fire through
+            // CurrencyModifierQuery.RunQuery without moving any balance. Instance
+            // method, so EventData.Add gets a real target (a static method handed to
+            // EventData.Add throws - see the static-GameEvent-handler NRE trap).
+            GameEvents.Modifiers.OnCurrencyModified.Add(OnCurrencyModified);
+
             // Science subjects (per-experiment tracking for duplication prevention)
             GameEvents.OnScienceRecieved.Add(OnScienceReceived);
 
@@ -385,6 +393,9 @@ namespace Parsek
             GameEvents.OnFundsChanged.Remove(OnFundsChanged);
             GameEvents.OnScienceChanged.Remove(OnScienceChanged);
             GameEvents.OnReputationChanged.Remove(OnReputationChanged);
+
+            // Query-family strategy door (symmetric with the Subscribe side).
+            GameEvents.Modifiers.OnCurrencyModified.Remove(OnCurrencyModified);
 
             // Science subjects
             GameEvents.OnScienceRecieved.Remove(OnScienceReceived);
@@ -518,6 +529,28 @@ namespace Parsek
             double delta = newScience - oldScience;
             double ut = Planetarium.GetUniversalTime();
             string reasonKey = reason.ToString();
+
+            // STRATEGY-ECHO-CAPTURE-WIPE: the threshold check runs FIRST, so a
+            // below-threshold ScienceChanged - notably the zero-delta trailing echo a
+            // stock CurrencyConverter strategy produces after it has already taken its
+            // share - leaves latestScienceChangeCapture untouched instead of wiping it.
+            // Before this ordering, every recovery award landing while a query-family
+            // strategy was active lost the VesselRecovery reasonKey the capture carried,
+            // so LedgerOrchestrator.ResolveKscScienceRecordingId fell back to
+            // method=Transmitted and the science kept its credit but lost its recording
+            // attribution. A REAL negative delta still clears the capture below (that
+            // cache is for POSITIVE subject awards and a stale one would mis-attribute).
+            // Accepted corollary of the same ordering: a below-threshold POSITIVE subject
+            // award no longer SETS the capture either. Its magnitude is under the ledger's
+            // own science floor, so there is nothing for the attribution it would carry to
+            // attribute; a sub-milli-point award is not worth a capture.
+            if (IsScienceDeltaBelowThreshold(delta))
+            {
+                ParsekLog.VerboseRateLimited("GameStateRecorder", "science-threshold",
+                    $"Ignored ScienceChanged delta={delta:+0.000;-0.000} below threshold={ScienceThreshold:F3}", 5.0);
+                return;
+            }
+
             if (delta > 0.0 && IsScienceSubjectReasonKey(reasonKey))
             {
                 latestScienceChangeCapture = new RecentScienceChangeCapture
@@ -534,13 +567,6 @@ namespace Parsek
                 latestScienceChangeCapture = default(RecentScienceChangeCapture);
             }
 
-            if (IsScienceDeltaBelowThreshold(delta))
-            {
-                ParsekLog.VerboseRateLimited("GameStateRecorder", "science-threshold",
-                    $"Ignored ScienceChanged delta={delta:+0.000;-0.000} below threshold={ScienceThreshold:F3}", 5.0);
-                return;
-            }
-
             var sciEvt = new GameStateEvent
             {
                 ut = ut,
@@ -551,6 +577,45 @@ namespace Parsek
             };
             Emit(ref sciEvt, "ScienceChanged");
             ParsekLog.Info("GameStateRecorder", $"Game state: ScienceChanged {delta:+0.0;-0.0} ({reason}) → {newScience:F1}");
+
+            // Patents Licensing (stock CurrencyExchanger / CurrencyConverter,
+            // researchIPsellout) subtracts science directly under
+            // TransactionReasons.StrategyInput with no recording owner and no other
+            // capture channel - the strategy's own InitialCostScience setup charge is
+            // separate and rides StrategyActivate. Forward it straight to the ledger so
+            // the recalc preserves the traded-away science instead of refunding it.
+            // ShouldForwardDirectLedgerEvent skips the write when a live recorder owns
+            // the event (it then flows through the commit-time ConvertEvents path).
+            // Third leg of the carve-out pair at OnFundsChanged (StrategyOutput) and
+            // OnReputationChanged (StrategyInput). See
+            // fix-bailout-grant-currency-exchange-capture.md and the
+            // STRATEGY-SCIENCE-CONVERSION-LEAK entry in docs/dev/todo-and-known-bugs.md.
+            //
+            // Ordering invariant: this call MUST follow the Emit(...ScienceChanged) above
+            // so the event is IN GameStateStore before OnKscSpending's downstream reads.
+            // NOT for ReconcileKscAction pairing - ClassifyAction returns Transformed for
+            // StrategyScienceDebit and the reconcile short-circuits before any leg is
+            // matched, so no pairing ever happens. What DOES read the store synchronously
+            // inside this call is OnKscSpending's recalc tail:
+            // ComputePendingUncommittedStrategyScienceDebit (which must see this event to
+            // net it against the row being written) and ComputeEarningsWindowStoreDeltas.
+            //
+            // Two live traps, both intentional: this method early-returns above when
+            // |delta| < ScienceThreshold (0.001), so a sub-milli-point exchange is not
+            // captured at all; and a REAL negative delta still CLEARS
+            // latestScienceChangeCapture. The clear is kept (that cache is for POSITIVE
+            // subject awards and a stale capture would mis-attribute one), but it is
+            // not free: an exchange firing between a recovery's ScienceChanged credit
+            // and its OnScienceReceived callbacks drops the reasonKey the capture
+            // carried, so LedgerOrchestrator.ResolveKscScienceRecordingId no longer
+            // sees VesselRecovery and the recovered science loses its recording
+            // attribution (it stays credited, untagged). Recorded as a residual on the
+            // STRATEGY-SCIENCE-CONVERSION-LEAK entry in docs/dev/todo-and-known-bugs.md.
+            // The far more common ZERO-delta echo no longer does this - see
+            // STRATEGY-ECHO-CAPTURE-WIPE and the reordered block above.
+            if (reason == TransactionReasons.StrategyInput &&
+                ShouldForwardDirectLedgerEvent(sciEvt.recordingId, HasLiveRecorder()))
+                LedgerOrchestrator.OnKscSpending(sciEvt);
         }
 
         private void OnReputationChanged(float newReputation, TransactionReasons reason)
@@ -599,6 +664,78 @@ namespace Parsek
         {
             float absDelta = Math.Abs(delta);
             return absDelta < ReputationThreshold - ReputationThresholdEpsilon;
+        }
+
+        /// <summary>
+        /// The QUERY-FAMILY strategy door (STRATEGY-SCIENCE-CONVERSION-LEAK /
+        /// STRATEGY-FUNDS-YIELD-DRIFT). <c>Strategies.Effects.CurrencyConverter</c>
+        /// (Patents Licensing + 7 siblings) and <c>CurrencyOperation</c> mutate a
+        /// <c>CurrencyModifierQuery</c> in place; <c>AddScience</c>/<c>AddFunds</c> then
+        /// fire their Changed events ALREADY NET, under the ORIGINAL reason, so the
+        /// three reason-keyed doors above cannot see the strategy's share at all.
+        /// This handler reads it from the query itself.
+        ///
+        /// <para>Bound to <c>OnCurrencyModified</c>, which rides an actual <c>Add*</c> -
+        /// NOT <c>OnCurrencyModifierQuery</c>, which stock's 33
+        /// <c>CurrencyModifierQuery.RunQuery</c> display sites fire without moving a
+        /// balance.</para>
+        ///
+        /// <para>Stands down on the same two flags every other recorder door does, so
+        /// timeline replay, the in-game tests' <c>SuppressionGuard.Resources()</c>
+        /// restores, and <c>KspStatePatcher</c>'s own ledger-walk writes cannot feed the
+        /// ledger back into itself.</para>
+        /// </summary>
+        private void OnCurrencyModified(CurrencyModifierQuery qry)
+        {
+            if (qry == null)
+                return;
+
+            string standDownReason;
+            if (StrategyConversionCapture.ShouldStandDown(
+                    SuppressResourceEvents, IsReplayingActions, out standDownReason))
+            {
+                ParsekLog.VerboseRateLimited("GameStateRecorder", "suppress-currency-modified",
+                    $"Suppressed OnCurrencyModified capture ({standDownReason})", 5.0);
+                return;
+            }
+
+            StrategyConversionQuery snapshot;
+            try
+            {
+                snapshot = new StrategyConversionQuery
+                {
+                    InputFunds = qry.GetInput(Currency.Funds),
+                    DeltaFunds = qry.GetEffectDelta(Currency.Funds),
+                    InputScience = qry.GetInput(Currency.Science),
+                    DeltaScience = qry.GetEffectDelta(Currency.Science),
+                    InputReputation = qry.GetInput(Currency.Reputation),
+                    DeltaReputation = qry.GetEffectDelta(Currency.Reputation),
+                    Reason = qry.reason.ToString()
+                };
+            }
+            catch (Exception ex)
+            {
+                // Never let a modded query implementation take down a stock Add* call.
+                ParsekLog.Warn("GameStateRecorder",
+                    $"OnCurrencyModified: reading the query threw, capture skipped: {ex}");
+                return;
+            }
+
+            var legs = StrategyConversionCapture.EvaluateLegs(snapshot);
+            if (legs.Count == 0)
+            {
+                ParsekLog.VerboseRateLimited("GameStateRecorder", "currency-modified-noop",
+                    $"OnCurrencyModified: no capture-worthy leg - " +
+                    $"{StrategyConversionCapture.FormatQuery(snapshot, 0)}", 5.0);
+                return;
+            }
+
+            ParsekLog.Info("GameStateRecorder",
+                $"Game state: strategy currency conversion - " +
+                $"{StrategyConversionCapture.FormatQuery(snapshot, legs.Count)}");
+
+            LedgerOrchestrator.OnStrategyCurrencyConversion(
+                Planetarium.GetUniversalTime(), legs, snapshot.Reason);
         }
 
         internal static bool IsScienceDeltaBelowThreshold(double delta)

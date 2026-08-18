@@ -846,6 +846,27 @@
         "2026-08-05T06:59:32Z": 52.0
       }
     },
+    "L2-ledger-groundtruth-career": {
+      "last": 59.0,
+      "lastVsP50": 1.0,
+      "n": 2,
+      "p50": 59.0,
+      "p95": 75.0,
+      "samples": {
+        "2026-08-17T22:04:11Z": 75.0,
+        "2026-08-17T22:34:33Z": 59.0
+      }
+    },
+    "L3-strategy-currency-conversion": {
+      "last": 57.0,
+      "lastVsP50": 1.0,
+      "n": 1,
+      "p50": 57.0,
+      "p95": 57.0,
+      "samples": {
+        "2026-08-18T20:40:54Z": 57.0
+      }
+    },
     "M1-mission-loop-unit": {
       "last": 46.0,
       "lastVsP50": 1.0,

@@ -435,6 +435,33 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void SupersedeTombstoneEligibility_StrategyScienceDebit_IsEligibleWhenTagged()
+        {
+            // STRATEGY-SCIENCE-CONVERSION-LEAK. The arm is EXPLICIT in
+            // IsSupersedeTombstoneEligible because the default PRESERVES unknown types:
+            // deleting the case makes this cell red rather than silently letting a
+            // superseded branch's exchange debit survive a re-fly merge and keep debiting
+            // science for a flight the merge deleted.
+            Assert.True(TombstoneEligibility.IsSupersedeTombstoneEligible(
+                new GameAction
+                {
+                    Type = GameActionType.StrategyScienceDebit,
+                    RecordingId = "rec_1",
+                    UT = 8599.87,
+                    Cost = 108.84171851920314f
+                }));
+
+            // Null scope is the ordinary KSC-door row: never tombstoned (section 7.41).
+            Assert.False(TombstoneEligibility.IsSupersedeTombstoneEligible(
+                new GameAction
+                {
+                    Type = GameActionType.StrategyScienceDebit,
+                    RecordingId = null,
+                    Cost = 108.84171851920314f
+                }));
+        }
+
+        [Fact]
         public void SupersedeTombstoneEligibility_UnknownFutureType_PreservedUntilReviewed()
         {
             Assert.False(TombstoneEligibility.IsSupersedeTombstoneEligible(

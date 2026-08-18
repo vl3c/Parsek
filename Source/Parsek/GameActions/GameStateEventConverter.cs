@@ -231,8 +231,10 @@ namespace Parsek
         /// <summary>
         /// Converts a single GameStateEvent to a GameAction.
         /// Returns null for event types that have no GameAction equivalent
-        /// (FundsChanged, ScienceChanged, ReputationChanged, CrewStatusChanged,
-        /// CrewRemoved, ContractOffered, ContractDeclined, FacilityDowngraded).
+        /// (CrewStatusChanged, CrewRemoved, ContractOffered, ContractDeclined,
+        /// FacilityDowngraded). FundsChanged / ReputationChanged / ScienceChanged
+        /// return null for every reason EXCEPT their one strategy currency-exchange
+        /// carve-out each - see the comment block on those three cases below.
         /// </summary>
         internal static GameAction ConvertEvent(GameStateEvent evt, string recordingId)
         {
@@ -283,20 +285,29 @@ namespace Parsek
                 case GameStateEventType.StrategyDeactivated:
                     return ConvertStrategyDeactivated(evt, recordingId);
 
-                // FundsChanged / ReputationChanged are normally dropped (see the comment
-                // below), with ONE carve-out: stock CurrencyExchanger strategies
-                // (Bail-Out Grant) move currency via direct AddFunds/AddReputation under
-                // the dedicated reasons StrategyOutput / StrategyInput, which no other
-                // channel captures. Those two specific reasons are converted; every other
-                // reason still returns null. See
-                // docs/dev/plans/fix-bailout-grant-currency-exchange-capture.md.
+                // FundsChanged / ReputationChanged / ScienceChanged are normally dropped
+                // (see the comment below), with ONE carve-out EACH: stock
+                // CurrencyExchanger / CurrencyConverter strategies move currency via
+                // direct AddFunds/AddReputation/AddScience under the dedicated reasons
+                // StrategyOutput / StrategyInput, which no other channel captures. The
+                // carve-out is ONE DIRECTION PER CURRENCY, keyed on the exact reason
+                // observed for that currency:
+                //   - FundsChanged      StrategyOutput only (Bail-Out Grant's funds OUT)
+                //   - ReputationChanged StrategyInput  only (Bail-Out Grant's rep IN)
+                //   - ScienceChanged    StrategyInput  only (Patents Licensing's sci IN)
+                // Every other reason on all three still returns null. See
+                // docs/dev/plans/fix-bailout-grant-currency-exchange-capture.md and the
+                // STRATEGY-SCIENCE-CONVERSION-LEAK entry in docs/dev/todo-and-known-bugs.md.
                 case GameStateEventType.FundsChanged:
                     return ConvertStrategyExchangeFunds(evt, recordingId);
 
                 case GameStateEventType.ReputationChanged:
                     return ConvertStrategyExchangeReputation(evt, recordingId);
 
-                // Skipped event types — no GameAction equivalent.
+                case GameStateEventType.ScienceChanged:
+                    return ConvertStrategyExchangeScience(evt, recordingId);
+
+                // Skipped event types - no GameAction equivalent.
                 //
                 // DO NOT try to "fix" this by re-emitting ScienceChanged (or non-strategy
                 // FundsChanged/ReputationChanged) as ScienceEarning/FundsEarning/
@@ -314,7 +325,6 @@ namespace Parsek
                 // commit time and WARNs if these dropped deltas disagree with the effective
                 // emitted actions — so regressions in any channel surface loudly without
                 // needing to re-emit here.
-                case GameStateEventType.ScienceChanged:
                 case GameStateEventType.CrewStatusChanged:
                 case GameStateEventType.CrewRemoved:
                 case GameStateEventType.ContractOffered:
@@ -1057,6 +1067,56 @@ namespace Parsek
                 RecordingId = recordingId,
                 NominalPenalty = (float)(-delta), // positive magnitude (already post-curve)
                 RepPenaltySource = ReputationPenaltySource.Strategy
+            };
+        }
+
+        /// <summary>
+        /// Converts the science INPUT leg of a stock <c>Strategies.CurrencyExchanger</c>
+        /// (the EXCHANGER family: <c>researchIPsellout</c>, Bail-Out Grant) into a
+        /// <see cref="GameActionType.StrategyScienceDebit"/>. KSP subtracts the science
+        /// directly under <c>TransactionReasons.StrategyInput</c>; the strategy moved it
+        /// OUT of the pool and KSP has ALREADY applied it, so
+        /// <see cref="ScienceModule"/> replays the row as an unconditional debit and
+        /// never re-derives or re-caps it. <see cref="GameAction.Cost"/> carries the
+        /// positive magnitude.
+        ///
+        /// <para>Keyed on <c>StrategyInput</c> ONLY, exactly as
+        /// <see cref="ConvertStrategyExchangeFunds"/> keys on <c>StrategyOutput</c> only.
+        /// Every other ScienceChanged reason (ScienceTransmission, VesselRecovery,
+        /// RnDTechResearch, StrategySetup) still returns null, so
+        /// <see cref="ConvertScienceSubjects"/> keeps sole ownership of science
+        /// EARNINGS - the double-count hazard the skipped-types comment warns about.
+        /// Internal static for testability.</para>
+        ///
+        /// <para>NOT the <c>Strategies.Effects.CurrencyConverter</c> family (Patents
+        /// Licensing and 7 siblings). Those mutate a <c>CurrencyModifierQuery</c> in
+        /// place and never produce a <c>StrategyInput</c> event, so this converter is
+        /// structurally blind to them; they are captured instead by the query-family
+        /// door, <c>GameStateRecorder.OnCurrencyModified</c> ->
+        /// <c>StrategyConversionCapture</c> ->
+        /// <c>LedgerOrchestrator.OnStrategyCurrencyConversion</c>. The rows it writes
+        /// carry <see cref="StrategyConversionSource.Converter"/>.</para>
+        /// </summary>
+        internal static GameAction ConvertStrategyExchangeScience(GameStateEvent evt, string recordingId)
+        {
+            if (!string.Equals(evt.key, StrategyInputReasonKey, StringComparison.Ordinal))
+                return null;
+
+            double delta = evt.valueAfter - evt.valueBefore;
+            if (delta >= 0.0)
+            {
+                ParsekLog.Verbose(Tag,
+                    $"ConvertStrategyExchangeScience: non-negative StrategyInput delta=" +
+                    $"{delta.ToString("R", IC)} at UT={evt.ut.ToString("F1", IC)} - skipping");
+                return null;
+            }
+
+            return new GameAction
+            {
+                UT = evt.ut,
+                Type = GameActionType.StrategyScienceDebit,
+                RecordingId = recordingId,
+                Cost = (float)(-delta) // positive magnitude (already removed from the pool)
             };
         }
 

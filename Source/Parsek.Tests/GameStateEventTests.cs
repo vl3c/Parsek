@@ -572,12 +572,17 @@ namespace Parsek.Tests
             };
             GameStateStore.AddEvent(ref evt1);
 
-            // Within 0.1s epsilon — should update, not add
+            // Within 0.1s epsilon, SAME reason key - should update, not add.
+            // (This cell used to pair ContractAdvance with ContractReward and assert one
+            // event. That was never a deliberate key-blind contract, only a side effect of
+            // the coalescing identity ignoring the key; the identity now includes it, so
+            // the cell pins the WINDOW with the key held constant and the differing-key
+            // case has its own cell below.)
             var evt2 = new GameStateEvent
             {
                 ut = 100.05,
                 eventType = GameStateEventType.FundsChanged,
-                key = "ContractReward",
+                key = "ContractAdvance",
                 valueBefore = 15000,
                 valueAfter = 18000
             };
@@ -586,6 +591,44 @@ namespace Parsek.Tests
             Assert.Equal(1, GameStateStore.EventCount);
             Assert.Equal(10000, GameStateStore.Events[0].valueBefore);
             Assert.Equal(18000, GameStateStore.Events[0].valueAfter);
+        }
+
+        [Fact]
+        public void ResourceCoalescing_DifferentReasonKeysWithinEpsilon_StayTwoEvents()
+        {
+            // STRATEGY-SCIENCE-CONVERSION-LEAK: the key IS the KSP transaction reason, and
+            // every reason-keyed consumer reads it as the event's identity. Coalescing
+            // key-blind let a strategy exchange landing within the 0.1 s window of an
+            // unrelated same-type move erase one reason and fold the other's magnitude
+            // into it - here a StrategyInput science debit vanishing into a
+            // ScienceTransmission credit.
+            GameStateStore.ResetForTesting();
+
+            var credit = new GameStateEvent
+            {
+                ut = 100.0,
+                eventType = GameStateEventType.ScienceChanged,
+                key = "ScienceTransmission",
+                valueBefore = 700.0,
+                valueAfter = 750.0
+            };
+            GameStateStore.AddEvent(ref credit);
+
+            var exchangeDebit = new GameStateEvent
+            {
+                ut = 100.05,
+                eventType = GameStateEventType.ScienceChanged,
+                key = GameStateEventConverter.StrategyInputReasonKey,
+                valueBefore = 750.0,
+                valueAfter = 641.15828148
+            };
+            GameStateStore.AddEvent(ref exchangeDebit);
+
+            Assert.Equal(2, GameStateStore.EventCount);
+            Assert.Equal("ScienceTransmission", GameStateStore.Events[0].key);
+            Assert.Equal(750.0, GameStateStore.Events[0].valueAfter);
+            Assert.Equal(GameStateEventConverter.StrategyInputReasonKey, GameStateStore.Events[1].key);
+            Assert.Equal(641.15828148, GameStateStore.Events[1].valueAfter);
         }
 
         [Fact]
