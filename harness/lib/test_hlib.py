@@ -5007,6 +5007,23 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
         # ~2,000 s approach traversal drives. Promotion is the post-flight re-pin
         # of those, plus the recordings count.
         "B20-moho-orbit.toml":              "calibration-discipline - first flight of a new destination whose approach sizing is DERIVED rather than measured (approachMaxWarpFactor lowered to 4 by Moho's short SOI coast, correction triggers scaled to the ~2.7M s tof, wall budget driven by the lower ceiling); the recordings count window is deliberately wide on the B19 first-flight precedent, and promotion waits on re-pinning those to measured values rather than on outstanding work",
+        # B23 is operator by the SAME calibration discipline as B18/B19/B20, and
+        # for a reason of its own: it is the FIRST flight of the shared B5
+        # machine's SECOND entry door (`startInOrbit` -- start from an
+        # already-parked fixture instead of a pad), and the first recording the
+        # suite has ever produced whose LAUNCH BODY is not Kerbin. Nothing about
+        # it is measured: the recordings window is a DERIVED range ({3,4}, the
+        # fixture's carried-in pair plus this lane's product, with the fourth
+        # admitting the B11 FIRST-FLIGHT-TO-CONFIRM post-commit-tree question),
+        # the arrival periapsis MechJeb will actually deliver at Ike's scale is
+        # unknown (finding 16d's under-delivery has only ever been measured at
+        # the Mun), the park window is deliberately wide because of it, and the
+        # save-structure topology of a produced save that carries BOTH the
+        # fixture's committed tree and a new one has never been observed -- which
+        # is why the structure block is absent rather than guessed. NOTHING is
+        # armed. Promotion is the post-measurement re-pinning call, a recorded
+        # human decision, not a debt this tag would name.
+        "B23-ike-orbit.toml":               "calibration-discipline - first flight of the machine's new ORBIT-START entry door AND of the suite's first non-Kerbin-rooted recording; the recordings window is a derived range, the Ike arrival periapsis and the two-tree produced-save topology are unmeasured, and nothing is armed. Promotion waits on the re-pin, not on outstanding work",
         # V11 is a pure READING RUN in V9's original posture: nothing armed
         # beyond the plumbing triple, count window deliberately wide, and the
         # decline reasons V9 forbids left UNFORBIDDEN here on purpose -- if
