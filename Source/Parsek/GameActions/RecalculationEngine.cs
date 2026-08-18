@@ -323,6 +323,11 @@ namespace Parsek
             switch (type)
             {
                 case GameActionType.ScienceSpending:
+                // Strategy currency-exchange science leg: a science DEBIT, and the
+                // exchange's paired funds credit lands at the SAME KSC-frozen UT, so
+                // this must sort after earnings or the debit runs against a balance
+                // that has not been credited yet.
+                case GameActionType.StrategyScienceDebit:
                 case GameActionType.FundsSpending:
                 // Logistics gross dispatch charge (Option A): a funds spending in the
                 // recalc walk, so it sorts after earnings at a shared UT.

@@ -592,6 +592,14 @@ namespace Parsek
                         case GameActionType.ScienceSpending:
                             deltas.EmittedSciDelta -= a.Cost;
                             break;
+                        case GameActionType.StrategyScienceDebit:
+                            // ComputeEarningsWindowStoreDeltas sums EVERY in-window
+                            // ScienceChanged delta unconditionally, so without this
+                            // emitted-side arm a currency exchange landing inside a
+                            // flight commit window fires a false "missing earning
+                            // channel" science WARN.
+                            deltas.EmittedSciDelta -= a.Cost;
+                            break;
                     }
                 }
             }
@@ -911,6 +919,17 @@ namespace Parsek
             {
                 case GameActionType.ScienceEarning: return a.SubjectId ?? "";
                 case GameActionType.ScienceSpending: return a.NodeId ?? "";
+                // StrategyScienceDebit carries no id field of its own (the ScienceChanged
+                // event's key is the transaction reason, and no strategy identity is
+                // available at that seam). Falling through to the default "" would make
+                // two exchanges inside the 0.1 s dedup window collapse into one - and the
+                // KSC clock is FROZEN, so same-UT pairs are the normal case, not an edge
+                // case. The amount is the only available disambiguator. The funds leg
+                // (RecordingId alone, above) carries the un-disambiguated version of this
+                // same limitation and is deliberately left as-is.
+                case GameActionType.StrategyScienceDebit:
+                    return (a.RecordingId ?? "") + ":" +
+                           a.Cost.ToString("R", CultureInfo.InvariantCulture);
                 case GameActionType.FundsEarning: return a.RecordingId ?? "";
                 // FundsSpending: RecordingId alone collides when multiple KSC part
                 // purchases share a null/empty RecordingId. DedupKey is the part name
@@ -1689,6 +1708,10 @@ namespace Parsek
             {
                 case GameActionType.ScienceEarning:
                 case GameActionType.ScienceSpending:
+                // Strategy currency-exchange science leg: moves the science pool, so a
+                // ledger whose ONLY science row is an exchange still reports science as
+                // tracked to LedgerHasScienceTimelineActions.
+                case GameActionType.StrategyScienceDebit:
                     return true;
                 case GameActionType.ContractComplete:
                     return action.ScienceReward != 0f || action.TransformedScienceReward != 0f;

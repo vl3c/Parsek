@@ -55,6 +55,14 @@ namespace Parsek
 
                 case GameActionType.ScienceEarning:
                 case GameActionType.ScienceSpending:
+                // Strategy currency-exchange science leg: listed EXPLICITLY rather than
+                // left to the default. The default PRESERVES unknown types, so a
+                // superseded branch's exchange debit would survive a re-fly merge and
+                // keep debiting science for a flight the merge deleted. Note the method
+                // already returns false for a null RecordingId above, so the ordinary
+                // KSC-path row (recordingId null) is untouched - this governs only a
+                // flight-tagged capture.
+                case GameActionType.StrategyScienceDebit:
                 case GameActionType.FundsEarning:
                 case GameActionType.MilestoneAchievement:
                 case GameActionType.ContractAccept:

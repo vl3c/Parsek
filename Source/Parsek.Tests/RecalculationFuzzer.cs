@@ -10,7 +10,7 @@ namespace Parsek.Tests
     {
         // Keep this count in sync with CreateAction's switch below so a new
         // GameActionType cannot land without an explicit fuzzer payload.
-        private const int ExpectedGameActionTypeCount = 32;
+        private const int ExpectedGameActionTypeCount = 33;
         private readonly bool priorSuppressLogging;
 
         public RecalculationFuzzerTests()

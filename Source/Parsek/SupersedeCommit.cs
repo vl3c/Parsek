@@ -2472,6 +2472,10 @@ namespace Parsek
                     strategy++;
                     break;
                 case GameActionType.ScienceSpending:
+                // Strategy currency-exchange science leg: counted with the science
+                // spendings so the tombstone summary reports it honestly instead of
+                // bucketing it into `other`. No log FORMAT change.
+                case GameActionType.StrategyScienceDebit:
                     scienceSpending++;
                     break;
                 case GameActionType.ScienceEarning:

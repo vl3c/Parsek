@@ -250,6 +250,25 @@ namespace Parsek
                         SkipReason = "direct earning -- post-walk hook reconciles (#440)"
                     };
 
+                case GameActionType.StrategyScienceDebit:
+                    // The science INPUT leg of a strategy currency exchange, captured
+                    // DIRECTLY from the very ScienceChanged(StrategyInput) event a
+                    // reconcile leg would pair against - self-consistent, so an
+                    // Untransformed leg could never catch anything, and two exchanges at
+                    // one frozen KSC UT would sum to -2*cost against a -cost expectation
+                    // and WARN falsely. Same reasoning (and the same precedent) as the
+                    // FundsEarningSource.Strategy arm above. Listed EXPLICITLY rather
+                    // than left to the default below: that default claims
+                    // NoResourceImpact, which would be silently wrong forever for a row
+                    // that moves the science pool.
+                    return new KscActionExpectation
+                    {
+                        Class = KscReconcileClass.Transformed,
+                        SkipReason = "strategy currency-exchange science leg -- captured " +
+                                     "directly from ScienceChanged(StrategyInput), no " +
+                                     "paired independent event"
+                    };
+
                 // ---- No resource impact: short-circuit silently. ----
 
                 case GameActionType.KerbalAssignment:

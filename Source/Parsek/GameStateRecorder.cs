@@ -551,6 +551,31 @@ namespace Parsek
             };
             Emit(ref sciEvt, "ScienceChanged");
             ParsekLog.Info("GameStateRecorder", $"Game state: ScienceChanged {delta:+0.0;-0.0} ({reason}) → {newScience:F1}");
+
+            // Patents Licensing (stock CurrencyExchanger / CurrencyConverter,
+            // researchIPsellout) subtracts science directly under
+            // TransactionReasons.StrategyInput with no recording owner and no other
+            // capture channel - the strategy's own InitialCostScience setup charge is
+            // separate and rides StrategyActivate. Forward it straight to the ledger so
+            // the recalc preserves the traded-away science instead of refunding it.
+            // ShouldForwardDirectLedgerEvent skips the write when a live recorder owns
+            // the event (it then flows through the commit-time ConvertEvents path).
+            // Third leg of the carve-out pair at OnFundsChanged (StrategyOutput) and
+            // OnReputationChanged (StrategyInput). See
+            // fix-bailout-grant-currency-exchange-capture.md and the
+            // STRATEGY-SCIENCE-CONVERSION-LEAK entry in docs/dev/todo-and-known-bugs.md.
+            //
+            // Ordering invariant: this call MUST follow the Emit(...ScienceChanged)
+            // above so OnKscSpending -> ReconcileKscAction can pair the action against
+            // the just-emitted event in GameStateStore.
+            //
+            // Two live traps, both intentional: this method early-returns above when
+            // |delta| < ScienceThreshold (0.001), so a sub-milli-point exchange is not
+            // captured at all; and a negative delta clears latestScienceChangeCapture,
+            // which is correct - that cache exists for POSITIVE subject awards only.
+            if (reason == TransactionReasons.StrategyInput &&
+                ShouldForwardDirectLedgerEvent(sciEvt.recordingId, HasLiveRecorder()))
+                LedgerOrchestrator.OnKscSpending(sciEvt);
         }
 
         private void OnReputationChanged(float newReputation, TransactionReasons reason)

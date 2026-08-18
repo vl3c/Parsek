@@ -180,6 +180,14 @@ namespace Parsek.Tests
             // is monotone and re-derives from the surviving ELS on every recalc - so it
             // neither strict-blocks nor retry-blocks an auto-seal.
             yield return new object[] { GameActionType.KerbalExperience, false, false };
+            // StrategyScienceDebit (STRATEGY-SCIENCE-CONVERSION-LEAK): a ledger-only
+            // science debit from a stock currency-exchange strategy. Matches the
+            // ScienceSpending row exactly - it is a KSC-scene player action that cannot
+            // reach the retry gate with a flight-recording tag (Emit stamps a tag only in
+            // FLIGHT with a live recorder), so it never auto-seals a Re-Fly retry; but it
+            // has no route-style exclusion in IsWorldStateChangingRecordingAction, so the
+            // legacy strict gate still observes it for audit / reconciliation callers.
+            yield return new object[] { GameActionType.StrategyScienceDebit, false, true };
         }
 
         [Fact]

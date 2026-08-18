@@ -152,7 +152,34 @@ namespace Parsek
         /// append-only. Not resource-impacting: XP is derived from the career log, not paid
         /// out of any pool, so it never enters a funds/science/reputation reconciliation.
         /// </summary>
-        KerbalExperience = 31
+        KerbalExperience = 31,
+
+        /// <summary>
+        /// The SCIENCE INPUT leg of a stock <c>CurrencyExchanger</c> /
+        /// <c>CurrencyConverter</c> strategy exchange (Patents Licensing,
+        /// <c>researchIPsellout</c>): the strategy moved science OUT of the pool and
+        /// credited another currency. Captured straight from the
+        /// <c>ScienceChanged</c> event keyed <c>TransactionReasons.StrategyInput</c>
+        /// (the mirror of the funds OUTPUT leg's
+        /// <see cref="FundsEarningSource.Strategy"/> and the reputation INPUT leg's
+        /// <see cref="ReputationPenaltySource.Strategy"/>), because no other channel
+        /// captures it and the strategy's own <c>InitialCostScience</c> setup charge is
+        /// separate (that one rides <see cref="StrategyActivate"/>).
+        ///
+        /// <para><see cref="GameAction.Cost"/> carries the POSITIVE magnitude KSP has
+        /// already removed from the pool, so <see cref="ScienceModule"/> replays it as an
+        /// UNCONDITIONAL debit and never re-derives or re-caps it. It is NOT a tech-node
+        /// spending: it carries no <see cref="GameAction.NodeId"/>, and every
+        /// tech-node-domain reader (<c>KspStatePatcher</c>'s unlock set,
+        /// <c>LedgerGroundTruth</c>'s researched-node derivation,
+        /// <c>SupersedeCommit</c>'s tech exclusion) stays
+        /// <see cref="ScienceSpending"/>-only by construction.</para>
+        ///
+        /// <para>No strategy id is carried: the <c>ScienceChanged</c> event's key is the
+        /// transaction reason and no strategy identity is available at that seam (the
+        /// funds leg has the same limitation).</para>
+        /// </summary>
+        StrategyScienceDebit = 32
     }
 
     /// <summary>How science was collected — transmitted from orbit or recovered on the ground.</summary>
@@ -727,6 +754,9 @@ namespace Parsek
                 case GameActionType.ScienceSpending:
                     SerializeScienceSpending(node);
                     break;
+                case GameActionType.StrategyScienceDebit:
+                    SerializeStrategyScienceDebit(node);
+                    break;
                 case GameActionType.FundsEarning:
                     SerializeFundsEarning(node);
                     break;
@@ -873,6 +903,9 @@ namespace Parsek
                 case GameActionType.ScienceSpending:
                     DeserializeScienceSpending(node, a);
                     break;
+                case GameActionType.StrategyScienceDebit:
+                    DeserializeStrategyScienceDebit(node, a);
+                    break;
                 case GameActionType.FundsEarning:
                     DeserializeFundsEarning(node, a);
                     break;
@@ -1013,6 +1046,18 @@ namespace Parsek
         private static void DeserializeScienceSpending(ConfigNode n, GameAction a)
         {
             a.NodeId = n.GetValue("nodeId");
+            TryParseFloat(n, "cost", out a.Cost);
+        }
+
+        // StrategyScienceDebit reuses the Cost field (positive magnitude) and
+        // deliberately carries NO nodeId - it is not a tech-node spending.
+        private void SerializeStrategyScienceDebit(ConfigNode n)
+        {
+            n.AddValue("cost", Cost.ToString("R", IC));
+        }
+
+        private static void DeserializeStrategyScienceDebit(ConfigNode n, GameAction a)
+        {
             TryParseFloat(n, "cost", out a.Cost);
         }
 

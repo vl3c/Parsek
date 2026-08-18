@@ -438,6 +438,12 @@ namespace Parsek
             {
                 case GameActionType.ScienceEarning:       return TimelineEntryType.ScienceEarning;
                 case GameActionType.ScienceSpending:      return TimelineEntryType.ScienceSpending;
+                // Strategy currency-exchange science leg reuses the ScienceSpending
+                // display bucket: no new TimelineEntryType, no GetTier / IsPlayerAction /
+                // colour-table edits, and it IS accurate (the player took this action at
+                // the Administration building). Without this arm every such row hits the
+                // default below and WARNs on every timeline build.
+                case GameActionType.StrategyScienceDebit: return TimelineEntryType.ScienceSpending;
                 case GameActionType.FundsEarning:         return TimelineEntryType.FundsEarning;
                 case GameActionType.FundsSpending:        return TimelineEntryType.FundsSpending;
                 case GameActionType.ReputationEarning:    return TimelineEntryType.ReputationEarning;

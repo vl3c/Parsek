@@ -3670,7 +3670,7 @@ Those two conditions say stock promoted an encounter and the closest one is our 
 
 ---
 
-## STRATEGY-SCIENCE-CONVERSION-LEAK: a stock strategy's science-to-funds exchange has its FUNDS leg captured and its SCIENCE leg dropped, so the recalc reconstructs science 108.84 too high [FOUND 2026-08-17 by career-ledger-lane task A.0, the first real-ledger replay. NOT FIXED - pinned, not worked around]
+~~## STRATEGY-SCIENCE-CONVERSION-LEAK: a stock strategy's science-to-funds exchange has its FUNDS leg captured and its SCIENCE leg dropped, so the recalc reconstructs science 108.84 too high~~ [FOUND 2026-08-17 by career-ledger-lane task A.0, the first real-ledger replay. FIXED 2026-08-18 on `strategy-science-leak-fix` - CAPTURE-side. **LIVE PROOF PENDING:** a KSC activation of `researchIPsellout` with Parsek logging on must show `Game state: ScienceChanged ... (StrategyInput)` and a paired `KSC spending recorded: type=StrategyScienceDebit`. Until that flight, the reason key is INFERRED from the measured `StrategyOutput` funds leg, not observed; if it prints anything other than `StrategyInput` the capture gate is keyed wrong and must be re-keyed before this entry is considered closed. The forensic body below is kept as the evidence.]
 
 **Measured, on a committed fixture.** `C2CareerLedgerReplayTests` (fixture
 `Source/Parsek.Tests/Fixtures/C2Career/`) calls `LedgerOrchestrator.Initialize()` so
@@ -3733,7 +3733,8 @@ as transforming **contract rewards only** ("Strategies divert a percentage of on
 contract reward resource into another"), and neither `ScienceModule` nor
 `FundsModule` consults it during earning processing.
 
-**Secondary observation - the recorded flow direction is wrong too.** The
+**Secondary observation - the recorded flow direction is wrong too. OUT OF SCOPE
+for this fix, still open.** The
 `StrategyActivate` row carries `sourceResource = 0, targetResource = 0`
 (`StrategyResource.Funds` both sides) for a strategy that actually moves Science
 into Funds. That is the fallback
@@ -3751,30 +3752,82 @@ on `Activate()`, on `Deactivate()`, or continuously across the frozen KSC UT is
 inferred from a save plus a ledger and was not observed live. Do not write a fix
 against the guess; reproduce it in-game first, with `[Parsek]` capture on.
 
-**Reputation, recorded not chased.** `-0.00364` is above float32 print noise at
-that magnitude and far below display precision. It is pinned as a `0.01` window,
-not a value. Whether it is a second small leak or curve-rounding is unknown;
-re-measure it once the science leak is closed rather than guessing now.
+**Reputation, recorded not chased. STILL OPEN.** `-0.00364` is above float32
+print noise at that magnitude and far below display precision. It is pinned as a
+`0.01` window, not a value. Whether it is a second small leak or curve-rounding is
+unknown. It is now RE-MEASURABLE on a post-fix re-harvest of c2 (the science leg
+no longer masks it), which is when to look - not by guessing now.
 
-**The divergence is PINNED, so a fix must flip the pin deliberately.**
-`C2CareerLedgerReplayTests.RealEngine_ReplaysC2Ledger_PoolsVsSave` asserts the
-science delta stays within 0.001 of `108.84171851920314`. That cell reds on any
-movement in either direction - including the fix. Whoever fixes this replaces the
-pin with `Assert.True(Math.Abs(reconScience - SaveScience) < 0.01, ...)` in the
-same commit, and says in the CHANGELOG that the fixture's reconstruction now
-closes.
+**The C2Career fixture is FROZEN PRE-FIX DATA, so BOTH C2 cells stay GREEN and
+UNCHANGED.** This supersedes the earlier instruction to swap the pinned magnitude
+for a closure assertion; that instruction was written assuming a recalc-side fix
+and is WRONG for the capture-side one that shipped. `ledger.pgld` is a committed
+file on disk. A capture-side fix changes what FUTURE recordings write and cannot
+retro-fill a committed fixture, so both
+`FixtureLedger_StrategyExchange_HasAFundsCreditAndNoScienceDebit` (structural) and
+`RealEngine_ReplaysC2Ledger_PoolsVsSave` (the `108.84171851920314` magnitude pin)
+keep asserting the pre-fix shape and keep passing. They are DATA-ERA pins over
+pre-fix data. They flip only when c2 is re-harvested, or a new fixture is captured,
+on post-fix code - and THAT re-harvest is the moment to replace the pin with the
+closure assertion. Corollary worth keeping: if either cell ever moves WITHOUT the
+fixture being re-harvested, a RECALC-side change has occurred and must be
+investigated, because a capture-side fix cannot move it.
 
-**Fix shape (not chosen, not started).** The symmetric one is cheapest and
-matches the precedent exactly: add the `TransactionReasons.StrategyInput`
-forward to `OnScienceChanged` and a `ConvertStrategyExchangeScience` case for
-`ScienceChanged`, both mirroring the reputation pair (which already handles the
-sign, the direct-forward gate, and the no-live-recorder KSC case). Watch the
-double-count hazard the `ScienceChanged` comment block warns about at length:
-science earnings already flow through `ConvertScienceSubjects`, so the new case
-must key on the `StrategyInput` reason ONLY, exactly as the funds case keys on
-`StrategyOutput` only. A fixture-shaped unit cell over
-`GameStateEventConverter` plus a re-run of `C2CareerLedgerReplayTests` is the
-minimum proof; a live KSC activation is the real one.
+**Fix as built (2026-08-18, branch `strategy-science-leak-fix`).** Capture-side,
+input-direction only, mirroring the reputation pair exactly:
+
+- `GameStateRecorder.OnScienceChanged` now forwards
+  `TransactionReasons.StrategyInput` to `LedgerOrchestrator.OnKscSpending`, gated
+  on `ShouldForwardDirectLedgerEvent`, placed AFTER the `Emit` so
+  `ReconcileKscAction` can pair against the just-emitted event. Byte-symmetric with
+  the funds (`StrategyOutput`) and reputation (`StrategyInput`) forwards.
+- `GameStateEventConverter.ConvertStrategyExchangeScience` converts a NEGATIVE
+  `ScienceChanged`/`StrategyInput` delta; `ScienceChanged` moved out of the
+  unconditional `return null` group into the carve-out group beside
+  `FundsChanged` / `ReputationChanged`. Every other `ScienceChanged` reason still
+  returns null, so `ConvertScienceSubjects` keeps sole ownership of science
+  EARNINGS - the double-count hazard the comment block warns about.
+- New `GameActionType.StrategyScienceDebit = 32`, NOT a source discriminator on
+  `ScienceSpending`. `ScienceSpending` is MONOMORPHIC - it is the tech-node
+  contract read by `KspStatePatcher`'s unlock set, `LedgerOrchestrator.GetActionKey`
+  (keys off `NodeId`), `KscActionExpectationClassifier` (expects a
+  `TechResearchScienceReasonKey` leg), `LedgerGroundTruth` /
+  `LedgerGroundTruthDiff` / `SupersedeCommit`'s researched-node derivation, and
+  three display sites. Overloading it would inherit a WRONG tech-shaped default at
+  each, silently, forever. A new type defaults to no-op / `NoResourceImpact` /
+  not-reconciled almost everywhere, so every consumer opts IN explicitly and the
+  tech-node domain needs NO edit.
+- `ScienceModule.ProcessStrategyScienceDebit` deducts UNCONDITIONALLY, modelled on
+  `ProcessStrategySetupScienceCost` and explicitly NOT on `ProcessSpending`:
+  ProcessSpending refuses to deduct when unaffordable, but KSP has already removed
+  this science from the pool, so a refusal would diverge the reconstruction in the
+  opposite direction. It never sets `action.Affordable` (that field is the
+  tech-node contract `KspStatePatcher` reads).
+
+**NAMED RESIDUAL: only ONE DIRECTION PER CURRENCY is captured, and that is
+deliberate.** Today the carve-out captures funds OUT (`StrategyOutput`),
+reputation IN (`StrategyInput`), and now science IN (`StrategyInput`). The other
+three directions are still dropped, unchanged by this fix:
+
+- A science-OUTPUT strategy (Unpaid Research Program: reputation in, science out)
+  arrives as `ScienceChanged`/`StrategyOutput` with a POSITIVE delta. Its
+  reputation INPUT leg IS captured by `ConvertStrategyExchangeReputation`, so the
+  reconstruction lands reputation correctly and runs science LOW by exactly the
+  granted amount - the mirror image of the c2 defect.
+- A funds-INPUT strategy (Fundraising Campaign: funds in, reputation out) leaks
+  BOTH legs: its funds leg is dropped by `ConvertStrategyExchangeFunds`'s
+  `StrategyOutput`-only gate and its reputation OUT leg by
+  `ConvertStrategyExchangeReputation`'s `StrategyInput`-only gate.
+
+Not fixed because not observed. And a science credit is NOT a sign-flipped mirror
+of this fix: it collides with the `ConvertScienceSubjects` earnings channel the
+hazard comment protects, and the obvious action shape for it
+(`ScienceEarning`) is silently ZEROED - `ScienceModule.ProcessEarning` computes
+`headroom = SubjectMaxValue - CreditedTotal`, and a subject-less exchange row has
+`SubjectMaxValue = 0`, so `effectiveScience = min(awarded, 0) = 0` and the credit
+vanishes without a warning. The output direction therefore needs its own action
+shape and its own design pass. Closing the remaining three directions is one
+live-observed strategy each.
 
 ---
 

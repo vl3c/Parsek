@@ -20,6 +20,7 @@ namespace Parsek
             {
                 case GameActionType.ScienceEarning:
                 case GameActionType.ScienceSpending:
+                case GameActionType.StrategyScienceDebit:
                     return "Science";
 
                 case GameActionType.FundsEarning:
@@ -75,6 +76,9 @@ namespace Parsek
                 case GameActionType.ScienceSpending:
                     return string.Format(IC, "Tech: {0} -{1:0.#} sci",
                         action.NodeId ?? "unknown", action.Cost);
+
+                case GameActionType.StrategyScienceDebit:
+                    return string.Format(IC, "Strategy exchange -{0:0.#} sci", action.Cost);
 
                 case GameActionType.FundsEarning:
                     return string.Format(IC, "{0} +{1:0}",
@@ -214,6 +218,7 @@ namespace Parsek
 
                 // Spending / penalties — red
                 case GameActionType.ScienceSpending:
+                case GameActionType.StrategyScienceDebit:
                 case GameActionType.FundsSpending:
                 case GameActionType.ReputationPenalty:
                 case GameActionType.ContractFail:

@@ -124,6 +124,9 @@ namespace Parsek
                 case GameActionType.ScienceSpending:
                     ProcessSpending(action);
                     break;
+                case GameActionType.StrategyScienceDebit:
+                    ProcessStrategyScienceDebit(action);
+                    break;
                 case GameActionType.ContractComplete:
                     ProcessContractScienceReward(action);
                     break;
@@ -163,6 +166,7 @@ namespace Parsek
 
             int spendingCount = 0;
             int strategySetupCount = 0;
+            int strategyExchangeCount = 0;
             for (int i = 0; i < actions.Count; i++)
             {
                 var action = actions[i];
@@ -179,11 +183,20 @@ namespace Parsek
                     totalCommittedSpendings += (double)action.SetupScienceCost;
                     strategySetupCount++;
                 }
+                else if (action.Type == GameActionType.StrategyScienceDebit)
+                {
+                    // A committed currency exchange must RESERVE science exactly like a
+                    // tech cost: without this arm GetAvailableScience over-reports what
+                    // the player can still spend by the traded-away amount.
+                    totalCommittedSpendings += (double)action.Cost;
+                    strategyExchangeCount++;
+                }
             }
 
             ParsekLog.Verbose("ScienceModule",
                 $"ComputeTotalSpendings: spendingCount={spendingCount}, " +
                 $"strategySetupCount={strategySetupCount}, " +
+                $"strategyExchangeCount={strategyExchangeCount}, " +
                 $"totalCommittedSpendings={totalCommittedSpendings.ToString("R", IC)}");
         }
 
@@ -288,6 +301,53 @@ namespace Parsek
                 ParsekLog.Warn("ScienceModule",
                     $"Spending NOT affordable: nodeId={action.NodeId ?? "(none)"}, cost={cost.ToString("R", IC)}, " +
                     $"runningScience={runningScience.ToString("R", IC)} — possible bug or data corruption");
+            }
+        }
+
+        /// <summary>
+        /// Processes a <see cref="GameActionType.StrategyScienceDebit"/> row: the science
+        /// INPUT leg of a stock currency-exchange strategy (Patents Licensing).
+        /// <see cref="GameAction.Cost"/> is the positive magnitude KSP already removed
+        /// from the pool.
+        ///
+        /// <para>Modelled on <see cref="ProcessStrategySetupScienceCost"/>, NOT on
+        /// <see cref="ProcessSpending"/>: ProcessSpending REFUSES to deduct when the
+        /// running balance cannot cover the cost (it only warns). That refusal is right
+        /// for a tech-node purchase the reconstruction is re-deciding, but wrong here -
+        /// KSP has ALREADY moved this science out of the pool, so refusing would make the
+        /// reconstruction diverge in the opposite direction. The subtraction is therefore
+        /// unconditional and an unaffordable case only WARNs.</para>
+        ///
+        /// <para>Deliberately does NOT set <see cref="GameAction.Affordable"/>: that
+        /// field is the tech-node contract <c>KspStatePatcher</c> reads to decide which
+        /// nodes to unlock, and this row is not a tech node.</para>
+        /// </summary>
+        internal void ProcessStrategyScienceDebit(GameAction action)
+        {
+            double cost = (double)action.Cost;
+            if (cost <= 0.0)
+            {
+                ParsekLog.Verbose("ScienceModule",
+                    $"StrategyScienceDebit: non-positive cost={cost.ToString("R", IC)} " +
+                    $"at UT={action.UT.ToString("R", IC)} - no-op");
+                return;
+            }
+
+            bool affordable = runningScience >= cost;
+            runningScience -= cost;
+
+            if (affordable)
+            {
+                ParsekLog.Verbose("ScienceModule",
+                    $"StrategyScienceDebit: cost={cost.ToString("R", IC)}, " +
+                    $"runningScience={runningScience.ToString("R", IC)}");
+            }
+            else
+            {
+                ParsekLog.Warn("ScienceModule",
+                    $"StrategyScienceDebit NOT affordable: cost={cost.ToString("R", IC)}, " +
+                    $"runningScience={runningScience.ToString("R", IC)} - deducted anyway " +
+                    "(KSP already removed this science from the pool)");
             }
         }
 
@@ -468,6 +528,9 @@ namespace Parsek
                     delta = (double)action.TransformedScienceReward;
                     return true;
                 case GameActionType.ScienceSpending:
+                    delta = -(double)action.Cost;
+                    return true;
+                case GameActionType.StrategyScienceDebit:
                     delta = -(double)action.Cost;
                     return true;
                 case GameActionType.StrategyActivate:

@@ -122,13 +122,21 @@ namespace Parsek.Tests
         {
             // STRATEGY-SCIENCE-CONVERSION-LEAK stated by SHAPE, not by magnitude. The
             // pinned-delta cell below proves the leak is exactly 108.84 points on THIS
-            // fixture; this one proves the STRUCTURE that produces it, so it survives a
+            // fixture; this one proves the STRUCTURE that produced it, so it survives a
             // re-forged fixture: at the strategy's UT the ledger carries the currency
             // exchange's FUNDS credit (FundsEarning, FundsSource.Strategy) and carries
             // NO science row of any kind - neither the matching debit nor anything else.
-            // Both capture doors drop the science leg (GameStateRecorder.OnScienceChanged
-            // has no StrategyInput forward; GameStateEventConverter's ScienceChanged case
-            // returns null unconditionally), so the credit arrives unpaired.
+            // Both capture doors dropped the science leg at the time this ledger was
+            // written.
+            //
+            // FROZEN PRE-FIX DATA. The fix is CAPTURE-side (the StrategyInput forward in
+            // GameStateRecorder.OnScienceChanged, ConvertStrategyExchangeScience, and
+            // GameActionType.StrategyScienceDebit): it changes what NEW recordings
+            // capture and cannot retro-fill this committed ledger.pgld. So this cell
+            // keeps asserting the pre-fix shape and keeps PASSING after the fix. It
+            // flips only on a post-fix re-harvest of c2 (or a new fixture captured on
+            // post-fix code), at which point the expectation becomes "a
+            // StrategyScienceDebit row shares the credit's UT".
             var actions = LoadFixtureLedger();
 
             var strategyFundsRows = actions.FindAll(a =>
@@ -148,8 +156,9 @@ namespace Parsek.Tests
                 Assert.True(scienceRowsAtUT.Count == 0,
                     $"expected NO science row at the strategy exchange UT " +
                     $"{credit.UT.ToString("R", IC)}; found {scienceRowsAtUT.Count.ToString(IC)}. " +
-                    "If the leak is FIXED, this cell and the pinned-magnitude cell both " +
-                    "flip deliberately.");
+                    "This fixture is frozen pre-fix data; a capture-side fix cannot move " +
+                    "it. Movement here means the FIXTURE changed (a re-harvest), not the " +
+                    "product.");
             }
         }
 
@@ -184,15 +193,25 @@ namespace Parsek.Tests
             // SCIENCE: KNOWN DIVERGENCE, pinned (STRATEGY-SCIENCE-CONVERSION-LEAK in
             // docs/dev/todo-and-known-bugs.md). The researchIPsellout (Patents
             // Licensing) currency exchange moved science into funds at one KSC-frozen
-            // UT. Its FUNDS leg is captured (a FundsEarning with FundsSource.Strategy,
-            // which is why the funds assertion above closes); its SCIENCE leg is
-            // dropped by BOTH capture doors - GameStateRecorder.OnScienceChanged has
-            // no TransactionReasons.StrategyInput forward (OnFundsChanged and
-            // OnReputationChanged both have theirs), and GameStateEventConverter's
-            // ScienceChanged case is still an unconditional return null with no
-            // ConvertStrategyExchangeScience beside the Funds/Reputation pair. So the
-            // ledger carries the credit without the matching debit and the
+            // UT. Its FUNDS leg was captured (a FundsEarning with FundsSource.Strategy,
+            // which is why the funds assertion above closes); its SCIENCE leg was
+            // dropped by BOTH capture doors AT THE TIME THIS FIXTURE WAS RECORDED -
+            // GameStateRecorder.OnScienceChanged had no TransactionReasons.StrategyInput
+            // forward (OnFundsChanged and OnReputationChanged both had theirs), and
+            // GameStateEventConverter's ScienceChanged case was an unconditional return
+            // null with no ConvertStrategyExchangeScience beside the Funds/Reputation
+            // pair. So the ledger carries the credit without the matching debit and the
             // reconstruction runs high by exactly the diverted science.
+            //
+            // BOTH DOORS ARE NOW CLOSED: OnScienceChanged forwards StrategyInput to the
+            // ledger, and ConvertEvent routes ScienceChanged to
+            // ConvertStrategyExchangeScience, which emits
+            // GameActionType.StrategyScienceDebit. This fixture PREDATES that fix and a
+            // capture-side fix cannot retro-fill a committed ledger.pgld, so the
+            // 108.84171851920314 delta is a DATA-ERA pin over pre-fix data and stays
+            // exactly where it is. If this cell ever moves WITHOUT the fixture being
+            // re-harvested, a RECALC-side change has occurred and must be investigated -
+            // a capture-side fix cannot move it.
             //
             // NOT a share of the earnings: every ScienceEarning row in this fixture
             // sums to 46.664 awarded / 42.632 effective after the subject hard cap, so
@@ -200,14 +219,13 @@ namespace Parsek.Tests
             // ScienceSpending either: tech-node costs are integers and this delta is
             // not one.
             //
-            // Pinned so any change in this behavior - including the fix - surfaces
-            // here and flips this pin deliberately.
+            // Pinned so any RECALC-side change in this behavior surfaces here.
             Assert.True(Math.Abs((reconScience - SaveScience) - 108.84171851920314) < 0.001,
                 "SCIENCE divergence moved off its pinned value. " + report);
 
             // REPUTATION: small real divergence (-0.00364), above float32 print noise
             // at this magnitude but far below display precision. Pinned as a window,
-            // not a value; tighten when the science leak is resolved.
+            // not a value; tighten when a post-fix fixture is harvested.
             Assert.True(Math.Abs(reconRep - SaveReputation) < 0.01, "REPUTATION diverged beyond window. " + report);
         }
     }

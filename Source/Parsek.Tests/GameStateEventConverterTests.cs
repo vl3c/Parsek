@@ -371,7 +371,12 @@ namespace Parsek.Tests
         }
 
         // ================================================================
-        // CurrencyExchanger strategy capture (Bail-Out Grant)
+        // CurrencyExchanger / CurrencyConverter strategy capture, all three
+        // currencies (Bail-Out Grant's funds OUT + rep IN; Patents Licensing's
+        // science IN). The carve-out is ONE DIRECTION PER CURRENCY, each keyed on
+        // the exact reason observed for it, so the ConvertEvent_SkippedTypes_ReturnsNull
+        // Theory row for ScienceChanged (key "test") above is expected to keep passing
+        // UNCHANGED - it is now the every-other-reason regression fence.
         // ================================================================
 
         [Fact]
@@ -439,6 +444,65 @@ namespace Parsek.Tests
         {
             var evt = MakeEvent(GameStateEventType.ReputationChanged, 100.0,
                 key: "ContractReward", valBefore: 0, valAfter: 20.0, recordingId: "rec");
+            Assert.Null(GameStateEventConverter.ConvertEvent(evt, "rec"));
+        }
+
+        [Fact]
+        public void ConvertEvent_ScienceChanged_StrategyInput_ReturnsStrategyScienceDebit()
+        {
+            // Patents Licensing (researchIPsellout) subtracts science under StrategyInput.
+            // Magnitudes taken from the c2 fixture: 750 -> 641.15828148.
+            var evt = MakeEvent(GameStateEventType.ScienceChanged, 8599.8755059835421,
+                key: GameStateEventConverter.StrategyInputReasonKey,
+                valBefore: 750.0, valAfter: 641.15828148, recordingId: "");
+            var action = GameStateEventConverter.ConvertEvent(evt, null);
+
+            Assert.NotNull(action);
+            Assert.Equal(GameActionType.StrategyScienceDebit, action.Type);
+            // valAfter - valBefore = -108.84171852; Cost is the positive magnitude.
+            Assert.Equal(108.84171852, (double)action.Cost, 4);
+            Assert.Equal(8599.8755059835421, action.UT);
+            // Not a tech-node spending: no NodeId is carried.
+            Assert.Null(action.NodeId);
+        }
+
+        [Fact]
+        public void ConvertEvent_ScienceChanged_StrategyInput_NonNegative_ReturnsNull()
+        {
+            // Equal before/after.
+            var flat = MakeEvent(GameStateEventType.ScienceChanged, 4242.0,
+                key: GameStateEventConverter.StrategyInputReasonKey,
+                valBefore: 100.0, valAfter: 100.0);
+            Assert.Null(GameStateEventConverter.ConvertEvent(flat, null));
+
+            // A POSITIVE StrategyInput delta is the science OUTPUT direction (Unpaid
+            // Research Program grants science). It is deliberately NOT captured here -
+            // a science credit collides with the ConvertScienceSubjects earnings
+            // channel and needs its own action shape and design pass.
+            var credit = MakeEvent(GameStateEventType.ScienceChanged, 4242.0,
+                key: GameStateEventConverter.StrategyInputReasonKey,
+                valBefore: 100.0, valAfter: 160.0);
+            Assert.Null(GameStateEventConverter.ConvertEvent(credit, null));
+        }
+
+        [Fact]
+        public void ConvertEvent_ScienceChanged_NonStrategyReason_StillReturnsNull()
+        {
+            // THE double-count guard. ConvertScienceSubjects / PendingScienceSubjects is
+            // the SOLE owner of science EARNINGS; re-emitting a transmitted-science
+            // credit here would double-count against it at the same UT.
+            var evt = MakeEvent(GameStateEventType.ScienceChanged, 100.0,
+                key: "ScienceTransmission", valBefore: 0, valAfter: 250.0, recordingId: "rec");
+            Assert.Null(GameStateEventConverter.ConvertEvent(evt, "rec"));
+        }
+
+        [Fact]
+        public void ConvertEvent_ScienceChanged_TechResearchReason_StillReturnsNull()
+        {
+            // The tech channel provably keeps its own ConvertTechResearched door: a
+            // NEGATIVE RnDTechResearch delta must not also become a StrategyScienceDebit.
+            var evt = MakeEvent(GameStateEventType.ScienceChanged, 100.0,
+                key: "RnDTechResearch", valBefore: 300.0, valAfter: 210.0, recordingId: "rec");
             Assert.Null(GameStateEventConverter.ConvertEvent(evt, "rec"));
         }
 
