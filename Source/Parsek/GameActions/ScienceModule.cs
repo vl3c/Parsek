@@ -127,6 +127,9 @@ namespace Parsek
                 case GameActionType.StrategyScienceDebit:
                     ProcessStrategyScienceDebit(action);
                     break;
+                case GameActionType.StrategyScienceCredit:
+                    ProcessStrategyScienceCredit(action);
+                    break;
                 case GameActionType.ContractComplete:
                     ProcessContractScienceReward(action);
                     break;
@@ -370,6 +373,44 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Processes a <see cref="GameActionType.StrategyScienceCredit"/> row: the
+        /// science OUTPUT leg of a stock <c>CurrencyConverter</c> strategy (Open-Source
+        /// Tech Program). <see cref="GameAction.ScienceAwarded"/> is the positive
+        /// magnitude KSP already added to the pool.
+        ///
+        /// <para>Credits <see cref="runningScience"/> UNCONDITIONALLY and does NOT
+        /// touch the per-subject cap bookkeeping - the mirror of
+        /// <see cref="ProcessStrategyScienceDebit"/>'s unconditional subtraction, and
+        /// for the same reason: KSP has already moved this science, so re-deciding it
+        /// would make the reconstruction diverge. There is no subject to cap against
+        /// (that is exactly why this is not a <see cref="ProcessEarning"/> row).</para>
+        ///
+        /// <para>It DOES feed <see cref="totalEffectiveEarnings"/>, because that is the
+        /// figure <see cref="GetAvailableScience"/> reserves against: science the
+        /// player genuinely holds and can spend on a tech node. Leaving it out would
+        /// under-report spendable science by the yielded amount.</para>
+        /// </summary>
+        internal void ProcessStrategyScienceCredit(GameAction action)
+        {
+            double credit = (double)action.ScienceAwarded;
+            if (credit <= 0.0)
+            {
+                ParsekLog.Verbose("ScienceModule",
+                    $"StrategyScienceCredit: non-positive credit={credit.ToString("R", IC)} " +
+                    $"at UT={action.UT.ToString("R", IC)} - no-op");
+                return;
+            }
+
+            runningScience += credit;
+            totalEffectiveEarnings += credit;
+
+            ParsekLog.Verbose("ScienceModule",
+                $"StrategyScienceCredit: credit={credit.ToString("R", IC)}, " +
+                $"runningScience={runningScience.ToString("R", IC)}, " +
+                $"totalEffectiveEarnings={totalEffectiveEarnings.ToString("R", IC)}");
+        }
+
+        /// <summary>
         /// Processes a StrategyActivate action's science setup cost. The action already
         /// carries the exact configured science charge from the strategy detail.
         /// </summary>
@@ -550,6 +591,9 @@ namespace Parsek
                     return true;
                 case GameActionType.StrategyScienceDebit:
                     delta = -(double)action.Cost;
+                    return true;
+                case GameActionType.StrategyScienceCredit:
+                    delta = (double)action.ScienceAwarded;
                     return true;
                 case GameActionType.StrategyActivate:
                     delta = -(double)action.SetupScienceCost;

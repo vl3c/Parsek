@@ -189,6 +189,9 @@ namespace Parsek.Tests
             // IsSupersedeTombstoneEligible, so a strict block would only refuse a merge
             // over a row that same merge is about to tombstone.
             yield return new object[] { GameActionType.StrategyScienceDebit, false, false };
+            // StrategyScienceCredit: the OUTPUT direction of the same query-family
+            // door, and the same answer on both gates for the same two reasons.
+            yield return new object[] { GameActionType.StrategyScienceCredit, false, false };
         }
 
         [Fact]

@@ -444,6 +444,7 @@ namespace Parsek
                 // the Administration building). Without this arm every such row hits the
                 // default below and WARNs on every timeline build.
                 case GameActionType.StrategyScienceDebit: return TimelineEntryType.ScienceSpending;
+                case GameActionType.StrategyScienceCredit: return TimelineEntryType.ScienceEarning;
                 case GameActionType.FundsEarning:         return TimelineEntryType.FundsEarning;
                 case GameActionType.FundsSpending:        return TimelineEntryType.FundsSpending;
                 case GameActionType.ReputationEarning:    return TimelineEntryType.ReputationEarning;

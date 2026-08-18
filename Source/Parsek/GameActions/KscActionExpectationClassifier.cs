@@ -250,6 +250,18 @@ namespace Parsek
                         SkipReason = "direct earning -- post-walk hook reconciles (#440)"
                     };
 
+                case GameActionType.StrategyScienceCredit:
+                    // The query-family OUTPUT leg. There is no paired event AT ALL for
+                    // this family (the converter mutates a CurrencyModifierQuery in
+                    // place and the resulting ScienceChanged carries the ORIGINAL
+                    // reason), so an Untransformed leg would WARN on every single row.
+                    return new KscActionExpectation
+                    {
+                        Class = KscReconcileClass.Transformed,
+                        SkipReason = "strategy currency-converter science yield -- no " +
+                                     "reason-keyed event exists for the query family"
+                    };
+
                 case GameActionType.StrategyScienceDebit:
                     // The science INPUT leg of a strategy currency exchange, captured
                     // DIRECTLY from the very ScienceChanged(StrategyInput) event a

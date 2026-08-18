@@ -169,6 +169,9 @@ namespace Parsek
                 // Strategy currency-exchange science leg: ScienceModule debits the pool
                 // by Cost, so it moves a resource exactly like a ScienceSpending.
                 case GameActionType.StrategyScienceDebit:
+                // Strategy currency-converter science yield: credits the pool, so it
+                // moves a resource exactly like a ScienceEarning.
+                case GameActionType.StrategyScienceCredit:
                 case GameActionType.ReputationEarning:
                 case GameActionType.ReputationPenalty:
                     return true;

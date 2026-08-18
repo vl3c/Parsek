@@ -10,7 +10,7 @@ namespace Parsek.Tests
     {
         // Keep this count in sync with CreateAction's switch below so a new
         // GameActionType cannot land without an explicit fuzzer payload.
-        private const int ExpectedGameActionTypeCount = 33;
+        private const int ExpectedGameActionTypeCount = 34;
         private readonly bool priorSuppressLogging;
 
         public RecalculationFuzzerTests()
@@ -273,6 +273,19 @@ namespace Parsek.Tests
                 case GameActionType.ScienceSpending:
                     action.NodeId = "node-" + iteration;
                     action.Cost = 4f;
+                    break;
+                // The two strategy currency-conversion legs. Payloads given
+                // explicitly rather than left to fall through with a zero magnitude:
+                // ScienceModule no-ops a non-positive row on both, so a zero payload
+                // would fuzz nothing.
+                case GameActionType.StrategyScienceDebit:
+                    action.Cost = 3f;
+                    action.ConversionSource = (iteration % 2 == 0)
+                        ? StrategyConversionSource.Exchanger
+                        : StrategyConversionSource.Converter;
+                    break;
+                case GameActionType.StrategyScienceCredit:
+                    action.ScienceAwarded = 3f;
                     break;
                 case GameActionType.FundsEarning:
                     action.FundsAwarded = 100f;

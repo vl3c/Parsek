@@ -63,6 +63,7 @@ namespace Parsek
                 // KSC-path row (recordingId null) is untouched - this governs only a
                 // flight-tagged capture.
                 case GameActionType.StrategyScienceDebit:
+                case GameActionType.StrategyScienceCredit:
                 case GameActionType.FundsEarning:
                 case GameActionType.MilestoneAchievement:
                 case GameActionType.ContractAccept:

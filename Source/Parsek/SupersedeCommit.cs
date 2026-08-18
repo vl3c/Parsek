@@ -1956,6 +1956,8 @@ namespace Parsek
                 // ScienceEarning-only, so it already answered false for this type both
                 // before and after this arm; only the strict gate changes.
                 case GameActionType.StrategyScienceDebit:
+                // StrategyScienceCredit: the same argument in the OUTPUT direction.
+                case GameActionType.StrategyScienceCredit:
                     return false;
             }
 
@@ -2491,6 +2493,9 @@ namespace Parsek
                     scienceSpending++;
                     break;
                 case GameActionType.ScienceEarning:
+                // Strategy currency-converter science yield: counted with the science
+                // earnings, the direction it actually moves the pool.
+                case GameActionType.StrategyScienceCredit:
                     science++;
                     break;
                 case GameActionType.FundsEarning:

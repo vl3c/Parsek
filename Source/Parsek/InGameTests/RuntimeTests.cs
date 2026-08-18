@@ -16917,6 +16917,351 @@ namespace Parsek.InGameTests
             return candidates;
         }
 
+        // Finds the stock CurrencyConverter strategy the conversion cell drives. Selected
+        // by Config.Name so the cell names the mechanism it is testing rather than
+        // whatever the readiness probe happened to stabilize on - that probe returns the
+        // first ACTIVATABLE strategy of any shape, and the exchanger family (Bail-Out
+        // Grant) would exercise a completely different door.
+        private static Strategies.Strategy FindStockStrategyByConfigName(string configName)
+        {
+            var system = Strategies.StrategySystem.Instance;
+            var list = system?.Strategies;
+            if (list == null) return null;
+
+            for (int i = 0; i < list.Count; i++)
+            {
+                var s = list[i];
+                if (s == null) continue;
+                try
+                {
+                    var config = s.Config;
+                    if (config == null) continue;
+                    if (!string.Equals(config.Name, configName, System.StringComparison.Ordinal))
+                        continue;
+                    return s;
+                }
+                catch (System.Exception ex)
+                {
+                    ParsekLog.Verbose("TestRunner",
+                        $"FindStockStrategyByConfigName probe exception: index={i} {ex}");
+                }
+            }
+            return null;
+        }
+
+        // Best-effort config cross-check for the conversion cell. Reads the four numeric
+        // fields a stock CurrencyConverter EFFECT declares and Lerps them by the
+        // strategy's Factor, exactly as stock does. REFLECTIVE and FAIL-OPEN by design:
+        // the field names are KSP's, not ours, so a KSP version that spells them
+        // differently must degrade this to "cross-check unavailable" rather than fail a
+        // cell whose real subject is the ledger. The measured-movement assertions in the
+        // cell stand on their own without it.
+        private static bool TryDeriveCurrencyConverterTerms(
+            Strategies.Strategy strategy, out double share, out double rate, out string why)
+        {
+            share = 0.0; rate = 0.0; why = null;
+            if (strategy == null) { why = "strategy is null"; return false; }
+
+            object converter = null;
+            var effects = strategy.Effects;
+            if (effects != null)
+            {
+                for (int i = 0; i < effects.Count; i++)
+                {
+                    var e = effects[i];
+                    if (e == null) continue;
+                    if (e.GetType().Name.IndexOf("CurrencyConverter", System.StringComparison.Ordinal) >= 0)
+                    {
+                        converter = e;
+                        break;
+                    }
+                }
+            }
+            if (converter == null) { why = "no CurrencyConverter effect on the strategy"; return false; }
+
+            const BindingFlags flags =
+                BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic;
+            var type = converter.GetType();
+            double minCurrency, maxCurrency, minRate, maxRate;
+            if (!TryReadNumericMember(type, converter, "minCurrency", flags, out minCurrency)
+                || !TryReadNumericMember(type, converter, "maxCurrency", flags, out maxCurrency)
+                || !TryReadNumericMember(type, converter, "minRate", flags, out minRate)
+                || !TryReadNumericMember(type, converter, "maxRate", flags, out maxRate))
+            {
+                why = "CurrencyConverter does not expose minCurrency/maxCurrency/minRate/maxRate";
+                return false;
+            }
+
+            double factor = strategy.Factor;
+            share = minCurrency + (maxCurrency - minCurrency) * factor;
+            rate = minRate + (maxRate - minRate) * factor;
+            return true;
+        }
+
+        private static bool TryReadNumericMember(
+            System.Type type, object instance, string name, BindingFlags flags, out double value)
+        {
+            value = 0.0;
+            try
+            {
+                var field = type.GetField(name, flags);
+                object raw = field != null ? field.GetValue(instance) : null;
+                if (raw == null)
+                {
+                    var prop = type.GetProperty(name, flags);
+                    raw = prop != null ? prop.GetValue(instance, null) : null;
+                }
+                if (raw == null) return false;
+                value = System.Convert.ToDouble(raw, CultureInfo.InvariantCulture);
+                return true;
+            }
+            catch (System.Exception)
+            {
+                return false;
+            }
+        }
+
+        [InGameTest(Category = "StrategyLifecycle", Scene = GameScenes.SPACECENTER,
+            Description = "STRATEGY-SCIENCE-CONVERSION-LEAK / STRATEGY-FUNDS-YIELD-DRIFT: a stock CurrencyConverter strategy's in-place query mutation lands in the ledger as a StrategyScienceDebit + a Strategy FundsEarning matching the MEASURED pool movement, with no GUARDED clamp.")]
+        public IEnumerator CurrencyConverterStrategy_LedgerMatchesNetCredit()
+        {
+            if (HighLogic.CurrentGame == null)
+            {
+                InGameAssert.Skip("HighLogic.CurrentGame is null");
+                yield break;
+            }
+            if (HighLogic.CurrentGame.Mode != Game.Modes.CAREER)
+            {
+                InGameAssert.Skip($"StrategySystem is career-only (mode={HighLogic.CurrentGame.Mode})");
+                yield break;
+            }
+            if (Funding.Instance == null || ResearchAndDevelopment.Instance == null)
+            {
+                InGameAssert.Skip("Funding / ResearchAndDevelopment singletons not initialized");
+                yield break;
+            }
+            // The door calls RecalculateAndPatchForLiveTimelineEvent, which defers KSP
+            // singleton patching while a live/pending tree exists - the pool assertions
+            // below would then read a half-applied state. Same guard the ground-truth
+            // harness uses.
+            if (RecordingStore.HasPendingTree
+                || GameStateRecorder.HasActiveUncommittedTree()
+                || GameStateRecorder.HasLiveRecorder())
+            {
+                InGameAssert.Skip("a live/pending tree or live recorder would defer the patch");
+                yield break;
+            }
+
+            // Administration must be hydrated before Strategy.CanBeActivated / Activate:
+            // stock dereferences that singleton. Reuse the readiness idiom wholesale, then
+            // pick the strategy BY NAME rather than taking the probe's stabilized choice.
+            var selection = new StrategySelectionResult();
+            yield return WaitForStableActivatableStockStrategy(selection);
+
+            try
+            {
+                if (KSP.UI.Screens.Administration.Instance == null)
+                {
+                    InGameAssert.Skip(
+                        $"Administration never hydrated - {selection.Diagnostic ?? "(no diagnostic)"}");
+                    yield break;
+                }
+
+                const string TargetConfigName = "PatentsLicensingCfg";
+                var strategy = FindStockStrategyByConfigName(TargetConfigName);
+                if (strategy == null)
+                {
+                    InGameAssert.Skip($"stock strategy '{TargetConfigName}' is not present on this install");
+                    yield break;
+                }
+                if (strategy.IsActive)
+                {
+                    InGameAssert.Skip($"'{TargetConfigName}' is already active - this cell owns its activation");
+                    yield break;
+                }
+
+                var (fundsBefore, sciBefore, repBefore) = SnapshotFinancials();
+                int eventCountBefore = GameStateStore.EventCount;
+                int ledgerCountBefore = Ledger.Actions.Count;
+
+                var captured = new List<string>();
+                var priorObserver = ParsekLog.TestObserverForTesting;
+                ParsekLog.TestObserverForTesting = line => { captured.Add(line); priorObserver?.Invoke(line); };
+
+                bool activated = false;
+                try
+                {
+                    // Top up science so the strategy is affordable and the award has room.
+                    // TransactionReasons.None + SuppressionGuard.Resources so neither the
+                    // reason-keyed doors nor the query-family door treat the setup as a
+                    // real movement (None matches no strategy AffectReasons either).
+                    const float TopUpScience = 200f;
+                    const float Award = 40f;
+                    using (SuppressionGuard.Resources())
+                        ResearchAndDevelopment.Instance.AddScience(TopUpScience, TransactionReasons.None);
+
+                    for (int i = 0; i < StrategyLifecycleActivateSettleFrames; i++)
+                        yield return null;
+
+                    string cannotReason;
+                    if (!strategy.CanBeActivated(out cannotReason))
+                    {
+                        InGameAssert.Skip(
+                            $"'{TargetConfigName}' cannot be activated on this save: {cannotReason ?? "(no reason)"}");
+                        yield break;
+                    }
+
+                    activated = strategy.Activate();
+                    InGameAssert.IsTrue(activated, $"Strategy.Activate returned false for '{TargetConfigName}'");
+
+                    for (int i = 0; i < StrategyLifecycleActivateSettleFrames; i++)
+                        yield return null;
+
+                    // The pool baseline for the MEASUREMENT is taken AFTER activation so
+                    // the strategy's own InitialCost* setup charge is outside the window.
+                    double fundsPreAward = Funding.Instance.Funds;
+                    float sciPreAward = ResearchAndDevelopment.Instance.Science;
+                    int ledgerCountPreAward = Ledger.Actions.Count;
+
+                    // ONE award, exactly once. Two exchanges at the frozen KSC clock share
+                    // a UT and KscActionExpectationClassifier would see -2*cost against a
+                    // -cost expectation and WARN falsely.
+                    ResearchAndDevelopment.Instance.AddScience(Award, TransactionReasons.ScienceTransmission);
+
+                    double sciDelta = ResearchAndDevelopment.Instance.Science - (double)sciPreAward;
+                    double fundsDelta = Funding.Instance.Funds - fundsPreAward;
+                    double take = (double)Award - sciDelta;
+
+                    ParsekLog.Info("TestRunner",
+                        $"CurrencyConverterStrategy: award={Award.ToString("R", CultureInfo.InvariantCulture)} " +
+                        $"sciDelta={sciDelta.ToString("R", CultureInfo.InvariantCulture)} " +
+                        $"take={take.ToString("R", CultureInfo.InvariantCulture)} " +
+                        $"fundsDelta={fundsDelta.ToString("R", CultureInfo.InvariantCulture)} " +
+                        $"factor={strategy.Factor.ToString("R", CultureInfo.InvariantCulture)}");
+
+                    if (take <= 0.01)
+                    {
+                        InGameAssert.Skip(
+                            $"'{TargetConfigName}' converted nothing under ScienceTransmission " +
+                            $"(take={take.ToString("R", CultureInfo.InvariantCulture)}) - no subject for this cell");
+                        yield break;
+                    }
+
+                    // OPTIONAL config cross-check: stock Lerps the EFFECT's declared
+                    // min/max by Strategy.Factor. Read at runtime, never hardcoded, and
+                    // fail-open when this KSP version spells the fields differently.
+                    double share, rate, expectedTake, expectedYield;
+                    string crossCheckWhy;
+                    if (TryDeriveCurrencyConverterTerms(strategy, out share, out rate, out crossCheckWhy))
+                    {
+                        expectedTake = (double)Award * share;
+                        expectedYield = expectedTake * rate;
+                        ParsekLog.Info("TestRunner",
+                            $"CurrencyConverterStrategy config terms: share={share.ToString("R", CultureInfo.InvariantCulture)} " +
+                            $"rate={rate.ToString("R", CultureInfo.InvariantCulture)} " +
+                            $"expectedTake={expectedTake.ToString("R", CultureInfo.InvariantCulture)} " +
+                            $"expectedYield={expectedYield.ToString("R", CultureInfo.InvariantCulture)}");
+                        InGameAssert.ApproxEqual(expectedTake, take, System.Math.Max(0.05, expectedTake * 0.02),
+                            "science taken must equal award * share derived from the live effect config");
+                        InGameAssert.ApproxEqual(expectedYield, fundsDelta, System.Math.Max(1.0, expectedYield * 0.02),
+                            "funds yielded must equal take * rate derived from the live effect config");
+                    }
+                    else
+                    {
+                        ParsekLog.Info("TestRunner",
+                            $"CurrencyConverterStrategy: config cross-check unavailable ({crossCheckWhy}) - " +
+                            "asserting the ledger against the MEASURED pool movement only");
+                    }
+
+                    InGameAssert.IsGreaterThan(fundsDelta, 0.0,
+                        "a science->funds converter must have credited funds for the take");
+
+                    // The rows the query-family door wrote. Untagged, written synchronously
+                    // inside the AddScience above (no commit involved), so they are already
+                    // in the ledger - and visible through ELS, which is what any consumer
+                    // reads.
+                    var els = EffectiveState.ComputeELS();
+                    InGameAssert.IsNotNull(els, "ComputeELS returned null");
+
+                    double ledgerDebit = 0.0, ledgerStrategyFunds = 0.0;
+                    int debitRows = 0, fundsRows = 0;
+                    for (int i = 0; i < els.Count; i++)
+                    {
+                        var a = els[i];
+                        if (a == null) continue;
+                        if (a.Type == GameActionType.StrategyScienceDebit
+                            && a.ConversionSource == StrategyConversionSource.Converter)
+                        {
+                            ledgerDebit += a.Cost;
+                            debitRows++;
+                        }
+                        else if (a.Type == GameActionType.FundsEarning
+                            && a.FundsSource == FundsEarningSource.Strategy)
+                        {
+                            ledgerStrategyFunds += a.FundsAwarded;
+                            fundsRows++;
+                        }
+                    }
+
+                    ParsekLog.Info("TestRunner",
+                        $"CurrencyConverterStrategy ledger: debitRows={debitRows.ToString(CultureInfo.InvariantCulture)} " +
+                        $"ledgerDebit={ledgerDebit.ToString("R", CultureInfo.InvariantCulture)} " +
+                        $"fundsRows={fundsRows.ToString(CultureInfo.InvariantCulture)} " +
+                        $"ledgerStrategyFunds={ledgerStrategyFunds.ToString("R", CultureInfo.InvariantCulture)} " +
+                        $"newLedgerRows={(Ledger.Actions.Count - ledgerCountPreAward).ToString(CultureInfo.InvariantCulture)}");
+
+                    InGameAssert.AreEqual(1, debitRows,
+                        "exactly one converter-sourced StrategyScienceDebit row must exist for one award");
+                    InGameAssert.ApproxEqual(take, ledgerDebit, System.Math.Max(0.05, take * 0.02),
+                        "the ledger's science debit must equal the science KSP actually removed");
+                    InGameAssert.AreEqual(1, fundsRows,
+                        "exactly one Strategy FundsEarning row must exist for one award");
+                    InGameAssert.ApproxEqual(fundsDelta, ledgerStrategyFunds,
+                        System.Math.Max(1.0, fundsDelta * 0.02),
+                        "the ledger's strategy funds earning must equal the funds KSP actually credited");
+
+                    // The pool guard must not have fired. A GUARDED clamp here means the
+                    // reconstruction disagreed with live in either direction - exactly the
+                    // measured leak this door closes.
+                    bool sawGuardedClamp = captured.Any(l =>
+                        l.Contains("GUARDED UPLIFT clamped") || l.Contains("GUARDED DRAWDOWN clamped"));
+                    InGameAssert.IsFalse(sawGuardedClamp,
+                        "no GUARDED UPLIFT/DRAWDOWN clamp may fire on a captured strategy conversion");
+
+                    // The door's own Info line, so a silent regression to "no capture at
+                    // all" cannot pass on the row assertions alone.
+                    bool sawDoorLog = captured.Any(l =>
+                        l.Contains("[GameStateRecorder]") && l.Contains("strategy currency conversion"));
+                    InGameAssert.IsTrue(sawDoorLog,
+                        "expected the [GameStateRecorder] strategy currency conversion INFO line");
+                }
+                finally
+                {
+                    if (strategy.IsActive)
+                    {
+                        try { strategy.Deactivate(); }
+                        catch (System.Exception ex)
+                        {
+                            ParsekLog.Warn("TestRunner",
+                                $"CurrencyConverterStrategy teardown Deactivate threw: {ex}");
+                        }
+                    }
+                    ParsekLog.TestObserverForTesting = priorObserver;
+                    RestoreFinancials(fundsBefore, sciBefore, repBefore);
+                    GameStateStore.TruncateEventsForTesting(eventCountBefore);
+                    Ledger.TruncateActionsForTesting(ledgerCountBefore);
+                    ParsekLog.Verbose("TestRunner",
+                        $"CurrencyConverterStrategy teardown: activated={activated}, " +
+                        $"eventsBack={eventCountBefore.ToString(CultureInfo.InvariantCulture)}, " +
+                        $"ledgerBack={ledgerCountBefore.ToString(CultureInfo.InvariantCulture)}");
+                }
+            }
+            finally
+            {
+                DestroyHiddenAdministrationCanvasForTest(selection, "currency-converter-teardown");
+            }
+        }
+
         #endregion
 
         #region Stock UI Overlays (Game State UI Overlays Phase 5)

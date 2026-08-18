@@ -1071,9 +1071,8 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Converts the science INPUT leg of a stock CurrencyExchanger /
-        /// CurrencyConverter strategy exchange (Patents Licensing,
-        /// <c>researchIPsellout</c>) into a
+        /// Converts the science INPUT leg of a stock <c>Strategies.CurrencyExchanger</c>
+        /// (the EXCHANGER family: <c>researchIPsellout</c>, Bail-Out Grant) into a
         /// <see cref="GameActionType.StrategyScienceDebit"/>. KSP subtracts the science
         /// directly under <c>TransactionReasons.StrategyInput</c>; the strategy moved it
         /// OUT of the pool and KSP has ALREADY applied it, so
@@ -1088,6 +1087,15 @@ namespace Parsek
         /// <see cref="ConvertScienceSubjects"/> keeps sole ownership of science
         /// EARNINGS - the double-count hazard the skipped-types comment warns about.
         /// Internal static for testability.</para>
+        ///
+        /// <para>NOT the <c>Strategies.Effects.CurrencyConverter</c> family (Patents
+        /// Licensing and 7 siblings). Those mutate a <c>CurrencyModifierQuery</c> in
+        /// place and never produce a <c>StrategyInput</c> event, so this converter is
+        /// structurally blind to them; they are captured instead by the query-family
+        /// door, <c>GameStateRecorder.OnCurrencyModified</c> ->
+        /// <c>StrategyConversionCapture</c> ->
+        /// <c>LedgerOrchestrator.OnStrategyCurrencyConversion</c>. The rows it writes
+        /// carry <see cref="StrategyConversionSource.Converter"/>.</para>
         /// </summary>
         internal static GameAction ConvertStrategyExchangeScience(GameStateEvent evt, string recordingId)
         {

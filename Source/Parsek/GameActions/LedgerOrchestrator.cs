@@ -601,6 +601,15 @@ namespace Parsek
                             // "missing earning channel" science WARN.
                             deltas.EmittedSciDelta -= a.Cost;
                             break;
+                        case GameActionType.StrategyScienceCredit:
+                            // Mirror of the debit arm above for the OUTPUT direction.
+                            // (Query-family rows are written UNTAGGED and land in the
+                            // ledger immediately rather than in a commit's newActions,
+                            // so this arm bites only if a future producer ever emits a
+                            // tagged one - it is here so the type is never silently
+                            // absent from the emitted side.)
+                            deltas.EmittedSciDelta += a.ScienceAwarded;
+                            break;
                     }
                 }
             }
@@ -945,6 +954,10 @@ namespace Parsek
                 case GameActionType.StrategyScienceDebit:
                     return (a.RecordingId ?? "") + ":" +
                            a.Cost.ToString("R", CultureInfo.InvariantCulture);
+                // Same shape, same two limitations, for the OUTPUT direction.
+                case GameActionType.StrategyScienceCredit:
+                    return (a.RecordingId ?? "") + ":" +
+                           a.ScienceAwarded.ToString("R", CultureInfo.InvariantCulture);
                 case GameActionType.FundsEarning: return a.RecordingId ?? "";
                 // FundsSpending: RecordingId alone collides when multiple KSC part
                 // purchases share a null/empty RecordingId. DedupKey is the part name
@@ -1727,6 +1740,7 @@ namespace Parsek
                 // ledger whose ONLY science row is an exchange still reports science as
                 // tracked to LedgerHasScienceTimelineActions.
                 case GameActionType.StrategyScienceDebit:
+                case GameActionType.StrategyScienceCredit:
                     return true;
                 case GameActionType.ContractComplete:
                     return action.ScienceReward != 0f || action.TransformedScienceReward != 0f;
@@ -3140,6 +3154,154 @@ namespace Parsek
         }
 
         /// <summary>
+        /// The QUERY-FAMILY strategy door (STRATEGY-SCIENCE-CONVERSION-LEAK /
+        /// STRATEGY-FUNDS-YIELD-DRIFT). Called by
+        /// <c>GameStateRecorder.OnCurrencyModified</c> with the legs
+        /// <see cref="StrategyConversionCapture.EvaluateLegs"/> selected out of a stock
+        /// <c>CurrencyModifierQuery</c> that a <c>CurrencyConverter</c> /
+        /// <c>CurrencyOperation</c> effect mutated in place.
+        ///
+        /// <para>Writes DIRECT, UNTAGGED rows (<c>RecordingId = null</c>) even when a
+        /// flight recorder is live - the one structural difference from
+        /// <see cref="OnKscSpending"/>'s
+        /// <c>ShouldForwardDirectLedgerEvent</c>-gated siblings. Two reasons, both
+        /// forced by the mechanism: (1) this family leaves NO reason-keyed
+        /// GameStateEvent behind, so there is no stored event for the commit-time
+        /// <c>ConvertEvents</c> path to convert later - deferring would simply lose it;
+        /// (2) the movement is irreversible global economy, not recording-owned
+        /// economy, so a recording DISCARD must not take it back (the exchanger family
+        /// needs <see cref="PreserveIrreversibleLiveGameplayOnDiscard"/> to re-home its
+        /// tagged debit for exactly this reason; an untagged row is already where that
+        /// re-home would put it).</para>
+        ///
+        /// <para>REPUTATION legs are logged and DROPPED. The query delta is the
+        /// modifier's PRE-curve contribution, while <c>Reputation.AddReputation</c>
+        /// applies KSP's granular reputation curve on top, so the number available here
+        /// is not the number the pool moved by - and this seam exposes no post-curve
+        /// value to read. The exchanger family's rep leg is captured instead from the
+        /// <c>ReputationChanged</c> event, which IS the post-curve delta
+        /// (<c>ConvertStrategyExchangeReputation</c> ->
+        /// <c>ReputationModule.ProcessRepPenalty</c>'s no-recurve arm). Writing a
+        /// pre-curve magnitude through either the earning or the penalty arm would
+        /// trade a known drift for a wrong one, so this door observes and says so.</para>
+        ///
+        /// <para>NEGATIVE funds legs are logged and dropped too: a converter's funds
+        /// OUTPUT is positive by construction and a funds INPUT necessarily has a
+        /// nonzero <c>GetInput</c>, which the scoping rule already excludes. A negative
+        /// zero-input funds delta would mean the mechanism does something this door was
+        /// not built against, and guessing a row shape for it is worse than saying so
+        /// loudly.</para>
+        /// </summary>
+        internal static void OnStrategyCurrencyConversion(
+            double ut,
+            IReadOnlyList<StrategyConversionLeg> legs,
+            string reason)
+        {
+            if (legs == null || legs.Count == 0)
+                return;
+
+            Initialize();
+
+            int written = 0, skipped = 0;
+            for (int i = 0; i < legs.Count; i++)
+            {
+                var leg = legs[i];
+                GameAction action = BuildStrategyConversionAction(ut, leg, reason);
+                if (action == null)
+                {
+                    skipped++;
+                    continue;
+                }
+
+                kscSequenceCounter++;
+                action.Sequence = kscSequenceCounter;
+                Ledger.AddAction(action);
+                written++;
+
+                ParsekLog.Info(Tag,
+                    $"Strategy conversion recorded: type={action.Type}, " +
+                    $"currency={leg.Currency}, delta={leg.Delta.ToString("R", CultureInfo.InvariantCulture)}, " +
+                    $"UT={ut.ToString("F1", CultureInfo.InvariantCulture)}, reason={reason ?? "(none)"}");
+
+                ReconcileKscAction(GameStateStore.Events, Ledger.Actions, action, ut);
+            }
+
+            ParsekLog.Verbose(Tag,
+                $"OnStrategyCurrencyConversion: legs={legs.Count.ToString(CultureInfo.InvariantCulture)}, " +
+                $"written={written.ToString(CultureInfo.InvariantCulture)}, " +
+                $"skipped={skipped.ToString(CultureInfo.InvariantCulture)}, " +
+                $"reason={reason ?? "(none)"}");
+
+            if (written > 0)
+                RecalculateAndPatchForLiveTimelineEvent(ut, "strategy-conversion");
+        }
+
+        /// <summary>
+        /// Pure row-shape mapper for <see cref="OnStrategyCurrencyConversion"/>.
+        /// Returns null for the two deliberately-unwritten cases (reputation of either
+        /// sign, negative funds) after logging why. Internal static for testability.
+        /// </summary>
+        internal static GameAction BuildStrategyConversionAction(
+            double ut,
+            StrategyConversionLeg leg,
+            string reason)
+        {
+            switch (leg.Currency)
+            {
+                case StrategyConversionCurrency.Science:
+                    if (leg.Delta < 0.0)
+                    {
+                        return new GameAction
+                        {
+                            UT = ut,
+                            Type = GameActionType.StrategyScienceDebit,
+                            RecordingId = null,
+                            Cost = (float)(-leg.Delta),
+                            ConversionSource = StrategyConversionSource.Converter
+                        };
+                    }
+                    return new GameAction
+                    {
+                        UT = ut,
+                        Type = GameActionType.StrategyScienceCredit,
+                        RecordingId = null,
+                        ScienceAwarded = (float)leg.Delta
+                    };
+
+                case StrategyConversionCurrency.Funds:
+                    if (leg.Delta <= 0.0)
+                    {
+                        ParsekLog.Warn(Tag,
+                            $"Strategy conversion: unexpected NEGATIVE zero-input funds delta=" +
+                            $"{leg.Delta.ToString("R", CultureInfo.InvariantCulture)} at " +
+                            $"UT={ut.ToString("F1", CultureInfo.InvariantCulture)} " +
+                            $"(reason={reason ?? "(none)"}) - not captured, see " +
+                            "OnStrategyCurrencyConversion's contract");
+                        return null;
+                    }
+                    return new GameAction
+                    {
+                        UT = ut,
+                        Type = GameActionType.FundsEarning,
+                        RecordingId = null,
+                        FundsAwarded = (float)leg.Delta,
+                        FundsSource = FundsEarningSource.Strategy
+                    };
+
+                case StrategyConversionCurrency.Reputation:
+                default:
+                    ParsekLog.VerboseRateLimited(Tag, "strategy-conversion-rep",
+                        $"Strategy conversion: observed reputation delta=" +
+                        $"{leg.Delta.ToString("R", CultureInfo.InvariantCulture)} at " +
+                        $"UT={ut.ToString("F1", CultureInfo.InvariantCulture)} " +
+                        $"(reason={reason ?? "(none)"}) - NOT captured; the query delta is " +
+                        "pre-curve while AddReputation applies KSP's curve, so this " +
+                        "magnitude is not the pool movement", 5.0);
+                    return null;
+            }
+        }
+
+        /// <summary>
         /// True for the irreversible live-gameplay terminal events that KSP applies the
         /// moment they happen and cannot be cleanly undone without a quicksave reload:
         /// contract terminal outcomes and world-record / progress milestone achievements.
@@ -4427,6 +4589,18 @@ namespace Parsek
                     if (action == null)
                         continue;
                     if (action.Type != GameActionType.StrategyScienceDebit)
+                        continue;
+                    // EXCHANGER rows only. The observed side above is built from stored
+                    // ScienceChanged(StrategyInput) events, which the QUERY family never
+                    // produces (it mutates a CurrencyModifierQuery in place and the
+                    // resulting ScienceChanged carries the ORIGINAL reason). A converter
+                    // row therefore has no observed counterpart, and counting it here
+                    // would subtract it from a genuine exchanger pending amount -
+                    // under-adjusting the patch target by exactly the converter's take
+                    // and re-opening the clamp+toast this helper exists to prevent.
+                    // Converter rows need no pending adjustment of their own: the door
+                    // writes them synchronously, so they are never "still catching up".
+                    if (action.ConversionSource != StrategyConversionSource.Exchanger)
                         continue;
 
                     committedDebit += action.Cost;
