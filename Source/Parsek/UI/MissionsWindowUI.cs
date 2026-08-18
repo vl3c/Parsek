@@ -565,9 +565,19 @@ namespace Parsek
             // loopPeriodEditRect is a rect from whichever frame Advanced last drew one: an
             // edit left open across the switch is DROPPED here rather than committed against
             // a stale rect. Dropping an uncommitted buffer is the Escape path, not data loss
-            // (mission.LoopIntervalSeconds is untouched), and it is the ONE place that clears
-            // the focus id, so a mission scrolled out of view cannot keep it armed. Runs on
-            // every event type - it writes a private field only, never a control.
+            // (mission.LoopIntervalSeconds is untouched), and dropping it HERE is what keeps
+            // the mode visibility-only: leave the focus id armed and the click-away branch
+            // below would commit that stale buffer to Mission.LoopIntervalSeconds on the next
+            // MouseDown anywhere in the window - a loop write performed in Basic.
+            //
+            // Every other site that ends an edit (the click-away commit below, Enter, the unit
+            // button, loop-off, and the auto / phase-locked branches of the cell) needs the
+            // mission's own period cell to draw, which is exactly what Basic does not do, so
+            // this is the only teardown that can still run. It ends the edit through
+            // CommitMissionLoopPeriodEdit(null) - the documented "just ends the edit" path -
+            // so the text buffer and the now-undrawn field's keyboard focus are released the
+            // same way they are on every other exit, minus the commit. Runs on every event
+            // type: it writes private fields only, never a control.
             bool loopAuthoring = ShowsLoopAuthoringControls(ParsekUI.AppliedUiComplexityMode);
             if (!loopAuthoring)
             {
@@ -576,7 +586,7 @@ namespace Parsek
                     ParsekLog.Verbose("Mission",
                         $"Loop period edit on mission id={loopPeriodFocusedMissionId} dropped " +
                         "uncommitted: Basic UI mode draws no loop controls");
-                    loopPeriodFocusedMissionId = null;
+                    CommitMissionLoopPeriodEdit(null);
                 }
             }
             else if (Event.current.type == EventType.MouseDown && loopPeriodFocusedMissionId != null
