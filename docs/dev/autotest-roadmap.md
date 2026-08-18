@@ -219,7 +219,7 @@ remaining work is legible against the original list:
 | `Watch` | 2 | D6 `watch-mode-retarget-explosion-hold` |
 | `LedgerGroundTruth` | 1 | D8 `ground-truth-harness` |
 | `Contracts` | 2 | D8 `contracts` |
-| `StrategyLifecycle` | 2 | D8 `strategies` |
+| `StrategyLifecycle` | 7 | D8 `strategies` |
 | `SpawnRotation` + 7 more | 29 | D13, all 11 cells |
 | ~~`CrewReservation`~~ | 15 | DRIVEN since wave-2 by `H31` on b2-lko-craft (live-proven 2026-08-04, 14 of 15 executing). D12 `seat-matching`, `rescue-marker`; the rest of D12 has no producer in the category |
 

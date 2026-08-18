@@ -174,7 +174,7 @@ Two limits of this table, stated so nobody over-reads it:
 | `Spawner` | 2 | 2 | 0 | 0 | 0 | 1 | - | B |
 | `StockUiOverlay` | 6 | 0 | 6 | 0 | 0 | 6 | - | B |
 | `StockWarpLimits` | 1 | 1 | 0 | 0 | 0 | 0 | - | B |
-| `StrategyLifecycle` | 3 | 0 | 3 | 0 | 0 | 3 | L3 | A |
+| `StrategyLifecycle` | 7 | 0 | 7 | 0 | 0 | 7 | L3 | A |
 | `Structure` | 2 | 2 | 2 | 2 | 0 | 2 | - | B |
 | `SwitchIntentPatch` | 3 | 1 | 1 | 1 | 0 | 0 | - | B |
 | `SwitchSegment` | 6 | 6 | 0 | 0 | 0 | 0 | H12 | A |
@@ -194,8 +194,8 @@ Two limits of this table, stated so nobody over-reads it:
 
 ## Triage
 
-Totals, re-derived: **104 categories / 582 declarations**. Buckets **A 33 categories
-(223 declarations)**, **B 71 categories (359 declarations)**, **C 0 categories (0
+Totals, re-derived: **104 categories / 586 declarations**. Buckets **A 33 categories
+(227 declarations)**, **B 71 categories (359 declarations)**, **C 0 categories (0
 declarations)**. Driven by a committed spec: **42 of 104 categories**, up from 35
 across six waves - `ReFlyWorldPreservation` via S4.2, `RecordedSignals` via H33,
 `SnapshotBaseline` via H32, and `Logistics` via H34 all landed together in one merge

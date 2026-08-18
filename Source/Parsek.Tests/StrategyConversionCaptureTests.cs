@@ -4,6 +4,11 @@ using System.IO;
 using System.Linq;
 using System.Text.RegularExpressions;
 using Xunit;
+// The capture-matrix cells (and the StrategyLifecycle region as a whole) live in
+// Parsek.InGameTests.FlightIntegrationTests, NOT in the RuntimeTests class the file is
+// named after - RuntimeTests.cs carries several test classes. Aliased rather than
+// imported wholesale so nothing else from that namespace can shadow a name here.
+using StrategyCells = Parsek.InGameTests.FlightIntegrationTests;
 
 namespace Parsek.Tests
 {
@@ -550,6 +555,211 @@ namespace Parsek.Tests
             Assert.True(addIdx < dispatchIdx,
                 "the ledger write must precede the recalc dispatch decision");
             Assert.Contains("WarpToTimeConsumer.RunNextFrame(", src);
+        }
+
+        // ================================================================
+        // THE CAPTURE MATRIX cells (RuntimeTests StrategyLifecycle). The cell BODIES
+        // need a live KSP, but the pure helpers they lean on do not - and the log-field
+        // parser in particular is load-bearing: the reputation cell asserts on the VALUE
+        // of `dR`, so a parser that silently returned 0 would turn that cell's whole
+        // subject into a vacuous pass.
+        // ================================================================
+
+        [Fact]
+        public void QueryLogField_ReadsEveryFieldOfTheDoorsOwnSummaryLine()
+        {
+            // Built by FormatQuery itself rather than hand-typed, so the parser is
+            // pinned against the real producer and a formatting change breaks this
+            // cell instead of silently degrading the in-game assertion.
+            string line = "[Parsek][INFO][GameStateRecorder] Game state: strategy currency conversion - "
+                + StrategyConversionCapture.FormatQuery(new StrategyConversionQuery
+                {
+                    InputFunds = 0.0,
+                    DeltaFunds = 168.12864685058594,
+                    InputScience = 40.0,
+                    DeltaScience = -2.0,
+                    InputReputation = 0.0,
+                    DeltaReputation = 0.03354,
+                    Reason = "ScienceTransmission"
+                }, 2);
+
+            Assert.True(StrategyCells.TryReadStrategyQueryLogField(line, "inS", out double inS));
+            Assert.Equal(40.0, inS, 6);
+            Assert.True(StrategyCells.TryReadStrategyQueryLogField(line, "dS", out double dS));
+            Assert.Equal(-2.0, dS, 6);
+            Assert.True(StrategyCells.TryReadStrategyQueryLogField(line, "dF", out double dF));
+            Assert.Equal(168.12864685058594, dF, 6);
+            Assert.True(StrategyCells.TryReadStrategyQueryLogField(line, "dR", out double dR));
+            Assert.Equal(0.03354, dR, 6);
+            Assert.True(StrategyCells.TryReadStrategyQueryLogField(line, "legs", out double legs));
+            Assert.Equal(2.0, legs, 6);
+        }
+
+        [Fact]
+        public void QueryLogField_DoesNotConfuseAPrefixFieldWithItsLongerSibling()
+        {
+            // `inS` is a substring of nothing here, but `dR` IS a substring of no other
+            // token only because FormatQuery happens to order them that way. The parser
+            // matches "<field>=", so the guard that matters is that a field name which is
+            // a PREFIX of another key cannot steal its value.
+            string line = "reason=X inF=1 dF=2 inS=3 dS=4 inR=5 dR=6 legs=7";
+            Assert.True(StrategyCells.TryReadStrategyQueryLogField(line, "inF", out double inF));
+            Assert.Equal(1.0, inF, 6);
+            Assert.True(StrategyCells.TryReadStrategyQueryLogField(line, "inR", out double inR));
+            Assert.Equal(5.0, inR, 6);
+        }
+
+        [Fact]
+        public void QueryLogField_FailsClosedRatherThanReturningZero()
+        {
+            // The in-game cell asserts |dR| > the capture floor. A parser that returned
+            // `true` with 0 on a missing or malformed field would make that assertion
+            // fail for the wrong reason; one that returned `false` lets the cell say so.
+            Assert.False(StrategyCells.TryReadStrategyQueryLogField(
+                "reason=X inF=1 legs=1", "dR", out _));
+            Assert.False(StrategyCells.TryReadStrategyQueryLogField(null, "dR", out _));
+            Assert.False(StrategyCells.TryReadStrategyQueryLogField("dR=", "dR", out _));
+            Assert.False(StrategyCells.TryReadStrategyQueryLogField("dR=notanumber", "dR", out _));
+            Assert.False(StrategyCells.TryReadStrategyQueryLogField("reason=X", null, out _));
+        }
+
+        [Fact]
+        public void QueryLogField_ReadsTheInvariantCultureRoundTripFormTheDoorWrites()
+        {
+            // Every numeric the door writes goes through ToString("R", InvariantCulture),
+            // so the parser must accept exponent form and a leading sign, and must NOT be
+            // culture-sensitive (a comma-locale machine would otherwise mis-read a point).
+            Assert.True(StrategyCells.TryReadStrategyQueryLogField(
+                "dR=7.8053E-05 legs=1", "dR", out double small));
+            Assert.Equal(7.8053E-05, small, 12);
+            Assert.True(StrategyCells.TryReadStrategyQueryLogField(
+                "dF=-60.525981 legs=1", "dF", out double negative));
+            Assert.Equal(-60.525981, negative, 6);
+        }
+
+        [Fact]
+        public void GuardedClampLine_MatchesBothDirectionsAndNamesTheResource()
+        {
+            // Shaped exactly like KspStatePatcher.EmitDrawdownGuardClamp writes them.
+            string drawdown = "[Parsek][WRN][KspStatePatcher] PatchScience: GUARDED DRAWDOWN clamped "
+                + "resource=Science running=-163.25 live=36.75 wouldBeTarget=-163.25 clampedTo=36.75 "
+                + "(no time-travel context) - earned value preserved; ledger may be missing an earning channel";
+            string uplift = "[Parsek][WRN][KspStatePatcher] PatchFunds: GUARDED UPLIFT clamped "
+                + "resource=Funds running=500168.13 live=500000 wouldBeTarget=500168.13 clampedTo=500000 "
+                + "(no time-travel context) - spent value held; ledger may be missing a spending channel";
+            string repClamp = "[Parsek][WRN][KspStatePatcher] PatchReputation: GUARDED DRAWDOWN clamped "
+                + "resource=Reputation running=0 live=0.03354 wouldBeTarget=0 clampedTo=0.03354 "
+                + "(no time-travel context) - earned value preserved; ledger may be missing an earning channel";
+
+            Assert.True(StrategyCells.IsGuardedClampLine(drawdown));
+            Assert.True(StrategyCells.IsGuardedClampLine(uplift));
+            Assert.True(StrategyCells.IsGuardedClampLine(repClamp));
+
+            // The resource discriminator is what lets the reputation cell tell "the
+            // restore did not take" apart from "a door missed a leg".
+            Assert.True(StrategyCells.IsGuardedClampLineFor(repClamp, "Reputation"));
+            Assert.False(StrategyCells.IsGuardedClampLineFor(repClamp, "Science"));
+            Assert.True(StrategyCells.IsGuardedClampLineFor(drawdown, "Science"));
+            Assert.False(StrategyCells.IsGuardedClampLineFor(drawdown, "Funds"));
+        }
+
+        [Fact]
+        public void GuardedClampLine_IgnoresOrdinaryLinesAndNulls()
+        {
+            Assert.False(StrategyCells.IsGuardedClampLine(null));
+            Assert.False(StrategyCells.IsGuardedClampLine(""));
+            Assert.False(StrategyCells.IsGuardedClampLine(
+                "[Parsek][INFO][KspStatePatcher] PatchScience: resource=Science running=10 live=10"));
+            // A line naming the resource but carrying no clamp is not a clamp.
+            Assert.False(StrategyCells.IsGuardedClampLineFor(
+                "[Parsek][INFO][X] resource=Reputation", "Reputation"));
+            Assert.False(StrategyCells.IsGuardedClampLineFor(
+                "PatchFunds: GUARDED UPLIFT clamped resource=Funds", null));
+        }
+
+        [Fact]
+        public void InGameCells_CoverTheWholeCaptureMatrixByName()
+        {
+            // The matrix is only as good as the strategies it actually drives, and each
+            // one is picked BY Config.Name precisely so the choice is reviewable here
+            // rather than left to whatever the readiness probe stabilizes on.
+            string src = ReadParsekSource("InGameTests/RuntimeTests.cs");
+
+            Assert.Contains("ExchangerStrategy_OneShot_CapturesBothLegs", src);
+            Assert.Contains("researchIPsellout", src);
+
+            Assert.Contains("ConverterStrategy_ScienceYield_CapturesCredit", src);
+            Assert.Contains("OutsourcedResearchCfg", src);
+
+            Assert.Contains("OperationStrategy_RewardMultiplier_IsNotCaptured", src);
+            Assert.Contains("LeadershipInitiative", src);
+
+            Assert.Contains("ConverterStrategy_ReputationLeg_IsObservedAndDropped", src);
+            Assert.Contains("OpenSourceTechProgramCfg", src);
+        }
+
+        [Fact]
+        public void InGameCells_EachFireTheirExchangeExactlyOnce()
+        {
+            // Two exchanges at the frozen KSC clock share a UT, and
+            // KscActionExpectationClassifier would then see -2*cost against a -cost
+            // expectation and WARN falsely. One driving transaction per cell, counted
+            // from the source because the cells are not xUnit-drivable.
+            string src = ReadParsekSource("InGameTests/RuntimeTests.cs");
+
+            int repYieldAwards = Regex.Matches(
+                src, @"AddScience\(RepYieldAward, TransactionReasons\.ScienceTransmission\)").Count;
+            int contractRewardAwards = Regex.Matches(
+                src, @"AddFunds\(FundsAward, TransactionReasons\.ContractReward\)").Count;
+            int progressionAwards = Regex.Matches(
+                src, @"AddFunds\(FundsAward, TransactionReasons\.Progression\)").Count;
+
+            Assert.Equal(1, repYieldAwards);
+            Assert.Equal(1, contractRewardAwards);
+            Assert.Equal(1, progressionAwards);
+        }
+
+        [Fact]
+        public void InGameCells_PairEveryLedgerInvisiblePoolMoveWithARow()
+        {
+            // THE 2026-08-18_2019 LESSON, locked. Funds and reputation have no pending
+            // adjuster on the guard's discriminator, so a bare pool move clamps on the
+            // next recalc. Both fixture-row helpers must exist and must use the action
+            // types that credit unconditionally.
+            string src = ReadParsekSource("InGameTests/RuntimeTests.cs");
+
+            Assert.Contains("WriteLedgerVisibleFundsRow", src);
+            Assert.Contains("WriteLedgerVisibleScienceTopUp", src);
+            // FundsEarningSource.Strategy, not Other: Other credits identically but then
+            // WARNs "no matching FundsChanged event keyed 'Other'" on every recalc.
+            Assert.Contains("FundsSource = FundsEarningSource.Strategy", src);
+
+            // EVERY fixture row this category writes is stamped in the PAST, so none of
+            // them sits inside the 0.1s window the KSC reconcilers pair against - at the
+            // frozen KSC clock a row at "now" would net against the very award under
+            // test. Counted as an EQUALITY over the StrategyLifecycle region rather than
+            // against a hardcoded number, so a fifth cell that adds a fixture row is
+            // checked rather than merely changing a total.
+            string region = StrategyLifecycleRegion(src);
+            int fixtureRows = Regex.Matches(region, @"Ledger\.AddAction\(new GameAction").Count;
+            int pastStamped = Regex.Matches(
+                region, @"UT = Planetarium\.GetUniversalTime\(\) - 1\.0").Count;
+            Assert.True(fixtureRows > 0, "the StrategyLifecycle region writes no fixture ledger row at all");
+            Assert.Equal(fixtureRows, pastStamped);
+        }
+
+        /// <summary>
+        /// The text of the <c>#region StrategyLifecycle</c> block, so a source gate can
+        /// assert over THIS category without matching the other test classes that share
+        /// RuntimeTests.cs.
+        /// </summary>
+        private static string StrategyLifecycleRegion(string src)
+        {
+            int start = src.IndexOf("#region StrategyLifecycle", StringComparison.Ordinal);
+            Assert.True(start >= 0, "the #region StrategyLifecycle marker has moved or been renamed");
+            int end = src.IndexOf("#endregion", start, StringComparison.Ordinal);
+            Assert.True(end > start, "the StrategyLifecycle region has no closing #endregion");
+            return src.Substring(start, end - start);
         }
 
         private static string ReadParsekSource(string relPath)

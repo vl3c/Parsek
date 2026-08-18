@@ -14,6 +14,55 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## STRATEGY-REPUTATION-DROP-CLAMPS-THE-GUARD: the query door's deliberately-dropped reputation leg diverges the reconstruction, and reputation has no pending adjuster to absorb it [FILED 2026-08-19 off the strategy-test-matrix lane. NOT FIXED - the DROP is correct; the CONSEQUENCE was undocumented]
+
+The drop itself is a settled decision and is not in question.
+`StrategyConversionCapture.EvaluateLegs` returns a reputation leg and
+`LedgerOrchestrator.BuildStrategyConversionAction` deliberately returns null for
+it, because the query delta is the modifier's PRE-curve contribution while
+`Reputation.AddReputation` applies KSP's granular curve on top - the magnitude
+available at that seam is not the magnitude the pool moved by, and writing it
+through either the earning or the penalty arm would trade a known drift for a
+wrong one.
+
+What was NOT written down is what the drift then costs. Live reputation moves and
+the reconstruction does not, and unlike science - which has three pending
+adjusters plus `ComputePendingRecentKscScienceCredit`'s frozen-clock window
+masking a pool-only award - **reputation has no pending adjuster at all**.
+`KspStatePatcher.ResolveReputationPatch` guards at epsilon `0.01`, so any dropped
+reputation leg larger than a hundredth of a point raises
+`PatchReputation: GUARDED DRAWDOWN clamped resource=Reputation` on the next
+recalc, and keeps raising it on every recalc thereafter. The clamp is CORRECT (it
+preserves the live value); it is the WARN that is unbounded, exactly as in
+`STRATEGY-PREFIX-HOLDBACK-PERMANENT` above.
+
+Arithmetic, from the stock config: Open-Source Tech Program converts science to
+reputation at a field-work rate lerping 0.01656..0.02070 by Factor. At the stock
+default Factor 0.05 a 400-point science award takes 20 and yields ~0.335
+reputation - thirty-three times the guard epsilon. Appreciation Campaign
+(funds -> reputation) is the larger-magnitude sibling.
+
+**Fix shape:** the same shape as the prefix-holdback entry, and the two should
+probably be solved together - bound or account for the observed side rather than
+widening the guard. The candidate that does NOT require a pre-curve magnitude is
+to read the POST-curve delta from the `ReputationChanged` event that follows, the
+way `ConvertStrategyExchangeReputation` already does for the exchanger family's
+rep leg, and write that. Blocked on one measurement: `GameStateRecorder`'s
+`ReputationThreshold` is `1.0f`, so a sub-point conversion yield fires no
+`ReputationChanged` event to read - which means the small yields (the common
+case) would need a different source or a lowered threshold, and lowering that
+threshold has its own blast radius. Do NOT suppress the WARN generically.
+
+**Observed, not asserted away.** `ConverterStrategy_ReputationLeg_IsObservedAndDropped`
+(StrategyLifecycle, SPACECENTER) drives Open-Source Tech Program, asserts the leg
+IS observed (a nonzero `dR` parsed off the door's own summary line) and IS
+dropped (zero reputation rows), and logs the measured divergence together with
+whether it exceeds the guard epsilon, every run. The cell then RESTORES the
+reputation leg before the door's deferred recalc - deliberately, so the fixture
+cannot manufacture a clamp out of a documented product decision and red the L3
+spec's whole-log `GUARDED` forbid for a reason the door does not own. The number
+in that cell's `ACCEPTED DRIFT` line is the live measurement this entry rests on.
+
 ## STRATEGY-PREFIX-HOLDBACK-PERMANENT: on a pre-fix save, an exchanger event with no matching row holds back the pending science adjustment forever [FILED 2026-08-19 off the strategy-multi-live session. NOT FIXED - small follow-up]
 
 `ComputePendingUncommittedStrategyScienceDebit` nets the observed population

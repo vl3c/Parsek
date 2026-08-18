@@ -112,6 +112,35 @@ count = { min = 0, max = 0 }
 # rather than floored. A future run that skips anything is a CHANGE to be read, not a
 # reason to loosen this line back toward a range.
 #
+# ############ INTERIM AGAIN, AND ONLY THE MEASURED HALF ############
+# THE CAPTURE MATRIX (2026-08-19) added FOUR cells to this category, taking it from
+# three declarations to seven:
+#   ExchangerStrategy_OneShot_CapturesBothLegs        - the EXCHANGER family, which
+#     until now rested entirely on the c2 save's events.pgse archaeology
+#   ConverterStrategy_ScienceYield_CapturesCredit     - the science OUTPUT direction,
+#     the StrategyScienceCredit arm, never live-proven
+#   OperationStrategy_RewardMultiplier_IsNotCaptured  - the NEGATIVE control: the
+#     scoping rule suppressing a CurrencyOperation funds multiplier
+#   ConverterStrategy_ReputationLeg_IsObservedAndDropped - the deliberate reputation
+#     drop, observed on the door's own summary line and written to no row
+#
+# `total=7` is RE-DERIVED, not guessed: hlib.derive_batch_tally over the live
+# [InGameTest] attributes gives total=7 scene_skipped=0 batch_skipped=0 executable=7
+# attribute_skipped=0. That token stays a literal and stays gated.
+#
+# `passed` and `skipped` are DELIBERATELY LEFT AS PATTERNS until a reading run measures
+# them, which is the same reading-run hold this spec and L2 both served before. They
+# are NOT derivable: each new cell carries run-time InGameAssert.Skip guards that only a
+# live career can resolve - whether `researchIPsellout` and `OpenSourceTechProgramCfg`
+# are activatable at the fixture's reputation and science (both stock exchangers require
+# reputation <= 0), whether `OutsourcedResearchCfg` and `LeadershipInitiative` are
+# affordable at the fixture's funds, and whether each converter's share at the default
+# Factor clears the capture floor. A predicted `passed=7 skipped=0` would be a guess
+# dressed as a measurement.
+#
+# REPLACE THIS BLOCK WITH THE MEASURED LINE, WHOLE, in the same commit that reads it.
+# ###################################################################
+#
 # THE FIRST READING (`2026-08-18_2019`, PARSEK-FAIL(results)) IS PART OF THE RECORD.
 # The door captured exactly on that run too; the cell red'd on its no-GUARDED-clamp
 # assertion for three separable reasons - a fixture-induced science drawdown from a
@@ -121,7 +150,7 @@ count = { min = 0, max = 0 }
 # door recalculating inside the CurrencyModifierQuery. All three are fixed; see the
 # STRATEGY-SCIENCE-CONVERSION-LEAK entry in docs/dev/todo-and-known-bugs.md.
 # ####################################################
-required  = ["BATCH_COMPLETE v1 total=3 passed=3 failed=0 skipped=0 category=StrategyLifecycle scene=SPACECENTER"]
+required  = ["BATCH_COMPLETE v1 total=7 passed=[1-9][0-9]* failed=0 skipped=[0-9]+ category=StrategyLifecycle scene=SPACECENTER"]
 # The GUARDED pair is the whole point of the lane. `GUARDED UPLIFT clamped` is the
 # reconstruction running ABOVE live (the science take not captured - measured 0.72000
 # against a 0.7200818 gap) and `GUARDED DRAWDOWN clamped` is it running BELOW (the
