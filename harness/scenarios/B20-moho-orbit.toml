@@ -267,16 +267,21 @@ viaBodyNames               = ["Sun", "Mun"]
 returnBodyName             = "Sun"
 
 # --- CORRECTIONS.
-# 300 km requested, B19's value. Finding 16d's documented bias is that MechJeb's
-# OperationCourseCorrection arrives HIGHER than requested. On MOHO that bias is
-# LESS forgiving than on Dres, and the difference is worth naming: Dres's SOI is
-# 32,832 km with "enormous room above", while Moho's is 9,646 km. A B5-scale
-# overshoot (250 km -> 956-1,142 km) still lands far inside Moho's SOI, so the
-# request stands -- but the capture cost curve is NOT flat here the way it is at
+# 300 km requested, B19's value. Finding 16d's documented bias is UNDER-delivery
+# -- MechJeb's OperationCourseCorrection under-prices low-periapsis targets --
+# and the measured corpus adds that the delivered periapsis tracks a
+# body-specific fraction of the target SOI rather than a multiple of the request,
+# so an arrival above the request only appears where the request is tiny against
+# that SOI. Either way MOHO has LESS room than Dres, and the difference is worth
+# naming: Dres's SOI is 32,832 km with "enormous room above", while Moho's is
+# 9,646 km. NOW MEASURED ON THIS LANE rather than derived: 300 km is 3.110% of
+# Moho's SOI and the arrivals came in at 428-518 km (k = 1.43-1.73), high by
+# ~130-220 km and still ~19x inside the SOI, so the request stands -- but the
+# capture cost curve is NOT flat here the way it is at
 # Dres (at v_inf 3,000, ~2,462 m/s at 100 km vs ~2,396 at 10 km is nearly flat, but the curve
-# steepens with radius far faster against Moho's small mu), so an arrival much
-# higher than requested costs real dv out of a 1.6x margin. DERIVED; re-read
-# against the measured arrival periapsis after flight 1.
+# steepens with radius far faster against Moho's small mu), so that overshoot
+# costs real dv out of a 1.6x margin. See the todo doc's
+# FINDING-16D-MISCITED-DIRECTION-AND-DENOMINATOR.
 courseCorrectPeriapsisMeters = 300000
 # RESTORED TO B19's 1200 BY FLIGHT 1's MEASUREMENT, and this parameter is the
 # whole reason flights 1 and 2 died. The first authoring of this lane LOWERED it

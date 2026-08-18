@@ -494,10 +494,19 @@ returnBodyName             = "Sun"
 # airless and their floors are terrain numbers, whereas Eve's 90 km ATMOSPHERE is
 # the hazard - a periapsis that lands in it is an aerocapture / breakup, not a
 # flyby. 1,000 km is 11x the atmosphere depth and 10x the assertion floor below.
-# The bias runs in the SAFE direction anyway: finding 16d says MechJeb's
-# OperationCourseCorrection systematically arrives HIGHER than requested (B5
-# turned 250 km into 956-1,142 km; B7 turned 300 km into ~564 km derived from
-# the recorded arrival elements), so the achieved periapsis should be >= this.
+# That margin is sized to survive the corrector's bias in EITHER direction,
+# because finding 16d's actual root cause is UNDER-delivery: MechJeb's
+# OperationCourseCorrection under-prices low-periapsis targets. What the measured
+# corpus adds is that the delivered periapsis behaves as a body-specific FRACTION
+# OF THE TARGET SOI rather than a multiple of the request; the "arrives higher"
+# appearance inverts above req/SOI ~4%, and BELOW that the scatter runs both ways
+# (Duna delivered k = 0.77 on a 0.626% request). This 1,000 km request is 1.175%
+# of Eve's SOI -- inside the nominally-above-request regime but inside that
+# scatter too, so the achieved periapsis is NOT guaranteed >= this - and at the corpus's lowest
+# observed ratio it would still deliver ~545 km, 6x the atmosphere depth, which
+# is why the number is chosen for margin rather than for a bias direction. B7
+# turned 300 km into ~564 km derived from the recorded arrival elements. See the
+# todo doc's FINDING-16D-MISCITED-DIRECTION-AND-DENOMINATOR.
 courseCorrectPeriapsisMeters = 1000000
 # Interplanetary mid-course corrections can be larger than the moon ones
 # (ejection aim errors over a multi-year coast); an over-cap plan is still

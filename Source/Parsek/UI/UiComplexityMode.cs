@@ -73,6 +73,42 @@ namespace Parsek
         /// <summary>The mission abstraction tab. Also the gate key for the Timeline GoTo button.</summary>
         TabMissions,
 
+        /// <summary>
+        /// The Missions tab's manual-loop AUTHORING controls: the per-mission "Loop"
+        /// toggle, the loop-period cell beside it, and the row checkboxes that pick which
+        /// intervals / partner journeys the loop replays.
+        /// <para>One key for all three because they are one decision: the checkboxes write
+        /// <c>Mission.ExcludedIntervalKeys</c> / <c>Mission.IncludedForeignDockLinkIds</c>,
+        /// which nothing but the loop-unit pipeline reads, so a mode that hides the Loop
+        /// toggle and keeps them would leave the player controls with no observable
+        /// effect.</para>
+        /// <para>Deliberately NOT covered: the "Looped by route" status label, the TTL
+        /// countdown column, "Warp to...", and Watch. Those REPORT or NAVIGATE a loop that
+        /// is already running, and a mission looped in Advanced keeps looping after the
+        /// switch to Basic (philosophy 1: visibility only, never behavior), so hiding them
+        /// would blind a Basic player to ghosts they can still see flying.</para>
+        /// </summary>
+        MissionsLoopControls,
+
+        /// <summary>
+        /// Settings section "Looping": the global auto-launch period + its unit button, the
+        /// landing-body alignment A/B mode, and the force-faithful (no re-aim) toggle.
+        /// <para>The Settings half of the section 4.5 decision. All three are manual-loop
+        /// AUTHORING knobs - each one only changes how a looped mission replays - so hiding
+        /// the per-mission controls while leaving the globals that govern them would split
+        /// one decision across two windows. The auto-launch period is the sharpest case: it
+        /// IS the period of any mission whose unit is Auto, i.e. exactly the value the
+        /// hidden loop-period cell would show.</para>
+        /// <para>Reaches routes, unlike the Missions-tab half:
+        /// <c>TransitedBodyRotationMode</c> and <c>forceFaithfulLoopPlayback</c> are folded
+        /// into the route delivery clock too (<c>RouteOrchestrator</c>). Route CADENCE is
+        /// not affected - a route-backing mission is built <c>LoopTimeUnit.Sec</c> with
+        /// <c>LoopIntervalSeconds = route.DispatchInterval</c>, authored in the Logistics
+        /// window Basic keeps - and both knobs ship on the defaults a route wants (Loose,
+        /// re-aim on), so a Basic player's routes run correctly untouched.</para>
+        /// </summary>
+        SettingsSectionLooping,
+
         /// <summary>Settings section: verbose logging, tracing toggles, Test Runner.</summary>
         SettingsSectionDiagnostics,
 
@@ -123,6 +159,8 @@ namespace Parsek
                 case UiSurface.MainButtonCareer:             // read-only career reference
                 case UiSurface.MainButtonGloops:             // manual ghost-only recorder
                 case UiSurface.TabRecordings:                // raw per-recording table
+                case UiSurface.MissionsLoopControls:         // manual-loop authoring on the Missions tab
+                case UiSurface.SettingsSectionLooping:       // the global half of the same authoring set
                 case UiSurface.SettingsSectionDiagnostics:   // developer instrumentation
                 case UiSurface.SettingsSectionSampleDensity: // recorder fidelity tuning
                     visibleInBasic = false;
