@@ -73,6 +73,23 @@ namespace Parsek
         /// <summary>The mission abstraction tab. Also the gate key for the Timeline GoTo button.</summary>
         TabMissions,
 
+        /// <summary>
+        /// The Missions tab's manual-loop AUTHORING controls: the per-mission "Loop"
+        /// toggle, the loop-period cell beside it, and the row checkboxes that pick which
+        /// intervals / partner journeys the loop replays.
+        /// <para>One key for all three because they are one decision: the checkboxes write
+        /// <c>Mission.ExcludedIntervalKeys</c> / <c>Mission.IncludedForeignDockLinkIds</c>,
+        /// which nothing but the loop-unit pipeline reads, so a mode that hides the Loop
+        /// toggle and keeps them would leave the player controls with no observable
+        /// effect.</para>
+        /// <para>Deliberately NOT covered: the "Looped by route" status label, the TTL
+        /// countdown column, "Warp to...", and Watch. Those REPORT or NAVIGATE a loop that
+        /// is already running, and a mission looped in Advanced keeps looping after the
+        /// switch to Basic (philosophy 1: visibility only, never behavior), so hiding them
+        /// would blind a Basic player to ghosts they can still see flying.</para>
+        /// </summary>
+        MissionsLoopControls,
+
         /// <summary>Settings section: verbose logging, tracing toggles, Test Runner.</summary>
         SettingsSectionDiagnostics,
 
@@ -123,6 +140,7 @@ namespace Parsek
                 case UiSurface.MainButtonCareer:             // read-only career reference
                 case UiSurface.MainButtonGloops:             // manual ghost-only recorder
                 case UiSurface.TabRecordings:                // raw per-recording table
+                case UiSurface.MissionsLoopControls:         // manual-loop authoring on the Missions tab
                 case UiSurface.SettingsSectionDiagnostics:   // developer instrumentation
                 case UiSurface.SettingsSectionSampleDensity: // recorder fidelity tuning
                     visibleInBasic = false;

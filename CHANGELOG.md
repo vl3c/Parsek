@@ -21,6 +21,23 @@ All notable changes to Parsek are documented here.
 
 ### Features
 
+- The Basic interface no longer offers to loop a mission by hand. In Basic, the Missions
+  window drops the per-mission `Loop` checkbox, the period box next to it (the one with the
+  Sec / Min / Hour / Auto button), and the row checkboxes that pick which parts of a mission
+  a loop replays. Looping a mission manually is a visual effect - it re-flies one recorded
+  mission over and over so you can watch it - and it costs nothing and earns nothing; those
+  three controls were the busiest, least self-explanatory thing on the window, and the row
+  checkboxes in particular did nothing at all unless a loop was running. Everything that
+  tells you about a loop already running stays exactly where it was: the countdown to the
+  next launch, `Warp to...`, `Watch`, `Looped by route`, and the whole mission tree. Nothing
+  is turned off or thrown away by the switch - a mission you set looping in Advanced keeps
+  looping in Basic, ghosts and countdown and all, and your choice of which parts to include
+  is remembered; rows you excluded still show, greyed out. Switch back to Advanced and all
+  three controls return with their settings intact. Supply routes are unaffected either way:
+  a route loops its missions on its own and is set up in the Logistics window, which Basic
+  keeps. The one thing that follows: a mission looped in Advanced can only be un-looped in
+  Advanced - the interface setting is always one click away in Settings.
+
 - A safety allowance in the replay's transfer solver is now known to actually WORK, not merely
   to compute the right number. When a looped mission is re-aimed at an eccentric target - Eeloo,
   whose distance from the Sun varies by about a quarter - the solver may search a wider range of

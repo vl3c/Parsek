@@ -5,8 +5,9 @@
 *Parsek is a KSP1 mod for time-rewind mission recording. Players fly missions, commit recordings to a timeline, rewind to earlier points, and see previously recorded missions play back as ghost vessels alongside new ones. This document specifies the UI complexity mode: which surfaces Basic hides, how the gate is implemented, and the visibility-only guarantee.*
 
 **Status:** IMPLEMENTED (phases 1-8 landed on branch `claude/mods-ui-basic-advanced-amrgy9`, in-game validation pending). All blocking decisions are RESOLVED. First-run default (section 7.3): the stored setting always wins, Basic is the default for new installs only, an existing install is never changed. Basic hide-set (section 4): as specified, with Logistics explicitly kept visible for discoverability (philosophy 7); the conditional "appear once used" variant is rejected in section 10. Naming (section 4.1): the main-window button, window title, and first/default tab all become Missions in BOTH modes, the one deliberate Advanced-visible change in this feature; section 4.2 lists the "Recordings" strings that must NOT be renamed.
+**Amendment 2026-08-18 (section 4.5):** the Missions tab's three manual-loop AUTHORING controls (the `Loop` toggle, the loop-period cell, the include checkboxes) are hidden in Basic under the new `UiSurface.MissionsLoopControls` key; everything that REPORTS or NAVIGATES a running loop stays. Philosophy 3 is amended in place to say which sense of "loop" it means.
 **Review:** 2026-07-28 four-lens plan review (inventory, sufficiency, risk/invariants, implementation) folded in. Load-bearing changes from that review: install-level footprint + persist-on-resolve + two-input resolve seam (7.3), the Timeline GoTo disposition (4.1a), the frame-latched mode apply rule (7.2), the DrawIfOpen never-gated rule (7.1), the widened close set (7.2), and the Basic v1 limitation on retroactive playback-disable (4.3).
-**Version:** 0.4
+**Version:** 0.5
 **Out of scope:** any change to recording, playback, logistics dispatch, or ledger behavior. This is a visibility gate only, see section 9.
 **Related docs:** `docs/dev/design-mission-abstractions.md` (Missions tab), `docs/parsek-timeline-design.md` (Timeline), `docs/parsek-logistics-supply-routes-design.md` (Logistics).
 
@@ -56,7 +57,7 @@ At no point did they need Recordings (raw per-recording table), Kerbals, Career,
 
 1. **Visibility only, never behavior.** Basic hides UI. It never disables recording, playback, dispatch, or ledger work. A route keeps delivering whether or not the Logistics window is reachable. This is the single most important invariant, and section 9 lists what it protects.
 2. **Nothing is destroyed, only hidden.** Switching Basic -> Advanced restores every window with its state intact. No data is dropped, no setting is reset. The mode is reversible at any time with no cost.
-3. **Basic must be sufficient, not merely smaller.** The Basic set is chosen so the full core loop (fly, commit, loop, watch, rewind, supply) is reachable. If a Basic player has to switch to Advanced to finish a normal task, the split is wrong.
+3. **Basic must be sufficient, not merely smaller.** The Basic set is chosen so the full core loop (fly, commit, loop, watch, rewind, supply) is reachable. If a Basic player has to switch to Advanced to finish a normal task, the split is wrong. AMENDED 2026-08-18 (section 4.5): the "loop" in that list means *seeing recorded flights play back*, which is automatic and needs no control. MANUALLY looping a mission - re-launching one recorded flight on a period as a visual effect - is not part of it, and its authoring controls are hidden in Basic.
 4. **One pure decision point.** Every gate call routes through one pure, Unity-free predicate so the split is unit-testable and greppable, rather than eight scattered `if` statements that drift.
 5. **Read-only panels are the first thing to cut.** A window that only reports state a player can find on stock screens is the cheapest thing to hide and the least missed.
 6. **Advanced is behaviorally identical to today, with one named exception.** The feature must not become an excuse to restyle the existing UI; any improvement in section 17 ships as its own change. The single deliberate exception is the Recordings-to-Missions rename and tab reorder of section 4.1, which applies in BOTH modes by explicit decision, because a label that differs between modes would defeat the consistency it exists to create. No other Advanced-visible change ships with this feature.
@@ -144,14 +145,14 @@ Most of these are reached only through a parent surface or a game-flow event, so
 
 ## 4. Essentiality Analysis
 
-The test applied to each surface: **can a player complete the core loop (fly -> commit -> loop / watch -> rewind -> supply) without it?**
+The test applied to each surface: **can a player complete the core loop (fly -> commit -> loop / watch -> rewind -> supply) without it?** Read `loop` there as philosophy 3 amends it: ghosts replaying committed flights, not the manual per-mission loop authoring of section 4.5.
 
 | Surface | Basic | Rationale |
 |---------|-------|-----------|
 | Timeline | **Keep** | The only access to rewind (`R`), fast-forward (`FF`), and `Warp to time`. Irreplaceable. |
 | Logistics | **Keep** | The only surface for supply routes. Broken-route red tint is a player-visible error channel. Kept visible even for a player with zero routes, per philosophy 7: it is the button that teaches them supply routes exist. See section 10 for the rejected conditional-visibility variant. |
 | Settings | **Keep** | Hosts the mode toggle itself. Must always be reachable. |
-| Missions tab | **Keep** | The player-facing mission abstraction: name, loop period, Watch, Clone, Delete, Archive, include checkboxes, Log. Sufficient for all routine recording management. |
+| Missions tab | **Keep** | The player-facing mission abstraction: name, Watch, Clone, Delete, Archive, Log, TTL, Warp to..., Rewind / Forward. Sufficient for all routine recording management. Its three manual-loop AUTHORING controls (the `Loop` toggle, the loop-period cell, the include checkboxes) are the one carve-out: hidden in Basic per section 4.5. |
 | Recordings tab | **Hide** | The raw per-recording table (62 buttons, 13 toggles). Almost everything a normal player needs is expressed at the Mission level; the one known exception is retroactive per-recording playback-disable, accepted as a v1 limitation in section 4.3. This is the single largest complexity reduction available. |
 | Career window | **Hide** | 2 buttons, 2 toggles, zero mutations. Reports contracts / strategies / facilities / milestones that stock screens already show, with a projected column. Pure power-user reference. |
 | Kerbals window | **Hide** | 4 buttons, 0 toggles, zero mutations. Reports roster state and per-kerbal mission outcomes. Stand-in mechanics run correctly whether or not the player watches them. Known comprehension gap: the CrewDialogFilter patch silently removes reserved kerbals from stock crew assignment, and this window is the only surface explaining why; a Basic player can always assign someone else, so the task never blocks. |
@@ -261,6 +262,42 @@ That is already how the flag behaves everywhere except the Timeline. The Recordi
 
 **Known residual, deliberately not widened here.** The archive filter has always been partial: it gates the four row flavours the recording collector emits (RecordingStart, Separation / UnfinishedFlightSeparation, VesselSpawn, CrewDeath), while the same flight's ledger action rows and legacy event rows come from collectors that never read the flag. Revealing is therefore additive and honest, but archiving still leaves a flight's career actions on the Timeline. Making the flag reach the action collectors is a scope-and-semantics question of its own (it would change what Advanced shows for every archived flight) and is not part of this decision.
 
+### 4.5 Manual mission looping is Advanced-only (DECIDED 2026-08-18)
+
+Section 4 kept the whole Missions tab, "loop period ... include checkboxes" included. This amends that one line: the tab stays, its three manual-loop AUTHORING controls do not.
+
+**The decision.**
+
+> **Basic hides the controls that AUTHOR a manual mission loop. It keeps every control that REPORTS or NAVIGATES a loop that is already running.**
+
+Hidden in Basic (one gate key, `UiSurface.MissionsLoopControls`):
+
+| Control | Site | Why it goes |
+|---------|------|-------------|
+| `Loop` label + toggle on the mission header | `MissionsWindowUI.DrawMissionHeader` | The authoring act itself. |
+| The loop-period cell beside it (value field + unit-cycling `Sec/Min/Hour/Auto` button; only the phase-locked / re-aim states render read-only) | `DrawMissionLoopPeriodCell` | It configures the toggle. Keeping the tab's most cryptic control as the ONLY surviving loop control is worse than hiding both. |
+| The per-row include checkboxes (intervals / branches, and the partner-journey link toggle) | `DrawCompositionRow`, `DrawForeignDockLinkRows` | They write `Mission.ExcludedIntervalKeys` / `Mission.IncludedForeignDockLinkIds`, which NOTHING but the loop-unit pipeline reads (the same fact section 4.3 records). Without a loop they are controls with no observable effect. |
+
+Kept in Basic, deliberately: the `Looped by route` status label, the TTL countdown column, `Warp to...`, `Watch`, `Rewind / Forward`, `Log`, `Clone`, `Delete`, `Archive`, the rename, the sort headers, and the whole composition tree. Rows a player excluded in Advanced still render greyed, so the state is legible even where it is not editable.
+
+**Why.** Manually looping a mission is a presentation choice with no career consequence: it re-launches one recorded flight on a period so the player can watch it repeat. Nothing downstream depends on it - not the ledger, not a contract, not a route delivery. The three controls are also the tab's densest cluster, and the period cell in particular ("`~14.5d (Minmus window, varies)`", an overlap-cap clamp tint, a unit button cycling into `Auto` which then inherits a global setting the player has not seen) is the hardest thing on the tab to explain. It is exactly the "advanced staging tool" shape section 4 hides everywhere else; it survived the original pass only because it sits inside a window that survives.
+
+**This is a philosophy-3 amendment, not an exception to it.** The original wording listed `loop` in the core loop. That word covers two different things, and the amendment splits them: *ghosts replaying committed flights* is automatic (no control authors it, and Basic is unaffected), while *manual per-mission looping* is an authoring act. Basic keeps the first and drops the second.
+
+**Philosophy 1 is untouched.** The gate is visibility only, in both directions:
+
+- Nothing here writes `Mission.LoopPlayback`, `Mission.LoopIntervalSeconds`, `ExcludedIntervalKeys` or `IncludedForeignDockLinkIds`. A mission looped in Advanced KEEPS LOOPING after the switch, with its selection intact; the ghosts keep flying and the player keeps seeing them. That is precisely why TTL / `Warp to...` / `Watch` stay: they are how a Basic player follows a loop that is still running, and hiding them would blind the player to craft they can watch fly overhead.
+- Supply routes are unaffected. A route drives its tree through `RouteBackingMission`, a synthesized mission that is never inserted into `MissionStore` and never rendered here, so route looping is not authored through these controls at all - and Logistics, the surface that owns it, is one Basic keeps.
+- Switching back to Advanced restores all three controls with their state (philosophy 2).
+
+**Accepted consequence.** A mission looped in Advanced can only be UN-looped in Advanced. This is the same shape as the section 4.3 limitation (retroactive playback-disable) and is accepted for the same reason: the escape hatch is the always-visible Interface section of Settings, one click away, and the state it leaves running is a visual one the player deliberately turned on. The alternative - clearing `LoopPlayback` when Basic is applied - was REJECTED: it is a behavior write driven by a visibility mode, which is the one thing section 5 forbids, and it would make the switch destructive (philosophy 2).
+
+**Layout.** All four sites drop controls only, and each hidden checkbox is replaced by the SAME single blank cell the non-selectable roster-atom rows already draw, so the `#` column keeps its width and every row stays aligned with the column header. On the header bar the freed width is absorbed by the existing `FlexibleSpace`, so Watch / Rewind / Archive stay pinned at the same x as in Advanced. The mission index still renders in the `#` column on header rows, so that sortable header keeps its referent.
+
+**Edit-state cleanup.** The loop-period field commits on Enter or click-away, so an edit can be open when the mode changes. `DrawMissionsTabContent` DROPS an open edit in Basic instead of committing it against a `loopPeriodEditRect` no longer being drawn - the Escape path, not data loss (`Mission.LoopIntervalSeconds` is untouched) - and that is the single place the focus id is cleared, so a mission scrolled out of view cannot keep one armed.
+
+---
+
 ---
 
 ## 5. Mental Model
@@ -324,6 +361,9 @@ MainButtonGloops        - Gloops Flight Recorder launcher
 MainButtonSettings      - Settings launcher
 TabRecordings           - the raw per-recording table tab
 TabMissions             - the mission abstraction tab
+MissionsLoopControls    - the Missions tab's manual-loop authoring controls (4.5):
+                          the Loop toggle, the loop-period cell, and the include
+                          checkboxes. One key for all three; they are one decision.
 SettingsSectionDiagnostics    - verbose logging, tracing toggles, Test Runner
 SettingsSectionSampleDensity  - recorder fidelity tuning
 ```
@@ -343,7 +383,7 @@ ResolveMode(int? storedValue, bool installHasParsekFootprint) : UiComplexityMode
       StoredValueAlwaysWinsOverFootprint can actually fail if it inverts.
 ```
 
-The Timeline GoTo button (section 4.1a) reuses `UiSurface.TabMissions` as its gate key; no dedicated surface value exists for it. That key is visible in both modes, so the gate hides nothing today - it is what makes "GoTo can never point at a hidden destination" mechanical rather than a comment.
+`MissionsLoopControls` is the first key that gates a CONTROL GROUP inside a kept window rather than a whole window, tab or settings section. It maps to no entry in the section 7.2 close set (there is no window to close and no input lock to release); the draw sites simply stop emitting those controls. The Timeline GoTo button (section 4.1a) reuses `UiSurface.TabMissions` as its gate key; no dedicated surface value exists for it. That key is visible in both modes, so the gate hides nothing today - it is what makes "GoTo can never point at a hidden destination" mechanical rather than a comment.
 
 ### 6.2 Changes to existing types
 
@@ -559,6 +599,7 @@ The existing `[UI]` tag is correct here; this feature introduces no new subsyste
 - **`EverySurfaceIsDecided`** - reflection walk asserting `IsVisible` throws on an unhandled enum value (the documented contract, section 6.1), so adding a `UiSurface` without a Basic decision fails the build rather than defaulting silently.
 - **`TabIndexClampsIntoRange`** - clamp helper over both modes' visible tab counts, including the index-1-into-Basic case.
 - **`MissionsIsTheDefaultAndFirstTab`** - asserts `TabMissions == 0`, that `selectedTab` initializes to it, that `TabLabels[0]` is "Missions" (single array, section 6.2), and that `VisibleTabCount(Basic) == 0` / `VisibleTabCount(Advanced) == 2`. Requires the constants and `TabLabels` to be `internal` (6.2). Fails if a future edit reorders the tabs back, which would silently restore the Recordings tab as the landing view and re-widen the clamp case of section 7.4.
+- **Section 4.5 loop-control gate** - `MissionsWindowLoopGateTests` (3 cells over `MissionsWindowUI.ShowsLoopAuthoringControls`: hidden in Basic and kept in Advanced; derived from `UiSurfaceVisibility.IsVisible` rather than a private second opinion; and the scope guard that hiding the controls does not hide the Missions tab or its launcher). The four draw sites are IMGUI callbacks with no headless seam, so the shared decision they read is what is pinned; `BasicHidesExactlyTheDocumentedSet` covers the key's membership in the hide-set.
 - **`RecordingStoragePathsAreUnaffectedByRename`** - asserts `RecordingPaths` still resolves the `Parsek/Recordings` directory (`RecordingPaths` already has xUnit precedent). Guards the section 4.2 trap where an over-eager rename orphans every recording on disk.
 - **`CloseHandlerCoversEveryGatedLockOwner`** - pins the section 7.2 close set: every lock-owning window whose launcher Basic hides (career, kerbals, gloops, spawn control, settings-launched test runner) appears in the handler's list, plus the group picker close. Guards the drift failure the existing `Cleanup()` sweep exhibits (it omits three windows).
 - **`ScrollToRecordingSelectsRecordingsTab`** - phase 1 guard for section 4.1a, asserting the explicit `selectedTab = TabRecordings` write. After the 4.1a revision it guards the Recordings tab's own navigation API rather than a live cross-link; the cross-link's own cells live in `TimelineGoToMissionTests` (happy path, tab move off Recordings, mid-scene default-mission seeding, original-not-clone pick, the three Archive-filter rules, the three headless-reachable failure paths, the stale-target clear, the gate key in both modes, and a source-text gate over both button sites). The fourth failure path - target armed but never drawn - is draw-loop-only and has no headless cell.
