@@ -231,7 +231,8 @@ a point estimate.
 
 **THE NINE SITES CARRYING THE MIS-DENOMINATED BAND** (measured with
 `grep -rn "956" harness/scenarios/*.toml docs/dev/autotest-status.md`, not listed from
-memory; all still committed, and correcting them is the work this entry files). Each is
+memory. **ALL NINE ARE NOW CORRECTED (2026-08-18), together with the two framing sites
+below**; the list is kept as the record of what was wrong and where. Each is
 marked with which of the two errors it carries -- DENOMINATOR (quoting `956-1,142 km`
 against a 250 km request) and/or DIRECTION (calling the bias "arrives HIGHER"):
 
@@ -281,11 +282,19 @@ in-regime points say it will UNDER-shoot. Sized on the measurement, the aim is t
 *smallest* request whose low tail still clears Pol. The direction of the bias IS the
 sizing argument at Jool, and the record had it backwards.
 
-**Fix:** correct the nine sites to stop quoting `956-1,142 km` against a 250 km request,
-and correct the five that also invert the direction to state under-delivery at low
-`req/SOI` with the inversion above ~4%. Prefer the one
-measured 250 km B5 outcome (138.9 km) and the `delivered/SOI` framing. No code change; no
-verdict changes.
+**~~Fix~~ FIXED 2026-08-18:** the nine sites no longer quote `956-1,142 km` against a
+250 km request, and the five that also inverted the direction now state under-delivery at
+low `req/SOI` with the inversion above ~4%. Each site was re-based on measurement rather
+than reworded: B5 on the one 250 km outcome (138.9 km) plus the 60 km provenance of the
+956 / 1,138 / 1,142 km passes and flight 9's artefact status; B11's three sites on the
+five Mun points measured at a 250 km request (136.2-140.7 km, which moves its capture
+pricing to the ~220 m/s end and its worst case to ~1,420 m/s, still inside budget);
+B15 and B16 on the `delivered/SOI` framing plus Eve's own measured k = 0.997; B19, B20
+and B21 on their own arrivals (870-1,100 km at 0.914% req/SOI, 428-518 km at 3.110%,
+10,607-11,343 km at 0.252%). The two `autotest-status.md` framing sites are softened in
+the same pass. Every parameter value is byte-unchanged and every conclusion survives the
+correction, which is the point: no code change, no spec value change, no verdict changes.
+The B7 `~564 km` citation was left verbatim, as this entry requires.
 
 ---
 
