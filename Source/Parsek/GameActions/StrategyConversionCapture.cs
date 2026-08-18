@@ -121,6 +121,20 @@ namespace Parsek
         /// Applies the SCOPING RULE that keeps this door from double-counting the
         /// movements the ordinary event-driven channels already see.
         ///
+        /// <para><b>THE DECOMPOSITION THAT MAKES THE SCIENCE ARM SAFE.</b> A stock
+        /// <c>Add*</c> moves the pool by <c>GetInput + GetEffectDelta</c>. Parsek's
+        /// earning channels record the INPUT half and nothing else - a
+        /// <c>ScienceEarning</c> carries the SUBJECT's value, a
+        /// <c>ContractComplete</c> carries <c>contract.ScienceCompletion</c>, a
+        /// <c>MilestoneAchievement</c> carries the progress node's configured award -
+        /// and <c>StrategiesModule.TransformContractReward</c> is a documented identity
+        /// no-op, so NO existing channel records the effect-delta half. Capturing
+        /// exactly the effect-delta therefore lands the ledger on the pool movement by
+        /// construction, whichever way stock happens to fold the modifier in. That is
+        /// the argument for capturing science unconditionally, and it is the argument
+        /// to re-check before adding any channel that starts recording a post-modifier
+        /// amount.</para>
+        ///
         /// <para><b>Science - capture any nonzero delta, input or not.</b> Parsek's
         /// science EARNING channel is archive-derived (it converts
         /// <c>PendingScienceSubjects</c>, i.e. the SUBJECT's value), so it never sees
