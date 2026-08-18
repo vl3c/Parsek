@@ -1201,12 +1201,23 @@ viaBodyNames               = ["Sun", "Mun"]
 returnBodyName             = "Sun"
 
 # --- CORRECTIONS (B16's shape; B19's cap LOWERED, derived below).
-# 300 km requested. Finding 16d's documented bias is that MechJeb's
-# OperationCourseCorrection arrives HIGHER than requested (B5 turned 250 km into
-# 956-1,142 km), and on Eeloo that bias is harmless in both directions with even
+# 300 km requested. Finding 16d's documented bias is UNDER-delivery -- MechJeb's
+# OperationCourseCorrection under-prices low-periapsis targets -- and the measured
+# corpus adds that the delivered periapsis behaves as a body-specific FRACTION OF
+# THE TARGET SOI rather than a multiple of the request. That is why an arrival far
+# ABOVE the request shows up exactly where the request is tiny against the SOI,
+# and EELOO IS THE EXTREME OF THAT: 300 km is 0.252% of Eeloo's SOI and this
+# lane's own arrivals came in at 10,607-11,343 km (k = 35-38, 8.9-9.5% of the
+# SOI). The bias stays harmless in both directions here, with even
 # more room than at Dres: the SOI is 119,083 km against Dres's 32,832 km (3.6x), and
 # the capture cost curve is again nearly flat across that band -- on the expensive
-# perihelion-end arrival, ~1,948 m/s at 300 km against ~2,045 at 1,000 km.
+# perihelion-end arrival, ~1,948 m/s at 300 km against ~2,045 at 1,000 km -- while
+# the measured arrival sits far above that band, on the EXPENSIVE side of the
+# curve (~2,190 m/s at the measured ~11,000 km against ~1,948 at 300 km -- at
+# this v_inf the capture cost RISES with periapsis), still well under the
+# ladder's 3,009.3 m/s sizing capture, so the cap derived below is not
+# stressed by it. See the todo doc's
+# FINDING-16D-MISCITED-DIRECTION-AND-DENOMINATOR.
 courseCorrectPeriapsisMeters = 300000
 # LOWERED FROM B19's 1,200 TO 550, and this spec has now been wrong about it twice:
 # the first draft RAISED the cap to 1,600 and priced the raise with the ceiling

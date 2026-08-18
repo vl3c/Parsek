@@ -369,9 +369,15 @@ returnBodyName             = "Sun"
 # theoretical optimum (18,157 km, ~658 m/s) would save ~77 m/s and put the park
 # INSIDE Gilly's 14,175 km periapsis shell, which is not a trade worth making for
 # a committed recording. 5,000 km also leaves room for finding 16d's documented
-# bias - MechJeb's OperationCourseCorrection arrives HIGHER than requested (B5
-# turned 250 km into 956-1,142 km) - so even a 2x overshoot lands at ~10,000 km,
-# still comfortably below the ceiling below.
+# bias IN EITHER DIRECTION - its root cause is UNDER-delivery (MechJeb's
+# OperationCourseCorrection under-prices low-periapsis targets), and the measured
+# corpus shows the delivered periapsis tracking a body-specific fraction of the
+# target SOI rather than a multiple of the request - so a 2x overshoot lands at
+# ~10,000 km, still comfortably below the 13,000 km ceiling below, and a 2x
+# shortfall lands at ~2,500 km, still 5x the 500 km park floor and 27x Eve's
+# 90 km atmosphere. MEASURED on this lane: 5,000 km is 5.875% of Eve's SOI and
+# the arrival came in at k = 0.997, essentially on target in either sense. See
+# the todo doc's FINDING-16D-MISCITED-DIRECTION-AND-DENOMINATOR.
 courseCorrectPeriapsisMeters = 5000000
 # RAISED from B7's 200 to match B15 (flight 6, 2026-07-26). B16's transfer IS
 # B15's, and B15 MEASURED its heliocentric correction at 378.5 / 378.3 m/s once

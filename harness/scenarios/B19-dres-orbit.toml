@@ -246,11 +246,17 @@ viaBodyNames               = ["Sun", "Mun"]
 returnBodyName             = "Sun"
 
 # --- CORRECTIONS (B16's shape and cap).
-# 300 km requested. Finding 16d's documented bias is that MechJeb's
-# OperationCourseCorrection arrives HIGHER than requested (B5 turned 250 km into
-# 956-1,142 km), and on Dres that bias is harmless in both directions: the SOI is
-# 32,832 km so there is enormous room above, and the capture cost curve is nearly
-# flat across that band (~1,136 m/s at 300 km, ~1,238 at 1,000 km).
+# 300 km requested. Finding 16d's documented bias is UNDER-delivery -- MechJeb's
+# OperationCourseCorrection under-prices low-periapsis targets -- and what the
+# measured corpus adds is that the delivered periapsis behaves as a body-specific
+# fraction of the target SOI rather than a multiple of the request, so an arrival
+# far ABOVE the request appears exactly where the request is tiny against that
+# SOI. DRES IS SUCH A CASE, and it is measured rather than assumed: 300 km is
+# 0.914% of Dres's SOI and the arrivals came in at 870-1,100 km (this lane's own
+# first in-SOI frame read 870,357.9 m). Either way the bias is harmless here: the
+# SOI is 32,832 km so there is enormous room above, and the capture cost curve is
+# nearly flat across that band (~1,136 m/s at 300 km, ~1,238 at 1,000 km). See
+# the todo doc's FINDING-16D-MISCITED-DIRECTION-AND-DENOMINATOR.
 courseCorrectPeriapsisMeters = 300000
 # RAISED from B16's 450. On this lane the correction has to CREATE the encounter
 # rather than refine one (the flight-2 measurement: MechJeb's transfer put the
