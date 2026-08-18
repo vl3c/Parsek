@@ -664,6 +664,24 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void TeardownTruncate_RaisesOnlyWhenTheLedgerShrankBelowTheCapturedBaseline()
+        {
+            // The teardown idiom captures Ledger.Actions.Count on entry and truncates back
+            // to it in the finally, which is only correct while every row the cell added
+            // sits at the TAIL. A live count BELOW the captured one says rows were removed
+            // by something outside the cell, so the captured index no longer names the
+            // cell's own boundary - the case the in-game guard WARNs on and skips.
+            Assert.True(StrategyCells.TeardownTruncateWouldRaceRemoval(10, 9));
+            Assert.True(StrategyCells.TeardownTruncateWouldRaceRemoval(1, 0));
+
+            // Equal is the ordinary "cell added nothing" teardown and MUST stay a silent
+            // no-op; greater is the ordinary "cell added rows" teardown. Neither is a race.
+            Assert.False(StrategyCells.TeardownTruncateWouldRaceRemoval(10, 10));
+            Assert.False(StrategyCells.TeardownTruncateWouldRaceRemoval(10, 14));
+            Assert.False(StrategyCells.TeardownTruncateWouldRaceRemoval(0, 0));
+        }
+
+        [Fact]
         public void GuardedClampLine_IgnoresOrdinaryLinesAndNulls()
         {
             Assert.False(StrategyCells.IsGuardedClampLine(null));

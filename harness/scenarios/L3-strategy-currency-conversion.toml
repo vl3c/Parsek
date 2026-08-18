@@ -151,7 +151,10 @@ count = { min = 0, max = 0 }
 #     to ZERO rows, while the same query's science INPUT leg still landed as one
 #     converter-sourced debit of 20. It also MEASURED the reason the leg is dropped:
 #     the pool actually moved 0.33515101671218872 against the pre-curve 0.33540129661560059
-#     the door sees - a 0.00025 gap, and 33x the reputation guard's 0.01 epsilon. See
+#     the door sees. Two separate facts, and the multiplier attaches to the first one:
+#     the DROPPED LEG's own magnitude (0.3354) is 33x the reputation guard's 0.01
+#     epsilon, so this is not a rounding-scale drift; the 0.00025 gap between the two
+#     numbers is the pre-curve / post-curve difference the drop exists because of. See
 #     STRATEGY-REPUTATION-DROP-CLAMPS-THE-GUARD in docs/dev/todo-and-known-bugs.md.
 #   OperationStrategy_RewardMultiplier_IsNotCaptured     SKIP - and this is the one
 #     REAL coverage gap the run reports. `LeadershipInitiative` self-skipped with

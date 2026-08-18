@@ -201,10 +201,11 @@ across six waves - `ReFlyWorldPreservation` via S4.2, `RecordedSignals` via H33,
 `SnapshotBaseline` via H32, and `Logistics` via H34 all landed together in one merge
 (the S1.8 SoiCrossingPlayback wave had taken it to 35 from 34, and 28 and 8 the waves
 before), then `PlaybackFidelity` via H36 and `PartEventFidelity` via H37. Measured
-against declarations rather than categories, that is 393 of 579 inside a driven
+against declarations rather than categories, that is 401 of 586 inside a driven
 category (was 318 before these waves: 324 after S4.2, 327 after H33, 334 after H32,
-381 once `Logistics` counted, 388 with `PlaybackFidelity`, and 393 with
-`PartEventFidelity`). `H35-logistics-route-proof` (2026-08-11) moves NEITHER number -
+381 once `Logistics` counted, 388 with `PlaybackFidelity`, 393 with
+`PartEventFidelity`, and 401 once L3's capture matrix took `StrategyLifecycle` from 3
+declarations to 7). `H35-logistics-route-proof` (2026-08-11) moves NEITHER number -
 it is the second spec on a category H34 already counted - which is exactly the
 distortion the paragraph after next is about.
 

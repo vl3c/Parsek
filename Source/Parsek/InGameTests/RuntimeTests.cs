@@ -16001,6 +16001,48 @@ namespace Parsek.InGameTests
             }
         }
 
+        /// <summary>
+        /// TRUE when a teardown truncate would be operating on a ledger that has SHRUNK
+        /// below the count the cell captured on entry.
+        ///
+        /// <para>The teardown idiom (capture <c>Ledger.Actions.Count</c> on entry,
+        /// <c>TruncateActionsForTesting(thatCount)</c> in the <c>finally</c>) assumes
+        /// every row the cell added lands at the TAIL and that nothing removed rows from
+        /// the MIDDLE of the list in between. When the live count is below the captured
+        /// one that assumption is already broken - something outside the cell removed
+        /// rows (a purge, a sibling teardown, a discard), so the captured index no
+        /// longer names the cell's own boundary. Truncating anyway is a silent no-op
+        /// today only because <c>TruncateActionsForTesting</c> returns early on
+        /// <c>newCount >= Count</c>; naming the race is what makes it debuggable if the
+        /// list ever shrinks and REGROWS between capture and teardown, where the same
+        /// call would delete rows this cell never wrote.</para>
+        /// </summary>
+        internal static bool TeardownTruncateWouldRaceRemoval(int capturedCount, int liveCount)
+        {
+            return liveCount < capturedCount;
+        }
+
+        /// <summary>
+        /// Teardown truncate with the removal-race guard above. Skips the truncate and
+        /// WARNs (naming the cell and both counts) rather than truncating against a
+        /// baseline the live list no longer supports.
+        /// </summary>
+        internal static void TruncateLedgerForTeardown(int capturedCount, string cell)
+        {
+            int liveCount = Ledger.Actions.Count;
+            if (TeardownTruncateWouldRaceRemoval(capturedCount, liveCount))
+            {
+                ParsekLog.Warn("TestRunner",
+                    $"{cell} teardown: ledger REMOVAL RACE - the live action count " +
+                    $"({liveCount.ToString(CultureInfo.InvariantCulture)}) is BELOW the count this " +
+                    $"cell captured on entry ({capturedCount.ToString(CultureInfo.InvariantCulture)}), " +
+                    $"so rows were removed by something outside this cell and the captured index no " +
+                    $"longer names its own tail boundary; truncate SKIPPED");
+                return;
+            }
+            Ledger.TruncateActionsForTesting(capturedCount);
+        }
+
         private const int StrategyLifecycleProbeWarmupFrames = 3;
         private const int StrategyLifecycleProbeRetryFrames = 30;
         private const int StrategyLifecycleAdministrationHydrationFrames = 30;
@@ -16504,7 +16546,7 @@ namespace Parsek.InGameTests
                     ParsekLog.TestObserverForTesting = priorObserver;
                     RestoreFinancials(fundsBefore, sciBefore, repBefore);
                     GameStateStore.TruncateEventsForTesting(eventCountBefore);
-                    Ledger.TruncateActionsForTesting(ledgerCountBefore);
+                    TruncateLedgerForTeardown(ledgerCountBefore, "ActivateAndDeactivate_StockStrategy (activate-throw)");
                     DestroyHiddenAdministrationCanvasForTest(
                         selection,
                         "activate-throw");
@@ -16595,7 +16637,7 @@ namespace Parsek.InGameTests
                     ParsekLog.TestObserverForTesting = priorObserver;
                     RestoreFinancials(fundsBefore, sciBefore, repBefore);
                     GameStateStore.TruncateEventsForTesting(eventCountBefore);
-                    Ledger.TruncateActionsForTesting(ledgerCountBefore);
+                    TruncateLedgerForTeardown(ledgerCountBefore, "ActivateAndDeactivate_StockStrategy (mid-test-exception)");
                     DestroyHiddenAdministrationCanvasForTest(
                         selection,
                         "mid-test-exception");
@@ -16655,7 +16697,7 @@ namespace Parsek.InGameTests
                     // between the assertion slice read and the truncation. Both
                     // truncations are silent no-ops if nothing was added.
                     GameStateStore.TruncateEventsForTesting(eventCountBefore);
-                    Ledger.TruncateActionsForTesting(ledgerCountBefore);
+                    TruncateLedgerForTeardown(ledgerCountBefore, "ActivateAndDeactivate_StockStrategy");
                     DestroyHiddenAdministrationCanvasForTest(
                         selection,
                         "post-lifecycle-assertions");
@@ -16846,7 +16888,7 @@ namespace Parsek.InGameTests
                         // ActivateAndDeactivate_StockStrategy_EmitsLifecycleEvents
                         // teardown for the same pattern.
                         GameStateStore.TruncateEventsForTesting(preTestEventCount);
-                        Ledger.TruncateActionsForTesting(preTestLedgerCount);
+                        TruncateLedgerForTeardown(preTestLedgerCount, "FailedActivation_DoesNotEmitEvent");
                     }
 
                     if (candidateExercisedFailedPath)
@@ -17339,7 +17381,7 @@ namespace Parsek.InGameTests
                     ParsekLog.TestObserverForTesting = priorObserver;
                     RestoreFinancials(fundsBefore, sciBefore, repBefore);
                     GameStateStore.TruncateEventsForTesting(eventCountBefore);
-                    Ledger.TruncateActionsForTesting(ledgerCountBefore);
+                    TruncateLedgerForTeardown(ledgerCountBefore, "CurrencyConverterStrategy_LedgerMatchesNetCredit");
                     ParsekLog.Verbose("TestRunner",
                         $"CurrencyConverterStrategy teardown: activated={activated}, " +
                         $"eventsBack={eventCountBefore.ToString(CultureInfo.InvariantCulture)}, " +
@@ -17569,6 +17611,39 @@ namespace Parsek.InGameTests
             return null;
         }
 
+        /// <summary>
+        /// First clamp line protecting <paramref name="resource"/>, or null. Paired with
+        /// <see cref="FirstGuardedClampLineOtherThan"/> so a cell can SPLIT its no-clamp
+        /// assertion by pool rather than reporting one verdict under two diagnoses - the
+        /// reputation cell's two failure modes ("the restore did not take" vs "a door
+        /// missed a leg") are different bugs and must fail as different assertions.
+        /// </summary>
+        private static string FirstGuardedClampLineFor(List<string> captured, string resource)
+        {
+            if (captured == null) return null;
+            for (int i = 0; i < captured.Count; i++)
+            {
+                if (IsGuardedClampLineFor(captured[i], resource)) return captured[i];
+            }
+            return null;
+        }
+
+        /// <summary>
+        /// First clamp line protecting any pool OTHER than <paramref name="resource"/>,
+        /// or null. Deliberately not "the first clamp that is not the one above": a run
+        /// carrying both must report both, one per assertion.
+        /// </summary>
+        private static string FirstGuardedClampLineOtherThan(List<string> captured, string resource)
+        {
+            if (captured == null) return null;
+            for (int i = 0; i < captured.Count; i++)
+            {
+                string l = captured[i];
+                if (IsGuardedClampLine(l) && !IsGuardedClampLineFor(l, resource)) return l;
+            }
+            return null;
+        }
+
         private static string FirstStrategyConversionDoorLine(List<string> captured)
         {
             if (captured == null) return null;
@@ -17746,16 +17821,41 @@ namespace Parsek.InGameTests
                         yield break;
                     }
 
+                    // REPUTATION GATE, CHECKED AND LOGGED FIRST. requiredReputationMax = 0
+                    // on both stock exchangers: they are EMERGENCY strategies and only
+                    // offer themselves at non-positive reputation. That makes this cell
+                    // ORDER-COUPLED to every cell that runs before it in the category -
+                    // ConverterStrategy_ReputationLeg_IsObservedAndDropped deliberately
+                    // moves reputation, and a residue it failed to restore would land here
+                    // as an opaque "Cannot be activated". Read the pool and say so plainly:
+                    // an honest skip naming the coupling beats a red whose cause is in
+                    // another cell. (The reputation cell restores exactly, in its finally,
+                    // so this is a guard rather than an expectation.)
+                    float liveReputation = Reputation.Instance != null
+                        ? Reputation.Instance.reputation : 0f;
+                    ParsekLog.Info("TestRunner",
+                        $"ExchangerStrategy: live reputation is " +
+                        $"{liveReputation.ToString("R", CultureInfo.InvariantCulture)} " +
+                        $"(stock '{TargetConfigName}' requires reputation <= 0)");
+                    if (Reputation.Instance != null && liveReputation > 0f)
+                    {
+                        InGameAssert.Skip(
+                            $"live reputation is {liveReputation.ToString("R", CultureInfo.InvariantCulture)} " +
+                            $"(> 0), and '{TargetConfigName}' is an EMERGENCY strategy with " +
+                            $"requiredReputationMax = 0 - it does not offer itself at positive " +
+                            $"reputation. If an earlier cell in this category moved reputation and did " +
+                            $"not restore it exactly, that is the cause");
+                        yield break;
+                    }
+
                     string cannotReason;
                     if (!strategy.CanBeActivated(out cannotReason))
                     {
-                        // requiredReputationMax = 0 on both stock exchangers: they are
-                        // EMERGENCY strategies and only offer themselves at non-positive
-                        // reputation. Name the requirement rather than forcing it.
                         InGameAssert.Skip(
                             $"'{TargetConfigName}' cannot be activated on this save: {cannotReason ?? "(no reason)"} " +
-                            $"(stock requires reputation <= 0; live reputation is " +
-                            $"{(Reputation.Instance != null ? Reputation.Instance.reputation : float.NaN).ToString("R", CultureInfo.InvariantCulture)})");
+                            $"(live reputation is " +
+                            $"{liveReputation.ToString("R", CultureInfo.InvariantCulture)}, which already " +
+                            $"cleared the reputation <= 0 requirement, so the blocker is another one)");
                         yield break;
                     }
 
@@ -17902,7 +18002,7 @@ namespace Parsek.InGameTests
                     ParsekLog.TestObserverForTesting = priorObserver;
                     RestoreFinancials(fundsBefore, sciBefore, repBefore);
                     GameStateStore.TruncateEventsForTesting(eventCountBefore);
-                    Ledger.TruncateActionsForTesting(ledgerCountBefore);
+                    TruncateLedgerForTeardown(ledgerCountBefore, "ExchangerStrategy_OneShot_CapturesBothLegs");
                     ParsekLog.Verbose("TestRunner",
                         $"ExchangerStrategy teardown: " +
                         $"eventsBack={eventCountBefore.ToString(CultureInfo.InvariantCulture)}, " +
@@ -18156,7 +18256,7 @@ namespace Parsek.InGameTests
                     ParsekLog.TestObserverForTesting = priorObserver;
                     RestoreFinancials(fundsBefore, sciBefore, repBefore);
                     GameStateStore.TruncateEventsForTesting(eventCountBefore);
-                    Ledger.TruncateActionsForTesting(ledgerCountBefore);
+                    TruncateLedgerForTeardown(ledgerCountBefore, "ConverterStrategy_ScienceYield_CapturesCredit");
                     ParsekLog.Verbose("TestRunner",
                         $"ConverterScienceYield teardown: " +
                         $"eventsBack={eventCountBefore.ToString(CultureInfo.InvariantCulture)}, " +
@@ -18298,6 +18398,26 @@ namespace Parsek.InGameTests
                     double sciDelta = ResearchAndDevelopment.Instance.Science - (double)sciPreAward;
                     double repDelta = (Reputation.Instance != null ? Reputation.Instance.reputation : 0f) - (double)repPreAward;
 
+                    // SETTLE BEFORE TALLYING, and this ordering is the whole difference
+                    // between a negative control and a vacuous one. Every assertion below
+                    // is "this row count did NOT move", so a tally taken in the same frame
+                    // as the award would pass against a door that captures ONE FRAME LATE
+                    // just as happily as against one that correctly stands off. The
+                    // positive cells can sample immediately because their doors write
+                    // synchronously and they assert a row IS there; a zero-assertion has to
+                    // outlast every deferred path before it means anything.
+                    //
+                    // Safe to settle before the compensating write, and only because the
+                    // non-capture is exactly what this cell asserts: with no capture-worthy
+                    // leg, GameStateRecorder.OnCurrencyModified returns at `legs.Count == 0`
+                    // without calling OnStrategyCurrencyConversion, so no deferred recalc is
+                    // scheduled and nothing reads the uncompensated pool during these
+                    // frames. If a regression ever DID capture here, the recalc would run
+                    // against an uncompensated funds pool and raise the funds guard - which
+                    // is a correct red for this cell, not a fixture artefact.
+                    for (int i = 0; i < StrategyLifecycleActivateSettleFrames; i++)
+                        yield return null;
+
                     // ROW COUNTS BEFORE THE COMPENSATING WRITE - this tally IS the assertion.
                     StrategyLedgerTally afterTally;
                     if (!TryTallyStrategyLedgerRows(out afterTally))
@@ -18307,9 +18427,6 @@ namespace Parsek.InGameTests
                     }
 
                     WriteLedgerVisibleFundsRow(fundsDelta, "Progression funds award is not a modelled reason");
-
-                    for (int i = 0; i < StrategyLifecycleActivateSettleFrames; i++)
-                        yield return null;
 
                     ParsekLog.Info("TestRunner",
                         $"OperationMultiplier: award={FundsAward.ToString("R", CultureInfo.InvariantCulture)} " +
@@ -18379,7 +18496,7 @@ namespace Parsek.InGameTests
                     ParsekLog.TestObserverForTesting = priorObserver;
                     RestoreFinancials(fundsBefore, sciBefore, repBefore);
                     GameStateStore.TruncateEventsForTesting(eventCountBefore);
-                    Ledger.TruncateActionsForTesting(ledgerCountBefore);
+                    TruncateLedgerForTeardown(ledgerCountBefore, "OperationStrategy_RewardMultiplier_IsNotCaptured");
                     ParsekLog.Verbose("TestRunner",
                         $"OperationMultiplier teardown: " +
                         $"eventsBack={eventCountBefore.ToString(CultureInfo.InvariantCulture)}, " +
@@ -18658,14 +18775,24 @@ namespace Parsek.InGameTests
                         $"aboveEpsilon={aboveEpsilon}; " +
                         $"this cell restored it before the deferred recalc so the fixture cannot manufacture a clamp");
 
-                    // (5) NO CLAMP - on the pools this cell keeps in step. A reputation clamp
-                    // here would mean the restore above did not take; a funds or science
-                    // clamp would mean a door genuinely missed a leg.
-                    string clamp = FirstGuardedClampLine(captured);
-                    InGameAssert.IsNull(clamp,
-                        $"no GUARDED UPLIFT/DRAWDOWN clamp may fire once the dropped reputation leg is " +
-                        $"restored - a Science or Funds clamp means a door missed a leg, a Reputation " +
-                        $"clamp means the restore did not take: {clamp}");
+                    // (5) NO CLAMP - and SPLIT BY POOL, because the two ways this can fail
+                    // are two different bugs and a single verdict would report whichever
+                    // line happened to come first. A REPUTATION clamp means the restore
+                    // above did not take (a fixture fault in this cell); any OTHER clamp
+                    // means a capture door genuinely missed a leg (a product fault). The
+                    // discriminator is the `resource=` token the guard writes, read through
+                    // IsGuardedClampLineFor rather than by eye.
+                    const string ReputationResource = "Reputation";
+                    string repClamp = FirstGuardedClampLineFor(captured, ReputationResource);
+                    InGameAssert.IsNull(repClamp,
+                        $"a Reputation clamp means the restore of the deliberately-dropped reputation " +
+                        $"leg did not take before the deferred recalc - this cell's own fixture, not a " +
+                        $"missed capture: {repClamp}");
+                    string otherClamp = FirstGuardedClampLineOtherThan(captured, ReputationResource);
+                    InGameAssert.IsNull(otherClamp,
+                        $"a clamp on any pool other than Reputation means a capture door missed a leg - " +
+                        $"the science and funds pools must stay in step with the reconstruction across " +
+                        $"this conversion: {otherClamp}");
                 }
                 finally
                 {
@@ -18679,9 +18806,37 @@ namespace Parsek.InGameTests
                         }
                     }
                     ParsekLog.TestObserverForTesting = priorObserver;
+
+                    // EXACT REPUTATION RESTORE, IN THE FINALLY. This cell is the one that
+                    // deliberately moves reputation, and the in-body restore above runs
+                    // only on the happy path - an assertion failure or a late Skip between
+                    // the award and it would leave the dropped leg standing. The generic
+                    // RestoreFinancials below cannot close that: its reputation arm carries
+                    // a 0.01 deadband (right for its own purpose, since SetReputation on a
+                    // sub-epsilon difference is noise) and would leave a residue exactly
+                    // where a residue is expensive. It is expensive because
+                    // ExchangerStrategy_OneShot_CapturesBothLegs runs LATER in this same
+                    // category and its subject is an EMERGENCY strategy with
+                    // requiredReputationMax = 0 - a positive residue this cell leaves is a
+                    // skip that cell pays for. Absolute SetReputation, suppressed, so KSP's
+                    // granular curve is not applied a second time.
+                    if (Reputation.Instance != null
+                        && Reputation.Instance.reputation != repBefore)
+                    {
+                        float repStrandedAt = Reputation.Instance.reputation;
+                        using (SuppressionGuard.Resources())
+                            Reputation.Instance.SetReputation(repBefore, TransactionReasons.None);
+                        ParsekLog.Info("TestRunner",
+                            $"ConverterReputationLeg teardown: exact reputation restore " +
+                            $"{repStrandedAt.ToString("R", CultureInfo.InvariantCulture)} -> " +
+                            $"{repBefore.ToString("R", CultureInfo.InvariantCulture)} " +
+                            $"(no deadband - a residue here would couple into the exchanger cell's " +
+                            $"reputation <= 0 requirement)");
+                    }
+
                     RestoreFinancials(fundsBefore, sciBefore, repBefore);
                     GameStateStore.TruncateEventsForTesting(eventCountBefore);
-                    Ledger.TruncateActionsForTesting(ledgerCountBefore);
+                    TruncateLedgerForTeardown(ledgerCountBefore, "ConverterStrategy_ReputationLeg_IsObservedAndDropped");
                     ParsekLog.Verbose("TestRunner",
                         $"ConverterReputationLeg teardown: " +
                         $"eventsBack={eventCountBefore.ToString(CultureInfo.InvariantCulture)}, " +
@@ -18813,7 +18968,7 @@ namespace Parsek.InGameTests
                 GameEvents.OnReputationChanged.Remove(OnReputationChanged);
                 RestoreFinancials(fundsBefore, scienceBefore, reputationBefore);
                 GameStateStore.TruncateEventsForTesting(eventCountBefore);
-                Ledger.TruncateActionsForTesting(ledgerCountBefore);
+                TruncateLedgerForTeardown(ledgerCountBefore, "TopBarReflectsLedgerAfterRecalc");
             }
         }
 
