@@ -1662,13 +1662,40 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void SeedInitialFunds_StaleZeroRepair_BumpsStateVersion()
+        {
+            // The repair path MUTATES a row rather than appending one, and that made it
+            // the second unbumped mutator on this list (the first was
+            // TruncateActionsForTesting - LEDGER-TRUNCATE-LEAVES-A-STALE-ELS-CACHE).
+            // The FundsInitial seed is the base of every running funds balance the
+            // reconstruction computes, so a repair that leaves StateVersion alone lets
+            // every version-keyed reader go on answering from the 0 seed it replaced.
+            Ledger.SeedInitialFunds(0.0);
+            int elsBefore = EffectiveState.ComputeELS().Count;
+            Assert.Equal(1, elsBefore);
+            int versionBefore = Ledger.StateVersion;
+
+            Ledger.SeedInitialFunds(224608.0);
+
+            Assert.Single(Ledger.Actions);
+            Assert.Equal(224608f, Ledger.Actions[0].InitialFunds);
+            Assert.NotEqual(versionBefore, Ledger.StateVersion);
+            Assert.Contains(logLines, l =>
+                l.Contains("[Ledger]") && l.Contains("updated stale 0-value seed") && l.Contains("stateVersion="));
+        }
+
+        [Fact]
         public void SeedInitialFunds_DoesNotUpdateNonZeroSeed()
         {
             Ledger.SeedInitialFunds(25000.0);
+            int versionBefore = Ledger.StateVersion;
 
             Ledger.SeedInitialFunds(30000.0);
             Assert.Single(Ledger.Actions);
             Assert.Equal(25000f, Ledger.Actions[0].InitialFunds); // unchanged
+            // Nothing mutated, so nothing may be invalidated - the mirror of the repair
+            // cell above, and the reason the bump sits inside the repair branch.
+            Assert.Equal(versionBefore, Ledger.StateVersion);
         }
 
         // Follow-up to #557 / PR #499: the stale-0 upgrade branch was removed
@@ -1952,6 +1979,69 @@ namespace Parsek.Tests
             Assert.Single(Ledger.Actions);
             Assert.Contains(logLines, l =>
                 l.Contains("[Ledger]") && l.Contains("PruneOrphanActionsAfterUT") && l.Contains("no untagged"));
+        }
+
+        // ================================================================
+        // TruncateActionsForTesting is a MUTATOR and must invalidate the ELS cache
+        // like every other one. EffectiveState.ComputeELS caches against
+        // Ledger.StateVersion, so a truncation that does not bump leaves the cache
+        // serving rows that are no longer in the ledger.
+        //
+        // Found live: on the L3 reading run 2026-08-18_2136 the in-game
+        // ExchangerStrategy_OneShot_CapturesBothLegs cell took its pre-exchange ELS
+        // baseline straight after the preceding cell's teardown truncation, inherited
+        // that cell's already-removed rows, and read a row delta of
+        // convDebitRows=-1 sciCreditRows=-1 fundsRows=0 - so a correctly-captured
+        // exchanger funds leg looked like a missing one.
+        // ================================================================
+
+        [Fact]
+        public void TruncateActionsForTesting_BumpsStateVersionSoTheElsCacheCannotServeRemovedRows()
+        {
+            Ledger.AddAction(new GameAction { UT = 1.0, Type = GameActionType.FundsEarning, FundsAwarded = 10f });
+            Ledger.AddAction(new GameAction { UT = 2.0, Type = GameActionType.FundsEarning, FundsAwarded = 20f });
+            int keep = 1;
+            int versionBefore = Ledger.StateVersion;
+
+            // THE ACTUAL SUBJECT, read through the actual consumer. Take a real ELS
+            // BEFORE the truncate so the cache is populated with the two-row answer -
+            // this is the step the in-game cell performed by accident (its pre-exchange
+            // tally landed right after the previous cell's teardown).
+            int elsBefore = EffectiveState.ComputeELS().Count;
+            Assert.Equal(2, elsBefore);
+
+            Ledger.TruncateActionsForTesting(keep);
+
+            Assert.Single(Ledger.Actions);
+            Assert.NotEqual(versionBefore, Ledger.StateVersion);
+
+            // ...and the direct proof: the ELS the next reader gets must have SHRUNK.
+            // The version-delta assertion above is the mechanism; this is the outcome,
+            // and it is the one that would have caught the live symptom. Without the
+            // bump, ComputeELS returns the cached two-row list here.
+            int elsAfter = EffectiveState.ComputeELS().Count;
+            Assert.Equal(1, elsAfter);
+            Assert.True(elsAfter < elsBefore,
+                "the ELS must not go on serving rows the ledger no longer holds");
+
+            Assert.Contains(logLines, l =>
+                l.Contains("[Ledger]") && l.Contains("TruncateActionsForTesting") && l.Contains("stateVersion="));
+        }
+
+        [Fact]
+        public void TruncateActionsForTesting_DoesNotBumpWhenItRemovesNothing()
+        {
+            // The early return is deliberate: a no-op truncation must not invalidate a
+            // valid cache, or every teardown would force a needless ELS rebuild.
+            Ledger.AddAction(new GameAction { UT = 1.0, Type = GameActionType.FundsEarning, FundsAwarded = 10f });
+            int versionBefore = Ledger.StateVersion;
+
+            Ledger.TruncateActionsForTesting(Ledger.Actions.Count);
+            Assert.Equal(versionBefore, Ledger.StateVersion);
+
+            Ledger.TruncateActionsForTesting(Ledger.Actions.Count + 5);
+            Assert.Equal(versionBefore, Ledger.StateVersion);
+            Assert.Single(Ledger.Actions);
         }
     }
 }

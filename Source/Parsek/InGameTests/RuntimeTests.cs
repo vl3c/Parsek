@@ -16001,6 +16001,48 @@ namespace Parsek.InGameTests
             }
         }
 
+        /// <summary>
+        /// TRUE when a teardown truncate would be operating on a ledger that has SHRUNK
+        /// below the count the cell captured on entry.
+        ///
+        /// <para>The teardown idiom (capture <c>Ledger.Actions.Count</c> on entry,
+        /// <c>TruncateActionsForTesting(thatCount)</c> in the <c>finally</c>) assumes
+        /// every row the cell added lands at the TAIL and that nothing removed rows from
+        /// the MIDDLE of the list in between. When the live count is below the captured
+        /// one that assumption is already broken - something outside the cell removed
+        /// rows (a purge, a sibling teardown, a discard), so the captured index no
+        /// longer names the cell's own boundary. Truncating anyway is a silent no-op
+        /// today only because <c>TruncateActionsForTesting</c> returns early on
+        /// <c>newCount >= Count</c>; naming the race is what makes it debuggable if the
+        /// list ever shrinks and REGROWS between capture and teardown, where the same
+        /// call would delete rows this cell never wrote.</para>
+        /// </summary>
+        internal static bool TeardownTruncateWouldRaceRemoval(int capturedCount, int liveCount)
+        {
+            return liveCount < capturedCount;
+        }
+
+        /// <summary>
+        /// Teardown truncate with the removal-race guard above. Skips the truncate and
+        /// WARNs (naming the cell and both counts) rather than truncating against a
+        /// baseline the live list no longer supports.
+        /// </summary>
+        internal static void TruncateLedgerForTeardown(int capturedCount, string cell)
+        {
+            int liveCount = Ledger.Actions.Count;
+            if (TeardownTruncateWouldRaceRemoval(capturedCount, liveCount))
+            {
+                ParsekLog.Warn("TestRunner",
+                    $"{cell} teardown: ledger REMOVAL RACE - the live action count " +
+                    $"({liveCount.ToString(CultureInfo.InvariantCulture)}) is BELOW the count this " +
+                    $"cell captured on entry ({capturedCount.ToString(CultureInfo.InvariantCulture)}), " +
+                    $"so rows were removed by something outside this cell and the captured index no " +
+                    $"longer names its own tail boundary; truncate SKIPPED");
+                return;
+            }
+            Ledger.TruncateActionsForTesting(capturedCount);
+        }
+
         private const int StrategyLifecycleProbeWarmupFrames = 3;
         private const int StrategyLifecycleProbeRetryFrames = 30;
         private const int StrategyLifecycleAdministrationHydrationFrames = 30;
@@ -16504,7 +16546,7 @@ namespace Parsek.InGameTests
                     ParsekLog.TestObserverForTesting = priorObserver;
                     RestoreFinancials(fundsBefore, sciBefore, repBefore);
                     GameStateStore.TruncateEventsForTesting(eventCountBefore);
-                    Ledger.TruncateActionsForTesting(ledgerCountBefore);
+                    TruncateLedgerForTeardown(ledgerCountBefore, "ActivateAndDeactivate_StockStrategy (activate-throw)");
                     DestroyHiddenAdministrationCanvasForTest(
                         selection,
                         "activate-throw");
@@ -16595,7 +16637,7 @@ namespace Parsek.InGameTests
                     ParsekLog.TestObserverForTesting = priorObserver;
                     RestoreFinancials(fundsBefore, sciBefore, repBefore);
                     GameStateStore.TruncateEventsForTesting(eventCountBefore);
-                    Ledger.TruncateActionsForTesting(ledgerCountBefore);
+                    TruncateLedgerForTeardown(ledgerCountBefore, "ActivateAndDeactivate_StockStrategy (mid-test-exception)");
                     DestroyHiddenAdministrationCanvasForTest(
                         selection,
                         "mid-test-exception");
@@ -16655,7 +16697,7 @@ namespace Parsek.InGameTests
                     // between the assertion slice read and the truncation. Both
                     // truncations are silent no-ops if nothing was added.
                     GameStateStore.TruncateEventsForTesting(eventCountBefore);
-                    Ledger.TruncateActionsForTesting(ledgerCountBefore);
+                    TruncateLedgerForTeardown(ledgerCountBefore, "ActivateAndDeactivate_StockStrategy");
                     DestroyHiddenAdministrationCanvasForTest(
                         selection,
                         "post-lifecycle-assertions");
@@ -16846,7 +16888,7 @@ namespace Parsek.InGameTests
                         // ActivateAndDeactivate_StockStrategy_EmitsLifecycleEvents
                         // teardown for the same pattern.
                         GameStateStore.TruncateEventsForTesting(preTestEventCount);
-                        Ledger.TruncateActionsForTesting(preTestLedgerCount);
+                        TruncateLedgerForTeardown(preTestLedgerCount, "FailedActivation_DoesNotEmitEvent");
                     }
 
                     if (candidateExercisedFailedPath)
@@ -17339,7 +17381,7 @@ namespace Parsek.InGameTests
                     ParsekLog.TestObserverForTesting = priorObserver;
                     RestoreFinancials(fundsBefore, sciBefore, repBefore);
                     GameStateStore.TruncateEventsForTesting(eventCountBefore);
-                    Ledger.TruncateActionsForTesting(ledgerCountBefore);
+                    TruncateLedgerForTeardown(ledgerCountBefore, "CurrencyConverterStrategy_LedgerMatchesNetCredit");
                     ParsekLog.Verbose("TestRunner",
                         $"CurrencyConverterStrategy teardown: activated={activated}, " +
                         $"eventsBack={eventCountBefore.ToString(CultureInfo.InvariantCulture)}, " +
@@ -17349,6 +17391,1461 @@ namespace Parsek.InGameTests
             finally
             {
                 DestroyHiddenAdministrationCanvasForTest(selection, "currency-converter-teardown");
+            }
+        }
+
+        // ================================================================
+        // THE CAPTURE MATRIX (four cells below).
+        //
+        // PR #1483 shipped two doors for KSP's two stock strategy conversion
+        // families, and exactly one cell drove exactly one corner of the grid
+        // (CurrencyConverterStrategy_LedgerMatchesNetCredit: converter family,
+        // science INPUT -> funds output). The four cells below fill in the rest.
+        //
+        //   family     | direction               | cell
+        //   -----------+-------------------------+-----------------------------------
+        //   exchanger  | science IN / funds OUT  | ExchangerStrategy_OneShot_*
+        //   converter  | science INPUT           | (the existing cell)
+        //   converter  | science OUTPUT (yield)  | ConverterStrategy_ScienceYield_*
+        //   converter  | reputation OUTPUT       | ConverterStrategy_ReputationLeg_*
+        //   operation  | funds reward multiplier | OperationStrategy_RewardMultiplier_*
+        //
+        // THE ONE RULE THAT SHAPES ALL FOUR: a bare FUNDS or REPUTATION pool move
+        // has NO pending adjuster on the guard's discriminator, so it clamps on the
+        // very next recalc unless a ledger row is written for it. SCIENCE is the
+        // exception - LedgerOrchestrator.ComputePendingRecentKscScienceCredit masks a
+        // pool-only ScienceTransmission / VesselRecovery award inside a 0.1s UT
+        // window, which at the frozen KSC clock is effectively permanent, and adding a
+        // compensating row there would DOUBLE-COUNT (a StrategyScienceCredit at "now"
+        // also cancels the very masking that keeps the guard quiet). So: science
+        // awards are fired bare, science TOP-UPS are paired with a StrategyScienceCredit
+        // stamped one second in the past, and every funds move the ledger does not
+        // model is paired with a FundsEarning row derived from the MEASURED delta.
+        //
+        // All three strategy SETUP costs are ledger-modelled (FundsModule
+        // .ProcessStrategySetupCost / ScienceModule.ProcessStrategySetupScienceCost /
+        // ReputationModule.ProcessStrategySetupReputation, all off the StrategyActivate
+        // row), so activating a funds- or reputation-costing strategy is not itself a
+        // clamp risk. That is what makes cells 2-4 affordable at all.
+        // ================================================================
+
+        /// <summary>
+        /// Ledger row counts + magnitudes for every row shape the two strategy doors
+        /// can write, read out of the EFFECTIVE ledger (ELS - a consumer never sees the
+        /// raw list). Always compared as a DELTA across a window by the cells below, so
+        /// a fixture that ever carries a strategy row of its own can neither satisfy nor
+        /// break an assertion.
+        ///
+        /// <para>The two <c>StrategyScienceDebit</c> buckets are split on
+        /// <see cref="StrategyConversionSource"/> because that field is load-bearing
+        /// downstream, not decorative: <c>ComputePendingUncommittedStrategyScienceDebit</c>
+        /// filters OUT exchanger-sourced debits and <c>ComputePendingRecentKscScienceCredit</c>
+        /// folds in converter-sourced ones. A cell that asserted only "one debit row"
+        /// would pass with the wrong door having fired.</para>
+        /// </summary>
+        private struct StrategyLedgerTally
+        {
+            public int ConverterDebitRows;
+            public double ConverterDebit;
+            public int ExchangerDebitRows;
+            public double ExchangerDebit;
+            public int ScienceCreditRows;
+            public double ScienceCredit;
+            public int StrategyFundsRows;
+            public double StrategyFunds;
+            public int ReputationRows;
+        }
+
+        private static bool TryTallyStrategyLedgerRows(out StrategyLedgerTally tally)
+        {
+            tally = default(StrategyLedgerTally);
+            var els = EffectiveState.ComputeELS();
+            if (els == null) return false;
+
+            for (int i = 0; i < els.Count; i++)
+            {
+                var a = els[i];
+                if (a == null) continue;
+                switch (a.Type)
+                {
+                    case GameActionType.StrategyScienceDebit:
+                        if (a.ConversionSource == StrategyConversionSource.Converter)
+                        {
+                            tally.ConverterDebit += a.Cost;
+                            tally.ConverterDebitRows++;
+                        }
+                        else
+                        {
+                            tally.ExchangerDebit += a.Cost;
+                            tally.ExchangerDebitRows++;
+                        }
+                        break;
+                    case GameActionType.StrategyScienceCredit:
+                        tally.ScienceCredit += a.ScienceAwarded;
+                        tally.ScienceCreditRows++;
+                        break;
+                    case GameActionType.FundsEarning:
+                        if (a.FundsSource == FundsEarningSource.Strategy)
+                        {
+                            tally.StrategyFunds += a.FundsAwarded;
+                            tally.StrategyFundsRows++;
+                        }
+                        break;
+                    case GameActionType.ReputationEarning:
+                    case GameActionType.ReputationPenalty:
+                        tally.ReputationRows++;
+                        break;
+                }
+            }
+            return true;
+        }
+
+        private static string FormatStrategyLedgerDelta(
+            StrategyLedgerTally before, StrategyLedgerTally after)
+        {
+            return string.Format(CultureInfo.InvariantCulture,
+                "convDebitRows={0} convDebit={1} exchDebitRows={2} exchDebit={3} " +
+                "sciCreditRows={4} sciCredit={5} fundsRows={6} funds={7} repRows={8}",
+                after.ConverterDebitRows - before.ConverterDebitRows,
+                (after.ConverterDebit - before.ConverterDebit).ToString("R", CultureInfo.InvariantCulture),
+                after.ExchangerDebitRows - before.ExchangerDebitRows,
+                (after.ExchangerDebit - before.ExchangerDebit).ToString("R", CultureInfo.InvariantCulture),
+                after.ScienceCreditRows - before.ScienceCreditRows,
+                (after.ScienceCredit - before.ScienceCredit).ToString("R", CultureInfo.InvariantCulture),
+                after.StrategyFundsRows - before.StrategyFundsRows,
+                (after.StrategyFunds - before.StrategyFunds).ToString("R", CultureInfo.InvariantCulture),
+                after.ReputationRows - before.ReputationRows);
+        }
+
+        /// <summary>
+        /// Live count of ACTIVE stock strategies. Null-guarded exactly like
+        /// <c>CareerStateWindowUI.LookupStrategyTitleLive</c> (StrategySystem.Instance is
+        /// null pre-scene-load and in Sandbox) and per-element try/catch'd like the two
+        /// probe helpers above, because stale probe data can throw on a property read.
+        /// Returns -1 when the system is unavailable, so a caller can tell "no strategies
+        /// active" apart from "cannot tell".
+        /// </summary>
+        private static int CountActiveStockStrategies()
+        {
+            var list = Strategies.StrategySystem.Instance?.Strategies;
+            if (list == null) return -1;
+
+            int active = 0;
+            for (int i = 0; i < list.Count; i++)
+            {
+                var s = list[i];
+                if (s == null) continue;
+                try
+                {
+                    if (s.IsActive) active++;
+                }
+                catch (System.Exception ex)
+                {
+                    ParsekLog.Verbose("TestRunner",
+                        $"CountActiveStockStrategies probe exception: index={i} {ex}");
+                }
+            }
+            return active;
+        }
+
+        /// <summary>
+        /// Reads one numeric field out of the query door's grep-stable summary line
+        /// (<c>StrategyConversionCapture.FormatQuery</c>: <c>reason=.. inF=.. dF=.. inS=..
+        /// dS=.. inR=.. dR=.. legs=..</c>). Space-delimited, InvariantCulture, so it
+        /// round-trips the <c>"R"</c> formatting the door writes.
+        ///
+        /// <para>The cells parse the LOG rather than re-reading the query because the
+        /// query object is long gone by assertion time - the door's line is the only
+        /// surviving record of what it OBSERVED, which is precisely the subject of the
+        /// reputation cell (a leg that is observed and then deliberately not written).</para>
+        /// </summary>
+        internal static bool TryReadStrategyQueryLogField(
+            string line, string field, out double value)
+        {
+            value = 0.0;
+            if (string.IsNullOrEmpty(line) || string.IsNullOrEmpty(field)) return false;
+
+            string token = field + "=";
+            int i = line.IndexOf(token, System.StringComparison.Ordinal);
+            if (i < 0) return false;
+            i += token.Length;
+            int j = i;
+            while (j < line.Length && line[j] != ' ') j++;
+            if (j <= i) return false;
+
+            return double.TryParse(
+                line.Substring(i, j - i),
+                NumberStyles.Float,
+                CultureInfo.InvariantCulture,
+                out value);
+        }
+
+        /// <summary>
+        /// True for either half of the pool guard's WARN pair
+        /// (<c>KspStatePatcher.EmitDrawdownGuardClamp</c>). Both labels carry the
+        /// protected resource twice - once as the <c>Patch{resource}:</c> prefix and once
+        /// as <c>resource=</c> - so <see cref="IsGuardedClampLineFor"/> can name which
+        /// pool clamped without a second scan.
+        /// </summary>
+        internal static bool IsGuardedClampLine(string line)
+        {
+            if (string.IsNullOrEmpty(line)) return false;
+            return line.IndexOf("GUARDED UPLIFT clamped", System.StringComparison.Ordinal) >= 0
+                || line.IndexOf("GUARDED DRAWDOWN clamped", System.StringComparison.Ordinal) >= 0;
+        }
+
+        internal static bool IsGuardedClampLineFor(string line, string resource)
+        {
+            if (!IsGuardedClampLine(line) || string.IsNullOrEmpty(resource)) return false;
+            return line.IndexOf(
+                "resource=" + resource, System.StringComparison.Ordinal) >= 0;
+        }
+
+        private static string FirstGuardedClampLine(List<string> captured)
+        {
+            if (captured == null) return null;
+            for (int i = 0; i < captured.Count; i++)
+            {
+                if (IsGuardedClampLine(captured[i])) return captured[i];
+            }
+            return null;
+        }
+
+        /// <summary>
+        /// First clamp line protecting <paramref name="resource"/>, or null. Paired with
+        /// <see cref="FirstGuardedClampLineOtherThan"/> so a cell can SPLIT its no-clamp
+        /// assertion by pool rather than reporting one verdict under two diagnoses - the
+        /// reputation cell's two failure modes ("the restore did not take" vs "a door
+        /// missed a leg") are different bugs and must fail as different assertions.
+        /// </summary>
+        private static string FirstGuardedClampLineFor(List<string> captured, string resource)
+        {
+            if (captured == null) return null;
+            for (int i = 0; i < captured.Count; i++)
+            {
+                if (IsGuardedClampLineFor(captured[i], resource)) return captured[i];
+            }
+            return null;
+        }
+
+        /// <summary>
+        /// First clamp line protecting any pool OTHER than <paramref name="resource"/>,
+        /// or null. Deliberately not "the first clamp that is not the one above": a run
+        /// carrying both must report both, one per assertion.
+        /// </summary>
+        private static string FirstGuardedClampLineOtherThan(List<string> captured, string resource)
+        {
+            if (captured == null) return null;
+            for (int i = 0; i < captured.Count; i++)
+            {
+                string l = captured[i];
+                if (IsGuardedClampLine(l) && !IsGuardedClampLineFor(l, resource)) return l;
+            }
+            return null;
+        }
+
+        private static string FirstStrategyConversionDoorLine(List<string> captured)
+        {
+            if (captured == null) return null;
+            for (int i = 0; i < captured.Count; i++)
+            {
+                string l = captured[i];
+                if (l != null
+                    && l.IndexOf("[GameStateRecorder]", System.StringComparison.Ordinal) >= 0
+                    && l.IndexOf("strategy currency conversion", System.StringComparison.Ordinal) >= 0)
+                {
+                    return l;
+                }
+            }
+            return null;
+        }
+
+        /// <summary>
+        /// Writes the ledger row that makes a test's own FUNDS pool move visible to the
+        /// reconstruction. <c>FundsEarning</c> is credited by <c>FundsModule</c>
+        /// unconditionally (only <c>Effective</c> gates it, and nothing clears that on this
+        /// type), and <c>FundsEarningSource.Strategy</c> is the one source
+        /// <c>PostWalkActionReconciler</c> skips - <c>Other</c> credits identically but
+        /// then WARNs "no matching FundsChanged event keyed 'Other'" on every recalc,
+        /// because a suppressed top-up leaves no event to pair with.
+        ///
+        /// <para>Stamped one second in the past for the same reason the science top-up is:
+        /// it is a PRIOR grant, not part of the conversion under test, and a row at the
+        /// frozen KSC "now" sits inside the 0.1s window the KSC reconcilers pair against.</para>
+        /// </summary>
+        private static void WriteLedgerVisibleFundsRow(double amount, string why)
+        {
+            LedgerOrchestrator.Initialize();
+            Ledger.AddAction(new GameAction
+            {
+                UT = Planetarium.GetUniversalTime() - 1.0,
+                Type = GameActionType.FundsEarning,
+                RecordingId = null,
+                FundsAwarded = (float)amount,
+                FundsSource = FundsEarningSource.Strategy
+            });
+            ParsekLog.Info("TestRunner",
+                $"StrategyLifecycle: ledger-visible funds row " +
+                $"{amount.ToString("R", CultureInfo.InvariantCulture)} written as a " +
+                $"FundsEarning/Strategy so the reconstruction tracks the live pool ({why})");
+        }
+
+        /// <summary>
+        /// Writes the ledger row that makes a test's own SCIENCE top-up visible to the
+        /// reconstruction. <c>StrategyScienceCredit</c> is the only action type that
+        /// credits a SUBJECT-LESS science movement unconditionally (<c>ScienceEarning</c>
+        /// is capped at <c>SubjectMaxValue - CreditedTotal</c>, which is 0 for a pool-only
+        /// move, so it would be silently zeroed; <c>ScienceInitial</c> is a seed).
+        ///
+        /// <para>ONE SECOND IN THE PAST, and that is load-bearing rather than tidy. The KSC
+        /// clock is frozen, so a row at "now" sits inside the 0.1s window
+        /// <c>ComputePendingRecentKscScienceCredit</c> reads - and that helper SUBTRACTS
+        /// in-window <c>StrategyScienceCredit</c> rows when it grosses an observed NET
+        /// award back up through its converter legs. A top-up stamped at "now" would net
+        /// itself against the award under test.</para>
+        /// </summary>
+        private static void WriteLedgerVisibleScienceTopUp(float amount, string why)
+        {
+            LedgerOrchestrator.Initialize();
+            Ledger.AddAction(new GameAction
+            {
+                UT = Planetarium.GetUniversalTime() - 1.0,
+                Type = GameActionType.StrategyScienceCredit,
+                RecordingId = null,
+                ScienceAwarded = amount
+            });
+            ParsekLog.Info("TestRunner",
+                $"StrategyLifecycle: ledger-visible science top-up " +
+                $"{amount.ToString("R", CultureInfo.InvariantCulture)} written as a " +
+                $"StrategyScienceCredit so the reconstruction tracks the live pool ({why})");
+        }
+
+        [InGameTest(Category = "StrategyLifecycle", Scene = GameScenes.SPACECENTER,
+            Description = "STRATEGY-SCIENCE-CONVERSION-LEAK door 1 (EXCHANGER family): a stock Strategies.CurrencyExchanger's one-shot activation exchange lands BOTH legs - the StrategyInput science debit and the StrategyOutput funds earning - in the store and the ledger, with no GUARDED clamp, and the strategy self-deactivates.")]
+        public IEnumerator ExchangerStrategy_OneShot_CapturesBothLegs()
+        {
+            // THE OTHER FAMILY. Until this cell, the exchanger door rested entirely on
+            // archaeology: the c2 save's Parsek/GameState/events.pgse carries a
+            // StrategyInput/StrategyOutput pair at ut=8599.8755, and that pair is the only
+            // evidence the three reason-keyed doors in GameStateRecorder ever fired. This
+            // cell drives the mechanism live instead.
+            //
+            // MECHANISM (decompiled Strategies.CurrencyExchanger.OnRegister, KSP 1.12.5):
+            // activation subtracts a SHARE OF THE WHOLE INPUT POOL under
+            // TransactionReasons.StrategyInput, adds share*rate under StrategyOutput, then
+            // queues a one-frame DelayedCallback that calls Parent.Deactivate() AND
+            // Administration.Instance.RedrawPanels(). Two consequences the cell is built
+            // around: the settle below must outlast that callback (the hidden Administration
+            // canvas has to still exist when stock redraws it), and IsActive going false on
+            // its own is a RESULT to assert, not a teardown step.
+            //
+            // NO TOP-UP. researchIPsellout charges no setup cost at all and takes a share of
+            // whatever science is already there, so the fresh-career seed is subject enough -
+            // which keeps the one fixture-induced clamp risk out of this cell entirely. The
+            // exchange's own two legs are both written synchronously by OnKscSpending, so
+            // live and reconstruction never diverge.
+            if (HighLogic.CurrentGame == null)
+            {
+                InGameAssert.Skip("HighLogic.CurrentGame is null");
+                yield break;
+            }
+            if (HighLogic.CurrentGame.Mode != Game.Modes.CAREER)
+            {
+                InGameAssert.Skip($"StrategySystem is career-only (mode={HighLogic.CurrentGame.Mode})");
+                yield break;
+            }
+            if (Funding.Instance == null || ResearchAndDevelopment.Instance == null)
+            {
+                InGameAssert.Skip("Funding / ResearchAndDevelopment singletons not initialized");
+                yield break;
+            }
+            if (RecordingStore.HasPendingTree
+                || GameStateRecorder.HasActiveUncommittedTree()
+                || GameStateRecorder.HasLiveRecorder())
+            {
+                InGameAssert.Skip("a live/pending tree or live recorder would defer the patch");
+                yield break;
+            }
+
+            var selection = new StrategySelectionResult();
+            yield return WaitForStableActivatableStockStrategy(selection);
+
+            try
+            {
+                if (KSP.UI.Screens.Administration.Instance == null)
+                {
+                    InGameAssert.Skip(
+                        $"Administration never hydrated - {selection.Diagnostic ?? "(no diagnostic)"}");
+                    yield break;
+                }
+
+                // Research Rights Sell-Out: the science->funds CurrencyExchanger. Picked by
+                // name, never by the readiness probe's stabilized choice, because that probe
+                // returns the first ACTIVATABLE strategy of any shape and the converter
+                // family would exercise a completely different door.
+                const string TargetConfigName = "researchIPsellout";
+                var strategy = FindStockStrategyByConfigName(TargetConfigName);
+                if (strategy == null)
+                {
+                    InGameAssert.Skip($"stock strategy '{TargetConfigName}' is not present on this install");
+                    yield break;
+                }
+                if (strategy.IsActive)
+                {
+                    InGameAssert.Skip($"'{TargetConfigName}' is already active - this cell owns its activation");
+                    yield break;
+                }
+
+                var (fundsBefore, sciBefore, repBefore) = SnapshotFinancials();
+                int eventCountBefore = GameStateStore.EventCount;
+                int ledgerCountBefore = Ledger.Actions.Count;
+                int activeStrategiesBefore = CountActiveStockStrategies();
+
+                var captured = new List<string>();
+                var priorObserver = ParsekLog.TestObserverForTesting;
+                ParsekLog.TestObserverForTesting = line => { captured.Add(line); priorObserver?.Invoke(line); };
+
+                try
+                {
+                    for (int i = 0; i < StrategyLifecycleActivateSettleFrames; i++)
+                        yield return null;
+
+                    // The exchange takes a SHARE of the pool, so a drained pool converts
+                    // nothing and there is no subject. Named skip rather than a forced
+                    // top-up: the fresh-career seed is the intended fixture here.
+                    if (ResearchAndDevelopment.Instance.Science < 1f)
+                    {
+                        InGameAssert.Skip(
+                            $"science pool is {ResearchAndDevelopment.Instance.Science.ToString("R", CultureInfo.InvariantCulture)} " +
+                            $"- a CurrencyExchanger takes a share of the pool, so there is nothing to exchange");
+                        yield break;
+                    }
+
+                    // REPUTATION GATE, CHECKED AND LOGGED FIRST. requiredReputationMax = 0
+                    // on both stock exchangers: they are EMERGENCY strategies and only
+                    // offer themselves at non-positive reputation. That makes this cell
+                    // ORDER-COUPLED to every cell that runs before it in the category -
+                    // ConverterStrategy_ReputationLeg_IsObservedAndDropped deliberately
+                    // moves reputation, and a residue it failed to restore would land here
+                    // as an opaque "Cannot be activated". Read the pool and say so plainly:
+                    // an honest skip naming the coupling beats a red whose cause is in
+                    // another cell. (The reputation cell restores exactly, in its finally,
+                    // so this is a guard rather than an expectation.)
+                    float liveReputation = Reputation.Instance != null
+                        ? Reputation.Instance.reputation : 0f;
+                    ParsekLog.Info("TestRunner",
+                        $"ExchangerStrategy: live reputation is " +
+                        $"{liveReputation.ToString("R", CultureInfo.InvariantCulture)} " +
+                        $"(stock '{TargetConfigName}' requires reputation <= 0)");
+                    if (Reputation.Instance != null && liveReputation > 0f)
+                    {
+                        InGameAssert.Skip(
+                            $"live reputation is {liveReputation.ToString("R", CultureInfo.InvariantCulture)} " +
+                            $"(> 0), and '{TargetConfigName}' is an EMERGENCY strategy with " +
+                            $"requiredReputationMax = 0 - it does not offer itself at positive " +
+                            $"reputation. If an earlier cell in this category moved reputation and did " +
+                            $"not restore it exactly, that is the cause");
+                        yield break;
+                    }
+
+                    string cannotReason;
+                    if (!strategy.CanBeActivated(out cannotReason))
+                    {
+                        InGameAssert.Skip(
+                            $"'{TargetConfigName}' cannot be activated on this save: {cannotReason ?? "(no reason)"} " +
+                            $"(live reputation is " +
+                            $"{liveReputation.ToString("R", CultureInfo.InvariantCulture)}, which already " +
+                            $"cleared the reputation <= 0 requirement, so the blocker is another one)");
+                        yield break;
+                    }
+
+                    StrategyLedgerTally beforeTally;
+                    if (!TryTallyStrategyLedgerRows(out beforeTally))
+                    {
+                        InGameAssert.Skip("ComputeELS returned null before the exchange");
+                        yield break;
+                    }
+
+                    double fundsPreExchange = Funding.Instance.Funds;
+                    float sciPreExchange = ResearchAndDevelopment.Instance.Science;
+                    int eventCountPreExchange = GameStateStore.EventCount;
+
+                    // ONE activation, exactly once - the exchange fires from OnRegister, so
+                    // activating twice would exchange twice at a shared frozen-clock UT and
+                    // KscActionExpectationClassifier would see -2*cost against a -cost
+                    // expectation and WARN falsely.
+                    bool activated = strategy.Activate();
+                    InGameAssert.IsTrue(activated, $"Strategy.Activate returned false for '{TargetConfigName}'");
+
+                    // Measured the instant the call returns: both legs are applied
+                    // synchronously inside Activate, and nothing else may be folded in.
+                    double sciDelta = ResearchAndDevelopment.Instance.Science - (double)sciPreExchange;
+                    double fundsDelta = Funding.Instance.Funds - fundsPreExchange;
+                    double take = -sciDelta;
+
+                    // Outlast the one-frame DelayedCallback that self-deactivates and calls
+                    // Administration.Instance.RedrawPanels(). Tearing the hidden canvas down
+                    // before it runs would NRE inside a stock coroutine.
+                    for (int i = 0; i < StrategyLifecycleActivateSettleFrames + 2; i++)
+                        yield return null;
+
+                    ParsekLog.Info("TestRunner",
+                        $"ExchangerStrategy: sciDelta={sciDelta.ToString("R", CultureInfo.InvariantCulture)} " +
+                        $"take={take.ToString("R", CultureInfo.InvariantCulture)} " +
+                        $"fundsDelta={fundsDelta.ToString("R", CultureInfo.InvariantCulture)} " +
+                        $"factor={strategy.Factor.ToString("R", CultureInfo.InvariantCulture)}");
+
+                    if (take <= 0.01)
+                    {
+                        InGameAssert.Skip(
+                            $"'{TargetConfigName}' exchanged nothing " +
+                            $"(take={take.ToString("R", CultureInfo.InvariantCulture)}) - no subject for this cell");
+                        yield break;
+                    }
+
+                    // POOL ARITHMETIC. A science->funds exchanger must remove science and
+                    // credit funds; the rate is read from the live effect, never hardcoded.
+                    InGameAssert.IsGreaterThan(take, 0.0,
+                        "a science->funds exchanger must have removed science");
+                    InGameAssert.IsGreaterThan(fundsDelta, 0.0,
+                        "a science->funds exchanger must have credited funds");
+
+                    // BOTH REASON-KEYED EVENTS. These are the events the c2 archaeology
+                    // showed and that this cell exists to observe live. Restricted to the
+                    // tail slice so a pre-existing event cannot satisfy them.
+                    bool sawScienceInput = false, sawFundsOutput = false;
+                    for (int i = eventCountPreExchange; i < GameStateStore.EventCount; i++)
+                    {
+                        var evt = GameStateStore.Events[i];
+                        if (evt.eventType == GameStateEventType.ScienceChanged
+                            && evt.key == TransactionReasons.StrategyInput.ToString())
+                            sawScienceInput = true;
+                        else if (evt.eventType == GameStateEventType.FundsChanged
+                            && evt.key == TransactionReasons.StrategyOutput.ToString())
+                            sawFundsOutput = true;
+                    }
+                    InGameAssert.IsTrue(sawScienceInput,
+                        $"expected a ScienceChanged event keyed '{TransactionReasons.StrategyInput}' in tail slice " +
+                        $"[{eventCountPreExchange}..{GameStateStore.EventCount})");
+                    InGameAssert.IsTrue(sawFundsOutput,
+                        $"expected a FundsChanged event keyed '{TransactionReasons.StrategyOutput}' in tail slice " +
+                        $"[{eventCountPreExchange}..{GameStateStore.EventCount})");
+
+                    // BOTH LEDGER ROWS, as a delta. The exchanger's science leg carries
+                    // ConversionSource=Exchanger (the default) and the converter's carries
+                    // Converter - asserting the EXCHANGER bucket is what proves the
+                    // reason-keyed door fired rather than the query-family one.
+                    StrategyLedgerTally afterTally;
+                    if (!TryTallyStrategyLedgerRows(out afterTally))
+                    {
+                        InGameAssert.Fail("ComputeELS returned null after the exchange");
+                        yield break;
+                    }
+
+                    ParsekLog.Info("TestRunner",
+                        $"ExchangerStrategy ledger: {FormatStrategyLedgerDelta(beforeTally, afterTally)}");
+
+                    int exchangerDebitRows = afterTally.ExchangerDebitRows - beforeTally.ExchangerDebitRows;
+                    double exchangerDebit = afterTally.ExchangerDebit - beforeTally.ExchangerDebit;
+                    int fundsRows = afterTally.StrategyFundsRows - beforeTally.StrategyFundsRows;
+                    double strategyFunds = afterTally.StrategyFunds - beforeTally.StrategyFunds;
+                    int converterDebitRows = afterTally.ConverterDebitRows - beforeTally.ConverterDebitRows;
+
+                    InGameAssert.AreEqual(1, exchangerDebitRows,
+                        "exactly one exchanger-sourced StrategyScienceDebit row must exist for one exchange");
+                    InGameAssert.ApproxEqual(take, exchangerDebit, System.Math.Max(0.05, take * 0.02),
+                        "the ledger's science debit must equal the science KSP actually removed");
+                    InGameAssert.AreEqual(1, fundsRows,
+                        "exactly one Strategy FundsEarning row must exist for one exchange");
+                    InGameAssert.ApproxEqual(fundsDelta, strategyFunds,
+                        System.Math.Max(1.0, fundsDelta * 0.02),
+                        "the ledger's strategy funds earning must equal the funds KSP actually credited");
+                    InGameAssert.AreEqual(0, converterDebitRows,
+                        "an exchanger exchange must NOT write a converter-sourced debit - the two " +
+                        "doors are distinguished by ConversionSource and downstream helpers filter on it");
+
+                    // SELF-DEACTIVATION. Duration is 0 on both stock exchangers and
+                    // OnRegister queues Parent.Deactivate() one frame later; the settle
+                    // above already outlasted it, so this reads a completed transition
+                    // rather than racing one.
+                    InGameAssert.IsFalse(strategy.IsActive,
+                        $"'{TargetConfigName}' is a zero-duration exchanger and must have self-deactivated");
+                    int activeStrategiesAfter = CountActiveStockStrategies();
+                    ParsekLog.Info("TestRunner",
+                        $"ExchangerStrategy activeStrategies: before={activeStrategiesBefore.ToString(CultureInfo.InvariantCulture)} " +
+                        $"after={activeStrategiesAfter.ToString(CultureInfo.InvariantCulture)}");
+                    if (activeStrategiesBefore >= 0 && activeStrategiesAfter >= 0)
+                    {
+                        InGameAssert.AreEqual(activeStrategiesBefore, activeStrategiesAfter,
+                            "the active-strategy count must return to its pre-test value after a " +
+                            "zero-duration exchanger self-deactivates");
+                    }
+
+                    // NO CLAMP. Both legs are written synchronously by OnKscSpending, which
+                    // also recalcs synchronously - so if either door had missed its leg, the
+                    // guard would have fired inside the Activate call above.
+                    string clamp = FirstGuardedClampLine(captured);
+                    InGameAssert.IsNull(clamp,
+                        $"no GUARDED UPLIFT/DRAWDOWN clamp may fire on a captured exchanger exchange: {clamp}");
+                }
+                finally
+                {
+                    if (strategy.IsActive)
+                    {
+                        try { strategy.Deactivate(); }
+                        catch (System.Exception ex)
+                        {
+                            ParsekLog.Warn("TestRunner",
+                                $"ExchangerStrategy teardown Deactivate threw: {ex}");
+                        }
+                    }
+                    ParsekLog.TestObserverForTesting = priorObserver;
+                    RestoreFinancials(fundsBefore, sciBefore, repBefore);
+                    GameStateStore.TruncateEventsForTesting(eventCountBefore);
+                    TruncateLedgerForTeardown(ledgerCountBefore, "ExchangerStrategy_OneShot_CapturesBothLegs");
+                    ParsekLog.Verbose("TestRunner",
+                        $"ExchangerStrategy teardown: " +
+                        $"eventsBack={eventCountBefore.ToString(CultureInfo.InvariantCulture)}, " +
+                        $"ledgerBack={ledgerCountBefore.ToString(CultureInfo.InvariantCulture)}");
+                }
+            }
+            finally
+            {
+                DestroyHiddenAdministrationCanvasForTest(selection, "exchanger-one-shot-teardown");
+            }
+        }
+
+        [InGameTest(Category = "StrategyLifecycle", Scene = GameScenes.SPACECENTER,
+            Description = "STRATEGY-SCIENCE-CONVERSION-LEAK, the OUTPUT direction: a stock CurrencyConverter that YIELDS science lands the yield in the ledger as a StrategyScienceCredit matching the measured pool movement, with no GUARDED clamp.")]
+        public IEnumerator ConverterStrategy_ScienceYield_CapturesCredit()
+        {
+            // THE DIRECTION NEVER LIVE-PROVEN. Every converter cell so far drives science
+            // INPUT (Patents Licensing takes science and yields funds), which the door
+            // writes as a StrategyScienceDebit. The OUTPUT arm - a converter that yields
+            // science into the pool - writes a StrategyScienceCredit instead, and that
+            // branch of BuildStrategyConversionAction has never had a live subject.
+            //
+            // OUTSOURCED RESEARCH, and the choice is forced by the stock census. Only two
+            // stock converters output science: OutsourcedResearchCfg (funds IN) and
+            // UnpaidResearchProgramCfg (reputation IN). Reputation is the worse input for a
+            // ledger cell twice over - it has no positive no-recurve action type, so a
+            // compensating row must be re-derived through Parsek's replica of KSP's granular
+            // curve and only agrees with live to whatever fidelity that replica has, against
+            // a 0.01 guard epsilon. Funds are linear, so the compensating row below is EXACT.
+            //
+            // (Open-Source Tech Program is NOT a science-output converter despite the name -
+            // its stock EFFECT is input=Science output=Reputation. It is the subject of the
+            // reputation cell instead.)
+            if (HighLogic.CurrentGame == null)
+            {
+                InGameAssert.Skip("HighLogic.CurrentGame is null");
+                yield break;
+            }
+            if (HighLogic.CurrentGame.Mode != Game.Modes.CAREER)
+            {
+                InGameAssert.Skip($"StrategySystem is career-only (mode={HighLogic.CurrentGame.Mode})");
+                yield break;
+            }
+            if (Funding.Instance == null || ResearchAndDevelopment.Instance == null)
+            {
+                InGameAssert.Skip("Funding / ResearchAndDevelopment singletons not initialized");
+                yield break;
+            }
+            if (RecordingStore.HasPendingTree
+                || GameStateRecorder.HasActiveUncommittedTree()
+                || GameStateRecorder.HasLiveRecorder())
+            {
+                InGameAssert.Skip("a live/pending tree or live recorder would defer the patch");
+                yield break;
+            }
+
+            var selection = new StrategySelectionResult();
+            yield return WaitForStableActivatableStockStrategy(selection);
+
+            try
+            {
+                if (KSP.UI.Screens.Administration.Instance == null)
+                {
+                    InGameAssert.Skip(
+                        $"Administration never hydrated - {selection.Diagnostic ?? "(no diagnostic)"}");
+                    yield break;
+                }
+
+                const string TargetConfigName = "OutsourcedResearchCfg";
+                var strategy = FindStockStrategyByConfigName(TargetConfigName);
+                if (strategy == null)
+                {
+                    InGameAssert.Skip($"stock strategy '{TargetConfigName}' is not present on this install");
+                    yield break;
+                }
+                if (strategy.IsActive)
+                {
+                    InGameAssert.Skip($"'{TargetConfigName}' is already active - this cell owns its activation");
+                    yield break;
+                }
+
+                var (fundsBefore, sciBefore, repBefore) = SnapshotFinancials();
+                int eventCountBefore = GameStateStore.EventCount;
+                int ledgerCountBefore = Ledger.Actions.Count;
+
+                var captured = new List<string>();
+                var priorObserver = ParsekLog.TestObserverForTesting;
+                ParsekLog.TestObserverForTesting = line => { captured.Add(line); priorObserver?.Invoke(line); };
+
+                try
+                {
+                    for (int i = 0; i < StrategyLifecycleActivateSettleFrames; i++)
+                        yield return null;
+
+                    string cannotReason;
+                    if (!strategy.CanBeActivated(out cannotReason))
+                    {
+                        // Stock charges initialCostFunds 38000..800000 lerped by Factor. The
+                        // setup charge itself is ledger-modelled (FundsModule
+                        // .ProcessStrategySetupCost), so affordability is the only question.
+                        InGameAssert.Skip(
+                            $"'{TargetConfigName}' cannot be activated on this save: {cannotReason ?? "(no reason)"} " +
+                            $"(stock charges a lerped funds setup cost; live funds are " +
+                            $"{Funding.Instance.Funds.ToString("R", CultureInfo.InvariantCulture)})");
+                        yield break;
+                    }
+
+                    bool activated = strategy.Activate();
+                    InGameAssert.IsTrue(activated, $"Strategy.Activate returned false for '{TargetConfigName}'");
+
+                    for (int i = 0; i < StrategyLifecycleActivateSettleFrames; i++)
+                        yield return null;
+
+                    // Baseline AFTER activation so the setup charge is outside the window.
+                    double fundsPreAward = Funding.Instance.Funds;
+                    float sciPreAward = ResearchAndDevelopment.Instance.Science;
+
+                    StrategyLedgerTally beforeTally;
+                    if (!TryTallyStrategyLedgerRows(out beforeTally))
+                    {
+                        InGameAssert.Skip("ComputeELS returned null before the award");
+                        yield break;
+                    }
+
+                    // A LARGE funds award, because the stock science-per-fund rate is ~7.8e-5
+                    // and the yield has to clear StrategyConversionCapture's 0.001 capture
+                    // floor by a comfortable margin at the default 0.05 factor. Fired ONCE:
+                    // two conversions at the frozen KSC clock share a UT.
+                    const double FundsAward = 250000.0;
+                    Funding.Instance.AddFunds(FundsAward, TransactionReasons.ContractReward);
+
+                    // Measured the instant the call returns. Funding applies the effect delta
+                    // from inside the same OnCurrencyModified fire, so both halves are in.
+                    double fundsDelta = Funding.Instance.Funds - fundsPreAward;
+                    double sciYield = ResearchAndDevelopment.Instance.Science - (double)sciPreAward;
+
+                    // ROW COUNTS READ BEFORE THE COMPENSATING WRITE. The door writes its rows
+                    // synchronously inside the AddFunds above, so this tally is exactly what
+                    // the door produced - and it cannot be confused with the fixture row
+                    // written immediately below, which shares its shape.
+                    StrategyLedgerTally afterTally;
+                    if (!TryTallyStrategyLedgerRows(out afterTally))
+                    {
+                        InGameAssert.Fail("ComputeELS returned null after the award");
+                        yield break;
+                    }
+
+                    // NOW make the fixture's own funds movement visible, before the door's
+                    // DEFERRED recalc runs on the next frame. ContractReward is not a
+                    // ledger-modelled funds reason (only StrategyOutput forwards), and funds
+                    // have no pending adjuster on the guard's discriminator, so leaving this
+                    // bare would clamp - the 2026-08-18_2019 failure mode, in the funds pool.
+                    WriteLedgerVisibleFundsRow(fundsDelta, "ContractReward funds award is not a modelled reason");
+
+                    // Settle so the door's one-frame deferred recalc actually runs; without
+                    // this the no-clamp assertion below would be vacuous.
+                    for (int i = 0; i < StrategyLifecycleActivateSettleFrames; i++)
+                        yield return null;
+
+                    ParsekLog.Info("TestRunner",
+                        $"ConverterScienceYield: award={FundsAward.ToString("R", CultureInfo.InvariantCulture)} " +
+                        $"fundsDelta={fundsDelta.ToString("R", CultureInfo.InvariantCulture)} " +
+                        $"sciYield={sciYield.ToString("R", CultureInfo.InvariantCulture)} " +
+                        $"factor={strategy.Factor.ToString("R", CultureInfo.InvariantCulture)} " +
+                        $"ledger: {FormatStrategyLedgerDelta(beforeTally, afterTally)}");
+
+                    if (sciYield <= 0.01)
+                    {
+                        InGameAssert.Skip(
+                            $"'{TargetConfigName}' yielded no science " +
+                            $"(sciYield={sciYield.ToString("R", CultureInfo.InvariantCulture)}) - " +
+                            $"at Factor={strategy.Factor.ToString("R", CultureInfo.InvariantCulture)} the " +
+                            $"converter's share of a {FundsAward.ToString("R", CultureInfo.InvariantCulture)} " +
+                            $"funds award is below the capture floor; no subject for this cell");
+                        yield break;
+                    }
+
+                    // POOL ARITHMETIC. The converter takes a share of the funds INPUT, so the
+                    // credited funds must fall short of the raw award by exactly the take,
+                    // and the science pool must have GAINED.
+                    InGameAssert.IsGreaterThan(sciYield, 0.0,
+                        "a funds->science converter must have credited science");
+                    InGameAssert.IsLessThan(fundsDelta, FundsAward,
+                        "a converter taking a share of the funds input must credit less than the raw award");
+
+                    double take = FundsAward - fundsDelta;
+                    // OPTIONAL config cross-check, read off the live effect and fail-open.
+                    double share, rate, expectedTake, expectedYield;
+                    string crossCheckWhy;
+                    if (TryDeriveCurrencyConverterTerms(strategy, out share, out rate, out crossCheckWhy))
+                    {
+                        expectedTake = FundsAward * share;
+                        expectedYield = expectedTake * rate;
+                        ParsekLog.Info("TestRunner",
+                            $"ConverterScienceYield config terms: share={share.ToString("R", CultureInfo.InvariantCulture)} " +
+                            $"rate={rate.ToString("R", CultureInfo.InvariantCulture)} " +
+                            $"expectedTake={expectedTake.ToString("R", CultureInfo.InvariantCulture)} " +
+                            $"expectedYield={expectedYield.ToString("R", CultureInfo.InvariantCulture)}");
+                        InGameAssert.ApproxEqual(expectedTake, take, System.Math.Max(1.0, expectedTake * 0.02),
+                            "funds taken must equal award * share derived from the live effect config");
+                        InGameAssert.ApproxEqual(expectedYield, sciYield, System.Math.Max(0.05, expectedYield * 0.02),
+                            "science yielded must equal take * rate derived from the live effect config");
+                    }
+                    else
+                    {
+                        ParsekLog.Info("TestRunner",
+                            $"ConverterScienceYield: config cross-check unavailable ({crossCheckWhy}) - " +
+                            "asserting the ledger against the MEASURED pool movement only");
+                    }
+
+                    // THE ROW UNDER TEST. A positive science leg takes the StrategyScienceCredit
+                    // arm of BuildStrategyConversionAction - the branch this cell exists for.
+                    int sciCreditRows = afterTally.ScienceCreditRows - beforeTally.ScienceCreditRows;
+                    double sciCredit = afterTally.ScienceCredit - beforeTally.ScienceCredit;
+                    int convDebitRows = afterTally.ConverterDebitRows - beforeTally.ConverterDebitRows;
+                    int doorFundsRows = afterTally.StrategyFundsRows - beforeTally.StrategyFundsRows;
+
+                    InGameAssert.AreEqual(1, sciCreditRows,
+                        "exactly one StrategyScienceCredit row must exist for one science-yielding conversion");
+                    InGameAssert.ApproxEqual(sciYield, sciCredit, System.Math.Max(0.05, sciYield * 0.02),
+                        "the ledger's science credit must equal the science KSP actually credited");
+                    InGameAssert.AreEqual(0, convDebitRows,
+                        "a science YIELD must not also write a science debit");
+                    // The SCOPING RULE, live: the funds leg carries a nonzero GetInput, so the
+                    // ordinary event-driven channel already reports it NET and the door must
+                    // stand off it. The only Strategy FundsEarning row in the window is the
+                    // fixture's own, written after this tally was taken.
+                    InGameAssert.AreEqual(0, doorFundsRows,
+                        "the funds leg has a nonzero input, so the scoping rule must suppress it - " +
+                        "capturing it here would double-count the ordinary channel");
+
+                    string clamp = FirstGuardedClampLine(captured);
+                    InGameAssert.IsNull(clamp,
+                        $"no GUARDED UPLIFT/DRAWDOWN clamp may fire on a captured science yield: {clamp}");
+
+                    bool sawDoorLog = FirstStrategyConversionDoorLine(captured) != null;
+                    InGameAssert.IsTrue(sawDoorLog,
+                        "expected the [GameStateRecorder] strategy currency conversion INFO line");
+                }
+                finally
+                {
+                    if (strategy.IsActive)
+                    {
+                        try { strategy.Deactivate(); }
+                        catch (System.Exception ex)
+                        {
+                            ParsekLog.Warn("TestRunner",
+                                $"ConverterScienceYield teardown Deactivate threw: {ex}");
+                        }
+                    }
+                    ParsekLog.TestObserverForTesting = priorObserver;
+                    RestoreFinancials(fundsBefore, sciBefore, repBefore);
+                    GameStateStore.TruncateEventsForTesting(eventCountBefore);
+                    TruncateLedgerForTeardown(ledgerCountBefore, "ConverterStrategy_ScienceYield_CapturesCredit");
+                    ParsekLog.Verbose("TestRunner",
+                        $"ConverterScienceYield teardown: " +
+                        $"eventsBack={eventCountBefore.ToString(CultureInfo.InvariantCulture)}, " +
+                        $"ledgerBack={ledgerCountBefore.ToString(CultureInfo.InvariantCulture)}");
+                }
+            }
+            finally
+            {
+                DestroyHiddenAdministrationCanvasForTest(selection, "converter-science-yield-teardown");
+            }
+        }
+
+        [InGameTest(Category = "StrategyLifecycle", Scene = GameScenes.SPACECENTER,
+            Description = "The NEGATIVE CONTROL of the capture matrix: a stock CurrencyOperation funds reward-multiplier moves the pool by the MODIFIED amount and the query-family door writes NO conversion row, because a nonzero GetInput means the ordinary event-driven channel already reports it net.")]
+        public IEnumerator OperationStrategy_RewardMultiplier_IsNotCaptured()
+        {
+            // WHY A NEGATIVE CONTROL IS WORTH A CELL. Every other cell in this category
+            // asserts that a movement IS captured, so all of them would still pass if the
+            // scoping rule were deleted and the door captured everything. This one fails in
+            // that world: a CurrencyOperation reward multiplier is the exact case
+            // StrategyConversionCapture.EvaluateLegs is built to EXCLUDE (nonzero GetInput
+            // means the ordinary channel already reports the value net of the modifier, so a
+            // row here would double-count it).
+            //
+            // A FUNDS OPERATION, DELIBERATELY - and this is the trap in the family. The
+            // scoping rule is ASYMMETRIC: funds and reputation are captured only at zero
+            // input, but SCIENCE is captured unconditionally, input or not, because Parsek's
+            // science channel is archive-derived and never sees a pool-only move. So a
+            // CurrencyOperation SCIENCE multiplier IS captured by design, and driving one
+            // here would assert the opposite of the contract. Leadership Initiative's funds
+            // arm is the true negative control.
+            //
+            // ALL ITS OPERATIONS ARE Multiply (stock `operation = Multiply`), and a Multiply
+            // op computes lerp*GetInput - GetInput. Under a funds-only transaction the
+            // reputation and science inputs are both zero, so those legs contribute EXACTLY
+            // zero delta and no pool but funds moves. That is what keeps this cell clear of
+            // the reputation guard, which has no pending adjuster and a 0.01 epsilon.
+            if (HighLogic.CurrentGame == null)
+            {
+                InGameAssert.Skip("HighLogic.CurrentGame is null");
+                yield break;
+            }
+            if (HighLogic.CurrentGame.Mode != Game.Modes.CAREER)
+            {
+                InGameAssert.Skip($"StrategySystem is career-only (mode={HighLogic.CurrentGame.Mode})");
+                yield break;
+            }
+            if (Funding.Instance == null || ResearchAndDevelopment.Instance == null)
+            {
+                InGameAssert.Skip("Funding / ResearchAndDevelopment singletons not initialized");
+                yield break;
+            }
+            if (RecordingStore.HasPendingTree
+                || GameStateRecorder.HasActiveUncommittedTree()
+                || GameStateRecorder.HasLiveRecorder())
+            {
+                InGameAssert.Skip("a live/pending tree or live recorder would defer the patch");
+                yield break;
+            }
+
+            var selection = new StrategySelectionResult();
+            yield return WaitForStableActivatableStockStrategy(selection);
+
+            try
+            {
+                if (KSP.UI.Screens.Administration.Instance == null)
+                {
+                    InGameAssert.Skip(
+                        $"Administration never hydrated - {selection.Diagnostic ?? "(no diagnostic)"}");
+                    yield break;
+                }
+
+                const string TargetConfigName = "LeadershipInitiative";
+                var strategy = FindStockStrategyByConfigName(TargetConfigName);
+                if (strategy == null)
+                {
+                    InGameAssert.Skip($"stock strategy '{TargetConfigName}' is not present on this install");
+                    yield break;
+                }
+                if (strategy.IsActive)
+                {
+                    InGameAssert.Skip($"'{TargetConfigName}' is already active - this cell owns its activation");
+                    yield break;
+                }
+
+                var (fundsBefore, sciBefore, repBefore) = SnapshotFinancials();
+                int eventCountBefore = GameStateStore.EventCount;
+                int ledgerCountBefore = Ledger.Actions.Count;
+
+                var captured = new List<string>();
+                var priorObserver = ParsekLog.TestObserverForTesting;
+                ParsekLog.TestObserverForTesting = line => { captured.Add(line); priorObserver?.Invoke(line); };
+
+                try
+                {
+                    for (int i = 0; i < StrategyLifecycleActivateSettleFrames; i++)
+                        yield return null;
+
+                    string cannotReason;
+                    if (!strategy.CanBeActivated(out cannotReason))
+                    {
+                        // Stock charges all THREE setup currencies here (funds 25000..250000,
+                        // science 50..500, reputation 10..100, each lerped by Factor). All
+                        // three are ledger-modelled, so affordability is the only question -
+                        // and on a thin career the science leg is the tight one.
+                        InGameAssert.Skip(
+                            $"'{TargetConfigName}' cannot be activated on this save: {cannotReason ?? "(no reason)"} " +
+                            $"(stock charges lerped funds + science + reputation setup costs; live pools are " +
+                            $"funds={Funding.Instance.Funds.ToString("R", CultureInfo.InvariantCulture)} " +
+                            $"science={ResearchAndDevelopment.Instance.Science.ToString("R", CultureInfo.InvariantCulture)} " +
+                            $"rep={(Reputation.Instance != null ? Reputation.Instance.reputation : float.NaN).ToString("R", CultureInfo.InvariantCulture)})");
+                        yield break;
+                    }
+
+                    bool activated = strategy.Activate();
+                    InGameAssert.IsTrue(activated, $"Strategy.Activate returned false for '{TargetConfigName}'");
+
+                    for (int i = 0; i < StrategyLifecycleActivateSettleFrames; i++)
+                        yield return null;
+
+                    double fundsPreAward = Funding.Instance.Funds;
+                    float sciPreAward = ResearchAndDevelopment.Instance.Science;
+                    float repPreAward = Reputation.Instance != null ? Reputation.Instance.reputation : 0f;
+
+                    StrategyLedgerTally beforeTally;
+                    if (!TryTallyStrategyLedgerRows(out beforeTally))
+                    {
+                        InGameAssert.Skip("ComputeELS returned null before the award");
+                        yield break;
+                    }
+
+                    // Progression is the reason Leadership Initiative's funds multiplier
+                    // masks (stock AffectReasons = Progression on its milestone-gains arm).
+                    // Fired ONCE.
+                    const double FundsAward = 100000.0;
+                    Funding.Instance.AddFunds(FundsAward, TransactionReasons.Progression);
+
+                    double fundsDelta = Funding.Instance.Funds - fundsPreAward;
+                    double sciDelta = ResearchAndDevelopment.Instance.Science - (double)sciPreAward;
+                    double repDelta = (Reputation.Instance != null ? Reputation.Instance.reputation : 0f) - (double)repPreAward;
+
+                    // SETTLE BEFORE TALLYING, and this ordering is the whole difference
+                    // between a negative control and a vacuous one. Every assertion below
+                    // is "this row count did NOT move", so a tally taken in the same frame
+                    // as the award would pass against a door that captures ONE FRAME LATE
+                    // just as happily as against one that correctly stands off. The
+                    // positive cells can sample immediately because their doors write
+                    // synchronously and they assert a row IS there; a zero-assertion has to
+                    // outlast every deferred path before it means anything.
+                    //
+                    // Safe to settle before the compensating write, and only because the
+                    // non-capture is exactly what this cell asserts: with no capture-worthy
+                    // leg, GameStateRecorder.OnCurrencyModified returns at `legs.Count == 0`
+                    // without calling OnStrategyCurrencyConversion, so no deferred recalc is
+                    // scheduled and nothing reads the uncompensated pool during these
+                    // frames. If a regression ever DID capture here, the recalc would run
+                    // against an uncompensated funds pool and raise the funds guard - which
+                    // is a correct red for this cell, not a fixture artefact.
+                    for (int i = 0; i < StrategyLifecycleActivateSettleFrames; i++)
+                        yield return null;
+
+                    // ROW COUNTS BEFORE THE COMPENSATING WRITE - this tally IS the assertion.
+                    StrategyLedgerTally afterTally;
+                    if (!TryTallyStrategyLedgerRows(out afterTally))
+                    {
+                        InGameAssert.Fail("ComputeELS returned null after the award");
+                        yield break;
+                    }
+
+                    WriteLedgerVisibleFundsRow(fundsDelta, "Progression funds award is not a modelled reason");
+
+                    ParsekLog.Info("TestRunner",
+                        $"OperationMultiplier: award={FundsAward.ToString("R", CultureInfo.InvariantCulture)} " +
+                        $"fundsDelta={fundsDelta.ToString("R", CultureInfo.InvariantCulture)} " +
+                        $"sciDelta={sciDelta.ToString("R", CultureInfo.InvariantCulture)} " +
+                        $"repDelta={repDelta.ToString("R", CultureInfo.InvariantCulture)} " +
+                        $"factor={strategy.Factor.ToString("R", CultureInfo.InvariantCulture)} " +
+                        $"ledger: {FormatStrategyLedgerDelta(beforeTally, afterTally)}");
+
+                    if (System.Math.Abs(fundsDelta - FundsAward) <= 0.01)
+                    {
+                        InGameAssert.Skip(
+                            $"'{TargetConfigName}' did not modify the award at " +
+                            $"Factor={strategy.Factor.ToString("R", CultureInfo.InvariantCulture)} " +
+                            $"(fundsDelta={fundsDelta.ToString("R", CultureInfo.InvariantCulture)} equals the raw " +
+                            $"award) - a stock Multiply op at the low end of its lerp is an identity, so there is " +
+                            $"no modified movement for this cell to observe");
+                        yield break;
+                    }
+
+                    // THE POOL MOVED BY THE MODIFIED AMOUNT. A Multiply op lerping 1.00..2.50
+                    // scales the award UP, so the credited funds must exceed the raw award.
+                    InGameAssert.IsGreaterThan(fundsDelta, FundsAward,
+                        "a funds reward MULTIPLIER must credit more than the raw award");
+
+                    // AND NOTHING WAS CAPTURED. This is the whole cell. Every conversion row
+                    // shape stays at zero: the funds leg is excluded by the scoping rule
+                    // (nonzero GetInput), and the reputation and science legs contribute no
+                    // delta at all because a Multiply op over a zero input is zero.
+                    InGameAssert.AreEqual(0, afterTally.ConverterDebitRows - beforeTally.ConverterDebitRows,
+                        "a CurrencyOperation reward multiplier must write no converter science debit");
+                    InGameAssert.AreEqual(0, afterTally.ExchangerDebitRows - beforeTally.ExchangerDebitRows,
+                        "a CurrencyOperation reward multiplier must write no exchanger science debit");
+                    InGameAssert.AreEqual(0, afterTally.ScienceCreditRows - beforeTally.ScienceCreditRows,
+                        "a CurrencyOperation reward multiplier must write no science credit");
+                    InGameAssert.AreEqual(0, afterTally.StrategyFundsRows - beforeTally.StrategyFundsRows,
+                        "a CurrencyOperation reward multiplier must write no Strategy FundsEarning - " +
+                        "the ordinary event-driven channel already reports this transaction NET of the modifier");
+                    InGameAssert.AreEqual(0, afterTally.ReputationRows - beforeTally.ReputationRows,
+                        "a CurrencyOperation reward multiplier must write no reputation row");
+
+                    // The Multiply ops on the OTHER two currencies contribute exactly zero
+                    // over a zero input, which is what keeps this cell clear of the
+                    // reputation guard. Assert it rather than assume it: an op that ever
+                    // moved reputation here would diverge the reconstruction with no row.
+                    InGameAssert.ApproxEqual(0.0, repDelta, 0.01,
+                        "a funds-only transaction must not move reputation - a Multiply op over a zero " +
+                        "input is zero, and any movement here would diverge the reconstruction unrowed");
+                    InGameAssert.ApproxEqual(0.0, sciDelta, 0.01,
+                        "a funds-only transaction must not move science");
+
+                    string clamp = FirstGuardedClampLine(captured);
+                    InGameAssert.IsNull(clamp,
+                        $"no GUARDED UPLIFT/DRAWDOWN clamp may fire on a correctly-scoped non-capture: {clamp}");
+                }
+                finally
+                {
+                    if (strategy.IsActive)
+                    {
+                        try { strategy.Deactivate(); }
+                        catch (System.Exception ex)
+                        {
+                            ParsekLog.Warn("TestRunner",
+                                $"OperationMultiplier teardown Deactivate threw: {ex}");
+                        }
+                    }
+                    ParsekLog.TestObserverForTesting = priorObserver;
+                    RestoreFinancials(fundsBefore, sciBefore, repBefore);
+                    GameStateStore.TruncateEventsForTesting(eventCountBefore);
+                    TruncateLedgerForTeardown(ledgerCountBefore, "OperationStrategy_RewardMultiplier_IsNotCaptured");
+                    ParsekLog.Verbose("TestRunner",
+                        $"OperationMultiplier teardown: " +
+                        $"eventsBack={eventCountBefore.ToString(CultureInfo.InvariantCulture)}, " +
+                        $"ledgerBack={ledgerCountBefore.ToString(CultureInfo.InvariantCulture)}");
+                }
+            }
+            finally
+            {
+                DestroyHiddenAdministrationCanvasForTest(selection, "operation-multiplier-teardown");
+            }
+        }
+
+        [InGameTest(Category = "StrategyLifecycle", Scene = GameScenes.SPACECENTER,
+            Description = "Documents the DELIBERATE reputation drop live: a stock CurrencyConverter's reputation OUTPUT leg is observed by the query door (dR nonzero on its summary line) and then written to NO ledger row, because the query delta is pre-curve while the pool moves post-curve.")]
+        public IEnumerator ConverterStrategy_ReputationLeg_IsObservedAndDropped()
+        {
+            // THE DECISION THIS CELL DOCUMENTS. StrategyConversionCapture.EvaluateLegs
+            // RETURNS a reputation leg, and LedgerOrchestrator.BuildStrategyConversionAction
+            // then returns null for it - logged, never written. The reason is in that
+            // method's contract: the query delta is the modifier's PRE-curve contribution
+            // while Reputation applies KSP's granular curve on top, so the number available
+            // at this seam is not the number the pool moved by, and writing it through
+            // either the earning or the penalty arm would trade a known drift for a wrong
+            // one. Keeping the leg in the pure result keeps the asymmetry explicit rather
+            // than hidden behind a missing branch - and this cell keeps it OBSERVED rather
+            // than merely commented.
+            //
+            // OPEN-SOURCE TECH PROGRAM: stock input=Science output=Reputation. Its setup
+            // charge is science-only (ledger-modelled, no curve), and its trigger is an
+            // AddScience under ScienceTransmission - the one path with a pending adjuster
+            // masking a pool-only award, which is why the existing converter cell flies
+            // green on it. Every other risk is held constant so the reputation leg is the
+            // only thing under observation.
+            //
+            // THE HONEST CONSEQUENCE, STATED. The dropped leg means live reputation moves
+            // and the reconstruction does not. Reputation is GUARDED (KspStatePatcher
+            // .ResolveReputationPatch, epsilon 0.01) and, unlike science, has NO pending
+            // adjuster - so a divergence above 0.01 left standing WOULD raise
+            // "GUARDED DRAWDOWN clamped resource=Reputation" on the next recalc. That is a
+            // real property of the accepted drift, and this cell MEASURES it and logs the
+            // magnitude every run. It then restores the reputation leg before the door's
+            // deferred recalc, so the FIXTURE does not manufacture a clamp out of a
+            // documented product decision - exactly the discipline the 2026-08-18_2019
+            // reading run bought for the science pool. The no-clamp assertion below is
+            // therefore an assertion about the SCIENCE and FUNDS pools staying in step; the
+            // reputation drift is reported as a measured number, not asserted away.
+            if (HighLogic.CurrentGame == null)
+            {
+                InGameAssert.Skip("HighLogic.CurrentGame is null");
+                yield break;
+            }
+            if (HighLogic.CurrentGame.Mode != Game.Modes.CAREER)
+            {
+                InGameAssert.Skip($"StrategySystem is career-only (mode={HighLogic.CurrentGame.Mode})");
+                yield break;
+            }
+            if (Funding.Instance == null || ResearchAndDevelopment.Instance == null
+                || Reputation.Instance == null)
+            {
+                InGameAssert.Skip("Funding / ResearchAndDevelopment / Reputation singletons not initialized");
+                yield break;
+            }
+            if (RecordingStore.HasPendingTree
+                || GameStateRecorder.HasActiveUncommittedTree()
+                || GameStateRecorder.HasLiveRecorder())
+            {
+                InGameAssert.Skip("a live/pending tree or live recorder would defer the patch");
+                yield break;
+            }
+
+            var selection = new StrategySelectionResult();
+            yield return WaitForStableActivatableStockStrategy(selection);
+
+            try
+            {
+                if (KSP.UI.Screens.Administration.Instance == null)
+                {
+                    InGameAssert.Skip(
+                        $"Administration never hydrated - {selection.Diagnostic ?? "(no diagnostic)"}");
+                    yield break;
+                }
+
+                const string TargetConfigName = "OpenSourceTechProgramCfg";
+                var strategy = FindStockStrategyByConfigName(TargetConfigName);
+                if (strategy == null)
+                {
+                    InGameAssert.Skip($"stock strategy '{TargetConfigName}' is not present on this install");
+                    yield break;
+                }
+                if (strategy.IsActive)
+                {
+                    InGameAssert.Skip($"'{TargetConfigName}' is already active - this cell owns its activation");
+                    yield break;
+                }
+
+                var (fundsBefore, sciBefore, repBefore) = SnapshotFinancials();
+                int eventCountBefore = GameStateStore.EventCount;
+                int ledgerCountBefore = Ledger.Actions.Count;
+
+                var captured = new List<string>();
+                var priorObserver = ParsekLog.TestObserverForTesting;
+                ParsekLog.TestObserverForTesting = line => { captured.Add(line); priorObserver?.Invoke(line); };
+
+                try
+                {
+                    // Stock charges initialCostScience 100..2000 lerped by Factor, which
+                    // outruns the fresh-career science seed. Top up LEDGER-VISIBLY - a
+                    // suppressed AddScience would move live only, the setup charge (which the
+                    // ledger DOES model) would then drive the running balance negative, and
+                    // the drawdown guard would clamp on every recalc. That is the
+                    // 2026-08-18_2019 failure verbatim.
+                    const float TopUpScience = 400f;
+                    const float RepYieldAward = 400f;
+                    using (SuppressionGuard.Resources())
+                        ResearchAndDevelopment.Instance.AddScience(TopUpScience, TransactionReasons.None);
+                    WriteLedgerVisibleScienceTopUp(
+                        TopUpScience, "OpenSourceTechProgram's lerped science setup cost outruns the career seed");
+
+                    for (int i = 0; i < StrategyLifecycleActivateSettleFrames; i++)
+                        yield return null;
+
+                    string cannotReason;
+                    if (!strategy.CanBeActivated(out cannotReason))
+                    {
+                        InGameAssert.Skip(
+                            $"'{TargetConfigName}' cannot be activated on this save: {cannotReason ?? "(no reason)"} " +
+                            $"(stock charges a lerped science setup cost; live science after top-up is " +
+                            $"{ResearchAndDevelopment.Instance.Science.ToString("R", CultureInfo.InvariantCulture)})");
+                        yield break;
+                    }
+
+                    bool activated = strategy.Activate();
+                    InGameAssert.IsTrue(activated, $"Strategy.Activate returned false for '{TargetConfigName}'");
+
+                    for (int i = 0; i < StrategyLifecycleActivateSettleFrames; i++)
+                        yield return null;
+
+                    double fundsPreAward = Funding.Instance.Funds;
+                    float sciPreAward = ResearchAndDevelopment.Instance.Science;
+                    float repPreAward = Reputation.Instance.reputation;
+                    int capturedCountPreAward = captured.Count;
+
+                    StrategyLedgerTally beforeTally;
+                    if (!TryTallyStrategyLedgerRows(out beforeTally))
+                    {
+                        InGameAssert.Skip("ComputeELS returned null before the award");
+                        yield break;
+                    }
+
+                    // ONE award, exactly once, under the reason this converter's field-work
+                    // arm masks (stock AffectReasons = ScienceTransmission, VesselRecovery,
+                    // Progression). Fired bare and deliberately NOT paired with a ledger row:
+                    // ComputePendingRecentKscScienceCredit already masks a pool-only
+                    // ScienceTransmission award inside the frozen KSC clock's 0.1s window,
+                    // and a StrategyScienceCredit at "now" would cancel that masking.
+                    ResearchAndDevelopment.Instance.AddScience(RepYieldAward, TransactionReasons.ScienceTransmission);
+
+                    double sciDelta = ResearchAndDevelopment.Instance.Science - (double)sciPreAward;
+                    double repDelta = Reputation.Instance.reputation - (double)repPreAward;
+                    double fundsDelta = Funding.Instance.Funds - fundsPreAward;
+                    double take = (double)RepYieldAward - sciDelta;
+
+                    StrategyLedgerTally afterTally;
+                    if (!TryTallyStrategyLedgerRows(out afterTally))
+                    {
+                        InGameAssert.Fail("ComputeELS returned null after the award");
+                        yield break;
+                    }
+
+                    // THE DOOR'S OBSERVATION LINE. Parsed rather than substring-matched: the
+                    // whole point of the cell is the VALUE of dR, and "the line mentions dR"
+                    // would pass against a zero.
+                    string doorLine = null;
+                    for (int i = capturedCountPreAward; i < captured.Count; i++)
+                    {
+                        string l = captured[i];
+                        if (l != null
+                            && l.IndexOf("[GameStateRecorder]", System.StringComparison.Ordinal) >= 0
+                            && l.IndexOf("strategy currency conversion", System.StringComparison.Ordinal) >= 0)
+                        {
+                            doorLine = l;
+                            break;
+                        }
+                    }
+
+                    // RESTORE THE REPUTATION LEG NOW, before the door's one-frame deferred
+                    // recalc reads the pool. Suppressed so the restore itself cannot re-enter
+                    // any recorder door, and absolute (SetReputation) so KSP's curve is not
+                    // applied a second time. Everything asserted below was measured above.
+                    if (System.Math.Abs(repDelta) > 0.0)
+                    {
+                        using (SuppressionGuard.Resources())
+                            Reputation.Instance.SetReputation(repPreAward, TransactionReasons.None);
+                    }
+
+                    for (int i = 0; i < StrategyLifecycleActivateSettleFrames; i++)
+                        yield return null;
+
+                    ParsekLog.Info("TestRunner",
+                        $"ConverterReputationLeg: award={RepYieldAward.ToString("R", CultureInfo.InvariantCulture)} " +
+                        $"sciDelta={sciDelta.ToString("R", CultureInfo.InvariantCulture)} " +
+                        $"take={take.ToString("R", CultureInfo.InvariantCulture)} " +
+                        $"repDelta={repDelta.ToString("R", CultureInfo.InvariantCulture)} " +
+                        $"fundsDelta={fundsDelta.ToString("R", CultureInfo.InvariantCulture)} " +
+                        $"factor={strategy.Factor.ToString("R", CultureInfo.InvariantCulture)} " +
+                        $"ledger: {FormatStrategyLedgerDelta(beforeTally, afterTally)}");
+
+                    if (take <= 0.01)
+                    {
+                        InGameAssert.Skip(
+                            $"'{TargetConfigName}' converted nothing under ScienceTransmission " +
+                            $"(take={take.ToString("R", CultureInfo.InvariantCulture)}) - no subject for this cell");
+                        yield break;
+                    }
+
+                    InGameAssert.IsNotNull(doorLine,
+                        "expected the [GameStateRecorder] strategy currency conversion INFO line - " +
+                        "without it the door never evaluated the query and there is nothing to observe");
+
+                    // (1) THE LEG WAS OBSERVED. dR carries the reputation delta the query
+                    // handed the door, and it must be a real magnitude, not a zero.
+                    double loggedRepDelta;
+                    bool readRep = TryReadStrategyQueryLogField(doorLine, "dR", out loggedRepDelta);
+                    InGameAssert.IsTrue(readRep,
+                        $"the door's summary line must carry a parseable dR field: {doorLine}");
+                    InGameAssert.IsGreaterThan(System.Math.Abs(loggedRepDelta),
+                        StrategyConversionCapture.MinCaptureMagnitude,
+                        "the reputation OUTPUT leg must be OBSERVED with a nonzero delta - a zero here " +
+                        "would mean the leg never reached the door and the drop below proves nothing");
+
+                    // The input side confirms which arm of the converter fired: science in,
+                    // reputation out, and NO funds leg at all.
+                    double loggedInputScience;
+                    if (TryReadStrategyQueryLogField(doorLine, "inS", out loggedInputScience))
+                    {
+                        InGameAssert.IsGreaterThan(loggedInputScience, 0.0,
+                            "this converter's input is SCIENCE, so the query must carry a positive inS");
+                    }
+
+                    // (2) THE LEG WAS DROPPED. No reputation row of either arm - not an
+                    // earning, not a penalty.
+                    InGameAssert.AreEqual(0, afterTally.ReputationRows - beforeTally.ReputationRows,
+                        "the reputation leg is DELIBERATELY not written: the query delta is pre-curve " +
+                        "while the pool moves post-curve, so neither the earning nor the penalty arm " +
+                        "can carry it faithfully");
+
+                    // (3) AND THE DOOR DID RUN. The science INPUT leg of the same query lands
+                    // as a converter-sourced debit, so a regression to "no capture at all"
+                    // cannot pass on the reputation absence alone.
+                    int convDebitRows = afterTally.ConverterDebitRows - beforeTally.ConverterDebitRows;
+                    double convDebit = afterTally.ConverterDebit - beforeTally.ConverterDebit;
+                    InGameAssert.AreEqual(1, convDebitRows,
+                        "the same query's science INPUT leg must still land as one converter-sourced debit");
+                    InGameAssert.ApproxEqual(take, convDebit, System.Math.Max(0.05, take * 0.02),
+                        "the ledger's science debit must equal the science KSP actually removed");
+
+                    // (4) THE ACCEPTED DRIFT, MEASURED. Reported every run so the size of the
+                    // documented reputation divergence is a number in the log rather than a
+                    // claim in a comment. Above the guard's epsilon it WOULD clamp if left
+                    // standing - which is why the restore above exists.
+                    // NOTE ON WORDING, and it is load-bearing rather than stylistic: this
+                    // line must NOT contain the literal guard tokens. FirstGuardedClampLine
+                    // below scans the SAME captured buffer for them, and the L3 spec
+                    // forbids them across the whole KSP.log - so a diagnostic quoting the
+                    // clamp it is explaining would fail its own cell and red the spec.
+                    // Measured the hard way on reading run 2026-08-18_2136.
+                    const double ReputationGuardEpsilon = 0.01;
+                    string aboveEpsilon = System.Math.Abs(repDelta) > ReputationGuardEpsilon
+                        ? "YES - unrestored this would raise the reputation drawdown guard on the next recalc"
+                        : "no";
+                    ParsekLog.Info("TestRunner",
+                        $"ConverterReputationLeg ACCEPTED DRIFT: the dropped reputation leg moved the live " +
+                        $"pool by {repDelta.ToString("R", CultureInfo.InvariantCulture)} with no ledger row " +
+                        $"(door observed dR={loggedRepDelta.ToString("R", CultureInfo.InvariantCulture)}); " +
+                        $"reputation guard epsilon={ReputationGuardEpsilon.ToString("R", CultureInfo.InvariantCulture)}, " +
+                        $"aboveEpsilon={aboveEpsilon}; " +
+                        $"this cell restored it before the deferred recalc so the fixture cannot manufacture a clamp");
+
+                    // (5) NO CLAMP - and SPLIT BY POOL, because the two ways this can fail
+                    // are two different bugs and a single verdict would report whichever
+                    // line happened to come first. A REPUTATION clamp means the restore
+                    // above did not take (a fixture fault in this cell); any OTHER clamp
+                    // means a capture door genuinely missed a leg (a product fault). The
+                    // discriminator is the `resource=` token the guard writes, read through
+                    // IsGuardedClampLineFor rather than by eye.
+                    const string ReputationResource = "Reputation";
+                    string repClamp = FirstGuardedClampLineFor(captured, ReputationResource);
+                    InGameAssert.IsNull(repClamp,
+                        $"a Reputation clamp means the restore of the deliberately-dropped reputation " +
+                        $"leg did not take before the deferred recalc - this cell's own fixture, not a " +
+                        $"missed capture: {repClamp}");
+                    string otherClamp = FirstGuardedClampLineOtherThan(captured, ReputationResource);
+                    InGameAssert.IsNull(otherClamp,
+                        $"a clamp on any pool other than Reputation means a capture door missed a leg - " +
+                        $"the science and funds pools must stay in step with the reconstruction across " +
+                        $"this conversion: {otherClamp}");
+                }
+                finally
+                {
+                    if (strategy.IsActive)
+                    {
+                        try { strategy.Deactivate(); }
+                        catch (System.Exception ex)
+                        {
+                            ParsekLog.Warn("TestRunner",
+                                $"ConverterReputationLeg teardown Deactivate threw: {ex}");
+                        }
+                    }
+                    ParsekLog.TestObserverForTesting = priorObserver;
+
+                    // EXACT REPUTATION RESTORE, IN THE FINALLY. This cell is the one that
+                    // deliberately moves reputation, and the in-body restore above runs
+                    // only on the happy path - an assertion failure or a late Skip between
+                    // the award and it would leave the dropped leg standing. The generic
+                    // RestoreFinancials below cannot close that: its reputation arm carries
+                    // a 0.01 deadband (right for its own purpose, since SetReputation on a
+                    // sub-epsilon difference is noise) and would leave a residue exactly
+                    // where a residue is expensive. It is expensive because
+                    // ExchangerStrategy_OneShot_CapturesBothLegs runs LATER in this same
+                    // category and its subject is an EMERGENCY strategy with
+                    // requiredReputationMax = 0 - a positive residue this cell leaves is a
+                    // skip that cell pays for. Absolute SetReputation, suppressed, so KSP's
+                    // granular curve is not applied a second time.
+                    if (Reputation.Instance != null
+                        && Reputation.Instance.reputation != repBefore)
+                    {
+                        float repStrandedAt = Reputation.Instance.reputation;
+                        using (SuppressionGuard.Resources())
+                            Reputation.Instance.SetReputation(repBefore, TransactionReasons.None);
+                        ParsekLog.Info("TestRunner",
+                            $"ConverterReputationLeg teardown: exact reputation restore " +
+                            $"{repStrandedAt.ToString("R", CultureInfo.InvariantCulture)} -> " +
+                            $"{repBefore.ToString("R", CultureInfo.InvariantCulture)} " +
+                            $"(no deadband - a residue here would couple into the exchanger cell's " +
+                            $"reputation <= 0 requirement)");
+                    }
+
+                    RestoreFinancials(fundsBefore, sciBefore, repBefore);
+                    GameStateStore.TruncateEventsForTesting(eventCountBefore);
+                    TruncateLedgerForTeardown(ledgerCountBefore, "ConverterStrategy_ReputationLeg_IsObservedAndDropped");
+                    ParsekLog.Verbose("TestRunner",
+                        $"ConverterReputationLeg teardown: " +
+                        $"eventsBack={eventCountBefore.ToString(CultureInfo.InvariantCulture)}, " +
+                        $"ledgerBack={ledgerCountBefore.ToString(CultureInfo.InvariantCulture)}");
+                }
+            }
+            finally
+            {
+                DestroyHiddenAdministrationCanvasForTest(selection, "converter-reputation-leg-teardown");
             }
         }
 
@@ -17471,7 +18968,7 @@ namespace Parsek.InGameTests
                 GameEvents.OnReputationChanged.Remove(OnReputationChanged);
                 RestoreFinancials(fundsBefore, scienceBefore, reputationBefore);
                 GameStateStore.TruncateEventsForTesting(eventCountBefore);
-                Ledger.TruncateActionsForTesting(ledgerCountBefore);
+                TruncateLedgerForTeardown(ledgerCountBefore, "TopBarReflectsLedgerAfterRecalc");
             }
         }
 
