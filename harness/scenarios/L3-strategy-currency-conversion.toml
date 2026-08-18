@@ -1,0 +1,191 @@
+schema = 1
+id = "L3-strategy-currency-conversion"
+# nightly. This spec shipped `operator` for exactly as long as its BATCH_COMPLETE
+# tally was a PREDICTION - the reading-run hold, the L2 pattern - and is promoted here
+# by the flight that measured the pin, in the same commit that replaces it:
+# `2026-08-19_L3` (result id `2026-08-18_2039_L3-strategy-currency-conversion`), PASS
+# attempt 1, 57 s wall, fully unattended, seam driver with no RequiresFlight verb and
+# no human judgement in the loop. Nothing operator-shaped was ever owed; only the
+# measurement was.
+tier = "nightly"
+# WHAT THIS IS. The career-ledger lane's D8 `strategies` scenario, and the LIVE PROOF
+# the two open todo entries STRATEGY-SCIENCE-CONVERSION-LEAK (door 2) and
+# STRATEGY-FUNDS-YIELD-DRIFT are waiting on.
+#
+# KSP has TWO stock strategy currency-conversion mechanisms and they leave completely
+# different traces. `Strategies.CurrencyExchanger` (Research Rights Sell-Out) does a
+# one-shot direct Add* under TransactionReasons.StrategyInput / StrategyOutput; the
+# c2 save's Parsek/GameState/events.pgse carries that pair verbatim at ut=8599.8755,
+# so the reason-keyed doors that capture it are OBSERVED and are NOT this spec's
+# subject. `Strategies.Effects.CurrencyConverter` (Patents Licensing and 7 siblings)
+# instead mutates a CurrencyModifierQuery IN PLACE, and the Changed events that follow
+# are already NET, under the ORIGINAL reason - no StrategyInput event exists at all.
+# That family is what the query-family door captures and what this spec drives.
+#
+# THE SEAM HAS NO STRATEGY VERB. `TestCommandKscAction` maps only research-node /
+# upgrade-facility / hire-kerbal / dismiss-kerbal, so the only drivable strategy
+# surface is the in-game `StrategyLifecycle` category - i.e. the L2 shape
+# (LoadGame -> SetSetting -> RunTests -> FlushAndQuit), with no flight at all.
+description = "Drive the StrategyLifecycle category against a fresh career and assert a stock CurrencyConverter's in-place query mutation lands in the ledger as a science debit + a strategy funds earning, with no GUARDED clamp."
+instanceProfile = "stock-minimal"
+tags = ["ledger", "L3", "ingame-batch", "strategies", "reading-run"]
+
+[fixture]
+# fresh-career, and the choice is forced by the SCENE. All three StrategyLifecycle
+# declarations are Scene = GameScenes.SPACECENTER. fresh-career carries ZERO VESSEL
+# nodes, so TestCommandLoadGame.DecideLoadRoute takes the NoVesselSpaceCenter route
+# and the batch runs where all three are eligible (the same route B10 and the L1
+# career family measure). career-pad-craft would route to FLIGHT and scene-skip every
+# one of them - the exact vacuity defect B10 was re-flown to fix.
+#
+# The fixture also satisfies the new cell's own guards: career mode, Funding /
+# ResearchAndDevelopment / Reputation singletons all present, and - because nothing
+# is injected and auto-record is off below - no live recorder and no pending tree,
+# which the cell requires because the door's recalc defers its KSP patch while one
+# exists.
+saveTemplate = "fixtures/saves/fresh-career"
+injectedRecordings = "none"
+craft = []
+
+[driver]
+kind = "seam"
+# SetSetting mirrors B10 / the L1 family on this same fixture. It is not cosmetic
+# here: a live recorder makes CurrencyConverterStrategy_LedgerMatchesNetCredit Skip
+# rather than run, so auto-record must be off for the batch to have a subject.
+#
+# No `isolated` arg: all three StrategyLifecycle declarations are batch-allowed, so
+# the isolated filter would admit exactly the same set and
+# CommittedBatchTallySourceSyncTests would (rightly) demand a seam-echo discriminator
+# for a route this spec does not need.
+#
+# No `strict` arg: that seam belongs to the LedgerGroundTruth diff and this batch does
+# not run it.
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "RunTests",   args = { category = "StrategyLifecycle" },          expect = "OK", budget = 540 },
+  { cmd = "FlushAndQuit",                                                   expect = "OK" },
+]
+
+[dimensionsCovered]
+# `strategies` CLAIMED, and what the claim means is narrow on purpose: the stock
+# strategy lifecycle and its currency conversion are OBSERVED end to end by a driven
+# batch. It is NOT a claim about the exchanger family (that one is evidenced by the
+# c2 events.pgse pair quoted above, not by this run) and NOT a claim about reputation
+# conversion (the query-family door deliberately observes and drops reputation - the
+# query delta is pre-curve while AddReputation applies KSP's curve on top).
+#
+# CLAIM-IS-NOT-GATE: backed by the pinned tally below plus the forbidden GUARDED
+# tokens - and the tally is now MEASURED (passed=3 skipped=0), so the claim rests on
+# three cells that all actually ran rather than on a predicted split.
+D8 = ["strategies", "science", "funds", "orchestrator", "ksp-state-patcher"]
+D14 = ["career", "scene-ksc"]
+
+[expectations]
+# PLACEMENT IS LOAD-BEARING: a bare key written after an [expectations.<sub>] header
+# is TOML-scoped to that sub-table and silently never read. hlib.validate_spec rejects
+# the misplaced form, so this must stay ahead of the sub-tables.
+allowedAnomalies = []
+
+[expectations.recordings]
+# Zero. Auto-record is off, the fixture injects nothing, and no cell in this category
+# records. count.max == 0 also selects the B1 recording-rules log-validation
+# suppression so a legitimately recording-free run does not red on REC-001/REC-003.
+count = { min = 0, max = 0 }
+
+[expectations.logContracts]
+# ############ MEASURED, then PINNED WHOLE ############
+# `2026-08-18_2039_L3-strategy-currency-conversion` (PASS attempt 1) measured
+#
+#   BATCH_COMPLETE v1 total=3 passed=3 failed=0 skipped=0 category=StrategyLifecycle scene=SPACECENTER
+#
+# and that is the line below, verbatim. NO SKIPS AT ALL, which answers every open
+# question the interim pin was hedging:
+#   - `PatentsLicensingCfg` IS present and IS activatable on `fresh-career` (its stock
+#     Administration requirement is met at the default tier);
+#   - it DOES convert under ScienceTransmission - measured share 0.05, a 40-point
+#     award yielding take=2 science and 168.12864685058594 funds;
+#   - `FailedActivation_DoesNotEmitEvent` DID find a stock strategy whose second
+#     Activate() returns false, so its event filter really was exercised.
+# `total=3` remains a LITERAL derived from the [InGameTest] attributes and is kept in
+# step by CommittedBatchTallySourceSyncTests; `passed` and `skipped` are now measured
+# rather than floored. A future run that skips anything is a CHANGE to be read, not a
+# reason to loosen this line back toward a range.
+#
+# THE FIRST READING (`2026-08-18_2019`, PARSEK-FAIL(results)) IS PART OF THE RECORD.
+# The door captured exactly on that run too; the cell red'd on its no-GUARDED-clamp
+# assertion for three separable reasons - a fixture-induced science drawdown from a
+# ledger-invisible test top-up, a PRODUCT basis mismatch in
+# ComputePendingRecentKscScienceCredit (net observed vs gross committed, clamping every
+# award-coupled conversion at KSC/TS), and a one-recalc-early funds uplift from the
+# door recalculating inside the CurrencyModifierQuery. All three are fixed; see the
+# STRATEGY-SCIENCE-CONVERSION-LEAK entry in docs/dev/todo-and-known-bugs.md.
+# ####################################################
+required  = ["BATCH_COMPLETE v1 total=3 passed=3 failed=0 skipped=0 category=StrategyLifecycle scene=SPACECENTER"]
+# The GUARDED pair is the whole point of the lane. `GUARDED UPLIFT clamped` is the
+# reconstruction running ABOVE live (the science take not captured - measured 0.72000
+# against a 0.7200818 gap) and `GUARDED DRAWDOWN clamped` is it running BELOW (the
+# funds yields not captured - measured 60.526316 against a 60.525981 gap). Either one
+# on this run means a door did not close. The Parsek ERROR forbid is the house floor.
+#
+# MEASURED ZERO on 2026-08-18_2039 - the whole KSP.log carries no `GUARDED` line of
+# any kind. The first reading (2026-08-18_2019) carried six, and what they were is
+# recorded above.
+forbidden = ["\\[Parsek\\]\\[ERROR\\]",
+             "GUARDED UPLIFT clamped",
+             "GUARDED DRAWDOWN clamped"]
+
+# THE M-B2 ORACLE WITH AN EMPTY MANIFEST - the B10 / L1-passive-sandbox / L2
+# precedent, and here it is a REAL assertion rather than a formality. The cell
+# deliberately moves all three pools: it tops science up, activates a strategy that
+# charges a setup cost, awards science, lets the door write ledger rows and run a
+# recalc that PATCHES the live singletons, then restores everything in a finally. The
+# empty manifest states that the whole of that comes back to the seed - i.e. the
+# restore is complete and the batch is save-neutral. A leak in the teardown, or a
+# recalc that patches to something other than the pre-test pools, classifies
+# PARSEK-FAIL(ledger).
+#
+# The oracle has no report-only mode, so this IS armed from day one - which is a
+# deliberate departure from "measure first" and is justified by WHAT it asserts: not a
+# product behaviour under test, but the cell's own restore discipline, which is
+# entirely within this branch's control and is unit-mirrored by the try/finally shape
+# the two existing StrategyLifecycle cells already fly green.
+#
+# captureCrossCheck is NOT declared, so it stays report-only (the armed set is
+# CL-2-only).
+[expectations.ledger]
+seedFrom     = "template"
+tolerances   = "default"
+rec3CarveOut = false
+# No [[expectations.ledger.manifest]] entries: empty manifest = zero expected delta.
+
+# The raw-Unity-exception scan (hlib.scan_unity_exceptions), ARMED AT ZERO on the
+# eleven-spec zero-armed family that shares this exact boot profile: B10 and the six
+# L1 specs boot the same LoadGame -> SetSetting -> RunTests -> FlushAndQuit shape on
+# the same stock-minimal profile over the SAME `fresh-career` template, and every
+# driver-valid reading of all of them is 0. L2 was armed on precisely that borrowed
+# half plus one reading of its own; this spec has NO reading of its own yet, so the
+# evidence here is thinner still and is stated plainly rather than dressed up.
+#
+# What this spec adds beyond that family is a hidden Administration canvas
+# (StrategyLifecycle's readiness idiom instantiates one and destroys it), which is a
+# GUI surface the L1 family does not raise - and `ArgumentException: GUILayout` is one
+# of the four counted classes. The two existing StrategyLifecycle cells have never
+# been flown by any committed spec, so whether that canvas raises is UNMEASURED. A
+# nonzero first reading here is therefore a FINDING about the Administration
+# hydration, not a flake to be papered over with a ceiling - and if it reads nonzero
+# the honest response is to record the count and decide, not to raise the number.
+[expectations.unityExceptions]
+maxTotal = 0
+
+[runtime]
+# 720 matches the L2 batch-only shape on a career fixture: the per-step ceilings above
+# exceed it on paper, but the measured wall for a one-category batch on this template
+# is ~50-60 s and this category adds only a few settle frames.
+budgetSeconds = 720
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

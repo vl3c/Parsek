@@ -180,6 +180,18 @@ namespace Parsek.Tests
             // is monotone and re-derives from the surviving ELS on every recalc - so it
             // neither strict-blocks nor retry-blocks an auto-seal.
             yield return new object[] { GameActionType.KerbalExperience, false, false };
+            // StrategyScienceDebit (STRATEGY-SCIENCE-CONVERSION-LEAK): a ledger-only
+            // science debit from a stock currency-exchange strategy. Neither gate blocks.
+            // Retry: IsRetryBlockingRecordingAction is ScienceEarning-only, so it was
+            // never retry-blocking. Strict: an EXPLICIT exclusion arm in
+            // IsWorldStateChangingRecordingAction (a new type would otherwise fall
+            // through to `return true`) - the merge itself already retires these rows via
+            // IsSupersedeTombstoneEligible, so a strict block would only refuse a merge
+            // over a row that same merge is about to tombstone.
+            yield return new object[] { GameActionType.StrategyScienceDebit, false, false };
+            // StrategyScienceCredit: the OUTPUT direction of the same query-family
+            // door, and the same answer on both gates for the same two reasons.
+            yield return new object[] { GameActionType.StrategyScienceCredit, false, false };
         }
 
         [Fact]

@@ -4712,6 +4712,26 @@ class UnityExceptionScanTests(unittest.TestCase):
             "L1-research-node-science.toml": 0,
             "L1-upgrade-facility-career.toml": 0,
             "L2-ledger-groundtruth-career.toml": 0,
+            # L3-strategy-currency-conversion, armed 2026-08-18 on BORROWED evidence
+            # with no reading of its own - and now n=2 of its own, both 0
+            # (`2026-08-18_2019` driver-valid PARSEK-FAIL(results) and
+            # `2026-08-18_2039` PASS). The Administration-canvas question the note
+            # below raises is therefore ANSWERED for this shape: the hidden canvas
+            # raises no counted class. The original reasoning is kept verbatim
+            # because it is the reasoning that armed it before there was a reading.
+            # THINNER than L2's already-thin n=1, and said plainly rather
+            # than dressed up. The borrowed evidence is the eleven-spec zero-armed
+            # family that boots the identical LoadGame -> SetSetting -> RunTests ->
+            # FlushAndQuit shape on the same stock-minimal profile: B10 and the six
+            # L1 specs over the SAME `fresh-career` template, every driver-valid
+            # reading 0. What L3 adds beyond that family is a hidden Administration
+            # canvas (the StrategyLifecycle readiness idiom instantiates and destroys
+            # one), which is a GUI surface the L1 family never raises and which
+            # `ArgumentException: GUILayout` counts - and no committed spec has ever
+            # flown that category, so it is UNMEASURED. A nonzero first reading is
+            # therefore a FINDING about the Administration hydration, and the honest
+            # response is to record the count and decide, never to raise the ceiling.
+            "L3-strategy-currency-conversion.toml": 0,
             "M1-mission-loop-unit.toml": 0,
             "V1-map-dwell-mun-orbit.toml": 0,
             "H23-tracking-station.toml": 6,
@@ -4902,6 +4922,15 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
         "L1-upgrade-facility-career.toml":  "discharged - OPERATOR-VERIFIED; tag dropped 2026-07-31",
         # Found by this cell on its first run, absent from the hand-written list.
         "L1-passive-sandbox.toml":          "discharged - records its own 2026-07-26 drop",
+        # NOTE, no entry owed: `L3-strategy-currency-conversion` held `operator` for
+        # the length of ONE reading run - the same transient hold the L2 note below
+        # describes - and was promoted to `nightly` in the commit that replaced its
+        # predicted BATCH_COMPLETE pin with the measured one
+        # (`2026-08-18_2039_L3-strategy-currency-conversion`, PASS attempt 1, 57 s,
+        # total=3 passed=3 failed=0 skipped=0, zero GUARDED lines). It never owed
+        # operator work: seam driver, no RequiresFlight verb, no human judgement in
+        # the loop. Its entry is REMOVED rather than rewritten, because a nightly
+        # spec that never mentions the token is not a candidate at all.
         # NOTE, no entry owed: `L2-ledger-groundtruth-career` was authored
         # `operator` for the length of one reading run - the tier that keeps a
         # PREDICTED BATCH_COMPLETE pin out of every cadence - and was promoted to

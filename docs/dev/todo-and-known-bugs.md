@@ -3670,7 +3670,202 @@ Those two conditions say stock promoted an encounter and the closest one is our 
 
 ---
 
-## STRATEGY-SCIENCE-CONVERSION-LEAK: a stock strategy's science-to-funds exchange has its FUNDS leg captured and its SCIENCE leg dropped, so the recalc reconstructs science 108.84 too high [FOUND 2026-08-17 by career-ledger-lane task A.0, the first real-ledger replay. NOT FIXED - pinned, not worked around]
+## ~~STRATEGY-SCIENCE-CONVERSION-LEAK: a stock strategy's science-to-funds exchange has its FUNDS leg captured and its SCIENCE leg dropped, so the recalc reconstructs science 108.84 too high~~ [FOUND 2026-08-17 by career-ledger-lane task A.0, the first real-ledger replay. TWO DOORS, BOTH CLOSED: the EXCHANGER door FIXED AND OBSERVED 2026-08-18; the QUERY-FAMILY door BUILT 2026-08-18 on `strategy-science-leak-fix` and **LIVE-PROVEN 2026-08-18** by `2026-08-18_2039_L3-strategy-currency-conversion` (PASS attempt 1, `total=3 passed=3 failed=0 skipped=0`, ZERO GUARDED lines), after the reading run `2026-08-18_2019` red'd and bought three fixes.]
+
+**THE ENTRY IS NO LONGER STRUCK, and the un-striking is a correction rather than a
+regression.** It was closed on the belief that ONE mechanism was leaking. There
+are TWO, they leave completely different traces, and only one of them was
+captured by the original fix. See THE TWO MECHANISMS below; the forensic body
+that follows is kept verbatim as the evidence for the first.
+
+**DOOR 1, THE EXCHANGER FAMILY (`Strategies.CurrencyExchanger`) - FIXED AND NOW
+OBSERVED, not inferred.** The earlier write-up said the `StrategyInput` reason key
+was INFERRED from the measured `StrategyOutput` funds leg and demanded a live
+flight before closing. That evidence now exists on disk and is quoted here so the
+demand is discharged rather than repeated: the c2 save's
+`Parsek/GameState/events.pgse` carries the actual pair at the very UT the ledger
+replay measured -
+
+    GAME_STATE_EVENT { ut = 8599.8755059835421  type = 16  key = StrategyInput
+                       valBefore = 750.63189697265625  valAfter = 641.790283203125 }
+    GAME_STATE_EVENT { ut = 8599.8755059835421  type = 15  key = StrategyOutput
+                       valBefore = 80591.466684483632  valAfter = 85166.31533847659 }
+
+Science 750.632 -> 641.790 is exactly the 108.842 the replay reconstructed too
+high, keyed `StrategyInput` on `ScienceChanged` (type 16) as the fix assumed. The
+reason-keyed doors are keyed RIGHT and stay exactly as built.
+
+**DOOR 2, THE QUERY FAMILY (`Strategies.Effects.CurrencyConverter` /
+`CurrencyOperation`) - the door the original fix could not see, BUILT 2026-08-18,
+NOT YET LIVE-PROVEN.** Eight stock strategies including Patents Licensing
+(`PatentsLicensingCfg`, activated in that same c2 session at ut=8714.396) do NOT
+do a direct `Add*` under a strategy reason at all. They subscribe
+`GameEvents.Modifiers.OnCurrencyModifierQuery` and mutate the query's deltas IN
+PLACE; `ResearchAndDevelopment.AddScience` / `Funding.AddFunds` then fire
+`OnScienceChanged` / `OnFundsChanged` with values ALREADY NET, under the ORIGINAL
+reason. **No `StrategyInput` / `StrategyOutput` event exists for this family at
+all**, so every reason-keyed door is structurally blind to it, and no amount of
+re-keying could have caught it.
+
+Measured on the live session snapshot `logs/2026-08-18_2223_strategy-live-proof`:
+science recon HIGH by exactly the takes (0.72000 measured against a 0.7200818
+`GUARDED UPLIFT` gap) and funds recon LOW by exactly the yields (60.526316 summed
+against a 60.525981 `GUARDED DRAWDOWN` gap).
+
+**Fix as built for door 2.** A new door reading `OnCurrencyModified` - the event
+that rides an actual `Add*`, NOT `OnCurrencyModifierQuery`, which stock's 33
+`CurrencyModifierQuery.RunQuery` DISPLAY sites fire without moving any balance (a
+`[CurrencyConverter ...]` log line is not proof of a balance change):
+
+- `GameStateRecorder.OnCurrencyModified` (instance handler, added and removed
+  symmetrically beside the three reason-keyed resource doors) snapshots the
+  query's per-currency `GetInput` / `GetEffectDelta` and hands it to the pure
+  `StrategyConversionCapture`.
+- SCOPING RULE, and it is asymmetric on purpose. **Science: capture any nonzero
+  delta**, input or not - Parsek's science earning channel is archive-derived
+  (subject value), so it never sees a pool-only movement at all, and a
+  `CurrencyOperation` science multiplier is just as invisible as a converter take.
+  **Funds / reputation: capture only when `GetInput(currency) == 0`** - a nonzero
+  input means the ordinary event-driven channel already reports that transaction
+  NET of the modifier, so capturing would double-count. That is exactly the
+  `CurrencyOperation` reward-multiplier case.
+- `LedgerOrchestrator.OnStrategyCurrencyConversion` writes DIRECT, UNTAGGED rows
+  even when a recorder is live. Forced by the mechanism: with no reason-keyed
+  event there is nothing for the commit-time `ConvertEvents` path to convert
+  later, so deferring would simply lose it - and the movement is irreversible
+  global economy, so a discard must not take it back (an untagged row is already
+  where `PreserveIrreversibleLiveGameplayOnDiscard` would put it).
+- Row shapes: a science TAKE reuses `StrategyScienceDebit`; a science YIELD gets a
+  new sibling `GameActionType.StrategyScienceCredit = 33`; a funds YIELD reuses
+  `FundsEarning` / `FundsEarningSource.Strategy`.
+- New `StrategyConversionSource { Exchanger = 0, Converter = 1 }` serialized on
+  `StrategyScienceDebit`. LOAD-BEARING, not cosmetic:
+  `ComputePendingUncommittedStrategyScienceDebit` nets an OBSERVED population
+  (stored `StrategyInput` events) against a COMMITTED one, and a converter row has
+  no observed counterpart - counting it would silently shrink a genuine pending
+  exchanger adjustment. The default `Exchanger` keeps every pre-existing row's
+  meaning on load.
+
+**WHY `ScienceEarning` COULD NOT CARRY THE YIELD - verified, not assumed.**
+`ScienceModule.ProcessEarning` computes `headroom = SubjectMaxValue - CreditedTotal`
+and credits `min(awarded, headroom)`. A pool-only yield has no subject, so
+`SubjectMaxValue = 0`, `headroom = 0`, and the credit is silently ZEROED. A
+negative-`Cost` `StrategyScienceDebit` was rejected too: the field is named `Cost`,
+the row would render "Strategy exchange --5 sci", and the negative would flow into
+`ScienceModule.ComputeTotalSpendings` and silently RAISE spendable science through
+the reservation math. A sibling type keeps the sign in the type and every
+magnitude positive.
+
+**REPUTATION IS OBSERVED AND DROPPED, deliberately.** The query delta is the
+modifier's PRE-curve contribution while `Reputation.AddReputation` applies KSP's
+granular curve on top, so the number available at this seam is not the number the
+pool moved by - and the seam exposes no post-curve value to read. The exchanger
+family's rep leg is captured instead from the `ReputationChanged` event, which IS
+post-curve. Writing a pre-curve magnitude would trade a known drift for a wrong
+one, so the door logs the observation and says so.
+
+**LIVE PROOF DELIVERED for door 2 (2026-08-18), and it is exactly what was
+demanded.** Run `2026-08-18_2039_L3-strategy-currency-conversion`, PASS attempt 1,
+57 s wall, fully unattended, every verifier PASS or REPORT:
+
+    [GameStateRecorder] Game state: strategy currency conversion - reason=ScienceTransmission
+                        inF=0 dF=168.12864685058594 inS=40 dS=-2 inR=0 dR=0 legs=2
+    [LedgerOrchestrator] Strategy conversion recorded: type=StrategyScienceDebit,
+                         currency=Science, delta=-2, reason=ScienceTransmission
+    [LedgerOrchestrator] Strategy conversion recorded: type=FundsEarning,
+                         currency=Funds, delta=168.12864685058594, reason=ScienceTransmission
+    [TestRunner] CurrencyConverterStrategy: award=40 sciDelta=38 take=2
+                 fundsDelta=168.12864685058594 factor=0.05
+
+`debit == take == 2` and `strategy funds == fundsDelta == 168.12864685058594`, both
+against the MEASURED pool movement rather than a config prediction (this KSP's
+`CurrencyConverter` exposes no min/max rate fields, so the optional cross-check
+stood down and the cell asserted against what the pools actually did). The whole
+KSP.log carries ZERO `GUARDED` lines of any kind. The scoping rule is now observed
+end to end, not argued from decompiled evidence.
+
+**RESIDUAL (door 2): a converter take inside a flight COMMIT WINDOW can fire an
+"Earnings reconciliation (sci)" WARN of the take's magnitude.** The commit
+reconciler compares the window's stored pool deltas against the commit's OWN
+`newActions`; the store's `ScienceChanged` is already NET of the take while the
+debit row is UNTAGGED and therefore not in `newActions`, so the two sides differ
+by the take (tolerance 0.1). The reconciler is deliberately NOT touched here - the
+compensation is threshold-dependent in the funds direction (the store drops any
+funds move under 100, so folding funds rows in would fix the large case and break
+the small one) and getting that wrong would trade a WARN for a wrong number. It is
+a reporting artefact only: the pool reconstruction is correct the moment the row
+is written, which is what the GUARDED guard reads. Measure it on the L3 reading
+run before deciding.
+
+**READING RUN 1 (2026-08-18_2019, PARSEK-FAIL(results)) AND THE THREE THINGS IT
+BOUGHT.** The run is part of the record and is not superseded by the green one
+that follows it. The conversion DOOR captured exactly - `debit = take = 2`,
+`funds = yield = 168.12864685058594`, ledger oracle restore PASS - and the cell
+still red'd on its final no-GUARDED-clamp assertion, for THREE separable reasons.
+All three are fixed; the second is the one that would have red'd a re-fly of the
+first two on its own.
+
+1. **A FIXTURE-INDUCED clamp, 4x Science DRAWDOWN.** The cell topped 200 science
+   up under `SuppressionGuard.Resources()` + `TransactionReasons.None`, which is
+   deliberately invisible to the ledger - so the reconstruction ran 200 low, the
+   strategy's 263.25 setup charge (which the ledger DOES model, via
+   `ScienceModule.ProcessStrategySetupScienceCost`) drove running to -163.25
+   against a live 36.75, and the guard clamped four times, twice before the
+   conversion even fired. FIXED in the cell, not the product: the top-up is now
+   paired with a matching `StrategyScienceCredit` ledger row - the one action type
+   that credits a SUBJECT-LESS science movement unconditionally (`ScienceEarning`
+   would be zeroed by the `SubjectMaxValue - CreditedTotal` headroom cap) - stamped
+   one second in the past so it sits outside the 0.1s window helper #2 reads. The
+   existing count-based `Ledger.TruncateActionsForTesting` teardown removes it.
+   Arithmetic after the fix: 100 seed + 200 top-up - 263.25 setup = 36.75, + 38
+   award-net = 74.75, positive throughout.
+
+2. **A PRODUCT defect the cell only happened to expose: the pending-credit basis
+   mismatch.** `ComputePendingRecentKscScienceCredit` subtracts a GROSS committed
+   side (`ScienceEarning.ScienceAwarded`) from a NET observed side (the stored
+   `ScienceChanged` delta, already net of the converter's take). With the take now
+   carried as its own untagged converter row, the pending credit came out exactly
+   one take short, `ComputePendingAdjustedRunningScience` landed one take BELOW
+   live, and the guard `GUARDED DRAWDOWN` clamped on EVERY award-coupled
+   conversion at KSC / TS - not just in this cell. FIXED by folding the in-window
+   converter legs back into the observed side (add a Converter-sourced
+   `StrategyScienceDebit.Cost`, subtract a `StrategyScienceCredit.ScienceAwarded`),
+   restoring a gross-vs-gross comparison and closing the mirrored uplift risk on
+   science yields at the same time. Exchanger-sourced debits are NOT folded in:
+   they move under `StrategyInput`, never reach the observed side, and are netted
+   by `ComputePendingUncommittedStrategyScienceDebit` instead. The gross-up is
+   gated behind an observed subject credit, so a converter leg can never invent a
+   pending credit out of an award that was never observed. Six cells in
+   `LedgerOrchestratorTests` pin both directions. **Deferring the door's recalc
+   does NOT make this moot** - the mismatch is structural and persists after
+   everything has settled.
+
+3. **A one-recalc-early transient, 1x Funds UPLIFT, self-healing - now FIXED BY
+   DEFERRAL rather than left as a residual.** `OnCurrencyModified` fires from
+   INSIDE the `CurrencyModifierQuery`, before KSP has applied the output leg, so
+   the door's synchronous `RecalculateAndPatchForLiveTimelineEvent` patched against
+   a live pool briefly missing the yield: measured `running=500168.12864685059
+   live=500000`, clamped down once and correct on the next recalc. The ROWS stay
+   synchronous (capture-loss risk zero by construction - they are in the ledger
+   before anything is deferred, and a deferred recalc that never runs costs only
+   freshness); only the recalc moves, one frame, through
+   `WarpToTimeConsumer.RunNextFrame`, the repo's existing one-frame defer host. The
+   decision itself is the pure `StrategyConversionCapture.DecideRecalcDispatch`
+   (`None` / `Deferred` / `Immediate`, the last being the no-frame-host fallback so
+   a missing host degrades to the old synchronous shape rather than dropping the
+   recalc). A source-ordering cell pins that the ledger write precedes the dispatch
+   decision.
+
+**ALSO FIXED alongside: `StrategyScienceCredit` was missing from
+`RecalculationEngine.IsEarningType`.** The earlier note arguing it out was right
+that the arm is inert for ordering and wrong about the other consumer.
+`Ledger.Reconcile`'s earning branch keeps an untagged row UNCONDITIONALLY while
+the fall-through "other" branch prunes an untagged row past `maxUT`, so a
+maxUT-bounded reconcile (a rewind) kept a conversion's untagged `FundsEarning`
+yield and DELETED its `StrategyScienceCredit` - one movement, half of it gone.
+`StrategyScienceDebit` stays out of `IsSpendingType` for the unrelated BUG-F
+cold-load reason already recorded there (and that path preserves future rows
+anyway).
 
 **Measured, on a committed fixture.** `C2CareerLedgerReplayTests` (fixture
 `Source/Parsek.Tests/Fixtures/C2Career/`) calls `LedgerOrchestrator.Initialize()` so
@@ -3733,7 +3928,8 @@ as transforming **contract rewards only** ("Strategies divert a percentage of on
 contract reward resource into another"), and neither `ScienceModule` nor
 `FundsModule` consults it during earning processing.
 
-**Secondary observation - the recorded flow direction is wrong too.** The
+**Secondary observation - the recorded flow direction is wrong too. OUT OF SCOPE
+for this fix, still open.** The
 `StrategyActivate` row carries `sourceResource = 0, targetResource = 0`
 (`StrategyResource.Funds` both sides) for a strategy that actually moves Science
 into Funds. That is the fallback
@@ -3751,30 +3947,263 @@ on `Activate()`, on `Deactivate()`, or continuously across the frozen KSC UT is
 inferred from a save plus a ledger and was not observed live. Do not write a fix
 against the guess; reproduce it in-game first, with `[Parsek]` capture on.
 
-**Reputation, recorded not chased.** `-0.00364` is above float32 print noise at
-that magnitude and far below display precision. It is pinned as a `0.01` window,
-not a value. Whether it is a second small leak or curve-rounding is unknown;
-re-measure it once the science leak is closed rather than guessing now.
+**Reputation, recorded not chased. STILL OPEN.** `-0.00364` is above float32
+print noise at that magnitude and far below display precision. It is pinned as a
+`0.01` window, not a value. Whether it is a second small leak or curve-rounding is
+unknown. It is now RE-MEASURABLE on a post-fix re-harvest of c2 (the science leg
+no longer masks it), which is when to look - not by guessing now.
 
-**The divergence is PINNED, so a fix must flip the pin deliberately.**
-`C2CareerLedgerReplayTests.RealEngine_ReplaysC2Ledger_PoolsVsSave` asserts the
-science delta stays within 0.001 of `108.84171851920314`. That cell reds on any
-movement in either direction - including the fix. Whoever fixes this replaces the
-pin with `Assert.True(Math.Abs(reconScience - SaveScience) < 0.01, ...)` in the
-same commit, and says in the CHANGELOG that the fixture's reconstruction now
-closes.
+**The C2Career fixture is FROZEN PRE-FIX DATA, so BOTH C2 cells stay GREEN and
+UNCHANGED.** This supersedes the earlier instruction to swap the pinned magnitude
+for a closure assertion; that instruction was written assuming a recalc-side fix
+and is WRONG for the capture-side one that shipped. `ledger.pgld` is a committed
+file on disk. A capture-side fix changes what FUTURE recordings write and cannot
+retro-fill a committed fixture, so both
+`FixtureLedger_StrategyExchange_HasAFundsCreditAndNoScienceDebit` (structural) and
+`RealEngine_ReplaysC2Ledger_PoolsVsSave` (the `108.84171851920314` magnitude pin)
+keep asserting the pre-fix shape and keep passing. They are DATA-ERA pins over
+pre-fix data. They flip only when c2 is re-harvested, or a new fixture is captured,
+on post-fix code - and THAT re-harvest is the moment to replace the pin with the
+closure assertion. Corollary worth keeping: if either cell ever moves WITHOUT the
+fixture being re-harvested, a RECALC-side change has occurred and must be
+investigated, because a capture-side fix cannot move it.
 
-**Fix shape (not chosen, not started).** The symmetric one is cheapest and
-matches the precedent exactly: add the `TransactionReasons.StrategyInput`
-forward to `OnScienceChanged` and a `ConvertStrategyExchangeScience` case for
-`ScienceChanged`, both mirroring the reputation pair (which already handles the
-sign, the direct-forward gate, and the no-live-recorder KSC case). Watch the
-double-count hazard the `ScienceChanged` comment block warns about at length:
-science earnings already flow through `ConvertScienceSubjects`, so the new case
-must key on the `StrategyInput` reason ONLY, exactly as the funds case keys on
-`StrategyOutput` only. A fixture-shaped unit cell over
-`GameStateEventConverter` plus a re-run of `C2CareerLedgerReplayTests` is the
-minimum proof; a live KSC activation is the real one.
+**Fix as built (2026-08-18, branch `strategy-science-leak-fix`).** Capture-side,
+input-direction only, mirroring the reputation pair exactly:
+
+- `GameStateRecorder.OnScienceChanged` now forwards
+  `TransactionReasons.StrategyInput` to `LedgerOrchestrator.OnKscSpending`, gated
+  on `ShouldForwardDirectLedgerEvent`, placed AFTER the `Emit` so the event is in
+  `GameStateStore` before the recalc that call runs at its tail reads the store
+  (the pending-debit helper below must see it to net it against the row being
+  written). NOT for `ReconcileKscAction` pairing - `ClassifyAction` returns
+  `Transformed` for this type and the reconcile short-circuits before any leg is
+  matched, so no pairing ever happens; the original write-up said otherwise and was
+  wrong. Byte-symmetric with the funds (`StrategyOutput`) and reputation
+  (`StrategyInput`) forwards.
+- `GameStateEventConverter.ConvertStrategyExchangeScience` converts a NEGATIVE
+  `ScienceChanged`/`StrategyInput` delta; `ScienceChanged` moved out of the
+  unconditional `return null` group into the carve-out group beside
+  `FundsChanged` / `ReputationChanged`. Every other `ScienceChanged` reason still
+  returns null, so `ConvertScienceSubjects` keeps sole ownership of science
+  EARNINGS - the double-count hazard the comment block warns about.
+- New `GameActionType.StrategyScienceDebit = 32`, NOT a source discriminator on
+  `ScienceSpending`. `ScienceSpending` is MONOMORPHIC - it is the tech-node
+  contract read by `KspStatePatcher`'s unlock set, `LedgerOrchestrator.GetActionKey`
+  (keys off `NodeId`), `KscActionExpectationClassifier` (expects a
+  `TechResearchScienceReasonKey` leg), `LedgerGroundTruth` /
+  `LedgerGroundTruthDiff` / `SupersedeCommit`'s researched-node derivation, and
+  three display sites. Overloading it would inherit a WRONG tech-shaped default at
+  each, silently, forever. A new type defaults to no-op / `NoResourceImpact` /
+  not-reconciled almost everywhere, so every consumer opts IN explicitly and the
+  tech-node domain needs NO edit.
+- `ScienceModule.ProcessStrategyScienceDebit` deducts UNCONDITIONALLY, modelled on
+  `ProcessStrategySetupScienceCost` and explicitly NOT on `ProcessSpending`:
+  ProcessSpending refuses to deduct when unaffordable, but KSP has already removed
+  this science from the pool, so a refusal would diverge the reconstruction in the
+  opposite direction. It never sets `action.Affordable` (that field is the
+  tech-node contract `KspStatePatcher` reads), and it does not gate on
+  `action.Effective` either - consistent with `ProcessSpending`, which is also
+  ungated (that flag is the EARNING channels' duplicate suppressor). The
+  unaffordable branch is a rate-limited Verbose, NOT a Warn: commit-stamped
+  earnings land at their recording's END UT while the exchange debit carries the
+  exchange's TRUE UT, so a mid-walk negative balance is the expected shape on a
+  legitimate ledger and the final totals are unaffected.
+
+**Review-batch follow-ups (2026-08-18, same branch).** Applied after the first
+build was reviewed; each closes a way the leak re-opened or a way the fix made
+noise:
+
+- **Migration retro-fill excluded.** `LedgerLoadMigration.MigrateOldSaveEvents`
+  converts with a NULL recording scope, so it matches every stored event
+  regardless of age and would retro-create a `StrategyScienceDebit` for an OLD
+  save's exchange - while that era's science EARNINGS are not reconstructible here
+  (they rode `PendingScienceSubjects`, never a `GameStateEvent`). Reconstructing
+  one half biases LOW and trips the drawdown-guard clamp + player toast on the
+  first load. `IsMigrationConvertibleEvent` excludes `ScienceChanged` on that path
+  ONLY; the KSC and commit doors keep converting. Pre-fix history stays pre-fix.
+- **Pending-adjustment mechanism added** (the third member of the family beside
+  the RnDTechResearch debit and the KSC science credit). On the LIVE-RECORDER
+  branch KSP debits the pool immediately while the ledger row lands only at
+  commit, so without it the drawdown guard fired `GUARDED UPLIFT clamped` - WARN
+  plus a player ScreenMessage - on every recalc for the rest of the flight, and
+  the rewind read-back's byte-identity broke.
+  `LedgerOrchestrator.ComputePendingUncommittedStrategyScienceDebit` +
+  `KspStatePatcher.AdjustSciencePatchTargetForPendingStrategyScienceDebit`, wired
+  into the same two call sites as the tech-research adjuster (the patch target and
+  `ComputePendingAdjustedRunningScience`). SHAPE DEVIATION, deliberate: the two
+  siblings window on `|evt.ut - nowUt| <= KscReconcileEpsilonSeconds` because
+  their races close within a frame; this race stays open until commit, so the
+  window is instead "observed-but-not-yet-ingested" and drains to zero when the
+  commit lands the row. Both sides are the same population, so an ownerless KSC
+  exchange cancels itself and a discard's re-homed untagged row cancels its
+  orphaned event.
+- **Discard door closed.** A flight-tagged exchange discarded on the NON-rewind
+  path lost its debit while KSP kept the science removed - the leak straight back
+  open. `PreserveIrreversibleLiveGameplayOnDiscard` now re-homes it through a
+  key-aware `IsIrreversibleLiveGameplayEvent(GameStateEvent)` overload, the same
+  shape contract terminals and milestones use. (The type-only overload's stale
+  "Science is handled separately" note is corrected there.)
+- **`RecalculationEngine.IsSpendingType` arm REMOVED.** It was inert for ordering
+  (`SortActions` keys its secondary level on `IsEarningType` only) and harmful for
+  pruning: `Ledger.Reconcile`'s spending branch drops any row with `UT > maxUT`
+  even when a valid `RecordingId` owns it, and a BUG-F-family cold load runs with
+  `maxUT = 0`, which would have permanently DELETED the debit.
+- **Coalescing identity now includes the event KEY.** `GameStateStore.AddEvent`
+  merged two same-type events within 0.1 s regardless of transaction reason, so an
+  exchange landing beside an unrelated same-type move could erase one reason and
+  fold the other's magnitude into it.
+- **`SupersedeCommit.IsWorldStateChangingRecordingAction`** gained an explicit
+  exclusion arm (the file warns twice that a new type falls through to
+  `return true`): the merge already retires these rows via
+  `IsSupersedeTombstoneEligible`, so a strict block would only refuse a merge over
+  a row that same merge is about to tombstone.
+
+**RESIDUAL: the dedup key disambiguates by AMOUNT, so two identical-amount
+exchanges at one frozen KSC UT still collapse.** `GetActionKey` gives
+`StrategyScienceDebit` a `RecordingId` + `Cost` key so distinct amounts survive
+`DeduplicateAgainstLedger` (pinned by a cell). Two exchanges of the SAME amount at
+the same UT still merge into one and one debit is lost. No ordinal was invented to
+close it: an ordinal would have to be stable across save/load and re-derivable at
+every producer, and nothing at that seam can supply one. Separately, the key
+governs the DEDUP path only - the direct KSC door (`OnKscSpending` straight from
+`GameStateRecorder`) performs no dedup at all.
+
+**RESIDUAL, NARROWED: a mid-recovery exchange costs the recovered science its
+recording attribution - but only a REAL negative delta does now, not the far more
+common zero-delta echo.** See STRATEGY-ECHO-CAPTURE-WIPE below, which reordered
+the handler so a below-threshold change returns before the capture block.
+`GameStateRecorder.OnScienceChanged` still clears
+`latestScienceChangeCapture` on any real non-positive delta, which the exchange debit
+is. The clear itself is right (that cache is for POSITIVE subject awards and a
+stale capture would mis-attribute one) and is deliberately NOT changed here, but
+it is not free: an exchange firing between a recovery's `ScienceChanged` credit
+and its `OnScienceReceived` callbacks drops the `reasonKey` the capture carried,
+so `LedgerOrchestrator.ResolveKscScienceRecordingId` no longer sees
+`VesselRecovery` and the recovered science is credited UNTAGGED instead of to its
+recording. Interleave-dependent, science total unaffected, attribution lost.
+
+**NAMED RESIDUAL: only ONE DIRECTION PER CURRENCY is captured, and that is
+deliberate.** Today the carve-out captures funds OUT (`StrategyOutput`),
+reputation IN (`StrategyInput`), and now science IN (`StrategyInput`). The other
+three directions are still dropped, unchanged by this fix:
+
+- A science-OUTPUT strategy (Unpaid Research Program: reputation in, science out)
+  arrives as `ScienceChanged`/`StrategyOutput` with a POSITIVE delta. Its
+  reputation INPUT leg IS captured by `ConvertStrategyExchangeReputation`, so the
+  reconstruction lands reputation correctly and runs science LOW by exactly the
+  granted amount - the mirror image of the c2 defect.
+- A funds-INPUT strategy (Fundraising Campaign: funds in, reputation out) leaks
+  BOTH legs: its funds leg is dropped by `ConvertStrategyExchangeFunds`'s
+  `StrategyOutput`-only gate and its reputation OUT leg by
+  `ConvertStrategyExchangeReputation`'s `StrategyInput`-only gate.
+
+Not fixed because not observed. And a science credit is NOT a sign-flipped mirror
+of this fix: it collides with the `ConvertScienceSubjects` earnings channel the
+hazard comment protects, and the obvious action shape for it
+(`ScienceEarning`) is silently ZEROED - `ScienceModule.ProcessEarning` computes
+`headroom = SubjectMaxValue - CreditedTotal`, and a subject-less exchange row has
+`SubjectMaxValue = 0`, so `effectiveScience = min(awarded, 0) = 0` and the credit
+vanishes without a warning. The output direction therefore needs its own action
+shape and its own design pass. Closing the remaining three directions is one
+live-observed strategy each.
+
+**STATUS OF THAT NAMED RESIDUAL AFTER DOOR 2 (2026-08-18).** It is scoped down,
+not closed, and the two halves must not be conflated:
+
+- The output direction now HAS its own action shape.
+  `GameActionType.StrategyScienceCredit` is exactly the "own design pass" the
+  paragraph above asked for, and the ZEROING it warns about is the reason it is a
+  sibling type rather than a `ScienceEarning` (verified against
+  `ProcessEarning`, not assumed).
+- That shape is reachable from the QUERY door ONLY. The three
+  reason-keyed directions the paragraph enumerates - science OUT under
+  `StrategyOutput`, funds IN, reputation OUT - are still dropped by the exchanger
+  doors' one-direction-per-currency gates, exactly as written. A stock exchanger
+  moving currency in one of those three directions leaks unchanged, and closing
+  each is still one live-observed strategy.
+
+---
+
+## ~~STRATEGY-FUNDS-YIELD-DRIFT: a standing strategy's small funds yields arrive under the ORIGINAL transaction reason AND below the 100-funds recorder threshold, so the recon runs LOW by their sum~~ [FOUND 2026-08-18 on the `logs/2026-08-18_2223_strategy-live-proof` session snapshot. FIX BUILT the same day on `strategy-science-leak-fix`; **LIVE-PROVEN 2026-08-18** by `2026-08-18_2039_L3-strategy-currency-conversion`: `Strategy conversion recorded: type=FundsEarning, currency=Funds, delta=168.12864685058594` against a measured `fundsDelta=168.12864685058594`, with no `GUARDED DRAWDOWN clamped` anywhere in the log.]
+
+**Measured.** Funds reconstruction LOW by 60.526316 (the summed yields) against a
+`GUARDED DRAWDOWN` gap of 60.525981 - agreement to five decimal places, which is
+what identifies the yields as the whole of the drift rather than a coincidence of
+magnitude.
+
+**A DOUBLE MISS, and both halves are needed to explain it.** A
+`Strategies.Effects.CurrencyConverter` such as Patents Licensing converts a share
+of a science award into funds by mutating the `CurrencyModifierQuery` in place.
+KSP then credits those funds:
+
+1. **Under the ORIGINAL transaction reason** (`ScienceTransmission`,
+   `VesselRecovery`, ...), never `StrategyOutput`. So
+   `GameStateEventConverter.ConvertStrategyExchangeFunds`, which gates on
+   `StrategyOutput` only, returns null - correctly, by its own contract.
+2. **Below `GameStateRecorder.FundsThreshold` (100)**. Each individual yield is
+   small, so `OnFundsChanged` returns at the threshold gate and the movement never
+   even reaches `GameStateStore`. There is no event for any downstream channel to
+   convert.
+
+Either miss alone would be visible somewhere; together the funds simply vanish
+between KSP and the ledger.
+
+**Fix.** The query-family door captures a funds leg whenever
+`GetInput(Currency.Funds) == 0` and the delta is nonzero - a genuine cross-currency
+yield with no transaction of its own - and writes it as an untagged
+`FundsEarning` / `FundsEarningSource.Strategy`. Deliberately NOT re-applying the
+100-funds threshold at that door: the threshold IS half the defect, so re-applying
+it would re-open the leak it exists to close (`StrategyConversionCapture`'s
+capture floor is 0.001, matching the science threshold instead).
+
+**It is real on the `authoritativeReduction` rewind path**, which is why the drift
+matters beyond a report: a rewind's authoritative pool reduction reads the
+reconstructed target, so a recon running low by the yields hands the player back
+less money than they had.
+
+**Live proof delivered (2026-08-18).** Same run as door 2 of
+STRATEGY-SCIENCE-CONVERSION-LEAK, `2026-08-18_2039_L3-strategy-currency-conversion`:
+`Strategy conversion recorded: type=FundsEarning, currency=Funds,
+delta=168.12864685058594` against a measured `fundsDelta=168.12864685058594` on a
+40-point award at factor 0.05, and no `GUARDED DRAWDOWN clamped` - no `GUARDED` line
+at all - anywhere in the log. Note the magnitude: this single yield is ABOVE the
+100-funds recorder threshold, so what the run proves is the reason-key half of the
+double miss end to end plus the door's arithmetic; the threshold half stays argued
+from the 60.526316 session measurement quoted above, which no single-award run can
+reproduce.
+
+---
+
+## ~~STRATEGY-ECHO-CAPTURE-WIPE: a strategy's zero-delta trailing science echo wipes the recovery-attribution capture, so every recovery award during an active converter strategy is misclassified as Transmitted~~ [FOUND 2026-08-18 alongside the query-door investigation. FIXED the same day on `strategy-science-leak-fix`.]
+
+**The mechanism, in order.** `GameStateRecorder.OnScienceChanged` maintained
+`latestScienceChangeCapture` - the small cache
+`LedgerOrchestrator.ResolveKscScienceRecordingId` reads to tell a `VesselRecovery`
+award from a `ScienceTransmission` one and to attribute the science to its
+recording - in a set-or-clear block placed ABOVE the below-threshold early return.
+Any change that was not a positive subject award cleared it, INCLUDING a change
+too small to be worth recording.
+
+A `CurrencyConverter` strategy produces exactly such a change: after taking its
+share it leaves a trailing ZERO-delta `ScienceChanged`. That echo is below
+`ScienceThreshold` (0.001) and is dropped for every other purpose - but it reached
+the clear first, so the capture was gone by the time the recovery's
+`OnScienceReceived` callbacks ran. With any query-family strategy active, EVERY
+recovery award lost its `VesselRecovery` reason key, fell back to
+`method=Transmitted`, and was credited untagged.
+
+**Fix.** Move the set/clear block BELOW the `IsScienceDeltaBelowThreshold` early
+return, so a below-threshold change returns before it can touch the cache. The
+REAL negative-delta clear is unchanged and still deliberate (that cache is for
+positive subject awards; a stale one would mis-attribute the next award). Pinned
+by an ordering source gate in `StrategyConversionCaptureTests`
+(`Recorder_ScienceCaptureBlockSitsBelowTheThresholdReturn`) because the handler
+itself is not xUnit-drivable.
+
+**Independent of the query door.** The reorder is correct on its own terms and
+would have been worth making even if the converter family were never captured -
+which is why it shipped as its own entry rather than as a residual on that one.
 
 ---
 

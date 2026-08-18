@@ -151,6 +151,64 @@ namespace Parsek.Tests
             Assert.Empty(Ledger.Actions);
         }
 
+        private static GameStateEvent StrategyInputScienceDebit(
+            double ut, string recordingId, double before, double after)
+        {
+            return new GameStateEvent
+            {
+                ut = ut,
+                eventType = GameStateEventType.ScienceChanged,
+                key = GameStateEventConverter.StrategyInputReasonKey,
+                recordingId = recordingId ?? "",
+                valueBefore = before,
+                valueAfter = after
+            };
+        }
+
+        [Fact]
+        public void Rehome_StrategyExchangeScienceDebit_BecomesDirectLedgerAction()
+        {
+            // STRATEGY-SCIENCE-CONVERSION-LEAK re-opening through the DISCARD door. A
+            // flight-tagged exchange's debit is only converted at COMMIT, so discarding
+            // the recording on a NON-rewind path (no quicksave to roll KSP back) dropped
+            // it while KSP kept the science removed - the ledger ran high by the traded
+            // amount exactly as it did before the fix.
+            AddTagged(StrategyInputScienceDebit(8599.87, "rec-A", 750.0, 641.15828148));
+
+            LedgerOrchestrator.PreserveIrreversibleLiveGameplayOnDiscard(
+                new HashSet<string> { "rec-A" }, "test");
+
+            var a = Ledger.Actions.SingleOrDefault(x =>
+                x.Type == GameActionType.StrategyScienceDebit);
+            Assert.NotNull(a);
+            Assert.True(string.IsNullOrEmpty(a.RecordingId));   // direct (tag cleared)
+            Assert.Equal(108.84171852, (double)a.Cost, 4);
+        }
+
+        [Fact]
+        public void Rehome_ScienceChangedWithAnOrdinaryReason_IsNotPreserved()
+        {
+            // Only the StrategyInput DEBIT is irreversible-by-event. Every other
+            // ScienceChanged reason either rides PendingScienceSubjects (subject awards,
+            // preserved by step 2) or is a tech spend that is out of scope, and a
+            // POSITIVE StrategyInput delta is not something KSP took away.
+            AddTagged(new GameStateEvent
+            {
+                ut = 300.0,
+                eventType = GameStateEventType.ScienceChanged,
+                key = "ScienceTransmission",
+                recordingId = "rec-A",
+                valueBefore = 0.0,
+                valueAfter = 40.0
+            });
+            AddTagged(StrategyInputScienceDebit(310.0, "rec-A", 40.0, 90.0));   // credit
+
+            LedgerOrchestrator.PreserveIrreversibleLiveGameplayOnDiscard(
+                new HashSet<string> { "rec-A" }, "test");
+
+            Assert.Empty(Ledger.Actions);
+        }
+
         [Fact]
         public void Rehome_DedupsAgainstExistingLedgerAction()
         {

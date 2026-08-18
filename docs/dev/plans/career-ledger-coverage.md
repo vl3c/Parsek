@@ -118,7 +118,18 @@ its three numbers did not survive.
 - **Science - CONFIRMED live defect.** The reconstruction runs
   `+108.84171851920314` HIGH against the save (`recon 750.632` vs `save 641.790`).
   Filed as **STRATEGY-SCIENCE-CONVERSION-LEAK** in
-  `docs/dev/todo-and-known-bugs.md`.
+  `docs/dev/todo-and-known-bugs.md`. **FIXED 2026-08-18 on
+  `strategy-science-leak-fix`, capture-side, LIVE PROOF PENDING** - the
+  `TransactionReasons.StrategyInput` forward in `GameStateRecorder.OnScienceChanged`,
+  `GameStateEventConverter.ConvertStrategyExchangeScience`, and the new
+  `GameActionType.StrategyScienceDebit = 32`. c2's `ledger.pgld` is FROZEN PRE-FIX
+  DATA that a capture-side fix cannot retro-fill, so both C2 cells (the structural
+  one and the `108.84171851920314` magnitude pin) stay GREEN and UNCHANGED; they
+  flip only on a post-fix re-harvest. That todo entry is the single authority for
+  the fix shape, the pending live proof, and the named residuals (only one
+  direction per currency is captured; identical-amount same-UT exchanges collapse
+  under the dedup key; a mid-recovery exchange costs the recovered science its
+  recording attribution).
 - **Reputation - small real divergence, noted not chased.** `d = -0.0036`, above
   float32 print noise at that magnitude but far below display precision. Pinned as
   a `0.01` window rather than a value; recorded as a secondary observation on the

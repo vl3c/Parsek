@@ -174,7 +174,7 @@ Two limits of this table, stated so nobody over-reads it:
 | `Spawner` | 2 | 2 | 0 | 0 | 0 | 1 | - | B |
 | `StockUiOverlay` | 6 | 0 | 6 | 0 | 0 | 6 | - | B |
 | `StockWarpLimits` | 1 | 1 | 0 | 0 | 0 | 0 | - | B |
-| `StrategyLifecycle` | 2 | 0 | 2 | 0 | 0 | 2 | - | B |
+| `StrategyLifecycle` | 3 | 0 | 3 | 0 | 0 | 3 | L3 | A |
 | `Structure` | 2 | 2 | 2 | 2 | 0 | 2 | - | B |
 | `SwitchIntentPatch` | 3 | 1 | 1 | 1 | 0 | 0 | - | B |
 | `SwitchSegment` | 6 | 6 | 0 | 0 | 0 | 0 | H12 | A |
@@ -194,9 +194,9 @@ Two limits of this table, stated so nobody over-reads it:
 
 ## Triage
 
-Totals, re-derived: **104 categories / 581 declarations**. Buckets **A 32 categories
-(220 declarations)**, **B 72 categories (361 declarations)**, **C 0 categories (0
-declarations)**. Driven by a committed spec: **41 of 104 categories**, up from 35
+Totals, re-derived: **104 categories / 582 declarations**. Buckets **A 33 categories
+(223 declarations)**, **B 71 categories (359 declarations)**, **C 0 categories (0
+declarations)**. Driven by a committed spec: **42 of 104 categories**, up from 35
 across six waves - `ReFlyWorldPreservation` via S4.2, `RecordedSignals` via H33,
 `SnapshotBaseline` via H32, and `Logistics` via H34 all landed together in one merge
 (the S1.8 SoiCrossingPlayback wave had taken it to 35 from 34, and 28 and 8 the waves
@@ -527,8 +527,12 @@ mod being installed, so on `stock-minimal` all 17 would skip. They belong on the
 fallback lives.
 
 **B3 - reachable only at SPACECENTER, and thin.** `Ledger` (4), `StockUiOverlay` (6),
-`ResourceTopBar` (2), `StrategyLifecycle` (2), `Optimizer` (2), `Recording` (1),
-`ResourceReconciliation` (1), `WarpToTime` (1). The vessel-less fixture these need
+`ResourceTopBar` (2), `Optimizer` (2), `Recording` (1),
+`ResourceReconciliation` (1), `WarpToTime` (1). `StrategyLifecycle` LEFT this bucket
+2026-08-18: the strategy-currency-conversion lane gave it a third declaration with a
+real subject and a driver (`L3-strategy-currency-conversion`, on the same
+`fresh-career` fixture this bucket names), which is what "revisiting as a group"
+looks like for one category at a time. The vessel-less fixture the rest need
 already exists (`fresh-career` / `fresh-sandbox`, as `B10` / `L1` / `M2` use), so the
 fixture is not the blocker - the yield is. Every one of them is either a single test
 or heavily self-skip-guarded (`StockUiOverlay` has a self-skip in all 6 members,

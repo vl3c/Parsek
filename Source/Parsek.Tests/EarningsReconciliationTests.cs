@@ -150,6 +150,44 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void Reconcile_StrategyExchangeInsideCommitWindow_NoMissingChannelWarn()
+        {
+            // STRATEGY-SCIENCE-CONVERSION-LEAK. ComputeEarningsWindowStoreDeltas sums
+            // every in-window ScienceChanged delta that passes its recording-scope filter
+            // regardless of the reason key, so an exchange landing inside a flight commit
+            // window shows up on the STORE side. Without the matching emitted-side arm
+            // (ComputeEarningsWindowEmittedDeltas' StrategyScienceDebit case) it looks
+            // like a missing earning channel and WARNs on a perfectly captured exchange.
+            //
+            // Mutation check: deleting that case reds this cell.
+            var events = new List<GameStateEvent>
+            {
+                new GameStateEvent
+                {
+                    ut = 150,
+                    eventType = GameStateEventType.ScienceChanged,
+                    key = GameStateEventConverter.StrategyInputReasonKey,
+                    valueBefore = 750.0,
+                    valueAfter = 641.15828148
+                }
+            };
+            var newActions = new List<GameAction>
+            {
+                new GameAction
+                {
+                    UT = 150,
+                    Type = GameActionType.StrategyScienceDebit,
+                    Cost = 108.84171851920314f
+                }
+            };
+
+            LedgerOrchestrator.ReconcileEarningsWindow(events, newActions,
+                startUT: 100, endUT: 200);
+
+            Assert.DoesNotContain(logLines, l => l.Contains("Earnings reconciliation (sci)"));
+        }
+
+        [Fact]
         public void Reconcile_AllTrackersUnavailable_SkipsWarns_AndLogsOnce()
         {
             LedgerOrchestrator.SetResourceTrackingAvailabilityForTesting(false, false, false);
