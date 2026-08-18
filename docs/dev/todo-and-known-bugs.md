@@ -86,7 +86,7 @@ fixtures that already exist rather than to fly a new destination hoping for a st
 
 ---
 
-## REAIM-SYNTH-GEOMETRY-SOI-CHECK: the third proximity check differs because THE PATH DIFFERS [DIAGNOSED 2026-08-17, NOT A DEFECT]
+## REAIM-SYNTH-GEOMETRY-SOI-CHECK: the third proximity check differs because THE PATH DIFFERS [DIAGNOSED 2026-08-17, NOT A DEFECT; SETTLED 2026-08-19: (b), documented, no behavior change]
 
 `xfer-vs-<target>@soi` reads ~0 m at Eeloo and 2,072,273,069 m (0.84 SOI) at Jool. Read
 across all four arrival lanes that resolves, and the answer is in the line's own label:
@@ -115,15 +115,47 @@ NOT A FAILURE, and nothing here reds: the independent seam-endpoint census reads
 sphere. What it does mean is that `xfer-vs-<target>@soi` is NOT comparable across the two
 paths, and no lane should be written as though it were.
 
-STILL OPEN, and narrowed to something answerable: should the `proximity` path's
-`soiEntryUT` be a boundary crossing like the patched-conic path's? If yes, Eeloo's 0 m and
-Jool's 0.84 are both symptoms and the fix is in the path. If no, the field name is
-misleading on that path and should say what it measures. Whoever picks this up should
-start from the two labels rather than from the numbers.
+SETTLED 2026-08-19, answer **(b): the `proximity` path's `soiEntryUT` is NOT a boundary
+crossing, by contract, and stays that way.** The question was "should it be?"; the deciding
+evidence, all read from HEAD:
+
+- **The codebase's own written contract is inside-sphere, not on-boundary.** The shared
+  predicate `ReaimTransferSynthesizer.IsGenuineTargetSoiEntry` defines a usable entry
+  instant as "strictly after departure AND within the target's SOI (<= SOI * (1 + 1e-6))".
+  Both paths meet that contract; only the field NAME over-promised.
+- **The one consumer that needs boundary precision already refines.** The S4 arrival
+  re-stitch bisects the raw value to the sphere crossing
+  (`ReaimPlaybackResolver.RefineSoiEntryUT`, with a residual-radius decline gate at
+  0.5-1.5 SOI), and its comments state the coarse contract verbatim ("up to usedTof/96
+  late = deep inside the SOI"). Emitting a pre-refined boundary from the synthesizer would
+  converge to the SAME refined UT -- zero product-behavior change from fix (a).
+- **Nothing else consumes it semantically.** Render span + capture re-time derive from
+  usedTof (`newArrivalUT = min(RecordedDepartureUT + usedTof, RecordedArrivalUT)`,
+  `ReaimPlaybackResolver` render-span block), never from `soiEntryUT`; the in-game asserts
+  (CrossParentReaimCanary "finite and after departure", ReaimEndToEnd step 3b "strictly
+  inside the span" + `IsGenuineTargetSoiEntry`) assert the inside-sphere contract and pass
+  under either semantics. The SeamEndpointOracle note that V12A's proto line closed "at
+  the re-aimed soiEntryUT to the digit" is the Eeloo degeneracy (`soiEntryUT == arrivalUT`
+  there), not a render dependency on the field.
+- **Fix (a) would red two armed operator lanes to buy that zero.** V12A arms both
+  `soiEntryUT=95851632.03180024` and `xfer-vs-Eeloo@soi=0m \(SOI=119082942\)`; V13A arms
+  `soiEntryUT=55582515.124523856`, and its seven-jump TimeJump schedule is arithmetic on
+  the emitted value. Any change to the proximity path's emitted bytes forces the full
+  re-arm discipline (reading run -> re-arm -> confirmation run) on both lanes.
+
+What shipped (comments/docs only, emitted bytes untouched): the two-path precision
+contract is now written at all three surfaces in `ReaimTransferSynthesizer.cs` -- the
+`TrySynthesizeTransfer` remarks (the authoritative statement), the
+`TryFindTargetEncounterByProximity` comment (first-inside-SAMPLE semantics, the Eeloo
+degenerate case, and a do-not-bisect-at-source warning), and the `LogSynthGeometry` @soi
+comment (per-path readings; the two variants are not comparable). Lane discipline is
+unchanged and now stated in code: arrival brackets must use the EMITTED `soiEntryUT`, and
+the proximity `@soi` reading is never armed as a boundary measurement.
 
 The distance is deliberately NOT armed in V13A -- the lane pins `(SOI=2455985185)` alone.
-Pinning a number whose meaning depends on an unresolved path question would freeze the
-question shut.
+That stays right under the settled contract: the proximity `@soi` reading is a
+coarse-sample artifact in [0, SOI), not a reference value, so it remains un-arm-able on
+that path even with the question closed.
 
 ---
 
