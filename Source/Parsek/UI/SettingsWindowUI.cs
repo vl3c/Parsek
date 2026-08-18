@@ -69,6 +69,17 @@ namespace Parsek
                     280, 600);
                 var ic = System.Globalization.CultureInfo.InvariantCulture;
                 ParsekLog.Verbose("UI", $"Settings window initial position: x={settingsWindowRect.x.ToString("F0", ic)} y={settingsWindowRect.y.ToString("F0", ic)}");
+                // The 600 above is a guess, not a measurement, and GUILayout only fixes it
+                // in one direction: a window resolves to Max(passedHeight, contentMin), so
+                // content TALLER than 600 auto-grows, while content SHORTER leaves dead
+                // space at the bottom - which is exactly Basic since it hides the Looping
+                // section (fit ~534; Advanced ~948 masked this for both modes until then).
+                // Request the same height fit a mode switch gets, so the first open lands
+                // on the measured height in either mode. Requesting here is equivalent to
+                // the Update-latch path: this branch runs once, at the top of the first
+                // event pass (a Layout - Unity sends Layout first), so the fit is consumed
+                // exactly as if it had been requested before the frame.
+                RequestHeightRemeasure();
             }
 
             var opaqueWindowStyle = parentUI.GetOpaqueWindowStyle();
@@ -195,8 +206,11 @@ namespace Parsek
         ///
         /// <para>Only the HEIGHT is re-derived; x / y / width are untouched, so the window
         /// does not jump. Safe to call while the window is closed - the request simply waits
-        /// for the next draw. Runs from the deferred mode latch (Update), never mid-OnGUI, so
-        /// it cannot change an IMGUI control count inside a frame.</para>
+        /// for the next draw. Two callers: the deferred mode latch (Update, outside OnGUI)
+        /// and the first-open rect init in <see cref="DrawIfOpen"/> - the latter runs once at
+        /// the top of the window's first Layout pass, before any size option is built, so
+        /// both are consumed with identical frame semantics and neither can change an IMGUI
+        /// control count inside a frame (the fit alters window size options only).</para>
         /// </summary>
         internal void RequestHeightRemeasure()
         {
