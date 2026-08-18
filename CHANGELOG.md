@@ -38,8 +38,9 @@ All notable changes to Parsek are documented here.
   control returns with its settings intact. Supply routes keep delivering on their own
   schedule either way: a route's timing comes from the route itself, set up in the Logistics
   window, which Basic keeps. Two of the hidden `Looping` settings do also fine-tune how a
-  route's ghost flies, and both are already on the value a route wants, so routes need no
-  attention in Basic. The one thing that follows: a mission looped in Advanced can only be
+  route's ghost flies; they keep working exactly as you left them - Basic only means you
+  cannot change those two without switching back - and both are already on the value a
+  route wants, so routes need no attention in Basic. The one thing that follows: a mission looped in Advanced can only be
   un-looped, or retimed, in Advanced - the interface setting is always one click away in
   Settings.
 
