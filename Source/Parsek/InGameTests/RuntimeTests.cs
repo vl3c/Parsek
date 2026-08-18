@@ -17021,6 +17021,45 @@ namespace Parsek.InGameTests
             }
         }
 
+        // Sums the two query-family conversion row shapes out of the EFFECTIVE ledger
+        // (ELS, not the raw ledger - a consumer only ever sees the routed view). Called
+        // twice by the conversion cell, before and after the award, so the assertions
+        // read a DELTA: a pre-existing row on some future fixture must not be able to
+        // satisfy an absolute count, and a leftover row must not fail one.
+        private struct StrategyConversionRowTally
+        {
+            public double Debit;
+            public int DebitRows;
+            public double StrategyFunds;
+            public int FundsRows;
+        }
+
+        private static bool TryTallyStrategyConversionRows(out StrategyConversionRowTally tally)
+        {
+            tally = default(StrategyConversionRowTally);
+            var els = EffectiveState.ComputeELS();
+            if (els == null) return false;
+
+            for (int i = 0; i < els.Count; i++)
+            {
+                var a = els[i];
+                if (a == null) continue;
+                if (a.Type == GameActionType.StrategyScienceDebit
+                    && a.ConversionSource == StrategyConversionSource.Converter)
+                {
+                    tally.Debit += a.Cost;
+                    tally.DebitRows++;
+                }
+                else if (a.Type == GameActionType.FundsEarning
+                    && a.FundsSource == FundsEarningSource.Strategy)
+                {
+                    tally.StrategyFunds += a.FundsAwarded;
+                    tally.FundsRows++;
+                }
+            }
+            return true;
+        }
+
         [InGameTest(Category = "StrategyLifecycle", Scene = GameScenes.SPACECENTER,
             Description = "STRATEGY-SCIENCE-CONVERSION-LEAK / STRATEGY-FUNDS-YIELD-DRIFT: a stock CurrencyConverter strategy's in-place query mutation lands in the ledger as a StrategyScienceDebit + a Strategy FundsEarning matching the MEASURED pool movement, with no GUARDED clamp.")]
         public IEnumerator CurrencyConverterStrategy_LedgerMatchesNetCredit()
@@ -17123,6 +17162,13 @@ namespace Parsek.InGameTests
                     float sciPreAward = ResearchAndDevelopment.Instance.Science;
                     int ledgerCountPreAward = Ledger.Actions.Count;
 
+                    StrategyConversionRowTally beforeTally;
+                    if (!TryTallyStrategyConversionRows(out beforeTally))
+                    {
+                        InGameAssert.Skip("ComputeELS returned null before the award");
+                        yield break;
+                    }
+
                     // ONE award, exactly once. Two exchanges at the frozen KSC clock share
                     // a UT and KscActionExpectationClassifier would see -2*cost against a
                     // -cost expectation and WARN falsely.
@@ -17179,29 +17225,20 @@ namespace Parsek.InGameTests
                     // The rows the query-family door wrote. Untagged, written synchronously
                     // inside the AddScience above (no commit involved), so they are already
                     // in the ledger - and visible through ELS, which is what any consumer
-                    // reads.
-                    var els = EffectiveState.ComputeELS();
-                    InGameAssert.IsNotNull(els, "ComputeELS returned null");
-
-                    double ledgerDebit = 0.0, ledgerStrategyFunds = 0.0;
-                    int debitRows = 0, fundsRows = 0;
-                    for (int i = 0; i < els.Count; i++)
+                    // reads. Compared as a DELTA against the pre-award tally so a fixture
+                    // that ever carries a strategy row of its own can neither satisfy nor
+                    // break these assertions.
+                    StrategyConversionRowTally afterTally;
+                    if (!TryTallyStrategyConversionRows(out afterTally))
                     {
-                        var a = els[i];
-                        if (a == null) continue;
-                        if (a.Type == GameActionType.StrategyScienceDebit
-                            && a.ConversionSource == StrategyConversionSource.Converter)
-                        {
-                            ledgerDebit += a.Cost;
-                            debitRows++;
-                        }
-                        else if (a.Type == GameActionType.FundsEarning
-                            && a.FundsSource == FundsEarningSource.Strategy)
-                        {
-                            ledgerStrategyFunds += a.FundsAwarded;
-                            fundsRows++;
-                        }
+                        InGameAssert.Fail("ComputeELS returned null after the award");
+                        yield break;
                     }
+
+                    double ledgerDebit = afterTally.Debit - beforeTally.Debit;
+                    double ledgerStrategyFunds = afterTally.StrategyFunds - beforeTally.StrategyFunds;
+                    int debitRows = afterTally.DebitRows - beforeTally.DebitRows;
+                    int fundsRows = afterTally.FundsRows - beforeTally.FundsRows;
 
                     ParsekLog.Info("TestRunner",
                         $"CurrencyConverterStrategy ledger: debitRows={debitRows.ToString(CultureInfo.InvariantCulture)} " +
