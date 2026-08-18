@@ -1953,5 +1953,51 @@ namespace Parsek.Tests
             Assert.Contains(logLines, l =>
                 l.Contains("[Ledger]") && l.Contains("PruneOrphanActionsAfterUT") && l.Contains("no untagged"));
         }
+
+        // ================================================================
+        // TruncateActionsForTesting is a MUTATOR and must invalidate the ELS cache
+        // like every other one. EffectiveState.ComputeELS caches against
+        // Ledger.StateVersion, so a truncation that does not bump leaves the cache
+        // serving rows that are no longer in the ledger.
+        //
+        // Found live: on the L3 reading run 2026-08-18_2136 the in-game
+        // ExchangerStrategy_OneShot_CapturesBothLegs cell took its pre-exchange ELS
+        // baseline straight after the preceding cell's teardown truncation, inherited
+        // that cell's already-removed rows, and read a row delta of
+        // convDebitRows=-1 sciCreditRows=-1 fundsRows=0 - so a correctly-captured
+        // exchanger funds leg looked like a missing one.
+        // ================================================================
+
+        [Fact]
+        public void TruncateActionsForTesting_BumpsStateVersionSoTheElsCacheCannotServeRemovedRows()
+        {
+            Ledger.AddAction(new GameAction { UT = 1.0, Type = GameActionType.FundsEarning, FundsAwarded = 10f });
+            Ledger.AddAction(new GameAction { UT = 2.0, Type = GameActionType.FundsEarning, FundsAwarded = 20f });
+            int keep = 1;
+            int versionBefore = Ledger.StateVersion;
+
+            Ledger.TruncateActionsForTesting(keep);
+
+            Assert.Single(Ledger.Actions);
+            Assert.NotEqual(versionBefore, Ledger.StateVersion);
+            Assert.Contains(logLines, l =>
+                l.Contains("[Ledger]") && l.Contains("TruncateActionsForTesting") && l.Contains("stateVersion="));
+        }
+
+        [Fact]
+        public void TruncateActionsForTesting_DoesNotBumpWhenItRemovesNothing()
+        {
+            // The early return is deliberate: a no-op truncation must not invalidate a
+            // valid cache, or every teardown would force a needless ELS rebuild.
+            Ledger.AddAction(new GameAction { UT = 1.0, Type = GameActionType.FundsEarning, FundsAwarded = 10f });
+            int versionBefore = Ledger.StateVersion;
+
+            Ledger.TruncateActionsForTesting(Ledger.Actions.Count);
+            Assert.Equal(versionBefore, Ledger.StateVersion);
+
+            Ledger.TruncateActionsForTesting(Ledger.Actions.Count + 5);
+            Assert.Equal(versionBefore, Ledger.StateVersion);
+            Assert.Single(Ledger.Actions);
+        }
     }
 }

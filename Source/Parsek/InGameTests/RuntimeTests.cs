@@ -18640,9 +18640,15 @@ namespace Parsek.InGameTests
                     // documented reputation divergence is a number in the log rather than a
                     // claim in a comment. Above the guard's epsilon it WOULD clamp if left
                     // standing - which is why the restore above exists.
+                    // NOTE ON WORDING, and it is load-bearing rather than stylistic: this
+                    // line must NOT contain the literal guard tokens. FirstGuardedClampLine
+                    // below scans the SAME captured buffer for them, and the L3 spec
+                    // forbids them across the whole KSP.log - so a diagnostic quoting the
+                    // clamp it is explaining would fail its own cell and red the spec.
+                    // Measured the hard way on reading run 2026-08-18_2136.
                     const double ReputationGuardEpsilon = 0.01;
                     string aboveEpsilon = System.Math.Abs(repDelta) > ReputationGuardEpsilon
-                        ? "YES - unrestored this would raise GUARDED DRAWDOWN clamped resource=Reputation on the next recalc"
+                        ? "YES - unrestored this would raise the reputation drawdown guard on the next recalc"
                         : "no";
                     ParsekLog.Info("TestRunner",
                         $"ConverterReputationLeg ACCEPTED DRIFT: the dropped reputation leg moved the live " +

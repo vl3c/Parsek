@@ -14,6 +14,32 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## ~~LEDGER-TRUNCATE-LEAVES-A-STALE-ELS-CACHE: `Ledger.TruncateActionsForTesting` mutated the ledger without bumping `StateVersion`, so `ComputeELS` went on serving removed rows~~ [FOUND 2026-08-19 by the L3 capture-matrix reading run `2026-08-18_2136`. FIXED the same day.]
+
+`EffectiveState.ComputeELS` caches its result against `Ledger.StateVersion`, and
+every mutator on `Ledger.actions` bumps that version - except
+`TruncateActionsForTesting`, which every in-game cell calls in its teardown to
+put the save back. The cache therefore kept serving rows that had already been
+removed, until something unrelated happened to bump the version.
+
+**How it surfaced, and why it is worth an entry despite being test-only.** It
+made a CORRECT capture door read as a broken one. On the first reading of the
+capture matrix, `ExchangerStrategy_OneShot_CapturesBothLegs` took its
+pre-exchange ELS baseline immediately after the preceding cell's teardown
+truncation, inherited that cell's already-deleted rows into the baseline, and
+computed a row DELTA of `convDebitRows=-1 sciCreditRows=-1 fundsRows=0` against
+a `funds=441.33766174316406` sum. The exchanger door had in fact written its
+`FundsEarning`/`Strategy` row correctly (the re-read measured
+`fundsRows=1 funds=609.46630859375`); the stale cache subtracted a phantom row
+and the cell failed its "exactly one FundsEarning row" assertion. A delta-based
+assertion is the house idiom precisely so a fixture's pre-existing rows cannot
+satisfy or break it - this defect turned that safety property into a hazard.
+
+**Fix.** Bump `StateVersion` in `TruncateActionsForTesting`, like every other
+mutator. The no-op early return (nothing removed) deliberately does NOT bump, so
+a teardown that removes nothing cannot force a needless ELS rebuild. Two cells in
+`LedgerTests` pin both directions.
+
 ## STRATEGY-REPUTATION-DROP-CLAMPS-THE-GUARD: the query door's deliberately-dropped reputation leg diverges the reconstruction, and reputation has no pending adjuster to absorb it [FILED 2026-08-19 off the strategy-test-matrix lane. NOT FIXED - the DROP is correct; the CONSEQUENCE was undocumented]
 
 The drop itself is a settled decision and is not in question.
@@ -36,11 +62,15 @@ recalc, and keeps raising it on every recalc thereafter. The clamp is CORRECT (i
 preserves the live value); it is the WARN that is unbounded, exactly as in
 `STRATEGY-PREFIX-HOLDBACK-PERMANENT` above.
 
-Arithmetic, from the stock config: Open-Source Tech Program converts science to
-reputation at a field-work rate lerping 0.01656..0.02070 by Factor. At the stock
-default Factor 0.05 a 400-point science award takes 20 and yields ~0.335
-reputation - thirty-three times the guard epsilon. Appreciation Campaign
-(funds -> reputation) is the larger-magnitude sibling.
+**MEASURED LIVE** on `2026-08-18_2140_L3-strategy-currency-conversion`. Open-Source
+Tech Program at the stock default Factor 0.05, a 400-point science award: take=20
+science, and the reputation pool moved **0.33515101671218872** while the door
+observed **dR=0.33540129661560059**. Two things worth keeping. First, the
+magnitude is 33x the 0.01 guard epsilon, so this is not a rounding-scale drift.
+Second, that 0.00025 gap between the two numbers IS the pre-curve / post-curve
+difference the drop exists because of - the door's number really is not the
+pool's number, measured rather than argued. Appreciation Campaign
+(funds -> reputation) is the larger-magnitude sibling and is untested.
 
 **Fix shape:** the same shape as the prefix-holdback entry, and the two should
 probably be solved together - bound or account for the observed side rather than
