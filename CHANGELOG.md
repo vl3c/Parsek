@@ -21,6 +21,8 @@ All notable changes to Parsek are documented here.
 
 ### Features
 
+- The check that verifies Parsek's career bookkeeping against the game's own saved career now runs unattended. It re-saves the career, reads the file back without consulting Parsek's own records, rebuilds the funds, science and reputation from the flight ledger, and compares the two - until now nothing drove it except a person clicking a button. An automated test flight now runs it on every nightly pass and fails if the two disagree, if the comparison quietly stops comparing anything, or if the career's money moved when nothing should have moved it. Test-tooling only; no gameplay change.
+
 - A safety allowance in the replay's transfer solver is now known to actually WORK, not merely
   to compute the right number. When a looped mission is re-aimed at an eccentric target - Eeloo,
   whose distance from the Sun varies by about a quarter - the solver may search a wider range of

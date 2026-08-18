@@ -233,6 +233,77 @@ namespace Parsek.Tests
                 && d.Kind == DivergenceKind.UpliftClampedExpected);
         }
 
+        // ================================================================
+        // career-ledger B.4: the RunTests `strict` arg is the per-scenario seam
+        // ================================================================
+
+        [Theory]
+        [InlineData(null, false)]
+        [InlineData("false", false)]
+        [InlineData("true", true)]
+        public void StrictSeam_RunTestsArgDrivesTheStaticAndThenTheHardSet(
+            string strictRaw, bool expectedHard)
+        {
+            // THE WHOLE PLUMBING, END TO END, HEADLESSLY: the wire token the harness
+            // sends -> TestCommandRunTests.TryParseStrictArg -> the static the addon
+            // assigns unconditionally -> the `strict` argument
+            // LedgerGroundTruthHarness/Inv8Ledger pass to HardFailures. The middle link
+            // is what B.4 added; the two ends already existed and are what make the
+            // addition observable without Unity.
+            //
+            // The ABSENT row is the one that matters most: it is every committed spec,
+            // and it must land on the same hard set as an explicit "false".
+            bool strict;
+            Assert.True(Parsek.TestCommands.TestCommandRunTests.TryParseStrictArg(
+                strictRaw, out strict));
+            LedgerGroundTruthDiff.StrictPerIdentityForTesting = strict;
+
+            var save = HealthySave();
+            var recon = HealthyRecon();
+            recon.SubjectScience["phantom@Duna"] = 3.0; // report-only by default
+
+            var report = LedgerGroundTruthDiff.Compare(
+                save, recon, FacetTolerances.Default, NoMaxLevels());
+
+            // The divergence exists on every row; only its SEVERITY moves.
+            Assert.Contains(report.All, d =>
+                d.Facet == DivergenceFacet.SubjectScience
+                && d.Kind == DivergenceKind.PhantomInRecon);
+
+            var hard = report.HardFailures(
+                LedgerGroundTruthDiff.StrictPerIdentityForTesting);
+            Assert.Equal(expectedHard,
+                hard.Exists(d => d.Facet == DivergenceFacet.SubjectScience));
+        }
+
+        [Fact]
+        public void StrictSeam_UnarmedBatchStillGreensOnAReportOnlyDivergence()
+        {
+            // WHAT AN UNARMED RUN ACTUALLY ASSERTS, stated as behaviour rather than as a
+            // field value: with no `strict` arg the in-game cell's
+            // InGameAssert.IsTrue(hard == 0) must still pass over a report carrying
+            // report-only divergences. No committed harness spec arms `strict`
+            // (career-ledger B.4 deferred arming for want of a subject with populated
+            // per-identity facets), so this is the state every unattended run of the
+            // ground-truth category is in today - and a default flip would red here
+            // rather than on a nightly.
+            bool strict;
+            Assert.True(Parsek.TestCommands.TestCommandRunTests.TryParseStrictArg(
+                null, out strict));
+            LedgerGroundTruthDiff.StrictPerIdentityForTesting = strict;
+
+            var save = HealthySave();
+            var recon = HealthyRecon();
+            recon.SubjectScience["phantom@Duna"] = 3.0;
+
+            var report = LedgerGroundTruthDiff.Compare(
+                save, recon, FacetTolerances.Default, NoMaxLevels());
+
+            Assert.NotEmpty(report.All);
+            Assert.Empty(report.HardFailures(
+                LedgerGroundTruthDiff.StrictPerIdentityForTesting));
+        }
+
         [Fact]
         public void Diff_PhantomSubject_PhantomInRecon()
         {
