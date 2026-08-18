@@ -930,8 +930,19 @@ namespace Parsek
                     if (actions[i].InitialFunds == 0f && initialFunds != 0.0)
                     {
                         actions[i].InitialFunds = (float)initialFunds;
+                        // MUST bump: this repair path MUTATES a row's value, and the
+                        // FundsInitial seed is the base of every running funds balance
+                        // the reconstruction computes. Readers cache derived values
+                        // against StateVersion - EffectiveState.ComputeELS,
+                        // SupersedeCommit's world-action safety cache, and
+                        // ParsekKSC.GetNextKscLedgerActionUTAfter's scan - so a repair
+                        // that does not bump leaves them serving answers built on the 0
+                        // seed this call just replaced. Same stale-cache class as the
+                        // truncate mutator below.
+                        BumpStateVersion();
                         ParsekLog.Info("Ledger",
-                            $"SeedInitialFunds: updated stale 0-value seed to {initialFunds.ToString("R", CultureInfo.InvariantCulture)}");
+                            $"SeedInitialFunds: updated stale 0-value seed to {initialFunds.ToString("R", CultureInfo.InvariantCulture)}, " +
+                            $"stateVersion={StateVersion.ToString(CultureInfo.InvariantCulture)}");
                         return;
                     }
 

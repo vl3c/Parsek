@@ -40,6 +40,25 @@ mutator. The no-op early return (nothing removed) deliberately does NOT bump, so
 a teardown that removes nothing cannot force a needless ELS rebuild. Two cells in
 `LedgerTests` pin both directions.
 
+**TWO MORE OF THE SAME CLASS, found by the review of that fix and fixed alongside
+it - both PRODUCTION paths, unlike the one above.** The sweep looked for other
+sites that mutate a row or the list without bumping, and found two.
+(1) `LedgerRolloutAdoption.TryAdoptRolloutAction` retags an existing rollout row's
+`RecordingId` and clears its `DedupKey` - which changes which RECORDING the row
+belongs to - with no bump. `SupersedeCommit`'s world-action safety cache keys on
+`Ledger.StateVersion` (`worldActionSafetyCacheLedgerVersion`) and answers exactly
+that per-recording question, so an unbumped adoption could leave the Re-Fly safety
+gate saying "no world action" for a recording that had just acquired one.
+(2) `Ledger.SeedInitialFunds`'s stale-0-seed repair mutates the `FundsInitial`
+row's value in place, and that seed is the base of every running funds balance the
+reconstruction computes. Both now bump; the no-match / no-repair paths deliberately
+do not, mirroring the truncate no-op. Pinned by `TryAdoptRolloutAction_Bumps...` /
+`_DoesNotBumpWhenNothingIsAdopted` in `Bug445RolloutCostLeakTests` and
+`SeedInitialFunds_StaleZeroRepair_BumpsStateVersion` /
+`SeedInitialFunds_DoesNotUpdateNonZeroSeed` in `LedgerTests`. Neither had a
+reported symptom - they are the same defect class caught before it cost a
+diagnosis.
+
 ## STRATEGY-REPUTATION-DROP-CLAMPS-THE-GUARD: the query door's deliberately-dropped reputation leg diverges the reconstruction, and reputation has no pending adjuster to absorb it [FILED 2026-08-19 off the strategy-test-matrix lane. NOT FIXED - the DROP is correct; the CONSEQUENCE was undocumented]
 
 The drop itself is a settled decision and is not in question.

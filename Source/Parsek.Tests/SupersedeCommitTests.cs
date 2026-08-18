@@ -1667,6 +1667,62 @@ namespace Parsek.Tests
             Assert.Null(summary);
         }
 
+        /// <summary>
+        /// THE COMPANION TO THE CELL ABOVE, and the one that is not vacuous. The cell
+        /// above ends by calling <c>EffectiveState.ResetCachesForTesting</c> and asserting
+        /// the SAME verdict it already had - which passes identically whether the reset
+        /// clears the world-action safety cache or does nothing at all. It is kept, because
+        /// "the isolation hook is a safe no-op" is worth pinning; it is just not proof that
+        /// the hook is WIRED.
+        ///
+        /// <para>This cell proves the wiring. It populates the cache with a TRUE-shaped
+        /// verdict, then mutates the row IN PLACE - bypassing every <c>Ledger</c> mutator,
+        /// so <c>StateVersion</c> does not move and the cache's own invalidation cannot see
+        /// the change. That is not a contrived shape: it is exactly what
+        /// <c>LedgerRolloutAdoption.TryAdoptRolloutAction</c> did before this PR added its
+        /// bump. With the cache demonstrably stale, only
+        /// <c>SupersedeCommit.ResetWorldActionSafetyCacheForTesting()</c> - the call at the
+        /// end of <c>EffectiveState.ResetCachesForTesting</c> - can force the recompute.
+        /// Deleting that call reds this cell (verified by mutation).</para>
+        /// </summary>
+        [Fact]
+        public void EffectiveStateResetCachesForTesting_ForcesARecomputeAWholeVersionKeyCannotSee()
+        {
+            var rec = Rec("rec_reset_recompute", "tree_1");
+            var action = new GameAction
+            {
+                ActionId = "act_sci_reset_recompute",
+                Type = GameActionType.ScienceEarning,
+                RecordingId = "rec_reset_recompute",
+                UT = 12.0,
+                SubjectId = "crewReport@MunInSpaceLow",
+                ScienceAwarded = 1.5f,
+            };
+            Ledger.AddAction(action);
+
+            // (1) Populate the cache with a TRUE verdict.
+            string summary;
+            Assert.True(SupersedeCommit.TryFindRecordingScopedWorldAction(rec, out summary));
+            Assert.Equal("ScienceEarning:act_sci_reset_recompute", summary);
+
+            // (2) Retag the row out from under the recording WITHOUT a version bump.
+            int versionBeforeMutation = Ledger.StateVersion;
+            action.RecordingId = "rec_somebody_else";
+            Assert.Equal(versionBeforeMutation, Ledger.StateVersion);
+
+            // (3) ANTI-VACUITY FLOOR: the cache really is stale now. A recompute here would
+            // answer false (the row belongs to another recording), so a pass on this line
+            // is what makes the reset below the only thing that can change the answer.
+            Assert.True(SupersedeCommit.TryFindRecordingScopedWorldAction(rec, out summary));
+            Assert.Equal("ScienceEarning:act_sci_reset_recompute", summary);
+
+            // (4) The reset is the ONLY thing standing between (3) and (5).
+            EffectiveState.ResetCachesForTesting();
+
+            Assert.False(SupersedeCommit.TryFindRecordingScopedWorldAction(rec, out summary));
+            Assert.Null(summary);
+        }
+
         [Theory]
         [MemberData(nameof(RetryBlockingRecordingActionCases))]
         public void TryFindRetryBlockingWorldAction_ReportsOnlyScienceEarning(
