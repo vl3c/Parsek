@@ -30,6 +30,18 @@ entirely in the spec's `missionParams`:
                                    NOT the interplanetary window planner
     captureEnabled = true          the B11/B12 orbit tail
 
+A FIXTURE PRECONDITION THIS MISSION CANNOT ENFORCE, and flight 1
+(2026-08-18_2242) is why it is written down here rather than only in the spec:
+the save this mission is pointed at must carry NO COMMITTED TREE FOR THIS VESSEL.
+A seam StartRecording on a vessel that is a committed tree's own launch does not
+open a standalone tree -- the committed-restore path re-resumes that tree's
+recording and StartRecording answers `already=true`, so the whole hop is appended
+to the OLD recording and the product's launch body is whatever that recording's
+was. The mission runs identically either way and every assertion still passes, so
+nothing in this file or in `mlib` can detect it; the scenario spec owns it by
+pointing at the Parsek-stripped `duna-park-probe` fixture. Do not re-point this
+mission at a `--keep-parsek` harvest.
+
 WHY THE MOON PATH AND NOT THE INTERPLANETARY ONE. Duna -> Ike is a transfer
 between a parking orbit and a MOON of the same parent, which is structurally the
 Kerbin -> Mun case B5/B11 have flown dozens of times: `OperationTransfer` plans

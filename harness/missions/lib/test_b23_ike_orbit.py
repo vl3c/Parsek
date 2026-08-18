@@ -69,8 +69,13 @@ def b23_params(**overrides):
 
 
 def parked_snap(**overrides):
-    """A frame reading the committed fixture's MEASURED Duna park (SMA
-    1,038,214.95 / ECC 0.0012696 / alt 718,363 m at save UT 9,160,396.76)."""
+    """A frame reading the committed `duna-park-probe` fixture's MEASURED Duna
+    park (SMA 1,038,214.95 / ECC 0.0012696 / alt 718,363 m at save UT
+    9,160,396.76). Those numbers are UNCHANGED by the 2026-08-19 fixture swap:
+    `duna-park-probe` is a Parsek-STRIPPED derived copy of
+    `duna-direct-recorded`, so the world - vessel, orbit, epoch, activeVessel -
+    is byte-identical and only Parsek's own state (the `Parsek/` sidecars and the
+    ParsekScenario node's children) was removed."""
     base = dict(ut=9_160_396.76, body="Duna", situation="ORBITING",
                 apoapsis=719_680.0, periapsis=717_047.0,
                 eccentricity=0.0012696, altitude=718_363.0)
@@ -127,7 +132,9 @@ class OrbitStartGateTests(unittest.TestCase):
     def test_the_committed_fixtures_park_is_in_gate(self):
         # THE cell that ties the gate to the fixture it was sized against: if a
         # future edit tightens a conjunct past the real park, this reds instead
-        # of the flight doing so.
+        # of the flight doing so. Flight 1 (2026-08-18_2242) confirmed the gate
+        # live - `startedInHomeOrbit` met at ecc 0.001 - and the swap to
+        # `duna-park-probe` did not move the park, so the numbers stand.
         verdict, reason = self._verdict()
         self.assertEqual(verdict, mlib.START_IN_ORBIT_IN_GATE, reason)
         self.assertEqual(reason, "")
@@ -477,7 +484,11 @@ class SpecArithmeticTests(unittest.TestCase):
 
     def test_the_entry_gate_admits_the_committed_fixtures_measured_park(self):
         # THE cell that couples the spec to the fixture. If either moves, this
-        # reds before a KSP boot is spent.
+        # reds before a KSP boot is spent. It is the cell that would have caught
+        # a fixture swap that changed the WORLD; the 2026-08-19 swap to
+        # `duna-park-probe` changed only Parsek's state, which is why it passes
+        # unchanged. See `test_the_spec_points_at_the_parsek_stripped_fixture`
+        # for the half this cell cannot see.
         params = mlib.b5_params_from_dict(self.mp)
         verdict, reason = mlib.start_in_orbit_frame_verdict(params, parked_snap())
         self.assertEqual(verdict, mlib.START_IN_ORBIT_IN_GATE, reason)
@@ -496,6 +507,59 @@ class SpecArithmeticTests(unittest.TestCase):
         # A "correction" priced above the whole 123 m/s hop is the wrong plan
         # (B15 flight 3), and the cap is what makes the machine discard it.
         self.assertLess(self.mp["maxCorrectionDvMps"], 123.0)
+
+    def test_the_spec_points_at_the_parsek_stripped_fixture(self):
+        """FLIGHT 1'S FINDING, PINNED SO IT CANNOT SILENTLY REVERT.
+
+        Run 2026-08-18_2242 flew this lane against `duna-direct-recorded` and
+        came back PASS attempt 1 with every assertion met -- and the subject was
+        wrong anyway. That save carries a COMMITTED TREE for this very vessel;
+        the committed-restore path re-resumed its recording BETWEEN the
+        preamble's DiscardTree and the seam StartRecording, and StartRecording
+        answered `already=true`, appending the whole Duna->Ike hop into B17's
+        Kerbin-rooted recording (KSP.log lines 12167 / 12210).
+
+        The fix is the FIXTURE: `duna-park-probe`, a Parsek-stripped derived
+        copy with no `Parsek/` directory and no ParsekScenario children, so
+        there is nothing to resume. Nothing in the harness's expectation
+        vocabulary can express "the recording is rooted at Duna", and flight 1
+        proved the logContract tokens cannot either, so a revert of this one
+        string would restore the defect with EVERY verifier still green. That is
+        exactly the class of regression a cell has to hold."""
+        self.assertEqual("fixtures/saves/duna-park-probe",
+                         self.spec["fixture"]["saveTemplate"])
+
+    def test_the_stripped_fixture_really_carries_no_parsek_state(self):
+        """The other half, checked against the BYTES rather than the name: a
+        fixture re-harvested WITH --keep-parsek, or one that kept the scenario
+        node's children (the harvest tool prunes sidecars but leaves the node,
+        and the RECORDING_TREE's `activeRecordingId` is what drove the
+        re-resume), would carry the same path and pass the cell above."""
+        save_dir = os.path.join(HARNESS_ROOT,
+                                self.spec["fixture"]["saveTemplate"])
+        self.assertTrue(os.path.isdir(save_dir), save_dir)
+        self.assertFalse(os.path.isdir(os.path.join(save_dir, "Parsek")),
+                         "the fixture carries a Parsek/ sidecar directory")
+        with open(os.path.join(save_dir, "persistent.sfs"),
+                  encoding="utf-8", errors="replace") as fh:
+            sfs = fh.read()
+        for node in ("RECORDING_TREE", "GROUP_HIERARCHY", "MILESTONE_STATE"):
+            self.assertNotIn(node, sfs,
+                             "%s survived in the stripped fixture" % node)
+
+    def test_the_recordings_window_matches_the_stripped_fixtures_arithmetic(self):
+        """The count window is arithmetic over the FIXTURE's own sidecar count,
+        and the fixture swap changed that term from 2 to 0. A window left at the
+        old {3,4} would be unsatisfiable by a healthy run."""
+        rec_dir = os.path.join(HARNESS_ROOT,
+                               self.spec["fixture"]["saveTemplate"],
+                               "Parsek", "Recordings")
+        carried = (len([n for n in os.listdir(rec_dir) if n.endswith(".prec")])
+                   if os.path.isdir(rec_dir) else 0)
+        window = self.spec["expectations"]["recordings"]["count"]
+        self.assertEqual(0, carried)
+        # carried + this lane's single-piece product, with one slot of headroom.
+        self.assertEqual({"min": carried + 1, "max": carried + 2}, window)
 
     def test_the_spec_arms_no_gating_block(self):
         # A first-flight READING lane must arm nothing: the ARMED_ALLOWLIST in

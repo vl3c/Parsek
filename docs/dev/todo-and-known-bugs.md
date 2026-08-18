@@ -14,6 +14,106 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## SEAM-STARTRECORDING-JOINS-COMMITTED-TREE: a seam `StartRecording` on a vessel that is a committed tree's own launch cannot open a standalone tree - it no-ops onto the recording the committed-restore path re-resumed [MEASURED 2026-08-18 by `B23-ike-orbit` flight 1. REPORT-ONLY: a HARNESS/FIXTURE constraint on the automation surface, NOT a proposed product change]
+
+`B23-ike-orbit` exists to produce the suite's first recording whose LAUNCH BODY
+is not Kerbin: the DD1 starts already parked in Duna orbit and hops to Ike, so the
+loop lanes can read it as a SAME-PARENT transfer. Its flight-1 fixture was
+`duna-direct-recorded` - B17's `--keep-parsek` harvest, which carries a COMMITTED
+TREE for that very vessel. The run came back **PASS attempt 1 with every
+assertion met** and the product was still wrong.
+
+### What happened, from the run's own log
+
+Run `2026-08-18_2242`, collected at
+`harness/results/2026-08-18_2242_B23-ike-orbit_shots/KSP.log`:
+
+- **11509** - at LoadGame the load-time optimizer SPLIT the committed main
+  recording `311d98e3` at `UT=4653681.9` (`first: 147 pts/2 sections, second:
+  363 pts/40 sections`), minting `17c32d96` for the Duna tail. `311d98e3` is left
+  as the FIRST half: a 177-second KERBIN pad-ascent fragment (bounds stamped
+  `startUT=4653504.3039999772 endUT=4653681.9038905427`, line 11507).
+- **12026 / 12097** - the spec's scene-entry preamble did its job:
+  `stoprecording stopped=true idle=false`, then `discardtree discarded=true`.
+  The promotion stub was killed and its tree torn down.
+- **12167** - 11 ms later, `[#8][CommittedSpawnedRestore:post] mode=tree
+  tree=ccb5e4af rec=311d98e3 pid=2200110044`: the committed-restore path
+  **re-resumed the committed recording**, BETWEEN DiscardTree (01:43:23.119) and
+  the seam StartRecording (01:43:23.863).
+- **12210** - `startrecording recordingId=311d98e32547491e8dd37aec2526d25d
+  already=true`. StartRecording no-opped onto that recording and started nothing.
+
+The whole Duna->Ike hop was therefore appended to a Kerbin-rooted ascent
+fragment. At commit the ledger line reads `startUT=4653504.3, endUT=9181612.7`
+for `311d98e3` (line 14308) - **one committed recording legally carrying a
+~4.5-million-second UT gap** - and the commit terminals (13995-13997) are
+`311d98e3=Orbiting/Ike`, `3397c2e5=Destroyed/Kerbin`,
+`17c32d96=Orbiting/Duna`, all three still inside B17's tree `ccb5e4af`.
+
+### Why this is the TS-LOADGAME-RECORDING-ACTIVE-RACE family plus one more thing
+
+The re-arm window is the same shape as the scene-entry race the V-lanes'
+StopRecording + DiscardTree pair was written for, and the pair is NOT a latch: it
+kills ONE stub, and the committed-restore path re-arms behind it. What the
+V-lanes never hit is the SECOND half - **committed-tree same-launch-guid
+continuation semantics**. The resumed recording belongs to a COMMITTED tree for
+the same vessel launch, so `StartRecording` correctly reports the vessel as
+already recording; there is no state in which it would instead fork a standalone
+tree. No re-ordering of the seam steps closes the window, because the resume
+happens before any step can run.
+
+### Why no verifier caught it
+
+Worth stating plainly, because "PASS attempt 1" is what this entry is really
+about:
+
+- the recordings **count** would have read a perfectly healthy number - it counts
+  `.prec` sidecars and cannot see which tree a recording belongs to;
+- the `Recording started` logContract token MATCHED, but all five occurrences
+  came from the promotion path and say so on their face (`..., promotion,
+  treeRec=rec[311d98e3|...]`, lines 11833 / 12159 / 14655) - the seam started
+  nothing;
+- nothing in the expectations vocabulary (logContracts, `saveParse`) can express
+  "this recording's launch body is Duna".
+
+So a green verdict is not evidence of the contract here, and any future lane that
+starts a recording on a parked committed craft inherits the same blind spot.
+
+### Consequence for the loop lanes
+
+A recording rooted at Kerbin with a deep multi-hop chain is exactly what the
+re-aim classifier declines, falling through to FAITHFUL - the opposite of the
+same-parent phase-lock route B23 exists to produce. The defect is invisible until
+a loop lane consumes the fixture, which is why it is filed rather than left in the
+spec header alone.
+
+### Workaround, and the scope of what is claimed
+
+`B23-ike-orbit` is re-pointed at **`duna-park-probe`**, a Parsek-stripped derived
+copy of the same save: `harvest_bdock_station.py --save-dir
+fixtures/saves/duna-direct-recorded --target-name duna-park-probe
+--expect-situation ORBITING` WITHOUT `--keep-parsek` (which prunes the `Parsek/`
+sidecars), PLUS a manual excision of the residual ParsekScenario children
+(`RECORDING_TREE`, `GROUP_HIERARCHY`, `MILESTONE_STATE`). **The second step is not
+optional**: the harvest tool prunes sidecars but leaves the scenario node, and the
+`RECORDING_TREE`'s `activeRecordingId` is precisely what drove the resume. Same
+DD1, same orbit, same epoch, no committed tree, so there is nothing to resume and
+`StartRecording` opens the standalone Duna-rooted tree. Guarded headlessly by
+`missions/lib/test_b23_ike_orbit.py::SpecArithmeticTests` (the saveTemplate pin,
+the byte-level "no `Parsek/` and no scenario children" check, and the count
+arithmetic), because a one-string revert would restore the defect with every
+verifier still green.
+
+**NO PRODUCT CHANGE IS PROPOSED BY THIS LANE.** The observed behaviour is
+arguably correct - a committed tree's vessel IS still that recording's subject,
+and silently forking a standalone tree on top of it would be its own hazard. What
+is recorded here is (a) the automation-surface constraint, so the next spec author
+does not spend a flight rediscovering it, and (b) the fact that a committed
+recording can legally span a multi-million-second gap, which is a property any
+future consumer of committed spans should not assume away.
+
+---
+
 ## STRATEGY-PREFIX-HOLDBACK-PERMANENT: on a pre-fix save, an exchanger event with no matching row holds back the pending science adjustment forever [FILED 2026-08-19 off the strategy-multi-live session. NOT FIXED - small follow-up]
 
 `ComputePendingUncommittedStrategyScienceDebit` nets the observed population

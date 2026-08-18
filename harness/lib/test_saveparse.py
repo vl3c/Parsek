@@ -647,6 +647,29 @@ class CommittedFixtureSweepTests(unittest.TestCase):
         "bdock-station-craft": True,
         "bdock-station-pad": True,
         "career-pad-craft": True,
+        # THE ONE ENTRY DERIVED FROM A RECORDED FIXTURE RATHER THAN FORGED.
+        # `duna-park-probe` is `duna-direct-recorded` with Parsek's own state
+        # removed: the `Parsek/` sidecar directory pruned by a harvest WITHOUT
+        # --keep-parsek, plus a manual excision of the residual ParsekScenario
+        # CHILDREN (RECORDING_TREE / GROUP_HIERARCHY / MILESTONE_STATE). It
+        # belongs HERE and not in RECORDED_FIXTURES precisely because the strip
+        # puts it back under the zero-trees contract this map asserts.
+        #
+        # THE NODE IS STILL PRESENT (True) AND THAT IS DELIBERATE: only the
+        # children were excised. A flyable template must carry the node or the
+        # FLIGHT route records nothing.
+        #
+        # WHY THE STRIP IS LOAD-BEARING, so a future re-harvest does not undo it:
+        # `B23-ike-orbit` starts its recording through the seam on a vessel that
+        # `duna-direct-recorded` holds a COMMITTED TREE for, and a seam
+        # StartRecording cannot open a standalone tree on a committed tree's own
+        # launch - the committed-restore path re-resumes that recording and
+        # StartRecording no-ops onto it (measured, B23 flight 1, run
+        # 2026-08-18_2242; see todo-and-known-bugs.md ->
+        # SEAM-STARTRECORDING-JOINS-COMMITTED-TREE). The zero-trees assertions in
+        # `test_every_persistent_sfs_parses_with_pinned_counts` are therefore not
+        # bookkeeping here: they are the fixture's whole reason to exist.
+        "duna-park-probe": True,
         "eva2-lko-crewed": True,
         "eva3-pad-3crew": True,
         "fresh-career": False,
