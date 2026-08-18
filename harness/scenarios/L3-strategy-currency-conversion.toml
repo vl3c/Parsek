@@ -1,13 +1,13 @@
 schema = 1
 id = "L3-strategy-currency-conversion"
-# operator, DELIBERATELY OUT OF ROTATION. This spec ships as a READING RUN: its
-# BATCH_COMPLETE tally is an INTERIM PREDICTION derived from the C# attributes and
-# its subject - whether a stock CurrencyConverter strategy can be activated and made
-# to convert on the `fresh-career` fixture - has never been observed. The L2 precedent
-# is exactly this: it shipped `operator` for as long as its tally was a prediction and
-# was promoted to `nightly` on the flight that measured the pin. Promote this one the
-# same way, on its own measurement, never on the argument below.
-tier = "operator"
+# nightly. This spec shipped `operator` for exactly as long as its BATCH_COMPLETE
+# tally was a PREDICTION - the reading-run hold, the L2 pattern - and is promoted here
+# by the flight that measured the pin, in the same commit that replaces it:
+# `2026-08-19_L3` (result id `2026-08-18_2039_L3-strategy-currency-conversion`), PASS
+# attempt 1, 57 s wall, fully unattended, seam driver with no RequiresFlight verb and
+# no human judgement in the loop. Nothing operator-shaped was ever owed; only the
+# measurement was.
+tier = "nightly"
 # WHAT THIS IS. The career-ledger lane's D8 `strategies` scenario, and the LIVE PROOF
 # the two open todo entries STRATEGY-SCIENCE-CONVERSION-LEAK (door 2) and
 # STRATEGY-FUNDS-YIELD-DRIFT are waiting on.
@@ -26,7 +26,7 @@ tier = "operator"
 # upgrade-facility / hire-kerbal / dismiss-kerbal, so the only drivable strategy
 # surface is the in-game `StrategyLifecycle` category - i.e. the L2 shape
 # (LoadGame -> SetSetting -> RunTests -> FlushAndQuit), with no flight at all.
-description = "Reading run: drive the StrategyLifecycle category against a fresh career and read whether a stock CurrencyConverter's in-place query mutation lands in the ledger as a science debit + a strategy funds earning, with no GUARDED clamp."
+description = "Drive the StrategyLifecycle category against a fresh career and assert a stock CurrencyConverter's in-place query mutation lands in the ledger as a science debit + a strategy funds earning, with no GUARDED clamp."
 instanceProfile = "stock-minimal"
 tags = ["ledger", "L3", "ingame-batch", "strategies", "reading-run"]
 
@@ -76,8 +76,8 @@ steps = [
 # query delta is pre-curve while AddReputation applies KSP's curve on top).
 #
 # CLAIM-IS-NOT-GATE: backed by the pinned tally below plus the forbidden GUARDED
-# tokens. It becomes a stronger claim the moment the reading run measures the exact
-# passed/skipped split and the pin is replaced with the measured one.
+# tokens - and the tally is now MEASURED (passed=3 skipped=0), so the claim rests on
+# three cells that all actually ran rather than on a predicted split.
 D8 = ["strategies", "science", "funds", "orchestrator", "ksp-state-patcher"]
 D14 = ["career", "scene-ksc"]
 
@@ -94,41 +94,43 @@ allowedAnomalies = []
 count = { min = 0, max = 0 }
 
 [expectations.logContracts]
-# ############ INTERIM PREDICTION - MUST BE MEASURED ############
-# DERIVED, not measured. hlib.derive_batch_tally over the [InGameTest] attributes in
-# Source/Parsek gives, for category StrategyLifecycle at scene SPACECENTER:
+# ############ MEASURED, then PINNED WHOLE ############
+# `2026-08-18_2039_L3-strategy-currency-conversion` (PASS attempt 1) measured
 #
-#   total=3 scene_skipped=0 batch_skipped=0 executable=3
+#   BATCH_COMPLETE v1 total=3 passed=3 failed=0 skipped=0 category=StrategyLifecycle scene=SPACECENTER
 #
-# The three declarations are ActivateAndDeactivate_StockStrategy_EmitsLifecycleEvents,
-# FailedActivation_DoesNotEmitEvent, and the new
-# CurrencyConverterStrategy_LedgerMatchesNetCredit - all Scene = SPACECENTER, all
-# batch-allowed by default. So `total=3` is a LITERAL and the attribute floor on
-# `skipped` is 0.
+# and that is the line below, verbatim. NO SKIPS AT ALL, which answers every open
+# question the interim pin was hedging:
+#   - `PatentsLicensingCfg` IS present and IS activatable on `fresh-career` (its stock
+#     Administration requirement is met at the default tier);
+#   - it DOES convert under ScienceTransmission - measured share 0.05, a 40-point
+#     award yielding take=2 science and 168.12864685058594 funds;
+#   - `FailedActivation_DoesNotEmitEvent` DID find a stock strategy whose second
+#     Activate() returns false, so its event filter really was exercised.
+# `total=3` remains a LITERAL derived from the [InGameTest] attributes and is kept in
+# step by CommittedBatchTallySourceSyncTests; `passed` and `skipped` are now measured
+# rather than floored. A future run that skips anything is a CHANGE to be read, not a
+# reason to loosen this line back toward a range.
 #
-# WHAT IS NOT DERIVABLE, and is the whole reason this spec ships as a reading run:
-# every one of the three carries run-time InGameAssert.Skip guards the runner cannot
-# predict, and the new cell carries the most consequential ones -
-#   - `PatentsLicensingCfg` may not be present or may not be activatable on a fresh
-#     career (the strategy has an Administration-level requirement in stock);
-#   - it Skips when the strategy converts NOTHING under ScienceTransmission, which is
-#     a real possibility if the fixture's Administration tier makes the share zero;
-#   - FailedActivation_DoesNotEmitEvent already Skips whenever no stock strategy
-#     returns false on a second Activate().
-# So `passed` is pinned as the open interim form and `skipped` as a floor. A run that
-# measures passed=0 is a REAL finding about the fixture, not a spec bug, and the
-# answer is a richer fixture rather than a looser pin.
-#
-# RE-PIN CONTRACT: the flight that measures this replaces the line below with the
-# measured text plus its run id, and records what each skip was FOR. Never adjust it
-# toward what was expected.
-# ###############################################################
-required  = ["BATCH_COMPLETE v1 total=3 passed=[1-9][0-9]* failed=0 skipped=[0-9]+ category=StrategyLifecycle scene=SPACECENTER"]
+# THE FIRST READING (`2026-08-18_2019`, PARSEK-FAIL(results)) IS PART OF THE RECORD.
+# The door captured exactly on that run too; the cell red'd on its no-GUARDED-clamp
+# assertion for three separable reasons - a fixture-induced science drawdown from a
+# ledger-invisible test top-up, a PRODUCT basis mismatch in
+# ComputePendingRecentKscScienceCredit (net observed vs gross committed, clamping every
+# award-coupled conversion at KSC/TS), and a one-recalc-early funds uplift from the
+# door recalculating inside the CurrencyModifierQuery. All three are fixed; see the
+# STRATEGY-SCIENCE-CONVERSION-LEAK entry in docs/dev/todo-and-known-bugs.md.
+# ####################################################
+required  = ["BATCH_COMPLETE v1 total=3 passed=3 failed=0 skipped=0 category=StrategyLifecycle scene=SPACECENTER"]
 # The GUARDED pair is the whole point of the lane. `GUARDED UPLIFT clamped` is the
 # reconstruction running ABOVE live (the science take not captured - measured 0.72000
 # against a 0.7200818 gap) and `GUARDED DRAWDOWN clamped` is it running BELOW (the
 # funds yields not captured - measured 60.526316 against a 60.525981 gap). Either one
 # on this run means a door did not close. The Parsek ERROR forbid is the house floor.
+#
+# MEASURED ZERO on 2026-08-18_2039 - the whole KSP.log carries no `GUARDED` line of
+# any kind. The first reading (2026-08-18_2019) carried six, and what they were is
+# recorded above.
 forbidden = ["\\[Parsek\\]\\[ERROR\\]",
              "GUARDED UPLIFT clamped",
              "GUARDED DRAWDOWN clamped"]

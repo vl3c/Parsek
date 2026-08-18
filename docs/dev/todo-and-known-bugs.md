@@ -3670,7 +3670,7 @@ Those two conditions say stock promoted an encounter and the closest one is our 
 
 ---
 
-## STRATEGY-SCIENCE-CONVERSION-LEAK: a stock strategy's science-to-funds exchange has its FUNDS leg captured and its SCIENCE leg dropped, so the recalc reconstructs science 108.84 too high [FOUND 2026-08-17 by career-ledger-lane task A.0, the first real-ledger replay. TWO DOORS, ONE OPEN: the EXCHANGER door is FIXED AND OBSERVED (2026-08-18); the QUERY-FAMILY door is BUILT 2026-08-18 on `strategy-science-leak-fix` and **OPEN UNTIL LIVE PROOF** - the L3-strategy-currency-conversion reading run is the arming step.]
+## ~~STRATEGY-SCIENCE-CONVERSION-LEAK: a stock strategy's science-to-funds exchange has its FUNDS leg captured and its SCIENCE leg dropped, so the recalc reconstructs science 108.84 too high~~ [FOUND 2026-08-17 by career-ledger-lane task A.0, the first real-ledger replay. TWO DOORS, BOTH CLOSED: the EXCHANGER door FIXED AND OBSERVED 2026-08-18; the QUERY-FAMILY door BUILT 2026-08-18 on `strategy-science-leak-fix` and **LIVE-PROVEN 2026-08-18** by `2026-08-18_2039_L3-strategy-currency-conversion` (PASS attempt 1, `total=3 passed=3 failed=0 skipped=0`, ZERO GUARDED lines), after the reading run `2026-08-18_2019` red'd and bought three fixes.]
 
 **THE ENTRY IS NO LONGER STRUCK, and the un-striking is a correction rather than a
 regression.** It was closed on the belief that ONE mechanism was leaking. There
@@ -3764,16 +3764,25 @@ family's rep leg is captured instead from the `ReputationChanged` event, which I
 post-curve. Writing a pre-curve magnitude would trade a known drift for a wrong
 one, so the door logs the observation and says so.
 
-**LIVE PROOF STILL PENDING for door 2, and here is exactly what must be read.**
-The `StrategyLifecycle` in-game cell
-`CurrencyConverterStrategy_LedgerMatchesNetCredit` and the harness spec
-`harness/scenarios/L3-strategy-currency-conversion.toml` exist to produce it. The
-run must show the `[GameStateRecorder] Game state: strategy currency conversion`
-line, a `Strategy conversion recorded: type=StrategyScienceDebit` row matching the
-science KSP actually removed, a `type=FundsEarning` row matching the funds it
-actually credited, and NO `GUARDED UPLIFT clamped` / `GUARDED DRAWDOWN clamped`.
-Until that flight the scoping rule is argued from decompiled evidence and unit
-cells, not observed end to end.
+**LIVE PROOF DELIVERED for door 2 (2026-08-18), and it is exactly what was
+demanded.** Run `2026-08-18_2039_L3-strategy-currency-conversion`, PASS attempt 1,
+57 s wall, fully unattended, every verifier PASS or REPORT:
+
+    [GameStateRecorder] Game state: strategy currency conversion - reason=ScienceTransmission
+                        inF=0 dF=168.12864685058594 inS=40 dS=-2 inR=0 dR=0 legs=2
+    [LedgerOrchestrator] Strategy conversion recorded: type=StrategyScienceDebit,
+                         currency=Science, delta=-2, reason=ScienceTransmission
+    [LedgerOrchestrator] Strategy conversion recorded: type=FundsEarning,
+                         currency=Funds, delta=168.12864685058594, reason=ScienceTransmission
+    [TestRunner] CurrencyConverterStrategy: award=40 sciDelta=38 take=2
+                 fundsDelta=168.12864685058594 factor=0.05
+
+`debit == take == 2` and `strategy funds == fundsDelta == 168.12864685058594`, both
+against the MEASURED pool movement rather than a config prediction (this KSP's
+`CurrencyConverter` exposes no min/max rate fields, so the optional cross-check
+stood down and the cell asserted against what the pools actually did). The whole
+KSP.log carries ZERO `GUARDED` lines of any kind. The scoping rule is now observed
+end to end, not argued from decompiled evidence.
 
 **RESIDUAL (door 2): a converter take inside a flight COMMIT WINDOW can fire an
 "Earnings reconciliation (sci)" WARN of the take's magnitude.** The commit
@@ -4116,7 +4125,7 @@ not closed, and the two halves must not be conflated:
 
 ---
 
-## STRATEGY-FUNDS-YIELD-DRIFT: a standing strategy's small funds yields arrive under the ORIGINAL transaction reason AND below the 100-funds recorder threshold, so the recon runs LOW by their sum [FOUND 2026-08-18 on the `logs/2026-08-18_2223_strategy-live-proof` session snapshot. FIX BUILT the same day on `strategy-science-leak-fix`; OPEN UNTIL LIVE PROOF - the L3-strategy-currency-conversion reading run.]
+## ~~STRATEGY-FUNDS-YIELD-DRIFT: a standing strategy's small funds yields arrive under the ORIGINAL transaction reason AND below the 100-funds recorder threshold, so the recon runs LOW by their sum~~ [FOUND 2026-08-18 on the `logs/2026-08-18_2223_strategy-live-proof` session snapshot. FIX BUILT the same day on `strategy-science-leak-fix`; **LIVE-PROVEN 2026-08-18** by `2026-08-18_2039_L3-strategy-currency-conversion`: `Strategy conversion recorded: type=FundsEarning, currency=Funds, delta=168.12864685058594` against a measured `fundsDelta=168.12864685058594`, with no `GUARDED DRAWDOWN clamped` anywhere in the log.]
 
 **Measured.** Funds reconstruction LOW by 60.526316 (the summed yields) against a
 `GUARDED DRAWDOWN` gap of 60.525981 - agreement to five decimal places, which is
@@ -4153,10 +4162,16 @@ matters beyond a report: a rewind's authoritative pool reduction reads the
 reconstructed target, so a recon running low by the yields hands the player back
 less money than they had.
 
-**Live proof pending.** Same run as door 2 of STRATEGY-SCIENCE-CONVERSION-LEAK:
-`harness/scenarios/L3-strategy-currency-conversion.toml` must show a
-`Strategy conversion recorded: type=FundsEarning` row matching the funds KSP
-actually credited, with no `GUARDED DRAWDOWN clamped`.
+**Live proof delivered (2026-08-18).** Same run as door 2 of
+STRATEGY-SCIENCE-CONVERSION-LEAK, `2026-08-18_2039_L3-strategy-currency-conversion`:
+`Strategy conversion recorded: type=FundsEarning, currency=Funds,
+delta=168.12864685058594` against a measured `fundsDelta=168.12864685058594` on a
+40-point award at factor 0.05, and no `GUARDED DRAWDOWN clamped` - no `GUARDED` line
+at all - anywhere in the log. Note the magnitude: this single yield is ABOVE the
+100-funds recorder threshold, so what the run proves is the reason-key half of the
+double miss end to end plus the door's arithmetic; the threshold half stays argued
+from the 60.526316 session measurement quoted above, which no single-award run can
+reproduce.
 
 ---
 
