@@ -540,6 +540,10 @@ namespace Parsek
             // method=Transmitted and the science kept its credit but lost its recording
             // attribution. A REAL negative delta still clears the capture below (that
             // cache is for POSITIVE subject awards and a stale one would mis-attribute).
+            // Accepted corollary of the same ordering: a below-threshold POSITIVE subject
+            // award no longer SETS the capture either. Its magnitude is under the ledger's
+            // own science floor, so there is nothing for the attribution it would carry to
+            // attribute; a sub-milli-point award is not worth a capture.
             if (IsScienceDeltaBelowThreshold(delta))
             {
                 ParsekLog.VerboseRateLimited("GameStateRecorder", "science-threshold",

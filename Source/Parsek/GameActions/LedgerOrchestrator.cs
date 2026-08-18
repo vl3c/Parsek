@@ -3232,8 +3232,30 @@ namespace Parsek
                 $"skipped={skipped.ToString(CultureInfo.InvariantCulture)}, " +
                 $"reason={reason ?? "(none)"}");
 
-            if (written > 0)
+            // THE ROWS ARE ALREADY IN THE LEDGER at this point, and that ordering is the
+            // whole safety story: only the recalc moves. This handler runs from INSIDE the
+            // CurrencyModifierQuery, before KSP has applied every leg to its pools, so a
+            // recalc here patches against a live pool that is transiently missing the
+            // output leg and the funds uplift guard clamps it down once. Defer one frame
+            // (WarpToTimeConsumer.RunNextFrame, the repo's one-frame defer host) so the
+            // query has finished applying; if the defer never runs, the rows still stand
+            // and the next natural recalc picks them up.
+            var dispatch = StrategyConversionCapture.DecideRecalcDispatch(
+                written, WarpToTimeConsumer.Instance != null);
+            ParsekLog.Verbose(Tag,
+                "OnStrategyCurrencyConversion recalc dispatch=" + dispatch +
+                " written=" + written.ToString(CultureInfo.InvariantCulture));
+
+            if (dispatch == StrategyConversionRecalcDispatch.Deferred)
+            {
+                double deferredUt = ut;
+                WarpToTimeConsumer.RunNextFrame(
+                    () => RecalculateAndPatchForLiveTimelineEvent(deferredUt, "strategy-conversion"));
+            }
+            else if (dispatch == StrategyConversionRecalcDispatch.Immediate)
+            {
                 RecalculateAndPatchForLiveTimelineEvent(ut, "strategy-conversion");
+            }
         }
 
         /// <summary>
@@ -4636,13 +4658,40 @@ namespace Parsek
         /// vessel's earning is recording-tagged once <c>PickRecoveryRecordingId</c> matches a
         /// committed recording, so (unlike the debit helper) the committed side does NOT
         /// filter on <c>RecordingId</c> — only the UT window gates the match.
+        ///
+        /// <para>QUERY-FAMILY GROSS-UP, and it is load-bearing rather than a refinement.
+        /// The two sides of the subtraction must measure the SAME quantity: the observed
+        /// side is a stored <c>ScienceChanged</c> delta and the committed side is the
+        /// earning's <c>ScienceAwarded</c>, i.e. the GROSS subject value. A
+        /// <c>Strategies.Effects.CurrencyConverter</c> mutates the
+        /// <c>CurrencyModifierQuery</c> in place, so the <c>ScienceChanged</c> KSP fires is
+        /// already NET of the take while the take now lives in the ledger as its own
+        /// converter-sourced <see cref="GameActionType.StrategyScienceDebit"/> row. Left
+        /// uncorrected the pending credit comes out exactly one take short, the
+        /// pending-adjusted running balance sits one take BELOW live, and
+        /// <see cref="KspStatePatcher.PatchScience"/>'s guard emits a GUARDED DRAWDOWN
+        /// clamp on EVERY award-coupled conversion at KSC / TS. Folding the in-window
+        /// converter legs back in (add the take, subtract a converter YIELD) restores the
+        /// gross-vs-gross comparison and closes the mirrored uplift risk on
+        /// <see cref="GameActionType.StrategyScienceCredit"/> at the same time. Deferring
+        /// the door's recalc does NOT make this moot: the basis mismatch is structural and
+        /// persists after everything has settled.</para>
+        ///
+        /// <para>Exchanger-sourced debits are deliberately NOT folded in: that family
+        /// moves science under its own <c>StrategyInput</c> reason key, which is not a
+        /// subject reason key, so it never contributes to the observed side in the first
+        /// place and is netted by
+        /// <see cref="ComputePendingUncommittedStrategyScienceDebit"/> instead. Credits
+        /// carry no source discriminator (only the debit serializes one) and are written
+        /// by the query-family door alone, so every in-window credit is a converter
+        /// yield.</para>
         /// </summary>
         internal static double ComputePendingRecentKscScienceCredit(
             IReadOnlyList<GameStateEvent> events,
             IReadOnlyList<GameAction> ledgerActions,
             double nowUt)
         {
-            double observedCredit = 0.0;
+            double observedNetCredit = 0.0;
             if (events != null)
             {
                 for (int i = 0; i < events.Count; i++)
@@ -4657,21 +4706,27 @@ namespace Parsek
                     if (Math.Abs(evt.ut - nowUt) > KscReconcileEpsilonSeconds)
                         continue;
 
-                    observedCredit += evt.valueAfter - evt.valueBefore;
+                    observedNetCredit += evt.valueAfter - evt.valueBefore;
                 }
             }
 
-            if (observedCredit <= 0.1)
+            // No observed subject credit means there is nothing to gross up. Checked
+            // BEFORE the converter fold below so an in-window converter leg can never
+            // invent a pending credit out of an award that was never observed.
+            if (observedNetCredit <= 0.1)
                 return 0.0;
 
             // Both sides use the raw KSP-credited amount: observedCredit from the
-            // ScienceChanged event deltas above, committedCredit from each earning's
-            // ScienceAwarded (the immutable awarded value, not the post-cap effective
+            // ScienceChanged event deltas above (grossed back up through the in-window
+            // converter legs), committedCredit from each earning's ScienceAwarded (the
+            // immutable awarded value, not the post-cap effective
             // science). The gap is therefore internally consistent, and the caller clamps
             // the held target to the live KSP pool, so a subject that the cross-recording
             // cap later trims can never inflate science above what KSP actually credited;
             // it only briefly holds the pre-ingest value until the next recalc.
             double committedCredit = 0.0;
+            double converterTake = 0.0;
+            double converterYield = 0.0;
             if (ledgerActions != null)
             {
                 for (int i = 0; i < ledgerActions.Count; i++)
@@ -4679,14 +4734,33 @@ namespace Parsek
                     var action = ledgerActions[i];
                     if (action == null)
                         continue;
-                    if (action.Type != GameActionType.ScienceEarning)
-                        continue;
                     if (Math.Abs(action.UT - nowUt) > KscReconcileEpsilonSeconds)
                         continue;
 
-                    committedCredit += action.ScienceAwarded;
+                    if (action.Type == GameActionType.ScienceEarning)
+                        committedCredit += action.ScienceAwarded;
+                    else if (action.Type == GameActionType.StrategyScienceDebit
+                             && action.ConversionSource == StrategyConversionSource.Converter)
+                        converterTake += action.Cost;
+                    else if (action.Type == GameActionType.StrategyScienceCredit)
+                        converterYield += action.ScienceAwarded;
                 }
             }
+
+            double observedCredit = observedNetCredit + converterTake - converterYield;
+            if (converterTake > 0.0 || converterYield > 0.0)
+            {
+                ParsekLog.Verbose(Tag,
+                    "PendingRecentKscScienceCredit: grossed the observed NET credit " +
+                    observedNetCredit.ToString("R", CultureInfo.InvariantCulture) +
+                    " up through the in-window converter legs (take=" +
+                    converterTake.ToString("R", CultureInfo.InvariantCulture) +
+                    ", yield=" + converterYield.ToString("R", CultureInfo.InvariantCulture) +
+                    ") -> " + observedCredit.ToString("R", CultureInfo.InvariantCulture));
+            }
+
+            if (observedCredit <= 0.1)
+                return 0.0;
 
             double pendingCredit = observedCredit - committedCredit;
             return pendingCredit > 0.1 ? pendingCredit : 0.0;

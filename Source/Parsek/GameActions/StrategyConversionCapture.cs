@@ -40,6 +40,20 @@ namespace Parsek
     }
 
     /// <summary>
+    /// What the query-family door does with the recalc that normally follows a ledger
+    /// write. The ROWS are always written synchronously; only the recalc+patch moves.
+    /// </summary>
+    internal enum StrategyConversionRecalcDispatch
+    {
+        /// <summary>Nothing was written, so there is nothing to recalculate.</summary>
+        None = 0,
+        /// <summary>Run the recalc on the NEXT frame, after KSP has applied the query.</summary>
+        Deferred = 1,
+        /// <summary>No frame host available - run it inline rather than lose it.</summary>
+        Immediate = 2
+    }
+
+    /// <summary>
     /// Pure decision core for the QUERY-FAMILY strategy door
     /// (STRATEGY-SCIENCE-CONVERSION-LEAK / STRATEGY-FUNDS-YIELD-DRIFT).
     ///
@@ -200,6 +214,37 @@ namespace Parsek
             }
 
             return legs;
+        }
+
+        /// <summary>
+        /// Pure: how the door dispatches its recalc after writing rows.
+        ///
+        /// <para>WHY IT IS DEFERRED AT ALL. <c>OnCurrencyModified</c> fires from INSIDE
+        /// the <c>CurrencyModifierQuery</c> handling, before KSP has applied every leg of
+        /// the transaction to its pools. A recalc run there patches against a live pool
+        /// that is briefly missing the output leg, so the reconstruction reads as running
+        /// ABOVE live and <c>KspStatePatcher.PatchFunds</c> uplift-clamps it down once
+        /// (measured: one <c>GUARDED UPLIFT clamped ... running=500168.13 live=500000</c>
+        /// on run 2026-08-18_2019, self-healing on the next recalc). Moving the recalc to
+        /// the next frame lets the query finish applying first.</para>
+        ///
+        /// <para>CAPTURE LOSS RISK IS ZERO BY CONSTRUCTION: the caller writes its ledger
+        /// rows synchronously and this decision only governs the recalc. A deferred recalc
+        /// that never runs (scene torn down, host destroyed) costs nothing but freshness -
+        /// the rows are already in the ledger and the next natural recalc picks them up.
+        /// <see cref="StrategyConversionRecalcDispatch.Immediate"/> is the no-frame-host
+        /// fallback (headless tests, and any live path where the defer host is gone):
+        /// running the old synchronous shape beats silently dropping the recalc.</para>
+        /// </summary>
+        internal static StrategyConversionRecalcDispatch DecideRecalcDispatch(
+            int rowsWritten,
+            bool hasFrameDeferHost)
+        {
+            if (rowsWritten <= 0)
+                return StrategyConversionRecalcDispatch.None;
+            return hasFrameDeferHost
+                ? StrategyConversionRecalcDispatch.Deferred
+                : StrategyConversionRecalcDispatch.Immediate;
         }
 
         /// <summary>Grep-stable one-line summary of an evaluated query.</summary>

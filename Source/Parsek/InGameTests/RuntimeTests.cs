@@ -17134,10 +17134,53 @@ namespace Parsek.InGameTests
                     // TransactionReasons.None + SuppressionGuard.Resources so neither the
                     // reason-keyed doors nor the query-family door treat the setup as a
                     // real movement (None matches no strategy AffectReasons either).
+                    //
+                    // THE TOP-UP MUST BE LEDGER-VISIBLE, and this is the whole reason the
+                    // pairing below exists. A suppressed AddScience moves the LIVE pool and
+                    // nothing else, so the reconstruction immediately runs 200 low; the
+                    // strategy's own setup science charge (which the ledger DOES model, via
+                    // ScienceModule.ProcessStrategySetupScienceCost off the StrategyActivate
+                    // row) then drives the running balance negative and the drawdown guard
+                    // GUARDED-clamps on every recalc - twice before the conversion under test
+                    // even fires (measured on run 2026-08-18_2019: running=-163.25 live=36.75).
+                    // Those clamps are pure FIXTURE artefacts and would make the cell's
+                    // no-clamp assertion unsatisfiable no matter how correct the door is.
+                    //
+                    // There is no precedent to copy: the other cells that top science up
+                    // (KscActionResearchNodeInGameTest) never assert on the guard, so they can
+                    // afford an invisible top-up. So we write the matching row ourselves,
+                    // through the ONE action type the ledger models a subject-less science
+                    // credit with: StrategyScienceCredit, which ScienceModule credits
+                    // UNCONDITIONALLY. ScienceEarning cannot carry it (ProcessEarning caps the
+                    // credit at SubjectMaxValue - CreditedTotal, which is 0 for a pool-only
+                    // move, so it would be silently zeroed) and ScienceInitial is a seed, not
+                    // a credit. The count-based Ledger.TruncateActionsForTesting teardown
+                    // already removes it.
+                    //
+                    // STAMPED ONE SECOND IN THE PAST, deliberately. The KSC clock is frozen,
+                    // so a row at "now" would sit inside the KscReconcileEpsilonSeconds (0.1s)
+                    // window that LedgerOrchestrator.ComputePendingRecentKscScienceCredit uses
+                    // to gross an observed NET award back up through its converter legs - and
+                    // that helper subtracts in-window StrategyScienceCredit rows, which would
+                    // net this 200-point fixture credit against a 40-point award. The top-up
+                    // is a prior grant, not part of the conversion under test, and its UT
+                    // should say so.
                     const float TopUpScience = 200f;
                     const float Award = 40f;
                     using (SuppressionGuard.Resources())
                         ResearchAndDevelopment.Instance.AddScience(TopUpScience, TransactionReasons.None);
+                    LedgerOrchestrator.Initialize();
+                    Ledger.AddAction(new GameAction
+                    {
+                        UT = Planetarium.GetUniversalTime() - 1.0,
+                        Type = GameActionType.StrategyScienceCredit,
+                        RecordingId = null,
+                        ScienceAwarded = TopUpScience
+                    });
+                    ParsekLog.Info("TestRunner",
+                        $"CurrencyConverterStrategy: ledger-visible science top-up " +
+                        $"{TopUpScience.ToString("R", CultureInfo.InvariantCulture)} written as a " +
+                        $"StrategyScienceCredit row so the reconstruction tracks the live pool");
 
                     for (int i = 0; i < StrategyLifecycleActivateSettleFrames; i++)
                         yield return null;
@@ -17174,9 +17217,19 @@ namespace Parsek.InGameTests
                     // -cost expectation and WARN falsely.
                     ResearchAndDevelopment.Instance.AddScience(Award, TransactionReasons.ScienceTransmission);
 
+                    // Measured BEFORE the settle frames below: these are the pool movements
+                    // the transaction itself made, and nothing else may be folded into them.
                     double sciDelta = ResearchAndDevelopment.Instance.Science - (double)sciPreAward;
                     double fundsDelta = Funding.Instance.Funds - fundsPreAward;
                     double take = (double)Award - sciDelta;
+
+                    // The door writes its rows synchronously but DEFERS its recalc+patch by
+                    // one frame (LedgerOrchestrator.OnStrategyCurrencyConversion), because
+                    // OnCurrencyModified fires before KSP has applied the query's output leg.
+                    // Settle here or the no-clamp assertion at the bottom would be vacuous:
+                    // it would run before the recalc that could have clamped.
+                    for (int i = 0; i < StrategyLifecycleActivateSettleFrames; i++)
+                        yield return null;
 
                     ParsekLog.Info("TestRunner",
                         $"CurrencyConverterStrategy: award={Award.ToString("R", CultureInfo.InvariantCulture)} " +

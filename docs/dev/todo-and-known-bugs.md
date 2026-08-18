@@ -3788,6 +3788,76 @@ a reporting artefact only: the pool reconstruction is correct the moment the row
 is written, which is what the GUARDED guard reads. Measure it on the L3 reading
 run before deciding.
 
+**READING RUN 1 (2026-08-18_2019, PARSEK-FAIL(results)) AND THE THREE THINGS IT
+BOUGHT.** The run is part of the record and is not superseded by the green one
+that follows it. The conversion DOOR captured exactly - `debit = take = 2`,
+`funds = yield = 168.12864685058594`, ledger oracle restore PASS - and the cell
+still red'd on its final no-GUARDED-clamp assertion, for THREE separable reasons.
+All three are fixed; the second is the one that would have red'd a re-fly of the
+first two on its own.
+
+1. **A FIXTURE-INDUCED clamp, 4x Science DRAWDOWN.** The cell topped 200 science
+   up under `SuppressionGuard.Resources()` + `TransactionReasons.None`, which is
+   deliberately invisible to the ledger - so the reconstruction ran 200 low, the
+   strategy's 263.25 setup charge (which the ledger DOES model, via
+   `ScienceModule.ProcessStrategySetupScienceCost`) drove running to -163.25
+   against a live 36.75, and the guard clamped four times, twice before the
+   conversion even fired. FIXED in the cell, not the product: the top-up is now
+   paired with a matching `StrategyScienceCredit` ledger row - the one action type
+   that credits a SUBJECT-LESS science movement unconditionally (`ScienceEarning`
+   would be zeroed by the `SubjectMaxValue - CreditedTotal` headroom cap) - stamped
+   one second in the past so it sits outside the 0.1s window helper #2 reads. The
+   existing count-based `Ledger.TruncateActionsForTesting` teardown removes it.
+   Arithmetic after the fix: 100 seed + 200 top-up - 263.25 setup = 36.75, + 38
+   award-net = 74.75, positive throughout.
+
+2. **A PRODUCT defect the cell only happened to expose: the pending-credit basis
+   mismatch.** `ComputePendingRecentKscScienceCredit` subtracts a GROSS committed
+   side (`ScienceEarning.ScienceAwarded`) from a NET observed side (the stored
+   `ScienceChanged` delta, already net of the converter's take). With the take now
+   carried as its own untagged converter row, the pending credit came out exactly
+   one take short, `ComputePendingAdjustedRunningScience` landed one take BELOW
+   live, and the guard `GUARDED DRAWDOWN` clamped on EVERY award-coupled
+   conversion at KSC / TS - not just in this cell. FIXED by folding the in-window
+   converter legs back into the observed side (add a Converter-sourced
+   `StrategyScienceDebit.Cost`, subtract a `StrategyScienceCredit.ScienceAwarded`),
+   restoring a gross-vs-gross comparison and closing the mirrored uplift risk on
+   science yields at the same time. Exchanger-sourced debits are NOT folded in:
+   they move under `StrategyInput`, never reach the observed side, and are netted
+   by `ComputePendingUncommittedStrategyScienceDebit` instead. The gross-up is
+   gated behind an observed subject credit, so a converter leg can never invent a
+   pending credit out of an award that was never observed. Six cells in
+   `LedgerOrchestratorTests` pin both directions. **Deferring the door's recalc
+   does NOT make this moot** - the mismatch is structural and persists after
+   everything has settled.
+
+3. **A one-recalc-early transient, 1x Funds UPLIFT, self-healing - now FIXED BY
+   DEFERRAL rather than left as a residual.** `OnCurrencyModified` fires from
+   INSIDE the `CurrencyModifierQuery`, before KSP has applied the output leg, so
+   the door's synchronous `RecalculateAndPatchForLiveTimelineEvent` patched against
+   a live pool briefly missing the yield: measured `running=500168.12864685059
+   live=500000`, clamped down once and correct on the next recalc. The ROWS stay
+   synchronous (capture-loss risk zero by construction - they are in the ledger
+   before anything is deferred, and a deferred recalc that never runs costs only
+   freshness); only the recalc moves, one frame, through
+   `WarpToTimeConsumer.RunNextFrame`, the repo's existing one-frame defer host. The
+   decision itself is the pure `StrategyConversionCapture.DecideRecalcDispatch`
+   (`None` / `Deferred` / `Immediate`, the last being the no-frame-host fallback so
+   a missing host degrades to the old synchronous shape rather than dropping the
+   recalc). A source-ordering cell pins that the ledger write precedes the dispatch
+   decision.
+
+**ALSO FIXED alongside: `StrategyScienceCredit` was missing from
+`RecalculationEngine.IsEarningType`.** The earlier note arguing it out was right
+that the arm is inert for ordering and wrong about the other consumer.
+`Ledger.Reconcile`'s earning branch keeps an untagged row UNCONDITIONALLY while
+the fall-through "other" branch prunes an untagged row past `maxUT`, so a
+maxUT-bounded reconcile (a rewind) kept a conversion's untagged `FundsEarning`
+yield and DELETED its `StrategyScienceCredit` - one movement, half of it gone.
+`StrategyScienceDebit` stays out of `IsSpendingType` for the unrelated BUG-F
+cold-load reason already recorded there (and that path preserves future rows
+anyway).
+
 **Measured, on a committed fixture.** `C2CareerLedgerReplayTests` (fixture
 `Source/Parsek.Tests/Fixtures/C2Career/`) calls `LedgerOrchestrator.Initialize()` so
 the module graph under replay IS the production one, runs the REAL

@@ -496,6 +496,62 @@ namespace Parsek.Tests
             Assert.Equal(1, awards);
         }
 
+        // ================================================================
+        // Recalc dispatch: the door writes rows synchronously and defers only the
+        // recalc, because OnCurrencyModified fires before KSP has applied the
+        // query's output leg (one self-healing GUARDED UPLIFT, run 2026-08-18_2019).
+        // ================================================================
+
+        [Fact]
+        public void DecideRecalcDispatch_DefersWhenRowsWereWrittenAndAHostExists()
+        {
+            Assert.Equal(
+                StrategyConversionRecalcDispatch.Deferred,
+                StrategyConversionCapture.DecideRecalcDispatch(1, hasFrameDeferHost: true));
+            Assert.Equal(
+                StrategyConversionRecalcDispatch.Deferred,
+                StrategyConversionCapture.DecideRecalcDispatch(2, hasFrameDeferHost: true));
+        }
+
+        [Fact]
+        public void DecideRecalcDispatch_RunsInlineWithNoFrameHostRatherThanDroppingIt()
+        {
+            Assert.Equal(
+                StrategyConversionRecalcDispatch.Immediate,
+                StrategyConversionCapture.DecideRecalcDispatch(1, hasFrameDeferHost: false));
+        }
+
+        [Fact]
+        public void DecideRecalcDispatch_NoRowsMeansNoRecalcInEitherHostState()
+        {
+            Assert.Equal(
+                StrategyConversionRecalcDispatch.None,
+                StrategyConversionCapture.DecideRecalcDispatch(0, hasFrameDeferHost: true));
+            Assert.Equal(
+                StrategyConversionRecalcDispatch.None,
+                StrategyConversionCapture.DecideRecalcDispatch(0, hasFrameDeferHost: false));
+            Assert.Equal(
+                StrategyConversionRecalcDispatch.None,
+                StrategyConversionCapture.DecideRecalcDispatch(-1, hasFrameDeferHost: true));
+        }
+
+        [Fact]
+        public void TheDoorWritesItsRowsBeforeItDecidesHowToDispatchTheRecalc()
+        {
+            // Capture-loss risk is zero only while Ledger.AddAction precedes the dispatch
+            // decision. A refactor that moved the rows behind the defer would put every
+            // captured conversion at the mercy of a coroutine that may never resume.
+            string src = ReadParsekSource("GameActions/LedgerOrchestrator.cs");
+            int addIdx = src.IndexOf("Ledger.AddAction(action);", StringComparison.Ordinal);
+            int dispatchIdx = src.IndexOf(
+                "StrategyConversionCapture.DecideRecalcDispatch(", StringComparison.Ordinal);
+            Assert.True(addIdx > 0, "Ledger.AddAction call not found in LedgerOrchestrator");
+            Assert.True(dispatchIdx > 0, "DecideRecalcDispatch call not found in LedgerOrchestrator");
+            Assert.True(addIdx < dispatchIdx,
+                "the ledger write must precede the recalc dispatch decision");
+            Assert.Contains("WarpToTimeConsumer.RunNextFrame(", src);
+        }
+
         private static string ReadParsekSource(string relPath)
         {
             string root = Path.GetFullPath(Path.Combine(

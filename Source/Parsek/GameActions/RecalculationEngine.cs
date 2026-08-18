@@ -297,17 +297,20 @@ namespace Parsek
             switch (type)
             {
                 case GameActionType.ScienceEarning:
-                // GameActionType.StrategyScienceCredit is DELIBERATELY ABSENT, the
-                // mirror of the StrategyScienceDebit note in IsSpendingType below and
-                // for the same two reasons. (1) INERT for ordering: both strategy
+                // GameActionType.StrategyScienceCredit IS an earning, and the earlier
+                // note arguing it out of this list was wrong on its second half. The
+                // first half stands: it is INERT for ordering, because both strategy
                 // conversion rows apply their magnitude UNCONDITIONALLY in
                 // ScienceModule, so where they sort relative to a same-UT earning
-                // cannot change the total. (2) The other consumer is
-                // Ledger.Reconcile, whose earning branch prunes a row whose
-                // RecordingId is not in the valid set - harmless for a query-family
-                // row (they are written untagged and a null RecordingId always
-                // survives), but listing one leg and not the other would suggest a
-                // classification difference that does not exist.
+                // cannot change the total. What the note missed is the OTHER consumer.
+                // Ledger.Reconcile's earning branch keeps an untagged row
+                // UNCONDITIONALLY, while the fall-through "other" branch prunes an
+                // untagged row whose UT is past maxUT. Left out of this list, a
+                // conversion's science credit is pruned by a maxUT-bounded reconcile
+                // while the SAME conversion's untagged FundsEarning yield survives -
+                // one movement, one leg kept and one dropped. Listing it is the only
+                // classification that keeps the pair together.
+                case GameActionType.StrategyScienceCredit:
                 case GameActionType.FundsEarning:
                 // Logistics deferred recovery credit: a funds earning (FundsModule adds
                 // it to totalEarnings), so it sorts before spendings at a shared UT.

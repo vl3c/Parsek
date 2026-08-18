@@ -1395,6 +1395,188 @@ namespace Parsek.Tests
         }
 
         // ================================================================
+        // Query-family gross-up (the take-sized GUARDED DRAWDOWN blocker):
+        // the stored ScienceChanged delta is NET of a CurrencyConverter's take
+        // while the committed side is the GROSS subject value, so the in-window
+        // converter legs must be folded back in before the two are subtracted.
+        // ================================================================
+
+        private static List<GameStateEvent> SubjectAwardEvent(double ut, double before, double after)
+        {
+            return new List<GameStateEvent>
+            {
+                new GameStateEvent
+                {
+                    ut = ut,
+                    eventType = GameStateEventType.ScienceChanged,
+                    key = "ScienceTransmission",
+                    valueBefore = before,
+                    valueAfter = after
+                }
+            };
+        }
+
+        [Fact]
+        public void ComputePendingRecentKscScienceCredit_GrossesUpAConverterTake()
+        {
+            // KSP credited 38 net of a 2-point converter take on a 40-point award, and
+            // the earning row has not landed yet. Without the gross-up the pending credit
+            // reads 38, the pending-adjusted running balance lands exactly one take below
+            // live, and PatchScience GUARDED-DRAWDOWN clamps.
+            var events = SubjectAwardEvent(3000.0, 100.0, 138.0);
+            var actions = new List<GameAction>
+            {
+                new GameAction
+                {
+                    UT = 3000.0,
+                    Type = GameActionType.StrategyScienceDebit,
+                    RecordingId = null,
+                    Cost = 2f,
+                    ConversionSource = StrategyConversionSource.Converter
+                }
+            };
+
+            double pending = LedgerOrchestrator.ComputePendingRecentKscScienceCredit(
+                events, actions, nowUt: 3000.02);
+
+            Assert.Equal(40.0, pending, 3);
+        }
+
+        [Fact]
+        public void ComputePendingRecentKscScienceCredit_SubtractsAConverterScienceYield()
+        {
+            // The mirrored direction: a converter that yields INTO science inflates the
+            // observed delta above the gross award, so the yield must come back off or the
+            // pending credit over-reports and the guard uplift-clamps.
+            var events = SubjectAwardEvent(3100.0, 0.0, 45.0);
+            var actions = new List<GameAction>
+            {
+                new GameAction
+                {
+                    UT = 3100.0,
+                    Type = GameActionType.StrategyScienceCredit,
+                    RecordingId = null,
+                    ScienceAwarded = 5f
+                }
+            };
+
+            double pending = LedgerOrchestrator.ComputePendingRecentKscScienceCredit(
+                events, actions, nowUt: 3100.02);
+
+            Assert.Equal(40.0, pending, 3);
+        }
+
+        [Fact]
+        public void ComputePendingRecentKscScienceCredit_GrossUpNetsToZeroOnceTheEarningLands()
+        {
+            // The settled production shape: gross award 40 in the ledger as a
+            // ScienceEarning, take 2 as its own converter row, KSP credited 38. Both sides
+            // are gross, so there is nothing pending and the guard must stay silent.
+            var events = SubjectAwardEvent(3200.0, 0.0, 38.0);
+            var actions = new List<GameAction>
+            {
+                new GameAction
+                {
+                    UT = 3200.0,
+                    Type = GameActionType.ScienceEarning,
+                    RecordingId = "rec-flight",
+                    ScienceAwarded = 40f
+                },
+                new GameAction
+                {
+                    UT = 3200.0,
+                    Type = GameActionType.StrategyScienceDebit,
+                    RecordingId = null,
+                    Cost = 2f,
+                    ConversionSource = StrategyConversionSource.Converter
+                }
+            };
+
+            double pending = LedgerOrchestrator.ComputePendingRecentKscScienceCredit(
+                events, actions, nowUt: 3200.02);
+
+            Assert.Equal(0.0, pending, 3);
+        }
+
+        [Fact]
+        public void ComputePendingRecentKscScienceCredit_IgnoresExchangerSourcedDebits()
+        {
+            // The exchanger family moves science under its own StrategyInput reason key,
+            // which is not a subject reason key and never reaches the observed side.
+            // ComputePendingUncommittedStrategyScienceDebit nets that family instead;
+            // folding it in here would double-count it.
+            var events = SubjectAwardEvent(3300.0, 0.0, 40.0);
+            var actions = new List<GameAction>
+            {
+                new GameAction
+                {
+                    UT = 3300.0,
+                    Type = GameActionType.StrategyScienceDebit,
+                    RecordingId = null,
+                    Cost = 9f,
+                    ConversionSource = StrategyConversionSource.Exchanger
+                }
+            };
+
+            double pending = LedgerOrchestrator.ComputePendingRecentKscScienceCredit(
+                events, actions, nowUt: 3300.02);
+
+            Assert.Equal(40.0, pending, 3);
+        }
+
+        [Fact]
+        public void ComputePendingRecentKscScienceCredit_IgnoresConverterLegsOutsideTheWindow()
+        {
+            var events = SubjectAwardEvent(3400.0, 0.0, 40.0);
+            var actions = new List<GameAction>
+            {
+                new GameAction
+                {
+                    UT = 3400.5,
+                    Type = GameActionType.StrategyScienceDebit,
+                    RecordingId = null,
+                    Cost = 7f,
+                    ConversionSource = StrategyConversionSource.Converter
+                },
+                new GameAction
+                {
+                    UT = 3399.0,
+                    Type = GameActionType.StrategyScienceCredit,
+                    RecordingId = null,
+                    ScienceAwarded = 200f
+                }
+            };
+
+            double pending = LedgerOrchestrator.ComputePendingRecentKscScienceCredit(
+                events, actions, nowUt: 3400.02);
+
+            Assert.Equal(40.0, pending, 3);
+        }
+
+        [Fact]
+        public void ComputePendingRecentKscScienceCredit_ConverterLegAloneInventsNothing()
+        {
+            // No observed subject award at all. The gross-up exists to correct an observed
+            // NET credit, never to manufacture one out of a converter row.
+            var actions = new List<GameAction>
+            {
+                new GameAction
+                {
+                    UT = 3500.0,
+                    Type = GameActionType.StrategyScienceDebit,
+                    RecordingId = null,
+                    Cost = 25f,
+                    ConversionSource = StrategyConversionSource.Converter
+                }
+            };
+
+            double pending = LedgerOrchestrator.ComputePendingRecentKscScienceCredit(
+                new List<GameStateEvent>(), actions, nowUt: 3500.0);
+
+            Assert.Equal(0.0, pending, 3);
+        }
+
+        // ================================================================
         // Uncommitted strategy currency-exchange science debit holdback
         // (STRATEGY-SCIENCE-CONVERSION-LEAK)
         // ================================================================
