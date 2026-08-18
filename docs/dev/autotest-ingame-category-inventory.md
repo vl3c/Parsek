@@ -117,7 +117,7 @@ Two limits of this table, stated so nobody over-reads it:
 | `KSP` | 6 | 6 | 4 | 4 | 0 | 0 | H13 | A |
 | `KspApiSanity` | 5 | 5 | 3 | 3 | 0 | 3 | H24 | A |
 | `Ledger` | 4 | 0 | 4 | 0 | 0 | 4 | - | B |
-| `LedgerGroundTruth` | 2 | 2 | 0 | 0 | 0 | 1 | - | B |
+| `LedgerGroundTruth` | 2 | 2 | 0 | 0 | 0 | 1 | L2 | B |
 | `LocalizedName` | 3 | 3 | 3 | 3 | 0 | 0 | H29 | A |
 | `LogContracts` | 10 | 10 | 8 | 8 | 0 | 2 | H26 | A |
 | `Logistics` | 47 | 8 | 2 | 1 | 38 | 46 | H34 (SPACECENTER slice), H35 (FLIGHT slice) | B |
@@ -196,16 +196,17 @@ Two limits of this table, stated so nobody over-reads it:
 
 Totals, re-derived: **104 categories / 586 declarations**. Buckets **A 33 categories
 (227 declarations)**, **B 71 categories (359 declarations)**, **C 0 categories (0
-declarations)**. Driven by a committed spec: **42 of 104 categories**, up from 35
+declarations)**. Driven by a committed spec: **43 of 104 categories**, up from 35
 across six waves - `ReFlyWorldPreservation` via S4.2, `RecordedSignals` via H33,
 `SnapshotBaseline` via H32, and `Logistics` via H34 all landed together in one merge
 (the S1.8 SoiCrossingPlayback wave had taken it to 35 from 34, and 28 and 8 the waves
 before), then `PlaybackFidelity` via H36 and `PartEventFidelity` via H37. Measured
-against declarations rather than categories, that is 401 of 586 inside a driven
+against declarations rather than categories, that is 403 of 586 inside a driven
 category (was 318 before these waves: 324 after S4.2, 327 after H33, 334 after H32,
 381 once `Logistics` counted, 388 with `PlaybackFidelity`, 393 with
 `PartEventFidelity`, and 401 once L3's capture matrix took `StrategyLifecycle` from 3
-declarations to 7). `H35-logistics-route-proof` (2026-08-11) moves NEITHER number -
+declarations to 7, then 403 when this inventory's `LedgerGroundTruth` row caught
+up with L2 - driven and armed since 2026-08-17, the row had lagged the spec). `H35-logistics-route-proof` (2026-08-11) moves NEITHER number -
 it is the second spec on a category H34 already counted - which is exactly the
 distortion the paragraph after next is about.
 
