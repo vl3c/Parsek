@@ -4712,6 +4712,20 @@ class UnityExceptionScanTests(unittest.TestCase):
             "L1-research-node-science.toml": 0,
             "L1-upgrade-facility-career.toml": 0,
             "L2-ledger-groundtruth-career.toml": 0,
+            # L3-strategy-currency-conversion, armed 2026-08-18 with NO reading of
+            # its own - THINNER than L2's already-thin n=1, and said plainly rather
+            # than dressed up. The borrowed evidence is the eleven-spec zero-armed
+            # family that boots the identical LoadGame -> SetSetting -> RunTests ->
+            # FlushAndQuit shape on the same stock-minimal profile: B10 and the six
+            # L1 specs over the SAME `fresh-career` template, every driver-valid
+            # reading 0. What L3 adds beyond that family is a hidden Administration
+            # canvas (the StrategyLifecycle readiness idiom instantiates and destroys
+            # one), which is a GUI surface the L1 family never raises and which
+            # `ArgumentException: GUILayout` counts - and no committed spec has ever
+            # flown that category, so it is UNMEASURED. A nonzero first reading is
+            # therefore a FINDING about the Administration hydration, and the honest
+            # response is to record the count and decide, never to raise the ceiling.
+            "L3-strategy-currency-conversion.toml": 0,
             "M1-mission-loop-unit.toml": 0,
             "V1-map-dwell-mun-orbit.toml": 0,
             "H23-tracking-station.toml": 6,
@@ -4902,6 +4916,15 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
         "L1-upgrade-facility-career.toml":  "discharged - OPERATOR-VERIFIED; tag dropped 2026-07-31",
         # Found by this cell on its first run, absent from the hand-written list.
         "L1-passive-sandbox.toml":          "discharged - records its own 2026-07-26 drop",
+        # tier=operator as a READING-RUN HOLD, the L2 pattern named in the note
+        # below, and the rule that note states applies to it verbatim: promote off
+        # `operator` in the SAME commit that replaces the predicted BATCH_COMPLETE
+        # pin with the measured one, or the tier becomes an unrecorded standing
+        # call. No operator work is owed - seam driver, no RequiresFlight verb, no
+        # human judgement in the loop - only the flight that turns a derived tally
+        # into a measured one.
+        "L3-strategy-currency-conversion.toml":
+                                            "reading-run hold - operator tier keeps a PREDICTED BATCH_COMPLETE pin out of every cadence; no human work owed",
         # NOTE, no entry owed: `L2-ledger-groundtruth-career` was authored
         # `operator` for the length of one reading run - the tier that keeps a
         # PREDICTED BATCH_COMPLETE pin out of every cadence - and was promoted to
