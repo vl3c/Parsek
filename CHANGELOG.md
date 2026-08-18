@@ -21,6 +21,29 @@ All notable changes to Parsek are documented here.
 
 ### Features
 
+- The Basic interface no longer offers to loop a mission by hand. In Basic, the Missions
+  window drops the per-mission `Loop` checkbox, the period box next to it (the one with the
+  Sec / Min / Hour / Auto button), and the row checkboxes that pick which parts of a mission
+  a loop replays; Settings drops its whole `Looping` section along with them, since the
+  auto-launch period there is simply the period of any mission set to `auto`. Looping a
+  mission manually is a visual effect - it re-flies one recorded mission over and over so
+  you can watch it - and it costs nothing and earns nothing; those controls were the
+  busiest, least self-explanatory thing on the window, and the row checkboxes in particular
+  did nothing at all unless a loop was running. Everything that tells you about a loop
+  already running stays exactly where it was: the countdown to the next launch,
+  `Warp to...`, `Watch`, `Looped by route`, and the whole mission tree. Nothing is turned
+  off or thrown away by the switch - a mission you set looping in Advanced keeps looping in
+  Basic, ghosts and countdown and all, and your choice of which parts to include is
+  remembered; rows you excluded still show, greyed out. Switch back to Advanced and every
+  control returns with its settings intact. Supply routes keep delivering on their own
+  schedule either way: a route's timing comes from the route itself, set up in the Logistics
+  window, which Basic keeps. Two of the hidden `Looping` settings do also fine-tune how a
+  route's ghost flies; they keep working exactly as you left them - Basic only means you
+  cannot change those two without switching back - and both are already on the value a
+  route wants, so routes need no attention in Basic. The one thing that follows: a mission looped in Advanced can only be
+  un-looped, or retimed, in Advanced - the interface setting is always one click away in
+  Settings.
+
 - The check that verifies Parsek's career bookkeeping against the game's own saved career now runs unattended. It re-saves the career, reads the file back without consulting Parsek's own records, rebuilds the funds, science and reputation from the flight ledger, and compares the two - until now nothing drove it except a person clicking a button. An automated test flight now runs it on every nightly pass and fails if the two disagree, if the comparison quietly stops comparing anything, or if the career's money moved when nothing should have moved it. Test-tooling only; no gameplay change.
 
 - A safety allowance in the replay's transfer solver is now known to actually WORK, not merely
