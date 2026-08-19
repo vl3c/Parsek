@@ -670,6 +670,37 @@ class CommittedFixtureSweepTests(unittest.TestCase):
         # `test_every_persistent_sfs_parses_with_pinned_counts` are therefore not
         # bookkeeping here: they are the fixture's whole reason to exist.
         "duna-park-probe": True,
+        # THE SECOND PARSEK-STRIPPED DERIVED FIXTURE, and the same strip for the
+        # same reason. `eve-park-kerbalx` is `eve-orbit-recorded` (B16's
+        # --keep-parsek harvest, which carries 8 committed recordings) with
+        # Parsek's own state removed: the `Parsek/` sidecar directory pruned by a
+        # harvest WITHOUT --keep-parsek, plus a manual brace-balanced excision of
+        # the residual ParsekScenario CHILDREN. It belongs HERE and not in
+        # RECORDED_FIXTURES precisely because the strip puts it back under the
+        # zero-trees contract this map asserts.
+        #
+        # THE NODE IS STILL PRESENT (True) AND THAT IS DELIBERATE: only the
+        # children were excised. A flyable template must carry the node or the
+        # FLIGHT route records nothing.
+        #
+        # FIVE CHILD NODE TYPES WERE REMOVED, not `duna-park-probe`'s three:
+        # RECORDING_TREE (1), GROUP_HIERARCHY (1) and MILESTONE_STATE (4) - the
+        # B23 recipe - PLUS KERBAL_SLOTS (1) and CREW_REPLACEMENTS (1), which
+        # exist here only because the source recording is CREWED. Those two are
+        # Parsek's crew-reservation bookkeeping (Jebediah reserved, `Suster
+        # Kerman` allocated as the stand-in) and they POINT AT THE RECORDING THAT
+        # WAS JUST REMOVED, so leaving them would be residue by any reading. What
+        # survives is Suster as an ordinary Available pilot and Jebediah Assigned
+        # aboard the pod exactly as before - the WORLD is untouched.
+        #
+        # WHY THE STRIP IS LOAD-BEARING, so a future re-harvest does not undo it:
+        # `B24-gilly-orbit` starts its recording through the seam on a vessel that
+        # `eve-orbit-recorded` holds a COMMITTED TREE for, and a seam
+        # StartRecording cannot open a standalone tree on a committed tree's own
+        # launch (the same defect quoted just above). The zero-trees assertions in
+        # `test_every_persistent_sfs_parses_with_pinned_counts` are therefore not
+        # bookkeeping here either: they are the fixture's whole reason to exist.
+        "eve-park-kerbalx": True,
         "eva2-lko-crewed": True,
         "eva3-pad-3crew": True,
         "fresh-career": False,
@@ -750,6 +781,64 @@ class CommittedFixtureSweepTests(unittest.TestCase):
             "branchPoints": {},
             "minAuthoritativeSidecars": 4,
             "recordingIds": ["05ceee33806d4079a1d9d125a1359115"],
+            "schemaGeneration": 4,
+        },
+        # --- THE ECCENTRIC-MOON LOOP SUBJECT -----------------------------
+        # PROVENANCE: gilly-orbit-recorded <- B24-gilly-orbit, run
+        # 2026-08-19_1655, PASS attempt 1 (mission wall 1,075 s, every assertion
+        # met with NO parameter moved), --keep-parsek. The crewed Kerbal X upper
+        # stage starts already parked in Eve orbit at ~4,986 km, Hohmann-transfers
+        # to GILLY and commits in a 27,024 x 26,321 m Gilly park (ecc 0.009).
+        #
+        # WHY IT EXISTS ALONGSIDE `ike-orbit-recorded`, since both are
+        # orbit-rooted same-parent moon transfers: Ike is near-circular (e 0.03),
+        # near-equatorial (i 0.2 deg) and its SOI is 32.80% of its own orbital
+        # radius, so the phase-lock TOLERANCE there is ~3,420 s wide and any
+        # residual disappears into it. Gilly is e 0.55, i 12 deg and SOI/SMA
+        # 0.40%, giving tol = SOI/v_orb = 247.6 s at the circular speed (133-460 s
+        # across the eccentricity swing) - the tightest duty cycle in the stock
+        # system, tighter than Pol's. This is the payload V15M/V15T read, and the
+        # first on which a phase-lock residual would be measurable at all.
+        #
+        # THE ONE-RECORDING TOPOLOGY IS THE CONTRACT, not an accident. B24 ran
+        # against the Parsek-stripped `eve-park-kerbalx` for exactly this reason
+        # and the seam answered `startrecording
+        # recordingId=77f724bb1d4844c3b132a1ccc00a7df3 already=false` (KSP.log
+        # 11910) - `already=FALSE`, minting the fresh standalone Eve-rooted tree
+        # 355840bc81bf45f8868b7d2508ca6de4. If a future re-harvest reads 2 or 8
+        # recordings here that defect is back (8 is the specific number to watch:
+        # it is what `eve-orbit-recorded`, the save `eve-park-kerbalx` was
+        # stripped from, carries). See todo-and-known-bugs.md ->
+        # SEAM-STARTRECORDING-JOINS-COMMITTED-TREE.
+        #
+        # `branchPoints` is EMPTY and must stay so: one craft, no separation event
+        # anywhere in the profile (the boosters and the flameout-staged core were
+        # shed on B16's Kerbin ascent, two missions upstream).
+        #
+        # THE SEAM THE LOOP LANES CONSUME, read off the committed `.prec.txt`
+        # ORBIT_SEGMENT chain and quoted here because V15M/V15T anchor their
+        # brackets on it: SEVEN segments, Eve 0-3 then Gilly 4-6, with the body
+        # change at the adjacent `endUT == startUT` pair 15,879,012.441954412.
+        # Against the recording's own `explicitStartUT = 15,764,033.04501527`
+        # that is a seam offset of 114,979.397 s - the number
+        # MissionPeriodicity's `Orbital(Gilly) same-parent ... off=` should
+        # reproduce (the V6M convention: measured from the recording's EXPLICIT
+        # start, NOT from segment 0's startUT, which here is 15,764,035.545 and
+        # would put every bracket 2.500 s off).
+        #
+        # AND THE DESTINATION TAIL IS ONLY 381.489 s LONG (explicitEndUT
+        # 15,879,393.931458754 minus the seam) against a 115,360.886 s span, i.e.
+        # 0.33% of the recording. That is by far the shortest destination phase of
+        # any loop subject and it is what bounds where V15M/V15T may place a park
+        # epoch; it is a property of Gilly's 126,123 m SOI, not of the flight.
+        "gilly-orbit-recorded": {
+            "trees": 1, "committedTrees": 1, "recordings": 1,
+            "supersedes": 0, "tombstones": 0, "rewind_points": 0,
+            "rewind_retirements": 0,
+            "terminalStates": {"Orbiting": 1},
+            "branchPoints": {},
+            "minAuthoritativeSidecars": 4,
+            "recordingIds": ["77f724bb1d4844c3b132a1ccc00a7df3"],
             "schemaGeneration": 4,
         },
         # --- THE MOON LOOP-VALIDATION PAIR -------------------------------

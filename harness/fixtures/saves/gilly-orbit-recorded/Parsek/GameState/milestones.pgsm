@@ -1,0 +1,42 @@
+version = 1
+MILESTONE
+{
+	id = 22d50b709c7d4700bfe4a0a1fa009da0
+	startUT = 0
+	endUT = 15764033.005015271
+	recordingId = 
+	committed = True
+	lastReplayedIdx = 0
+	GAME_STATE_EVENT
+	{
+		ut = 15764032.365015285
+		type = 18
+		key = Orbit
+		detail = funds=12000;rep=2;sci=1
+	}
+}
+MILESTONE
+{
+	id = 80d115f561b7446bb40743dc49d9d72c
+	startUT = 15764033.005015271
+	endUT = 15879215.371462746
+	recordingId = 
+	committed = True
+	lastReplayedIdx = 1
+	GAME_STATE_EVENT
+	{
+		ut = 15879012.441954412
+		type = 18
+		key = Gilly/Flyby
+		detail = funds=25000;rep=1;sci=0
+		recordingId = 77f724bb1d4844c3b132a1ccc00a7df3
+	}
+	GAME_STATE_EVENT
+	{
+		ut = 15879012.441954412
+		type = 18
+		key = Eve/Escape
+		detail = funds=15840;rep=1;sci=0
+		recordingId = 77f724bb1d4844c3b132a1ccc00a7df3
+	}
+}
