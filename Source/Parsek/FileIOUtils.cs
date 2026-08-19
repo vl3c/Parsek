@@ -1,4 +1,3 @@
-// CI-CANARY (temporary, will be reverted): RecordingStore.CommittedRecordings raw-read token to prove the ERS/ELS grep-audit gate can fail on the Linux Actions runner.
 using System;
 using System.Collections.Generic;
 using System.IO;
