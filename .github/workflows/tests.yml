@@ -4,16 +4,40 @@ on:
   pull_request:
   push:
     branches: [main]
+  workflow_dispatch:
+
+# The job executes PR-authored shell (scripts/cloud-test.sh); keep the ambient
+# token read-only.
+permissions:
+  contents: read
 
 concurrency:
   group: tests-${{ github.ref }}
-  cancel-in-progress: true
+  # Cancel superseded runs on PR updates only. Main-branch pushes must each run
+  # to completion: back-to-back merges would otherwise leave the earlier merge
+  # commit with a cancelled (never verified) check and a cancelled README badge.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   tests:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
+      # Fork PRs get no repo secrets, so the private DLL checkout below cannot
+      # authenticate; fail fast with a readable reason instead of an opaque
+      # "repository not found" from actions/checkout.
+      - name: Check ksp-refs access
+        env:
+          HAS_KEY: ${{ secrets.KSP_REFS_DEPLOY_KEY != '' }}
+        run: |
+          if [ "$HAS_KEY" != "true" ]; then
+            echo "::error::KSP_REFS_DEPLOY_KEY is unavailable (fork PRs receive no secrets). CI needs the private vl3c/ksp-refs reference-DLL repo, so it can only run for branches on vl3c/Parsek itself."
+            exit 1
+          fi
+
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
       # Private KSP/Unity/mod reference DLLs (see the ksp-refs README).
       # Authenticated via a read-only deploy key stored as a repo secret;
@@ -24,14 +48,26 @@ jobs:
           repository: vl3c/ksp-refs
           ssh-key: ${{ secrets.KSP_REFS_DEPLOY_KEY }}
           path: ksp-refs
+          persist-credentials: false
+
+      # The runner's nuget cache is always cold, so without this the
+      # xunit.runner.console prefetch in cloud-test.sh plus the test-project
+      # restore hit nuget.org on every run.
+      - name: Cache NuGet packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.nuget/packages
+          key: nuget-${{ runner.os }}-${{ hashFiles('Source/**/*.csproj') }}
+          restore-keys: nuget-${{ runner.os }}-
 
       # Ubuntu's apt-built .NET SDK ships no net472 testhost, so the suite
       # runs under mono + the xunit console runner via scripts/cloud-test.sh
-      # (same path cloud agent sessions use). dotnet SDK is preinstalled.
+      # (same path cloud agent sessions use). dotnet SDK is preinstalled;
+      # mono-devel also supplies the net472 targeting pack the build needs.
       - name: Install mono
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y -qq mono-devel
+          sudo apt-get install -y mono-devel
 
       - name: Build + run xUnit suite
         env:

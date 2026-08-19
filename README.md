@@ -1,6 +1,6 @@
 # Parsek
 
-[![tests](https://github.com/vl3c/Parsek/actions/workflows/tests.yml/badge.svg?branch=main)](https://github.com/vl3c/Parsek/actions/workflows/tests.yml)
+[![tests](https://github.com/vl3c/Parsek/actions/workflows/tests.yml/badge.svg?branch=main&event=push)](https://github.com/vl3c/Parsek/actions/workflows/tests.yml)
 
 ![Parsek](img/ksp-parsek-stylized.jpg)
 
