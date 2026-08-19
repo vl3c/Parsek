@@ -1,7 +1,6 @@
 using System;
 using System.Diagnostics;
 using System.IO;
-using System.Runtime.InteropServices;
 using System.Text;
 using Xunit;
 
@@ -37,10 +36,13 @@ namespace Parsek.Tests
 
         private static void RunGrepAuditScript(string scriptFileName)
         {
-            // Non-Windows CI runners may not have pwsh; also skip if the binary
-            // isn't on PATH. This is a regression gate, not a correctness test
-            // (the script itself is not platform-specific but the caller is).
-            if (!IsWindowsWithPwsh())
+            // Cross-platform pwsh probe (PowerShell 7 ships on ubuntu-latest CI
+            // runners, so this gate runs there too); skip only when the binary
+            // is genuinely absent from PATH. Mirrors the probe in the other
+            // GrepAudit* gate files.
+            string pwshPath;
+            if (!TryFindExecutable("pwsh", out pwshPath)
+                && !TryFindExecutable("pwsh.exe", out pwshPath))
             {
                 // xUnit v2.4 has no first-class Skip; emitting via stdout keeps
                 // the intent auditable without failing the suite.
@@ -55,7 +57,7 @@ namespace Parsek.Tests
 
             var psi = new ProcessStartInfo
             {
-                FileName = "pwsh",
+                FileName = pwshPath,
                 Arguments = string.Format(
                     "-NoProfile -File \"{0}\" -RepoRoot \"{1}\"",
                     scriptPath, repoRoot),
@@ -89,17 +91,21 @@ namespace Parsek.Tests
             }
         }
 
-        private static bool IsWindowsWithPwsh()
+        private static bool TryFindExecutable(string fileName, out string path)
         {
-            if (!RuntimeInformation.IsOSPlatform(OSPlatform.Windows)) return false;
+            path = null;
             string pathEnv = Environment.GetEnvironmentVariable("PATH") ?? string.Empty;
             foreach (var dir in pathEnv.Split(Path.PathSeparator))
             {
                 if (string.IsNullOrWhiteSpace(dir)) continue;
                 try
                 {
-                    string candidate = Path.Combine(dir, "pwsh.exe");
-                    if (File.Exists(candidate)) return true;
+                    string candidate = Path.Combine(dir, fileName);
+                    if (File.Exists(candidate))
+                    {
+                        path = candidate;
+                        return true;
+                    }
                 }
                 catch
                 {
