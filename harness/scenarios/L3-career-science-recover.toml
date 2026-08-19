@@ -29,6 +29,59 @@ tier = "operator"
 # THE STRATEGY LEG IS DELIBERATELY ABSENT. `L3-strategy-currency-conversion` owns
 # that proof and is already armed and pinned. Two independent claims on one flight
 # would make a red ambiguous.
+#
+# ###################### STATUS: BLOCKED ON A FIXTURE ######################
+# THIS SPEC CANNOT PASS ON `career-pad-craft` AND THE REASON IS SETTLED. Three
+# attempts across two runs on 2026-08-19; the second run flew a textbook mission
+# and still condemned itself, which is the machine working, not failing.
+#
+#   `2026-08-19_1817` + retry `_1818_..._a2`  INVALID(mission), 89 s total.
+#       Died at 1.2 s in PRELAUNCH: `flight-leg vessel-lost (unreadable after
+#       repeated telemetry failures)`. CAUSE: kRPC raises `Maneuver node editing
+#       is not available` on a CAREER save's un-upgraded Tracking Station and
+#       three consecutive raises escalate to a `vessel_lost` snapshot. FIXED by
+#       `science_bench_recover.make_control` opting into
+#       `tolerate_unreadable_nodes=True`, the per-mission flag CL-3 already used
+#       for the identical finding.
+#
+#   `2026-08-19_1823` + retry `_1831_..._a2`  INVALID(mission), 1010 s total,
+#       461 s of real flight per attempt, both IDENTICAL.
+#       WHAT WENT RIGHT, and it is most of the forge: peak apoapsis 19,990 m
+#       (inside this spec's 6,000-30,000 window), chute armed at the apoapsis
+#       crossing, `LANDED`, and COLLECT ran every experiment aboard
+#       (`run_science_experiments ran=3 skipped=0 failed=0`, `experimentsAboard=3
+#       experimentsAvailable=3 dataMax=3`). The career funds pool moved on its own
+#       (500000 -> 530400, the stock launch milestones) and all three
+#       career-scoped channels read cleanly on every frame.
+#       WHAT BLOCKS IT: TRANSMIT ran its full 120 s budget over four bounded
+#       re-emit sweeps and credited nothing - ten identical
+#       `No transmitters available to transmit the data` raises out of kRPC -
+#       terminal `transmit-credited-no-science`, `scienceBaseline=100.000
+#       scienceNow=100.000`.
+#       ROOT CAUSE, DECOMPILED RATHER THAN GUESSED: kRPC filters transmitters by
+#       `IScienceDataTransmitter.CanTransmit()`, and the shipped
+#       `ModuleDataTransmitter.CanTransmit()` requires `antennaType != INTERNAL`
+#       BEFORE it consults CommNet at all. `AntennaType.INTERNAL` is enum 0, and
+#       the Jumping Flea's only transmitter is `mk1pod.v2`'s built-in INTERNAL
+#       antenna - so stock forbids transmitting science from this craft, full
+#       stop. Nothing about CommNet, ElectricCharge (50 units, unspent) or the
+#       ground stations is involved.
+#
+# THE MISSION IS RIGHT AND THE FIXTURE IS WRONG, which is the side
+# `design-autotest-mission-library.md` Amendment A already puts this on: the
+# terminal that fired names "no antenna" first, and its class is the one the
+# amendment describes as "the fixture is wrong, and re-flying it changes nothing".
+# The fix is a SIBLING fixture whose craft carries a DIRECT antenna (the
+# `SurfAntenna` is already in this fixture's purchased-parts set), forged and
+# harvested rather than hand-spliced. Sizing, and why the cheap route does not
+# exist, are in the CAREER-FORGE-NEEDS-A-DIRECT-ANTENNA entry of
+# `docs/dev/todo-and-known-bugs.md`.
+#
+# THE SPEC STAYS COMMITTED AND STAYS `operator`, which is why that tier is not a
+# cadence tier: it runs only under an explicit `--id`, so a blocked spec costs
+# nothing until its fixture lands, and keeping it committed keeps the diagnosis
+# above attached to the thing it is about.
+# #########################################################################
 description = "Reading run: fly the committed career pad craft, collect and transmit its science, recover the craft, and let the scene-exit auto-commit produce a career save that EARNED - the post-fix career forge subject."
 instanceProfile = "stock-minimal"
 tags = ["ledger", "L3", "career-forge", "science", "recovery", "reading-run"]

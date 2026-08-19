@@ -155,12 +155,46 @@ def strip_rewind_save_hints(text: str):
     return "\n".join(out), cleared
 
 
+def read_game_mode(sfs_text: str) -> str:
+    """The GAME node's `Mode = ...` value, upper-cased, or "" when unreadable.
+
+    Pure text read of the FIRST TOP-LEVEL `Mode` line, which is where KSP writes
+    `SANDBOX` / `SCIENCE_SANDBOX` / `CAREER`. Returns "" rather than guessing on a
+    save with no Mode line, so the caller can fall back loudly.
+
+    The indent is bounded to ONE tab/space on purpose rather than matched with
+    `\\s*`: `Mode` is a common value name inside nested nodes (part modules and
+    several mods write one), and a greedy-indent match would read whichever came
+    first in the file and could silently stamp a fixture from a part's setting.
+    KSP writes the GAME node's own values at exactly one tab."""
+    m = re.search(r"^[ \t]?Mode\s*=\s*(\S+)\s*$", sfs_text, re.MULTILINE)
+    return m.group(1).strip().upper() if m else ""
+
+
+def title_suffix_for_mode(mode: str) -> str:
+    """The committed-fixture title suffix for a GAME `Mode` value.
+
+    The convention is the mode's own name in parentheses - `(SANDBOX)`,
+    `(CAREER)`, `(SCIENCE_SANDBOX)` - which is what `build_career_pad_craft.py`
+    already writes by hand for the fixture it builds by construction. An
+    unreadable mode falls back to `(SANDBOX)`, the pre-2026-08-19 hardcoded value,
+    so a save this cannot read behaves exactly as it did before."""
+    return "(%s)" % (mode if mode else "SANDBOX")
+
+
 def normalize_title(sfs_text: str, title: str) -> str:
-    """Rewrite the GAME node's `Title = ...` line to `<title> (SANDBOX)` (the
-    committed-fixture title convention, mirroring b2-lko-craft / bdock-station-craft).
-    Pure text substitution on the first Title line; leaves the file otherwise
-    byte-identical. Returns the new text."""
-    want = "%s (SANDBOX)" % title
+    """Rewrite the GAME node's `Title = ...` line to `<title> (<MODE>)` (the
+    committed-fixture title convention, mirroring b2-lko-craft / bdock-station-craft
+    for SANDBOX and career-pad-craft for CAREER). Pure text substitution on the
+    first Title line; leaves the file otherwise byte-identical. Returns the new text.
+
+    THE SUFFIX IS DERIVED FROM THE SAVE, NOT HARDCODED (career-ledger task C.3).
+    It read `(SANDBOX)` unconditionally until 2026-08-19, which was correct only
+    because every forge until then produced a sandbox save; the first CAREER
+    harvest would have stamped a fixture whose title contradicted its own
+    `Mode = CAREER` line, and a fixture that lies about its own mode is the kind
+    of thing a later reader trusts."""
+    want = "%s %s" % (title, title_suffix_for_mode(read_game_mode(sfs_text)))
     # Match a leading-whitespace `Title = <anything>` line (the GAME node's title).
     pattern = re.compile(r"^(\s*Title\s*=\s*).*$", re.MULTILINE)
     if pattern.search(sfs_text):
@@ -353,7 +387,8 @@ def harvest(save_dir: str, target_name: str, title: str, force: bool,
     with open(os.path.join(target, "persistent.sfs"), "w", encoding="utf-8",
               newline="\n") as fh:
         fh.write(normalized)
-    log("wrote persistent.sfs (title -> %s (SANDBOX))" % title)
+    log("wrote persistent.sfs (title -> %s %s)"
+        % (title, title_suffix_for_mode(read_game_mode(sfs_text))))
 
     # 2) other kept files (loadmeta) verbatim.
     for name in _KEEP_FILES:

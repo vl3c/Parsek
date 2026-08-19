@@ -414,7 +414,7 @@ used (reading run, then arming).
 | Wave | What it delivers | Status |
 | --- | --- | --- |
 | **1. Capability** | The three actions, the six channels, `science_bench_recover`, and the headless proofs. `design-autotest-mission-library.md` Amendment A is the binding contract. **No spec, no fixture, no flight.** | **DONE 2026-08-19** (`c2-postfix-forge`) |
-| **2. Forge + harvest** | A committed spec + whatever fixture work it needs, ONE driven flight, and the produced save harvested as a fixture. | **SPEC COMMITTED, UNFLOWN** (`postfix-career-flight`): `harness/scenarios/L3-career-science-recover.toml`, `tier = "operator"`, no pins. **NO fixture work was needed** - see the struck bullet below. |
+| **2. Forge + harvest** | A committed spec + whatever fixture work it needs, ONE driven flight, and the produced save harvested as a fixture. | **SPEC COMMITTED AND FLOWN 3x (2026-08-19); BLOCKED ON FIXTURE WORK** (`postfix-career-flight`): `harness/scenarios/L3-career-science-recover.toml`, `tier = "operator"`, no pins. Flight 1 found and fixed a career-save telemetry blocker; flight 2 flew a textbook mission and hit a STOCK RULE - an INTERNAL antenna cannot transmit science - which no re-fly changes. The "whatever fixture work it needs" clause is what remains: a sibling craft carrying a DIRECT antenna. See the two bullets below. |
 | **3. Replay proof** | Replay the harvested ledger headlessly (the A.0 method) and show it closes; then arm B.4 strict on it. | open |
 
 **What wave 2 needs, stated concretely so it is not re-derived:**
@@ -495,6 +495,30 @@ used (reading run, then arming).
   additionally gates on the peak apoapsis. **The transferable lesson for the next
   career lane: a `career-pad-craft`-family fixture needs BOTH opt-ins, and the
   facility tier is a fixture property worth checking alongside the part list.**
+- **A FOURTH FIXTURE PROPERTY, and this one is the wave's actual blocker: the
+  craft carries no antenna that stock will transmit science over.** Flight 2
+  (`2026-08-19_1823` + retry `_1831_..._a2`) flew a textbook mission - peak
+  apoapsis 19,990 m inside the window, landed under canopy, COLLECT ran all three
+  experiments - and then ran TRANSMIT's full 120 s budget over four bounded
+  re-emit sweeps for ten identical `No transmitters available to transmit the
+  data` raises out of kRPC, terminal `transmit-credited-no-science`. Decompiling
+  the shipped `Assembly-CSharp`, `ModuleDataTransmitter.CanTransmit()` requires
+  `antennaType != INTERNAL` BEFORE it consults CommNet, and `AntennaType.INTERNAL`
+  is enum 0 - so the Jumping Flea's only transmitter, `mk1pod.v2`'s built-in one,
+  can never transmit science. The mission behaved correctly: this is the fixture
+  fault class Amendment A describes as "the fixture is wrong, and re-flying it
+  changes nothing", and the terminal's own reason names "no antenna" first.
+  **The remaining wave-2 work is therefore a SIBLING fixture whose craft carries a
+  DIRECT antenna.** `SurfAntenna` (Communotron 16-S) is ALREADY in this fixture's
+  purchased-parts set, so no tech-tree work is needed - but no committed `.craft`
+  for the Jumping Flea exists anywhere (it lives only as a FLIGHTSTATE VESSEL node
+  inside `b1-pad-craft`), so `build_career_pad_craft.py`'s donor-splice has no
+  donor and hand-authoring a surface-attached PART node into a FLIGHTSTATE is the
+  failure mode the automation-first fixture rule exists to avoid. The route is the
+  FORGE precedent: build the craft by construction, add a `FORGE-*` spec that
+  launches it onto the pad over a CAREER base, harvest it, register it, re-point
+  this spec. Full sizing in CAREER-FORGE-NEEDS-A-DIRECT-ANTENNA
+  (`todo-and-known-bugs.md`).
 - **One constant to WATCH on the first flight, named in advance so it is not
   diagnosed from scratch:** `mlib.SBR_RECOVER_CREDIT_GRACE_FRAMES` (6 frames,
   ~3 s at the ~0.5 s poll cadence) does double duty. It bounds the read-ordering
@@ -507,7 +531,9 @@ used (reading run, then arming).
   deliberately NOT pre-tuned. Expect it to be the first number wave 2 has to
   bump, and bump it off the measured reload rather than a guess. The same note is
   on `[params.recoverTimeoutSeconds]` in the mission schema, which is where a
-  spec author sizing the phase will be looking.
+  spec author sizing the phase will be looking. **NOT YET EXERCISED (2026-08-19):**
+  no flight has reached RECOVER, so this constant is still unmeasured and the
+  prediction that it would be the first number to need a bump is still open.
 - **Two spec-authoring notes the promoted spec already encodes**, both worth
   keeping when it is copied out of `test_run_smoke.py`. `recoverMinFundsGain` is
   a small POSITIVE value even though the schema allows 0.0 - at 0.0 the terminal
