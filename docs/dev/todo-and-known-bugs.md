@@ -440,7 +440,7 @@ first flight to reach them found two of them broken.
 
 ---
 
-## ~~CAREER-RECOVERY-FUNDS-NOT-LEDGERED: a recovered vessel's funds credit is observed as an event and never written as a ledger row, so a replay reconstructs funds short by the whole refund~~ [FOUND 2026-08-19 by `L3-career-science-recover` flight 3 (run `2026-08-19_1912`), the first driven run ever to recover a vessel. Cause read off the flight log, not guessed. CAPTURE-SIDE FIX LANDED 2026-08-19 on branch `career-capture-fixes`; the two `C2CareerPostFixReplayTests` pins below DO NOT move until the fixture is re-flown and re-harvested]
+## ~~CAREER-RECOVERY-FUNDS-NOT-LEDGERED: a recovered vessel's funds credit is observed as an event and never written as a ledger row, so a replay reconstructs funds short by the whole refund~~ [FOUND 2026-08-19 by `L3-career-science-recover` flight 3 (run `2026-08-19_1912`), the first driven run ever to recover a vessel. Cause read off the flight log, not guessed. CAPTURE-SIDE FIX LANDED 2026-08-19 on branch `career-capture-fixes` (PR #1498). **LIVE-PROVEN AND CLOSED 2026-08-20** by the re-fly + re-harvest on `career-closes-to-zero`: run `2026-08-19_2130_L3-career-science-recover` flew PASS on attempt 1, and the `C2CareerPostFixReplayTests` pins below are REPLACED by tight closure assertions over the re-harvested fixture - see "The re-harvest that closed it"]
 
 **Fix:** the guard's input was wrong, exactly as this entry predicted, and the
 reason is structural rather than a race. Decompiled `VesselRecovery.OnVesselRecovered`
@@ -519,7 +519,39 @@ STRATEGY-SCIENCE-CONVERSION-LEAK, mirrored.
 
 ---
 
-## ~~CAREER-SCIENCE-SEED-LOST-ON-FLIGHT-ROUTE: the science and reputation seeds never land when a career is entered through FLIGHT, so a replay reconstructs the pool short by the whole starting balance~~ [FOUND 2026-08-19 by `L3-career-science-recover` flight 3 (run `2026-08-19_1912`). Cause read off the flight log. CAPTURE-SIDE FIX LANDED 2026-08-19 on branch `career-capture-fixes`; the two `C2CareerPostFixReplayTests` pins below DO NOT move until the fixture is re-flown and re-harvested]
+
+### The re-harvest that closed it (2026-08-20)
+
+A capture-side fix cannot retro-fill a committed `ledger.pgld`, so this entry could
+only ever close by RE-FLYING the spec and harvesting the save again over fixed code.
+That is run `2026-08-19_2130_L3-career-science-recover`: PASS on attempt 1, 469 s
+wall / 341 s mission, every phase reached, every verifier PASS or SKIPPED, zero
+`[Parsek][ERROR]` lines. Its save REPLACES the wave-2 fixture at
+`Source/Parsek.Tests/Fixtures/C2CareerPostFix/`, and `C2CareerPostFixReplayTests` is
+rewritten from divergence-characterization into a closes-to-zero proof.
+
+KSP's own pools came out IDENTICAL across the two flights (536558 / 111.599998 /
+1.99999881, the same three science subjects at the same values), so the two runs
+differ in the LEDGER and nowhere else - the reconstruction moved, the thing being
+reconstructed did not:
+
+| pool | reconstructed | save | delta | was |
+| --- | --- | --- | --- | --- |
+| FUNDS | 536558 | 536558 | **0** | -4558 |
+| SCIENCE | 111.60000014305115 | 111.599998 | **+2.14e-06** | -100 |
+| REPUTATION | 1.9999990463256836 | 1.99999881 | **+2.36e-07** | -0.00148 |
+
+The remaining deltas are float32 representation gaps against pools KSP rounded into
+its save, not residual leaks: the smallest real row in this ledger is 3 science /
+800 funds, six orders of magnitude above either.
+
+The ledger grew from 13 rows to 14 - the new one is the vessel-recovery
+`FundsEarning` - and `initialScience` reads 100 where it read 0. The spec is
+PROMOTED `operator` -> `nightly` in the same commit, with its measurements pinned
+(`recordings.count` exact at 2, plus three career-leg log tokens, one per capture
+defect).
+
+## ~~CAREER-SCIENCE-SEED-LOST-ON-FLIGHT-ROUTE: the science and reputation seeds never land when a career is entered through FLIGHT, so a replay reconstructs the pool short by the whole starting balance~~ [FOUND 2026-08-19 by `L3-career-science-recover` flight 3 (run `2026-08-19_1912`). Cause read off the flight log. CAPTURE-SIDE FIX LANDED 2026-08-19 on branch `career-capture-fixes` (PR #1498). **LIVE-PROVEN AND CLOSED 2026-08-20** by the re-fly + re-harvest on `career-closes-to-zero`: run `2026-08-19_2130_L3-career-science-recover` flew PASS on attempt 1, and the `C2CareerPostFixReplayTests` pins below are REPLACED by tight closure assertions over the re-harvested fixture - see "The re-harvest that closed it"]
 
 **Fix:** the refusing guard was left exactly as it is - it is correct, and this fix
 is entirely upstream of it, as this entry called for.
@@ -619,7 +651,39 @@ against a ledger that cannot reproduce its own starting balance.
 
 ---
 
-## ~~CAREER-TRANSMIT-SCIENCE-EMITS-NO-CORROBORATING-EVENT: a subject is written straight to the ledger with an empty reason and no `ScienceChanged` event, so the post-walk reconcile always mismatches and dumps at ERROR~~ [FOUND 2026-08-19 by `L3-career-science-recover` flight 3 (run `2026-08-19_1912`). This is the finding that actually red the run. CAPTURE-SIDE FIX LANDED 2026-08-19 on branch `career-capture-fixes`. The TITLE was wrong: the subject was RECOVERED, not transmitted - see the correction below]
+
+### The re-harvest that closed it (2026-08-20)
+
+A capture-side fix cannot retro-fill a committed `ledger.pgld`, so this entry could
+only ever close by RE-FLYING the spec and harvesting the save again over fixed code.
+That is run `2026-08-19_2130_L3-career-science-recover`: PASS on attempt 1, 469 s
+wall / 341 s mission, every phase reached, every verifier PASS or SKIPPED, zero
+`[Parsek][ERROR]` lines. Its save REPLACES the wave-2 fixture at
+`Source/Parsek.Tests/Fixtures/C2CareerPostFix/`, and `C2CareerPostFixReplayTests` is
+rewritten from divergence-characterization into a closes-to-zero proof.
+
+KSP's own pools came out IDENTICAL across the two flights (536558 / 111.599998 /
+1.99999881, the same three science subjects at the same values), so the two runs
+differ in the LEDGER and nowhere else - the reconstruction moved, the thing being
+reconstructed did not:
+
+| pool | reconstructed | save | delta | was |
+| --- | --- | --- | --- | --- |
+| FUNDS | 536558 | 536558 | **0** | -4558 |
+| SCIENCE | 111.60000014305115 | 111.599998 | **+2.14e-06** | -100 |
+| REPUTATION | 1.9999990463256836 | 1.99999881 | **+2.36e-07** | -0.00148 |
+
+The remaining deltas are float32 representation gaps against pools KSP rounded into
+its save, not residual leaks: the smallest real row in this ledger is 3 science /
+800 funds, six orders of magnitude above either.
+
+The ledger grew from 13 rows to 14 - the new one is the vessel-recovery
+`FundsEarning` - and `initialScience` reads 100 where it read 0. The spec is
+PROMOTED `operator` -> `nightly` in the same commit, with its measurements pinned
+(`recordings.count` exact at 2, plus three career-leg log tokens, one per capture
+defect).
+
+## ~~CAREER-TRANSMIT-SCIENCE-EMITS-NO-CORROBORATING-EVENT: a subject is written straight to the ledger with an empty reason and no `ScienceChanged` event, so the post-walk reconcile always mismatches and dumps at ERROR~~ [FOUND 2026-08-19 by `L3-career-science-recover` flight 3 (run `2026-08-19_1912`). This is the finding that actually red the run. CAPTURE-SIDE FIX LANDED 2026-08-19 on branch `career-capture-fixes` (PR #1498). **LIVE-PROVEN AND CLOSED 2026-08-20**: run `2026-08-19_2130_L3-career-science-recover` flew PASS on attempt 1 with **zero `[Parsek][ERROR]` lines** - this entry's ERROR dump was the single line that red the reading run, and the same flight path now emits none. The TITLE was wrong: the subject was RECOVERED, not transmitted - see the correction below]
 
 **Fix, and one correction to this entry's own reading.** All three symptoms - the
 missing event, the empty reason, and `method=Transmitted` - are ONE cause, and it is
