@@ -8,6 +8,14 @@ All notable changes to Parsek are documented here.
 
 ### Dev
 
+- GitHub Actions CI: every PR and every push to `main` now builds the mod and runs
+  the xUnit suite on `ubuntu-latest` via `scripts/cloud-test.sh`
+  (`.github/workflows/tests.yml`). The private `vl3c/ksp-refs` DLL repo is cloned
+  through a read-only deploy key stored as the `KSP_REFS_DEPLOY_KEY` Actions
+  secret. Status shows as PR checks and the README badge. Caveat: the pwsh
+  grep-audit gates (ERS/ELS routing et al.) self-skip on non-Windows, so they
+  still gate only on local Windows `dotnet test` runs, not in Actions.
+
 - The xUnit suite now runs on Linux (mono) for cloud agent sessions and CI: added
   `scripts/cloud-test.sh` (build + xunit console runner; `dotnet test` lacks a
   net472 testhost on Linux) and a cloud-only SessionStart hook that provisions
