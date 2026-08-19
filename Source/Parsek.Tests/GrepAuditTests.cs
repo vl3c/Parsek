@@ -1,7 +1,9 @@
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Text;
+using System.Text.RegularExpressions;
 using Xunit;
 
 namespace Parsek.Tests
@@ -19,34 +21,39 @@ namespace Parsek.Tests
     /// asserts exit 0 — i.e. the mode vocabulary appearing in any file outside
     /// the UI / deferred-apply / settings allowlist is a build break. That is the
     /// mechanical enforcement of the design §9 visibility-only invariant.</para>
+    ///
+    /// <para>When <c>pwsh</c> is unavailable on PATH, each gate falls back to an
+    /// equivalent managed scan (same patterns, same allowlist semantics) so the
+    /// gate still runs instead of silently skipping — e.g. on a future CI runner
+    /// image without PowerShell. Mirrors the fallback shape of the other
+    /// GrepAudit* gate files.</para>
     /// </summary>
     public class GrepAuditTests
     {
         [Fact]
         public void GrepAudit_AllRawAccessIsAllowlisted()
         {
-            RunGrepAuditScript("grep-audit-ers-els.ps1");
+            RunGrepAuditScript("grep-audit-ers-els.ps1", RunManagedErsElsAudit);
         }
 
         [Fact]
         public void GrepAudit_UiComplexityModeVocabularyIsAllowlisted()
         {
-            RunGrepAuditScript("grep-audit-ui-complexity-mode.ps1");
+            RunGrepAuditScript("grep-audit-ui-complexity-mode.ps1", RunManagedUiComplexityModeAudit);
         }
 
-        private static void RunGrepAuditScript(string scriptFileName)
+        private static void RunGrepAuditScript(string scriptFileName, Action<string> managedFallback)
         {
             // Cross-platform pwsh probe (PowerShell 7 ships on ubuntu-latest CI
-            // runners, so this gate runs there too); skip only when the binary
-            // is genuinely absent from PATH. Mirrors the probe in the other
-            // GrepAudit* gate files.
+            // runners, so this gate runs there too); when the binary is genuinely
+            // absent from PATH, fall back to an equivalent managed scan so the
+            // gate still runs instead of silently skipping. Mirrors the probe +
+            // fallback shape of the other GrepAudit* gate files.
             string pwshPath;
             if (!TryFindExecutable("pwsh", out pwshPath)
                 && !TryFindExecutable("pwsh.exe", out pwshPath))
             {
-                // xUnit v2.4 has no first-class Skip; emitting via stdout keeps
-                // the intent auditable without failing the suite.
-                Console.WriteLine("GrepAuditTests: skipped (pwsh not available): " + scriptFileName);
+                managedFallback(ResolveRepoRoot());
                 return;
             }
 
@@ -89,6 +96,130 @@ namespace Parsek.Tests
                     "grep-audit script " + scriptFileName + " exited with "
                         + proc.ExitCode + ".\n" + combined);
             }
+        }
+
+        // Managed mirror of scripts/grep-audit-ers-els.ps1: the same two regexes,
+        // one hit per line maximum (the script breaks after the first matching
+        // pattern), allowlisted via scripts/ers-els-audit-allowlist.txt.
+        private static void RunManagedErsElsAudit(string repoRoot)
+        {
+            var patterns = new[]
+            {
+                new Regex(@"\.CommittedRecordings\b"),
+                new Regex(@"\bLedger\.Actions\b"),
+            };
+            RunManagedAllowlistAudit(
+                repoRoot, "ers-els-audit-allowlist.txt", "ERS/ELS raw-access",
+                line =>
+                {
+                    foreach (Regex pattern in patterns)
+                    {
+                        if (pattern.IsMatch(line)) return true;
+                    }
+                    return false;
+                });
+        }
+
+        // Managed mirror of scripts/grep-audit-ui-complexity-mode.ps1: the same
+        // five case-sensitive SUBSTRING tokens (deliberately not word-boundary
+        // matches — see the script header), allowlisted via
+        // scripts/ui-complexity-mode-audit-allowlist.txt.
+        private static void RunManagedUiComplexityModeAudit(string repoRoot)
+        {
+            string[] tokens =
+            {
+                "UiComplexityMode",
+                "UiSurfaceVisibility",
+                "UiSurface",
+                "uiComplexityMode",
+                "IsSpawnControlReachable",
+            };
+            RunManagedAllowlistAudit(
+                repoRoot, "ui-complexity-mode-audit-allowlist.txt", "UI complexity-mode",
+                line =>
+                {
+                    foreach (string token in tokens)
+                    {
+                        if (line.IndexOf(token, StringComparison.Ordinal) >= 0) return true;
+                    }
+                    return false;
+                });
+        }
+
+        // Shared allowlist-audit walk mirroring both scripts' semantics: scan
+        // Source/Parsek/**/*.cs, compute repo-relative forward-slash paths, and
+        // allow a hit when its file is an exact allowlist entry or under a
+        // trailing-slash directory-prefix entry (both OrdinalIgnoreCase, matching
+        // the scripts). Unlike the zero-reference GrepAudit* fallbacks, hits are
+        // EXPECTED here — the allowlisted definitions alone guarantee a nonzero
+        // count — so a zero total means the scan itself broke and fails loud
+        // rather than passing vacuously.
+        private static void RunManagedAllowlistAudit(
+            string repoRoot, string allowlistFileName, string label, Func<string, bool> lineMatches)
+        {
+            string sourceRoot = Path.Combine(repoRoot, "Source", "Parsek");
+            Assert.True(Directory.Exists(sourceRoot),
+                "managed " + label + " audit: source root not found: " + sourceRoot);
+            string allowlistPath = Path.Combine(repoRoot, "scripts", allowlistFileName);
+            Assert.True(File.Exists(allowlistPath),
+                "managed " + label + " audit: allowlist not found: " + allowlistPath);
+
+            var allowedFiles = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            var allowedPrefixes = new List<string>();
+            foreach (string rawLine in File.ReadLines(allowlistPath))
+            {
+                string entry = rawLine.Trim();
+                if (entry.Length == 0) continue;
+                if (entry.StartsWith("#", StringComparison.Ordinal)) continue;
+                string normalized = entry.Replace('\\', '/');
+                if (normalized.EndsWith("/", StringComparison.Ordinal))
+                    allowedPrefixes.Add(normalized);
+                else
+                    allowedFiles.Add(normalized);
+            }
+
+            string repoRootNorm = repoRoot.Replace('\\', '/');
+            var violations = new List<string>();
+            int hitsTotal = 0;
+            foreach (string path in Directory.EnumerateFiles(sourceRoot, "*.cs", SearchOption.AllDirectories))
+            {
+                string rel = path.Replace('\\', '/');
+                if (rel.StartsWith(repoRootNorm, StringComparison.OrdinalIgnoreCase))
+                    rel = rel.Substring(repoRootNorm.Length).TrimStart('/');
+
+                bool allowed = allowedFiles.Contains(rel);
+                if (!allowed)
+                {
+                    foreach (string prefix in allowedPrefixes)
+                    {
+                        if (rel.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+                        {
+                            allowed = true;
+                            break;
+                        }
+                    }
+                }
+
+                int lineNumber = 0;
+                foreach (string line in File.ReadLines(path))
+                {
+                    lineNumber++;
+                    if (!lineMatches(line)) continue;
+                    hitsTotal++;
+                    if (!allowed)
+                    {
+                        violations.Add(string.Format(
+                            "{0}:{1}: {2}", rel, lineNumber, line.Trim()));
+                    }
+                }
+            }
+
+            Assert.True(violations.Count == 0,
+                "managed " + label + " audit failed (un-allowlisted reference(s), total pattern hits: "
+                    + hitsTotal + "):\n" + string.Join("\n", violations));
+            Assert.True(hitsTotal > 0,
+                "managed " + label + " audit saw ZERO pattern hits — the allowlisted definitions alone "
+                    + "should match, so the scan is broken (wrong root or dead patterns), not clean.");
         }
 
         private static bool TryFindExecutable(string fileName, out string path)
