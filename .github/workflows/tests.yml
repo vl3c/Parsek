@@ -21,7 +21,7 @@ concurrency:
 jobs:
   tests:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
     steps:
       # Fork PRs get no repo secrets, so the private DLL checkout below cannot
       # authenticate; fail fast with a readable reason instead of an opaque
@@ -64,10 +64,26 @@ jobs:
       # runs under mono + the xunit console runner via scripts/cloud-test.sh
       # (same path cloud agent sessions use). dotnet SDK is preinstalled;
       # mono-devel also supplies the net472 targeting pack the build needs.
+      # apt calls are bounded + retried: a stalled mirror fetch otherwise hangs
+      # silently until the job timeout (it killed the first two runs at 20 min
+      # with zero output).
       - name: Install mono
         run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y mono-devel
+          if command -v mono >/dev/null; then
+            echo "mono already present: $(mono --version | head -1)"
+            exit 0
+          fi
+          for i in 1 2 3; do
+            sudo timeout 120 apt-get update -o Acquire::Retries=3 -o Acquire::http::Timeout=15 && break
+            echo "apt-get update attempt $i stalled or failed; retrying"
+            sleep 10
+          done
+          for i in 1 2 3; do
+            sudo timeout 420 apt-get install -y -o Acquire::Retries=3 -o Acquire::http::Timeout=15 mono-devel && break
+            echo "apt-get install attempt $i stalled or failed; retrying"
+            sleep 10
+          done
+          command -v mono >/dev/null || { echo "::error::mono install failed after retries"; exit 1; }
 
       - name: Build + run xUnit suite
         env:
