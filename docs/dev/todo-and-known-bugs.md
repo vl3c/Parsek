@@ -201,7 +201,7 @@ separation from V7M's teardown NRE, and the named experiment that would move it.
 ---
 
 ## MAPRENDER-ICON-OFF-ORBIT-CREATION-FRAME-AFTER-JUMP: a ghost's proto ICON sits tens of degrees around its own orbit line on the CREATION frame, after a single large TimeJump onto an epoch just inside a foreign moon's SOI [MEASURED 2026-08-18 by `V14T-ike-ts-arrival`'s reading run, REPRODUCED on its armed run 2026-08-19, and shown PARENT-INDEPENDENT the same day by `V15T-gilly-ts-arrival` at a second parent and moon (Eve/Gilly, 26.49 deg vs Ike's 94.05). REPORT-ONLY: one self-correcting frame per run, DETERMINISTIC for the single-jump shape at both bodies, tolerated by name in both specs; NO product change is proposed]
-## ~~HARNESS-CANNOT-EARN-CAREER-CURRENCY~~ - no driven run could collect science, transmit it, or recover a vessel, so `ScienceEarning` rows and vessel-recovery credits were reachable only from a hand-played save [CAPABILITY SHIPPED 2026-08-19, branch `c2-postfix-forge`; NOT YET FLOWN; one residual survives and is NOT closed]
+## ~~HARNESS-CANNOT-EARN-CAREER-CURRENCY~~ - no driven run could collect science, transmit it, or recover a vessel, so `ScienceEarning` rows and vessel-recovery credits were reachable only from a hand-played save [CAPABILITY SHIPPED 2026-08-19, branch `c2-postfix-forge`; FLOWN MISSION-OK 2026-08-19 on run 2026-08-19_1912 (career-science-pad); one residual survives and is NOT closed]
 
 Filed and closed in the same entry because the gap was never a defect - it was a
 missing capability nobody had written down, and writing it down only to close it
