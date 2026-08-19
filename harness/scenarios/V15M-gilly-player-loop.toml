@@ -78,7 +78,7 @@ id = "V15M-gilly-player-loop"
 # chain (run `2026-08-19_1655`), the transfer's last Eve-framed segments read
 # `sma = 15,385,793.566 ecc = 0.618627`, i.e. an apoapsis radius of **24,903,858 m** -
 # the INTERCEPT RADIUS, which sits in the upper-middle of Gilly's 14,175,000 ->
-# 48,825,000 m band (79% of the way from periapsis to apoapsis is 41 Mm; this is 34%).
+# 48,825,000 m band - 31.0% of the way up it ((24.904 - 14.175) / (48.825 - 14.175)).
 # At that radius Gilly's true orbital speed is **630.0 m/s**, so:
 #
 #   tol = SOI / v_orb = 126,123.27 / 630.0 = **200.2 s**
@@ -612,17 +612,19 @@ steps = [
   { cmd = "TimeJump", args = { ut = "16267420" }, expect = "OK", budget = 300 },
   { cmd = "TimeJump", args = { ut = "16267540" }, expect = "OK", budget = 300 },
   { cmd = "TimeJump", args = { ut = "16267740" }, expect = "OK", budget = 300 },
-  # CYCLE-1 PARK EPOCH: phaseAnchor + 120,000, deep inside the recorded Gilly phase
-  # and ~2,000 s before the span end - the only epoch where the auto-select's body
-  # test can pass for a Gilly-parked observer, so the only place the watchable
-  # question can be asked at all. DERIVED: anchor + 115,249.110, i.e. 70.7% into the
-  # MEASURED 381.490 s Gilly phase and 111.8 s clear of the recording's end. There is
-  # no more room than that - the destination tail is six minutes long.
+  # CYCLE-1 PARK EPOCH: phaseAnchor + 115,249.110, deep inside the recorded Gilly
+  # phase - the only epoch where the auto-select's body test can pass for a
+  # Gilly-parked observer, so the only place the watchable question can be asked at
+  # all. DERIVED: 70.7% into the MEASURED 381.490 s Gilly phase and 111.8 s clear of
+  # the recording's end. There is no more room than that - the destination tail is six
+  # minutes long.
   { cmd = "TimeJump", args = { ut = "16267870" }, expect = "OK", budget = 300 },
-  # STEP 3: "Watch", auto-select over all committed recordings. PREDICTED **OK**,
-  # inverting every prior loop lane - a ~30 km Gilly park puts the observer and the
-  # ghost at most 2a = 86 km apart, inside the 120 km render-zone boundary that
-  # drives the measured refusals. Full argument + three caveats in header section 5.
+  # STEP 3: "Watch", auto-select over all committed recordings. PINNED **OK**, inverting
+  # every prior loop lane: the DELIVERED 27,024 x 26,321 m park puts the observer and the
+  # ghost at most 2a = 79,345 m apart, 1.51x inside the 120 km render-zone boundary that
+  # drives the measured refusals. MEASURED: a GENUINE ENTRY (`enterwatchmode complete:`)
+  # at a 775 m separation - the suite's second ever, after V7M's. Full argument + the two
+  # remaining caveats in header section 5.
   { cmd = "EnterWatchMode",                                                  expect = "OK" },
   # STEP 4: "Warp to..." AGAIN - the desync hunt's second half. The verb rebuilds
   # the unit and resolves NextLaunchAfter(now); with `now` past cycle 1's park it
@@ -635,11 +637,16 @@ steps = [
   { cmd = "TimeJump", args = { ut = "16656007" }, expect = "OK", budget = 300 },
   { cmd = "TimeJump", args = { ut = "16656127" }, expect = "OK", budget = 300 },
   { cmd = "TimeJump", args = { ut = "16656327" }, expect = "OK", budget = 300 },
-  # CYCLE-2 PARK EPOCH: the same +120,000 offset off the cycle-2 anchor.
+  # CYCLE-2 PARK EPOCH: the same +115,249.110 offset off the cycle-2 anchor.
   { cmd = "TimeJump", args = { ut = "16656457" }, expect = "OK", budget = 300 },
-  # STEP 5: "Watch" again. The cadence is EXACTLY one Gilly orbital period, so the
-  # cycle-2 separation should be very close to cycle 1's; same pinned verdict, and a
-  # DIFFERENT verdict between the two watch steps would itself be the reading.
+  # STEP 5: "Watch" again - and READ WHAT IT ACTUALLY MEASURES, which is not a second
+  # entry. It answers `enterwatchmode already-watching`, i.e. watch mode SURVIVED the
+  # second StartLoopPlayback and the four cycle-2 jumps: idempotency + survival across a
+  # loop re-arm. The pre-flight comment here expected the cycle-2 separation to be close
+  # to cycle 1's because the cadence is exactly one Gilly period; MEASURED it walked
+  # 775 m -> 115,640 m, because the observer's own ~17,244 s park is incommensurate with
+  # the 388,587 s cadence (header section 4). A genuine second entry would need an
+  # ExitWatchMode verb first - deliberately NOT added (S4.1).
   { cmd = "EnterWatchMode",                                                  expect = "OK" },
   { cmd = "FlushAndQuit",                                                    expect = "OK" },
 ]
@@ -906,11 +913,6 @@ committedTrees = { min = 1, max = 1 }
 recordings     = { min = 1, max = 1 }
 terminalStates = { Orbiting = { min = 1 } }
 
-# [expectations.rewind] and [expectations.recordings.structure] ARE DELIBERATELY
-# ABSENT - the V14M reading-run posture verbatim. A report-only block of PREDICTED
-# numbers reads like a measurement; author both FROM this lane's own reading run at
-# arming, and register them in `ARMED_ALLOWLIST` (harness/lib/test_hlib.py) with
-# that run cited.
 
 [runtime]
 # 300 LoadGame + 2x300 StartLoopPlayback + 8x300 TimeJump + the fast non-deferred

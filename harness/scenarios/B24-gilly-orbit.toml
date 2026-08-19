@@ -752,7 +752,7 @@ count = { min = 1, max = 2 }
 #       which is where V14M answered the equivalent Duna->Ike question. Read it there.
 #   (2) THE INTERCEPT RADIUS - ANSWERED. The transfer's own segments read
 #       `sma = 15,385,793.566 ecc = 0.618627`, i.e. an apoapsis / intercept radius of
-#       24,903,858 m, 34% of the way up Gilly's band, where Gilly moves at 630.0 m/s.
+#       24,903,858 m, 31.0% of the way up Gilly's band, where Gilly moves at 630.0 m/s.
 #       That fixes the loop pair's tolerance at tol = SOI/v_orb = 200.2 s - TIGHTER
 #       than the 247.6 s circular figure, i.e. the encounter landed on the fast and
 #       more sensitive half of an e = 0.55 orbit. Propagated to V15M header section 1.

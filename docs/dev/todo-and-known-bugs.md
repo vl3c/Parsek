@@ -370,9 +370,10 @@ CEILING PRECONDITION ON BOTH LANES.** Run `2026-08-19_1809`, **PASS attempt 1**:
 
 Read it exactly as V14T's `2026-08-19_0002` was read: `hits=[]` is the tolerance working
 and `counts` is the raw tally, which reads **1 again**. So the single-jump creation-frame
-trigger has now fired on THREE runs across TWO body pairs - Ike twice, Gilly once - at a
-population of exactly 1 every time, with the stepped-bracket control silent on all four
-of its runs (V14M x2, V15M x2).
+trigger has now fired on **FOUR runs across TWO body pairs - TWICE EACH** (V14T `_2337`
+and `_0002` at Ike; V15T `_1739` and `_1809` at Gilly) - at a population of exactly 1
+every time, with the stepped-bracket control silent on all four of ITS runs (V14M x2,
+V15M x2). Four raises, four silences, one variable.
 
 **THE `maxCount = 1` PRECONDITION IS NOW MET FOR BOTH LANES.** The doctrine in the
 budget cell asks for "measured `anomalySweep.hitCounts` from a GREEN run"; V14T supplied

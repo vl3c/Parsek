@@ -235,7 +235,7 @@ id = "V15T-gilly-ts-arrival"
 # single shared saveParse evaluator (the V4/V5/V14 precedent).
 # =====================================================================================
 tier = "operator"
-description = "LIVE-PROVEN AND ARMED on the full three-run discipline: reading 2026-08-19_1739 - PARSEK-FAIL(anomaly) attempt 1 with ALL SIXTEEN STEPS GREEN, which is the CORRECT catch this spec pre-registered rather than a lane defect. The tracking-station half of the Gilly player-loop pair: arm the loop and jump 140 s past the derived cycle-1 Eve->Gilly SOI seam in FLIGHT, SaveGame, then re-enter through LoadGame scene=trackstation and dwell with mapRenderTracing armed. MEASURED AND NOW REQUIRED: `Orbital(Gilly) same-parent` + `support=Supported` + `PhaseLock APPLIED ... method=single-orbital ... zeroDrift=no` (the routing prediction held at a second orbit-rooted subject), `reaimed=False` with `faithfulFallback=False` (faithful by route, not by fallback), the R12 trackstation route pair, `created 1 ghost vessel(s)`, and a `body=Gilly scene=TRACKSTATION` proto icon at 41.4 km from Gilly's centre - inside a 126,123 m SOI whose recorded destination phase is only 381.490 s wide, which is the epoch precision this lane demands. THE RED IS THE HEADLINE: one `icon-off-orbit` on the ghost-proto creation frame in FLIGHT after the single TimeJump, angleIconVsOrbitEff=26.49 deg with iconR == orbitEffR - structurally identical to V14T's Ike raise, so the single-jump creation-frame trigger is now MEASURED PARENT-INDEPENDENT (two parents, two moons, SOI scales 8.3x apart, deterministic at both, with V15M the stepped-bracket control at the same arrival UT). The one new fact is that the magnitude is NOT constant: 26.49 deg here vs 94.05 at Ike. Tolerated by the BARE token per S1.4 and filed report-only; the ceiling stays deferred because this lane has no green hitCounts reading yet. DISCIPLINE COMPLETE: armed re-flight 2026-08-19_1809 (PASS attempt 1, all 13 required and 6 forbidden met, count {1,1}, both gated save-structure blocks PASS, and the tolerated anomaly RECURRING at hits=[] counts={'icon-off-orbit': 1} - the THIRD deterministic sighting of the trigger across two body pairs, and this lane's first GREEN hitCounts baseline, which means the maxCount=1 ceiling's stated precondition is now met on BOTH V14T and V15T and only the whole-set inert-budget invariant still blocks it); negative control shared with V15M (2026-08-19_1810), one inversion across the pair rather than two."
+description = "LIVE-PROVEN AND ARMED on the full three-run discipline: reading 2026-08-19_1739 - PARSEK-FAIL(anomaly) attempt 1 with ALL SIXTEEN STEPS GREEN, which is the CORRECT catch this spec pre-registered rather than a lane defect. The tracking-station half of the Gilly player-loop pair: arm the loop and jump 140 s past the derived cycle-1 Eve->Gilly SOI seam in FLIGHT, SaveGame, then re-enter through LoadGame scene=trackstation and dwell with mapRenderTracing armed. MEASURED AND NOW REQUIRED: `Orbital(Gilly) same-parent` + `support=Supported` + `PhaseLock APPLIED ... method=single-orbital ... zeroDrift=no` (the routing prediction held at a second orbit-rooted subject), `reaimed=False` with `faithfulFallback=False` (faithful by route, not by fallback), the R12 trackstation route pair, `created 1 ghost vessel(s)`, and a `body=Gilly scene=TRACKSTATION` proto icon at 41.4 km from Gilly's centre - inside a 126,123 m SOI whose recorded destination phase is only 381.490 s wide, which is the epoch precision this lane demands. THE RED IS THE HEADLINE: one `icon-off-orbit` on the ghost-proto creation frame in FLIGHT after the single TimeJump, angleIconVsOrbitEff=26.49 deg with iconR == orbitEffR - structurally identical to V14T's Ike raise, so the single-jump creation-frame trigger is now MEASURED PARENT-INDEPENDENT (two parents, two moons, SOI scales 8.3x apart, deterministic at both, with V15M the stepped-bracket control at the same arrival UT). The one new fact is that the magnitude is NOT constant: 26.49 deg here vs 94.05 at Ike. Tolerated by the BARE token per S1.4 and filed report-only; the ceiling stays deferred because this lane has no green hitCounts reading yet. DISCIPLINE COMPLETE: armed re-flight 2026-08-19_1809 (PASS attempt 1, all 13 required and 6 forbidden met, count {1,1}, both gated save-structure blocks PASS, and the tolerated anomaly RECURRING at hits=[] counts={'icon-off-orbit': 1} - the FOURTH deterministic sighting of the trigger, TWICE at each of two body pairs (V14T _2337/_0002 at Ike, V15T _1739/_1809 at Gilly), and this lane's first GREEN hitCounts baseline, which means the maxCount=1 ceiling's stated precondition is now met on BOTH V14T and V15T and only the whole-set inert-budget invariant still blocks it); negative control shared with V15M (2026-08-19_1810), one inversion across the pair rather than two."
 instanceProfile = "stock-minimal"
 tags = ["V15", "tracking-station", "loop-arrival", "phase-lock", "single-orbital",
         "gilly", "eve", "same-parent", "moon", "eccentric-moon", "map-render",
@@ -355,9 +355,10 @@ D14 = ["gilly", "scene-ts", "sandbox"]
 #       the reading the doctrine asks for:
 #           anomalySweep status=PASS hits=[] counts={'icon-off-orbit': 1}
 #       i.e. the tolerance working (`hits=[]`) over a raw tally that reads ONE AGAIN -
-#       the THIRD deterministic sighting of this trigger, across two body pairs (Ike
-#       twice on V14T, Gilly once here), with the stepped-bracket controls silent on all
-#       four of their runs. V14T's own green baseline is `2026-08-19_0002`.
+#       the FOURTH deterministic sighting of this trigger, TWICE AT EACH of two body
+#       pairs (V14T `_2337` / `_0002` at Ike, V15T `_1739` / `_1809` here), with the
+#       stepped-bracket controls silent on all four of THEIR runs. V14T's own green
+#       baseline is `2026-08-19_0002`.
 #       SO ONLY (1) STILL BLOCKS IT, and when it is taken it should cover BOTH lanes in
 #       one edit: same trigger, same evidence, same population of exactly 1.
 # Until then the tolerance is bare and the ceiling lives in this comment.
@@ -517,13 +518,6 @@ committedTrees = { min = 1, max = 1 }
 recordings     = { min = 1, max = 1 }
 terminalStates = { Orbiting = { min = 1 } }
 
-# [expectations.rewind] and [expectations.recordings.structure] ARE DELIBERATELY
-# ABSENT - the V14T reading-run posture verbatim. Author both FROM this lane's own
-# reading run at arming (they are worth MORE on this shape than on a single-scene
-# dwell, for V5's reason: this spec writes a save mid-run and reads it back through
-# a SECOND scene load, the shape in which a stray durable write is easiest to miss)
-# and register them in `ARMED_ALLOWLIST` (harness/lib/test_hlib.py) with that run
-# cited.
 
 [runtime]
 # 300 LoadGame + 300 StartLoopPlayback + 300 TimeJump + 300 LoadGame(TS) + the fast
@@ -533,11 +527,14 @@ terminalStates = { Orbiting = { min = 1 } }
 budgetSeconds = 2400
 
 [retry]
-# One retry absorbs the V5 promotion-recorder re-arm race (which this fixture's
-# shape makes more likely than most, per the header) and ordinary seam flakes. It
-# does NOT absorb a mis-derived anchor, and it will SPEND ITSELF on the expected
-# `icon-off-orbit` red if that recurs - both of which are accepted here rather than
-# designed around (see the header).
+# One retry absorbs the V5 promotion-recorder re-arm race (which this fixture's shape
+# makes more likely than most, per the header) and ordinary seam flakes. It does NOT
+# absorb a mis-derived anchor: that reproduces exactly on attempt 2, which is the point.
+# NOTE WHAT CHANGED AT ARMING: on the reading run this retry was budgeted to SPEND ITSELF
+# on the expected `icon-off-orbit` red, because the token was deliberately un-tolerated
+# so the sweep could measure it. It is now in `allowedAnomalies`, so the raise no longer
+# reds the run (armed re-flight `2026-08-19_1809` PASS with `hits=[]
+# counts={'icon-off-orbit': 1}`) and the retry is back to absorbing transients only.
 policy = "once"
 
 [expectedFail]

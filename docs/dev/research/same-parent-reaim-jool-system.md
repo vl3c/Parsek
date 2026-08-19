@@ -694,7 +694,7 @@ digit, exactly as section 7 describes for V14M.
 
 The intercept radius is read off the committed `.prec.txt` transfer segments
 (`sma = 15,385,793.566 ecc = 0.618627`, apoapsis 24,903,858 m); nothing was tuned to place it
-there - it is where MechJeb's transfer window put it, 34 % of the way up Gilly's
+there - it is where MechJeb's transfer window put it, 31.0 % of the way up Gilly's
 14,175,000 -> 48,825,000 m band, on the FAST half.
 
 **AND THE REPLAY STAYED VALID AT +1 P.** `V15M`'s cycle-1 census reads (line 10831):
