@@ -30,10 +30,12 @@ tier = "operator"
 # that proof and is already armed and pinned. Two independent claims on one flight
 # would make a red ambiguous.
 #
-# ###################### STATUS: BLOCKED ON A FIXTURE ######################
-# THIS SPEC CANNOT PASS ON `career-pad-craft` AND THE REASON IS SETTLED. Three
+# ################ HISTORY: WHY THIS SPEC FLIES ITS OWN FIXTURE ################
+# THIS SPEC COULD NOT PASS ON `career-pad-craft` AND THE REASON IS SETTLED. Three
 # attempts across two runs on 2026-08-19; the second run flew a textbook mission
-# and still condemned itself, which is the machine working, not failing.
+# and still condemned itself, which is the machine working, not failing. The fix
+# was a SIBLING FIXTURE, and the diagnosis is kept here because it is the whole
+# argument for why that fixture exists.
 #
 #   `2026-08-19_1817` + retry `_1818_..._a2`  INVALID(mission), 89 s total.
 #       Died at 1.2 s in PRELAUNCH: `flight-leg vessel-lost (unreadable after
@@ -71,37 +73,55 @@ tier = "operator"
 # `design-autotest-mission-library.md` Amendment A already puts this on: the
 # terminal that fired names "no antenna" first, and its class is the one the
 # amendment describes as "the fixture is wrong, and re-flying it changes nothing".
-# The fix is a SIBLING fixture whose craft carries a DIRECT antenna (the
-# `SurfAntenna` is already in this fixture's purchased-parts set), forged and
-# harvested rather than hand-spliced. Sizing, and why the cheap route does not
-# exist, are in the CAREER-FORGE-NEEDS-A-DIRECT-ANTENNA entry of
-# `docs/dev/todo-and-known-bugs.md`.
 #
-# THE SPEC STAYS COMMITTED AND STAYS `operator`, which is why that tier is not a
-# cadence tier: it runs only under an explicit `--id`, so a blocked spec costs
-# nothing until its fixture lands, and keeping it committed keeps the diagnosis
-# above attached to the thing it is about.
+# THE FIX LANDED AS `career-science-pad`, a SIBLING fixture built by construction
+# (`harness/tools/build_career_science_pad.py`), and this spec now flies it. The
+# blocked runs above are kept because they are the entire argument for why that
+# fixture exists; nothing else in this spec changed with the swap - the mission,
+# every `missionParams` value, the step list and the flight leg are the ones
+# those two flights already measured as correct.
 # #########################################################################
 description = "Reading run: fly the committed career pad craft, collect and transmit its science, recover the craft, and let the scene-exit auto-commit produce a career save that EARNED - the post-fix career forge subject."
 instanceProfile = "stock-minimal"
 tags = ["ledger", "L3", "career-forge", "science", "recovery", "reading-run"]
 
 [fixture]
-# career-pad-craft, and NO fixture work was needed - which section 4d listed as the
-# one open question ("whether that craft carries a science part at all"). ANSWERED
-# BY READING THE FIXTURE, not by flying it: the craft is the stock Jumping Flea
-# (`mk1pod.v2`, `parachuteSingle`, `GooExperiment` x2, `solidBooster.sm.v2`,
-# `basicFin` x3) with Jebediah aboard, so it carries THREE `ModuleScienceExperiment`
-# modules (two Mystery Goo canisters plus the pod's crew report), a
-# `ModuleScienceContainer`, a `ModuleDataTransmitter` and 50 EC. The wave-2 bullet
-# that budgeted a `build_career_pad_craft.py`-style sibling derivation is therefore
-# struck: nothing is built, nothing is mutated, and the five specs that already fly
-# this fixture are untouched.
+# `career-science-pad`: `career-pad-craft` with a DIRECT antenna and the
+# ElectricCharge to spend on it, built BY CONSTRUCTION by
+# `harness/tools/build_career_science_pad.py`. THREE additive `PART` nodes -
+# `SurfAntenna` plus two `batteryPack`s - surface-attached to the pod and
+# appended after the existing eight, so no existing part index moves and the
+# eight parts the base flies stay BYTE-IDENTICAL. The base fixture is NOT
+# touched: six committed specs fly it (CL-1, CL-2, CL-3, H26, L2, R7a), two of
+# them pinning measurements taken on that exact craft.
 #
-# The craft is BYTE-IDENTICAL in part list to `b1-pad-craft`, which is why B1's
-# apoapsis window transfers verbatim below (the mission delegates its whole flight
-# leg to `b1_decide`, so this is B1's pad hop on B1's craft in a CAREER save).
-saveTemplate = "fixtures/saves/career-pad-craft"
+# WHAT EACH SPLICED PART BUYS. The antenna is the blocker above: `SurfAntenna`
+# declares `antennaType = DIRECT`, which is what stock's
+# `ModuleDataTransmitter.CanTransmit()` requires and what the pod's INTERNAL one
+# is not. The batteries are not padding - stock charges `packetResourceCost` per
+# `packetSize` Mits, and through this antenna (2 Mits / 12 EC) the three
+# experiments aboard cost 156 EC to transmit against the pod's own 50. The
+# arithmetic is in the builder's module docstring and gated by
+# `CareerSciencePadFixtureDriftTests`.
+#
+# WHAT DID NOT CHANGE, and this is why the flight-leg params below stand: the
+# craft is still B1's Jumping Flea, still `sit = PRELAUNCH` on the LaunchPad,
+# still `stg = 2` with the booster at `istg = 1` and the chute at `istg = 0`.
+# Every spliced part is UNSTAGED (`istg = -1`), so the staging sequence the
+# chute-arming logic was measured against is untouched.
+#
+# THE APOAPSIS WINDOW SURVIVES, AND THE COST IS BIGGER THAN THE MASS SUGGESTS.
+# MEASURED: run `2026-08-19_1912` peaked at 15,599.8 m against flight 2's
+# 19,990 m on the bare craft - a 22% loss for a 0.94% mass increase, so it is
+# DRAG (three surface protrusions on a small craft doing ~500 m/s low in the
+# atmosphere), not weight. Both numbers sit inside the 6,000-30,000 m window and
+# the new one still clears the floor by 2.6x, so the window is left alone - but
+# anyone TIGHTENING it must size against 15,600, not against B1's 19,990.
+#
+# The pairing (career, one vessel, antenna aboard, inert ParsekScenario node) is
+# gated by `CareerSciencePadSpecFixtureSyncTests` in
+# `harness/missions/lib/test_science_bench_recover.py`.
+saveTemplate = "fixtures/saves/career-science-pad"
 # LOAD-BEARING. The store must start empty: `recordings.count` below asserts that
 # the ONE recording in the produced save is the one this flight made.
 injectedRecordings = "none"

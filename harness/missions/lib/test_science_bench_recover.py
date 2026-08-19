@@ -1762,5 +1762,194 @@ class ShellWiringTests(unittest.TestCase):
                          "base interpreter can import every shell")
 
 
+# ---------------------------------------------------------------------------
+# 5. THE FIXTURE THIS LANE FLIES.
+#
+# `career-science-pad` is built BY CONSTRUCTION from `career-pad-craft` by
+# `harness/tools/build_career_science_pad.py`. Two classes keep that honest, and
+# they are the CL-1 pair (`SpecFixtureSyncTests` + `FixtureDriftTests` in
+# `test_cl1_crew_loss.py`) pointed at this lane: one pairs the committed SPEC
+# against the committed fixture BYTES, the other pairs the committed fixture
+# bytes against what the recipe produces from the CURRENT base.
+#
+# Unwired, "the fixture is derived by a committed script" is prose with a
+# shebang: if `career-pad-craft` moves, the derived fixture silently stops being
+# what the recipe produces, and the first thing that notices is a live flight.
+# ---------------------------------------------------------------------------
+
+SPEC_PATH = os.path.join(_HARNESS, "scenarios", "L3-career-science-recover.toml")
+FIXTURE_DIR = os.path.join(_HARNESS, "fixtures", "saves", "career-science-pad")
+FIXTURE_SFS = os.path.join(FIXTURE_DIR, "persistent.sfs")
+
+
+def _load_science_pad_builder():
+    import importlib.util
+    path = os.path.join(_HARNESS, "tools", "build_career_science_pad.py")
+    spec = importlib.util.spec_from_file_location("build_career_science_pad", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+class CareerSciencePadSpecFixtureSyncTests(unittest.TestCase):
+    """The SPEC and the FIXTURE must agree, and nothing else checks that.
+
+    Getting the pairing wrong costs a live flight to discover, which is how this
+    lane learned the pairing mattered in the first place: two runs on 2026-08-19
+    flew a textbook profile against a craft that stock forbids transmitting
+    from."""
+
+    @classmethod
+    def setUpClass(cls):
+        with open(SPEC_PATH, "rb") as fh:
+            cls.spec = tomllib.load(fh)
+        with open(FIXTURE_SFS, "r", encoding="utf-8", newline="") as fh:
+            cls.sfs = fh.read().replace("\r\n", "\n").split("\n")
+        cls.builder = _load_science_pad_builder()
+
+    def test_the_spec_points_at_the_science_pad_fixture(self):
+        self.assertEqual("fixtures/saves/career-science-pad",
+                         self.spec["fixture"]["saveTemplate"])
+
+    def test_the_fixture_is_a_career_save(self):
+        self.assertIn("\tMode = CAREER", self.sfs)
+
+    def test_the_fixture_carries_exactly_one_vessel(self):
+        self.assertEqual(1, sum(1 for l in self.sfs if l.strip() == "VESSEL"))
+
+    def test_the_fixture_carries_a_direct_antenna(self):
+        # THE WHOLE REASON THIS FIXTURE EXISTS. `SurfAntenna` is the part name of
+        # the Communotron 16-S, whose cfg declares `antennaType = DIRECT`; the
+        # pod's built-in transmitter is `INTERNAL`, which stock's
+        # `ModuleDataTransmitter.CanTransmit()` rejects outright, before CommNet.
+        # The name IS the assertion because `antennaType` lives in the part cfg
+        # and never in the save.
+        #
+        # ANCHORED TO THE VESSEL'S OWN PART LIST, not to a line match: a
+        # `STOREDPART` in an inventory module carries a `name = ...` line too, and
+        # a stowed antenna in a cargo container is NOT a transmitter kRPC can
+        # enumerate. Only a direct `PART` child of the VESSEL is one.
+        builder = self.builder
+        lines = builder.read_lines(FIXTURE_SFS)
+        vessel = builder.child_nodes(
+            lines, builder.find_node(lines, "FLIGHTSTATE"), "VESSEL")[0]
+        names = [builder.get_value(lines, part, "name")
+                 for part in builder.part_nodes(lines, vessel)]
+        self.assertIn("SurfAntenna", names,
+                      "without a DIRECT antenna ATTACHED to the vessel, the "
+                      "TRANSMIT phase runs its whole budget and credits nothing "
+                      "(`transmit-credited-no-science`, measured 2026-08-19)")
+
+    def test_the_fixture_carries_an_inert_parsek_scenario_node(self):
+        # Load-bearing and it cost a flight to learn (CL-1 flight 1): without the
+        # node the FLIGHT focus route never creates the ScenarioModule, so OnSave
+        # never runs and the whole flight is recorded in memory and thrown away.
+        # INERT: the node must carry no Parsek payload, or the run would start
+        # from a store this spec's `recordings.count` window does not describe.
+        self.assertIn("\t\tname = ParsekScenario", self.sfs)
+        for forbidden in ("RECORDING", "RECORDING_TREE", "GAME_ACTION", "LEDGER"):
+            self.assertNotIn("\t\t%s" % forbidden, self.sfs,
+                             "the fixture's ParsekScenario node must be inert")
+
+
+class CareerSciencePadFixtureDriftTests(unittest.TestCase):
+    """WIRES `build_career_science_pad.py --check` INTO THE SUITE.
+
+    Same discipline as `FixtureDriftTests` in `test_cl1_crew_loss.py`, one layer
+    further down the derivation chain: `career-science-pad` is derived from
+    `career-pad-craft`, which is itself derived from `fresh-career` +
+    `b1-pad-craft`. CL-1's cell guards the first hop; these guard the second, so
+    a move anywhere up the chain reds in the suite rather than in a flight."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.builder = _load_science_pad_builder()
+
+    def _base_lines(self):
+        return self.builder.read_lines(
+            os.path.join(_HARNESS, "fixtures", "saves",
+                         self.builder.BASE_NAME, "persistent.sfs"))
+
+    def test_the_committed_fixture_satisfies_every_post_condition(self):
+        # The `--check` path, run in-process. Includes the BASE builder's own
+        # post-conditions, which `verify` layers in rather than restating.
+        problems = self.builder.verify(self.builder.read_lines(FIXTURE_SFS),
+                                       self._base_lines(),
+                                       self.builder.CREW_NAME)
+        self.assertEqual([], problems)
+
+    def test_the_committed_fixture_is_byte_identical_to_a_fresh_rebuild(self):
+        # THE DRIFT GUARD, and it compares RAW BYTES rather than the line lists
+        # `read_lines` hands back: that helper normalizes CRLF to LF on the way
+        # in, so a line-list comparison would call a fixture that had lost its
+        # CRLFs (or grown a BOM, or a trailing byte) identical to one that had
+        # not - and "byte-identical" is the claim this cell's name makes. The
+        # encoding here is exactly what `write_lines` would emit: UTF-8, CRLF
+        # joins, no added sentinel.
+        rebuilt = self.builder.build(
+            self._base_lines(),
+            "%s (CAREER)" % self.builder.TARGET_NAME)
+        produced = "\r\n".join(rebuilt).encode("utf-8")
+        with open(FIXTURE_SFS, "rb") as fh:
+            committed = fh.read()
+        if committed != produced:
+            offset = next(
+                (i for i, (a, b) in enumerate(zip(committed, produced))
+                 if a != b),
+                min(len(committed), len(produced)))
+            self.fail("career-science-pad has drifted from what "
+                      "build_career_science_pad.py produces from the current "
+                      "career-pad-craft; re-run the builder and commit, or "
+                      "explain the divergence. First difference at byte %d "
+                      "(committed %d bytes, rebuilt %d bytes)"
+                      % (offset, len(committed), len(produced)))
+
+    def test_the_splice_left_the_base_craft_byte_identical(self):
+        # THE PROMISE TO THE SIX SPECS THAT FLY THE BASE (CL-1, CL-2, CL-3, H26,
+        # L2, R7a). The splice is
+        # additive: the eight parts `career-pad-craft` flies must survive here
+        # unchanged, so B1's measured flight profile still transfers and nothing
+        # about the base fixture is re-opened by this one.
+        builder = self.builder
+        lines = builder.read_lines(FIXTURE_SFS)
+        base = self._base_lines()
+        base_parts = builder.part_nodes(
+            base, builder.child_nodes(
+                base, builder.find_node(base, "FLIGHTSTATE"), "VESSEL")[0])
+        parts = builder.part_nodes(
+            lines, builder.child_nodes(
+                lines, builder.find_node(lines, "FLIGHTSTATE"), "VESSEL")[0])
+        self.assertEqual(8, len(base_parts))
+        self.assertEqual(8 + len(builder.SPLICE_PARTS), len(parts))
+        for index, (base_part, part) in enumerate(zip(base_parts, parts)):
+            self.assertEqual(base[base_part[0]:base_part[1]],
+                             lines[part[0]:part[1]],
+                             "base part %d is no longer byte-identical" % index)
+
+    def test_the_fixture_carries_the_electric_charge_a_transmit_costs(self):
+        # The antenna alone would swap one terminal for another. Stock charges
+        # `packetResourceCost` per `packetSize` Mits: 156 EC for the three
+        # experiments aboard, against the pod's own 50. The derivation is in the
+        # builder's module docstring; this cell is what keeps the fixture from
+        # drifting under it.
+        builder = self.builder
+        lines = builder.read_lines(FIXTURE_SFS)
+        vessel = builder.child_nodes(
+            lines, builder.find_node(lines, "FLIGHTSTATE"), "VESSEL")[0]
+        total = sum(builder._resource_total(lines, p, "ElectricCharge")
+                    for p in builder.part_nodes(lines, vessel))
+        self.assertGreaterEqual(total, builder.TRANSMIT_EC_REQUIRED)
+
+    def test_the_loadmeta_agrees_with_the_committed_save(self):
+        builder = self.builder
+        lines = builder.read_lines(FIXTURE_SFS)
+        meta = builder.read_lines(
+            os.path.join(FIXTURE_DIR, "persistent.loadmeta"))
+        self.assertIn("vesselCount = 1", meta)
+        self.assertIn("gameMode = CAREER", meta)
+        fs = builder.find_node(lines, "FLIGHTSTATE")
+        self.assertIn("UT = %s" % builder.get_value(lines, fs, "UT"), meta)
+
+
 if __name__ == "__main__":
     unittest.main()

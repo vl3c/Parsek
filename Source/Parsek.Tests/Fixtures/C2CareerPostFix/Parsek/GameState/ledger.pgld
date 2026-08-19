@@ -1,0 +1,154 @@
+version = 0
+recordingSchemaGeneration = 4
+GAME_ACTION
+{
+	ut = 0
+	type = 20
+	actionId = act_e17f7644ecaa4d9ba8bcf0ef2352ee22
+	initialFunds = 500000
+}
+GAME_ACTION
+{
+	ut = 10.959999999999855
+	type = 4
+	actionId = act_c088ac350c924d20b1a9db1e1478f31f
+	recordingId = 72c4de6047154f06ae70235cc75ba605
+	seq = 1
+	milestoneId = RecordsSpeed
+	milestoneFundsAwarded = 14400
+	milestoneRepAwarded = 1
+	milestoneSciAwarded = 0
+}
+GAME_ACTION
+{
+	ut = 14.399999999999782
+	type = 4
+	actionId = act_b6237f3654d24d91a14ea325b4b8b679
+	recordingId = 72c4de6047154f06ae70235cc75ba605
+	seq = 2
+	milestoneId = RecordsAltitude
+	milestoneFundsAwarded = 14400
+	milestoneRepAwarded = 1
+	milestoneSciAwarded = 0
+}
+GAME_ACTION
+{
+	ut = 15.119999999999767
+	type = 4
+	actionId = act_e27f5acd18ec4b30babdbd26a5b72cbe
+	recordingId = 72c4de6047154f06ae70235cc75ba605
+	seq = 3
+	milestoneId = FirstLaunch
+	milestoneFundsAwarded = 800
+	milestoneRepAwarded = 0
+	milestoneSciAwarded = 0
+}
+GAME_ACTION
+{
+	ut = 345.57999999997566
+	type = 4
+	actionId = act_cb87ca1243b543d38bfe8e431172f80f
+	recordingId = 72c4de6047154f06ae70235cc75ba605
+	seq = 4
+	milestoneId = Kerbin/Science
+	milestoneFundsAwarded = 1600
+	milestoneRepAwarded = 0
+	milestoneSciAwarded = 0
+}
+GAME_ACTION
+{
+	ut = 341.33999999997951
+	type = 0
+	actionId = act_54498f4f880a4945b2f610568908d698
+	recordingId = 72c4de6047154f06ae70235cc75ba605
+	seq = 1
+	subjectId = crewReport@KerbinSrfLandedLaunchPad
+	scienceAwarded = 3
+	method = 0
+	transmitScalar = 0
+	subjectMaxValue = 3
+	startUT = 341.34
+	endUT = 341.34
+}
+GAME_ACTION
+{
+	ut = 10.099999999999874
+	type = 11
+	actionId = act_1ab01ff0baa34a15a9712df3d2ef2636
+	recordingId = 72c4de6047154f06ae70235cc75ba605
+	seq = 1
+	kerbalName = Jebediah Kerman
+	kerbalRole = Pilot
+	startUT = 10.1
+	endUT = 341.34
+	endState = 2
+	xpGained = 0
+}
+GAME_ACTION
+{
+	ut = 0
+	type = 21
+	actionId = act_cbaad8ef38bd4e4ebd979bba52901200
+	initialScience = 0
+}
+GAME_ACTION
+{
+	ut = 0
+	type = 22
+	actionId = act_ef53e4050c01499596d517eb97300ed7
+	initialReputation = 0
+}
+GAME_ACTION
+{
+	ut = 341.33999999997951
+	type = 11
+	actionId = act_cf9e223d593b4161a7004b59ac8b49d3
+	recordingId = 56d9aa5a5dda4490ae4a3eba15a8dddc
+	seq = 1
+	kerbalName = Jebediah Kerman
+	kerbalRole = Pilot
+	startUT = 341.34
+	endUT = 347.38
+	endState = 0
+	xpGained = 0
+}
+GAME_ACTION
+{
+	ut = 347.53999999997387
+	type = 4
+	actionId = act_0ca750838eaf43c8bc540f06156545a3
+	seq = 1
+	milestoneId = FirstCrewToSurvive
+	milestoneFundsAwarded = 800
+	milestoneRepAwarded = 0
+	milestoneSciAwarded = 0
+}
+GAME_ACTION
+{
+	ut = 347.53999999997387
+	type = 0
+	actionId = act_4ae62b1d69b147da92aa6a79e3684324
+	seq = 2
+	subjectId = mysteryGoo@KerbinSrfLandedLaunchPad
+	scienceAwarded = 3.60000014
+	method = 0
+	transmitScalar = 0
+	subjectMaxValue = 3.60000014
+	startUT = 347.54
+	endUT = 347.54
+}
+GAME_ACTION
+{
+	ut = 347.53999999997387
+	type = 0
+	actionId = act_23621dbfd6804340901fa2cea2fd8050
+	recordingId = 56d9aa5a5dda4490ae4a3eba15a8dddc
+	seq = 3
+	subjectId = recovery@KerbinFlew
+	scienceAwarded = 5
+	method = 1
+	transmitScalar = 0
+	subjectMaxValue = 6
+	startUT = 347.54
+	endUT = 347.54
+}
