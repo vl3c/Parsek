@@ -3,10 +3,19 @@ id = "V16M-laythe-player-loop"
 # =====================================================================================
 # *** NOT FLYABLE YET. *** This spec is committed AHEAD OF ITS SUBJECT: its
 # `saveTemplate` names `fixtures/saves/laythe-orbit-recorded`, which does not
-# exist until `B25-laythe-orbit` flies and its produced save is harvested. The
-# tree id is a ZERO PLACEHOLDER and all EIGHT TimeJump UTs are CALIBRATION SEEDS
-# derived from B25's PLANNED numbers, not from bytes. Running this before the
-# harvest stages nothing and arms nothing.
+# exist until `B25-laythe-orbit` flies GREEN and its produced save is harvested.
+# The tree id is a ZERO PLACEHOLDER and all EIGHT TimeJump UTs are CALIBRATION
+# SEEDS. Running this before the harvest stages nothing and arms nothing.
+#
+# THE SEEDS WERE RE-DERIVED 2026-08-19 FROM B25 FLIGHT 1's MEASURED TIMELINE.
+# That flight (runs `_1948` / `_2001`) came back INVALID(driver-flake) on its park
+# WINDOW rather than on the flight - it flew Jool -> Laythe clean through capture -
+# so its CLOCK is real even though its verdict is not, and section 3 now derives
+# every jump from it. The correction was not cosmetic: the originally authored
+# seam offset was 14,768 s off, against a bracket that is +-180 s wide, so the
+# whole cycle-1 bracket would have missed the arrival. The seam offset is STILL a
+# draw (it inherits the transfer-window wait), but `k = 20` is now BOUNDED across
+# the entire wait band rather than seeded - see sections 1(B) and 3.
 #
 # It is committed early ON PURPOSE, and the exemption that allows it is
 # self-retiring: `SharedShipsManifestTests.PENDING_FIXTURE_LANES`
@@ -84,13 +93,32 @@ id = "V16M-laythe-player-loop"
 #
 #         V14M  span  21,212 s  /  P_Ike    65,518 s  = 0.324  -> k = 1
 #         V15M  span 115,361 s  /  P_Gilly 388,587 s  = 0.297  -> k = 1
-#         V16M  span ~1.044e6 s /  P_Laythe 52,981 s  = ~19.7  -> k = 20
+#         V16M  span 1,029,700 s /  P_Laythe 52,981 s  = 19.435 -> k = 20
 #
 #       B25's span is dominated by a 1,014,005 s transfer coast - the Hohmann
 #       half-period from a 590.33 Mm park down to Laythe's 27.18 Mm orbit - which
-#       alone is 19.14 Laythe periods. SO k >= 20 IS ROBUST ACROSS THE WHOLE SPAN
-#       BAND and is the claim this lane actually pre-registers; the exact value is
-#       NOT robust and is seeded rather than predicted (section 3).
+#       alone is 19.14 Laythe periods.
+#
+#       **AND B25 FLIGHT 1 MOVED THE k CLAIM IN BOTH DIRECTIONS - INCLUDING ONE
+#       THIS BLOCK ORIGINALLY HAD WRONG.** The pre-flight version claimed
+#       `k >= 20, possibly 21`, because the TRANSFER WINDOW WAIT is a free
+#       variable in [0, one synodic] and only the upper end had been checked.
+#       Flight 1 MEASURED the span at 1,029,700 s (`span/P = 19.4353`) on a
+#       27,865.5 s wait, and re-basing that measurement across the whole band
+#       gives:
+#
+#         wait <= 4,802.2 s (8.97% of the synodic)  ->  span <= 19*P  ->  k = 19
+#         wait  > 4,802.2 s                         ->                    k = 20
+#         k = 21 would need 57,783.1 s of wait - 4,273.4 s MORE than a full
+#         synodic - so it is **EXCLUDED OUTRIGHT**.
+#
+#       SO BOTH HALVES OF THE ORIGINAL CLAIM WERE OFF BY ONE: the floor is 19, not
+#       20, and the ceiling is 20, not 21. THE EXCLUSION IS THE LOAD-BEARING HALF,
+#       because k = 21 is the case that would move every cycle-2 jump by a whole
+#       period; k = 19 vs 20 stays a ~9%-probability read for the calibration
+#       pass, and the committed seeds take the 91% branch. Section 3 carries the
+#       arithmetic, and the pass should still read the cadence off
+#       `PhaseLock APPLIED` rather than trust any of it.
 #
 #       WHAT k > 1 MEANS FOR THE MEASUREMENT, which is the reason it matters
 #       rather than being a curiosity. Faithful playback replays a FIXED
@@ -203,8 +231,8 @@ id = "V16M-laythe-player-loop"
 # WHAT THE TICKS COST, priced rather than waved away:
 #   * ~22 wall s on a 2,400 s budget. Negligible.
 #   * ~22 GAME seconds of 1x playback at the cycle-1 park epoch. The recorded
-#     destination phase is ~2,400 s and the park epoch sits 70.7% into it, so
-#     ~700 s of recorded tail remain - 32x the dwell. The ghost cannot run off
+#     destination phase is 2,562.7 s (measured) and the park epoch sits 70.7%
+#     into it, so ~751 s of recorded tail remain - 34x the dwell. The ghost cannot run off
 #     the end of its own span. (On V15M's 381 s Gilly phase the same block would
 #     have left 112 s of margin, which is why this instrument is being introduced
 #     HERE rather than retrofitted there.)
@@ -226,9 +254,20 @@ id = "V16M-laythe-player-loop"
 # ---------------------------------------------------------------------------------
 # 3. THE SCHEDULE - CALIBRATION SEEDS, WITH EVERY FORMULA SHOWN
 # ---------------------------------------------------------------------------------
-# EVERY NUMBER IN THIS SECTION IS A SEED DERIVED FROM B25'S PLANNED PROFILE. None
-# of it is read off bytes, because the bytes do not exist yet. The FORMULAS are
-# the contract; the values are placeholders with an arithmetic pedigree.
+# EVERY NUMBER IN THIS SECTION IS NOW DERIVED FROM **B25 FLIGHT 1'S MEASURED
+# TIMELINE** (runs 2026-08-19_1948 / _2001, both INVALID(driver-flake) on the park
+# WINDOW rather than on the flight - B25's FLIGHT LEDGER has the account). That
+# flight flew Jool -> Laythe clean through capture, so its clock is real even
+# though its verdict is not: the seam, the arrival periapsis UT and the window
+# wait are MEASUREMENTS. Only the tail past the capture burn (the park dwell and
+# the commit, ~282 s) is still estimated, because the run flaked before reaching
+# it. The FORMULAS remain the contract; the values are now measured seeds.
+#
+# THE FIRST AUTHORED SEED SET WOULD HAVE MISSED THE ARRIVAL ENTIRELY, which is
+# worth recording as the value of flying B25 before calibrating: it put the seam
+# offset at 1,041,905 s where the flight measured 1,027,137 s, a **14,768 s
+# error** against a bracket that is +-180 s wide. Nothing about that was sloppy -
+# it was a plan estimate, and this is exactly what a calibration run is for.
 #
 # With no zero-drift schedule the anchor is the plain Tier-1 window snap:
 #   `phaseAnchorUT = solution.NextWindowUT = NextWindow(extraction.UT0, P, referenceUT)`
@@ -236,75 +275,94 @@ id = "V16M-laythe-player-loop"
 #   `referenceUT = max(mission.LoopAnchorUT, spanEndUT)` (:295 + :378),
 #   i.e. `phaseAnchorUT = UT0 + k_a*P` with `k_a = ceil((referenceUT - UT0)/P - 1e-9)`.
 #
-# THE FOUR INPUTS, SEEDED FROM B25'S PLAN (each names what will replace it):
-#   UT0        = 27,787,319   SEED: the `jool-park-nerv` fixture's own FLIGHTSTATE
-#                UT (27,787,319.41951086), truncated. B25's seam StartRecording
-#                fires a few seconds after its LoadGame, so the recording's real
-#                `explicitStartUT` will be within ~30 s of this.
+# THE FOUR INPUTS (each names what will replace it at the harvest):
+#   UT0        = 27,787,320   MEASURED to ~1 s. B25's machine reports
+#                `startInOrbitAnchorUt=27787321.200` (its first finite-UT frame)
+#                and `launchUt=27787322.260`; the seam StartRecording ran in the
+#                preamble, just before both. The fixture's own FLIGHTSTATE UT is
+#                27,787,319.42, so the recording's `explicitStartUT` is pinned
+#                inside a ~3 s window.
 #                REPLACE WITH: the recording's `explicitStartUT` - NOT segment 0's
 #                startUT. The V6M convention, settled three times now (V6M exact,
 #                V14M to 0.04 s, V15M's fixture reproducing a 2.500 s gap between
 #                the two candidates); using segment 0 would put every bracket off
 #                by that gap.
-#   span       = 1,044,305 s  SEED, and its BAND is what makes k uncertain:
-#                  PLAN-TRANSFER                    ~     300
-#                  TRANSFER-BURN autowarp to node   ~  26,800  (HALF a synodic;
-#                                                    the range is 0 -> 53,510)
-#                  the burn itself                  ~     100
-#                  transfer coast (Hohmann half-P)  = 1,014,005
-#                  SOI entry -> periapsis           ~   2,050
-#                  capture burn + WARPALIGN hold    ~     850
-#                  park dwell                       =     180
-#                  commit tail                      ~      20
-#                  => 1,044,305 midpoint; 1,017,505 (no window wait) to
-#                     1,071,015 (a full synodic wait)
-#                REPLACE WITH: `explicitEndUT - explicitStartUT`.
-#   seam       = UT0 + 1,041,905   SEED: span minus a ~2,400 s destination phase
-#                (SOI-entry -> periapsis 2,050 + about half the capture burn +
-#                the 180 s dwell + the commit tail). REPLACE WITH: the adjacent
-#                `endUT == startUT` BODY-CHANGE pair in the `.prec.txt`
-#                ORBIT_SEGMENT chain, where the Jool-framed segments hand over to
-#                the Laythe-framed ones.
-#   save UT    = ~ UT0 + span + 3   SEED: the produced save's FLIGHTSTATE `UT`
-#                (the loop is armed on the first frames after LoadGame, so
-#                LoopAnchorUT ~ this). REPLACE WITH the measured value.
+#   seam       = 28,814,457.3  MEASURED, and this is the number the first seed set
+#                got badly wrong. The last Jool-framed telemetry frame is at
+#                ut 28,814,453.058 and the first Laythe-framed one at
+#                28,814,494.178 with `alt=3,174,048.114` (r = 3,674,048, already
+#                49,598 m inside the 3,723,645.8 m SOI) closing at 1,345.35 m/s,
+#                so the crossing is 36.9 s before that frame. KSP.log line 11725
+#                carries the boundary itself
+#                (`SOI change boundary suppressed in tree mode: Jool to Laythe`).
+#                REPLACE WITH: the adjacent `endUT == startUT` BODY-CHANGE pair in
+#                the `.prec.txt` ORBIT_SEGMENT chain.
+#   spanEnd    = 28,817,020    PART-MEASURED. The capture node - which IS the
+#                arrival periapsis - sits at 28,816,737.965 (ttPe 2,235.877 at
+#                ut 28,814,502.088 lands exactly there). Add half of the 163.5 s
+#                capture burn plus the ~200 s of PARK debounce + 180 s dwell +
+#                commit that flight 1 never reached. THE ONLY ESTIMATED TERM IN
+#                THIS SECTION, and it is ~282 s on a 1.03 Ms span.
+#                REPLACE WITH: `explicitEndUT`.
+#   save UT    = ~ spanEnd + 3   the produced save's FLIGHTSTATE `UT` (the loop is
+#                armed on the first frames after LoadGame, so LoopAnchorUT ~ this).
 #
 # THE ARITHMETIC:
 #   P            = 2*pi*sqrt(27,184,000^3 / 2.82528e14) = 52,980.879454 s
-#   span         = 1,044,305             (seed)
-#   seam offset  = 1,041,905             (seed)
-#   dest phase   = span - seam offset    = 2,400   (seed)
-#   referenceUT  = max(save UT, spanEndUT) = UT0 + 1,044,308  (seed)
-#   k_a          = ceil(1,044,308 / 52,980.879454 - 1e-9) = ceil(19.7110) = **20**
-#   phaseAnchorUt= 27,787,319 + 20 * 52,980.879454 = **28,846,936.589**
-#   cadence      = QuantizeCadenceToMultipleOfP(raw floored at span 1,044,305)
+#   span         = 28,817,020 - 27,787,320       = **1,029,700**
+#   seam offset  = 28,814,457.3 - 27,787,320     = **1,027,137.3**
+#   dest phase   = span - seam offset            = **2,562.7**
+#   referenceUT  = max(save UT, spanEndUT)       = UT0 + 1,029,703
+#   k_a          = ceil(1,029,703 / 52,980.879454 - 1e-9) = ceil(19.4353) = **20**
+#   phaseAnchorUt= 27,787,320 + 20 * 52,980.879454 = **28,846,937.589**
+#   cadence      = QuantizeCadenceToMultipleOfP(raw floored at span 1,029,700)
 #                = 20 * P = **1,059,617.589**
-#                (VERIFIED against the band: 1,017,505/P = 19.205 -> k = 20 and
-#                 1,071,015/P = 20.215 -> k = 21, so k IS 20 OR 21 depending on
-#                 how long the transfer window made the machine wait. k >= 20 is
-#                 certain; k = 20 is the seed. THIS IS THE ONE PLACE THE
-#                 CALIBRATION PASS MUST LOOK FIRST - read `cadence <span>-><cad>`
-#                 off `PhaseLock APPLIED` and, if k came back 21, EVERY cycle-2
-#                 jump moves by one whole P = 52,980.879 s while every cycle-1
-#                 jump stays put.)
+#
+#   **k = 21 IS NOW EXCLUDED, AND k = 20 IS THE 91% BRANCH.** The pre-flight
+#   version of this section said "k >= 20, probably 20, possibly 21" and was off by
+#   one at BOTH ends, because the TRANSFER WINDOW WAIT is a free variable in
+#   [0, one synodic] and only the upper end had been checked. The flight MEASURED
+#   that wait at `transferNodeUt 27,815,187.750 - launchUt 27,787,322.260 =
+#   27,865.5 s` (0.521 synodic), which fixes the wait-free part of the span at
+#   1,029,700 - 27,865.5 = 1,001,834.5 s. Against `19*P = 1,006,636.710` and
+#   `20*P = 1,059,617.589`:
+#       wait <= 4,802.2 s (8.97% of the synodic)  ->  k = 19
+#       wait  > 4,802.2 s                         ->  k = 20
+#       k = 21 needs 57,783.1 s of wait, 4,273.4 s MORE than a full synodic
+#                                                 ->  IMPOSSIBLE
+#   THE EXCLUSION IS WHAT MATTERS to this table: k = 21 is the branch that would
+#   move every cycle-2 jump by a whole period, and it cannot happen. k = 19 is a
+#   ~9% branch that would move it the other way by one period, and the seeds below
+#   take the 91% one. READ THE CADENCE off `PhaseLock APPLIED: ... cadence
+#   <raw>-><quantized>` at the calibration pass regardless - a bound is not a
+#   proof, and the ~282 s estimated tail in `spanEnd` sits inside these margins.
 #
 # THE JUMP TABLE, and every value in `steps` below is one of these rounded to the
 # nearest whole second (V14M/V15M's convention):
 #
-#   cycle-1 anchor (relaunchUt)  28,846,936.589
-#   cycle-1 seam   anchor + 1,041,905    = 29,888,841.589
-#     bracket -180 / -60 / +140          -> 29888662 / 29888782 / 29888982
-#   cycle-1 park   anchor + 1,043,601.8  -> 29890538
-#   cycle-2 anchor cycle-1 + cadence     = 29,906,554.178
-#   cycle-2 seam   anchor + 1,041,905    = 30,948,459.178
-#     bracket -180 / -60 / +140          -> 30948279 / 30948399 / 30948599
-#   cycle-2 park   anchor + 1,043,601.8  -> 30950156
+#   cycle-1 anchor (relaunchUt)  28,846,937.589
+#   cycle-1 seam   anchor + 1,027,137.3  = 29,874,074.889
+#     bracket -180 / -60 / +140          -> 29873895 / 29874015 / 29874215
+#   cycle-1 park   anchor + 1,028,949.1  -> 29875887
+#   cycle-2 anchor cycle-1 + cadence     = 29,906,555.178
+#   cycle-2 seam   anchor + 1,027,137.3  = 30,933,692.478
+#     bracket -180 / -60 / +140          -> 30933512 / 30933632 / 30933832
+#   cycle-2 park   anchor + 1,028,949.1  -> 30935504
 #
 # WHERE THE PARK OFFSET COMES FROM: 70.7% of the way through the destination
 # phase - V14M's own fraction (its park sat 2,917 s into a 4,128 s Ike phase) and
-# V15M's - i.e. seam + 1,696.8 s into a ~2,400 s phase, leaving ~703 s of
+# V15M's - i.e. seam + 1,811.8 s into a 2,562.7 s phase, leaving ~751 s of
 # recorded tail after it. That tail is what the 40-tick dwell block (section 2b)
-# runs inside, and it is 32x longer than the block needs.
+# runs inside, and it is 34x longer than the block needs.
+#
+# WHAT IS STILL A DRAW, AND MUST NOT BE READ AS PINNED: the SEAM OFFSET inherits
+# the window-wait variance. Flight 1 waited 0.521 synodic; the next flight can
+# wait anywhere in [0, 53,509.6] s, which moves the seam offset by up to
+# -27,865 / +25,644 s relative to the value above. The bracket is +-180 s wide, so
+# **the calibration pass MUST re-derive the offset from the harvested recording's
+# own bytes rather than trusting this table.** The table's job is to be RIGHT IN
+# SHAPE and close in value, not to be final. (The one thing that does NOT move
+# with the wait is k, per the bound above.)
 #
 # THE FAILURE IS SELF-DETECTING IN ONE DIRECTION ONLY: a jump that lands BACKWARD
 # of the live clock answers `REJECTED reason=backward-jump`, which is only a WARN,
@@ -425,7 +483,7 @@ id = "V16M-laythe-player-loop"
 # numbers reads like a measurement. Author them from run 1's saveParse facets.
 # =====================================================================================
 tier = "operator"
-description = "NOT YET FLYABLE - committed AHEAD of its subject with a ZERO tree id and eight CALIBRATION-SEED jump UTs derived from B25's planned profile (tracked by the self-retiring SharedShipsManifestTests.PENDING_FIXTURE_LANES exemption, which reds the moment `laythe-orbit-recorded` appears). The player workflow (arm -> Warp-to -> cross the arrival -> Watch), twice over, on B25's Jool->Laythe recording - THE FIRST JOOL MOON anyone has flown, and the first row of the five-moon table docs/dev/research/same-parent-reaim-jool-system.md section 3.1 reasons over. TWO THINGS ARE NEW AND ONE IS THE POINT. (1) THE FIRST k > 1 CADENCE: B25's span is dominated by a 1,014,005 s transfer coast = 19.14 Laythe periods, so `QuantizeCadenceToMultipleOfP` takes k = ceil(span/P) >= 20 rather than the k = 1 every prior loop subject had, and cycle 2 therefore lands cycle-1 + k*P = TWENTY moon orbits later instead of one. That inverts the sensitivity: the dP budget a cycle boundary buys is tol/((N-1)*k) = 1,155.0/20 = 57.8 s here against V15M's 200.2 s, i.e. ~3.5x SHARPER despite reading at a tolerance 5.8x looser. k >= 20 is robust across the whole span band; k = 20 vs 21 turns on how long the transfer window made B25 wait and is the calibration pass's first job. (2) THE CENSUS-PACING UPGRADE, which is what makes (1) readable: forty `RecordingState` dwell ticks between the cycle-1 park epoch and the cycle-2 re-arm, spending >= 10 wall s at run.py's 0.25 s poll floor (2.0x the 5.0 s VerboseRateLimited window) and ~21.6 s at V5's measured 0.54 s/tick, so the cycle-2 `seam-endpoint summary` escapes the limiter window that swallowed it on all three V15M runs. This implements research section 9.3's RECOURSE 1 verbatim and makes the pair the suite's FIRST k > 1 recurrence instrument. The watch steps are pinned REJECTED and, unlike V15M's, the verdict is PARK-INDEPENDENT: B25's park window admits 2a from 1,120,000 to 2,800,000 m, so even the smallest admissible orbit is 9.3x the 120 km render-zone boundary. Because of that the WATCH-LOOPED-PARK-TARGET-LOSS-NRE-STORM population is predicted ABSENT, and an NRE storm with both watch steps refused would REFUTE that entry's trigger hypothesis - a sharper result than another 443."
+description = "NOT YET FLYABLE - committed AHEAD of its subject with a ZERO tree id and eight jump UTs RE-DERIVED 2026-08-19 from B25 FLIGHT 1's MEASURED timeline (tracked by the self-retiring SharedShipsManifestTests.PENDING_FIXTURE_LANES exemption, which reds the moment `laythe-orbit-recorded` appears). The player workflow (arm -> Warp-to -> cross the arrival -> Watch), twice over, on B25's Jool->Laythe recording - THE FIRST JOOL MOON anyone has flown, and the first row of the five-moon table docs/dev/research/same-parent-reaim-jool-system.md section 3.1 reasons over. TWO THINGS ARE NEW AND ONE IS THE POINT. (1) THE FIRST k > 1 CADENCE: B25's span is dominated by a 1,014,005 s transfer coast = 19.14 Laythe periods, so `QuantizeCadenceToMultipleOfP` takes k = ceil(span/P) >= 20 rather than the k = 1 every prior loop subject had, and cycle 2 therefore lands cycle-1 + k*P = TWENTY moon orbits later instead of one. That inverts the sensitivity: the dP budget a cycle boundary buys is tol/((N-1)*k) = 1,155.0/20 = 57.8 s here against V15M's 200.2 s, i.e. ~3.5x SHARPER despite reading at a tolerance 5.8x looser. AND B25 FLIGHT 1 MOVED THAT CLAIM IN BOTH DIRECTIONS, including one half this spec originally had wrong: it measured span 1,029,700 s (span/P = 19.4353) on a 27,865.5 s window wait, and re-basing that across the whole wait band gives k = 19 for a wait under 4,802.2 s (8.97% of the synodic), k = 20 above it, and k = 21 EXCLUDED OUTRIGHT (it would need 4,273.4 s more wait than a full synodic can supply). So the pre-flight 'k >= 20, possibly 21' was off by one at BOTH ends; the exclusion is the load-bearing half and the seeds take the 91% k = 20 branch. That flight also moved the seam offset from the authored 1,041,905 s to a measured 1,027,137.3 s, a 14,768 s correction against a bracket +-180 s wide, which is precisely the miss a calibration run exists to catch. (2) THE CENSUS-PACING UPGRADE, which is what makes (1) readable: forty `RecordingState` dwell ticks between the cycle-1 park epoch and the cycle-2 re-arm, spending >= 10 wall s at run.py's 0.25 s poll floor (2.0x the 5.0 s VerboseRateLimited window) and ~21.6 s at V5's measured 0.54 s/tick, so the cycle-2 `seam-endpoint summary` escapes the limiter window that swallowed it on all three V15M runs. This implements research section 9.3's RECOURSE 1 verbatim and makes the pair the suite's FIRST k > 1 recurrence instrument. The watch steps are pinned REJECTED and, unlike V15M's, the verdict is PARK-INDEPENDENT: B25's park window admits 2a from 1,120,000 to 2,800,000 m, so even the smallest admissible orbit is 9.3x the 120 km render-zone boundary. Because of that the WATCH-LOOPED-PARK-TARGET-LOSS-NRE-STORM population is predicted ABSENT, and an NRE storm with both watch steps refused would REFUTE that entry's trigger hypothesis - a sharper result than another 443."
 instanceProfile = "stock-minimal"
 tags = ["V16", "player-loop", "watch-mode", "loop-playback", "phase-lock", "single-orbital",
         "laythe", "jool", "same-parent", "moon", "jool-moon", "multi-period-cadence",
@@ -503,21 +561,21 @@ steps = [
   # STEP 2: "Warp to..." -> ComputeNextRelaunchUT -> FastForwardToEventUT, an
   # INSTANTANEOUS Planetarium clock set (no rails warp to budget). CYCLE 1.
   { cmd = "StartLoopPlayback", args = { tree = "00000000000000000000000000000000" }, expect = "OK", budget = 300 },
-  # CYCLE-1 ARRIVAL BRACKET, strictly forward, straddling the SEEDED Jool->Laythe
-  # SOI seam 29,888,841.589 at -180 / -60 / +140 s (V14M/V15M's offsets, whole
+  # CYCLE-1 ARRIVAL BRACKET, strictly forward, straddling the MEASURED Jool->Laythe
+  # SOI seam 29,874,074.889 at -180 / -60 / +140 s (V14M/V15M's offsets, whole
   # seconds). Instantaneous, so the seam is CROSSED by the third jump rather than
-  # dwelled through. CALIBRATION SEEDS - see header section 3 for the full
-  # arithmetic and the jump table these three come from.
-  { cmd = "TimeJump", args = { ut = "29888662" }, expect = "OK", budget = 300 },
-  { cmd = "TimeJump", args = { ut = "29888782" }, expect = "OK", budget = 300 },
-  { cmd = "TimeJump", args = { ut = "29888982" }, expect = "OK", budget = 300 },
-  # CYCLE-1 PARK EPOCH: phaseAnchor + 1,043,601.8, deep inside the recorded Laythe
+  # dwelled through. Re-derived from B25 FLIGHT 1's own clock - see header section
+  # 3, which also records that the pre-flight seed set was 14,768 s off here.
+  { cmd = "TimeJump", args = { ut = "29873895" }, expect = "OK", budget = 300 },
+  { cmd = "TimeJump", args = { ut = "29874015" }, expect = "OK", budget = 300 },
+  { cmd = "TimeJump", args = { ut = "29874215" }, expect = "OK", budget = 300 },
+  # CYCLE-1 PARK EPOCH: phaseAnchor + 1,028,949.1, deep inside the recorded Laythe
   # phase - the only epoch where the auto-select's body test can pass for a
   # Laythe-parked observer, so the only place the watchable question can be asked
-  # at all. SEEDED: 70.7% into a predicted ~2,400 s destination phase, leaving
-  # ~703 s of recorded tail after it (which is what the dwell block below runs
-  # inside).
-  { cmd = "TimeJump", args = { ut = "29890538" }, expect = "OK", budget = 300 },
+  # at all. 70.7% into a 2,562.7 s destination phase (measured from flight 1's
+  # seam and capture-node UTs), leaving ~751 s of recorded tail after it - which
+  # is what the dwell block below runs inside, 34x over.
+  { cmd = "TimeJump", args = { ut = "29875887" }, expect = "OK", budget = 300 },
   # STEP 3: "Watch", auto-select over all committed recordings. PINNED
   # **REJECTED** on the chord arithmetic in header section 5 - B25's park window
   # admits 2a from 1,120,000 to 2,800,000 m and even the smallest is 9.3x the
@@ -549,8 +607,8 @@ steps = [
   # inventing one would be a product change for a pacing problem.
   #
   # WHAT IT COSTS: ~22 wall s on a 2,400 s budget, and ~22 GAME seconds of 1x
-  # playback at the cycle-1 park epoch, against ~703 s of recorded tail remaining
-  # there. 32x margin.
+  # playback at the cycle-1 park epoch, against ~751 s of recorded tail remaining
+  # there. 34x margin.
   #
   # IF THE CYCLE-2 CENSUS STILL DOES NOT APPEAR, the recourse is to RAISE THIS
   # COUNT (pure pacing; it changes no measurement) before reaching for research
@@ -598,19 +656,20 @@ steps = [
   { cmd = "RecordingState",                                                  expect = "OK" },
   # STEP 4: "Warp to..." AGAIN - the desync hunt's second half. The verb rebuilds
   # the unit and resolves NextLaunchAfter(now); with `now` past cycle 1's park it
-  # should land on CYCLE 2 (seeded anchor + one CADENCE = 29,906,554.178, i.e.
-  # TWENTY Laythe periods later, not one - header section 1(B)).
+  # should land on CYCLE 2 (anchor + one CADENCE = 29,906,555.178, i.e. TWENTY
+  # Laythe periods later, not one - header section 1(B), and k = 20 is now
+  # BOUNDED across the whole window-wait band rather than seeded).
   { cmd = "StartLoopPlayback", args = { tree = "00000000000000000000000000000000" }, expect = "OK", budget = 300 },
-  # CYCLE-2 ARRIVAL BRACKET, the same -180 / -60 / +140 offsets about the seeded
-  # cycle-2 seam 30,948,459.178. Identical instrument set: whatever differs from
+  # CYCLE-2 ARRIVAL BRACKET, the same -180 / -60 / +140 offsets about the derived
+  # cycle-2 seam 30,933,692.478. Identical instrument set: whatever differs from
   # cycle 1 is the desync signal - and the `seam-endpoint ... outsideSoi=` reading
   # HERE against cycle 1's is this lane's headline comparison, readable for the
   # first time in the suite because of the dwell block above.
-  { cmd = "TimeJump", args = { ut = "30948279" }, expect = "OK", budget = 300 },
-  { cmd = "TimeJump", args = { ut = "30948399" }, expect = "OK", budget = 300 },
-  { cmd = "TimeJump", args = { ut = "30948599" }, expect = "OK", budget = 300 },
-  # CYCLE-2 PARK EPOCH: the same +1,043,601.8 offset off the cycle-2 anchor.
-  { cmd = "TimeJump", args = { ut = "30950156" }, expect = "OK", budget = 300 },
+  { cmd = "TimeJump", args = { ut = "30933512" }, expect = "OK", budget = 300 },
+  { cmd = "TimeJump", args = { ut = "30933632" }, expect = "OK", budget = 300 },
+  { cmd = "TimeJump", args = { ut = "30933832" }, expect = "OK", budget = 300 },
+  # CYCLE-2 PARK EPOCH: the same +1,028,949.1 offset off the cycle-2 anchor.
+  { cmd = "TimeJump", args = { ut = "30935504" }, expect = "OK", budget = 300 },
   # STEP 5: "Watch" again, same pinned verdict. A DIFFERENT verdict between the
   # two watch steps would itself be the reading - it would mean the separation
   # crossed the boundary between the two cycles, which is the co-orbital phase

@@ -99,7 +99,27 @@ PESSIMISTIC_POLL_SECONDS = 4.0
 # DERIVED IN B25'S HEADER from the fixture's own part list and the stock cfg
 # masses, and re-stated here as the two numbers every budget leans on.
 DV_AVAILABLE_MPS = 3967.3
-WORST_HOP_MPS = 1573.9
+WORST_HOP_MPS = 1575.4          # pessimistic departure + capture at the 52 km floor
+
+# ---------------------------------------------------------------------------
+# FLIGHT 1 (runs 2026-08-19_1948 / _2001, both INVALID(driver-flake) on the park
+# WINDOW rather than on the flight - B25's FLIGHT LEDGER has the whole account).
+# Every number here is read off the two mission result JSONs and the collected
+# KSP.log; the cells below RE-RUN the arithmetic the ledger states rather than
+# quoting it, so a future edit that contradicts the measurement reds.
+# ---------------------------------------------------------------------------
+# Arrival conic at PLAN-CAPTURE (attempt 2), and the node MechJeb planned on it.
+F1_ARRIVAL_PE_ALT = 70_687.916
+F1_ARRIVAL_ECC = 1.271
+F1_PLANNED_CAPTURE_DV = 939.785
+# LiquidFuel before / after the capture burn (attempt 2).
+F1_LF_BEFORE, F1_LF_AFTER = 784.885, 534.786
+# Per attempt: (min in-SOI altitude sampled, post-capture pe, post-capture ap).
+F1_DELIVERED = ((72_049.048, 56_667.0, 88_352.0),
+                (70_503.980, 55_089.447, 86_842.552))
+F1_DELIVERED_ECC = 0.028
+# The arrival CONIC periapsis per attempt, against the committed 250,000 request.
+F1_ARRIVAL_CONIC_PE = (72_233.0, 70_687.916)
 
 
 def _spec(name):
@@ -439,13 +459,29 @@ class SpecArithmeticTests(unittest.TestCase):
         self.assertLessEqual(self.mp["flybyWarpFactor"],
                              self.mp["flybyMaxWarpFactor"])
 
-    def test_every_commanded_factor_is_altitude_legal_at_the_park_floor(self):
-        # Laythe HAS AN ATMOSPHERE, so its stock warp-altitude table is the one
-        # place a commanded factor can be silently clamped. The approach ceiling
-        # must be legal at the lowest altitude the lane admits.
+    def test_every_commanded_factor_is_altitude_legal_where_it_is_commanded(self):
+        """Laythe HAS AN ATMOSPHERE, so its stock warp-altitude table is the one
+        place a commanded factor can be silently clamped - and the cell has to
+        ask the question at the altitude each factor is actually commanded AT,
+        which flight 1 made concrete.
+
+        The APPROACH ceiling runs from SOI entry (3.22 Mm) down to the ARRIVAL
+        periapsis, so its floor is `targetPeriapsisFloorMeters`, not the park's.
+        The in-SOI FLOOR factor is the one that has to survive all the way down
+        to the delivered PARK, which after the 15.4 km finite-burn wedge is
+        `parkMinPeriapsisMeters` - lower than the approach floor by design. An
+        earlier version of this cell asked the approach question at the park
+        floor and would have failed the (correct) window resize."""
         limits = mlib.STOCK_WARP_ALTITUDE_LIMITS["Laythe"]
         self.assertLessEqual(limits[self.mp["approachMaxWarpFactor"]],
-                             self.mp["parkMinPeriapsisMeters"])
+                             self.mp["targetPeriapsisFloorMeters"],
+                             "the approach ceiling is not altitude-legal down to "
+                             "the arrival periapsis floor")
+        self.assertLessEqual(limits[self.mp["flybyWarpFactor"]],
+                             self.mp["parkMinPeriapsisMeters"],
+                             "the in-SOI warp FLOOR is not altitude-legal at the "
+                             "lowest park this lane admits, so the stair has no "
+                             "legal rung there")
 
     # --- the transfer / coast budgets ----------------------------------------
 
@@ -502,18 +538,43 @@ class SpecArithmeticTests(unittest.TestCase):
 
     # --- the Laythe shell: the atmosphere is what the floors guard ------------
 
-    def test_the_park_floor_and_the_assertion_floor_agree_and_clear_the_air(self):
-        # The B19/B20/B21/B22/B24 convention (parkMinPeriapsisMeters ==
-        # targetPeriapsisFloorMeters), plus the check the floor exists for. On
-        # THIS lane it guards an ATMOSPHERE rather than terrain (the B17 Duna
-        # pattern): a graze would put an Atmospheric TrackSection into the
-        # product and perturb the park.
-        self.assertEqual(self.mp["parkMinPeriapsisMeters"],
-                         self.mp["targetPeriapsisFloorMeters"])
-        self.assertGreater(self.mp["targetPeriapsisFloorMeters"],
+    def test_both_floors_clear_laythes_atmosphere(self):
+        # The check both floors exist for. On THIS lane they guard an ATMOSPHERE
+        # rather than terrain (the B17 Duna pattern): a graze would put an
+        # Atmospheric TrackSection into the product - which is what V16M/V16T
+        # read - and it is not a decay question, because KSP applies no drag
+        # above `atmosphereDepth` and the park is on rails.
+        self.assertGreater(self.mp["parkMinPeriapsisMeters"],
                            LAYTHE_ATMOSPHERE_TOP_M)
         self.assertGreaterEqual(self.mp["targetPeriapsisFloorMeters"],
                                 1.2 * LAYTHE_ATMOSPHERE_TOP_M)
+
+    def test_the_two_floors_are_deliberately_unequal_in_the_measured_direction(self):
+        """THE B19/B20/B21/B22/B24 CONVENTION (`parkMinPeriapsisMeters ==
+        targetPeriapsisFloorMeters`) IS BROKEN HERE ON PURPOSE, and this cell
+        pins the direction of the break rather than the values.
+
+        The convention is a CONSEQUENCE, not an axiom: it holds wherever the
+        capture burn is impulsive enough that the post-capture periapsis IS the
+        arrival periapsis, so the two keys measure the same metre. Flight 1
+        measured a systematic 15.4 km FINITE-BURN wedge between them (163.5 s of
+        burn at 5.40 m/s^2 straddling a periapsis crossed at 2,794 m/s), so on
+        this lane they measurably do not.
+
+        TWO BOUNDS, and the upper one is the load-bearing half: the arrival floor
+        must sit ABOVE the park floor (it is the earlier, coarser guard) and
+        BELOW `park floor + wedge`, because at or above that it would start
+        ASSERT-FAILing arrivals whose PARK the window would have accepted - i.e.
+        it would stop being a floor and become a certification, which is exactly
+        what B23's lesson says a floor must not be."""
+        park = self.mp["parkMinPeriapsisMeters"]
+        arrival = self.mp["targetPeriapsisFloorMeters"]
+        wedge = min(mn - pe for mn, pe, _ in F1_DELIVERED)
+        self.assertGreater(arrival, park)
+        self.assertLess(arrival, park + wedge,
+                        "the arrival floor is at or above park floor + the "
+                        "measured finite-burn wedge, so it can now red an "
+                        "arrival whose park this spec would accept")
 
     def test_the_park_ceiling_admits_the_arrival_spread_and_stays_in_the_shell(self):
         # LOAD-BEARING TWICE. It must ADMIT a 3x-long corrected arrival (or it
@@ -679,6 +740,148 @@ class SpecArithmeticTests(unittest.TestCase):
                     self.assertNotIn("gating", nested)
 
 
+class Flight1DiagnosisTests(unittest.TestCase):
+    """FLIGHT 1's DIAGNOSIS, re-run rather than quoted.
+
+    Both attempts came back INVALID(driver-flake) on
+    `capture under-burn ... ap=86843 pe=55089 ecc=0.028 is not a bound orbit
+    inside [pe>=60000, ...]` - and the orbit named there is a healthy park. These
+    cells pin the four claims the FLIGHT LEDGER makes about why, so that a future
+    reader who distrusts the prose can check the arithmetic, and so that a change
+    which invalidates the diagnosis reds here."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.mp = _spec("B25-laythe-orbit.toml")["driver"]["missionParams"]
+
+    def test_the_planned_capture_node_was_the_textbook_one_at_periapsis(self):
+        # CLAIM 1: PLAN-CAPTURE planned correctly. The ideal circularize-at-
+        # periapsis dv on the MEASURED arrival conic must reproduce what MechJeb
+        # priced, which is what rules out "circularized at the wrong apsis".
+        r_p = R_LAYTHE + F1_ARRIVAL_PE_ALT
+        a = r_p / (1.0 - F1_ARRIVAL_ECC)
+        v_inf = math.sqrt(MU_LAYTHE / abs(a))
+        ideal = (math.sqrt(v_inf ** 2 + 2.0 * MU_LAYTHE / r_p)
+                 - math.sqrt(MU_LAYTHE / r_p))
+        self.assertAlmostEqual(v_inf, 965.24, delta=0.5)
+        self.assertAlmostEqual(ideal, F1_PLANNED_CAPTURE_DV, delta=1.0)
+
+    def test_the_burn_was_essentially_complete_not_an_under_burn(self):
+        # CLAIM 2: the vessel flew the node. The propellant actually consumed
+        # must account for the planned dv to within a fraction of a percent -
+        # which is what makes "under-burn" the classifier's name for the failure
+        # rather than its cause.
+        dry = 7.180
+        m0 = dry + F1_LF_BEFORE * 0.005
+        m1 = dry + F1_LF_AFTER * 0.005
+        burned = 800.0 * 9.80665 * math.log(m0 / m1)
+        self.assertAlmostEqual(burned, F1_PLANNED_CAPTURE_DV, delta=5.0)
+        self.assertLess(abs(burned - F1_PLANNED_CAPTURE_DV) / F1_PLANNED_CAPTURE_DV,
+                        0.01, "the capture burn was more than 1% short, which "
+                              "would make 'under-burn' a diagnosis rather than "
+                              "just a name")
+
+    def test_the_periapsis_drop_is_systematic_and_is_the_finite_burn_arc(self):
+        # CLAIM 3: the ~15.4 km drop is a property of the burn, not a draw. Two
+        # attempts, two different arrivals, and the SAME wedge to within tens of
+        # metres - plus the burn really is long enough to explain it (a 163.5 s
+        # burn against a ~2,000 s park period is ~8% of an orbit).
+        drops = [mn - pe for mn, pe, _ in F1_DELIVERED]
+        self.assertAlmostEqual(drops[0], drops[1], delta=100.0,
+                               msg="the finite-burn wedge is not repeatable "
+                                   "across the two attempts, so the ledger's "
+                                   "'systematic' claim needs re-reading")
+        for d in drops:
+            self.assertGreater(d, 15_000.0)
+        dry = 7.180
+        m0 = dry + F1_LF_BEFORE * 0.005
+        v_e = 800.0 * 9.80665
+        burned = v_e * math.log(m0 / (dry + F1_LF_AFTER * 0.005))
+        t_burn = m0 * 1000.0 * v_e / 60_000.0 * (1.0 - math.exp(-burned / v_e))
+        self.assertGreater(t_burn, 150.0)
+        self.assertLess(60_000.0 / (m0 * 1000.0), 6.0,
+                        "the stack accelerates faster than 6 m/s^2, so the "
+                        "finite-burn explanation for the wedge is weaker than "
+                        "the ledger claims")
+
+    def test_the_delivered_park_is_admitted_by_the_resized_window(self):
+        # CLAIM 4, and the fix itself: every measured delivery must now pass all
+        # three park bounds, with the floor NOT pinned at the measurement.
+        lowest_pe = min(pe for _, pe, _ in F1_DELIVERED)
+        for _, pe, ap in F1_DELIVERED:
+            self.assertGreaterEqual(pe, self.mp["parkMinPeriapsisMeters"])
+            self.assertLessEqual(ap, self.mp["parkMaxApoapsisMeters"])
+        self.assertLessEqual(F1_DELIVERED_ECC, self.mp["parkMaxEccentricity"])
+        # NOT pinned at the measurement: the floor keeps real room under the
+        # lowest delivery, sized against the spread BETWEEN the two attempts.
+        spread = abs(F1_DELIVERED[0][1] - F1_DELIVERED[1][1])
+        self.assertGreaterEqual(lowest_pe - self.mp["parkMinPeriapsisMeters"],
+                                1.5 * spread,
+                                "the park floor is pinned too close to the lowest "
+                                "measured delivery; a draw a kilometre lower reds "
+                                "the lane again")
+
+    def test_the_delivered_park_is_stable_above_laythes_atmosphere(self):
+        # The "is the orbit itself fine?" question, as arithmetic. KSP applies no
+        # drag above `atmosphereDepth`, so an on-rails park above 50 km does not
+        # decay - the only question is whether it is above it, and by how much.
+        for _, pe, ap in F1_DELIVERED:
+            self.assertGreater(pe, LAYTHE_ATMOSPHERE_TOP_M)
+            self.assertLess((R_LAYTHE + ap) / SOI_LAYTHE, 0.25,
+                            "the delivered apoapsis is a quarter of the way to "
+                            "the SOI edge; it is not durably inside the shell")
+
+    def test_the_measured_under_delivery_refutes_the_pre_flight_k_reading(self):
+        """THE FINDING-16D DATA POINT, kept as a cell because the spec's
+        pre-flight reasoning is now KNOWN WRONG and the wrongness is the value.
+
+        `courseCorrectPeriapsisMeters` was chosen to sit near the corpus's Eve
+        row (req/SOI 5.875%, k = 0.997). It came in at k ~ 0.286 - below even the
+        Mun row's 0.545 - so the "the bias inverts to k ~ 1 above 4%" reading
+        does not survive a fourth point in that regime. Repeatable, though: the
+        two attempts agree to about 1%."""
+        req = self.mp["courseCorrectPeriapsisMeters"]
+        ks = [pe / req for pe in F1_ARRIVAL_CONIC_PE]
+        for k in ks:
+            self.assertLess(k, 0.545, "the delivered ratio is no longer below the "
+                                      "corpus's Mun row; the ledger's refutation "
+                                      "needs re-reading")
+            self.assertGreater(k, 0.20)
+        self.assertLess(abs(ks[0] - ks[1]) / max(ks), 0.05)
+        # ... and the request still sits where the spec says it does.
+        self.assertAlmostEqual(req / SOI_LAYTHE, 0.0671, delta=0.0005)
+
+    def test_the_approach_coast_measured_longer_than_the_sizing_floor(self):
+        """The warp block gained margin rather than losing it, so nothing moved.
+        The measured arrival was 21.8% SLOWER than the pure-Hohmann v_inf the
+        header derived, which makes the SOI-entry -> periapsis coast LONGER."""
+        r_p = R_LAYTHE + F1_ARRIVAL_PE_ALT
+        a = r_p / (1.0 - F1_ARRIVAL_ECC)
+        h = math.acosh((SOI_LAYTHE / abs(a) + 1.0) / F1_ARRIVAL_ECC)
+        m = F1_ARRIVAL_ECC * math.sinh(h) - h
+        coast = m * math.sqrt(abs(a) ** 3 / MU_LAYTHE)
+        self.assertAlmostEqual(coast, 2280.1, delta=5.0)
+        self.assertGreater(coast, LAYTHE_APPROACH_COAST_FLOOR_SECONDS,
+                           "the measured approach coast is UNDER the floor every "
+                           "warp bound was sized on")
+
+    def test_the_park_trim_is_structurally_unreachable_on_this_lane(self):
+        """Question (3), pinned: mlib's ONLY periapsis-raising round-out step is
+        `_b5_park_trim_step`, and it is reachable only from `B5_CIRCULARIZE` -
+        the ASCENT circularization phase, which `startInOrbit = true` never
+        enters (PRELAUNCH hands straight to ORBIT). So no value change can trim
+        the delivered park upward, and the window is the only lever there is.
+
+        Checked as BEHAVIOUR: with the param unset the verdict is "off", which is
+        what makes the whole trim ladder inert on this lane."""
+        params = mlib.b5_params_from_dict(self.mp)
+        self.assertEqual(0.0, params.park_trim_ecc_max)
+        self.assertEqual(mlib.PARK_TRIM_OFF,
+                         mlib.park_trim_verdict(params.park_trim_ecc_max,
+                                                F1_DELIVERED_ECC, 0, 0, 0))
+        self.assertNotIn("parkTrimEccMax", self.mp)
+
+
 class V16CalibrationSeedTests(unittest.TestCase):
     """The V16 pair ships with CALIBRATION SEEDS rather than measurements, so what
     CAN be checked is their internal consistency - the relationships the headers
@@ -692,11 +895,18 @@ class V16CalibrationSeedTests(unittest.TestCase):
     # loudly in KSP rather than arming some other tree.
     PLACEHOLDER_TREE = "0" * 32
 
-    # The seeds header section 3 derives everything from.
-    UT0 = 27_787_319.0
-    SPAN = 1_044_305.0
-    DEST_PHASE = 2_400.0
+    # The seeds header section 3 derives everything from - RE-DERIVED 2026-08-19
+    # from B25 FLIGHT 1's MEASURED timeline (the flight flaked on its park window,
+    # not on its clock, so its UTs are real). The originally authored set put the
+    # seam offset 14,768 s early against a +-180 s bracket.
+    UT0 = 27_787_320.0          # measured to ~1 s off startInOrbitAnchorUt/launchUt
+    SPAN = 1_029_700.0          # capture-node UT + the ~282 s estimated tail - UT0
+    DEST_PHASE = 2_562.7        # spanEnd - the measured 28,814,457.3 seam
     PARK_FRACTION = 0.707
+    # The transfer-window wait is the free variable the seam offset inherits, and
+    # the one the k-bound below is argued over.
+    F1_WINDOW_WAIT = 27_865.49  # transferNodeUt 27,815,187.750 - launchUt 27,787,322.260
+    SYNODIC = 53_509.647
 
     @classmethod
     def setUpClass(cls):
@@ -721,23 +931,47 @@ class V16CalibrationSeedTests(unittest.TestCase):
             for tree in trees:
                 self.assertEqual(self.PLACEHOLDER_TREE, tree)
 
-    def test_the_cadence_multiple_is_greater_than_one_across_the_whole_span_band(self):
-        """THE LANE'S SHARPEST PRE-REGISTERED CLAIM, and the ONLY part of the
-        cadence prediction that is robust.
+    def test_the_cadence_multiple_is_nineteen_or_twenty_and_never_twenty_one(self):
+        """THE LANE'S SHARPEST CLAIM, and B25 FLIGHT 1 SHARPENED IT IN BOTH
+        DIRECTIONS - including one the pre-flight version had WRONG.
 
         `QuantizeCadenceToMultipleOfP` takes the smallest `k*P` at or above the
         raw cadence, and the raw cadence is floored at the recording's SPAN.
         B25's span is dominated by a transfer coast that is 19.14 Laythe periods
-        on its own, so k >= 20 whatever the transfer window wait turns out to be
-        - which is what makes this the suite's first cadence that is not one moon
-        period. The EXACT value is not robust (20 vs 21 across the band) and is
-        seeded, not predicted."""
+        on its own, so `k > 1` was never in doubt - but the exact value turns on
+        the TRANSFER WINDOW WAIT, a free variable in [0, one synodic]. The
+        pre-flight header claimed `k >= 20, possibly 21`. Re-basing flight 1's
+        MEASURED span (1,029,700 s on a 27,865.5 s wait) across the wait band
+        shows BOTH halves of that were off by one:
+
+            wait <= 4,802.2 s  (8.97% of the synodic)  -> k = 19
+            wait  > 4,802.2 s                          -> k = 20
+            k = 21 would need 57,783.1 s of wait, which is 4,273.4 s MORE than a
+            full synodic - so it is EXCLUDED OUTRIGHT.
+
+        The k = 21 exclusion is the load-bearing half, because that is the one
+        that would move every cycle-2 jump by a whole period. k = 19 vs 20 stays
+        a 9%-probability read for the calibration pass."""
         p = self._period()
         a_t = (PARK_SMA + A_LAYTHE) / 2.0
         tof = math.pi * math.sqrt(a_t ** 3 / MU_JOOL)
         self.assertGreater(tof / p, 19.0)
-        for span in (1_017_505.0, self.SPAN, 1_071_015.0):
-            self.assertGreaterEqual(math.ceil(span / p - 1e-9), 20)
+        span_no_wait = self.SPAN - self.F1_WINDOW_WAIT
+        span_full_wait = span_no_wait + self.SYNODIC
+        # k = 21 is excluded across the ENTIRE band, with real slack.
+        self.assertLess(span_full_wait, 20.0 * p)
+        self.assertGreater(20.0 * p - span_full_wait, 1_000.0,
+                           "the k <= 20 bound has under 1,000 s of slack at a "
+                           "full-synodic window wait; it is a seed again")
+        # The measured flight is a k = 20 draw, and the committed seeds use 20.
+        self.assertEqual(20, math.ceil(self.SPAN / p - 1e-9))
+        # The only alternative is k = 19, and it needs a very short wait.
+        self.assertEqual(19, math.ceil(span_no_wait / p - 1e-9))
+        threshold = 19.0 * p - span_no_wait
+        self.assertLess(threshold / self.SYNODIC, 0.10,
+                        "the k = 19 branch now covers more than a tenth of the "
+                        "window-wait band; the seeds' k = 20 choice needs "
+                        "re-arguing")
 
     def test_the_jump_table_is_derived_from_the_seeded_inputs(self):
         """THE DERIVATION, re-run. Every jump UT is the anchor plus a fixed

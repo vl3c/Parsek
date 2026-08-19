@@ -14,7 +14,7 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
-## B5-INWARD-TRANSFER-EVIDENCE-AND-TRIGGERS-ASSUME-OUTWARD: the moon-transfer machine keys BOTH its burn-done evidence and its correction-round spacing to an apsis RISING, and the two available workarounds are MUTUALLY EXCLUSIVE [FOUND BY AUDIT 2026-08-19 while authoring `B25-laythe-orbit`, the suite's first INWARD moon transfer. NOT YET FLOWN. REPORT-ONLY: a HARNESS constraint on `harness/missions/lib/mlib.py`, NOT a proposed product change; B25 flies with values only and accepts one named degradation]
+## B5-INWARD-TRANSFER-EVIDENCE-AND-TRIGGERS-ASSUME-OUTWARD: the moon-transfer machine keys BOTH its burn-done evidence and its correction-round spacing to an apsis RISING, and the two available workarounds are MUTUALLY EXCLUSIVE [FOUND BY AUDIT 2026-08-19 while authoring `B25-laythe-orbit`, the suite's first INWARD moon transfer, and BOTH WORKAROUNDS LIVE-PROVEN THE SAME DAY on that lane's flight 1 (runs `_1948` / `_2001`). REPORT-ONLY: a HARNESS constraint on `harness/missions/lib/mlib.py`, NOT a proposed product change; B25 flies with values only and accepts one named degradation]
 
 Every b5 moon-path flight to date (Kerbin->Mun, Kerbin->Minmus, Duna->Ike,
 Eve->Gilly) parks LOW and transfers UP to a moon at a HIGHER orbital radius.
@@ -94,6 +94,25 @@ when the PREDICTED target periapsis is already BELOW
 `targetPeriapsisFloorMeters`, with `time_to_soi` inside (600, 3600) s. **A merely
 mediocre arrival gets no second look, and that is an accepted degradation on this
 lane rather than a fix.**
+
+**BOTH WORKAROUNDS ARE NOW LIVE-PROVEN, on `B25-laythe-orbit` flight 1** (both
+attempts INVALID(driver-flake) on that lane's park WINDOW, which is a different
+question - the flight itself reached CAPTURE-BURN and delivered a healthy park):
+
+- **The ecc burn-done evidence WORKED.** `startedInHomeOrbit` met on the fixture's
+  own park (`value=7.944061403402496e-06`), and then TRANSFER-BURN EXITED - which
+  under `ejectionEccFloor` it can only do on a home-frame eccentricity at or above
+  0.55. The corrected transfer's last home-framed telemetry reads `ecc=0.954`. The
+  apoapsis floor this replaced would have been satisfied AT THE PARK, before the
+  burn, which is the vacuity the substitution exists to avoid.
+- **The delegation to the arrival-quality extras FIRED.** The machine reports
+  `rounds=2 extraRounds=1`: the one scheduled round plus one direction-agnostic
+  extra, on a DESCENDING coast. So the degradation is real but bounded, and the
+  fallback is not theoretical.
+- **And the empty `viaBodyNames` did its second job**: the descent crossed Pol's,
+  Bop's, Tylo's and Vall's orbital shells and the collected KSP.log carries ZERO
+  occurrences of any of their SOI-boundary tokens, with exactly one `Jool to
+  Laythe`.
 
 **THE HONEST FIX, if a future inward lane needs the mid-coast round back**, is a
 periapsis-side burn-done predicate in `mlib` - a `transferMaxPeriapsisMeters`

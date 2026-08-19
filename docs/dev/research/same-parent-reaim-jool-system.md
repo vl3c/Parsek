@@ -795,12 +795,16 @@ cycle-2 census emission possible at all; if the reading run still prints one cen
 block was too short and the recourse is to raise the count, not to conclude anything. (b) The
 lane ALSO happens to be the suite's first **k > 1 CADENCE**: `B25-laythe-orbit`'s span is
 dominated by a 1,014,005 s transfer coast = 19.14 Laythe periods, so
-`QuantizeCadenceToMultipleOfP` should take `k = ceil(span/P) >= 20` and cycle 2 should land
-TWENTY moon orbits after cycle 1 rather than one. That inverts the sensitivity - the `dP` budget
-a cycle boundary buys is `tol / ((N-1) * k)` = 1,155.0/20 = **57.8 s**, against V15M's 200.2 s,
-i.e. ~3.5x sharper despite reading at a tolerance 5.8x looser. Neither half measures anything on
-its own: (b) gives the lane a recurrence worth reading twice and (a) gives it the ability to read
-it twice.
+`QuantizeCadenceToMultipleOfP` takes `k = ceil(span/P) = 20` and cycle 2 lands TWENTY moon orbits
+after cycle 1 rather than one. **That multiple is now bounded rather than assumed**: B25 flew on
+2026-08-19 (INVALID(driver-flake) on its park window, but its CLOCK is real - it reached
+CAPTURE-BURN) and measured `span = 1,029,700 s`, `span/P = 19.4353`, on a 27,865.5 s transfer
+window wait. Re-basing that across the whole wait band gives k = 19 below a 4,802 s wait, k = 20
+above it, and **k = 21 excluded outright** (it would need 4,273 s more wait than a synodic can
+supply). The sensitivity inverts either way - the `dP` budget a cycle boundary buys is
+`tol / ((N-1) * k)` = 1,155.0/20 = **57.8 s**, against V15M's 200.2 s, i.e. ~3.5x sharper despite
+reading at a tolerance 5.8x looser. Neither half measures anything on its own: (b) gives the lane
+a recurrence worth reading twice and (a) gives it the ability to read it twice.
 
 AND THE LIMIT SURVIVES EITHER WAY: two cycles is **N = 2**. A cycle-2 `outsideSoi=0` would bound
 `dP < 57.8 s`, which is a real bound and the first of its kind, but it is not a drift RATE and it
