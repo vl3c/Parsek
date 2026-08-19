@@ -44,9 +44,12 @@ namespace Parsek.Tests
     ///   SCIENCE reconstructs 100 LOW - the career's science SEED was captured as 0 on
     ///     a save whose science pool was 100
     ///     (CAREER-SCIENCE-SEED-LOST-ON-FLIGHT-ROUTE).
-    ///   REPUTATION reconstructs 0.00148 LOW - two +1 milestone awards land at
-    ///     1.9985168 against KSP's 1.99999881, cause open
-    ///     (CAREER-MILESTONE-REP-AWARD-RECONSTRUCTS-LOW).
+    ///   REPUTATION reconstructed 0.00148 LOW - two +1 milestone awards landing at
+    ///     1.9985168 against KSP's 1.99999881
+    ///     (CAREER-MILESTONE-REP-AWARD-RECONSTRUCTS-LOW). CLOSED 2026-08-20 by the
+    ///     residual-step fix in `ReputationModule.ApplyReputationCurve`; this pool now
+    ///     reconstructs to 2.4e-07, which is float32 noise. The other two remain
+    ///     CAPTURE-side and therefore un-movable over this frozen `ledger.pgld`.
     ///
     /// WHAT DOES CLOSE, and it is the thing the forge was built to prove: the three
     /// EARNED science subjects reconstruct EXACTLY (3 + 3.6000001430511475 + 5, against
@@ -109,11 +112,22 @@ namespace Parsek.Tests
         // earnings; the defect is upstream, in the seed never landing.
         private const double PinnedScienceShortfall = 100.0;
 
-        // REPUTATION: the third pinned divergence, and the one whose CAUSE is still
-        // open. Two milestone awards of +1 each reconstruct to 1.9985168 against KSP's
-        // own 1.99999881. See the cell for why this fixture separates the question
-        // C2Career could not.
-        private const double PinnedReputationShortfall = 0.001482011980590725;
+        // REPUTATION: CLOSED 2026-08-20. This pin used to read 0.001482011980590725 -
+        // two +1 milestone awards reconstructing to 1.9985168 against KSP's own
+        // 1.99999881 - and it is now 2.4e-07, i.e. float noise on a float32 pool.
+        //
+        // THIS MOVED WITHOUT A RE-HARVEST, AND THAT IS THE SANCTIONED CASE, NOT THE
+        // ALARM. The entry's own closing paragraph reserves un-re-harvested movement as
+        // the signal that a RECALC-side change occurred "and must be investigated rather
+        // than re-pinned". It was investigated - the cause was read out of the
+        // decompiled `Reputation.addReputation_granular` - and the recalc-side fix is
+        // the deliberate consequence: `ReputationModule.ApplyReputationCurve` now sizes
+        // its final residual step from the accumulated POST-CURVE actual the way stock
+        // does, instead of from the nominal step count (identically zero for an integer
+        // award, so the top-up never fired). The magnitude that remains is the float32
+        // representation gap between the replay's double accumulation and the pool KSP
+        // rounded into its save.
+        private const double PinnedReputationShortfall = -2.3632568368903151E-07;
 
         public C2CareerPostFixReplayTests()
         {
@@ -333,27 +347,17 @@ namespace Parsek.Tests
                 $"science: recon={reconScience.ToString("R", IC)} save={SaveScience.ToString("R", IC)} d={(reconScience - SaveScience).ToString("R", IC)} | " +
                 $"rep: recon={reconRep.ToString("R", IC)} save={SaveReputation.ToString("R", IC)} d={(reconRep - SaveReputation).ToString("R", IC)}";
 
-            // REPUTATION: a SMALL REAL DIVERGENCE, and this fixture is the cleanest
-            // measurement of it anyone has. C2Career carries the same family
-            // (-0.00364) and its note says "tighten when a post-fix fixture is
-            // harvested" because the question - second small leak, or curve rounding? -
-            // could not be separated from that career's strategy leg. Here it can:
-            // this career has NO strategy, NO contracts, a rep seed of 0 that is
-            // genuinely correct, and exactly TWO reputation inputs, the +1 awards on
-            // `RecordsSpeed` and `RecordsAltitude`. KSP's own pool lands at 1.99999881,
-            // i.e. float32 2.0; the replay lands at 1.9985168.
+            // REPUTATION: CLOSES. This fixture was the cleanest measurement of the
+            // milestone-award family anyone had - NO strategy, NO contracts, a rep seed
+            // of 0 that is genuinely correct, and exactly TWO reputation inputs, the +1
+            // awards on `RecordsSpeed` and `RecordsAltitude` - and that is what made the
+            // 0.00148 checkable as arithmetic rather than guessable as a leak. The
+            // answer was the residual step of the granular award loop; see the constant
+            // above. The replay now lands on 1.9999990 against KSP's own 1.99999881.
             //
-            // So the divergence is NOT strategy-related and NOT seed-related: it is in
-            // how the MILESTONE reputation award itself is modelled, and it is a
-            // fractional shortfall on a two-award career. That narrows C2Career's open
-            // question considerably and is why this is pinned as a MAGNITUDE rather
-            // than left inside a 0.01 window - a window that wide would have called
-            // 1.9985168 "closed" and lost the signal that identifies the path.
-            //
-            // WHY IT IS NOT CHASED HERE: the cause is genuinely unknown (stock applies
-            // a curve on `AddReputation`, and whether Parsek's model or stock's rounding
-            // owns the 0.00148 needs the award path read, not guessed). Recorded in
-            // CAREER-MILESTONE-REP-AWARD-RECONSTRUCTS-LOW.
+            // KEPT AS A MAGNITUDE PIN rather than relaxed into a window: 2.4e-07 is
+            // float32 noise, and pinning it that tightly is what makes a future
+            // regression in the award path visible on the very first run.
             Assert.True(Math.Abs((SaveReputation - reconRep) - PinnedReputationShortfall) < 0.0001,
                 "REPUTATION shortfall moved off its pinned value. " + report);
 

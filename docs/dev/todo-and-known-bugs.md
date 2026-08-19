@@ -717,7 +717,60 @@ masking the log contract exists to prevent. Fix the capture; leave the level.
 
 ---
 
-## CAREER-MILESTONE-REP-AWARD-RECONSTRUCTS-LOW: two +1 milestone reputation awards replay to 1.9985 instead of 2 [NARROWED 2026-08-19 by the post-fix fixture harvested from `L3-career-science-recover` flight 3 (run `2026-08-19_1912`). **CAUSE FOUND 2026-08-19** during the `career-capture-fixes` wave and verified against the decompiled `Reputation.addReputation_granular`. FIX DELIBERATELY NOT TAKEN IN THAT WAVE - see "Why the fix was deferred". OPEN, but no longer a hunt: it is a known one-line change]
+## ~~CAREER-MILESTONE-REP-AWARD-RECONSTRUCTS-LOW: two +1 milestone reputation awards replay to 1.9985 instead of 2~~ [**FIXED 2026-08-20** on `career-closes-to-zero`. NARROWED 2026-08-19 by the post-fix fixture harvested from `L3-career-science-recover` flight 3 (run `2026-08-19_1912`); CAUSE FOUND 2026-08-19 during the `career-capture-fixes` wave and verified against the decompiled `Reputation.addReputation_granular`; fix deliberately deferred out of that wave so the capture-side re-harvest would read unambiguously - see "Why the fix was deferred"]
+
+### The fix, and what it measured (2026-08-20)
+
+`ReputationModule.ApplyReputationCurve` now sizes its final residual step from the
+accumulated POST-CURVE actual, exactly as the decompile does:
+
+    float input = (i != num) ? delta : (nominal - accumulated);
+
+**Both career-replay suites closed on it, on two independently produced careers.**
+This is a RECALC-side change, so unlike the three capture-side entries it moves
+committed `ledger.pgld` fixtures legitimately and WITHOUT a re-harvest - the rows are
+unchanged, the arithmetic replaying them is not. That is the movement this entry's
+closing paragraph reserved as "a RECALC-side change has occurred and must be
+investigated rather than re-pinned": it was investigated, it is this, and the pins
+were flipped deliberately.
+
+| Suite (fixture) | Reputation divergence before | after |
+| --- | --- | --- |
+| `C2CareerPostFixReplayTests` (driven flight, no strategy, two +1 milestones) | -0.001482011980590725 | **+2.36e-07** |
+| `C2CareerLedgerReplayTests` (hand-played career WITH a strategy exchange) | -0.00364 | **-1.75e-09** |
+
+The second row is the stronger statement: C2Career's reputation divergence had been
+open since 2026-08-17 with the standing note "second small leak, or curve rounding?
+unknown", and it closed on this one change without that fixture being touched. Its
+window was tightened from 0.01 onto the closure (1e-6), because 0.01 would now hide a
+full regression of the residual step.
+
+**Four other cells moved, each updated deliberately rather than accommodated:**
+
+- `ReputationModuleTests.LossCurve_AtNegativeRep_DiminishedLoss` - bound widened -10 ->
+  -20 (measures -13.02). Intent unchanged: a nominal -50 at deeply negative rep still
+  lands at a small fraction of nominal.
+- `EarningsReconciliationTests`' four `KspRefDelta_*` constants - re-measured. THE
+  PROVENANCE CAVEAT IS THE POINT: the original note said in its own second sentence
+  that they were "computed offline against the exact keyframes AND ALGORITHM in
+  ReputationModule.cs", i.e. they were never an independent capture of KSP's output and
+  therefore encoded the defect. That is why this "gate zero" cell did not catch it. The
+  new values are recomputed the same way against the fixed algorithm, so the cell keeps
+  the drift-detector role it always had and claims no more than it ever did; the
+  independent corroboration is the two save-diffing replay suites above. Largest
+  movement: +50 at rep 500, 23.845410 -> 35.555260 (26 points of curve loss the top-up
+  now delivers).
+- `EarningsReconciliationTests.ComputeExpectedDeltaForLeg_ReputationCurve_SameUtMatchesUseSequenceTiebreaker`
+  - order-dependence guard lowered 0.1 -> 0.001. The fix SHRINKS order dependence
+  (awards land near nominal), so forward-vs-reverse measures 0.00299 where it was ~0.5.
+  Still 6x the 0.0005 rounding tolerance of the three-decimal comparison it guards.
+- Five new cells in `ReputationModuleTests` state the contract fixture-independently:
+  the two-award chain reproduces KSP's own 1.99999881; a mutation guard reds if the
+  residual collapses back to the bare unit step; sub-unit awards are proved
+  BIT-IDENTICAL either way (for |nominal| < 1 the loop is the residual step alone and
+  `accumulated` is still 0, so the two formulas are the same number); the negative side
+  mirrors; and a non-integer award above 1 moves toward stock without landing exactly on
+  nominal, because a large residual is itself curve-attenuated.
 
 ### The cause, verified both sides
 
