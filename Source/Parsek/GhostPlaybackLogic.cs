@@ -51,6 +51,11 @@ namespace Parsek
                 // Headless xUnit can construct state that references UnityEngine
                 // types without a Unity runtime. Runtime KSP hides normally.
             }
+            catch (MissingMethodException)
+            {
+                // Headless xUnit can construct state that references UnityEngine
+                // types without a Unity runtime. Runtime KSP hides normally.
+            }
         }
 
         internal enum StockExplosionFxResult

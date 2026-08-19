@@ -35,6 +35,11 @@ namespace Parsek.Tests
                     // Headless xUnit still lacks Unity GUI teardown; the smoke test only
                     // cares that KSC mode constructed and exposed the sub-window.
                 }
+                catch (System.MissingMethodException)
+                {
+                    // Headless xUnit still lacks Unity GUI teardown; the smoke test only
+                    // cares that KSC mode constructed and exposed the sub-window.
+                }
             }
         }
 

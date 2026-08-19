@@ -438,12 +438,14 @@ namespace Parsek.Tests
             string source = File.ReadAllText(scenarioPath);
 
             // The dirty sidecar skip must AND on IsMarkerOwnedSwitchSegmentRecordingId
-            // so marker-owned ids do NOT skip the sidecar save.
+            // so marker-owned ids do NOT skip the sidecar save. Line endings are
+            // normalized so the grep holds on both CRLF and LF checkouts.
+            string normalized = source.Replace("\r\n", "\n");
             Assert.Contains(
                 "RecordingStore.IsCommittedTreeRestoreAttemptRecordingId(rec.RecordingId)"
-                + "\r\n                        && !RecordingStore.IsMarkerOwnedSwitchSegmentRecordingId(rec.RecordingId)",
-                source.Replace("\r\n                        &&\r\n",
-                               "\r\n                        && "));
+                + "\n                        && !RecordingStore.IsMarkerOwnedSwitchSegmentRecordingId(rec.RecordingId)",
+                normalized.Replace("\n                        &&\n",
+                                   "\n                        && "));
 
             // And the bypass must log Verbose with the marker-owned
             // reason so playtest logs reveal the bypass.
