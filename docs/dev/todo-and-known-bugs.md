@@ -14,6 +14,74 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## ~~HARNESS-CANNOT-EARN-CAREER-CURRENCY~~ - no driven run could collect science, transmit it, or recover a vessel, so `ScienceEarning` rows and vessel-recovery credits were reachable only from a hand-played save [CAPABILITY SHIPPED 2026-08-19, branch `c2-postfix-forge`; NOT YET FLOWN; one residual survives and is NOT closed]
+
+Filed and closed in the same entry because the gap was never a defect - it was a
+missing capability nobody had written down, and writing it down only to close it
+two lines later is how the residual stays visible.
+
+### The gap, as measured
+
+Five facts, each verified against source rather than assumed:
+
+1. `mlib` had no `ACTION_*` constant for collecting science, transmitting it, or
+   recovering a vessel.
+2. `KrpcMissionControl.perform` had no branch for any of the three (an action
+   with no branch raises `unknown action kind` and ends the mission as
+   MISSION-ERROR, so the constant alone would have been worse than nothing).
+3. `TelemetrySnapshot` had no channel that could OBSERVE any of the three
+   outcomes - no experiment counts, no `Recoverable`, and no career pools.
+4. The M-A2 seam had no verb for any of it either, so the "drive it through the
+   seam instead" alternative did not exist.
+5. `KscAction` has exactly four sub-actions - research a node, upgrade a
+   facility, hire a kerbal, accept a contract - and **every one of them is a
+   SPEND**. Nothing in the harness credited anything.
+
+The consequence was structural, not cosmetic: `ScienceEarning` is produced only
+from flight science subjects via
+`GameStateEventConverter.ConvertScienceSubjects`, so with no mission collecting
+science, no driven run could ever produce one. Same for a vessel-recovery credit.
+Both row families are most of what a real career ledger is made of, which is why
+`docs/dev/plans/career-ledger-coverage.md` recorded "a forged career can NEVER
+cover science" as a hard ceiling, and why B.4's strict-mode arming had no subject
+except promoting a hand-played save.
+
+### What closed it
+
+Three mission actions (`run_science_experiments`, `transmit_science`,
+`recover_vessel`), six opt-in telemetry channels, and the
+`science_bench_recover` mission, which delegates its flight leg to `b1_decide`
+verbatim and adds COLLECT -> TRANSMIT -> RECOVER. Binding contract:
+`docs/dev/design-autotest-mission-library.md` Amendment A. The sequencing to a
+harvested fixture is `career-ledger-coverage.md` section 4d.
+
+Two design points worth carrying out of it, because both are the kind of thing
+that is re-derived wrongly later:
+
+- **The career pools are populated on a `vessel_lost` snapshot**, alongside
+  `crew_roster_status` and for the identical reason. Recovering the active vessel
+  DESTROYS it, so the frame that proves the recovery happened necessarily has no
+  vessel on it. Without that carry the success terminal is unobservable and every
+  good recovery reads as a break-up. The three VESSEL-scoped science channels are
+  deliberately NOT carried there - a recovered craft has none.
+- **`Vessel.Recover()` is scene-level and terminal.** Stock recovery removes the
+  craft and leaves FLIGHT, and `_fly_loop_body` does not wrap `control.perform` -
+  so a machine that emits any action after the recover verb performs it against a
+  vessel that no longer resolves and reports MISSION-ERROR instead of the outcome
+  it had a name for. Emit it once, last. kRPC also THROWS on a non-recoverable
+  vessel, so both the runner and the machine read `Vessel.Recoverable` first.
+
+### RESIDUAL - the unaffordable-spend ORDERING shape is still unforgeable
+
+This is the half of the ceiling that did NOT move, and it is the half the parked
+science finding needs. `KscAction` pre-refuses an unaffordable research at the
+door, so a forged ledger cannot contain a spend that was judged unaffordable at
+its reconstructed balance - which is exactly the shape of the c1 `heavyRocketry`
+finding (cost 90 against a reconstructed 85.3). Being able to CREDIT science does
+not help: the refusal is at the seam, before any row is written. That finding
+stays owned by the synthetic two-action unit test (`ScienceSpendingOrderingTests`,
+plan task A.1), and a future forge must NOT be scoped to it.
+
 ## MAPRENDER-ICON-OFF-ORBIT-CREATION-FRAME-AFTER-JUMP: a ghost's proto ICON sits ~94 deg around its own orbit line on the CREATION frame, after a single large TimeJump onto an epoch just inside a foreign moon's SOI [MEASURED 2026-08-18 by `V14T-ike-ts-arrival`'s reading run and REPRODUCED on its armed run 2026-08-19. REPORT-ONLY: one self-correcting frame per run, DETERMINISTIC for the single-jump shape, tolerated by name in that spec; NO product change is proposed]
 
 `V14T-ike-ts-arrival` run `2026-08-18_2337` came back PARSEK-FAIL(anomaly) on
