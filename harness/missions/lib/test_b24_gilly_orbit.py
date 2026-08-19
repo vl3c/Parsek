@@ -513,37 +513,76 @@ class V15CalibrationSeedTests(unittest.TestCase):
         self.assertEqual("fixtures/saves/gilly-orbit-recorded",
                          self.m["fixture"]["saveTemplate"])
 
-    def test_neither_v15_spec_arms_a_gating_block(self):
+    def test_both_v15_specs_arm_both_save_structure_blocks(self):
+        """ARMED 2026-08-19 off the pair's own reading runs. The inverse of the
+        cell this replaces, and it is deliberately strict: a lane that is on
+        `ARMED_ALLOWLIST` (harness/lib/test_hlib.py) but has quietly lost its
+        `gating` flag would pass every other cell in the suite while gating
+        nothing."""
         for spec in (self.m, self.t):
-            for block in ("rewind", "recordings"):
-                sub = (spec.get("expectations") or {}).get(block) or {}
-                self.assertNotIn("gating", sub)
-                for nested in sub.values():
-                    if isinstance(nested, dict):
-                        self.assertNotIn("gating", nested)
+            rewind = spec["expectations"]["rewind"]
+            structure = spec["expectations"]["recordings"]["structure"]
+            self.assertTrue(rewind.get("gating"))
+            self.assertTrue(structure.get("gating"))
+            # Written FROM the measurement: 0/0/0 durable rows, one committed
+            # tree, one recording, terminal Orbiting.
+            self.assertEqual(0, rewind["rewindPoints"]["max"])
+            self.assertEqual(0, rewind["supersedeRows"]["max"])
+            self.assertEqual(0, rewind["tombstones"]["max"])
+            self.assertEqual({"min": 1, "max": 1}, structure["committedTrees"])
+            self.assertEqual({"min": 1, "max": 1}, structure["recordings"])
+            # `trees` keeps V2's max = 2 for the duplicate-writer hazard, so it
+            # is deliberately WIDER than the single measurement.
+            self.assertEqual({"min": 1, "max": 2}, structure["trees"])
+            self.assertEqual({"min": 1, "max": 1},
+                             spec["expectations"]["recordings"]["count"])
 
-    def test_the_v15m_park_epoch_lands_inside_the_recorded_gilly_phase(self):
-        """THE CONSTRAINT B24'S FLIGHT IMPOSED, and it is tight enough to be worth
-        a cell. The recorded destination phase is only 381.490 s long, so a park
-        epoch has to sit between the seam and the recording's end or the ghost is
-        outside its own span and the watch step measures nothing."""
-        period = 2.0 * math.pi * math.sqrt(A_GILLY ** 3 / MU_EVE)
-        anchor = self.UT0 + period
-        seam_ut = anchor + (self.SEAM - self.UT0)
-        end_ut = anchor + (self.SPAN_END - self.UT0)
-        park = self._jump_uts(self.m)[3]
-        self.assertGreater(park, seam_ut)
-        self.assertLess(park, end_ut)
-        # ...and so must the third bracket jump, which crosses the seam.
-        self.assertGreater(self._jump_uts(self.m)[2], seam_ut)
-        self.assertLess(self._jump_uts(self.m)[2], end_ut)
-
-    def test_v15t_leaves_the_anomaly_sweep_fully_armed(self):
-        # The header's deliberate choice: the reading run MEASURES whether
-        # V14T's `icon-off-orbit` raise survives a change of parent and moon, so
-        # pre-tolerating the token would destroy the measurement.
-        self.assertEqual([], self.t["expectations"]["allowedAnomalies"])
+    def test_the_anomaly_tolerance_is_exactly_the_measured_asymmetry(self):
+        """V15M stays the CONTROL and V15T carries the tolerance - the pair is
+        what makes the `icon-off-orbit` finding a statement about the JUMP SHAPE
+        rather than about the fixture, the scene or the parent body. Both halves
+        are pinned, because either one drifting alone destroys the claim."""
         self.assertEqual([], self.m["expectations"]["allowedAnomalies"])
+        self.assertEqual(["icon-off-orbit"],
+                         self.t["expectations"]["allowedAnomalies"])
+
+    def test_the_tolerance_stays_a_bare_token_not_a_count_budget(self):
+        """The whole-set invariant lives in `harness/lib/test_hlib.py`
+        (`test_no_committed_spec_arms_a_count_budget`, which holds the budget
+        mechanism INERT across the suite). It is restated here because THIS lane
+        is the one with a live reason to want a ceiling, so the refusal should be
+        visible where the temptation is."""
+        for entry in self.t["expectations"]["allowedAnomalies"]:
+            self.assertIsInstance(entry, str)
+
+    def test_the_measured_routing_conjunction_is_required_on_both_lanes(self):
+        """The arming's headline token, and it is required as ONE regex over ONE
+        line rather than as three presence checks: three separate tokens would
+        pass on a log carrying them on three different lines. All three were
+        grepped against the reading runs' own bytes before being armed."""
+        want = ("PhaseLock APPLIED: mission=.*method=single-orbital"
+                ".*zeroDrift=no")
+        for spec in (self.m, self.t):
+            req = spec["expectations"]["logContracts"]["required"]
+            self.assertIn(want, req)
+            self.assertIn(r"Orbital\(Gilly\) same-parent", req)
+            self.assertIn("support=Supported", req)
+
+    def test_only_v15m_arms_the_seam_endpoint_value(self):
+        """The asymmetry is MEASURED, not stylistic. V15M reaches the lens
+        (`evaluated=1 outsideSoi=0`) so it can arm the value as a GS-3-style
+        regression floor; V15T's TS dwell parks the drive clock inside the
+        recording's LAST segment and reads the structural `evaluated=0
+        skip.no-cross-body-successor=1`, so it may only pin presence. Swapping
+        either way would gate on the wrong thing - V15T would red on a
+        legitimate structural zero, and V15M would stop guarding the one
+        quantity this program exists to watch."""
+        m_req = self.m["expectations"]["logContracts"]["required"]
+        t_req = self.t["expectations"]["logContracts"]["required"]
+        self.assertIn(r"seam-endpoint summary evaluated=[1-9]\d* outsideSoi=0",
+                      m_req)
+        self.assertIn(r"seam-endpoint summary evaluated=\d+ outsideSoi=\d+",
+                      t_req)
 
 
 class GillyToleranceTests(unittest.TestCase):

@@ -11,8 +11,10 @@ id = "V15T-gilly-ts-arrival"
 # two halves of the pair cannot drift apart; the inputs are restated below. Nothing
 # else in the flown shape moved.
 #
-# THIS IS STILL A CALIBRATION RUN: the anchor is DERIVED, not observed. Run 1 re-pins
-# it from its own `missionconfig applied:` / `startloopplayback initiated:` lines.
+# THE CALIBRATION HELD, MEASURED ON RUN 1 (`2026-08-19_1739`): the derived anchor
+# 16,152,620.423 agreed with the product's own 16,152,620.3818632 to 0.041 s, the single
+# jump landed forward and answered OK, and NO jump UT moved at arming. Full arithmetic
+# in V15M's header section 3.
 # =====================================================================================
 #
 # V15T: THE TRACKING-STATION OBSERVATION OF A LOOPED **SAME-PARENT TRANSFER TO AN
@@ -143,7 +145,7 @@ id = "V15T-gilly-ts-arrival"
 # `body=Gilly scene=TRACKSTATION` half.
 #
 # ---------------------------------------------------------------------------------
-# EXPECT THE `icon-off-orbit` ANOMALY TO RECUR, AND LET IT RED
+# IT RECURRED, IT RED, AND IT PROVED PARENT-INDEPENDENCE (MEASURED 2026-08-19)
 # ---------------------------------------------------------------------------------
 # V14T's reading run `2026-08-18_2337` came back PARSEK-FAIL(anomaly) on attempt 1
 # with ALL SIXTEEN STEPS GREEN: the armed Tier-C sweep raised exactly one
@@ -157,47 +159,79 @@ id = "V15T-gilly-ts-arrival"
 # inside the destination SOI. Filed report-only as
 # docs/dev/todo-and-known-bugs.md -> MAPRENDER-ICON-OFF-ORBIT-CREATION-FRAME-AFTER-JUMP.
 #
-# THIS LANE IS THE NATURAL SECOND DATA POINT, and the entry says the trigger has
-# NOT been shown to be parent-specific - V14T is one body pair. So:
+# THIS LANE WAS THE NATURAL SECOND DATA POINT and it shipped with
+# `allowedAnomalies = []` on purpose so the sweep would MEASURE rather than swallow the
+# answer. Reading run `2026-08-19_1739` came back **PARSEK-FAIL(anomaly) attempt 1 with
+# all sixteen steps green** - the pre-registered correct catch - on exactly one line
+# (KSP.log 10814, FLIGHT scene at 20:40:10.324, ~2 s BEFORE the TS LoadGame at
+# 20:40:12):
 #
-#   `allowedAnomalies` IS EMPTY ON THIS READING RUN, DELIBERATELY. The sweep must
-#   MEASURE whether the raise recurs on a different parent, a different moon and a
-#   ~1,000x smaller SOI. A PARSEK-FAIL(anomaly) with every step green is therefore
-#   the EXPECTED and CORRECT outcome here, not a failure of the spec - exactly as
-#   it was on V14T's reading run. Read `anomalySweep hits=[...]` and the raise's
-#   own line (it carries `angleIconVsOrbitEff`, both longitudes, both radii and the
-#   conic) before doing anything else.
+#   phase=Anomaly surface=ProtoIcon pid=687187265 recId=77f724bb1d4844c3b132a1ccc00a7df3
+#     frame=7757 currentUT=16267740.000 effUT=16267740.000 reason=icon-off-orbit
+#     angleIconVsOrbitEff=26.49 angleEffVsLive=0.00 loopShift=0.0 effUT=16267740.0
+#     | lonIcon=46.98 lonOrbitEff=73.92 lonOrbitLive=73.92
+#     | iconR=49232 orbitEffR=49232
+#     | lineActive=True inc=17.980 LAN=39.322 argPe=180.550 sma=-20 ecc=1996.2409 body=Gilly
 #
-#   `retry = once` WILL SPEND A SECOND ATTEMPT ON IT, and that is accepted rather
-#   than avoided: the raise is deterministic on V14T's shape, so a second attempt
-#   costs ~50 s and returns the same verdict, which is itself the corroboration
-#   this lane is here to provide. Do NOT pre-tolerate the token to dodge the red -
-#   the S1.4 rule is that a token is re-added WITH the flight that shows it, and
-#   the arming pass adds the BARE token (never a `maxCount` budget: hlib's
-#   `MisplacedAllowedAnomaliesRejectionTests.test_no_committed_spec_arms_a_count_budget`
-#   is a HARD whole-set property that the budget mechanism ships INERT, and this
-#   lane is not the place to be the first to break it).
+# STRUCTURALLY IDENTICAL TO IKE'S: ghost-proto CREATION frame, FLIGHT scene, after ONE
+# large TimeJump onto an epoch just inside a foreign moon's SOI, `iconR == orbitEffR`
+# (49,232 m), `lonOrbitEff == lonOrbitLive` with `angleEffVsLive=0.00` and
+# `loopShift=0.0`, one line in the whole log. Right body, right conic, right radius,
+# wrong phase.
+#
+# **SO PARENT-INDEPENDENCE IS NOW MEASURED**, which is the discriminating experiment
+# the todo entry named: two parents (Duna, Eve), two moons (Ike, Gilly), SOI scales
+# 8.3x apart, deterministic at both - with `V15M-gilly-player-loop` (PASS,
+# `hits=[] hitCounts={}`) the control that reaches the SAME arrival UT through a stepped
+# bracket. THE ONE NEW FACT IS THAT THE MAGNITUDE IS NOT CONSTANT: 26.49 deg here
+# against 94.05 deg at Ike, a 3.5x difference in the quantity the detector thresholds
+# on. Not diagnosed; two points do not separate the candidate explanations, and this
+# lane's conic is pathological in its own right (see the TS-conic block above). The todo
+# entry carries the full account.
+#
+# THE ARMING, taken from that run: `allowedAnomalies = ["icon-off-orbit"]`, BARE (see
+# the block's own comment for why the ceiling is deferred, and why it should be armed
+# for V14T and this lane together when it is).
 #
 # ---------------------------------------------------------------------------------
-# POSTURE - READING RUN, NOTHING ARMED
+# POSTURE - ARMED 2026-08-19 OFF THIS LANE'S OWN READING RUN
 # ---------------------------------------------------------------------------------
-# No `gating = true` block anywhere; `[expectations.rewind]` and
-# `[expectations.recordings.structure]` are DELIBERATELY ABSENT (V14T shipped its
-# reading run the same way and wrote both FROM the measurement at arming). The
-# recordings count is the DERIVED range {1,2}. `forbidden` carries the ERROR floor,
-# the re-aim trio, the backward-jump guard and the parity-drift pin.
+# READING RUN `2026-08-19_1739`: all 16 steps met, the TS session clean, recordings
+# count 1, saveParse 1/1/1 with every rewind facet 0, ZERO NullReferenceExceptions, and
+# zero occurrences of every token now forbidden; PARSEK-FAIL(anomaly) on the single
+# raise above, which the tolerance now admits.
 #
-# THE THREE-RUN DISCIPLINE this lane owes: this reading run; an armed re-flight
-# after the expectations are written FROM its bytes; and ONE negative control
-# SHARED WITH V15M (the V4/V5/V14 precedent - the pair gates through the one shared
-# saveParse evaluator, so one inversion across both, not two).
+# NOTHING IN THE FLOWN SHAPE CHANGED AT ARMING - no step, no jump UT, no budget moved;
+# only the expectations grew (the S4.1 rule).
+#
+# WHAT ARMING ADDED:
+#   * `required` grows from 12 tokens to 13, adding `support=Supported` and swapping the
+#     VALUE-FREE `PhaseLock APPLIED: mission=` prefix for the MEASURED conjunction
+#     `method=single-orbital ... zeroDrift=no` (deferred on the reading run because
+#     `method=` was the thing being measured at a new moon).
+#   * `forbidden` grows to V14T's full six.
+#   * `allowedAnomalies` gains the BARE `icon-off-orbit` entry.
+#   * the recordings count is PINNED at exactly 1, and `[expectations.rewind]` +
+#     `[expectations.recordings.structure]` are DECLARED and `gating = true` - the one
+#     place this arming differs in KIND from the reading posture, since the lane
+#     previously declared neither block. Arming them is worth MORE on this shape than on
+#     a single-scene dwell, for V5's reason: this spec writes a save mid-run and reads it
+#     back through a SECOND scene load, the shape in which a stray durable write is
+#     easiest to miss.
+# Both save-structure blocks are registered in `ARMED_ALLOWLIST`
+# (harness/lib/test_hlib.py) with this run cited.
+#
+# WHAT STILL OWES A RUN: the armed re-flight (which will also produce this lane's FIRST
+# GREEN `hitCounts` reading, the precondition for ever arming the anomaly ceiling), and
+# the pair's negative control - ONE inversion shared with V15M, not two, because the two
+# lanes gate through the single shared saveParse evaluator (the V4/V5/V14 precedent).
 # =====================================================================================
 tier = "operator"
-description = "NOT YET FLOWN, but CALIBRATED 2026-08-19 off B24-gilly-orbit's harvested bytes (run 2026-08-19_1655, PASS attempt 1), in the same pass as V15M: the placeholder tree id and the seed jump UT are replaced with derived values and nothing else in the flown shape moved. The tracking-station half of the Gilly player-loop pair: arm the loop and jump the clock 140 s past the derived cycle-1 Eve->Gilly SOI seam in FLIGHT, SaveGame, then re-enter through LoadGame scene=trackstation and dwell with mapRenderTracing armed. The subject is B24's Eve->Gilly recording - the first loop member whose destination moon is ECCENTRIC (e = 0.55), INCLINED (12 deg) and has the smallest SOI in the stock system (126,123 m, 0.40% of its own orbital radius); the flight put the intercept where Gilly moves at 630.0 m/s, so tol = SOI/v_orb = 200.2 s against Ike's ~3,420 s, and the recorded destination phase is only 381.490 s wide. The routing half is expected to be V14T's exactly (`Orbital(Gilly) same-parent`, `support=Supported`, faithful chain) and is the CONTROL; what is new is that a phase-lock residual would be measurable at all, with the `seam-endpoint summary ... outsideSoi=` census as the instrument in its PRESENCE form. Anti-vacuity rides the TS host's own `created N ghost vessel(s)` count with N >= 1 plus a Gilly-stamped TS proto icon. `allowedAnomalies` is EMPTY on purpose: V14T's `icon-off-orbit` raise on the single-jump shape is deterministic but has not been shown to be parent-independent, so a PARSEK-FAIL(anomaly) with all steps green is the expected correct catch here and the arming pass adds the bare token if it fires. One pre-flight prediction is already SCORED AND WRONG: the TS conic was predicted at sma ~ -48,900 m / ecc ~ 1.47 and the bytes read sma = -19.884 m / ecc = 1996.24 - Gilly's mu is small enough that every approach hyperbola about it has |a| of tens of metres."
+description = "FLOWN AND ARMED off its own reading run 2026-08-19_1739 - PARSEK-FAIL(anomaly) attempt 1 with ALL SIXTEEN STEPS GREEN, which is the CORRECT catch this spec pre-registered rather than a lane defect. The tracking-station half of the Gilly player-loop pair: arm the loop and jump 140 s past the derived cycle-1 Eve->Gilly SOI seam in FLIGHT, SaveGame, then re-enter through LoadGame scene=trackstation and dwell with mapRenderTracing armed. MEASURED AND NOW REQUIRED: `Orbital(Gilly) same-parent` + `support=Supported` + `PhaseLock APPLIED ... method=single-orbital ... zeroDrift=no` (the routing prediction held at a second orbit-rooted subject), `reaimed=False` with `faithfulFallback=False` (faithful by route, not by fallback), the R12 trackstation route pair, `created 1 ghost vessel(s)`, and a `body=Gilly scene=TRACKSTATION` proto icon at 41.4 km from Gilly's centre - inside a 126,123 m SOI whose recorded destination phase is only 381.490 s wide, which is the epoch precision this lane demands. THE RED IS THE HEADLINE: one `icon-off-orbit` on the ghost-proto creation frame in FLIGHT after the single TimeJump, angleIconVsOrbitEff=26.49 deg with iconR == orbitEffR - structurally identical to V14T's Ike raise, so the single-jump creation-frame trigger is now MEASURED PARENT-INDEPENDENT (two parents, two moons, SOI scales 8.3x apart, deterministic at both, with V15M the stepped-bracket control at the same arrival UT). The one new fact is that the magnitude is NOT constant: 26.49 deg here vs 94.05 at Ike. Tolerated by the BARE token per S1.4 and filed report-only; the ceiling stays deferred because this lane has no green hitCounts reading yet."
 instanceProfile = "stock-minimal"
 tags = ["V15", "tracking-station", "loop-arrival", "phase-lock", "single-orbital",
         "gilly", "eve", "same-parent", "moon", "eccentric-moon", "map-render",
-        "pending-first-flight"]
+        "flown"]
 
 [fixture]
 # The same B24-gilly-orbit harvest V15M walks (run 2026-08-19_1655, PASS attempt 1,
@@ -286,14 +320,41 @@ D14 = ["gilly", "scene-ts", "sandbox"]
 # PLACEMENT IS LOAD-BEARING (hlib.validate_spec rejects a bare allowedAnomalies
 # written after any [expectations.<sub>] header).
 #
-# EMPTY, AND THAT IS THE MEASUREMENT - see the header block "EXPECT THE
-# `icon-off-orbit` ANOMALY TO RECUR, AND LET IT RED". V14T raised exactly one
-# `icon-off-orbit` on this step shape, twice, on a Duna->Ike subject; whether the
-# trigger survives a change of parent, moon and SOI scale is unmeasured, and the
-# only way to measure it is to leave the sweep fully armed. A PARSEK-FAIL(anomaly)
-# with all sixteen steps green is the expected correct catch, and the arming pass
-# adds the BARE token with this run cited if it fires.
-allowedAnomalies = []
+# ONE TOLERATED TOKEN, ADDED 2026-08-19 WITH THE FLIGHT THAT SHOWS IT - the S1.4 rule
+# verbatim ("if one ever fires, red it, file it in docs/dev/todo-and-known-bugs.md and
+# quarantine via [expectedFail] or re-add the token WITH the flight that shows it"). The
+# flight is `2026-08-19_1739` and the file entry is
+# MAPRENDER-ICON-OFF-ORBIT-CREATION-FRAME-AFTER-JUMP, which this run's data point
+# upgraded to PARENT-INDEPENDENT.
+#
+# THE READING RUN SHIPPED WITH `allowedAnomalies = []` ON PURPOSE and red because of it,
+# which is the whole reason this entry can be trusted: had the token been pre-tolerated,
+# the parent-independence question the run existed to answer would have been silently
+# swallowed. A PARSEK-FAIL(anomaly) with all sixteen steps green was the pre-registered
+# correct catch, and it is what happened.
+#
+# BARE, NOT BUDGETED - AND THE BUDGET FORM IS DEFERRED FOR A REASON NARROWER THAN
+# V14T'S. `{ token = "icon-off-orbit", maxCount = 1 }` is the tighter declaration and
+# hlib's own doctrine argues for ceilings, but two things block it here:
+#   (1) `MisplacedAllowedAnomaliesRejectionTests.test_no_committed_spec_arms_a_count_budget`
+#       is a HARD WHOLE-SET property: the budget mechanism ships INERT and NO committed
+#       spec may arm one. Arming it means moving that invariant cell to a named
+#       allowlist in the same edit.
+#   (2) That cell's own words say arming one is "an operator decision taken against
+#       measured `anomalySweep.hitCounts` from a GREEN run" - and THIS LANE HAS NO GREEN
+#       RUN AT ALL YET. V14T at least has one (`2026-08-19_0002`, PASS,
+#       counts={'icon-off-orbit': 1}); this lane's armed re-flight is still owed, so
+#       even the precondition is unmet. When the ceiling is finally armed it should be
+#       armed for BOTH lanes in one edit, since they are the same trigger.
+# Until then the tolerance is bare and the ceiling lives in this comment.
+#
+# THE SWEEP STAYS OTHERWISE ARMED: every other Tier-C token still reds, and
+# `V15M-gilly-player-loop` - same fixture, same tracers, same arrival UT 16,267,740,
+# stepped bracket instead of one jump - measured `hits=[] hitCounts={}` on its own
+# reading run. That pair is the control, and together with the V14 pair it is what makes
+# this tolerance a statement about the JUMP SHAPE rather than about the fixture, the
+# scene or the parent body.
+allowedAnomalies = ["icon-off-orbit"]
 
 [expectations.recordings]
 # THE ARITHMETIC, identical to V15M's - read that spec's block for the full
@@ -302,81 +363,87 @@ allowedAnomalies = []
 # LOAD-TIME optimizer split at the Eve->Gilly seam, which section-3 rule 3 of
 # `IsSplittableEnvOrBodyBoundary` is predicted to keep COHESIVE (V14M MEASURED that
 # rule firing at the equivalent Duna->Ike crossing).
-# => { min = 1, max = 2 }, a DERIVED RANGE and NOT A PIN.
+# => the pre-flight window was { min = 1, max = 2 }, a derived range.
 #
-# THIS SPEC OWES THE TIGHTER PIN MORE THAN V15M DOES once it has a reading, for
-# V5's reason: it enters the scene TWICE and writes a save in between, so a second
-# entry leaving a promotion stub is the measurement a double-entry spec owes.
-count = { min = 1, max = 2 }
+# MEASURED 1 on the reading run `2026-08-19_1739`, with the optimizer's own reason in
+# the same log (`Split summary: rec=77f724bb... evaluated=1 ... exoCoastBodyChangeKept=1`
+# at 20:40:07.651): the LOAD-TIME pass evaluated the Eve->Gilly boundary and KEPT IT
+# COHESIVE, the same answer V14M got at Duna->Ike and V15M got on this fixture.
+#
+# PINNED EXACTLY AT 1, and this spec owes the tight pin MORE than V15M does, for V5's
+# reason: it enters the scene TWICE and writes a save in between, so a second entry
+# leaving a promotion stub is the measurement a double-entry spec owes. A 2 here means
+# either the cohesion rule stopped firing or a stub survived the re-kill pair - both
+# findings, and a loose window would absorb them.
+count = { min = 1, max = 1 }
 
 [expectations.logContracts]
-# The chain, in order:
-#   "missionconfig applied:" / "SetLoopEnabled: loop ON" - the loop is ARMED through
-#     the production path, in FLIGHT, before the save; the first also echoes
-#     phaseAnchorUt, the number to read when calibrating the jump.
-#   "startloopplayback initiated:" - the clock work entered the production door and
+# THE CHAIN, in order, and every regex below was grepped in its EXACT form against
+# `results/2026-08-19_1739_V15T-gilly-ts-arrival_shots/KSP.log` before being written
+# here; match counts are quoted so a reader can tell a thin pin from a fat one.
+#   "missionconfig applied:" (1) / "SetLoopEnabled: loop ON" (1) - the loop is ARMED
+#     through the production path, in FLIGHT, before the save; the first also echoes
+#     phaseAnchorUt, the number to read when re-calibrating the jump.
+#   "startloopplayback initiated:" (1) - the clock work entered the production door and
 #     echoed the resolved relaunchUt.
-#   "PhaseLock APPLIED: mission=" - Info, from the builder. Gates D11 `phase-lock`,
-#     and is deliberately the VALUE-FREE prefix. V14T's sharper conjunction pin
-#     (`...method=single-orbital.*zeroDrift=no`) is NOT required here: it is the
-#     thing this run is meant to MEASURE on a new moon, and pinning a predicted
-#     value before the reading is the error V14M's own header records (its
-#     pre-flight `tidal-collapse` prediction was REFUTED, and a spec that had
-#     required it would have red'd on a correct product). Add it at arming.
-#   "Orbital\(Gilly\) same-parent" - the ROUTING pin, required because it is
-#     DERIVABLE FROM THE FIXTURE rather than from a flight: the destination is a
-#     direct child of the launch body, which is what keeps Support=Supported and
-#     makes re-aim structurally unreachable.
-#   the two loadgame lines - the R12 trackstation BRANCH was taken and the load
-#     COMPLETED against the TrackingStation expected scene (H23's pins verbatim;
-#     this fixture has a focusable vessel and would otherwise route to FLIGHT, so a
-#     TRACKSTATION landing can only mean the requested scene overrode the
-#     save-derived route - the claim is falsifiable).
 #
+# THE ROUTING PINS, ARMED 2026-08-19 OFF THIS LANE'S OWN READING RUN:
+#   "Orbital\(Gilly\) same-parent" (6) + "support=Supported" (12) - same-parent, not
+#     demoted. The extraction line reads `members=1 launchBody=Eve constraints=1
+#     [Orbital(Gilly) same-parent P=388587.37684792886 off=114979.43693914078]`.
+#   "PhaseLock APPLIED: mission=.*method=single-orbital.*zeroDrift=no" (6) - ONE regex
+#     over ONE line, pinning the whole routing verdict as a conjunction (applied +
+#     single-constraint road + no zero-drift schedule). Three separate tokens would
+#     pass on a log carrying them on three different lines. THE PRE-FLIGHT POSTURE IS
+#     DISCHARGED: the reading run deliberately required only the VALUE-FREE prefix,
+#     because `method=` was the thing being measured at a new moon; it came back
+#     `single-orbital`, so the conjunction is armed FROM the measurement.
+#   "factory chain ... reaimed=False" (2) - V6T/V14T's sharpest single line, here with
+#     the same value: what TS rendered is the FAITHFUL chain, not a re-aimed one, and
+#     the measured line adds `phases=7 faithfulFallback=False` - faithful by ROUTE
+#     rather than by fallback.
+# THE TWO R12 ROUTE LINES (1 each) - the trackstation BRANCH was taken and the load
+#     COMPLETED against the TrackingStation expected scene (H23's pins verbatim; this
+#     fixture has a focusable vessel and would otherwise route to FLIGHT, so a
+#     TRACKSTATION landing can only mean the requested scene overrode the save-derived
+#     route - the claim is falsifiable).
 # THE TWO TS ANTI-VACUITY GATES:
-#   "ParsekTrackingStation initialized: created [1-9][0-9]* ghost vessel\(s\)" - the
-#     TS host's OWN line, emitted only in that scene. A TS boot that materializes
-#     ZERO ghosts is an empty tracking station, and reading that as a pass is
-#     exactly the V1/V2 vacuity failure. A zero here is a FINDING to diagnose, never
-#     a token to relax. Routing-agnostic by design: it says a ghost was
-#     materialized without asserting which road built it.
-#   "phase=GhostCreated surface=ProtoIcon pid=\d+ .*body=Gilly scene=TRACKSTATION" -
-#     V6T's `body=Mun` / V14T's `body=Ike` pin with the body swapped. This is what
-#     turns the D14 `gilly` claim from an EPOCH claim into a RENDERED-FRAME claim.
-#     IF THIS TOKEN MISSES ON THE READING RUN, read it as a finding about the derived
-#     jump landing outside the recorded Gilly window rather than as a product
-#     defect: the recorded Gilly phase is only 381.490 s wide, so the epoch has to be
-#     right to within a few hundred seconds - which is the whole reason this lane
-#     exists.
-#
-# THE RENDER-MODE PIN:
-#   "factory chain ... reaimed=False" - V6T/V14T's sharpest single line, here with
-#     the same expected value: what TS rendered is the FAITHFUL chain, not a
-#     re-aimed one. It is the render-side inversion of V5's `reaimed=True` off the
-#     same code path, and unlike the routing METHOD it is not what this run is
-#     measuring - a same-parent subject cannot reach re-aim, so requiring it costs
-#     nothing the fixture has not already fixed.
-#
+#   "ParsekTrackingStation initialized: created [1-9][0-9]* ghost vessel\(s\)" (1) - the
+#     TS host's OWN line, emitted only in that scene. MEASURED `created 1 ghost
+#     vessel(s), fixed 0 orbit renderer(s), trackingStationSuppressed=0`. A TS boot that
+#     materializes ZERO ghosts is an empty tracking station, and reading that as a pass
+#     is the V1/V2 vacuity failure. A zero here is a FINDING to diagnose, never a token
+#     to relax. Routing-agnostic by design.
+#   "phase=GhostCreated surface=ProtoIcon pid=\d+ .*body=Gilly scene=TRACKSTATION" (1) -
+#     V6T's `body=Mun` / V14T's `body=Ike` pin with the body swapped. This is what turns
+#     the D14 `gilly` claim from an EPOCH claim into a RENDERED-FRAME claim, and it was
+#     armed from the start rather than after an iteration (V14T's own note said to). 
+#     MEASURED at pid=3282224066, `worldPos=(-7002.57,9771.60,39577.87)`, i.e. 41.4 km
+#     from Gilly's centre - inside the 126,123 m SOI, which is the epoch check the
+#     381.490 s destination phase makes tight.
 # THE PROBE / LENS PRESENCE PINS (V6T/V14T's, verbatim, and for their reasons):
-#   "faithful-parity summary sampled=\d+ overTolerance=\d+" - emitted only when the
-#     per-pid parity pass touched the lens, so PRESENCE cannot be produced by a
-#     frame with no resolved ghost. `sampled=[1-9]` is NOT pinned: V6T and V14T both
-#     measured `sampled=0 skip.reaimed-or-foreign-seed=1`, a real blind spot
+#   "faithful-parity summary sampled=\d+ overTolerance=\d+" (1) - emitted only when the
+#     per-pid parity pass touched the lens, so PRESENCE cannot be produced by a frame
+#     with no resolved ghost. `sampled=[1-9]` is NOT pinned: this lane measured
+#     `sampled=0 skip.reaimed-or-foreign-seed=1`, the SAME blind spot V6T/V14T/V15M read
 #     (docs/dev/todo-and-known-bugs.md -> FAITHFUL-PARITY-SEED-FRAGMENT-REBASE).
-#   "seam-endpoint summary evaluated=\d+ outsideSoi=\d+" - the PRESENCE form on BOTH
-#     counters. V14T measured `evaluated=0 outsideSoi=0
-#     skip.no-cross-body-successor=1`, the structural zero every TS dwell reads
-#     because the drive clock sits inside the recording's LAST segment. `\d+` on
-#     both keeps the pin honest in both directions: it catches the lens going silent
-#     without freezing a zero into a contract - which matters MORE here than on any
-#     prior lane, because a nonzero `outsideSoi` is the eccentric-moon finding this
-#     pair was built to look for (V15M header section 2).
+#   "seam-endpoint summary evaluated=\d+ outsideSoi=\d+" (1) - the PRESENCE form, and
+#     deliberately NOT V15M's stricter `evaluated=[1-9]\d* outsideSoi=0`: this lane
+#     measured `evaluated=0 outsideSoi=0 skip.no-cross-body-successor=1`, the same
+#     structural zero V6T/V14T/V7T read, because the TS dwell parks the drive clock
+#     inside the recording's LAST segment and the forward scan finds no different-body
+#     successor. `\d+` on both counters keeps the pin honest in both directions: it
+#     catches the lens going silent without freezing today's zero into a contract.
+#     THE CENSUS VERDICT FOR THIS PAIR LIVES ON V15M, which is the lane that actually
+#     reaches the lens (`evaluated=1 outsideSoi=0`); read V15M header section 2b for
+#     the rate-limiter gap that bounds even that reading.
 required  = [
   "missionconfig applied:",
   "SetLoopEnabled: loop ON",
   "startloopplayback initiated:",
-  "PhaseLock APPLIED: mission=",
   "Orbital\\(Gilly\\) same-parent",
+  "support=Supported",
+  "PhaseLock APPLIED: mission=.*method=single-orbital.*zeroDrift=no",
   "loadgame trackstation route: booting to TRACKSTATION save=",
   "loadgame complete scene=TRACKSTATION save=.* game-loaded=true expected=TrackingStation",
   "ParsekTrackingStation initialized: created [1-9][0-9]* ghost vessel\\(s\\)",
@@ -385,25 +452,56 @@ required  = [
   "faithful-parity summary sampled=\\d+ overTolerance=\\d+",
   "seam-endpoint summary evaluated=\\d+ outsideSoi=\\d+",
 ]
+# V14T'S FULL SIX, armed 2026-08-19. Every one measured ZERO on the reading run.
+# NOTE what is NOT here: the `icon-off-orbit` raise this lane DOES produce is handled by
+# `allowedAnomalies` above, which is the anomaly sweep's surface, not logContracts'. Nor
+# is the benign skip-only `seam-endpoint summary evaluated=0 ...
+# skip.no-cross-body-successor=1` forbidden - it is the honest reading of a TS dwell,
+# not a defect.
 forbidden = [
   "\\[Parsek\\]\\[ERROR\\]",
-  # The re-aim forbid trio - the falsifiable half of the same-parent routing claim,
-  # and the reason this spec is not just "V5 with a different fixture". Measured
-  # 0/0/0 on V6T and V14T.
+  # The re-aim forbid trio - the falsifiable half of the same-parent routing claim, and
+  # the reason this spec is not just "V5 with a different fixture". Measured 0/0/0.
   "\\[ReaimDiag\\]",
   "ENGAGED re-aim",
   "FORCED FAITHFUL",
-  # The V3C run-3 self-detection guard, and on a lane whose jump UT is a CALIBRATION
-  # SEED this is the single most load-bearing forbid in the file: a refused backward
-  # jump is only a WARN, so without this token a mis-derived jump can green while
-  # dwelling nowhere.
+  # The V3C run-3 self-detection guard: a refused backward jump is only a WARN, so
+  # without this token a mis-derived jump can green while dwelling nowhere. Measured 0.
   "timejump refused reason=backward-jump",
-  # The S1.6/S1.7 parity pin verbatim: any faithful-parity sample OVER tolerance is
-  # a rendered-vs-recorded drift, which is a defect in the RENDER rather than a
-  # reading about the moon - so unlike `outsideSoi` it IS forbidden even on the
-  # reading run.
+  # The S1.6/S1.7 parity pin verbatim: any faithful-parity sample OVER tolerance is a
+  # rendered-vs-recorded drift. Measured `sampled=0 overTolerance=0`.
   "faithful-parity summary sampled=\\d+ overTolerance=[1-9][0-9]*",
 ]
+
+[expectations.rewind]
+# ARMED 2026-08-19 (the V2/B17/V4/V14T arming discipline) off this lane's OWN reading
+# run `2026-08-19_1739`, whose saveParse REPORT measured rewindPoints=0,
+# supersedeRows=0, tombstones=0, rewindRetirements=0 - every declared window already
+# met, so the arming re-pinned nothing and moved no verdict. (The run's PARSEK-FAIL
+# verdict is the anomaly sweep's, on a different verifier; the save-structure facets
+# were clean.)
+#
+# The claim being armed - a FLIGHT-arm / SaveGame / TS-re-entry observation authors
+# NOTHING durable - is worth more on this shape than on a single-scene dwell, for V5's
+# reason: this spec writes a save mid-run and reads it back through a SECOND scene load,
+# the shape in which a stray durable write is easiest to miss.
+gating = true
+rewindPoints  = { max = 0 }
+supersedeRows = { max = 0 }
+tombstones    = { max = 0 }
+
+[expectations.recordings.structure]
+# ARMED 2026-08-19, same reading run: trees=1, committedTrees=1, recordings=1,
+# terminalStates {Orbiting: 1}, branchPoints {} - i.e. the DOUBLE scene entry produced
+# no second committed tree and the mid-run SaveGame persisted no stub. `trees` keeps
+# V2's max = 2 (the documented duplicate-writer hazard) rather than being pinned to the
+# single measurement; everything else is pinned at the measured value, and
+# `recordings = {1,1}` doubles as the FIXTURE CONTRACT (see [fixture]).
+gating = true
+trees          = { min = 1, max = 2 }
+committedTrees = { min = 1, max = 1 }
+recordings     = { min = 1, max = 1 }
+terminalStates = { Orbiting = { min = 1 } }
 
 # [expectations.rewind] and [expectations.recordings.structure] ARE DELIBERATELY
 # ABSENT - the V14T reading-run posture verbatim. Author both FROM this lane's own

@@ -128,6 +128,14 @@ for the periods, `:78-92` for SOI/velocity). Pol is not in the repo fixture and 
 | Tylo | 68,500,000 | 0 | 211,926.4 | 2,030.9 | 10,856,518.0 | 5,345.7 | 0.025224 |
 | Bop | 128,500,000 | 0.235 | 544,507.4 | 1,482.8 | 1,221,060.9 | 823.5 | 0.001512 |
 | Pol `derived` | 179,890,000 | 0.17085 | 901,902.6 | 1,253.2 | 1,042,138.9 | 831.6 | 0.000922 |
+| **Gilly (Eve)** `flown` | **31,500,000** | **0.55** | **388,587.4** | **509.3** | **126,123.3** | **247.6** | **0.000637** |
+
+The GILLY row is not a Jool moon and is carried here as the **CALIBRATION CASE for the Bop/Pol
+rows**: it is the only ECCENTRIC moon anyone has actually flown a phase-locked loop subject on
+(section 9), its duty cycle is TIGHTER than Pol's, and its e = 0.55 is 2.3x Bop's - so whatever
+the eccentricity caveat below does to a conclusion, Gilly is where it does it hardest. Its
+`v_orb` is the same circular `sqrt(mu_Eve/a)` the Bop/Pol rows use, with `mu_Eve` = 8.1717302e12;
+section 9.2 gives the TRUE-speed figure at the flown intercept and the swing across the orbit.
 
 The tolerance formula is `ToleranceSecondsFor` (`MissionPeriodicity.cs:1509`, Orbital branch at
 `:1523-1530`) = `SoiRadius / OrbitalVelocity`. The four repo-committed tolerances reproduce
@@ -138,6 +146,11 @@ Bop/Pol eccentricity note: `v_orb` is the circular `sqrt(mu/a)`, which is what t
 pins for Bop (1,482.8 = `sqrt(mu_Jool/1.285e8)`). For an e = 0.235 orbit the true speed swings
 +/-24%, so Bop's and Pol's tolerances carry that uncertainty. `B22-jool-orbit.toml:187,195` records
 Pol's e as 0.17085 (apoapsis 210,624,206.5 m) and warns explicitly not to treat it as decorative.
+**THAT CAVEAT IS NO LONGER ONLY A CAVEAT** - section 9.2 measures it at Gilly, where the true
+speed swings 274.4 -> 945.3 m/s (a factor of 3.44) and the tolerance therefore swings 460 -> 133 s
+around the 247.6 s circular figure. The flown encounter landed at 630.0 m/s, i.e. tol = 200.2 s,
+**19% TIGHTER than the circular row above**. So for an eccentric moon the table's `tol` column is
+a mid-range figure and the operative tolerance is an encounter property, not a body property.
 
 ### 3.2 The 1:2:4 resonance, as arithmetic
 
@@ -580,9 +593,10 @@ control):
 
 ## 8. What this document does not establish
 
-- **No JOOL-SIDE flight measurement.** Section 7 is closed, but at DUNA->IKE: it certifies the
-  single-moon park-rooted road (3.5, section 6 bullet 1) on a real flight - now through a full
-  reading / armed / negative-control discipline - and nothing else. Every Jool-specific number in
+- **No JOOL-SIDE flight measurement.** Sections 7 and 9 are closed, but at DUNA->IKE and
+  EVE->GILLY: together they certify the single-moon park-rooted road (3.5, section 6 bullet 1) on
+  real flights, at two parents and across the full stock eccentricity range, section 7 through a
+  full reading / armed / negative-control discipline - and nothing else. Every Jool-specific number in
   sections 3, 4 and 5 remains arithmetic and code reading, and the J1-J5 table is still empty
   because no Jool lane exists to fill it.
 - The P3 claim in 5.1 ("the classifier and synthesizer engage on a Laythe->Tylo recording today")
@@ -595,4 +609,201 @@ control):
 - Bop/Pol tolerances assume circular orbital velocity. At e = 0.235 / 0.17085 the true tolerance
   swings materially; every Bop/Pol conclusion above is a "cannot possibly fit" argument with
   7.4x-and-1000x margins, so the eccentricity uncertainty does not flip any of them, but it would
-  flip a marginal one.
+  flip a marginal one. **NOW BACKED BY A MEASUREMENT rather than an assertion** - section 9.2
+  measures the swing at Gilly (e = 0.55, tolerance 133 -> 460 s around a 247.6 s circular figure,
+  19 % tighter at the flown intercept) and the conclusion is unchanged.
+- **NO MULTI-CYCLE (k > 1) MEASUREMENT EXISTS, at any body.** Every phase-lock recurrence result
+  in this document - Ike's and Gilly's alike - is a k = 1 reading, because the census lenses are
+  rate-limited on a shared key and both lanes' cycles are ~1.4 wall-seconds apart (section 9.3).
+  The k > 1 behaviour is precisely what the Jool lattice arithmetic in 3.3 / 3.4 reasons about,
+  and it is unmeasured. Closing that gap is cheap (wall-space the brackets) and is a precondition
+  for any future recurrence claim.
+
+## 9. MEASURED at an ECCENTRIC moon - the Gilly addendum (B24/V15, 2026-08-19)
+
+Section 7 closed the single-moon park-rooted road at DUNA->IKE, a moon that is very nearly
+circular (e = 0.03), very nearly equatorial (i = 0.2 deg) and whose SOI is 32.80 % of its own
+orbital radius. Every Bop/Pol conclusion in sections 3 and 6 rests on arithmetic whose one
+acknowledged soft spot is eccentricity (3.1's note, and section 8's last bullet). This section
+is the first measurement at the other extreme.
+
+THE SUBJECT: `B24-gilly-orbit` (run `2026-08-19_1655`, PASS attempt 1) flew a crewed stage from
+an Eve park to GILLY and committed the tree there, producing the `gilly-orbit-recorded` fixture;
+`V15M-gilly-player-loop` (`2026-08-19_1736`, PASS attempt 1) and `V15T-gilly-ts-arrival`
+(`2026-08-19_1739`, PARSEK-FAIL(anomaly) with all 16 steps green - a pre-registered correct
+catch on an unrelated render token) then read it from FLIGHT and from the tracking station. Both
+loop lanes are ARMED off their own bytes. Gilly is e = 0.55, i = 12 deg, SOI 126,123.27 m =
+**0.40 % of its orbital radius** - smaller than Pol's 0.58 % and Bop's 0.95 %, i.e. the stock
+system's most extreme case of exactly the shape the outer Jool moons have.
+
+### 9.1 The routing held at a SECOND orbit-rooted subject
+
+Section 3.5's general claim - *a park-rooted single-moon subject reaches `single-orbital` by
+construction, because it emits no `Rotation(launchBody)`* - was measured once, at Ike. It is now
+measured twice, at a different parent, a different moon and a wildly different orbit shape.
+`harness/results/2026-08-19_1736_V15M-gilly-player-loop_shots/KSP.log` lines 10595 / 10598:
+
+    ExtractConstraints: tree=355840bc81bf45f8868b7d2508ca6de4 members=1 launchBody=Eve
+      ut0=15764033.005015271 support=Supported constraints=1
+      [Orbital(Gilly) same-parent P=388587.37684792886 off=114979.43693914078]
+    PhaseLock APPLIED: mission='Kerbal X' tree=355840bc81bf45f8868b7d2508ca6de4
+      anchor 15879398.351458656->16152620.3818632 P=388587.37684792886
+      method=single-orbital cadence 115362.42644345015->388587.37684792886
+      fixedCadenceResidual=0 fixedCadenceWithinTol=yes zeroDrift=no
+
+`constraints=1`, `method=single-orbital`, `fixedCadenceResidual=0`, `zeroDrift=no`, and a cadence
+of **exactly one moon period** (span 115,362 s is 0.297 of P, so `QuantizeCadenceToMultipleOfP`
+takes k = 1). Cycle 2 resolved to `relaunchUt=16541207.758711128` = cycle 1 + exactly one P.
+
+TWO THINGS THIS ADDS BEYOND A REPEAT. (1) The road does not depend on the moon's orbit being
+circular or coplanar - e = 0.55 and i = 12 deg change nothing about a single-constraint solve,
+which is what section 3.5 asserted structurally and had only a circular datum for. (2) The
+ANCHOR ARITHMETIC is reproducible from committed bytes at an eccentric target: the anchor was
+DERIVED before the flight from the recording's `explicitStartUT` / `explicitEndUT` / ORBIT_SEGMENT
+seam plus the stock elements (16,152,620.423) and the product printed 16,152,620.3818632 -
+**0.041 s**, the same residue V14M measured, coming from the product reading `ut0` 0.040 s below
+the fixture node's `explicitStartUT`. Both lanes' jump tables were derived, not tuned, and no
+jump UT moved at arming.
+
+Both routing lines are now REQUIRED tokens on both V15 lanes (the whole
+`method=single-orbital ... zeroDrift=no` conjunction on one line, plus `Orbital(Gilly)
+same-parent` and `support=Supported`), and the re-aim trio is FORBIDDEN on both - so this is a
+contract, not an archived digit, exactly as section 7 describes for V14M.
+
+### 9.2 The tolerance, measured where it is tightest
+
+`ToleranceSecondsFor` = `SoiRadius / OrbitalVelocity`. At Gilly:
+
+| quantity | value | vs Ike |
+|---|---|---|
+| SOI | 126,123.27 m | 8.3x smaller |
+| v_orb (circular, the 3.1-table convention) | 509.3 m/s | 1.66x faster |
+| **tol (circular)** | **247.6 s** | **13.8x tighter** |
+| v_orb at the FLOWN intercept (r = 24,903,858 m) | **630.0 m/s** | - |
+| **tol at the flown intercept** | **200.2 s** | **17.1x tighter** |
+| v_orb range over the orbit (peri -> apo) | 945.3 -> 274.4 m/s | - |
+| tol range over the orbit | 133 -> 460 s | - |
+| duty = tol / P | 6.37e-4 | tightest in the stock system (Pol 9.22e-4) |
+
+The intercept radius is read off the committed `.prec.txt` transfer segments
+(`sma = 15,385,793.566 ecc = 0.618627`, apoapsis 24,903,858 m); nothing was tuned to place it
+there - it is where MechJeb's transfer window put it, 34 % of the way up Gilly's
+14,175,000 -> 48,825,000 m band, on the FAST half.
+
+**AND THE REPLAY STAYED VALID AT +1 P.** `V15M`'s cycle-1 census reads (line 10831):
+
+    seam-endpoint summary evaluated=1 outsideSoi=0
+
+i.e. the lens evaluated the replayed Eve->Gilly SOI-entry endpoint at the re-anchored epoch and
+found it still INSIDE Gilly's 126,123 m SOI. That is the falsifiable form of "the phase lock is
+exact" at the tightest tolerance the stock system can offer, and it is now an ARMED token on
+V15M (`evaluated=[1-9]\d* outsideSoi=0`) rather than a reading - a GS-3-style regression floor.
+Read it with 9.3's limit attached: **it is a k = 1 result.**
+
+WHY THIS MATTERS TO THE BOP/POL ROWS. Section 3.1's eccentricity note said the Bop/Pol
+tolerances "carry that uncertainty"; 9.2 shows what the uncertainty looks like when it is
+measured - a 3.44x swing at e = 0.55, with the operative value set by WHERE the encounter lands.
+Section 6's Bop/Pol arithmetic survives it untouched, because those are 7.4x and 1000x margins
+and a factor of ~1.7 either way does not flip them (section 8's last bullet already said so, and
+is now backed by a measurement instead of an assertion). What it WOULD flip is any marginal
+case, and it means a Bop/Pol tolerance quoted from the 3.1 table should be treated as a
+mid-range figure.
+
+### 9.3 THE NAMED GAP: multi-cycle recurrence is currently UNMEASURABLE at seam pacing
+
+This is the section's most consequential result and it is a statement about the HARNESS, not
+about the product.
+
+V15M was designed to compare the census at CYCLE 1 against CYCLE 2 - the direct instrument for
+"does a residual amplify linearly in k?", which is the Bop/Pol question in miniature. **It could
+not be read.** The run emitted the `seam-endpoint summary` and the `faithful-parity summary`
+exactly ONCE each, at cycle 1; there is no cycle-2 emission of either in the log.
+
+THE MECHANISM, named rather than guessed: both lenses log through `VerboseRateLimited` on a
+SHARED process-global key. Every `TimeJump` is an instantaneous Planetarium clock set, so the
+388,587 game-seconds between the two cycles cost NO wall time - the two arrival brackets are
+~1.4 WALL-seconds apart (cycle-1 summaries at 20:37:42.015, the cycle-2 bracket at
+20:37:43.4). The cycle-2 emission therefore lands inside the limiter window the cycle-1 emission
+already spent and is dropped. This is the V6M `probe frame summary is NOT pinnable` precedent,
+now measured on a different lens and with the cause identified.
+
+**WHAT IT BOUNDS.** Everything this document can currently say about single-moon phase-lock
+recurrence is a **k = 1** statement. The k > 1 behaviour - whether a residual accumulates, and
+whether it accumulates linearly - is exactly what sections 3.3 and 3.4 reason about
+arithmetically for the Jool lattice and exactly what the Bop/Pol "cannot possibly fit" argument
+would need if it were ever marginal. There is no measurement of it, at any body.
+
+THREE RECOURSES, in increasing cost (recorded in `V15M-gilly-player-loop.toml` header 2b):
+
+1. **Wall-space the brackets.** A variant inserting > 10 wall-seconds between the cycle-1 and
+   cycle-2 arrival brackets (`RecordingState` spacers are the established instrument - V8 used
+   them to re-pace a bracket for a different reason) puts the second emission outside the
+   limiter window. Cheapest; changes pacing only, not the measurement.
+2. **Use a different lens.** The engine's per-frame `engine-frame-iter` / map-render truth lines
+   are emitted per ghost per cycle and are what 9.4's separation reading came off. They carry
+   POSITION, not the census verdict, so this is a reconstruction rather than a read.
+3. **Two runs, one per cycle.** Most expensive and least comparable, since the runs then differ
+   in more than k.
+
+NO PRODUCT CHANGE IS PROPOSED. The rate limiter is doing its job; what is recorded is that a
+fast-stepped multi-cycle lane cannot read a shared-key summary twice, and that closing this gap
+is the precondition for the harness saying anything about k > 1.
+
+### 9.4 A measured consequence of phase-locked replay for any CO-ORBITING observer
+
+V15M's observer is the fixture's own parked stage, in the same Gilly orbit the ghost replays.
+The engine's own per-frame line at each cycle's park epoch reads:
+
+| epoch | line | reading |
+|---|---|---|
+| cycle-1 park | 11247 | `zone=Physics rdist=775m` |
+| cycle-2 park | 12147 | `zone=Visual rdist=115640m` |
+
+**775 m -> 115.6 km, and it is NOT a ghost-vs-moon desync.** It is co-orbital PHASE walking. The
+loop cadence is one Gilly period (388,587.377 s); the observer's own 27,024 x 26,321 m Gilly park
+has a period of ~17,244 s and Gilly's rotation is 28,255 s, and neither is commensurate with the
+cadence - so the observer sits at a different point in its own orbit each time the ghost is
+replayed. It is a fixed per-cycle geometric fact that moves only when the phase anchor does, and
+a retry reproduces it exactly (V6M's "the separation is not a draw" banner, now with a number).
+
+WHY IT BELONGS IN THIS DOCUMENT: a Jool-park observer watching a phase-locked single-moon replay
+would see the same thing, and the magnitude scales with the observer's own orbit rather than with
+the moon's. Two consequences worth carrying into any P2 UX reasoning. (1) A player parked
+anywhere near the arrival will NOT find the replay in the same place on successive cycles unless
+their park period divides the cadence - which for a Jool park and a moon period it generally will
+not. (2) It is what makes the watch-mode result below possible at all on cycle 1 and irrelevant
+on cycle 2.
+
+TWO SIDE MEASUREMENTS FROM THE SAME RUN, both filed rather than analysed here:
+
+- **The suite's second-ever watch-mode ENTRY** (after V7M's), and its first at a non-Kerbin
+  parent: `enterwatchmode complete:` at a 775 m separation. The cycle-2 attempt answered
+  `already-watching`, which measures idempotency and survival across a loop re-arm rather than a
+  second entry decision.
+- **306 stock NREs on every frame from the cycle-boundary camera fallback to scene end**, filed
+  as `docs/dev/todo-and-known-bugs.md` -> WATCH-LOOPED-PARK-TARGET-LOSS-NRE-STORM. Report-only,
+  no Parsek frame in any stack, and the only run in the suite that has ever held watch mode
+  across a loop-cycle boundary - which is the plausible trigger.
+
+### 9.5 Effect on the recommendation (section 6): IT STANDS
+
+Nothing here moves the verdict, and the two halves move in opposite directions by design:
+
+- **Bullet 1 is STRENGTHENED, with one qualifier added.** "Phase-lock genuinely suffices,
+  exactly, for P2 single-moon" is now measured at TWO parents and across the full eccentricity
+  range the stock system offers - e = 0.03 at Ike and e = 0.55 at Gilly, with the tightest duty
+  cycle in the game - and it produced `residual=0`, cadence = one P and a census reading of
+  `outsideSoi=0`. THE QUALIFIER: **at k = 1**. Section 9.3 is the reason that qualifier now
+  appears, and it applies to the Ike measurement retroactively too (V14M's shape has the same
+  pacing and the same shared limiter key, so its cycle-2 census was equally unread).
+- **Bullet 2 is untouched.** The outer-moon impossibility rests on 7.4x and 1000x margins that a
+  1.7x tolerance revision cannot approach. 9.2 replaces the eccentricity caveat's assertion with
+  a measurement and the conclusion is unchanged.
+- **Bullet 3 is untouched.** Gilly says nothing about moon-to-moon seam magnitude; it is a
+  park-to-moon subject like Ike.
+- **The priority order is unchanged**, with one addition at the bottom: closing 9.3's
+  census-pacing gap is now a precondition for any future claim about multi-cycle recurrence, and
+  it is cheap (recourse 1). It does NOT outrank item 1 - covering P3 is still the highest-value
+  next step, because P3 is an unguarded code path and 9.3 is a measurement gap.
+
+---
