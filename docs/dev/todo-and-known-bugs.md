@@ -14,6 +14,100 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## B5-INWARD-TRANSFER-EVIDENCE-AND-TRIGGERS-ASSUME-OUTWARD: the moon-transfer machine keys BOTH its burn-done evidence and its correction-round spacing to an apsis RISING, and the two available workarounds are MUTUALLY EXCLUSIVE [FOUND BY AUDIT 2026-08-19 while authoring `B25-laythe-orbit`, the suite's first INWARD moon transfer. NOT YET FLOWN. REPORT-ONLY: a HARNESS constraint on `harness/missions/lib/mlib.py`, NOT a proposed product change; B25 flies with values only and accepts one named degradation]
+
+Every b5 moon-path flight to date (Kerbin->Mun, Kerbin->Minmus, Duna->Ike,
+Eve->Gilly) parks LOW and transfers UP to a moon at a HIGHER orbital radius.
+`B25-laythe-orbit` is the first to go the other way: its park sits at
+590,325,784.59 m, 3.28x Pol's orbit and outside the whole Jool moon system, so the
+ejection is RETROGRADE, the intercept is the transfer's PERIAPSIS, and the
+home-frame APOAPSIS never moves.
+
+**FIVE OF SEVEN AREAS ARE DIRECTION-AGNOSTIC BY CONSTRUCTION**, and they are
+listed so the finding is bounded rather than alarming: the MechJeb plan call
+(`_b5_transfer_plan_action` -> `operation_transfer` with `rendezvous = True`, a
+general two-orbit solve with no direction argument); the whole COAST phase (every
+gate is body- or time-based - `snapshot.body == target_body`,
+`body not in _b5_coast_bodies`, `ut + time_to_soi - soi_lead`,
+`approach_latch_state` / `approach_warp_clamp` - with no apoapsis or
+altitude-increasing test anywhere, and the one `vertical_speed` read taking its
+absolute value); the WINDOW logic (mlib's only window solver is the PAD-ALIGN
+heliocentric family, which `b5_params_from_dict` hard-rejects without
+`interplanetaryTransfer`); TARGET-FLYBY and CAPTURE (the arm gate, the
+`ut + time_to_periapsis - lead` warp target, the `0 < ap <= park_max_apoapsis`
+capture window and `_b5_left_target_soi` are all read in the TARGET body's own
+frame); and the burn-stagnation watchdog (`_b5_track_burn_stagnation` compares
+BOTH apsides against their burn-entry values, so an inward burn that moves only
+periapsis still registers `burned`).
+
+**TWO SITES ENCODE "OUTWARD", and both are the same mistake: evidence keyed to an
+apsis RISING.**
+
+1. **`_b5_transfer_burn_done`'s apoapsis floor is VACUOUS on an inward transfer.**
+   The default branch is `apoapsis >= transfer_min_apoapsis`. The retrograde burn
+   happens AT the park, which BECOMES the transfer's apoapsis, so the home-frame
+   apoapsis does not move: any floor above the park is unreachable forever, and
+   any floor below it is already satisfied on the frame BEFORE the burn - which
+   leaves `consumed` (an empty node list) as the sole exit evidence and disarms
+   the phase's whole purpose. There is NO periapsis-side key: `grep` for
+   `transfer_min_periapsis` / `transferMaxPeriapsis` returns nothing anywhere in
+   `mlib`.
+2. **The ALTITUDE correction trigger cannot space rounds on a descent.**
+   `_b5_correction_round_ready`'s altitude mode is a bare
+   `body == home and altitude >= trigger[idx]` LEVEL test, not a rising-edge
+   crossing. On a descending coast a trigger above the park never fires at all and
+   one below it fires on the FIRST coast frame, so a `[0, X]` list spends both
+   rounds back to back at transfer start - precisely the shape the mid-coast round
+   was added to prevent (the fourth B5 flight's corrected +60 km flyby periapsis
+   drifting to -29 km). No altitude value places a second round mid-coast.
+
+**AND THE TWO WORKAROUNDS COLLIDE, which is the part worth writing down.**
+
+- For (1), `ejectionEccFloor` is a working, direction-agnostic substitute
+  requiring NO mlib change: it reads the HOME-frame ECCENTRICITY, which on B25's
+  hop moves from 7.944e-06 to 0.911956, and `b5_params_from_dict` does not gate it
+  on `interplanetaryTransfer`. (Eight interplanetary lanes already set it, all
+  just above 1 for a hyperbolic ejection; B25 is the first sub-1 use, and the
+  schema's `min = 0.0` already admits that.)
+- For (2), `correctionTriggerTimeToSoiSeconds` is direction-agnostic (`time_to_soi`
+  descends whichever way the craft is going), but its body domain is
+  `_b5_correction_via_bodies`, which on the moon path returns `via_bodies`
+  VERBATIM - so it needs `viaBodyNames = ["Jool"]`.
+- **THAT SETTING IS EXACTLY WHAT BREAKS (1):** the ecc branch's FIRST disjunct is
+  `snapshot.body in params.via_bodies or snapshot.body == params.target_body`,
+  which returns True at the park and makes the eccentricity floor vacuous. Naming
+  the home body in `viaBodyNames` also does nothing useful for coast legality
+  (home is already legal), and naming any OTHER body would LEGALISE a moon transit
+  that `_b5_coast_bodies` should be failing loudly - the B15-flight-5 hazard, and a
+  live one on a descent that crosses Pol's, Bop's, Tylo's and Vall's shells.
+
+**WHAT B25 DOES, and it is values only.** It takes (1) - burn evidence is a
+correctness question and round spacing is a quality one - setting
+`ejectionEccFloor = 0.55` (the eccentricity at which the transfer's periapsis has
+fallen inside Pol's orbit, so the floor certifies a genuine inward burn rather
+than an arbitrary threshold) and keeping `transferMinApoapsisMeters` declared at 0
+(the B15 disposition for a schema-required key the evidence does not use). It then
+declares exactly ONE scheduled correction round, `[0]`, and delegates the LATE
+refinement to `MAX_ARRIVAL_EXTRA_ROUNDS = 2` arrival-quality extras, which are
+direction-agnostic but are a SAFETY NET rather than a refinement: they fire only
+when the PREDICTED target periapsis is already BELOW
+`targetPeriapsisFloorMeters`, with `time_to_soi` inside (600, 3600) s. **A merely
+mediocre arrival gets no second look, and that is an accepted degradation on this
+lane rather than a fix.**
+
+**THE HONEST FIX, if a future inward lane needs the mid-coast round back**, is a
+periapsis-side burn-done predicate in `mlib` - a `transferMaxPeriapsisMeters`
+("the burn LOWERED periapsis to at/below this"), which would free `viaBodyNames`
+for the time-mode triggers. That is a real machine change and must be argued
+rather than patched in; it is NOT proposed here, because one lane is not a
+population and B25 has not flown. Pinned meanwhile by
+`harness/missions/lib/test_b25_laythe_orbit.py::InwardTransferAuditTests`, which
+runs `_b5_transfer_burn_done` against a park-shaped frame and a post-burn-shaped
+frame and asserts False-then-True, and which reds if `viaBodyNames` ever appears
+in that spec.
+
+---
+
 ## WATCH-LOOPED-PARK-TARGET-LOSS-NRE-STORM: watch mode survives a loop RE-ARM with a null camera target and throws stock NREs on EVERY frame from there to scene end - 306 of them in 1.26 s [MEASURED 2026-08-19 by `V15M-gilly-player-loop`'s reading run and REPRODUCED on its armed re-flight the same day (447 then 443 total on byte-identical shapes), the FIRST successful watch entry on a looped arrival park. REPORT-ONLY: `unityExceptions` is report-only and BOTH runs PASSED; NO product change is proposed by this lane]
 
 `V15M-gilly-player-loop` run `2026-08-19_1736` came back **PASS attempt 1** with all

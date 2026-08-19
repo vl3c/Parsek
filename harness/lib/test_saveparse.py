@@ -701,6 +701,41 @@ class CommittedFixtureSweepTests(unittest.TestCase):
         # `test_every_persistent_sfs_parses_with_pinned_counts` are therefore not
         # bookkeeping here either: they are the fixture's whole reason to exist.
         "eve-park-kerbalx": True,
+        # THE THIRD PARSEK-STRIPPED DERIVED FIXTURE, and the strip is now a
+        # PATTERN rather than two special cases. `jool-park-nerv` is
+        # `jool-orbit-recorded` (B22's --keep-parsek harvest, which carries FIVE
+        # committed recordings) with Parsek's own state removed: the `Parsek/`
+        # sidecar directory pruned by a harvest WITHOUT --keep-parsek, plus a
+        # manual brace-balanced excision of the residual ParsekScenario CHILDREN.
+        # It belongs HERE and not in RECORDED_FIXTURES precisely because the strip
+        # puts it back under the zero-trees contract this map asserts.
+        #
+        # THE NODE IS STILL PRESENT (True) AND THAT IS DELIBERATE: only the
+        # children were excised. A flyable template must carry the node or the
+        # FLIGHT route records nothing.
+        #
+        # EIGHT CHILD NODES OF FIVE TYPES WERE REMOVED, the same five
+        # `eve-park-kerbalx` needed (this subject is CREWED too): RECORDING_TREE
+        # (1), GROUP_HIERARCHY (1), MILESTONE_STATE (4), KERBAL_SLOTS (1) and
+        # CREW_REPLACEMENTS (1). The last two are Parsek's crew-reservation
+        # bookkeeping - here `Valentina Kerman` reserved with `Debmal Kerman`
+        # allocated as the stand-in - and they POINT AT THE RECORDINGS THAT WERE
+        # JUST REMOVED, so leaving them would be residue by any reading. What
+        # survives is Debmal as an ordinary Available pilot and Valentina Assigned
+        # aboard the pod exactly as before; the WORLD is untouched, including the
+        # inherited oddity that Jebediah reads `Missing` in this save (a B18-B22
+        # chain leftover carried through unchanged, NOT a strip artefact).
+        #
+        # WHY THE STRIP IS LOAD-BEARING, so a future re-harvest does not undo it:
+        # `B25-laythe-orbit` starts its recording through the seam on a vessel
+        # that `jool-orbit-recorded` holds a COMMITTED TREE for, and a seam
+        # StartRecording cannot open a standalone tree on a committed tree's own
+        # launch (the same defect quoted twice above). The zero-trees assertions
+        # in `test_every_persistent_sfs_parses_with_pinned_counts` are therefore
+        # not bookkeeping here either: they are the fixture's whole reason to
+        # exist. (5 is the number to watch for in the produced save: it is what
+        # `jool-orbit-recorded`, the save this was stripped from, carries.)
+        "jool-park-nerv": True,
         "eva2-lko-crewed": True,
         "eva3-pad-3crew": True,
         "fresh-career": False,

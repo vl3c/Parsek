@@ -781,6 +781,32 @@ NO PRODUCT CHANGE IS PROPOSED. The rate limiter is doing its job; what is record
 fast-stepped multi-cycle lane cannot read a shared-key summary twice, and that closing this gap
 is the precondition for the harness saying anything about k > 1.
 
+**RECOURSE 1 IS NOW AUTHORED - AND NOT YET FLOWN (2026-08-19).**
+`V16M-laythe-player-loop`, the FLIGHT half of the first Jool-moon program, carries a FORTY-tick
+`RecordingState` dwell block between its cycle-1 park epoch and its cycle-2 re-arm. It is sized
+against `run.py`'s `POLL_INTERVAL_SECONDS = 0.25` hard floor rather than V5's measured
+0.54 s/tick, so it spends **>= 10.0 wall s (2.0x the 5.0 s window) even in the worst case** and
+~21.6 s at the measured rate. Nothing about the measurement changes - only its pacing - and it
+costs log volume on no other lane, exactly as this section argued.
+
+TWO THINGS TO KEEP STRAIGHT ABOUT WHAT THAT LANE WILL AND WILL NOT SETTLE, because they are
+independent and it is easy to credit one with the other. (a) The PACING half is what makes a
+cycle-2 census emission possible at all; if the reading run still prints one census line, the
+block was too short and the recourse is to raise the count, not to conclude anything. (b) The
+lane ALSO happens to be the suite's first **k > 1 CADENCE**: `B25-laythe-orbit`'s span is
+dominated by a 1,014,005 s transfer coast = 19.14 Laythe periods, so
+`QuantizeCadenceToMultipleOfP` should take `k = ceil(span/P) >= 20` and cycle 2 should land
+TWENTY moon orbits after cycle 1 rather than one. That inverts the sensitivity - the `dP` budget
+a cycle boundary buys is `tol / ((N-1) * k)` = 1,155.0/20 = **57.8 s**, against V15M's 200.2 s,
+i.e. ~3.5x sharper despite reading at a tolerance 5.8x looser. Neither half measures anything on
+its own: (b) gives the lane a recurrence worth reading twice and (a) gives it the ability to read
+it twice.
+
+AND THE LIMIT SURVIVES EITHER WAY: two cycles is **N = 2**. A cycle-2 `outsideSoi=0` would bound
+`dP < 57.8 s`, which is a real bound and the first of its kind, but it is not a drift RATE and it
+does not distinguish "no residual" from "a residual too small to walk 3.7 Mm in twenty orbits".
+A third cycle would.
+
 ### 9.4 A measured consequence of phase-locked replay for any CO-ORBITING observer
 
 V15M's observer is the fixture's own parked stage, in the same Gilly orbit the ghost replays.
