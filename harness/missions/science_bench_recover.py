@@ -95,8 +95,36 @@ def make_control() -> mission_runner.MissionControl:
     # read_science=True is what arms this lane at all: without it all six career
     # channels stay at their UNREAD sentinels, every gate in the tail fails closed,
     # and the mission flakes `science-channel-dark` six frames after it lands.
+    #
+    # tolerate_unreadable_nodes=True is the SECOND opt-in this lane needs, and it is
+    # MEASURED rather than argued. `L3-career-science-recover`'s first reading run
+    # (`2026-08-19_1817` / `_1818_a2`, both attempts identical) died in 1.2 s at
+    # PRELAUNCH: this mission flies a CAREER save, kRPC's maneuver-node read raises
+    # `Maneuver node editing is not available` on an un-upgraded Tracking Station,
+    # and three consecutive raises escalate to a `vessel_lost` snapshot, which the
+    # delegated B1 leg correctly condemns as `flight-leg vessel-lost (unreadable
+    # after repeated telemetry failures)`. CL-3's own `make_control` already states
+    # the identical finding word for word ("it polls on the pad in a career save,
+    # where kRPC refuses the maneuver-node read, and without it the mission dies
+    # vessel-lost in its first phase"); this lane is the second career flier and
+    # the second to need it.
+    #
+    # WHY IT IS SAFE HERE, stated because the flag's own docstring records that
+    # turning it on GLOBALLY broke CL-1: the hazard is a terminal that a PAD frame
+    # can satisfy once blind frames become believable, and CL-1's
+    # `crew-survived-impact` was exactly that (landed + crew alive, with no
+    # has-flown precondition, firing 1.9 s in). This mission has no such terminal.
+    # Its flight leg is B1's structured phase progression - PRELAUNCH -> ASCENT
+    # (throttle + stage) -> COAST (solid fuel exhausted) -> DESCENT (vertical speed
+    # negative) -> LANDED - which a craft sitting on the pad cannot walk, and its
+    # `flightCompletedObserved` assertion additionally gates on the peak apoapsis
+    # landing inside `apoapsisWindowMeters`, which a pad craft's 0 m never does.
+    # The career tail then gates on OBSERVED movements of pools the raise never
+    # touched (the career channels read fine on those same frames - the failed run
+    # measured `funds=500000.000 science=100.000` on the very snapshot it died on).
     return mission_runner.KrpcMissionControl(use_mechjeb=False, client_name=MISSION_NAME,
-                                             read_chute=True, read_science=True)
+                                             read_chute=True, read_science=True,
+                                             tolerate_unreadable_nodes=True)
 
 
 SPEC = mission_runner.MissionSpec(

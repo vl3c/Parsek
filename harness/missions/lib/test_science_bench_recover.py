@@ -1730,6 +1730,27 @@ class ShellWiringTests(unittest.TestCase):
                         "latch and DOWN terminal gate on the OBSERVED chute state")
         self.assertFalse(c._use_mechjeb)
 
+    def test_the_shell_tolerates_the_career_saves_unreadable_maneuver_nodes(self):
+        # THE CELL THE FIRST READING RUN BOUGHT. `L3-career-science-recover` run
+        # `2026-08-19_1817` (and its identical retry `_1818_a2`) died in 1.2 s at
+        # PRELAUNCH: this lane flies a CAREER save, kRPC raises `Maneuver node
+        # editing is not available` on an un-upgraded Tracking Station, and three
+        # consecutive raises escalate to a `vessel_lost` snapshot the delegated B1
+        # leg correctly condemns (`flight-leg vessel-lost (unreadable after
+        # repeated telemetry failures)`). CL-3 already carried the identical
+        # finding; this lane is the second career flier.
+        #
+        # The flag is NOT free - turning it on globally broke CL-1, whose
+        # `crew-survived-impact` terminal a PAD frame satisfies once blind frames
+        # become believable - so this cell exists to say the opt-in is DELIBERATE
+        # and to red if it is ever dropped as noise. The reason it is safe here is
+        # structural: B1's phase progression cannot be walked from the pad, and
+        # `flightCompletedObserved` additionally gates on the peak apoapsis.
+        c = science_bench_recover.make_control()
+        self.assertTrue(c._tolerate_unreadable_nodes,
+                        "without it every career-save flight of this lane dies "
+                        "vessel-lost in PRELAUNCH; measured 2026-08-19")
+
     def test_the_shell_skips_the_settle_tail(self):
         # The RECOVERED terminal means the craft has been removed from the game,
         # so a settle tail would gather only vessel_lost frames.

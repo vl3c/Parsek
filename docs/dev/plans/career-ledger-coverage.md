@@ -478,6 +478,23 @@ used (reading run, then arming).
   first run ships `tier = "operator"` with no `[expectations.ledger]` manifest and
   no pinned tally, exactly as L2's B.1 reading run did; the arming and the tier
   promotion land in the SAME commit that pins the measurement.
+- **A THIRD FIXTURE PROPERTY NOBODY BUDGETED FOR, and flight 1 is what found it:
+  a CAREER save's un-upgraded Tracking Station makes kRPC refuse the
+  maneuver-node read, and that alone kills the flight leg.** Runs
+  `2026-08-19_1817_L3-career-science-recover` and its retry `_1818_..._a2` both
+  died at 1.2 s in PRELAUNCH - `MISSION-ASSERT-FAIL`, `flight-leg vessel-lost
+  (unreadable after repeated telemetry failures)` - because
+  `Maneuver node editing is not available` raises on every telemetry read and
+  `READ_FAIL_STREAK_LIMIT = 3` consecutive raises escalate to a `vessel_lost`
+  snapshot the delegated B1 leg correctly condemns. The finding was ALREADY IN
+  THE REPO, one file away: `cl3_refly_crew_tombstone.make_control` says the same
+  sentence about the same fixture family. The fix is the per-mission
+  `tolerate_unreadable_nodes=True` opt-in that exists for precisely this, argued
+  safe here because B1's phase progression cannot be walked from the pad (the
+  CL-1 hazard the flag's docstring records) and `flightCompletedObserved`
+  additionally gates on the peak apoapsis. **The transferable lesson for the next
+  career lane: a `career-pad-craft`-family fixture needs BOTH opt-ins, and the
+  facility tier is a fixture property worth checking alongside the part list.**
 - **One constant to WATCH on the first flight, named in advance so it is not
   diagnosed from scratch:** `mlib.SBR_RECOVER_CREDIT_GRACE_FRAMES` (6 frames,
   ~3 s at the ~0.5 s poll cadence) does double duty. It bounds the read-ordering
