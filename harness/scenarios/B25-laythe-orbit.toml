@@ -335,11 +335,56 @@ id = "B25-laythe-orbit"
 # precedents that a crewed loop subject works end to end; nothing here gates it.
 #
 # =====================================================================================
-# FLIGHT LEDGER.
+# FLIGHT LEDGER. TWO FLIGHTS, AND THE FIRST ONE IS WHY THE SECOND IS TRUSTWORTHY.
+#
+# FLIGHT 2, run `2026-08-19_2039`: **PASS attempt 1**, mission wall 741.6 s, the
+# FULL phase chain through ORBIT-COMMITTED. Every assertion met:
+#   startedInHomeOrbit     ecc 7.944062689356231e-06 in the Jool entry gate, on a
+#                          584,321,095.004 / 584,330,474.174 park
+#   reachedTargetSoi       Laythe
+#   flybyPeriapsisFloor    71,625.224 m   (against the 60,000 m floor - 1.19x)
+#   capturedInTargetOrbit  87,931.336 x 56,240.289 m at ecc 0.0277
+#   parkedStable           held through the 180 s dwell
+#   treeCommitted          OK, body Laythe
+# All five required tokens present in the collected KSP.log and ALL NINE forbidden
+# absent - the ERROR floor plus every one of the eight Vall / Tylo / Bop / Pol
+# named-poison forms, on a descent that crosses all four of their orbital shells.
+# `Atmospheric` occurs ZERO times, which is the product-quality reading the 52 km
+# floor exists for. `startrecording ... already=false` again, minting the fresh
+# standalone Jool-rooted tree `0ffee6458331466481f5c7aa0212b515`; `rounds=2
+# extraRounds=1` again, so the arrival-quality delegation fired on this flight too.
+#
+# **THE 52,000 m FLOOR IS VINDICATED, AND THE MARGIN IS MEASURED RATHER THAN
+# ARGUED.** Across the three deliveries this profile has now produced -
+# 55,089.447 (f1 a2), 56,240.289 (f2) and 56,667 (f1 a1) - the tightest sits
+# 3,089 m above the floor and the loosest 4,667 m, i.e. the floor holds with 2.0x
+# to 3.0x of the 1,578 m inter-delivery spread underneath it, and every one of the
+# three clears Laythe's 50 km atmosphere by 5.1-6.7 km. The OLD 60,000 floor would
+# have refused ALL THREE.
+#
+# **AND THE FINITE-BURN WEDGE REPRODUCED A THIRD TIME.** Flight 2's arrival
+# minimum was 71,625.224 m and its park periapsis 56,240.289 m: a **15,384.9 m**
+# drop, against 15,382 m and 15,415 m on flight 1's two attempts. THREE FLIGHTS,
+# A 33 m SPREAD. The diagnosis below is not a story fitted to one reading.
+#
+# The produced save is harvested `--keep-parsek` into the committed
+# `laythe-orbit-recorded` fixture (payload pinned in
+# `test_saveparse.py::CommittedFixtureSweepTests.RECORDED_FIXTURES`), which is
+# what V16M/V16T consume and what their jump tables are calibrated off.
+#
+# ONE MORE MEASUREMENT WORTH CARRYING: flight 2's arrival CONIC read
+# `ap -5,286,554.250 pe 71,808.554 ecc 1.271` and MechJeb priced the capture at
+# 939.321 m/s - within 0.5 m/s of flight 1's 939.785 on a conic identical to three
+# decimal places in eccentricity. The under-delivery ratio is now n = 3 at
+# req/SOI = 6.71%: **k = 0.289 / 0.283 / 0.287**, a 2% spread. See
+# `courseCorrectPeriapsisMeters` for what that does to the finding-16d corpus.
 #
 # FLIGHT 1, runs `2026-08-19_1948` (attempt 1) and `2026-08-19_2001` (attempt 2):
 # **INVALID(driver-flake) BOTH ATTEMPTS, AND THE FLAKE WAS THE WINDOW, NOT THE
-# FLIGHT.** Read the verdict line carefully before concluding anything:
+# FLIGHT.** It is kept in full below rather than summarised, because everything
+# flight 2 relies on - the resized floor, the finite-burn diagnosis, the absence
+# of a periapsis-raising trim - was measured HERE. Read the verdict line
+# carefully before concluding anything:
 #
 #   phase CAPTURE-BURN: capture under-burn (burn progress stalled with nodes=0;
 #   ap=86843 pe=55089 ecc=0.028 is not a bound orbit inside
@@ -462,25 +507,36 @@ id = "B25-laythe-orbit"
 #   * dV was never stressed: 534.786 LF remained of 945.082, i.e. 2.674 t of the
 #     4.725 t still aboard at the moment of capture.
 #
-# STILL UNPROVEN AFTER FLIGHT 1, stated so the next run knows what it owes: the
-# PARK dwell, the ORBIT-COMMIT, the `terminalOrbitBody=Laythe` token, the
-# recordings count, and whether the optimizer keeps the Jool->Laythe boundary
-# cohesive. Every one of those is downstream of the gate that just moved.
+# WHAT FLIGHT 1 LEFT UNPROVEN AND FLIGHT 2 CLOSED: the PARK dwell, the
+# ORBIT-COMMIT, the `terminalOrbitBody=Laythe` token and the recordings count -
+# all four green on flight 2, all four downstream of the gate that moved.
+#
+# ONE THING NEITHER FLIGHT SETTLED, and it is not this lane's to settle: whether
+# the optimizer keeps the Jool->Laythe boundary COHESIVE. The load-time pass that
+# emits `Split summary: ... exoCoastBodyChangeKept=` has no occasion to run inside
+# either run's life - both commit and flush without re-loading - so the crossing's
+# first real evaluation is V16M/V16T's LoadGame, exactly as at Duna->Ike and
+# Eve->Gilly. Read it there.
 #
 # =====================================================================================
-# POSTURE: FIRST FLIGHT, READING RUN. Nothing is armed - no `gating = true`
-# block anywhere, the recordings window is the DERIVED {1,2} range rather than a
-# pin, and `[expectations.recordings.structure]` / `[expectations.recordings]
-# points` are deliberately ABSENT (a report-only block of PREDICTED numbers reads
-# like a measurement). `tier = "operator"` on the calibration discipline
+# POSTURE: LIVE-PROVEN, NOTHING ARMED. Flight 2 is green and the recordings window
+# MEASURED 1, but nothing here is pinned or gated: no `gating = true` block
+# anywhere, the count stays the DERIVED {1,2} range, and
+# `[expectations.recordings.structure]` / `[expectations.recordings] points` stay
+# ABSENT. That is the B24 disposition verbatim and for its reason - THE LANE'S
+# PRODUCT IS A FIXTURE, and the fixture's structure is pinned where it is CONSUMED
+# (`CommittedFixtureSweepTests.RECORDED_FIXTURES` pins trees / committedTrees /
+# recordings = 1/1/1 and the recording id byte-for-byte, and V16M/V16T carry their
+# own windows), so a third pin here would add a re-pin obligation without adding a
+# guard. `tier = "operator"` on the calibration discipline
 # (V1/V2/B18/B19/B20/B21/B23/B24 precedent).
 # =====================================================================================
 tier = "operator"
-description = "FLOWN 2026-08-19, INVALID(driver-flake) on both attempts - AND THE FLAKE WAS THE WINDOW, NOT THE FLIGHT. The machine flew Jool->Laythe INWARD clean through capture: `startrecording ... already=false` minting a fresh standalone Jool-rooted tree, TRANSFER-BURN exiting on the `ejectionEccFloor` evidence at ecc 0.954 after a 27,865.5 s (0.521 synodic) window wait, one scheduled correction plus one direction-agnostic arrival-quality extra (`rounds=2 extraRounds=1`), exactly one `SOI change boundary suppressed in tree mode: Jool to Laythe` with ZERO occurrences of all eight Vall/Tylo/Bop/Pol named-poison tokens, zero `[Parsek][ERROR]`, zero `Atmospheric` - so all three inward-transfer workarounds held. PLAN-CAPTURE then planned a 939.785 m/s circularize node AT the arrival periapsis (ideal 940.035) and the vessel burned 937.3 of it (0.27% short), delivering an 86,843 x 55,089 m Laythe park at ecc 0.028 - a healthy, stable, near-circular orbit 5,089 m above Laythe's 50 km atmosphere on rails, where KSP applies no drag. It red because the DECLARED FLOOR was 60,000: the park gate never opened and mlib's under-burn classifier (which fires on stalled progress with `nodes=0` outside the capture window) named a good park an under-burn. DIAGNOSED FROM THE BYTES: the ~15.4 km periapsis drop from the 70.5 km arrival is FINITE BURN - 937 m/s at 60 kN on 11.1 t is a=5.40 m/s^2 and a 163.5 s burn straddling a periapsis crossed at 2,794 m/s - and it is SYSTEMATIC (15,382 m on attempt 1, 15,415 m on attempt 2). There is no periapsis-raising trim to reach for: mlib's only round-out step is called from B5_CIRCULARIZE, which `startInOrbit` never enters. FIXED by resizing `parkMinPeriapsisMeters` 60,000 -> 52,000 and NOTHING else (the B17 precedent: nothing relaxed, an entry window resized to a measured delivery); the ceiling and ecc cap were confirmed comfortable at 10.2x and 8.9x. ALSO MEASURED: k = delivered/requested = 0.283-0.289 at req/SOI = 6.71%, which REFUTES this spec's own pre-flight reasoning that the request would sit near the Eve row's k = 0.997; and span/P = 19.435, which makes V16M's k = 20 cadence BOUNDED rather than seeded. ORIGINAL AUTHORING RATIONALE FOLLOWS. THE FIRST JOOL-MOON SUBJECT and the suite's FIRST INWARD TRANSFER: the crewed Duna Rocket begins ORBITING Jool at 584,321 x 584,330 km (B22's own terminal park, 3.28x Pol's orbit and therefore OUTSIDE the whole moon system), transfers DOWN to LAYTHE on a retrograde ejection, captures + circularizes into a Laythe park and mid-mission commits the tree there through the LIVE-PROVEN startInOrbit door. Its produced save is intended as the `laythe-orbit-recorded` fixture V16M/V16T consume, which is why it points at the Parsek-stripped `jool-park-nerv` copy (the third such strip, after duna-park-probe and eve-park-kerbalx) rather than at `jool-orbit-recorded`'s five committed recordings. THE POINT is that Laythe is the first row of the Jool table in docs/dev/research/same-parent-reaim-jool-system.md section 3.1 that anyone has flown - P 52,980.879 s, SOI 3,723,645.8 m, tol = SOI/v_orb = 1,155.0 s, duty 2.18e-2, the LOOSEST-tolerance same-parent subject yet and the deliberate complement to Gilly's tightest. TWO THINGS THE INWARD DIRECTION FORCED, both VALUES: the burn-done evidence moves off the apoapsis floor (which cannot move on a transfer whose burn is at its own apoapsis) onto `ejectionEccFloor = 0.55` - the eccentricity of a transfer whose periapsis has fallen inside Pol's orbit - and the correction schedule drops to ONE round, because the altitude trigger is a level test on a DESCENDING altitude and no value can place a second round mid-coast; the late refinement is delegated to mlib's own direction-agnostic arrival-quality extras. Delta-v is derived rather than scaled: 3,967 m/s available (NERV, Isp 800) against a 1,574 m/s worst hop, a 152% margin - by far the most comfortable capture lane in the suite. The approach regime is the third distinct answer in three lanes: v_inf^2 / (2*mu/r_soi) = 1.445, i.e. MIXED, so the SOI-entry -> periapsis coast is solved on the hyperbola and comes out a remarkably flat 2,048-2,139 game s."
+description = "LIVE-PROVEN 2026-08-19 ON FLIGHT 2 (run `2026-08-19_2039`, PASS attempt 1, mission wall 741.6 s, the full phase chain through ORBIT-COMMITTED): 87,931 x 56,240 m Laythe park at ecc 0.0277, `flybyPeriapsisFloor` 71,625.2, terminal Orbiting/Laythe, all five required tokens present and ALL NINE forbidden absent - the ERROR floor plus every one of the eight Vall/Tylo/Bop/Pol named-poison forms, on a descent that crosses all four of their orbital shells - with ZERO `Atmospheric` occurrences and `startrecording ... already=false` minting the standalone Jool-rooted tree. Its produced save is the committed `laythe-orbit-recorded` fixture V16M/V16T consume. THE FIRST JOOL-MOON SUBJECT and the suite's FIRST INWARD TRANSFER; all three inward-transfer workarounds held on both flights. **FLIGHT 1 (`_1948` / `_2001`) IS WHY FLIGHT 2 IS TRUSTWORTHY** - INVALID(driver-flake) on both attempts, AND THE FLAKE WAS THE WINDOW, NOT THE FLIGHT. The machine flew Jool->Laythe INWARD clean through capture: `startrecording ... already=false` minting a fresh standalone Jool-rooted tree, TRANSFER-BURN exiting on the `ejectionEccFloor` evidence at ecc 0.954 after a 27,865.5 s (0.521 synodic) window wait, one scheduled correction plus one direction-agnostic arrival-quality extra (`rounds=2 extraRounds=1`), exactly one `SOI change boundary suppressed in tree mode: Jool to Laythe` with ZERO occurrences of all eight Vall/Tylo/Bop/Pol named-poison tokens, zero `[Parsek][ERROR]`, zero `Atmospheric` - so all three inward-transfer workarounds held. PLAN-CAPTURE then planned a 939.785 m/s circularize node AT the arrival periapsis (ideal 940.035) and the vessel burned 937.3 of it (0.27% short), delivering an 86,843 x 55,089 m Laythe park at ecc 0.028 - a healthy, stable, near-circular orbit 5,089 m above Laythe's 50 km atmosphere on rails, where KSP applies no drag. It red because the DECLARED FLOOR was 60,000: the park gate never opened and mlib's under-burn classifier (which fires on stalled progress with `nodes=0` outside the capture window) named a good park an under-burn. DIAGNOSED FROM THE BYTES: the ~15.4 km periapsis drop from the 70.5 km arrival is FINITE BURN - 937 m/s at 60 kN on 11.1 t is a=5.40 m/s^2 and a 163.5 s burn straddling a periapsis crossed at 2,794 m/s - and it is SYSTEMATIC (15,382 m on attempt 1, 15,415 m on attempt 2). There is no periapsis-raising trim to reach for: mlib's only round-out step is called from B5_CIRCULARIZE, which `startInOrbit` never enters. FIXED by resizing `parkMinPeriapsisMeters` 60,000 -> 52,000 and NOTHING else (the B17 precedent: nothing relaxed, an entry window resized to a measured delivery); the ceiling and ecc cap were confirmed comfortable at 10.2x and 8.9x. THE FIX IS VINDICATED AND THE WEDGE REPRODUCED: across the three deliveries this profile has produced (55,089 / 56,240 / 56,667 m) the tightest sits 3,089 m above the floor and all three clear Laythe's atmosphere by 5.1-6.7 km, while the finite-burn drop reads 15,382 / 15,385 / 15,415 m - a 33 m spread over three flights, so the diagnosis is not a story fitted to one reading. The OLD floor would have refused all three. ALSO MEASURED, now n = 3: k = delivered/requested = 0.289 / 0.283 / 0.287 at req/SOI = 6.71%, which REFUTES this spec's own pre-flight reasoning that the request would sit near the Eve row's k = 0.997 - and which clusters to 2%, against a corpus whose stated within-body spread is ~3x. And the harvested recording's span/P = 19.435357 CONFIRMS V16M's k = 20 cadence off measured bytes, the suite's first loop cadence that is not one moon period. ORIGINAL AUTHORING RATIONALE FOLLOWS. THE FIRST JOOL-MOON SUBJECT and the suite's FIRST INWARD TRANSFER: the crewed Duna Rocket begins ORBITING Jool at 584,321 x 584,330 km (B22's own terminal park, 3.28x Pol's orbit and therefore OUTSIDE the whole moon system), transfers DOWN to LAYTHE on a retrograde ejection, captures + circularizes into a Laythe park and mid-mission commits the tree there through the LIVE-PROVEN startInOrbit door. Its produced save is intended as the `laythe-orbit-recorded` fixture V16M/V16T consume, which is why it points at the Parsek-stripped `jool-park-nerv` copy (the third such strip, after duna-park-probe and eve-park-kerbalx) rather than at `jool-orbit-recorded`'s five committed recordings. THE POINT is that Laythe is the first row of the Jool table in docs/dev/research/same-parent-reaim-jool-system.md section 3.1 that anyone has flown - P 52,980.879 s, SOI 3,723,645.8 m, tol = SOI/v_orb = 1,155.0 s, duty 2.18e-2, the LOOSEST-tolerance same-parent subject yet and the deliberate complement to Gilly's tightest. TWO THINGS THE INWARD DIRECTION FORCED, both VALUES: the burn-done evidence moves off the apoapsis floor (which cannot move on a transfer whose burn is at its own apoapsis) onto `ejectionEccFloor = 0.55` - the eccentricity of a transfer whose periapsis has fallen inside Pol's orbit - and the correction schedule drops to ONE round, because the altitude trigger is a level test on a DESCENDING altitude and no value can place a second round mid-coast; the late refinement is delegated to mlib's own direction-agnostic arrival-quality extras. Delta-v is derived rather than scaled: 3,967 m/s available (NERV, Isp 800) against a 1,574 m/s worst hop, a 152% margin - by far the most comfortable capture lane in the suite. The approach regime is the third distinct answer in three lanes: v_inf^2 / (2*mu/r_soi) = 1.445, i.e. MIXED, so the SOI-entry -> periapsis coast is solved on the hyperbola and comes out a remarkably flat 2,048-2,139 game s."
 instanceProfile = "stock-minimal"
 tags = ["B25", "laythe", "jool", "same-parent", "moon", "jool-moon", "inward-transfer",
         "orbit", "mechjeb", "cross-soi", "capture", "commit-in-foreign-soi",
-        "orbit-start", "crewed"]
+        "orbit-start", "crewed", "flown"]
 
 [fixture]
 # `jool-park-nerv`: a DERIVED, PARSEK-STRIPPED copy of B22's
@@ -725,20 +781,28 @@ ejectionEccFloor           = 0.55
 # the atmosphere, not the plan) and why the park window below is wide.
 #
 # ---------------------------------------------------------------------------
-# MEASURED ON FLIGHT 1, AND IT REFUTES THE PARAGRAPHS ABOVE. The 250,000 m
-# request delivered arrival periapsides of **72,233 m (attempt 1) and 70,688 m
-# (attempt 2)**, i.e. **k = 0.289 and 0.283** - not the ~1 the Eve row predicted,
-# and BELOW even the Mun row's 0.545. The corpus's "the bias inverts to k ~ 1
-# above req/SOI = 4%" reading does not survive this fourth point in that regime.
-# The two attempts agreed to 1.1% of each other, so the UNDER-delivery is
-# repeatable at this body even though its MAGNITUDE was mispredicted.
+# MEASURED OVER THREE FLIGHTS, AND IT REFUTES THE PARAGRAPHS ABOVE. The 250,000 m
+# request delivered arrival CONIC periapsides of **72,233 m and 70,688 m (flight 1,
+# attempts 1 and 2) and 71,809 m (flight 2)**, i.e. **k = 0.289 / 0.283 / 0.287** -
+# not the ~1 the Eve row predicted, and BELOW even the Mun row's 0.545. The
+# corpus's "the bias inverts to k ~ 1 above req/SOI = 4%" reading does not survive
+# these points in that regime.
 #
-# THE VALUE STAYS AT 250,000 ANYWAY, and the FLIGHT LEDGER carries the full
-# rejection arithmetic for re-aiming instead. In one line: clearing the OLD 60 km
-# floor at the measured central ratio needs only ~264,000 m (a one-point
-# extrapolation), and clearing it at the corpus's 3x-short end needs >= 790,900 m,
-# whose 3x-long end is a ~663 km park - a different product, sized against a 3x
-# spread this body has not exhibited. The WINDOW moved instead.
+# AND THE REPEATABILITY IS THE OTHER HALF OF THE FINDING: a 2% spread across three
+# arrivals, where the corpus's own honesty limit warns of a ~3x WITHIN-BODY spread
+# (Duna spans 230.9-718.2 km on an identical 300 km request). Laythe is the
+# tightest-clustered body in that corpus by a wide margin. THAT DOES NOT LICENSE
+# SIZING ON THE POINT ESTIMATE - three flights of ONE profile is not a body
+# characterisation, and the corpus's spread comes from flights that differ in more
+# than these three do - but it is why the aim below stays put rather than being
+# re-derived against a 3x band this lane has never seen.
+#
+# THE VALUE STAYS AT 250,000, and the FLIGHT LEDGER carries the full rejection
+# arithmetic for re-aiming instead. In one line: clearing the OLD 60 km floor at
+# the measured central ratio needs only ~264,000 m (an extrapolation of a ratio
+# measured on one profile), and clearing it at the corpus's 3x-short end needs
+# >= 790,900 m, whose 3x-long end is a ~663 km park - a different product. The
+# WINDOW moved instead, and flight 2 green'd on it.
 # ---------------------------------------------------------------------------
 courseCorrectPeriapsisMeters = 250000
 # ONE SCHEDULED ROUND, and the reason is the machine rather than the geometry -

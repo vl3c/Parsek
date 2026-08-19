@@ -28,6 +28,7 @@ Runnable with the stdlib runner only (NO pytest, NO kRPC, NO KSP, NO network)::
 
 import math
 import os
+import re
 import tomllib
 import unittest
 
@@ -120,6 +121,17 @@ F1_DELIVERED = ((72_049.048, 56_667.0, 88_352.0),
 F1_DELIVERED_ECC = 0.028
 # The arrival CONIC periapsis per attempt, against the committed 250,000 request.
 F1_ARRIVAL_CONIC_PE = (72_233.0, 70_687.916)
+
+# FLIGHT 2 (run 2026-08-19_2039, PASS attempt 1, the full chain through
+# ORBIT-COMMITTED on the RESIZED 52,000 m floor). Its job in this file is to be
+# the CONFIRMATION half: the same wedge, the same k, and the fix actually holding
+# in flight rather than only in arithmetic.
+F2_DELIVERED = (71_625.22366461507, 56_240.28925418982, 87_931.33633368392)
+F2_DELIVERED_ECC = 0.02769780893946852
+F2_ARRIVAL_CONIC_PE = 71_808.554
+F2_PLANNED_CAPTURE_DV = 939.321
+# All three deliveries this profile has produced, newest last.
+ALL_DELIVERED = F1_DELIVERED + (F2_DELIVERED,)
 
 
 def _spec(name):
@@ -865,6 +877,57 @@ class Flight1DiagnosisTests(unittest.TestCase):
                            "the measured approach coast is UNDER the floor every "
                            "warp bound was sized on")
 
+    def test_the_finite_burn_wedge_reproduced_on_flight_two(self):
+        """THE DIAGNOSIS'S THIRD DATA POINT, and the one that makes it a property
+        rather than a story fitted to one flight. Three deliveries, three
+        different arrivals, and the same wedge to within tens of metres."""
+        wedges = [mn - pe for mn, pe, _ in ALL_DELIVERED]
+        self.assertEqual(3, len(wedges))
+        self.assertLess(max(wedges) - min(wedges), 100.0,
+                        "the finite-burn wedge no longer reproduces across the "
+                        "three flights; the ledger's 'systematic' claim needs "
+                        "re-reading")
+        for w in wedges:
+            self.assertGreater(w, 15_000.0)
+
+    def test_the_resized_floor_admits_every_delivery_this_profile_has_made(self):
+        """THE FIX, VALIDATED IN FLIGHT rather than only in arithmetic. Flight 2
+        green'd on the 52,000 m floor; this cell asserts the floor holds for ALL
+        THREE deliveries with real room, and - the other half - that the OLD
+        60,000 would have refused every one of them."""
+        floor = self.mp["parkMinPeriapsisMeters"]
+        pes = [pe for _, pe, _ in ALL_DELIVERED]
+        spread = max(pes) - min(pes)
+        for _, pe, ap in ALL_DELIVERED:
+            self.assertGreaterEqual(pe, floor)
+            self.assertGreater(pe, LAYTHE_ATMOSPHERE_TOP_M)
+            self.assertLessEqual(ap, self.mp["parkMaxApoapsisMeters"])
+        self.assertGreaterEqual(min(pes) - floor, 1.5 * spread,
+                                "the floor no longer keeps 1.5x the observed "
+                                "delivery spread underneath the tightest park")
+        self.assertLess(max(pes), 60_000.0,
+                        "a delivery now clears the ORIGINAL 60,000 floor, so the "
+                        "resize's premise - that it refused every healthy park "
+                        "this profile makes - no longer holds")
+
+    def test_the_under_delivery_ratio_clusters_across_three_arrivals(self):
+        """The finding-16d point, now n = 3. The REPEATABILITY is half the value:
+        the corpus warns of a ~3x within-body spread (Duna spans 230.9-718.2 km
+        on one 300 km request) and this profile clusters to a couple of percent -
+        which is what makes the header's refusal to re-aim on the point estimate
+        a judgement rather than an oversight."""
+        req = self.mp["courseCorrectPeriapsisMeters"]
+        ks = [pe / req for pe in F1_ARRIVAL_CONIC_PE + (F2_ARRIVAL_CONIC_PE,)]
+        self.assertEqual(3, len(ks))
+        for k in ks:
+            self.assertLess(k, 0.545)
+            self.assertGreater(k, 0.20)
+        self.assertLess((max(ks) - min(ks)) / max(ks), 0.05)
+        # And MechJeb priced the two capture nodes almost identically, on conics
+        # whose eccentricity agrees to three decimals - so the arrival GEOMETRY is
+        # reproducible too, not just the outcome.
+        self.assertLess(abs(F2_PLANNED_CAPTURE_DV - F1_PLANNED_CAPTURE_DV), 2.0)
+
     def test_the_park_trim_is_structurally_unreachable_on_this_lane(self):
         """Question (3), pinned: mlib's ONLY periapsis-raising round-out step is
         `_b5_park_trim_step`, and it is reachable only from `B5_CIRCULARIZE` -
@@ -883,29 +946,35 @@ class Flight1DiagnosisTests(unittest.TestCase):
 
 
 class V16CalibrationSeedTests(unittest.TestCase):
-    """The V16 pair ships with CALIBRATION SEEDS rather than measurements, so what
-    CAN be checked is their internal consistency - the relationships the headers
-    assert between the seeds. A seed that is merely wrong is expected and is
-    fixed at calibration; a seed set that is INCONSISTENT WITH ITS OWN DERIVATION
-    would survive the calibration pass unnoticed, because the pass substitutes
-    numbers rather than re-deriving the shape."""
+    """The V16 pair, CALIBRATED 2026-08-19 off the harvested `laythe-orbit-recorded`
+    bytes. Every cell here re-runs a relationship the headers assert, so a
+    re-harvest that moves the recording reds with the arithmetic in hand rather
+    than on a KSP boot that arms the wrong epoch.
 
-    # The PLACEHOLDER tree id both specs ship with. It must be a placeholder
-    # rather than a plausible-looking id, so a forgotten substitution fails
-    # loudly in KSP rather than arming some other tree.
-    PLACEHOLDER_TREE = "0" * 32
+    The class keeps its name because its JOB has not changed: before the harvest
+    it checked that the seed set was internally consistent with its own
+    derivation; now it checks that the calibrated set is consistent with the
+    fixture's own bytes. The seeds went through three states - authored from
+    B25's PLANNED profile (seam offset 14,769 s off against a +-180 s bracket),
+    re-derived from B25 flight 1's clock (a FAILED run, but its UTs were real -
+    within 1.2 s), and finally read off the harvest."""
 
-    # The seeds header section 3 derives everything from - RE-DERIVED 2026-08-19
-    # from B25 FLIGHT 1's MEASURED timeline (the flight flaked on its park window,
-    # not on its clock, so its UTs are real). The originally authored set put the
-    # seam offset 14,768 s early against a +-180 s bracket.
-    UT0 = 27_787_320.0          # measured to ~1 s off startInOrbitAnchorUt/launchUt
-    SPAN = 1_029_700.0          # capture-node UT + the ~282 s estimated tail - UT0
-    DEST_PHASE = 2_562.7        # spanEnd - the measured 28,814,457.3 seam
+    # THE COMMITTED tree id, read off `laythe-orbit-recorded`'s RECORDING_TREE
+    # node (B25 flight 2, run 2026-08-19_2039). Both V16 specs shipped with a
+    # zero placeholder and were substituted in the calibration pass.
+    TREE_ID = "0ffee6458331466481f5c7aa0212b515"
+
+    # The recording's own bytes, which are what the jump table is derived FROM.
+    UT0 = 27_787_320.719510831          # explicitStartUT
+    SPAN_END = 28_817_023.017051611     # explicitEndUT
+    SAVE_UT = 28_817_025.337051559      # the produced save's FLIGHTSTATE UT
+    SEAM = 28_814_456.826437414         # the Jool->Laythe ORBIT_SEGMENT body change
+    SEG0_START = 27_787_323.259510774   # segment 0, the WRONG offset base
+    LAST_SEG_END = 28_816_666.237059586 # the last CLOSED (hyperbolic) segment
     PARK_FRACTION = 0.707
-    # The transfer-window wait is the free variable the seam offset inherits, and
-    # the one the k-bound below is argued over.
-    F1_WINDOW_WAIT = 27_865.49  # transferNodeUt 27,815,187.750 - launchUt 27,787,322.260
+    # The transfer-window wait flight 1 measured, kept because the k-band argument
+    # in V16M section 3 is stated over it.
+    F1_WINDOW_WAIT = 27_865.49
     SYNODIC = 53_509.647
 
     @classmethod
@@ -920,75 +989,111 @@ class V16CalibrationSeedTests(unittest.TestCase):
     def _period(self):
         return 2.0 * math.pi * math.sqrt(A_LAYTHE ** 3 / MU_JOOL)
 
-    def test_both_specs_carry_the_placeholder_tree_id(self):
-        # Pre-calibration state, pinned in BOTH directions: it reds if a real id
-        # is substituted without the rest of the calibration pass landing, and it
-        # documents which string the pass is looking for.
+    def _fixture_tree_id(self):
+        path = os.path.join(HARNESS_ROOT, "fixtures", "saves",
+                            "laythe-orbit-recorded", "persistent.sfs")
+        with open(path, encoding="utf-8", errors="replace") as fh:
+            text = fh.read()
+        i = text.index("RECORDING_TREE")
+        return re.search(r"\bid = (\w{32})", text[i:]).group(1)
+
+    def test_both_specs_name_the_committed_tree(self):
+        # The calibration pass's first substitution, checked against the FIXTURE
+        # rather than against a literal: a re-harvest that mints a different tree
+        # reds here instead of on a KSP boot that arms nothing.
+        fixture_tree = self._fixture_tree_id()
+        self.assertEqual(self.TREE_ID, fixture_tree)
         for spec in (self.m, self.t):
             trees = [s["args"]["tree"] for s in spec["driver"]["steps"]
                      if s.get("cmd") in ("MissionConfig", "StartLoopPlayback")]
             self.assertTrue(trees)
             for tree in trees:
-                self.assertEqual(self.PLACEHOLDER_TREE, tree)
+                self.assertEqual(fixture_tree, tree)
 
-    def test_the_cadence_multiple_is_nineteen_or_twenty_and_never_twenty_one(self):
-        """THE LANE'S SHARPEST CLAIM, and B25 FLIGHT 1 SHARPENED IT IN BOTH
-        DIRECTIONS - including one the pre-flight version had WRONG.
+    def test_the_cadence_multiple_is_twenty_from_the_measured_span(self):
+        """THE LANE'S SHARPEST CLAIM, now CLOSED against the harvest.
 
         `QuantizeCadenceToMultipleOfP` takes the smallest `k*P` at or above the
         raw cadence, and the raw cadence is floored at the recording's SPAN.
-        B25's span is dominated by a transfer coast that is 19.14 Laythe periods
-        on its own, so `k > 1` was never in doubt - but the exact value turns on
-        the TRANSFER WINDOW WAIT, a free variable in [0, one synodic]. The
-        pre-flight header claimed `k >= 20, possibly 21`. Re-basing flight 1's
-        MEASURED span (1,029,700 s on a 27,865.5 s wait) across the wait band
-        shows BOTH halves of that were off by one:
+        The measured span is 1,029,702.298 s = 19.435 Laythe periods, so k = 20 -
+        the suite's first cadence that is not one moon period, and the whole
+        reason the V16 pair exists.
 
-            wait <= 4,802.2 s  (8.97% of the synodic)  -> k = 19
-            wait  > 4,802.2 s                          -> k = 20
-            k = 21 would need 57,783.1 s of wait, which is 4,273.4 s MORE than a
-            full synodic - so it is EXCLUDED OUTRIGHT.
-
-        The k = 21 exclusion is the load-bearing half, because that is the one
-        that would move every cycle-2 jump by a whole period. k = 19 vs 20 stays
-        a 9%-probability read for the calibration pass."""
+        THE BAND ARGUMENT IS KEPT because it is what makes the answer robust
+        rather than lucky: the exact k turns on the TRANSFER WINDOW WAIT, a free
+        variable in [0, one synodic]. Re-basing the measured span across that band
+        gives k = 19 below a 4,802 s wait, k = 20 above it, and k = 21 EXCLUDED
+        outright. The pre-flight header claimed `k >= 20, possibly 21` and was off
+        by one at BOTH ends; the flown wait (27,865.5 s) sits comfortably inside
+        the k = 20 branch."""
         p = self._period()
         a_t = (PARK_SMA + A_LAYTHE) / 2.0
         tof = math.pi * math.sqrt(a_t ** 3 / MU_JOOL)
         self.assertGreater(tof / p, 19.0)
-        span_no_wait = self.SPAN - self.F1_WINDOW_WAIT
-        span_full_wait = span_no_wait + self.SYNODIC
-        # k = 21 is excluded across the ENTIRE band, with real slack.
-        self.assertLess(span_full_wait, 20.0 * p)
-        self.assertGreater(20.0 * p - span_full_wait, 1_000.0,
-                           "the k <= 20 bound has under 1,000 s of slack at a "
-                           "full-synodic window wait; it is a seed again")
-        # The measured flight is a k = 20 draw, and the committed seeds use 20.
-        self.assertEqual(20, math.ceil(self.SPAN / p - 1e-9))
-        # The only alternative is k = 19, and it needs a very short wait.
-        self.assertEqual(19, math.ceil(span_no_wait / p - 1e-9))
-        threshold = 19.0 * p - span_no_wait
-        self.assertLess(threshold / self.SYNODIC, 0.10,
-                        "the k = 19 branch now covers more than a tenth of the "
-                        "window-wait band; the seeds' k = 20 choice needs "
-                        "re-arguing")
+        span = self.SPAN_END - self.UT0
+        self.assertAlmostEqual(span, 1_029_702.2975, delta=0.01)
+        self.assertEqual(20, math.ceil(span / p - 1e-9))
+        # ... and it is not a near-miss in either direction.
+        self.assertGreater(20.0 * p - span, 10_000.0)
+        self.assertGreater(span - 19.0 * p, 10_000.0)
+        # The band the answer is robust over: k = 21 is unreachable, k = 19 needs
+        # a very short wait.
+        span_no_wait = span - self.F1_WINDOW_WAIT
+        self.assertLess(span_no_wait + self.SYNODIC, 20.0 * p)
+        self.assertLess((19.0 * p - span_no_wait) / self.SYNODIC, 0.10)
 
-    def test_the_jump_table_is_derived_from_the_seeded_inputs(self):
-        """THE DERIVATION, re-run. Every jump UT is the anchor plus a fixed
-        offset, and the anchor is `NextWindow(UT0, P, referenceUT)`. When the
-        fixture is harvested this reds with the arithmetic in hand."""
+    def test_the_offset_base_is_the_explicit_start_not_segment_zero(self):
+        # The V6M convention, and the trap it names: this fixture reproduces the
+        # same ~2.5 s gap V14M's and V15M's did, so using segment 0 would put
+        # every bracket off by it. Checked as a PROPERTY of the two candidates,
+        # so the cell still means something after a re-harvest.
+        self.assertAlmostEqual(self.SEG0_START - self.UT0, 2.540, delta=0.01)
+
+    def test_the_jump_table_is_derived_from_the_recordings_own_bytes(self):
+        """THE CALIBRATION, re-run. Every jump UT is the anchor plus a fixed
+        offset, and the anchor is `NextWindow(UT0, P, referenceUT)` with
+        `referenceUT = max(save clock, spanEndUT)`. If the fixture is ever
+        re-harvested this reds with the arithmetic in hand."""
         p = self._period()
-        reference = self.UT0 + self.SPAN + 3.0
+        reference = max(self.SAVE_UT, self.SPAN_END)
         k = math.ceil((reference - self.UT0) / p - 1e-9)
         self.assertEqual(20, k)
         anchor = self.UT0 + k * p
-        seam_off = self.SPAN - self.DEST_PHASE
-        park_off = seam_off + self.PARK_FRACTION * self.DEST_PHASE
+        seam_off = self.SEAM - self.UT0
         uts = self._jump_uts(self.m)
         for got, want in zip(uts[:3], (seam_off - 180.0, seam_off - 60.0,
                                        seam_off + 140.0)):
             self.assertAlmostEqual(got, round(anchor + want), delta=0.5)
+        park_off = (seam_off + (self.LAST_SEG_END - self.SEAM)
+                    + self.PARK_FRACTION * (self.SPAN_END - self.LAST_SEG_END))
         self.assertAlmostEqual(uts[3], round(anchor + park_off), delta=0.5)
+
+    def test_the_park_epoch_is_inside_the_parked_tail_not_just_the_phase(self):
+        """WHY THE PARK OFFSET'S BASE MOVED, pinned so nobody "restores" the
+        V14M/V15M fraction-of-the-whole-phase form here.
+
+        All FOUR Laythe-framed ORBIT_SEGMENTs in this fixture are the APPROACH
+        HYPERBOLA; the captured park is the tail AFTER the last closed segment,
+        which is only 13.9% of the destination phase. So 70.7% of the PHASE lands
+        on the inbound leg, still falling toward periapsis - not on the park. The
+        fraction is applied to the TAIL instead, and this cell asserts the epoch
+        really is in it, with enough room left for the 40-tick dwell block."""
+        p = self._period()
+        anchor = self.UT0 + 20 * p
+        park_ut = self._jump_uts(self.m)[3]
+        self.assertGreater(park_ut, anchor + (self.LAST_SEG_END - self.UT0),
+                           "the cycle-1 park epoch is BEFORE the last closed "
+                           "ORBIT_SEGMENT ends, i.e. on the approach hyperbola "
+                           "rather than on the captured park")
+        clearance = (anchor + (self.SPAN_END - self.UT0)) - park_ut
+        self.assertGreater(clearance, 100.0)
+        # The dwell block must fit inside that clearance at its most expensive
+        # measured per-tick cost (V5's 0.54 s of 1x per RecordingState).
+        ticks = sum(1 for s in self.m["driver"]["steps"]
+                    if s.get("cmd") == "RecordingState")
+        self.assertGreater(clearance, 4.0 * ticks * 0.54,
+                           "the 40-tick dwell block has under 4x margin against "
+                           "the recorded tail remaining at the park epoch")
 
     def test_v16m_jumps_are_strictly_forward(self):
         # The single most load-bearing property of a seeded bracket: a backward
@@ -1029,16 +1134,16 @@ class V16CalibrationSeedTests(unittest.TestCase):
         self.assertEqual(1, len(t_jumps))
         self.assertEqual(self._jump_uts(self.m)[2], t_jumps[0])
 
-    def test_both_specs_point_at_the_same_pending_fixture(self):
+    def test_both_specs_point_at_the_same_committed_fixture(self):
         self.assertEqual(self.m["fixture"]["saveTemplate"],
                          self.t["fixture"]["saveTemplate"])
         self.assertEqual("fixtures/saves/laythe-orbit-recorded",
                          self.m["fixture"]["saveTemplate"])
-        # ... and it must NOT exist yet: this pair is committed ahead of it, and
-        # the `PENDING_FIXTURE_LANES` exemption in harness/lib/test_hlib.py is
-        # what reds when it appears. If this assertion fails, the calibration
-        # pass is owed (and that cell will say so too).
-        self.assertFalse(os.path.isdir(os.path.join(
+        # ... and it EXISTS now. The pre-calibration form of this cell asserted
+        # the opposite, because the pair was committed ahead of its subject under
+        # the `PENDING_FIXTURE_LANES` exemption; that exemption has been retired
+        # and this is the inverted assertion the retirement owes.
+        self.assertTrue(os.path.isdir(os.path.join(
             HARNESS_ROOT, "fixtures", "saves", "laythe-orbit-recorded")))
 
     def test_the_census_pacing_block_is_sized_against_the_poll_floor(self):

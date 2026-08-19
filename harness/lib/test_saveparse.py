@@ -876,6 +876,74 @@ class CommittedFixtureSweepTests(unittest.TestCase):
             "recordingIds": ["77f724bb1d4844c3b132a1ccc00a7df3"],
             "schemaGeneration": 4,
         },
+        # --- THE FIRST JOOL-MOON LOOP SUBJECT ----------------------------
+        # PROVENANCE: laythe-orbit-recorded <- B25-laythe-orbit, run
+        # 2026-08-19_2039, PASS attempt 1 (mission wall 742 s, the full phase
+        # chain through ORBIT-COMMITTED), --keep-parsek. THE SUITE'S FIRST
+        # RECORDING OF AN INWARD TRANSFER: the crewed Duna Rocket starts already
+        # parked in JOOL orbit at ~584,321 km - 3.28x Pol's orbit, i.e. OUTSIDE
+        # the whole moon system - and transfers DOWN to Laythe on a retrograde
+        # ejection, so the intercept is the transfer's PERIAPSIS and the
+        # home-frame apoapsis never moves. Every prior b5 moon transfer went the
+        # other way.
+        #
+        # IT TOOK TWO FLIGHTS, AND FLIGHT 1 IS WHY THE PINS BELOW CAN BE TRUSTED.
+        # Flight 1 (`_1948` / `_2001`, both INVALID(driver-flake)) flew the
+        # identical profile clean through capture and delivered an
+        # 86,843 x 55,089 m Laythe park at ecc 0.028 that the lane's own declared
+        # `parkMinPeriapsisMeters = 60000` refused - a healthy park 4,911 m below
+        # a floor written before anyone had measured what a 163.5 s capture burn
+        # at 5.40 m/s^2 does to a periapsis (it drops it ~15.4 km, systematically:
+        # 15,382 m then 15,415 m). The floor was resized to 52,000 off that
+        # measurement and flight 2 green'd on the first attempt.
+        #
+        # THE ONE-RECORDING TOPOLOGY IS THE CONTRACT, not an accident. B25 runs
+        # against the Parsek-stripped `jool-park-nerv` for exactly this reason and
+        # its seam answered `startrecording
+        # recordingId=370d38246d6e42848f140884081428af already=false` -
+        # `already=FALSE`, minting the fresh standalone JOOL-rooted tree
+        # 0ffee6458331466481f5c7aa0212b515. If a future re-harvest reads 2 or FIVE
+        # recordings here that defect is back (5 is the specific number to watch:
+        # it is what `jool-orbit-recorded`, the save `jool-park-nerv` was stripped
+        # from, carries). See todo-and-known-bugs.md ->
+        # SEAM-STARTRECORDING-JOINS-COMMITTED-TREE.
+        #
+        # `branchPoints` is EMPTY and must stay so: one craft, no separation event
+        # anywhere in the profile (everything sheddable came off on B18-B22's
+        # Kerbin ascent and interplanetary legs, several missions upstream).
+        #
+        # THE SEAM THE LOOP LANES CONSUME, read off the committed `.prec.txt`
+        # ORBIT_SEGMENT chain and quoted here because V16M/V16T anchor their
+        # brackets on it: TEN segments, Jool 0-5 then Laythe 6-9, with the body
+        # change at the adjacent `endUT == startUT` pair 28,814,456.826437414.
+        # Against the recording's own `explicitStartUT = 27,787,320.719510831`
+        # that is a seam offset of 1,027,136.107 s - the number
+        # MissionPeriodicity's `Orbital(Laythe) same-parent ... off=` should
+        # reproduce (the V6M convention: measured from the recording's EXPLICIT
+        # start, NOT from segment 0's startUT, which here is 27,787,323.260 and
+        # would put every bracket 2.540 s off - the same ~2.5 s trap Gilly's and
+        # Ike's fixtures both carry).
+        #
+        # TWO PROPERTIES THAT MAKE THIS SUBJECT DIFFERENT FROM EVERY PRIOR ONE.
+        # (1) THE SPAN IS 1,029,702.298 s = 19.435 LAYTHE PERIODS, so
+        # `QuantizeCadenceToMultipleOfP` should take k = 20 and the loop cadence
+        # is TWENTY moon periods rather than the one every previous loop subject
+        # had - the suite's first k > 1 cadence, and the whole reason the V16 pair
+        # exists. (2) ALL FOUR Laythe-framed segments are the APPROACH HYPERBOLA
+        # (`sma = -2,107,372.848 ecc = 1.2713`); the captured park itself is the
+        # 356.780 s tail after the last closed segment (28,816,666.237 ->
+        # explicitEndUT 28,817,023.017), which is where V16M's park epoch has to
+        # sit and is NOT where the destination phase's 70.7% point falls.
+        "laythe-orbit-recorded": {
+            "trees": 1, "committedTrees": 1, "recordings": 1,
+            "supersedes": 0, "tombstones": 0, "rewind_points": 0,
+            "rewind_retirements": 0,
+            "terminalStates": {"Orbiting": 1},
+            "branchPoints": {},
+            "minAuthoritativeSidecars": 4,
+            "recordingIds": ["370d38246d6e42848f140884081428af"],
+            "schemaGeneration": 4,
+        },
         # --- THE MOON LOOP-VALIDATION PAIR -------------------------------
         # PROVENANCE: mun-orbit-recorded  <- B11-mun-orbit, run
         # 2026-08-08_1458, PASS attempt 1, wall 1321 s (harvested

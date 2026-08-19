@@ -1,26 +1,26 @@
 schema = 1
 id = "V16T-laythe-ts-arrival"
 # =====================================================================================
-# *** NOT FLYABLE YET. *** Committed AHEAD OF ITS SUBJECT, exactly as V16M is:
-# `saveTemplate` names `fixtures/saves/laythe-orbit-recorded`, which does not
-# exist until `B25-laythe-orbit` flies GREEN and its produced save is harvested.
-# The tree id is a ZERO PLACEHOLDER and the single TimeJump UT is a CALIBRATION
-# SEED (V16M's third cycle-1 bracket jump, reused verbatim so the two lanes
-# observe the SAME instant from the two scenes). Tracked by the self-retiring
-# `SharedShipsManifestTests.PENDING_FIXTURE_LANES` exemption in
-# `harness/lib/test_hlib.py`, which REDS the moment the fixture appears.
+# CALIBRATED 2026-08-19 FROM THE HARVESTED BYTES, in the same pass as V16M. This
+# spec shipped with a zero tree id and a calibration-seed jump UT because it was
+# committed BEFORE its subject existed. `B25-laythe-orbit` then flew twice -
+# flight 1 (`_1948` / `_2001`) INVALID(driver-flake) on a park window written
+# before anyone had measured what a finite capture burn does to a periapsis,
+# flight 2 (`_2039`) PASS attempt 1 once that window was resized - and its
+# produced save is now the committed `laythe-orbit-recorded` fixture, so:
+#   * the tree id is `0ffee6458331466481f5c7aa0212b515` (the RECORDING_TREE node);
+#   * the single TimeJump UT is 29,874,214, V16M's third cycle-1 bracket jump.
+# THE DERIVATION LIVES IN V16M'S HEADER SECTION 3 and is not duplicated here, so
+# the two halves of the pair cannot drift apart; the inputs are restated below.
+# Nothing else in the flown shape moved - including the deliberate ABSENCE of
+# V16M's forty-tick census-pacing block, which a single-arrival shape has no use
+# for.
 #
-# THE SEED WAS RE-DERIVED 2026-08-19 FROM B25 FLIGHT 1's MEASURED TIMELINE, with
-# V16M. That flight came back INVALID(driver-flake) on its park WINDOW rather than
-# on the flight - it flew Jool -> Laythe clean through capture - so its clock is
-# real even though its verdict is not. The correction moved this jump by
-# 14,767 s (29,888,982 -> 29,874,215), i.e. 82x the +-180 s bracket half-width:
-# the originally authored seed would have parked the TS clock nowhere near the
-# arrival.
-#
-# THE DERIVATION LIVES IN V16M'S HEADER SECTION 3 and is deliberately not
-# duplicated here, so the two halves of the pair cannot drift apart. The inputs
-# are restated below.
+# THE SEED MOVED TWICE, and the middle step is worth recording: the ORIGINAL
+# pre-flight value was 29,888,982, off by 14,768 s against a bracket +-180 s wide.
+# B25 FLIGHT 1 - a FAILED run whose clock was nonetheless real - corrected it to
+# 29,874,215 before the fixture existed, and the harvest moved it a further 1 s to
+# 29,874,214. Committing the downstream lane early is what made that possible.
 # =====================================================================================
 #
 # V16T: THE TRACKING-STATION OBSERVATION OF A LOOPED **JOOL-MOON ARRIVAL** - the
@@ -62,38 +62,28 @@ id = "V16T-laythe-ts-arrival"
 # There is no shorter honest chain: arming in the fixture would move the
 # measurement into the fixture, and a bare TS boot would observe an UNARMED tree.
 #
-# WHERE THE CLOCK IS PARKED. 29,874,215 is ~140 s PAST the cycle-1 Jool->Laythe
-# SOI entry (29,874,074.889), i.e. the ghost has just crossed into Laythe's SOI.
+# WHERE THE CLOCK IS PARKED. 29,874,214 is ~140 s PAST the cycle-1 Jool->Laythe
+# SOI entry (29,874,074.416), i.e. the ghost has just crossed into Laythe's SOI.
 # It is V16M's third cycle-1 bracket jump, reused verbatim so the two lanes
-# observe the SAME instant from the two scenes. The inputs, now derived from B25
-# FLIGHT 1's MEASURED clock (full arithmetic in V16M section 3):
+# observe the SAME instant from the two scenes. The inputs, all read off the
+# committed fixture (full arithmetic in V16M section 3):
 #   P            = 2*pi*sqrt(27,184,000^3 / 2.82528e14) = 52,980.879454 s
-#   UT0          = 27,787,320          MEASURED to ~1 s from the machine's own
-#                  `startInOrbitAnchorUt` / `launchUt` (REPLACE with the
-#                  recording's explicitStartUT - NOT segment 0's startUT, the V6M
-#                  convention)
-#   span         = 1,029,700           (measured, with only the ~282 s post-capture
-#                  tail estimated)
-#   k            = ceil(1,029,703 / P) = 20, with k = 21 EXCLUDED outright across
-#                  the transfer-window-wait band and k = 19 the only alternative
-#                  (it needs a wait under 4,802.2 s, i.e. 9% of the band) -
-#                  V16M section 3 carries the arithmetic
-#   phaseAnchorUt= 28,846,937.589
-#   seam offset  =  1,027,137.3        MEASURED: the Jool->Laythe crossing at
-#                  28,814,457.3, bracketed by the last Jool-framed telemetry frame
-#                  (28,814,453.058) and the first Laythe-framed one
-#                  (28,814,494.178, already 49,598 m inside the SOI at
-#                  1,345.35 m/s), with KSP.log line 11725 carrying the boundary
-#   => cycle-1 seam = 29,874,074.889, and this spec parks 140.111 s past it.
-# THE SEAM OFFSET IS STILL A DRAW, because it inherits the transfer-window wait
-# (flight 1 waited 0.521 synodic; the band is 0 -> 53,509.6 s). Re-derive it from
-# the harvested recording's own bytes at the calibration pass rather than trusting
-# this number - V16M section 3 says so at length and is the single authority.
-# AND NOTE HOW MUCH MORE ROOM THERE IS THAN AT GILLY: the Laythe phase is
-# 2,562.7 s, so a jump 140 s past the seam sits ~5% into the destination tail
-# rather than V15T's 37% into a 381 s one. Laythe's SOI is 29.5x Gilly's and the
-# arrival coast measured 2,280.1 s rather than ~300, which is the whole
-# difference.
+#   UT0          = 27,787,320.719510831  the recording's explicitStartUT (NOT
+#                  segment 0's 27,787,323.260 - a 2.540 s difference, the V6M
+#                  convention, and the fourth fixture to reproduce that ~2.5 s gap)
+#   spanEndUT    = 28,817,023.017051611  its explicitEndUT (span 1,029,702.298)
+#   save UT      = 28,817,025.337051559
+#   referenceUT  = max(save UT, spanEndUT) = 28,817,025.337052
+#   k            = ceil(19.435401) = 20   -> cadence = 20*P = 1,059,617.589082
+#   phaseAnchorUt= 28,846,938.308593
+#   seam offset  =  1,027,136.106927     (seam 28,814,456.826437414 minus UT0)
+#   => cycle-1 seam = 29,874,074.416, and this spec parks 139.584 s past it.
+# AND NOTE HOW MUCH MORE ROOM THERE IS THAN AT GILLY: the recorded Laythe phase is
+# 2,566.191 s, so a jump 140 s past the seam sits 5.4% into the destination tail
+# rather than V15T's 37% into a 381.490 s one. Laythe's SOI is 29.5x Gilly's and
+# the arrival coast is ~2,280 s rather than ~300, which is the whole difference -
+# and it means this lane, unlike V15T, has room to spare on both sides of its
+# single jump.
 #
 # A non-forward jump answers `REJECTED reason=backward-jump`, which is only a
 # WARN. That token is FORBIDDEN below, so a mis-seeded anchor self-detects as an
@@ -242,7 +232,7 @@ id = "V16T-laythe-ts-arrival"
 # write is easiest to miss.
 # =====================================================================================
 tier = "operator"
-description = "NOT YET FLYABLE - committed AHEAD of its subject with a ZERO tree id and a single jump UT (V16M's third cycle-1 bracket jump, reused so the two lanes observe the same instant from the two scenes) RE-DERIVED 2026-08-19 from B25 FLIGHT 1's measured timeline, which moved it 14,767 s - 82x the bracket half-width - and would otherwise have parked the TS clock nowhere near the arrival, tracked by the self-retiring SharedShipsManifestTests.PENDING_FIXTURE_LANES exemption. The tracking-station half of the Laythe player-loop pair and the suite's first TS loop subject at a GAS-GIANT parent: arm the loop and jump ~140 s past the cycle-1 Jool->Laythe SOI seam in FLIGHT, SaveGame, then re-enter through LoadGame scene=trackstation and dwell with mapRenderTracing armed. The routing half is the CONTROL and is expected to be V14T/V15T's exactly (`Orbital(Laythe) same-parent`, faithful chain, `reaimed=False`); what is new is the body pair - Laythe's 3,723,645.8 m SOI is 3.5x Ike's and 29.5x Gilly's, and its tol = SOI/v_orb = 1,155.03 s makes it the LOOSEST row in the five-moon Jool table, the deliberate complement to Gilly's tightest. THE PREDICTED CONIC WAS WRITTEN OUT WITH ITS ARITHMETIC (a = -mu/v_inf^2 = -1,288,708 m, e = 1.582 at a 250 km periapsis) specifically because V15T's equivalent prediction was wrong by three orders of magnitude through a factor-1000 slip - and B25 flight 1 has already SCORED it: the measured arrival conic is ap -5,288,742.279 / pe 70,687.916 / ecc 1.271, i.e. |a| 2.11 Mm and v_inf 965.24 m/s, both within a factor of 1.7 of the prediction and in the same regime, off by (1) a 21.8% slower arrival than the pure-Hohmann derivation because the corrections reshaped the transfer and (2) a delivered periapsis of 70.7 km against a 250 km request. IT SHIPS WITH allowedAnomalies = [] ON PURPOSE and is EXPECTED TO RED on `icon-off-orbit` with every step green - the pre-registered correct catch, exactly as V15T did. Parent-independence is already measured (Duna/Ike and Eve/Gilly, deterministic at both, with the stepped-bracket V14M/V15M controls silent on all four runs), so what a third point adds is the widest lever anyone has on the MAGNITUDE question the entry records as NOT constant (26.49 deg at Gilly vs 94.05 at Ike): three body pairs across a 29.5x SOI range is where a correlation would first be visible. If it fires, arm the BARE token with this run cited (never a count budget - the whole-set invariant ships that mechanism inert)."
+description = "NOT YET FLOWN, but CALIBRATED 2026-08-19 off the harvested `laythe-orbit-recorded` bytes: tree `0ffee6458331466481f5c7aa0212b515` and a single jump UT 29,874,214 (V16M's third cycle-1 bracket jump, reused so the two lanes observe the same instant from the two scenes). That seed moved TWICE - the pre-flight value was 14,769 s off against a +-180 s bracket, B25 flight 1 corrected it to within 1 s before the fixture existed, and the harvest closed the last second - which is the whole argument for the now-retired PENDING_FIXTURE_LANES exemption that let this lane be committed early. The tracking-station half of the Laythe player-loop pair and the suite's first TS loop subject at a GAS-GIANT parent: arm the loop and jump 139.6 s past the cycle-1 Jool->Laythe SOI seam in FLIGHT, SaveGame, then re-enter through LoadGame scene=trackstation and dwell with mapRenderTracing armed. The routing half is the CONTROL and is expected to be V14T/V15T's exactly (`Orbital(Laythe) same-parent`, faithful chain, `reaimed=False`); what is new is the body pair - Laythe's 3,723,645.8 m SOI is 3.5x Ike's and 29.5x Gilly's, and its tol = SOI/v_orb = 1,155.03 s makes it the LOOSEST row in the five-moon Jool table, the deliberate complement to Gilly's tightest. THE PREDICTED CONIC WAS WRITTEN OUT WITH ITS ARITHMETIC (a = -mu/v_inf^2 = -1,288,708 m, e = 1.582 at a 250 km periapsis) specifically because V15T's equivalent prediction was wrong by three orders of magnitude through a factor-1000 slip - and B25 flight 1 has already SCORED it: the measured arrival conic is ap -5,288,742.279 / pe 70,687.916 / ecc 1.271, i.e. |a| 2.11 Mm and v_inf 965.24 m/s, both within a factor of 1.7 of the prediction and in the same regime, off by (1) a 21.8% slower arrival than the pure-Hohmann derivation because the corrections reshaped the transfer and (2) a delivered periapsis of 70.7 km against a 250 km request. IT SHIPS WITH allowedAnomalies = [] ON PURPOSE and is EXPECTED TO RED on `icon-off-orbit` with every step green - the pre-registered correct catch, exactly as V15T did. Parent-independence is already measured (Duna/Ike and Eve/Gilly, deterministic at both, with the stepped-bracket V14M/V15M controls silent on all four runs), so what a third point adds is the widest lever anyone has on the MAGNITUDE question the entry records as NOT constant (26.49 deg at Gilly vs 94.05 at Ike): three body pairs across a 29.5x SOI range is where a correlation would first be visible. If it fires, arm the BARE token with this run cited (never a count budget - the whole-set invariant ships that mechanism inert)."
 instanceProfile = "stock-minimal"
 tags = ["V16", "tracking-station", "loop-arrival", "phase-lock", "single-orbital",
         "laythe", "jool", "same-parent", "moon", "jool-moon", "map-render"]
@@ -279,16 +269,16 @@ steps = [
   # ARM (FLIGHT-only): the production MissionStore.SetLoopEnabled path.
   # TREE ID: **ZERO PLACEHOLDER**. Substitute B25's committed tree, read off the
   # harvested fixture's RECORDING_TREE node.
-  { cmd = "MissionConfig", args = { tree = "00000000000000000000000000000000", loop = "true" }, expect = "OK" },
+  { cmd = "MissionConfig", args = { tree = "0ffee6458331466481f5c7aa0212b515", loop = "true" }, expect = "OK" },
   # WARP TO CYCLE 1's LAUNCH (FLIGHT-only): an instantaneous Planetarium clock set
   # through the product's FastForwardToEventUT. SEEDED relaunchUt 28,846,936.589.
-  { cmd = "StartLoopPlayback", args = { tree = "00000000000000000000000000000000" }, expect = "OK", budget = 300 },
+  { cmd = "StartLoopPlayback", args = { tree = "0ffee6458331466481f5c7aa0212b515" }, expect = "OK", budget = 300 },
   # FORWARD TO ~140 s PAST THE SEEDED CYCLE-1 SOI SEAM (FLIGHT-only): the ghost is
   # now just inside Laythe's SOI. This is V16M's third cycle-1 bracket jump,
   # reused so the two lanes observe the SAME instant from the two scenes.
   # CALIBRATION SEED; 140.411 s past the seam, which is ~6% into the predicted
   # ~2,400 s recorded Laythe phase (V15T's equivalent sat 37% into a 381 s one).
-  { cmd = "TimeJump", args = { ut = "29874215" }, expect = "OK", budget = 300 },
+  { cmd = "TimeJump", args = { ut = "29874214" }, expect = "OK", budget = 300 },
   # PERSIST the armed mission state + the jumped clock.
   { cmd = "SaveGame",   args = { name = "persistent" },                      expect = "OK" },
   # RE-KILL THE RECORDER immediately before the load the guard rejects (V5's
