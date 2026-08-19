@@ -1,0 +1,65 @@
+version = 0
+recordingSchemaGeneration = 4
+GAME_ACTION
+{
+	ut = 15764032.365015285
+	type = 4
+	actionId = act_37fbb35fbb8f402b9dd2ad82ae801a90
+	seq = 1
+	milestoneId = Orbit
+	milestoneFundsAwarded = 12000
+	milestoneRepAwarded = 2
+	milestoneSciAwarded = 1
+}
+GAME_ACTION
+{
+	ut = 0
+	type = 21
+	actionId = act_c169749e854941c7b83e96afd3dda2bb
+	initialScience = 0
+}
+GAME_ACTION
+{
+	ut = 0
+	type = 22
+	actionId = act_5b5e5f40912241dba88b8c43c138828e
+	initialReputation = 0
+}
+GAME_ACTION
+{
+	ut = 15879012.441954412
+	type = 4
+	actionId = act_531f6473d6d14476816601d65f764386
+	recordingId = 77f724bb1d4844c3b132a1ccc00a7df3
+	seq = 1
+	milestoneId = Gilly/Flyby
+	milestoneFundsAwarded = 25000
+	milestoneRepAwarded = 1
+	milestoneSciAwarded = 0
+}
+GAME_ACTION
+{
+	ut = 15879012.441954412
+	type = 4
+	actionId = act_2a70e2716d4345898d4a9710827865c5
+	recordingId = 77f724bb1d4844c3b132a1ccc00a7df3
+	seq = 2
+	milestoneId = Eve/Escape
+	milestoneFundsAwarded = 15840
+	milestoneRepAwarded = 1
+	milestoneSciAwarded = 0
+}
+GAME_ACTION
+{
+	ut = 15764033.005015271
+	type = 11
+	actionId = act_820744dcf06a42deb16d29cb7622bc77
+	recordingId = 77f724bb1d4844c3b132a1ccc00a7df3
+	seq = 1
+	kerbalName = Jebediah Kerman
+	kerbalRole = Pilot
+	startUT = 15764033
+	endUT = 15879395
+	endState = 0
+	xpGained = 0
+}

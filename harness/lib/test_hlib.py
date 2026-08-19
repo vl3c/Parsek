@@ -5024,18 +5024,17 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
         # armed. Promotion is the post-measurement re-pinning call, a recorded
         # human decision, not a debt this tag would name.
         "B23-ike-orbit.toml":               "calibration-discipline - LIVE-PROVEN 2026-08-18 on FLIGHT 2 (`_2308`, PASS attempt 1, wall 370.5 s): fresh standalone Duna-rooted tree, one Duna->Ike boundary, terminal Orbiting/Ike, produced save harvested as the committed `ike-orbit-recorded` fixture. FLIGHT 1 (`_2242`) was ALSO PASS attempt 1 on the same parameters and produced a structurally wrong subject (the seam StartRecording no-opped onto a re-resumed COMMITTED recording), which no verifier could see - fixed by the fixture, filed report-only. Nothing armed: the count window is still a derived range and no save-structure block is declared. Operator tier is now the ordinary promotion call plus the arming pass, not outstanding work",
-        # THE B24/V15 GILLY TRIO, all three UNFLOWN and all three operator for the
-        # calibration discipline rather than for outstanding human work. What each
-        # owes is a FIRST FLIGHT, which is the tier's whole purpose (V1/V2/B18-B21/B23
-        # precedent), not a decision someone has deferred. The V15 pair additionally
-        # ships with CALIBRATION SEEDS (a placeholder tree id + jump UTs derived from
-        # B24's planned numbers) and a saveTemplate naming a fixture that does not exist
-        # yet - both stated in a banner at the top of each spec and both tracked by the
-        # self-retiring `PENDING_FIXTURE_LANES` exemption in
-        # `SharedShipsManifestTests`, which REDS the moment the fixture appears.
-        "B24-gilly-orbit.toml":             "calibration-discipline - NOT YET FLOWN. B23's eccentric-moon sibling: Eve park -> Gilly, produced through the LIVE-PROVEN startInOrbit door with no machine change. Its first flight is a reading run by construction - the delta-v margin (1,023 m/s available against a 753 m/s worst-geometry hop) and every warp number are DERIVED and unmeasured, and the arrival geometry is a band because the target is eccentric. Nothing armed: derived count range, no save-structure block, ERROR-floor forbids only. Operator tier is the first-flight calibration call, not outstanding work",
-        "V15M-gilly-player-loop.toml":      "calibration-discipline - NOT YET FLOWN, and NOT YET FLYABLE: its tree id and eight TimeJump UTs are CALIBRATION SEEDS pending B24-gilly-orbit's first flight and harvest, and its fixture `gilly-orbit-recorded` does not exist yet (banner at the top of the spec; exemption in SharedShipsManifestTests.PENDING_FIXTURE_LANES). The reading it is built for is the tightest phase-lock tolerance in the stock system (Gilly tol = SOI/v_orb = 133-460 s against Ike's ~3,420 s), observed through the `seam-endpoint summary ... outsideSoi=` census in its PRESENCE form. Nothing armed. Operator tier is the first-flight calibration call, not outstanding work",
-        "V15T-gilly-ts-arrival.toml":       "calibration-discipline - NOT YET FLOWN, and NOT YET FLYABLE for the same reason as V15M (shared seeds, shared not-yet-existing fixture). It additionally EXPECTS to red: `allowedAnomalies` is empty on purpose so the sweep measures whether V14T's deterministic `icon-off-orbit` raise on the single-jump shape survives a change of parent, moon and SOI scale, and a PARSEK-FAIL(anomaly) with all steps green is the correct catch there. Nothing armed. Operator tier is the first-flight calibration call, not outstanding work",
+        # THE B24/V15 GILLY TRIO. B24 is now FLOWN; the V15 pair is CALIBRATED off
+        # its harvested bytes and still owes its first flight. All three are operator
+        # for the calibration discipline rather than for outstanding human work
+        # (V1/V2/B18-B21/B23 precedent). The V15 pair's placeholder tree id and
+        # calibration-seed jump UTs were REPLACED with values derived from the
+        # committed `gilly-orbit-recorded` fixture on 2026-08-19, and the
+        # `PENDING_FIXTURE_LANES` exemption they needed while their fixture did not
+        # exist is retired (that map is empty again).
+        "B24-gilly-orbit.toml":             "calibration-discipline - LIVE-PROVEN 2026-08-19 (`_1655`, PASS attempt 1, mission wall 1,075 s, every assertion met with NOT ONE PARAMETER MOVED): `startrecording ... already=false` minting the fresh standalone Eve-rooted tree, one `Eve to Gilly` boundary, terminal Orbiting/Gilly, a 27,024 x 26,321 m Gilly park at ecc 0.009, saveParse 1 recording / 520 points / all rewind facets 0. Its produced save is the committed `gilly-orbit-recorded` fixture the V15 pair consumes. Nothing armed: the count window is still a derived range and no save-structure block is declared. Operator tier is now the ordinary promotion call plus the arming pass, not outstanding work",
+        "V15M-gilly-player-loop.toml":      "calibration-discipline - NOT YET FLOWN, but now FLYABLE: its tree id and eight TimeJump UTs were re-pinned 2026-08-19 from the committed `gilly-orbit-recorded` bytes (explicitStartUT 15,764,033.045, explicitEndUT 15,879,393.931, seam 15,879,012.442, phaseAnchorUt 16,152,620.423, cadence = one Gilly period), so what remains is the reading run itself. The reading it is built for is the tightest phase-lock tolerance in the stock system (Gilly tol = SOI/v_orb = 133-460 s against Ike's ~3,420 s), observed through the `seam-endpoint summary ... outsideSoi=` census in its PRESENCE form. Nothing armed. Operator tier is the first-flight calibration call, not outstanding work",
+        "V15T-gilly-ts-arrival.toml":       "calibration-discipline - NOT YET FLOWN, now FLYABLE on the same 2026-08-19 calibration as V15M (shared fixture, shared derived seam, its single jump reusing V15M's third cycle-1 bracket). It EXPECTS to red: `allowedAnomalies` is empty on purpose so the sweep measures whether V14T's deterministic `icon-off-orbit` raise on the single-jump shape survives a change of parent, moon and SOI scale, and a PARSEK-FAIL(anomaly) with all steps green is the correct catch there. Nothing armed. Operator tier is the first-flight calibration call, not outstanding work",
         # THE V14 PAIR, and they are operator for the same calibration discipline for a
         # reason that is theirs alone: they are the FIRST loop lanes whose subject is not
         # rooted at Kerbin (B23's Duna->Ike recording), and the first to reach a TIDALLY
@@ -11069,26 +11068,38 @@ class SharedShipsManifestTests(unittest.TestCase):
     # this cannot quietly become a place specs go to avoid the gate.
     #
     # WHY IT EXISTS AT ALL, since a committed spec pointing at a missing directory is
-    # normally exactly the misdirection this class is named for: the V15 pair is the
-    # DOWNSTREAM half of a two-stage program. B24-gilly-orbit must fly and be
-    # harvested before `gilly-orbit-recorded` can exist, and the pair's whole value is
-    # that its predictions (the routing, the tolerance arithmetic, the inverted watch
-    # call) are written DOWN BEFORE the flight rather than after it - the V14 lanes'
-    # refuted tidal-collapse prediction is the standing demonstration that a
-    # pre-registered prediction is worth more than a post-hoc description. Both specs
-    # carry a NOT FLYABLE banner naming this exemption, and their jump UTs are
-    # CALIBRATION SEEDS, so nothing here pretends they are runnable today.
-    PENDING_FIXTURE_LANES = {
-        "V15M-gilly-player-loop.toml": "gilly-orbit-recorded",
-        "V15T-gilly-ts-arrival.toml":  "gilly-orbit-recorded",
-    }
+    # normally exactly the misdirection this class is named for: the DOWNSTREAM half
+    # of a two-stage program cannot name a fixture its UPSTREAM lane has not yet
+    # flown and harvested, and the downstream lane's whole value is that its
+    # predictions are written DOWN BEFORE the flight rather than after it (the V14
+    # lanes' refuted tidal-collapse prediction is the standing demonstration that a
+    # pre-registered prediction is worth more than a post-hoc description). Any spec
+    # listed here must carry a NOT FLYABLE banner and calibration-seed jump UTs, so
+    # nothing here pretends a listed lane is runnable.
+    #
+    # IT IS EMPTY, AND EMPTY IS ITS HEALTHY STATE (the `INTERIM_PIN_IDS` convention).
+    # Its ONE use so far was the B24/V15 Gilly program: `V15M-gilly-player-loop` and
+    # `V15T-gilly-ts-arrival` were listed on 2026-08-19 because they were committed
+    # ahead of `gilly-orbit-recorded`, and BOTH ENTRIES WERE REMOVED the same day
+    # when `B24-gilly-orbit` flew (run 2026-08-19_1655, PASS attempt 1) and its
+    # produced save was harvested - which is exactly the red the retirement cell
+    # below exists to raise. The MECHANISM is kept rather than deleted because the
+    # shape recurs (B23/V14 had it too and paid for it by landing the pair only after
+    # the flight), and because an empty map restores the gate below to full strength:
+    # with nothing listed, EVERY committed spec's saveTemplate is checked.
+    PENDING_FIXTURE_LANES = {}
 
     def test_the_pending_fixture_exemption_retires_itself(self):
         """The exemption's own guard, in BOTH directions. If the awaited fixture
         has appeared, the calibration pass owes this list an edit in the same
         commit that re-pins the spec - and if a listed spec has been re-pointed
         somewhere else, the entry is stale. Either way the reminder fires here
-        rather than being remembered."""
+        rather than being remembered.
+
+        With the map EMPTY this cell asserts nothing per-entry, which IS the
+        healthy reading: the exemption is inert and the gate below is at full
+        strength. It fires again the moment a future two-stage program lists a
+        lane here."""
         saves = set(_fixture_save_names())
         arrived, moved = [], []
         for name, leaf in sorted(self.PENDING_FIXTURE_LANES.items()):

@@ -204,18 +204,66 @@ id = "B24-gilly-orbit"
 # structural difference between this product and B23's, and a first reader
 # comparing the two saves should know it is expected.
 #
-# NOTHING IS ARMED. No `gating = true` block anywhere, the recordings window is a
-# DERIVED RANGE rather than a pin, and `forbidden` is the ERROR floor only. This
-# is a first-flight READING run and the lane's product is a FIXTURE, whose
-# structure gets pinned where it is CONSUMED (the saveParse sweep plus V15M/V15T's
-# own windows) rather than a third time here. `tier = "operator"` on the standing
-# calibration discipline (V1/V2/B18/B19/B20/B21/B23 precedent).
+# =====================================================================================
+# FLIGHT LEDGER.
+#
+# FLIGHT 1, run 2026-08-19_1655: **PASS attempt 1**, mission wall 1,075 s, and NOT ONE
+# PARAMETER MOVED because of it. Every assertion met on the first try:
+#   startedInHomeOrbit      ecc 0.000 in the Eve entry gate
+#   reachedTargetSoi        Gilly
+#   flybyPeriapsisFloor     22,245.6 m   (against the 8,000 m floor - 2.8x)
+#   capturedInTargetOrbit   ecc 0.009
+#   parkedStable            27,024 x 26,321 m Gilly park
+#   treeCommitted           OK
+# The four log cites, from `results/2026-08-19_1655_B24-gilly-orbit_shots/KSP.log`:
+#   11910  `startrecording recordingId=77f724bb1d4844c3b132a1ccc00a7df3 already=false`
+#          - `already=FALSE`, the inversion of B23 flight 1's line: the seam opened a
+#          FRESH STANDALONE tree (355840bc81bf45f8868b7d2508ca6de4) instead of no-opping
+#          onto a re-resumed committed recording. THE FIXTURE STRIP IS WHAT BOUGHT THAT,
+#          and it is the one thing no verifier in the chain could have caught.
+#   13503  `SOI change boundary suppressed in tree mode: Eve to Gilly` - exactly one.
+#   14175  `CommitTreeFlight terminal: rec=77f724bb... terminalState=Orbiting
+#          terminalOrbitBody=Gilly`.
+#   saveParse: 1 recording, 520 points, rewind / supersede / tombstone rows all 0.
+# Report-only: 2 NullReferenceExceptions, the same census B23 carried; not new.
+#
+# WHAT THE FLIGHT MEASURED THAT THE HEADER COULD ONLY DERIVE, in the order it matters:
+#   * THE INTERCEPT LANDED AT r = 24,903,858 m (the transfer's own apoapsis, from the
+#     committed `.prec.txt` segments `sma = 15,385,793.566 ecc = 0.618627`), i.e. 34% of
+#     the way up Gilly's 14,175,000 -> 48,825,000 m band. The transfer coast was
+#     106,638.025 s (segment 1, 15,769,979.845 -> 15,876,617.870), against the 88,108 s
+#     the header derived at the SMA-radius intercept and inside its 34,391 -> 156,377 s
+#     band. The `coastTimeoutSeconds = 800,000` sized on the expensive end was 7.5x it.
+#   * THE ARRIVAL PERIAPSIS CAME IN AT 22,245.6 m against a 30,000 m request, i.e.
+#     k = delivered/requested = 0.74 at req/SOI = 23.8%. That sits between the corpus's
+#     Mun row (10.29%, k 0.545) and Jool row (24.43%, k 0.974) and is consistent with
+#     the k-inverts-above-4% ordering the request was chosen on. ONE POINT IS NOT A LAW;
+#     it is recorded, not generalised.
+#   * THREE PLAN-CORRECTION rounds fired but only ONE CORRECTION-BURN - two plans came
+#     in under the cut threshold and were not flown. So the four-round worst case the
+#     50 m/s cap was sized against never arrived, and the delta-v margin was not
+#     stressed on this flight. The cap stays where it is: one comfortable flight does
+#     not retire an arithmetic bound.
+#   * THE RECORDED DESTINATION PHASE IS 381.490 s (explicitEndUT 15,879,393.931458754
+#     minus the Eve->Gilly seam 15,879,012.441954412) out of a 115,360.886 s span - 92%
+#     of the recording is the one transfer coast. That is a PROPERTY OF GILLY'S SOI, not
+#     of the flight, and it is what bounds where V15M/V15T can place a park epoch. If a
+#     future reading wants more Gilly coverage, `parkDwellSeconds` is the lever.
+#
+# NOTHING IS ARMED, deliberately, and that is now a standing posture rather than a
+# pending step: no `gating = true` block anywhere, and the recordings window stays the
+# derived {1,2} range rather than being pinned to the measured 1. The lane's product is
+# a FIXTURE, and the fixture's structure is pinned where it is CONSUMED (the saveParse
+# sweep's `gilly-orbit-recorded` entry, plus V15M/V15T's own windows), so pinning it a
+# third time here would add a re-pin obligation without adding a guard. The lane stays
+# `tier = "operator"` on the calibration discipline (V1/V2/B18/B19/B20/B21/B23
+# precedent).
 # =====================================================================================
 tier = "operator"
-description = "NOT YET FLOWN. The ECCENTRIC-MOON sibling of B23: the crewed Kerbal X upper stage begins ORBITING Eve at ~4,986 km, Hohmann-transfers to GILLY, captures + circularizes into a Gilly park and mid-mission commits the tree there through the LIVE-PROVEN startInOrbit door. Its product is the loop subject V15M/V15T consume, and the point is that Gilly breaks the shape all three proven same-parent moons share: e = 0.55, i = 12 deg, and a 126,123 m SOI that is only 0.40% of its own orbital radius, giving tol = SOI/v_orb = 247.6 s (133-460 s across the eccentricity swing) against Ike's ~3,420 s - the tightest duty cycle in the stock system, tighter than Pol's. Everything Gilly forces is a VALUE, not a machine change: the approach clamp comes DOWN to x10 (2*mu/r_soi = 131.45 m^2/s^2 against v_inf^2 up to 169,000, so gravity is negligible and the SOI-entry -> periapsis coast floors at ~300 game s), while the coast rate goes UP to x1,000 because the transfer coast is ~294x the approach coast rather than B23's 4x. The delta-v is derived rather than scaled: 1,023 m/s available against a 753 m/s worst-geometry hop, a 36% margin that the four-round correction budget is sized to fit inside."
+description = "LIVE-PROVEN 2026-08-19 ON ITS FIRST FLIGHT (run 2026-08-19_1655, PASS attempt 1, mission wall 1,075 s, every assertion met with NOT ONE PARAMETER MOVED). The ECCENTRIC-MOON sibling of B23: the crewed Kerbal X upper stage begins ORBITING Eve at ~4,986 km, Hohmann-transfers to GILLY, captures + circularizes into a 27,024 x 26,321 m Gilly park (ecc 0.009) and mid-mission commits the tree there through the LIVE-PROVEN startInOrbit door. The seam answered `already=false`, minting the fresh standalone Eve-rooted tree the Parsek-stripped `eve-park-kerbalx` fixture exists to make possible; one `Eve to Gilly` boundary; terminal Orbiting/Gilly; saveParse 1 recording / 520 points / all rewind facets 0. Its produced save is the committed `gilly-orbit-recorded` fixture that V15M/V15T consume. THE POINT is that Gilly breaks the shape all three proven same-parent moons share: e = 0.55, i = 12 deg, and a 126,123 m SOI that is only 0.40% of its own orbital radius - the tightest duty cycle in the stock system, tighter than Pol's. The flight put the intercept at a 24,903,858 m radius where Gilly moves at 630.0 m/s, giving tol = SOI/v_orb = 200.2 s against Ike's ~3,420 s. Everything Gilly forced was a VALUE, not a machine change: the approach clamp DOWN to x10 (2*mu/r_soi = 131.45 m^2/s^2 against v_inf^2 up to 169,000, so gravity is negligible and the SOI-entry -> periapsis coast floors at ~300 game s) and the coast rate UP to x1,000 (the measured transfer coast was 106,638 s, ~350x the approach coast). Delta-v was derived rather than scaled - 1,023 m/s available against a 753 m/s worst-geometry hop - and the flight never stressed it: three PLAN-CORRECTION rounds fired but only one CORRECTION-BURN."
 instanceProfile = "stock-minimal"
 tags = ["B24", "gilly", "eve", "same-parent", "moon", "eccentric-moon", "orbit", "mechjeb",
-        "cross-soi", "capture", "commit-in-foreign-soi", "orbit-start", "crewed"]
+        "cross-soi", "capture", "commit-in-foreign-soi", "orbit-start", "crewed", "flown"]
 
 [fixture]
 # `eve-park-kerbalx`: a DERIVED, PARSEK-STRIPPED copy of B16's
@@ -633,9 +681,15 @@ allowedAnomalies = []
 #       occasion to run within THIS run's own life (this run commits and flushes;
 #       it never re-loads), so the split's first real chance is V15M/V15T's
 #       LoadGame - and because the optimizer also has commit-time entry points.
-# => { min = 1, max = 2 }, a DERIVED RANGE and NOT A PIN. Re-pin it exactly from
-# flight 1's `verifiers.expectations.observed.recordings.count`; the expected
-# reading is 1.
+# => { min = 1, max = 2 }, a DERIVED RANGE and NOT A PIN.
+#
+# MEASURED 1 on flight 1 (run 2026-08-19_1655; saveParse independently read 1 recording
+# / 520 points). THE WINDOW IS DELIBERATELY LEFT AS THE RANGE rather than pinned to the
+# measurement, for the reason given in the FLIGHT LEDGER: the produced save is a
+# FIXTURE, and its structure is pinned where it is CONSUMED
+# (`CommittedFixtureSweepTests.RECORDED_FIXTURES` pins trees/committedTrees/recordings
+# = 1/1/1 byte-for-byte, and V15M/V15T carry their own windows). A third pin here would
+# be a third re-pin obligation with no extra guard.
 #
 # AND THE COUNT IS COMMIT-BLIND (the B11/B16/B17/B23 note verbatim): sidecars are
 # written for the active uncommitted tree too, so this window guards recording
@@ -689,16 +743,19 @@ count = { min = 1, max = 2 }
 # parent-anchored surface looks for a same-parent transfer to an ECCENTRIC moon -
 # must be OBSERVABLE in the log rather than fatal.
 #
-# PHASE-1 OBSERVATION TARGETS, recorded here so the first reader knows to look.
-#   (1) COHESION. Does rule 3 keep the Eve->Gilly boundary cohesive, as it did at
-#       Duna->Ike? Read it off the produced save's TrackSections and the analyzer
-#       output. Not gated in either direction.
-#   (2) THE INTERCEPT RADIUS. Every band in this header (coast, v_inf, capture dv,
-#       SOI-entry -> periapsis coast, and V15M/V15T's tolerance) is a function of
-#       WHERE in Gilly's eccentric orbit the encounter landed. Read the arrival
-#       hyperbola off the committed `.prec.txt` ORBIT_SEGMENT chain and record it:
-#       it is the number that tells the loop pair how sensitive their own
-#       measurement is (tol swings 133 s -> 460 s across the band).
+# THE TWO PHASE-1 OBSERVATION TARGETS, AND WHERE THEY STAND AFTER FLIGHT 1.
+#   (1) COHESION - STILL OPEN, AND IT MOVED HOUSE. The produced save carries ONE
+#       recording, so nothing split at COMMIT time; but the LOAD-TIME pass (the one
+#       that emits `Split summary: ... exoCoastBodyChangeKept=`) has no occasion to run
+#       inside this run's life - it commits and flushes without re-loading. The
+#       Eve->Gilly boundary's first real load-time evaluation is V15M/V15T's LoadGame,
+#       which is where V14M answered the equivalent Duna->Ike question. Read it there.
+#   (2) THE INTERCEPT RADIUS - ANSWERED. The transfer's own segments read
+#       `sma = 15,385,793.566 ecc = 0.618627`, i.e. an apoapsis / intercept radius of
+#       24,903,858 m, 34% of the way up Gilly's band, where Gilly moves at 630.0 m/s.
+#       That fixes the loop pair's tolerance at tol = SOI/v_orb = 200.2 s - TIGHTER
+#       than the 247.6 s circular figure, i.e. the encounter landed on the fast and
+#       more sensitive half of an e = 0.55 orbit. Propagated to V15M header section 1.
 required  = [
   "Recording started",
   "Recording stopped",

@@ -22,6 +22,7 @@ Runnable with the stdlib runner only (NO pytest, NO kRPC, NO KSP, NO network)::
 
 import math
 import os
+import re
 import tomllib
 import unittest
 
@@ -401,7 +402,17 @@ class V15CalibrationSeedTests(unittest.TestCase):
     DERIVATION would survive the calibration pass unnoticed, because the pass
     substitutes numbers rather than re-deriving the shape."""
 
-    PLACEHOLDER_TREE = "0" * 32
+    # The COMMITTED tree id, read off `gilly-orbit-recorded`'s RECORDING_TREE node
+    # (B24 run 2026-08-19_1655). Both V15 specs shipped with a zero placeholder and
+    # were substituted in the 2026-08-19 calibration pass.
+    TREE_ID = "355840bc81bf45f8868b7d2508ca6de4"
+
+    # The recording's own bytes, which are what the jump table is derived FROM.
+    UT0 = 15_764_033.04501527          # explicitStartUT
+    SPAN_END = 15_879_393.931458754    # explicitEndUT
+    SAVE_UT = 15_879_396.751458691     # the produced save's FLIGHTSTATE UT
+    SEAM = 15_879_012.441954412        # the Eve->Gilly ORBIT_SEGMENT body change
+    SEG0_START = 15_764_035.545015214  # segment 0, the WRONG offset base
 
     @classmethod
     def setUpClass(cls):
@@ -412,16 +423,53 @@ class V15CalibrationSeedTests(unittest.TestCase):
         return [float(s["args"]["ut"]) for s in spec["driver"]["steps"]
                 if s.get("cmd") == "TimeJump"]
 
-    def test_both_specs_still_carry_the_placeholder_tree_id(self):
-        # The banner's claim, checked. When this cell reds, the calibration pass
-        # has happened and the cell should be replaced by the real id - which is
-        # the point: it is the marker that the pair is not yet flyable.
+    def test_both_specs_name_the_committed_tree(self):
+        # The calibration pass's first substitution, checked against the FIXTURE
+        # rather than against a literal: a re-harvest that mints a different tree
+        # reds here instead of on a KSP boot that arms nothing.
+        fixture_tree = self._fixture_tree_id()
+        self.assertEqual(self.TREE_ID, fixture_tree)
         for spec in (self.m, self.t):
             trees = [s["args"]["tree"] for s in spec["driver"]["steps"]
                      if s.get("cmd") in ("MissionConfig", "StartLoopPlayback")]
             self.assertTrue(trees)
             for tree in trees:
-                self.assertEqual(self.PLACEHOLDER_TREE, tree)
+                self.assertEqual(fixture_tree, tree)
+
+    def _fixture_tree_id(self):
+        path = os.path.join(HARNESS_ROOT, "fixtures", "saves",
+                            "gilly-orbit-recorded", "persistent.sfs")
+        with open(path, encoding="utf-8", errors="replace") as fh:
+            text = fh.read()
+        i = text.index("RECORDING_TREE")
+        return re.search(r"\bid = (\w{32})", text[i:]).group(1)
+
+    def test_the_jump_table_is_derived_from_the_recordings_own_bytes(self):
+        """THE CALIBRATION, re-run. Every jump UT is the anchor plus a fixed
+        offset, and the anchor is `NextWindow(UT0, P, referenceUT)`. If the
+        fixture is ever re-harvested this reds with the arithmetic in hand."""
+        period = 2.0 * math.pi * math.sqrt(A_GILLY ** 3 / MU_EVE)
+        reference = max(self.SAVE_UT, self.SPAN_END)
+        k = math.ceil((reference - self.UT0) / period - 1e-9)
+        self.assertEqual(1, k)
+        anchor = self.UT0 + k * period
+        seam_off = self.SEAM - self.UT0
+        span = self.SPAN_END - self.UT0
+        # The quantized cadence: smallest k*P >= the raw cadence, floored at the span.
+        self.assertLess(span, period)          # => k = 1, cadence = exactly one P
+        uts = self._jump_uts(self.m)
+        for got, want in zip(uts[:3], (seam_off - 180.0, seam_off - 60.0,
+                                       seam_off + 140.0)):
+            self.assertAlmostEqual(got, round(anchor + want), delta=0.5)
+        park_off = seam_off + 0.707 * (span - seam_off)
+        self.assertAlmostEqual(uts[3], round(anchor + park_off), delta=0.5)
+
+    def test_the_offset_base_is_the_explicit_start_not_segment_zero(self):
+        # The V6M convention, and the trap it names: this fixture reproduces the
+        # same ~2.5 s gap V14M's did, so using segment 0 would put every bracket
+        # 2.5 s off. Checked as a PROPERTY of the two candidates, so the cell
+        # still means something after a re-harvest.
+        self.assertAlmostEqual(self.SEG0_START - self.UT0, 2.500, delta=0.01)
 
     def test_v15m_jumps_are_strictly_forward(self):
         # The single most load-bearing property of a seeded bracket: a backward
@@ -434,8 +482,9 @@ class V15CalibrationSeedTests(unittest.TestCase):
         self.assertEqual(len(set(uts)), len(uts))
 
     def test_the_v15m_cycle_two_bracket_is_cycle_one_plus_one_gilly_period(self):
-        # The cadence claim, as arithmetic: B24's span is far under P, so
-        # QuantizeCadenceToMultipleOfP takes k = 1 and cycle N = A1 + (N-1)*P.
+        # The cadence claim, as arithmetic: the MEASURED span 115,360.886 s is
+        # 0.297 of P, so QuantizeCadenceToMultipleOfP takes k = 1 and
+        # cycle N = A1 + (N-1)*P.
         period = 2.0 * math.pi * math.sqrt(A_GILLY ** 3 / MU_EVE)
         uts = self._jump_uts(self.m)
         for cycle1, cycle2 in zip(uts[:4], uts[4:]):
@@ -472,6 +521,22 @@ class V15CalibrationSeedTests(unittest.TestCase):
                 for nested in sub.values():
                     if isinstance(nested, dict):
                         self.assertNotIn("gating", nested)
+
+    def test_the_v15m_park_epoch_lands_inside_the_recorded_gilly_phase(self):
+        """THE CONSTRAINT B24'S FLIGHT IMPOSED, and it is tight enough to be worth
+        a cell. The recorded destination phase is only 381.490 s long, so a park
+        epoch has to sit between the seam and the recording's end or the ghost is
+        outside its own span and the watch step measures nothing."""
+        period = 2.0 * math.pi * math.sqrt(A_GILLY ** 3 / MU_EVE)
+        anchor = self.UT0 + period
+        seam_ut = anchor + (self.SEAM - self.UT0)
+        end_ut = anchor + (self.SPAN_END - self.UT0)
+        park = self._jump_uts(self.m)[3]
+        self.assertGreater(park, seam_ut)
+        self.assertLess(park, end_ut)
+        # ...and so must the third bracket jump, which crosses the seam.
+        self.assertGreater(self._jump_uts(self.m)[2], seam_ut)
+        self.assertLess(self._jump_uts(self.m)[2], end_ut)
 
     def test_v15t_leaves_the_anomaly_sweep_fully_armed(self):
         # The header's deliberate choice: the reading run MEASURES whether
