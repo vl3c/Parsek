@@ -413,6 +413,27 @@ section 2.3 the classifier engages. That is the single most surprising finding i
 investigation: Parsek may already be re-aiming moon-to-moon hops. It is untested, unmeasured, and
 unrepresented in any harness lane.
 
+> **STATUS 2026-08-19: STILL UNTESTED, AND NOW BLOCKED AT THE HARNESS LAYER RATHER
+> THAN THE PRODUCT LAYER.** `B26-laythe-vall-transfer` was authored to produce exactly
+> this subject (a Laythe-rooted recording targeting Vall) and flew on 2026-08-19. Both
+> attempts refused in PLAN-TRANSFER, deterministically, six seconds in - and the refusal
+> is MECHJEB'S, not Parsek's. `OperationInterplanetaryTransfer.MakeNodes` throws
+> `OrbitExtensions.NextTimeOfRadius: given radius of 3723645.81113302 is never achieved:
+> o.PeR = 572085.800578244 and o.ApR = 3632679.92883477` on a moon-parked origin: it
+> idealises the origin to a circle at the park's mean radius, builds a sub-escape
+> ejection whose apoapsis lands 2.443% short of the SOI, and then asks for a crossing
+> that does not exist. Filed as `docs/dev/todo-and-known-bugs.md` -> MECHJEB-INTERPLANETARY-PLANNER-REJECTS-MOON-ORIGIN.
+>
+> **READ THE BOUNDARY CAREFULLY, because it is the whole point of this note.** What is
+> blocked is the HARNESS'S ABILITY TO PRODUCE THE SUBJECT RECORDING. Not one line of
+> the argument above is touched, refuted or supported by that flight - no Parsek code
+> ran, `TrySynthesizeTransfer` was never reached, and the classifier was never asked.
+> The claim in this subsection remains exactly as strong and exactly as unverified as
+> it was before the flight. `V17M-laythe-vall-player-loop` / `V17T-laythe-vall-ts-arrival`
+> stay committed carrying BOTH hypotheses with their discriminating log lines, and gating
+> on neither, waiting for a `vall-transfer-recorded` fixture that a moon-origin ejection
+> capability would let the harness build.
+
 ### 5.2 The physical answer: the seam term does not survive the frame change
 
 Re-aim substitutes ONLY the common-ancestor coast with a fresh **centre-to-centre** Lambert and
@@ -618,7 +639,7 @@ control):
 | # | Quantity | Predicted | Measured | Notes |
 |---|---|---|---|---|
 | J1 | Live `P_Laythe / P_Vall / P_Tylo` | 52,980.9 / 105,962.1 / 211,926.4 | **Laythe: 52,980.879059379578** (MEASURED 2026-08-19) | the live figure printed by `Orbital(Laythe) same-parent P=...` on both V16 lanes; it agrees with the fixture constant (`MultiMoonAlignmentTests.cs:22-25`) to 0.02 s. **Vall and Tylo remain untouched**, so J1 is one-third discharged |
-| J2 | Live moon SOI radii | 3,723,645.8 / 2,406,401.4 / 10,856,518.0 | | wiki figures; the Jool asset-vs-wiki gap (`B22:206`) says re-read these from the live bodies. **B25 did NOT discharge this** - nothing on that lane prints an SOI radius, and every bound it derives from Laythe's carries tens of percent of margin, so a metres-scale correction would move nothing |
+| J2 | Live moon SOI radii | 3,723,645.8 / 2,406,401.4 / 10,856,518.0 | **Laythe: 3,723,645.81113302** (MEASURED 2026-08-19) | wiki figures; the Jool asset-vs-wiki gap (`B22:206`) says re-read these from the live bodies. **B25 did NOT discharge this** - nothing on that lane prints an SOI radius. **B26's BLOCKED FLIGHT DID, from an unlikely source: the MechJeb exception that stopped it.** `OrbitExtensions.NextTimeOfRadius: given radius of 3723645.81113302 is never achieved` is MechJeb reading Laythe's SOI radius off the LIVE body, and it confirms the wiki figure to every digit the wiki carries. So J2 is **one-third discharged** and the asset-vs-wiki worry is retired for Laythe. **Vall and Tylo remain untouched** and are now blocked behind `docs/dev/todo-and-known-bugs.md` -> MECHJEB-INTERPLANETARY-PLANNER-REJECTS-MOON-ORIGIN for as long as no lane reaches them. The correction, had there been one, would still have moved nothing - every bound B25/B26 derive from Laythe's SOI carries tens of percent of margin |
 | J3 | `ARRIVAL HOLD kind=config` `T_config=` | 211,924.2 s | | `= 2 * P_Vall` |
 | J4 | `alignedWindows=` | ~40 | | `CountAlignedWindowPrefix`; 3.3 derives k <= 3,850 |
 | J5 | Bop-inclusive set outcome | amber, D6 slack gate | | required hold 7.4x the 10,090,902 s window |
@@ -972,8 +993,14 @@ token) read the recording from FLIGHT and from the tracking station. Three resul
   is the thing section 9.3 said could not be read at seam pacing, and section 9.3 has been updated
   rather than deleted - the limit is retired only for lanes carrying V16M's forty-tick dwell block.
 
-**WHAT IS STILL NOT MEASURED:** J1's Vall and Tylo thirds, J2 entirely, and J3/J4/J5, which are
-properties of a MULTI-moon constraint set that a single-moon subject cannot produce. Nothing here
+**WHAT IS STILL NOT MEASURED:** J1's Vall and Tylo thirds, J2's Vall and Tylo thirds (its
+Laythe third fell out of B26's blocked flight - see the table), and J3/J4/J5, which are
+properties of a MULTI-moon constraint set that a single-moon subject cannot produce. All of
+those remainders are now **MEASURED-PENDING BEHIND A NAMED HARNESS BLOCKER**, not merely
+unscheduled: the lane that would reach a second moon is `B26-laythe-vall-transfer`, and it
+is blocked by `docs/dev/todo-and-known-bugs.md` -> MECHJEB-INTERPLANETARY-PLANNER-REJECTS-MOON-ORIGIN. That blocker is a MechJeb
+limitation on moon-origin ejections; it constrains what the harness can FLY, and says
+nothing about any product claim in this document. Nothing here
 moves section 6's recommendation, and nothing here says anything about Bop or Pol - the readings are
 at N = 2 cycles on a moon whose tolerance (1,155 s) is the LOOSEST in the table, which is the
 opposite end from where the Bop/Pol question bites.
@@ -1034,5 +1061,53 @@ park floor against the ARRIVAL periapsis MINUS this wedge, and the wedge scales 
 i.e. it grows as thrust-to-weight falls. At Laythe (50 km of air) the wedge ate 15.4 km of the
 ~20 km separating the arrival from the atmosphere. Tylo has no atmosphere and a much larger mu;
 Vall likewise. A future lane should not copy the 52 km floor, it should re-derive it.
+
+---
+## 11. BLOCKED - the moon-to-moon experiment (`B26-laythe-vall-transfer`, 2026-08-19)
+
+Section 5.1 named "Parsek may already be re-aiming moon-to-moon hops" the single most
+surprising finding in this investigation. `B26-laythe-vall-transfer` was authored to
+settle it by producing the subject: a Laythe-rooted recording targeting Vall, which
+`IsSameParentTarget` classifies CROSS-PARENT and which `V17M` / `V17T` would then read.
+
+**IT DID NOT FLY, AND THE REASON IS IN THE HARNESS, NOT THE PRODUCT.** Both attempts
+(`2026-08-19_2214`, `2026-08-19_2215_a2`) refused in PLAN-TRANSFER after ~33 game
+seconds and six wall seconds, `INVALID(autopilot-flake)`, deterministic:
+
+```
+[Mission][Warn][Plan] operation_interplanetary_transfer.make_nodes failed:
+OrbitExtensions.NextTimeOfRadius: given radius of 3723645.81113302 is never
+achieved: o.PeR = 572085.800578244 and o.ApR = 3632679.92883477
+  at KRPC.MechJeb.Maneuver.Operation.MakeNodes ()
+```
+
+MechJeb 2.15.1 asks when the orbit next reaches the origin body's SOI - when the
+ejection leaves - and the orbit it asks that of has no such radius. That orbit is not
+the park (ecc 0.028): PeR sits 0.003 m from the park's SMA and ApR gives e = 0.7279, so
+MechJeb idealised the origin to a circle at the park's mean radius and built a
+SUB-ESCAPE ejection whose apoapsis falls 90,965.88 m (2.443%) short of the SOI. A
+moon-parked origin, whose park radius is ~15% of its SOI, is unhandled here; the eight
+flown interplanetary lanes all depart Kerbin, where the SOI is ~12x the park radius.
+WHY MechJeb sizes it short was not read and is not claimed. Filed as
+`docs/dev/todo-and-known-bugs.md` -> MECHJEB-INTERPLANETARY-PLANNER-REJECTS-MOON-ORIGIN,
+with two candidate paths forward named and neither chosen (a flag-gated manual-ejection
+mode in mlib letting the existing Jool-frame correction rounds create the encounter -
+the B17 pattern, and the house-style fit - or a different MechJeb operation set).
+
+**WHAT THIS DOES AND DOES NOT DO TO THIS DOCUMENT.**
+
+- It changes **nothing** in sections 4 and 5. No Parsek code ran on that flight.
+  `TrySynthesizeTransfer` was never reached and the classifier was never asked, so the
+  section 5.1 claim is neither supported nor refuted and stands exactly where it stood.
+  The experiment is deferred, not answered - and specifically it is deferred at the
+  HARNESS layer. Do not let a harness block be re-told as a product finding.
+- It leaves the pre-registration intact. `V17M` / `V17T` stay committed carrying both
+  hypotheses with the discriminating log lines, gating on neither, in
+  `PENDING_FIXTURE_LANES` against a `vall-transfer-recorded` that cannot yet be built.
+- It discharges **one third of J2** - see the table. The exception line is MechJeb
+  reading Laythe's SOI radius off the live body, `3,723,645.81113302`, confirming the
+  wiki figure to every digit the wiki carries. A blocked flight still measured something.
+- It leaves section 10 and the whole V16 programme untouched: the k = 20 cadence, J6,
+  J7 and J8's equal zeros were all measured at Laythe by lanes that flew green.
 
 ---

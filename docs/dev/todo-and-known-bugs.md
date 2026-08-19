@@ -14,7 +14,94 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
-## MAPRENDER-SEAM-LENS-EVALUATES-UNSHIFTED-EPOCH-ON-CREATION-FRAME: the seam-endpoint lens reads the RECORDED seam UT instead of the replayed one on a ghost proto's creation frame, and raises `seam-endpoint-outside-soi` against an endpoint 157x the SOI away [MEASURED 2026-08-19 by `V16T-laythe-ts-arrival`'s reading run. REPORT-ONLY - the harness classified the reason UNLISTED and did not gate on it, and `V16M-laythe-player-loop`'s stepped-epoch censuses prove the underlying recurrence is FINE. Same family as MAPRENDER-ICON-OFF-ORBIT-CREATION-FRAME-AFTER-JUMP; NO product change is proposed]
+## MECHJEB-INTERPLANETARY-PLANNER-REJECTS-MOON-ORIGIN: MechJeb 2.15.1's `OperationInterplanetaryTransfer.MakeNodes` throws on a MOON-PARKED origin, so the harness cannot currently fly any moon-to-moon transfer [MEASURED 2026-08-19 by `B26-laythe-vall-transfer` flight 1, DETERMINISTIC 2/2 attempts. HARNESS SURFACE, REPORT-ONLY - not a Parsek defect and not a spec defect; it blocks the M-MIS-7 subject's PRODUCTION, not the product question]
+
+**THIS IS A HARNESS-CAPABILITY GAP, NOT A PRODUCT FINDING.** Nothing in Parsek ran,
+nothing in Parsek is implicated, and the spec that hit it is correct. Read the
+verdict that way; the temptation to file a moon-to-moon failure as a Parsek
+finding is exactly what this paragraph exists to stop.
+
+THE SHAPE: a vessel parked around a MOON (`B26`: the crewed Duna Rocket in the
+87,931 x 56,240 m Laythe orbit `B25` delivered) transferring to a SIBLING MOON
+(Vall) through mlib's `interplanetaryTransfer` path with JOOL as the transfer
+frame. Every one of the eight flown interplanetary lanes departs KERBIN; this was
+the first attempt from a moon.
+
+THE EXCEPTION, verbatim from `results/2026-08-19_2215_B26-laythe-vall-transfer_a2_mission.stdout.log`
+(three occurrences per attempt; run `2026-08-19_2214` identical to six decimals):
+
+```
+[Mission][Warn][Plan] operation_interplanetary_transfer.make_nodes failed:
+OrbitExtensions.NextTimeOfRadius: given radius of 3723645.81113302 is never
+achieved: o.PeR = 572085.800578244 and o.ApR = 3632679.92883477
+Server stack trace:
+  at KRPC.MechJeb.Maneuver.Operation.MakeNodes () [0x00101] in <...>:0
+```
+
+READ THE THREE NUMBERS, because they say more than "it threw".
+
+- **3,723,645.81113302 m is LAYTHE'S SOI RADIUS.** `MakeNodes` asks when the
+  vessel's orbit next reaches the origin body's SOI, i.e. when the ejection
+  leaves. That is the call that has no answer.
+- **The orbit it asks that of is NOT the park orbit.** The park is ecc 0.028;
+  this one has e = (ApR-PeR)/(ApR+PeR) = **0.7279**. Its PeR 572,085.800578244
+  sits **0.003 m** from the fixture park's SMA 572,085.80370560708 - so MechJeb
+  idealised the origin to a circle at the park's MEAN radius and built an
+  ejection from there.
+- **That ejection is SUB-ESCAPE.** ApR 3,632,679.93 falls **90,965.88 m, i.e.
+  2.443%, SHORT** of the SOI. The crossing it then asks for does not exist, and
+  `NextTimeOfRadius` throws rather than returning a sentinel.
+
+WHAT IS ESTABLISHED: this code path does not handle an origin whose park radius
+is a large fraction of its SOI. At Laythe the park sits at ~15% of the SOI
+radius; at Kerbin, where all eight flown lanes depart, the SOI is ~12x the park
+radius and the same construction escapes with room to spare. WHAT IS **NOT**
+ESTABLISHED, and must not be recorded as if it were: WHY MechJeb sizes the
+ejection short. That lives inside MechJeb 2.15.1 and was not read. Do not
+propagate a mechanism nobody decompiled.
+
+WHAT WORKED, which is most of it. Admission, the venv gate, the derived
+`laythe-park-nerv` fixture, the ORBIT-START door and the whole preamble are
+clean: `assert reachedOrbit value=PLAN-TRANSFER met=True`, `assert
+startedInHomeOrbit value=0.028 met=True`, `phasesReached ['PRELAUNCH', 'ORBIT',
+'PLAN-TRANSFER']`. **Target acquisition worked** - `action set_target_body
+value=none text=Vall` ran and `tgtD` snapped from 584,660 m (no target) to
+59,303,828 m, Vall's actual separation. The refusal is one call deep.
+
+AND IT WAS CHEAP: mission wall **5.955 s / 5.976 s** to refusal, ~33 game
+seconds, 46 s per attempt end to end, `INVALID(autopilot-flake)` both times. A
+planner that refuses in six seconds is the good failure mode.
+
+TWO CANDIDATE PATHS FORWARD, **NEITHER CHOSEN**. Inventing a transfer mechanism
+was explicitly out of scope for the night that measured this, and the stop rule
+was honoured.
+
+- **(a) A flag-gated MANUAL-EJECTION mode.** mlib computes the ejection node
+  itself; MechJeb only executes it. The precedent is PAD-ALIGN, whose window math
+  is already frame-generic - the only Sun-hardcoded piece is the
+  `STOCK_HELIO_ELEMENTS` TABLE, extendable with Jool-system elements or replaced
+  by live kRPC elements. Crucially the Vall encounter does NOT have to come out
+  of the ejection: the EXISTING Jool-frame correction rounds create it, which is
+  the B17 round-0-creates-the-encounter pattern and is already live-proven.
+- **(b) A different MechJeb operation set.** Escape Laythe with a plain ejection
+  operation, then Lambert / course-correct to Vall from Jool orbit.
+
+**(a) is the house-style fit** - pure decision in mlib, thin execution in the
+runner, reusing a proven correction loop instead of adding a mechanism. It is
+DEFERRED AS ITS OWN PROGRAM, not smuggled into a lane.
+
+WHAT THIS BLOCKS AND WHAT IT DOES NOT. Blocked: the harness's ability to PRODUCE
+the M-MIS-7 subject recording, and with it `B26` (which stays committed,
+flyable-but-blocked, dry-run valid) and the `V17M` / `V17T` reading pair (which
+stay in `PENDING_FIXTURE_LANES` awaiting `vall-transfer-recorded`). NOT blocked
+and NOT answered: the PRODUCT question - whether `ApplyReaim` engages on a
+cross-parent moon-to-moon recording, which
+`docs/dev/research/same-parent-reaim-jool-system.md` section 5.1 argues already
+works unmodified. This flight said nothing about it. It remains pre-registered in
+V17M/V17T, which carry both hypotheses with the discriminating log lines and gate
+on neither.
+
+## MAPRENDER-SEAM-LENS-EVALUATES-UNSHIFTED-EPOCH-ON-CREATION-FRAME: the seam-endpoint lens reads the RECORDED seam UT instead of the replayed one on a ghost proto's creation frame, and raises `seam-endpoint-outside-soi` against an endpoint 157x the SOI away [MEASURED 2026-08-19 by `V16T-laythe-ts-arrival`'s reading run and **RECURRED on its ARMED run `2026-08-19_2212` (PASS attempt 1)**, which makes it DETERMINISTIC for the single-jump shape rather than a one-off. REPORT-ONLY - the harness classified the reason UNLISTED and did not gate on it, and `V16M-laythe-player-loop`'s stepped-epoch censuses prove the underlying recurrence is FINE. Same family as MAPRENDER-ICON-OFF-ORBIT-CREATION-FRAME-AFTER-JUMP; NO product change is proposed]
 
 **READ THE VERDICT BEFORE THE MECHANISM, because this raise names the one thing the
 whole Jool research programme is watching for and it is NOT that thing.** The
@@ -408,7 +495,7 @@ separation from V7M's teardown NRE, and the named experiment that would move it.
 
 ---
 
-## MAPRENDER-ICON-OFF-ORBIT-CREATION-FRAME-AFTER-JUMP: a ghost's proto ICON sits tens of degrees around its own orbit line on the CREATION frame, after a single large TimeJump onto an epoch just inside a foreign moon's SOI [MEASURED 2026-08-18 by `V14T-ike-ts-arrival`, REPRODUCED on its armed run, shown PARENT-INDEPENDENT by `V15T-gilly-ts-arrival`, and measured at a THIRD parent 2026-08-19 by `V16T-laythe-ts-arrival` (Jool/Laythe, 129.15 deg) - which also produced the FIRST count > 1 reading (TWO raises, one frame, two proto pids) and a SECOND LENS showing the same creation-frame binding gap. REPORT-ONLY: self-correcting, DETERMINISTIC for the single-jump shape at all three bodies, tolerated by name in all three specs; NO product change is proposed]
+## MAPRENDER-ICON-OFF-ORBIT-CREATION-FRAME-AFTER-JUMP: a ghost's proto ICON sits tens of degrees around its own orbit line on the CREATION frame, after a single large TimeJump onto an epoch just inside a foreign moon's SOI [MEASURED 2026-08-18 by `V14T-ike-ts-arrival`, REPRODUCED on its armed run, shown PARENT-INDEPENDENT by `V15T-gilly-ts-arrival`, and measured at a THIRD parent 2026-08-19 by `V16T-laythe-ts-arrival` (Jool/Laythe, 129.15 deg) - which also produced the FIRST count > 1 reading (TWO raises, one frame, two proto pids) and a SECOND LENS showing the same creation-frame binding gap. **RECURRED AT COUNT 2 ON V16T's ARMED RUN `2026-08-19_2212` (PASS attempt 1, the tolerance doing its job)**, alongside the second lens - both deterministic on the armed run. REPORT-ONLY: self-correcting, DETERMINISTIC for the single-jump shape at all three bodies, tolerated by name in all three specs; NO product change is proposed]
 ## ~~HARNESS-CANNOT-EARN-CAREER-CURRENCY~~ - no driven run could collect science, transmit it, or recover a vessel, so `ScienceEarning` rows and vessel-recovery credits were reachable only from a hand-played save [CAPABILITY SHIPPED 2026-08-19, branch `c2-postfix-forge`; NOT YET FLOWN; one residual survives and is NOT closed]
 
 Filed and closed in the same entry because the gap was never a defect - it was a
@@ -513,7 +600,7 @@ not help: the refusal is at the seam, before any row is written. That finding
 stays owned by the synthetic two-action unit test (`ScienceSpendingOrderingTests`,
 plan task A.1), and a future forge must NOT be scoped to it.
 
-## MAPRENDER-ICON-OFF-ORBIT-CREATION-FRAME-AFTER-JUMP: a ghost's proto ICON sits tens of degrees around its own orbit line on the CREATION frame, after a single large TimeJump onto an epoch just inside a foreign moon's SOI [MEASURED 2026-08-18 by `V14T-ike-ts-arrival`, REPRODUCED on its armed run, shown PARENT-INDEPENDENT by `V15T-gilly-ts-arrival`, and measured at a THIRD parent 2026-08-19 by `V16T-laythe-ts-arrival` (Jool/Laythe, 129.15 deg) - which also produced the FIRST count > 1 reading (TWO raises, one frame, two proto pids) and a SECOND LENS showing the same creation-frame binding gap. REPORT-ONLY: self-correcting, DETERMINISTIC for the single-jump shape at all three bodies, tolerated by name in all three specs; NO product change is proposed]
+## MAPRENDER-ICON-OFF-ORBIT-CREATION-FRAME-AFTER-JUMP: a ghost's proto ICON sits tens of degrees around its own orbit line on the CREATION frame, after a single large TimeJump onto an epoch just inside a foreign moon's SOI [MEASURED 2026-08-18 by `V14T-ike-ts-arrival`, REPRODUCED on its armed run, shown PARENT-INDEPENDENT by `V15T-gilly-ts-arrival`, and measured at a THIRD parent 2026-08-19 by `V16T-laythe-ts-arrival` (Jool/Laythe, 129.15 deg) - which also produced the FIRST count > 1 reading (TWO raises, one frame, two proto pids) and a SECOND LENS showing the same creation-frame binding gap. **RECURRED AT COUNT 2 ON V16T's ARMED RUN `2026-08-19_2212` (PASS attempt 1, the tolerance doing its job)**, alongside the second lens - both deterministic on the armed run. REPORT-ONLY: self-correcting, DETERMINISTIC for the single-jump shape at all three bodies, tolerated by name in all three specs; NO product change is proposed]
 
 `V14T-ike-ts-arrival` run `2026-08-18_2337` came back PARSEK-FAIL(anomaly) on
 attempt 1 with **all sixteen steps green** - every tracking-station route line

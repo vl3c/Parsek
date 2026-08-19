@@ -38,6 +38,81 @@ id = "B26-laythe-vall-transfer"
 # `eve-park-kerbalx` (B24) and `jool-park-nerv` (B25). See [fixture].
 #
 # =====================================================================================
+# FLIGHT LEDGER
+# =====================================================================================
+#
+# FLIGHT 1 (2026-08-19, runs `2026-08-19_2214` and `2026-08-19_2215_a2`):
+# BOTH ATTEMPTS INVALID(autopilot-flake), DETERMINISTIC, and the lane is now
+# BLOCKED-PENDING a harness transfer capability. NOTHING IN THIS SPEC IS AT FAULT
+# AND NOTHING IN PARSEK IS AT FAULT. State the verdict that way and no other way.
+#
+# THE MEASURED CAUSE, verbatim from the a2 mission stdout (a1 identical to six
+# decimals, three occurrences per attempt):
+#
+#   [Mission][Warn][Plan] operation_interplanetary_transfer.make_nodes failed:
+#   OrbitExtensions.NextTimeOfRadius: given radius of 3723645.81113302 is never
+#   achieved: o.PeR = 572085.800578244 and o.ApR = 3632679.92883477
+#
+# followed by `at KRPC.MechJeb.Maneuver.Operation.MakeNodes ()`.
+#
+# READ THE THREE NUMBERS. 3,723,645.81113302 m IS LAYTHE'S SOI RADIUS -- MechJeb's
+# `OperationInterplanetaryTransfer.MakeNodes` asks when the vessel's orbit next
+# reaches its origin body's SOI, and the orbit it asks that of has no such radius.
+# The orbit is NOT this lane's park orbit (ecc 0.028): PeR 572,085.800578244 sits
+# 0.003 m from the fixture park's SMA 572,085.80370560708, and ApR 3,632,679.93
+# gives e = 0.7279 -- i.e. MechJeb idealised the origin to a circle at the park's
+# mean radius and built a SUB-ESCAPE ejection whose apoapsis lands
+# **90,965.88 m (2.443%) SHORT of the SOI**, then asked for a crossing that
+# therefore does not exist and threw. WHAT IS ESTABLISHED is that this code path
+# does not handle a MOON-PARKED ORIGIN, whose park radius is a fifth of its SOI;
+# every flown interplanetary lane departs KERBIN, where the SOI is 12x the park
+# radius and the same construction escapes comfortably. WHAT IS **NOT**
+# ESTABLISHED, and must not be written down as if it were, is why MechJeb sizes
+# the ejection short -- that lives inside MechJeb 2.15.1 and was not read.
+#
+# EVERYTHING ELSE ON THE FLIGHT BEHAVED. Admission, the venv gate, the fixture,
+# the ORBIT-START door and the preamble are all clean: `assert reachedOrbit
+# value=PLAN-TRANSFER met=True`, `assert startedInHomeOrbit value=0.028 met=True`,
+# phasesReached `['PRELAUNCH', 'ORBIT', 'PLAN-TRANSFER']`. TARGET ACQUISITION
+# WORKED -- `action set_target_body value=none text=Vall` ran and `tgtD` snapped
+# from 584,660 m (no target) to 59,303,828 m, which is Vall's actual separation.
+# The refusal is one call deep and one call only.
+#
+# THE FLIGHT WAS CHEAP: mission wall 5.955 s / 5.976 s to refusal, ~33 game
+# seconds, 46 s total per attempt. This is the good failure mode -- a planner that
+# refuses in six seconds costs nothing, unlike a phase that rides its budget.
+#
+# DISPOSITION: **BLOCKED-PENDING** a harness transfer capability for MOON-ORIGIN
+# ejections. Filed report-only as `docs/dev/todo-and-known-bugs.md` ->
+# MECHJEB-INTERPLANETARY-PLANNER-REJECTS-MOON-ORIGIN. The spec stays committed and
+# its dry-run stays valid; it is FLYABLE-BUT-BLOCKED, not withdrawn, because the
+# moment the capability exists this is the lane that uses it and every derived
+# number below was checked against the fixture's own bytes.
+#
+# TWO CANDIDATE PATHS FORWARD. **NEITHER IS CHOSEN HERE**, and inventing a
+# transfer mechanism was explicitly out of scope for the night that measured this.
+#   (a) A FLAG-GATED MANUAL-EJECTION MODE: mlib computes the ejection node itself
+#       and MechJeb only executes it. The precedent is PAD-ALIGN, whose window
+#       math is already frame-generic -- the only Sun-hardcoded piece is
+#       `STOCK_HELIO_ELEMENTS`, which is a TABLE, extendable with Jool-system
+#       elements or replaced by live kRPC elements. The Vall encounter itself then
+#       does NOT need to come out of the ejection: the EXISTING Jool-frame
+#       correction rounds create it, which is the B17 round-0-creates-the-encounter
+#       pattern and is already live-proven.
+#   (b) A DIFFERENT MECHJEB OPERATION SET: escape Laythe with a plain ejection
+#       operation, then Lambert / course-correct to Vall from Jool orbit.
+# (a) IS THE HOUSE-STYLE FIT -- pure decision in mlib, thin execution in the
+# runner, and it reuses a proven correction loop rather than adding a mechanism.
+# It is DEFERRED AS ITS OWN PROGRAM, not smuggled into this lane.
+#
+# WHAT THIS DOES **NOT** BLOCK. The PRODUCT question stays open and stays
+# pre-registered: whether `ApplyReaim` engages on a cross-parent moon-to-moon
+# recording is a Parsek question, this flight said nothing about it, and V17M /
+# V17T still carry both hypotheses and still gate on neither. What is blocked is
+# the harness's ability to PRODUCE the subject recording.
+#
+
+# =====================================================================================
 # THE JOOL-FRAME AUDIT. Read this before changing any transfer key; it is the only
 # part of this spec that is about the MACHINE rather than about Vall.
 #
@@ -255,7 +330,7 @@ id = "B26-laythe-vall-transfer"
 # on the calibration discipline.
 # =====================================================================================
 tier = "operator"
-description = "NOT YET FLOWN - a first-flight READING lane, and THE FIRST MOON-TO-MOON TRANSFER: the crewed Duna Rocket starts already parked in the 87,931 x 56,240 m Laythe orbit B25 delivered, escapes Laythe into JOOL's frame, transfers to VALL and commits the tree in a Vall park. ITS PRODUCT IS THE M-MIS-7 SUBJECT. Every same-parent lane so far (Duna->Ike, Eve->Gilly, Jool->Laythe) produces a recording `IsSameParentTarget` classifies SAME-PARENT, which routes to phase-lock and has now measured `method=single-orbital` three times. A moon-to-moon recording is the OTHER class: Vall is not a child of Laythe, so it is CROSS-PARENT and should reach `ApplyReaim` with the JOOL-frame synodic - a code path `docs/dev/research/same-parent-reaim-jool-system.md` section 5.1 walks guard by guard, concludes already works unmodified, and calls 'the single most surprising finding in this investigation: Parsek may already be re-aiming moon-to-moon hops. It is untested, unmeasured, and unrepresented in any harness lane.' THIS SPEC ASSERTS NOTHING ABOUT THAT - V17M/V17T carry both hypotheses and gate on neither. THE MACHINE SIDE IS A COMPOSITION OF TWO PROVEN BLOCKS THAT HAVE NEVER MET: the INTERPLANETARY path (eight lanes, always Kerbin-from-the-Sun) with JOOL as the transfer frame, entered through the ORBIT-START door (three lanes, always on the moon path). Audited end to end before authoring: ZERO Sun-frame assumptions on the live path (the heliocentric ephemeris is quarantined behind `padAlignEjection`, three call sites, all flag-gated; the phase angle is entirely MechJeb's), `ejectionEccFloor` reads the Laythe frame correctly, `_b5_correction_via_bodies` narrows to an identity, `STOCK_WARP_ALTITUDE_LIMITS` already carries all three bodies, and `startInOrbit` composes with `interplanetaryTransfer` with no coupling and no parse rejection - VERDICT CLEAN, VALUES ONLY. Three value consequences the audit named are handled at their own keys: the time-mode correction triggers re-sized to a 38,980 s leg (B7's would fire both rounds on the first frame), `ejectionEccFloor` re-calibrated to 1.001 because the required Laythe ejection hyperbola has ecc 1.0352 and B7's 1.05 WOULD NEVER BE REACHED, and the hardcoded `ARRIVAL_RECORRECT_*` window flagged to watch. Delta-v derived: 2,483.9 m/s available against a 1,385.1 m/s worst hop, a 79% margin - narrower than B25's 152% entirely because B25 delivered a park inclined 16.372 deg about Laythe and nothing can trim it. The Laythe-Vall synodic is 105,961.4 s = 2.0000 Laythe periods, which is the 1:2:4 resonance showing up in the transfer window and is why this pair is the right FIRST moon-to-moon subject."
+description = "FLOWN 2026-08-19 AND BLOCKED-PENDING A HARNESS CAPABILITY - see docs/dev/todo-and-known-bugs.md -> MECHJEB-INTERPLANETARY-PLANNER-REJECTS-MOON-ORIGIN. THE FIRST MOON-TO-MOON TRANSFER: the crewed Duna Rocket starts already parked in the 87,931 x 56,240 m Laythe orbit B25 delivered, escapes Laythe into JOOL's frame, transfers to VALL and commits the tree in a Vall park. ITS PRODUCT IS THE M-MIS-7 SUBJECT. Every same-parent lane so far (Duna->Ike, Eve->Gilly, Jool->Laythe) produces a recording `IsSameParentTarget` classifies SAME-PARENT, which routes to phase-lock and has now measured `method=single-orbital` three times. A moon-to-moon recording is the OTHER class: Vall is not a child of Laythe, so it is CROSS-PARENT and should reach `ApplyReaim` with the JOOL-frame synodic - a code path `docs/dev/research/same-parent-reaim-jool-system.md` section 5.1 walks guard by guard, concludes already works unmodified, and calls 'the single most surprising finding in this investigation: Parsek may already be re-aiming moon-to-moon hops. It is untested, unmeasured, and unrepresented in any harness lane.' THIS SPEC ASSERTS NOTHING ABOUT THAT - V17M/V17T carry both hypotheses and gate on neither. THE MACHINE SIDE IS A COMPOSITION OF TWO PROVEN BLOCKS THAT HAVE NEVER MET: the INTERPLANETARY path (eight lanes, always Kerbin-from-the-Sun) with JOOL as the transfer frame, entered through the ORBIT-START door (three lanes, always on the moon path). Audited end to end before authoring: ZERO Sun-frame assumptions on the live path (the heliocentric ephemeris is quarantined behind `padAlignEjection`, three call sites, all flag-gated; the phase angle is entirely MechJeb's), `ejectionEccFloor` reads the Laythe frame correctly, `_b5_correction_via_bodies` narrows to an identity, `STOCK_WARP_ALTITUDE_LIMITS` already carries all three bodies, and `startInOrbit` composes with `interplanetaryTransfer` with no coupling and no parse rejection - VERDICT CLEAN, VALUES ONLY. Three value consequences the audit named are handled at their own keys: the time-mode correction triggers re-sized to a 38,980 s leg (B7's would fire both rounds on the first frame), `ejectionEccFloor` re-calibrated to 1.001 because the required Laythe ejection hyperbola has ecc 1.0352 and B7's 1.05 WOULD NEVER BE REACHED, and the hardcoded `ARRIVAL_RECORRECT_*` window flagged to watch. Delta-v derived: 2,483.9 m/s available against a 1,385.1 m/s worst hop, a 79% margin - narrower than B25's 152% entirely because B25 delivered a park inclined 16.372 deg about Laythe and nothing can trim it. The Laythe-Vall synodic is 105,961.4 s = 2.0000 Laythe periods, which is the 1:2:4 resonance showing up in the transfer window and is why this pair is the right FIRST moon-to-moon subject. FLIGHT 1 (runs 2026-08-19_2214 and _2215_a2): BOTH ATTEMPTS INVALID(autopilot-flake), deterministic, refused in PLAN-TRANSFER after ~33 game seconds and 6 wall seconds. The cause is MECHJEB, not this spec and not Parsek: `operation_interplanetary_transfer.make_nodes failed: OrbitExtensions.NextTimeOfRadius: given radius of 3723645.81113302 is never achieved: o.PeR = 572085.800578244 and o.ApR = 3632679.92883477`, thrown out of `KRPC.MechJeb.Maneuver.Operation.MakeNodes`. 3,723,645.8 m is LAYTHE'S SOI RADIUS; the orbit MechJeb asks it of is not the park (ecc 0.028) but a constructed e=0.7279 ejection whose PeR sits 0.003 m from the park SMA and whose apoapsis falls 90,965.9 m (2.443%) SHORT of the SOI, so the crossing it then asks for does not exist. A moon-parked origin, whose park radius is a fifth of its SOI, is unhandled in this MechJeb code path; every flown interplanetary lane departs Kerbin, where the SOI is 12x the park radius. WHY MechJeb sizes it short was not read and is NOT claimed. Everything else behaved: `reachedOrbit met=True`, `startedInHomeOrbit value=0.028 met=True`, and target acquisition WORKED (`set_target_body text=Vall` ran and tgtD snapped 584,660 -> 59,303,828 m, Vall's real separation). DISPOSITION BLOCKED-PENDING a harness transfer capability for moon-origin ejections, with two candidate paths named and NEITHER chosen: (a) a flag-gated manual-ejection mode where mlib computes the node and the existing Jool-frame correction rounds create the encounter (the B17 round-0 pattern, already proven; the pad-align precedent's window math is frame-generic and only STOCK_HELIO_ELEMENTS is Sun-hardcoded), or (b) a different MechJeb operation set (escape then Lambert from Jool orbit). (a) is the house-style fit and is deferred as its own program. The spec stays committed and its dry-run stays valid - flyable-but-blocked, not withdrawn. The PRODUCT question is untouched and still open: whether ApplyReaim engages on a cross-parent moon-to-moon recording stays pre-registered in V17M/V17T, which gate on neither hypothesis."
 instanceProfile = "stock-minimal"
 tags = ["B26", "vall", "laythe", "jool", "moon-to-moon", "cross-parent", "jool-moon",
         "orbit", "mechjeb", "cross-soi", "capture", "commit-in-foreign-soi",

@@ -672,5 +672,93 @@ class V17SeedTests(unittest.TestCase):
         self.assertEqual([], self.t["expectations"]["allowedAnomalies"])
 
 
+# ---------------------------------------------------------------------------
+# Flight 1: the MechJeb blocker, pinned from the run bytes.
+# ---------------------------------------------------------------------------
+
+# MEASURED on `2026-08-19_2215_B26-laythe-vall-transfer_a2` (run `_2214` agrees to
+# six decimals). These are the three numbers out of MechJeb's own exception, and
+# they are pinned here so a future edit to the flight-1 ledger cannot quietly
+# restate the arithmetic wrongly. See docs/dev/todo-and-known-bugs.md ->
+# MECHJEB-INTERPLANETARY-PLANNER-REJECTS-MOON-ORIGIN.
+MJ_REQUESTED_RADIUS_M = 3_723_645.81113302   # Laythe's SOI radius, live
+MJ_EJECTION_PER_M = 572_085.800578244        # ~ the park's SMA
+MJ_EJECTION_APR_M = 3_632_679.92883477       # 2.443% SHORT of the SOI
+
+
+class Flight1BlockerTests(unittest.TestCase):
+    """B26 flight 1 refused in PLAN-TRANSFER on a MECHJEB limitation, not on
+    anything this repo owns. The cells below pin the parts of that ledger that are
+    arithmetic rather than narrative, because a ledger nobody can re-derive rots
+    into folklore - and this one is load-bearing: it is the reason the lane is
+    BLOCKED-PENDING rather than withdrawn, and the reason section 5.1 of the
+    research doc is still an open question rather than a refuted one."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.spec = _spec("B26-laythe-vall-transfer.toml")
+
+    def test_the_radius_mechjeb_asked_for_is_laythes_soi(self):
+        """The single fact that identifies the failure. If this is not the SOI
+        radius the whole diagnosis is wrong, so it is checked and not asserted."""
+        self.assertAlmostEqual(MJ_REQUESTED_RADIUS_M, SOI_LAYTHE, delta=1.0)
+
+    def test_the_orbit_mechjeb_asked_of_is_not_the_park(self):
+        """The park is near-circular (ecc 0.028). The orbit that threw has
+        e = 0.7279, so the exception is NOT 'the park never reaches the SOI' -
+        it is 'the ejection MechJeb built never reaches the SOI'."""
+        pe, ap = MJ_EJECTION_PER_M, MJ_EJECTION_APR_M
+        ecc = (ap - pe) / (ap + pe)
+        self.assertAlmostEqual(ecc, 0.7279, delta=5e-4)
+        self.assertGreater(ecc, 10.0 * PARK_ECC)
+
+    def test_the_ejection_periapsis_is_the_parks_mean_radius(self):
+        """WHY the ledger says MechJeb 'idealised the origin to a circle at the
+        park's mean radius': the thrown orbit's PeR sits millimetres from the
+        fixture park's SMA. Within 0.01 m over a 572 km radius."""
+        self.assertAlmostEqual(MJ_EJECTION_PER_M, PARK_SMA, delta=0.01)
+
+    def test_the_ejection_falls_short_of_the_soi_by_the_stated_margin(self):
+        """2.443%, i.e. 90,965.88 m. Sub-escape by a small but decisive margin -
+        which is why the crossing does not exist and NextTimeOfRadius throws."""
+        short = MJ_REQUESTED_RADIUS_M - MJ_EJECTION_APR_M
+        self.assertAlmostEqual(short, 90_965.88, delta=1.0)
+        self.assertAlmostEqual(100.0 * short / MJ_REQUESTED_RADIUS_M, 2.443,
+                               delta=0.01)
+
+    def test_the_park_sits_at_a_large_fraction_of_the_soi_and_kerbins_does_not(self):
+        """The GENERAL statement behind the blocker, and the reason eight flown
+        interplanetary lanes never hit it: a Laythe park is ~15% of its SOI
+        radius, a Kerbin park under 10% of Kerbin's 84,159,286 m. The ratio is
+        the variable, not the body."""
+        laythe_ratio = PARK_SMA / SOI_LAYTHE
+        self.assertGreater(laythe_ratio, 0.10)
+        kerbin_soi, kerbin_park = 84_159_286.0, 700_000.0
+        self.assertLess(kerbin_park / kerbin_soi, 0.01)
+        self.assertGreater(laythe_ratio, 15.0 * (kerbin_park / kerbin_soi))
+
+    def test_the_spec_stays_flyable_but_blocked_and_says_so(self):
+        """BLOCKED-PENDING, not withdrawn: the spec is still committed, still
+        parses, still carries the pointer to its todo entry, and its status is
+        stated in the description rather than only in a comment block."""
+        desc = self.spec["description"]
+        self.assertIn("BLOCKED-PENDING", desc)
+        self.assertIn("MECHJEB-INTERPLANETARY-PLANNER-REJECTS-MOON-ORIGIN", desc)
+        # and the lane is not silently disarmed while blocked
+        self.assertEqual("operator", self.spec["tier"])
+
+    def test_the_ledger_does_not_claim_a_mechanism_nobody_read(self):
+        """The one discipline this ledger can get mechanically checked: it must
+        NOT assert why MechJeb sizes the ejection short. MechJeb 2.15.1 was not
+        decompiled, and a plausible mechanism written as fact is exactly the kind
+        of thing a later reader would build on."""
+        with open(os.path.join(HARNESS_ROOT, "scenarios",
+                               "B26-laythe-vall-transfer.toml"),
+                  encoding="utf-8") as fh:
+            body = fh.read()
+        self.assertIn("WHAT IS **NOT**", body)
+        self.assertIn("was not read", body)
+
+
 if __name__ == "__main__":
     unittest.main()
