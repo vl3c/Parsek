@@ -619,7 +619,7 @@ control):
   and it is unmeasured. Closing that gap is cheap (wall-space the brackets) and is a precondition
   for any future recurrence claim.
 
-## 9. MEASURED at an ECCENTRIC moon - the Gilly addendum (B24/V15, 2026-08-19)
+## 9. MEASURED at an ECCENTRIC moon - the Gilly addendum (CLOSED: B24 `2026-08-19_1655`; V15M reading `_1736` / armed `_1808`; V15T reading `_1739` / armed `_1809`; shared negative control `_1810`)
 
 Section 7 closed the single-moon park-rooted road at DUNA->IKE, a moon that is very nearly
 circular (e = 0.03), very nearly equatorial (i = 0.2 deg) and whose SOI is 32.80 % of its own
@@ -631,8 +631,13 @@ THE SUBJECT: `B24-gilly-orbit` (run `2026-08-19_1655`, PASS attempt 1) flew a cr
 an Eve park to GILLY and committed the tree there, producing the `gilly-orbit-recorded` fixture;
 `V15M-gilly-player-loop` (`2026-08-19_1736`, PASS attempt 1) and `V15T-gilly-ts-arrival`
 (`2026-08-19_1739`, PARSEK-FAIL(anomaly) with all 16 steps green - a pre-registered correct
-catch on an unrelated render token) then read it from FLIGHT and from the tracking station. Both
-loop lanes are ARMED off their own bytes. Gilly is e = 0.55, i = 12 deg, SOI 126,123.27 m =
+catch on an unrelated render token) then read it from FLIGHT and from the tracking station.
+**BOTH LANES ARE ARMED OFF THEIR OWN BYTES AND HAVE CLOSED THE FULL THREE-RUN DISCIPLINE**:
+armed re-flights `2026-08-19_1808` (V15M) and `2026-08-19_1809` (V15T), both PASS attempt 1 with
+every gated window green, plus ONE negative control `2026-08-19_1810` across the pair (a
+temporary `supersedeRows = { min = 1 }` on V15M, correctly PARSEK-FAIL(save-structure),
+reverted). So every digit below is a CONTRACT re-tested on a second flight, not a single
+reading - the same standard section 7 applies to the Ike measurement. Gilly is e = 0.55, i = 12 deg, SOI 126,123.27 m =
 **0.40 % of its orbital radius** - smaller than Pol's 0.58 % and Bop's 0.95 %, i.e. the stock
 system's most extreme case of exactly the shape the outer Jool moons have.
 
@@ -667,8 +672,10 @@ jump UT moved at arming.
 
 Both routing lines are now REQUIRED tokens on both V15 lanes (the whole
 `method=single-orbital ... zeroDrift=no` conjunction on one line, plus `Orbital(Gilly)
-same-parent` and `support=Supported`), and the re-aim trio is FORBIDDEN on both - so this is a
-contract, not an archived digit, exactly as section 7 describes for V14M.
+same-parent` and `support=Supported`), and the re-aim trio is FORBIDDEN on both - **and the
+armed re-flights `_1808` / `_1809` re-flew the identical shapes with every one of those pinned
+and passed attempt 1**. So this is a contract re-tested on a second flight, not an archived
+digit, exactly as section 7 describes for V14M.
 
 ### 9.2 The tolerance, measured where it is tightest
 
@@ -696,9 +703,18 @@ there - it is where MechJeb's transfer window put it, 34 % of the way up Gilly's
 
 i.e. the lens evaluated the replayed Eve->Gilly SOI-entry endpoint at the re-anchored epoch and
 found it still INSIDE Gilly's 126,123 m SOI. That is the falsifiable form of "the phase lock is
-exact" at the tightest tolerance the stock system can offer, and it is now an ARMED token on
-V15M (`evaluated=[1-9]\d* outsideSoi=0`) rather than a reading - a GS-3-style regression floor.
-Read it with 9.3's limit attached: **it is a k = 1 result.**
+exact" at the tightest tolerance the stock system can offer.
+
+**IT IS NOW AN ARMED REGRESSION FLOOR, AND IT HAS BEEN RE-TESTED.** `V15M` requires
+`seam-endpoint summary evaluated=[1-9]\d* outsideSoi=0` (the measuring form, value pinned) and
+`V15T` requires the presence form `evaluated=\d+ outsideSoi=\d+` (its TS dwell parks the drive
+clock inside the recording's last segment and reads the structural `evaluated=0
+skip.no-cross-body-successor=1`, so a value pin there would red on a legitimate zero). Both
+survived their armed re-flights. A change that starts putting the replayed SOI-entry point
+OUTSIDE the moon now reds a lane and forces a re-read - which is the whole point of arming a
+value rather than a presence, and it is the GS-3 precedent.
+
+Read it with 9.3's limit attached: **it is a k = 1 result, on both lanes.**
 
 WHY THIS MATTERS TO THE BOP/POL ROWS. Section 3.1's eccentricity note said the Bop/Pol
 tolerances "carry that uncertainty"; 9.2 shows what the uncertainty looks like when it is
@@ -719,26 +735,42 @@ V15M was designed to compare the census at CYCLE 1 against CYCLE 2 - the direct 
 not be read.** The run emitted the `seam-endpoint summary` and the `faithful-parity summary`
 exactly ONCE each, at cycle 1; there is no cycle-2 emission of either in the log.
 
-THE MECHANISM, named rather than guessed: both lenses log through `VerboseRateLimited` on a
-SHARED process-global key. Every `TimeJump` is an instantaneous Planetarium clock set, so the
-388,587 game-seconds between the two cycles cost NO wall time - the two arrival brackets are
-~1.4 WALL-seconds apart (cycle-1 summaries at 20:37:42.015, the cycle-2 bracket at
-20:37:43.4). The cycle-2 emission therefore lands inside the limiter window the cycle-1 emission
-already spent and is dropped. This is the V6M `probe frame summary is NOT pinnable` precedent,
-now measured on a different lens and with the cause identified.
+THE MECHANISM, named precisely - and NOT a regression of a fix that already exists. Both lenses
+log through `ParsekLog.VerboseRateLimited(..., 5.0)`. The 2026-08-14 `line-blink-census` work
+already CLASS-SPLIT the census key into `seam-endpoint-summary-measured` / `-skip-only`, so that
+a skip-only pass can no longer shadow a measuring one
+(`docs/dev/todo-and-known-bugs.md` -> SEAM-ENDPOINT-CENSUS-UNREADABLE-ON-A-SHORT-LANE), and
+**that split is visibly working here**: every V15M run prints BOTH classes (`evaluated=1
+outsideSoi=0` and `evaluated=0 ... skip.body-mismatch=1`). What the split deliberately left
+alone is the 5.0 s limiter WITHIN a class - correct for every lane that has ONE arrival. A
+multi-cycle lane has TWO, both in the measuring class.
+
+Why the window is so easy to hit: every `TimeJump` is an instantaneous Planetarium clock set, so
+the 388,587 GAME-seconds between the two cycles cost NO wall time - the two arrival brackets are
+~1.4 WALL-seconds apart (cycle-1 summaries at 20:37:42.015, the cycle-2 bracket at 20:37:43.4).
+The cycle-2 measuring pass therefore lands inside the window the cycle-1 measuring pass already
+spent, and is dropped. This is the V6M `probe frame summary is NOT pinnable` precedent one layer
+in: a per-pass summary on a per-CLASS key is unreadable TWICE inside one fast-stepped run.
+
+MEASURED ON ALL THREE V15M RUNS (`_1736` reading, `_1808` armed, `_1810` control): exactly two
+census lines each, byte-identically, and never a cycle-2 measuring pass. Filed as a second,
+different case under the entry above.
 
 **WHAT IT BOUNDS.** Everything this document can currently say about single-moon phase-lock
-recurrence is a **k = 1** statement. The k > 1 behaviour - whether a residual accumulates, and
+recurrence is a **k = 1** statement - and that is now true of an ARMED contract on two lanes
+rather than of a single reading, which makes the gap harder to notice and therefore worth
+stating this loudly. The k > 1 behaviour - whether a residual accumulates, and
 whether it accumulates linearly - is exactly what sections 3.3 and 3.4 reason about
 arithmetically for the Jool lattice and exactly what the Bop/Pol "cannot possibly fit" argument
 would need if it were ever marginal. There is no measurement of it, at any body.
 
 THREE RECOURSES, in increasing cost (recorded in `V15M-gilly-player-loop.toml` header 2b):
 
-1. **Wall-space the brackets.** A variant inserting > 10 wall-seconds between the cycle-1 and
-   cycle-2 arrival brackets (`RecordingState` spacers are the established instrument - V8 used
-   them to re-pace a bracket for a different reason) puts the second emission outside the
-   limiter window. Cheapest; changes pacing only, not the measurement.
+1. **Wall-space the brackets.** A variant inserting > 5 wall-seconds (10 for margin) between
+   the cycle-1 and cycle-2 arrival brackets (`RecordingState` spacers are the established
+   instrument - V8 used them to re-pace a bracket for the line-blink straddle) puts the second
+   emission outside the limiter window. Cheapest; changes pacing only, not the measurement, and
+   costs log volume on NO other lane - which is why it is preferred over a per-cycle key.
 2. **Use a different lens.** The engine's per-frame `engine-frame-iter` / map-render truth lines
    are emitted per ghost per cycle and are what 9.4's separation reading came off. They carry
    POSITION, not the census verdict, so this is a reconstruction rather than a read.
@@ -783,7 +815,15 @@ TWO SIDE MEASUREMENTS FROM THE SAME RUN, both filed rather than analysed here:
 - **306 stock NREs on every frame from the cycle-boundary camera fallback to scene end**, filed
   as `docs/dev/todo-and-known-bugs.md` -> WATCH-LOOPED-PARK-TARGET-LOSS-NRE-STORM. Report-only,
   no Parsek frame in any stack, and the only run in the suite that has ever held watch mode
-  across a loop-cycle boundary - which is the plausible trigger.
+  across a loop-cycle boundary - which is the plausible trigger. REPRODUCED on the armed
+  re-flight at 443 against 447, a 0.9 % spread on a byte-identical shape.
+- **One INTERMITTENT `line-blink` raise at the CYCLE-2 PARK epoch** (control run `_1810`, 1-of-3
+  across the three V15M runs), on the ghost's Gilly proto orbit line, dark edge, with the OFF
+  decided by `director-traced-path-suppress` - a case the window-exit exemption deliberately
+  does not cover, so the detector behaved as documented. Filed as the 14th archived raise under
+  LINE-BLINK-JUMP-STRADDLE-DETECTOR-GAP. It is noted HERE because the shape is a consequence of
+  9.4's geometry: at the cycle-2 park the ghost is 115.6 km away and the Director's TracedPath
+  takes the leg, which is a handoff the cycle-1 park (775 m) never performs.
 
 ### 9.5 Effect on the recommendation (section 6): IT STANDS
 
@@ -793,7 +833,8 @@ Nothing here moves the verdict, and the two halves move in opposite directions b
   exactly, for P2 single-moon" is now measured at TWO parents and across the full eccentricity
   range the stock system offers - e = 0.03 at Ike and e = 0.55 at Gilly, with the tightest duty
   cycle in the game - and it produced `residual=0`, cadence = one P and a census reading of
-  `outsideSoi=0`. THE QUALIFIER: **at k = 1**. Section 9.3 is the reason that qualifier now
+  `outsideSoi=0`, all of it now ARMED as required tokens on two lanes and re-tested green on
+  their armed re-flights. THE QUALIFIER: **at k = 1**. Section 9.3 is the reason that qualifier now
   appears, and it applies to the Ike measurement retroactively too (V14M's shape has the same
   pacing and the same shared limiter key, so its cycle-2 census was equally unread).
 - **Bullet 2 is untouched.** The outer-moon impossibility rests on 7.4x and 1000x margins that a

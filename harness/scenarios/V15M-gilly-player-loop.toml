@@ -166,15 +166,27 @@ id = "V15M-gilly-player-loop"
 # disappointment. Run 1 emitted the seam-endpoint (and faithful-parity) summary exactly
 # ONCE, at cycle 1. There is no cycle-2 summary in the log at all.
 #
-# THE MECHANISM, named rather than guessed: both summaries are `VerboseRateLimited` on a
-# shared process-global key. This lane's two arrival brackets are ~1.4 wall-seconds
-# apart (cycle-1 summaries at 20:37:42.015, the cycle-2 bracket at 20:37:43.4), because
-# every TimeJump is an INSTANTANEOUS clock set - the 388,587 game-seconds between the
-# cycles cost no wall time whatsoever. So the cycle-2 emission lands inside the
-# rate-limiter's window for a key the cycle-1 emission already spent, and is dropped.
-# This is the V6M `probe frame summary is NOT pinnable` precedent, now measured on a
-# DIFFERENT lens: any per-frame summary on a shared key is unreadable twice inside one
-# fast-stepped run.
+# THE MECHANISM, named precisely, because a coarser version of it was already FOUND AND
+# FIXED and this is NOT a regression of that fix. Both summaries ride
+# `ParsekLog.VerboseRateLimited(..., 5.0)`. The 2026-08-14 `line-blink-census` work
+# CLASS-SPLIT the census key into `seam-endpoint-summary-measured` /
+# `-skip-only` so a skip-only pass can no longer shadow a measuring one
+# (docs/dev/todo-and-known-bugs.md -> SEAM-ENDPOINT-CENSUS-UNREADABLE-ON-A-SHORT-LANE),
+# and THAT SPLIT IS VISIBLY WORKING HERE: this run prints BOTH classes
+# (`evaluated=1 outsideSoi=0` at 10831 and `evaluated=0 ... skip.body-mismatch=1` at
+# 11016). What the split deliberately did NOT change is the 5.0 s limiter WITHIN a
+# class - correct for every lane that has ONE arrival, and this lane has TWO. Both
+# cycles' measuring passes fall in the same class inside one window, so the second is
+# dropped.
+# WHY THE WINDOW IS SO EASY TO HIT HERE: the two arrival brackets are ~1.4 WALL-seconds
+# apart (cycle-1 summaries at 20:37:42.015, the cycle-2 bracket at 20:37:43.4) because
+# every TimeJump is an INSTANTANEOUS clock set - the 388,587 GAME-seconds between the
+# cycles cost no wall time whatsoever. This is the V6M `probe frame summary is NOT
+# pinnable` precedent one layer in: a per-pass summary on a per-class key is unreadable
+# TWICE inside one fast-stepped run.
+# MEASURED ON ALL THREE RUNS of this lane (`_1736` reading, `_1808` armed, `_1810`
+# control): exactly two census lines each, byte-identically, never a cycle-2 measuring
+# pass. Filed as a second case under the entry above.
 #
 # WHAT THAT COSTS, stated exactly: the `outsideSoi` reading below is a CYCLE-1 reading.
 # The k=2 half of section 2's argument - where the error budget halves and a residual
@@ -182,11 +194,12 @@ id = "V15M-gilly-player-loop"
 # `outsideSoi=0` token as a two-cycle result.
 #
 # THE OPERATOR RECOURSE, in increasing cost, for whoever wants the k=2 reading:
-#   (1) SPACE THE BRACKETS. A variant inserting >10 wall-seconds between the cycle-1
-#       and cycle-2 arrival brackets (RecordingState spacers are the established
-#       instrument - V8 used them to re-pace a bracket for a different reason) puts the
-#       second emission outside the limiter window. Cheapest, and it changes no
-#       measurement, only its pacing.
+#   (1) SPACE THE BRACKETS. A variant inserting >5 wall-seconds (10 for margin) between
+#       the cycle-1 and cycle-2 arrival brackets (RecordingState spacers are the
+#       established instrument - V8 used them to re-pace a bracket for the line-blink
+#       straddle) puts the second emission outside the limiter window. Cheapest, it
+#       changes no measurement - only its pacing - and it costs log volume on NO other
+#       lane, which is why it is preferred over a per-cycle key.
 #   (2) READ THE ENGINE'S OWN PER-FRAME LINES instead of the summary. The
 #       `engine-frame-iter` / map-render truth lines are emitted per ghost per cycle and
 #       are what this run's 775 m -> 115.6 km separation reading came off; they carry
@@ -431,6 +444,11 @@ id = "V15M-gilly-player-loop"
 # its two green flights of the identical shape counted 1 and 5 raw NREs. 447 is a much
 # larger population and the difference is worth a look, but ONE reading does not size a
 # ceiling either, so this lane declines the same way: recorded here, nothing armed.
+# REPRODUCED ON THE ARMED RE-FLIGHT: `2026-08-19_1808` read **443** against the reading
+# run's 447 on a byte-identical shape - a 0.9% spread, which is what a per-frame rate
+# times a slightly different frame count looks like, and which is ALSO the argument
+# against a ceiling (447 admits both only if set above it, i.e. bounds nothing; 447 as a
+# ceiling reds the armed run).
 # THE FILED ENTRY SHARPENS IT past what fits in a spec header: ZERO NREs over the ~190 ms
 # between the watch entry and the cycle-2 re-arm, then 3-4 per frame for the remaining
 # 1.26 s, starting on the SAME timestamp as `Watched cycle lost`; no Parsek frame in any
@@ -470,9 +488,32 @@ id = "V15M-gilly-player-loop"
 # Both save-structure blocks are registered in `ARMED_ALLOWLIST`
 # (harness/lib/test_hlib.py) with this run cited.
 #
-# WHAT STILL OWES A RUN: the armed re-flight, and the pair's negative control. The V14
-# quartet flew ONE inversion across lanes that share the saveParse evaluator (the V4/V5
-# precedent), and the V15 pair should do the same rather than two.
+# DISCIPLINE COMPLETE 2026-08-19. ARMED RE-FLIGHT `2026-08-19_1808`: PASS attempt 1,
+# all 12 required tokens matched, all 6 forbidden absent, count {1,1}, and BOTH gated
+# save-structure blocks PASS (`saveParse status=PASS gating=True mismatches=[]`). It also
+# reproduced the NRE storm at 443 (section 5).
+# NEGATIVE CONTROL `2026-08-19_1810`, the pair's SINGLE shared inversion (the V4/V5/V14
+# precedent - V15M and V15T gate through the one saveParse evaluator, so one inversion
+# across both rather than two): a TEMPORARY `supersedeRows = { min = 1 }` on this spec
+# red correctly with `saveParse FAIL gating=True
+# mismatches=['rewind.supersedeRows 0 < min 1']` -> PARSEK-FAIL(save-structure). The
+# mutation was reverted immediately; THE COMMITTED SPEC IS THE ARMED ONE.
+#
+# ONE BONUS READING FROM THE CONTROL RUN, and it is kept because it is a real finding
+# rather than an artefact of the mutation: that run ALSO swept
+# `hits=['line-blink'] hitCounts={'line-blink': 1}` - NOT `icon-off-orbit`, so the
+# stepped-shape control claim this lane makes for the V15T anomaly is untouched. The
+# raise is at the CYCLE-2 PARK epoch on the ghost's Gilly proto orbit line, dark edge,
+# `sinceFrames=8` (exactly `LineBlinkFrameWindow`), OFF decision
+# `director-traced-path-suppress` - a case the window-exit exemption DELIBERATELY does
+# not cover, so the detector behaved as documented. IT IS INTERMITTENT, 1-of-3: runs
+# `_1736` and `_1808` of the identical shape swept clean.
+# WHAT THAT MEANS FOR THIS SPEC: `allowedAnomalies` STAYS `[]`. A future run of this lane
+# that reds on `line-blink` is a REAL READING to be read, not retried away - and
+# `retry = once` WILL spend an attempt on it when it fires. That is priced here, not
+# dodged. Full account + the candidate one-frame ownership/paint lag:
+# docs/dev/todo-and-known-bugs.md -> LINE-BLINK-JUMP-STRADDLE-DETECTOR-GAP, "THE 14TH
+# RAISE".
 #
 # WHAT ARMING DELIBERATELY DID NOT DO: pin the 447-NRE population (section 5), arm an
 # anomaly ceiling (nothing raised), claim a watch-mode cell (no registry cell for plain
@@ -480,7 +521,7 @@ id = "V15M-gilly-player-loop"
 # claim it cannot support (section 2b).
 # =====================================================================================
 tier = "operator"
-description = "LIVE-PROVEN AND ARMED off its own reading run 2026-08-19_1736 (PASS attempt 1, all 21 steps met, anomalySweep hits=[], recordings 1, every rewind facet 0). The player workflow (arm -> Warp-to -> cross the arrival -> Watch), twice over, on B24's Eve->Gilly recording. THE ROUTING PREDICTION HELD at the second orbit-rooted subject: `ExtractConstraints ... members=1 launchBody=Eve constraints=1 [Orbital(Gilly) same-parent P=388587.37684792886 off=114979.43693914078]` and `PhaseLock APPLIED ... method=single-orbital ... fixedCadenceResidual=0 zeroDrift=no`, with cycle 2 landing at exactly cycle 1 + one P - so an orbit-rooted single-moon subject reaching single-orbital BY CONSTRUCTION is now measured twice, at two parents. The derived anchor agreed with the product to 0.041 s and no jump UT moved. IT ALSO INVERTED EVERY PRIOR LOOP LANE'S WATCH PREDICTION AND WAS RIGHT: the cycle-1 EnterWatchMode is a GENUINE ENTRY at a 775 m ghost separation - only the suite's second ever, after V7M's, and the first at a non-Kerbin parent - while the cycle-2 step answered `already-watching`, measuring idempotency and survival across a loop re-arm rather than a second entry. TWO LIMITATIONS ARE MEASURED AND WRITTEN INTO THE HEADER: the seam-endpoint census fired ONCE (cycle 1, `evaluated=1 outsideSoi=0`) because both summaries are VerboseRateLimited on a shared key and this lane's two brackets are ~1.4 wall-s apart, so the cycle-1-vs-cycle-2 comparison the lane was designed around is NOT readable from one run; and the ghost-to-observer separation walked 775 m -> 115.6 km between cycles, which is co-orbital phase (neither the observer's ~17,244 s park nor Gilly's 28,255 s rotation is commensurate with the 388,587 s cadence), NOT a ghost-vs-moon desync. Report-only and not armed: 447 NullReferenceExceptions during the watched stretch, the same family as V7M's filed teardown NRE."
+description = "LIVE-PROVEN AND ARMED on the full three-run discipline: reading 2026-08-19_1736 (PASS attempt 1, all 21 steps met, anomalySweep hits=[], recordings 1, every rewind facet 0). The player workflow (arm -> Warp-to -> cross the arrival -> Watch), twice over, on B24's Eve->Gilly recording. THE ROUTING PREDICTION HELD at the second orbit-rooted subject: `ExtractConstraints ... members=1 launchBody=Eve constraints=1 [Orbital(Gilly) same-parent P=388587.37684792886 off=114979.43693914078]` and `PhaseLock APPLIED ... method=single-orbital ... fixedCadenceResidual=0 zeroDrift=no`, with cycle 2 landing at exactly cycle 1 + one P - so an orbit-rooted single-moon subject reaching single-orbital BY CONSTRUCTION is now measured twice, at two parents. The derived anchor agreed with the product to 0.041 s and no jump UT moved. IT ALSO INVERTED EVERY PRIOR LOOP LANE'S WATCH PREDICTION AND WAS RIGHT: the cycle-1 EnterWatchMode is a GENUINE ENTRY at a 775 m ghost separation - only the suite's second ever, after V7M's, and the first at a non-Kerbin parent - while the cycle-2 step answered `already-watching`, measuring idempotency and survival across a loop re-arm rather than a second entry. TWO LIMITATIONS ARE MEASURED AND WRITTEN INTO THE HEADER: the seam-endpoint census fired ONCE (cycle 1, `evaluated=1 outsideSoi=0`) because both summaries are VerboseRateLimited on a shared key and this lane's two brackets are ~1.4 wall-s apart, so the cycle-1-vs-cycle-2 comparison the lane was designed around is NOT readable from one run; and the ghost-to-observer separation walked 775 m -> 115.6 km between cycles, which is co-orbital phase (neither the observer's ~17,244 s park nor Gilly's 28,255 s rotation is commensurate with the 388,587 s cadence), NOT a ghost-vs-moon desync. Report-only and not armed: 447 NullReferenceExceptions during the watched stretch, the same family as V7M's filed teardown NRE. DISCIPLINE COMPLETE: armed re-flight 2026-08-19_1808 (PASS attempt 1, all 12 required and 6 forbidden met, count {1,1}, both gated save-structure blocks PASS, and the NRE storm reproducing at 443 against 447 - a 0.9% spread on a byte-identical shape, which is what a pacing-dependent per-frame rate looks like); negative control 2026-08-19_1810, the pair's SINGLE shared inversion (a temporary supersedeRows={min=1}, correctly PARSEK-FAIL(save-structure) on mismatches=['rewind.supersedeRows 0 < min 1'], reverted). ONE BONUS FINDING from the control run, kept strict: it also swept hits=['line-blink'] - NOT icon-off-orbit, so this lane's stepped-shape control claim is untouched - at the cycle-2 park epoch on the ghost's Gilly proto orbit line, dark edge, sinceFrames=8 with the OFF decided by director-traced-path-suppress, a case the window-exit exemption deliberately does not cover. It is INTERMITTENT 1-of-3 (the reading and armed runs swept clean). allowedAnomalies STAYS [], so a future red on line-blink is a real reading to be read rather than retried away, and retry=once will spend an attempt when it fires - priced, not dodged."
 instanceProfile = "stock-minimal"
 tags = ["V15", "player-loop", "watch-mode", "loop-playback", "phase-lock", "single-orbital",
         "gilly", "eve", "same-parent", "moon", "eccentric-moon", "flown"]

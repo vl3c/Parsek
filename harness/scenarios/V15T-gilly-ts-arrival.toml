@@ -221,13 +221,21 @@ id = "V15T-gilly-ts-arrival"
 # Both save-structure blocks are registered in `ARMED_ALLOWLIST`
 # (harness/lib/test_hlib.py) with this run cited.
 #
-# WHAT STILL OWES A RUN: the armed re-flight (which will also produce this lane's FIRST
-# GREEN `hitCounts` reading, the precondition for ever arming the anomaly ceiling), and
-# the pair's negative control - ONE inversion shared with V15M, not two, because the two
-# lanes gate through the single shared saveParse evaluator (the V4/V5/V14 precedent).
+# DISCIPLINE COMPLETE 2026-08-19. ARMED RE-FLIGHT `2026-08-19_1809`: PASS attempt 1, all
+# 13 required tokens matched, all 6 forbidden absent, count {1,1}, both gated
+# save-structure blocks PASS (`saveParse status=PASS gating=True mismatches=[]`), and the
+# tolerated anomaly RECURRING at `hits=[] counts={'icon-off-orbit': 1}` - which upgrades
+# the Gilly sighting from one observation to a deterministic property here too, and
+# supplies this lane's FIRST GREEN `hitCounts` baseline (see the allowedAnomalies block:
+# the ceiling's precondition is now met on both lanes and only the whole-set invariant
+# still blocks it). Two NullReferenceExceptions, report-only.
+# NEGATIVE CONTROL: shared with V15M (`2026-08-19_1810`, a temporary
+# `supersedeRows = { min = 1 }` on that spec, correctly PARSEK-FAIL(save-structure),
+# reverted). ONE inversion across the pair, not two, because both lanes gate through the
+# single shared saveParse evaluator (the V4/V5/V14 precedent).
 # =====================================================================================
 tier = "operator"
-description = "FLOWN AND ARMED off its own reading run 2026-08-19_1739 - PARSEK-FAIL(anomaly) attempt 1 with ALL SIXTEEN STEPS GREEN, which is the CORRECT catch this spec pre-registered rather than a lane defect. The tracking-station half of the Gilly player-loop pair: arm the loop and jump 140 s past the derived cycle-1 Eve->Gilly SOI seam in FLIGHT, SaveGame, then re-enter through LoadGame scene=trackstation and dwell with mapRenderTracing armed. MEASURED AND NOW REQUIRED: `Orbital(Gilly) same-parent` + `support=Supported` + `PhaseLock APPLIED ... method=single-orbital ... zeroDrift=no` (the routing prediction held at a second orbit-rooted subject), `reaimed=False` with `faithfulFallback=False` (faithful by route, not by fallback), the R12 trackstation route pair, `created 1 ghost vessel(s)`, and a `body=Gilly scene=TRACKSTATION` proto icon at 41.4 km from Gilly's centre - inside a 126,123 m SOI whose recorded destination phase is only 381.490 s wide, which is the epoch precision this lane demands. THE RED IS THE HEADLINE: one `icon-off-orbit` on the ghost-proto creation frame in FLIGHT after the single TimeJump, angleIconVsOrbitEff=26.49 deg with iconR == orbitEffR - structurally identical to V14T's Ike raise, so the single-jump creation-frame trigger is now MEASURED PARENT-INDEPENDENT (two parents, two moons, SOI scales 8.3x apart, deterministic at both, with V15M the stepped-bracket control at the same arrival UT). The one new fact is that the magnitude is NOT constant: 26.49 deg here vs 94.05 at Ike. Tolerated by the BARE token per S1.4 and filed report-only; the ceiling stays deferred because this lane has no green hitCounts reading yet."
+description = "LIVE-PROVEN AND ARMED on the full three-run discipline: reading 2026-08-19_1739 - PARSEK-FAIL(anomaly) attempt 1 with ALL SIXTEEN STEPS GREEN, which is the CORRECT catch this spec pre-registered rather than a lane defect. The tracking-station half of the Gilly player-loop pair: arm the loop and jump 140 s past the derived cycle-1 Eve->Gilly SOI seam in FLIGHT, SaveGame, then re-enter through LoadGame scene=trackstation and dwell with mapRenderTracing armed. MEASURED AND NOW REQUIRED: `Orbital(Gilly) same-parent` + `support=Supported` + `PhaseLock APPLIED ... method=single-orbital ... zeroDrift=no` (the routing prediction held at a second orbit-rooted subject), `reaimed=False` with `faithfulFallback=False` (faithful by route, not by fallback), the R12 trackstation route pair, `created 1 ghost vessel(s)`, and a `body=Gilly scene=TRACKSTATION` proto icon at 41.4 km from Gilly's centre - inside a 126,123 m SOI whose recorded destination phase is only 381.490 s wide, which is the epoch precision this lane demands. THE RED IS THE HEADLINE: one `icon-off-orbit` on the ghost-proto creation frame in FLIGHT after the single TimeJump, angleIconVsOrbitEff=26.49 deg with iconR == orbitEffR - structurally identical to V14T's Ike raise, so the single-jump creation-frame trigger is now MEASURED PARENT-INDEPENDENT (two parents, two moons, SOI scales 8.3x apart, deterministic at both, with V15M the stepped-bracket control at the same arrival UT). The one new fact is that the magnitude is NOT constant: 26.49 deg here vs 94.05 at Ike. Tolerated by the BARE token per S1.4 and filed report-only; the ceiling stays deferred because this lane has no green hitCounts reading yet. DISCIPLINE COMPLETE: armed re-flight 2026-08-19_1809 (PASS attempt 1, all 13 required and 6 forbidden met, count {1,1}, both gated save-structure blocks PASS, and the tolerated anomaly RECURRING at hits=[] counts={'icon-off-orbit': 1} - the THIRD deterministic sighting of the trigger across two body pairs, and this lane's first GREEN hitCounts baseline, which means the maxCount=1 ceiling's stated precondition is now met on BOTH V14T and V15T and only the whole-set inert-budget invariant still blocks it); negative control shared with V15M (2026-08-19_1810), one inversion across the pair rather than two."
 instanceProfile = "stock-minimal"
 tags = ["V15", "tracking-station", "loop-arrival", "phase-lock", "single-orbital",
         "gilly", "eve", "same-parent", "moon", "eccentric-moon", "map-render",
@@ -341,11 +349,17 @@ D14 = ["gilly", "scene-ts", "sandbox"]
 #       spec may arm one. Arming it means moving that invariant cell to a named
 #       allowlist in the same edit.
 #   (2) That cell's own words say arming one is "an operator decision taken against
-#       measured `anomalySweep.hitCounts` from a GREEN run" - and THIS LANE HAS NO GREEN
-#       RUN AT ALL YET. V14T at least has one (`2026-08-19_0002`, PASS,
-#       counts={'icon-off-orbit': 1}); this lane's armed re-flight is still owed, so
-#       even the precondition is unmet. When the ceiling is finally armed it should be
-#       armed for BOTH lanes in one edit, since they are the same trigger.
+#       measured `anomalySweep.hitCounts` from a GREEN run". THAT PRECONDITION IS NOW
+#       MET - and on BOTH lanes, which is what changes the decision from "cannot" to
+#       "not yet taken". The armed re-flight `2026-08-19_1809` is a PASS carrying exactly
+#       the reading the doctrine asks for:
+#           anomalySweep status=PASS hits=[] counts={'icon-off-orbit': 1}
+#       i.e. the tolerance working (`hits=[]`) over a raw tally that reads ONE AGAIN -
+#       the THIRD deterministic sighting of this trigger, across two body pairs (Ike
+#       twice on V14T, Gilly once here), with the stepped-bracket controls silent on all
+#       four of their runs. V14T's own green baseline is `2026-08-19_0002`.
+#       SO ONLY (1) STILL BLOCKS IT, and when it is taken it should cover BOTH lanes in
+#       one edit: same trigger, same evidence, same population of exactly 1.
 # Until then the tolerance is bare and the ceiling lives in this comment.
 #
 # THE SWEEP STAYS OTHERWISE ARMED: every other Tier-C token still reds, and
