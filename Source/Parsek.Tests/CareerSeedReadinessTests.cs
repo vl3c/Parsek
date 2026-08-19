@@ -103,10 +103,15 @@ namespace Parsek.Tests
                 "before the yield sees whichever currency modules happen to precede Parsek's " +
                 "in the save and seeds only those.");
 
-            Assert.Contains("AllCurrencySingletonsPresent()", body);
-            Assert.DoesNotContain(
-                "&& Funding.Instance == null\n                   && ResearchAndDevelopment.Instance == null",
-                body.Replace("\r\n", "\n"));
+            // Anchor the LOOP CONDITION itself, not just any mention of the helper: the
+            // diagnostic line below the loop also calls AllCurrencySingletonsPresent(), so a
+            // bare Assert.Contains stays green even if the wait is rewritten to spin on
+            // Funding alone - which is the original defect.
+            string waitLine = FindNormalizedLineContaining(body, "while (maxWait-- > 0");
+            Assert.False(waitLine == null,
+                "DeferredSeedAndRecalculate must keep a bounded 'while (maxWait-- > 0 ...)' " +
+                "singleton wait");
+            Assert.Contains("!AllCurrencySingletonsPresent()", waitLine);
         }
 
         [Fact]
@@ -155,6 +160,25 @@ namespace Parsek.Tests
                 "GameEvents.onVesselRecoveryProcessingComplete.Remove(OnVesselRecoveryProcessingComplete);"));
         }
 
+        [Fact]
+        public void RecoveryProcessingCompletion_HandlerActuallyRefreshesThePayout()
+        {
+            // Wiring alone is not the contract. Gutting the handler body, or dropping just the
+            // refresh call, leaves the subscription gate green while the zero-payout /
+            // below-threshold suppression silently regresses to permanent-unknown - every
+            // such recovery would then queue a pending request that never pairs.
+            string body = ReadMethodBody(
+                "private void OnVesselRecoveryProcessingComplete(",
+                "private void OnVesselRecovered(");
+
+            Assert.Contains("RecoveryPayoutContextStore.TryRefreshPayoutFromCompletion(", body);
+            Assert.Contains("recoveryDialog.fundsEarned", body);
+            Assert.Contains("recoveryDialog.beforeMissionFunds", body);
+            Assert.Contains("recoveryDialog.totalFunds", body);
+            // KSP fires completion with a null dialog on its early-out and `quick` paths.
+            Assert.Contains("if (recoveryDialog == null) return;", body);
+        }
+
         // ------------------------------------------------------------------
 
         private static string ReadParsekScenarioSource()
@@ -182,6 +206,26 @@ namespace Parsek.Tests
             Assert.True(end > start,
                 $"end anchor '{endAnchor}' not found after '{signature}'");
             return source.Substring(start, end - start);
+        }
+
+        /// <summary>
+        /// Returns the first line containing <paramref name="marker"/> with runs of whitespace
+        /// collapsed, so a gate can assert on a condition that may be wrapped across lines or
+        /// re-indented. Null when no line matches.
+        /// </summary>
+        private static string FindNormalizedLineContaining(string body, string marker)
+        {
+            string[] lines = body.Replace("\r\n", "\n").Split('\n');
+            for (int i = 0; i < lines.Length; i++)
+            {
+                if (lines[i].IndexOf(marker, StringComparison.Ordinal) < 0)
+                    continue;
+
+                // Fold the following line in too: a long condition is commonly wrapped.
+                string joined = lines[i] + " " + (i + 1 < lines.Length ? lines[i + 1] : "");
+                return System.Text.RegularExpressions.Regex.Replace(joined, @"\s+", " ").Trim();
+            }
+            return null;
         }
 
         private static int EarliestIndexOf(string haystack, params string[] needles)

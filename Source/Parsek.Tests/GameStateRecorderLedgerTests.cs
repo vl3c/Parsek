@@ -2456,6 +2456,95 @@ namespace Parsek.Tests
             Assert.False(unknown.HasFundsEarned);
         }
 
+        [Fact]
+        public void TryRefreshPayoutFromCompletion_SamePidSameUt_FillsTheNewestContext()
+        {
+            // Two recoveries of the same craft inside the match window carry the same pid and
+            // the same UT, so FindBestIndex resolves them purely on its tie-break. The refresh
+            // must reach the context Remember just added, not the older sibling - see the
+            // "LOAD-BEARING PAIR" comment on RecoveryPayoutContextStore.FindBestIndex.
+            var identity = RecoveredVesselIdentity.FromRawName("Tie Probe");
+            var older = RecoveryPayoutContextStore.Remember(
+                persistentId: 900,
+                rawVesselName: "Tie Probe",
+                vesselType: VesselType.Ship,
+                ut: 600.0,
+                recoveryFactor: 1.0f,
+                hasFundsEarned: true,
+                fundsEarned: 0.0,
+                beforeMissionFunds: 1000.0,
+                totalFunds: 0.0);
+            var newer = RecoveryPayoutContextStore.Remember(
+                persistentId: 900,
+                rawVesselName: "Tie Probe",
+                vesselType: VesselType.Ship,
+                ut: 600.0,
+                recoveryFactor: 1.0f,
+                hasFundsEarned: true,
+                fundsEarned: 0.0,
+                beforeMissionFunds: 1000.0,
+                totalFunds: 0.0);
+            Assert.False(older.HasFundsEarned);
+            Assert.False(newer.HasFundsEarned);
+
+            Assert.True(RecoveryPayoutContextStore.TryRefreshPayoutFromCompletion(
+                persistentId: 900,
+                identity: identity,
+                ut: 600.0,
+                fundsEarned: 300.0,
+                beforeMissionFunds: 1000.0,
+                totalFunds: 1300.0,
+                out RecoveryPayoutContext refreshed));
+
+            Assert.Same(newer, refreshed);
+            Assert.True(newer.HasFundsEarned);
+            Assert.False(older.HasFundsEarned);
+        }
+
+        [Fact]
+        public void BuildFundsEventDetail_UnknownExpectation_DoesNotPersistAStaleZero()
+        {
+            // The processing-seam context is structurally payout-unknown, and its detail is
+            // stamped onto the FundsChanged event before the completion refresh can fill it in.
+            // Persisting a raw fundsEarned=0 next to a real credit would read, forever, as
+            // "stock expected to pay nothing" - the exact misreading this lane fixed.
+            var unknown = RecoveryPayoutContextStore.Remember(
+                persistentId: 910,
+                rawVesselName: "Unknown Expectation Probe",
+                vesselType: VesselType.Ship,
+                ut: 620.0,
+                recoveryFactor: 1.0f,
+                hasFundsEarned: true,
+                fundsEarned: 0.0,
+                beforeMissionFunds: 1000.0,
+                totalFunds: 0.0);
+            Assert.False(unknown.HasFundsEarned);
+
+            string detail = RecoveryPayoutContextStore.BuildFundsEventDetail(unknown);
+            Assert.Contains("fundsEarned=(unknown)", detail);
+            Assert.DoesNotContain("fundsEarned=0", detail);
+
+            // The identity round-trip - the only thing anything actually parses back - is
+            // unaffected by the substitution.
+            Assert.True(RecoveryPayoutContextStore
+                .ExtractIdentityFromFundsEventDetail(detail)
+                .MatchesName("Unknown Expectation Probe"));
+
+            // A known expectation still prints its number.
+            var known = RecoveryPayoutContextStore.Remember(
+                persistentId: 911,
+                rawVesselName: "Known Expectation Probe",
+                vesselType: VesselType.Ship,
+                ut: 621.0,
+                recoveryFactor: 1.0f,
+                hasFundsEarned: true,
+                fundsEarned: 250.0,
+                beforeMissionFunds: 1000.0,
+                totalFunds: 1250.0);
+            Assert.True(known.HasFundsEarned);
+            Assert.Contains("fundsEarned=250", RecoveryPayoutContextStore.BuildFundsEventDetail(known));
+        }
+
         private static RecoveryPayoutContext MakeRecoveryPayoutContext(
             double ut,
             RecoveredVesselIdentity identity,

@@ -276,8 +276,34 @@ namespace Parsek
                    ";" + DetailRawVesselKey + "=" + Escape(context.Identity.RawName) +
                    ";" + DetailPidKey + "=" + context.PersistentId.ToString(ic) +
                    ";" + DetailVesselTypeKey + "=" + Escape(context.VesselType.ToString()) +
-                   ";" + DetailFundsEarnedKey + "=" + context.FundsEarned.ToString("R", ic) +
+                   ";" + DetailFundsEarnedKey + "=" + FormatExpectedFundsForDetail(context) +
                    ";" + DetailRecoveryFactorKey + "=" + context.RecoveryFactor.ToString("R", ic);
+        }
+
+        /// <summary>
+        /// Renders the detail's <c>fundsEarned</c> field, which is stock's EXPECTATION as of
+        /// the moment the event was stamped - not the amount actually paid (that is the
+        /// event's own <c>valueAfter - valueBefore</c>, and it is the only figure the ledger
+        /// ever uses).
+        ///
+        /// <para>
+        /// Writes the literal <c>(unknown)</c> rather than a raw <c>0</c> when the expectation
+        /// is not yet known. At the processing seam it is STRUCTURALLY zero - KSP has not
+        /// computed the payout when <see cref="Remember"/> runs (see
+        /// <see cref="FundsSnapshotIsAuthoritative"/>) - so a raw <c>0</c> would sit in the
+        /// persisted <c>events.pgse</c> of every recovery, permanently, next to a real
+        /// non-zero credit, and read to anyone debugging a collected save as "stock expected
+        /// to pay nothing here". That misreading is exactly the bug this file was changed to
+        /// fix; it should not survive in the artifact. Nothing parses this field back
+        /// (<see cref="ExtractIdentityFromFundsEventDetail"/> reads only the vessel keys), and
+        /// a future parser meets a token it must handle rather than a plausible zero.
+        /// </para>
+        /// </summary>
+        private static string FormatExpectedFundsForDetail(RecoveryPayoutContext context)
+        {
+            return context.HasFundsEarned
+                ? context.FundsEarned.ToString("R", CultureInfo.InvariantCulture)
+                : "(unknown)";
         }
 
         internal static bool TryBuildFundsEventDetail(double ut, out string detail)
@@ -429,6 +455,21 @@ namespace Parsek
             int bestIndex = -1;
             double bestDistance = double.MaxValue;
 
+            // LOAD-BEARING PAIR: tail-first iteration + STRICT `<`.
+            //
+            // Together they mean the NEWEST candidate wins a tie, and ties are the normal case
+            // here - two recoveries of the same craft inside the 5s window carry the same pid
+            // and often the same UT to the millisecond. TryRefreshPayoutFromCompletion depends
+            // on this to reach the context Remember just added for the craft currently being
+            // recovered, rather than an older sibling already stamped onto an earlier funds
+            // event.
+            //
+            // Flipping EITHER half silently redirects refreshes to the wrong context: iterating
+            // head-first, or relaxing to `<=`, both hand the tie to the OLDEST candidate. No
+            // assertion at the call site would catch it - the refresh would simply fill a stale
+            // context and leave the live one unknown - so change these two lines only together
+            // and only deliberately. Held by
+            // TryRefreshPayoutFromCompletion_SamePidSameUt_FillsTheNewestContext.
             for (int i = contexts.Count - 1; i >= 0; i--)
             {
                 var candidate = contexts[i];
