@@ -5024,6 +5024,19 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
         # armed. Promotion is the post-measurement re-pinning call, a recorded
         # human decision, not a debt this tag would name.
         "B23-ike-orbit.toml":               "calibration-discipline - LIVE-PROVEN 2026-08-18 on FLIGHT 2 (`_2308`, PASS attempt 1, wall 370.5 s): fresh standalone Duna-rooted tree, one Duna->Ike boundary, terminal Orbiting/Ike, produced save harvested as the committed `ike-orbit-recorded` fixture. FLIGHT 1 (`_2242`) was ALSO PASS attempt 1 on the same parameters and produced a structurally wrong subject (the seam StartRecording no-opped onto a re-resumed COMMITTED recording), which no verifier could see - fixed by the fixture, filed report-only. Nothing armed: the count window is still a derived range and no save-structure block is declared. Operator tier is now the ordinary promotion call plus the arming pass, not outstanding work",
+        # THE B24/V15 GILLY TRIO, all three FLOWN on 2026-08-19 and all three operator
+        # for the calibration discipline rather than for outstanding human work
+        # (V1/V2/B18-B21/B23 precedent). B24 flew first; the V15 pair was calibrated off
+        # its harvested bytes (the `PENDING_FIXTURE_LANES` exemption they needed while
+        # their fixture did not exist is retired, that map is empty again) and both
+        # lanes then flew their reading runs, were ARMED the same day off their own
+        # bytes, and CLOSED THE FULL THREE-RUN DISCIPLINE the same evening (armed
+        # re-flights `_1808` / `_1809`, one shared negative control `_1810`). Five
+        # flights, one day. Nothing is owed on any of the three but the ordinary
+        # operator -> nightly promotion call.
+        "B24-gilly-orbit.toml":             "calibration-discipline - LIVE-PROVEN 2026-08-19 (`_1655`, PASS attempt 1, mission wall 1,075 s, every assertion met with NOT ONE PARAMETER MOVED): `startrecording ... already=false` minting the fresh standalone Eve-rooted tree, one `Eve to Gilly` boundary, terminal Orbiting/Gilly, a 27,024 x 26,321 m Gilly park at ecc 0.009, saveParse 1 recording / 520 points / all rewind facets 0. Its produced save is the committed `gilly-orbit-recorded` fixture, and BOTH consumers have since flown and armed off it (V15M `_1736`, V15T `_1739`), which is the strongest confirmation the produced subject is structurally right. Nothing armed on THIS lane: the count window stays a derived range and no save-structure block is declared, because the fixture's structure is pinned where it is CONSUMED. Operator tier is now the ordinary promotion call, not outstanding work",
+        "V15M-gilly-player-loop.toml":      "calibration-discipline - READING RUN FLOWN GREEN 2026-08-19 (`_1736`, PASS attempt 1, all 21 steps met, all 8 TimeJumps OK, anomalySweep hits=[] hitCounts={}) and ARMED off its own bytes the same day: 12 required tokens incl. the MEASURED routing conjunction `method=single-orbital ... zeroDrift=no`, V14M's full six forbids, count pinned {1,1} and both save-structure blocks gating. THE DERIVED CALIBRATION HELD to 0.041 s against the product's own anchor and no jump UT moved. TWO MEASUREMENTS WORTH THE TIER: the cycle-1 EnterWatchMode is a GENUINE ENTRY at 775 m ghost separation - only the suite's second ever, after V7M's - while the cycle-2 step answered `already-watching` (idempotency + survival across a loop re-arm, NOT a second entry); and the seam-endpoint census fired ONCE because both lens summaries are VerboseRateLimited on a shared key and this lane's two brackets are ~1.4 wall-s apart, so the cycle-1-vs-cycle-2 comparison the lane was designed around is NOT readable from one run at this pacing (recorded as a measured limitation with three named recourses, no product change proposed). Report-only and deliberately unarmed: the NRE storm now filed as WATCH-LOOPED-PARK-TARGET-LOSS-NRE-STORM, 447 on the reading run and 443 on the armed one - the same family as V7M's filed teardown NRE, which V7M also declines to ceiling. DISCIPLINE COMPLETE 2026-08-19: armed re-flight `_1808` PASS attempt 1 (all 12 required, all 6 forbidden, count {1,1}, both gated save-structure blocks PASS), negative control `_1810` correctly PARSEK-FAIL(save-structure) on the inverted `supersedeRows` window and reverted - the pair's single shared inversion. That control run also swept one INTERMITTENT `line-blink` (1-of-3, cycle-2 park, `director-traced-path-suppress` OFF edge - a case the window-exit exemption deliberately does not cover); the lane keeps `allowedAnomalies = []` and the raise is filed as the 14th archived one. Operator tier is now the ordinary promotion call, not outstanding work",
+        "V15T-gilly-ts-arrival.toml":       "calibration-discipline - READING RUN FLOWN 2026-08-19 (`_1739`, PARSEK-FAIL(anomaly) attempt 1 with ALL 16 STEPS GREEN and the TS session clean - the CORRECT catch this spec pre-registered by shipping `allowedAnomalies = []` on purpose) and ARMED off its own bytes the same day: 13 required tokens incl. the measured routing conjunction, the `body=Gilly scene=TRACKSTATION` proto pin and `reaimed=False`, V14T's full six forbids, count {1,1}, both save-structure blocks gating, and the anomaly tolerated by the BARE token. WHAT THE RED BOUGHT: the single-jump creation-frame `icon-off-orbit` trigger is now MEASURED PARENT-INDEPENDENT (Duna/Ike 94.05 deg, Eve/Gilly 26.49 deg, deterministic at both, with V15M the stepped-bracket control at the same arrival UT) - the discriminating experiment the todo entry named, now answered and written up there. DISCIPLINE COMPLETE 2026-08-19: armed re-flight `_1809` PASS attempt 1 (all 13 required, all 6 forbidden, count {1,1}, both gated save-structure blocks PASS) with the tolerated anomaly RECURRING at `hits=[] counts={'icon-off-orbit': 1}` - the FOURTH sighting of the trigger, two per body pair, and this lane's first GREEN `hitCounts` baseline; negative control shared with V15M (`_1810`). THE CEILING `{ token = ..., maxCount = 1 }` IS NOW ONLY 'NOT YET TAKEN': the doctrine's precondition (measured hitCounts from a green run) is met on BOTH V14T and V15T, and the sole remaining blocker is the whole-set inert-budget invariant, which must move to a named allowlist in the same edit and should then cover both lanes at once. Operator tier is now the ordinary promotion call, not outstanding work",
         # THE V14 PAIR, and they are operator for the same calibration discipline for a
         # reason that is theirs alone: they are the FIRST loop lanes whose subject is not
         # rooted at Kerbin (B23's Duna->Ike recording), and the first to reach a TIDALLY
@@ -5498,8 +5511,21 @@ class SaveStructureVerifierWiringTests(unittest.TestCase):
     # immediately (the committed spec is the armed one). One inversion, not two: the
     # lanes gate through the single shared saveParse evaluator, so a second would
     # re-prove the evaluator rather than these windows (the V4/V5 precedent).
+    # THE V15 GILLY PAIR, armed 2026-08-19 off their OWN reading runs
+    # (`2026-08-19_1736` V15M PASS attempt 1; `2026-08-19_1739` V15T
+    # PARSEK-FAIL(anomaly) attempt 1 - the pre-registered correct catch, whose
+    # save-structure facets were clean). Both blocks on both lanes: `rewind` (all
+    # max 0 - a pure replay-observation workflow authors nothing durable) and
+    # `structure` (trees {1,2} for V2's duplicate-writer hazard, everything else
+    # pinned at the measured 1/1 with terminalStates {Orbiting: 1}). Neither lane
+    # declared either block before, so the windows are written FROM the
+    # measurement rather than flipped onto a prediction. STILL OWED: one armed
+    # re-flight each, and ONE negative control shared across the pair - the
+    # V4/V5/V14 precedent, since they gate through the single shared saveParse
+    # evaluator.
     ARMED_ALLOWLIST = {"S4.1-rewind-merge.toml", "CL-3-refly-crew-tombstone.toml",
                        "V14M-ike-player-loop.toml", "V14T-ike-ts-arrival.toml",
+                       "V15M-gilly-player-loop.toml", "V15T-gilly-ts-arrival.toml",
                        "GS-1-auto-chute-booster.toml", "GS-2-orbital-probe-deploy.toml",
                        "GS-3-switch-nudge-deployed.toml",
                        # B17: rewind (all max 0 - a clean single-launch flight
@@ -11050,6 +11076,63 @@ class SharedShipsManifestTests(unittest.TestCase):
                                   % (name, name[:-5], craft, leaf))
         self.assertEqual([], unresolved, "\n".join(unresolved))
 
+    # LANES COMMITTED AHEAD OF THE FIXTURE THEY CONSUME, mapped to the fixture leaf
+    # they are waiting on. NARROW AND SELF-RETIRING BY CONSTRUCTION: the cell below
+    # reds if an entry's fixture EXISTS (the exemption must then be deleted in the
+    # calibration commit) and reds if a listed spec no longer names that leaf, so
+    # this cannot quietly become a place specs go to avoid the gate.
+    #
+    # WHY IT EXISTS AT ALL, since a committed spec pointing at a missing directory is
+    # normally exactly the misdirection this class is named for: the DOWNSTREAM half
+    # of a two-stage program cannot name a fixture its UPSTREAM lane has not yet
+    # flown and harvested, and the downstream lane's whole value is that its
+    # predictions are written DOWN BEFORE the flight rather than after it (the V14
+    # lanes' refuted tidal-collapse prediction is the standing demonstration that a
+    # pre-registered prediction is worth more than a post-hoc description). Any spec
+    # listed here must carry a NOT FLYABLE banner and calibration-seed jump UTs, so
+    # nothing here pretends a listed lane is runnable.
+    #
+    # IT IS EMPTY, AND EMPTY IS ITS HEALTHY STATE (the `INTERIM_PIN_IDS` convention).
+    # Its ONE use so far was the B24/V15 Gilly program: `V15M-gilly-player-loop` and
+    # `V15T-gilly-ts-arrival` were listed on 2026-08-19 because they were committed
+    # ahead of `gilly-orbit-recorded`, and BOTH ENTRIES WERE REMOVED the same day
+    # when `B24-gilly-orbit` flew (run 2026-08-19_1655, PASS attempt 1) and its
+    # produced save was harvested - which is exactly the red the retirement cell
+    # below exists to raise. The MECHANISM is kept rather than deleted because the
+    # shape recurs (B23/V14 had it too and paid for it by landing the pair only after
+    # the flight), and because an empty map restores the gate below to full strength:
+    # with nothing listed, EVERY committed spec's saveTemplate is checked.
+    PENDING_FIXTURE_LANES = {}
+
+    def test_the_pending_fixture_exemption_retires_itself(self):
+        """The exemption's own guard, in BOTH directions. If the awaited fixture
+        has appeared, the calibration pass owes this list an edit in the same
+        commit that re-pins the spec - and if a listed spec has been re-pointed
+        somewhere else, the entry is stale. Either way the reminder fires here
+        rather than being remembered.
+
+        With the map EMPTY this cell asserts nothing per-entry, which IS the
+        healthy reading: the exemption is inert and the gate below is at full
+        strength. It fires again the moment a future two-stage program lists a
+        lane here."""
+        saves = set(_fixture_save_names())
+        arrived, moved = [], []
+        for name, leaf in sorted(self.PENDING_FIXTURE_LANES.items()):
+            path = os.path.join(SCENARIOS_DIR, name)
+            self.assertTrue(os.path.isfile(path),
+                            "PENDING_FIXTURE_LANES names a spec that does not exist: %s"
+                            % name)
+            with open(path, "rb") as fh:
+                spec = tomllib.load(fh)
+            actual = ((spec.get("fixture", {}) or {}).get("saveTemplate", "")
+                      ).replace("\\", "/").rstrip("/").rsplit("/", 1)[-1]
+            if actual != leaf:
+                moved.append("%s now names %r, not the awaited %r" % (name, actual, leaf))
+            if leaf in saves:
+                arrived.append("%s: fixture %r now EXISTS - delete this entry"
+                               % (name, leaf))
+        self.assertEqual([], arrived + moved, "\n".join(arrived + moved))
+
     def test_every_spec_saveTemplate_names_a_real_fixture(self):
         manifest = _read_manifest()
         saves = set(_fixture_save_names())
@@ -11059,6 +11142,10 @@ class SharedShipsManifestTests(unittest.TestCase):
                 spec = tomllib.load(fh)
             template = (spec.get("fixture", {}) or {}).get("saveTemplate", "")
             if not template:
+                continue
+            if name in self.PENDING_FIXTURE_LANES:
+                # Committed ahead of its fixture; guarded by the self-retiring
+                # cell above rather than skipped silently.
                 continue
             leaf = template.replace("\\", "/").rstrip("/").rsplit("/", 1)[-1]
             self.assertIn(leaf, saves,
