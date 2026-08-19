@@ -27,6 +27,18 @@ namespace Parsek.Tests
     /// back through its module accessors. A hand-rolled mirror of that registration
     /// would be a second copy to keep in step, and a drifted copy would replay a
     /// module graph production never uses.
+    ///
+    /// TWO-FIXTURE DESIGN (2026-08-19). This file is the PRE-FIX half. Its sibling
+    /// <see cref="C2CareerPostFixReplayTests"/> replays `Fixtures/C2CareerPostFix`, a
+    /// career EARNED by a driven harness flight on post-fix code. The two are additive,
+    /// not successive: this fixture is a HAND-PLAYED career carrying a strategy currency
+    /// exchange, the sibling is a DRIVEN flight-earned career carrying a vessel recovery
+    /// and no strategy at all. Nothing here is retired or re-measured by it - the
+    /// condition for retiring the science pin below is a re-harvest of c2 ITSELF on
+    /// post-fix code, which has not happened. What the sibling contributes is
+    /// separation: it exercises the earning, seed, recovery and milestone paths in
+    /// isolation from any strategy, which is what lets the reputation note below name a
+    /// suspect at last.
     /// </summary>
     [Collection("Sequential")]
     public class C2CareerLedgerReplayTests : IDisposable
@@ -226,12 +238,36 @@ namespace Parsek.Tests
             // not one.
             //
             // Pinned so any RECALC-side change in this behavior surfaces here.
+            //
+            // THE POST-FIX SIBLING EXISTS AND DOES NOT RETIRE THIS PIN.
+            // `C2CareerPostFixReplayTests` replays a career earned by a driven flight on
+            // post-fix code - and it carries NO strategy leg at all, so it cannot
+            // exercise the exchange this pin is about. It is a second fixture answering
+            // a different question, not a re-harvest of c2. The condition for replacing
+            // the magnitude above with a closure assertion is unchanged and still unmet:
+            // c2 itself re-harvested on post-fix code.
+            //
+            // What the sibling DOES establish about science is narrower and useful: the
+            // flight-EARNING path reconstructs exactly (three subjects, to 1e-4), so a
+            // future c2 re-harvest that still diverges would be diverging on the
+            // exchange rather than on earnings generally.
             Assert.True(Math.Abs((reconScience - SaveScience) - 108.84171851920314) < 0.001,
                 "SCIENCE divergence moved off its pinned value. " + report);
 
             // REPUTATION: small real divergence (-0.00364), above float32 print noise
             // at this magnitude but far below display precision. Pinned as a window,
-            // not a value; tighten when a post-fix fixture is harvested.
+            // not a value.
+            //
+            // THE POST-FIX FIXTURE IS NOW HARVESTED, and it NARROWED this rather than
+            // settling it - so the window stays as it is, deliberately, rather than
+            // being tightened onto a number measured on different data.
+            // `C2CareerPostFixReplayTests` replays a driven flight-earned career with NO
+            // strategy leg, NO contracts, a correct rep seed and exactly two +1 milestone
+            // awards, and reconstructs reputation 0.00148 LOW. That rules out the
+            // strategy exchange and the seed as the cause here and points at the
+            // MILESTONE reputation award path, which this fixture also exercises.
+            // Neither magnitude is chased yet; see
+            // CAREER-MILESTONE-REP-AWARD-RECONSTRUCTS-LOW.
             Assert.True(Math.Abs(reconRep - SaveReputation) < 0.01, "REPUTATION diverged beyond window. " + report);
         }
     }

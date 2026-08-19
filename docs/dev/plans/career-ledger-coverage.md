@@ -6,8 +6,9 @@ half of section 2 finding 2 and half of Phase C's "known ceiling" (both correcte
 in place rather than deleted, so a reader who saw rev 3 can see what moved), and
 it gives B.4's deferred strict arming a second candidate subject that does not
 depend on promoting c2. Wave 1 of Route A - the capability itself - is done;
-wave 2's fixture work is done (`career-science-pad`, 2026-08-19) and its driven
-flight plus harvest are what remain; wave 3 is open.
+wave 2 is DONE (`career-science-pad` built, flown as run `2026-08-19_1912`, and
+harvested as `C2CareerPostFix`); wave 3's replay is BUILT and does NOT close, so
+strict arming stays deferred behind three named capture-side findings.
 
 
 Status: **IN PROGRESS.** **Phase A is COMPLETE** and committed on
@@ -415,8 +416,8 @@ used (reading run, then arming).
 | Wave | What it delivers | Status |
 | --- | --- | --- |
 | **1. Capability** | The three actions, the six channels, `science_bench_recover`, and the headless proofs. `design-autotest-mission-library.md` Amendment A is the binding contract. **No spec, no fixture, no flight.** | **DONE 2026-08-19** (`c2-postfix-forge`) |
-| **2. Forge + harvest** | A committed spec + whatever fixture work it needs, ONE driven flight, and the produced save harvested as a fixture. | **FIXTURE WORK DONE 2026-08-19** (`career-science-craft`): the "whatever fixture work it needs" clause is closed by `career-science-pad`, built by construction by `harness/tools/build_career_science_pad.py` (three additive PART nodes - a DIRECT `SurfAntenna` plus 2x `batteryPack` for the 156 EC a transmit costs - spliced into `career-pad-craft`, whose own eight parts stay byte-identical), and `L3-career-science-recover` is re-pointed at it. Zero forge flights: see the struck bullet below for why the sizing that budgeted two was wrong. Earlier: flight 1 (`postfix-career-flight`) found and fixed a career-save telemetry blocker; flight 2 flew a textbook mission and hit the STOCK RULE that an INTERNAL antenna cannot transmit science. **The driven flight and the harvest are what remain.** |
-| **3. Replay proof** | Replay the harvested ledger headlessly (the A.0 method) and show it closes; then arm B.4 strict on it. | open |
+| **2. Forge + harvest** | A committed spec + whatever fixture work it needs, ONE driven flight, and the produced save harvested as a fixture. | **FIXTURE WORK DONE 2026-08-19** (`career-science-craft`): the "whatever fixture work it needs" clause is closed by `career-science-pad`, built by construction by `harness/tools/build_career_science_pad.py` (three additive PART nodes - a DIRECT `SurfAntenna` plus 2x `batteryPack` for the 156 EC a transmit costs - spliced into `career-pad-craft`, whose own eight parts stay byte-identical), and `L3-career-science-recover` is re-pointed at it. Zero forge flights: see the struck bullet below for why the sizing that budgeted two was wrong. Earlier: flight 1 (`postfix-career-flight`) found and fixed a career-save telemetry blocker; flight 2 flew a textbook mission and hit the STOCK RULE that an INTERNAL antenna cannot transmit science. **FLOWN AND HARVESTED 2026-08-19.** Run `2026-08-19_1912`: MISSION-OK across all nine phases (`transmit_science sent=1` against flight 2's `sent=0`), craft recovered, 2 recordings, one committed tree, analyzer red=0. The run still classified `PARSEK-FAIL(expectation)` on a forbidden `[Parsek][ERROR]` token - a REAL finding, not a flake, and not retried. The produced save is harvested as `Source/Parsek.Tests/Fixtures/C2CareerPostFix/`. |
+| **3. Replay proof** | Replay the harvested ledger headlessly (the A.0 method) and show it closes; then arm B.4 strict on it. | **REPLAY BUILT 2026-08-19, AND IT DOES NOT CLOSE - WHICH IS THE RESULT** (`career-science-craft`): `C2CareerPostFixReplayTests` over the new committed fixture `Source/Parsek.Tests/Fixtures/C2CareerPostFix/`, harvested from run `2026-08-19_1912`. The EARNED science reconstructs exactly; funds is 4558 low, science 100 low and reputation 0.00148 low, each with a separately named capture-side cause (CAREER-RECOVERY-FUNDS-NOT-LEDGERED, CAREER-SCIENCE-SEED-LOST-ON-FLIGHT-ROUTE, CAREER-MILESTONE-REP-AWARD-RECONSTRUCTS-LOW). All three are PINNED as magnitudes, so the fixes are provable. **STRICT ARMING STAYS DEFERRED**: the subject B.4 was waiting for now exists, and two of its three pools do not reproduce. Arming is what happens after those three entries close, not before. |
 
 **What wave 2 needs, stated concretely so it is not re-derived:**
 

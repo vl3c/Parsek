@@ -428,6 +428,181 @@ milestones), the three career-scoped channels read cleanly on every frame, and
 the collect verb stored data on all three modules. Only the transmit leg is
 blocked, and the recovery leg was never reached.
 
+**FLIGHT 3 (`2026-08-19_1912`) FLEW THE NEW FIXTURE AND THE ANTENNA DIAGNOSIS HELD
+EXACTLY.** MISSION-OK, all nine phases (`PRELAUNCH ASCENT COAST DESCENT LANDED
+COLLECT TRANSMIT RECOVER RECOVERED`), 341 s of flight: `transmit_science sent=1
+skipped=2 failed=0` against flight 2's `sent=0 failed=3`, and the craft was
+recovered. The run still classified `PARSEK-FAIL(expectation)` - on a forbidden
+`[Parsek][ERROR]` token, and on three findings behind it, filed as the three
+entries immediately below. Those are the forge working: the whole point of making
+a career EARN was to reach ledger row families nothing could reach before, and the
+first flight to reach them found two of them broken.
+
+---
+
+## CAREER-RECOVERY-FUNDS-NOT-LEDGERED: a recovered vessel's funds credit is observed as an event and never written as a ledger row, so a replay reconstructs funds short by the whole refund [FOUND 2026-08-19 by `L3-career-science-recover` flight 3 (run `2026-08-19_1912`), the first driven run ever to recover a vessel. Cause read off the flight log, not guessed. OPEN]
+
+The career forge exists to produce two row families a KSC button cannot: flight
+`ScienceEarning` rows, and the funds credit from a recovered vessel. Flight 3
+produced the first and NOT the second.
+
+Stock paid 4558 for the recovered Jumping Flea. The observation channel saw it:
+
+    [Parsek][VERBOSE][GameStateRecorder] Emit: FundsChanged key='VesselRecovery' ...
+    [Parsek][INFO][GameStateRecorder] Game state: FundsChanged +4558 (VesselRecovery) -> 536558
+
+The ledger did not. The committed `ledger.pgld` carries 13 actions and **zero
+`FundsEarning` (type 2) rows** - only `FundsInitial` and five
+`MilestoneAchievement` rows carry funds at all.
+
+### The branch, named
+
+    [Parsek][VERBOSE][Scenario] Recovery processing captured: vessel='Jumping Flea'
+      ... ut=347.5 fundsEarned=0.0 before=532000.0 total=0.0 recoveryFactor=1
+    [Parsek][VERBOSE][LedgerOrchestrator] OnVesselRecoveryFunds: vessel='Jumping Flea'
+      ... - skipping deferred recovery-funds pairing (stock expected zero recovery funds)
+
+Parsek pre-computes what it expects stock to pay, gets `fundsEarned=0.0`, and on
+that basis takes the "stock expected zero recovery funds" skip - so the deferred
+pairing that would have written the row never runs. Stock then paid 4558 anyway.
+The guard is not wrong to exist; its INPUT is wrong, and it fails CLOSED in the
+direction that silently drops a real credit.
+
+**Consequence, measured:** `C2CareerPostFixReplayTests` reconstructs funds at
+532000 against the save's 536558 - short by exactly 4558. Pinned there as a
+DATA-ERA magnitude, with a structural sibling cell
+(`FixtureLedger_HasNoFundsEarningRow_TheUncapturedRecoveryCredit`) that flips the
+moment a re-harvest on fixed code carries the row.
+
+**Not to be confused with** the recovery's SCIENCE leg, which IS captured
+correctly (`recovery@KerbinFlew`, `scienceAwarded = 5`, `method = Recovered`, and
+its post-walk reconcile MATCHES on the `VesselRecovery` key). One leg of one event
+is captured and the other is not - the same shape as
+STRATEGY-SCIENCE-CONVERSION-LEAK, mirrored.
+
+---
+
+## CAREER-SCIENCE-SEED-LOST-ON-FLIGHT-ROUTE: the science and reputation seeds never land when a career is entered through FLIGHT, so a replay reconstructs the pool short by the whole starting balance [FOUND 2026-08-19 by `L3-career-science-recover` flight 3 (run `2026-08-19_1912`). Cause read off the flight log. OPEN]
+
+The committed post-fix fixture's ledger carries `initialScience = 0` on a save
+whose science pool was 100. The funds seed on the same load is correct
+(`initialFunds = 500000`).
+
+### Two log lines, five minutes apart, and the second one is a guard behaving well
+
+At load, the deferred seed found only one of the three pools readable:
+
+    [Parsek][VERBOSE][Scenario] DeferredSeed: values ready after 0 frames, clock ready=True
+      after 0 frames (currentUT=9.06) - Funding=500000, Science=null, Rep=null
+
+`Science` and `Rep` read NULL, so only funds seeded. The science seed was retried
+at scene exit - by which time the flight had already produced science actions:
+
+    [Parsek][INFO][Ledger] Seeded initial science: amount=0, total=8
+    [Parsek][WARN][LedgerOrchestrator] SeedInitialScience: refusing to treat current
+      science as initial because science timeline actions already exist and no baseline
+      was available
+
+That refusal is CORRECT - treating the then-current 106.6 as "initial" would have
+double-counted everything the flight earned. The defect is upstream: nothing
+re-attempts the seed while it is still safe to take one, so a career entered
+through FLIGHT gets a permanent zero seed for any pool whose instance was not yet
+alive at the deferred-seed frame.
+
+**Why it never surfaced before:** a zero science seed is invisible on a career
+that earns no science, and until flight 3 no driven run had earned any. `CL-2`
+flies the same base fixture through the same route and never notices. Reputation
+takes the same path and is likewise invisible here only because this career
+genuinely started at rep 0.
+
+**Consequence, measured:** `C2CareerPostFixReplayTests` reconstructs science at
+11.6 against the save's 111.6 - short by exactly 100, the whole starting balance.
+The three EARNED subjects themselves reconstruct perfectly, which is what isolates
+the seed as the entire cause. In-game the damage is contained by
+`KspStatePatcher`'s drawdown guard, which clamps and preserves the live value
+rather than writing the low reconstruction back:
+
+    [Parsek][WARN][KspStatePatcher] PatchScience: GUARDED DRAWDOWN clamped resource=Science
+      running=6.6 live=106.6 ... - earned value preserved; ledger may be missing an
+      earning channel
+
+So this is a RECONSTRUCTION-fidelity defect, not a player-visible pool loss - but
+it is squarely blocking, because a strict per-identity gate cannot be armed
+against a ledger that cannot reproduce its own starting balance.
+
+---
+
+## CAREER-TRANSMIT-SCIENCE-EMITS-NO-CORROBORATING-EVENT: a transmitted subject is written straight to the ledger with an empty reason and no `ScienceChanged` event, so the post-walk reconcile always mismatches and dumps at ERROR [FOUND 2026-08-19 by `L3-career-science-recover` flight 3 (run `2026-08-19_1912`). This is the finding that actually red the run. OPEN]
+
+This is the token that classified flight 3 `PARSEK-FAIL(expectation)`: the spec
+forbids `[Parsek][ERROR]` and the run emitted exactly one.
+
+    [Parsek][WARN][LedgerOrchestrator] Earnings reconciliation (post-walk, sci):
+      ScienceEarning id=mysteryGoo@KerbinSrfLandedLaunchPad expected=3.6 but no matching
+      ScienceChanged event keyed 'ScienceTransmission' within science window
+      [347.5,347.5] for action ut=347.5 -- missing earning channel or stale event?
+    [Parsek][ERROR][LedgerOrchestrator] Science reconcile dump (post-walk):
+      action=mysteryGoo@KerbinSrfLandedLaunchPad reason='ScienceTransmission'
+      window=[347.4,347.6] events=(no ScienceChanged events in dump window)
+
+### It is not a window-sizing problem
+
+The whole run emits exactly THREE `ScienceChanged` events and not one of them is
+keyed `ScienceTransmission` - widening the window finds nothing, because nothing
+was emitted. The transmitted subject reached the ledger by the direct path
+instead, and with an EMPTY reason:
+
+    [Parsek][INFO][GameStateRecorder] Science subject captured:
+      mysteryGoo@KerbinSrfLandedLaunchPad amount=3.6 total=3.6 reason='' ut=347.5
+      tag='' directLedger=True
+
+Compare the recovery subject on the same frame, which DOES emit its event, DOES
+carry `reason='VesselRecovery'`, and DOES match its reconcile. So the reconcile is
+right to complain: one capture path corroborates and the other does not.
+
+**A second symptom on the same row, worth fixing together:** the action's UT is
+347.54, the RECOVERY frame - but the transmit happened at ut ~342.3, five seconds
+and one mission phase earlier. The subject appears to be captured at scene exit
+using the then-current UT rather than the UT of the transmission.
+
+**The narrow question underneath the wide one:** whether an unmatched reconcile
+deserves ERROR at all. It is a reconciliation DIAGNOSTIC, and it fires on a
+condition the product recovers from cleanly - but the level is not the bug, the
+missing event is, and lowering the level to make a spec green would be exactly the
+masking the log contract exists to prevent. Fix the capture; leave the level.
+
+---
+
+## CAREER-MILESTONE-REP-AWARD-RECONSTRUCTS-LOW: two +1 milestone reputation awards replay to 1.9985 instead of 2, narrowing a divergence C2Career could only record [NARROWED 2026-08-19 by the post-fix fixture harvested from `L3-career-science-recover` flight 3 (run `2026-08-19_1912`). Cause still OPEN - this entry exists to record which suspects are now RULED OUT]
+
+`C2CareerLedgerReplayTests` has carried a `-0.00364` reputation divergence since
+2026-08-17, pinned as a 0.01 window with the note that whether it is "a second
+small leak or curve-rounding is unknown", and that it becomes re-measurable "on a
+post-fix re-harvest of c2 - which is when to look, not by guessing now".
+
+A post-fix fixture has now been harvested. It is NOT a c2 re-harvest, so it does
+not settle the c2 magnitude - but it is a far CLEANER instrument for the same
+family, and it rules suspects out:
+
+| Suspect | Ruled out by |
+| --- | --- |
+| the strategy currency exchange | the post-fix career activates no strategy at all |
+| a bad reputation SEED | its rep seed is 0 and the save genuinely started at 0 |
+| contract reputation | it accepts and completes no contracts |
+| reputation PENALTIES | nothing died and nothing failed |
+
+What is left is the MILESTONE reputation award path, which is the only reputation
+input the post-fix career has: `RecordsSpeed` and `RecordsAltitude`, `+1` each.
+KSP's own pool lands at `1.99999881` (float32 2.0); the replay lands at
+`1.9985167980194092`, i.e. 0.001482 low on a two-award career.
+
+**Pinned, not chased:** `C2CareerPostFixReplayTests` pins the 0.001482 as a
+magnitude rather than hiding it in a window, precisely so the next person has an
+instrument. The likely question is whether stock's `AddReputation` curve is
+applied on one side and not the other, or applied twice - which needs the award
+path READ, not inferred from two data points. C2Career's own window stays at 0.01
+and is deliberately NOT tightened onto a number measured on different data.
+
 ## MAPRENDER-ICON-OFF-ORBIT-CREATION-FRAME-AFTER-JUMP: a ghost's proto ICON sits ~94 deg around its own orbit line on the CREATION frame, after a single large TimeJump onto an epoch just inside a foreign moon's SOI [MEASURED 2026-08-18 by `V14T-ike-ts-arrival`'s reading run and REPRODUCED on its armed run 2026-08-19. REPORT-ONLY: one self-correcting frame per run, DETERMINISTIC for the single-jump shape, tolerated by name in that spec; NO product change is proposed]
 
 `V14T-ike-ts-arrival` run `2026-08-18_2337` came back PARSEK-FAIL(anomaly) on
