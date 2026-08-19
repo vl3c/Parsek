@@ -2225,6 +2225,237 @@ namespace Parsek.Tests
                 (l.Contains("Alpha") || l.Contains("Beta")));
         }
 
+        // ------------------------------------------------------------------
+        // CAREER-RECOVERY-FUNDS-NOT-LEDGERED
+        //
+        // The shape below is the one KSP actually hands Parsek at
+        // onVesselRecoveryProcessing, read off the L3-career-science-recover flight
+        // (run 2026-08-19_1912) and confirmed against the decompiled
+        // VesselRecovery.OnVesselRecovered: beforeMissionFunds is stamped BEFORE the
+        // event fires, fundsEarned is never assigned before it, and totalFunds is
+        // stamped AFTER it. The old "any field non-zero means initialized" predicate
+        // read that as an authoritative "stock will pay zero" and suppressed the
+        // deferred pairing for a recovery stock then paid 4558 for.
+        // ------------------------------------------------------------------
+
+        [Fact]
+        public void FundsSnapshotIsAuthoritative_ProcessingSeamShape_IsNotAuthoritative()
+        {
+            // before populated, payout fields not yet computed - the production shape.
+            Assert.False(RecoveryPayoutContextStore.FundsSnapshotIsAuthoritative(
+                beforeMissionFunds: 532000.0, fundsEarned: 0.0, totalFunds: 0.0));
+        }
+
+        [Fact]
+        public void FundsSnapshotIsAuthoritative_CoherentSnapshots_AreAuthoritative()
+        {
+            // A genuine zero-payout recovery: coherent, and must stay readable as "zero".
+            Assert.True(RecoveryPayoutContextStore.FundsSnapshotIsAuthoritative(
+                beforeMissionFunds: 532000.0, fundsEarned: 0.0, totalFunds: 532000.0));
+            // A genuine paid recovery.
+            Assert.True(RecoveryPayoutContextStore.FundsSnapshotIsAuthoritative(
+                beforeMissionFunds: 532000.0, fundsEarned: 4558.0, totalFunds: 536558.0));
+            // All-zero stays unknown (kept from the original predicate).
+            Assert.False(RecoveryPayoutContextStore.FundsSnapshotIsAuthoritative(
+                beforeMissionFunds: 0.0, fundsEarned: 0.0, totalFunds: 0.0));
+            // NaN stays unknown.
+            Assert.False(RecoveryPayoutContextStore.FundsSnapshotIsAuthoritative(
+                beforeMissionFunds: double.NaN, fundsEarned: 0.0, totalFunds: 0.0));
+        }
+
+        [Fact]
+        public void RecoveryPayoutContext_ProcessingSeamSnapshot_DefersInsteadOfSuppressing()
+        {
+            var identity = RecoveredVesselIdentity.FromRawName("Jumping Flea");
+            var context = RecoveryPayoutContextStore.Remember(
+                persistentId: 2905720181,
+                rawVesselName: "Jumping Flea",
+                vesselType: VesselType.Ship,
+                ut: 347.5,
+                recoveryFactor: 1.0f,
+                hasFundsEarned: true,
+                fundsEarned: 0.0,
+                beforeMissionFunds: 532000.0,
+                totalFunds: 0.0);
+
+            Assert.NotNull(context);
+            Assert.False(context.HasFundsEarned);
+
+            LedgerOrchestrator.OnVesselRecoveryFunds(
+                347.5,
+                identity,
+                fromTrackingStation: false,
+                vesselType: VesselType.Ship,
+                payoutContext: context);
+
+            // The credit is not dropped: the request is queued for the real
+            // FundsChanged(VesselRecovery) event instead of being suppressed.
+            Assert.Equal(1, LedgerOrchestrator.PendingRecoveryFundsCountForTesting);
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("stock expected zero recovery funds"));
+        }
+
+        [Fact]
+        public void RecoveryPayoutContext_ProcessingSeamSnapshot_PairsTheRealCreditExactlyOnce()
+        {
+            var identity = RecoveredVesselIdentity.FromRawName("Jumping Flea");
+            var context = RecoveryPayoutContextStore.Remember(
+                persistentId: 2905720181,
+                rawVesselName: "Jumping Flea",
+                vesselType: VesselType.Ship,
+                ut: 347.5,
+                recoveryFactor: 1.0f,
+                hasFundsEarned: true,
+                fundsEarned: 0.0,
+                beforeMissionFunds: 532000.0,
+                totalFunds: 0.0);
+
+            LedgerOrchestrator.OnVesselRecoveryFunds(
+                347.5,
+                identity,
+                fromTrackingStation: false,
+                vesselType: VesselType.Ship,
+                payoutContext: context);
+
+            var evt = new GameStateEvent
+            {
+                ut = 347.5,
+                eventType = GameStateEventType.FundsChanged,
+                key = LedgerOrchestrator.VesselRecoveryReasonKey,
+                valueBefore = 532000.0,
+                valueAfter = 536558.0
+            };
+            GameStateStore.AddEvent(ref evt);
+            LedgerOrchestrator.OnRecoveryFundsEventRecorded(evt);
+
+            var rows = Ledger.Actions.Where(a =>
+                a.Type == GameActionType.FundsEarning &&
+                a.FundsSource == FundsEarningSource.Recovery).ToList();
+            Assert.Single(rows);
+            Assert.Equal(4558f, rows[0].FundsAwarded);
+            Assert.Equal(0, LedgerOrchestrator.PendingRecoveryFundsCountForTesting);
+
+            // Replaying the same event must not double-count against the direct channel.
+            LedgerOrchestrator.OnRecoveryFundsEventRecorded(evt);
+            Assert.Single(Ledger.Actions.Where(a =>
+                a.Type == GameActionType.FundsEarning &&
+                a.FundsSource == FundsEarningSource.Recovery));
+        }
+
+        [Fact]
+        public void RecoveryPayoutContext_CoherentZeroPayout_StillWritesNothing()
+        {
+            var identity = RecoveredVesselIdentity.FromRawName("Worthless Debris");
+            var context = RecoveryPayoutContextStore.Remember(
+                persistentId: 771,
+                rawVesselName: "Worthless Debris",
+                vesselType: VesselType.Ship,
+                ut: 400.0,
+                recoveryFactor: 1.0f,
+                hasFundsEarned: true,
+                fundsEarned: 0.0,
+                beforeMissionFunds: 532000.0,
+                totalFunds: 532000.0);
+
+            Assert.NotNull(context);
+            Assert.True(context.HasFundsEarned);
+
+            LedgerOrchestrator.OnVesselRecoveryFunds(
+                400.0,
+                identity,
+                fromTrackingStation: false,
+                vesselType: VesselType.Ship,
+                payoutContext: context);
+
+            Assert.Equal(0, LedgerOrchestrator.PendingRecoveryFundsCountForTesting);
+            Assert.Empty(Ledger.Actions.Where(a =>
+                a.Type == GameActionType.FundsEarning &&
+                a.FundsSource == FundsEarningSource.Recovery));
+            Assert.Contains(logLines, l =>
+                l.Contains("stock expected zero recovery funds"));
+        }
+
+        [Fact]
+        public void TryRefreshPayoutFromCompletion_FillsUnknownContextFromCoherentSnapshot()
+        {
+            var identity = RecoveredVesselIdentity.FromRawName("Completion Probe");
+            var context = RecoveryPayoutContextStore.Remember(
+                persistentId: 881,
+                rawVesselName: "Completion Probe",
+                vesselType: VesselType.Ship,
+                ut: 500.0,
+                recoveryFactor: 1.0f,
+                hasFundsEarned: true,
+                fundsEarned: 0.0,
+                beforeMissionFunds: 532000.0,
+                totalFunds: 0.0);
+            Assert.False(context.HasFundsEarned);
+
+            Assert.True(RecoveryPayoutContextStore.TryRefreshPayoutFromCompletion(
+                persistentId: 881,
+                identity: identity,
+                ut: 500.0,
+                fundsEarned: 4558.0,
+                beforeMissionFunds: 532000.0,
+                totalFunds: 536558.0,
+                out RecoveryPayoutContext refreshed));
+
+            Assert.True(refreshed.HasFundsEarned);
+            Assert.Equal(4558.0, refreshed.FundsEarned);
+            Assert.Same(context, refreshed);
+        }
+
+        [Fact]
+        public void TryRefreshPayoutFromCompletion_NeverDowngradesOrAcceptsIncoherent()
+        {
+            var identity = RecoveredVesselIdentity.FromRawName("Guarded Probe");
+            var known = RecoveryPayoutContextStore.Remember(
+                persistentId: 882,
+                rawVesselName: "Guarded Probe",
+                vesselType: VesselType.Ship,
+                ut: 510.0,
+                recoveryFactor: 1.0f,
+                hasFundsEarned: true,
+                fundsEarned: 250.0,
+                beforeMissionFunds: 1000.0,
+                totalFunds: 1250.0);
+            Assert.True(known.HasFundsEarned);
+
+            // Already authoritative: a completion snapshot must not rewrite it.
+            Assert.False(RecoveryPayoutContextStore.TryRefreshPayoutFromCompletion(
+                persistentId: 882,
+                identity: identity,
+                ut: 510.0,
+                fundsEarned: 9999.0,
+                beforeMissionFunds: 1000.0,
+                totalFunds: 10999.0,
+                out _));
+            Assert.Equal(250.0, known.FundsEarned);
+
+            // Unknown context + incoherent completion snapshot: stays unknown.
+            var unknown = RecoveryPayoutContextStore.Remember(
+                persistentId: 883,
+                rawVesselName: "Incoherent Probe",
+                vesselType: VesselType.Ship,
+                ut: 511.0,
+                recoveryFactor: 1.0f,
+                hasFundsEarned: true,
+                fundsEarned: 0.0,
+                beforeMissionFunds: 1000.0,
+                totalFunds: 0.0);
+            Assert.False(unknown.HasFundsEarned);
+
+            Assert.False(RecoveryPayoutContextStore.TryRefreshPayoutFromCompletion(
+                persistentId: 883,
+                identity: RecoveredVesselIdentity.FromRawName("Incoherent Probe"),
+                ut: 511.0,
+                fundsEarned: 0.0,
+                beforeMissionFunds: 1000.0,
+                totalFunds: 0.0,
+                out _));
+            Assert.False(unknown.HasFundsEarned);
+        }
+
         private static RecoveryPayoutContext MakeRecoveryPayoutContext(
             double ut,
             RecoveredVesselIdentity identity,

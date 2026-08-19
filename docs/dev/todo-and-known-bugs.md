@@ -440,7 +440,44 @@ first flight to reach them found two of them broken.
 
 ---
 
-## CAREER-RECOVERY-FUNDS-NOT-LEDGERED: a recovered vessel's funds credit is observed as an event and never written as a ledger row, so a replay reconstructs funds short by the whole refund [FOUND 2026-08-19 by `L3-career-science-recover` flight 3 (run `2026-08-19_1912`), the first driven run ever to recover a vessel. Cause read off the flight log, not guessed. OPEN]
+## ~~CAREER-RECOVERY-FUNDS-NOT-LEDGERED: a recovered vessel's funds credit is observed as an event and never written as a ledger row, so a replay reconstructs funds short by the whole refund~~ [FOUND 2026-08-19 by `L3-career-science-recover` flight 3 (run `2026-08-19_1912`), the first driven run ever to recover a vessel. Cause read off the flight log, not guessed. CAPTURE-SIDE FIX LANDED 2026-08-19 on branch `career-capture-fixes`; the two `C2CareerPostFixReplayTests` pins below DO NOT move until the fixture is re-flown and re-harvested]
+
+**Fix:** the guard's input was wrong, exactly as this entry predicted, and the
+reason is structural rather than a race. Decompiled `VesselRecovery.OnVesselRecovered`
+(KSP 1.12.5) stamps `missionRecoveryDialog.beforeMissionFunds` BEFORE
+`GameEvents.onVesselRecoveryProcessing.Fire`, assigns `totalFunds` AFTER it, and
+never assigns `fundsEarned` before the fire at all - the part-value payout is
+produced by the event's own subscribers. So at Parsek's capture seam the snapshot
+is always `before=<real>, earned=0, total=0`, and
+`RecoveryPayoutContextStore.FundsSnapshotLooksInitialized`'s "any field is
+non-zero" test read that as an authoritative "stock will pay zero".
+
+The predicate is now `FundsSnapshotIsAuthoritative` and requires the triple to be
+internally COHERENT (`total == before + earned` within a float tolerance), which the
+pre-payout shape can never satisfy - so the guard reports "unknown" and the deferred
+pairing runs, taking its amount from the actual `FundsChanged(VesselRecovery)` delta.
+The guard now fails OPEN (queue and pair) instead of CLOSED (silently drop a real
+credit). A genuine zero-payout recovery read at a coherent moment is still coherent,
+still suppresses, and still writes nothing.
+
+Because that leaves every production context payout-unknown at the processing seam,
+`onVesselRecoveryProcessingComplete` is now also subscribed
+(`ParsekScenario.OnVesselRecoveryProcessingComplete` ->
+`RecoveryPayoutContextStore.TryRefreshPayoutFromCompletion`). KSP fires it as the
+LAST statement of `VesselRecovery.OnVesselRecovered`, right after stamping
+`totalFunds` and folding the currency-modifier delta into `fundsEarned` - the first
+moment the snapshot is coherent - so the zero / below-threshold suppression keeps a
+REAL expectation instead of being permanently unknown. It never downgrades an
+already-authoritative context, and KSP's `quick` recovery path fires completion with
+a null dialog, which correctly leaves the context unknown.
+
+Cells (`GameStateRecorderLedgerTests`): `FundsSnapshotIsAuthoritative_ProcessingSeamShape_IsNotAuthoritative`,
+`_CoherentSnapshots_AreAuthoritative`, `RecoveryPayoutContext_ProcessingSeamSnapshot_DefersInsteadOfSuppressing`,
+`_PairsTheRealCreditExactlyOnce` (both directions: the row is written once, and a
+replayed event does not double-count against the direct channel),
+`RecoveryPayoutContext_CoherentZeroPayout_StillWritesNothing`, and the two
+`TryRefreshPayoutFromCompletion_*` cells. Mutation-verified: restoring the old
+predicate reds 5 of them.
 
 The career forge exists to produce two row families a KSC button cannot: flight
 `ScienceEarning` rows, and the funds credit from a recovered vessel. Flight 3
@@ -482,7 +519,47 @@ STRATEGY-SCIENCE-CONVERSION-LEAK, mirrored.
 
 ---
 
-## CAREER-SCIENCE-SEED-LOST-ON-FLIGHT-ROUTE: the science and reputation seeds never land when a career is entered through FLIGHT, so a replay reconstructs the pool short by the whole starting balance [FOUND 2026-08-19 by `L3-career-science-recover` flight 3 (run `2026-08-19_1912`). Cause read off the flight log. OPEN]
+## ~~CAREER-SCIENCE-SEED-LOST-ON-FLIGHT-ROUTE: the science and reputation seeds never land when a career is entered through FLIGHT, so a replay reconstructs the pool short by the whole starting balance~~ [FOUND 2026-08-19 by `L3-career-science-recover` flight 3 (run `2026-08-19_1912`). Cause read off the flight log. CAPTURE-SIDE FIX LANDED 2026-08-19 on branch `career-capture-fixes`; the two `C2CareerPostFixReplayTests` pins below DO NOT move until the fixture is re-flown and re-harvested]
+
+**Fix:** the refusing guard was left exactly as it is - it is correct, and this fix
+is entirely upstream of it, as this entry called for.
+
+The deferred seed was **not deferred at all**. `StartCoroutine` runs a coroutine body
+synchronously up to its first `yield`, and `DeferredSeedAndRecalculate` was started
+from `ParsekScenario.OnLoad` - which KSP calls from the MIDDLE of
+`ScenarioRunner.LoadModules`, while it is still walking the save's `SCENARIO` nodes and
+constructing the remaining `ScenarioModule`s. Every readiness probe in the coroutine
+could be satisfied without ever yielding: phase 1 waited only while ALL THREE currency
+singletons were null, and phase 2 only while ALL THREE read zero, so a single loaded
+`Funding` ended both waits on the calling frame. The whole "wait for the singletons"
+body therefore executed inside `OnLoad`, with `ResearchAndDevelopment.Instance` and
+`Reputation.Instance` still null. That is what the `Funding=500000, Science=null,
+Rep=null` line is: not a slow load, but a probe taken too early to see them.
+
+Two changes, both in `ParsekScenario`:
+
+1. **Phase 0** - an unconditional `yield return null` before any probe, so the
+   coroutine actually resumes after KSP's synchronous module-load pass. One frame is
+   enough: `LoadModules` is synchronous, so by the next frame every scenario module for
+   the scene exists.
+2. **Phase 1 requires ALL of them** via the new `AllCurrencySingletonsPresent()`, not
+   any one. The gate is PRESENCE, not a non-zero value: `ScenarioRunner.AddModule(ConfigNode)`
+   constructs a module and calls its `Load(node)` in one synchronous call, so a
+   coroutine can never observe a singleton existing-but-unloaded - while a pool that
+   genuinely sits at zero is indistinguishable from an unloaded one BY VALUE, which is
+   precisely why a value gate is the wrong instrument here. The wait stays bounded
+   (`CurrencySingletonWaitMaxFrames`) and falls through for sandbox / science-mode,
+   which never load the full set.
+
+The `DeferredSeed` log line now carries `singletons all present=<bool> after <n> frames`
+so the next run states this directly instead of leaving it to be inferred.
+
+Cells (`CareerSeedReadinessTests`): `DeferredSeed_YieldsBeforeProbingAndWaitsForEveryCurrencySingleton`
+and `AllCurrencySingletonsPresent_RequiresAllThreeNotAnyOne` (source-text gates - the
+coroutine runs on a `ScenarioModule` and reads Unity singletons, so it is held the same
+way the other `ParsekScenario` hookup tests are). Mutation-verified: deleting the phase-0
+yield reds the first cell. The refusing guard's own contract is unchanged and still
+covered by its existing cells.
 
 The committed post-fix fixture's ledger carries `initialScience = 0` on a save
 whose science pool was 100. The funds seed on the same load is correct
@@ -542,7 +619,58 @@ against a ledger that cannot reproduce its own starting balance.
 
 ---
 
-## CAREER-TRANSMIT-SCIENCE-EMITS-NO-CORROBORATING-EVENT: a transmitted subject is written straight to the ledger with an empty reason and no `ScienceChanged` event, so the post-walk reconcile always mismatches and dumps at ERROR [FOUND 2026-08-19 by `L3-career-science-recover` flight 3 (run `2026-08-19_1912`). This is the finding that actually red the run. OPEN]
+## ~~CAREER-TRANSMIT-SCIENCE-EMITS-NO-CORROBORATING-EVENT: a subject is written straight to the ledger with an empty reason and no `ScienceChanged` event, so the post-walk reconcile always mismatches and dumps at ERROR~~ [FOUND 2026-08-19 by `L3-career-science-recover` flight 3 (run `2026-08-19_1912`). This is the finding that actually red the run. CAPTURE-SIDE FIX LANDED 2026-08-19 on branch `career-capture-fixes`. The TITLE was wrong: the subject was RECOVERED, not transmitted - see the correction below]
+
+**Fix, and one correction to this entry's own reading.** All three symptoms - the
+missing event, the empty reason, and `method=Transmitted` - are ONE cause, and it is
+neither the transmit path nor a window-sizing problem.
+
+`GameStateRecorder.OnScienceChanged` stamps `lastScience = newScience` and then
+`return`s on `double.IsNaN(oldScience)`: the first change after a baseline is taken is
+silently consumed as the primer, emitting nothing and logging nothing. That baseline
+is taken by `SeedResourceState()` from `Subscribe()`, and a FRESH recorder is
+constructed and subscribed from `ParsekScenario.OnLoad` on EVERY scene load - which
+KSP calls from the middle of `ScenarioRunner.LoadModules` (the same seam as
+CAREER-SCIENCE-SEED-LOST-ON-FLIGHT-ROUTE). On this run `ResearchAndDevelopment.Instance`
+was still null at the space-centre subscribe (`22:19:01.929`), so `lastScience` stayed
+NaN and the recovered Mystery Goo's `+3.6` at `22:19:02.293` was eaten as the primer.
+The store's own `AddEvent` totals prove it: `total=2` at `02.288` and `total=3` at
+`02.299`, so nothing at all was added in between. The very next submit logged
+`Ignored ScienceChanged delta=+0.000` - the signature of a baseline that had just been
+primed by the change it swallowed.
+
+With no `ScienceChanged`, `latestScienceChangeCapture` was never set, so the subject
+reached `OnScienceReceived` with `reason=''` and
+`LedgerOrchestrator.ResolveKscScienceRecordingId` took its `method=Transmitted`
+FALLBACK - which is what put `reason='ScienceTransmission'` on the row and sent the
+reconcile hunting an event that never existed and never should have.
+
+**Correction to the "second symptom" paragraph below: the UT was never wrong.** The
+mission log's `transmit_science sent=1 skipped=2` transmitted the CREW REPORT (credited
+at ut 345.6); `mysteryGoo` was one of the two SKIPPED experiments and came home aboard
+the craft, credited during recovery processing at ut 347.5. KSP's own line at that
+frame is `+12 data on Mystery Goo(tm) Observation from LaunchPad. 4 Science added`,
+fired from `VesselRecovery` between `Jumping Flea recovered` and
+`onVesselRecoveryProcessing`. So 347.5 IS the credit UT, `method=Transmitted` was the
+fallback label rather than evidence of a transmission, and there is no scene-exit
+UT-stamping defect to fix. Keep the paragraph for the record; do not act on it.
+
+**Fix:** `SeedResourceState()` is now fill-only-NaN and returns whether all three
+baselines are seeded, and `ParsekScenario` starts
+`SeedRecorderResourceBaselinesWhenReady` right after `Subscribe()` to top up whatever
+the subscribe frame could not read, before anything can change. On the fixed path this
+run emits `ScienceChanged key='VesselRecovery' +3.6`, the capture carries
+`ReasonKey=VesselRecovery`, the row is written as `method=Recovered`, and the
+post-walk reconcile matches it exactly as the `recovery@KerbinFlew` subject on the same
+frame already did. The ERROR level is untouched, as this entry required - the missing
+event was the bug.
+
+Cells: `CareerSeedReadinessTests.SeedBaselineIfUnseeded_*` (three cells over the pure
+decision: fill-only-NaN, absent singleton leaves it unseeded, and a genuine zero is a
+REAL baseline rather than an unseeded one - otherwise a career starting at 0 science or
+0 reputation would swallow its first award too) plus
+`OnLoad_StartsTheRecorderBaselineTopUpRightAfterSubscribe`. Mutation-verified: deleting
+the top-up call reds the last cell.
 
 This is the token that classified flight 3 `PARSEK-FAIL(expectation)`: the spec
 forbids `[Parsek][ERROR]` and the run emitted exactly one.
@@ -589,7 +717,63 @@ masking the log contract exists to prevent. Fix the capture; leave the level.
 
 ---
 
-## CAREER-MILESTONE-REP-AWARD-RECONSTRUCTS-LOW: two +1 milestone reputation awards replay to 1.9985 instead of 2, narrowing a divergence C2Career could only record [NARROWED 2026-08-19 by the post-fix fixture harvested from `L3-career-science-recover` flight 3 (run `2026-08-19_1912`). Cause still OPEN - this entry exists to record which suspects are now RULED OUT]
+## CAREER-MILESTONE-REP-AWARD-RECONSTRUCTS-LOW: two +1 milestone reputation awards replay to 1.9985 instead of 2 [NARROWED 2026-08-19 by the post-fix fixture harvested from `L3-career-science-recover` flight 3 (run `2026-08-19_1912`). **CAUSE FOUND 2026-08-19** during the `career-capture-fixes` wave and verified against the decompiled `Reputation.addReputation_granular`. FIX DELIBERATELY NOT TAKEN IN THAT WAVE - see "Why the fix was deferred". OPEN, but no longer a hunt: it is a known one-line change]
+
+### The cause, verified both sides
+
+`ReputationModule.ApplyReputationCurve` (`Source/Parsek/GameActions/ReputationModule.cs:318-321`)
+mirrors KSP's granular award loop but computes the FINAL residual step from the
+NOMINAL step count instead of the accumulated ACTUAL:
+
+    float input = (i != num) ? delta : (nominal - (delta * num));   // Parsek
+    if (input == 0f) continue;
+
+For any integer nominal, `nominal - (delta * num)` is identically **zero**, so the
+residual step is skipped. Stock does not do that - decompiled
+`Reputation.addReputation_granular` accumulates the POST-CURVE actual in `num2` and
+feeds the residual from it:
+
+    if (i != num) num3 = ModifyReputationDelta(delta);
+    else          num3 = ModifyReputationDelta(value - num2);   // accumulated ACTUAL
+    rep += num3;
+    num2 += num3;
+
+So for a `+1` award at rep 0, stock applies `curve(0) = 0.99925393` and then tops it
+back up with `ModifyReputationDelta(1 - 0.99925393)`, landing at `0.99999944` per
+award - `1.99999881` (float32) over two, exactly KSP's own pool. Parsek skips the
+top-up and lands at `1.9985167980194092`, reproducing the pinned magnitude
+bit-for-bit. The keyframes themselves are CORRECT; stock simply compensates for them
+in the residual step and Parsek does not.
+
+The fix is one line: track the accumulated actual (`accumulated`, already a local at
+`:315`) rather than `delta * num`:
+
+    input = (i != num) ? delta : (nominal - accumulated);
+
+Every `ApplyReputationCurve` caller is affected - contracts (`:209`), penalties
+(`:140`), strategy setup (`:244`), rep earnings (`:105`) - which is why it is
+invisible in careers where other reputation sources dominate. The error is ~0.075%
+per unit at rep ~ 0 and grows with `|rep|`.
+
+### Why the fix was deferred out of the `career-capture-fixes` wave
+
+This is a RECALC-side change, and the pin that measures it
+(`C2CareerPostFixReplayTests.PinnedReputationShortfall = 0.001482011980590725`) is a
+DATA-ERA magnitude over a committed `ledger.pgld`. The wave that found this cause was
+scoped capture-side precisely so that the next re-fly + re-harvest can be read
+unambiguously: a magnitude that moves after the re-harvest is the capture fix, and
+nothing else. Landing a recalc change in the same wave would have moved that pin
+without a re-harvest - the exact signal this entry's own closing paragraph reserves
+for "a RECALC-side change has occurred and must be investigated". It has now been
+investigated; taking the fix is a deliberate, separate decision.
+
+Whoever takes it must, in the same commit: update `PinnedReputationShortfall` (it
+should go to ~0, against `SaveReputation = 1.99999881`), refresh the now-stale
+cause-open commentary at `C2CareerPostFixReplayTests.cs:47-49`, `:112-116`, `:336-351`,
+and re-read `C2CareerLedgerReplayTests`' own `-0.00364` reputation window, which is a
+different fixture and may or may not close with it.
+
+### Suspects ruled out along the way (kept - they are what made the cause findable)
 
 `C2CareerLedgerReplayTests` has carried a `-0.00364` reputation divergence since
 2026-08-17, pinned as a 0.01 window with the note that whether it is "a second
@@ -614,10 +798,11 @@ KSP's own pool lands at `1.99999881` (float32 2.0); the replay lands at
 
 **Pinned, not chased:** `C2CareerPostFixReplayTests` pins the 0.001482 as a
 magnitude rather than hiding it in a window, precisely so the next person has an
-instrument. The likely question is whether stock's `AddReputation` curve is
-applied on one side and not the other, or applied twice - which needs the award
-path READ, not inferred from two data points. C2Career's own window stays at 0.01
-and is deliberately NOT tightened onto a number measured on different data.
+instrument. That worked: the pin is what made the arithmetic checkable, and the
+award path has now been READ rather than inferred - the answer is the residual-step
+formula above, and it is neither "curve applied on one side only" nor "applied
+twice" (both sides apply it; only the top-up differs). C2Career's own window stays
+at 0.01 and is deliberately NOT tightened onto a number measured on different data.
 
 **What would move the pin, stated so nobody expects the wrong thing:** the 0.001482
 is a DATA-ERA magnitude over a committed `ledger.pgld`, so it flips ONLY on a

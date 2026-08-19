@@ -138,7 +138,7 @@ namespace Parsek
                 Ut = ut,
                 RecoveryFactor = recoveryFactor,
                 HasFundsEarned = hasFundsEarned &&
-                                 FundsSnapshotLooksInitialized(
+                                 FundsSnapshotIsAuthoritative(
                                      beforeMissionFunds,
                                      fundsEarned,
                                      totalFunds),
@@ -149,6 +149,55 @@ namespace Parsek
 
             contexts.Add(context);
             return context;
+        }
+
+        /// <summary>
+        /// Fills in the payout half of an already-remembered context once stock has actually
+        /// computed it.
+        ///
+        /// <para>
+        /// <b>Why a second seam.</b> <see cref="Remember"/> runs at
+        /// <c>onVesselRecoveryProcessing</c>, where the dialog's payout fields are
+        /// structurally not yet populated (see <see cref="FundsSnapshotIsAuthoritative"/>),
+        /// so every production context starts out payout-unknown. KSP fires
+        /// <c>onVesselRecoveryProcessingComplete</c> as the LAST statement of
+        /// <c>VesselRecovery.OnVesselRecovered</c>, immediately after stamping
+        /// <c>totalFunds</c> and adding the currency-modifier delta into <c>fundsEarned</c> -
+        /// the first moment the snapshot is coherent. Refreshing here keeps the zero-payout /
+        /// below-threshold suppression working on a REAL expectation instead of leaving it
+        /// permanently unknown.
+        /// </para>
+        ///
+        /// <para>
+        /// Never downgrades: a context that is already authoritative is left alone, and an
+        /// incoherent completion snapshot (or the <c>quick</c> recovery path, which fires
+        /// completion with a null dialog and so never reaches here) leaves the context
+        /// unknown, which routes to deferred pairing - the safe direction.
+        /// </para>
+        /// </summary>
+        internal static bool TryRefreshPayoutFromCompletion(
+            uint persistentId,
+            RecoveredVesselIdentity identity,
+            double ut,
+            double fundsEarned,
+            double beforeMissionFunds,
+            double totalFunds,
+            out RecoveryPayoutContext context)
+        {
+            if (!TryFind(persistentId, identity, ut, out context))
+                return false;
+
+            if (context.HasFundsEarned)
+                return false;
+
+            if (!FundsSnapshotIsAuthoritative(beforeMissionFunds, fundsEarned, totalFunds))
+                return false;
+
+            context.FundsEarned = fundsEarned;
+            context.BeforeMissionFunds = beforeMissionFunds;
+            context.TotalFunds = totalFunds;
+            context.HasFundsEarned = true;
+            return true;
         }
 
         internal static bool TryFind(
@@ -291,7 +340,35 @@ namespace Parsek
             return Math.Abs(expected - fundsDelta) <= tolerance;
         }
 
-        private static bool FundsSnapshotLooksInitialized(
+        /// <summary>
+        /// True only when a <c>MissionRecoveryDialog</c> funds snapshot is INTERNALLY
+        /// COHERENT and can therefore be read as stock's own payout expectation.
+        ///
+        /// <para>
+        /// <b>Why coherence and not "any field is non-zero".</b> Decompile-verified against
+        /// KSP 1.12.5 <c>VesselRecovery.OnVesselRecovered</c>: the dialog's
+        /// <c>beforeMissionFunds</c> is stamped BEFORE
+        /// <c>GameEvents.onVesselRecoveryProcessing.Fire</c>, while <c>totalFunds</c> is
+        /// stamped AFTER it and <c>fundsEarned</c> is never assigned before the fire at all
+        /// (the part-value payout is produced by the event's own subscribers). So at
+        /// Parsek's recovery-processing seam the snapshot is structurally
+        /// <c>before=&lt;real&gt;, earned=0, total=0</c> - a shape the old "any field is
+        /// non-zero" heuristic accepted as an authoritative "stock will pay zero", which
+        /// then suppressed the deferred pairing for a recovery stock went on to pay in full
+        /// (CAREER-RECOVERY-FUNDS-NOT-LEDGERED: 4558 funds observed as a
+        /// <c>FundsChanged(VesselRecovery)</c> event and never written as a ledger row).
+        /// </para>
+        ///
+        /// <para>
+        /// A snapshot taken once stock HAS computed the payout satisfies
+        /// <c>total == before + earned</c>; one taken before it does not. Reading the
+        /// incoherent shape as "unknown" keeps the deferred-pairing path, which takes its
+        /// amount from the actual <c>FundsChanged(VesselRecovery)</c> delta rather than from
+        /// the dialog - so the guard now fails OPEN (queue and pair) instead of CLOSED
+        /// (silently drop a real credit).
+        /// </para>
+        /// </summary>
+        internal static bool FundsSnapshotIsAuthoritative(
             double beforeMissionFunds,
             double fundsEarned,
             double totalFunds)
@@ -305,13 +382,24 @@ namespace Parsek
                 return false;
 
             // A real zero-payout recovery still carries the player's mission funds.
-            // If KSP ever invokes recovery-processing before populating the dialog,
-            // the default all-zero snapshot is safer to treat as unknown so we keep
-            // the deferred-pairing path instead of silently suppressing a payout.
-            return beforeMissionFunds != 0.0 ||
-                   fundsEarned != 0.0 ||
-                   totalFunds != 0.0;
+            // The default all-zero snapshot stays "unknown" so we keep the deferred-pairing
+            // path instead of silently suppressing a payout.
+            if (beforeMissionFunds == 0.0 && fundsEarned == 0.0 && totalFunds == 0.0)
+                return false;
+
+            double expectedTotal = beforeMissionFunds + fundsEarned;
+            double tolerance = Math.Max(
+                FundsSnapshotCoherenceToleranceFunds,
+                Math.Abs(expectedTotal - (double)(float)expectedTotal));
+            return Math.Abs(totalFunds - expectedTotal) <= tolerance;
         }
+
+        /// <summary>
+        /// Absolute funds tolerance for the <see cref="FundsSnapshotIsAuthoritative"/>
+        /// coherence check. Stock stores the three fields as doubles but computes them from
+        /// float currency, so an exact equality test would reject a perfectly good snapshot.
+        /// </summary>
+        private const double FundsSnapshotCoherenceToleranceFunds = 0.01;
 
         private static int FindBestIndex(
             uint persistentId,
