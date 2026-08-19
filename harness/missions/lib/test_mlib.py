@@ -8713,6 +8713,113 @@ class B5ParkTests(unittest.TestCase):
         self.assertIn("left the target SOI", state.loss_reason)
 
 
+def _status_kv(line):
+    """The `k=v` pairs `harness/status.py` would parse out of a machine line -
+    the REAL consumer, imported here rather than re-implemented, so this cell
+    cannot drift from the parser it is guarding."""
+    import status
+    return status.parse_kv_tokens(line)
+
+
+class MachineStateFreeTextTokenTests(unittest.TestCase):
+    """Every FREE-TEXT field on the machine-state line must survive
+    `status.py::parse_kv_tokens` as ONE token.
+
+    THE REGRESSION THIS EXISTS FOR, found in review rather than in a flight:
+    `start_in_orbit_last_reason` was added to `MACHINE_STATE_FIELDS` - so an
+    operator watching a lane sit in PRELAUNCH could see WHICH entry-gate
+    conjunct was failing - without being added to `_MACHINE_TOKEN_FIELDS`. The
+    reasons are whole sentences, `parse_kv_tokens` splits on whitespace, and the
+    result is not a garbled reading but a CONFIDENT WRONG one:
+    `startInOrbitGate=SOI body is 'Kerbin', ...` parses to the three-character
+    string `'SOI'`. The field would have been silently useless at exactly the
+    moment it was written to serve.
+
+    WHY THE EXISTING flake-reason CELL DID NOT CATCH IT: it builds a B11 state
+    where `start_in_orbit_last_reason` is None, which renders `none` - a clean
+    single token. Only a frame that FAILS the gate produces the free text, so
+    this cell drives one deliberately.
+
+    Written over BOTH squeezed fields rather than just the new one, because the
+    invariant is "every free-text field", not "this field"."""
+
+    def _orbit_start_params(self, **over):
+        base = {
+            "startInOrbit": True,
+            "homeBodyName": "Duna",
+            "targetBodyName": "Ike",
+            "startInOrbitMinPeriapsisMeters": 300000,
+            "startInOrbitMaxApoapsisMeters": 1500000,
+            "startInOrbitMaxEccentricity": 0.05,
+            "captureEnabled": True,
+        }
+        base.update(over)
+        return mlib.b5_params_from_dict(base)
+
+    def _out_of_gate_state(self):
+        """One PRELAUNCH frame that FAILS the gate (wrong SOI body), so the
+        reason is non-None free text."""
+        state = mlib.b5_initial_state(self._orbit_start_params())
+        state, _ = mlib.b5_decide(state, TelemetrySnapshot(
+            ut=9160396.0, body="Kerbin", situation="ORBITING",
+            apoapsis=719680.0, periapsis=717047.0, eccentricity=0.0013,
+            altitude=718363.0))
+        return state
+
+    def test_the_gate_reason_is_multi_word_free_text(self):
+        # The PREMISE. If these reasons ever became single tokens the rest of
+        # this cell would be vacuous, so assert the shape the squeeze is for.
+        state = self._out_of_gate_state()
+        self.assertIsNotNone(state.start_in_orbit_last_reason)
+        self.assertIn(" ", state.start_in_orbit_last_reason)
+
+    def test_the_gate_reason_round_trips_through_parse_kv_tokens(self):
+        state = self._out_of_gate_state()
+        line = mlib.format_machine_state(state, 9160396.0)
+        value = _status_kv(line).get("startInOrbitGate")
+        self.assertIsNotNone(value, "startInOrbitGate absent from the line")
+        # NOT truncated: the pre-fix value was exactly 'SOI'. The squeeze
+        # collapses whitespace rather than cutting, so the whole reason survives
+        # as one token. Checked by CONTENT, not by length, so re-wording a gate
+        # reason does not oblige an edit here.
+        self.assertNotEqual(value, "SOI")
+        self.assertIn("Kerbin", value)
+        self.assertIn("Duna", value)
+        self.assertNotIn(" ", value)
+
+    def test_every_squeezed_field_keeps_the_line_token_count_exact(self):
+        # The line carries EXACTLY one `k=v` token per declared field (plus
+        # burnStaticAge). A field leaking spaces ADDS tokens; one leaking '='
+        # adds bogus KEYS - both are checked, since the tuple guards both.
+        state = self._out_of_gate_state()
+        line = mlib.format_machine_state(state, 9160396.0)
+        tokens = [t for t in line.split() if "=" in t]
+        self.assertEqual(len(tokens), len(mlib.MACHINE_STATE_FIELDS) + 1)
+        known = set(dict(mlib.MACHINE_STATE_FIELDS).values()) | {"burnStaticAge"}
+        self.assertEqual(
+            [], sorted(k for k in _status_kv(line) if k not in known),
+            "a free-text field injected a bogus key into the machine line")
+
+    def test_the_status_file_keeps_the_untruncated_reason(self):
+        # The LINE is deliberately lossy; the DICT is not. An operator who needs
+        # the whole sentence reads the status file.
+        state = self._out_of_gate_state()
+        self.assertEqual(
+            mlib.machine_state_dict(state, 9160396.0)["startInOrbitGate"],
+            state.start_in_orbit_last_reason)
+
+    def test_both_free_text_fields_are_declared_squeezed(self):
+        # The invariant itself, so a THIRD free-text field added to the line
+        # without an entry here reds on this cell rather than in a live status
+        # read - and so a squeezed name that is not ON the line reds too.
+        self.assertIn("flake_reason", mlib._MACHINE_TOKEN_FIELDS)
+        self.assertIn("start_in_orbit_last_reason", mlib._MACHINE_TOKEN_FIELDS)
+        declared = dict(mlib.MACHINE_STATE_FIELDS)
+        for attr in mlib._MACHINE_TOKEN_FIELDS:
+            self.assertIn(attr, declared,
+                          "%s is squeezed but not on the line" % attr)
+
+
 class B5OrbitCommitTests(unittest.TestCase):
     """ORBIT-COMMIT: the mid-mission command-seam CommitTree is the terminal,
     and each of its failure tokens names itself."""

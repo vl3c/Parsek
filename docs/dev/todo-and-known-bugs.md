@@ -14,6 +14,252 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## MAPRENDER-ICON-OFF-ORBIT-CREATION-FRAME-AFTER-JUMP: a ghost's proto ICON sits ~94 deg around its own orbit line on the CREATION frame, after a single large TimeJump onto an epoch just inside a foreign moon's SOI [MEASURED 2026-08-18 by `V14T-ike-ts-arrival`'s reading run and REPRODUCED on its armed run 2026-08-19. REPORT-ONLY: one self-correcting frame per run, DETERMINISTIC for the single-jump shape, tolerated by name in that spec; NO product change is proposed]
+
+`V14T-ike-ts-arrival` run `2026-08-18_2337` came back PARSEK-FAIL(anomaly) on
+attempt 1 with **all sixteen steps green** - every tracking-station route line
+fired, `created 1 ghost vessel(s)`, the TS session itself swept clean. The red is
+the armed Tier-C sweep doing its job: `anomalySweep hits=['icon-off-orbit']`,
+**exactly one line in the whole log**.
+
+### The measurement, verbatim
+
+`harness/results/2026-08-18_2337_V14T-ike-ts-arrival_shots/KSP.log` line 10774:
+
+    phase=Anomaly surface=ProtoIcon pid=2928501323 recId=05ceee33806d4079a1d9d125a1359115
+      frame=6979 currentUT=9243139.000 effUT=9243139.000 reason=icon-off-orbit
+      angleIconVsOrbitEff=94.05 angleEffVsLive=0.00 loopShift=0.0 effUT=9243139.0
+      | lonIcon=107.35 lonOrbitEff=-157.93 lonOrbitLive=-157.93
+      | iconR=1019937 orbitEffR=1019937
+      | lineActive=True inc=11.886 LAN=285.703 argPe=154.625 sma=-1230685 ecc=1.1385 body=Ike
+
+Read the three groups: **right body, right conic, right radius, wrong phase**.
+`iconR` and `orbitEffR` are the SAME 1,019,937 m; `lonOrbitEff` and `lonOrbitLive`
+agree exactly (`angleEffVsLive=0.00`, so the loop shift is not involved -
+`loopShift=0.0`); only `lonIcon` is 94.05 deg away from both.
+
+### The trigger shape, stated as narrowly as the evidence supports
+
+- **Ghost-proto CREATION frame.** The same frame 6979 carries
+  `phase=GhostCreated surface=ProtoIcon ... body=Ike scene=FLIGHT` and
+  `phase=FirstPosition ... reason=first-truth-read`. It is the first frame the
+  proto exists.
+- **FLIGHT scene, not TS.** It fires at 02:38:18.648; this lane's TS `LoadGame`
+  is at 02:38:19.58, about a second LATER. The tracking-station ghost
+  (pid 3383498847) is created clean and raises nothing. Do not read this as a TS
+  defect because it happens to appear in a TS lane's log.
+- **After ONE large TimeJump.** V14T jumps 17,223 s in a single step straight onto
+  the arrival epoch. **`V14M-ike-player-loop` is the control**: same fixture, same
+  tracers, same arrival UT 9,243,139, but reached through a STEPPED bracket
+  (-180 / -60 / +140 s). Its reading run `2026-08-18_2336` swept `hits=[]`. That
+  pair is what makes "the jump shape, not the fixture" the leading reading.
+- **Just inside a foreign moon's SOI, on a hyperbolic approach segment.** r =
+  1,019.9 km against Ike's 1,049.6 km SOI boundary; the conic is
+  `sma=-1230685 ecc=1.1385`, i.e. segments 6-9 of the committed recording.
+- **Self-corrects on the next frame**, and there is exactly one line per run.
+
+### REPRODUCED - it is a trigger, not an incident (2026-08-19)
+
+The reading run showed this ONCE, which is the weakest possible evidence: a single
+self-correcting frame is exactly what a one-off transient looks like. The ARMED
+re-flight settles it. Run `2026-08-19_0002`, PASS attempt 1:
+
+    anomalySweep status=PASS hits=[] counts={'icon-off-orbit': 1}
+
+Read both halves. `hits=[]` is the TOLERANCE working - the token is declared in
+`allowedAnomalies`, so it produces no unallowed hit and the run is green. `counts`
+is the raw tally, and it reads **1 again**. Same lane, same fixture, same single
+17,223-second jump, same one raise.
+
+That upgrades the finding from an observation to a **reproducible trigger**, and it
+sharpens the control at the same time: `V14M-ike-player-loop` has now flown TWICE
+(`2026-08-18_2336`, `2026-08-19_0001`, both PASS) against the same fixture, the same
+tracers and the same arrival UT through a STEPPED bracket, and swept `hits=[]` with an
+empty `counts` on both. Two runs each, one variable between them, opposite results
+every time. "The jump shape, not the fixture and not the scene" is no longer the
+leading reading - it is the measured one.
+
+WHAT IT DOES NOT UPGRADE: everything under "What is NOT established" below still
+stands. Reproducibility says the trigger is stable; it says nothing about which
+surface is wrong or whether V7T's persistent Minmus raise shares the mechanism.
+
+### What is NOT established
+
+**Whether the mechanism is parent-specific.** This is the first observation at a
+non-Kerbin parent, and it is tempting to make something of that; the evidence does
+not support it either way. V7T raises `icon-off-orbit` deterministically at
+MINMUS on every flight (`MOON-LOOP-FINDINGS`), so the token is not new and not
+Duna-specific. Whether THIS one - creation-frame, one-shot, post-single-jump - is
+the same mechanism as V7T's persistent raise is UNKNOWN and would need the two
+compared frame by frame.
+
+**Whether the icon or the line is wrong.** `angleIconVsOrbitEff` says only that
+they disagree. The radius agreement makes a stale-phase icon the natural first
+guess (the icon drawn before its position resolves against the freshly-jumped
+clock), but nothing here measures which surface is authoritative on a creation
+frame.
+
+**The cheap discriminating experiment**, for whoever picks this up: give V14M a
+variant with V14T's single-jump shape (or V14T a variant with V14M's bracket) and
+see whether the raise follows the JUMP SHAPE or the SCENE. Both lanes already
+exist, share a fixture, and differ in exactly that one variable.
+
+### The tolerance now in force, and its ceiling
+
+`V14T-ike-ts-arrival` declares `allowedAnomalies = ["icon-off-orbit"]`, added WITH
+the flight that shows it (the S1.4 rule). It is BARE rather than
+`{ token = ..., maxCount = 1 }`, and that is a deliberate, temporary weakness:
+`harness/lib/test_hlib.py::MisplacedAllowedAnomaliesRejectionTests.test_no_committed_spec_arms_a_count_budget`
+holds the budget mechanism INERT across the whole suite, and its own comment says
+arming one is "an operator decision taken against measured `anomalySweep.hitCounts`
+from a GREEN run" - which this lane does not have yet, since the run that measured
+the token is the run it red'd. **THAT PRECONDITION IS NOW MET.** The armed re-flight `2026-08-19_0002` is a PASS and
+it carries the reading the doctrine asks for: `anomalySweep status=PASS hits=[]
+counts={'icon-off-orbit': 1}`. So the arming is READY - an operator may now declare
+`allowedAnomalies = [{ token = "icon-off-orbit", maxCount = 1 }]` in
+`V14T-ike-ts-arrival`, citing that run, as the suite's FIRST budgeted entry. Two things
+must move together when they do: the whole-set invariant cell
+`test_no_committed_spec_arms_a_count_budget` currently asserts the empty set and would
+red, so it needs a named allowlist in the same edit - the same shape as
+`ARMED_ALLOWLIST`, and the same discipline (record the run, not just the token).
+
+Until that decision is taken the tolerance stays BARE and the ceiling lives in the
+spec's comment rather than in its declaration - so a SECOND raise in one run would pass
+unnoticed. That is the honest, and now precisely bounded, cost of respecting the
+invariant: the measured population is 1 on each of two runs, so the gap between what is
+declared (any count) and what is observed (exactly one) is the entire exposure.
+
+`V14M-ike-player-loop` keeps `allowedAnomalies = []` and stays the control.
+
+**NO PRODUCT CHANGE IS PROPOSED BY THIS LANE.** A one-frame creation-time icon
+phase error that self-corrects is a rendering transient, not a recorded-data
+defect; nothing in the recording, the loop unit or the committed save is affected.
+What is recorded here is the measurement, the control that isolates the jump
+shape, and the discriminating experiment.
+
+---
+
+## SEAM-STARTRECORDING-JOINS-COMMITTED-TREE: a seam `StartRecording` on a vessel that is a committed tree's own launch cannot open a standalone tree - it no-ops onto the recording the committed-restore path re-resumed [MEASURED 2026-08-18 by `B23-ike-orbit` flight 1; WORKAROUND LIVE-PROVEN the same day by flight 2. REPORT-ONLY: a HARNESS/FIXTURE constraint on the automation surface, NOT a proposed product change]
+
+`B23-ike-orbit` exists to produce the suite's first recording whose LAUNCH BODY
+is not Kerbin: the DD1 starts already parked in Duna orbit and hops to Ike, so the
+loop lanes can read it as a SAME-PARENT transfer. Its flight-1 fixture was
+`duna-direct-recorded` - B17's `--keep-parsek` harvest, which carries a COMMITTED
+TREE for that very vessel. The run came back **PASS attempt 1 with every
+assertion met** and the product was still wrong.
+
+### What happened, from the run's own log
+
+Run `2026-08-18_2242`, collected at
+`harness/results/2026-08-18_2242_B23-ike-orbit_shots/KSP.log`:
+
+- **11509** - at LoadGame the load-time optimizer SPLIT the committed main
+  recording `311d98e3` at `UT=4653681.9` (`first: 147 pts/2 sections, second:
+  363 pts/40 sections`), minting `17c32d96` for the Duna tail. `311d98e3` is left
+  as the FIRST half: a 177-second KERBIN pad-ascent fragment (bounds stamped
+  `startUT=4653504.3039999772 endUT=4653681.9038905427`, line 11507).
+- **12026 / 12097** - the spec's scene-entry preamble did its job:
+  `stoprecording stopped=true idle=false`, then `discardtree discarded=true`.
+  The promotion stub was killed and its tree torn down.
+- **12167** - 11 ms later, `[#8][CommittedSpawnedRestore:post] mode=tree
+  tree=ccb5e4af rec=311d98e3 pid=2200110044`: the committed-restore path
+  **re-resumed the committed recording**, BETWEEN DiscardTree (01:43:23.119) and
+  the seam StartRecording (01:43:23.863).
+- **12210** - `startrecording recordingId=311d98e32547491e8dd37aec2526d25d
+  already=true`. StartRecording no-opped onto that recording and started nothing.
+
+The whole Duna->Ike hop was therefore appended to a Kerbin-rooted ascent
+fragment. At commit the ledger line reads `startUT=4653504.3, endUT=9181612.7`
+for `311d98e3` (line 14308) - **one committed recording legally carrying a
+~4.5-million-second UT gap** - and the commit terminals (13995-13997) are
+`311d98e3=Orbiting/Ike`, `3397c2e5=Destroyed/Kerbin`,
+`17c32d96=Orbiting/Duna`, all three still inside B17's tree `ccb5e4af`.
+
+### Why this is the TS-LOADGAME-RECORDING-ACTIVE-RACE family plus one more thing
+
+The re-arm window is the same shape as the scene-entry race the V-lanes'
+StopRecording + DiscardTree pair was written for, and the pair is NOT a latch: it
+kills ONE stub, and the committed-restore path re-arms behind it. What the
+V-lanes never hit is the SECOND half - **committed-tree same-launch-guid
+continuation semantics**. The resumed recording belongs to a COMMITTED tree for
+the same vessel launch, so `StartRecording` correctly reports the vessel as
+already recording; there is no state in which it would instead fork a standalone
+tree. No re-ordering of the seam steps closes the window, because the resume
+happens before any step can run.
+
+### Why no verifier caught it
+
+Worth stating plainly, because "PASS attempt 1" is what this entry is really
+about:
+
+- the recordings **count** would have read a perfectly healthy number - it counts
+  `.prec` sidecars and cannot see which tree a recording belongs to;
+- the `Recording started` logContract token MATCHED, but all five occurrences
+  came from the promotion path and say so on their face (`..., promotion,
+  treeRec=rec[311d98e3|...]`, lines 11833 / 12159 / 14655) - the seam started
+  nothing;
+- nothing in the expectations vocabulary (logContracts, `saveParse`) can express
+  "this recording's launch body is Duna".
+
+So a green verdict is not evidence of the contract here, and any future lane that
+starts a recording on a parked committed craft inherits the same blind spot.
+
+### Consequence for the loop lanes
+
+A recording rooted at Kerbin with a deep multi-hop chain is exactly what the
+re-aim classifier declines, falling through to FAITHFUL - the opposite of the
+same-parent phase-lock route B23 exists to produce. The defect is invisible until
+a loop lane consumes the fixture, which is why it is filed rather than left in the
+spec header alone.
+
+### Workaround, and the scope of what is claimed
+
+`B23-ike-orbit` is re-pointed at **`duna-park-probe`**, a Parsek-stripped derived
+copy of the same save: `harvest_bdock_station.py --save-dir
+fixtures/saves/duna-direct-recorded --target-name duna-park-probe
+--expect-situation ORBITING` WITHOUT `--keep-parsek` (which prunes the `Parsek/`
+sidecars), PLUS a manual excision of the residual ParsekScenario children
+(`RECORDING_TREE`, `GROUP_HIERARCHY`, `MILESTONE_STATE`). **The second step is not
+optional**: the harvest tool prunes sidecars but leaves the scenario node, and the
+`RECORDING_TREE`'s `activeRecordingId` is precisely what drove the resume. Same
+DD1, same orbit, same epoch, no committed tree, so there is nothing to resume and
+`StartRecording` opens the standalone Duna-rooted tree. Guarded headlessly by
+`missions/lib/test_b23_ike_orbit.py::SpecArithmeticTests` (the saveTemplate pin,
+the byte-level "no `Parsek/` and no scenario children" check, and the count
+arithmetic), because a one-string revert would restore the defect with every
+verifier still green.
+
+**THE WORKAROUND IS LIVE-PROVEN, and the proof is the same day's flight 2.** Run
+`2026-08-18_2308` (PASS attempt 1, mission wall 370.5 s, zero Unity exceptions)
+flew the identical spec against `duna-park-probe` and the seam answered
+
+    startrecording recordingId=05ceee33806d4079a1d9d125a1359115 already=false
+
+(KSP.log line 10509 in `harness/results/2026-08-18_2308_B23-ike-orbit_shots`) -
+`already=FALSE`, the exact inversion of flight 1's line, and the whole point of
+the strip. It minted a FRESH STANDALONE tree
+`f55918afd70b45e284006e01729d9e9a`, crossed the boundary exactly once (`SOI change
+boundary suppressed in tree mode: Duna to Ike`, 11176), and committed with
+`CommitTreeFlight terminal: rec=05ceee33... terminalState=Orbiting
+terminalOrbitBody=Ike` (11863). saveParse on the produced save: ONE recording, 200
+points, zero supersede / tombstone / rewind rows. That save is now the committed
+`ike-orbit-recorded` fixture, and its one-recording topology is pinned in
+`harness/lib/test_saveparse.py::CommittedFixtureSweepTests.RECORDED_FIXTURES` -
+where a 2 or a 3 would mean this defect is back.
+
+So the entry stands as a CONSTRAINT with a proven workaround, not as an open
+problem. **NO PRODUCT CHANGE IS PROPOSED BY THIS LANE.** The observed behaviour is
+arguably correct - a committed tree's vessel IS still that recording's subject,
+and silently forking a standalone tree on top of it would be its own hazard. What
+is recorded here is (a) the automation-surface constraint, so the next spec author
+does not spend a flight rediscovering it, (b) the fact that a committed recording
+can legally span a multi-million-second gap, which is a property any future
+consumer of committed spans should not assume away, and (c) the shape of the fix,
+which is a two-step fixture derivation and NOT a spec re-ordering: no arrangement
+of the seam steps closes the window, because the re-resume happens before any step
+can run.
+
+---
 ## ~~LEDGER-TRUNCATE-LEAVES-A-STALE-ELS-CACHE: `Ledger.TruncateActionsForTesting` mutated the ledger without bumping `StateVersion`, so `ComputeELS` went on serving removed rows~~ [FOUND 2026-08-19 by the L3 capture-matrix reading run `2026-08-18_2136`. FIXED the same day.]
 
 `EffectiveState.ComputeELS` caches its result against `Ledger.StateVersion`, and

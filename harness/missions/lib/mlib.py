@@ -3196,6 +3196,85 @@ class B5Params:
                                            # NodeExecutor autowarp the recording
                                            # through the wait (spec key
                                            # padAlignWindowGuardSeconds).
+    # --- ORBIT-START entry (mission b23_ike_orbit). The SECOND flag-gated
+    # PRELAUNCH branch, and the exact mirror of PAD-ALIGN's contract: with
+    # start_in_orbit False the PRELAUNCH branch is byte-identical to the
+    # LIVE-PROVEN launch shape (same decisions, same actions, same phase list),
+    # and the machine gains nothing but inert state fields.
+    #
+    # WHY IT EXISTS. Every B5-family lane to date starts ON A PAD and buys its
+    # parking orbit with an ascent. A MOON-TRANSFER lane whose recording must
+    # BEGIN in the parent body's orbit (the loop lanes read the launch body off
+    # the recording's first frames, so a Duna->Ike hop has to be its own
+    # recording tree rooted at Duna) has no pad to start from: its fixture is
+    # ALREADY parked. The flag lets the shared machine ENTER at the ORBIT
+    # waypoint instead of at MJ-ASCENT, after PROVING - not assuming - that the
+    # fixture really is parked where the mission's transfer half expects.
+    #
+    # WHY IT PROVES RATHER THAN ASSUMES. A wrong fixture (suborbital, wrong
+    # body, an eccentric or decaying park) would otherwise surface hundreds of
+    # thousands of game-seconds later as an unplannable transfer or a coast
+    # budget flake -- the archaeology the park round-out trim's give-up exists
+    # to end. The gate below reads the SAME quantities the transfer half
+    # depends on and names the mismatch on frame one.
+    start_in_orbit: bool = False           # True: PRELAUNCH verifies the active
+                                           # vessel is already parked around
+                                           # home_body inside the entry gate,
+                                           # then enters the ORBIT waypoint
+                                           # DIRECTLY (no MJ-ASCENT, no
+                                           # CIRCULARIZE, no ascent actions).
+                                           # False: byte-identical to the
+                                           # LIVE-PROVEN pad shape. Spec key
+                                           # startInOrbit. Mutually exclusive
+                                           # with pad_align_ejection (that
+                                           # branch jumps the epoch ON THE PAD;
+                                           # there is no pad here).
+    start_in_orbit_min_periapsis: float = 0.0
+                                           # entry gate: periapsis (m, surface
+                                           # altitude) at/above this. The
+                                           # "not decaying into the atmosphere
+                                           # / terrain" half (spec key
+                                           # startInOrbitMinPeriapsisMeters).
+    start_in_orbit_max_apoapsis: float = 0.0
+                                           # entry gate: apoapsis (m) at/below
+                                           # this. 0 = no ceiling. Apoapsis
+                                           # STRICTLY POSITIVE is always
+                                           # required regardless: a hyperbolic
+                                           # / escaping reading is negative, so
+                                           # "0 < ap" is the bound-orbit
+                                           # evidence (spec key
+                                           # startInOrbitMaxApoapsisMeters).
+    start_in_orbit_max_eccentricity: float = 1.0
+                                           # entry gate: eccentricity at/below
+                                           # this -- the "round enough that the
+                                           # transfer planner sizes its burn
+                                           # against the radius it applies it
+                                           # at" half, the B15 park-trim lesson
+                                           # applied to a park this lane cannot
+                                           # re-trim because it never flies
+                                           # CIRCULARIZE (spec key
+                                           # startInOrbitMaxEccentricity).
+    start_in_orbit_situations: Tuple[str, ...] = ("ORBITING",)
+                                           # accepted kRPC situations for the
+                                           # entry frame (spec key
+                                           # startInOrbitSituations).
+    start_in_orbit_debounce: int = 3       # consecutive IN-GATE frames before
+                                           # the machine enters ORBIT (spec key
+                                           # startInOrbitDebounceFrames).
+    start_in_orbit_settle_seconds: float = 120.0
+                                           # GAME seconds from the FIRST frame
+                                           # the gate may spend un-met before a
+                                           # NAMED give-up. PRELAUNCH is an
+                                           # untimed phase (_b5_phase_budget
+                                           # returns None) and its
+                                           # phase_entry_ut defaults to 0.0,
+                                           # which on a fixture at UT 9.16e6
+                                           # would read as an instant overrun --
+                                           # so this branch anchors its OWN
+                                           # clock on the first finite-UT frame
+                                           # and never touches the phase budget
+                                           # (spec key
+                                           # startInOrbitSettleSeconds).
     frozen_sample_limit: int = 10          # airborne frozen-telemetry samples ->
                                            # vessel-lost terminal (spec key
                                            # frozenTelemetrySamples)
@@ -3458,7 +3537,12 @@ class B5Params:
 def b5_params_from_dict(params: Dict) -> B5Params:
     """Build ``B5Params`` from a spec ``missionParams`` dict.
 
-    Raises ``ValueError`` when ``landingEnabled`` is set without
+    Raises ``ValueError`` on two mutually-inconsistent flag combinations:
+    ``startInOrbit`` together with ``padAlignEjection`` (PAD-ALIGN issues a
+    pre-LAUNCH epoch jump and then flies an ascent; ORBIT-START never launches,
+    so a spec asking for both is asking the machine to align a pad it will not
+    use, and the two PRELAUNCH branches would resolve on branch ORDER rather
+    than on intent), and ``landingEnabled`` set without
     ``captureEnabled``. That implication is not a style preference, it is the
     machine's TOPOLOGY: the ONLY edge into DESCENT is the capture lane's PARK
     dwell (``b5_decide``'s PARK branch), so a landing-without-capture spec
@@ -3482,6 +3566,14 @@ def b5_params_from_dict(params: Dict) -> B5Params:
             "aligns an INTERPLANETARY phase angle, and the ASAP-mode plan it "
             "arms only exists on the OperationInterplanetaryTransfer path -- "
             "on a moon lane the flag would jump the epoch for nothing")
+    if bool(params.get("startInOrbit", False)) \
+            and bool(params.get("padAlignEjection", False)):
+        raise ValueError(
+            "startInOrbit and padAlignEjection are mutually exclusive: PAD-ALIGN "
+            "issues a pre-LAUNCH epoch jump and then flies an ascent, while "
+            "startInOrbit enters at the ORBIT waypoint and never launches at "
+            "all -- a spec asking for both is asking the machine to align a pad "
+            "it will not use")
     if bool(params.get("padAlignEjection", False)):
         home = str(params.get("homeBodyName", "Kerbin"))
         target = str(params.get("targetBodyName", "Mun"))
@@ -3537,6 +3629,18 @@ def b5_params_from_dict(params: Dict) -> B5Params:
         pad_align_timeout=float(params.get("padAlignTimeoutSeconds", 300.0)),
         pad_align_window_guard=float(
             params.get("padAlignWindowGuardSeconds", 21600.0)),
+        start_in_orbit=bool(params.get("startInOrbit", False)),
+        start_in_orbit_min_periapsis=float(
+            params.get("startInOrbitMinPeriapsisMeters", 0.0)),
+        start_in_orbit_max_apoapsis=float(
+            params.get("startInOrbitMaxApoapsisMeters", 0.0)),
+        start_in_orbit_max_eccentricity=float(
+            params.get("startInOrbitMaxEccentricity", 1.0)),
+        start_in_orbit_situations=tuple(
+            str(s) for s in params.get("startInOrbitSituations", ("ORBITING",))),
+        start_in_orbit_debounce=int(params.get("startInOrbitDebounceFrames", 3)),
+        start_in_orbit_settle_seconds=float(
+            params.get("startInOrbitSettleSeconds", 120.0)),
         frozen_sample_limit=int(params.get("frozenTelemetrySamples", 10)),
         capture_enabled=bool(params.get("captureEnabled", False)),
         capture_plan_timeout=float(params.get("capturePlanTimeoutSeconds", 300.0)),
@@ -7839,6 +7943,25 @@ class B5State:
     transfer_node_ut: Optional[float] = None   # planned ejection node UT at
                                                # the PLAN-TRANSFER handoff
     transfer_handoff_ut: Optional[float] = None
+    # --- ORBIT-START bookkeeping (start_in_orbit lanes only; every field keeps
+    # its None / 0 / False default on every pad lane, exactly as the PAD-ALIGN
+    # fields above do, so a flag-off machine is unchanged).
+    #
+    # ``start_in_orbit_anchor_ut`` is the branch's OWN settle clock (PRELAUNCH
+    # is untimed and phase_entry_ut defaults to 0.0 -- see the param comment).
+    # ``start_in_orbit_seen_finite`` is what separates the two give-ups: a gate
+    # that was MEASURABLE and never met is a deterministic fixture fault
+    # (ASSERT-FAIL, a retry cannot help), while telemetry that never became
+    # readable at all is a transient (FLAKE, retry per policy).
+    # The three entry_* stamps are the ``startedInHomeOrbit`` assertion row's
+    # carried evidence -- the orbit AS READ on the frame the machine accepted.
+    start_in_orbit_anchor_ut: Optional[float] = None
+    start_in_orbit_streak: int = 0
+    start_in_orbit_seen_finite: bool = False
+    start_in_orbit_last_reason: Optional[str] = None
+    start_in_orbit_entry_apoapsis: Optional[float] = None
+    start_in_orbit_entry_periapsis: Optional[float] = None
+    start_in_orbit_entry_eccentricity: Optional[float] = None
     phases_reached: Tuple[str, ...] = (B5_PRELAUNCH,)
     verdict: Optional[str] = None
     flake_phase: Optional[str] = None
@@ -7861,6 +7984,181 @@ def b5_initial_state(params: B5Params) -> B5State:
 # into the wire command-id, and the machine reads results tag-gated so a stale
 # result from a DIFFERENT command can never advance this phase).
 B5_TAG_PAD_ALIGN = "padalign"
+
+
+# ---------------------------------------------------------------------------
+# ORBIT-START entry (mission b23_ike_orbit). Pure classifier + the PRELAUNCH
+# step that consumes it. Reachable ONLY when params.start_in_orbit is set; with
+# the flag off nothing below is ever called and the PRELAUNCH branch is the
+# byte-identical launch shape.
+# ---------------------------------------------------------------------------
+
+# Per-FRAME verdicts of the entry gate. Deliberately three-valued rather than a
+# bool: "the frame does not prove the fixture is parked" splits into UNREADABLE
+# (nothing to judge yet -- a post-LoadGame frame whose orbit fields have not
+# populated) and OUT-OF-GATE (a real reading that FAILS), and the two earn
+# different give-ups. Collapsing them would price a fixture fault as a flake and
+# spend a retry on a run that can only fail again.
+START_IN_ORBIT_OFF = "OFF"
+START_IN_ORBIT_UNREADABLE = "UNREADABLE"
+START_IN_ORBIT_OUT_OF_GATE = "OUT-OF-GATE"
+START_IN_ORBIT_IN_GATE = "IN-GATE"
+
+
+def start_in_orbit_frame_verdict(params: B5Params,
+                                 snapshot: TelemetrySnapshot) -> Tuple[str, str]:
+    """Classify ONE frame against the orbit-start entry gate: ``(verdict,
+    reason)``, reason non-empty only for the two failing verdicts.
+
+    The gate reads exactly the quantities the transfer half depends on:
+
+      body       must be ``home_body`` -- the transfer is planned FROM this SOI
+                 (``_b5_coast_bodies`` treats any other body as an ejection).
+      situation  must be one of ``start_in_orbit_situations`` -- a
+                 PRE_LAUNCH / LANDED / SUB_ORBITAL reading is a fixture that
+                 never made orbit, and a wrong fixture must never reach
+                 PLAN-TRANSFER.
+      apoapsis   STRICTLY POSITIVE, always: a hyperbolic / escaping orbit reads
+                 NEGATIVE in the body frame, so "0 < ap" is the bound-orbit
+                 evidence -- the same discriminator the capture window uses.
+                 Additionally at/below ``start_in_orbit_max_apoapsis`` when that
+                 ceiling is set (0 = no ceiling), which is how a spec keeps the
+                 start park inside the parent SOI.
+      periapsis  at/above ``start_in_orbit_min_periapsis`` -- not decaying.
+      ecc        at/below ``start_in_orbit_max_eccentricity`` -- round enough
+                 that the Hohmann planner's burn sizing (computed at the
+                 semi-major axis, applied at whatever radius its geometry picks)
+                 is not the B15 shortfall waiting to happen. This lane never
+                 flies CIRCULARIZE, so the park round-out trim cannot rescue an
+                 eccentric fixture; the gate is the only place to catch it.
+
+    FAIL-CLOSED on every unreadable field: an empty body, an empty situation or
+    a non-finite ap/pe/ecc is UNREADABLE, never a pass. Pure."""
+    if not params.start_in_orbit:
+        return START_IN_ORBIT_OFF, ""
+    if not snapshot.body:
+        return START_IN_ORBIT_UNREADABLE, "no SOI body reading yet"
+    if not (_is_finite(snapshot.apoapsis) and _is_finite(snapshot.periapsis)
+            and _is_finite(snapshot.eccentricity)):
+        return START_IN_ORBIT_UNREADABLE, (
+            "orbit fields unreadable (ap %s, pe %s, ecc %s)"
+            % (_obs_fmt(snapshot.apoapsis), _obs_fmt(snapshot.periapsis),
+               _obs_fmt(snapshot.eccentricity)))
+    if params.start_in_orbit_situations and not snapshot.situation:
+        return START_IN_ORBIT_UNREADABLE, "situation unread"
+    if snapshot.body != params.home_body:
+        return START_IN_ORBIT_OUT_OF_GATE, (
+            "SOI body is %r, expected the home body %r"
+            % (snapshot.body, params.home_body))
+    if (params.start_in_orbit_situations
+            and snapshot.situation not in params.start_in_orbit_situations):
+        return START_IN_ORBIT_OUT_OF_GATE, (
+            "situation %r is not one of %r"
+            % (snapshot.situation, list(params.start_in_orbit_situations)))
+    if snapshot.apoapsis <= 0.0:
+        return START_IN_ORBIT_OUT_OF_GATE, (
+            "apoapsis %.0f m is not a BOUND orbit (a hyperbolic/escaping "
+            "reading is negative)" % (snapshot.apoapsis,))
+    if (params.start_in_orbit_max_apoapsis > 0.0
+            and snapshot.apoapsis > params.start_in_orbit_max_apoapsis):
+        return START_IN_ORBIT_OUT_OF_GATE, (
+            "apoapsis %.0f m is above the entry ceiling %.0f m"
+            % (snapshot.apoapsis, params.start_in_orbit_max_apoapsis))
+    if snapshot.periapsis < params.start_in_orbit_min_periapsis:
+        return START_IN_ORBIT_OUT_OF_GATE, (
+            "periapsis %.0f m is below the entry floor %.0f m"
+            % (snapshot.periapsis, params.start_in_orbit_min_periapsis))
+    if snapshot.eccentricity > params.start_in_orbit_max_eccentricity:
+        return START_IN_ORBIT_OUT_OF_GATE, (
+            "eccentricity %.4f is above the entry ceiling %.4f"
+            % (snapshot.eccentricity, params.start_in_orbit_max_eccentricity))
+    return START_IN_ORBIT_IN_GATE, ""
+
+
+def _b5_start_in_orbit_step(state: B5State, snapshot: TelemetrySnapshot,
+                            peak: Optional[float]
+                            ) -> Tuple[B5State, List[Action]]:
+    """One PRELAUNCH frame in orbit-start mode.
+
+    IN-GATE for ``start_in_orbit_debounce`` consecutive frames -> enter the
+    ORBIT waypoint, which the very next frame hands to ``_b5_enter_plan_transfer``
+    exactly as an ascent-flown park does. Entering ORBIT rather than
+    PLAN-TRANSFER directly is deliberate and buys three things for free: the
+    ``reachedOrbit`` assertion row keeps its ONE evidence source (``B5_ORBIT in
+    phases_reached``) instead of growing a mode-dependent second one; the
+    optional pre-transfer JETTISON phase stays reachable from this entry too;
+    and the plan hand-off stays a SINGLE code path for both predecessors, which
+    is the invariant ``_b5_enter_plan_transfer`` was extracted to protect.
+
+    NO ACTIONS are emitted on entry. The fixture is already parked with its
+    throttle cut and no nodes pending (that IS the fixture contract, and the
+    gate above certifies the orbit half of it); commanding a throttle cut or an
+    AP disengage on a settled craft would be noise, and the ascent kickoff
+    actions are precisely what this mode must not fire.
+
+    ``launch_ut`` is stamped on the accepted frame for observability symmetry
+    with the pad path (it is the UT the RECORDED mission begins). The
+    ``padAligned*`` rows that read it are pad-align-only, and the two flags are
+    mutually exclusive, so nothing can mis-read this stamp as a pad launch."""
+    params = state.params
+    anchor = state.start_in_orbit_anchor_ut
+    if anchor is None and _is_finite(snapshot.ut):
+        anchor = float(snapshot.ut)
+        state = replace(state, start_in_orbit_anchor_ut=anchor)
+
+    verdict, reason = start_in_orbit_frame_verdict(params, snapshot)
+    if verdict == START_IN_ORBIT_IN_GATE:
+        streak = state.start_in_orbit_streak + 1
+        state = replace(state, start_in_orbit_streak=streak,
+                        start_in_orbit_seen_finite=True,
+                        start_in_orbit_last_reason=None)
+        if streak < max(params.start_in_orbit_debounce, 1):
+            return replace(state, peak_apoapsis=peak), []
+        entered = _b5_enter(replace(state, start_in_orbit_streak=0),
+                            B5_ORBIT, snapshot.ut, peak)
+        return replace(
+            entered,
+            launch_ut=(float(snapshot.ut) if _is_finite(snapshot.ut) else None),
+            start_in_orbit_entry_apoapsis=float(snapshot.apoapsis),
+            start_in_orbit_entry_periapsis=float(snapshot.periapsis),
+            start_in_orbit_entry_eccentricity=float(snapshot.eccentricity)), []
+
+    # NOT in gate. The streak resets (the debounce must be re-earned in full),
+    # and a REAL out-of-gate reading latches `seen_finite` so the give-up below
+    # can tell a fixture fault from unreadable telemetry.
+    state = replace(
+        state, start_in_orbit_streak=0, start_in_orbit_last_reason=reason,
+        start_in_orbit_seen_finite=(state.start_in_orbit_seen_finite
+                                    or verdict == START_IN_ORBIT_OUT_OF_GATE))
+    if (anchor is not None and _is_finite(snapshot.ut)
+            and (snapshot.ut - anchor) > params.start_in_orbit_settle_seconds):
+        if state.start_in_orbit_seen_finite:
+            # DETERMINISTIC: the gate was measurable and never met. A retry
+            # re-loads the same fixture and reads the same numbers.
+            return replace(
+                state, peak_apoapsis=peak, done=True,
+                verdict=MISSION_ASSERT_FAIL,
+                loss_reason=("orbit-start entry gate never met after %.0f game "
+                             "s: %s -- the fixture is not parked where this "
+                             "mission's transfer half expects (home body %r, "
+                             "situations %r, pe >= %.0f m, 0 < ap <= %s, "
+                             "ecc <= %.4f)"
+                             % (params.start_in_orbit_settle_seconds, reason,
+                                params.home_body,
+                                list(params.start_in_orbit_situations),
+                                params.start_in_orbit_min_periapsis,
+                                ("%.0f m" % params.start_in_orbit_max_apoapsis)
+                                if params.start_in_orbit_max_apoapsis > 0.0
+                                else "unbounded",
+                                params.start_in_orbit_max_eccentricity))), []
+        return _b5_named_flake(
+            state,
+            "orbit-start telemetry never settled: %.0f game s at PRELAUNCH "
+            "without one readable orbit frame (%s) -- nothing was judged, so "
+            "this is a transient read failure, not a fixture verdict"
+            % (params.start_in_orbit_settle_seconds, reason),
+            peak), []
+    return replace(state, peak_apoapsis=peak), []
 
 
 def _b5_ascent_kickoff_actions(params: B5Params) -> List[Action]:
@@ -9857,6 +10155,13 @@ def b5_decide(state: B5State, snapshot: TelemetrySnapshot) -> Tuple[B5State, Lis
             state = replace(state, min_target_altitude=float(snapshot.altitude))
 
     if state.phase == B5_PRELAUNCH:
+        if state.params.start_in_orbit:
+            # ORBIT-START (b23_ike_orbit): the fixture is ALREADY parked, so
+            # there is no ascent to fly. Verify the park, then enter at the
+            # ORBIT waypoint. Checked FIRST because it is the branch that never
+            # launches; b5_params_from_dict rejects the both-flags spec, so the
+            # ordering here can never hide a pad-align lane.
+            return _b5_start_in_orbit_step(state, snapshot, peak)
         if state.params.pad_align_ejection:
             # PAD-ALIGN: compute the ejection window from the committed stock
             # ephemeris and issue ONE forward-only seam TimeJump on the pad.
@@ -13562,6 +13867,16 @@ def evaluate_b5_assertions(frames, params: B5Params,
       EVER in the settled gate (target body + landed situation + BOTH speed
       components under their floors).
 
+    ORBIT-START MODE (``params.start_in_orbit``, mission b23_ike_orbit) ADDS ONE
+    row, ``startedInHomeOrbit``, to whichever set above applies -- and adds it
+    only when the flag is on, so every existing lane's row list is unchanged.
+    The claim is the one that entry mode is trusted for: the mission BEGAN from
+    a bound, in-gate park around the HOME body, so the recording it produces is
+    ROOTED at that body rather than at a pad. Evidence is the entry_* stamps the
+    PRELAUNCH gate writes on the frame it accepted; a missing stamp fails
+    CLOSED, so a machine that somehow reached ORBIT without passing the gate
+    cannot report met.
+
     ``state`` is the terminated machine state; the capture rows are carried
     evidence the frames cannot hold (this evaluator discards them). Absent /
     None it degrades to the flyby rows.
@@ -13587,6 +13902,38 @@ def evaluate_b5_assertions(frames, params: B5Params,
                              (min_target_altitude if min_target_altitude is not None
                               else float("nan")),
                              {"floor": floor})
+
+    # ORBIT-START row (start_in_orbit lanes only; every other lane's row list is
+    # unchanged with the flag off, the PAD-ALIGN precedent below). The claim is
+    # the one this entry mode is trusted for: the mission BEGAN from a bound,
+    # in-gate park around the HOME body -- i.e. the recording it produces is
+    # rooted at that body, which is the whole reason the lane starts in orbit
+    # instead of on a pad. Evidence is machine-carried (the entry_* stamps
+    # written on the accepted frame); a missing stamp fails CLOSED, so a machine
+    # that somehow reached ORBIT without passing the gate cannot report met.
+    start_rows: List[AssertionOutcome] = []
+    if params.start_in_orbit:
+        entry_ap = getattr(state, "start_in_orbit_entry_apoapsis", None)
+        entry_pe = getattr(state, "start_in_orbit_entry_periapsis", None)
+        entry_ecc = getattr(state, "start_in_orbit_entry_eccentricity", None)
+        start_met = (B5_ORBIT in phases
+                     and entry_ap is not None and entry_pe is not None
+                     and entry_ecc is not None
+                     and 0.0 < entry_ap
+                     and (params.start_in_orbit_max_apoapsis <= 0.0
+                          or entry_ap <= params.start_in_orbit_max_apoapsis)
+                     and entry_pe >= params.start_in_orbit_min_periapsis
+                     and entry_ecc <= params.start_in_orbit_max_eccentricity)
+        start_rows = [AssertionOutcome(
+            "startedInHomeOrbit", start_met, entry_ecc,
+            {"required": B5_ORBIT, "body": params.home_body,
+             "apoapsis": entry_ap, "periapsis": entry_pe,
+             "maxApoapsis": params.start_in_orbit_max_apoapsis,
+             "minPeriapsis": params.start_in_orbit_min_periapsis,
+             "maxEccentricity": params.start_in_orbit_max_eccentricity,
+             "entryUt": getattr(state, "launch_ut", None),
+             "lastGateReason": getattr(state, "start_in_orbit_last_reason",
+                                       None)})]
 
     # PAD-ALIGN row (pad_align_ejection lanes only; every flown lane's row
     # list is unchanged with the flag off). The claim is the recording-
@@ -13734,7 +14081,7 @@ def evaluate_b5_assertions(frames, params: B5Params,
              "terminal": "landed"})
 
         return [orbit, soi, flyby, captured, parked, on_body, settled,
-                committed] + pad_rows
+                committed] + start_rows + pad_rows
 
     if params.capture_enabled:
         cap_ap = getattr(state, "capture_apoapsis", None)
@@ -13773,7 +14120,7 @@ def evaluate_b5_assertions(frames, params: B5Params,
             "treeCommitted", commit_met, (commit_result or None),
             {"required": B5_ORBIT_COMMITTED, "body": params.target_body})
 
-        return [orbit, soi, flyby, captured, parked, committed] + pad_rows
+        return [orbit, soi, flyby, captured, parked, committed] + start_rows + pad_rows
 
     return_body = _b5_return_body(params)
     ret_met = B5_RETURN in phases
@@ -13784,7 +14131,7 @@ def evaluate_b5_assertions(frames, params: B5Params,
                            (return_body if ret_met else None),
                            {"required": B5_RETURN, "returnBody": return_body})
 
-    return [orbit, soi, flyby, ret] + pad_rows
+    return [orbit, soi, flyby, ret] + start_rows + pad_rows
 
 
 def _value_or_nan(v: Optional[float]) -> float:
@@ -14409,6 +14756,14 @@ MACHINE_STATE_FIELDS: Tuple[Tuple[str, str], ...] = (
     ("launch_ut", "launchUt"),
     ("transfer_node_ut", "transferNodeUt"),
     ("transfer_handoff_ut", "transferHandoffUt"),
+    # ORBIT-START carried state, same contract as the PAD-ALIGN block above:
+    # None / 0 / False on every pad lane, so the DECISION stream is unchanged
+    # and only the state LINE gains inert tokens. The gate REASON is the
+    # load-bearing one -- a lane that sat in PRELAUNCH and then gave up must say
+    # WHICH conjunct it was failing without post-hoc archaeology.
+    ("start_in_orbit_anchor_ut", "startInOrbitAnchorUt"),
+    ("start_in_orbit_streak", "startInOrbitStreak"),
+    ("start_in_orbit_last_reason", "startInOrbitGate"),
     # FORGE + B-DOCK carried state (getattr-generic: absent on B1..B7 states, so
     # their machine-state dict/line is unchanged; present only for those runs).
     ("settle_streak", "settleStreak"),
@@ -14692,7 +15047,20 @@ def _obs_fmt(value) -> str:
 # unsanitized reason would inject bogus keys -- including collisions with real
 # ones like ut= / nodes=. The status FILE (machine_state_dict -> JSON) carries
 # the full untruncated string; only the line is squeezed.
-_MACHINE_TOKEN_FIELDS = ("flake_reason",)
+#
+# EVERY FREE-TEXT FIELD ADDED TO MACHINE_STATE_FIELDS MUST BE LISTED HERE. The
+# orbit-start gate reason was added to the state line WITHOUT this entry, and the
+# failure mode is the one this tuple exists to prevent, in its purest form:
+# parse_kv_tokens splits on whitespace, so
+# `startInOrbitGate=SOI body is 'Kerbin', expected the home body 'Duna'` parses
+# as startInOrbitGate -> 'SOI'. Not a corrupted reading - a CONFIDENT wrong one,
+# three characters long, produced at exactly the moment the field exists to
+# explain (a lane sitting in PRELAUNCH about to give up). TRUNCATION is the sharp
+# edge for these particular reasons - none of them happens to contain '=' - while
+# key INJECTION is the shared risk the tuple was originally written for; both are
+# closed by the same _obs_fmt_token squeeze. Pinned by
+# test_mlib.py::MachineStateFreeTextTokenTests.
+_MACHINE_TOKEN_FIELDS = ("flake_reason", "start_in_orbit_last_reason")
 _MACHINE_TOKEN_LIMIT = 120
 
 

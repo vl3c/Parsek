@@ -647,6 +647,29 @@ class CommittedFixtureSweepTests(unittest.TestCase):
         "bdock-station-craft": True,
         "bdock-station-pad": True,
         "career-pad-craft": True,
+        # THE ONE ENTRY DERIVED FROM A RECORDED FIXTURE RATHER THAN FORGED.
+        # `duna-park-probe` is `duna-direct-recorded` with Parsek's own state
+        # removed: the `Parsek/` sidecar directory pruned by a harvest WITHOUT
+        # --keep-parsek, plus a manual excision of the residual ParsekScenario
+        # CHILDREN (RECORDING_TREE / GROUP_HIERARCHY / MILESTONE_STATE). It
+        # belongs HERE and not in RECORDED_FIXTURES precisely because the strip
+        # puts it back under the zero-trees contract this map asserts.
+        #
+        # THE NODE IS STILL PRESENT (True) AND THAT IS DELIBERATE: only the
+        # children were excised. A flyable template must carry the node or the
+        # FLIGHT route records nothing.
+        #
+        # WHY THE STRIP IS LOAD-BEARING, so a future re-harvest does not undo it:
+        # `B23-ike-orbit` starts its recording through the seam on a vessel that
+        # `duna-direct-recorded` holds a COMMITTED TREE for, and a seam
+        # StartRecording cannot open a standalone tree on a committed tree's own
+        # launch - the committed-restore path re-resumes that recording and
+        # StartRecording no-ops onto it (measured, B23 flight 1, run
+        # 2026-08-18_2242; see todo-and-known-bugs.md ->
+        # SEAM-STARTRECORDING-JOINS-COMMITTED-TREE). The zero-trees assertions in
+        # `test_every_persistent_sfs_parses_with_pinned_counts` are therefore not
+        # bookkeeping here: they are the fixture's whole reason to exist.
+        "duna-park-probe": True,
         "eva2-lko-crewed": True,
         "eva3-pad-3crew": True,
         "fresh-career": False,
@@ -685,6 +708,48 @@ class CommittedFixtureSweepTests(unittest.TestCase):
             # (generation-older) while saveparse still parses the sfs fine,
             # so without this pin the fixture would degrade SILENTLY into
             # one that loads zero recordings and tests nothing.
+            "schemaGeneration": 4,
+        },
+        # --- THE SAME-PARENT MOON-TRANSFER LOOP SUBJECT ------------------
+        # PROVENANCE: ike-orbit-recorded <- B23-ike-orbit, run 2026-08-18_2308,
+        # PASS attempt 1 (mission wall 370.5 s, zero Unity exceptions),
+        # --keep-parsek. THE SUITE'S FIRST RECORDING WHOSE LAUNCH BODY IS NOT
+        # KERBIN: the DD1 starts already parked in Duna orbit, Hohmann-transfers
+        # to IKE and commits in Ike orbit, so the loop lanes can read it as a
+        # SAME-PARENT transfer - the class no committed fixture carried before.
+        #
+        # THE ONE-RECORDING TOPOLOGY IS THE POINT, not an accident of a simple
+        # craft. B23 flight 1 produced a green run whose hop was APPENDED to
+        # B17's Kerbin-rooted committed recording (seam StartRecording answered
+        # `already=true`); flight 2 ran against the Parsek-stripped
+        # `duna-park-probe` and answered `already=false`, minting the fresh
+        # standalone tree pinned here. So `trees`/`committedTrees`/`recordings`
+        # = 1/1/1 IS the fixture's contract, not merely its shape: a 2 or 3 here
+        # means that defect is back. See todo-and-known-bugs.md ->
+        # SEAM-STARTRECORDING-JOINS-COMMITTED-TREE.
+        #
+        # `branchPoints` is EMPTY and must stay so: one craft, no separation
+        # event anywhere in the profile (the booster was shed on the Kerbin
+        # ascent two missions upstream, in B17).
+        #
+        # THE SEAM THE LOOP LANES CONSUME, read off the committed
+        # `.prec.txt` ORBIT_SEGMENT chain and quoted here because V14M/V14T
+        # anchor their brackets on it: ten segments, Duna 0-5 then Ike 6-9, with
+        # the body change at the adjacent `endUT == startUT` pair
+        # 9,177,480.8980102781. Against the recording's own
+        # `explicitStartUT = 9,160,398.1036915872` that is a seam offset of
+        # 17,082.794 s - the number MissionPeriodicity's `Orbital(Ike)
+        # same-parent ... off=` should reproduce (the V6M convention: the offset
+        # is measured from the recording's EXPLICIT start, NOT from the first
+        # orbit segment's startUT, which here is 9,160,400.624).
+        "ike-orbit-recorded": {
+            "trees": 1, "committedTrees": 1, "recordings": 1,
+            "supersedes": 0, "tombstones": 0, "rewind_points": 0,
+            "rewind_retirements": 0,
+            "terminalStates": {"Orbiting": 1},
+            "branchPoints": {},
+            "minAuthoritativeSidecars": 4,
+            "recordingIds": ["05ceee33806d4079a1d9d125a1359115"],
             "schemaGeneration": 4,
         },
         # --- THE MOON LOOP-VALIDATION PAIR -------------------------------
