@@ -1626,27 +1626,39 @@ namespace Parsek
 
             try
             {
-                if (!FlightGlobals.ready) return false;
-                var vessels = FlightGlobals.Vessels;
-                if (vessels == null || vessels.Count == 0) return false;
-                if (selectedSlotPids.SelectedSlotIsUnmapped) return true;
-
-                for (int i = 0; i < vessels.Count; i++)
-                {
-                    Vessel v = vessels[i];
-                    if (v == null) continue;
-                    uint rootPartPid = 0u;
-                    Part root = v.rootPart;
-                    if (root != null) rootPartPid = root.persistentId;
-                    if (SelectedSlotVesselIsPresent(v.persistentId, rootPartPid, selectedSlotPids))
-                        return true;
-                }
-                return false;
+                return IsFlightReadyCore(selectedSlotPids);
             }
             catch
             {
                 return false;
             }
+        }
+
+        // NoInlining keeps the FlightGlobals references out of IsFlightReady's own
+        // JIT unit: mono initializes FlightGlobals when compiling a method that
+        // calls its statics, and a failed initializer (headless xUnit) would then
+        // surface at IsFlightReady's CALLER, outside the try above. Same pattern
+        // as RecordingStore.ReadUnityApplicationIsPlayingCore.
+        [System.Runtime.CompilerServices.MethodImpl(
+            System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+        private static bool IsFlightReadyCore(ReFlySlotPidSets selectedSlotPids)
+        {
+            if (!FlightGlobals.ready) return false;
+            var vessels = FlightGlobals.Vessels;
+            if (vessels == null || vessels.Count == 0) return false;
+            if (selectedSlotPids.SelectedSlotIsUnmapped) return true;
+
+            for (int i = 0; i < vessels.Count; i++)
+            {
+                Vessel v = vessels[i];
+                if (v == null) continue;
+                uint rootPartPid = 0u;
+                Part root = v.rootPart;
+                if (root != null) rootPartPid = root.persistentId;
+                if (SelectedSlotVesselIsPresent(v.persistentId, rootPartPid, selectedSlotPids))
+                    return true;
+            }
+            return false;
         }
 
         /// <summary>

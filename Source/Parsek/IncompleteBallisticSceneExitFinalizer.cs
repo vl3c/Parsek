@@ -1854,7 +1854,12 @@ namespace Parsek
         {
             for (Exception current = ex; current != null; current = current.InnerException)
             {
-                if (current is System.Security.SecurityException)
+                // SecurityException: .NET Framework's spelling of an unresolvable
+                // Unity ECall. MissingMethodException: mono's spelling of the same
+                // (Linux test runs), typically wrapped in TypeInitializationException
+                // when the ECall fires inside FlightGlobals' static initializer.
+                if (current is System.Security.SecurityException
+                    || current is MissingMethodException)
                     return current.GetType().Name;
             }
 
@@ -1885,8 +1890,9 @@ namespace Parsek
             {
                 try
                 {
-                    bool hasFetch = FlightGlobals.fetch != null;
-                    bool ready = FlightGlobals.ready;
+                    bool hasFetch;
+                    bool ready;
+                    ProbeFlightGlobalsRuntimeCore(out hasFetch, out ready);
                     runtimeAvailable = hasFetch && ready;
                     cacheResult = runtimeAvailable;
                     diagnostic = $"fetch={hasFetch}, ready={ready}";
@@ -1908,6 +1914,19 @@ namespace Parsek
                     $"({diagnostic}) — skipping default scene-exit extrapolation");
             }
             return runtimeAvailable;
+        }
+
+        // NoInlining keeps the FlightGlobals references out of the caller's JIT
+        // unit: mono initializes FlightGlobals when compiling a method that calls
+        // its statics, and a failed initializer (headless xUnit) would then
+        // surface at the caller of IsFlightGlobalsRuntimeAvailable, outside its
+        // try. Same pattern as RecordingStore.ReadUnityApplicationIsPlayingCore.
+        [System.Runtime.CompilerServices.MethodImpl(
+            System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+        private static void ProbeFlightGlobalsRuntimeCore(out bool hasFetch, out bool ready)
+        {
+            hasFetch = FlightGlobals.fetch != null;
+            ready = FlightGlobals.ready;
         }
 
         private static bool ValidateResult(

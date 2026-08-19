@@ -6,6 +6,24 @@ All notable changes to Parsek are documented here.
 
 ## 0.10.4
 
+### Dev
+
+- The xUnit suite now runs on Linux (mono) for cloud agent sessions and CI: added
+  `scripts/cloud-test.sh` (build + xunit console runner; `dotnet test` lacks a
+  net472 testhost on Linux) and a cloud-only SessionStart hook that provisions
+  dotnet/mono and the private `ksp-refs` DLL checkout. Product code gained
+  mono-spelled headless guards alongside the existing Windows ones: unresolvable
+  Unity internal calls surface as `MissingMethodException` on mono (vs
+  `SecurityException` on .NET Framework), and mono initializes `FlightGlobals`
+  while JIT-compiling a caller, so two probe sites moved their `FlightGlobals`
+  reads into `NoInlining` cores (`RewindInvoker.IsFlightReadyCore`,
+  `IncompleteBallisticSceneExitFinalizer.ProbeFlightGlobalsRuntimeCore`) to keep
+  the failure catchable — the established `ReadUnityApplicationIsPlayingCore`
+  pattern. A handful of tests that baked Windows filesystem semantics (share
+  locks blocking renames, `:`/`*`/`?` as invalid filename chars, `Z:\` paths,
+  CRLF source greps) got platform guards or portable equivalents. No in-game
+  behavior change.
+
 - **Interplanetary transfers no longer split at an on-rails SOI handoff, so looped
   replays of them re-aim instead of silently replaying the recorded path.** A
   recorded Kerbin→Dres mission was being cut in two by the load-time optimizer at

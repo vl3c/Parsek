@@ -23,6 +23,10 @@ namespace Parsek
             {
                 // Same fallback for non-Unity unit-test environments.
             }
+            catch (MissingMethodException)
+            {
+                // Same fallback for non-Unity unit-test environments.
+            }
         }
 
         private static Vessel GetActiveVesselSafe()
@@ -36,6 +40,10 @@ namespace Parsek
                 return null;
             }
             catch (MethodAccessException)
+            {
+                return null;
+            }
+            catch (MissingMethodException)
             {
                 return null;
             }
@@ -58,6 +66,10 @@ namespace Parsek
             {
                 return true;
             }
+            catch (MissingMethodException)
+            {
+                return true;
+            }
         }
 
         private static void DestroyUnityObjectSafe(UnityEngine.Object obj)
@@ -74,6 +86,10 @@ namespace Parsek
                 // Unit-test host may provide inert Unity objects without runtime backing.
             }
             catch (MethodAccessException)
+            {
+                // Same fallback for non-Unity unit-test environments.
+            }
+            catch (MissingMethodException)
             {
                 // Same fallback for non-Unity unit-test environments.
             }
@@ -110,6 +126,10 @@ namespace Parsek
             {
                 return 0f;
             }
+            catch (MissingMethodException)
+            {
+                return 0f;
+            }
         }
 
         private static double GetCurrentUTSafe()
@@ -123,6 +143,10 @@ namespace Parsek
                 return double.NaN;
             }
             catch (MethodAccessException)
+            {
+                return double.NaN;
+            }
+            catch (MissingMethodException)
             {
                 return double.NaN;
             }
@@ -142,6 +166,10 @@ namespace Parsek
             {
                 return 1f;
             }
+            catch (MissingMethodException)
+            {
+                return 1f;
+            }
         }
 
         private static int GetFrameCountSafe()
@@ -158,6 +186,10 @@ namespace Parsek
             {
                 return -1;
             }
+            catch (MissingMethodException)
+            {
+                return -1;
+            }
         }
 
         private static FlightCamera GetFlightCameraSafe()
@@ -171,6 +203,10 @@ namespace Parsek
                 return null;
             }
             catch (MethodAccessException)
+            {
+                return null;
+            }
+            catch (MissingMethodException)
             {
                 return null;
             }
