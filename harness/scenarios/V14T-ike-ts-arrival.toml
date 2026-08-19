@@ -163,12 +163,21 @@ id = "V14T-ike-ts-arrival"
 #     back through a SECOND scene load, the shape in which a stray durable write is
 #     easiest to miss.
 # Both save-structure blocks are registered in `ARMED_ALLOWLIST`
-# (harness/lib/test_hlib.py) with this run cited. STILL OWED: the armed re-flight and
-# the pair's shared negative control (one inversion across V14M+V14T, the V4/V5
-# precedent, not two).
+# (harness/lib/test_hlib.py) with this run cited.
+#
+# DISCIPLINE COMPLETE 2026-08-19. Armed re-flight `2026-08-19_0002`: PASS attempt 1,
+# with `anomalySweep status=PASS hits=[] counts={'icon-off-orbit': 1}` - read both
+# halves. `hits=[]` is the tolerance working; `counts` is the raw tally and it reads
+# ONE AGAIN. The anomaly RECURRED, which upgrades it from a single observation to a
+# DETERMINISTIC property of the single-jump shape and is exactly what a tolerance
+# declared off one sighting is for. Both gated save-structure blocks PASS. The pair's
+# single negative control is V14M's `2026-08-19_0003` (a temporary
+# `supersedeRows = { min = 1 }`, correctly PARSEK-FAIL(save-structure), reverted): one
+# inversion across V14M+V14T, not two, because they gate through the one shared
+# saveParse evaluator (the V4/V5 precedent).
 # =====================================================================================
 tier = "operator"
-description = "ARMED off its own reading run 2026-08-18_2337 (PARSEK-FAIL(anomaly) attempt 1 - a CORRECT catch, see below); armed re-flight pending. The tracking-station half of the Ike player-loop pair: arm the loop and jump the clock past the cycle-1 Duna->Ike SOI seam in FLIGHT, SaveGame, then re-enter through LoadGame scene=trackstation and dwell with mapRenderTracing armed. The subject is B23's Duna->Ike recording - the suite's first loop member whose LAUNCH BODY is not Kerbin and the first that DEPARTS FROM ORBIT rather than from a pad. Anti-vacuity rides the TS host's own `created N ghost vessel(s)` count with N >= 1. MEASURED: `method=single-orbital` with `constraints=1` (an orbit-rooted recording emits no Rotation constraint, so the predicted tidal-collapse branch is never reached), `reaimed=False`, and an Ike-framed TS proto icon - all now required. The reading run red'd on ONE Tier-C `icon-off-orbit` raised in FLIGHT on the ghost-proto creation frame after this lane's single 17,223-second TimeJump (V14M's stepped bracket raises nothing at the same UT); tolerated by name and filed report-only."
+description = "LIVE-PROVEN AND ARMED on the full three-run discipline: reading 2026-08-18_2337 (PARSEK-FAIL(anomaly) attempt 1 with all 16 steps green - a CORRECT catch, see below), armed re-flight 2026-08-19_0002 (PASS attempt 1, the tolerated anomaly RECURRING at counts={'icon-off-orbit': 1}, so the trigger is deterministic rather than a one-off), negative control shared with V14M (2026-08-19_0003). The tracking-station half of the Ike player-loop pair: arm the loop and jump the clock past the cycle-1 Duna->Ike SOI seam in FLIGHT, SaveGame, then re-enter through LoadGame scene=trackstation and dwell with mapRenderTracing armed. The subject is B23's Duna->Ike recording - the suite's first loop member whose LAUNCH BODY is not Kerbin and the first that DEPARTS FROM ORBIT rather than from a pad. Anti-vacuity rides the TS host's own `created N ghost vessel(s)` count with N >= 1. MEASURED: `method=single-orbital` with `constraints=1` (an orbit-rooted recording emits no Rotation constraint, so the predicted tidal-collapse branch is never reached), `reaimed=False`, and an Ike-framed TS proto icon - all now required. The reading run red'd on ONE Tier-C `icon-off-orbit` raised in FLIGHT on the ghost-proto creation frame after this lane's single 17,223-second TimeJump (V14M's stepped bracket raises nothing at the same UT); tolerated by the BARE token (the ceiling form is argued and rejected inline: the suite holds the budget mechanism inert) and filed report-only."
 instanceProfile = "stock-minimal"
 tags = ["V14", "tracking-station", "loop-arrival", "phase-lock", "single-orbital", "ike", "duna", "same-parent", "moon", "map-render", "flown"]
 

@@ -15047,7 +15047,20 @@ def _obs_fmt(value) -> str:
 # unsanitized reason would inject bogus keys -- including collisions with real
 # ones like ut= / nodes=. The status FILE (machine_state_dict -> JSON) carries
 # the full untruncated string; only the line is squeezed.
-_MACHINE_TOKEN_FIELDS = ("flake_reason",)
+#
+# EVERY FREE-TEXT FIELD ADDED TO MACHINE_STATE_FIELDS MUST BE LISTED HERE. The
+# orbit-start gate reason was added to the state line WITHOUT this entry, and the
+# failure mode is the one this tuple exists to prevent, in its purest form:
+# parse_kv_tokens splits on whitespace, so
+# `startInOrbitGate=SOI body is 'Kerbin', expected the home body 'Duna'` parses
+# as startInOrbitGate -> 'SOI'. Not a corrupted reading - a CONFIDENT wrong one,
+# three characters long, produced at exactly the moment the field exists to
+# explain (a lane sitting in PRELAUNCH about to give up). TRUNCATION is the sharp
+# edge for these particular reasons - none of them happens to contain '=' - while
+# key INJECTION is the shared risk the tuple was originally written for; both are
+# closed by the same _obs_fmt_token squeeze. Pinned by
+# test_mlib.py::MachineStateFreeTextTokenTests.
+_MACHINE_TOKEN_FIELDS = ("flake_reason", "start_in_orbit_last_reason")
 _MACHINE_TOKEN_LIMIT = 120
 
 

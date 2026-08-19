@@ -161,15 +161,35 @@ id = "B23-ike-orbit"
 # derived copy described in [fixture] below. No product change is proposed by this
 # lane; the finding is recorded report-only in docs/dev/todo-and-known-bugs.md.
 #
-# FLIGHT 2 IS THE REAL READING RUN and has not happened. Nothing is armed: no
-# `gating = true` block anywhere, the recordings window is a derived range rather
-# than a pin, and the topology the produced save will carry is still what the next
-# run must MEASURE. The lane stays `tier = "operator"` on the calibration
-# discipline (V1/V2/B18/B19/B20 precedent); arming happens later, off flight 2's
-# bytes, through the reading / armed / negative-control sequence.
+# FLIGHT 2, run 2026-08-18_2308 against `duna-park-probe`: PASS attempt 1, mission
+# wall 370.5 s, zero Unity exceptions - AND THE SUBJECT IS RIGHT THIS TIME, which is
+# the thing flight 1 could not deliver. The seam answered
+# `startrecording recordingId=05ceee33806d4079a1d9d125a1359115 already=false`
+# (KSP.log 10509) - `already=FALSE`, the exact inversion of flight 1's line - minting
+# the fresh STANDALONE tree `f55918afd70b45e284006e01729d9e9a`, crossing the boundary
+# exactly once (`SOI change boundary suppressed in tree mode: Duna to Ike`, 11176) and
+# committing with `CommitTreeFlight terminal: rec=05ceee33... terminalState=Orbiting
+# terminalOrbitBody=Ike` (11863). Park 40.5 x 40.4 km at Ike; saveParse ONE recording,
+# 200 points, rewind / supersede / tombstone rows all 0.
+#
+# THE PRODUCED SAVE IS NOW A COMMITTED FIXTURE: harvested `--keep-parsek` into
+# `harness/fixtures/saves/ike-orbit-recorded`, payload pinned byte-for-byte in
+# `harness/lib/test_saveparse.py::CommittedFixtureSweepTests.RECORDED_FIXTURES`. It is
+# the suite's first recording whose LAUNCH BODY is not Kerbin, and it is what
+# `V14M-ike-player-loop` / `V14T-ike-ts-arrival` consume - both of which are themselves
+# live-proven and armed as of 2026-08-19.
+#
+# NOTHING IS ARMED ON THIS LANE, deliberately, and that is now a standing posture
+# rather than a pending step: no `gating = true` block anywhere, and the recordings
+# window stays the derived {1,2} range rather than being pinned to the measured 1. The
+# lane's product is a FIXTURE, and the fixture's structure is pinned where it is
+# consumed (the saveParse sweep above, plus V14M/V14T's own gated
+# `recordings = {1,1}`), so pinning it a third time here would add a re-pin obligation
+# without adding a guard. The lane stays `tier = "operator"` on the calibration
+# discipline (V1/V2/B18/B19/B20 precedent).
 # =====================================================================================
 tier = "operator"
-description = "FLOWN ONCE, CONTRACT NOT YET DEMONSTRATED. Same-parent moon transfer flown from an ALREADY-PARKED start: the DD1 begins ORBITING Duna at 718 km, Hohmann-transfers to Ike, captures + circularizes into an Ike park and mid-mission commits the tree there. Meant to produce the suite's first recording whose LAUNCH BODY is not Kerbin - what makes it readable by the loop lanes as a same-parent transfer. Flight 1 (2026-08-18_2242) was PASS attempt 1 with every assertion met, so the machine half (the new startInOrbit entry door, the transfer, the Ike capture, the foreign-SOI commit) is live-proven - but the seam StartRecording no-opped onto B17's re-resumed COMMITTED recording (`already=true`) and the hop was appended to a Kerbin-rooted tree, so the SUBJECT was wrong. Re-pointed at the Parsek-stripped `duna-park-probe` fixture; flight 2 is the real reading run."
+description = "LIVE-PROVEN 2026-08-18 ON FLIGHT 2. Same-parent moon transfer flown from an ALREADY-PARKED start: the DD1 begins ORBITING Duna at 718 km, Hohmann-transfers to Ike, captures + circularizes into an Ike park and mid-mission commits the tree there. Meant to produce the suite's first recording whose LAUNCH BODY is not Kerbin - what makes it readable by the loop lanes as a same-parent transfer. Flight 1 (2026-08-18_2242) was PASS attempt 1 with every assertion met, so the machine half (the new startInOrbit entry door, the transfer, the Ike capture, the foreign-SOI commit) is live-proven - but the seam StartRecording no-opped onto B17's re-resumed COMMITTED recording (`already=true`) and the hop was appended to a Kerbin-rooted tree, so the SUBJECT was wrong. Re-pointed at the Parsek-stripped `duna-park-probe` fixture, and flight 2 (2026-08-18_2308, PASS attempt 1) delivered the real thing: `already=false`, a fresh standalone Duna-rooted tree, one Duna->Ike boundary, terminal Orbiting/Ike, a 40.5 x 40.4 km Ike park. Its produced save is the committed `ike-orbit-recorded` fixture that the V14M/V14T loop lanes consume."
 instanceProfile = "stock-minimal"
 tags = ["B23", "ike", "duna", "same-parent", "moon", "orbit", "mechjeb", "cross-soi", "capture", "commit-in-foreign-soi", "orbit-start"]
 

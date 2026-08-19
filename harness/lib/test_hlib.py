@@ -5034,7 +5034,7 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
         # derived CALIBRATION SEED rather than a pin, and both ship with nothing armed and
         # only the ERROR floor forbidden. Promotion is the post-reading arming call.
         "V14M-ike-player-loop.toml":         "calibration-discipline - READING RUN FLOWN GREEN 2026-08-18 (`_2336`, PASS attempt 1, wall 50 s, anomalySweep hits=[], all 8 TimeJumps OK, both watch attempts REJECTED as pinned) and ARMED off its own bytes the same day: 12 required tokens incl. the measured routing conjunction, V6M's full six forbids, count pinned {1,1} and both save-structure blocks gating. THE PREDICTION IT WAS BUILT ON WAS REFUTED and that is its value: `ExtractConstraints` emits `constraints=1` with NO Rotation(Duna), because an ORBIT-ROOTED recording has no surface phase, so `method=single-orbital` rather than the predicted tidal-collapse - phase-lock for a single-moon orbit-rooted subject is EXACT (residual 0, cadence = one moon period, no schedule) rather than within-tolerance. The derived anchor still held to 0.04 s and no jump UT moved. Operator tier is now the armed re-flight + the ordinary promotion call, not outstanding work",
-        "V14T-ike-ts-arrival.toml":          "calibration-discipline - READING RUN FLOWN 2026-08-18 (`_2337`, PARSEK-FAIL(anomaly) attempt 1 with ALL 16 STEPS GREEN - a CORRECT catch, not a lane defect: the armed Tier-C sweep found ONE `icon-off-orbit` on a ghost-proto creation frame in FLIGHT, a second before the TS load) and ARMED off its own bytes the same day: 13 required tokens incl. the `body=Ike scene=TRACKSTATION` proto pin and `reaimed=False`, V6T's full six forbids, count {1,1}, both save-structure blocks gating, and the anomaly tolerated with a CEILING (`maxCount = 1`) plus a filed report-only entry (MAPRENDER-ICON-OFF-ORBIT-CREATION-FRAME-AFTER-JUMP). V14M is the control: same fixture, same tracers, same arrival UT, stepped bracket instead of one 17,223-s jump, hits=[]. Operator tier is now the armed re-flight + the ordinary promotion call, not outstanding work",
+        "V14T-ike-ts-arrival.toml":          "calibration-discipline - READING RUN FLOWN 2026-08-18 (`_2337`, PARSEK-FAIL(anomaly) attempt 1 with ALL 16 STEPS GREEN - a CORRECT catch, not a lane defect: the armed Tier-C sweep found ONE `icon-off-orbit` on a ghost-proto creation frame in FLIGHT, a second before the TS load) and ARMED off its own bytes the same day: 13 required tokens incl. the `body=Ike scene=TRACKSTATION` proto pin and `reaimed=False`, V6T's full six forbids, count {1,1}, both save-structure blocks gating, and the anomaly tolerated by the BARE token plus a filed report-only entry (MAPRENDER-ICON-OFF-ORBIT-CREATION-FRAME-AFTER-JUMP). THE TOLERANCE HAS NO CEILING: `{ token = ..., maxCount = 1 }` was written first and rejected by this file's own `test_no_committed_spec_arms_a_count_budget`, which holds the budget mechanism INERT across the suite; per that todo entry the arming is now READY (the armed run supplied the green-run `hitCounts` baseline the doctrine asks for) but not taken, so a SECOND raise in one run currently passes unnoticed - the measured population is 1 on each of two runs, and that gap is the whole exposure. V14M is the control: same fixture, same tracers, same arrival UT, stepped bracket instead of one 17,223-s jump, hits=[] on both its runs. FLOWN GREEN ARMED 2026-08-19 (`_0002`, PASS attempt 1, the anomaly recurring and tolerated); negative control shared with V14M (`_0003`). Operator tier is now the ordinary promotion call, not outstanding work",
         # V11 is a pure READING RUN in V9's original posture: nothing armed
         # beyond the plumbing triple, count window deliberately wide, and the
         # decline reasons V9 forbids left UNFORBIDDEN here on purpose -- if
@@ -5482,11 +5482,22 @@ class SaveStructureVerifierWiringTests(unittest.TestCase):
     #       one Tier-C raise on a ghost-proto creation frame - while the saveParse
     #       facets it arms were clean (rewindPoints 0, supersedeRows 0, tombstones 0,
     #       committedTrees 1, trees 1, recordings 1). The anomaly is tolerated
-    #       separately and with a CEILING (`maxCount = 1`), and it is filed report-only
-    #       as MAPRENDER-ICON-OFF-ORBIT-CREATION-FRAME-AFTER-JUMP.
-    # STILL OWED: the armed re-flights, and ONE negative control across the pair (they
-    # gate through the single shared saveParse evaluator, so a second inversion would
-    # re-prove the evaluator rather than these windows - the V4/V5 precedent).
+    #       separately by the BARE token - NOT a ceiling - and filed report-only as
+    #       MAPRENDER-ICON-OFF-ORBIT-CREATION-FRAME-AFTER-JUMP. The
+    #       `{ token = ..., maxCount = 1 }` form was written first and rejected by
+    #       `test_no_committed_spec_arms_a_count_budget` in THIS file, which holds the
+    #       budget mechanism inert across the whole suite. Per that todo entry the
+    #       arming is now READY (the armed run `2026-08-19_0002` supplied the green-run
+    #       `hitCounts` baseline the doctrine requires) but NOT TAKEN, so a second raise
+    #       in one run currently passes unnoticed; taking it means moving that invariant
+    #       cell to a named allowlist in the same edit.
+    # DISCIPLINE COMPLETE 2026-08-19: armed re-flights `_0001` (V14M) and `_0002`
+    # (V14T), both PASS attempt 1 with every gated window green, plus ONE negative
+    # control `_0003` across the pair - a temporary `supersedeRows = { min = 1 }` on
+    # V14M, correctly PARSEK-FAIL(save-structure) with mismatches=1, reverted
+    # immediately (the committed spec is the armed one). One inversion, not two: the
+    # lanes gate through the single shared saveParse evaluator, so a second would
+    # re-prove the evaluator rather than these windows (the V4/V5 precedent).
     ARMED_ALLOWLIST = {"S4.1-rewind-merge.toml", "CL-3-refly-crew-tombstone.toml",
                        "V14M-ike-player-loop.toml", "V14T-ike-ts-arrival.toml",
                        "GS-1-auto-chute-booster.toml", "GS-2-orbital-probe-deploy.toml",
