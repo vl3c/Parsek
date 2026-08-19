@@ -952,6 +952,91 @@ ACTION_MJ_STOP_LANDING = "mj_stop_landing"                 # value = None
 ACTION_CAMERA_SET_MAP = "camera_set_map"                   # value = None
 ACTION_CAMERA_FOCUS_BODY = "camera_focus_body"             # text = body name
 ACTION_CAMERA_SET_POSE = "camera_set_pose"                 # camera_pose = tuple
+# --- CAREER SCIENCE / RECOVERY actions (the science_bench_recover lane). All
+# three are COMMANDS whose effect is read back on the opt-in `read_science`
+# channels above; no machine gate anywhere reads "we emitted this action".
+#
+# RUN_SCIENCE_EXPERIMENTS: run every experiment on the active vessel that reads
+#   Available, not Inoperable and not already HasData (kRPC Experiment.Run).
+#   Per-experiment faults are swallowed to a Warn - one refusing module must not
+#   abort the sweep, and the OBSERVED science_data_count owns the outcome.
+#   IDEMPOTENT BY CONSTRUCTION: the has-data skip means a re-emit only picks up
+#   modules that became available since, which is what makes the machine's
+#   bounded re-emit safe.
+# TRANSMIT_SCIENCE: transmit the stored data of every experiment that reads
+#   HasData (kRPC Experiment.Transmit, "transmit all experimental data contained
+#   by this part"). Same swallow-per-module discipline. The OBSERVED evidence is
+#   the CAREER SCIENCE POOL rising, never the call having been made: a craft with
+#   no antenna, no ElectricCharge or no connection accepts the call and credits
+#   nothing.
+# RECOVER_VESSEL: recover the active vessel (kRPC Vessel.Recover, which fires
+#   stock's OnVesselRecoveryRequested). THREE things about it are load-bearing
+#   and are why it is not just another one-line perform branch:
+#     1. It is SCENE-LEVEL. Stock recovery removes the craft and leaves FLIGHT,
+#        so every telemetry read after it fails and the runner escalates to a
+#        vessel_lost snapshot. A machine that emits ANY action after this one
+#        would perform it against a vessel that no longer resolves, and
+#        perform() is not wrapped by the fly loop - the raise would end the
+#        mission as an ERROR. Emit it exactly ONCE, last.
+#     2. kRPC THROWS when the vessel is not recoverable, so the runner reads
+#        Vessel.Recoverable first and declines rather than raising; the machine
+#        owns the outcome from the OBSERVED vessel_recoverable channel. THE
+#        DECLINE IS ITSELF AN OBSERVATION and it is reported back on
+#        TelemetrySnapshot.recover_request_result: a runner that silently
+#        swallowed it would leave the machine believing a recovery had been
+#        issued when none was, which is the one belief that decides whether a
+#        subsequent break-up is a loss or a candidate recovery.
+#     3. The success evidence is the pair (vessel OBSERVED gone) AND (career
+#        funds OBSERVED risen). Either alone is wrong: a craft that BLEW UP is
+#        also gone, and it credits nothing.
+ACTION_RUN_SCIENCE_EXPERIMENTS = "run_science_experiments"  # value = None
+ACTION_TRANSMIT_SCIENCE = "transmit_science"               # value = None
+ACTION_RECOVER_VESSEL = "recover_vessel"                   # value = None
+
+# Tri-state vocabulary for TelemetrySnapshot.vessel_recoverable, spelled out so a
+# reader of a gate does not have to remember which way round the ints go (the
+# node_executor_enabled / crew_count precedent, which has none and is worse for
+# it).
+RECOVERABLE_UNREAD = -1
+RECOVERABLE_NO = 0
+RECOVERABLE_YES = 1
+
+# PERFORM-SEAM outcome of ACTION_RECOVER_VESSEL, reported back on
+# TelemetrySnapshot.recover_request_result. It exists because the runner's
+# read-before-ask lock can DECLINE the verb - `Vessel.Recoverable` read false (or
+# raised) at perform time, or `Recover()` itself raised - and without a channel
+# saying so, a machine that latched on EMISSION would go on believing a recovery
+# had been issued when none was. That belief is exactly what decides whether a
+# later break-up is a loss or a candidate recovery, so the decline has to travel.
+#
+# "" is the fail-closed UNREAD sentinel, on the seam_command_result precedent: no
+# verb has terminated at the seam yet, and it grants nothing. The value is STICKY
+# (it rides every snapshot until the next perform), so it is read as a LEVEL, not
+# an edge - which is what lets the ONE frame that matters most, the vessel_lost
+# frame, still carry the ISSUED that the success terminal needs (a recovery can
+# remove the craft before the next live poll, so the issue result and the
+# vessel-gone reading routinely arrive on the SAME snapshot).
+RECOVER_REQUEST_UNREAD = ""
+RECOVER_REQUEST_ISSUED = "ISSUED"          # Recover() was called and returned
+RECOVER_REQUEST_DECLINED = "DECLINED"      # Recoverable READ false at perform
+RECOVER_REQUEST_UNREADABLE = "UNREADABLE"  # Recoverable RAISED at perform
+RECOVER_REQUEST_FAILED = "FAILED"          # Recover() itself raised
+# FAILED is grouped with the declines rather than treated as "possibly issued",
+# and that choice is deliberate: a call that raised cannot be shown to have gone
+# through, so treating it as not-issued can at worst condemn a real recovery as a
+# loss - a MISSION verdict, hence driver-INVALID and retryable. The other
+# direction certifies a break-up, which is the failure class this whole channel
+# exists to prevent.
+# Every non-issued terminal token. Grouped rather than spelled out at each read
+# site so a future token cannot be added on one side of the split only.
+RECOVER_REQUEST_DECLINES: Tuple[str, ...] = (RECOVER_REQUEST_DECLINED,
+                                             RECOVER_REQUEST_UNREADABLE,
+                                             RECOVER_REQUEST_FAILED)
+
+# The UNREAD sentinel shared by the three vessel-scoped science COUNT channels.
+# Named because the difference between it and a real 0 is the whole of the
+# `no-experiments-aboard` vs `science-channel-dark` split.
+SCIENCE_COUNT_UNREAD = -1
 
 # ORBIT-mission capture arming debounce (B11/B12): consecutive frames inside the
 # target SOI with a finite ABOVE-SURFACE periapsis before PLAN-CAPTURE is
@@ -2466,6 +2551,80 @@ class TelemetrySnapshot:
     # V1 rationale: "we set camera.mode = Map" is a COMMAND; only this read
     # is evidence the map camera actually engaged.
     camera_mode: str = ""
+    # --- CAREER SCIENCE / RECOVERY lane (the science_bench_recover mission),
+    # opt-in via ``read_science=True``. SIX channels in two families, and the
+    # split matters because the two families survive different events.
+    #
+    # FAMILY 1 - VESSEL-SCOPED (the three counts + recoverable). Properties OF
+    # THE ACTIVE VESSEL, so a destroyed / recovered craft has none and they stay
+    # at their UNREAD sentinels on a vessel_lost snapshot, exactly like
+    # craft_chute_state. -1 is the fail-closed sentinel for all four: a runner
+    # that does not opt in (every mission but this lane) can never satisfy a
+    # science or recovery gate with a fabricated 0.
+    #   science_experiment_count  kRPC Parts.Experiments length: how many
+    #                             experiment modules the craft carries. An
+    #                             OBSERVED 0 is a real fact (the fixture has no
+    #                             science part) and is a NAMED fast-fail; -1 is
+    #                             "we could not look", which is a channel flake.
+    #                             The two must never be collapsed - the same
+    #                             distinction ROSTER_STATUS_NOT_IN_ROSTER draws
+    #                             against ROSTER_STATUS_UNREAD.
+    #   science_data_count        experiments whose Experiment.HasData reads
+    #                             true. THE collect gate: "we called Run()" is a
+    #                             COMMAND, and this is the only evidence any
+    #                             data exists to transmit.
+    #   science_available_count   experiments whose Experiment.Available reads
+    #                             true (the current conditions permit a run).
+    #                             DIAGNOSABILITY plus one gate use: it is what a
+    #                             collect that produced nothing reports, so
+    #                             "ran and the conditions were not met" is
+    #                             distinguishable from "ran and the module
+    #                             refused".
+    #   vessel_recoverable        kRPC Vessel.Recoverable, TRI-STATE like
+    #                             node_executor_enabled: -1 UNREAD, 0 OBSERVED
+    #                             not recoverable, 1 OBSERVED recoverable. The
+    #                             RECOVER phase reads it BEFORE it asks, because
+    #                             kRPC's Vessel.Recover() THROWS on a
+    #                             non-recoverable vessel and an unhandled throw
+    #                             out of perform() ends the mission as an ERROR
+    #                             rather than as the named outcome it is.
+    #
+    # FAMILY 2 - CAREER-SCOPED (the two pools). Properties of the SAVE's career,
+    # not of any vessel, so - like crew_roster_status and for exactly the same
+    # reason - they ARE populated on a vessel_lost snapshot. That is not a
+    # convenience: recovering the active vessel DESTROYS it (stock recovery
+    # removes the craft and leaves FLIGHT), so the frame that proves the recovery
+    # happened is necessarily a frame with no vessel on it. Without the carry
+    # there is no observable recovery at all.
+    #   career_funds / career_science  kRPC SpaceCenter.Funds / .Science. NaN =
+    #                             UNREAD (fail-closed: every gain gate needs a
+    #                             finite baseline AND a finite current reading,
+    #                             so an unread pool can never manufacture a
+    #                             credit). Both raise outside CAREER mode, which
+    #                             degrades to NaN and stands the gates down -
+    #                             the correct answer, since a science credit is
+    #                             not a thing a SANDBOX save has.
+    #
+    # NONE of the six is in snapshot_dict / MACHINE_STATE_FIELDS, on the
+    # seam_command_result precedent: a key added to either moves the status-file
+    # block or the machine line of EVERY mission in the library.
+    science_experiment_count: int = -1
+    science_data_count: int = -1
+    science_available_count: int = -1
+    vessel_recoverable: int = -1
+    career_funds: float = float("nan")
+    career_science: float = float("nan")
+    # FAMILY 3 - the PERFORM-SEAM channel (one field). Not a telemetry READ: it
+    # is the outcome of the runner's own recover attempt, fed back the way
+    # seam_command_result is. "" = no attempt has terminated (fail closed - the
+    # machine's issued latch stays false, so a break-up stays a loss); the four
+    # terminal tokens are RECOVER_REQUEST_ISSUED and the three declines.
+    #
+    # IT IS CARRIED ON A vessel_lost SNAPSHOT, for the same reason as the two
+    # career pools and with the same force: a recovery removes the craft, so the
+    # frame that carries ISSUED is very often the very frame the craft is gone
+    # on. Dropping it there would make every good recovery unobservable.
+    recover_request_result: str = ""
 
 
 # ---------------------------------------------------------------------------
@@ -4641,6 +4800,877 @@ def evaluate_cl1_assertions(frames, params: Cl1Params,
                           "hasFlownObserved": has_flown,
                           "lastRosterStatus":
                               getattr(state, "last_roster_status", "") or None}),
+    ]
+
+
+# ---------------------------------------------------------------------------
+# SBR phase state machine (mission science_bench_recover). Pure.
+# THE CAREER-EARNING ATOM: fly, collect science, transmit it, recover the craft.
+#
+# WHY IT EXISTS. Every career surface this library can currently forge is a
+# SPEND: `KscAction`'s four sub-actions research a node, upgrade a facility, hire
+# a kerbal and accept a contract, and none of them CREDITS anything. So the two
+# ledger row families a real career is mostly made of - `ScienceEarning` from a
+# transmitted or recovered experiment, and the funds credit from a recovered
+# vessel - could only ever arrive in a hand-played save. This mission is the
+# capability that closes that: it makes both reachable from a driven run.
+#
+# THE FLIGHT LEG IS DELEGATED, NOT REWRITTEN. `SbrState.flight` holds a real
+# `B1State` and `sbr_decide` hands every pre-landing frame to `b1_decide`
+# verbatim. B1's pad hop is live-proven on this exact craft, its chute-arming
+# window cost three flights to get right, and a second copy of it here would be
+# an unproven fork of a proven machine that drifts the first time either side is
+# touched. What SBR adds is strictly the tail: three phases that begin where B1's
+# LANDED terminal ends. (This is the `b5_decide` parameter-flag lesson applied
+# with a different mechanism: composition rather than flags, because SBR's
+# terminal is not a B1 terminal at all.)
+#
+#   <B1's phases>       delegated. On the frame B1 reaches LANDED the machine
+#                       FALLS THROUGH into COLLECT rather than returning, so the
+#                       collect sweep is issued on the landing frame and not one
+#                       poll later. Any other B1 terminal - a flake, an
+#                       assert-fail, or DOWN (the craft destroyed after a good
+#                       canopy, which is a SUCCESS for B1 and a dead end here
+#                       because there is nothing left to recover) - ends SBR with
+#                       that leg's own reason, prefixed `flight-leg`.
+#   COLLECT   -> TRANSMIT  when science_data_count OBSERVES at least
+#                       collectMinExperiments experiments holding data on
+#                       SBR_OBSERVE_DEBOUNCE_K consecutive frames.
+#   TRANSMIT  -> RECOVER   when the CAREER SCIENCE POOL has OBSERVABLY risen by
+#                       at least transmitMinScienceGain over its pre-transmit
+#                       baseline, again debounced.
+#   RECOVER   -> RECOVERED when the craft is OBSERVED GONE (a vessel_lost frame)
+#                       AND the CAREER FUNDS POOL has risen by at least
+#                       recoverMinFundsGain MEASURED ACROSS THE RECOVERY - a
+#                       pre-recover baseline against a reading taken ON a
+#                       vessel-gone frame. SUCCESS.
+#
+# WHY THE CREDIT MUST STRADDLE THE EVENT (review finding, 2026-08-19; this was a
+# real hole, not a hypothetical). The gate used to compare the baseline against
+# the LATEST finite reading, which can be entirely PRE-loss. `recoverMinFundsGain`
+# is author-set and the schema deliberately allows 0.0, so `0.0 >= 0.0` held on
+# the first vessel_lost frame and a craft that BLEW UP during RECOVER was
+# certified RECOVERED - a break-up filed as SUCCESS, the worst verdict this
+# library can emit, and unpreventable from a spec. Two changes close it, and both
+# are needed: the credit now needs a POST-LOSS reading (`_sbr_recovery_credit`),
+# and a loss BEFORE the recovery was asked for no longer reaches this branch at
+# all (sbr_decide step 4). The floor is now a STRENGTHENER on top of a gate that
+# already means something, rather than the only thing standing between a
+# break-up and a green run.
+#
+# EVERY GATE IS AN OBSERVATION, and on this lane that is not a slogan: all three
+# verbs are the exact commanded-vs-observed shape that produced the B11 executor,
+# the B-DOCK docking-AP and the EVA-4 ladder defects. `Experiment.Run()` succeeds
+# on a module whose conditions are not met and stores nothing.
+# `Experiment.Transmit()` succeeds on a craft with no antenna, no
+# ElectricCharge or no connection and credits nothing. `Vessel.Recover()` on a
+# craft that then fails to credit is a craft that broke up. So the gates read
+# science_data_count, the science pool, and (vessel gone AND funds risen)
+# respectively, and NONE of them reads a latch saying we asked.
+#
+# THE ONE LATCH, what it means, and why it is not a gate. `recover_issued` means
+# THE VERB WAS ACTUALLY ISSUED - `Recover()` called and returned - as OBSERVED on
+# `TelemetrySnapshot.recover_request_result`. It is deliberately NOT "we emitted
+# the action", and the distinction is the second review finding (2026-08-19):
+# the runner's read-before-ask lock can DECLINE the verb (`Vessel.Recoverable`
+# false or unreadable at perform, or `Recover()` raising), and an emission latch
+# stayed true through that, so a craft that exploded after a DECLINED ask was
+# scoped into the success branch and - at a 0.0 floor with a readable unmoved
+# pool - certified RECOVERED. Same hole as the straddle one, reached by the other
+# door. The latch appears in no success or failure predicate; it SCOPES which
+# terminal is eligible, and the terminal still proves itself from readings on
+# both sides of the event.
+#
+# EMISSION is bounded SEPARATELY, by `recover_asks`. Exactly one ISSUED verb is a
+# hard requirement rather than tidiness: stock recovery removes the craft and
+# leaves the FLIGHT scene, so a second action performed afterwards resolves no
+# active vessel, and the fly loop does NOT wrap `control.perform` - the raise
+# would end the mission as MISSION-ERROR instead of as the RECOVERED it actually
+# was. Once ISSUED is OBSERVED, nothing is ever emitted again. A DECLINED ask
+# removed no craft, so the machine may re-ask, bounded exactly like the COLLECT /
+# TRANSMIT re-emit: at most SBR_RECOVER_ASK_LIMIT further asks, spaced
+# SBR_ACTION_REEMIT_FRAMES apart, and only on a fresh debounced Recoverable=YES.
+# The decline shape this is for is a SETTLE FLICKER - a craft still rolling or
+# bouncing reads not-recoverable for a moment and settles - which is the same
+# "the conditions settled a second late" case the other two re-emits exist for.
+# A PERSISTENT decline is not left to the re-ask budget: the per-poll
+# `vessel_recoverable` channel keeps being read (the ask block is live again
+# whenever ISSUED is false), so a genuinely unrecoverable craft trips the
+# debounced `vessel-not-recoverable` ASSERT-FAIL on its own, and a runner that
+# declines while the poll channel insists YES runs the phase budget out to the
+# `recover-never-completed` FLAKE - driver territory, which is where a
+# disagreement between two reads of the same property belongs.
+#
+# FIVE NAMED NON-SUCCESS ENDS, each because the outcome is DETERMINISTIC and
+# would otherwise land unnamed in the flake bucket (the B1
+# `chute-arm-window-missed` lesson):
+#   no-experiments-aboard   science_experiment_count READ 0 (not unread - a real
+#       enumeration returning nothing). The fixture carries no science part;
+#       that is a spec/fixture fault, named within two polls of landing rather
+#       than at the end of the collect budget. ASSERT-FAIL.
+#   collect-produced-no-data  the collect budget expired with experiments
+#       aboard and fewer than collectMinExperiments holding data. The reason
+#       carries science_available_count, which is what separates "the modules
+#       refused" from "the conditions were never met". ASSERT-FAIL.
+#   transmit-credited-no-science  the transmit budget expired with data
+#       collected and the career pool unmoved. No antenna, no EC, no
+#       connection. ASSERT-FAIL.
+#   vessel-not-recoverable  Vessel.Recoverable READ false on
+#       SBR_OBSERVE_DEBOUNCE_K consecutive frames. Named INSTEAD of asking,
+#       because kRPC's Recover() throws on exactly this and the throw would
+#       surface as MISSION-ERROR. Also the terminal that owns a PERSISTENTLY
+#       declined ask, since the poll channel goes on being read until a verb is
+#       OBSERVED issued. ASSERT-FAIL.
+#   vessel-lost-without-recovery-credit  the craft went away and the funds pool
+#       did not follow within SBR_RECOVER_CREDIT_GRACE_FRAMES. That is a craft
+#       that BROKE UP, not one that was recovered, and the grace exists because
+#       the vessel-gone read and the pool read are different RPCs on different
+#       frames. ASSERT-FAIL.
+#
+# THREE NAMED FLAKES, and the split from the five above is the CL-1 split exactly:
+# a broken CHANNEL is retryable, a wrong OUTCOME is not. (The third is a DRIVER
+# fault rather than a channel one, which lands on the same side of that line.)
+#   science-channel-dark    science_experiment_count UNREAD (-1) on
+#       SBR_SCIENCE_UNREAD_GIVEUP_FRAMES consecutive live frames. SCOPED to
+#       COLLECT, the only phase that reads it.
+#   career-pool-channel-dark  the science or funds pool never produced the finite
+#       readings a gain needs, so nothing could be computed at all. Raised at TWO
+#       sites (the transmit budget, and the recovery grace where it is checked
+#       BEFORE the break-up terminal). Both pools raise outside CAREER mode, which
+#       makes this also the honest answer to "this fixture is not a career save".
+#   recover-never-completed the recover budget expired with the craft still
+#       there - including the case where every ask was DECLINED at the perform
+#       seam while the poll channel never read false often enough to condemn.
+#       Driver / kRPC territory, not an outcome.
+#
+# vessel_lost BEFORE the recovery verb is ISSUED is an ASSERT-FAIL
+# (`vessel-lost-before-recovery`), not a success and not a flake: the craft this
+# mission exists to recover was destroyed. That covers the whole of RECOVER up to
+# the issue - the debounce wait AND the window after a declined ask.
+# ---------------------------------------------------------------------------
+
+SBR_COLLECT = "COLLECT"
+SBR_TRANSMIT = "TRANSMIT"
+SBR_RECOVER = "RECOVER"
+SBR_RECOVERED = "RECOVERED"
+SBR_TAIL_PHASES: Tuple[str, ...] = (SBR_COLLECT, SBR_TRANSMIT, SBR_RECOVER,
+                                    SBR_RECOVERED)
+
+# Consecutive agreeing frames behind every DEBOUNCED gate on this lane (collect
+# done, transmit done, no-experiments-aboard, vessel-not-recoverable). K=2 for
+# the CL-1 reason: one poll of corroboration is cheap at a ~0.5 s cadence and a
+# terminal that certifies or condemns should not rest on a single read.
+#
+# The RECOVERED terminal deliberately does NOT use it: its vessel-gone conjunct
+# is already threefold-debounced upstream (the runner only emits vessel_lost
+# after READ_FAIL_STREAK_LIMIT consecutive telemetry failures), and re-debouncing
+# a debounced signal only delays the terminal.
+SBR_OBSERVE_DEBOUNCE_K = 2
+
+# Consecutive live frames with the science channel UNREAD before the
+# `science-channel-dark` FLAKE. Same size and same rationale as CL-1's
+# CL1_ROSTER_UNREAD_GIVEUP_FRAMES: several times the debounce, so a transient
+# fault cannot trip it, and short enough to name the channel in seconds rather
+# than at the end of a phase budget.
+SBR_SCIENCE_UNREAD_GIVEUP_FRAMES = 6
+
+# Frames a vessel-gone reading is allowed to run AHEAD of the funds credit before
+# `vessel-lost-without-recovery-credit` condemns. The two facts arrive on
+# different RPCs and the pool read is the one that can lag a frame or two across
+# stock's recovery + scene change; without the grace a perfectly good recovery is
+# condemned by a read-ordering race. Sized well above the observed lag and far
+# below any phase budget.
+SBR_RECOVER_CREDIT_GRACE_FRAMES = 6
+
+# Bounded re-emit of the COLLECT / TRANSMIT sweeps: at most this many ADDITIONAL
+# emissions per phase, one every SBR_ACTION_REEMIT_FRAMES frames, while that
+# phase's OBSERVED gate is still unmet. Both verbs are idempotent by construction
+# (run skips a module that already has data; transmit skips one that has none),
+# so a re-emit can only pick up a module that became eligible since - which is
+# the actual failure it exists for (an EC-starved transmit, a module whose
+# conditions settled a second late). RECOVER does not use this tick: it re-asks
+# only after an OBSERVED DECLINE, on its own allowance below - see the one-latch
+# note above.
+SBR_ACTION_REEMIT_LIMIT = 3
+SBR_ACTION_REEMIT_FRAMES = 20
+
+# Additional recover asks allowed AFTER an OBSERVED decline, so at most
+# 1 + SBR_RECOVER_ASK_LIMIT emissions in the phase, each spaced
+# SBR_ACTION_REEMIT_FRAMES apart. Same size and same shape as the sweep
+# allowance and for the same reason: the decline this exists for is a SETTLE
+# FLICKER (a craft still rolling reads not-recoverable for a moment), so the
+# spacing IS the settle wait. A verb OBSERVED ISSUED is never re-emitted whatever
+# this number says - the allowance is on DECLINED asks only, because a declined
+# ask removed no craft and cannot make a later perform resolve a dead vessel.
+SBR_RECOVER_ASK_LIMIT = 3
+
+
+@dataclass(frozen=True)
+class SbrParams:
+    """science_bench_recover tuning (spec [driver.missionParams]). Budgets,
+    minimum OBSERVED gains and identifiers only - never a golden trajectory and
+    never an expected pool VALUE. The gains are FLOORS ("at least this much moved")
+    rather than windows on purpose: the exact science and funds a subject is worth
+    come out of KSP's own cost curves, and pinning them here would re-make the
+    authored-vs-measured mistake `harness/fixtures/saves/README.md` records."""
+    # The delegated B1 pad-hop prefix, built from the SAME missionParams keys
+    # b1_pad_hop declares, so a scenario author who knows B1 knows this half.
+    flight: B1Params
+    collect_min_experiments: int
+    collect_timeout: float
+    transmit_min_science: float
+    transmit_timeout: float
+    recover_min_funds: float
+    recover_timeout: float
+
+
+def sbr_params_from_dict(params: Dict) -> SbrParams:
+    """Build ``SbrParams`` from a spec ``missionParams`` dict (shape + ranges are
+    enforced upstream by hlib against science_bench_recover.schema.toml). The
+    flight half is delegated to ``b1_params_from_dict`` over the SAME dict, so the
+    two halves can never disagree about a key they share."""
+    params = params or {}
+    return SbrParams(
+        flight=b1_params_from_dict(params),
+        collect_min_experiments=int(params.get("collectMinExperiments", 1)),
+        collect_timeout=float(params.get("collectTimeoutSeconds", 120.0)),
+        transmit_min_science=float(params.get("transmitMinScienceGain", 0.1)),
+        transmit_timeout=float(params.get("transmitTimeoutSeconds", 120.0)),
+        recover_min_funds=float(params.get("recoverMinFundsGain", 0.0)),
+        recover_timeout=float(params.get("recoverTimeoutSeconds", 120.0)),
+    )
+
+
+@dataclass(frozen=True)
+class SbrState:
+    """SBR machine state. ``verdict`` is None while running and at the RECOVERED
+    success terminal (the assertions decide there, exactly as at B1's LANDED);
+    MISSION-FLAKE with a ``flake_reason`` on a budget overrun or a dark channel;
+    MISSION-ASSERT-FAIL with a ``loss_reason`` on the five named wrong-outcome
+    ends and on a pre-recovery vessel loss."""
+    params: SbrParams
+    # Mirrors the delegated B1 sub-machine's phase while the flight leg runs, then
+    # walks SBR_TAIL_PHASES. One field rather than two so the fly loop's per-phase
+    # budget accounting, the status writer and the result JSON all read a single
+    # honest phase name on every frame.
+    phase: str = B1_PRELAUNCH
+    # The delegated pad-hop machine. Never None in practice (sbr_initial_state
+    # builds it); Optional only so the dataclass has a default.
+    flight: Optional[B1State] = None
+    phase_entry_ut: float = 0.0
+    # --- OBSERVED evidence, carried for the gates and for every reason string.
+    # Last REAL (non-UNREAD) experiment enumeration; None until one lands.
+    experiment_count: Optional[int] = None
+    available_count: Optional[int] = None
+    # MAX experiments OBSERVED holding data at any point. A max, not the latest:
+    # a transmit EMPTIES the modules, so the latest reading would erase the
+    # collect evidence the assertion reports.
+    data_count_max: int = 0
+    # Pre-transmit science baseline / pre-recover funds baseline. Each tracks the
+    # last finite reading while the machine is still BEFORE the phase that moves
+    # that pool, and freezes once it enters it. None = the pool never read finite,
+    # which fails the corresponding gain gate CLOSED.
+    science_baseline: Optional[float] = None
+    funds_baseline: Optional[float] = None
+    # The funds pool read ON a vessel-gone frame, AFTER the recovery was asked for.
+    # SEPARATE from `last_funds` and load-bearing: the recovery credit must be
+    # measured ACROSS the recovery, so both halves have to straddle it. Measuring
+    # against `last_funds` instead let a purely PRE-loss pair satisfy the gate -
+    # at a `recoverMinFundsGain` of 0.0 that made `0.0 >= 0.0` true on the first
+    # vessel_lost frame, certifying a craft that BLEW UP as RECOVERED. None until
+    # such a frame lands, which fails the terminal CLOSED.
+    post_loss_funds: Optional[float] = None
+    # Last finite readings, for the gain computations and the reason strings.
+    last_science: Optional[float] = None
+    last_funds: Optional[float] = None
+    # --- streaks. Each resets to 0 on any disagreeing frame (fail-closed: the run
+    # of agreement must be unbroken).
+    data_ready_streak: int = 0
+    science_gain_streak: int = 0
+    no_experiments_streak: int = 0
+    science_unread_streak: int = 0
+    recoverable_yes_streak: int = 0
+    recoverable_no_streak: int = 0
+    lost_without_credit_streak: int = 0
+    # --- bounded re-emit bookkeeping, reset on every phase entry.
+    action_emits: int = 0
+    frames_since_emit: int = 0
+    # --- the recover verb. THREE fields rather than one, and the split is the
+    # whole of the second review finding: EMISSION and ISSUE are different facts.
+    #   recover_asks     how many times the verb has been EMITTED. Bookkeeping
+    #                    that bounds the re-ask; it certifies nothing.
+    #   recover_declined at least one ask came back DECLINED / UNREADABLE /
+    #                    FAILED at the perform seam. Gates the re-ask (never
+    #                    re-ask on silence, only on an OBSERVED decline).
+    #   recover_issued   the verb was ACTUALLY ISSUED, as OBSERVED on
+    #                    TelemetrySnapshot.recover_request_result. THIS is the
+    #                    latch the vessel-loss carve-out scopes on, and it is
+    #                    never a gate (see the machine note).
+    recover_asks: int = 0
+    frames_since_ask: int = 0
+    recover_declined: bool = False
+    recover_issued: bool = False
+    phases_reached: Tuple[str, ...] = (B1_PRELAUNCH,)
+    verdict: Optional[str] = None
+    flake_phase: Optional[str] = None
+    flake_reason: Optional[str] = None
+    loss_reason: Optional[str] = None
+    done: bool = False
+    # The subject of the success terminal is a craft that has been RECOVERED, i.e.
+    # removed from the game, so the shell's settle tail would gather only
+    # vessel_lost frames. Same rationale as B1's DOWN and CL-1's CREW-LOST.
+    skip_settle_tail: bool = False
+
+
+def sbr_initial_state(params: SbrParams) -> SbrState:
+    """Fresh SBR machine, with the delegated B1 sub-machine at its own PRELAUNCH."""
+    return SbrState(params=params, flight=b1_initial_state(params.flight))
+
+
+def _sbr_phase_budget(params: SbrParams, phase: str) -> Optional[float]:
+    """The bounded budget for a timed SBR TAIL phase, or None for the terminal.
+    The flight leg's budgets belong to the delegated B1 machine and are enforced
+    there; duplicating them here would give one phase two clocks."""
+    if phase == SBR_COLLECT:
+        return params.collect_timeout
+    if phase == SBR_TRANSMIT:
+        return params.transmit_timeout
+    if phase == SBR_RECOVER:
+        return params.recover_timeout
+    return None
+
+
+def _sbr_over_budget(state: SbrState, snapshot: TelemetrySnapshot) -> bool:
+    """True iff the current timed tail phase has out-run its budget by
+    ``snapshot.ut``. A non-finite UT never trips it (the shell's outer wall
+    watchdog is the backstop)."""
+    budget = _sbr_phase_budget(state.params, state.phase)
+    if budget is None:
+        return False
+    if not _is_finite(snapshot.ut):
+        return False
+    return (snapshot.ut - state.phase_entry_ut) > budget
+
+
+def _sbr_enter(state: SbrState, new_phase: str, ut: float) -> SbrState:
+    """Transition into ``new_phase``, stamping the phase-entry UT for the budget
+    clock, appending to ``phases_reached`` and RESETTING the per-phase re-emit
+    bookkeeping (so each phase gets its own bounded sweep allowance)."""
+    entry = ut if _is_finite(ut) else state.phase_entry_ut
+    return replace(
+        state,
+        phase=new_phase,
+        phase_entry_ut=entry,
+        phases_reached=state.phases_reached + (new_phase,),
+        action_emits=0,
+        frames_since_emit=0,
+        done=(new_phase == SBR_RECOVERED),
+        skip_settle_tail=(new_phase == SBR_RECOVERED) or state.skip_settle_tail,
+    )
+
+
+def _sbr_science_gain(state: SbrState) -> Optional[float]:
+    """OBSERVED career-science gain over the pre-transmit baseline, or None when
+    either half was never read finite (fail-closed: an unread pool can never
+    manufacture a credit)."""
+    if state.science_baseline is None or state.last_science is None:
+        return None
+    return state.last_science - state.science_baseline
+
+
+def _sbr_funds_gain(state: SbrState) -> Optional[float]:
+    """The LATEST OBSERVED career-funds movement over the pre-recover baseline, or
+    None when either half was never read finite.
+
+    DIAGNOSTIC ONLY. It is what the reason strings report, and it deliberately
+    uses the latest reading so a failure names what the pool was doing at the
+    moment it failed. It is NOT the certifying quantity - see
+    ``_sbr_recovery_credit``, which is, and which is strictly narrower."""
+    if state.funds_baseline is None or state.last_funds is None:
+        return None
+    return state.last_funds - state.funds_baseline
+
+
+def _sbr_recovery_credit(state: SbrState) -> Optional[float]:
+    """THE CERTIFYING quantity: the funds movement measured ACROSS the recovery -
+    a pre-recover baseline against a reading taken ON a vessel-gone frame after
+    the recovery was asked for. None when either half is missing, which fails the
+    RECOVERED terminal CLOSED.
+
+    Why this is not just ``_sbr_funds_gain``. That one's "final" half is the
+    LATEST finite reading, which may be entirely PRE-loss - so at a
+    ``recoverMinFundsGain`` of 0.0 (a value the schema deliberately allows) a
+    craft that exploded during RECOVER produced ``0.0 >= 0.0`` on its first
+    vessel_lost frame and was certified RECOVERED. A break-up filed as SUCCESS is
+    the worst verdict class this library can emit, and the floor being author-set
+    meant no amount of care in a spec could prevent it. Requiring both halves to
+    straddle the event makes the floor a STRENGTHENER rather than the only guard:
+    even at 0.0 the terminal now says "the pools were readable across the
+    recovery", which is exactly what the schema's prose has always claimed."""
+    if state.funds_baseline is None or state.post_loss_funds is None:
+        return None
+    return state.post_loss_funds - state.funds_baseline
+
+
+def _sbr_evidence(state: SbrState) -> str:
+    """The OBSERVED channel state, appended to every SBR reason string so a
+    failure names what the machine was actually reading (the CL-1 `_cl1_evidence`
+    discipline)."""
+    gain_s = _sbr_science_gain(state)
+    gain_f = _sbr_funds_gain(state)
+    credit = _sbr_recovery_credit(state)
+    return ("experiments=%s available=%s dataMax=%d scienceBaseline=%s "
+            "scienceNow=%s scienceGain=%s fundsBaseline=%s fundsNow=%s "
+            "fundsGain=%s fundsPostLoss=%s recoveryCredit=%s recoverAsks=%d "
+            "recoverIssued=%s recoverDeclined=%s"
+            % ("UNREAD" if state.experiment_count is None else state.experiment_count,
+               "UNREAD" if state.available_count is None else state.available_count,
+               state.data_count_max,
+               "UNREAD" if state.science_baseline is None else _fmt_num(state.science_baseline),
+               "UNREAD" if state.last_science is None else _fmt_num(state.last_science),
+               "UNREAD" if gain_s is None else _fmt_num(gain_s),
+               "UNREAD" if state.funds_baseline is None else _fmt_num(state.funds_baseline),
+               "UNREAD" if state.last_funds is None else _fmt_num(state.last_funds),
+               "UNREAD" if gain_f is None else _fmt_num(gain_f),
+               # The post-loss half and the credit are reported SEPARATELY from
+               # fundsNow/fundsGain because they are the pair the terminal
+               # actually gates on: a failure that reads `fundsGain=500.000
+               # recoveryCredit=UNREAD` is a pool that moved before the loss and
+               # went dark across it, which is a completely different triage from
+               # a pool that never moved.
+               "UNREAD" if state.post_loss_funds is None else _fmt_num(state.post_loss_funds),
+               "UNREAD" if credit is None else _fmt_num(credit),
+               # The perform-seam trio. A failure that reads `recoverAsks=1
+               # recoverIssued=False recoverDeclined=True` is a verb the runner
+               # never issued, which is a completely different triage from
+               # `recoverAsks=0` (never asked) or `recoverIssued=True` (asked,
+               # issued, and the world did not follow).
+               state.recover_asks, state.recover_issued, state.recover_declined))
+
+
+def _fmt_num(value: float) -> str:
+    """Compact InvariantCulture-safe number for a reason string (python floats
+    format locale-independently, so this is only about width)."""
+    return "%.3f" % float(value)
+
+
+def _sbr_carry_flight_terminal(state: SbrState, flight: B1State) -> SbrState:
+    """Map a TERMINATED delegated B1 sub-machine onto an SBR terminal.
+
+    B1's LANDED is the only outcome SBR can continue from, and this helper is
+    never called for it. Everything else - a phase flake, a named assert-fail,
+    and B1's OWN success terminal DOWN (the craft destroyed after a verified
+    canopy) - ends SBR here, carrying the leg's verdict and reason verbatim
+    behind a `flight-leg` prefix so a reader can tell at a glance that the pad
+    hop, not the career tail, is what went wrong."""
+    if flight.verdict == MISSION_FLAKE:
+        return replace(
+            state, done=True, verdict=MISSION_FLAKE,
+            flake_phase=flight.flake_phase or flight.phase,
+            flake_reason="flight-leg %s" % (
+                getattr(flight, "flake_reason", None)
+                or ("phase %s timed out" % (flight.flake_phase,))))
+    if flight.loss_reason:
+        return replace(state, done=True, verdict=MISSION_ASSERT_FAIL,
+                       loss_reason="flight-leg %s" % (flight.loss_reason,))
+    if flight.verdict == MISSION_ASSERT_FAIL:
+        return replace(state, done=True, verdict=MISSION_ASSERT_FAIL,
+                       loss_reason="flight-leg assert-fail in phase %s" % (flight.phase,))
+    # A terminated leg that is neither LANDED nor any of the above: B1's DOWN.
+    # It is B1's success and SBR's dead end - there is no craft left to recover -
+    # so it is named rather than allowed to fall into the tail phases.
+    return replace(
+        state, done=True, verdict=MISSION_ASSERT_FAIL,
+        loss_reason=("flight-leg ended at phase %s with no recoverable craft: the "
+                     "pad hop reached a terminal that removes the vessel, so the "
+                     "collect / transmit / recover tail has nothing to act on"
+                     % (flight.phase,)))
+
+
+def sbr_decide(state: SbrState, snapshot: TelemetrySnapshot) -> Tuple[SbrState, List[Action]]:
+    """Advance the SBR career-earning machine one frame; return (new_state, actions).
+
+    Ordering inside a frame is load-bearing and is stated once here:
+      1. carry the OBSERVED evidence (counts, pools, baselines) - BEFORE any
+         transition, so the frame that leaves a phase still updates the baseline
+         that phase owns;
+      2. delegate to the B1 sub-machine while the flight leg runs, falling
+         THROUGH into COLLECT on the landing frame;
+      3. the dark-channel FLAKE, so a dead channel is named before anything is
+         concluded from its silence;
+      4. the pre-recovery vessel loss;
+      5. the per-phase body (gate, named wrong-outcome end, bounded re-emit);
+      6. the phase budget.
+    Once ``done`` the machine is idempotent (state unchanged, no actions)."""
+    if state.done:
+        return state, []
+
+    # --- 1. evidence ------------------------------------------------------
+    # Evaluated against the phase as of frame START, which is what makes the
+    # baselines correct: the frame that transitions COLLECT -> TRANSMIT is still
+    # a PRE-transmit reading and must still move the science baseline.
+    phase_at_entry = state.phase
+    if snapshot.science_experiment_count != SCIENCE_COUNT_UNREAD:
+        state = replace(state, experiment_count=int(snapshot.science_experiment_count))
+    if snapshot.science_available_count != SCIENCE_COUNT_UNREAD:
+        state = replace(state, available_count=int(snapshot.science_available_count))
+    if (snapshot.science_data_count != SCIENCE_COUNT_UNREAD
+            and int(snapshot.science_data_count) > state.data_count_max):
+        state = replace(state, data_count_max=int(snapshot.science_data_count))
+    if _is_finite(snapshot.career_science):
+        state = replace(state, last_science=float(snapshot.career_science))
+        if phase_at_entry not in (SBR_TRANSMIT, SBR_RECOVER, SBR_RECOVERED):
+            state = replace(state, science_baseline=float(snapshot.career_science))
+    if _is_finite(snapshot.career_funds):
+        state = replace(state, last_funds=float(snapshot.career_funds))
+        if phase_at_entry not in (SBR_RECOVER, SBR_RECOVERED):
+            state = replace(state, funds_baseline=float(snapshot.career_funds))
+    # The PERFORM-SEAM channel, carried HERE - in the evidence step, ahead of the
+    # vessel-loss carve-out at step 4 - because the frame that reports ISSUED is
+    # very often the same frame the craft is gone on. Read as a sticky LEVEL: the
+    # runner leaves the last terminal token standing until the next perform, so a
+    # latch set from it can never be missed by a frame's ordering. Neither latch
+    # is ever cleared: "the verb was issued" and "an ask was declined" are facts
+    # about the past, and the re-ask allowance is what bounds their consequences.
+    seam_result = str(snapshot.recover_request_result or RECOVER_REQUEST_UNREAD)
+    if seam_result == RECOVER_REQUEST_ISSUED:
+        state = replace(state, recover_issued=True)
+    elif seam_result in RECOVER_REQUEST_DECLINES:
+        state = replace(state, recover_declined=True)
+
+    # --- 2. the delegated flight leg --------------------------------------
+    flight = state.flight
+    if flight is not None and not flight.done:
+        flight, actions = b1_decide(flight, snapshot)
+        reached = state.phases_reached
+        if flight.phase != state.phase:
+            reached = reached + (flight.phase,)
+        state = replace(state, flight=flight, phase=flight.phase,
+                        phase_entry_ut=flight.phase_entry_ut,
+                        phases_reached=reached)
+        if not flight.done:
+            return state, actions
+        if flight.phase != B1_LANDED:
+            return _sbr_carry_flight_terminal(state, flight), actions
+        # LANDED. Fall THROUGH into COLLECT on this same frame and issue the
+        # sweep now: the craft is at rest, its situation is settled, and waiting
+        # a poll buys nothing.
+        state = _sbr_enter(state, SBR_COLLECT, snapshot.ut)
+        return (replace(state, action_emits=1, frames_since_emit=0),
+                actions + [Action(ACTION_RUN_SCIENCE_EXPERIMENTS)])
+
+    # --- 3. the dark science channel (FLAKE) ------------------------------
+    # SCOPED TO COLLECT, which is the only phase that READS this channel, and the
+    # scoping is a correctness point rather than an optimisation: a give-up must
+    # name a channel the current phase DEPENDS ON. TRANSMIT gates on the career
+    # science POOL and RECOVER on Vessel.Recoverable plus the funds pool, so an
+    # experiment enumeration that goes dark after the data is already collected
+    # blocks nothing - and flaking there would throw away a flight that had
+    # already collected AND transmitted, for a reading nothing was waiting on.
+    # (The pools have their own give-up, `career-pool-channel-dark`.)
+    #
+    # Counted on LIVE frames only: a vessel_lost frame legitimately carries the
+    # UNREAD sentinel on every vessel-scoped channel, so counting it would blame
+    # the channel for the recovery this mission asked for.
+    if state.phase == SBR_COLLECT and not snapshot.vessel_lost:
+        unread = (snapshot.science_experiment_count == SCIENCE_COUNT_UNREAD)
+        state = replace(state,
+                        science_unread_streak=(state.science_unread_streak + 1) if unread else 0)
+        if state.science_unread_streak >= SBR_SCIENCE_UNREAD_GIVEUP_FRAMES:
+            return replace(
+                state, done=True, verdict=MISSION_FLAKE, flake_phase=state.phase,
+                flake_reason=("science-channel-dark: the experiment enumeration read "
+                              "UNREAD on %d consecutive live frames, so nothing about "
+                              "science could be concluded either way; %s"
+                              % (state.science_unread_streak, _sbr_evidence(state)))), []
+
+    # --- 4. a vessel loss BEFORE the recovery -----------------------------
+    # The carve-out is "we are in RECOVER **and the verb was actually ISSUED**",
+    # not merely "we are in RECOVER" and not "we emitted the action". Two windows
+    # sit inside RECOVER before an issue, and a craft that blows up in either one
+    # was destroyed before any recovery happened, which is a loss by every
+    # reading:
+    #   (a) the debounce wait, before the first ask - scoping the carve-out to the
+    #       phase alone routed that into the success branch;
+    #   (b) after an ask the runner DECLINED (Recoverable false / unreadable at
+    #       perform, or Recover() raising) - scoping it to the EMISSION latch
+    #       routed that into the success branch too, by the other door, and at a
+    #       0.0 floor with a readable unmoved pool it certified RECOVERED.
+    #
+    # `recover_issued` is an OBSERVED fact (the perform-seam channel), and it
+    # appears here as a SCOPE rather than as evidence: it decides WHICH terminal
+    # is even eligible, and the terminal that follows still has to prove itself
+    # from readings on both sides of the event.
+    if snapshot.vessel_lost and not (state.phase == SBR_RECOVER
+                                     and state.recover_issued):
+        return replace(
+            state, done=True, verdict=MISSION_ASSERT_FAIL,
+            loss_reason=("vessel-lost-before-recovery: the craft became unreadable in "
+                         "phase %s, before any recovery was ISSUED (an emitted verb "
+                         "the perform seam declined is not an issued one), so there is "
+                         "nothing left to recover; %s"
+                         % (state.phase, _sbr_evidence(state)))), []
+
+    # --- 5. the per-phase bodies -------------------------------------------
+    if state.phase == SBR_COLLECT:
+        return _sbr_collect(state, snapshot)
+    if state.phase == SBR_TRANSMIT:
+        return _sbr_transmit(state, snapshot)
+    if state.phase == SBR_RECOVER:
+        return _sbr_recover(state, snapshot)
+    return state, []
+
+
+def _sbr_reemit(state: SbrState, action_kind: str) -> Tuple[SbrState, List[Action]]:
+    """The bounded re-emit tick shared by COLLECT and TRANSMIT: advance the
+    frame counter and, if the allowance and the spacing both permit, emit the
+    phase's (idempotent) sweep once more. Returns (new_state, actions)."""
+    frames = state.frames_since_emit + 1
+    if (state.action_emits <= SBR_ACTION_REEMIT_LIMIT
+            and frames >= SBR_ACTION_REEMIT_FRAMES):
+        return (replace(state, action_emits=state.action_emits + 1, frames_since_emit=0),
+                [Action(action_kind)])
+    return replace(state, frames_since_emit=frames), []
+
+
+def _sbr_collect(state: SbrState, snapshot: TelemetrySnapshot) -> Tuple[SbrState, List[Action]]:
+    """COLLECT: run the experiments, wait for OBSERVED stored data."""
+    params = state.params
+    ready = (snapshot.science_data_count != SCIENCE_COUNT_UNREAD
+             and int(snapshot.science_data_count) >= params.collect_min_experiments)
+    state = replace(state,
+                    data_ready_streak=(state.data_ready_streak + 1) if ready else 0)
+    if state.data_ready_streak >= SBR_OBSERVE_DEBOUNCE_K:
+        state = _sbr_enter(state, SBR_TRANSMIT, snapshot.ut)
+        return (replace(state, action_emits=1, frames_since_emit=0),
+                [Action(ACTION_TRANSMIT_SCIENCE)])
+
+    # no-experiments-aboard: an enumeration that SUCCEEDED and found nothing.
+    empty = (snapshot.science_experiment_count == 0)
+    state = replace(state,
+                    no_experiments_streak=(state.no_experiments_streak + 1) if empty else 0)
+    if state.no_experiments_streak >= SBR_OBSERVE_DEBOUNCE_K:
+        return replace(
+            state, done=True, verdict=MISSION_ASSERT_FAIL,
+            loss_reason=("no-experiments-aboard: the experiment enumeration READ 0 "
+                         "modules on %d consecutive frames, so this craft can never "
+                         "produce science; the fixture or the craft is wrong, not the "
+                         "flight; %s" % (state.no_experiments_streak, _sbr_evidence(state)))), []
+
+    if _sbr_over_budget(state, snapshot):
+        return replace(
+            state, done=True, verdict=MISSION_ASSERT_FAIL,
+            loss_reason=("collect-produced-no-data: COLLECT ran its full %.0f s budget "
+                         "and fewer than the required %d experiment(s) ever READ as "
+                         "holding data; %s"
+                         % (params.collect_timeout, params.collect_min_experiments,
+                            _sbr_evidence(state)))), []
+
+    return _sbr_reemit(state, ACTION_RUN_SCIENCE_EXPERIMENTS)
+
+
+def _sbr_transmit(state: SbrState, snapshot: TelemetrySnapshot) -> Tuple[SbrState, List[Action]]:
+    """TRANSMIT: send the stored data, wait for the OBSERVED career-pool credit."""
+    params = state.params
+    gain = _sbr_science_gain(state)
+    credited = (gain is not None and gain >= params.transmit_min_science)
+    state = replace(state,
+                    science_gain_streak=(state.science_gain_streak + 1) if credited else 0)
+    if state.science_gain_streak >= SBR_OBSERVE_DEBOUNCE_K:
+        # No action on entry: RECOVER must first OBSERVE that the craft is
+        # recoverable, because kRPC's Recover() throws when it is not.
+        return _sbr_enter(state, SBR_RECOVER, snapshot.ut), []
+
+    if _sbr_over_budget(state, snapshot):
+        if state.science_baseline is None or state.last_science is None:
+            return replace(
+                state, done=True, verdict=MISSION_FLAKE, flake_phase=state.phase,
+                flake_reason=("career-pool-channel-dark: the career science pool never "
+                              "produced a finite reading, so no credit could be computed "
+                              "at all (a non-CAREER save reads exactly like this); %s"
+                              % (_sbr_evidence(state),))), []
+        return replace(
+            state, done=True, verdict=MISSION_ASSERT_FAIL,
+            loss_reason=("transmit-credited-no-science: TRANSMIT ran its full %.0f s "
+                         "budget and the career science pool never rose by the required "
+                         "%.3f (no antenna, no ElectricCharge, or no connection); %s"
+                         % (params.transmit_timeout, params.transmit_min_science,
+                            _sbr_evidence(state)))), []
+
+    return _sbr_reemit(state, ACTION_TRANSMIT_SCIENCE)
+
+
+def _sbr_recover(state: SbrState, snapshot: TelemetrySnapshot) -> Tuple[SbrState, List[Action]]:
+    """RECOVER: ask once, then wait for the craft to be OBSERVED gone AND the
+    funds pool to have OBSERVABLY risen."""
+    params = state.params
+
+    # --- the success terminal, and the crash that looks like it ------------
+    # Only reachable AFTER the recovery verb was OBSERVED ISSUED: step 4 of
+    # sbr_decide routes a pre-issue loss to `vessel-lost-before-recovery`,
+    # because a craft that blew up while the machine was still waiting for a
+    # recoverable reading - or while its ask stood declined at the perform seam -
+    # was destroyed, not recovered.
+    if snapshot.vessel_lost:
+        # Stamp the POST-LOSS funds reading. This is the half that makes the
+        # credit straddle the event; without it a purely pre-loss pair satisfied
+        # the terminal at a 0.0 floor.
+        if _is_finite(snapshot.career_funds):
+            state = replace(state, post_loss_funds=float(snapshot.career_funds))
+        credit = _sbr_recovery_credit(state)
+        if credit is not None and credit >= params.recover_min_funds:
+            return _sbr_enter(state, SBR_RECOVERED, snapshot.ut), []
+        streak = state.lost_without_credit_streak + 1
+        state = replace(state, lost_without_credit_streak=streak)
+        if streak >= SBR_RECOVER_CREDIT_GRACE_FRAMES:
+            # WHY THE CHANNEL CHECK COMES FIRST. "The pool did not move" and "the
+            # pool was never readable" look identical from `gain is None`, and
+            # they sit on OPPOSITE sides of this lane's retry line: an unmoved
+            # pool is a craft that broke up (a wrong outcome, not retryable), an
+            # unreadable one is a broken channel (retryable). Condemning a dark
+            # channel as a break-up would file a kRPC fault as a Parsek-adjacent
+            # flight failure and burn the retry that would have fixed it.
+            if state.funds_baseline is None or state.post_loss_funds is None:
+                return replace(
+                    state, done=True, verdict=MISSION_FLAKE, flake_phase=state.phase,
+                    flake_reason=("career-pool-channel-dark: the craft was gone for %d "
+                                  "consecutive frames and the career funds pool never "
+                                  "produced a finite reading on BOTH sides of the "
+                                  "recovery, so no credit could be computed at all - "
+                                  "the channel is dark, which says nothing about the "
+                                  "recovery; %s"
+                                  % (streak, _sbr_evidence(state)))), []
+            return replace(
+                state, done=True, verdict=MISSION_ASSERT_FAIL,
+                loss_reason=("vessel-lost-without-recovery-credit: the craft was gone for "
+                             "%d consecutive frames and the career funds pool never rose "
+                             "by the required %.3f - which is what a craft that BROKE UP "
+                             "looks like, not one that was recovered; %s"
+                             % (streak, params.recover_min_funds, _sbr_evidence(state)))), []
+        return state, []
+    state = replace(state, lost_without_credit_streak=0)
+
+    # --- ask, until exactly one is ISSUED, and only once it is OBSERVED possible
+    yes = (snapshot.vessel_recoverable == RECOVERABLE_YES)
+    no = (snapshot.vessel_recoverable == RECOVERABLE_NO)
+    state = replace(
+        state,
+        recoverable_yes_streak=(state.recoverable_yes_streak + 1) if yes else 0,
+        recoverable_no_streak=(state.recoverable_no_streak + 1) if no else 0,
+        frames_since_ask=state.frames_since_ask + 1)
+    # `recover_issued`, NOT "we emitted it": while the seam has declined every ask
+    # so far, the poll channel is still authoritative and this whole block stays
+    # live - which is what makes `vessel-not-recoverable` the owner of a
+    # PERSISTENT decline rather than leaving it to a budget timeout.
+    if not state.recover_issued:
+        if state.recoverable_no_streak >= SBR_OBSERVE_DEBOUNCE_K:
+            return replace(
+                state, done=True, verdict=MISSION_ASSERT_FAIL,
+                loss_reason=("vessel-not-recoverable: Vessel.Recoverable READ false on %d "
+                             "consecutive frames, so no recovery was ever issued "
+                             "(kRPC throws on exactly this, and an unhandled throw would "
+                             "report MISSION-ERROR instead of this name); %s"
+                             % (state.recoverable_no_streak, _sbr_evidence(state)))), []
+        if (state.recoverable_yes_streak >= SBR_OBSERVE_DEBOUNCE_K
+                and _sbr_may_ask_recover(state)):
+            return (replace(state, recover_asks=state.recover_asks + 1,
+                            frames_since_ask=0),
+                    [Action(ACTION_RECOVER_VESSEL)])
+
+    if _sbr_over_budget(state, snapshot):
+        return replace(
+            state, done=True, verdict=MISSION_FLAKE, flake_phase=state.phase,
+            flake_reason=("recover-never-completed: RECOVER ran its full %.0f s budget "
+                          "(asks=%d, issued=%s, declined=%s, last Vessel.Recoverable "
+                          "reading=%s) and the craft was still there; %s"
+                          % (params.recover_timeout, state.recover_asks,
+                             state.recover_issued, state.recover_declined,
+                             snapshot.vessel_recoverable, _sbr_evidence(state)))), []
+    return state, []
+
+
+def _sbr_may_ask_recover(state: SbrState) -> bool:
+    """Whether the recover verb may be EMITTED on this frame, given that it has
+    not yet been OBSERVED issued (the caller owns that half).
+
+    Three rules, in order:
+      - the FIRST ask is always allowed (nothing has been emitted);
+      - a re-ask requires an OBSERVED DECLINE. Never re-ask on silence: an ask
+        whose seam result has not landed yet may still be in flight, and a second
+        verb performed against a craft the first one already recovered resolves a
+        dead vessel and ends the mission as MISSION-ERROR;
+      - and then it is bounded exactly like the COLLECT / TRANSMIT sweeps - at
+        most SBR_RECOVER_ASK_LIMIT further asks, SBR_ACTION_REEMIT_FRAMES apart,
+        the spacing being the settle wait the flicker case needs."""
+    if state.recover_asks == 0:
+        return True
+    if not state.recover_declined:
+        return False
+    return (state.recover_asks <= SBR_RECOVER_ASK_LIMIT
+            and state.frames_since_ask >= SBR_ACTION_REEMIT_FRAMES)
+
+
+def evaluate_sbr_assertions(frames, params: SbrParams,
+                            state: Optional[SbrState] = None) -> List[AssertionOutcome]:
+    """Evaluate the SBR driver-validity assertions. All four read OBSERVED state
+    carried out of the machine, never a commanded latch.
+
+    - ``flightCompletedObserved``: the delegated B1 pad hop reached its LANDED
+      terminal. The precondition half - without it the three career rows could
+      in principle be satisfied by a craft that never left the pad.
+    - ``scienceCollectedObserved``: at least ``collectMinExperiments`` experiments
+      were OBSERVED holding data (the MAX seen, because the transmit empties them).
+    - ``scienceTransmittedObserved``: the career science pool ROSE by at least
+      ``transmitMinScienceGain`` over its pre-transmit baseline.
+    - ``vesselRecoveredObserved``: the machine reached RECOVERED, i.e. the craft
+      was OBSERVED gone AND the funds pool had risen. The value is the measured
+      funds gain, so the result JSON records WHAT the recovery was worth rather
+      than merely that one happened.
+
+    B1'S OWN APOAPSIS / CANOPY ASSERTIONS ARE DELIBERATELY NOT RE-RUN HERE. They
+    are B1's contract on B1's fixture, and re-asserting an apoapsis WINDOW would
+    make this forge brittle against exactly the thing it does not care about: the
+    shape of the hop. The hop only has to end with the craft intact on the ground,
+    which is what ``flightCompletedObserved`` says. ``frames`` is accepted for
+    signature symmetry with every other evaluator and is used only for the peak."""
+    peak = _peak_finite(list(frames or []), lambda f: f.apoapsis)
+    flight = getattr(state, "flight", None)
+    flew = (getattr(flight, "phase", None) == B1_LANDED)
+    data_max = int(getattr(state, "data_count_max", 0) or 0)
+    collected = data_max >= params.collect_min_experiments
+    gain_s = _sbr_science_gain(state) if state is not None else None
+    transmitted = (gain_s is not None and gain_s >= params.transmit_min_science)
+    # The CERTIFYING credit (measured across the recovery), not the diagnostic
+    # latest-reading gain: the row's value must be the same quantity the terminal
+    # gated on, or a reader reconciling the two gets a different number.
+    gain_f = _sbr_recovery_credit(state) if state is not None else None
+    recovered = (getattr(state, "phase", None) == SBR_RECOVERED)
+    return [
+        AssertionOutcome("flightCompletedObserved", bool(flew),
+                         getattr(flight, "phase", None),
+                         {"peakApoapsis": peak,
+                          "phasesReached": list(getattr(state, "phases_reached", ()) or ())}),
+        AssertionOutcome("scienceCollectedObserved", bool(collected), data_max,
+                         {"required": params.collect_min_experiments,
+                          "experimentsAboard": getattr(state, "experiment_count", None),
+                          "experimentsAvailable": getattr(state, "available_count", None),
+                          "debounceK": SBR_OBSERVE_DEBOUNCE_K}),
+        AssertionOutcome("scienceTransmittedObserved", bool(transmitted), gain_s,
+                         {"required": params.transmit_min_science,
+                          "baseline": getattr(state, "science_baseline", None),
+                          "final": getattr(state, "last_science", None)}),
+        AssertionOutcome("vesselRecoveredObserved", bool(recovered), gain_f,
+                         {"required": params.recover_min_funds,
+                          "baseline": getattr(state, "funds_baseline", None),
+                          "final": getattr(state, "last_funds", None),
+                          # ISSUED, not merely emitted: the perform seam can
+                          # decline, and a row saying "requested" of a verb the
+                          # runner never issued is the misreading this whole
+                          # split exists to prevent. `recoveryAsks` is the
+                          # emission count next to it, so a reader can see a
+                          # declined ask for what it is.
+                          "recoveryIssued": bool(getattr(state, "recover_issued", False)),
+                          "recoveryAsks": int(getattr(state, "recover_asks", 0) or 0)}),
     ]
 
 
@@ -14503,6 +15533,42 @@ MISSION_HANDOFF_CONTRACTS: Dict[str, Dict] = {
         "unverifiedByMission": ["kerbalSurvival"],
         "verifiedBy": ["EvaExit", "EvaChuteDeploy"],
     },
+    # science_bench_recover declares a DIFFERENT KIND of gap from EVA-4's, and the
+    # difference is worth stating because the table has held exactly one shape
+    # until now.
+    #
+    # EVA-4 is a handoff in the ORIGINAL sense: it stops mid-flight and the
+    # world outcome it exists to produce happens later, to a vessel no frame it
+    # read ever saw. SBR is not that - it terminates ON its own world outcome
+    # (the science credited and the craft recovered are both OBSERVED, on frames
+    # the machine read, before it reports anything). Its gap is on the OTHER
+    # axis: the reason this mission is flown at all is to make PARSEK record a
+    # career-earning event, and the mission has no view of Parsek whatsoever. A
+    # green MISSION-OK here means KSP credited the science and the funds; it says
+    # NOTHING about whether a `ScienceEarning` row or a recovery credit landed in
+    # the ledger, which is the whole product claim.
+    #
+    # Declaring it costs nothing and stops the exact misreading this table was
+    # created for: a forge run reporting MISSION-OK being filed as "the forge
+    # worked". `verifiedBy` names the harness rows that DO own that claim -
+    # CommitTree (the recording exists to attribute it to), the analyzer, and the
+    # M-B2 ledger oracle - rather than seam verbs, because on this lane there are
+    # no post-mission OUTCOME verbs to own it. Nothing reads `verifiedBy`
+    # programmatically; it is rendered into the MISSION-OK reason line for a
+    # human.
+    #
+    # NOTE ON THE missionOutcome GATE: it is not involved here, and that is
+    # correct rather than an omission. `hlib.post_mission_step_gates` gates on
+    # post-mission SEAM verbs whose verdict is a claim about a kerbal's physical
+    # in-world state; this mission emits none, and its own outcome is already
+    # gated by its four assertions (an unmet one is MISSION-ASSERT-FAIL ->
+    # driver-INVALID, retryable, never PARSEK-FAIL - the orthogonality rule
+    # exactly).
+    "science_bench_recover": {
+        "terminal": SBR_RECOVERED,
+        "unverifiedByMission": ["ledgerScienceCapture", "ledgerRecoveryCapture"],
+        "verifiedBy": ["CommitTree", "analyzer", "ledgerOracle"],
+    },
 }
 
 # What MISSION-OK means for a handoff mission, spelled out in the reason line the
@@ -14512,8 +15578,18 @@ HANDOFF_OK_REASON_SUFFIX = ("; handoff mission - %s not verified here, owned by 
 
 
 def mission_handoff_contract(mission: str) -> Optional[Dict]:
-    """The handoff contract for ``mission``, or None when the mission terminates on
-    the outcome it certifies (every mission but EVA-4 today).
+    """The handoff contract for ``mission``, or None when the mission declares no
+    gap - i.e. it is absent from ``MISSION_HANDOFF_CONTRACTS``, which is every
+    mission except the entries in that table.
+
+    A CONTRACT DOES NOT IMPLY A MID-FLIGHT HANDOFF, and reading it that way was
+    wrong on both counts once a second entry landed. EVA-4 stops mid-flight and
+    the outcome it exists to produce happens later; `science_bench_recover`
+    terminates ON its own world outcome and still declares a contract, because
+    its gap is on the other axis (the mission has no view of Parsek, so a green
+    run says KSP credited the science and nothing about the LEDGER capturing it).
+    The rule is simply: a mission has a contract iff it declares one, whatever
+    kind of gap that is.
 
     Returns a DEEP copy: a shallow one would alias the module constant's nested lists
     into every result dict, so a caller that mutated a returned ``verifiedBy`` would
@@ -14841,6 +15917,27 @@ MACHINE_STATE_FIELDS: Tuple[Tuple[str, str], ...] = (
     ("landed_situation", "landedSituation"),
     ("landed_vertical_speed", "landedVspd"),
     ("landed_horizontal_speed", "landedHspd"),
+    # --- science_bench_recover gate latches. Same attr-based, inert-when-absent
+    # shape as every block above: a machine without these attrs renders "-", so
+    # no other mission's LINE MEANING moves (its width does, exactly as it did
+    # for the landing and pad-align blocks). They are here because they are the
+    # FIVE latches this lane's terminals turn on, and the first flight is the
+    # one where a live status read most needs to see them flip:
+    #   dataReadyStreak / sciGainStreak - the two debounced credit gates;
+    #   recoverAsks     - how many times the verb has been EMITTED (bookkeeping;
+    #                     it certifies nothing on its own);
+    #   recoverIssued   - the OBSERVED perform-seam latch, which is the
+    #                     difference between a pre-issue break-up (a loss) and a
+    #                     post-issue one (a candidate recovery). `recoverAsks=1
+    #                     recoverIssued=False` on a live line IS the declined ask,
+    #                     visible while it is happening rather than in a reason
+    #                     string afterwards;
+    #   fundsPostLoss   - the post-loss half of the certifying credit.
+    ("data_ready_streak", "dataReadyStreak"),
+    ("science_gain_streak", "sciGainStreak"),
+    ("recover_asks", "recoverAsks"),
+    ("recover_issued", "recoverIssued"),
+    ("post_loss_funds", "fundsPostLoss"),
     ("commit_result", "commitResult"),
     # WHY the machine is about to end (the named give-up). It already reaches
     # the mission RESULT via resolve_flight_verdict, but it never reached the
@@ -15247,6 +16344,23 @@ def format_snapshot_compact(snapshot: TelemetrySnapshot) -> str:
                else (" landAP=%d" % snapshot.landing_ap_enabled))
     hspd = ("" if not _is_finite(snapshot.horizontal_speed)
             else (" hspd=%s" % _obs_fmt(snapshot.horizontal_speed)))
+    # ``sciData=`` / ``rec=`` / ``funds=`` / ``sci=`` ride the ring ONLY when the
+    # opt-in career channel was actually read (science_bench_recover), so every
+    # other mission's line is unchanged. Same rationale as ttPe and landAP: this
+    # lane's three gates read exactly these values, and the transitions they gate
+    # (the data appearing, the recoverable flag flipping, the pool moving across
+    # the recovery) all happen BETWEEN rate-limited telemetry samples. Without
+    # them the ring dump - the one artifact that survives that window - could not
+    # show why a collect stalled or why a credit was judged missing.
+    sci_data = ("" if snapshot.science_data_count < 0
+                else (" sciData=%d/%d" % (snapshot.science_data_count,
+                                          max(snapshot.science_experiment_count, 0))))
+    recoverable = ("" if snapshot.vessel_recoverable < 0
+                   else (" rec=%d" % snapshot.vessel_recoverable))
+    pools = ""
+    if _is_finite(snapshot.career_funds) or _is_finite(snapshot.career_science):
+        pools = (" funds=%s sci=%s" % (_obs_fmt(snapshot.career_funds),
+                                       _obs_fmt(snapshot.career_science)))
     line = ("ut=%s alt=%s ap=%s pe=%s body=%s nodes=%d nodeDv=%s thr=%s "
             "apErr=%s tgtD=%s tgtV=%s angV=%s sas=%d rcs=%d apSt=%s warp=%sx%s "
             "sit=%s%s"
@@ -15261,7 +16375,7 @@ def format_snapshot_compact(snapshot: TelemetrySnapshot) -> str:
                snapshot.docking_ap_status or "?", snapshot.warp_mode,
                _obs_fmt(snapshot.warp_rate), snapshot.situation or "?",
                " LOST" if snapshot.vessel_lost else ""))
-    return line + crew + node_exec + tt_pe + land_ap + hspd
+    return line + crew + node_exec + tt_pe + land_ap + hspd + sci_data + recoverable + pools
 
 
 # ---------------------------------------------------------------------------

@@ -431,7 +431,8 @@ class KrpcMissionControl(MissionControl):
                  tolerate_unreadable_nodes: bool = False,
                  read_periapsis: bool = False,
                  read_landing: bool = False,
-                 read_camera: bool = False) -> None:
+                 read_camera: bool = False,
+                 read_science: bool = False) -> None:
         self._use_mechjeb = use_mechjeb
         self._client_name = client_name
         # OPT-IN B-DOCK docking/rendezvous/transfer telemetry (design section 5.2).
@@ -494,6 +495,39 @@ class KrpcMissionControl(MissionControl):
         # that camera.mode was assigned -- the same commanded-vs-observed
         # discipline as every other opt-in channel here.
         self._read_camera = bool(read_camera)
+        # OPT-IN career science / recovery telemetry (the science_bench_recover
+        # lane). OFF everywhere else so every other mission's read_snapshot stays
+        # byte-identical: the three count channels and vessel_recoverable keep
+        # their -1 UNREAD sentinels and the two career pools keep their NaN, all
+        # of which fail every gate on that lane closed.
+        #
+        # THE COST, stated because it is the highest of any opt-in channel here.
+        # The pools are 2 RPCs; Vessel.Recoverable is 1; the experiment sweep is
+        # 1 (Parts.Experiments) plus 2 per experiment (HasData and Available;
+        # Inoperable is read only by the RUN verb, not by the per-poll sweep). On
+        # a two-experiment craft that is 8 RPCs per poll. It is taken only by the
+        # mission whose entire subject is what those channels say, and it is the
+        # same trade the landing lane's three reads make.
+        self._read_science = bool(read_science)
+        # Dark-channel Warn latches for the two families (same discipline as the
+        # executor / periapsis / landing / camera latches): both degrade to
+        # sentinels that stand real machinery down, so each must NAME itself once
+        # rather than produce a mute give-up a phase budget later.
+        self._warned_science_read = False
+        self._warned_career_pools_read = False
+        # PERFORM-SEAM outcome of the last recover attempt, riding
+        # TelemetrySnapshot.recover_request_result (the seam_command_result
+        # precedent). "" until one terminates. It is STICKY on purpose: the
+        # machine reads it as a level, and the recovery that succeeds usually
+        # makes the very next snapshot a vessel_lost one, so a value that lived
+        # for exactly one frame could be missed at the only moment it matters.
+        #
+        # WHY IT EXISTS AT ALL. _perform_recover_vessel can DECLINE (read-before-
+        # ask: Recoverable false or unreadable) or fail. A decline that stayed
+        # inside the runner left the machine believing a recovery had been issued
+        # when none was - and that belief is what decides whether a break-up
+        # afterwards is a loss or a candidate recovery.
+        self._recover_request_result: str = mlib.RECOVER_REQUEST_UNREAD
         # The camera channel's own dark-channel Warn latch (same rationale as
         # the executor/periapsis/landing latches below).
         self._warned_camera_read = False
@@ -811,6 +845,22 @@ class KrpcMissionControl(MissionControl):
                             "dwell and the phase flakes landed-never-stable. "
                             "Logged once per run."
                             % (type(exc).__name__, str(exc)[:160])))
+            # CAREER SCIENCE / RECOVERY channels (opt-in, science_bench_recover).
+            # Two helpers, each with its own try/except and its own fail-closed
+            # sentinels, because the two families answer different questions and
+            # survive different events (see the TelemetrySnapshot field block).
+            # Neither ever counts toward the vessel-lost read-fail streak.
+            science_experiments = mlib.SCIENCE_COUNT_UNREAD
+            science_data = mlib.SCIENCE_COUNT_UNREAD
+            science_available = mlib.SCIENCE_COUNT_UNREAD
+            vessel_recoverable = mlib.RECOVERABLE_UNREAD
+            career_funds = float("nan")
+            career_science = float("nan")
+            if self._read_science:
+                science_experiments, science_data, science_available = \
+                    self._read_science_channels(v)
+                vessel_recoverable = self._read_vessel_recoverable(v)
+                career_funds, career_science = self._read_career_pools(sc)
             snapshot = mlib.TelemetrySnapshot(
                 ut=float(sc.ut),
                 altitude=float(flight_srf.surface_altitude),
@@ -916,6 +966,19 @@ class KrpcMissionControl(MissionControl):
                 # OBSERVED camera mode ("" = not read / read failed; fails the
                 # V1 staged-map-camera gate closed).
                 camera_mode=camera_mode,
+                # Career science / recovery (all six at their UNREAD sentinels
+                # unless read_science; each fails its own gate closed).
+                science_experiment_count=science_experiments,
+                science_data_count=science_data,
+                science_available_count=science_available,
+                vessel_recoverable=vessel_recoverable,
+                career_funds=career_funds,
+                career_science=career_science,
+                # The perform-seam outcome of the recover verb. NOT gated on
+                # read_science: it costs no RPC (it is the runner's own record of
+                # what its last attempt did) and it stays "" for every mission
+                # that never emits the action, so no other snapshot moves.
+                recover_request_result=self._recover_request_result,
             )
             self._read_fail_streak = 0
             self._warp_watchdog(sc, snapshot.ut)
@@ -944,13 +1007,45 @@ class KrpcMissionControl(MissionControl):
             # Best-effort and fail-closed: an unread roster leaves the "" sentinel,
             # which satisfies no gate.
             crew_roster_status = self._read_crew_roster_status(sc) if sc is not None else ""
+            # THE SECOND FAMILY THAT STILL CARRIES TRUTH ON THIS PATH (the
+            # science_bench_recover lane), and here it is not merely useful -
+            # it is the only way the mission's success terminal is observable
+            # at all. Recovering the active vessel REMOVES it, so the frame
+            # that proves the recovery happened necessarily has no vessel on
+            # it; the career pools are properties of the SAVE and outlive the
+            # craft exactly as a kerbal's roster status does. The three
+            # vessel-scoped science channels are deliberately NOT read here:
+            # they are properties OF THE VESSEL and a recovered craft has none,
+            # so they stay at the UNREAD sentinels the constructor defaults
+            # give them. Best-effort and fail-closed: an unread pool leaves NaN,
+            # which satisfies no gain gate.
+            career_funds = float("nan")
+            career_science = float("nan")
+            if self._read_science and sc is not None:
+                career_funds, career_science = self._read_career_pools(sc)
             _stdout_sink(mlib.format_mission_log_line(
                 "Warn", "Telemetry",
                 "vessel-lost: telemetry read failed %d consecutive samples; "
-                "emitting vessel_lost snapshot ut=%s roster=%s"
-                % (self._read_fail_streak, _fmt(ut), crew_roster_status or "UNREAD")))
+                "emitting vessel_lost snapshot ut=%s roster=%s funds=%s science=%s"
+                % (self._read_fail_streak, _fmt(ut), crew_roster_status or "UNREAD",
+                   _fmt(career_funds), _fmt(career_science))))
             return mlib.TelemetrySnapshot(ut=ut, vessel_lost=True,
-                                          crew_roster_status=crew_roster_status)
+                                          crew_roster_status=crew_roster_status,
+                                          career_funds=career_funds,
+                                          career_science=career_science,
+                                          # THE THIRD THING THAT MUST SURVIVE
+                                          # THIS PATH, and the argument is the
+                                          # career pools' argument exactly: a
+                                          # successful recovery removes the craft
+                                          # immediately, so ISSUED and
+                                          # vessel-gone routinely arrive on the
+                                          # SAME snapshot. Dropping the seam
+                                          # result here would leave the issued
+                                          # latch false on the only frame that
+                                          # could set it, and every good recovery
+                                          # would be condemned as a break-up
+                                          # before the recovery.
+                                          recover_request_result=self._recover_request_result)
 
     def perform(self, action: "mlib.Action") -> None:
         # Arming the roster watch is handled BEFORE the active-vessel resolve below:
@@ -1735,6 +1830,12 @@ class KrpcMissionControl(MissionControl):
             except Exception as exc:
                 _stdout_sink(mlib.format_mission_log_line(
                     "Warn", "Attitude", "set rcs=%s failed: %s" % (on, exc)))
+        elif kind == mlib.ACTION_RUN_SCIENCE_EXPERIMENTS:
+            self._perform_run_science(v)
+        elif kind == mlib.ACTION_TRANSMIT_SCIENCE:
+            self._perform_transmit_science(v)
+        elif kind == mlib.ACTION_RECOVER_VESSEL:
+            self._perform_recover_vessel(v)
         elif kind == mlib.ACTION_START_RESOURCE_TRANSFER:
             self._start_resource_transfer(sc, v, action)
         elif kind == mlib.ACTION_UNDOCK:
@@ -1775,6 +1876,230 @@ class KrpcMissionControl(MissionControl):
                     "Warn", "Undock", "undock: no docked port resolved"))
         else:
             raise ValueError("unknown action kind: %r" % (kind,))
+
+    # ---- Career science / recovery helpers (science_bench_recover lane) ----
+    #
+    # The three verbs and the two read families. Every one of them is written to
+    # NEVER RAISE out of `perform` / `read_snapshot`: the fly loop does not wrap
+    # `control.perform`, so a throw there ends the mission as MISSION-ERROR
+    # instead of as the named outcome the pure machine already has a terminal
+    # for. What the runner owes the machine is an honest OBSERVATION, not an
+    # exception.
+
+    def _iter_experiments(self, vessel):
+        """The active vessel's experiment modules, or [] when the surface is
+        unreachable. One RPC (Parts.Experiments); the caller pays the per-module
+        reads."""
+        try:
+            return list(vessel.parts.experiments or [])
+        except Exception:
+            return []
+
+    def _read_science_channels(self, vessel):
+        """(experimentCount, dataCount, availableCount) for the active vessel, or
+        the UNREAD sentinel triple when the enumeration itself failed.
+
+        THE UNREAD-vs-ZERO SPLIT IS THE POINT. A successful enumeration that
+        found no experiments returns (0, 0, 0) - a real fact about the craft,
+        which the machine names `no-experiments-aboard` within two polls. A
+        FAILED enumeration returns (-1, -1, -1), which the machine names
+        `science-channel-dark` and FLAKES (retryable). Collapsing the two would
+        file a fixture fault as a channel fault, or worse, the reverse.
+
+        Per-module read faults are absorbed into the counts rather than
+        propagated: a single module that refuses to answer must not blind the
+        whole sweep."""
+        # ENUMERATE EXACTLY ONCE, inside this function's own try/except.
+        #
+        # An earlier revision called the swallowing `_iter_experiments` helper and
+        # then RE-PROBED `vessel.parts.experiments` to tell "empty" from
+        # "unreadable", discarding the re-probe's result. That turned a single
+        # TRANSIENT enumeration fault into a fabricated OBSERVED zero: the first
+        # read raised and was swallowed to [], the re-probe succeeded (possibly
+        # returning a full list), and the function reported (0, 0, 0) for a craft
+        # that has experiments. Two such polls complete the debounce and condemn
+        # `no-experiments-aboard` - a NON-RETRYABLE ASSERT-FAIL manufactured out of
+        # a retryable channel fault, which is the exact inversion the
+        # UNREAD-vs-zero split exists to prevent. Reading once and counting
+        # whatever THAT read returned removes the window entirely.
+        try:
+            experiments = list(vessel.parts.experiments or [])
+        except Exception as exc:
+            if not self._warned_science_read:
+                self._warned_science_read = True
+                _stdout_sink(mlib.format_mission_log_line(
+                    "Warn", "Science",
+                    "experiment enumeration UNREADABLE (%s: %s); the three "
+                    "science count channels degrade to the -1 UNREAD "
+                    "sentinel, which fails every collect gate CLOSED and "
+                    "will flake the mission `science-channel-dark`. Logged "
+                    "once per run." % (type(exc).__name__, str(exc)[:160])))
+            return (mlib.SCIENCE_COUNT_UNREAD, mlib.SCIENCE_COUNT_UNREAD,
+                    mlib.SCIENCE_COUNT_UNREAD)
+        if not experiments:
+            return 0, 0, 0
+        data = 0
+        available = 0
+        for exp in experiments:
+            try:
+                if bool(exp.has_data):
+                    data += 1
+            except Exception:
+                pass
+            try:
+                if bool(exp.available):
+                    available += 1
+            except Exception:
+                pass
+        return len(experiments), data, available
+
+    def _read_vessel_recoverable(self, vessel) -> int:
+        """kRPC Vessel.Recoverable as the tri-state the machine reads: 1 / 0 /
+        -1 UNREAD. Read EVERY poll while the lane is armed, because the RECOVER
+        phase refuses to ask until it has OBSERVED a true reading - kRPC's
+        Recover() throws on a non-recoverable vessel."""
+        try:
+            return mlib.RECOVERABLE_YES if bool(vessel.recoverable) else mlib.RECOVERABLE_NO
+        except Exception:
+            return mlib.RECOVERABLE_UNREAD
+
+    def _read_career_pools(self, sc):
+        """(funds, science) from SpaceCenter.Funds / .Science, or (NaN, NaN).
+
+        Read from the SPACE CENTER handle, never from the vessel, which is what
+        lets the vessel-lost path carry them - and that path is the only one on
+        which the recovery terminal is observable at all. Both properties raise
+        outside CAREER mode; the NaN that produces is the honest answer (a
+        science credit is not a thing a SANDBOX save has) and the machine names
+        it `career-pool-channel-dark`."""
+        funds = float("nan")
+        science = float("nan")
+        try:
+            funds = float(sc.funds)
+            science = float(sc.science)
+        except Exception as exc:
+            if not self._warned_career_pools_read:
+                self._warned_career_pools_read = True
+                _stdout_sink(mlib.format_mission_log_line(
+                    "Warn", "Science",
+                    "career pools UNREADABLE (%s: %s); career_funds/career_science "
+                    "degrade to the NaN UNREAD sentinel, which fails the transmit "
+                    "credit gate and the recovery credit gate CLOSED. A non-CAREER "
+                    "save reads exactly like this. Logged once per run."
+                    % (type(exc).__name__, str(exc)[:160])))
+        return funds, science
+
+    def _perform_run_science(self, vessel) -> None:
+        """Run every experiment that is Available, not Inoperable and not already
+        holding data. Idempotent by that skip, which is what makes the machine's
+        bounded re-emit safe. Per-module faults are one Warn each, never a raise:
+        the OBSERVED science_data_count owns the outcome."""
+        ran = 0
+        skipped = 0
+        failed = 0
+        for exp in self._iter_experiments(vessel):
+            try:
+                if bool(exp.has_data) or bool(exp.inoperable) or not bool(exp.available):
+                    skipped += 1
+                    continue
+                exp.run()
+                ran += 1
+            except Exception as exc:
+                failed += 1
+                _stdout_sink(mlib.format_mission_log_line(
+                    "Warn", "Science", "experiment run failed: %s: %s"
+                    % (type(exc).__name__, str(exc)[:120])))
+        _stdout_sink(mlib.format_mission_log_line(
+            "Info", "Science", "run_science_experiments ran=%d skipped=%d failed=%d"
+            % (ran, skipped, failed)))
+
+    def _perform_transmit_science(self, vessel) -> None:
+        """Transmit the stored data of every experiment that reads HasData.
+        Same swallow-per-module discipline; the OBSERVED career science pool owns
+        the outcome, because this call succeeds on a craft with no antenna, no
+        ElectricCharge or no connection and credits nothing."""
+        sent = 0
+        skipped = 0
+        failed = 0
+        for exp in self._iter_experiments(vessel):
+            try:
+                if not bool(exp.has_data):
+                    skipped += 1
+                    continue
+                exp.transmit()
+                sent += 1
+            except Exception as exc:
+                failed += 1
+                _stdout_sink(mlib.format_mission_log_line(
+                    "Warn", "Science", "experiment transmit failed: %s: %s"
+                    % (type(exc).__name__, str(exc)[:120])))
+        _stdout_sink(mlib.format_mission_log_line(
+            "Info", "Science", "transmit_science sent=%d skipped=%d failed=%d"
+            % (sent, skipped, failed)))
+
+    def _perform_recover_vessel(self, vessel) -> None:
+        """Recover the active vessel (kRPC Vessel.Recover -> stock's
+        OnVesselRecoveryRequested).
+
+        READ-BEFORE-ASK, and it is not defensive padding: kRPC's Recover()
+        raises InvalidOperationException when Vessel.Recoverable is false, and an
+        unhandled raise out of perform() ends the mission as MISSION-ERROR
+        instead of as the `vessel-not-recoverable` ASSERT-FAIL the machine
+        already has a name for. The machine also gates on its OWN observation of
+        the same property, so this read is the second of two locks, not the only
+        one.
+
+        EVERY EXIT STAMPS ``_recover_request_result``, and that is the point of
+        the rewrite (review, 2026-08-19). This lock DECLINES - a craft can settle
+        a moment after the machine's debounced YES and read false right here -
+        and a decline that stayed inside the runner left the machine's latch
+        saying a recovery had been issued when none was, which routed a
+        subsequent break-up into the success branch. The stamp is a real
+        OBSERVATION (Recoverable READ false AT PERFORM), and it is what lets
+        `vessel-lost-before-recovery` cover the whole window up to an actual
+        issue and lets the machine re-ask once the craft has settled.
+
+        AFTER A SUCCESSFUL CALL THE CRAFT IS GONE. Stock recovery removes the
+        vessel and leaves the FLIGHT scene, so every subsequent telemetry read
+        fails and the read-fail streak escalates to a vessel_lost snapshot -
+        which is exactly the frame the machine's success terminal reads, and the
+        frame the ISSUED stamp has to reach it on. The machine emits no further
+        action once it observes that stamp."""
+        try:
+            recoverable = bool(vessel.recoverable)
+        except Exception as exc:
+            self._recover_request_result = mlib.RECOVER_REQUEST_UNREADABLE
+            _stdout_sink(mlib.format_mission_log_line(
+                "Warn", "Recover",
+                "Vessel.Recoverable UNREADABLE (%s: %s); NOT asking for a recovery "
+                "(kRPC Recover() throws on a non-recoverable vessel). Reported to the "
+                "machine as %s: nothing was issued, so a break-up from here is a loss, "
+                "not a recovery."
+                % (type(exc).__name__, str(exc)[:120],
+                   mlib.RECOVER_REQUEST_UNREADABLE)))
+            return
+        if not recoverable:
+            self._recover_request_result = mlib.RECOVER_REQUEST_DECLINED
+            _stdout_sink(mlib.format_mission_log_line(
+                "Warn", "Recover",
+                "Vessel.Recoverable READ false; NOT asking for a recovery. Reported to "
+                "the machine as %s, which keeps its issued latch false and lets it "
+                "re-ask once the craft has settled; a persistently false reading lands "
+                "on its `vessel-not-recoverable` terminal."
+                % (mlib.RECOVER_REQUEST_DECLINED,)))
+            return
+        try:
+            vessel.recover()
+            self._recover_request_result = mlib.RECOVER_REQUEST_ISSUED
+            _stdout_sink(mlib.format_mission_log_line(
+                "Info", "Recover",
+                "recover_vessel ISSUED; the craft is expected to disappear and "
+                "the funds pool to rise - both OBSERVED on the frames that follow"))
+        except Exception as exc:
+            self._recover_request_result = mlib.RECOVER_REQUEST_FAILED
+            _stdout_sink(mlib.format_mission_log_line(
+                "Warn", "Recover", "Vessel.Recover() failed: %s: %s (reported as %s)"
+                % (type(exc).__name__, str(exc)[:160], mlib.RECOVER_REQUEST_FAILED)))
 
     # ---- B-DOCK helpers (handle capture, seam bridge, docking telemetry) ----
 

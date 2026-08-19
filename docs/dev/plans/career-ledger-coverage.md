@@ -1,4 +1,13 @@
-# Career-ledger automated coverage - plan (rev 3)
+# Career-ledger automated coverage - plan (rev 4)
+
+Rev 4 (2026-08-19) adds **section 4d, Route A**: the post-fix career forge, now
+that the mission library can CREDIT science and recover a vessel. It supersedes
+half of section 2 finding 2 and half of Phase C's "known ceiling" (both corrected
+in place rather than deleted, so a reader who saw rev 3 can see what moved), and
+it gives B.4's deferred strict arming a second candidate subject that does not
+depend on promoting c2. Wave 1 of Route A - the capability itself - is done;
+waves 2 and 3 are open.
+
 
 Status: **IN PROGRESS.** **Phase A is COMPLETE** and committed on
 `career-ledger-lane` (A.0's fixture + replay test + the adjudication below, A.1's
@@ -59,6 +68,18 @@ Three findings reshaped the plan. Each is evidenced in section 6.
    the door, so a forged ledger cannot contain the unaffordable-spend shape at
    all. But `ScienceModule.ProcessSpending` is pure - the finding is reproducible
    in a **two-action synthetic unit test today**. It moves to the front too.
+
+   **PARTLY SUPERSEDED 2026-08-19 (see section 4d).** The half of this finding
+   that said "no committed mission collects science" was true when written and is
+   no longer: the mission library now has `run_science_experiments` /
+   `transmit_science` / `recover_vessel` and the `science_bench_recover` mission,
+   so a DRIVEN run can produce `ScienceEarning` rows and a vessel-recovery credit.
+   What survives untouched is the *other* half, and it is the important one: **the
+   unaffordable-spend ORDERING shape is still unforgeable**, because `KscAction`
+   still pre-refuses an unaffordable research at the door. A.1 settled that
+   synthetically and remains the right home for it. So the capability changes what
+   a forge can COVER (earning rows, a recovery, a strict-mode subject), not what it
+   can PROVE about the parked ordering finding.
 3. **Closing `INV8-CAREER-DIFF` cannot gate, and is not this lane's job.**
    `Inv8Ledger.cs:109` is explicit: *"ANY divergence (hard or report-only) -> WARN
    offline, never FAIL"*, naming the in-game H5 path as the FAIL-severity home.
@@ -356,6 +377,18 @@ not inert; the deferral stands because the subject is thin. Two mechanical
 fences hold the deferral: `test_hlib.test_no_committed_spec_arms_the_runtests_strict_arg`
 (lane-wide) and L2's own pinned `strict=False` token (per-spec).
 
+**A SECOND CANDIDATE SUBJECT EXISTS AS OF 2026-08-19**, and it is exactly the
+"any future career fixture carrying recorded crewed recoveries" this paragraph
+already names. Route A (section 4d) produces one: a driven
+`science_bench_recover` flight on `career-pad-craft` earns science subjects and
+recovers the craft, so the HARVESTED save carries populated per-identity facets,
+which is the whole of what strict needs. Everything above stays true as written -
+`career-pad-craft` ITSELF is still not the subject. What changes is that the
+subject is now reachable by FLYING rather than only by promoting c2. The deferral
+stands unchanged until the subject has been flown and harvested (wave 2) and its
+replay shown to close (wave 3); arming before that would be arming against a
+prediction.
+
 **Tier discipline used, and reusable.** The spec shipped `tier = "operator"` for
 exactly as long as its `BATCH_COMPLETE` pin was a prediction, and was promoted to
 `nightly` in the same commit that pinned the measurement. `pending-fixture` would
@@ -363,7 +396,86 @@ have been a lie (the fixture is committed). An `operator` tier that outlives the
 measuring run becomes an unrecorded standing human call, so the promotion is part
 of the pinning commit, never a follow-up.
 
-### Phase C - Manufacture a career subject (**largely obsolete - c2 exists**)
+### 4d. Route A: the post-fix career forge (rev 4, 2026-08-19)
+
+Rev 3 closed Phase C as obsolete and left B.4's strict arming deferred behind a
+subject that was "c2 promoted to a harness fixture, which has an open
+focusability question". **Route A is the alternative that does not need that
+promotion: fly a career forge on the committed `career-pad-craft` fixture, on
+POST-FIX code, and harvest the produced save as the strict-mode subject.** The
+thing that made Route A impossible until now was section 2 finding 2's first half
+(no verb credits anything), and that is what this wave lifted.
+
+**This is a three-wave sequence, and only wave 1 is done.** It is written as a
+sequence rather than a task table because each wave's shape is decided by the
+previous wave's measurement - the discipline every armed lane in this system has
+used (reading run, then arming).
+
+| Wave | What it delivers | Status |
+| --- | --- | --- |
+| **1. Capability** | The three actions, the six channels, `science_bench_recover`, and the headless proofs. `design-autotest-mission-library.md` Amendment A is the binding contract. **No spec, no fixture, no flight.** | **DONE 2026-08-19** (`c2-postfix-forge`) |
+| **2. Forge + harvest** | A committed spec + whatever fixture work it needs, ONE driven flight, and the produced save harvested as a fixture. | open |
+| **3. Replay proof** | Replay the harvested ledger headlessly (the A.0 method) and show it closes; then arm B.4 strict on it. | open |
+
+**What wave 2 needs, stated concretely so it is not re-derived:**
+
+- **Fixture base: `career-pad-craft`.** It is committed, it is CAREER, it carries
+  exactly one PRELAUNCH VESSEL (so it is focusable and a FLIGHT-scene batch stays
+  possible), it has an inert `ParsekScenario` node, and B1/CL-1 already fly this
+  exact craft. The **one open question** is whether that craft carries a science
+  part at all: `science_bench_recover` names the answer within two polls of
+  landing (`no-experiments-aboard`, an ASSERT-FAIL that blames the fixture, not
+  the flight), which is the cheap way to find out. If it does not, the fixture
+  work is adding one - a `build_career_pad_craft.py`-style derivation, kept under
+  the same drift guard its `FixtureDriftTests` already provide.
+- **Spec shape:** `kind = "autopilot"`, `mission = "science_bench_recover"`,
+  steps `LoadGame -> SetSetting autoRecordOnLaunch -> mission -> CommitTree ->
+  FlushAndQuit`. `harness/lib/test_run_smoke.py`'s
+  `ScienceBenchRecoverAdmissionTests._make_science_bench_spec` is that spec
+  already, in memory, validated against the committed schema and driven to PASS
+  over the fake KSP - promote it, do not re-invent it.
+- **Expected pins: NONE on the first run, by rule.** Every mission param is a
+  FLOOR on an OBSERVED movement, never a pool value; only KSP authors what a
+  subject or a recovery is worth, and authoring one here is the
+  authored-vs-measured mistake `harness/fixtures/saves/README.md` records. The
+  first run ships `tier = "operator"` with no `[expectations.ledger]` manifest and
+  no pinned tally, exactly as L2's B.1 reading run did; the arming and the tier
+  promotion land in the SAME commit that pins the measurement.
+- **One constant to WATCH on the first flight, named in advance so it is not
+  diagnosed from scratch:** `mlib.SBR_RECOVER_CREDIT_GRACE_FRAMES` (6 frames,
+  ~3 s at the ~0.5 s poll cadence) does double duty. It bounds the read-ordering
+  lag between the vessel-gone read and the funds-pool read, and it bounds how
+  long the career pool may be dark on that path before `career-pool-channel-dark`
+  is raised. Stock recovery leaves the FLIGHT scene, so a FLIGHT -> SPACECENTER
+  reload that outlasts ~3 s turns a perfectly good recovery into that flake. That
+  is the CORRECT side of the retry line and costs exactly one re-fly (widening it
+  toward the break-up terminal is the direction that could certify one), so it is
+  deliberately NOT pre-tuned. Expect it to be the first number wave 2 has to
+  bump, and bump it off the measured reload rather than a guess. The same note is
+  on `[params.recoverTimeoutSeconds]` in the mission schema, which is where a
+  spec author sizing the phase will be looking.
+- **Two spec-authoring notes the promoted spec already encodes**, both worth
+  keeping when it is copied out of `test_run_smoke.py`. `recoverMinFundsGain` is
+  a small POSITIVE value even though the schema allows 0.0 - at 0.0 the terminal
+  certifies "the pools were readable across the recovery" and nothing about the
+  pool having moved. And `transmitMinScienceGain` is sized against the NET pool
+  rise, which is what an active science converter (Patents Licensing) and stock's
+  repeat-subject diminishing returns actually leave behind; the schema comments
+  carry both arguments in full.
+- **One flight-shape caveat to design around:** stock recovery leaves the FLIGHT
+  scene. The post-mission seam steps therefore run at SPACECENTER, where the
+  bootstrap re-reads `persistent.sfs` and runs the pending-tree auto-commit (the
+  `ExitToSpaceCenter` note in `SEAM_COMMAND_POLL_SECONDS_BY_VERB` records the same
+  settle). That is convenient rather than hostile - the recovery itself drives the
+  commit path - but the step budgets must be sized for a scene reload, and whether
+  `CommitTree` is still the right verb after the scene has already changed is a
+  wave-2 reading-run question, not an assumption to bake in now.
+- **The strategy leg is explicitly NOT part of this flight.** L3
+  (`strategy-currency-conversion`) owns that proof and is already armed and
+  pinned. Adding a strategy to the forge would put two independent claims on one
+  flight and make a red ambiguous.
+
+### Phase C - Manufacture a career subject (**largely obsolete - c2 exists; see 4d**)
 
 Rev 2 demoted this phase to "only if B shows it is needed"; c2 (section 2b) now covers
 the need directly - a hand-played career on current code beats a forged one (it
@@ -392,8 +504,15 @@ test.** Forging preserves non-circularity - KSP writes the pools at
 `TestCommandKscAction.cs:26-28` states the verb itself never writes a ledger row.
 Two independent producers.
 
-**Known ceiling:** a forged career covers funds / facility / kerbal ordering only.
-It can **never** cover science ordering (section 2 finding 2). Do not scope it to.
+**Known ceiling, CORRECTED 2026-08-19.** As written this said a forged career
+covers funds / facility / kerbal ordering only and can *never* cover science.
+Half of that is now wrong: with `science_bench_recover` a forge CAN produce
+`ScienceEarning` rows and a vessel-recovery credit (section 4d). What remains
+true is the narrower statement the ceiling should always have made: a forge
+cannot produce the **unaffordable-spend ordering shape**, because `KscAction`
+pre-refuses an unaffordable research at the door. Scope a forge to earning and
+recovery coverage; do not scope it to that ordering finding, which A.1 settles
+synthetically.
 
 ### Phase D - c1 re-examination (needs a trusted baseline)
 

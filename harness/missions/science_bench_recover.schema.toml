@@ -1,0 +1,217 @@
+# Declared param schema for mission science_bench_recover (THE CAREER-EARNING ATOM).
+#
+# hlib.validate_spec does NOT read this file itself: run.py parses every
+# harness/missions/<mission>.schema.toml with tomllib into a registry and INJECTS
+# it as validate_spec's `mission_schemas` argument; hlib's PURE validator
+# (_validate_mission_params) drives required-key presence and per-value
+# type/range checks from the `params` table below. Shape consumed by hlib:
+#   {"params": {"<name>": {"required": bool, "type": "<t>", "min": <n?>, "max": <n?>}}}
+# with <t> in {float, int, number, window, list, string, bool}.
+#
+# TWO HALVES, and the split is deliberate.
+#
+# THE FLIGHT HALF is B1's, key for key. `mlib.sbr_params_from_dict` delegates to
+# `mlib.b1_params_from_dict` over the SAME dict, so a scenario author who knows
+# b1_pad_hop.schema.toml already knows it, and the two can never disagree about a
+# key they share. The per-key rationale is NOT restated here - read it in
+# b1_pad_hop.schema.toml, which is its owner. A second copy of a moving list is a
+# second thing to leave stale.
+#
+# THE CAREER HALF is the three FLOORS and the three budgets below. Every one is a
+# MINIMUM OBSERVED MOVEMENT ("at least this much changed") rather than an expected
+# pool value, and that is a hard rule on this lane: the exact science and funds a
+# subject is worth come out of KSP's own cost curves, and authoring them here would
+# re-make the mistake `harness/fixtures/saves/README.md` records - a ledger that
+# agrees with a stale spec proves nothing. The floors exist to separate "moved" from
+# "did not move", never to predict a number.
+
+# ---------------------------------------------------------------------------
+# Flight half (see b1_pad_hop.schema.toml for the rationale on each).
+# ---------------------------------------------------------------------------
+
+[params.throttle]
+required = true
+type = "float"
+min = 0.0
+max = 1.0
+
+[params.apoapsisWindowMeters]
+required = true
+type = "window"
+
+[params.chuteArmMaxRateMps]
+required = true
+type = "number"
+min = 1.0
+max = 100.0
+
+[params.chuteFullDeployAltMeters]
+required = true
+type = "number"
+min = 500.0
+max = 5000.0
+
+[params.landedSituations]
+required = true
+type = "list"
+
+[params.ascentTimeoutSeconds]
+required = true
+type = "number"
+min = 0.0
+
+[params.coastTimeoutSeconds]
+required = true
+type = "number"
+min = 0.0
+
+[params.descentTimeoutSeconds]
+required = true
+type = "number"
+min = 0.0
+
+[params.frozenTelemetrySamples]
+required = false
+type = "int"
+min = 2
+max = 1000
+
+[params.downMaxAltMeters]
+required = false
+type = "number"
+min = 10.0
+max = 5000.0
+
+# ---------------------------------------------------------------------------
+# Career half.
+# ---------------------------------------------------------------------------
+
+# How many experiment modules must be OBSERVED holding data before COLLECT is
+# done (kRPC Experiment.HasData, counted over Parts.Experiments).
+#
+# The floor is 1, not 0: a mission that accepts zero collected experiments cannot
+# produce the `ScienceEarning` row it exists for, and would report MISSION-OK over
+# a flight that earned nothing - which is precisely the fail-open class this lane
+# was built to avoid. The ceiling is a schema guardrail against a typo'd 100 on a
+# two-experiment craft, which would otherwise burn the whole collect budget before
+# naming `collect-produced-no-data`.
+[params.collectMinExperiments]
+required = true
+type = "int"
+min = 1
+max = 32
+
+# WALL-CLOCK-EQUIVALENT bound on COLLECT, in GAME seconds (this mission never
+# warps, so the two run 1:1). A BACKSTOP, not the real guard: the machine's own
+# `no-experiments-aboard` terminal fires within two polls on a craft with no
+# science part, and a craft that has one either stores data immediately or never
+# will. The floor is nonzero so a spec cannot author a budget that expires before
+# the first sweep is even performed.
+[params.collectTimeoutSeconds]
+required = true
+type = "number"
+min = 10.0
+
+# Minimum OBSERVED rise in SpaceCenter.Science over the pre-transmit baseline
+# before TRANSMIT is done.
+#
+# STRICTLY POSITIVE, and the exclusive floor is the whole point of the gate: at
+# 0.0 the predicate `gain >= 0.0` is satisfied by ANY pair of finite readings,
+# including two identical ones, so a transmit that credited nothing would pass.
+# The schema refuses that rather than trusting every future spec author to notice.
+# A real subject transmitted from Kerbin's surface is worth single-digit science
+# at minimum, so a spec value well under 1 is a floor with margin, not a
+# prediction.
+#
+# SIZE IT AGAINST THE NET POOL RISE, NOT THE SUBJECT'S VALUE. What this floor
+# gates is the movement of the CAREER SCIENCE POOL, and that is what the save
+# actually banks - which is strictly less than what the subject is worth in two
+# common cases. (1) A `Strategies.Effects.CurrencyConverter` such as Patents
+# Licensing converts a SHARE of every science award into funds by mutating the
+# `CurrencyModifierQuery` in place, so the pool rises by the remainder; that
+# behavior was measured by this lane and is recorded in
+# `docs/dev/todo-and-known-bugs.md` -> STRATEGY-SCIENCE-CONVERSION-LEAK. (2) A
+# repeat of an already-transmitted subject pays stock's diminishing return, which
+# on a second pass over the same biome can be a small fraction of the first. A
+# floor authored off the subject's catalogue value therefore false-fails a
+# perfectly good transmit under either condition. Keep it low - it exists to
+# separate "credited something" from "credited nothing", which is the only claim
+# the mission makes.
+[params.transmitMinScienceGain]
+required = true
+type = "number"
+min = 0.001
+max = 10000.0
+
+# Bound on TRANSMIT. Same backstop role as collectTimeoutSeconds, with one
+# difference worth knowing before sizing it: stock transmission is NOT
+# instantaneous - ModuleDataTransmitter streams the data in packets, so the pool
+# moves some seconds after the call, and a budget sized like a single frame would
+# manufacture a failure out of a healthy transmit. Size it in tens of seconds. Its
+# real job is the no-antenna / no-EC / no-connection case, which the machine then
+# names `transmit-credited-no-science` rather than leaving as an unnamed timeout.
+# The exact streaming time is a wave-2 reading-run measurement, not a number to
+# author here.
+[params.transmitTimeoutSeconds]
+required = true
+type = "number"
+min = 10.0
+
+# Minimum OBSERVED rise in SpaceCenter.Funds over the pre-recover baseline before
+# the RECOVERED terminal is granted.
+#
+# 0.0 IS ALLOWED HERE, unlike the science floor above, and the asymmetry is
+# deliberate - but it is only SAFE because of how the gate is built, and the two
+# facts belong together (a review found this floor sitting on top of a gate that
+# did not implement the claim below, which certified an exploded craft as
+# RECOVERED).
+#
+# The recovery terminal has two other conjuncts that carry real information on
+# their own: the craft is OBSERVED GONE, and the credit is measured ACROSS the
+# recovery - a pre-recover baseline against a funds reading taken ON a
+# vessel-gone frame, after the verb was actually ISSUED (observed at the perform
+# seam, not merely emitted).
+#
+# WHAT A 0.0 FLOOR DOES AND DOES NOT CERTIFY, stated plainly because the
+# difference is the whole of the asymmetry. It DOES certify: the craft was
+# observed gone after a recovery the runner really issued, and the funds pool was
+# READABLE on both sides of that event. It does NOT certify: that the pool MOVED.
+# `credit >= 0.0` is satisfied by a pool that did not budge, so a 0.0 spec is
+# asking the two structural conjuncts to carry the whole claim, and the row's
+# reported value is then the only place a reader learns what the recovery was
+# worth. A spec that wants "and it actually credited something" sets a positive
+# floor sized well UNDER the craft's own cost - that is defense in depth on top
+# of the structure, not a substitute for it, and the promoted smoke spec in
+# `harness/lib/test_run_smoke.py` is authored that way for exactly this reason.
+# Naming a number closer to the true refund would be authoring a pool value,
+# which this schema does not do.
+[params.recoverMinFundsGain]
+required = true
+type = "number"
+min = 0.0
+max = 10000000.0
+
+# Bound on RECOVER. Longer than a recovery takes on purpose: the phase spends its
+# first polls waiting for a DEBOUNCED Vessel.Recoverable reading before it asks at
+# all, then waits out the runner's own three-sample vessel-lost escalation plus
+# the credit grace. Expiry is a FLAKE (`recover-never-completed`) rather than an
+# assert-fail: a craft that is still there after being asked to leave is driver /
+# kRPC territory, not a wrong outcome. Size it for a settle flicker too: a first
+# ask the perform seam DECLINES is re-emitted after ~10 s of spacing, up to three
+# further times, and all of that has to fit inside this budget.
+#
+# FIRST-FLIGHT WATCH ITEM, and it is NOT this parameter.
+# `mlib.SBR_RECOVER_CREDIT_GRACE_FRAMES` (6 frames, ~3 s at the ~0.5 s poll
+# cadence) does DOUBLE DUTY: it bounds the read-ordering lag between the
+# vessel-gone read and the funds-pool read, AND it bounds how long the career
+# pool may be dark on that path before `career-pool-channel-dark` is raised.
+# Stock recovery leaves the FLIGHT scene, and a FLIGHT -> SPACECENTER reload that
+# outlasts ~3 s makes a perfectly good recovery flake `career-pool-channel-dark`.
+# That is the CORRECT side of the retry line - a flake costs one re-fly, whereas
+# widening it toward the break-up terminal would risk certifying one - so nothing
+# is being pre-tuned here. Expect this to be the first constant that needs a bump
+# once wave 2 measures a real reload, and bump it there off the measurement.
+[params.recoverTimeoutSeconds]
+required = true
+type = "number"
+min = 10.0
