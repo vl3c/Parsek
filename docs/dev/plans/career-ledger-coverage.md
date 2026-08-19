@@ -441,6 +441,27 @@ used (reading run, then arming).
   first run ships `tier = "operator"` with no `[expectations.ledger]` manifest and
   no pinned tally, exactly as L2's B.1 reading run did; the arming and the tier
   promotion land in the SAME commit that pins the measurement.
+- **One constant to WATCH on the first flight, named in advance so it is not
+  diagnosed from scratch:** `mlib.SBR_RECOVER_CREDIT_GRACE_FRAMES` (6 frames,
+  ~3 s at the ~0.5 s poll cadence) does double duty. It bounds the read-ordering
+  lag between the vessel-gone read and the funds-pool read, and it bounds how
+  long the career pool may be dark on that path before `career-pool-channel-dark`
+  is raised. Stock recovery leaves the FLIGHT scene, so a FLIGHT -> SPACECENTER
+  reload that outlasts ~3 s turns a perfectly good recovery into that flake. That
+  is the CORRECT side of the retry line and costs exactly one re-fly (widening it
+  toward the break-up terminal is the direction that could certify one), so it is
+  deliberately NOT pre-tuned. Expect it to be the first number wave 2 has to
+  bump, and bump it off the measured reload rather than a guess. The same note is
+  on `[params.recoverTimeoutSeconds]` in the mission schema, which is where a
+  spec author sizing the phase will be looking.
+- **Two spec-authoring notes the promoted spec already encodes**, both worth
+  keeping when it is copied out of `test_run_smoke.py`. `recoverMinFundsGain` is
+  a small POSITIVE value even though the schema allows 0.0 - at 0.0 the terminal
+  certifies "the pools were readable across the recovery" and nothing about the
+  pool having moved. And `transmitMinScienceGain` is sized against the NET pool
+  rise, which is what an active science converter (Patents Licensing) and stock's
+  repeat-subject diminishing returns actually leave behind; the schema comments
+  carry both arguments in full.
 - **One flight-shape caveat to design around:** stock recovery leaves the FLIGHT
   scene. The post-mission seam steps therefore run at SPACECENTER, where the
   bootstrap re-reads `persistent.sfs` and runs the pending-tree auto-commit (the

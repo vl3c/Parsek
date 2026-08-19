@@ -84,6 +84,23 @@ def sci(**kw):
     return snap(**base)
 
 
+def lost(ut, **kw):
+    """A vessel_lost snapshot carrying the perform seam's ISSUED stamp - i.e. the
+    frame the runner really emits AFTER a recovery it actually issued.
+
+    The stamp belongs on this frame rather than on an earlier live one because
+    that is where it genuinely lands: a successful `Vessel.Recover()` removes the
+    craft at once, so the read that fails and the result that says the verb went
+    out arrive on the same snapshot. A cell that wants the OTHER shape - a craft
+    that went away with no recovery issued behind it - passes a bare
+    ``snap(vessel_lost=True, ...)``, which leaves the channel at its "" UNREAD
+    sentinel and is exactly what a break-up looks like."""
+    base = dict(vessel_lost=True,
+                recover_request_result=mlib.RECOVER_REQUEST_ISSUED)
+    base.update(kw)
+    return snap(ut=ut, **base)
+
+
 # The scripted pad hop that drives the delegated B1 sub-machine to LANDED. Copied
 # in SHAPE from the proven B1 happy path in test_shells (fuel burn -> apex -> arm
 # -> canopy -> landed), with the science channels armed on every frame.
@@ -150,6 +167,16 @@ def in_transmit(**over):
                      career_science=10.0),
                  sci(ut=9.0, situation="LANDED", science_data_count=2,
                      career_science=10.0))
+
+
+def _asked(state, ut=12.0):
+    """Drive the two debounced Recoverable=YES frames that make the machine EMIT
+    the recover verb. The perform seam has said nothing yet, so `recover_issued`
+    is still false on the way out - the caller decides what the seam reports."""
+    return drive(state,
+                 sci(ut=ut, situation="LANDED", vessel_recoverable=mlib.RECOVERABLE_YES),
+                 sci(ut=ut + 1.0, situation="LANDED",
+                     vessel_recoverable=mlib.RECOVERABLE_YES))
 
 
 def in_recover(**over):
@@ -464,7 +491,19 @@ class SbrRecoverTests(unittest.TestCase):
             sci(ut=12.0, situation="LANDED", vessel_recoverable=mlib.RECOVERABLE_YES),
             sci(ut=13.0, situation="LANDED", vessel_recoverable=mlib.RECOVERABLE_YES))
         self.assertEqual([mlib.ACTION_RECOVER_VESSEL], [a.kind for a in actions])
-        self.assertTrue(state.recover_requested)
+        self.assertEqual(1, state.recover_asks)
+        # EMISSION IS NOT ISSUE. Nothing has come back from the perform seam yet,
+        # so the latch the vessel-loss carve-out reads is still false - which is
+        # the whole of the second review finding.
+        self.assertFalse(state.recover_issued)
+
+    def test_the_issued_latch_is_set_by_the_seam_not_by_the_emission(self):
+        state = _asked(self._in_recover())
+        self.assertFalse(state.recover_issued)
+        state = drive(state, sci(ut=14.0, situation="LANDED",
+                                 recover_request_result=mlib.RECOVER_REQUEST_ISSUED))
+        self.assertTrue(state.recover_issued)
+        self.assertFalse(state.recover_declined)
 
     def test_exactly_one_recover_verb_is_ever_emitted(self):
         # HARD REQUIREMENT, not tidiness: stock recovery removes the craft and
@@ -483,7 +522,7 @@ class SbrRecoverTests(unittest.TestCase):
             state, *[sci(ut=12.0 + i, situation="LANDED",
                          vessel_recoverable=mlib.RECOVERABLE_UNREAD) for i in range(10)])
         self.assertEqual([], actions)
-        self.assertFalse(state.recover_requested)
+        self.assertFalse(state.recover_issued)
 
     def test_an_observed_unrecoverable_craft_is_named_before_kRPC_can_throw(self):
         state = self._in_recover()
@@ -506,7 +545,7 @@ class SbrRecoverTests(unittest.TestCase):
                       sci(ut=12.0, situation="LANDED", vessel_recoverable=mlib.RECOVERABLE_YES),
                       sci(ut=13.0, situation="LANDED", vessel_recoverable=mlib.RECOVERABLE_YES))
         self.assertEqual(1000.0, state.funds_baseline)
-        state = drive(state, snap(ut=14.0, vessel_lost=True, career_funds=1500.0,
+        state = drive(state, lost(14.0, career_funds=1500.0,
                                   career_science=25.0))
         self.assertEqual(mlib.SBR_RECOVERED, state.phase)
         self.assertTrue(state.done)
@@ -521,12 +560,138 @@ class SbrRecoverTests(unittest.TestCase):
         # break-up. Note the funds are readable and unchanged throughout, which is
         # exactly the shape that made it green at a 0.0 floor.
         state = self._in_recover(recoverMinFundsGain=0.0)
-        self.assertFalse(state.recover_requested)
+        self.assertFalse(state.recover_issued)
         state = drive(state, snap(ut=14.0, vessel_lost=True, career_funds=1000.0))
         self.assertTrue(state.done)
         self.assertEqual(mlib.MISSION_ASSERT_FAIL, state.verdict)
         self.assertIn("vessel-lost-before-recovery", state.loss_reason)
         self.assertNotEqual(mlib.SBR_RECOVERED, state.phase)
+
+    # --- the DECLINED ask, and the hole it used to open -------------------
+    #
+    # THE REVIEWER'S SCENARIO (2026-08-19), replayed as a pair. The runner's
+    # read-before-ask lock can decline the verb - a craft still rolling reads
+    # Recoverable false for a moment - and with an EMISSION latch nothing told
+    # the machine. The latch stayed true through a recovery that never happened,
+    # so a craft that then exploded was scoped into the success branch, and at
+    # `recoverMinFundsGain = 0.0` (the value the schema allows and the promoted
+    # smoke spec used to author) the pool reading on the loss frame satisfied
+    # `0.0 >= 0.0`. Same certified break-up as the straddle hole, reached by the
+    # other door.
+
+    def test_a_declined_ask_then_a_break_up_is_a_loss_not_a_recovery(self):
+        state = self._in_recover(recoverMinFundsGain=0.0)
+        state = _asked(state)
+        self.assertEqual(1, state.recover_asks)
+        # The settle flicker: the perform seam read Recoverable false and never
+        # issued anything. A READABLE, UNMOVED funds pool throughout - the exact
+        # shape that certified before.
+        state = drive(state, sci(ut=14.0, situation="LANDED",
+                                 vessel_recoverable=mlib.RECOVERABLE_NO,
+                                 recover_request_result=mlib.RECOVER_REQUEST_DECLINED))
+        self.assertTrue(state.recover_declined)
+        self.assertFalse(state.recover_issued)
+        state = drive(state, snap(ut=15.0, vessel_lost=True, career_funds=1000.0,
+                                  recover_request_result=mlib.RECOVER_REQUEST_DECLINED))
+        self.assertNotEqual(mlib.SBR_RECOVERED, state.phase)
+        self.assertEqual(mlib.MISSION_ASSERT_FAIL, state.verdict)
+        self.assertIn("vessel-lost-before-recovery", state.loss_reason)
+
+    def test_the_same_frames_under_the_old_emission_latch_certified_it(self):
+        """THE REPLAY NEGATIVE CONTROL for the cell above.
+
+        The old code latched on EMISSION, which is reproduced exactly by setting
+        the latch by hand on the frame the verb went out - nothing else about the
+        machine or the frames changes. The identical settle-flicker-then-explosion
+        run then reaches RECOVERED, which is what makes the cell above a fix
+        rather than a restatement."""
+        from dataclasses import replace as _replace
+        state = self._in_recover(recoverMinFundsGain=0.0)
+        state = _asked(state)
+        # THE MUTATION, and it is the whole diff: latch on emission.
+        state = _replace(state, recover_issued=True)
+        state = drive(state, sci(ut=14.0, situation="LANDED",
+                                 vessel_recoverable=mlib.RECOVERABLE_NO,
+                                 recover_request_result=mlib.RECOVER_REQUEST_DECLINED))
+        state = drive(state, snap(ut=15.0, vessel_lost=True, career_funds=1000.0,
+                                  recover_request_result=mlib.RECOVER_REQUEST_DECLINED))
+        self.assertEqual(mlib.SBR_RECOVERED, state.phase,
+                         "the old emission latch is what certified the break-up")
+        self.assertIsNone(state.verdict)
+
+    def test_a_declined_ask_is_re_emitted_once_the_craft_has_settled(self):
+        # The machine's chosen answer to a decline: RE-EMIT, bounded, exactly
+        # like the COLLECT / TRANSMIT sweeps - because the decline this is for is
+        # a settle flicker and the spacing IS the settle wait. Terminating on the
+        # first decline would throw away a good flight for one early poll.
+        state = self._in_recover()
+        state = _asked(state)
+        state, actions = drive_actions(
+            state, *[sci(ut=14.0 + i, situation="LANDED",
+                         vessel_recoverable=mlib.RECOVERABLE_YES,
+                         recover_request_result=mlib.RECOVER_REQUEST_DECLINED)
+                     for i in range(mlib.SBR_ACTION_REEMIT_FRAMES)])
+        self.assertEqual([mlib.ACTION_RECOVER_VESSEL], [a.kind for a in actions])
+        self.assertEqual(2, state.recover_asks)
+
+    def test_a_re_ask_that_is_ISSUED_then_certifies_normally(self):
+        # End to end through the decline: flicker, re-ask, issue, recovery.
+        state = self._in_recover()
+        state = _asked(state)
+        state = drive(state, *[sci(ut=14.0 + i, situation="LANDED",
+                                   vessel_recoverable=mlib.RECOVERABLE_YES,
+                                   recover_request_result=mlib.RECOVER_REQUEST_DECLINED)
+                               for i in range(mlib.SBR_ACTION_REEMIT_FRAMES)])
+        state = drive(state, lost(99.0, career_funds=1500.0))
+        self.assertEqual(mlib.SBR_RECOVERED, state.phase)
+
+    def test_the_re_ask_is_bounded_and_never_fires_on_seam_silence(self):
+        # TWO bounds, and the silence one is the load-bearing half: an ask whose
+        # result has not landed yet may still be in flight, and a second verb
+        # against a craft the first one already recovered resolves a dead vessel
+        # and ends the mission as MISSION-ERROR.
+        silent = self._in_recover()
+        silent, actions = drive_actions(
+            silent, *[sci(ut=12.0 + i, situation="LANDED",
+                          vessel_recoverable=mlib.RECOVERABLE_YES)
+                      for i in range(mlib.SBR_ACTION_REEMIT_FRAMES * 4)])
+        self.assertEqual(1, len([a for a in actions
+                                 if a.kind == mlib.ACTION_RECOVER_VESSEL]))
+        declined = self._in_recover(recoverTimeoutSeconds=100000)
+        declined, actions = drive_actions(
+            declined, *[sci(ut=12.0 + i, situation="LANDED",
+                            vessel_recoverable=mlib.RECOVERABLE_YES,
+                            recover_request_result=mlib.RECOVER_REQUEST_DECLINED)
+                        for i in range(mlib.SBR_ACTION_REEMIT_FRAMES
+                                       * (mlib.SBR_RECOVER_ASK_LIMIT + 3))])
+        self.assertEqual(1 + mlib.SBR_RECOVER_ASK_LIMIT,
+                         len([a for a in actions
+                              if a.kind == mlib.ACTION_RECOVER_VESSEL]))
+
+    def test_a_PERSISTENT_decline_lands_on_the_named_unrecoverable_terminal(self):
+        # A decline that is not a flicker is a craft that cannot be recovered,
+        # and the poll channel says so on its own - the ask block stays live
+        # while nothing has been ISSUED, so the debounced NO condemns it by name
+        # instead of leaving it to a budget timeout.
+        state = self._in_recover()
+        state = _asked(state)
+        state = drive(state, *[sci(ut=14.0 + i, situation="FLYING",
+                                   vessel_recoverable=mlib.RECOVERABLE_NO,
+                                   recover_request_result=mlib.RECOVER_REQUEST_DECLINED)
+                               for i in range(mlib.SBR_OBSERVE_DEBOUNCE_K)])
+        self.assertTrue(state.done)
+        self.assertEqual(mlib.MISSION_ASSERT_FAIL, state.verdict)
+        self.assertIn("vessel-not-recoverable", state.loss_reason)
+
+    def test_every_decline_token_keeps_the_issued_latch_closed(self):
+        # The three non-issued tokens are one class by contract, so a future
+        # token added to RECOVER_REQUEST_DECLINES cannot land on one side only.
+        for token in mlib.RECOVER_REQUEST_DECLINES:
+            state = drive(_asked(self._in_recover()),
+                          sci(ut=14.0, situation="LANDED",
+                              recover_request_result=token))
+            self.assertFalse(state.recover_issued, token)
+            self.assertTrue(state.recover_declined, token)
 
     def test_at_a_zero_floor_a_purely_pre_loss_funds_pair_never_certifies(self):
         # THE BLOCKER, half two. The credit must straddle the event. With the
@@ -535,13 +700,13 @@ class SbrRecoverTests(unittest.TestCase):
         # grace terminal instead, because nothing was observed ACROSS the
         # recovery.
         state = self._in_recover(recoverMinFundsGain=0.0)
-        state = drive(state,
-                      sci(ut=12.0, situation="LANDED", vessel_recoverable=mlib.RECOVERABLE_YES),
-                      sci(ut=13.0, situation="LANDED", vessel_recoverable=mlib.RECOVERABLE_YES))
-        self.assertTrue(state.recover_requested)
+        state = _asked(state)
+        state = drive(state, sci(ut=13.5, situation="LANDED",
+                                 recover_request_result=mlib.RECOVER_REQUEST_ISSUED))
+        self.assertTrue(state.recover_issued)
         self.assertEqual(0.0, mlib._sbr_funds_gain(state))
         self.assertIsNone(mlib._sbr_recovery_credit(state))
-        state = drive(state, *[snap(ut=14.0 + i, vessel_lost=True,
+        state = drive(state, *[lost(14.0 + i,
                                     career_funds=float("nan"))
                                for i in range(mlib.SBR_RECOVER_CREDIT_GRACE_FRAMES)])
         self.assertNotEqual(mlib.SBR_RECOVERED, state.phase)
@@ -557,7 +722,7 @@ class SbrRecoverTests(unittest.TestCase):
         state = drive(state,
                       sci(ut=12.0, situation="LANDED", vessel_recoverable=mlib.RECOVERABLE_YES),
                       sci(ut=13.0, situation="LANDED", vessel_recoverable=mlib.RECOVERABLE_YES))
-        state = drive(state, snap(ut=14.0, vessel_lost=True, career_funds=1000.0))
+        state = drive(state, lost(14.0, career_funds=1000.0))
         self.assertEqual(mlib.SBR_RECOVERED, state.phase)
         self.assertEqual(0.0, mlib._sbr_recovery_credit(state))
 
@@ -569,7 +734,7 @@ class SbrRecoverTests(unittest.TestCase):
         state = drive(state,
                       sci(ut=12.0, situation="LANDED", vessel_recoverable=mlib.RECOVERABLE_YES),
                       sci(ut=13.0, situation="LANDED", vessel_recoverable=mlib.RECOVERABLE_YES))
-        state = drive(state, snap(ut=14.0, vessel_lost=True, career_funds=1500.0))
+        state = drive(state, lost(14.0, career_funds=1500.0))
         rows = {o.name: o for o in mlib.evaluate_sbr_assertions(
             [], mlib.sbr_params_from_dict(PARAMS), state)}
         self.assertEqual(mlib._sbr_recovery_credit(state),
@@ -579,17 +744,15 @@ class SbrRecoverTests(unittest.TestCase):
         # The likelier live shape of `recover-never-completed`: we asked and the
         # craft never went away. Only the not-asked path was covered before.
         state = self._in_recover(recoverTimeoutSeconds=30)
-        state = drive(state,
-                      sci(ut=12.0, situation="LANDED", vessel_recoverable=mlib.RECOVERABLE_YES),
-                      sci(ut=13.0, situation="LANDED", vessel_recoverable=mlib.RECOVERABLE_YES))
-        self.assertTrue(state.recover_requested)
+        state = _asked(state)
         state = drive(state, *[sci(ut=14.0 + i * 20, situation="LANDED",
-                                   vessel_recoverable=mlib.RECOVERABLE_YES)
+                                   vessel_recoverable=mlib.RECOVERABLE_YES,
+                                   recover_request_result=mlib.RECOVER_REQUEST_ISSUED)
                                for i in range(5)])
         self.assertTrue(state.done)
         self.assertEqual(mlib.MISSION_FLAKE, state.verdict)
         self.assertIn("recover-never-completed", state.flake_reason)
-        self.assertIn("requested=True", state.flake_reason)
+        self.assertIn("issued=True", state.flake_reason)
 
     def test_the_craft_gone_with_no_credit_is_a_break_up_not_a_recovery(self):
         # A destroyed craft is also "gone". Only the funds credit tells them apart,
@@ -598,7 +761,7 @@ class SbrRecoverTests(unittest.TestCase):
         state = drive(state,
                       sci(ut=12.0, situation="LANDED", vessel_recoverable=mlib.RECOVERABLE_YES),
                       sci(ut=13.0, situation="LANDED", vessel_recoverable=mlib.RECOVERABLE_YES))
-        state = drive(state, *[snap(ut=14.0 + i, vessel_lost=True, career_funds=1000.0)
+        state = drive(state, *[lost(14.0 + i, career_funds=1000.0)
                                for i in range(mlib.SBR_RECOVER_CREDIT_GRACE_FRAMES)])
         self.assertTrue(state.done)
         self.assertEqual(mlib.MISSION_ASSERT_FAIL, state.verdict)
@@ -620,7 +783,7 @@ class SbrRecoverTests(unittest.TestCase):
         # None at the terminal.
         from dataclasses import replace as _replace
         state = _replace(state, funds_baseline=None, last_funds=None)
-        state = drive(state, *[snap(ut=14.0 + i, vessel_lost=True,
+        state = drive(state, *[lost(14.0 + i,
                                     career_funds=float("nan"))
                                for i in range(mlib.SBR_RECOVER_CREDIT_GRACE_FRAMES)])
         self.assertTrue(state.done)
@@ -634,7 +797,7 @@ class SbrRecoverTests(unittest.TestCase):
         state = drive(state,
                       sci(ut=12.0, situation="LANDED", vessel_recoverable=mlib.RECOVERABLE_YES),
                       sci(ut=13.0, situation="LANDED", vessel_recoverable=mlib.RECOVERABLE_YES))
-        state = drive(state, *[snap(ut=14.0 + i, vessel_lost=True, career_funds=1000.0)
+        state = drive(state, *[lost(14.0 + i, career_funds=1000.0)
                                for i in range(mlib.SBR_RECOVER_CREDIT_GRACE_FRAMES)])
         self.assertEqual(mlib.MISSION_ASSERT_FAIL, state.verdict)
         self.assertIn("vessel-lost-without-recovery-credit", state.loss_reason)
@@ -648,10 +811,10 @@ class SbrRecoverTests(unittest.TestCase):
                       sci(ut=12.0, situation="LANDED", vessel_recoverable=mlib.RECOVERABLE_YES),
                       sci(ut=13.0, situation="LANDED", vessel_recoverable=mlib.RECOVERABLE_YES))
         lag = mlib.SBR_RECOVER_CREDIT_GRACE_FRAMES - 1
-        state = drive(state, *[snap(ut=14.0 + i, vessel_lost=True,
+        state = drive(state, *[lost(14.0 + i,
                                     career_funds=float("nan")) for i in range(lag)])
         self.assertFalse(state.done)
-        state = drive(state, snap(ut=99.0, vessel_lost=True, career_funds=1500.0))
+        state = drive(state, lost(99.0, career_funds=1500.0))
         self.assertEqual(mlib.SBR_RECOVERED, state.phase)
 
     def test_the_recover_budget_expiry_is_a_flake_naming_whether_it_asked(self):
@@ -662,7 +825,7 @@ class SbrRecoverTests(unittest.TestCase):
         self.assertTrue(state.done)
         self.assertEqual(mlib.MISSION_FLAKE, state.verdict)
         self.assertIn("recover-never-completed", state.flake_reason)
-        self.assertIn("requested=False", state.flake_reason)
+        self.assertIn("issued=False", state.flake_reason)
 
 
 class SbrVesselLossTests(unittest.TestCase):
@@ -721,7 +884,7 @@ class SbrVesselLossTests(unittest.TestCase):
                       sci(ut=13.0, situation="LANDED", vessel_recoverable=mlib.RECOVERABLE_YES))
         before = state.science_unread_streak
         self.assertEqual(3, before, "the seed must survive to the frames under test")
-        state = drive(state, *[snap(ut=14.0 + i, vessel_lost=True, career_funds=1000.0)
+        state = drive(state, *[lost(14.0 + i, career_funds=1000.0)
                                for i in range(3)])
         self.assertEqual(before, state.science_unread_streak)
         self.assertNotEqual(mlib.MISSION_FLAKE, state.verdict)
@@ -751,7 +914,7 @@ class SbrAssertionTests(unittest.TestCase):
         state = drive(state,
                       sci(ut=12.0, situation="LANDED", vessel_recoverable=mlib.RECOVERABLE_YES),
                       sci(ut=13.0, situation="LANDED", vessel_recoverable=mlib.RECOVERABLE_YES))
-        return drive(state, snap(ut=14.0, vessel_lost=True, career_funds=1500.0,
+        return drive(state, lost(14.0, career_funds=1500.0,
                                  career_science=25.0))
 
     def test_all_four_met_on_a_real_recovered_flight(self):
@@ -772,7 +935,7 @@ class SbrAssertionTests(unittest.TestCase):
         detail = rows["vesselRecoveredObserved"].to_dict()
         self.assertEqual(1000.0, detail["baseline"])
         self.assertEqual(1500.0, detail["final"])
-        self.assertTrue(detail["recoveryRequested"])
+        self.assertTrue(detail["recoveryIssued"])
 
     def test_a_flight_that_never_landed_leaves_the_precondition_row_unmet(self):
         rows = {o.name: o for o in mlib.evaluate_sbr_assertions(
@@ -852,7 +1015,7 @@ def full_flight_frames():
     frames += [sci(ut=12.0 + i, situation="LANDED", science_data_count=0,
                    career_science=25.0, vessel_recoverable=mlib.RECOVERABLE_YES)
                for i in range(2)]
-    frames += [snap(ut=14.0, vessel_lost=True, career_funds=1500.0, career_science=25.0)]
+    frames += [lost(14.0, career_funds=1500.0, career_science=25.0)]
     return frames
 
 
@@ -1162,25 +1325,54 @@ class RecoverPerformTests(unittest.TestCase):
 
     def test_a_recoverable_craft_is_recovered(self):
         v = _FakeVessel(recoverable=True)
-        control()._perform_recover_vessel(v)
+        c = control()
+        c._perform_recover_vessel(v)
         self.assertEqual(1, v.recovered)
+        self.assertEqual(mlib.RECOVER_REQUEST_ISSUED, c._recover_request_result)
 
     def test_an_unrecoverable_craft_is_never_asked(self):
         # READ BEFORE ASK: kRPC's Recover() throws on exactly this, and the throw
         # would report MISSION-ERROR instead of the machine's named terminal.
         v = _FakeVessel(recoverable=False)
-        control()._perform_recover_vessel(v)
+        c = control()
+        c._perform_recover_vessel(v)
         self.assertEqual(0, v.recovered)
+        self.assertEqual(mlib.RECOVER_REQUEST_DECLINED, c._recover_request_result)
 
     def test_an_unreadable_recoverable_flag_is_never_asked(self):
         v = _FakeVessel(recoverable_raises=True)
-        control()._perform_recover_vessel(v)
+        c = control()
+        c._perform_recover_vessel(v)
         self.assertEqual(0, v.recovered)
+        self.assertEqual(mlib.RECOVER_REQUEST_UNREADABLE, c._recover_request_result)
 
     def test_a_throwing_recover_never_escapes_perform(self):
         v = _FakeVessel(recoverable=True, recover_raises=True)
-        control()._perform_recover_vessel(v)   # must not raise
+        c = control()
+        c._perform_recover_vessel(v)   # must not raise
         self.assertEqual(0, v.recovered)
+        self.assertEqual(mlib.RECOVER_REQUEST_FAILED, c._recover_request_result)
+
+    def test_every_exit_reports_something_and_only_one_of_them_is_ISSUED(self):
+        # THE CONTRACT the machine's issued latch rests on: a perform that
+        # RETURNS WITHOUT STAMPING is indistinguishable from one that never ran,
+        # and that silence is exactly what let a declined ask read as a recovery.
+        outcomes = []
+        for v in (_FakeVessel(recoverable=True),
+                  _FakeVessel(recoverable=False),
+                  _FakeVessel(recoverable_raises=True),
+                  _FakeVessel(recoverable=True, recover_raises=True)):
+            c = control()
+            c._perform_recover_vessel(v)
+            self.assertNotEqual(mlib.RECOVER_REQUEST_UNREAD, c._recover_request_result)
+            outcomes.append(c._recover_request_result)
+        self.assertEqual(1, outcomes.count(mlib.RECOVER_REQUEST_ISSUED))
+        for token in outcomes:
+            if token != mlib.RECOVER_REQUEST_ISSUED:
+                self.assertIn(token, mlib.RECOVER_REQUEST_DECLINES)
+
+    def test_the_result_is_unread_until_a_verb_is_performed(self):
+        self.assertEqual(mlib.RECOVER_REQUEST_UNREAD, control()._recover_request_result)
 
 
 class PerformDispatchTests(unittest.TestCase):
@@ -1300,16 +1492,47 @@ class VesselLostCareerPoolCarryTests(unittest.TestCase):
         self.assertTrue(math.isnan(snapshot.career_funds))
         self.assertTrue(math.isnan(snapshot.career_science))
 
-    def test_that_snapshot_drives_the_machine_to_the_success_terminal(self):
-        # End to end across the seam: a runner-produced vessel_lost frame alone
-        # must be able to complete the recovery terminal.
-        state = in_recover()
-        state = drive(state,
-                      sci(ut=12.0, situation="LANDED", vessel_recoverable=mlib.RECOVERABLE_YES),
-                      sci(ut=13.0, situation="LANDED", vessel_recoverable=mlib.RECOVERABLE_YES))
+    def test_the_vessel_lost_snapshot_carries_the_perform_seam_result(self):
+        # THE THIRD CARRIED FACT, and its argument is the pools' argument: a
+        # successful Recover() removes the craft at once, so ISSUED and
+        # vessel-gone arrive on the SAME snapshot. Dropped here, the machine's
+        # issued latch would never be set on the only frame that could set it.
+        c = self._control()
+        c._perform_recover_vessel(_FakeVessel(recoverable=True))
+        snapshot = self._escalate(c)
+        self.assertTrue(snapshot.vessel_lost)
+        self.assertEqual(mlib.RECOVER_REQUEST_ISSUED, snapshot.recover_request_result)
+
+    def test_a_run_that_never_asked_leaves_that_channel_unread(self):
+        # The fail-closed control for the cell above: no perform, no token, so a
+        # craft that simply broke up cannot borrow a recovery it never got.
         snapshot = self._escalate(self._control())
+        self.assertEqual(mlib.RECOVER_REQUEST_UNREAD, snapshot.recover_request_result)
+
+    def test_that_snapshot_drives_the_machine_to_the_success_terminal(self):
+        # End to end across the seam: ONE runner-produced vessel_lost frame,
+        # carrying both career pools AND the ISSUED stamp, must be able to
+        # complete the recovery terminal by itself.
+        state = _asked(in_recover())
+        c = self._control()
+        c._perform_recover_vessel(_FakeVessel(recoverable=True))
+        snapshot = self._escalate(c)
         state, _ = mlib.sbr_decide(state, snapshot)
         self.assertEqual(mlib.SBR_RECOVERED, state.phase)
+
+    def test_the_same_frame_without_the_stamp_is_a_break_up(self):
+        # The negative control that makes the cell above mean something: the
+        # runner DECLINED the verb (Recoverable false at perform), the craft went
+        # away anyway, and the identical vessel_lost frame must NOT certify.
+        state = _asked(in_recover())
+        c = self._control()
+        c._perform_recover_vessel(_FakeVessel(recoverable=False))
+        snapshot = self._escalate(c)
+        self.assertEqual(mlib.RECOVER_REQUEST_DECLINED, snapshot.recover_request_result)
+        state, _ = mlib.sbr_decide(state, snapshot)
+        self.assertNotEqual(mlib.SBR_RECOVERED, state.phase)
+        self.assertEqual(mlib.MISSION_ASSERT_FAIL, state.verdict)
+        self.assertIn("vessel-lost-before-recovery", state.loss_reason)
 
 
 # ---------------------------------------------------------------------------
@@ -1409,6 +1632,17 @@ class ChannelContractTests(unittest.TestCase):
         self.assertEqual(mlib.RECOVERABLE_UNREAD, s.vessel_recoverable)
         self.assertTrue(math.isnan(s.career_funds))
         self.assertTrue(math.isnan(s.career_science))
+        # The perform-seam channel, on the seam_command_result shape: "" means no
+        # verb has terminated, and it satisfies nothing.
+        self.assertEqual(mlib.RECOVER_REQUEST_UNREAD, s.recover_request_result)
+        self.assertEqual("", mlib.RECOVER_REQUEST_UNREAD)
+
+    def test_the_issued_token_is_distinct_from_every_decline(self):
+        # A rename that collapsed one into the other would make a declined ask
+        # certify, which is the exact defect this channel was added for.
+        self.assertNotIn(mlib.RECOVER_REQUEST_ISSUED, mlib.RECOVER_REQUEST_DECLINES)
+        self.assertEqual(3, len(set(mlib.RECOVER_REQUEST_DECLINES)))
+        self.assertNotIn(mlib.RECOVER_REQUEST_UNREAD, mlib.RECOVER_REQUEST_DECLINES)
 
     def test_the_unread_sentinel_is_distinct_from_a_real_zero(self):
         self.assertNotEqual(0, mlib.SCIENCE_COUNT_UNREAD)
@@ -1420,7 +1654,8 @@ class ChannelContractTests(unittest.TestCase):
         keys = set(mlib.snapshot_dict(mlib.TelemetrySnapshot()))
         for field in ("science_experiment_count", "science_data_count",
                       "science_available_count", "vessel_recoverable",
-                      "career_funds", "career_science"):
+                      "career_funds", "career_science",
+                      "recover_request_result"):
             self.assertNotIn(field, keys)
         machine_attrs = {attr for attr, _key in mlib.MACHINE_STATE_FIELDS}
         self.assertNotIn("career_funds", machine_attrs)

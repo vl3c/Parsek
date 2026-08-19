@@ -1413,7 +1413,18 @@ def _make_science_bench_spec(save_template, run_budget=900):
                 "collectTimeoutSeconds": 120,
                 "transmitMinScienceGain": 0.5,
                 "transmitTimeoutSeconds": 120,
-                "recoverMinFundsGain": 0.0,
+                # A SMALL POSITIVE FLOOR, deliberately, even though the schema
+                # legally allows 0.0. Section 4d tells wave 2 to promote this
+                # spec VERBATIM, so it has to start strong: at 0.0 the recovery
+                # terminal certifies "the funds pool was READABLE across the
+                # recovery" and nothing about the pool having MOVED, which is
+                # weaker than a career forge wants from the row it exists to
+                # produce. 1.0 is defense in depth on top of the structural
+                # guards (craft observed gone, credit measured across the event),
+                # not a prediction: any real recovery refunds orders of magnitude
+                # more, so it cannot false-fail a good flight, and it does catch
+                # a recovery that credited literally nothing.
+                "recoverMinFundsGain": 1.0,
                 "recoverTimeoutSeconds": 180,
             },
             "steps": [

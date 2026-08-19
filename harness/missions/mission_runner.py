@@ -515,6 +515,19 @@ class KrpcMissionControl(MissionControl):
         # rather than produce a mute give-up a phase budget later.
         self._warned_science_read = False
         self._warned_career_pools_read = False
+        # PERFORM-SEAM outcome of the last recover attempt, riding
+        # TelemetrySnapshot.recover_request_result (the seam_command_result
+        # precedent). "" until one terminates. It is STICKY on purpose: the
+        # machine reads it as a level, and the recovery that succeeds usually
+        # makes the very next snapshot a vessel_lost one, so a value that lived
+        # for exactly one frame could be missed at the only moment it matters.
+        #
+        # WHY IT EXISTS AT ALL. _perform_recover_vessel can DECLINE (read-before-
+        # ask: Recoverable false or unreadable) or fail. A decline that stayed
+        # inside the runner left the machine believing a recovery had been issued
+        # when none was - and that belief is what decides whether a break-up
+        # afterwards is a loss or a candidate recovery.
+        self._recover_request_result: str = mlib.RECOVER_REQUEST_UNREAD
         # The camera channel's own dark-channel Warn latch (same rationale as
         # the executor/periapsis/landing latches below).
         self._warned_camera_read = False
@@ -961,6 +974,11 @@ class KrpcMissionControl(MissionControl):
                 vessel_recoverable=vessel_recoverable,
                 career_funds=career_funds,
                 career_science=career_science,
+                # The perform-seam outcome of the recover verb. NOT gated on
+                # read_science: it costs no RPC (it is the runner's own record of
+                # what its last attempt did) and it stays "" for every mission
+                # that never emits the action, so no other snapshot moves.
+                recover_request_result=self._recover_request_result,
             )
             self._read_fail_streak = 0
             self._warp_watchdog(sc, snapshot.ut)
@@ -1014,7 +1032,20 @@ class KrpcMissionControl(MissionControl):
             return mlib.TelemetrySnapshot(ut=ut, vessel_lost=True,
                                           crew_roster_status=crew_roster_status,
                                           career_funds=career_funds,
-                                          career_science=career_science)
+                                          career_science=career_science,
+                                          # THE THIRD THING THAT MUST SURVIVE
+                                          # THIS PATH, and the argument is the
+                                          # career pools' argument exactly: a
+                                          # successful recovery removes the craft
+                                          # immediately, so ISSUED and
+                                          # vessel-gone routinely arrive on the
+                                          # SAME snapshot. Dropping the seam
+                                          # result here would leave the issued
+                                          # latch false on the only frame that
+                                          # could set it, and every good recovery
+                                          # would be condemned as a break-up
+                                          # before the recovery.
+                                          recover_request_result=self._recover_request_result)
 
     def perform(self, action: "mlib.Action") -> None:
         # Arming the roster watch is handled BEFORE the active-vessel resolve below:
@@ -2018,37 +2049,57 @@ class KrpcMissionControl(MissionControl):
         the same property, so this read is the second of two locks, not the only
         one.
 
-        AFTER THIS RETURNS THE CRAFT IS GONE. Stock recovery removes the vessel
-        and leaves the FLIGHT scene, so every subsequent telemetry read fails and
-        the read-fail streak escalates to a vessel_lost snapshot - which is
-        exactly the frame the machine's success terminal reads. The machine
-        emits no further action for the same reason."""
+        EVERY EXIT STAMPS ``_recover_request_result``, and that is the point of
+        the rewrite (review, 2026-08-19). This lock DECLINES - a craft can settle
+        a moment after the machine's debounced YES and read false right here -
+        and a decline that stayed inside the runner left the machine's latch
+        saying a recovery had been issued when none was, which routed a
+        subsequent break-up into the success branch. The stamp is a real
+        OBSERVATION (Recoverable READ false AT PERFORM), and it is what lets
+        `vessel-lost-before-recovery` cover the whole window up to an actual
+        issue and lets the machine re-ask once the craft has settled.
+
+        AFTER A SUCCESSFUL CALL THE CRAFT IS GONE. Stock recovery removes the
+        vessel and leaves the FLIGHT scene, so every subsequent telemetry read
+        fails and the read-fail streak escalates to a vessel_lost snapshot -
+        which is exactly the frame the machine's success terminal reads, and the
+        frame the ISSUED stamp has to reach it on. The machine emits no further
+        action once it observes that stamp."""
         try:
             recoverable = bool(vessel.recoverable)
         except Exception as exc:
+            self._recover_request_result = mlib.RECOVER_REQUEST_UNREADABLE
             _stdout_sink(mlib.format_mission_log_line(
                 "Warn", "Recover",
                 "Vessel.Recoverable UNREADABLE (%s: %s); NOT asking for a recovery "
-                "(kRPC Recover() throws on a non-recoverable vessel). The machine's "
-                "own recover budget owns the outcome."
-                % (type(exc).__name__, str(exc)[:120])))
+                "(kRPC Recover() throws on a non-recoverable vessel). Reported to the "
+                "machine as %s: nothing was issued, so a break-up from here is a loss, "
+                "not a recovery."
+                % (type(exc).__name__, str(exc)[:120],
+                   mlib.RECOVER_REQUEST_UNREADABLE)))
             return
         if not recoverable:
+            self._recover_request_result = mlib.RECOVER_REQUEST_DECLINED
             _stdout_sink(mlib.format_mission_log_line(
                 "Warn", "Recover",
-                "Vessel.Recoverable READ false; NOT asking for a recovery. The "
-                "machine's `vessel-not-recoverable` terminal owns the outcome."))
+                "Vessel.Recoverable READ false; NOT asking for a recovery. Reported to "
+                "the machine as %s, which keeps its issued latch false and lets it "
+                "re-ask once the craft has settled; a persistently false reading lands "
+                "on its `vessel-not-recoverable` terminal."
+                % (mlib.RECOVER_REQUEST_DECLINED,)))
             return
         try:
             vessel.recover()
+            self._recover_request_result = mlib.RECOVER_REQUEST_ISSUED
             _stdout_sink(mlib.format_mission_log_line(
                 "Info", "Recover",
-                "recover_vessel requested; the craft is expected to disappear and "
+                "recover_vessel ISSUED; the craft is expected to disappear and "
                 "the funds pool to rise - both OBSERVED on the frames that follow"))
         except Exception as exc:
+            self._recover_request_result = mlib.RECOVER_REQUEST_FAILED
             _stdout_sink(mlib.format_mission_log_line(
-                "Warn", "Recover", "Vessel.Recover() failed: %s: %s"
-                % (type(exc).__name__, str(exc)[:160])))
+                "Warn", "Recover", "Vessel.Recover() failed: %s: %s (reported as %s)"
+                % (type(exc).__name__, str(exc)[:160], mlib.RECOVER_REQUEST_FAILED)))
 
     # ---- B-DOCK helpers (handle capture, seam bridge, docking telemetry) ----
 

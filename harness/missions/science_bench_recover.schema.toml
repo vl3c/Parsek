@@ -122,6 +122,21 @@ min = 10.0
 # A real subject transmitted from Kerbin's surface is worth single-digit science
 # at minimum, so a spec value well under 1 is a floor with margin, not a
 # prediction.
+#
+# SIZE IT AGAINST THE NET POOL RISE, NOT THE SUBJECT'S VALUE. What this floor
+# gates is the movement of the CAREER SCIENCE POOL, and that is what the save
+# actually banks - which is strictly less than what the subject is worth in two
+# common cases. (1) A `Strategies.Effects.CurrencyConverter` such as Patents
+# Licensing converts a SHARE of every science award into funds by mutating the
+# `CurrencyModifierQuery` in place, so the pool rises by the remainder; that
+# behavior was measured by this lane and is recorded in
+# `docs/dev/todo-and-known-bugs.md` -> STRATEGY-SCIENCE-CONVERSION-LEAK. (2) A
+# repeat of an already-transmitted subject pays stock's diminishing return, which
+# on a second pass over the same biome can be a small fraction of the first. A
+# floor authored off the subject's catalogue value therefore false-fails a
+# perfectly good transmit under either condition. Keep it low - it exists to
+# separate "credited something" from "credited nothing", which is the only claim
+# the mission makes.
 [params.transmitMinScienceGain]
 required = true
 type = "number"
@@ -154,12 +169,22 @@ min = 10.0
 # The recovery terminal has two other conjuncts that carry real information on
 # their own: the craft is OBSERVED GONE, and the credit is measured ACROSS the
 # recovery - a pre-recover baseline against a funds reading taken ON a
-# vessel-gone frame, after the verb was actually issued. So a spec that sets 0.0
-# is asking for exactly "the pools were readable across the recovery", which is
-# strictly more than the vessel-gone reading alone and is a claim the machine now
-# really makes. A spec that wants the stronger claim sets a positive floor sized
-# under the craft's own cost. Naming a number closer to the true refund would be
-# authoring a pool value, which this schema does not do.
+# vessel-gone frame, after the verb was actually ISSUED (observed at the perform
+# seam, not merely emitted).
+#
+# WHAT A 0.0 FLOOR DOES AND DOES NOT CERTIFY, stated plainly because the
+# difference is the whole of the asymmetry. It DOES certify: the craft was
+# observed gone after a recovery the runner really issued, and the funds pool was
+# READABLE on both sides of that event. It does NOT certify: that the pool MOVED.
+# `credit >= 0.0` is satisfied by a pool that did not budge, so a 0.0 spec is
+# asking the two structural conjuncts to carry the whole claim, and the row's
+# reported value is then the only place a reader learns what the recovery was
+# worth. A spec that wants "and it actually credited something" sets a positive
+# floor sized well UNDER the craft's own cost - that is defense in depth on top
+# of the structure, not a substitute for it, and the promoted smoke spec in
+# `harness/lib/test_run_smoke.py` is authored that way for exactly this reason.
+# Naming a number closer to the true refund would be authoring a pool value,
+# which this schema does not do.
 [params.recoverMinFundsGain]
 required = true
 type = "number"
@@ -171,7 +196,21 @@ max = 10000000.0
 # all, then waits out the runner's own three-sample vessel-lost escalation plus
 # the credit grace. Expiry is a FLAKE (`recover-never-completed`) rather than an
 # assert-fail: a craft that is still there after being asked to leave is driver /
-# kRPC territory, not a wrong outcome.
+# kRPC territory, not a wrong outcome. Size it for a settle flicker too: a first
+# ask the perform seam DECLINES is re-emitted after ~10 s of spacing, up to three
+# further times, and all of that has to fit inside this budget.
+#
+# FIRST-FLIGHT WATCH ITEM, and it is NOT this parameter.
+# `mlib.SBR_RECOVER_CREDIT_GRACE_FRAMES` (6 frames, ~3 s at the ~0.5 s poll
+# cadence) does DOUBLE DUTY: it bounds the read-ordering lag between the
+# vessel-gone read and the funds-pool read, AND it bounds how long the career
+# pool may be dark on that path before `career-pool-channel-dark` is raised.
+# Stock recovery leaves the FLIGHT scene, and a FLIGHT -> SPACECENTER reload that
+# outlasts ~3 s makes a perfectly good recovery flake `career-pool-channel-dark`.
+# That is the CORRECT side of the retry line - a flake costs one re-fly, whereas
+# widening it toward the break-up terminal would risk certifying one - so nothing
+# is being pre-tuned here. Expect this to be the first constant that needs a bump
+# once wave 2 measures a real reload, and bump it there off the measurement.
 [params.recoverTimeoutSeconds]
 required = true
 type = "number"

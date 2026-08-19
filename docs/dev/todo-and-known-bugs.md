@@ -84,6 +84,28 @@ that is re-derived wrongly later:
   The general lesson is the transferable one: when a gate compares a baseline
   against "the latest reading", ask what happens if the latest reading predates
   the event the gate is about.
+- **A COMMANDED LATCH IS NOT "IT HAPPENED", AND THE SAME HOLE HAD A SECOND
+  DOOR** - found by the follow-up review of the fix above. The carve-out that
+  decides whether a break-up is a loss or a candidate recovery keyed off the verb
+  having been EMITTED, but the runner's read-before-ask lock can DECLINE it:
+  `Vessel.Recoverable` reads false (or raises) at perform time, or `Recover()`
+  itself raises. Nothing told the machine, so the latch stood true for a recovery
+  that never happened, and at a 0.0 funds floor with a readable unmoved pool the
+  same settle-flicker-then-explosion run certified RECOVERED. The fix is a real
+  OBSERVATION CHANNEL rather than a stricter predicate:
+  `TelemetrySnapshot.recover_request_result` carries `ISSUED` / `DECLINED` /
+  `UNREADABLE` / `FAILED` back from every exit of the perform branch (sticky, and
+  carried on a `vessel_lost` snapshot for the career pools' reason exactly - a
+  successful recovery removes the craft, so ISSUED and vessel-gone arrive on the
+  same frame), and the latch now means ISSUED. A decline gets a BOUNDED RE-EMIT,
+  like the collect / transmit sweeps, because its live shape is a craft that has
+  not finished settling; a persistent one still lands on the existing
+  `vessel-not-recoverable` terminal, so no new verdict was invented. Pinned by a
+  replay-control pair: the same frames with the latch set by hand on emission
+  reach RECOVERED in-suite, which is what makes the fix cell a fix.
+  **The transferable half:** a latch fed by "we sent the command" is evidence of
+  nothing when the seam that performs it is allowed to say no. Either the seam
+  reports its outcome, or the latch has to be read as "we tried".
 
 ### RESIDUAL - the unaffordable-spend ORDERING shape is still unforgeable
 

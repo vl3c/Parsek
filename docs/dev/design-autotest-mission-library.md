@@ -927,7 +927,7 @@ not stylistic: each one succeeds on a craft where the effect does not happen.
 | --- | --- | --- | --- |
 | `ACTION_RUN_SCIENCE_EXPERIMENTS` | `Parts.Experiments` -> `Experiment.Run()` | runs every module that reads `Available`, not `Inoperable`, not already `HasData`; per-module faults are one Warn each | that any data was stored - `Run()` succeeds on a module whose conditions are not met |
 | `ACTION_TRANSMIT_SCIENCE` | `Experiment.Transmit()` | transmits every module that reads `HasData` | that any science was credited - the call succeeds with no antenna, no ElectricCharge and no connection |
-| `ACTION_RECOVER_VESSEL` | `Vessel.Recoverable` then `Vessel.Recover()` | READS `Recoverable` first and declines rather than raising; then recovers | that the craft was recovered rather than destroyed - a craft that blew up is also gone |
+| `ACTION_RECOVER_VESSEL` | `Vessel.Recoverable` then `Vessel.Recover()` | READS `Recoverable` first and declines rather than raising; then recovers; stamps the outcome on `recover_request_result` either way | that the craft was recovered rather than destroyed - a craft that blew up is also gone - and, before the stamp is read back, not even that the verb was issued at all |
 
 Three properties of `ACTION_RECOVER_VESSEL` are load-bearing and bind any future
 machine that emits it:
@@ -938,10 +938,30 @@ machine that emits it:
    performed against a vessel that no longer resolves raises out of the fly loop
    and reports MISSION-ERROR instead of the outcome the machine already had a
    name for.
-2. **Read before ask.** kRPC's `Recover()` throws `InvalidOperationException`
-   when `Recoverable` is false. The runner reads it, and the machine reads it
-   independently through `TelemetrySnapshot.vessel_recoverable` before it asks.
-   Two locks, because the throw would convert a named ASSERT-FAIL into an ERROR.
+2. **Read before ask, and REPORT THE DECLINE.** kRPC's `Recover()` throws
+   `InvalidOperationException` when `Recoverable` is false. The runner reads it,
+   and the machine reads it independently through
+   `TelemetrySnapshot.vessel_recoverable` before it asks. Two locks, because the
+   throw would convert a named ASSERT-FAIL into an ERROR. The runner's lock can
+   therefore DECLINE - a craft still rolling reads not-recoverable a moment after
+   the machine's debounced YES - and every exit of `_perform_recover_vessel`
+   stamps `TelemetrySnapshot.recover_request_result` with one of
+   `ISSUED` / `DECLINED` / `UNREADABLE` / `FAILED`. **A machine emitting this
+   action MUST latch on the observed ISSUED, never on its own emission.** An
+   emission latch stays true through a decline, which put a craft that exploded
+   afterwards into the success branch; at a 0.0 funds floor with a readable
+   unmoved pool it certified RECOVERED. (Found in review, 2026-08-19, with a
+   replayed negative control: restoring the emission latch turns the
+   settle-flicker-then-explosion run back into RECOVERED.) The machine's response
+   to a decline is a BOUNDED RE-EMIT - at most `SBR_RECOVER_ASK_LIMIT` further
+   asks, `SBR_ACTION_REEMIT_FRAMES` apart, only on a fresh debounced
+   `Recoverable` = YES - on the same reasoning as the COLLECT / TRANSMIT sweeps,
+   since the decline shape is a settle flicker and a declined ask removed no
+   craft. A PERSISTENT decline needs no new terminal: the poll channel keeps
+   being read while nothing is issued, so `vessel-not-recoverable` condemns it by
+   name, and a seam that declines while the poll channel insists YES runs out to
+   `recover-never-completed` (driver territory, which is what a disagreement
+   between two reads of one property is).
 3. **The success evidence is a PAIR, and it must STRADDLE the event.** The craft
    OBSERVED gone AND a funds credit measured from a pre-recover baseline against
    a reading taken ON a vessel-gone frame. Either half alone is wrong, and so is
@@ -957,7 +977,7 @@ machine that emits it:
    (Found in review, 2026-08-19, with a replay negative control: under the old
    predicates both shapes returned RECOVERED.)
 
-### A.3 The six channels, and the two families
+### A.3 The channels: six telemetry reads in two families, plus one seam report
 
 Opt-in via `KrpcMissionControl(read_science=True)`. Off, every one stays at its
 fail-closed sentinel and every other mission's snapshot is byte-identical. None
@@ -985,6 +1005,16 @@ machine line of every mission).
   good recovery would be condemned as a break-up. Both properties raise outside
   CAREER mode, and the NaN that produces is the honest answer, named
   `career-pool-channel-dark`.
+- **The perform-seam report** (`recover_request_result`; `""` = UNREAD). NOT a
+  telemetry read and NOT gated on `read_science` - it costs no RPC, because it is
+  the runner's own record of what its last recover attempt did, fed back exactly
+  the way `seam_command_result` is, and it stays `""` for every mission that
+  never emits the action. It is STICKY (the last terminal token stands until the
+  next perform), so a machine reads it as a level rather than an edge, and it
+  **is carried on a `vessel_lost` snapshot** on the career pools' argument
+  applied a third time: a successful `Recover()` removes the craft at once, so
+  `ISSUED` and vessel-gone routinely arrive on the SAME snapshot, and dropping it
+  there would leave the issued latch false on the only frame that could set it.
 
 ### A.4 The mission: `science_bench_recover`
 
@@ -1010,12 +1040,12 @@ not retryable, a broken CHANNEL is:
 | `no-experiments-aboard` | MISSION-ASSERT-FAIL | the enumeration READ 0 modules: the fixture is wrong, and re-flying it changes nothing |
 | `collect-produced-no-data` | MISSION-ASSERT-FAIL | modules aboard, none stored data; the reason carries the availability count so "refused" and "conditions never met" are distinguishable |
 | `transmit-credited-no-science` | MISSION-ASSERT-FAIL | no antenna / no EC / no connection |
-| `vessel-not-recoverable` | MISSION-ASSERT-FAIL | named INSTEAD of asking, so kRPC's throw never becomes MISSION-ERROR |
+| `vessel-not-recoverable` | MISSION-ASSERT-FAIL | named INSTEAD of asking, so kRPC's throw never becomes MISSION-ERROR. It also owns a PERSISTENTLY declined ask: the poll channel goes on being read until a verb is OBSERVED issued, so a genuinely unrecoverable craft trips this by name rather than by timeout |
 | `vessel-lost-without-recovery-credit` | MISSION-ASSERT-FAIL | the shape of a craft that BROKE UP |
-| `vessel-lost-before-recovery` | MISSION-ASSERT-FAIL | the craft this mission exists to recover was destroyed. Covers RECOVER too, up until the verb is actually issued: the phase spends its first polls waiting for a debounced `Recoverable` reading, and a craft that explodes in that window was destroyed, not recovered |
+| `vessel-lost-before-recovery` | MISSION-ASSERT-FAIL | the craft this mission exists to recover was destroyed. Covers RECOVER too, up until the verb is actually ISSUED - which is TWO windows, not one: the debounce wait before the first ask, and the window after an ask the perform seam DECLINED. A craft that explodes in either was destroyed, not recovered |
 | `science-channel-dark` | MISSION-FLAKE | the enumeration is broken, not the flight. SCOPED TO COLLECT, which is the only phase that reads that channel: a give-up must name a channel the current phase DEPENDS on, and flaking in TRANSMIT or RECOVER would throw away a flight that had already collected for a reading nothing was waiting on |
 | `career-pool-channel-dark` | MISSION-FLAKE | the pools never read finite, so no gain could be computed at all; a non-CAREER save reads exactly like this. Raised at TWO sites (the transmit budget and the recovery grace), and at the second it is checked BEFORE `vessel-lost-without-recovery-credit`: "the pool did not move" and "the pool was never readable" are indistinguishable from a None gain and sit on opposite sides of the retry line |
-| `recover-never-completed` | MISSION-FLAKE | asked and still there: driver / kRPC territory |
+| `recover-never-completed` | MISSION-FLAKE | asked and still there: driver / kRPC territory. Also where a seam that declines every ask while the poll channel insists `Recoverable` = YES ends up - a disagreement between two reads of one property is a driver fault, not a flight outcome |
 | `flight-leg <...>` | carried verbatim from B1 | the pad hop failed, and the tail must neither swallow nor re-name that |
 
 **Mission-vs-Parsek orthogonality holds by construction.** Every terminal above
