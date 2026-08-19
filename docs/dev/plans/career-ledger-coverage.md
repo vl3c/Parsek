@@ -536,7 +536,7 @@ used (reading run, then arming).
   and are APPENDED after the last existing part, so no existing index moves. The
   pose is derived from a measured one (the -x Goo's position/rotation pair carried
   through one rigid yaw about the pod's +Y axis), not typed. `verify` additionally
-  asserts the base's eight parts are byte-identical, so the five specs flying
+  asserts the base's eight parts are byte-identical, so the six specs flying
   `career-pad-craft` are provably untouched. The FORGE route would have bought the
   same fixture for two flights and a `.craft` author. Full account in
   CAREER-FORGE-NEEDS-A-DIRECT-ANTENNA (`todo-and-known-bugs.md`).

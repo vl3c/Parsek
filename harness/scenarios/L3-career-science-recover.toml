@@ -92,8 +92,8 @@ tags = ["ledger", "L3", "career-forge", "science", "recovery", "reading-run"]
 # `SurfAntenna` plus two `batteryPack`s - surface-attached to the pod and
 # appended after the existing eight, so no existing part index moves and the
 # eight parts the base flies stay BYTE-IDENTICAL. The base fixture is NOT
-# touched: five committed specs fly it, two of them pinning measurements taken
-# on that exact craft.
+# touched: six committed specs fly it (CL-1, CL-2, CL-3, H26, L2, R7a), two of
+# them pinning measurements taken on that exact craft.
 #
 # WHAT EACH SPLICED PART BUYS. The antenna is the blocker above: `SurfAntenna`
 # declares `antennaType = DIRECT`, which is what stock's
@@ -108,8 +108,15 @@ tags = ["ledger", "L3", "career-forge", "science", "recovery", "reading-run"]
 # craft is still B1's Jumping Flea, still `sit = PRELAUNCH` on the LaunchPad,
 # still `stg = 2` with the booster at `istg = 1` and the chute at `istg = 0`.
 # Every spliced part is UNSTAGED (`istg = -1`), so the staging sequence the
-# chute-arming logic was measured against is untouched, and the +0.025 t (0.94%)
-# leaves the 6,000-30,000 m apoapsis window intact around a measured 19,990 m.
+# chute-arming logic was measured against is untouched.
+#
+# THE APOAPSIS WINDOW SURVIVES, AND THE COST IS BIGGER THAN THE MASS SUGGESTS.
+# MEASURED: run `2026-08-19_1912` peaked at 15,599.8 m against flight 2's
+# 19,990 m on the bare craft - a 22% loss for a 0.94% mass increase, so it is
+# DRAG (three surface protrusions on a small craft doing ~500 m/s low in the
+# atmosphere), not weight. Both numbers sit inside the 6,000-30,000 m window and
+# the new one still clears the floor by 2.6x, so the window is left alone - but
+# anyone TIGHTENING it must size against 15,600, not against B1's 19,990.
 #
 # The pairing (career, one vessel, antenna aboard, inert ParsekScenario node) is
 # gated by `CareerSciencePadSpecFixtureSyncTests` in

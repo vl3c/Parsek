@@ -18,8 +18,8 @@ diagnosis is settled and is a fact about the CRAFT, not about the mission:
 the "the fixture is wrong, and re-flying it changes nothing" side. This tool is
 the fix: a SIBLING fixture whose craft carries a DIRECT antenna.
 
-WHY A SIBLING RATHER THAN AN EDIT. Five committed specs already fly
-`career-pad-craft` (the CL-1 / CL-2 lanes among them) and two of them pin
+WHY A SIBLING RATHER THAN AN EDIT. Six committed specs already fly
+`career-pad-craft` (CL-1, CL-2, CL-3, H26, L2, R7a) and two of them pin
 measurements taken on that exact craft. Mutating it would re-open every one of
 those. `career-pad-craft` is therefore NOT touched; this builds a new save
 beside it, and `--check` re-verifies both the base's post-conditions and this
@@ -53,11 +53,16 @@ of margin for any drain a future flight does incur. `transmitMinScienceGain`
 only needs ONE subject to credit, so the margin is defense in depth rather than
 a prediction.
 
-MASS. +0.025 t on a ~2.67 t craft (0.94%). The flight leg's only window is
-`apoapsisWindowMeters = {min = 6000, max = 30000}` and the measured peak on this
-craft was 19,990 m, so the window survives the change with both bounds intact.
-All three parts are `PhysicsSignificance = 1` (physicsless), so they add mass to
-the pod and no rigidbody.
+MASS AND DRAG. +0.025 t on a ~2.67 t craft (0.94%). All three parts are
+`PhysicsSignificance = 1` (physicsless), so they add mass to the pod and no
+rigidbody - but they are NOT aerodynamically free, and the measurement says so
+louder than the mass does. The flight leg's only window is
+`apoapsisWindowMeters = {min = 6000, max = 30000}`; the bare craft peaked at
+19,990 m and this one peaked at 15,599.8 m on run `2026-08-19_1912`. A 22% loss
+for a 0.94% mass increase is DRAG - three surface protrusions on a small craft
+doing ~500 m/s low in the atmosphere. Both bounds survive with the floor cleared
+by 2.6x, so nothing here needs changing; but a future tightening of that window
+must be sized against 15,600, not against B1's 19,990.
 
 CAREER LEGALITY IS BY CONSTRUCTION, NOT BY ASSUMPTION. Both part names are
 already in this save's purchased-parts set (the `start` Tech node lists
@@ -549,7 +554,7 @@ def verify(lines: List[str], base_lines: Optional[List[str]] = None,
 
     # THE SPLICE IS PURELY ADDITIVE. The eight parts `career-pad-craft` flies
     # must be byte-identical here, so B1's measured flight profile still
-    # transfers and the five specs that fly the base are unaffected by anything
+    # transfers and the six specs that fly the base are unaffected by anything
     # this file does.
     if base_lines is not None:
         base_fs = find_node(base_lines, "FLIGHTSTATE")

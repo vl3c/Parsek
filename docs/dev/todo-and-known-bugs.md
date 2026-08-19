@@ -367,7 +367,7 @@ amendment got WRONG is one clause of A.2, now corrected in place: it claimed
 
 ### ~~Fix: a career fixture whose craft carries a DIRECT antenna~~ BUILT 2026-08-19 as `career-science-pad`
 
-The `career-pad-craft` fixture must NOT be mutated (five committed specs fly it),
+The `career-pad-craft` fixture must NOT be mutated (six committed specs fly it),
 so the fix is a SIBLING, and the `SurfAntenna` (Communotron 16-S,
 `antennaType = DIRECT`) is **already in the fixture's purchased-parts set**, so no
 tech-tree work was needed.

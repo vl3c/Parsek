@@ -182,11 +182,11 @@ something a byte-identity gate proves for free.
 | Mode | `CAREER` | inherited; a non-career save has no pools for the forge to move |
 | Funding / RnD / Reputation | `500000` / `100` / `0` | inherited unchanged; the ledger-oracle seed |
 | Facilities (all 10) | `lvl = 0` | inherited |
-| Vessel | the base's Jumping Flea **byte for byte** (parts 0-7), plus `SurfAntenna` + 2x `batteryPack` at indices 8-10 | the byte-identity of the first eight is asserted, so B1's MEASURED flight profile still transfers and the five specs flying the base are untouched |
+| Vessel | the base's Jumping Flea **byte for byte** (parts 0-7), plus `SurfAntenna` + 2x `batteryPack` at indices 8-10 | the byte-identity of the first eight is asserted, so B1's MEASURED flight profile still transfers and the six specs flying the base are untouched |
 | Antenna | `SurfAntenna`, `antennaType = DIRECT` (part cfg) | the ONLY reason this fixture exists. `antennaType` lives in the cfg and never in the save, so the part NAME is the assertion |
 | ElectricCharge | 250 (50 pod + 2x100) | 156 EC is what the three experiments cost to transmit; gated, not commented |
 | Staging | `stg = 2` unchanged, every spliced part `istg = -1` | the chute-arming logic was measured against B1's stage list; an accidentally-staged part would silently edit it |
-| Mass added | +0.025 t (0.94%) | the flight leg's only window is 6,000-30,000 m apoapsis around a measured 19,990 m |
+| Mass added | +0.025 t (0.94%) | MEASURED consequence is DRAG, not weight: peak apoapsis 15,599.8 m on run `2026-08-19_1912` against 19,990 m for the bare craft, a 22% loss. Both inside the flight leg's 6,000-30,000 m window; size any tightening against 15,600 |
 | Crew | `Jebediah Kerman`, `state = Assigned`, aboard the pod | inherited; `type = Crew` is load-bearing for kRPC `GetKerbal` |
 | Parsek footprint | none (inert `ParsekScenario` node only) | keeps the analyzer's Forbid gate clean; measured `RED=0` |
 
