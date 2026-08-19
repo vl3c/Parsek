@@ -942,8 +942,20 @@ machine that emits it:
    when `Recoverable` is false. The runner reads it, and the machine reads it
    independently through `TelemetrySnapshot.vessel_recoverable` before it asks.
    Two locks, because the throw would convert a named ASSERT-FAIL into an ERROR.
-3. **The success evidence is a PAIR.** The craft OBSERVED gone AND the career
-   funds pool OBSERVED risen. Either half alone is wrong.
+3. **The success evidence is a PAIR, and it must STRADDLE the event.** The craft
+   OBSERVED gone AND a funds credit measured from a pre-recover baseline against
+   a reading taken ON a vessel-gone frame. Either half alone is wrong, and so is
+   a pair that does not span the recovery: because `recoverMinFundsGain` is
+   author-set and legitimately 0.0, comparing the baseline against the merely
+   LATEST reading let `0.0 >= 0.0` hold on the first vessel_lost frame, so a
+   craft that exploded during RECOVER was certified RECOVERED. A break-up filed
+   as SUCCESS is the worst verdict this module can emit and it was unpreventable
+   from a spec, so the guard is structural: `_sbr_recovery_credit` requires a
+   POST-LOSS reading, and a loss BEFORE the recovery was requested is routed to
+   `vessel-lost-before-recovery` rather than reaching the success branch at all.
+   The floor is now a strengthener on a gate that already means something.
+   (Found in review, 2026-08-19, with a replay negative control: under the old
+   predicates both shapes returned RECOVERED.)
 
 ### A.3 The six channels, and the two families
 
@@ -994,13 +1006,13 @@ not retryable, a broken CHANNEL is:
 
 | Terminal | Verdict | Why that side of the line |
 | --- | --- | --- |
-| `RECOVERED` | MISSION-OK (assertions decide) | craft gone AND funds risen, both OBSERVED |
+| `RECOVERED` | MISSION-OK (assertions decide) | craft OBSERVED gone AND a funds credit measured ACROSS the recovery (pre-recover baseline vs a reading taken on a vessel-gone frame), after the verb was actually issued |
 | `no-experiments-aboard` | MISSION-ASSERT-FAIL | the enumeration READ 0 modules: the fixture is wrong, and re-flying it changes nothing |
 | `collect-produced-no-data` | MISSION-ASSERT-FAIL | modules aboard, none stored data; the reason carries the availability count so "refused" and "conditions never met" are distinguishable |
 | `transmit-credited-no-science` | MISSION-ASSERT-FAIL | no antenna / no EC / no connection |
 | `vessel-not-recoverable` | MISSION-ASSERT-FAIL | named INSTEAD of asking, so kRPC's throw never becomes MISSION-ERROR |
 | `vessel-lost-without-recovery-credit` | MISSION-ASSERT-FAIL | the shape of a craft that BROKE UP |
-| `vessel-lost-before-recovery` | MISSION-ASSERT-FAIL | the craft this mission exists to recover was destroyed |
+| `vessel-lost-before-recovery` | MISSION-ASSERT-FAIL | the craft this mission exists to recover was destroyed. Covers RECOVER too, up until the verb is actually issued: the phase spends its first polls waiting for a debounced `Recoverable` reading, and a craft that explodes in that window was destroyed, not recovered |
 | `science-channel-dark` | MISSION-FLAKE | the enumeration is broken, not the flight. SCOPED TO COLLECT, which is the only phase that reads that channel: a give-up must name a channel the current phase DEPENDS on, and flaking in TRANSMIT or RECOVER would throw away a flight that had already collected for a reading nothing was waiting on |
 | `career-pool-channel-dark` | MISSION-FLAKE | the pools never read finite, so no gain could be computed at all; a non-CAREER save reads exactly like this. Raised at TWO sites (the transmit budget and the recovery grace), and at the second it is checked BEFORE `vessel-lost-without-recovery-credit`: "the pool did not move" and "the pool was never readable" are indistinguishable from a None gain and sit on opposite sides of the retry line |
 | `recover-never-completed` | MISSION-FLAKE | asked and still there: driver / kRPC territory |

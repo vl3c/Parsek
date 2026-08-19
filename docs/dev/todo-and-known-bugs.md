@@ -70,6 +70,20 @@ that is re-derived wrongly later:
   vessel that no longer resolves and reports MISSION-ERROR instead of the outcome
   it had a name for. Emit it once, last. kRPC also THROWS on a non-recoverable
   vessel, so both the runner and the machine read `Vessel.Recoverable` first.
+- **A recovery credit must STRADDLE the recovery, and this one cost a review to
+  catch.** "The craft is gone" and "the funds pool is higher than the baseline"
+  are both true of a craft that BLEW UP, if the second reading is allowed to be a
+  PRE-loss one. `recoverMinFundsGain` is author-set and legitimately 0.0, so
+  `0.0 >= 0.0` held on the first vessel-gone frame and a break-up was certified
+  RECOVERED - a wrong outcome in the SUCCESS direction, which is the worst class
+  this harness can emit, and no spec could have prevented it. Two structural
+  guards, both needed: the credit is computed from a reading taken ON a
+  vessel-gone frame, and a loss BEFORE the verb was issued is routed to
+  `vessel-lost-before-recovery` instead of reaching the success branch. A replay
+  negative control against the old predicates returned RECOVERED for both shapes.
+  The general lesson is the transferable one: when a gate compares a baseline
+  against "the latest reading", ask what happens if the latest reading predates
+  the event the gate is about.
 
 ### RESIDUAL - the unaffordable-spend ORDERING shape is still unforgeable
 

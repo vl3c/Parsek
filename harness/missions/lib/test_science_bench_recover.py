@@ -6,7 +6,8 @@ Four groups, each guarding a different failure mode:
 
   1. THE PURE MACHINE (`mlib.sbr_decide` / `evaluate_sbr_assertions`). Both
      directions of every gate, the delegation to B1, and each of the five named
-     wrong-outcome terminals and three named channel flakes - because a
+     wrong-outcome terminals and three named flakes (two channel, one driver)
+     - because a
      deterministic outcome filed as an unnamed budget timeout is the exact defect
      class this library keeps paying for.
   2. THE SHELL, driven end to end over a scripted flight with no krpc and no KSP.
@@ -138,6 +139,26 @@ def drive_actions(state, *frames):
         state, actions = mlib.sbr_decide(state, frame)
         emitted.extend(actions)
     return state, emitted
+
+
+def in_transmit(**over):
+    """An SBR machine parked at TRANSMIT entry: flown, landed, data collected,
+    science pool readable at 10.0 and not yet moved."""
+    state, _ = flown(**over)
+    return drive(state,
+                 sci(ut=8.0, situation="LANDED", science_data_count=2,
+                     career_science=10.0),
+                 sci(ut=9.0, situation="LANDED", science_data_count=2,
+                     career_science=10.0))
+
+
+def in_recover(**over):
+    """An SBR machine parked at RECOVER entry: the science credit has landed and
+    the funds baseline is frozen at 1000.0. The recovery has NOT been asked for -
+    the phase has to OBSERVE Vessel.Recoverable first."""
+    return drive(in_transmit(**over),
+                 sci(ut=10.0, situation="LANDED", career_science=25.0),
+                 sci(ut=11.0, situation="LANDED", career_science=25.0))
 
 
 # ---------------------------------------------------------------------------
@@ -328,13 +349,10 @@ class SbrCollectTests(unittest.TestCase):
 class SbrTransmitTests(unittest.TestCase):
     """TRANSMIT: send the data, wait for the OBSERVED career-pool credit."""
 
+    # Delegates to the module-level helper so sibling classes need it too
+    # without instantiating this TestCase.
     def _in_transmit(self, **over):
-        state, _ = flown(**over)
-        return drive(state,
-                     sci(ut=8.0, situation="LANDED", science_data_count=2,
-                         career_science=10.0),
-                     sci(ut=9.0, situation="LANDED", science_data_count=2,
-                         career_science=10.0))
+        return in_transmit(**over)
 
     def test_the_baseline_is_the_last_pre_transmit_reading(self):
         state = self._in_transmit()
@@ -373,6 +391,22 @@ class SbrTransmitTests(unittest.TestCase):
         state = drive(state, sci(ut=10.0, situation="LANDED", career_science=25.0))
         self.assertEqual(mlib.SBR_TRANSMIT, state.phase)
         self.assertEqual(1, state.science_gain_streak)
+
+    def test_the_transmit_phase_re_emits_the_TRANSMIT_verb_not_the_run_verb(self):
+        # The re-emit helper is shared between COLLECT and TRANSMIT and takes the
+        # action kind as an argument, so a swapped constant at the TRANSMIT call
+        # site would re-run the experiments forever while the credit never lands -
+        # and every other cell in this file would stay green.
+        state = in_transmit()
+        state, emitted = drive_actions(
+            state, *[sci(ut=10.0 + i, situation="LANDED", career_science=10.0)
+                     for i in range(mlib.SBR_ACTION_REEMIT_FRAMES
+                                    * (mlib.SBR_ACTION_REEMIT_LIMIT + 1))])
+        kinds = {a.kind for a in emitted}
+        self.assertEqual({mlib.ACTION_TRANSMIT_SCIENCE}, kinds)
+        self.assertEqual(mlib.SBR_ACTION_REEMIT_LIMIT,
+                         len([a for a in emitted
+                              if a.kind == mlib.ACTION_TRANSMIT_SCIENCE]))
 
     def test_an_uncredited_transmit_is_named_not_left_as_a_timeout(self):
         state = self._in_transmit(transmitTimeoutSeconds=10)
@@ -420,10 +454,7 @@ class SbrRecoverTests(unittest.TestCase):
     """RECOVER: ask once, then require the craft GONE and the funds RISEN."""
 
     def _in_recover(self, **over):
-        state = SbrTransmitTests()._in_transmit(**over)
-        return drive(state,
-                     sci(ut=10.0, situation="LANDED", career_science=25.0),
-                     sci(ut=11.0, situation="LANDED", career_science=25.0))
+        return in_recover(**over)
 
     def test_the_verb_is_emitted_once_after_a_debounced_recoverable_reading(self):
         state = self._in_recover()
@@ -481,6 +512,84 @@ class SbrRecoverTests(unittest.TestCase):
         self.assertTrue(state.done)
         self.assertIsNone(state.verdict)
         self.assertTrue(state.skip_settle_tail)
+
+    def test_a_break_up_BEFORE_the_request_is_a_loss_not_a_recovery(self):
+        # THE BLOCKER, half one. RECOVER spends its first polls waiting for a
+        # debounced Vessel.Recoverable reading. A craft that explodes in that
+        # window was destroyed before anything was asked for, and routing it into
+        # the success branch (which the phase-only carve-out did) certified a
+        # break-up. Note the funds are readable and unchanged throughout, which is
+        # exactly the shape that made it green at a 0.0 floor.
+        state = self._in_recover(recoverMinFundsGain=0.0)
+        self.assertFalse(state.recover_requested)
+        state = drive(state, snap(ut=14.0, vessel_lost=True, career_funds=1000.0))
+        self.assertTrue(state.done)
+        self.assertEqual(mlib.MISSION_ASSERT_FAIL, state.verdict)
+        self.assertIn("vessel-lost-before-recovery", state.loss_reason)
+        self.assertNotEqual(mlib.SBR_RECOVERED, state.phase)
+
+    def test_at_a_zero_floor_a_purely_pre_loss_funds_pair_never_certifies(self):
+        # THE BLOCKER, half two. The credit must straddle the event. With the
+        # post-loss pool dark, `fundsGain` is a perfectly finite 0.0 and the floor
+        # is 0.0 - the old gate read that as a recovery. It must now reach the
+        # grace terminal instead, because nothing was observed ACROSS the
+        # recovery.
+        state = self._in_recover(recoverMinFundsGain=0.0)
+        state = drive(state,
+                      sci(ut=12.0, situation="LANDED", vessel_recoverable=mlib.RECOVERABLE_YES),
+                      sci(ut=13.0, situation="LANDED", vessel_recoverable=mlib.RECOVERABLE_YES))
+        self.assertTrue(state.recover_requested)
+        self.assertEqual(0.0, mlib._sbr_funds_gain(state))
+        self.assertIsNone(mlib._sbr_recovery_credit(state))
+        state = drive(state, *[snap(ut=14.0 + i, vessel_lost=True,
+                                    career_funds=float("nan"))
+                               for i in range(mlib.SBR_RECOVER_CREDIT_GRACE_FRAMES)])
+        self.assertNotEqual(mlib.SBR_RECOVERED, state.phase)
+        self.assertEqual(mlib.MISSION_FLAKE, state.verdict)
+        self.assertIn("career-pool-channel-dark", state.flake_reason)
+
+    def test_at_a_zero_floor_a_readable_unmoved_pool_across_the_loss_still_certifies(self):
+        # The complement, and it is the DOCUMENTED meaning of a 0.0 floor: "the
+        # pools were readable across the recovery". With a post-loss reading in
+        # hand a zero credit is a real observation, so it passes - and a spec that
+        # wants the stronger claim raises the floor.
+        state = self._in_recover(recoverMinFundsGain=0.0)
+        state = drive(state,
+                      sci(ut=12.0, situation="LANDED", vessel_recoverable=mlib.RECOVERABLE_YES),
+                      sci(ut=13.0, situation="LANDED", vessel_recoverable=mlib.RECOVERABLE_YES))
+        state = drive(state, snap(ut=14.0, vessel_lost=True, career_funds=1000.0))
+        self.assertEqual(mlib.SBR_RECOVERED, state.phase)
+        self.assertEqual(0.0, mlib._sbr_recovery_credit(state))
+
+    def test_the_certifying_credit_is_the_one_the_assertion_reports(self):
+        # A reader reconciling the row against the terminal must see the SAME
+        # number, so the row reports the across-the-recovery credit, not the
+        # diagnostic latest-reading gain.
+        state = self._in_recover()
+        state = drive(state,
+                      sci(ut=12.0, situation="LANDED", vessel_recoverable=mlib.RECOVERABLE_YES),
+                      sci(ut=13.0, situation="LANDED", vessel_recoverable=mlib.RECOVERABLE_YES))
+        state = drive(state, snap(ut=14.0, vessel_lost=True, career_funds=1500.0))
+        rows = {o.name: o for o in mlib.evaluate_sbr_assertions(
+            [], mlib.sbr_params_from_dict(PARAMS), state)}
+        self.assertEqual(mlib._sbr_recovery_credit(state),
+                         rows["vesselRecoveredObserved"].value)
+
+    def test_the_recover_budget_expiry_names_a_request_that_was_made(self):
+        # The likelier live shape of `recover-never-completed`: we asked and the
+        # craft never went away. Only the not-asked path was covered before.
+        state = self._in_recover(recoverTimeoutSeconds=30)
+        state = drive(state,
+                      sci(ut=12.0, situation="LANDED", vessel_recoverable=mlib.RECOVERABLE_YES),
+                      sci(ut=13.0, situation="LANDED", vessel_recoverable=mlib.RECOVERABLE_YES))
+        self.assertTrue(state.recover_requested)
+        state = drive(state, *[sci(ut=14.0 + i * 20, situation="LANDED",
+                                   vessel_recoverable=mlib.RECOVERABLE_YES)
+                               for i in range(5)])
+        self.assertTrue(state.done)
+        self.assertEqual(mlib.MISSION_FLAKE, state.verdict)
+        self.assertIn("recover-never-completed", state.flake_reason)
+        self.assertIn("requested=True", state.flake_reason)
 
     def test_the_craft_gone_with_no_credit_is_a_break_up_not_a_recovery(self):
         # A destroyed craft is also "gone". Only the funds credit tells them apart,
@@ -567,7 +676,7 @@ class SbrVesselLossTests(unittest.TestCase):
         self.assertIn("vessel-lost-before-recovery", state.loss_reason)
 
     def test_a_loss_during_transmit_is_an_assert_fail(self):
-        state = SbrTransmitTests()._in_transmit()
+        state = in_transmit()
         state = drive(state, snap(ut=10.0, vessel_lost=True, career_funds=9999.0))
         self.assertTrue(state.done)
         self.assertIn("vessel-lost-before-recovery", state.loss_reason)
@@ -578,7 +687,7 @@ class SbrVesselLossTests(unittest.TestCase):
         # and the gate is the career POOL; flaking there would throw away a flight
         # that had already collected and transmitted, for a reading nothing was
         # waiting on. (The pools have their own give-up.)
-        state = SbrTransmitTests()._in_transmit()
+        state = in_transmit()
         state = drive(state, *[sci(ut=10.0 + i, situation="LANDED",
                                    science_experiment_count=mlib.SCIENCE_COUNT_UNREAD,
                                    science_data_count=mlib.SCIENCE_COUNT_UNREAD,
@@ -597,14 +706,21 @@ class SbrVesselLossTests(unittest.TestCase):
         self.assertEqual(mlib.MISSION_FLAKE, state.verdict)
         self.assertIn("science-channel-dark", state.flake_reason)
 
-    def test_a_vessel_lost_frame_never_counts_toward_the_dark_channel_give_up(self):
+    def test_a_vessel_lost_frame_HOLDS_the_dark_channel_streak_rather_than_resetting_it(self):
         # On that frame every VESSEL-scoped channel is legitimately unread, so
         # counting it would blame the channel for the recovery we asked for.
-        state = SbrRecoverTests()._in_recover()
+        #
+        # THE STREAK IS SEEDED NONZERO ON PURPOSE. With a streak of 0 the cell
+        # passes identically whether lost frames SKIP the accounting or RESET it,
+        # so it would discriminate nothing. Seeded, it pins the actual contract:
+        # a lost frame is evidence in NEITHER direction and leaves the run alone.
+        from dataclasses import replace as _replace
+        state = _replace(in_recover(), science_unread_streak=3)
         state = drive(state,
                       sci(ut=12.0, situation="LANDED", vessel_recoverable=mlib.RECOVERABLE_YES),
                       sci(ut=13.0, situation="LANDED", vessel_recoverable=mlib.RECOVERABLE_YES))
         before = state.science_unread_streak
+        self.assertEqual(3, before, "the seed must survive to the frames under test")
         state = drive(state, *[snap(ut=14.0 + i, vessel_lost=True, career_funds=1000.0)
                                for i in range(3)])
         self.assertEqual(before, state.science_unread_streak)
@@ -631,7 +747,7 @@ class SbrAssertionTests(unittest.TestCase):
     """The four rows, both directions."""
 
     def _recovered(self):
-        state = SbrRecoverTests()._in_recover()
+        state = in_recover()
         state = drive(state,
                       sci(ut=12.0, situation="LANDED", vessel_recoverable=mlib.RECOVERABLE_YES),
                       sci(ut=13.0, situation="LANDED", vessel_recoverable=mlib.RECOVERABLE_YES))
@@ -673,18 +789,42 @@ class SbrAssertionTests(unittest.TestCase):
         self.assertFalse(rows["scienceTransmittedObserved"].met)
         self.assertFalse(rows["vesselRecoveredObserved"].met)
 
-    def test_an_unread_pool_leaves_the_credit_rows_unmet_rather_than_met_at_zero(self):
-        state = SbrTransmitTests()._in_transmit()
+    def test_a_zero_gain_passes_a_zero_floor_which_is_why_the_schema_forbids_one(self):
+        # Named for what it actually shows. The pool here is READABLE and simply
+        # has not moved (baseline == final == 10.0), so the gain is a finite 0.0:
+        # against a 0.0 floor that PASSES. The predicate is not the guard - the
+        # schema's exclusive minimum is, and `SchemaSyncTests` pins it.
+        state = in_transmit()
+        self.assertEqual(0.0, mlib._sbr_science_gain(state))
         rows = {o.name: o for o in mlib.evaluate_sbr_assertions(
             [], mlib.sbr_params_from_dict(params(transmitMinScienceGain=0.0)), state)}
-        # gain is 0.0 here (baseline == final), and the FLOOR is 0.0 - yet the
-        # schema forbids that floor for exactly this reason. Assert the arithmetic
-        # honestly: a zero gain against a zero floor DOES pass, which is why the
-        # schema's exclusive minimum is the guard rather than this predicate.
         self.assertTrue(rows["scienceTransmittedObserved"].met)
         rows = {o.name: o for o in mlib.evaluate_sbr_assertions(
             [], mlib.sbr_params_from_dict(PARAMS), state)}
         self.assertFalse(rows["scienceTransmittedObserved"].met)
+
+    def test_a_GENUINELY_UNREAD_pool_leaves_the_row_unmet_even_at_a_zero_floor(self):
+        # The case the cell above does NOT cover, and the one the fail-closed
+        # sentinel exists for: with no finite reading the gain is None, so no
+        # floor - not even 0.0 - can be satisfied. An unread pool must never be
+        # able to certify a credit.
+        from dataclasses import replace as _replace
+        state = _replace(in_transmit(), science_baseline=None, last_science=None)
+        self.assertIsNone(mlib._sbr_science_gain(state))
+        for floor in (0.0, 1.0):
+            rows = {o.name: o for o in mlib.evaluate_sbr_assertions(
+                [], mlib.sbr_params_from_dict(params(transmitMinScienceGain=floor)),
+                state)}
+            self.assertFalse(rows["scienceTransmittedObserved"].met, floor)
+
+    def test_an_unread_funds_pool_leaves_the_recovery_row_unmet_at_a_zero_floor(self):
+        # The same property on the recovery side, where the floor of 0.0 is
+        # SCHEMA-LEGAL - so this is the one that would actually bite.
+        state, _ = flown()
+        rows = {o.name: o for o in mlib.evaluate_sbr_assertions(
+            [], mlib.sbr_params_from_dict(params(recoverMinFundsGain=0.0)), state)}
+        self.assertFalse(rows["vesselRecoveredObserved"].met)
+        self.assertIsNone(rows["vesselRecoveredObserved"].value)
 
     def test_b1s_apoapsis_window_is_deliberately_not_re_asserted(self):
         # Re-asserting a WINDOW on the hop's shape would make this forge brittle
@@ -829,21 +969,31 @@ class _FakeExperiment:
 
 
 class _FakeParts:
-    def __init__(self, experiments, raises=False):
+    def __init__(self, experiments, raises=False, raise_times=None):
         self._experiments = experiments
         self._raises = raises
+        # `raise_times=N` raises on the first N reads and then answers normally -
+        # a TRANSIENT enumeration fault, which is a different thing from a
+        # permanently dark surface and must be classified differently.
+        self._raise_times = raise_times
+        self.reads = 0
 
     @property
     def experiments(self):
+        self.reads += 1
         if self._raises:
             raise RuntimeError("parts.experiments blew up")
+        if self._raise_times is not None and self.reads <= self._raise_times:
+            raise RuntimeError("parts.experiments transient fault")
         return list(self._experiments)
 
 
 class _FakeVessel:
     def __init__(self, experiments=(), parts_raise=False, recoverable=True,
-                 recoverable_raises=False, recover_raises=False):
-        self.parts = _FakeParts(list(experiments), raises=parts_raise)
+                 recoverable_raises=False, recover_raises=False,
+                 parts_raise_times=None):
+        self.parts = _FakeParts(list(experiments), raises=parts_raise,
+                                raise_times=parts_raise_times)
         self._recoverable = recoverable
         self._recoverable_raises = recoverable_raises
         self._recover_raises = recover_raises
@@ -900,6 +1050,24 @@ class ScienceChannelReadTests(unittest.TestCase):
     def test_a_raising_enumeration_reports_the_unread_sentinel_triple(self):
         got = control()._read_science_channels(_FakeVessel([], parts_raise=True))
         self.assertEqual((mlib.SCIENCE_COUNT_UNREAD,) * 3, got)
+
+    def test_a_transient_fault_never_fabricates_an_OBSERVED_ZERO(self):
+        # THE REGRESSION. An earlier revision swallowed the first read to [], then
+        # RE-PROBED to tell "empty" from "unreadable" and DISCARDED the re-probe's
+        # result - so a single transient fault on a craft WITH experiments
+        # reported (0, 0, 0). Two such polls complete the debounce and condemn
+        # `no-experiments-aboard`: a NON-RETRYABLE assert-fail manufactured out of
+        # a RETRYABLE channel fault, which is the exact inversion the
+        # UNREAD-vs-zero split exists to prevent.
+        vessel = _FakeVessel([_FakeExperiment(has_data=True)], parts_raise_times=1)
+        first = control()._read_science_channels(vessel)
+        self.assertEqual((mlib.SCIENCE_COUNT_UNREAD,) * 3, first,
+                         "a faulted read must report UNREAD, never a fabricated 0")
+        self.assertEqual(1, vessel.parts.reads,
+                         "the surface must be enumerated ONCE per call; a second "
+                         "probe is the window the fabricated zero came through")
+        # And the very next poll, with the fault gone, reads the truth.
+        self.assertEqual((1, 1, 1), control()._read_science_channels(vessel))
 
     def test_a_single_raising_module_does_not_blind_the_sweep(self):
         exps = [_FakeExperiment(has_data=True),
@@ -1135,7 +1303,7 @@ class VesselLostCareerPoolCarryTests(unittest.TestCase):
     def test_that_snapshot_drives_the_machine_to_the_success_terminal(self):
         # End to end across the seam: a runner-produced vessel_lost frame alone
         # must be able to complete the recovery terminal.
-        state = SbrRecoverTests()._in_recover()
+        state = in_recover()
         state = drive(state,
                       sci(ut=12.0, situation="LANDED", vessel_recoverable=mlib.RECOVERABLE_YES),
                       sci(ut=13.0, situation="LANDED", vessel_recoverable=mlib.RECOVERABLE_YES))
@@ -1190,8 +1358,14 @@ class SchemaSyncTests(unittest.TestCase):
         self.assertGreaterEqual(self.params["collectMinExperiments"]["min"], 1)
 
     def test_the_recover_floor_may_be_zero_and_that_is_the_documented_asymmetry(self):
-        # Its OTHER conjunct (the craft OBSERVED gone) already carries real
-        # information, so this floor corroborates rather than being the whole gate.
+        # SAFE only because of how the gate is built, and the two facts are pinned
+        # together on purpose: a review found this floor sitting on top of a gate
+        # that compared the baseline against the merely LATEST reading, so an
+        # exploded craft satisfied `0.0 >= 0.0` and was certified RECOVERED. The
+        # floor is legal because the terminal ALSO requires the craft observed
+        # gone AND a credit measured across the recovery (see
+        # SbrRecoverTests.test_at_a_zero_floor_a_purely_pre_loss_funds_pair_never_certifies).
+        # If that structure is ever weakened, this floor must go positive with it.
         self.assertEqual(0.0, self.params["recoverMinFundsGain"]["min"])
 
     def test_every_declared_key_is_read_by_the_params_builder(self):

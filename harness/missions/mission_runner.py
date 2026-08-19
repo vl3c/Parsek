@@ -1878,25 +1878,34 @@ class KrpcMissionControl(MissionControl):
         Per-module read faults are absorbed into the counts rather than
         propagated: a single module that refuses to answer must not blind the
         whole sweep."""
-        experiments = self._iter_experiments(vessel)
+        # ENUMERATE EXACTLY ONCE, inside this function's own try/except.
+        #
+        # An earlier revision called the swallowing `_iter_experiments` helper and
+        # then RE-PROBED `vessel.parts.experiments` to tell "empty" from
+        # "unreadable", discarding the re-probe's result. That turned a single
+        # TRANSIENT enumeration fault into a fabricated OBSERVED zero: the first
+        # read raised and was swallowed to [], the re-probe succeeded (possibly
+        # returning a full list), and the function reported (0, 0, 0) for a craft
+        # that has experiments. Two such polls complete the debounce and condemn
+        # `no-experiments-aboard` - a NON-RETRYABLE ASSERT-FAIL manufactured out of
+        # a retryable channel fault, which is the exact inversion the
+        # UNREAD-vs-zero split exists to prevent. Reading once and counting
+        # whatever THAT read returned removes the window entirely.
+        try:
+            experiments = list(vessel.parts.experiments or [])
+        except Exception as exc:
+            if not self._warned_science_read:
+                self._warned_science_read = True
+                _stdout_sink(mlib.format_mission_log_line(
+                    "Warn", "Science",
+                    "experiment enumeration UNREADABLE (%s: %s); the three "
+                    "science count channels degrade to the -1 UNREAD "
+                    "sentinel, which fails every collect gate CLOSED and "
+                    "will flake the mission `science-channel-dark`. Logged "
+                    "once per run." % (type(exc).__name__, str(exc)[:160])))
+            return (mlib.SCIENCE_COUNT_UNREAD, mlib.SCIENCE_COUNT_UNREAD,
+                    mlib.SCIENCE_COUNT_UNREAD)
         if not experiments:
-            # Distinguish "no experiments" from "could not enumerate": re-probe
-            # the collection itself. An empty list from a SUCCESSFUL read is 0;
-            # a raising read is UNREAD.
-            try:
-                _ = vessel.parts.experiments
-            except Exception as exc:
-                if not self._warned_science_read:
-                    self._warned_science_read = True
-                    _stdout_sink(mlib.format_mission_log_line(
-                        "Warn", "Science",
-                        "experiment enumeration UNREADABLE (%s: %s); the three "
-                        "science count channels degrade to the -1 UNREAD "
-                        "sentinel, which fails every collect gate CLOSED and "
-                        "will flake the mission `science-channel-dark`. Logged "
-                        "once per run." % (type(exc).__name__, str(exc)[:160])))
-                return (mlib.SCIENCE_COUNT_UNREAD, mlib.SCIENCE_COUNT_UNREAD,
-                        mlib.SCIENCE_COUNT_UNREAD)
             return 0, 0, 0
         data = 0
         available = 0

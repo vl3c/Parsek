@@ -146,14 +146,20 @@ min = 10.0
 # the RECOVERED terminal is granted.
 #
 # 0.0 IS ALLOWED HERE, unlike the science floor above, and the asymmetry is
-# deliberate. The recovery terminal's OTHER conjunct - the craft OBSERVED GONE -
-# already carries real information, so this floor is the corroborator that
-# separates "recovered" from "broke up" rather than the whole gate. A spec that
-# sets 0.0 is asking for "the pools were readable across the recovery", which is
-# still strictly more than the vessel-gone reading alone; a spec that wants the
-# stronger claim sets a positive floor sized under the craft's own cost. Naming a
-# number closer to the true refund would be authoring a pool value, which this
-# schema does not do.
+# deliberate - but it is only SAFE because of how the gate is built, and the two
+# facts belong together (a review found this floor sitting on top of a gate that
+# did not implement the claim below, which certified an exploded craft as
+# RECOVERED).
+#
+# The recovery terminal has two other conjuncts that carry real information on
+# their own: the craft is OBSERVED GONE, and the credit is measured ACROSS the
+# recovery - a pre-recover baseline against a funds reading taken ON a
+# vessel-gone frame, after the verb was actually issued. So a spec that sets 0.0
+# is asking for exactly "the pools were readable across the recovery", which is
+# strictly more than the vessel-gone reading alone and is a claim the machine now
+# really makes. A spec that wants the stronger claim sets a positive floor sized
+# under the craft's own cost. Naming a number closer to the true refund would be
+# authoring a pool value, which this schema does not do.
 [params.recoverMinFundsGain]
 required = true
 type = "number"
