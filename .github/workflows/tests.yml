@@ -1,0 +1,39 @@
+name: tests
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+concurrency:
+  group: tests-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Private KSP/Unity/mod reference DLLs (see the ksp-refs README).
+      # Authenticated via a read-only deploy key stored as a repo secret;
+      # the default GITHUB_TOKEN cannot reach other repos.
+      - name: Checkout ksp-refs (reference DLLs)
+        uses: actions/checkout@v4
+        with:
+          repository: vl3c/ksp-refs
+          ssh-key: ${{ secrets.KSP_REFS_DEPLOY_KEY }}
+          path: ksp-refs
+
+      # Ubuntu's apt-built .NET SDK ships no net472 testhost, so the suite
+      # runs under mono + the xunit console runner via scripts/cloud-test.sh
+      # (same path cloud agent sessions use). dotnet SDK is preinstalled.
+      - name: Install mono
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq mono-devel
+
+      - name: Build + run xUnit suite
+        env:
+          KSPDIR: ${{ github.workspace }}/ksp-refs
+        run: scripts/cloud-test.sh

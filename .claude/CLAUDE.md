@@ -21,6 +21,11 @@ on Windows), and mono runs `FlightGlobals`' failing initializer at JIT of the
 CALLING method — keep `FlightGlobals` reads inside `[MethodImpl(NoInlining)]`
 cores (see `RecordingStore.ReadUnityApplicationIsPlayingCore`).
 
+**CI (GitHub Actions):** `.github/workflows/tests.yml` runs `scripts/cloud-test.sh`
+on `ubuntu-latest` for every PR and every push to `main` (full xUnit suite under
+mono; ksp-refs cloned via the read-only `KSP_REFS_DEPLOY_KEY` secret). Status:
+PR checks + the README badge.
+
 **KSP deploy is intentional-only:** the post-build copy to `GameData/Parsek/Plugins` runs ONLY when the build is started from the building checkout's own `Source/Parsek` directory, or with `-p:ForceKspDeploy=true`. This works from ANY worktree: `cd Parsek-<branch>/Source/Parsek && dotnet build` deploys that branch's DLL (testing unmerged branches is unchanged). What never deploys: `dotnet test` (builds Parsek via ProjectReference from the Tests dir), builds started from the repo root or elsewhere, and `release.py`; those print `KSP deploy skipped` instead. `-p:SkipKspDeploy=true` suppresses the deploy even from the project dir. Rationale: with multiple worktrees sharing one KSP install, every sibling test run used to clobber the deployed DLL with whatever branch ran tests last.
 
 Post-build copy uses `ContinueOnError="true"` - builds succeed when KSP has DLL locked.
