@@ -14,6 +14,96 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## MAPRENDER-ICON-OFF-ORBIT-CREATION-FRAME-AFTER-JUMP: a ghost's proto ICON sits ~94 deg around its own orbit line on the CREATION frame, after a single large TimeJump onto an epoch just inside a foreign moon's SOI [MEASURED 2026-08-18 by `V14T-ike-ts-arrival`'s reading run. REPORT-ONLY: one self-correcting frame, tolerated by name in that spec; NO product change is proposed]
+
+`V14T-ike-ts-arrival` run `2026-08-18_2337` came back PARSEK-FAIL(anomaly) on
+attempt 1 with **all sixteen steps green** - every tracking-station route line
+fired, `created 1 ghost vessel(s)`, the TS session itself swept clean. The red is
+the armed Tier-C sweep doing its job: `anomalySweep hits=['icon-off-orbit']`,
+**exactly one line in the whole log**.
+
+### The measurement, verbatim
+
+`harness/results/2026-08-18_2337_V14T-ike-ts-arrival_shots/KSP.log` line 10774:
+
+    phase=Anomaly surface=ProtoIcon pid=2928501323 recId=05ceee33806d4079a1d9d125a1359115
+      frame=6979 currentUT=9243139.000 effUT=9243139.000 reason=icon-off-orbit
+      angleIconVsOrbitEff=94.05 angleEffVsLive=0.00 loopShift=0.0 effUT=9243139.0
+      | lonIcon=107.35 lonOrbitEff=-157.93 lonOrbitLive=-157.93
+      | iconR=1019937 orbitEffR=1019937
+      | lineActive=True inc=11.886 LAN=285.703 argPe=154.625 sma=-1230685 ecc=1.1385 body=Ike
+
+Read the three groups: **right body, right conic, right radius, wrong phase**.
+`iconR` and `orbitEffR` are the SAME 1,019,937 m; `lonOrbitEff` and `lonOrbitLive`
+agree exactly (`angleEffVsLive=0.00`, so the loop shift is not involved -
+`loopShift=0.0`); only `lonIcon` is 94.05 deg away from both.
+
+### The trigger shape, stated as narrowly as the evidence supports
+
+- **Ghost-proto CREATION frame.** The same frame 6979 carries
+  `phase=GhostCreated surface=ProtoIcon ... body=Ike scene=FLIGHT` and
+  `phase=FirstPosition ... reason=first-truth-read`. It is the first frame the
+  proto exists.
+- **FLIGHT scene, not TS.** It fires at 02:38:18.648; this lane's TS `LoadGame`
+  is at 02:38:19.58, about a second LATER. The tracking-station ghost
+  (pid 3383498847) is created clean and raises nothing. Do not read this as a TS
+  defect because it happens to appear in a TS lane's log.
+- **After ONE large TimeJump.** V14T jumps 17,223 s in a single step straight onto
+  the arrival epoch. **`V14M-ike-player-loop` is the control**: same fixture, same
+  tracers, same arrival UT 9,243,139, but reached through a STEPPED bracket
+  (-180 / -60 / +140 s). Its reading run `2026-08-18_2336` swept `hits=[]`. That
+  pair is what makes "the jump shape, not the fixture" the leading reading.
+- **Just inside a foreign moon's SOI, on a hyperbolic approach segment.** r =
+  1,019.9 km against Ike's 1,049.6 km SOI boundary; the conic is
+  `sma=-1230685 ecc=1.1385`, i.e. segments 6-9 of the committed recording.
+- **Self-corrects on the next frame** and never recurs - one line, whole log.
+
+### What is NOT established
+
+**Whether the mechanism is parent-specific.** This is the first observation at a
+non-Kerbin parent, and it is tempting to make something of that; the evidence does
+not support it either way. V7T raises `icon-off-orbit` deterministically at
+MINMUS on every flight (`MOON-LOOP-FINDINGS`), so the token is not new and not
+Duna-specific. Whether THIS one - creation-frame, one-shot, post-single-jump - is
+the same mechanism as V7T's persistent raise is UNKNOWN and would need the two
+compared frame by frame.
+
+**Whether the icon or the line is wrong.** `angleIconVsOrbitEff` says only that
+they disagree. The radius agreement makes a stale-phase icon the natural first
+guess (the icon drawn before its position resolves against the freshly-jumped
+clock), but nothing here measures which surface is authoritative on a creation
+frame.
+
+**The cheap discriminating experiment**, for whoever picks this up: give V14M a
+variant with V14T's single-jump shape (or V14T a variant with V14M's bracket) and
+see whether the raise follows the JUMP SHAPE or the SCENE. Both lanes already
+exist, share a fixture, and differ in exactly that one variable.
+
+### The tolerance now in force, and its ceiling
+
+`V14T-ike-ts-arrival` declares `allowedAnomalies = ["icon-off-orbit"]`, added WITH
+the flight that shows it (the S1.4 rule). It is BARE rather than
+`{ token = ..., maxCount = 1 }`, and that is a deliberate, temporary weakness:
+`harness/lib/test_hlib.py::MisplacedAllowedAnomaliesRejectionTests.test_no_committed_spec_arms_a_count_budget`
+holds the budget mechanism INERT across the whole suite, and its own comment says
+arming one is "an operator decision taken against measured `anomalySweep.hitCounts`
+from a GREEN run" - which this lane does not have yet, since the run that measured
+the token is the run it red'd. **Follow-up, in order:** the armed re-flight
+produces the first green `hitCounts` for this token; an operator may then arm
+`maxCount = 1` as the suite's first budgeted entry, citing it. Until then the
+ceiling lives in that spec's comment rather than in its declaration, and a second
+raise would pass unnoticed - which is the honest cost of respecting the invariant.
+
+`V14M-ike-player-loop` keeps `allowedAnomalies = []` and stays the control.
+
+**NO PRODUCT CHANGE IS PROPOSED BY THIS LANE.** A one-frame creation-time icon
+phase error that self-corrects is a rendering transient, not a recorded-data
+defect; nothing in the recording, the loop unit or the committed save is affected.
+What is recorded here is the measurement, the control that isolates the jump
+shape, and the discriminating experiment.
+
+---
+
 ## SEAM-STARTRECORDING-JOINS-COMMITTED-TREE: a seam `StartRecording` on a vessel that is a committed tree's own launch cannot open a standalone tree - it no-ops onto the recording the committed-restore path re-resumed [MEASURED 2026-08-18 by `B23-ike-orbit` flight 1; WORKAROUND LIVE-PROVEN the same day by flight 2. REPORT-ONLY: a HARNESS/FIXTURE constraint on the automation surface, NOT a proposed product change]
 
 `B23-ike-orbit` exists to produce the suite's first recording whose LAUNCH BODY

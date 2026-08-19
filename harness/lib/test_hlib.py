@@ -5033,8 +5033,8 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
         # cadence) NO existing lane has measured, so every bracket UT in both specs is a
         # derived CALIBRATION SEED rather than a pin, and both ship with nothing armed and
         # only the ERROR floor forbidden. Promotion is the post-reading arming call.
-        "V14M-ike-player-loop.toml":         "calibration-discipline - iteration-1 READING RUN on the V6M/V8/V11 pattern, never flown; the TimeJump brackets are derived from a solver branch this pair is the first to reach (tidal-collapse predicts phaseAnchorUt 9,225,915.966 and a uniform 65,517.862 s cadence), nothing is armed, and V6M's re-aim forbid trio + backward-jump token are deliberately UNFORBIDDEN so a surprising routing is recorded rather than red. Promotion waits on the arming pass, not on outstanding work",
-        "V14T-ike-ts-arrival.toml":          "calibration-discipline - the TS half of the same iteration-1 reading pair, never flown; V6T's chain verbatim (re-kill pair included) against a fixture whose shape makes V5's promotion-recorder re-arm race more likely, with V6T's `body=X scene=TRACKSTATION` proto pin and `reaimed=False` mode pin deliberately NOT required until measured. Promotion waits on the arming pass, not on outstanding work",
+        "V14M-ike-player-loop.toml":         "calibration-discipline - READING RUN FLOWN GREEN 2026-08-18 (`_2336`, PASS attempt 1, wall 50 s, anomalySweep hits=[], all 8 TimeJumps OK, both watch attempts REJECTED as pinned) and ARMED off its own bytes the same day: 12 required tokens incl. the measured routing conjunction, V6M's full six forbids, count pinned {1,1} and both save-structure blocks gating. THE PREDICTION IT WAS BUILT ON WAS REFUTED and that is its value: `ExtractConstraints` emits `constraints=1` with NO Rotation(Duna), because an ORBIT-ROOTED recording has no surface phase, so `method=single-orbital` rather than the predicted tidal-collapse - phase-lock for a single-moon orbit-rooted subject is EXACT (residual 0, cadence = one moon period, no schedule) rather than within-tolerance. The derived anchor still held to 0.04 s and no jump UT moved. Operator tier is now the armed re-flight + the ordinary promotion call, not outstanding work",
+        "V14T-ike-ts-arrival.toml":          "calibration-discipline - READING RUN FLOWN 2026-08-18 (`_2337`, PARSEK-FAIL(anomaly) attempt 1 with ALL 16 STEPS GREEN - a CORRECT catch, not a lane defect: the armed Tier-C sweep found ONE `icon-off-orbit` on a ghost-proto creation frame in FLIGHT, a second before the TS load) and ARMED off its own bytes the same day: 13 required tokens incl. the `body=Ike scene=TRACKSTATION` proto pin and `reaimed=False`, V6T's full six forbids, count {1,1}, both save-structure blocks gating, and the anomaly tolerated with a CEILING (`maxCount = 1`) plus a filed report-only entry (MAPRENDER-ICON-OFF-ORBIT-CREATION-FRAME-AFTER-JUMP). V14M is the control: same fixture, same tracers, same arrival UT, stepped bracket instead of one 17,223-s jump, hits=[]. Operator tier is now the armed re-flight + the ordinary promotion call, not outstanding work",
         # V11 is a pure READING RUN in V9's original posture: nothing armed
         # beyond the plumbing triple, count window deliberately wide, and the
         # decline reasons V9 forbids left UNFORBIDDEN here on purpose -- if
@@ -5462,7 +5462,33 @@ class SaveStructureVerifierWiringTests(unittest.TestCase):
     # window verbatim - with the glance and without it, the RewindPoint survives -
     # so this spec is now the REGRESSION GUARD for that fix rather than the
     # experiment that found it.
+    # V14M / V14T: rewind (all max 0 - a pure replay-observation workflow authors
+    # nothing durable) + structure (trees {1,2} on the duplicate-writer hazard,
+    # committedTrees / recordings / terminalStates pinned at the measured 1/1/Orbiting)
+    # armed 2026-08-18 on the V2/B17/V4 three-run discipline, off each lane's OWN
+    # reading run: V14M `2026-08-18_2336` (PASS attempt 1, wall 50 s) and V14T
+    # `2026-08-18_2337`. BOTH readings measured every declared window already met, so
+    # the arming re-pinned nothing and moved no verdict (the S4.1 rule).
+    #
+    # TWO THINGS ABOUT THIS PAIR THAT DIFFER FROM EVERY OTHER ENTRY HERE, recorded so a
+    # reviewer does not have to reconstruct them:
+    #   (1) NEITHER LANE DECLARED THESE BLOCKS BEFORE. Their reading runs shipped with
+    #       no `[expectations.rewind]` and no `[expectations.recordings.structure]` at
+    #       all, on the ground that a report-only block of PREDICTED numbers reads like
+    #       a measurement. So this is not the usual `gating` flip onto an existing
+    #       report-only window - the windows are WRITTEN FROM the measurement.
+    #   (2) V14T'S READING RUN WAS A PARSEK-FAIL, and arming off it is still correct.
+    #       The red is `anomalySweep hits=['icon-off-orbit']` - a DIFFERENT verifier,
+    #       one Tier-C raise on a ghost-proto creation frame - while the saveParse
+    #       facets it arms were clean (rewindPoints 0, supersedeRows 0, tombstones 0,
+    #       committedTrees 1, trees 1, recordings 1). The anomaly is tolerated
+    #       separately and with a CEILING (`maxCount = 1`), and it is filed report-only
+    #       as MAPRENDER-ICON-OFF-ORBIT-CREATION-FRAME-AFTER-JUMP.
+    # STILL OWED: the armed re-flights, and ONE negative control across the pair (they
+    # gate through the single shared saveParse evaluator, so a second inversion would
+    # re-prove the evaluator rather than these windows - the V4/V5 precedent).
     ARMED_ALLOWLIST = {"S4.1-rewind-merge.toml", "CL-3-refly-crew-tombstone.toml",
+                       "V14M-ike-player-loop.toml", "V14T-ike-ts-arrival.toml",
                        "GS-1-auto-chute-booster.toml", "GS-2-orbital-probe-deploy.toml",
                        "GS-3-switch-nudge-deployed.toml",
                        # B17: rewind (all max 0 - a clean single-launch flight
