@@ -1,8 +1,12 @@
 # Same-Parent Re-Aim at the Planet-With-Moons Level (the Jool system)
 
-STATUS: **V14M MEASURED, 2026-08-18 - section 7 spliced, and one pre-registered prediction
-REFUTED.** The Jool-side numbers are still derived from committed repo constants or computed from
-stock SMAs + `mu_Jool`; nothing Jool-specific is flight-measured. What IS measured is the
+STATUS: **V14M MEASURED AND ARMED, 2026-08-18/19 - section 7 spliced from a completed three-run
+discipline, and one pre-registered prediction REFUTED.** The Duna->Ike splice is closed: reading
+run `2026-08-18_2336` (PASS attempt 1) supplied every measured value below, armed re-flight
+`2026-08-19_0001` (PASS attempt 1) re-confirmed them under gated expectations, and negative
+control `2026-08-19_0003` proved the gate reds when inverted. Nothing in section 7 is pending.
+The Jool-side numbers (the J1-J5 table) are still derived from committed repo constants or
+computed from stock SMAs + `mu_Jool`; nothing Jool-specific is flight-measured. What IS measured is the
 Duna->Ike analogue (`V14M-ike-player-loop` run `2026-08-18_2336`, PASS attempt 1), and it moved
 this document in a direction worth reading before the rest:
 
@@ -443,10 +447,11 @@ re-aim".
 Argued from the numbers:
 
 - **Phase-lock genuinely suffices, exactly, for P2 single-moon** (3.5: one constraint, residual 0,
-  no horizon) - **and this is now MEASURED, not walked**: `V14M-ike-player-loop`
-  (`2026-08-18_2336`) flew a Duna-park -> Ike subject and printed `constraints=1` /
-  `method=single-orbital` / `fixedCadenceResidual=0` / `zeroDrift=no` / cadence = exactly one moon
-  period. It also generalises the reason: a park-rooted subject is single-constraint because it
+  no horizon) - **and this is now MEASURED, not walked, and re-tested as a contract**:
+  `V14M-ike-player-loop` (`2026-08-18_2336`) flew a Duna-park -> Ike subject and printed
+  `constraints=1` / `method=single-orbital` / `fixedCadenceResidual=0` / `zeroDrift=no` /
+  cadence = exactly one moon period; its armed re-flight (`2026-08-19_0001`) re-flew the same
+  shape with those values pinned as required tokens and passed attempt 1. It also generalises the reason: a park-rooted subject is single-constraint because it
   emits no `Rotation(launchBody)`, so the P2 claim does not depend on the Jool moons' tidal
   locking or on any equality band. **And suffices for ~44 Kerbin years / ~40 Kerbin->Jool windows
   for the resonant inner three** (3.3: `T_config = 211,924.2 s`, contiguous in-tolerance prefix k <= 3,850). Those
@@ -485,7 +490,8 @@ reading.
 
 ---
 
-## 7. MEASURED - the V14M splice points (run `2026-08-18_2336`, PASS attempt 1)
+## 7. MEASURED - the V14M splice points (CLOSED: reading `2026-08-18_2336`, armed
+`2026-08-19_0001`, negative control `2026-08-19_0003`)
 
 The Duna->Ike lane is the nearest same-parent analogue to P2 that will actually fly: launch body
 Duna, single moon target Ike, tidally locked. Its reading run's `ExtractConstraints:` summary
@@ -496,6 +502,17 @@ Pre-registered predictions (derived here from `Duna` rotation 65,517.86 s pinned
 `Source/Parsek.Tests/MissionPeriodicityTests.cs:102`, Ike SMA 3,200,000 m, `mu_Duna` =
 3.0136321e11, Ike SOI 1,049,598.9 m), against the measured values from
 `harness/results/2026-08-18_2336_V14M-ike-player-loop_shots/KSP.log` lines 10571 / 10574.
+
+**PROVENANCE, AND WHY THESE DIGITS ARE NOT A SINGLE-RUN READING.** The values come from the
+READING run, which is the only one of the three that collected a log (the harness collects on a
+non-PASS, and all three V14M runs but that one were PASSes - the reading run's log survives
+because it was collected deliberately). What makes them more than one sample is that the ARMED
+re-flight `2026-08-19_0001` re-flew the identical shape with every one of these values PINNED as a
+required token - the routing conjunction `method=single-orbital ... zeroDrift=no`, the cohesion
+`exoCoastBodyChangeKept=1`, the Ike body-frame rebind - and passed on attempt 1. A second run did
+not re-print these digits into an archive; it re-tested them as a contract. And negative control
+`2026-08-19_0003` (a temporary `supersedeRows = { min = 1 }`) confirmed the gating machinery reds
+when inverted, so the pass is not vacuous.
 
 **SCORECARD: 8 of 12 held, 4 fell together.** Rows 2, 5, 6 and 7 are ONE failure, not four - #2
 predicted a `Rotation(Duna)` constraint that does not exist, and #5 (its tolerance), #6 (the
@@ -518,7 +535,7 @@ prediction and the true road happen to share.
 | 9 | `zeroDrift=` | **`no`** | **`no`** | **HELD.** Note it holds under EITHER road, so this token alone could not have discriminated them - which is why V14M pins the whole `method=...zeroDrift=no` conjunction on one line |
 | 10 | `P=` (solution period) | 65,517.862 s | `65517.862134808071` | **HELD to 9 significant figures.** Ike's orbital period, as the dominant (and here the only) constraint |
 | 11 | `cadence -> effectiveCadence` | a whole multiple of 65,517.862 s | `21212.067403893918 -> 65517.862134808071` | **HELD** - exactly 1x P (`QuantizeCadenceToMultipleOfP`, k = ceil(21,212/65,518) = 1) |
-| 12 | Re-aim engagement | **none** - `ApplyReaim` never called | zero `[ReaimDiag]`, zero `ENGAGED re-aim`, zero `FORCED FAITHFUL`; `factory chain ... reaimed=False` | **HELD**, and now a REQUIRED/FORBIDDEN contract in the V14M spec |
+| 12 | Re-aim engagement | **none** - `ApplyReaim` never called | zero `[ReaimDiag]`, zero `ENGAGED re-aim`, zero `FORCED FAITHFUL`; `factory chain ... reaimed=False` | **HELD**, and now a REQUIRED/FORBIDDEN contract in the V14M spec - re-tested green on the armed run `2026-08-19_0001` |
 
 Two further measurements the table did not pre-register, both worth carrying:
 
@@ -546,7 +563,10 @@ scenario. The lesson for the next pre-registration is to predict the CONSTRAINT 
 as the branch it feeds; every failed row here is downstream of one unexamined assumption about
 what an orbit-rooted recording emits.
 
-Jool-side numbers that a future Jool lane would fill in the same way:
+Jool-side numbers that a future Jool lane would fill in the same way. **NO SUCH LANE EXISTS
+TODAY** - this table is the standing request, not a pending result, and the V14 pair is the
+worked example of how to fill one (pre-register the predictions, fly a reading run, splice, arm,
+control):
 
 | # | Quantity | Predicted | Measured | Notes |
 |---|---|---|---|---|
@@ -560,10 +580,11 @@ Jool-side numbers that a future Jool lane would fill in the same way:
 
 ## 8. What this document does not establish
 
-- **No JOOL-SIDE flight measurement.** Section 7 is now measured, but at DUNA->IKE: it certifies
-  the single-moon park-rooted road (3.5, section 6 bullet 1) on a real flight and nothing else.
-  Every Jool-specific number in sections 3, 4 and 5 remains arithmetic and code reading, and the
-  J1-J5 table below section 7's is still empty.
+- **No JOOL-SIDE flight measurement.** Section 7 is closed, but at DUNA->IKE: it certifies the
+  single-moon park-rooted road (3.5, section 6 bullet 1) on a real flight - now through a full
+  reading / armed / negative-control discipline - and nothing else. Every Jool-specific number in
+  sections 3, 4 and 5 remains arithmetic and code reading, and the J1-J5 table is still empty
+  because no Jool lane exists to fill it.
 - The P3 claim in 5.1 ("the classifier and synthesizer engage on a Laythe->Tylo recording today")
   is a **code walk**, not an executed test. It should be confirmed by a synthetic
   `ReaimClassifier.Classify` fixture with a Jool-frame segment chain before being acted on. It is

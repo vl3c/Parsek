@@ -14,7 +14,7 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
-## MAPRENDER-ICON-OFF-ORBIT-CREATION-FRAME-AFTER-JUMP: a ghost's proto ICON sits ~94 deg around its own orbit line on the CREATION frame, after a single large TimeJump onto an epoch just inside a foreign moon's SOI [MEASURED 2026-08-18 by `V14T-ike-ts-arrival`'s reading run. REPORT-ONLY: one self-correcting frame, tolerated by name in that spec; NO product change is proposed]
+## MAPRENDER-ICON-OFF-ORBIT-CREATION-FRAME-AFTER-JUMP: a ghost's proto ICON sits ~94 deg around its own orbit line on the CREATION frame, after a single large TimeJump onto an epoch just inside a foreign moon's SOI [MEASURED 2026-08-18 by `V14T-ike-ts-arrival`'s reading run and REPRODUCED on its armed run 2026-08-19. REPORT-ONLY: one self-correcting frame per run, DETERMINISTIC for the single-jump shape, tolerated by name in that spec; NO product change is proposed]
 
 `V14T-ike-ts-arrival` run `2026-08-18_2337` came back PARSEK-FAIL(anomaly) on
 attempt 1 with **all sixteen steps green** - every tracking-station route line
@@ -56,7 +56,32 @@ agree exactly (`angleEffVsLive=0.00`, so the loop shift is not involved -
 - **Just inside a foreign moon's SOI, on a hyperbolic approach segment.** r =
   1,019.9 km against Ike's 1,049.6 km SOI boundary; the conic is
   `sma=-1230685 ecc=1.1385`, i.e. segments 6-9 of the committed recording.
-- **Self-corrects on the next frame** and never recurs - one line, whole log.
+- **Self-corrects on the next frame**, and there is exactly one line per run.
+
+### REPRODUCED - it is a trigger, not an incident (2026-08-19)
+
+The reading run showed this ONCE, which is the weakest possible evidence: a single
+self-correcting frame is exactly what a one-off transient looks like. The ARMED
+re-flight settles it. Run `2026-08-19_0002`, PASS attempt 1:
+
+    anomalySweep status=PASS hits=[] counts={'icon-off-orbit': 1}
+
+Read both halves. `hits=[]` is the TOLERANCE working - the token is declared in
+`allowedAnomalies`, so it produces no unallowed hit and the run is green. `counts`
+is the raw tally, and it reads **1 again**. Same lane, same fixture, same single
+17,223-second jump, same one raise.
+
+That upgrades the finding from an observation to a **reproducible trigger**, and it
+sharpens the control at the same time: `V14M-ike-player-loop` has now flown TWICE
+(`2026-08-18_2336`, `2026-08-19_0001`, both PASS) against the same fixture, the same
+tracers and the same arrival UT through a STEPPED bracket, and swept `hits=[]` with an
+empty `counts` on both. Two runs each, one variable between them, opposite results
+every time. "The jump shape, not the fixture and not the scene" is no longer the
+leading reading - it is the measured one.
+
+WHAT IT DOES NOT UPGRADE: everything under "What is NOT established" below still
+stands. Reproducibility says the trigger is stable; it says nothing about which
+surface is wrong or whether V7T's persistent Minmus raise shares the mechanism.
 
 ### What is NOT established
 
@@ -88,11 +113,21 @@ the flight that shows it (the S1.4 rule). It is BARE rather than
 holds the budget mechanism INERT across the whole suite, and its own comment says
 arming one is "an operator decision taken against measured `anomalySweep.hitCounts`
 from a GREEN run" - which this lane does not have yet, since the run that measured
-the token is the run it red'd. **Follow-up, in order:** the armed re-flight
-produces the first green `hitCounts` for this token; an operator may then arm
-`maxCount = 1` as the suite's first budgeted entry, citing it. Until then the
-ceiling lives in that spec's comment rather than in its declaration, and a second
-raise would pass unnoticed - which is the honest cost of respecting the invariant.
+the token is the run it red'd. **THAT PRECONDITION IS NOW MET.** The armed re-flight `2026-08-19_0002` is a PASS and
+it carries the reading the doctrine asks for: `anomalySweep status=PASS hits=[]
+counts={'icon-off-orbit': 1}`. So the arming is READY - an operator may now declare
+`allowedAnomalies = [{ token = "icon-off-orbit", maxCount = 1 }]` in
+`V14T-ike-ts-arrival`, citing that run, as the suite's FIRST budgeted entry. Two things
+must move together when they do: the whole-set invariant cell
+`test_no_committed_spec_arms_a_count_budget` currently asserts the empty set and would
+red, so it needs a named allowlist in the same edit - the same shape as
+`ARMED_ALLOWLIST`, and the same discipline (record the run, not just the token).
+
+Until that decision is taken the tolerance stays BARE and the ceiling lives in the
+spec's comment rather than in its declaration - so a SECOND raise in one run would pass
+unnoticed. That is the honest, and now precisely bounded, cost of respecting the
+invariant: the measured population is 1 on each of two runs, so the gap between what is
+declared (any count) and what is observed (exactly one) is the entire exposure.
 
 `V14M-ike-player-loop` keeps `allowedAnomalies = []` and stays the control.
 
