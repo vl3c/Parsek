@@ -323,7 +323,7 @@ not help: the refusal is at the seam, before any row is written. That finding
 stays owned by the synthetic two-action unit test (`ScienceSpendingOrderingTests`,
 plan task A.1), and a future forge must NOT be scoped to it.
 
-## CAREER-FORGE-NEEDS-A-DIRECT-ANTENNA: the post-fix career forge cannot transmit science, because stock refuses to transmit over a command pod's INTERNAL antenna [MEASURED 2026-08-19 by `L3-career-science-recover` flight 2 (runs `2026-08-19_1823` + retry `_1831_a2`), root cause PROVEN from the decompiled `Assembly-CSharp`. NOT a product defect and NOT a harness defect: the MISSION named a FIXTURE fault correctly. OPEN, and the fix is fixture work]
+## CAREER-FORGE-NEEDS-A-DIRECT-ANTENNA: the post-fix career forge cannot transmit science, because stock refuses to transmit over a command pod's INTERNAL antenna [MEASURED 2026-08-19 by `L3-career-science-recover` flight 2 (runs `2026-08-19_1823` + retry `_1831_a2`), root cause PROVEN from the decompiled `Assembly-CSharp`. NOT a product defect and NOT a harness defect: the MISSION named a FIXTURE fault correctly. FIXTURE BUILT 2026-08-19 on `career-science-craft` (`career-science-pad`); LIVE-PROOF PENDING]
 
 `L3-career-science-recover` flight 2 flew a textbook mission and then condemned
 itself. The flight leg was perfect - peak apoapsis 19,990 m inside the
@@ -365,25 +365,55 @@ own reason text lists "no antenna" first. The mission behaved correctly. What th
 amendment got WRONG is one clause of A.2, now corrected in place: it claimed
 `Experiment.Transmit()` "succeeds with no antenna", and it does not - it raises.
 
-### Fix: a career fixture whose craft carries a DIRECT antenna
+### ~~Fix: a career fixture whose craft carries a DIRECT antenna~~ BUILT 2026-08-19 as `career-science-pad`
 
-Sized here so the next wave does not re-derive it. The `career-pad-craft` fixture
-must NOT be mutated (five committed specs fly it), so this is a SIBLING, and the
-`SurfAntenna` (Communotron 16-S, `antennaType = DIRECT`) is **already in the
-fixture's purchased-parts set**, so no tech-tree work is needed. The obstacle is
-that no committed `.craft` for the Jumping Flea exists anywhere - the craft lives
-only as a `FLIGHTSTATE` VESSEL node inside `b1-pad-craft` - so
-`build_career_pad_craft.py`'s donor-splice approach has no donor to splice, and
-hand-authoring a surface-attached PART node into a FLIGHTSTATE (fresh
-`persistentId`, `srfN`/`attN` strings, `stg` renumber) is the failure mode this
-repo's automation-first fixture rule exists to avoid. The honest route is the
-FORGE precedent: author the craft by construction (`build_gs1_craft.py` /
-`build_dd1_craft.py` are the pattern), add a `FORGE-*` spec that launches it onto
-the pad over a CAREER base, harvest it with `harvest_bdock_station.py` (which now
-derives its title suffix from the save's own `Mode`, so a CAREER harvest stamps
-`(CAREER)`), register the new fixture, and re-point `L3-career-science-recover` at
-it. Two flights plus the scaffolding, tracked as the rest of
-`docs/dev/plans/career-ledger-coverage.md` section 4d wave 2.
+The `career-pad-craft` fixture must NOT be mutated (five committed specs fly it),
+so the fix is a SIBLING, and the `SurfAntenna` (Communotron 16-S,
+`antennaType = DIRECT`) is **already in the fixture's purchased-parts set**, so no
+tech-tree work was needed.
+
+**THE ROUTE THIS ENTRY ORIGINALLY SIZED WAS THE EXPENSIVE ONE, and the cheap one
+turned out to exist.** The sizing above proposed the FORGE precedent - author a
+`.craft` by construction, add a `FORGE-*` spec that launches it onto the pad over
+a CAREER base, harvest it, register it, re-point the spec: two flights plus
+scaffolding. It was reached for because no committed `.craft` for the Jumping Flea
+exists anywhere (the craft lives only as a `FLIGHTSTATE` VESSEL node inside
+`b1-pad-craft`), so `build_career_pad_craft.py`'s donor-splice had no donor - and
+because hand-authoring a surface-attached PART node into a FLIGHTSTATE is the
+failure mode this repo's automation-first fixture rule exists to avoid.
+
+**What was missed is that "hand-authored" and "authored by a committed script" are
+not the same thing, and the three named hazards each have a mechanical answer.**
+`harness/tools/build_career_science_pad.py` splices three additive PART nodes
+(`SurfAntenna` + 2x `batteryPack`) into `career-pad-craft`'s VESSEL node:
+
+- **fresh `persistentId`** - assigned as fixed literals, and `verify` asserts both
+  `persistentId` and `uid` are unique across the whole vessel. A collision is the
+  failure mode a hand-written node actually has and it does not announce itself.
+- **`srfN` / `attN` strings** - `srfN = srfAttach, 0` with `attm = 1`, which is the
+  exact shape the two Mystery Goos on this same pod already carry. Every parent /
+  surface-attach index in the produced save is range-checked.
+- **`stg` renumber** - **not needed.** Every spliced part is `istg = -1`, and they
+  are APPENDED after the last existing part, so no existing index moves and no
+  `parent` / `srfN` / `attN` / `sym` reference in the save is disturbed. The
+  eight parts the base flies are asserted BYTE-IDENTICAL.
+
+The pose is DERIVED rather than typed: position and rotation are the -x Mystery
+Goo's measured pair carried through one rigid yaw about the pod's +Y axis, so the
+new parts land on free azimuths of a ring KSP itself authored. The whole thing is
+gated by `CareerSciencePadFixtureDriftTests` (byte-identity against a fresh
+rebuild over the current base) and `CareerSciencePadSpecFixtureSyncTests` (the
+spec/fixture pairing) in `harness/missions/lib/test_science_bench_recover.py`, and
+the fixture measures `RED=0` under the analyzer's Forbid gate. Zero forge flights.
+
+**One thing the antenna alone would NOT have fixed, and it is why the fixture
+carries batteries too.** Stock charges `packetResourceCost` per `packetSize` Mits
+and both come off the ANTENNA: through a `SurfAntenna` (2 Mits / 12 EC) the three
+experiments aboard cost 156 EC to transmit, against the pod's 50 - which flight 2
+measured as UNSPENT at touchdown, so 50 was genuinely all a transmit would have
+had. Two Z-100s take the craft to 250 EC. Swapping
+`transmit-credited-no-science` for an EC stall would have cost another flight to
+discover.
 
 **Worth taking with that wave, but not before it:** "no transmitter aboard" and
 "transmitted and nothing was credited" are the same side of the retry line and

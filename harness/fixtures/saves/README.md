@@ -115,6 +115,90 @@ no Parsek footprint) is gated by `SpecFixtureSyncTests` in
 `harness/missions/lib/test_cl1_crew_loss.py` - nothing else checks it, and getting it
 wrong costs a live flight to discover.
 
+## career-science-pad (GAME Mode = CAREER, 1 VESSEL)
+
+`career-pad-craft` with a DIRECT antenna and the ElectricCharge to spend on it. Used by
+`L3-career-science-recover`, the post-fix career forge - the first scenario in the suite
+that makes a career EARN rather than SPEND.
+
+**WHY IT EXISTS, and it cost two flights to learn.** kRPC filters transmitters by
+`IScienceDataTransmitter.CanTransmit()`, and stock `ModuleDataTransmitter.CanTransmit()`
+returns false for `antennaType == INTERNAL` BEFORE it consults CommNet at all. The
+Jumping Flea aboard `career-pad-craft` carries exactly one transmitter - `mk1pod.v2`'s
+built-in INTERNAL antenna - so **stock forbids transmitting science from that craft**,
+and no re-fly changes it. `L3-career-science-recover` run `2026-08-19_1823` flew a
+textbook mission (peak apoapsis 19,990 m, `LANDED`, all three experiments run) and still
+terminated `transmit-credited-no-science`. That is the fixture-fault class
+`design-autotest-mission-library.md` Amendment A describes, so the answer is a SIBLING
+fixture, not another flight.
+
+Built BY CONSTRUCTION, headlessly, by `harness/tools/build_career_science_pad.py` - no
+forge flight and no operator session. `python harness/tools/build_career_science_pad.py
+--check` re-verifies every post-condition against the COMMITTED bytes. That path is
+WIRED, not decorative: `CareerSciencePadFixtureDriftTests` in
+`harness/missions/lib/test_science_bench_recover.py` runs the same verify in-process AND
+re-runs the splice over the current `career-pad-craft`, asserting byte-identity with the
+committed save - so a move anywhere up the derivation chain (`fresh-career` ->
+`b1-pad-craft` -> `career-pad-craft` -> here) reds in the suite instead of drifting
+silently into a live flight.
+
+**Exactly one edit** against `career-pad-craft`'s save: three additive `PART` nodes,
+surface-attached to the pod and APPENDED after the existing eight, plus the `Title`
+restamp. The `persistent.loadmeta` is unchanged because the splice moves neither the
+vessel count nor the UT.
+
+1. `SurfAntenna` (Communotron 16-S). The whole point: its cfg declares
+   `antennaType = DIRECT`. 0.015 t.
+2. `batteryPack` (Z-100, 100 EC).
+3. `batteryPack` (Z-100, 100 EC).
+
+**The batteries are not padding.** Stock charges `packetResourceCost` per `packetSize`
+Mits, and both values come off the ANTENNA rather than the experiment - through a
+`SurfAntenna` (2 Mits / 12 EC) the three experiments aboard cost 156 EC to transmit:
+5 packets x 12 EC per Mystery Goo (10 Mits) twice, plus 3 packets x 12 EC for the crew
+report (5 Mits). `mk1pod.v2` carries 50, and the 2026-08-19 flight measured that 50 as
+UNSPENT at touchdown, so 50 is genuinely what a transmit would have had to spend - enough
+for the crew report alone and for neither Goo. Two Z-100s take the craft to 250 EC, a
+94 EC margin over the worst case. `transmitMinScienceGain` only needs ONE subject to
+credit, so the margin is defense in depth rather than a prediction.
+
+**Hand-authoring a PART node is the failure mode the automation-first fixture rule exists
+to avoid, and this is not it.** `CAREER-FORGE-NEEDS-A-DIRECT-ANTENNA` named three
+concrete hazards and the splice answers each mechanically rather than by care:
+a fresh `persistentId` (assigned as fixed literals and asserted unique across the vessel,
+along with `uid`); the `srfN` / `attN` strings (`srfN = srfAttach, 0` with `attm = 1`,
+the shape the two Mystery Goos on this same pod already carry, and every parent /
+surface-attach index is range-checked); and the `stg` renumber (**not needed** - every
+spliced part is `istg = -1`, and appending after the last existing part means no existing
+index moves, so no `parent`, `srfN`, `attN` or `sym` reference in the save is disturbed).
+The pose is DERIVED, not typed: both position and rotation are the -x Mystery Goo's
+measured pair carried through a rigid yaw about the pod's +Y axis, so the parts land on
+free azimuths of a ring KSP itself authored. That made the FORGE route - author a
+`.craft`, add a `FORGE-*` spec, fly it, harvest it - two flights of scaffolding for
+something a byte-identity gate proves for free.
+
+| Facet | Pinned value | Why it matters |
+| --- | --- | --- |
+| Mode | `CAREER` | inherited; a non-career save has no pools for the forge to move |
+| Funding / RnD / Reputation | `500000` / `100` / `0` | inherited unchanged; the ledger-oracle seed |
+| Facilities (all 10) | `lvl = 0` | inherited |
+| Vessel | the base's Jumping Flea **byte for byte** (parts 0-7), plus `SurfAntenna` + 2x `batteryPack` at indices 8-10 | the byte-identity of the first eight is asserted, so B1's MEASURED flight profile still transfers and the five specs flying the base are untouched |
+| Antenna | `SurfAntenna`, `antennaType = DIRECT` (part cfg) | the ONLY reason this fixture exists. `antennaType` lives in the cfg and never in the save, so the part NAME is the assertion |
+| ElectricCharge | 250 (50 pod + 2x100) | 156 EC is what the three experiments cost to transmit; gated, not commented |
+| Staging | `stg = 2` unchanged, every spliced part `istg = -1` | the chute-arming logic was measured against B1's stage list; an accidentally-staged part would silently edit it |
+| Mass added | +0.025 t (0.94%) | the flight leg's only window is 6,000-30,000 m apoapsis around a measured 19,990 m |
+| Crew | `Jebediah Kerman`, `state = Assigned`, aboard the pod | inherited; `type = Crew` is load-bearing for kRPC `GetKerbal` |
+| Parsek footprint | none (inert `ParsekScenario` node only) | keeps the analyzer's Forbid gate clean; measured `RED=0` |
+
+Both spliced part names are already in this save's purchased-parts set (the ProbesBeforeCrew
+tree relocation puts `SurfAntenna` and `batteryPack` in the `start` node), and `verify`
+asserts that rather than trusting it - a persisted `VESSEL` loads regardless of unlock
+state, so a career fixture could otherwise quietly fly a part its career cannot build.
+
+The spec-to-fixture pairing (career, one vessel, antenna aboard, inert ParsekScenario
+node) is gated by `CareerSciencePadSpecFixtureSyncTests` in
+`harness/missions/lib/test_science_bench_recover.py`.
+
 ## fresh-science (GAME Mode = SCIENCE_SANDBOX)
 
 Science pool only: `ResearchAndDevelopment sci = 100`, no Funding / Reputation /

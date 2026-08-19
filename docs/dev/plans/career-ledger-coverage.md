@@ -6,7 +6,8 @@ half of section 2 finding 2 and half of Phase C's "known ceiling" (both correcte
 in place rather than deleted, so a reader who saw rev 3 can see what moved), and
 it gives B.4's deferred strict arming a second candidate subject that does not
 depend on promoting c2. Wave 1 of Route A - the capability itself - is done;
-waves 2 and 3 are open.
+wave 2's fixture work is done (`career-science-pad`, 2026-08-19) and its driven
+flight plus harvest are what remain; wave 3 is open.
 
 
 Status: **IN PROGRESS.** **Phase A is COMPLETE** and committed on
@@ -414,12 +415,17 @@ used (reading run, then arming).
 | Wave | What it delivers | Status |
 | --- | --- | --- |
 | **1. Capability** | The three actions, the six channels, `science_bench_recover`, and the headless proofs. `design-autotest-mission-library.md` Amendment A is the binding contract. **No spec, no fixture, no flight.** | **DONE 2026-08-19** (`c2-postfix-forge`) |
-| **2. Forge + harvest** | A committed spec + whatever fixture work it needs, ONE driven flight, and the produced save harvested as a fixture. | **SPEC COMMITTED AND FLOWN 3x (2026-08-19); BLOCKED ON FIXTURE WORK** (`postfix-career-flight`): `harness/scenarios/L3-career-science-recover.toml`, `tier = "operator"`, no pins. Flight 1 found and fixed a career-save telemetry blocker; flight 2 flew a textbook mission and hit a STOCK RULE - an INTERNAL antenna cannot transmit science - which no re-fly changes. The "whatever fixture work it needs" clause is what remains: a sibling craft carrying a DIRECT antenna. See the two bullets below. |
+| **2. Forge + harvest** | A committed spec + whatever fixture work it needs, ONE driven flight, and the produced save harvested as a fixture. | **FIXTURE WORK DONE 2026-08-19** (`career-science-craft`): the "whatever fixture work it needs" clause is closed by `career-science-pad`, built by construction by `harness/tools/build_career_science_pad.py` (three additive PART nodes - a DIRECT `SurfAntenna` plus 2x `batteryPack` for the 156 EC a transmit costs - spliced into `career-pad-craft`, whose own eight parts stay byte-identical), and `L3-career-science-recover` is re-pointed at it. Zero forge flights: see the struck bullet below for why the sizing that budgeted two was wrong. Earlier: flight 1 (`postfix-career-flight`) found and fixed a career-save telemetry blocker; flight 2 flew a textbook mission and hit the STOCK RULE that an INTERNAL antenna cannot transmit science. **The driven flight and the harvest are what remain.** |
 | **3. Replay proof** | Replay the harvested ledger headlessly (the A.0 method) and show it closes; then arm B.4 strict on it. | open |
 
 **What wave 2 needs, stated concretely so it is not re-derived:**
 
-- **Fixture base: `career-pad-craft`.** It is committed, it is CAREER, it carries
+- **Fixture base: `career-pad-craft`.** CORRECTED 2026-08-19: it is the fixture's
+  BASE, but no longer the fixture the spec flies - `L3-career-science-recover`
+  now points at `career-science-pad`, which is this craft plus a DIRECT antenna
+  and the EC to transmit through it (see the struck bullet below). Everything the
+  rest of this bullet says about the craft still holds, because the eight original
+  parts are carried byte-identical. It is committed, it is CAREER, it carries
   exactly one PRELAUNCH VESSEL (so it is focusable and a FLIGHT-scene batch stays
   possible), it has an inert `ParsekScenario` node, and B1/CL-1 already fly this
   exact craft. The **one open question** was whether that craft carries a science
@@ -510,15 +516,36 @@ used (reading run, then arming).
   changes nothing", and the terminal's own reason names "no antenna" first.
   **The remaining wave-2 work is therefore a SIBLING fixture whose craft carries a
   DIRECT antenna.** `SurfAntenna` (Communotron 16-S) is ALREADY in this fixture's
-  purchased-parts set, so no tech-tree work is needed - but no committed `.craft`
+  purchased-parts set, so no tech-tree work is needed. ~~but no committed `.craft`
   for the Jumping Flea exists anywhere (it lives only as a FLIGHTSTATE VESSEL node
   inside `b1-pad-craft`), so `build_career_pad_craft.py`'s donor-splice has no
   donor and hand-authoring a surface-attached PART node into a FLIGHTSTATE is the
   failure mode the automation-first fixture rule exists to avoid. The route is the
   FORGE precedent: build the craft by construction, add a `FORGE-*` spec that
   launches it onto the pad over a CAREER base, harvest it, register it, re-point
-  this spec. Full sizing in CAREER-FORGE-NEEDS-A-DIRECT-ANTENNA
-  (`todo-and-known-bugs.md`).
+  this spec.~~ **BUILT 2026-08-19 AS `career-science-pad`, AND THE STRUCK SIZING
+  WAS WRONG BY TWO FLIGHTS.** The two premises above are both true and neither
+  implies the conclusion: "hand-authored" and "authored by a committed script with
+  post-conditions and a byte-identity gate" are different things, and each of the
+  three hazards the struck text names has a mechanical answer rather than a
+  careful one - `persistentId`/`uid` collisions are asserted unique across the
+  vessel; `srfN`/`attN` reuse the `srfAttach, 0` + `attm = 1` shape the two Mystery
+  Goos on this same pod already carry, with every index range-checked; and the
+  `stg` renumber is not needed at all, because the spliced parts are `istg = -1`
+  and are APPENDED after the last existing part, so no existing index moves. The
+  pose is derived from a measured one (the -x Goo's position/rotation pair carried
+  through one rigid yaw about the pod's +Y axis), not typed. `verify` additionally
+  asserts the base's eight parts are byte-identical, so the five specs flying
+  `career-pad-craft` are provably untouched. The FORGE route would have bought the
+  same fixture for two flights and a `.craft` author. Full account in
+  CAREER-FORGE-NEEDS-A-DIRECT-ANTENNA (`todo-and-known-bugs.md`).
+  **A SECOND FIXTURE FAULT WAS FOUND WHILE FIXING THE FIRST, and it would have
+  cost the next flight:** the antenna alone is not enough. Stock charges
+  `packetResourceCost` per `packetSize` Mits and both values come off the ANTENNA,
+  so through a `SurfAntenna` (2 Mits / 12 EC) the three experiments aboard cost
+  156 EC to transmit - against the 50 EC flight 2 measured as UNSPENT at
+  touchdown. The fixture therefore carries two Z-100s as well (250 EC total, 94 EC
+  of margin), and the arithmetic is gated rather than commented.
 - **One constant to WATCH on the first flight, named in advance so it is not
   diagnosed from scratch:** `mlib.SBR_RECOVER_CREDIT_GRACE_FRAMES` (6 frames,
   ~3 s at the ~0.5 s poll cadence) does double duty. It bounds the read-ordering
