@@ -323,7 +323,7 @@ not help: the refusal is at the seam, before any row is written. That finding
 stays owned by the synthetic two-action unit test (`ScienceSpendingOrderingTests`,
 plan task A.1), and a future forge must NOT be scoped to it.
 
-## CAREER-FORGE-NEEDS-A-DIRECT-ANTENNA: the post-fix career forge cannot transmit science, because stock refuses to transmit over a command pod's INTERNAL antenna [MEASURED 2026-08-19 by `L3-career-science-recover` flight 2 (runs `2026-08-19_1823` + retry `_1831_a2`), root cause PROVEN from the decompiled `Assembly-CSharp`. NOT a product defect and NOT a harness defect: the MISSION named a FIXTURE fault correctly. FIXTURE BUILT 2026-08-19 on `career-science-craft` (`career-science-pad`); LIVE-PROOF PENDING]
+## ~~CAREER-FORGE-NEEDS-A-DIRECT-ANTENNA: the post-fix career forge cannot transmit science, because stock refuses to transmit over a command pod's INTERNAL antenna~~ [MEASURED 2026-08-19 by `L3-career-science-recover` flight 2 (runs `2026-08-19_1823` + retry `_1831_a2`), root cause PROVEN from the decompiled `Assembly-CSharp`. NOT a product defect and NOT a harness defect: the MISSION named a FIXTURE fault correctly. SIBLING FIXTURE `career-science-pad` BUILT 2026-08-19 on branch `career-science-craft`, and LIVE-PROVEN the same day by flight 3 (run `2026-08-19_1912`, MISSION-OK, `transmit_science sent=1`) - see the FLIGHT 3 block below. CLOSED]
 
 `L3-career-science-recover` flight 2 flew a textbook mission and then condemned
 itself. The flight leg was perfect - peak apoapsis 19,990 m inside the
@@ -518,13 +518,23 @@ genuinely started at rep 0.
 **Consequence, measured:** `C2CareerPostFixReplayTests` reconstructs science at
 11.6 against the save's 111.6 - short by exactly 100, the whole starting balance.
 The three EARNED subjects themselves reconstruct perfectly, which is what isolates
-the seed as the entire cause. In-game the damage is contained by
-`KspStatePatcher`'s drawdown guard, which clamps and preserves the live value
-rather than writing the low reconstruction back:
+the seed as the entire cause. Pinned there as a DATA-ERA magnitude, with a
+structural sibling cell
+(`FixtureLedger_ScienceSeedIsZeroOnACareerThatStartedAtOneHundred`) that flips
+ONLY on a RE-HARVEST over fixed code: a capture-side fix cannot retro-fill a
+committed `ledger.pgld`, so fixing the seed moves neither cell until this fixture
+is re-flown and re-harvested. If either one moves WITHOUT a re-harvest, a
+RECALC-side change has occurred and must be investigated.
+
+In-game the damage is contained by `KspStatePatcher`'s drawdown guard, which
+clamps and preserves the live value rather than writing the low reconstruction
+back:
 
     [Parsek][WARN][KspStatePatcher] PatchScience: GUARDED DRAWDOWN clamped resource=Science
-      running=6.6 live=106.6 ... - earned value preserved; ledger may be missing an
-      earning channel
+      running=6.6000001430511475 live=106.59999847412109
+      wouldBeTarget=6.6000001430511475 clampedTo=106.59999847412109
+      (no time-travel context) - earned value preserved; ledger may be missing an
+      earning channel [trailing per-subject NOTE clause elided]
 
 So this is a RECONSTRUCTION-fidelity defect, not a player-visible pool loss - but
 it is squarely blocking, because a strict per-identity gate cannot be armed
@@ -547,10 +557,16 @@ forbids `[Parsek][ERROR]` and the run emitted exactly one.
 
 ### It is not a window-sizing problem
 
-The whole run emits exactly THREE `ScienceChanged` events and not one of them is
-keyed `ScienceTransmission` - widening the window finds nothing, because nothing
-was emitted. The transmitted subject reached the ledger by the direct path
-instead, and with an EMPTY reason:
+The whole run emits exactly ONE `ScienceChanged` event, and it is keyed
+`VesselRecovery`, not `ScienceTransmission` - widening the window finds nothing,
+because nothing was emitted. (The harvested `events.pgse` carries exactly one
+type-16 row, and the store's own `total=` field counts every event of every kind,
+not `ScienceChanged` events - reading it as a `ScienceChanged` count is what an
+earlier draft of this entry did.) One event for a run that credited THREE science
+subjects is the finding, and it is sharper than three events would have been.
+
+The transmitted subject reached the ledger by the direct path instead, and with
+an EMPTY reason:
 
     [Parsek][INFO][GameStateRecorder] Science subject captured:
       mysteryGoo@KerbinSrfLandedLaunchPad amount=3.6 total=3.6 reason='' ut=347.5
@@ -602,6 +618,13 @@ instrument. The likely question is whether stock's `AddReputation` curve is
 applied on one side and not the other, or applied twice - which needs the award
 path READ, not inferred from two data points. C2Career's own window stays at 0.01
 and is deliberately NOT tightened onto a number measured on different data.
+
+**What would move the pin, stated so nobody expects the wrong thing:** the 0.001482
+is a DATA-ERA magnitude over a committed `ledger.pgld`, so it flips ONLY on a
+RE-HARVEST over fixed code. A capture-side fix to the milestone award path changes
+nothing in this suite by itself - the committed rows are frozen at the era they
+were recorded in. If the magnitude moves WITHOUT a re-harvest, a RECALC-side change
+has occurred and must be investigated rather than re-pinned.
 
 ## MAPRENDER-ICON-OFF-ORBIT-CREATION-FRAME-AFTER-JUMP: a ghost's proto ICON sits ~94 deg around its own orbit line on the CREATION frame, after a single large TimeJump onto an epoch just inside a foreign moon's SOI [MEASURED 2026-08-18 by `V14T-ike-ts-arrival`'s reading run and REPRODUCED on its armed run 2026-08-19. REPORT-ONLY: one self-correcting frame per run, DETERMINISTIC for the single-jump shape, tolerated by name in that spec; NO product change is proposed]
 

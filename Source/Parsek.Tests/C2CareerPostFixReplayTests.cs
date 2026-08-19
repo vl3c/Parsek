@@ -12,8 +12,10 @@ namespace Parsek.Tests
     /// code, and diff the reconstructed pools against KSP's own on-disk save.
     ///
     /// THE FIXTURE. <c>Source/Parsek.Tests/Fixtures/C2CareerPostFix/</c> is the save
-    /// produced by harness run <c>2026-08-19_1912_L3-career-science-recover</c>
-    /// (`career-science-craft`), hand-copied verbatim. The mission flew every phase
+    /// produced by harness run <c>2026-08-19_1912_L3-career-science-recover</c> - flown
+    /// over the harness save fixture `career-science-pad`, on branch
+    /// `career-science-craft` (the two names are a fixture and a branch, not one
+    /// thing) - hand-copied verbatim. The mission flew every phase
     /// (PRELAUNCH -> ASCENT -> COAST -> DESCENT -> LANDED -> COLLECT -> TRANSMIT ->
     /// RECOVER -> RECOVERED, MISSION-OK): a career pad hop that ran three science
     /// experiments, TRANSMITTED one, and RECOVERED the craft. That makes it the first

@@ -1805,6 +1805,7 @@ class CareerSciencePadSpecFixtureSyncTests(unittest.TestCase):
             cls.spec = tomllib.load(fh)
         with open(FIXTURE_SFS, "r", encoding="utf-8", newline="") as fh:
             cls.sfs = fh.read().replace("\r\n", "\n").split("\n")
+        cls.builder = _load_science_pad_builder()
 
     def test_the_spec_points_at_the_science_pad_fixture(self):
         self.assertEqual("fixtures/saves/career-science-pad",
@@ -1823,9 +1824,20 @@ class CareerSciencePadSpecFixtureSyncTests(unittest.TestCase):
         # `ModuleDataTransmitter.CanTransmit()` rejects outright, before CommNet.
         # The name IS the assertion because `antennaType` lives in the part cfg
         # and never in the save.
-        self.assertIn("\t\t\t\tname = SurfAntenna", self.sfs,
-                      "without a DIRECT antenna aboard, the TRANSMIT phase runs "
-                      "its whole budget and credits nothing "
+        #
+        # ANCHORED TO THE VESSEL'S OWN PART LIST, not to a line match: a
+        # `STOREDPART` in an inventory module carries a `name = ...` line too, and
+        # a stowed antenna in a cargo container is NOT a transmitter kRPC can
+        # enumerate. Only a direct `PART` child of the VESSEL is one.
+        builder = self.builder
+        lines = builder.read_lines(FIXTURE_SFS)
+        vessel = builder.child_nodes(
+            lines, builder.find_node(lines, "FLIGHTSTATE"), "VESSEL")[0]
+        names = [builder.get_value(lines, part, "name")
+                 for part in builder.part_nodes(lines, vessel)]
+        self.assertIn("SurfAntenna", names,
+                      "without a DIRECT antenna ATTACHED to the vessel, the "
+                      "TRANSMIT phase runs its whole budget and credits nothing "
                       "(`transmit-credited-no-science`, measured 2026-08-19)")
 
     def test_the_fixture_carries_an_inert_parsek_scenario_node(self):
@@ -1867,18 +1879,34 @@ class CareerSciencePadFixtureDriftTests(unittest.TestCase):
         self.assertEqual([], problems)
 
     def test_the_committed_fixture_is_byte_identical_to_a_fresh_rebuild(self):
-        # THE DRIFT GUARD.
+        # THE DRIFT GUARD, and it compares RAW BYTES rather than the line lists
+        # `read_lines` hands back: that helper normalizes CRLF to LF on the way
+        # in, so a line-list comparison would call a fixture that had lost its
+        # CRLFs (or grown a BOM, or a trailing byte) identical to one that had
+        # not - and "byte-identical" is the claim this cell's name makes. The
+        # encoding here is exactly what `write_lines` would emit: UTF-8, CRLF
+        # joins, no added sentinel.
         rebuilt = self.builder.build(
             self._base_lines(),
             "%s (CAREER)" % self.builder.TARGET_NAME)
-        self.assertEqual(self.builder.read_lines(FIXTURE_SFS), rebuilt,
-                         "career-science-pad has drifted from what "
-                         "build_career_science_pad.py produces from the current "
-                         "career-pad-craft; re-run the builder and commit, or "
-                         "explain the divergence")
+        produced = "\r\n".join(rebuilt).encode("utf-8")
+        with open(FIXTURE_SFS, "rb") as fh:
+            committed = fh.read()
+        if committed != produced:
+            offset = next(
+                (i for i, (a, b) in enumerate(zip(committed, produced))
+                 if a != b),
+                min(len(committed), len(produced)))
+            self.fail("career-science-pad has drifted from what "
+                      "build_career_science_pad.py produces from the current "
+                      "career-pad-craft; re-run the builder and commit, or "
+                      "explain the divergence. First difference at byte %d "
+                      "(committed %d bytes, rebuilt %d bytes)"
+                      % (offset, len(committed), len(produced)))
 
     def test_the_splice_left_the_base_craft_byte_identical(self):
-        # THE PROMISE TO THE FIVE SPECS THAT FLY THE BASE. The splice is
+        # THE PROMISE TO THE SIX SPECS THAT FLY THE BASE (CL-1, CL-2, CL-3, H26,
+        # L2, R7a). The splice is
         # additive: the eight parts `career-pad-craft` flies must survive here
         # unchanged, so B1's measured flight profile still transfers and nothing
         # about the base fixture is re-opened by this one.

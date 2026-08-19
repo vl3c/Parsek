@@ -137,9 +137,11 @@ TRANSMIT_EC_REQUIRED = 156.0
 
 # `mid` (missionID) and `launchID` are per-vessel, not per-part: every existing
 # part carries these, and a spliced part that did not would be a different
-# vessel's part sitting in this one.
-EXPECT_VESSEL_MID = "423430481"
-EXPECT_LAUNCH_ID = "1"
+# vessel's part sitting in this one. Both are DERIVED from the pod
+# (`vessel_identity` below) on BOTH sides - the splice writes what the pod
+# carries, and `verify` re-reads the pod rather than a literal. A literal here
+# would be compared against itself, so the "carries a foreign missionID" check
+# would pass no matter what the base's vessel actually says.
 
 
 class SplicePart(object):
@@ -345,6 +347,23 @@ def part_nodes(lines: List[str], vessel: Tuple[int, int]) -> List[Tuple[int, int
     return child_nodes(lines, vessel, "PART")
 
 
+def vessel_identity(lines: List[str],
+                    parts: Sequence[Tuple[int, int]]) -> Tuple[str, str]:
+    """The `(mid, launchID)` pair the vessel's POD carries.
+
+    The single source of truth for both the splice and `verify`: read from
+    `parts[POD_INDEX]`, which the splice never touches and which the drift cell
+    asserts byte-identical to the base's. Raises when either is missing, because
+    a spliced part with no missionID is a different vessel's part."""
+    pod = parts[POD_INDEX]
+    mid = get_value(lines, pod, "mid")
+    launch_id = get_value(lines, pod, "launchID")
+    if mid is None or launch_id is None:
+        raise SystemExit("pod part %d carries no mid/launchID to derive from"
+                         % POD_INDEX)
+    return mid, launch_id
+
+
 def _indent(depth: int) -> str:
     return "\t" * depth
 
@@ -367,8 +386,11 @@ def _render_block(body: Sequence[str], depth: int) -> List[str]:
 
 
 def render_part(spec: SplicePart, donor_position, donor_rotation,
-                depth: int = 3) -> List[str]:
-    """Render one spliced `PART` node as .sfs lines at the given tab depth."""
+                vessel_mid: str, launch_id: str, depth: int = 3) -> List[str]:
+    """Render one spliced `PART` node as .sfs lines at the given tab depth.
+
+    `vessel_mid` / `launch_id` come from `vessel_identity`, so the spliced parts
+    inherit the vessel's own ids rather than a literal restated here."""
     position, rotation = yaw_pose_about_y(donor_position, donor_rotation,
                                           spec.yaw_degrees)
     pad = _indent(depth)
@@ -381,9 +403,9 @@ def render_part(spec: SplicePart, donor_position, donor_rotation,
         ("name", spec.name),
         ("cid", spec.cid),
         ("uid", spec.uid),
-        ("mid", EXPECT_VESSEL_MID),
+        ("mid", vessel_mid),
         ("persistentId", spec.persistent_id),
-        ("launchID", EXPECT_LAUNCH_ID),
+        ("launchID", launch_id),
         ("parent", str(POD_INDEX)),
         ("position", ",".join(_format_float(v) for v in position)),
         ("rotation", ",".join(_format_float(v) for v in rotation)),
@@ -472,6 +494,7 @@ def build(base_lines: List[str], title: str) -> List[str]:
                          % POSE_DONOR_INDEX)
     donor_position = _parse_vector3(get_value(lines, donor, "position") or "")
     donor_rotation = _parse_quaternion(get_value(lines, donor, "rotation") or "")
+    vessel_mid, launch_id = vessel_identity(lines, parts)
 
     # APPEND after the last existing PART, so every existing part index - and
     # therefore every `parent`, `srfN`, `attN` and `sym` reference in the save -
@@ -479,7 +502,8 @@ def build(base_lines: List[str], title: str) -> List[str]:
     insert_at = parts[-1][1]
     rendered: List[str] = []
     for spec in SPLICE_PARTS:
-        rendered.extend(render_part(spec, donor_position, donor_rotation))
+        rendered.extend(render_part(spec, donor_position, donor_rotation,
+                                    vessel_mid, launch_id))
     lines[insert_at:insert_at] = rendered
 
     set_top_value(lines, "Title", title)
@@ -606,6 +630,12 @@ def verify(lines: List[str], base_lines: Optional[List[str]] = None,
                 problems.append("part %d srfN targets out-of-range part %d"
                                 % (index, target_index))
 
+    # DERIVED, never restated: the ids the spliced parts must carry are the ones
+    # THIS vessel's pod carries. Comparing against a literal would compare the
+    # splice's own constant with itself, and "carries a foreign missionID" would
+    # then be true of nothing.
+    expect_mid, expect_launch_id = vessel_identity(lines, parts)
+
     spliced = parts[8:]
     for offset, (spec, part) in enumerate(zip(SPLICE_PARTS, spliced)):
         index = 8 + offset
@@ -615,10 +645,15 @@ def verify(lines: List[str], base_lines: Optional[List[str]] = None,
                             % (index, name, spec.name))
         if get_value(lines, part, "parent") != str(POD_INDEX):
             problems.append("spliced part %d does not hang off the pod" % index)
-        if get_value(lines, part, "mid") != EXPECT_VESSEL_MID:
-            problems.append("spliced part %d carries a foreign missionID" % index)
-        if get_value(lines, part, "launchID") != EXPECT_LAUNCH_ID:
-            problems.append("spliced part %d carries a foreign launchID" % index)
+        if get_value(lines, part, "mid") != expect_mid:
+            problems.append("spliced part %d carries a foreign missionID (%r, "
+                            "the pod carries %r)"
+                            % (index, get_value(lines, part, "mid"), expect_mid))
+        if get_value(lines, part, "launchID") != expect_launch_id:
+            problems.append("spliced part %d carries a foreign launchID (%r, "
+                            "the pod carries %r)"
+                            % (index, get_value(lines, part, "launchID"),
+                               expect_launch_id))
         # A staged spliced part would edit the staging sequence the flight leg's
         # chute-arming logic was measured against.
         if get_value(lines, part, "istg") != "-1":
