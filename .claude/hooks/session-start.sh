@@ -34,7 +34,10 @@ if [ ! -f "$KSP_REFS_DIR/KSP_x64_Data/Managed/Assembly-CSharp.dll" ]; then
 fi
 
 # --- Session environment ---
-if [ -f "$KSP_REFS_DIR/KSP_x64_Data/Managed/Assembly-CSharp.dll" ]; then
+# CLAUDE_ENV_FILE may be absent (e.g. manual validation runs); with `set -u`
+# an unguarded dereference would kill the hook with exit 1.
+if [ -n "${CLAUDE_ENV_FILE:-}" ] \
+  && [ -f "$KSP_REFS_DIR/KSP_x64_Data/Managed/Assembly-CSharp.dll" ]; then
   echo "export KSPDIR=\"$KSP_REFS_DIR\"" >> "$CLAUDE_ENV_FILE"
 fi
 

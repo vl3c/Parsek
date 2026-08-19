@@ -34,13 +34,19 @@ OUT="$REPO_ROOT/Source/Parsek.Tests/bin/Debug/net472"
 cp -n "$KSPDIR/KSP_x64_Data/Managed/"*.dll "$OUT/" 2>/dev/null || true
 find "$KSPDIR/GameData" -name "*.dll" -exec cp -n {} "$OUT/" \; 2>/dev/null || true
 
-RUNNER="$(find "$HOME/.nuget/packages/xunit.runner.console" -name xunit.console.exe -path "*net472*" 2>/dev/null | head -1)"
+# `|| true`: when the package dir doesn't exist yet, find exits non-zero and
+# set -e -o pipefail would abort here, skipping the fetch fallback below.
+RUNNER="$(find "$HOME/.nuget/packages/xunit.runner.console" -name xunit.console.exe -path "*net472*" 2>/dev/null | head -1 || true)"
 if [ -z "$RUNNER" ]; then
   echo "xunit console runner not cached; fetching..."
   TMP="$(mktemp -d)"
   ( cd "$TMP" && dotnet new classlib -o prefetch --framework netstandard2.0 >/dev/null \
     && cd prefetch && dotnet add package xunit.runner.console --version 2.4.2 >/dev/null )
-  RUNNER="$(find "$HOME/.nuget/packages/xunit.runner.console" -name xunit.console.exe -path "*net472*" | head -1)"
+  RUNNER="$(find "$HOME/.nuget/packages/xunit.runner.console" -name xunit.console.exe -path "*net472*" | head -1 || true)"
+fi
+if [ -z "$RUNNER" ]; then
+  echo "ERROR: xunit.runner.console 2.4.2 (net472) could not be located or fetched" >&2
+  exit 2
 fi
 
 echo "== Running tests under mono ($RUNNER)"
