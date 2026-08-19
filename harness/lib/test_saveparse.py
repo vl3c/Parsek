@@ -736,6 +736,35 @@ class CommittedFixtureSweepTests(unittest.TestCase):
         # exist. (5 is the number to watch for in the produced save: it is what
         # `jool-orbit-recorded`, the save this was stripped from, carries.)
         "jool-park-nerv": True,
+        # THE FOURTH PARSEK-STRIPPED DERIVED FIXTURE, and the one that shows the
+        # strip recipe is "excise every child" rather than "excise these five
+        # names". `laythe-park-nerv` is `laythe-orbit-recorded` (B25's
+        # --keep-parsek harvest, one committed recording) with Parsek's own state
+        # removed: the `Parsek/` sidecar directory pruned by a harvest WITHOUT
+        # --keep-parsek, plus a manual brace-balanced excision of the residual
+        # ParsekScenario CHILDREN.
+        #
+        # THE NODE IS STILL PRESENT (True) AND THAT IS DELIBERATE: only the
+        # children were excised. A flyable template must carry the node or the
+        # FLIGHT route records nothing.
+        #
+        # FIVE CHILD NODES OF **FOUR** TYPES WERE REMOVED, and the difference from
+        # its three predecessors is the point: `RECORDING_TREE` (1),
+        # `KERBAL_SLOTS` (1), `CREW_REPLACEMENTS` (1) and `MILESTONE_STATE` (2) -
+        # **NO `GROUP_HIERARCHY`**, because B25's tree is a single standalone
+        # recording with no debris subgroup to nest, and only TWO milestone rows
+        # rather than `jool-park-nerv`'s four. A strip written as a fixed list of
+        # five node names would have been fine here by luck; one written as "walk
+        # the node and drop every child" is correct by construction, and that is
+        # what was done.
+        #
+        # WHY THE STRIP IS LOAD-BEARING: `B26-laythe-vall-transfer` starts its
+        # recording through the seam on a vessel that `laythe-orbit-recorded`
+        # holds a COMMITTED TREE for, and a seam StartRecording cannot open a
+        # standalone tree on a committed tree's own launch (measured, B23 flight
+        # 1). It ALSO decouples B26 from V16M/V16T, whose eight jump UTs are
+        # calibrated off `laythe-orbit-recorded`'s exact bytes.
+        "laythe-park-nerv": True,
         "eva2-lko-crewed": True,
         "eva3-pad-3crew": True,
         "fresh-career": False,

@@ -14,6 +14,101 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## MAPRENDER-SEAM-LENS-EVALUATES-UNSHIFTED-EPOCH-ON-CREATION-FRAME: the seam-endpoint lens reads the RECORDED seam UT instead of the replayed one on a ghost proto's creation frame, and raises `seam-endpoint-outside-soi` against an endpoint 157x the SOI away [MEASURED 2026-08-19 by `V16T-laythe-ts-arrival`'s reading run. REPORT-ONLY - the harness classified the reason UNLISTED and did not gate on it, and `V16M-laythe-player-loop`'s stepped-epoch censuses prove the underlying recurrence is FINE. Same family as MAPRENDER-ICON-OFF-ORBIT-CREATION-FRAME-AFTER-JUMP; NO product change is proposed]
+
+**READ THE VERDICT BEFORE THE MECHANISM, because this raise names the one thing the
+whole Jool research programme is watching for and it is NOT that thing.** The
+accompanying census line reads `evaluated=2 outsideSoi=1`, i.e. "one replayed
+SOI-entry endpoint fell outside the destination SOI" - which is precisely the
+eccentric-moon phase-lock drift
+`docs/dev/research/same-parent-reaim-jool-system.md` predicts for Bop and Pol.
+**IT IS NOT DRIFT.** `V16M-laythe-player-loop`, same fixture, same recording, same
+arrival, taking its readings at STEPPED bracket epochs where the loop shift has
+bound, measured `evaluated=2 outsideSoi=0` at cycle 1 AND at cycle 2 - i.e. after a
+full 20-period cadence the replayed entries really do still sit inside Laythe's SOI.
+The `outsideSoi=1` below is the instrument evaluating the wrong epoch on one frame.
+Do not let a future ledger cite it as an observed recurrence failure.
+
+### The measurement, verbatim
+
+`harness/results/2026-08-19_2115_V16T-laythe-ts-arrival_shots/KSP.log` line 11866:
+
+    phase=Anomaly surface=ProtoOrbitLine pid=3145128013
+      recId=370d38246d6e42848f140884081428af frame=6626
+      currentUT=29874214.240 effUT=28814456.826 reason=seam-endpoint-outside-soi
+      fromBody=Jool toBody=Laythe seamUT=28814456.8
+      endpointDist=585846592m soi=3723646m ratio=157.3314 tol=1.0050
+      recordedSeamUT=28814456.8 clock=raw seed=no-seed loopShift=2066254.3
+
+and the census two lines later (11875): `seam-endpoint summary evaluated=2 outsideSoi=1`.
+
+### What the fields say, in the order that matters
+
+1. **`effUT` IS THE RECORDED SEAM EPOCH.** `effUT=28814456.826` equals
+   `recordedSeamUT=28814456.8` equals the committed recording's own Jool->Laythe
+   ORBIT_SEGMENT body change. The live clock at that frame is
+   `currentUT=29874214.240`. The lens evaluated the endpoint **1,059,757 s in the
+   past** - about one full loop cadence.
+2. **`clock=raw seed=no-seed`** - the effective-UT resolution had no seed to work
+   from, so it fell back to the raw recorded epoch rather than the replayed one.
+   `loopShift=2066254.3` is present on the line but was evidently not applied to the
+   value the lens tested.
+3. **The distance follows mechanically.** At the recorded seam epoch the recording's
+   subject is still in its JOOL PARK, so the endpoint lands 585,846,592 m from
+   Laythe against a 3,723,646 m SOI - `ratio=157.33`. The raise is arithmetically
+   correct about the wrong point.
+4. **It is a CREATION frame.** Frame 6626 also carries
+   `phase=GhostCreated surface=ProtoIcon pid=3145128013 ... body=Jool
+   scene=TRACKSTATION` at a Jool-scale `worldPos`, i.e. the proto is being brought
+   into existence on this frame - the same frame class as the icon entry's.
+
+### Why it surfaced HERE and not on any earlier lane: k scales the gap
+
+Every prior loop subject had a cadence of exactly ONE moon period, so the un-shifted
+epoch sits under one period away from the live clock and the lens skips on
+`body-mismatch` (V15M and V15T both read exactly that skip form). **This lane is the
+suite's first k > 1 cadence** - 20 Laythe periods, 1,059,617.581 s - so the same
+binding gap displaces the evaluated epoch by 1.06 Ms, far enough that the ghost's
+recorded position at that epoch is in a DIFFERENT BODY'S SOI and the lens has
+something to fail on. The defect is not new; the k = 20 cadence is what made it
+observable.
+
+### The family claim, and its limit
+
+This and MAPRENDER-ICON-OFF-ORBIT-CREATION-FRAME-AFTER-JUMP are one family: two
+different lenses (`ProtoIcon` phase, `ProtoOrbitLine` seam endpoint) raising on the
+same frame class (ghost-proto creation) with the same underlying reading - the loop
+shift has not bound at the moment the surface is first evaluated. The icon entry's
+lines carry `loopShift=0.0`; this one carries a nonzero `loopShift` that the tested
+value did not use. **THAT DIFFERENCE IS NOT EXPLAINED HERE** and it is the reason
+this is filed as a sibling rather than merged into the icon entry: "the shift is
+zero" and "the shift exists but was not applied" are not obviously the same bug, and
+one observation of each is not enough to say.
+
+A third possible member is noted and explicitly NOT claimed:
+`V16M-laythe-player-loop`'s two `EnterWatchMode` steps were refused
+`reason=no-watchable-ghost` with the adjacent engine line reading
+`retired=F zone=Beyond rdist=616131735m` - a ghost that exists but sits at
+Jool-park distance from a Laythe-parked observer, the same magnitude as the endpoint
+above. Same order, different surface, different code path (a watch auto-select, not
+a render lens), and one coincidence of magnitude is not a mechanism.
+
+### Nothing gates it
+
+The harness classified the reason as UNLISTED and therefore REPORT-ONLY - the result
+JSON carries `unlistedReasons: ["seam-endpoint-outside-soi"]` - so this raise did not
+contribute to that run's PARSEK-FAIL (the `icon-off-orbit` pair did). `V16T` does NOT
+tolerate it in `allowedAnomalies`, deliberately: adding a tolerance for something
+that is not currently a gate is the wrong direction. If the sweep's classification
+ever changes, revisit WITH the run that shows it.
+
+**THE DISCRIMINATING EXPERIMENT**, if anyone wants one: a lane whose cadence is k > 1
+but whose observation epoch is reached through a STEPPED bracket rather than a single
+jump. V16M is exactly that and raised nothing, which is suggestive but not decisive,
+because V16M also never enters the tracking station. A TS lane with a stepped bracket
+would separate "creation frame" from "single jump" for both members of the family at
+once.
+
 ## B5-INWARD-TRANSFER-EVIDENCE-AND-TRIGGERS-ASSUME-OUTWARD: the moon-transfer machine keys BOTH its burn-done evidence and its correction-round spacing to an apsis RISING, and the two available workarounds are MUTUALLY EXCLUSIVE [FOUND BY AUDIT 2026-08-19 while authoring `B25-laythe-orbit`, the suite's first INWARD moon transfer, and BOTH WORKAROUNDS LIVE-PROVEN THE SAME DAY on that lane's flight 1 (runs `_1948` / `_2001`). REPORT-ONLY: a HARNESS constraint on `harness/missions/lib/mlib.py`, NOT a proposed product change; B25 flies with values only and accepts one named degradation]
 
 Every b5 moon-path flight to date (Kerbin->Mun, Kerbin->Minmus, Duna->Ike,
@@ -313,7 +408,7 @@ separation from V7M's teardown NRE, and the named experiment that would move it.
 
 ---
 
-## MAPRENDER-ICON-OFF-ORBIT-CREATION-FRAME-AFTER-JUMP: a ghost's proto ICON sits tens of degrees around its own orbit line on the CREATION frame, after a single large TimeJump onto an epoch just inside a foreign moon's SOI [MEASURED 2026-08-18 by `V14T-ike-ts-arrival`'s reading run, REPRODUCED on its armed run 2026-08-19, and shown PARENT-INDEPENDENT the same day by `V15T-gilly-ts-arrival` at a second parent and moon (Eve/Gilly, 26.49 deg vs Ike's 94.05). REPORT-ONLY: one self-correcting frame per run, DETERMINISTIC for the single-jump shape at both bodies, tolerated by name in both specs; NO product change is proposed]
+## MAPRENDER-ICON-OFF-ORBIT-CREATION-FRAME-AFTER-JUMP: a ghost's proto ICON sits tens of degrees around its own orbit line on the CREATION frame, after a single large TimeJump onto an epoch just inside a foreign moon's SOI [MEASURED 2026-08-18 by `V14T-ike-ts-arrival`, REPRODUCED on its armed run, shown PARENT-INDEPENDENT by `V15T-gilly-ts-arrival`, and measured at a THIRD parent 2026-08-19 by `V16T-laythe-ts-arrival` (Jool/Laythe, 129.15 deg) - which also produced the FIRST count > 1 reading (TWO raises, one frame, two proto pids) and a SECOND LENS showing the same creation-frame binding gap. REPORT-ONLY: self-correcting, DETERMINISTIC for the single-jump shape at all three bodies, tolerated by name in all three specs; NO product change is proposed]
 ## ~~HARNESS-CANNOT-EARN-CAREER-CURRENCY~~ - no driven run could collect science, transmit it, or recover a vessel, so `ScienceEarning` rows and vessel-recovery credits were reachable only from a hand-played save [CAPABILITY SHIPPED 2026-08-19, branch `c2-postfix-forge`; NOT YET FLOWN; one residual survives and is NOT closed]
 
 Filed and closed in the same entry because the gap was never a defect - it was a
@@ -418,7 +513,7 @@ not help: the refusal is at the seam, before any row is written. That finding
 stays owned by the synthetic two-action unit test (`ScienceSpendingOrderingTests`,
 plan task A.1), and a future forge must NOT be scoped to it.
 
-## MAPRENDER-ICON-OFF-ORBIT-CREATION-FRAME-AFTER-JUMP: a ghost's proto ICON sits ~94 deg around its own orbit line on the CREATION frame, after a single large TimeJump onto an epoch just inside a foreign moon's SOI [MEASURED 2026-08-18 by `V14T-ike-ts-arrival`'s reading run and REPRODUCED on its armed run 2026-08-19. REPORT-ONLY: one self-correcting frame per run, DETERMINISTIC for the single-jump shape, tolerated by name in that spec; NO product change is proposed]
+## MAPRENDER-ICON-OFF-ORBIT-CREATION-FRAME-AFTER-JUMP: a ghost's proto ICON sits tens of degrees around its own orbit line on the CREATION frame, after a single large TimeJump onto an epoch just inside a foreign moon's SOI [MEASURED 2026-08-18 by `V14T-ike-ts-arrival`, REPRODUCED on its armed run, shown PARENT-INDEPENDENT by `V15T-gilly-ts-arrival`, and measured at a THIRD parent 2026-08-19 by `V16T-laythe-ts-arrival` (Jool/Laythe, 129.15 deg) - which also produced the FIRST count > 1 reading (TWO raises, one frame, two proto pids) and a SECOND LENS showing the same creation-frame binding gap. REPORT-ONLY: self-correcting, DETERMINISTIC for the single-jump shape at all three bodies, tolerated by name in all three specs; NO product change is proposed]
 
 `V14T-ike-ts-arrival` run `2026-08-18_2337` came back PARSEK-FAIL(anomaly) on
 attempt 1 with **all sixteen steps green** - every tracking-station route line
@@ -616,6 +711,49 @@ phase error that self-corrects is a rendering transient, not a recorded-data
 defect; nothing in the recording, the loop unit or the committed save is affected.
 What is recorded here is the measurement, the control that isolates the jump
 shape, and the discriminating experiment.
+
+### A THIRD PARENT, AND TWO PROPERTIES RETIRED (2026-08-19, `V16T-laythe-ts-arrival`)
+
+`V16T-laythe-ts-arrival` run `2026-08-19_2115` came back PARSEK-FAIL(anomaly) on
+attempt 1 with **all sixteen steps green**, exactly as the two earlier readings did.
+Its measurement adds a third body pair and changes two things this entry had
+previously stated as settled.
+
+**(1) THE PER-RUN COUNT IS NOT 1.** `anomalySweep hits=['icon-off-orbit']
+hitCounts={'icon-off-orbit': 2}` - **TWO raises**, on the SAME frame (6572), at the
+SAME angle (129.15 deg), on TWO DIFFERENT proto pids
+(`3930042019` at `iconR=985172270` and `3249379867` at `iconR=933939331`; KSP.log
+lines 10835 and 10843). The creation-frame trigger hit two proto instances at once.
+Four earlier runs (V14T `_2337` / `_0002`, V15T `_1739` / `_1809`) each measured
+exactly one, and this entry described that as "one self-correcting frame per run".
+**That was a measurement over four runs at two bodies, never a ceiling** - and it is
+now falsified. THE PRACTICAL CONSEQUENCE is for the deferred
+`{ token = "icon-off-orbit", maxCount = N }` arming that all three specs discuss:
+**N would have to be 2, not 1**, and whoever takes that edit must re-read all three
+lanes together rather than copying V14T's number.
+
+**(2) THE MAGNITUDE STILL CORRELATES WITH NOTHING THREE POINTS CAN SEPARATE.**
+`angleIconVsOrbitEff` now reads 94.05 (Ike) / 26.49 (Gilly) / **129.15** (Laythe)
+across SOI radii of 1,049,599 / 126,123 / 3,723,646 m. It is not monotonic in SOI
+scale, in parent mu, or in the arrival conic's eccentricity (1.1385 / 1996.24 /
+1.2713). Three points, no ordering. Recorded, not modelled.
+
+**EVERYTHING ELSE IS IDENTICAL AGAIN:** ghost-proto CREATION frame, FLIGHT scene,
+after ONE large TimeJump onto an epoch just inside a foreign moon's SOI,
+`iconR == orbitEffR` on both pids, `lonOrbitEff == lonOrbitLive` with
+`angleEffVsLive=0.00` and `loopShift=0.0`. And the control travelled with it:
+`V16M-laythe-player-loop` (run `2026-08-19_2114`, PASS) reaches the SAME arrival UT
+29,874,214 through a stepped bracket and swept `hits=[] hitCounts={}` - the third
+control in three programs.
+
+**AND THE SAME RUN SHOWED THE GAP ON A SECOND LENS**, which is the most useful thing
+it produced. See
+MAPRENDER-SEAM-LENS-EVALUATES-UNSHIFTED-EPOCH-ON-CREATION-FRAME: on that lane's
+creation frame the seam-endpoint lens evaluated the recording's **un-shifted** epoch
+(`effUT` = the recorded seam UT, `clock=raw seed=no-seed`) and raised
+`seam-endpoint-outside-soi`. Two different lenses, one frame class, the same
+"the loop shift has not bound yet" reading - which is what turns a rendering
+curiosity into a NAMED family with a candidate mechanism.
 
 ---
 
@@ -13853,6 +13991,44 @@ was restored anyway, as the live regression floor for the detector exemption - s
 below). `evaluated=1 outsideSoi=0` is now an ARMED required token on all three lanes,
 each with two byte-identical readings, an armed PASS, a negative control that correctly
 red `PARSEK-FAIL(expectation)` naming the inverted token, and a reverted PASS.
+
+### THE SECOND CASE IS NOW **CLOSED BY PACING**, and the recourse is proven (2026-08-19, `V16M-laythe-player-loop`)
+
+The V15M case above recorded that a fast-stepped MULTI-CYCLE lane cannot read a
+per-class census twice, listed three recourses, and named recourse 1 (wall-space the
+brackets with `RecordingState` spacers) as the cheapest. **RECOURSE 1 HAS NOW BEEN
+BUILT AND FLOWN, AND IT WORKS.**
+
+`V16M-laythe-player-loop` carries a **forty-tick `RecordingState` dwell block** between
+its cycle-1 park epoch and its cycle-2 re-arm, sized against `run.py`'s
+`POLL_INTERVAL_SECONDS = 0.25` hard floor rather than V5's measured 0.54 s/tick - so it
+buys >= 10.0 wall s even in the worst case. Reading run `2026-08-19_2114` (PASS attempt
+1) emitted the measuring line at BOTH arrivals:
+
+```
+10860  00:14:39.433  seam-endpoint summary evaluated=2 outsideSoi=0
+13199  00:14:50.935  seam-endpoint summary evaluated=2 outsideSoi=0 | suppressed=25
+```
+
+**11.502 wall-seconds apart**, against V15M's 1.4 s and its three runs that never
+printed a cycle-2 measuring pass. The `suppressed=25` counter on the second line is the
+limiter still working on the frames in between, which is exactly the shape wanted: the
+rate limit is untouched, only the PACING moved.
+
+**WHAT THAT BUYS BEYOND THIS LANE:** it is the suite's first k > 1 recurrence
+measurement. V16M's cadence is 20 Laythe periods, so the cycle-2 census is a reading at
++20 moon periods rather than +1, and `outsideSoi=0` there is the first evidence anyone
+has that the phase lock survives a multi-period re-anchor. Every phase-lock statement
+this programme could previously make was a k = 1 statement.
+
+**NO PRODUCT CHANGE, AGAIN.** The limiter is doing its job; the fix was in the SPEC's
+step list. Two limits stay: the block costs ~10-22 wall s and ~22 GAME seconds of 1x
+playback, so a lane whose destination tail is short cannot afford it (V15M's Gilly tail
+is 381 s and would have had 112 s of margin; V16M's Laythe tail gave 104.5 s of
+clearance at the park epoch, which is 4.8x the block at its most expensive measured
+per-tick cost) - and N = 2 is still N = 2, so this measures a bound, not a drift rate.
+**THE CAVEAT ABOVE THEREFORE STANDS UNCHANGED FOR EVERY LANE WITHOUT THE BLOCK**; what
+is retired is only the claim that it could not be done.
 
 ## ~~LINE-BLINK-JUMP-STRADDLE-DETECTOR-GAP~~ - back-to-back seam TimeJumps raise the gated `line-blink` on legitimate window transitions (measured 2026-08-11, branch `eve-loop-lanes`; two PARSEK-FAIL artifacts; lane re-paced, detector NOT modified) [RE-MEASURED across the whole 13-raise archive and FIXED 2026-08-14, branch `line-blink-census`, with a WINDOW-EXIT exemption - see the resolution at the end of this entry]
 

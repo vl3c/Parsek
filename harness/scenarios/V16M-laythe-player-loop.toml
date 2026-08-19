@@ -1,6 +1,37 @@
 schema = 1
 id = "V16M-laythe-player-loop"
 # =====================================================================================
+# LIVE-PROVEN AND ARMED 2026-08-19 (reading run `2026-08-19_2114`, PASS attempt 1,
+# wall 64 s, all 61 steps met, `anomalySweep hits=[] hitCounts={}`, recordings
+# count 1, saveParse 1/1/1 with every rewind facet 0, and ZERO occurrences of all
+# six forbidden tokens). NOTHING IN THE FLOWN SHAPE CHANGED AT ARMING - no jump
+# UT, no step, no budget moved; only the expectations grew (the S4.1 rule).
+#
+# **THE TWO THINGS THIS LANE WAS BUILT FOR BOTH LANDED.**
+#   k = 20 CONFIRMED LIVE. The cadence quantized 1,029,703.438 -> 1,059,617.581 =
+#   20 * P and cycle 2 resolved to `relaunchUt=29906555.841886014` = cycle 1 plus
+#   exactly that. THE SUITE HAS NEVER HAD A LOOP CADENCE THAT WAS NOT ONE MOON
+#   PERIOD.
+#   THE CENSUS FIRED AT BOTH ARRIVALS - `evaluated=2 outsideSoi=0` at cycle 1
+#   (10860) and again at cycle 2 (13199), **11.502 wall-seconds apart**, i.e. 2.3x
+#   the 5.0 s rate-limiter window that swallowed V15M's cycle-2 emission on all
+#   three of its runs. That is THE SUITE'S FIRST k > 1 RECURRENCE MEASUREMENT: at
+#   +20 Laythe periods the replayed SOI-entry endpoints are still inside the SOI.
+#   Research doc section 9.3's RECOURSE 1 is PROVEN, and the forty-tick block is
+#   what proved it.
+#
+# THE DERIVATION HELD TO 0.048 s: predicted phaseAnchorUt 28,846,938.309 against a
+# measured 28,846,938.260698423, and the product's own seam `off=1027136.147`
+# against header section 3's 1,027,136.107 (the same 0.040 s `ut0` residue V14M
+# and V15M measured).
+#
+# ONE PINNED VERDICT CAME BACK RIGHT FOR THE WRONG REASON - see section 5. Both
+# `EnterWatchMode` steps answered REJECTED as pinned, but with
+# `reason=no-watchable-ghost`, not the range/zone refusal the geometry argued for.
+# Recorded as a measurement and an OPEN QUESTION; not diagnosed, not gated.
+#
+# =====================================================================================
+#
 # CALIBRATED 2026-08-19 FROM THE HARVESTED BYTES. This spec shipped with a ZERO
 # tree id and CALIBRATION-SEED jump UTs because it was committed BEFORE its
 # subject existed. `B25-laythe-orbit` has now flown TWICE - flight 1 (`_1948` /
@@ -244,6 +275,31 @@ id = "V16M-laythe-player-loop"
 # halves are independent: (B) gives it a cadence worth reading twice, and this
 # block gives it the ability to read it twice. Either alone measures nothing new.
 #
+# **MEASURED, AND IT WORKED (reading run `2026-08-19_2114`).** The census emitted
+# a MEASURING line at BOTH arrivals:
+#     cycle 1 (10860, 00:14:39.433)  `seam-endpoint summary evaluated=2 outsideSoi=0`
+#     cycle 2 (13199, 00:14:50.935)  `seam-endpoint summary evaluated=2 outsideSoi=0 | suppressed=25`
+# **11.502 wall-seconds apart** - 2.3x the 5.0 s window, against V15M's 1.4 s and
+# its three runs that never printed a cycle-2 measuring pass. The `suppressed=25`
+# counter on the second line is the limiter doing its job on the frames in
+# between, which is the shape you want: the limiter still works, the pacing simply
+# puts the two passes in different windows.
+#
+# TWO SECONDARY READINGS FROM THE SAME LENS, recorded and NOT over-diagnosed:
+#   * `evaluated=0 outsideSoi=0 skip.reaimed-seam-instant-unknown=19
+#     skip.body-mismatch=1` (11546), a skip population this suite has not seen
+#     before. It sits between the cycle-1 bracket and the park jump, i.e. on frames
+#     where the ghost's proto surfaces exist but the lens has no resolved seam
+#     instant for them yet. Characterised, not diagnosed.
+#   * `evaluated=0 outsideSoi=0 skip.body-mismatch=17 | suppressed=13` (12996) at
+#     the cycle-2 re-arm, which is the ordinary Jool-framed-epoch skip V15M also
+#     read.
+#
+# WHAT IS STILL TRUE AFTER THE MEASUREMENT: two cycles is N = 2. `outsideSoi=0` at
+# cycle 2 bounds `dP < 57.8 s`, which is a REAL bound and the first of its kind,
+# but it is not a drift RATE and it does not distinguish "no residual" from "a
+# residual too small to walk 3.7 Mm in twenty orbits". A third cycle would.
+#
 # WHAT IT STILL CANNOT DO, stated so the reading is not over-claimed: two cycles
 # is N = 2. If the cycle-2 census reads `outsideSoi=0` that bounds `dP < 57.8 s`,
 # which is a REAL bound and the first of its kind - but it is not a drift RATE,
@@ -371,6 +427,23 @@ id = "V16M-laythe-player-loop"
 #       outsideSoi=` census read TWICE, and do the two readings agree? Section 2b
 #       is the machinery that makes this askable at all.
 #
+# MEASURED ON THE READING RUN:
+#   (a) HELD ON BOTH CYCLES - `phase=body-orbit surface=ProtoOrbitLine ...
+#       body=Laythe` fires 40 times across the run, so the ghost's map surface
+#       rebinds to a Laythe frame at both arrivals.
+#   (b) SILENT ON BOTH - `anomalySweep hits=[] hitCounts={}` with
+#       ghostRenderTracing armed across both cycles: no `loop-seam-teleport`
+#       raise, and the intermittent `line-blink` V15M's control run swept did not
+#       fire here either.
+#   (c) NOT READ AS A SEPARATION FIGURE THIS TIME, because the watch step never
+#       resolved a ghost to measure against (section 5). The one
+#       `engine-frame-iter` line adjacent to the cycle-1 watch attempt reads
+#       `[out:vis=F retired=F zone=Beyond rdist=616131735m]`, which is the
+#       observation section 5 is about rather than a co-orbital phase reading.
+#   (d) **ANSWERED, AND IT IS THE LANE'S HEADLINE** - `evaluated=2 outsideSoi=0`
+#       at BOTH cycles (section 2b). Equal zeros: the lock is exact at this
+#       tolerance across a full 20-period cadence.
+#
 # ---------------------------------------------------------------------------------
 # 5. THE WATCH PREDICTION - **REJECTED**, and unlike V15M's it does not depend on
 #    the delivered park
@@ -416,6 +489,50 @@ id = "V16M-laythe-player-loop"
 # comes back INVALID, re-shape it per the finding - NEVER re-roll for the pinned
 # verdict.
 #
+# ---------------------------------------------------------------------------------
+# MEASURED: **BOTH STEPS REJECTED AS PINNED - AND THE REASON IS NOT THE PREDICTED
+# ONE.** Lines 11792 and 14133 both read
+#
+#   `enterwatchmode rejected reason=no-watchable-ghost committed=1 tree=(any)`
+#
+# not a range or zone refusal on a resolved candidate. The auto-select found NO
+# WATCHABLE GHOST AT ALL, so the chord arithmetic above - correct or not - was
+# never the operative gate.
+#
+# WHAT THE ADJACENT ENGINE LINE SAYS, quoted because it is cheap and because it
+# rules one candidate out (11782, the frame before the cycle-1 attempt):
+#
+#   `engine-frame-iter [i=0 rec=370d3824 skip=None aru=F hd=T hs=T
+#    endUT=28817024.1][out:vis=F retired=F zone=Beyond rdist=616131735m]`
+#
+#   * `retired=F` - the replay cycle had NOT retired at that instant, so "the
+#     ghost was already gone" is measured FALSE.
+#   * `zone=Beyond`, `vis=F`, and **`rdist = 616,131,735 m`** - the ghost sits
+#     616,132 km from the observer. The park epoch places both craft in LAYTHE
+#     orbit, where the separation cannot exceed a few thousand kilometres, so this
+#     is not the co-orbital geometry section 5 argued over. It is, however,
+#     suspiciously close to the JOOL PARK RADIUS (590,326 km) that this recording
+#     starts from.
+#
+# THAT LAST COINCIDENCE IS A CANDIDATE, NOT A DIAGNOSIS, and it is left as one on
+# purpose. V16T's reading run measured a proto surface being evaluated at the
+# recording's UN-SHIFTED epoch on its creation frame - which places it at the Jool
+# park, 585.8 Mm from Laythe - and filed it as
+# docs/dev/todo-and-known-bugs.md ->
+# MAPRENDER-SEAM-LENS-EVALUATES-UNSHIFTED-EPOCH-ON-CREATION-FRAME. A ghost drawn
+# at Jool-park distance from a Laythe-parked observer is the same magnitude and
+# plausibly the same family. IT IS NOT ESTABLISHED HERE: this is a WATCH
+# auto-select on a stepped epoch, not a lens on a creation frame, and one
+# coincidence of magnitude is not a mechanism. NOTHING is gated on it and no
+# product change is proposed; the honest next step is a lane that reads
+# `engine-frame-iter` across the whole park dwell rather than at one frame.
+#
+# WHAT THE PINNED VERDICT IS AND IS NOT WORTH: `expect = "REJECTED"` was met, so
+# the step passes and the lane greens - but it was met for a reason the header did
+# not predict, so **the chord arithmetic above is UNTESTED, not vindicated**. Do
+# not cite this run as evidence that a 2a >= 1.12 Mm park refuses on range.
+# ---------------------------------------------------------------------------------
+#
 # AND A CONSEQUENCE WORTH PRE-REGISTERING: because the watch steps are predicted
 # REJECTED, **the NRE storm is predicted ABSENT**.
 # `docs/dev/todo-and-known-bugs.md` -> WATCH-LOOPED-PARK-TARGET-LOSS-NRE-STORM is
@@ -429,35 +546,62 @@ id = "V16M-laythe-player-loop"
 #     that is a sharper result than another 443. `unityExceptions` is report-only
 #     either way and nothing below arms it.
 #
-# ---------------------------------------------------------------------------------
-# 6. POSTURE - FIRST-RUN READING, NOTHING ARMED ON THE MEASUREMENT SIDE
-# ---------------------------------------------------------------------------------
-# `required` is the NINE-token reading set (V15M's pre-flight set with the body
-# swapped): the lifecycle chain, the value-free `PhaseLock APPLIED: mission=`
-# prefix, the `Orbital(Laythe) same-parent` classification, the STRONG arrival
-# pin, and the two lens PRESENCE pins. DELIBERATELY NOT REQUIRED YET:
-# `method=single-orbital ... zeroDrift=no` (the conjunction is exactly what this
-# run measures at a k > 1 cadence), `support=Supported`, `reaimed=False`, the
-# `exoCoastBodyChangeKept=1` cohesion pin, and any VALUE form of the census - all
-# of which are what the arming pass adds, off this run's own bytes.
+# MEASURED: `unityExceptions total=2` (two NullReferenceExceptions, status REPORT).
+# That is the ordinary background population every loop lane carries - V15T read
+# two on the same fixture - and NOT the 443-447 storm. **SO THE PREDICTION HELD**:
+# watch mode never entered, and the storm did not appear. It is a WEAK
+# confirmation rather than a strong one, because this run never entered watch mode
+# for a reason unrelated to the geometry the prediction was about (see the
+# measured block above), so it rules out "the storm fires without watch mode"
+# and nothing more.
 #
-# `forbidden` IS ALREADY AT V14M/V15M's FULL SIX, and that asymmetry is
-# deliberate rather than an oversight: every one of the six guards a PREMISE
-# (an ERROR, a re-aim on a same-parent subject that structurally cannot re-aim, a
-# refused backward jump on a SEEDED table, a rendered-vs-recorded parity drift)
-# rather than deferring a MEASUREMENT. There is nothing to learn by letting any
-# of them pass.
+# ---------------------------------------------------------------------------------
+# 6. POSTURE - ARMED 2026-08-19 OFF THIS LANE'S OWN READING RUN
+# ---------------------------------------------------------------------------------
+# READING RUN `2026-08-19_2114`: PASS attempt 1, wall 64 s, all 61 steps met, all
+# 8 TimeJumps OK, both EnterWatchMode steps REJECTED as pinned,
+# `anomalySweep hits=[] hitCounts={}`, recordings count 1, saveParse 1/1/1 with
+# every rewind facet 0, and zero occurrences of every token now forbidden.
 #
-# `[expectations.rewind]` is declared REPORT-ONLY; `[expectations.recordings.structure]`
-# and the points facets are ABSENT, because a report-only block of PREDICTED
-# numbers reads like a measurement. Author them from run 1's saveParse facets.
+# NOTHING IN THE FLOWN SHAPE CHANGED AT ARMING - no jump UT, no step, no budget
+# moved; only the expectations grew. That is the S4.1 rule and it holds literally.
+#
+# WHAT ARMING ADDED, all of it taken off this run's own bytes:
+#   * `required` grows from 9 tokens to 12: the MEASURED routing conjunction
+#     (`method=single-orbital ... zeroDrift=no`, deliberately deferred on the
+#     reading run because `method=` was the thing being measured at a k > 1
+#     cadence), `support=Supported`, the `reaimed=False` render-mode pin, and the
+#     load-time cohesion pin `exoCoastBodyChangeKept=1`.
+#   * the seam-endpoint census is STRENGTHENED from the presence form to
+#     `evaluated=[1-9]\d* outsideSoi=0`, and BOTH cycle lines match it. Read the
+#     token's own comment for why the value form is load-bearing here in a way it
+#     was not on V15M.
+#   * the parity pin stays in ITS measured skip form (`sampled=\d+`, NOT
+#     `[1-9]`), because this run read `sampled=0`.
+#   * `forbidden` was already V14M/V15M's full six and did not move; every one
+#     measured ZERO.
+#   * the recordings count is PINNED at exactly 1 (was the derived range {1,2}).
+#   * `[expectations.rewind]` and `[expectations.recordings.structure]` are
+#     DECLARED AND `gating = true`, written FROM the measurement rather than
+#     flipped onto a prediction.
+# Both save-structure blocks are registered in `ARMED_ALLOWLIST`
+# (harness/lib/test_hlib.py) with this run cited.
+#
+# WHAT ARMING DELIBERATELY DID NOT DO: pin the two-NRE population, arm an anomaly
+# ceiling (nothing raised), claim a watch-mode cell (the step was refused, and for
+# an unpredicted reason - section 5), or narrow the census to a claim about DRIFT
+# RATE that N = 2 cannot support.
+#
+# STILL OWED: one armed re-flight, and ONE negative control shared across the pair
+# (the V4/V5/V14/V15 precedent - V16M and V16T gate through the single shared
+# saveParse evaluator, so one inversion across both rather than two).
 # =====================================================================================
 tier = "operator"
-description = "NOT YET FLYABLE - committed AHEAD of its subject with a ZERO tree id and eight jump UTs RE-DERIVED 2026-08-19 from B25 FLIGHT 1's MEASURED timeline (tracked by the self-retiring SharedShipsManifestTests.PENDING_FIXTURE_LANES exemption, which reds the moment `laythe-orbit-recorded` appears). The player workflow (arm -> Warp-to -> cross the arrival -> Watch), twice over, on B25's Jool->Laythe recording - THE FIRST JOOL MOON anyone has flown, and the first row of the five-moon table docs/dev/research/same-parent-reaim-jool-system.md section 3.1 reasons over. TWO THINGS ARE NEW AND ONE IS THE POINT. (1) THE FIRST k > 1 CADENCE: B25's span is dominated by a 1,014,005 s transfer coast = 19.14 Laythe periods, so `QuantizeCadenceToMultipleOfP` takes k = ceil(span/P) >= 20 rather than the k = 1 every prior loop subject had, and cycle 2 therefore lands cycle-1 + k*P = TWENTY moon orbits later instead of one. That inverts the sensitivity: the dP budget a cycle boundary buys is tol/((N-1)*k) = 1,155.0/20 = 57.8 s here against V15M's 200.2 s, i.e. ~3.5x SHARPER despite reading at a tolerance 5.8x looser. AND B25 FLIGHT 1 MOVED THAT CLAIM IN BOTH DIRECTIONS, including one half this spec originally had wrong: it measured span 1,029,700 s (span/P = 19.4353) on a 27,865.5 s window wait, and re-basing that across the whole wait band gives k = 19 for a wait under 4,802.2 s (8.97% of the synodic), k = 20 above it, and k = 21 EXCLUDED OUTRIGHT (it would need 4,273.4 s more wait than a full synodic can supply). So the pre-flight 'k >= 20, possibly 21' was off by one at BOTH ends; the exclusion is the load-bearing half and the seeds take the 91% k = 20 branch. That flight also moved the seam offset from the authored 1,041,905 s to a measured 1,027,137.3 s, a 14,768 s correction against a bracket +-180 s wide, which is precisely the miss a calibration run exists to catch. (2) THE CENSUS-PACING UPGRADE, which is what makes (1) readable: forty `RecordingState` dwell ticks between the cycle-1 park epoch and the cycle-2 re-arm, spending >= 10 wall s at run.py's 0.25 s poll floor (2.0x the 5.0 s VerboseRateLimited window) and ~21.6 s at V5's measured 0.54 s/tick, so the cycle-2 `seam-endpoint summary` escapes the limiter window that swallowed it on all three V15M runs. This implements research section 9.3's RECOURSE 1 verbatim and makes the pair the suite's FIRST k > 1 recurrence instrument. The watch steps are pinned REJECTED and, unlike V15M's, the verdict is PARK-INDEPENDENT: B25's park window admits 2a from 1,120,000 to 2,800,000 m, so even the smallest admissible orbit is 9.3x the 120 km render-zone boundary. Because of that the WATCH-LOOPED-PARK-TARGET-LOSS-NRE-STORM population is predicted ABSENT, and an NRE storm with both watch steps refused would REFUTE that entry's trigger hypothesis - a sharper result than another 443."
+description = "LIVE-PROVEN AND ARMED 2026-08-19 off its own reading run `2026-08-19_2114` (PASS attempt 1, wall 64 s, all 61 steps met, all 8 TimeJumps OK, both EnterWatchMode steps REJECTED as pinned, `anomalySweep hits=[] hitCounts={}`, recordings 1, saveParse 1/1/1 with every rewind facet 0). The player workflow (arm -> Warp-to -> cross the arrival -> Watch), twice over, on B25's Jool->Laythe recording - the first Jool moon anyone has flown. **BOTH THINGS THIS LANE WAS BUILT FOR LANDED.** (1) k = 20 CONFIRMED LIVE: the cadence quantized 1,029,703.438 -> 1,059,617.581 = 20*P and cycle 2 resolved to `relaunchUt=29906555.841886014` = cycle 1 plus exactly that - THE SUITE HAS NEVER HAD A LOOP CADENCE THAT WAS NOT ONE MOON PERIOD. (2) THE CENSUS FIRED AT BOTH ARRIVALS - `seam-endpoint summary evaluated=2 outsideSoi=0` at cycle 1 (10860) and again at cycle 2 (13199), **11.502 wall-seconds apart** against the 5.0 s VerboseRateLimited window that swallowed V15M's cycle-2 emission on all three of its runs. That is THE SUITE'S FIRST k > 1 RECURRENCE MEASUREMENT: at +20 Laythe periods the replayed SOI-entry endpoints are still inside the SOI, so research-doc section 9.3's RECOURSE 1 is PROVEN and the forty-tick RecordingState block is what proved it. THE ROUTING PREDICTION HELD at a THIRD orbit-rooted subject and the first at a gas-giant parent: `ExtractConstraints ... members=1 launchBody=Jool support=Supported constraints=1 [Orbital(Laythe) same-parent P=52980.879059379578 off=1027136.1469265819]` and `PhaseLock APPLIED ... method=single-orbital ... fixedCadenceResidual=0 zeroDrift=no`; the derived anchor agreed with the product to 0.048 s and NO jump UT moved at arming. The load-time optimizer kept the Jool->Laythe boundary COHESIVE (`exoCoastBodyChangeKept=1`), a FOURTH body pair. ONE PINNED VERDICT CAME BACK RIGHT FOR THE WRONG REASON and is recorded as an open question, not a diagnosis: both watch steps answered REJECTED as pinned but with `reason=no-watchable-ghost` rather than the range/zone refusal the chord arithmetic argued for, with the adjacent engine line reading `retired=F zone=Beyond rdist=616131735m` - the ghost exists but sits 616,132 km away, suspiciously close to the Jool park radius this recording starts from, which is the same magnitude as V16T's measured unshifted-epoch lens artifact. THE CHORD ARITHMETIC IS THEREFORE UNTESTED, NOT VINDICATED. Report-only: two NullReferenceExceptions, the ordinary background population, so the predicted-absent NRE storm is weakly confirmed. STILL OWED: one armed re-flight and ONE negative control shared across the pair."
 instanceProfile = "stock-minimal"
 tags = ["V16", "player-loop", "watch-mode", "loop-playback", "phase-lock", "single-orbital",
         "laythe", "jool", "same-parent", "moon", "jool-moon", "multi-period-cadence",
-        "census-pacing"]
+        "census-pacing", "flown"]
 
 [fixture]
 # *** DOES NOT EXIST YET. *** `laythe-orbit-recorded` is the intended
@@ -726,9 +870,20 @@ allowedAnomalies = []
 #       The 2 is admitted because the load-time walk fires for the FIRST time on
 #       this lane's LoadGame - B25's own run commits and flushes without
 #       re-loading - so this is where it would show.
-# => { min = 1, max = 2 }, a DERIVED RANGE and NOT A PIN. Pin it to the measured
-# value at the arming pass, as V14M/V15M did.
-count = { min = 1, max = 2 }
+# => the pre-flight window was { min = 1, max = 2 }, a derived range.
+#
+# MEASURED 1 on the reading run `2026-08-19_2114`, with the optimizer's own reason
+# in the same log (`Split summary: rec=370d3824... evaluated=1 ...
+# exoCoastBodyChangeKept=1` at 10141): the LOAD-TIME pass evaluated the
+# Jool->Laythe boundary and KEPT IT COHESIVE - the same answer V14M got at
+# Duna->Ike and V15M/V15T got at Eve->Gilly, now at a FOURTH body pair and the
+# first at a gas-giant parent. That token is REQUIRED below so the answer cannot
+# silently regress into a split.
+#
+# PINNED EXACTLY AT 1: a 2 means the cohesion rule stopped firing (or a promotion
+# stub survived the StopRecording/DiscardTree pair), and a 0 means the fixture
+# lost its recording. Both are findings, which is what a tight window is for.
+count = { min = 1, max = 1 }
 
 [expectations.logContracts]
 # THE LIFECYCLE CHAIN (each the product's own line except the two seam-verb Info
@@ -783,16 +938,112 @@ count = { min = 1, max = 2 }
 #       still short and the k > 1 comparison is still unread (raise the tick
 #       count); two emissions with equal `outsideSoi` readings is the result the
 #       whole pair was built for.
+# ---------------------------------------------------------------------------
+# ARMED 2026-08-19 OFF THIS LANE'S OWN READING RUN `2026-08-19_2114` (PASS
+# attempt 1, wall 64 s, all 61 steps met, `anomalySweep hits=[] hitCounts={}`,
+# recordings count 1, saveParse 1/1/1 with every rewind facet 0). Every regex
+# below was grepped in its EXACT form against that run's KSP.log before being
+# written here, with PYTHON regex semantics (the harness's), and the match count
+# is quoted per token so a future reader can tell a thin pin from a fat one.
+#
+#   "Orbital\(Laythe\) same-parent" (4) + "support=Supported" (8) - the
+#     extraction classified the destination as a direct child of the launch body
+#     and did NOT demote. MEASURED line (10602):
+#       `ExtractConstraints: tree=0ffee645... members=1 launchBody=Jool
+#        ut0=27787320.679510832 support=Supported constraints=1
+#        [Orbital(Laythe) same-parent P=52980.879059379578
+#         off=1027136.1469265819]`
+#     NOTE `launchBody=Jool`: the recording is rooted at the JOOL park, and the
+#     same-parent classification is Jool -> Laythe. THE DERIVATION HELD - the
+#     product's `off=` is 0.040 s from header section 3's 1,027,136.107, the same
+#     residue V14M and V15M measured and for the same reason (`ut0` reads
+#     0.040 s below the fixture node's `explicitStartUT`).
+#   "PhaseLock APPLIED: mission=.*method=single-orbital.*zeroDrift=no" (4) - ONE
+#     regex over ONE line, pinning the whole routing verdict as a conjunction
+#     rather than as three presence checks that would pass on three different
+#     lines. THE PRE-FLIGHT POSTURE IS DISCHARGED: the reading run required only
+#     the VALUE-FREE prefix because `method=` was the thing being measured at a
+#     k > 1 cadence. MEASURED line (10605):
+#       `PhaseLock APPLIED: mission='Duna Rocket' tree=0ffee645...
+#        anchor 28817027.07705152->28846938.260698423 P=52980.879059379578
+#        method=single-orbital cadence 1029703.4375407547->1059617.5811875917
+#        fixedCadenceResidual=0 fixedCadenceWithinTol=yes zeroDrift=no`
+#     THIS IS THE THIRD ORBIT-ROOTED CONFIRMATION of the section-3.5 general fact
+#     (after Duna->Ike and Eve->Gilly) and the FIRST at a gas-giant parent.
+#     The derived anchor 28,846,938.309 came back 28,846,938.260698423 - **0.048
+#     s** - and NO jump UT moved at arming.
+#   **AND k = 20 IS CONFIRMED LIVE, WHICH IS THIS LANE'S HEADLINE.** The cadence
+#     quantized 1,029,703.438 -> 1,059,617.581 = 20 * P, and cycle 2 resolved to
+#     `relaunchUt=29906555.841886014` = cycle 1 + EXACTLY that (12752). The suite
+#     has never had a loop cadence that was not one moon period; it does now.
+#   "factory chain ... reaimed=False" (40) - the RENDER-side mode pin, the exact
+#     inversion of V5's `reaimed=True`: what the map pipeline assembled is the
+#     FAITHFUL chain, not a re-aimed one.
+#   "phase=body-orbit surface=ProtoOrbitLine .*body=Laythe" (40) - the STRONG
+#     arrival pin (V14M/V15M's form, not V6M's weaker one which also matches a
+#     creation line). A run that never gets the ghost to Laythe has measured
+#     nothing about a Laythe arrival, and reading that as a pass is the V1/V2
+#     vacuity failure.
+#   "Split summary: rec=\w+ .*exoCoastBodyChangeKept=1" (1) - the LOAD-TIME
+#     optimizer evaluated the Jool->Laythe boundary and KEPT IT COHESIVE
+#     (section-3 rule 3). This is where B25 handed the question off, and it is
+#     the **FOURTH body pair** to answer the same way after Duna->Ike,
+#     Eve->Gilly and Gilly's TS half. Required so the answer cannot silently
+#     regress into a split - the recordings count would move too, but the count
+#     cannot say WHY and this token can.
+#   "faithful-parity summary sampled=\d+ overTolerance=\d+" (2) - the PRESENCE
+#     form. `sampled=[1-9]` is DELIBERATELY NOT pinned: this lane measured
+#     `sampled=0 overTolerance=0 skip.reaimed-or-foreign-seed=2` (10859), the
+#     same blind spot V6M/V14T/V15M/V15T read and different from V14M's
+#     `sampled=1` (docs/dev/todo-and-known-bugs.md ->
+#     FAITHFUL-PARITY-SEED-FRAGMENT-REBASE). The count is 2 rather than V15M's 1
+#     because this lane crosses two arrivals.
+#
+# =====================  THE HEADLINE PIN  =====================================
+#   "seam-endpoint summary evaluated=[1-9]\d* outsideSoi=0" (2) - and TWO
+#   MATCHES IS THE WHOLE POINT OF THIS LANE. The census fired at BOTH arrivals:
+#       cycle 1 (10860, 00:14:39.433)  `evaluated=2 outsideSoi=0`
+#       cycle 2 (13199, 00:14:50.935)  `evaluated=2 outsideSoi=0 | suppressed=25`
+#   **THIS IS THE SUITE'S FIRST k > 1 RECURRENCE MEASUREMENT.** At cycle 2 the
+#   replay is re-anchored by a full cadence = TWENTY Laythe periods, and the
+#   replayed Jool->Laythe SOI-entry endpoints are STILL INSIDE the 3,723,646 m
+#   SOI. Every phase-lock statement this programme could previously make was a
+#   k = 1 statement (research doc section 9.3 named that as its most consequential
+#   gap); this one is not.
+#
+#   AND THE CENSUS-PACING BLOCK IS WHAT BOUGHT IT. The two measuring lines are
+#   **11.502 wall-seconds apart** (39.433 -> 50.935), i.e. 2.3x the 5.0 s
+#   `ParsekLog.VerboseRateLimited` window that swallowed V15M's cycle-2 emission
+#   on all three of its runs. The forty-tick `RecordingState` block sits between
+#   them and is the only thing in the step list that costs wall time. Research
+#   doc section 9.3's RECOURSE 1 is now PROVEN, not merely proposed.
+#
+#   WHY THE VALUE FORM AND NOT THE PRESENCE FORM, stated because it is now
+#   load-bearing in a way it was not on V15M: `evaluated=[1-9]\d* outsideSoi=0`
+#   STRUCTURALLY EXCLUDES an `outsideSoi=1` reading. V16T measured exactly such a
+#   line and it is a known instrument artifact (the creation-frame lens
+#   mis-binding - see V16T's header and
+#   docs/dev/todo-and-known-bugs.md ->
+#   MAPRENDER-SEAM-LENS-EVALUATES-UNSHIFTED-EPOCH-ON-CREATION-FRAME). THIS LANE'S
+#   censuses are taken at STEPPED bracket epochs where the loop shift has bound,
+#   so a nonzero `outsideSoi` HERE would not be that artifact - it would be a REAL
+#   phase-lock drift, which is precisely the eccentric-moon failure mode the Jool
+#   research doc predicts for Bop/Pol. An armed red on this token is a finding to
+#   read, not a pin to relax.
+# ==============================================================================
 required  = [
   "missionconfig applied:",
   "SetLoopEnabled: loop ON",
   "startloopplayback initiated:",
   "FastForwardToEventUT: jumping to UT=",
-  "PhaseLock APPLIED: mission=",
   "Orbital\\(Laythe\\) same-parent",
+  "support=Supported",
+  "PhaseLock APPLIED: mission=.*method=single-orbital.*zeroDrift=no",
+  "factory chain rec=\\w+ idx=\\d+ inst=\\d+ phases=\\d+ reaimed=False",
   "phase=body-orbit surface=ProtoOrbitLine .*body=Laythe",
+  "Split summary: rec=\\w+ .*exoCoastBodyChangeKept=1",
   "faithful-parity summary sampled=\\d+ overTolerance=\\d+",
-  "seam-endpoint summary evaluated=\\d+ outsideSoi=\\d+",
+  "seam-endpoint summary evaluated=[1-9]\\d* outsideSoi=0",
 ]
 # V14M/V15M'S FULL SIX, ARMED FROM THE START. Every one guards a PREMISE rather
 # than deferring a MEASUREMENT (header section 6), so there is nothing to learn
@@ -818,18 +1069,40 @@ forbidden = [
 ]
 
 [expectations.rewind]
-# REPORT-ONLY (no `gating` key - the ARMED_ALLOWLIST discipline). The claim is
-# V4/V6M/V14M/V15M's: a pure replay-observation workflow (arm -> warp -> watch ->
-# two cycles of forward jumps -> a 40-tick dwell) must author NOTHING durable.
-# Every one of those lanes measured 0/0/0. Arm it at the arming pass, off this
-# lane's own bytes.
+# ARMED 2026-08-19 (the V2/B17/V4/V14M/V15M arming discipline) off this lane's OWN
+# reading run `2026-08-19_2114`, whose saveParse REPORT measured rewindPoints=0,
+# supersedeRows=0, tombstones=0, rewindRetirements=0 - every window below already
+# met, so the arming re-pinned nothing and moved no verdict.
+#
+# The claim being armed is V4/V6M/V14M/V15M's on a new axis: a pure
+# replay-observation workflow (arm -> warp -> watch -> two cycles of forward jumps
+# -> a forty-tick dwell) must author NOTHING durable, and a future change that
+# starts writing an RP / supersede row / tombstone out of it reds here instead of
+# passing as a REPORT footnote. THE DWELL BLOCK IS THE NEW SURFACE: forty extra
+# seam round-trips is forty more chances to touch a durable store, and this is the
+# gate that says they did not.
+gating = true
 rewindPoints  = { max = 0 }
 supersedeRows = { max = 0 }
 tombstones    = { max = 0 }
 
-# [expectations.recordings.structure] and the points facets are DELIBERATELY
-# ABSENT: a report-only block of PREDICTED numbers reads like a measurement.
-# Author them from run 1's saveParse facets, as V14M/V15M did.
+[expectations.recordings.structure]
+# ARMED 2026-08-19, same reading run, which measured trees=1, committedTrees=1,
+# recordings=1, terminalStates {Orbiting: 1}, branchPoints {} - i.e. exactly one
+# committed tree survives the workflow: the scene-entry promotion stub never
+# commits, and the StopRecording/DiscardTree pair leaves nothing behind.
+#
+# `trees` keeps V2's max = 2 - the documented duplicate-tree writer hazard (OnSave
+# re-writes a still-active tree on ~3% of production saves) - deliberately WIDER
+# than the single measurement rather than pinned to it. Everything else is pinned
+# at the measured value, and `recordings = {1,1}` is doing double duty: it is also
+# the FIXTURE CONTRACT (see [fixture] - a 2 or a FIVE would mean B23 flight 1's
+# seam-StartRecording defect was back).
+gating = true
+trees          = { min = 1, max = 2 }
+committedTrees = { min = 1, max = 1 }
+recordings     = { min = 1, max = 1 }
+terminalStates = { Orbiting = { min = 1 } }
 
 [runtime]
 # 300 LoadGame + 2x300 StartLoopPlayback + 8x300 TimeJump + 40 RecordingState

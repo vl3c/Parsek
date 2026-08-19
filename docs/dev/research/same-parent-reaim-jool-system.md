@@ -298,11 +298,16 @@ fixture. Two things about that are worth pinning here rather than only in the sp
    MUTUALLY EXCLUSIVE without an mlib change. Full account:
    `docs/dev/todo-and-known-bugs.md` -> B5-INWARD-TRANSFER-EVIDENCE-AND-TRIGGERS-ASSUME-OUTWARD.
    ANY FUTURE P2 LANE TO VALL / TYLO / BOP / POL FROM A CLEARING PARK INHERITS THIS.
-2. **The routing prediction is NOT yet measured at Jool.** Section 3.5's claim - one constraint,
-   `method=single-orbital`, residual 0, cadence a whole multiple of the moon's period - is measured
-   at Duna->Ike and Eve->Gilly and is PREDICTED here; the lanes that would read it
-   (`V16M-laythe-player-loop`, `V16T-laythe-ts-arrival`) are calibrated off the harvested bytes but
-   have not flown. Marked MEASURED-PENDING in section 7's table.
+2. **The routing prediction IS NOW MEASURED AT JOOL (2026-08-19).** Section 3.5's claim - one
+   constraint, `method=single-orbital`, residual 0, cadence a whole multiple of the moon's period -
+   was measured at Duna->Ike and Eve->Gilly and is now measured a THIRD time, at a gas-giant parent,
+   by both V16 lanes: `members=1 launchBody=Jool support=Supported constraints=1 [Orbital(Laythe)
+   same-parent P=52980.879059379578 off=1027136.1469265819]` and `method=single-orbital
+   fixedCadenceResidual=0 fixedCadenceWithinTol=yes zeroDrift=no`. **AND THE "WHOLE MULTIPLE" HALF OF
+   THE CLAIM FINALLY HAD SOMETHING TO SAY**: every prior subject's span was under one moon period, so
+   the multiple was always 1 and the clause was untested. Here the span is 19.435 Laythe periods and
+   the cadence quantized to **20 * P**, with cycle 2 landing exactly one cadence past cycle 1. See J6
+   and J7 in section 7.
 
 A Jool-park recording aerobraking through Jool's atmosphere would additionally emit
 `Rotation(Jool)` (P = 36,000 s, duty 6.94e-4) and take over as the lattice anchor - a shape worth
@@ -612,13 +617,14 @@ control):
 
 | # | Quantity | Predicted | Measured | Notes |
 |---|---|---|---|---|
-| J1 | Live `P_Laythe / P_Vall / P_Tylo` | 52,980.9 / 105,962.1 / 211,926.4 | **Laythe: MEASURED-PENDING** (V16M/V16T calibrated, not flown) | fixture constants, `MultiMoonAlignmentTests.cs:22-25`. The Laythe third is printed by `Orbital(Laythe) same-parent P=...` on either V16 lane's first run; Vall and Tylo are untouched |
+| J1 | Live `P_Laythe / P_Vall / P_Tylo` | 52,980.9 / 105,962.1 / 211,926.4 | **Laythe: 52,980.879059379578** (MEASURED 2026-08-19) | the live figure printed by `Orbital(Laythe) same-parent P=...` on both V16 lanes; it agrees with the fixture constant (`MultiMoonAlignmentTests.cs:22-25`) to 0.02 s. **Vall and Tylo remain untouched**, so J1 is one-third discharged |
 | J2 | Live moon SOI radii | 3,723,645.8 / 2,406,401.4 / 10,856,518.0 | | wiki figures; the Jool asset-vs-wiki gap (`B22:206`) says re-read these from the live bodies. **B25 did NOT discharge this** - nothing on that lane prints an SOI radius, and every bound it derives from Laythe's carries tens of percent of margin, so a metres-scale correction would move nothing |
 | J3 | `ARRIVAL HOLD kind=config` `T_config=` | 211,924.2 s | | `= 2 * P_Vall` |
 | J4 | `alignedWindows=` | ~40 | | `CountAlignedWindowPrefix`; 3.3 derives k <= 3,850 |
 | J5 | Bop-inclusive set outcome | amber, D6 slack gate | | required hold 7.4x the 10,090,902 s window |
-| J6 `new` | P2 routing at a JOOL moon (`constraints=1`, `method=single-orbital`, residual 0) | one constraint, `single-orbital`, cadence = k*P | **MEASURED-PENDING** | measured twice already (Duna->Ike, Eve->Gilly); `B25-laythe-orbit` has produced the subject and V16M/V16T are calibrated off it but have not flown |
-| J7 `new` | P2 loop CADENCE multiple `k` at a Jool moon | **20** (span/P = 19.435357 off the harvested recording) | **MEASURED-PENDING** | the suite's FIRST k > 1 cadence: every prior loop subject had a span under one moon period. Robust over the transfer-window-wait band (k = 21 excluded outright, k = 19 needs a wait under 4,802 s). What is owed is the product's own `cadence <raw>-><quantized>` line |
+| J8 `new` | Does the phase lock survive a MULTI-PERIOD re-anchor? (`outsideSoi` at cycle 2 vs cycle 1) | equal zeros | **MEASURED 2026-08-19 - EQUAL ZEROS at +20 P** | V16M `seam-endpoint summary evaluated=2 outsideSoi=0` at BOTH cycles, 11.502 wall-s apart. THE FIRST k > 1 RECURRENCE READING IN THE SUITE - see section 9.3, whose 'unmeasurable at seam pacing' limit this retires for lanes carrying the dwell block. N = 2, so it is a BOUND (`dP < 57.8 s`), not a drift rate |
+| J6 `new` | P2 routing at a JOOL moon (`constraints=1`, `method=single-orbital`, residual 0) | one constraint, `single-orbital`, cadence = k*P | **MEASURED 2026-08-19 - HELD** | `ExtractConstraints: ... members=1 launchBody=Jool support=Supported constraints=1 [Orbital(Laythe) same-parent ...]` + `PhaseLock APPLIED: ... method=single-orbital ... fixedCadenceResidual=0 fixedCadenceWithinTol=yes zeroDrift=no` on BOTH V16 lanes (`_2114`, `_2115`). Third orbit-rooted subject, first at a gas-giant parent |
+| J7 `new` | P2 loop CADENCE multiple `k` at a Jool moon | **20** (span/P = 19.435357 off the harvested recording) | **MEASURED 2026-08-19 - k = 20 CONFIRMED LIVE** | the product quantized `cadence 1029703.4375407547->1059617.5811875917` = 20*P, and V16M's cycle 2 resolved to `relaunchUt=29906555.841886014` = cycle 1 + exactly that. THE SUITE'S FIRST LOOP CADENCE THAT IS NOT ONE MOON PERIOD |
 
 ---
 
@@ -812,7 +818,29 @@ NO PRODUCT CHANGE IS PROPOSED. The rate limiter is doing its job; what is record
 fast-stepped multi-cycle lane cannot read a shared-key summary twice, and that closing this gap
 is the precondition for the harness saying anything about k > 1.
 
-**RECOURSE 1 IS NOW AUTHORED - AND NOT YET FLOWN (2026-08-19).**
+**RECOURSE 1 IS BUILT, FLOWN AND PROVEN (2026-08-19) - READ THIS BEFORE THE PARAGRAPHS ABOVE.**
+`V16M-laythe-player-loop`'s reading run `2026-08-19_2114` (PASS attempt 1) emitted the
+`seam-endpoint summary` MEASURING line at BOTH arrivals - `evaluated=2 outsideSoi=0` at cycle 1
+(10860, 00:14:39.433) and again at cycle 2 (13199, 00:14:50.935) - **11.502 wall-seconds apart**,
+against V15M's 1.4 s and its three runs that never printed a cycle-2 measuring pass. The
+`suppressed=25` counter on the second line is the limiter still working on the frames between them,
+which is the shape wanted: the rate limit is untouched and only the PACING moved.
+
+**SO THIS SECTION'S HEADLINE LIMIT IS RETIRED FOR ANY LANE CARRYING THE BLOCK, AND STANDS FOR EVERY
+LANE WITHOUT IT.** What the measurement buys is J8: at a cadence of TWENTY Laythe periods the
+replayed SOI-entry endpoints are still inside the 3,723,646 m SOI. Every phase-lock statement this
+document could previously make was a **k = 1** statement; that is no longer true. It is still an
+N = 2 reading - a BOUND (`dP < 57.8 s`), not a drift rate - and a third cycle would be needed for a
+rate.
+
+TWO COSTS, so the recourse is not applied by reflex: the block spends ~10-22 wall s and ~22 GAME
+seconds of 1x playback at the park epoch, so a lane whose destination tail is short cannot afford it
+(V16M's Laythe tail left 104.5 s of clearance, 4.8x the block at its most expensive measured
+per-tick cost; V15M's 381 s Gilly tail would have left 112 s).
+
+THE ORIGINAL AUTHORING NOTE FOLLOWS, kept because it is the sizing argument.
+
+**RECOURSE 1 AS AUTHORED (2026-08-19).**
 `V16M-laythe-player-loop`, the FLIGHT half of the first Jool-moon program, carries a FORTY-tick
 `RecordingState` dwell block between its cycle-1 park epoch and its cycle-2 re-arm. It is sized
 against `run.py`'s `POLL_INTERVAL_SECONDS = 0.25` hard floor rather than V5's measured
@@ -926,11 +954,48 @@ subject and its own bytes are pinned (span 1,029,702.298 s, Jool->Laythe seam of
 s, ten ORBIT_SEGMENTs with the last four the approach hyperbola). The table in 3.1 is unchanged -
 the flight is consistent with the arithmetic that produced it, which is a weak but real check.
 
-**WHAT IS NOT MEASURED, stated plainly because this section could easily be mistaken for more than
-it is:** the ROUTING (J6) and the CADENCE MULTIPLE (J7) are what a Jool P2 subject exists to
-demonstrate, and both are MEASURED-PENDING - `V16M-laythe-player-loop` and `V16T-laythe-ts-arrival`
-are calibrated off the harvested bytes and have not flown. Nothing here moves section 6's
-recommendation, and nothing here says anything about Bop or Pol.
+**AND THE LOOP PAIR HAS NOW FLOWN (2026-08-19), which is where the P2 content actually is.**
+`V16M-laythe-player-loop` (`_2114`, PASS attempt 1) and `V16T-laythe-ts-arrival` (`_2115`,
+PARSEK-FAIL(anomaly) with all sixteen steps green - a pre-registered catch on an unrelated render
+token) read the recording from FLIGHT and from the tracking station. Three results:
+
+- **J6 - THE ROUTING HELD AT A THIRD ORBIT-ROOTED SUBJECT, first at a gas-giant parent.**
+  `members=1 launchBody=Jool support=Supported constraints=1 [Orbital(Laythe) same-parent
+  P=52980.879059379578 off=1027136.1469265819]`, `method=single-orbital fixedCadenceResidual=0
+  zeroDrift=no`. Section 3.5's structural argument now has three data points across three parents.
+- **J7 - k = 20 CONFIRMED LIVE.** `cadence 1029703.4375407547->1059617.5811875917` = 20*P, and cycle
+  2 resolved to `relaunchUt=29906555.841886014` = cycle 1 plus exactly that. Every prior loop subject
+  had a span under one moon period, so the "whole multiple of the moon's period" clause in 3.5 had
+  never been exercised; it is now.
+- **J8 - THE FIRST k > 1 RECURRENCE READING.** `seam-endpoint summary evaluated=2 outsideSoi=0` at
+  BOTH cycles: at +20 Laythe periods the replayed SOI-entry endpoints are still inside the SOI. This
+  is the thing section 9.3 said could not be read at seam pacing, and section 9.3 has been updated
+  rather than deleted - the limit is retired only for lanes carrying V16M's forty-tick dwell block.
+
+**WHAT IS STILL NOT MEASURED:** J1's Vall and Tylo thirds, J2 entirely, and J3/J4/J5, which are
+properties of a MULTI-moon constraint set that a single-moon subject cannot produce. Nothing here
+moves section 6's recommendation, and nothing here says anything about Bop or Pol - the readings are
+at N = 2 cycles on a moon whose tolerance (1,155 s) is the LOOSEST in the table, which is the
+opposite end from where the Bop/Pol question bites.
+
+### 10.0 One instrument caveat that a k > 1 cadence created
+
+`V16T`'s reading run raised `seam-endpoint-outside-soi` with an accompanying census
+`evaluated=2 outsideSoi=1` - which reads exactly like the drift this document predicts for Bop and
+Pol. **IT IS NOT DRIFT.** The lens evaluated the recording's UN-SHIFTED seam epoch on the ghost
+proto's creation frame (`effUT` = `recordedSeamUT`, `clock=raw seed=no-seed`), which places the
+endpoint back at the JOOL PARK, 585.8 Mm from Laythe, ratio 157.3. V16M's censuses - same fixture,
+same recording, taken at STEPPED epochs where the loop shift has bound - read `outsideSoi=0` at both
+cycles.
+
+**WHY IT APPEARED HERE AND NOWHERE EARLIER, and this is the part worth carrying:** at k = 1 the
+un-shifted epoch sits under one moon period from the live clock and the lens skips on
+`body-mismatch`; at k = 20 it is 1.06 Ms away, far enough that the recorded position is in a
+DIFFERENT BODY'S SOI and the lens has something to fail on. **A HIGHER k WILL MAKE THIS LOUDER, not
+quieter** - which matters because every future Jool P2 lane will have a large k. Filed report-only as
+`docs/dev/todo-and-known-bugs.md` -> MAPRENDER-SEAM-LENS-EVALUATES-UNSHIFTED-EPOCH-ON-CREATION-FRAME.
+Anyone reading a future `outsideSoi > 0` on a Jool lane must check the `clock=` and `effUT` fields
+before calling it recurrence failure.
 
 ### 10.1 The one general fact this flight did establish
 

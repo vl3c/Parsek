@@ -1210,33 +1210,66 @@ class V16CalibrationSeedTests(unittest.TestCase):
         trusted. Both halves are pinned, because either one drifting alone
         destroys the claim."""
         self.assertEqual([], self.m["expectations"]["allowedAnomalies"])
-        self.assertEqual([], self.t["expectations"]["allowedAnomalies"])
+        self.assertEqual(["icon-off-orbit"],
+                         self.t["expectations"]["allowedAnomalies"])
+        # BARE, not a count budget - and THIS lane is the one that moved the
+        # number: it measured hitCounts={'icon-off-orbit': 2}, the first count > 1
+        # reading of that token, so a ceiling armed today would have to be
+        # maxCount = 2 rather than the 1 V14T and V15T each measured. The
+        # whole-set invariant in harness/lib/test_hlib.py keeps the budget
+        # mechanism inert meanwhile.
+        for entry in self.t["expectations"]["allowedAnomalies"]:
+            self.assertIsInstance(entry, str)
+        # THE CENSUS ASYMMETRY IS MEASURED, NOT STYLISTIC. V16M reads its census
+        # at STEPPED epochs where the loop shift has bound (outsideSoi=0 at both
+        # cycles) so it arms the VALUE form, which structurally excludes an
+        # outsideSoi=1 - deliberately, because at a stepped epoch that would be a
+        # REAL phase-lock drift. V16T's single-jump shape produced exactly such a
+        # nonzero from the creation-frame lens artifact, so it pins PRESENCE only.
+        m_req = self.m["expectations"]["logContracts"]["required"]
+        t_req = self.t["expectations"]["logContracts"]["required"]
+        strict = r"seam-endpoint summary evaluated=[1-9]\d* outsideSoi=0"
+        self.assertIn(strict, m_req)
+        self.assertNotIn(strict, t_req)
+        self.assertIn(r"seam-endpoint summary evaluated=\d+ outsideSoi=\d+",
+                      t_req)
 
-    def test_neither_v16_spec_arms_a_gating_block(self):
+    def test_both_v16_specs_arm_both_save_structure_blocks(self):
+        """ARMED 2026-08-19 off the pair's own reading runs - the inverse of the
+        cell this replaces, and deliberately strict: a lane that is on
+        `ARMED_ALLOWLIST` (harness/lib/test_hlib.py) but has quietly lost its
+        `gating` flag would pass every other cell in the suite while gating
+        nothing."""
         for spec in (self.m, self.t):
-            for block in ("rewind", "recordings"):
-                sub = (spec.get("expectations") or {}).get(block) or {}
-                self.assertNotIn("gating", sub)
-                for nested in sub.values():
-                    if isinstance(nested, dict):
-                        self.assertNotIn("gating", nested)
+            rewind = spec["expectations"]["rewind"]
+            structure = spec["expectations"]["recordings"]["structure"]
+            self.assertTrue(rewind.get("gating"))
+            self.assertTrue(structure.get("gating"))
+            self.assertEqual(0, rewind["rewindPoints"]["max"])
+            self.assertEqual(0, rewind["supersedeRows"]["max"])
+            self.assertEqual(0, rewind["tombstones"]["max"])
+            self.assertEqual({"min": 1, "max": 1}, structure["committedTrees"])
+            self.assertEqual({"min": 1, "max": 1}, structure["recordings"])
+            # `trees` keeps V2's max = 2 for the duplicate-writer hazard.
+            self.assertEqual({"min": 1, "max": 2}, structure["trees"])
+            self.assertEqual({"min": 1, "max": 1},
+                             spec["expectations"]["recordings"]["count"])
 
-    def test_the_method_conjunction_is_deliberately_not_required_yet(self):
-        """V14M's header records what pre-pinning a PREDICTED method costs (its
-        tidal-collapse prediction was refuted). This pair's cadence multiple is
-        genuinely new, so the value-free prefix is required and the conjunction
-        is left to the arming pass. Pinned so a well-meaning edit does not arm it
-        ahead of the measurement."""
-        conjunction = ("PhaseLock APPLIED: mission=.*method=single-orbital"
-                       ".*zeroDrift=no")
+    def test_the_measured_routing_conjunction_is_required_on_both_lanes(self):
+        """The arming's headline token, required as ONE regex over ONE line
+        rather than as three presence checks: three separate tokens would pass on
+        a log carrying them on three different lines. The reading runs
+        deliberately required only the VALUE-FREE prefix, because `method=` was
+        the thing being measured at a k > 1 cadence and V14M's header records
+        what pre-pinning a predicted method costs; it came back
+        `single-orbital`, so the conjunction is armed FROM the measurement."""
+        want = ("PhaseLock APPLIED: mission=.*method=single-orbital"
+                ".*zeroDrift=no")
         for spec in (self.m, self.t):
             req = spec["expectations"]["logContracts"]["required"]
-            self.assertIn("PhaseLock APPLIED: mission=", req)
-            self.assertNotIn(conjunction, req)
-            # The classification half IS structural (Laythe is a child of Jool),
-            # so it is safe to require on a first run and both lanes do.
-            self.assertIn("Orbital\\(Laythe\\) same-parent", req)
-
+            self.assertIn(want, req)
+            self.assertIn(r"Orbital\(Laythe\) same-parent", req)
+            self.assertIn("support=Supported", req)
 
 if __name__ == "__main__":
     unittest.main()
