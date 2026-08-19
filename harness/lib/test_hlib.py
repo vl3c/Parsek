@@ -4922,6 +4922,13 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
         "L1-upgrade-facility-career.toml":  "discharged - OPERATOR-VERIFIED; tag dropped 2026-07-31",
         # Found by this cell on its first run, absent from the hand-written list.
         "L1-passive-sandbox.toml":          "discharged - records its own 2026-07-26 drop",
+        # tier=operator by the SAME transient reading-run hold the two NOTEs below
+        # describe, and it gets a real entry rather than a note for one reason: it is
+        # committed in that state, unflown, so the hold is live rather than historical.
+        # Nothing operator-shaped is owed - autopilot driver, no RequiresFlight verb, no
+        # human judgement in the loop - and the entry is REMOVED (not rewritten) in the
+        # commit that pins this spec's measurements and promotes it off `operator`.
+        "L3-career-science-recover.toml":   "reading-run hold - unflown; operator tier holds only while its windows are PREDICTIONS, removed by the commit that pins them",
         # NOTE, no entry owed: `L3-strategy-currency-conversion` held `operator` for
         # the length of ONE reading run - the same transient hold the L2 note below
         # describes - and was promoted to `nightly` in the commit that replaced its

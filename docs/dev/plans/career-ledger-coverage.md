@@ -414,7 +414,7 @@ used (reading run, then arming).
 | Wave | What it delivers | Status |
 | --- | --- | --- |
 | **1. Capability** | The three actions, the six channels, `science_bench_recover`, and the headless proofs. `design-autotest-mission-library.md` Amendment A is the binding contract. **No spec, no fixture, no flight.** | **DONE 2026-08-19** (`c2-postfix-forge`) |
-| **2. Forge + harvest** | A committed spec + whatever fixture work it needs, ONE driven flight, and the produced save harvested as a fixture. | open |
+| **2. Forge + harvest** | A committed spec + whatever fixture work it needs, ONE driven flight, and the produced save harvested as a fixture. | **SPEC COMMITTED, UNFLOWN** (`postfix-career-flight`): `harness/scenarios/L3-career-science-recover.toml`, `tier = "operator"`, no pins. **NO fixture work was needed** - see the struck bullet below. |
 | **3. Replay proof** | Replay the harvested ledger headlessly (the A.0 method) and show it closes; then arm B.4 strict on it. | open |
 
 **What wave 2 needs, stated concretely so it is not re-derived:**
@@ -422,18 +422,55 @@ used (reading run, then arming).
 - **Fixture base: `career-pad-craft`.** It is committed, it is CAREER, it carries
   exactly one PRELAUNCH VESSEL (so it is focusable and a FLIGHT-scene batch stays
   possible), it has an inert `ParsekScenario` node, and B1/CL-1 already fly this
-  exact craft. The **one open question** is whether that craft carries a science
-  part at all: `science_bench_recover` names the answer within two polls of
-  landing (`no-experiments-aboard`, an ASSERT-FAIL that blames the fixture, not
-  the flight), which is the cheap way to find out. If it does not, the fixture
-  work is adding one - a `build_career_pad_craft.py`-style derivation, kept under
-  the same drift guard its `FixtureDriftTests` already provide.
+  exact craft. The **one open question** was whether that craft carries a science
+  part at all. **ANSWERED 2026-08-19, AND IT ANSWERED CHEAPER THAN PLANNED: IT
+  DOES.** The plan budgeted a flight for the answer (`science_bench_recover` names
+  `no-experiments-aboard` within two polls of landing, an ASSERT-FAIL that blames
+  the fixture rather than the flight) and a possible
+  `build_career_pad_craft.py`-style sibling derivation if it came back negative.
+  Neither was needed: READING the committed fixture shows the craft is the stock
+  Jumping Flea - `mk1pod.v2`, `parachuteSingle`, `GooExperiment` x2,
+  `solidBooster.sm.v2`, `basicFin` x3, Jebediah aboard - so it carries THREE
+  `ModuleScienceExperiment` modules (the two Mystery Goo canisters plus the pod's
+  crew report), a `ModuleScienceContainer`, a `ModuleDataTransmitter` and 50 EC.
+  **The sibling-fixture bullet is struck**: nothing is built, nothing is mutated,
+  and the five specs already flying `career-pad-craft` are untouched. One caveat
+  carried into the flight instead: two Goo canisters plus one crew report give a
+  small subject set on ONE biome, and stock's repeat-subject diminishing returns
+  apply, so `transmitMinScienceGain` is sized against the NET pool rise.
+  Incidentally the craft's part list is BYTE-IDENTICAL to `b1-pad-craft`'s, which
+  is why B1's apoapsis window transfers verbatim.
 - **Spec shape:** `kind = "autopilot"`, `mission = "science_bench_recover"`,
   steps `LoadGame -> SetSetting autoRecordOnLaunch -> mission -> CommitTree ->
   FlushAndQuit`. `harness/lib/test_run_smoke.py`'s
   `ScienceBenchRecoverAdmissionTests._make_science_bench_spec` is that spec
   already, in memory, validated against the committed schema and driven to PASS
   over the fake KSP - promote it, do not re-invent it.
+  **PROMOTED 2026-08-19 as `L3-career-science-recover`, with TWO deliberate
+  deviations on the STEP LIST only** (every `missionParams` value is verbatim).
+  Both were derived from committed source plus an already-measured flight, not
+  predicted, and both are argued in full in the spec's own comments:
+  1. **`SetSetting autoMerge=true` ADDED, and mandatory.** Stock recovery destroys
+     the active vessel, so `ParsekFlight.OnVesselWillDestroy` classifies
+     `DestructionMode.TreeAllLeavesCheck`, finalizes the tree and stashes it
+     PENDING with `activeTree` nulled. At the following FLIGHT -> SPACECENTER
+     change `SceneExitInterceptor.ShouldShowDialogBeforeSceneChangeForPendingTree`
+     returns `RegularMerge` whenever autoMerge is OFF - an approval DIALOG, in an
+     unattended run, that no seam verb answers. With it ON the same call returns
+     `None` and the exit takes the silent full-fidelity auto-commit. This is
+     CL-2's measured path on this very fixture.
+  2. **`CommitTree` KEPT VERBATIM though it is EXPECTED TO FAIL.** This bullet list
+     names "whether `CommitTree` is still the right verb after the scene has
+     already changed" as a wave-2 reading-run question, and keeping the step is
+     what MEASURES the answer rather than asserting it.
+     `ParsekTestCommandAddon` returns `ERROR / no-active-tree` when `HasActiveTree`
+     is false, which the recovery teardown above guarantees - the shape CL-1
+     flight 1 already measured on a DESTROYED craft. Keeping it is free because
+     `run.py`'s autopilot carve-out gates driver validity on the steps up to and
+     including the mission handoff, and `hlib.SEAM_VERB_POST_MISSION_ROLE` files
+     `CommitTree` as `recording`, so a post-mission miss is RECORDED and
+     NON-GATING on a MISSION-OK run. The commit therefore has to come from the
+     auto-merge path, and `recordings.count` is what proves it did.
 - **Expected pins: NONE on the first run, by rule.** Every mission param is a
   FLOOR on an OBSERVED movement, never a pool value; only KSP authors what a
   subject or a recovery is worth, and authoring one here is the

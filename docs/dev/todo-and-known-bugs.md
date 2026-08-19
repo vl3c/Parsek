@@ -55,6 +55,24 @@ verbatim and adds COLLECT -> TRANSMIT -> RECOVER. Binding contract:
 `docs/dev/design-autotest-mission-library.md` Amendment A. The sequencing to a
 harvested fixture is `career-ledger-coverage.md` section 4d.
 
+**WAVE 2 OPENED 2026-08-19** (`postfix-career-flight`): the smoke spec is promoted
+verbatim as the committed `harness/scenarios/L3-career-science-recover.toml`
+(`tier = "operator"`, no pins - the L2 B.1 reading-run hold). Section 4d's one open
+fixture question ("does `career-pad-craft` carry a science part at all?") is
+**answered by READING the fixture rather than by flying it**: the craft is the stock
+Jumping Flea and already carries three `ModuleScienceExperiment` modules (two
+`GooExperiment` canisters plus the pod's crew report), a `ModuleScienceContainer`, a
+`ModuleDataTransmitter` and Jebediah aboard - so the budgeted sibling-fixture
+derivation is struck and no committed fixture is touched. The other named wave-2
+question, whether `CommitTree` is still the right verb once recovery has already
+changed the scene, is **answered from source before the flight and then MEASURED by
+keeping the step**: recovery destroys the active vessel, so
+`ParsekFlight.OnVesselWillDestroy` stashes the tree PENDING and
+`ParsekTestCommandAddon` answers `ERROR / no-active-tree`. The spec therefore adds
+`SetSetting autoMerge=true` (CL-2's measured silent scene-exit auto-commit path,
+without which `SceneExitInterceptor` raises an approval dialog no seam verb answers)
+and keeps `CommitTree` as a non-gating measurement.
+
 Two design points worth carrying out of it, because both are the kind of thing
 that is re-derived wrongly later:
 
