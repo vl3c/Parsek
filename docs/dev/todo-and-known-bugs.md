@@ -260,6 +260,103 @@ of the seam steps closes the window, because the re-resume happens before any st
 can run.
 
 ---
+## ~~LEDGER-TRUNCATE-LEAVES-A-STALE-ELS-CACHE: `Ledger.TruncateActionsForTesting` mutated the ledger without bumping `StateVersion`, so `ComputeELS` went on serving removed rows~~ [FOUND 2026-08-19 by the L3 capture-matrix reading run `2026-08-18_2136`. FIXED the same day.]
+
+`EffectiveState.ComputeELS` caches its result against `Ledger.StateVersion`, and
+every mutator on `Ledger.actions` bumps that version - except
+`TruncateActionsForTesting`, which every in-game cell calls in its teardown to
+put the save back. The cache therefore kept serving rows that had already been
+removed, until something unrelated happened to bump the version.
+
+**How it surfaced, and why it is worth an entry despite being test-only.** It
+made a CORRECT capture door read as a broken one. On the first reading of the
+capture matrix, `ExchangerStrategy_OneShot_CapturesBothLegs` took its
+pre-exchange ELS baseline immediately after the preceding cell's teardown
+truncation, inherited that cell's already-deleted rows into the baseline, and
+computed a row DELTA of `convDebitRows=-1 sciCreditRows=-1 fundsRows=0` against
+a `funds=441.33766174316406` sum. The exchanger door had in fact written its
+`FundsEarning`/`Strategy` row correctly (the re-read measured
+`fundsRows=1 funds=609.46630859375`); the stale cache subtracted a phantom row
+and the cell failed its "exactly one FundsEarning row" assertion. A delta-based
+assertion is the house idiom precisely so a fixture's pre-existing rows cannot
+satisfy or break it - this defect turned that safety property into a hazard.
+
+**Fix.** Bump `StateVersion` in `TruncateActionsForTesting`, like every other
+mutator. The no-op early return (nothing removed) deliberately does NOT bump, so
+a teardown that removes nothing cannot force a needless ELS rebuild. Two cells in
+`LedgerTests` pin both directions.
+
+**TWO MORE OF THE SAME CLASS, found by the review of that fix and fixed alongside
+it - both PRODUCTION paths, unlike the one above.** The sweep looked for other
+sites that mutate a row or the list without bumping, and found two.
+(1) `LedgerRolloutAdoption.TryAdoptRolloutAction` retags an existing rollout row's
+`RecordingId` and clears its `DedupKey` - which changes which RECORDING the row
+belongs to - with no bump. `SupersedeCommit`'s world-action safety cache keys on
+`Ledger.StateVersion` (`worldActionSafetyCacheLedgerVersion`) and answers exactly
+that per-recording question, so an unbumped adoption could leave the Re-Fly safety
+gate saying "no world action" for a recording that had just acquired one.
+(2) `Ledger.SeedInitialFunds`'s stale-0-seed repair mutates the `FundsInitial`
+row's value in place, and that seed is the base of every running funds balance the
+reconstruction computes. Both now bump; the no-match / no-repair paths deliberately
+do not, mirroring the truncate no-op. Pinned by `TryAdoptRolloutAction_Bumps...` /
+`_DoesNotBumpWhenNothingIsAdopted` in `Bug445RolloutCostLeakTests` and
+`SeedInitialFunds_StaleZeroRepair_BumpsStateVersion` /
+`SeedInitialFunds_DoesNotUpdateNonZeroSeed` in `LedgerTests`. Neither had a
+reported symptom - they are the same defect class caught before it cost a
+diagnosis.
+
+## STRATEGY-REPUTATION-DROP-CLAMPS-THE-GUARD: the query door's deliberately-dropped reputation leg diverges the reconstruction, and reputation has no pending adjuster to absorb it [FILED 2026-08-19 off the strategy-test-matrix lane. NOT FIXED - the DROP is correct; the CONSEQUENCE was undocumented]
+
+The drop itself is a settled decision and is not in question.
+`StrategyConversionCapture.EvaluateLegs` returns a reputation leg and
+`LedgerOrchestrator.BuildStrategyConversionAction` deliberately returns null for
+it, because the query delta is the modifier's PRE-curve contribution while
+`Reputation.AddReputation` applies KSP's granular curve on top - the magnitude
+available at that seam is not the magnitude the pool moved by, and writing it
+through either the earning or the penalty arm would trade a known drift for a
+wrong one.
+
+What was NOT written down is what the drift then costs. Live reputation moves and
+the reconstruction does not, and unlike science - which has three pending
+adjusters plus `ComputePendingRecentKscScienceCredit`'s frozen-clock window
+masking a pool-only award - **reputation has no pending adjuster at all**.
+`KspStatePatcher.ResolveReputationPatch` guards at epsilon `0.01`, so any dropped
+reputation leg larger than a hundredth of a point raises
+`PatchReputation: GUARDED DRAWDOWN clamped resource=Reputation` on the next
+recalc, and keeps raising it on every recalc thereafter. The clamp is CORRECT (it
+preserves the live value); it is the WARN that is unbounded, exactly as in
+`STRATEGY-PREFIX-HOLDBACK-PERMANENT` above.
+
+**MEASURED LIVE** on `2026-08-18_2140_L3-strategy-currency-conversion`. Open-Source
+Tech Program at the stock default Factor 0.05, a 400-point science award: take=20
+science, and the reputation pool moved **0.33515101671218872** while the door
+observed **dR=0.33540129661560059**. Two things worth keeping. First, the
+magnitude is 33x the 0.01 guard epsilon, so this is not a rounding-scale drift.
+Second, that 0.00025 gap between the two numbers IS the pre-curve / post-curve
+difference the drop exists because of - the door's number really is not the
+pool's number, measured rather than argued. Appreciation Campaign
+(funds -> reputation) is the larger-magnitude sibling and is untested.
+
+**Fix shape:** the same shape as the prefix-holdback entry, and the two should
+probably be solved together - bound or account for the observed side rather than
+widening the guard. The candidate that does NOT require a pre-curve magnitude is
+to read the POST-curve delta from the `ReputationChanged` event that follows, the
+way `ConvertStrategyExchangeReputation` already does for the exchanger family's
+rep leg, and write that. Blocked on one measurement: `GameStateRecorder`'s
+`ReputationThreshold` is `1.0f`, so a sub-point conversion yield fires no
+`ReputationChanged` event to read - which means the small yields (the common
+case) would need a different source or a lowered threshold, and lowering that
+threshold has its own blast radius. Do NOT suppress the WARN generically.
+
+**Observed, not asserted away.** `ConverterStrategy_ReputationLeg_IsObservedAndDropped`
+(StrategyLifecycle, SPACECENTER) drives Open-Source Tech Program, asserts the leg
+IS observed (a nonzero `dR` parsed off the door's own summary line) and IS
+dropped (zero reputation rows), and logs the measured divergence together with
+whether it exceeds the guard epsilon, every run. The cell then RESTORES the
+reputation leg before the door's deferred recalc - deliberately, so the fixture
+cannot manufacture a clamp out of a documented product decision and red the L3
+spec's whole-log `GUARDED` forbid for a reason the door does not own. The number
+in that cell's `ACCEPTED DRIFT` line is the live measurement this entry rests on.
 
 ## STRATEGY-PREFIX-HOLDBACK-PERMANENT: on a pre-fix save, an exchanger event with no matching row holds back the pending science adjustment forever [FILED 2026-08-19 off the strategy-multi-live session. NOT FIXED - small follow-up]
 

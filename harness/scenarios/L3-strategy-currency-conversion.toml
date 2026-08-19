@@ -31,12 +31,18 @@ instanceProfile = "stock-minimal"
 tags = ["ledger", "L3", "ingame-batch", "strategies", "reading-run"]
 
 [fixture]
-# fresh-career, and the choice is forced by the SCENE. All three StrategyLifecycle
+# fresh-career, and the choice is forced by the SCENE. All SEVEN StrategyLifecycle
 # declarations are Scene = GameScenes.SPACECENTER. fresh-career carries ZERO VESSEL
 # nodes, so TestCommandLoadGame.DecideLoadRoute takes the NoVesselSpaceCenter route
-# and the batch runs where all three are eligible (the same route B10 and the L1
+# and the batch runs where all seven are eligible (the same route B10 and the L1
 # career family measure). career-pad-craft would route to FLIGHT and scene-skip every
 # one of them - the exact vacuity defect B10 was re-flown to fix.
+#
+# THE FIXTURE'S SEED IS ALSO WHAT LIMITS THE MATRIX. funds=500000 science=100 rep=0:
+# the funds seed affords every funds-costing strategy the cells activate, the science
+# seed does NOT afford the two science-costing setup charges (both cells top science up
+# ledger-visibly), and the ZERO reputation seed is why
+# OperationStrategy_RewardMultiplier_IsNotCaptured self-skips - see the tally block.
 #
 # The fixture also satisfies the new cell's own guards: career mode, Funding /
 # ResearchAndDevelopment / Reputation singletons all present, and - because nothing
@@ -53,7 +59,7 @@ kind = "seam"
 # here: a live recorder makes CurrencyConverterStrategy_LedgerMatchesNetCredit Skip
 # rather than run, so auto-record must be off for the batch to have a subject.
 #
-# No `isolated` arg: all three StrategyLifecycle declarations are batch-allowed, so
+# No `isolated` arg: all seven StrategyLifecycle declarations are batch-allowed, so
 # the isolated filter would admit exactly the same set and
 # CommittedBatchTallySourceSyncTests would (rightly) demand a seam-echo discriminator
 # for a route this spec does not need.
@@ -75,9 +81,14 @@ steps = [
 # conversion (the query-family door deliberately observes and drops reputation - the
 # query delta is pre-curve while AddReputation applies KSP's curve on top).
 #
+# The reputation caveat above is now OBSERVED rather than merely asserted: as of the
+# capture matrix this batch drives a converter whose OUTPUT leg is reputation, and
+# measures the drop rather than assuming it.
+#
 # CLAIM-IS-NOT-GATE: backed by the pinned tally below plus the forbidden GUARDED
-# tokens - and the tally is now MEASURED (passed=3 skipped=0), so the claim rests on
-# three cells that all actually ran rather than on a predicted split.
+# tokens - and the tally is MEASURED (passed=6 skipped=1), so the claim rests on six
+# cells that all actually ran rather than on a predicted split. The one skip is named
+# and pinned; see the tally block.
 D8 = ["strategies", "science", "funds", "orchestrator", "ksp-state-patcher"]
 D14 = ["career", "scene-ksc"]
 
@@ -94,23 +105,89 @@ allowedAnomalies = []
 count = { min = 0, max = 0 }
 
 [expectations.logContracts]
-# ############ MEASURED, then PINNED WHOLE ############
+# ############ THE FIRST PIN (SUPERSEDED, kept as the record) ############
 # `2026-08-18_2039_L3-strategy-currency-conversion` (PASS attempt 1) measured
 #
 #   BATCH_COMPLETE v1 total=3 passed=3 failed=0 skipped=0 category=StrategyLifecycle scene=SPACECENTER
 #
-# and that is the line below, verbatim. NO SKIPS AT ALL, which answers every open
-# question the interim pin was hedging:
+# That WAS the pinned line until the capture matrix took this category from three
+# declarations to seven on 2026-08-19; the live line is now the one in the block below.
+# The three facts it established still hold and are still load-bearing:
 #   - `PatentsLicensingCfg` IS present and IS activatable on `fresh-career` (its stock
 #     Administration requirement is met at the default tier);
 #   - it DOES convert under ScienceTransmission - measured share 0.05, a 40-point
 #     award yielding take=2 science and 168.12864685058594 funds;
 #   - `FailedActivation_DoesNotEmitEvent` DID find a stock strategy whose second
 #     Activate() returns false, so its event filter really was exercised.
-# `total=3` remains a LITERAL derived from the [InGameTest] attributes and is kept in
-# step by CommittedBatchTallySourceSyncTests; `passed` and `skipped` are now measured
-# rather than floored. A future run that skips anything is a CHANGE to be read, not a
-# reason to loosen this line back toward a range.
+# All three of those cells still pass on the current pin.
+#
+# ############ THE CAPTURE MATRIX: MEASURED, then PINNED WHOLE ############
+# `2026-08-18_2140_L3-strategy-currency-conversion` (PASS attempt 1, 56 s wall,
+# fully unattended) measured
+#
+#   BATCH_COMPLETE v1 total=7 passed=6 failed=0 skipped=1 category=StrategyLifecycle scene=SPACECENTER
+#
+# and that is the line below, verbatim. Four cells were added on 2026-08-19, filling in
+# every corner of the grid the single green cell left empty:
+#
+#   ExchangerStrategy_OneShot_CapturesBothLegs           PASS - the EXCHANGER family,
+#     `researchIPsellout`, driven live for the first time (until now it was evidenced
+#     ONLY by the c2 save's events.pgse pair). Measured take=14.5 science ->
+#     609.46632729616249 funds, landing as exactly one EXCHANGER-sourced
+#     StrategyScienceDebit of 14.5 and one FundsEarning/Strategy of 609.46630859375,
+#     with both reason-keyed events present and activeStrategies back to 0 (the
+#     zero-duration exchanger self-deactivated).
+#   ConverterStrategy_ScienceYield_CapturesCredit        PASS - the science OUTPUT arm,
+#     `OutsourcedResearchCfg`. A 250000-funds ContractReward award was taken at
+#     share 0.05 (fundsDelta=237500) and yielded sciYield=0.97559356689453125, landing
+#     as exactly one StrategyScienceCredit of 0.97559225559234619 - the
+#     BuildStrategyConversionAction branch that had never had a live subject. Its
+#     optional config cross-check reported `unavailable` and fell open exactly as
+#     designed (this build's CurrencyConverter does not expose the min/max fields
+#     reflectively), so the assertions stood on the MEASURED pool movement.
+#   ConverterStrategy_ReputationLeg_IsObservedAndDropped PASS - `OpenSourceTechProgramCfg`
+#     (stock input=Science output=Reputation, NOT science-out as the name suggests).
+#     The reputation leg was OBSERVED (door line `dR=0.33540129661560059`) and written
+#     to ZERO rows, while the same query's science INPUT leg still landed as one
+#     converter-sourced debit of 20. It also MEASURED the reason the leg is dropped:
+#     the pool actually moved 0.33515101671218872 against the pre-curve 0.33540129661560059
+#     the door sees. Two separate facts, and the multiplier attaches to the first one:
+#     the DROPPED LEG's own magnitude (0.3354) is 33x the reputation guard's 0.01
+#     epsilon, so this is not a rounding-scale drift; the 0.00025 gap between the two
+#     numbers is the pre-curve / post-curve difference the drop exists because of. See
+#     STRATEGY-REPUTATION-DROP-CLAMPS-THE-GUARD in docs/dev/todo-and-known-bugs.md.
+#   OperationStrategy_RewardMultiplier_IsNotCaptured     SKIP - and this is the one
+#     REAL coverage gap the run reports. `LeadershipInitiative` self-skipped with
+#     `Cannot afford Setup Cost: Not enough Reputation`: stock charges a lerped
+#     reputation setup cost (10..100) and `fresh-career` seeds reputation at 0. The
+#     negative control - the cell that would fail if the scoping rule were deleted -
+#     therefore does NOT currently run. Both stock CurrencyOperation strategies charge
+#     reputation to activate, so closing this needs a ledger-visible reputation top-up,
+#     which must be re-derived through Parsek's replica of KSP's granular curve (there
+#     is no positive no-recurve action type) against a 0.01 guard epsilon. Deliberately
+#     NOT forced: a named skip is honest, a curve-approximate top-up in a cell whose
+#     subject is unrelated is not. `skipped=1` is pinned so the gap stays visible and a
+#     future run that resolves it reads as a CHANGE.
+#
+# `total=7` is a LITERAL re-derived from the [InGameTest] attributes
+# (hlib.derive_batch_tally: scene_skipped=0 batch_skipped=0 executable=7) and is kept in
+# step by CommittedBatchTallySourceSyncTests. `passed` and `skipped` are MEASURED, not
+# floored. A future run that skips anything else is a CHANGE to be read, not a reason to
+# loosen this line back toward a range.
+#
+# THE FIRST READING OF THIS MATRIX (`2026-08-18_2136`, PARSEK-FAIL(results),
+# total=7 passed=4 failed=2 skipped=1) IS PART OF THE RECORD, and it bought two fixes -
+# both in test machinery, neither in a capture door, and the doors captured correctly on
+# that run too. (1) `Ledger.TruncateActionsForTesting` mutated the ledger WITHOUT bumping
+# `Ledger.StateVersion`, so `EffectiveState.ComputeELS`'s cache went on serving rows that
+# had already been removed; the exchanger cell took its baseline straight after the
+# preceding cell's teardown, inherited that cell's phantom rows, and computed
+# `convDebitRows=-1 sciCreditRows=-1 fundsRows=0` - a correctly-written FundsEarning row
+# read as a missing one. Fixed by bumping, like every other mutator on that list.
+# (2) the reputation cell's own ACCEPTED DRIFT diagnostic quoted the literal
+# `GUARDED DRAWDOWN clamped` token while explaining it, which its own clamp scan - and
+# this spec's whole-log `forbidden` list - then matched. Reworded.
+# ##########################################################################
 #
 # THE FIRST READING (`2026-08-18_2019`, PARSEK-FAIL(results)) IS PART OF THE RECORD.
 # The door captured exactly on that run too; the cell red'd on its no-GUARDED-clamp
@@ -121,7 +198,7 @@ count = { min = 0, max = 0 }
 # door recalculating inside the CurrencyModifierQuery. All three are fixed; see the
 # STRATEGY-SCIENCE-CONVERSION-LEAK entry in docs/dev/todo-and-known-bugs.md.
 # ####################################################
-required  = ["BATCH_COMPLETE v1 total=3 passed=3 failed=0 skipped=0 category=StrategyLifecycle scene=SPACECENTER"]
+required  = ["BATCH_COMPLETE v1 total=7 passed=6 failed=0 skipped=1 category=StrategyLifecycle scene=SPACECENTER"]
 # The GUARDED pair is the whole point of the lane. `GUARDED UPLIFT clamped` is the
 # reconstruction running ABOVE live (the science take not captured - measured 0.72000
 # against a 0.7200818 gap) and `GUARDED DRAWDOWN clamped` is it running BELOW (the
