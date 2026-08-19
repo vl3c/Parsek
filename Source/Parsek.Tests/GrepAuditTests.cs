@@ -101,12 +101,15 @@ namespace Parsek.Tests
         // Managed mirror of scripts/grep-audit-ers-els.ps1: the same two regexes,
         // one hit per line maximum (the script breaks after the first matching
         // pattern), allowlisted via scripts/ers-els-audit-allowlist.txt.
+        // IgnoreCase mirrors PowerShell's -match, which is case-insensitive by
+        // default — the script also fires on e.g. an instance-variable read
+        // spelled 'ledger.Actions', and so must this fallback.
         private static void RunManagedErsElsAudit(string repoRoot)
         {
             var patterns = new[]
             {
-                new Regex(@"\.CommittedRecordings\b"),
-                new Regex(@"\bLedger\.Actions\b"),
+                new Regex(@"\.CommittedRecordings\b", RegexOptions.IgnoreCase),
+                new Regex(@"\bLedger\.Actions\b", RegexOptions.IgnoreCase),
             };
             RunManagedAllowlistAudit(
                 repoRoot, "ers-els-audit-allowlist.txt", "ERS/ELS raw-access",
