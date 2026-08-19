@@ -15,7 +15,10 @@ All notable changes to Parsek are documented here.
   secret. Status shows as PR checks and the README badge. The pwsh grep-audit
   gates (ERS/ELS routing et al.) run in Actions too: every gate now probes PATH
   for `pwsh`/`pwsh.exe` cross-platform (ubuntu runners ship PowerShell 7) and
-  skips only when pwsh is genuinely absent.
+  falls back to an equivalent managed scan when pwsh is absent — the two
+  allowlist-shaped `GrepAuditTests` gates gained that fallback (same patterns,
+  same allowlist semantics, plus a nonzero-hit anti-vacuity assert), so no gate
+  ever silently skips.
 
 - The xUnit suite now runs on Linux (mono) for cloud agent sessions and CI: added
   `scripts/cloud-test.sh` (build + xunit console runner; `dotnet test` lacks a
