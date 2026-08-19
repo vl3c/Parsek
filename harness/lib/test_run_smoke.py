@@ -1379,6 +1379,190 @@ class UnmetMissionTailSmokeTests(unittest.TestCase):
 
 
 
+def _make_science_bench_spec(save_template, run_budget=900):
+    """A flown scenario naming the REAL committed `science_bench_recover` mission,
+    with the params its REAL committed schema declares. Shaped for the wave-2
+    career forge: fly the career-pad craft, collect + transmit science, recover it,
+    commit, and let the analyzer read the produced save.
+
+    Deliberately NOT committed under harness/scenarios: this wave ships the
+    CAPABILITY, and a spec is only honest once its fixture is pinned and its
+    windows are measured off a reading run. What this in-memory spec proves is the
+    plumbing - that run.py resolves the mission on disk, the pure validator admits
+    these params against the committed schema, and the whole attempt drives to PASS
+    with no game."""
+    return {
+        "schema": 1,
+        "id": "SMOKE-science-bench-recover",
+        "tier": "daily",
+        "instanceProfile": "stock-minimal",
+        "fixture": {"saveTemplate": save_template, "injectedRecordings": "none", "craft": []},
+        "driver": {
+            "kind": "autopilot",
+            "mission": "science_bench_recover",
+            "missionParams": {
+                "throttle": 1.0,
+                "apoapsisWindowMeters": {"min": 6000, "max": 30000},
+                "chuteArmMaxRateMps": 30,
+                "chuteFullDeployAltMeters": 2500,
+                "landedSituations": ["LANDED", "SPLASHED"],
+                "ascentTimeoutSeconds": 90,
+                "coastTimeoutSeconds": 180,
+                "descentTimeoutSeconds": 360,
+                "collectMinExperiments": 1,
+                "collectTimeoutSeconds": 120,
+                "transmitMinScienceGain": 0.5,
+                "transmitTimeoutSeconds": 120,
+                # A SMALL POSITIVE FLOOR, deliberately, even though the schema
+                # legally allows 0.0. Section 4d tells wave 2 to promote this
+                # spec VERBATIM, so it has to start strong: at 0.0 the recovery
+                # terminal certifies "the funds pool was READABLE across the
+                # recovery" and nothing about the pool having MOVED, which is
+                # weaker than a career forge wants from the row it exists to
+                # produce. 1.0 is defense in depth on top of the structural
+                # guards (craft observed gone, credit measured across the event),
+                # not a prediction: any real recovery refunds orders of magnitude
+                # more, so it cannot false-fail a good flight, and it does catch
+                # a recovery that credited literally nothing.
+                "recoverMinFundsGain": 1.0,
+                "recoverTimeoutSeconds": 180,
+            },
+            "steps": [
+                {"cmd": "LoadGame", "args": {"save": "${runSave}", "name": "persistent"},
+                 "expect": "OK", "budget": 30},
+                {"cmd": "SetSetting", "args": {"name": "autoRecordOnLaunch", "value": "true"},
+                 "expect": "OK"},
+                {"phase": "mission", "expect": "MISSION-OK", "budget": 300},
+                {"cmd": "CommitTree", "expect": "OK"},
+                {"cmd": "FlushAndQuit", "expect": "OK"},
+            ],
+        },
+        "expectations": {
+            "recordings": {"count": {"min": 1, "max": 1}},
+            "logContracts": {"required": ["Recording started", "Recording stopped"],
+                             "forbidden": ["\\[Parsek\\]\\[ERROR\\]"]},
+            "allowedAnomalies": [],
+        },
+        "runtime": {"budgetSeconds": run_budget},
+        "retry": {"policy": "once"},
+        "expectedFail": {"bugId": ""},
+    }
+
+
+class ScienceBenchRecoverAdmissionTests(unittest.TestCase):
+    """The career-earning capability, admitted and driven with NO real game.
+
+    Two halves, and both are needed. The mission-machine half (does the pad hop
+    hand over to collect / transmit / recover, do the three verbs fire in order,
+    does a recovered craft certify) is proven against a scripted telemetry seam in
+    `harness/missions/lib/test_science_bench_recover.py`. THIS half is the other
+    end of the same rope: run.py resolving the mission on disk, the PURE validator
+    admitting its params against the COMMITTED schema, and the whole attempt
+    driving LoadGame -> mission -> CommitTree -> FlushAndQuit -> verifiers to PASS
+    over the fake KSP.
+
+    Unlike the sibling autopilot smoke tests this one names the REAL mission
+    rather than `fake_mission`, so it reads the committed schema file: a schema
+    that stops admitting the params a spec would carry reds HERE, before a spec is
+    ever written against it."""
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp(prefix="parsek-harness-sbr-")
+        self.instance = os.path.join(self.tmp, "instance")
+        os.makedirs(self.instance, exist_ok=True)
+        _write_manifest(self.instance, "stock-minimal")
+        self.template = os.path.join(self.tmp, "career-pad-craft")
+        os.makedirs(self.template, exist_ok=True)
+        with open(os.path.join(self.template, "persistent.sfs"), "w") as fh:
+            fh.write("GAME { }\n")
+        self._orig_results = run.RESULTS_DIR
+        run.RESULTS_DIR = os.path.join(self.tmp, "results")
+        self.logger = run.HarnessLogger(os.path.join(run.RESULTS_DIR, "sbr_harness.log"))
+
+    def tearDown(self):
+        run.RESULTS_DIR = self._orig_results
+        self.logger.close()
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    # The VALIDATION cells declare a relative fixture path (validate_spec rejects
+    # an absolute one by design); the DRIVEN cells use the temp template, which
+    # the stage step joins whole. Two shapes because the two halves are checked by
+    # two different rules, not because either is a workaround.
+    def _validating_spec(self):
+        spec = _make_science_bench_spec("fixtures/saves/career-pad-craft")
+        return spec
+
+    def test_the_committed_mission_resolves_on_disk(self):
+        """Both files exist under the REAL harness/missions and parse: a mission
+        with a schema and no shell (or the reverse) is a spec-invalid INVALID that
+        never boots KSP, and it is cheaper to catch here than at admission."""
+        spec = _make_science_bench_spec(self.template)
+        registry, errors = run.resolve_mission_schemas(spec)
+        self.assertEqual([], errors)
+        self.assertIn("science_bench_recover", registry)
+        self.assertIn("collectMinExperiments", registry["science_bench_recover"]["params"])
+
+    def test_the_pure_validator_admits_a_spec_built_on_it(self):
+        spec = self._validating_spec()
+        registry, _errors = run.resolve_mission_schemas(spec)
+        validation = hlib.validate_spec(spec, {}, [], registry)
+        self.assertTrue(validation.ok, validation.errors)
+
+    def test_a_career_param_outside_its_declared_range_is_rejected(self):
+        """The negative control for the arming that matters most: a
+        transmitMinScienceGain of 0.0 makes the credit gate satisfiable by any two
+        finite readings, so a transmit that credited NOTHING would report
+        MISSION-OK. The schema's exclusive floor is what forbids it, and this is
+        the cell that proves the floor is doing work."""
+        spec = self._validating_spec()
+        spec["driver"]["missionParams"]["transmitMinScienceGain"] = 0.0
+        registry, _errors = run.resolve_mission_schemas(spec)
+        validation = hlib.validate_spec(spec, {}, [], registry)
+        self.assertFalse(validation.ok)
+        self.assertTrue(any("transmitMinScienceGain" in e for e in validation.errors),
+                        validation.errors)
+
+    def test_a_missing_career_param_is_rejected(self):
+        spec = self._validating_spec()
+        del spec["driver"]["missionParams"]["collectMinExperiments"]
+        registry, _errors = run.resolve_mission_schemas(spec)
+        validation = hlib.validate_spec(spec, {}, [], registry)
+        self.assertFalse(validation.ok)
+        self.assertTrue(any("collectMinExperiments" in e for e in validation.errors),
+                        validation.errors)
+
+    def test_the_full_attempt_drives_to_pass_with_no_game(self):
+        """End to end over the fake KSP + a fake mission subprocess: the flown
+        chain, the mission-validity gate, and the verifier chain over the produced
+        save. Fails if adding this mission perturbs the autopilot handoff."""
+        spec = _make_science_bench_spec(self.template)
+        rt = FakeRuntime("autopilot", mission_mode="ok")
+        result = run.run_attempt(spec, self.instance, self.tmp, rt, attempt=1,
+                                 prior_boot_crashed=False, logger=self.logger)
+        self.assertEqual(hlib.VERDICT_PASS, result["verdict"],
+                         "%s (%s)" % (result["verdict"], result.get("subkind")))
+        mission_rows = [s for s in result["driver"]["steps"] if s.get("phase") == "mission"]
+        self.assertEqual(1, len(mission_rows))
+        self.assertEqual("MISSION-OK", mission_rows[0]["missionVerdict"])
+        self.assertEqual("PASS", result["verifiers"]["mission"]["status"])
+        self.assertEqual("PASS", result["verifiers"]["expectations"]["status"])
+
+    def test_a_mission_that_did_not_fly_is_driver_invalid_never_parsek_fail(self):
+        """THE ORTHOGONALITY RULE on this lane, end to end. Every one of the
+        mission's named non-success terminals - a craft with no science part, an
+        uncredited transmit, an unrecoverable vessel - reports MISSION-ASSERT-FAIL,
+        and the harness must classify that as a retryable driver-INVALID rather
+        than as a defect in the mod. A forge that failed to forge is not a Parsek
+        bug."""
+        spec = _make_science_bench_spec(self.template)
+        rt = FakeRuntime("autopilot", mission_mode="assertfail")
+        result = run.run_attempt(spec, self.instance, self.tmp, rt, attempt=1,
+                                 prior_boot_crashed=False, logger=self.logger)
+        self.assertEqual(hlib.VERDICT_INVALID, result["verdict"])
+        self.assertEqual("mission", result["subkind"])
+        self.assertNotEqual(hlib.VERDICT_PARSEK_FAIL, result["verdict"])
+
+
 class MissionSpecAdmissionTests(unittest.TestCase):
     """M-B1 deliverable 1 (run.py spec admission): resolve_mission_schemas reads the
     mission's declared schema toml + confirms the mission .py resolves on disk, and
