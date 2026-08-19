@@ -2244,16 +2244,30 @@ class ManeuverNodeReadGuardTests(unittest.TestCase):
             mission_runner.KrpcMissionControl(client_name="test")
             ._tolerate_unreadable_nodes)
 
-    def test_only_cl3_opts_in_across_every_committed_mission_shell(self):
-        # Cross-file: a second shell quietly opting in would re-globalise the
-        # semantics change this flag exists to confine.
+    def test_only_the_two_career_fliers_opt_in_across_every_mission_shell(self):
+        # Cross-file: a shell quietly opting in would re-globalise the semantics
+        # change this flag exists to confine, so the set is an ALLOWLIST and a new
+        # member costs an edit here with its reason.
+        #
+        # `science_bench_recover.py` joined on 2026-08-19, and it is the SAME
+        # finding rather than a new one: it is the second mission to fly a CAREER
+        # save, so kRPC refuses the maneuver-node read on its un-upgraded Tracking
+        # Station exactly as it does for CL-3. MEASURED, not argued -
+        # `L3-career-science-recover`'s first reading run (`2026-08-19_1817` and
+        # its retry `_1818_a2`, identical) died in 1.2 s at PRELAUNCH with
+        # `flight-leg vessel-lost (unreadable after repeated telemetry failures)`.
+        # The CL-1 hazard this flag's docstring records does not reach it: CL-1's
+        # `crew-survived-impact` is a terminal a PAD frame satisfies, whereas this
+        # lane runs B1's structured phase progression and additionally gates its
+        # flight assertion on the peak apoapsis landing inside the window.
         import glob
         opters = []
         for path in glob.glob(os.path.join(_HARNESS, "missions", "*.py")):
             with open(path, "r", encoding="utf-8") as fh:
                 if "tolerate_unreadable_nodes=True" in fh.read():
                     opters.append(os.path.basename(path))
-        self.assertEqual(["cl3_refly_crew_tombstone.py"], sorted(opters))
+        self.assertEqual(["cl3_refly_crew_tombstone.py", "science_bench_recover.py"],
+                         sorted(opters))
 
     def test_any_exception_type_degrades_not_just_runtimeerror(self):
         # The guard exists to keep a read fault off the vessel-lost streak; the

@@ -926,7 +926,7 @@ not stylistic: each one succeeds on a craft where the effect does not happen.
 | Action | kRPC surface (pinned 0.5.4) | What the runner does | What it is NOT evidence of |
 | --- | --- | --- | --- |
 | `ACTION_RUN_SCIENCE_EXPERIMENTS` | `Parts.Experiments` -> `Experiment.Run()` | runs every module that reads `Available`, not `Inoperable`, not already `HasData`; per-module faults are one Warn each | that any data was stored - `Run()` succeeds on a module whose conditions are not met |
-| `ACTION_TRANSMIT_SCIENCE` | `Experiment.Transmit()` | transmits every module that reads `HasData` | that any science was credited - the call succeeds with no antenna, no ElectricCharge and no connection |
+| `ACTION_TRANSMIT_SCIENCE` | `Experiment.Transmit()` | transmits every module that reads `HasData`; per-module faults are one Warn each and are counted into the sweep's `failed=` | that any science was credited - the call can succeed with no ElectricCharge and no connection. **CORRECTED 2026-08-19 (measured):** it does NOT silently succeed with no antenna. kRPC filters the vessel's transmitters by `IScienceDataTransmitter.CanTransmit()` and RAISES `No transmitters available to transmit the data` when none passes, which the runner catches and reports as a failed module |
 | `ACTION_RECOVER_VESSEL` | `Vessel.Recoverable` then `Vessel.Recover()` | READS `Recoverable` first and declines rather than raising; then recovers; stamps the outcome on `recover_request_result` either way | that the craft was recovered rather than destroyed - a craft that blew up is also gone - and, before the stamp is read back, not even that the verb was issued at all |
 
 Three properties of `ACTION_RECOVER_VESSEL` are load-bearing and bind any future
@@ -1083,6 +1083,47 @@ verdict directions, the runner's reads and verbs (including that the career pool
 survive a `vessel_lost` frame and that the recover verb never raises out of
 `perform`), and a full `run.py` attempt over the fake KSP against a spec naming
 the real mission and validated against its real committed schema.
+
+### A.7 What the FIRST LIVE FLIGHTS measured (2026-08-19), and what they changed
+
+The next wave flew (`L3-career-science-recover`, three attempts across two runs)
+and the amendment survives intact: no verdict, terminal, channel or action
+contract above moves. Two things DID change, and both are recorded here rather
+than left in a run log.
+
+1. **`make_control` needs a SECOND opt-in on a CAREER save:
+   `tolerate_unreadable_nodes=True`.** Flight 1 died at 1.2 s in PRELAUNCH
+   (`flight-leg vessel-lost (unreadable after repeated telemetry failures)`)
+   because kRPC raises `Maneuver node editing is not available` on an un-upgraded
+   Tracking Station and `READ_FAIL_STREAK_LIMIT` consecutive raises escalate to a
+   `vessel_lost` snapshot. CL-3 already carried the identical finding; this lane
+   is the second career flier. The flag stays PER-MISSION (globally it breaks
+   CL-1), and it is safe here because B1's phase progression cannot be walked
+   from the pad and `flightCompletedObserved` gates on the peak apoapsis.
+
+2. **A.2's transmit row was factually wrong, and the correction is above.**
+   `Experiment.Transmit()` does NOT silently succeed on a craft with no
+   science-capable antenna: kRPC filters by `CanTransmit()` and raises. Flight 2
+   flew perfectly - peak apoapsis 19,990 m, landed under canopy, COLLECT ran all
+   three experiments - and then condemned itself `transmit-credited-no-science`
+   with ten identical `No transmitters available to transmit the data` raises
+   across four bounded re-emit sweeps.
+
+**The mission was RIGHT and the fixture is wrong, and this document already says
+which side that lands on.** Decompiling the shipped `Assembly-CSharp`,
+`ModuleDataTransmitter.CanTransmit()` requires `antennaType != INTERNAL` before
+it even consults CommNet - so stock forbids transmitting science over a command
+pod's built-in antenna, which is the ONLY transmitter `career-pad-craft`'s
+Jumping Flea carries. That is a fixture fault of exactly the class
+`no-experiments-aboard` names ("the fixture is wrong, and re-flying it changes
+nothing"), and the terminal that fired says so in its own words ("no antenna").
+The open follow-up is therefore fixture work, not a contract change: see
+`docs/dev/plans/career-ledger-coverage.md` section 4d and the
+CAREER-FORGE-NEEDS-A-DIRECT-ANTENNA entry in `todo-and-known-bugs.md`. One
+observability improvement is worth taking with it when that wave runs: "no
+transmitter aboard" and "transmitted and nothing was credited" are the same side
+of the retry line but different diagnoses, and only the first is a fixture fault
+a re-fly cannot change.
 
 ## What Doesn't Change
 

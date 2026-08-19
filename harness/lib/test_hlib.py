@@ -4922,6 +4922,18 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
         "L1-upgrade-facility-career.toml":  "discharged - OPERATOR-VERIFIED; tag dropped 2026-07-31",
         # Found by this cell on its first run, absent from the hand-written list.
         "L1-passive-sandbox.toml":          "discharged - records its own 2026-07-26 drop",
+        # tier=operator by the SAME transient reading-run hold the two NOTEs below
+        # describe - and, as of its three 2026-08-19 attempts, ALSO by a fixture
+        # blocker that no amount of re-flying will move. Nothing operator-shaped is
+        # owed even so: the driver is an autopilot with no RequiresFlight verb and no
+        # human judgement in the loop, and `operator` is simply the tier that keeps a
+        # spec off every cadence. It cannot pass on `career-pad-craft` because stock's
+        # `ModuleDataTransmitter.CanTransmit()` requires `antennaType != INTERNAL` and
+        # that craft's only transmitter is the pod's built-in INTERNAL antenna - see
+        # CAREER-FORGE-NEEDS-A-DIRECT-ANTENNA in docs/dev/todo-and-known-bugs.md. The
+        # entry is REMOVED (not rewritten) by the commit that lands the sibling fixture
+        # and promotes this spec off `operator`.
+        "L3-career-science-recover.toml":   "fixture-blocked - flown 3x 2026-08-19, INVALID(mission) each time on a stock rule no re-fly changes (INTERNAL antennas cannot transmit science); operator tier keeps it off every cadence until the sibling fixture lands",
         # NOTE, no entry owed: `L3-strategy-currency-conversion` held `operator` for
         # the length of ONE reading run - the same transient hold the L2 note below
         # describes - and was promoted to `nightly` in the commit that replaced its

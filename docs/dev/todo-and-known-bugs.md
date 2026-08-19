@@ -242,6 +242,24 @@ verbatim and adds COLLECT -> TRANSMIT -> RECOVER. Binding contract:
 `docs/dev/design-autotest-mission-library.md` Amendment A. The sequencing to a
 harvested fixture is `career-ledger-coverage.md` section 4d.
 
+**WAVE 2 OPENED 2026-08-19** (`postfix-career-flight`): the smoke spec is promoted
+verbatim as the committed `harness/scenarios/L3-career-science-recover.toml`
+(`tier = "operator"`, no pins - the L2 B.1 reading-run hold). Section 4d's one open
+fixture question ("does `career-pad-craft` carry a science part at all?") is
+**answered by READING the fixture rather than by flying it**: the craft is the stock
+Jumping Flea and already carries three `ModuleScienceExperiment` modules (two
+`GooExperiment` canisters plus the pod's crew report), a `ModuleScienceContainer`, a
+`ModuleDataTransmitter` and Jebediah aboard - so the budgeted sibling-fixture
+derivation is struck and no committed fixture is touched. The other named wave-2
+question, whether `CommitTree` is still the right verb once recovery has already
+changed the scene, is **answered from source before the flight and then MEASURED by
+keeping the step**: recovery destroys the active vessel, so
+`ParsekFlight.OnVesselWillDestroy` stashes the tree PENDING and
+`ParsekTestCommandAddon` answers `ERROR / no-active-tree`. The spec therefore adds
+`SetSetting autoMerge=true` (CL-2's measured silent scene-exit auto-commit path,
+without which `SceneExitInterceptor` raises an approval dialog no seam verb answers)
+and keeps `CommitTree` as a non-gating measurement.
+
 Two design points worth carrying out of it, because both are the kind of thing
 that is re-derived wrongly later:
 
@@ -304,6 +322,81 @@ finding (cost 90 against a reconstructed 85.3). Being able to CREDIT science doe
 not help: the refusal is at the seam, before any row is written. That finding
 stays owned by the synthetic two-action unit test (`ScienceSpendingOrderingTests`,
 plan task A.1), and a future forge must NOT be scoped to it.
+
+## CAREER-FORGE-NEEDS-A-DIRECT-ANTENNA: the post-fix career forge cannot transmit science, because stock refuses to transmit over a command pod's INTERNAL antenna [MEASURED 2026-08-19 by `L3-career-science-recover` flight 2 (runs `2026-08-19_1823` + retry `_1831_a2`), root cause PROVEN from the decompiled `Assembly-CSharp`. NOT a product defect and NOT a harness defect: the MISSION named a FIXTURE fault correctly. OPEN, and the fix is fixture work]
+
+`L3-career-science-recover` flight 2 flew a textbook mission and then condemned
+itself. The flight leg was perfect - peak apoapsis 19,990 m inside the
+6,000-30,000 m window, chute armed at the apoapsis crossing, `LANDED` - and
+COLLECT ran all three experiments aboard (`run_science_experiments ran=3
+skipped=0 failed=0`, `experimentsAboard=3 experimentsAvailable=3 dataMax=3`).
+TRANSMIT then ran its full 120 s budget across four bounded re-emit sweeps and
+credited nothing:
+
+    [Mission][Warn][Science] experiment transmit failed: RuntimeError:
+      No transmitters available to transmit the data
+        at KRPC.SpaceCenter.Services.Parts.Experiment.Trans...
+    [Mission][Info][Science] transmit_science sent=0 skipped=0 failed=3
+
+Ten identical raises, deterministic across both attempts, and the terminal is
+`transmit-credited-no-science` with `scienceBaseline=100.000 scienceNow=100.000`.
+
+### The root cause, decompiled rather than guessed
+
+kRPC filters the vessel's transmitters by `IScienceDataTransmitter.CanTransmit()`
+and raises when none passes. Decompiling the shipped
+`automation/stock-minimal/KSP_x64_Data/Managed/Assembly-CSharp.dll`,
+`ModuleDataTransmitter.CanTransmit()` reads, in order: `moduleIsEnabled`, then
+**`antennaType != 0`**, and only THEN the CommNet leg (`vessel.connection` non-null,
+`SignalStrength > 0`, `ControlPath.IsLastHopHome()`). `AntennaType.INTERNAL` is
+enum value 0, so **an INTERNAL antenna can never transmit science, connected or
+not.** The `career-pad-craft` Jumping Flea's only transmitter is `mk1pod.v2`'s
+built-in one (`antennaType = INTERNAL`, `antennaPower = 5000`), so no craft in
+that fixture can ever satisfy the TRANSMIT phase. Nothing about CommNet,
+ElectricCharge (50 units, unspent) or the ground stations is involved; the save's
+own `CommNetParams` are healthy (`enableGroundStations = True`).
+
+### Why this is a FIXTURE fault and not a contract to relax
+
+`design-autotest-mission-library.md` Amendment A already draws this line: a
+terminal that reads "the fixture is wrong, and re-flying it changes nothing" is
+an ASSERT-FAIL naming the fixture, which is exactly what fired, and the terminal's
+own reason text lists "no antenna" first. The mission behaved correctly. What the
+amendment got WRONG is one clause of A.2, now corrected in place: it claimed
+`Experiment.Transmit()` "succeeds with no antenna", and it does not - it raises.
+
+### Fix: a career fixture whose craft carries a DIRECT antenna
+
+Sized here so the next wave does not re-derive it. The `career-pad-craft` fixture
+must NOT be mutated (five committed specs fly it), so this is a SIBLING, and the
+`SurfAntenna` (Communotron 16-S, `antennaType = DIRECT`) is **already in the
+fixture's purchased-parts set**, so no tech-tree work is needed. The obstacle is
+that no committed `.craft` for the Jumping Flea exists anywhere - the craft lives
+only as a `FLIGHTSTATE` VESSEL node inside `b1-pad-craft` - so
+`build_career_pad_craft.py`'s donor-splice approach has no donor to splice, and
+hand-authoring a surface-attached PART node into a FLIGHTSTATE (fresh
+`persistentId`, `srfN`/`attN` strings, `stg` renumber) is the failure mode this
+repo's automation-first fixture rule exists to avoid. The honest route is the
+FORGE precedent: author the craft by construction (`build_gs1_craft.py` /
+`build_dd1_craft.py` are the pattern), add a `FORGE-*` spec that launches it onto
+the pad over a CAREER base, harvest it with `harvest_bdock_station.py` (which now
+derives its title suffix from the save's own `Mode`, so a CAREER harvest stamps
+`(CAREER)`), register the new fixture, and re-point `L3-career-science-recover` at
+it. Two flights plus the scaffolding, tracked as the rest of
+`docs/dev/plans/career-ledger-coverage.md` section 4d wave 2.
+
+**Worth taking with that wave, but not before it:** "no transmitter aboard" and
+"transmitted and nothing was credited" are the same side of the retry line and
+different diagnoses, and only the first is a fixture fault a re-fly cannot change.
+The sweep already counts them separately (`failed=3` vs `sent=0`); the terminal
+reason does not yet distinguish them.
+
+**What flight 2 also proved in passing, and it is most of the forge:** everything
+up to the transmit is sound on this fixture. The recorder produced a real flight,
+the career funds pool moved on its own (`500000 -> 530400`, the stock launch
+milestones), the three career-scoped channels read cleanly on every frame, and
+the collect verb stored data on all three modules. Only the transmit leg is
+blocked, and the recovery leg was never reached.
 
 ## MAPRENDER-ICON-OFF-ORBIT-CREATION-FRAME-AFTER-JUMP: a ghost's proto ICON sits ~94 deg around its own orbit line on the CREATION frame, after a single large TimeJump onto an epoch just inside a foreign moon's SOI [MEASURED 2026-08-18 by `V14T-ike-ts-arrival`'s reading run and REPRODUCED on its armed run 2026-08-19. REPORT-ONLY: one self-correcting frame per run, DETERMINISTIC for the single-jump shape, tolerated by name in that spec; NO product change is proposed]
 

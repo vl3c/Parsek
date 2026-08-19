@@ -414,7 +414,7 @@ used (reading run, then arming).
 | Wave | What it delivers | Status |
 | --- | --- | --- |
 | **1. Capability** | The three actions, the six channels, `science_bench_recover`, and the headless proofs. `design-autotest-mission-library.md` Amendment A is the binding contract. **No spec, no fixture, no flight.** | **DONE 2026-08-19** (`c2-postfix-forge`) |
-| **2. Forge + harvest** | A committed spec + whatever fixture work it needs, ONE driven flight, and the produced save harvested as a fixture. | open |
+| **2. Forge + harvest** | A committed spec + whatever fixture work it needs, ONE driven flight, and the produced save harvested as a fixture. | **SPEC COMMITTED AND FLOWN 3x (2026-08-19); BLOCKED ON FIXTURE WORK** (`postfix-career-flight`): `harness/scenarios/L3-career-science-recover.toml`, `tier = "operator"`, no pins. Flight 1 found and fixed a career-save telemetry blocker; flight 2 flew a textbook mission and hit a STOCK RULE - an INTERNAL antenna cannot transmit science - which no re-fly changes. The "whatever fixture work it needs" clause is what remains: a sibling craft carrying a DIRECT antenna. See the two bullets below. |
 | **3. Replay proof** | Replay the harvested ledger headlessly (the A.0 method) and show it closes; then arm B.4 strict on it. | open |
 
 **What wave 2 needs, stated concretely so it is not re-derived:**
@@ -422,18 +422,55 @@ used (reading run, then arming).
 - **Fixture base: `career-pad-craft`.** It is committed, it is CAREER, it carries
   exactly one PRELAUNCH VESSEL (so it is focusable and a FLIGHT-scene batch stays
   possible), it has an inert `ParsekScenario` node, and B1/CL-1 already fly this
-  exact craft. The **one open question** is whether that craft carries a science
-  part at all: `science_bench_recover` names the answer within two polls of
-  landing (`no-experiments-aboard`, an ASSERT-FAIL that blames the fixture, not
-  the flight), which is the cheap way to find out. If it does not, the fixture
-  work is adding one - a `build_career_pad_craft.py`-style derivation, kept under
-  the same drift guard its `FixtureDriftTests` already provide.
+  exact craft. The **one open question** was whether that craft carries a science
+  part at all. **ANSWERED 2026-08-19, AND IT ANSWERED CHEAPER THAN PLANNED: IT
+  DOES.** The plan budgeted a flight for the answer (`science_bench_recover` names
+  `no-experiments-aboard` within two polls of landing, an ASSERT-FAIL that blames
+  the fixture rather than the flight) and a possible
+  `build_career_pad_craft.py`-style sibling derivation if it came back negative.
+  Neither was needed: READING the committed fixture shows the craft is the stock
+  Jumping Flea - `mk1pod.v2`, `parachuteSingle`, `GooExperiment` x2,
+  `solidBooster.sm.v2`, `basicFin` x3, Jebediah aboard - so it carries THREE
+  `ModuleScienceExperiment` modules (the two Mystery Goo canisters plus the pod's
+  crew report), a `ModuleScienceContainer`, a `ModuleDataTransmitter` and 50 EC.
+  **The sibling-fixture bullet is struck**: nothing is built, nothing is mutated,
+  and the five specs already flying `career-pad-craft` are untouched. One caveat
+  carried into the flight instead: two Goo canisters plus one crew report give a
+  small subject set on ONE biome, and stock's repeat-subject diminishing returns
+  apply, so `transmitMinScienceGain` is sized against the NET pool rise.
+  Incidentally the craft's part list is BYTE-IDENTICAL to `b1-pad-craft`'s, which
+  is why B1's apoapsis window transfers verbatim.
 - **Spec shape:** `kind = "autopilot"`, `mission = "science_bench_recover"`,
   steps `LoadGame -> SetSetting autoRecordOnLaunch -> mission -> CommitTree ->
   FlushAndQuit`. `harness/lib/test_run_smoke.py`'s
   `ScienceBenchRecoverAdmissionTests._make_science_bench_spec` is that spec
   already, in memory, validated against the committed schema and driven to PASS
   over the fake KSP - promote it, do not re-invent it.
+  **PROMOTED 2026-08-19 as `L3-career-science-recover`, with TWO deliberate
+  deviations on the STEP LIST only** (every `missionParams` value is verbatim).
+  Both were derived from committed source plus an already-measured flight, not
+  predicted, and both are argued in full in the spec's own comments:
+  1. **`SetSetting autoMerge=true` ADDED, and mandatory.** Stock recovery destroys
+     the active vessel, so `ParsekFlight.OnVesselWillDestroy` classifies
+     `DestructionMode.TreeAllLeavesCheck`, finalizes the tree and stashes it
+     PENDING with `activeTree` nulled. At the following FLIGHT -> SPACECENTER
+     change `SceneExitInterceptor.ShouldShowDialogBeforeSceneChangeForPendingTree`
+     returns `RegularMerge` whenever autoMerge is OFF - an approval DIALOG, in an
+     unattended run, that no seam verb answers. With it ON the same call returns
+     `None` and the exit takes the silent full-fidelity auto-commit. This is
+     CL-2's measured path on this very fixture.
+  2. **`CommitTree` KEPT VERBATIM though it is EXPECTED TO FAIL.** This bullet list
+     names "whether `CommitTree` is still the right verb after the scene has
+     already changed" as a wave-2 reading-run question, and keeping the step is
+     what MEASURES the answer rather than asserting it.
+     `ParsekTestCommandAddon` returns `ERROR / no-active-tree` when `HasActiveTree`
+     is false, which the recovery teardown above guarantees - the shape CL-1
+     flight 1 already measured on a DESTROYED craft. Keeping it is free because
+     `run.py`'s autopilot carve-out gates driver validity on the steps up to and
+     including the mission handoff, and `hlib.SEAM_VERB_POST_MISSION_ROLE` files
+     `CommitTree` as `recording`, so a post-mission miss is RECORDED and
+     NON-GATING on a MISSION-OK run. The commit therefore has to come from the
+     auto-merge path, and `recordings.count` is what proves it did.
 - **Expected pins: NONE on the first run, by rule.** Every mission param is a
   FLOOR on an OBSERVED movement, never a pool value; only KSP authors what a
   subject or a recovery is worth, and authoring one here is the
@@ -441,6 +478,47 @@ used (reading run, then arming).
   first run ships `tier = "operator"` with no `[expectations.ledger]` manifest and
   no pinned tally, exactly as L2's B.1 reading run did; the arming and the tier
   promotion land in the SAME commit that pins the measurement.
+- **A THIRD FIXTURE PROPERTY NOBODY BUDGETED FOR, and flight 1 is what found it:
+  a CAREER save's un-upgraded Tracking Station makes kRPC refuse the
+  maneuver-node read, and that alone kills the flight leg.** Runs
+  `2026-08-19_1817_L3-career-science-recover` and its retry `_1818_..._a2` both
+  died at 1.2 s in PRELAUNCH - `MISSION-ASSERT-FAIL`, `flight-leg vessel-lost
+  (unreadable after repeated telemetry failures)` - because
+  `Maneuver node editing is not available` raises on every telemetry read and
+  `READ_FAIL_STREAK_LIMIT = 3` consecutive raises escalate to a `vessel_lost`
+  snapshot the delegated B1 leg correctly condemns. The finding was ALREADY IN
+  THE REPO, one file away: `cl3_refly_crew_tombstone.make_control` says the same
+  sentence about the same fixture family. The fix is the per-mission
+  `tolerate_unreadable_nodes=True` opt-in that exists for precisely this, argued
+  safe here because B1's phase progression cannot be walked from the pad (the
+  CL-1 hazard the flag's docstring records) and `flightCompletedObserved`
+  additionally gates on the peak apoapsis. **The transferable lesson for the next
+  career lane: a `career-pad-craft`-family fixture needs BOTH opt-ins, and the
+  facility tier is a fixture property worth checking alongside the part list.**
+- **A FOURTH FIXTURE PROPERTY, and this one is the wave's actual blocker: the
+  craft carries no antenna that stock will transmit science over.** Flight 2
+  (`2026-08-19_1823` + retry `_1831_..._a2`) flew a textbook mission - peak
+  apoapsis 19,990 m inside the window, landed under canopy, COLLECT ran all three
+  experiments - and then ran TRANSMIT's full 120 s budget over four bounded
+  re-emit sweeps for ten identical `No transmitters available to transmit the
+  data` raises out of kRPC, terminal `transmit-credited-no-science`. Decompiling
+  the shipped `Assembly-CSharp`, `ModuleDataTransmitter.CanTransmit()` requires
+  `antennaType != INTERNAL` BEFORE it consults CommNet, and `AntennaType.INTERNAL`
+  is enum 0 - so the Jumping Flea's only transmitter, `mk1pod.v2`'s built-in one,
+  can never transmit science. The mission behaved correctly: this is the fixture
+  fault class Amendment A describes as "the fixture is wrong, and re-flying it
+  changes nothing", and the terminal's own reason names "no antenna" first.
+  **The remaining wave-2 work is therefore a SIBLING fixture whose craft carries a
+  DIRECT antenna.** `SurfAntenna` (Communotron 16-S) is ALREADY in this fixture's
+  purchased-parts set, so no tech-tree work is needed - but no committed `.craft`
+  for the Jumping Flea exists anywhere (it lives only as a FLIGHTSTATE VESSEL node
+  inside `b1-pad-craft`), so `build_career_pad_craft.py`'s donor-splice has no
+  donor and hand-authoring a surface-attached PART node into a FLIGHTSTATE is the
+  failure mode the automation-first fixture rule exists to avoid. The route is the
+  FORGE precedent: build the craft by construction, add a `FORGE-*` spec that
+  launches it onto the pad over a CAREER base, harvest it, register it, re-point
+  this spec. Full sizing in CAREER-FORGE-NEEDS-A-DIRECT-ANTENNA
+  (`todo-and-known-bugs.md`).
 - **One constant to WATCH on the first flight, named in advance so it is not
   diagnosed from scratch:** `mlib.SBR_RECOVER_CREDIT_GRACE_FRAMES` (6 frames,
   ~3 s at the ~0.5 s poll cadence) does double duty. It bounds the read-ordering
@@ -453,7 +531,9 @@ used (reading run, then arming).
   deliberately NOT pre-tuned. Expect it to be the first number wave 2 has to
   bump, and bump it off the measured reload rather than a guess. The same note is
   on `[params.recoverTimeoutSeconds]` in the mission schema, which is where a
-  spec author sizing the phase will be looking.
+  spec author sizing the phase will be looking. **NOT YET EXERCISED (2026-08-19):**
+  no flight has reached RECOVER, so this constant is still unmeasured and the
+  prediction that it would be the first number to need a bump is still open.
 - **Two spec-authoring notes the promoted spec already encodes**, both worth
   keeping when it is copied out of `test_run_smoke.py`. `recoverMinFundsGain` is
   a small POSITIVE value even though the schema allows 0.0 - at 0.0 the terminal
