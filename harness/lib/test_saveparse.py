@@ -670,6 +670,37 @@ class CommittedFixtureSweepTests(unittest.TestCase):
         # `test_every_persistent_sfs_parses_with_pinned_counts` are therefore not
         # bookkeeping here: they are the fixture's whole reason to exist.
         "duna-park-probe": True,
+        # THE SECOND PARSEK-STRIPPED DERIVED FIXTURE, and the same strip for the
+        # same reason. `eve-park-kerbalx` is `eve-orbit-recorded` (B16's
+        # --keep-parsek harvest, which carries 8 committed recordings) with
+        # Parsek's own state removed: the `Parsek/` sidecar directory pruned by a
+        # harvest WITHOUT --keep-parsek, plus a manual brace-balanced excision of
+        # the residual ParsekScenario CHILDREN. It belongs HERE and not in
+        # RECORDED_FIXTURES precisely because the strip puts it back under the
+        # zero-trees contract this map asserts.
+        #
+        # THE NODE IS STILL PRESENT (True) AND THAT IS DELIBERATE: only the
+        # children were excised. A flyable template must carry the node or the
+        # FLIGHT route records nothing.
+        #
+        # FIVE CHILD NODE TYPES WERE REMOVED, not `duna-park-probe`'s three:
+        # RECORDING_TREE (1), GROUP_HIERARCHY (1) and MILESTONE_STATE (4) - the
+        # B23 recipe - PLUS KERBAL_SLOTS (1) and CREW_REPLACEMENTS (1), which
+        # exist here only because the source recording is CREWED. Those two are
+        # Parsek's crew-reservation bookkeeping (Jebediah reserved, `Suster
+        # Kerman` allocated as the stand-in) and they POINT AT THE RECORDING THAT
+        # WAS JUST REMOVED, so leaving them would be residue by any reading. What
+        # survives is Suster as an ordinary Available pilot and Jebediah Assigned
+        # aboard the pod exactly as before - the WORLD is untouched.
+        #
+        # WHY THE STRIP IS LOAD-BEARING, so a future re-harvest does not undo it:
+        # `B24-gilly-orbit` starts its recording through the seam on a vessel that
+        # `eve-orbit-recorded` holds a COMMITTED TREE for, and a seam
+        # StartRecording cannot open a standalone tree on a committed tree's own
+        # launch (the same defect quoted just above). The zero-trees assertions in
+        # `test_every_persistent_sfs_parses_with_pinned_counts` are therefore not
+        # bookkeeping here either: they are the fixture's whole reason to exist.
+        "eve-park-kerbalx": True,
         "eva2-lko-crewed": True,
         "eva3-pad-3crew": True,
         "fresh-career": False,

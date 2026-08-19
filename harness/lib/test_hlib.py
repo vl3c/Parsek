@@ -5024,6 +5024,18 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
         # armed. Promotion is the post-measurement re-pinning call, a recorded
         # human decision, not a debt this tag would name.
         "B23-ike-orbit.toml":               "calibration-discipline - LIVE-PROVEN 2026-08-18 on FLIGHT 2 (`_2308`, PASS attempt 1, wall 370.5 s): fresh standalone Duna-rooted tree, one Duna->Ike boundary, terminal Orbiting/Ike, produced save harvested as the committed `ike-orbit-recorded` fixture. FLIGHT 1 (`_2242`) was ALSO PASS attempt 1 on the same parameters and produced a structurally wrong subject (the seam StartRecording no-opped onto a re-resumed COMMITTED recording), which no verifier could see - fixed by the fixture, filed report-only. Nothing armed: the count window is still a derived range and no save-structure block is declared. Operator tier is now the ordinary promotion call plus the arming pass, not outstanding work",
+        # THE B24/V15 GILLY TRIO, all three UNFLOWN and all three operator for the
+        # calibration discipline rather than for outstanding human work. What each
+        # owes is a FIRST FLIGHT, which is the tier's whole purpose (V1/V2/B18-B21/B23
+        # precedent), not a decision someone has deferred. The V15 pair additionally
+        # ships with CALIBRATION SEEDS (a placeholder tree id + jump UTs derived from
+        # B24's planned numbers) and a saveTemplate naming a fixture that does not exist
+        # yet - both stated in a banner at the top of each spec and both tracked by the
+        # self-retiring `PENDING_FIXTURE_LANES` exemption in
+        # `SharedShipsManifestTests`, which REDS the moment the fixture appears.
+        "B24-gilly-orbit.toml":             "calibration-discipline - NOT YET FLOWN. B23's eccentric-moon sibling: Eve park -> Gilly, produced through the LIVE-PROVEN startInOrbit door with no machine change. Its first flight is a reading run by construction - the delta-v margin (1,023 m/s available against a 753 m/s worst-geometry hop) and every warp number are DERIVED and unmeasured, and the arrival geometry is a band because the target is eccentric. Nothing armed: derived count range, no save-structure block, ERROR-floor forbids only. Operator tier is the first-flight calibration call, not outstanding work",
+        "V15M-gilly-player-loop.toml":      "calibration-discipline - NOT YET FLOWN, and NOT YET FLYABLE: its tree id and eight TimeJump UTs are CALIBRATION SEEDS pending B24-gilly-orbit's first flight and harvest, and its fixture `gilly-orbit-recorded` does not exist yet (banner at the top of the spec; exemption in SharedShipsManifestTests.PENDING_FIXTURE_LANES). The reading it is built for is the tightest phase-lock tolerance in the stock system (Gilly tol = SOI/v_orb = 133-460 s against Ike's ~3,420 s), observed through the `seam-endpoint summary ... outsideSoi=` census in its PRESENCE form. Nothing armed. Operator tier is the first-flight calibration call, not outstanding work",
+        "V15T-gilly-ts-arrival.toml":       "calibration-discipline - NOT YET FLOWN, and NOT YET FLYABLE for the same reason as V15M (shared seeds, shared not-yet-existing fixture). It additionally EXPECTS to red: `allowedAnomalies` is empty on purpose so the sweep measures whether V14T's deterministic `icon-off-orbit` raise on the single-jump shape survives a change of parent, moon and SOI scale, and a PARSEK-FAIL(anomaly) with all steps green is the correct catch there. Nothing armed. Operator tier is the first-flight calibration call, not outstanding work",
         # THE V14 PAIR, and they are operator for the same calibration discipline for a
         # reason that is theirs alone: they are the FIRST loop lanes whose subject is not
         # rooted at Kerbin (B23's Duna->Ike recording), and the first to reach a TIDALLY
@@ -11050,6 +11062,51 @@ class SharedShipsManifestTests(unittest.TestCase):
                                   % (name, name[:-5], craft, leaf))
         self.assertEqual([], unresolved, "\n".join(unresolved))
 
+    # LANES COMMITTED AHEAD OF THE FIXTURE THEY CONSUME, mapped to the fixture leaf
+    # they are waiting on. NARROW AND SELF-RETIRING BY CONSTRUCTION: the cell below
+    # reds if an entry's fixture EXISTS (the exemption must then be deleted in the
+    # calibration commit) and reds if a listed spec no longer names that leaf, so
+    # this cannot quietly become a place specs go to avoid the gate.
+    #
+    # WHY IT EXISTS AT ALL, since a committed spec pointing at a missing directory is
+    # normally exactly the misdirection this class is named for: the V15 pair is the
+    # DOWNSTREAM half of a two-stage program. B24-gilly-orbit must fly and be
+    # harvested before `gilly-orbit-recorded` can exist, and the pair's whole value is
+    # that its predictions (the routing, the tolerance arithmetic, the inverted watch
+    # call) are written DOWN BEFORE the flight rather than after it - the V14 lanes'
+    # refuted tidal-collapse prediction is the standing demonstration that a
+    # pre-registered prediction is worth more than a post-hoc description. Both specs
+    # carry a NOT FLYABLE banner naming this exemption, and their jump UTs are
+    # CALIBRATION SEEDS, so nothing here pretends they are runnable today.
+    PENDING_FIXTURE_LANES = {
+        "V15M-gilly-player-loop.toml": "gilly-orbit-recorded",
+        "V15T-gilly-ts-arrival.toml":  "gilly-orbit-recorded",
+    }
+
+    def test_the_pending_fixture_exemption_retires_itself(self):
+        """The exemption's own guard, in BOTH directions. If the awaited fixture
+        has appeared, the calibration pass owes this list an edit in the same
+        commit that re-pins the spec - and if a listed spec has been re-pointed
+        somewhere else, the entry is stale. Either way the reminder fires here
+        rather than being remembered."""
+        saves = set(_fixture_save_names())
+        arrived, moved = [], []
+        for name, leaf in sorted(self.PENDING_FIXTURE_LANES.items()):
+            path = os.path.join(SCENARIOS_DIR, name)
+            self.assertTrue(os.path.isfile(path),
+                            "PENDING_FIXTURE_LANES names a spec that does not exist: %s"
+                            % name)
+            with open(path, "rb") as fh:
+                spec = tomllib.load(fh)
+            actual = ((spec.get("fixture", {}) or {}).get("saveTemplate", "")
+                      ).replace("\\", "/").rstrip("/").rsplit("/", 1)[-1]
+            if actual != leaf:
+                moved.append("%s now names %r, not the awaited %r" % (name, actual, leaf))
+            if leaf in saves:
+                arrived.append("%s: fixture %r now EXISTS - delete this entry"
+                               % (name, leaf))
+        self.assertEqual([], arrived + moved, "\n".join(arrived + moved))
+
     def test_every_spec_saveTemplate_names_a_real_fixture(self):
         manifest = _read_manifest()
         saves = set(_fixture_save_names())
@@ -11059,6 +11116,10 @@ class SharedShipsManifestTests(unittest.TestCase):
                 spec = tomllib.load(fh)
             template = (spec.get("fixture", {}) or {}).get("saveTemplate", "")
             if not template:
+                continue
+            if name in self.PENDING_FIXTURE_LANES:
+                # Committed ahead of its fixture; guarded by the self-retiring
+                # cell above rather than skipped silently.
                 continue
             leaf = template.replace("\\", "/").rstrip("/").rsplit("/", 1)[-1]
             self.assertIn(leaf, saves,
