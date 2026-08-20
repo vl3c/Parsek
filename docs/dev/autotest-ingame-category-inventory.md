@@ -194,24 +194,14 @@ Two limits of this table, stated so nobody over-reads it:
 
 ## Triage
 
-<<<<<<< HEAD
-Totals, re-derived: **104 categories / 580 declarations**. Buckets **A 32 categories
-(220 declarations)**, **B 72 categories (360 declarations)**, **C 0 categories (0
-declarations)**. Driven by a committed spec: **41 of 104 categories**, up from 35
-=======
-Totals, re-derived: **104 categories / 586 declarations**. Buckets **A 33 categories
-(227 declarations)**, **B 71 categories (359 declarations)**, **C 0 categories (0
+Totals, re-derived: **104 categories / 587 declarations**. Buckets **A 33 categories
+(227 declarations)**, **B 71 categories (360 declarations)**, **C 0 categories (0
 declarations)**. Driven by a committed spec: **43 of 104 categories**, up from 35
->>>>>>> origin/main
 across six waves - `ReFlyWorldPreservation` via S4.2, `RecordedSignals` via H33,
 `SnapshotBaseline` via H32, and `Logistics` via H34 all landed together in one merge
 (the S1.8 SoiCrossingPlayback wave had taken it to 35 from 34, and 28 and 8 the waves
 before), then `PlaybackFidelity` via H36 and `PartEventFidelity` via H37. Measured
-<<<<<<< HEAD
-against declarations rather than categories, that is 394 of 580 inside a driven
-=======
-against declarations rather than categories, that is 403 of 586 inside a driven
->>>>>>> origin/main
+against declarations rather than categories, that is 404 of 587 inside a driven
 category (was 318 before these waves: 324 after S4.2, 327 after H33, 334 after H32,
 381 once `Logistics` counted, 388 with `PlaybackFidelity`, 393 with
 `PartEventFidelity`, and 401 once L3's capture matrix took `StrategyLifecycle` from 3
