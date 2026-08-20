@@ -151,9 +151,40 @@ steps = [
 #                 claim. See the block below for why it is fixture-carried.
 #
 # D8 `ground-truth-harness` is NOT re-claimed: L2 already covers that cell, and the
-# LOOP is not what this spec adds. `kerbals` is NOT claimed either, and the reason
-# is measured rather than assumed - the P9a cell SKIPPED (see the tally note), so
-# nothing here gates a kerbal-identity assertion.
+# LOOP is not what this spec adds.
+#
+# ---- THE `kerbals` CELL, CLAIMED 2026-08-20 AFTER TWO REFUSALS ------------
+# This is the claim L2's header PREDICTED, this spec's first arming DECLINED, and
+# the 2026-08-20 re-harvest finally earned. The refusals were right both times and
+# the history is kept because it is the whole argument for the claim now:
+#
+#   L2 predicted a fixture carrying a recorded crewed recovery would flip the P9a
+#   cell to passing. This fixture HAS one, and the cell still SKIPPED - because it
+#   needs a `GameActionType.KerbalExperience` row specifically, which a recovery
+#   did not by itself produce. Prediction falsified, claim declined.
+#
+#   The reason it did not produce one was a PRODUCT gap, not a fixture thinness:
+#   KERBAL-XP-UNTAGGED-RECOVERY-HAS-NO-LEDGER-ROW. The recovery's crew-experience
+#   note was observed and then filed against no flight, so it never became a row.
+#   Fixed on branch `kerbal-xp-row` and live-proven by run
+#   `2026-08-20_1925_L3-career-science-recover_run2`; this spec's subject was
+#   re-harvested from that run.
+#
+# WHAT GATES IT, and each half is a separate witness rather than one fact stated
+# twice. The DIFF half is the pinned `CompareKerbalCareerLogs: kerbals=1
+# divergent=0` token plus `facetsCompared=11`: the facet SKIPS entirely when the
+# reconstruction credits no entries, so a subject that lost the row would drop the
+# count to 10 AND lose the token. The RE-ASSERT half is the batch tally's
+# `passed=2 skipped=0` - the P9a in-game cell walks the effective ledger's XP rows
+# onto the live roster and Skips loudly when there are none, so a `skipped=1` here
+# says the row is gone even if the diff somehow still counted.
+#
+# HONEST NOTE ON THE REGISTRY VALUE: D8 `kerbals` is ALREADY CLAIMED by CL-2,
+# L1-hire and L1-dismiss, so this claim does not move `covered` and is not new
+# coverage in the tally's sense. It is recorded anyway because those three claim
+# the ROSTER LIFECYCLE (hire / dismiss / crew tombstoning) and this one claims the
+# CAREER LOG under strict per-identity comparison - a different property of the
+# same dimension value, and the dimension has no finer cell to name it with.
 #
 # ---- THE `contracts` CELL, AND WHY IT IS FIXTURE-CARRIED ------------------
 # A DRIVEN accept is not merely expensive here, it is UNREACHABLE. The M-A2
@@ -179,7 +210,7 @@ steps = [
 # it compare anything, because both sides read 0 and the zero divergences it
 # reported were about nothing. The count was honest and the claim would not have
 # been, which is why `contracts` was not claimed until now.
-D8 = ["science", "milestones", "funds", "contracts"]
+D8 = ["science", "milestones", "funds", "contracts", "kerbals"]
 D14 = ["career", "scene-flight"]
 
 [expectations]
@@ -212,24 +243,33 @@ count = { min = 2, max = 2 }
 # THE TALLY. `total=2` was DERIVED before either flight (`hlib.derive_batch_tally`
 # over the C# attributes: total 2, scene-skipped 0, batch-skipped 0, executable 2)
 # and both flights confirmed it. The split is MEASURED:
-#   passed=1   the ground-truth cell EXECUTING and closing - it cleared all six
-#              guards, quicksaved the live career, re-parsed that file off disk,
-#              ran RecalculateAndPatch over the fixture's 14-action ledger and
-#              diffed 10 facets to zero.
-#   skipped=1  the P9a cell (`KerbalExperienceReassertTest
-#              .SurvivingCareerLogEntriesAreOnTheLiveRoster`), quoted here so a
-#              future change of REASON shows up as a diff rather than a number:
-#                "No KerbalExperience rows in the effective ledger - recover a
-#                 crewed vessel first, then rerun."
-#              THIS ONE IS WORTH READING TWICE. L2's header predicted that a
-#              fixture carrying a recorded crewed recovery would flip this cell to
-#              passing ("if it ever reads passed=2, the fixture changed"). This
-#              fixture HAS one - the ledger's `FundsEarning`/`Recovery` row resolves
-#              to a real recording, and `CompareRecovery` reads it - and the cell
-#              STILL skips, because it needs a `GameActionType.KerbalExperience`
-#              row specifically, which a recovery does not by itself produce. The
-#              prediction was wrong and this is where that is recorded; `kerbals`
-#              is deliberately NOT claimed in D8 above as a consequence.
+#   passed=2   BOTH cells EXECUTING and closing, RE-MEASURED 2026-08-20 on the
+#              re-harvested subject (run `2026-08-20_1953`). The split was
+#              `passed=1 skipped=1` until then, and the flip is the story:
+#
+#              The ground-truth cell cleared all six guards, quicksaved the live
+#              career, re-parsed that file off disk, ran RecalculateAndPatch over
+#              the fixture's 15-action ledger and diffed 11 facets to zero.
+#
+#              The P9a cell (`KerbalExperienceReassertTest
+#              .SurvivingCareerLogEntriesAreOnTheLiveRoster`) USED TO SKIP, with
+#              the reason "No KerbalExperience rows in the effective ledger -
+#              recover a crewed vessel first, then rerun." L2's header predicted a
+#              fixture carrying a recorded crewed recovery would flip it; this
+#              fixture HAD one and the cell STILL skipped, because it needs a
+#              `GameActionType.KerbalExperience` row specifically and a recovery
+#              did not by itself produce one. THAT WAS A PRODUCT GAP, not a
+#              fixture thinness - KERBAL-XP-UNTAGGED-RECOVERY-HAS-NO-LEDGER-ROW,
+#              fixed on branch `kerbal-xp-row`. The re-harvested subject carries
+#              the row, the cell now runs, and it measured
+#              `KerbalExperienceReassert: kerbals=1 entries=3 absent=0 missing=0`.
+#              `kerbals` is claimed in D8 above as a consequence.
+#
+#   skipped=0  DERIVED as well as measured: `hlib.derive_batch_tally` over the C#
+#              attributes reads total 2, scene-skipped 0, batch-skipped 0,
+#              executable 2, so with neither cell taking a runtime Skip the whole
+#              category executes. A `skipped=1` here means the XP row left the
+#              subject.
 #
 # THE RESULT LINE, and every token in it does work:
 #   `hardFailures=0`     the value the cell's own InGameAssert.IsTrue(hard == 0)
@@ -239,11 +279,26 @@ count = { min = 2, max = 2 }
 #   `reportOnly=0`       a DERIVATION, not a measurement - strict promotes the whole
 #                        report-only set, so the residue is 0 by construction. A
 #                        non-zero one means `HardFailures` stopped promoting.
-#   `facetsCompared=10`  the ANTI-VACUITY half, and THREE MORE THAN L2's 7 - the
-#                        measured difference between a thin subject and a rich one
-#                        (this career adds the recovery, milestone and kerbal-career-
-#                        log facets). A facet that silently stopped comparing reds
-#                        here instead of greening on an emptier loop.
+#   `facetsCompared=11`  the ANTI-VACUITY half, and FOUR MORE THAN L2's 7 - the
+#                        measured difference between a thin subject and a rich one.
+#                        RE-MEASURED 2026-08-20 (run `2026-08-20_1953`) after the
+#                        re-harvest, which moved it 10 -> 11.
+#
+#                        THE ENUMERATION IS CORRECTED HERE, because the version
+#                        that stood at 10 was WRONG in a way the number could not
+#                        show: it read "this career adds the recovery, milestone
+#                        and kerbal-career-log facets", and the kerbal-career-log
+#                        facet was the one facet NOT being counted -
+#                        `CompareKerbalCareerLogs` takes a no-entries exit BEFORE
+#                        its `FacetsCompared++` when the reconstruction credits no
+#                        career entries, which was exactly this subject's state.
+#                        The three the rich subject added over L2 were recovery,
+#                        milestone and contract; the kerbal-career-log facet is the
+#                        ELEVENTH, and it arrived with the re-harvest that gave the
+#                        reconstruction a `KerbalExperience` row to credit.
+#
+#                        A facet that silently stopped comparing reds here instead
+#                        of greening on an emptier loop.
 #   `strict=True`        capital T: it is `bool.ToString(InvariantCulture)`, not the
 #                        lowercase wire literal. It is BOTH the arming's witness and
 #                        the DLL verification - a batch that ran the default diff
@@ -268,10 +323,22 @@ count = { min = 2, max = 2 }
 # - the format string lives at
 # `LedgerGroundTruthDiff.CompareContracts`' tail and its five counters are in that
 # order.
+#
+# THE FOURTH LINE, added 2026-08-20 with the kerbal-XP re-harvest, and pinned for
+# the same reason the contracts line was: neither `hardFailures=0` nor the facet
+# count can tell an AGREEING kerbal identity from an ABSENT one. `kerbals=1` is
+# the anti-vacuity half (the facet compared a real kerbal rather than an empty
+# accumulator) and `divergent=0` is the agreement half (every career-log entry the
+# reconstruction credits Jebediah is on the save's own roster). Lose the ledger
+# row and the line vanishes entirely along with the facet; keep the row but break
+# the re-assert and it reads `divergent=1`. Read TOKEN FOR TOKEN out of the
+# collected KSP.log of run `2026-08-20_1953`; the format string lives at
+# `LedgerGroundTruthDiff.CompareKerbalCareerLogs`' tail.
 required = [
-  "BATCH_COMPLETE v1 total=2 passed=1 failed=0 skipped=1 category=LedgerGroundTruth scene=FLIGHT",
-  "result: hardFailures=0 reportOnly=0 facetsCompared=10 strict=True",
+  "BATCH_COMPLETE v1 total=2 passed=2 failed=0 skipped=0 category=LedgerGroundTruth scene=FLIGHT",
+  "result: hardFailures=0 reportOnly=0 facetsCompared=11 strict=True",
   "CompareContracts: reconActive=1 saveActive=1 phantoms=0 mismatches=0 missing=0",
+  "CompareKerbalCareerLogs: kerbals=1 divergent=0",
 ]
 # The cell reports every facet at Warn (report.Format()), never at Error, so a
 # Parsek ERROR line here is a genuine defect signal and not the diff talking.
