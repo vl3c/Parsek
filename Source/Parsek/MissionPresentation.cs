@@ -43,7 +43,8 @@ namespace Parsek
         /// </summary>
         internal const string VesselIncludeCheckboxTooltip =
             "Include this vessel's segments in the mission's loop unit (writes each segment's " +
-            "own include key). Expand the row to pick individual segments. Does not hide the " +
+            "own include key). A partially-included vessel is first completed; click again to " +
+            "exclude it all. Expand the row to pick individual segments. Does not hide the " +
             "ghost - playback is controlled per recording (Recordings tab).";
 
         internal const string LoopToggleTooltip =
@@ -114,6 +115,14 @@ namespace Parsek
             // ComputeSummaryFacts (bodies live on Recordings, not on the read models) - the
             // caller derives it via BuildBodyPathText and stamps it here before caching.
             public string BodyPath;
+
+            // Frame-invariant display strings, also caller-stamped before caching (KSPUtil date
+            // formatting lives at the call site): the span dates and the narrative line's
+            // detail tooltip. Rebuilding them per IMGUI pass was pure allocation churn - only
+            // the countdown / loop pieces genuinely change per frame.
+            public string StartDateText;
+            public string EndDateText;
+            public string DetailTooltip;
         }
 
         /// <summary>
@@ -167,12 +176,13 @@ namespace Parsek
                     CollectVesselOwners(roots[i], owners);
             facts.VesselCount = owners.Count;
 
-            // Crew: the union of NAMED crew over the tree's legs (a leg's roster is its
-            // start-captured crew), plus any EVA kerbal that has its own leg. Names are the only
-            // way to union without double-counting a kerbal that rode several legs; when no names
-            // were recorded the count falls back to the largest single-leg crew count. The names
-            // are kept in FIRST-APPEARANCE order (legs walked by StartUT) so the narrative line
-            // reads them in launch order (T2.1).
+            // Crew: the union of NAMED crew over the tree's legs (a leg's CrewNames roster comes
+            // from Recording.CrewEndStates - the roster aboard the leg), plus any EVA kerbal that
+            // has its own leg. Names are the only way to union without double-counting a kerbal
+            // that rode several legs; when no names were recorded the count falls back to the
+            // largest single-leg crew count. The names are kept in first-appearance order across
+            // LEGS (walked by StartUT); within one leg the roster is the structure builder's
+            // ordinal sort, so the common single-leg case reads alphabetically, not by seat.
             facts.CrewNames = new List<string>();
             if (structure != null)
             {
@@ -199,7 +209,9 @@ namespace Parsek
                     if (leg.CrewCount > maxUnnamed)
                         maxUnnamed = leg.CrewCount;
                 }
-                facts.CrewCount = names.Count > 0 ? names.Count : maxUnnamed;
+                // Max, not either-or: a leg that recorded only a COUNT (no names) must not have
+                // its crew suppressed just because some other leg recorded names.
+                facts.CrewCount = System.Math.Max(names.Count, maxUnnamed);
             }
 
             // Outcome: the primary (first) root vessel's LAST interval end event. Walking by max
@@ -224,12 +236,13 @@ namespace Parsek
                 CollectVesselOwners(node.Children[i], owners);
         }
 
-        // True for a node whose label IS its own name - a roster atom or an EVA kerbal, both of
-        // which render the bare label rather than "Vessel (composition)".
+        // True for an EVA-kerbal interval (a person, not a vessel). Reads the builder-stamped
+        // run-level flag: the old label-equality heuristic (VesselName == CompositionLabel)
+        // broke on interval 1+ of a kerbal's run, where BuildIntervalLeg nulls EvaCrewName and
+        // the labels diverge - which inflated the header's vessel count.
         private static bool IsPersonNode(MissionCompositionNode node)
         {
-            return !string.IsNullOrEmpty(node.VesselName)
-                && string.Equals(node.VesselName, node.CompositionLabel, System.StringComparison.Ordinal);
+            return node.IsPerson;
         }
 
         // The end event of the latest-ending interval belonging to the root's OWN vessel.
@@ -262,46 +275,9 @@ namespace Parsek
             }
         }
 
-        /// <summary>
-        /// The mission header's summary line: span, duration, vessel / crew counts, outcome, and
-        /// the next launch, joined with middle dots. Every piece is omitted when it has no value,
-        /// so a mission with nothing but a vessel count still reads cleanly. Pure - the caller
-        /// supplies the already-formatted date / duration / countdown strings (KSPUtil /
-        /// ParsekTimeFormat live at the call site).
-        /// </summary>
-        internal static string BuildSummaryLine(
-            string startDateText, string endDateText, string durationText,
-            int vesselCount, int crewCount, string terminalWord, string nextLaunchText)
-        {
-            var ic = CultureInfo.InvariantCulture;
-            var sb = new StringBuilder();
-
-            bool hasStart = !string.IsNullOrEmpty(startDateText);
-            bool hasEnd = !string.IsNullOrEmpty(endDateText);
-            if (hasStart && hasEnd)
-                Append(sb, startDateText + SummarySpanArrow + endDateText);
-            else if (hasStart)
-                Append(sb, startDateText);
-            else if (hasEnd)
-                Append(sb, endDateText);
-
-            if (!string.IsNullOrEmpty(durationText))
-                Append(sb, durationText);
-
-            if (vesselCount > 0)
-                Append(sb, vesselCount.ToString(ic) + (vesselCount == 1 ? " vessel" : " vessels"));
-
-            if (crewCount > 0)
-                Append(sb, crewCount.ToString(ic) + " crew");
-
-            if (!string.IsNullOrEmpty(terminalWord))
-                Append(sb, terminalWord);
-
-            if (!string.IsNullOrEmpty(nextLaunchText))
-                Append(sb, "Next launch " + nextLaunchText);
-
-            return sb.ToString();
-        }
+        // NOTE: the T1.1 BuildSummaryLine (span dates + vessel/crew counts on the line) was
+        // superseded by BuildNarrativeSummaryLine below and deleted - keeping it alive under
+        // test made the dead builder look like the one the header draws.
 
         private static void Append(StringBuilder sb, string piece)
         {
@@ -573,8 +549,9 @@ namespace Parsek
 
         // Both UTs come from the same leg-UT doubles (the peel's clamped origin UT and the
         // survivor interval's start edge), so this only absorbs representation noise - the same
-        // rationale as MissionCrossTreeDock.WindowEpsilon.
-        private const double PeelUtEpsilon = 1e-3;
+        // rationale as MissionCrossTreeDock.WindowEpsilon. Internal: MissionVesselRowBuilder's
+        // boundary matching shares this one constant rather than minting a third copy.
+        internal const double PeelUtEpsilon = 1e-3;
 
         // ===================== T1.4 - naming the same-tree dock partner =====================
 
@@ -635,9 +612,12 @@ namespace Parsek
                 if (System.Math.Abs(leg.StartUT - intervalStartUT) > PeelUtEpsilon)
                     continue;
                 // Only a same-tree merge names a partner: two parents, one of them this
-                // vessel's own line.
+                // vessel's own line. A coincident member that is NOT that shape (a cross-tree
+                // dock records one parent) must not abort the search - a resolvable two-parent
+                // merge leg can share the same UT (e.g. a simultaneous board + dock), so keep
+                // scanning instead of returning null from inside the loop.
                 if (leg.BranchParentIds.Count != 2)
-                    return null;
+                    continue;
                 for (int p = 0; p < leg.BranchParentIds.Count; p++)
                 {
                     string parentId = leg.BranchParentIds[p];
@@ -647,7 +627,6 @@ namespace Parsek
                         && partner != null && !string.IsNullOrEmpty(partner.VesselName))
                         return partner.VesselName;
                 }
-                return null;
             }
             return null;
         }

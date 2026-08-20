@@ -139,6 +139,25 @@ namespace Parsek
         // collapsedLegs (mission id + head id), session-transient.
         private readonly HashSet<string> expandedVessels = new HashSet<string>();
 
+        // Constant-payload checkbox contents, allocated once instead of per row per pass.
+        private static readonly GUIContent VesselIncludeCheckboxContent =
+            new GUIContent("", MissionPresentation.VesselIncludeCheckboxTooltip);
+        private static readonly GUIContent IntervalIncludeCheckboxContent =
+            new GUIContent("", MissionPresentation.IncludeCheckboxTooltip);
+        private static readonly GUIContent PartnerJourneyCheckboxContent =
+            new GUIContent("", MissionPresentation.PartnerJourneyTooltip);
+
+        // The one stamp every ExcludedIntervalKeys write site must pair with the mutation: an
+        // interval edit is authored against CURRENT key numbering, and a gen-0 mission whose
+        // tree was uncommitted at load (reconcile stamp DEFERRED) becomes editable once the
+        // tree commits mid-session - without this stamp the next load's generation-0 reconcile
+        // would wrongly extend the fresh selection across @dock sub-siblings the player
+        // deliberately kept. Routing both toggles through here keeps the pairing mechanical.
+        private static void StampSelectionEdit(Mission mission)
+        {
+            mission.SelectionSchemaGeneration = Mission.CurrentSelectionSchemaGeneration;
+        }
+
         // Per-frame cache of the header summary-line facts (T1.1), keyed by TREE id: the facts are
         // derived from the tree's read models only (span, vessel count, crew union, terminal word),
         // never from a Mission's selection, so every Mission over one tree shares them. Cleared
@@ -905,12 +924,20 @@ namespace Parsek
         }
 
         // Returns the cached T2.2 flattened per-vessel rows for a tree (built once per frame
-        // from the same composition roots that GetCompositionRoots caches).
+        // from the same composition roots that GetCompositionRoots caches). The dock-partner
+        // resolver names same-tree Dock / Board boundaries in the inline event phrase
+        // ("Docked (Munport Station)") - resolved here at row-build time, once per frame,
+        // rather than per row per pass.
         private List<MissionVesselRow> GetVesselRows(RecordingTree tree)
         {
             if (!vesselRowsCache.TryGetValue(tree.Id, out var rows))
             {
-                rows = MissionVesselRowBuilder.Build(GetCompositionRoots(tree));
+                var (structure, view) = GetMissionView(tree);
+                rows = MissionVesselRowBuilder.Build(
+                    GetCompositionRoots(tree),
+                    (ownerHeadId, boundaryUT) =>
+                        MissionPresentation.ResolveSameTreeDockPartnerVesselName(
+                            structure, view, ownerHeadId, boundaryUT));
                 vesselRowsCache[tree.Id] = rows;
             }
             return rows;
@@ -927,16 +954,28 @@ namespace Parsek
             if (!summaryFactsCache.TryGetValue(tree.Id, out MissionPresentation.MissionSummaryFacts facts))
             {
                 var (structure, view) = GetMissionView(tree);
-                facts = MissionPresentation.ComputeSummaryFacts(
-                    structure, view, GetCompositionRoots(tree));
-                // T2.1: the narrative body path, from the MAIN through-line's legs (the first
-                // root vessel - the journey the mission is about). Bodies live on Recordings,
-                // not on the read models, so this is stamped here where the tree is in hand.
+                var compRoots = GetCompositionRoots(tree);
+                facts = MissionPresentation.ComputeSummaryFacts(structure, view, compRoots);
+                // T2.1: the narrative body path, from the SAME primary vessel the terminal word
+                // came from (composition roots[0]) - deriving the two halves of one sentence
+                // from two independently-sorted root lists could narrate one vessel's journey
+                // next to another vessel's outcome on a multi-root tree. Bodies live on
+                // Recordings, not on the read models, so this is stamped here where the tree
+                // is in hand.
+                string primaryHeadId = compRoots.Count > 0 && compRoots[0] != null
+                    ? compRoots[0].OwnerHeadId : null;
                 facts.BodyPath = MissionPresentation.BuildBodyPathText(
-                    CollectMainLineBodySequences(tree, view));
+                    CollectMainLineBodySequences(tree, view, primaryHeadId));
+                // Frame-invariant display strings, built once per rebuild rather than per pass.
+                facts.StartDateText = facts.HasSpan ? KSPUtil.PrintDateCompact(facts.StartUT, true) : "";
+                facts.EndDateText = facts.HasSpan ? KSPUtil.PrintDateCompact(facts.EndUT, true) : "";
+                facts.DetailTooltip = MissionPresentation.BuildSummaryDetailTooltip(
+                    facts.StartDateText, facts.EndDateText, facts.VesselCount, facts.CrewNames);
                 summaryFactsCache[tree.Id] = facts;
                 var loggedFacts = facts;
-                ParsekLog.VerboseRateLimited("Mission", "missions-summary-facts",
+                // Per-tree rate key: the line carries the tree id, so a shared key would let
+                // only the first-drawn tree ever log its facts.
+                ParsekLog.VerboseRateLimited("Mission", "missions-summary-facts|" + tree.Id,
                     () => $"Missions summary facts: tree={tree.Id} span={(loggedFacts.HasSpan ? "yes" : "no")} " +
                     $"vessels={loggedFacts.VesselCount.ToString(System.Globalization.CultureInfo.InvariantCulture)} " +
                     $"crew={loggedFacts.CrewCount.ToString(System.Globalization.CultureInfo.InvariantCulture)} " +
@@ -945,18 +984,23 @@ namespace Parsek
             return facts;
         }
 
-        // The per-leg body-transition sequences of the tree's MAIN through-line (the first root),
-        // in leg order, for the T2.1 narrative body path. Each leg's sequence comes from its
-        // committed Recording via RecordingStore.GetBodyTransitionSequence; a leg with no
-        // recording contributes nothing. Returns null when the view has no root (the body-path
-        // builder then yields null and the summary line falls back to span dates).
-        private static List<List<string>> CollectMainLineBodySequences(
-            RecordingTree tree, MissionThroughLineView view)
+        // The per-leg body-transition sequences of the tree's PRIMARY through-line, in leg
+        // order, for the T2.1 narrative body path. primaryHeadId names the vessel (the same
+        // composition roots[0] owner the terminal word is derived from; null falls back to the
+        // through-line view's first root). Each leg's sequence comes from its committed
+        // Recording via RecordingStore.GetBodyTransitionSequence; a leg with no recording
+        // contributes nothing. Returns null when no through-line resolves (the body-path
+        // builder then yields null and the summary line falls back to span dates). Internal
+        // static for direct testability (Testing Requirements).
+        internal static List<List<string>> CollectMainLineBodySequences(
+            RecordingTree tree, MissionThroughLineView view, string primaryHeadId)
         {
-            if (tree == null || tree.Recordings == null || view == null
-                || view.RootHeadIds.Count == 0)
+            if (tree == null || tree.Recordings == null || view == null)
                 return null;
-            if (!view.ByHeadId.TryGetValue(view.RootHeadIds[0], out MissionThroughLine tl)
+            if (string.IsNullOrEmpty(primaryHeadId) && view.RootHeadIds.Count > 0)
+                primaryHeadId = view.RootHeadIds[0];
+            if (string.IsNullOrEmpty(primaryHeadId)
+                || !view.ByHeadId.TryGetValue(primaryHeadId, out MissionThroughLine tl)
                 || tl == null)
                 return null;
 
@@ -1079,24 +1123,27 @@ namespace Parsek
             GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_Enable));
 
             // Per-vessel include checkbox (Advanced): writes the vessel's own EXPLICIT interval
-            // keys - include removes them all, exclude adds them all; a Partial vessel shows
-            // checked and one click excludes everything (the next click brings it all back).
+            // keys. Click on a fully-included vessel excludes everything; click on a None OR
+            // PARTIAL vessel includes everything - the destructive direction is reserved for
+            // the unambiguous state, so a hand-authored partial selection is first COMPLETED
+            // (recoverable one interval at a time in the expanded detail) rather than dropped
+            // wholesale by a click made to see what the box does.
             if (loopAuthoring)
             {
                 bool shownChecked = inclusion != MissionVesselInclusion.None;
-                bool toggled = GUILayout.Toggle(shownChecked,
-                    new GUIContent("", MissionPresentation.VesselIncludeCheckboxTooltip),
+                bool toggled = GUILayout.Toggle(shownChecked, VesselIncludeCheckboxContent,
                     GUILayout.Width(ColW_Index), GUILayout.ExpandHeight(true));
                 if (toggled != shownChecked)
                 {
+                    bool include = inclusion != MissionVesselInclusion.All;
                     int changed = MissionVesselRowBuilder.ApplyVesselInclusion(
-                        row, toggled, mission.ExcludedIntervalKeys);
-                    // Same current-numbering stamp as the per-interval toggle (see
-                    // DrawCompositionRow): an interval edit is authored against CURRENT keys.
-                    mission.SelectionSchemaGeneration = Mission.CurrentSelectionSchemaGeneration;
+                        row, include, mission.ExcludedIntervalKeys);
+                    if (changed > 0)
+                        StampSelectionEdit(mission);
                     ParsekLog.Info("Mission",
                         $"Mission '{mission.Name}' vessel '{row.VesselName}' " +
-                        $"(head={row.OwnerHeadId}) included={toggled} keysChanged={changed}");
+                        $"(head={row.OwnerHeadId}) included={include} " +
+                        $"(was {inclusion}) keysChanged={changed}");
                 }
             }
             else
@@ -1117,8 +1164,18 @@ namespace Parsek
             string phrase = row.EventPhrase ?? "";
             string wide = connector + caret + row.VesselName + partial
                 + (phrase.Length > 0 ? "   " + phrase : "");
-            // The event chain can outrun the cell; the full chain rides the tooltip.
-            var wideContent = new GUIContent(wide, phrase.Length > 0 ? phrase : null);
+            // The event chain can outrun the cell, so the full chain rides the tooltip - along
+            // with the vessel's final composition ("pod x1, crew x2"), which the flattened row
+            // no longer prints inline and which Basic (no interval expansion) could otherwise
+            // not see at all. Persons skip it (their label IS their name).
+            string tooltip = phrase.Length > 0 ? phrase : null;
+            if (!row.IsPerson && row.Intervals.Count > 0)
+            {
+                string aboard = row.Intervals[row.Intervals.Count - 1].CompositionLabel;
+                if (!string.IsNullOrEmpty(aboard))
+                    tooltip = tooltip != null ? tooltip + "\nAboard: " + aboard : "Aboard: " + aboard;
+            }
+            var wideContent = new GUIContent(wide, tooltip);
 
             if (expandable)
             {
@@ -1189,7 +1246,7 @@ namespace Parsek
                     bool selfExcluded = mission.ExcludedIntervalKeys.Contains(interval.HeadLegId);
                     DrawCompositionRow(interval, mission, depth + 1,
                         j == row.Intervals.Count - 1 && row.Children.Count == 0,
-                        true, selfExcluded, selfExcluded, false, false, false, periodicity,
+                        true, selfExcluded, selfExcluded, false, false,
                         ctx, j > 0 ? row.Intervals[j - 1] : null);
                     rows++;
                 }
@@ -1214,7 +1271,6 @@ namespace Parsek
         // partner-journey subtrees (DrawForeignJourneyNode) and the interval detail rows.
         private int DrawCompositionNode(MissionCompositionNode node,
             Mission mission, int depth, bool isLast, bool parentExcluded,
-            bool isLaunchRow, MissionPeriodicityDisplay periodicity,
             RowDeriveContext ctx, MissionCompositionNode parent)
         {
             if (node == null)
@@ -1228,10 +1284,8 @@ namespace Parsek
             bool hasChildren = node.Children.Count > 0;
             bool collapsed = hasChildren && collapsedLegs.Contains(CollapseKey(mission, node.HeadLegId));
 
-            // Only the head node of the mission's first root is the launch row; its children and
-            // every later root row leave the "Time to launch" cell blank.
             DrawCompositionRow(node, mission, depth, isLast, selectable, selfExcluded, greyed,
-                hasChildren, collapsed, isLaunchRow, periodicity, ctx, parent);
+                hasChildren, collapsed, ctx, parent);
             int rows = 1;
 
             if (hasChildren && !collapsed)
@@ -1242,7 +1296,7 @@ namespace Parsek
                 {
                     bool childLast = i == node.Children.Count - 1;
                     rows += DrawCompositionNode(node.Children[i], mission,
-                        depth + 1, childLast, childParentExcluded, false, periodicity, ctx, node);
+                        depth + 1, childLast, childParentExcluded, ctx, node);
                 }
             }
             return rows;
@@ -1250,7 +1304,7 @@ namespace Parsek
 
         private void DrawCompositionRow(MissionCompositionNode node, Mission mission,
             int depth, bool isLast, bool selectable, bool selfExcluded, bool greyed,
-            bool hasChildren, bool collapsed, bool isLaunchRow, MissionPeriodicityDisplay periodicity,
+            bool hasChildren, bool collapsed,
             RowDeriveContext ctx, MissionCompositionNode parent)
         {
             // MinHeight floors the row at the recordings-table row stride so the rows do not pack
@@ -1276,19 +1330,13 @@ namespace Parsek
                 // vertically (matching the vertically-centered name text), rather than top-aligning.
                 // The tooltip is the F2 fix (T1.5): this checkbox is LOOP-UNIT membership, not ghost
                 // visibility - the effect no player would guess from an unlabelled tick box.
-                bool toggled = GUILayout.Toggle(shownChecked,
-                    new GUIContent("", MissionPresentation.IncludeCheckboxTooltip),
+                bool toggled = GUILayout.Toggle(shownChecked, IntervalIncludeCheckboxContent,
                     GUILayout.Width(ColW_Index), GUILayout.ExpandHeight(true));
                 if (toggled != shownChecked)
                 {
                     if (toggled) mission.ExcludedIntervalKeys.Remove(node.HeadLegId);
                     else mission.ExcludedIntervalKeys.Add(node.HeadLegId);
-                    // Any interval edit is authored against CURRENT key numbering. A gen-0
-                    // mission whose tree was uncommitted at load (reconcile stamp DEFERRED)
-                    // becomes editable once the tree commits mid-session; without this stamp
-                    // the next load's generation-0 reconcile would wrongly extend the fresh
-                    // selection across @dock sub-siblings the player deliberately kept.
-                    mission.SelectionSchemaGeneration = Mission.CurrentSelectionSchemaGeneration;
+                    StampSelectionEdit(mission);
                     ParsekLog.Info("Mission",
                         $"Mission '{mission.Name}' interval '{node.HeadLegId}' included={toggled}");
                 }
@@ -1337,26 +1385,10 @@ namespace Parsek
                 GUILayout.Label(wide, compositionCellLabel, GUILayout.ExpandWidth(true));
             }
 
-            // "Time to launch" cell: the live countdown to the mission's next faithful launch
-            // window (mission periodicity, design doc UX), sitting right after the name column (and
-            // before "Start time"). The countdown is a per-mission value, so it shows ONLY on the
-            // launch row (the mission's first vessel row) under the "Next launch" header; every
-            // other vessel row leaves a same-width blank cell so the time/event columns stay
-            // aligned. The cell is drawn at the normal (un-dimmed) colour even when the launch
-            // interval is excluded/greyed, since the countdown is mission-level data rather than a
-            // property of that interval. A compositionCellLabel is fine here (the margin-0 caveat
-            // only applies to the right-EDGE cell, the trailing Archive cell below).
-            if (isLaunchRow)
-            {
-                Color prevTm = GUI.color;
-                GUI.color = prevColor; // mission-level value: never dim with an excluded launch interval
-                DrawTMinusVesselCell(mission, periodicity);
-                GUI.color = prevTm;
-            }
-            else
-            {
-                GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_TMinus));
-            }
+            // Blank "Next launch" slot: since T2.2 the mission's countdown lives on the launch
+            // VESSEL row (DrawVesselRow), so every composition row here just keeps the column
+            // aligned with a same-width blank cell.
+            GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_TMinus));
 
             // Interval / vessel rows show their span + bounding events; roster atoms inherit the
             // parent's span, so their time columns stay blank.
@@ -1431,9 +1463,10 @@ namespace Parsek
             if (string.IsNullOrEmpty(partner))
             {
                 // Fallback (a foreign / single-parent dock, or a merge leg the through-line walk
-                // does not carry): the bare word, exactly as before.
+                // does not carry): the bare word, exactly as before. Lazy overload: this runs
+                // per row per pass, so the string must not be built while suppressed.
                 ParsekLog.VerboseRateLimited("Mission", "missions-dock-partner-unresolved",
-                    $"Missions row: dock boundary '{eventWord}' at interval '{node.HeadLegId}' " +
+                    () => $"Missions row: dock boundary '{eventWord}' at interval '{node.HeadLegId}' " +
                     "named no same-tree partner; showing the bare event word", 30.0);
                 GUILayout.Label(eventWord, compositionCellLabel, GUILayout.Width(ColW_StartEvent));
                 return;
@@ -1524,8 +1557,7 @@ namespace Parsek
                 {
                     // T1.5: the checkbox both pulls in foreign rows AND can clear a loop on the
                     // linked mission (the spanned tree set widens), so it needs to say what it does.
-                    bool toggled = GUILayout.Toggle(included,
-                        new GUIContent("", MissionPresentation.PartnerJourneyTooltip),
+                    bool toggled = GUILayout.Toggle(included, PartnerJourneyCheckboxContent,
                         GUILayout.Width(ColW_Index), GUILayout.ExpandHeight(true));
                     if (toggled != included)
                     {
@@ -1537,11 +1569,18 @@ namespace Parsek
                             $"included={toggled}");
                         // Including a link on an ALREADY-LOOPING mission widens its spanned tree
                         // set, which can newly conflict with a loop on the foreign tree; clear the
-                        // conflict now (SetLoopEnabled only runs this on loop-enable).
+                        // conflict now (SetLoopEnabled only runs this on loop-enable). This is the
+                        // SECOND path that can take another mission's loop, so it gets the same
+                        // T1.6 snapshot + on-screen announcement as the Loop toggle - a loop
+                        // moving silently here is the exact symptom T1.6 removed.
                         if (toggled && mission.LoopPlayback)
+                        {
+                            List<Mission> wereLooping = SnapshotOtherLoopingMissions(mission);
                             MissionStore.ClearLoopsConflictingWith(mission,
                                 RecordingStore.CommittedTrees, out int _, out int _,
                                 "PartnerJourneyInclude");
+                            AnnounceClearedLoops(mission, wereLooping);
+                        }
                         included = toggled;
                     }
                 }
@@ -1643,7 +1682,7 @@ namespace Parsek
             bool hasChildren = drawChildren.Count > 0;
             bool collapsed = hasChildren && collapsedLegs.Contains(CollapseKey(mission, node.HeadLegId));
             DrawCompositionRow(node, mission, depth, isLast, true, selfExcluded, selfExcluded,
-                hasChildren, collapsed, false, default, ctx, parent);
+                hasChildren, collapsed, ctx, parent);
             int rows = 1;
 
             if (hasChildren && !collapsed)
@@ -1662,7 +1701,7 @@ namespace Parsek
                         // Roster atom: greys with its owning interval, no checkbox. Reuse the
                         // standard recursion (its children, if any, are atoms too).
                         rows += DrawCompositionNode(c, mission, depth + 1, childLast,
-                            selfExcluded, false, default, ctx, node);
+                            selfExcluded, ctx, node);
                     }
                 }
             }
@@ -1905,8 +1944,10 @@ namespace Parsek
                     periodicity.NowUT,
                     periodicity.IsReaim));
 
-            string startText = summary.HasSpan ? KSPUtil.PrintDateCompact(summary.StartUT, true) : "";
-            string endText = summary.HasSpan ? KSPUtil.PrintDateCompact(summary.EndUT, true) : "";
+            // The span dates + detail tooltip are frame-invariant and pre-stamped on the cached
+            // facts (GetSummaryFacts) - only the countdown / loop pieces are built per pass.
+            string startText = summary.StartDateText ?? "";
+            string endText = summary.EndDateText ?? "";
             string durationText = summary.HasSpan
                 ? ParsekTimeFormat.FormatDuration(summary.EndUT - summary.StartUT)
                 : "";
@@ -1925,8 +1966,7 @@ namespace Parsek
                 summary.BodyPath, startText, endText, durationText,
                 MissionPresentation.BuildCrewNamesText(summary.CrewNames), summary.CrewCount,
                 summary.TerminalWord, loopText, nextLaunch);
-            string tooltip = MissionPresentation.BuildSummaryDetailTooltip(
-                startText, endText, summary.VesselCount, summary.CrewNames);
+            string tooltip = summary.DetailTooltip ?? MissionPresentation.MissionSummaryTooltip;
 
             GUILayout.BeginHorizontal();
             // Same leading cells as the title row above, so the summary starts under the title.

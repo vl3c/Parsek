@@ -46,22 +46,25 @@ namespace Parsek
 
     internal static class MissionVesselRowBuilder
     {
-        // Same representation-noise epsilon as MissionPresentation.PeelUtEpsilon: a peel's
-        // clamped origin UT and the boundary edge come from the same leg-UT doubles.
-        private const double BoundaryUtEpsilon = 1e-3;
-
         /// <summary>
         /// Builds the flattened vessel rows from the composition roots: one row per physical
-        /// vessel / EVA kerbal, children = the pieces that separated from it. Pure.
+        /// vessel / EVA kerbal, children = the pieces that separated from it.
+        /// <para><paramref name="dockPartnerResolver"/> (optional) maps
+        /// (ownerHeadId, boundaryStartUT) to the same-tree dock partner's vessel name so a
+        /// Dock / Board boundary in the event phrase reads <c>"Docked (Munport Station)"</c>
+        /// instead of the bare word - without it (T1.4) the partner would be unreachable on
+        /// the default collapsed surface. Pure apart from whatever the resolver captures.</para>
         /// </summary>
-        internal static List<MissionVesselRow> Build(List<MissionCompositionNode> roots)
+        internal static List<MissionVesselRow> Build(
+            List<MissionCompositionNode> roots,
+            System.Func<string, double, string> dockPartnerResolver = null)
         {
             var rows = new List<MissionVesselRow>();
             if (roots == null)
                 return rows;
             for (int i = 0; i < roots.Count; i++)
             {
-                MissionVesselRow row = BuildRow(roots[i]);
+                MissionVesselRow row = BuildRow(roots[i], dockPartnerResolver);
                 if (row != null)
                     rows.Add(row);
             }
@@ -73,7 +76,8 @@ namespace Parsek
         // separated child vessels. Roster atoms (not selectable vessels) are skipped - the
         // interval rows already carry the composition label, and the crew are named on the
         // header's narrative line.
-        private static MissionVesselRow BuildRow(MissionCompositionNode head)
+        private static MissionVesselRow BuildRow(
+            MissionCompositionNode head, System.Func<string, double, string> dockPartnerResolver)
         {
             if (head == null || head.IsAtom || !head.IsSelectable
                 || string.IsNullOrEmpty(head.OwnerHeadId))
@@ -83,7 +87,7 @@ namespace Parsek
             {
                 OwnerHeadId = head.OwnerHeadId,
                 VesselName = head.VesselName,
-                IsPerson = IsPersonNode(head),
+                IsPerson = head.IsPerson,
             };
 
             MissionCompositionNode cur = head;
@@ -99,13 +103,21 @@ namespace Parsek
                     if (string.Equals(c.OwnerHeadId, row.OwnerHeadId, System.StringComparison.Ordinal))
                     {
                         // The survivor chain: the builder creates exactly one same-owner child
-                        // (the next interval); keep the first defensively.
+                        // (the next interval). Keep the first, but a SECOND one means the
+                        // builder's chaining contract moved under us and intervals are being
+                        // dropped from the row - the per-vessel include would then write a
+                        // partial key set - so say it loudly instead of silently flattening.
                         if (next == null)
                             next = c;
+                        else
+                            ParsekLog.Warn("Mission",
+                                $"VesselRow: interval '{cur.HeadLegId}' carries a second " +
+                                $"same-owner child '{c.HeadLegId}' (owner={row.OwnerHeadId}); " +
+                                "keeping the first - flattened row may be missing intervals");
                     }
                     else
                     {
-                        MissionVesselRow child = BuildRow(c);
+                        MissionVesselRow child = BuildRow(c, dockPartnerResolver);
                         if (child != null)
                             row.Children.Add(child);
                     }
@@ -127,24 +139,27 @@ namespace Parsek
                 return cmp != 0 ? cmp : string.CompareOrdinal(a.OwnerHeadId, b.OwnerHeadId);
             });
 
-            row.EventPhrase = BuildEventPhrase(row);
+            row.EventPhrase = BuildEventPhrase(row, dockPartnerResolver);
             return row;
         }
 
         /// <summary>
         /// The inline event chain of one vessel row:
-        /// <c>"Launch → Decoupled (Kerbal X Booster) → Landed"</c>. One piece per interval
-        /// boundary; a separation boundary names the piece that left (the child row starting at
-        /// that UT - the first match when several peel at once, same limitation as the T1.3
-        /// labels). A crew (EVA) departure is not a boundary, so it never appears here - the
-        /// kerbal has their own child row. Pure.
+        /// <c>"Launch → Decoupled (Kerbal X Booster) → Docked (Munport Station) → Landed"</c>.
+        /// One piece per interval boundary; a separation boundary names the piece that left (the
+        /// child row starting at that UT - the first match when several peel at once, same
+        /// limitation as the T1.3 labels), and a Dock / Board boundary (or start event) names
+        /// the same-tree partner via <paramref name="dockPartnerResolver"/> when one resolves.
+        /// A crew (EVA) departure is not a boundary, so it never appears here - the kerbal has
+        /// their own child row.
         /// </summary>
-        internal static string BuildEventPhrase(MissionVesselRow row)
+        internal static string BuildEventPhrase(
+            MissionVesselRow row, System.Func<string, double, string> dockPartnerResolver = null)
         {
             if (row == null || row.Intervals.Count == 0)
                 return "";
             var sb = new StringBuilder();
-            AppendPhrasePiece(sb, row.StartEvent);
+            AppendPhrasePiece(sb, NameEventPiece(row, row.StartEvent, row.StartUT, dockPartnerResolver));
             for (int i = 0; i < row.Intervals.Count; i++)
             {
                 MissionCompositionNode interval = row.Intervals[i];
@@ -155,8 +170,9 @@ namespace Parsek
                 if (!isLast)
                 {
                     string peeled = ResolveChildAtBoundary(row, interval.EndUT);
-                    AppendPhrasePiece(sb,
-                        peeled != null ? boundaryEvent + " (" + peeled + ")" : boundaryEvent);
+                    AppendPhrasePiece(sb, peeled != null
+                        ? boundaryEvent + " (" + peeled + ")"
+                        : NameEventPiece(row, boundaryEvent, interval.EndUT, dockPartnerResolver));
                 }
                 else
                 {
@@ -164,6 +180,20 @@ namespace Parsek
                 }
             }
             return sb.ToString();
+        }
+
+        // A Dock / Board piece gains the partner's name when the resolver knows it; every other
+        // event word passes through unchanged. The boundary UT is the merged interval's start,
+        // which is what the T1.4 resolver matches merge legs against.
+        private static string NameEventPiece(
+            MissionVesselRow row, string eventWord, double boundaryUT,
+            System.Func<string, double, string> dockPartnerResolver)
+        {
+            if (dockPartnerResolver == null || string.IsNullOrEmpty(eventWord)
+                || !MissionPresentation.IsDockEventWord(eventWord))
+                return eventWord;
+            string partner = dockPartnerResolver(row.OwnerHeadId, boundaryUT);
+            return string.IsNullOrEmpty(partner) ? eventWord : eventWord + " (" + partner + ")";
         }
 
         private static void AppendPhrasePiece(StringBuilder sb, string piece)
@@ -183,7 +213,7 @@ namespace Parsek
                 MissionVesselRow c = row.Children[i];
                 if (c.IsPerson)
                     continue;
-                if (System.Math.Abs(c.StartUT - boundaryUT) <= BoundaryUtEpsilon
+                if (System.Math.Abs(c.StartUT - boundaryUT) <= MissionPresentation.PeelUtEpsilon
                     && !string.IsNullOrEmpty(c.VesselName))
                     return c.VesselName;
             }
@@ -258,15 +288,6 @@ namespace Parsek
                 }
             }
             return changed;
-        }
-
-        // Mirrors MissionPresentation.IsPersonNode: a node whose label IS its own name (an EVA
-        // kerbal interval labels itself with the kerbal's name).
-        private static bool IsPersonNode(MissionCompositionNode node)
-        {
-            return !string.IsNullOrEmpty(node.VesselName)
-                && string.Equals(node.VesselName, node.CompositionLabel,
-                    System.StringComparison.Ordinal);
         }
     }
 }

@@ -198,6 +198,43 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void Build_DockPartnerResolver_NamesThePartnerInThePhrase()
+        {
+            // The T1.4 fix for the flattened surface: with the resolver wired (as the UI wires
+            // the real ResolveSameTreeDockPartnerVesselName), a dock boundary names the partner
+            // on the default collapsed row - without it the name was only reachable by
+            // expanding the interval detail in Advanced.
+            var recs = new[]
+            {
+                Leg("L", "C", 0, 0, 50, pods: 1, crewNames: new[] { "Jeb Kerman" }),
+                Leg("station", "C9", 0, 0, 50, probes: 2, vessel: "Munport Station",
+                    crewNames: new[] { "Val Kerman" }),
+                Leg("dockedLeg", "C2", 0, 50, 120, pods: 1, probes: 2,
+                    crewNames: new[] { "Jeb Kerman", "Val Kerman" }),
+            };
+            var bps = new[]
+            {
+                BP("dockbp", BranchPointType.Dock, new[] { "L", "station" },
+                    new[] { "dockedLeg" }),
+            };
+            var tree = new RecordingTree { Id = "t", RootRecordingId = "L" };
+            foreach (var r in recs) tree.Recordings[r.RecordingId] = r;
+            tree.BranchPoints.AddRange(bps);
+            MissionStructure structure = MissionStructureBuilder.Build(tree);
+            MissionThroughLineView view = MissionThroughLineBuilder.Build(structure);
+
+            List<MissionVesselRow> rows = MissionVesselRowBuilder.Build(
+                MissionCompositionBuilder.Build(structure),
+                (ownerHeadId, boundaryUT) =>
+                    MissionPresentation.ResolveSameTreeDockPartnerVesselName(
+                        structure, view, ownerHeadId, boundaryUT));
+
+            MissionVesselRow transport = rows.Find(r => r.OwnerHeadId == "L");
+            Assert.NotNull(transport);
+            Assert.Equal("Launch" + Arrow + "Docked (Munport Station)", transport.EventPhrase);
+        }
+
+        [Fact]
         public void Build_ChildrenOrderedBySeparationUT()
         {
             // Two pieces peel at different UTs; lineage order must be separation time even if

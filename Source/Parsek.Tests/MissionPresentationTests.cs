@@ -113,42 +113,8 @@ namespace Parsek.Tests
 
         // ===================== T1.1 / T1.2 - the summary line =====================
 
-        [Fact]
-        public void BuildSummaryLine_JoinsEveryPiece()
-        {
-            // Fails if the summary drops a piece or changes the separator / arrow the header reads.
-            string line = MissionPresentation.BuildSummaryLine(
-                "Y1, D12 3:20:11", "Y1, D14 6:41:02", "2d 3h", 3, 3, "Landed", "T- 2h 14m");
-            string sep = MissionPresentation.SummarySeparator;
-            Assert.Equal(
-                "Y1, D12 3:20:11" + MissionPresentation.SummarySpanArrow + "Y1, D14 6:41:02"
-                + sep + "2d 3h" + sep + "3 vessels" + sep + "3 crew" + sep + "Landed"
-                + sep + "Next launch T- 2h 14m",
-                line);
-        }
-
-        [Fact]
-        public void BuildSummaryLine_OmitsMissingPieces()
-        {
-            // Fails if an uncrewed, unfinished, non-looping mission renders empty separators
-            // (a leading / doubled middle dot) or a dangling span arrow.
-            Assert.Equal("1 vessel", MissionPresentation.BuildSummaryLine(
-                "", "", "", 1, 0, "", null));
-            Assert.Equal("2 vessels" + MissionPresentation.SummarySeparator + "Orbiting",
-                MissionPresentation.BuildSummaryLine(null, null, null, 2, 0, "Orbiting", null));
-            Assert.Equal("", MissionPresentation.BuildSummaryLine(
-                "", "", "", 0, 0, "", null));
-        }
-
-        [Fact]
-        public void BuildSummaryLine_SingularVesselCount()
-        {
-            // Fails if a one-vessel mission reads "1 vessels".
-            Assert.Contains("1 vessel" + MissionPresentation.SummarySeparator,
-                MissionPresentation.BuildSummaryLine("", "", "", 1, 2, "", null));
-            Assert.Contains("2 vessels", MissionPresentation.BuildSummaryLine(
-                "", "", "", 2, 0, "", null));
-        }
+        // (The T1.1 BuildSummaryLine tests were deleted with the builder itself - the narrative
+        // form below is the one the header draws; its tests are in the T2.1 region.)
 
         [Fact]
         public void SummaryNextLaunchText_OnlyForwardsACountdown()
@@ -344,6 +310,9 @@ namespace Parsek.Tests
                 CompositionLabel = "Bob Kerman",
                 StartUT = 42.0,
                 IsSelectable = true,
+                // The builder stamps person-ness from the run head's EvaCrewName (no longer
+                // inferred from label equality).
+                IsPerson = true,
             };
             var parent = new MissionCompositionNode { HeadLegId = "L", OwnerHeadId = "L" };
             parent.Children.Add(node);
@@ -715,6 +684,110 @@ namespace Parsek.Tests
                 RecordingStore.GetBodyTransitionSequence(bare));
 
             Assert.Empty(RecordingStore.GetBodyTransitionSequence(null));
+        }
+
+        [Fact]
+        public void GetBodyTransitionSequence_OneBodyPointsFallThroughToTrackSections()
+        {
+            // Mirrors the segment-label ladder: a Points walk yielding ONE body must not block
+            // the TrackSection walk that still carries the SOI crossing - otherwise the
+            // Recordings tab's label and the Missions header describe the same recording with
+            // two different body paths.
+            var rec = new Recording { RecordingId = "r3" };
+            rec.Points.Add(new TrajectoryPoint { bodyName = "Kerbin" });
+            var section = new TrackSection
+            {
+                checkpoints = new List<OrbitSegment>
+                {
+                    new OrbitSegment { bodyName = "Kerbin" },
+                    new OrbitSegment { bodyName = "Mun" },
+                },
+            };
+            rec.TrackSections.Add(section);
+            Assert.Equal(new List<string> { "Kerbin", "Mun" },
+                RecordingStore.GetBodyTransitionSequence(rec));
+
+            // And with neither source carrying a transition, the single-body fallback prefers
+            // SegmentBodyName over the lone point body - same order as the label.
+            var single = new Recording { RecordingId = "r4", SegmentBodyName = "Duna" };
+            single.Points.Add(new TrajectoryPoint { bodyName = "Ike" });
+            Assert.Equal(new List<string> { "Duna" },
+                RecordingStore.GetBodyTransitionSequence(single));
+        }
+
+        [Fact]
+        public void GetBodyTransitionSequence_CachesUntilTheContentSignatureMoves()
+        {
+            // The walk is O(Points) on a per-frame UI path, so the memo matters: same content
+            // returns the SAME list instance; appending a point invalidates it.
+            var rec = new Recording { RecordingId = "r5" };
+            rec.Points.Add(new TrajectoryPoint { bodyName = "Kerbin" });
+            rec.Points.Add(new TrajectoryPoint { bodyName = "Mun" });
+            List<string> first = RecordingStore.GetBodyTransitionSequence(rec);
+            Assert.Same(first, RecordingStore.GetBodyTransitionSequence(rec));
+
+            rec.Points.Add(new TrajectoryPoint { bodyName = "Kerbin" });
+            List<string> second = RecordingStore.GetBodyTransitionSequence(rec);
+            Assert.NotSame(first, second);
+            Assert.Equal(new List<string> { "Kerbin", "Mun", "Kerbin" }, second);
+        }
+
+        [Fact]
+        public void ComputeSummaryFacts_NamedAndCountOnlyLegsCombineByMax()
+        {
+            // A leg that recorded only a COUNT must not have its crew suppressed because some
+            // other leg recorded names: the header would report a six-crew mission as one.
+            BuildModels(
+                new[]
+                {
+                    Leg("L", "C", 0, 0, 42, pods: 1, crewNames: new[] { "Jeb Kerman" }),
+                    Leg("cont", "C2", 0, 42, 200, pods: 1, crew: 5,
+                        terminal: TerminalState.Landed),
+                },
+                new[]
+                {
+                    BP("bp1", BranchPointType.JointBreak, new[] { "L" },
+                        new[] { "cont" }, splitCause: "DECOUPLE"),
+                },
+                out MissionStructure structure, out MissionThroughLineView view,
+                out List<MissionCompositionNode> roots);
+
+            MissionPresentation.MissionSummaryFacts facts =
+                MissionPresentation.ComputeSummaryFacts(structure, view, roots);
+
+            Assert.Equal(5, facts.CrewCount);
+            Assert.Equal(new List<string> { "Jeb Kerman" }, facts.CrewNames);
+        }
+
+        [Fact]
+        public void CollectMainLineBodySequences_FollowsThePrimaryHeadAcrossLegs()
+        {
+            // The UI collector: main-line legs resolve their committed recordings' body
+            // sequences in leg order; a missing primary head falls back to the view's first
+            // root; a null tree yields null (the summary line then falls back to span dates).
+            Recording l = Leg("L", "C", 0, 0, 42, pods: 1);
+            l.Points.Add(new TrajectoryPoint { bodyName = "Kerbin" });
+            Recording cont = Leg("cont", "C2", 0, 42, 200, pods: 1, terminal: TerminalState.Landed);
+            cont.Points.Add(new TrajectoryPoint { bodyName = "Kerbin" });
+            cont.Points.Add(new TrajectoryPoint { bodyName = "Mun" });
+
+            var tree = Tree(new[] { l, cont },
+                new[]
+                {
+                    BP("bp1", BranchPointType.JointBreak, new[] { "L" },
+                        new[] { "cont" }, splitCause: "DECOUPLE"),
+                });
+            MissionStructure structure = MissionStructureBuilder.Build(tree);
+            MissionThroughLineView view = MissionThroughLineBuilder.Build(structure);
+
+            List<List<string>> seqs = MissionsWindowUI.CollectMainLineBodySequences(tree, view, "L");
+            Assert.NotNull(seqs);
+            Assert.Equal("Kerbin" + MissionPresentation.SummarySpanArrow + "Mun",
+                MissionPresentation.BuildBodyPathText(seqs));
+
+            Assert.NotNull(MissionsWindowUI.CollectMainLineBodySequences(tree, view, null));
+            Assert.Null(MissionsWindowUI.CollectMainLineBodySequences(null, view, "L"));
+            Assert.Null(MissionsWindowUI.CollectMainLineBodySequences(tree, view, "nope"));
         }
     }
 }
