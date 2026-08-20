@@ -1,0 +1,30 @@
+version = 0
+recordingSchemaGeneration = 4
+GAME_ACTION
+{
+	ut = 5
+	type = 5
+	actionId = act_3b7e15d0c4a9425f8ad612e70f9c4b83
+	seq = 1
+	contractId = 5f2c1b84-93ae-4d07-b6c1-0e8a4d51f3b9
+	contractType = PartTest
+	contractTitle = Test RT-5 "Flea" Solid Fuel Booster at the Launch Site.
+	advanceFunds = 0
+	deadlineUT = 9201600
+	fundsPenalty = 9000
+	repPenalty = 4
+}
+GAME_ACTION
+{
+	ut = 6
+	type = 5
+	actionId = act_9d24c8be71f04a6cb35e802917dcae64
+	seq = 2
+	contractId = c47d0a91-6b25-4e83-9f1a-2d60be3c7845
+	contractType = PartTest
+	contractTitle = Test RT-10 "Hammer" Solid Fuel Booster in flight over Kerbin.
+	advanceFunds = 0
+	deadlineUT = 100
+	fundsPenalty = 9000
+	repPenalty = 1
+}

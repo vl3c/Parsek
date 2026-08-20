@@ -24,7 +24,8 @@ pure base-stock set (ReStock / Making-History parts dropped).
 
 Shared by B10 + the four career L1 scripts (hire / dismiss / research / upgrade) +
 `R7c-rewind-spacecenter`, and the derivation base for `career-pad-craft` (and, below
-that, `career-science-pad` / `career-earned-pad`) and for `strategy-career`.
+that, `career-science-pad` / `career-earned-pad`, and below `career-science-pad` again,
+`career-contract-pad`) and for `strategy-career`.
 
 **Its `rep = 0` is load-bearing DOWNSTREAM, not just here.** KSP's granular reputation
 curve is state-dependent, and `CL-2-pod-impact-ledger` - which flies `career-pad-craft`,
@@ -216,6 +217,56 @@ The spec-to-fixture pairing (career, one vessel, antenna aboard, inert ParsekSce
 node) is gated by `CareerSciencePadSpecFixtureSyncTests` in
 `harness/missions/lib/test_science_bench_recover.py`.
 
+## career-contract-pad (GAME Mode = CAREER, 1 VESSEL)
+
+`career-science-pad` with its `Title` restamped and ONE new sidecar. Used by
+`L5-career-contract-complete`, the first committed scenario that drives Parsek's
+contract state machine past ACCEPT.
+
+**WHY IT EXISTS.** `ContractsModule` has four transitions plus `PrePass`'s
+synthetic-fail injection, and only `ProcessAccept` had a gate: `career-earned-pad`
+carries a fixture-spliced `type = 5` row, and its builder's TRAP 3 explains why that
+fixture must NOT also carry a terminal row. So the terminal side had to come from a
+different fixture - and, to be worth flying, from the CODE rather than from another
+spliced row.
+
+**THE WHOLE FIXTURE IS THE SIDECAR.** The save differs from the donor on ONE line (the
+`Title`), asserted so, which is what lets `L5` reuse every one of `L3`'s flight-leg
+parameters and pools without re-measuring them. `Parsek/GameState/ledger.pgld` carries
+exactly TWO `type = 5` rows and no terminal row of any kind.
+
+| Facet | Pinned value | Why it matters |
+|---|---|---|
+| Row A | `5f2c1b84-93ae-4d07-b6c1-0e8a4d51f3b9`, `ut = 5`, `seq = 1`, `deadlineUT = 9201600` | THE CONTROL. Four orders of magnitude past this flight's ~350 s span, so A stays ACTIVE from load to commit. Its `Accept:` line is what says the sidecar loaded at all |
+| Row B | `c47d0a91-6b25-4e83-9f1a-2d60be3c7845`, `ut = 6`, `seq = 2`, `deadlineUT = 100` | THE EXPERIMENT, and the number is sized against TWO clocks. `PrePass` takes `nowUT` from the last surviving action's UT: on the COLD-LOAD walk that is B's own 6, so B loads ACTIVE alongside A (`activeSlots=2/2`); by the COMMIT-time walk the flight has written rows out to ~348, so `nowUT` passes 100 and the injection fires. Below 6 and B is retired before it is ever active; above ~348 and it never fires - and the second failure mode looks green |
+| Terminal rows | NONE (`type = 6` and `type = 7` both absent, asserted) | THE INVERTED TRAP 3. A fixture-carried fail would make every token pass without `ContractsModule.PrePass` ever running |
+| `advanceFunds` | 0 on BOTH rows | TRAP 1: `FundsModule.ProcessContractAccept` credits an advance unconditionally, so a nonzero one moves the funds pool off 500000 before the flight starts |
+| Penalty pack | `fundsPenalty = 9000` on both; `repPenalty = 4` on A, `1` on B | The funds figure is a real generated PartTest's `values[4]` off `375b4446-...` in `Source/Parsek.Tests/Fixtures/C2CareerPostFix/`. B's reputation figure is deliberately NOT that contract's 4: this career ends the flight at reputation 2, and a 4-point debit would drive the pool NEGATIVE - a state stock supports but no committed run has exercised, which would put an unrelated first on the same flight |
+| Accept UTs | 5 and 6, both below the save's `UT = 9.0599999999998957` | `Ledger.Reconcile` prunes any contract-lifecycle row whose UT exceeds the save clock on cold load. A row authored in the future simply vanishes and the flight logs nothing |
+| `recordingId` | absent on both | a contract is accepted at Mission Control, not inside a flight, and a tag naming a recording the save does not hold is pruned by the same reconcile |
+| Stock `CONTRACTS` | EMPTY, asserted | the fixture makes NO claim about KSP-side contract state - see below |
+| Sibling sidecars | none (`events.pgse` / `milestones.pgsm` / `baseline_*.pgsb` absent) | each loader logs a benign "starting fresh" line. The visible consequence is `PatchContracts: no snapshot for contractId=... - skipping` per ledger-active contract, which is expected and inert |
+| Craft / pools | the donor's, byte-identical | funds 500000, science 100, reputation 0, and B1's Jumping Flea with `L3`'s measured apoapsis window |
+
+**THE COMPLETE SIDE IS NOT HERE, AND THAT IS A MEASUREMENT.** The first build of this
+fixture spliced a `state = Active` `PartTest` CONTRACT into the save so the mission's
+launch staging would complete it live, with the whole mechanism derived from the
+decompiled `Assembly-CSharp` first. Run `2026-08-20_2217_L5-career-contract-complete`
+flew it MISSION-OK with every verifier green and the completion never fired: the
+contract was gone from `ContractSystem` before the mission's first frame, and stock
+re-OFFERED a fresh contract with the identical subject 8 s later. The cause is
+upstream of contracts entirely - the spliced `Progress { FirstLaunch }` node did not
+restore, so `PartTest.MeetRequirements()` read false and `Contract.Update()` retired
+the contract on its first tick. Filed with the full evidence as
+`SAVE-AUTHORED-PROGRESS-NODE-DOES-NOT-RESTORE` in `docs/dev/todo-and-known-bugs.md`.
+Until that is explained, a save-authored Active `PartTest` cannot be made to survive
+in this lineage, which is why this fixture's every claim lives in the ledger.
+
+Built BY CONSTRUCTION by `harness/tools/build_career_contract_pad.py`; `--check`
+re-verifies every post-condition against the COMMITTED bytes and is WIRED through
+`CareerContractPadFixtureDriftTests` and `CareerContractPadDeadlineArithmeticTests`
+in `harness/lib/test_career_contract_pad.py`.
+
 ## career-earned-pad (GAME Mode = CAREER, 1 VESSEL)
 
 The suite's only fixture that is BOTH a career with populated per-identity facets AND
@@ -336,7 +387,7 @@ directly, no curve. `Activate()` then charges the 14.5 with
 `AddReputation(-cost, TransactionReasons.StrategySetup)` (a ledger-modelled reason), and
 the cell restores the pool with `SetReputation` (absolute, no curve) in its `finally`.
 
-**WHY A SIBLING AND NOT A SEED ON THE BASE.** See the `fresh-career` section: thirteen
+**WHY A SIBLING AND NOT A SEED ON THE BASE.** See the `fresh-career` section: fourteen
 committed specs sit on that save or its derivatives, and two of them pin post-curve
 reputation amounts that a nonzero pool would move.
 
