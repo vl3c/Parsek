@@ -156,7 +156,7 @@ Two limits of this table, stated so nobody over-reads it:
 | `ResourceTopBar` | 2 | 0 | 2 | 0 | 0 | 2 | - | B |
 | `RevertFlow` | 1 | 0 | 0 | 0 | 1 | 1 | - | B |
 | `RevertVesselStrip` | 1 | 1 | 0 | 0 | 0 | 1 | - | B |
-| `Rewind` | 37 | 26 | 5 | 0 | 6 | 24 | R7a / R7c | A |
+| `Rewind` | 38 | 26 | 6 | 0 | 6 | 24 | R7a / R7c | A |
 | `RewindSaves` | 1 | 1 | 1 | 1 | 0 | 1 | - | B |
 | `RouteLiveAnchor` | 1 | 1 | 0 | 0 | 0 | 1 | - | B |
 | `RouteRewindTimeline` | 7 | 7 | 7 | 7 | 0 | 1 | H6 | B |
@@ -194,8 +194,8 @@ Two limits of this table, stated so nobody over-reads it:
 
 ## Triage
 
-Totals, re-derived: **104 categories / 587 declarations**. Buckets **A 33 categories
-(227 declarations)**, **B 71 categories (360 declarations)**, **C 0 categories (0
+Totals, re-derived: **104 categories / 588 declarations**. Buckets **A 33 categories
+(228 declarations)**, **B 71 categories (360 declarations)**, **C 0 categories (0
 declarations)**. Driven by a committed spec: **43 of 104 categories**, up from 35
 across six waves - `ReFlyWorldPreservation` via S4.2, `RecordedSignals` via H33,
 `SnapshotBaseline` via H32, and `Logistics` via H34 all landed together in one merge
