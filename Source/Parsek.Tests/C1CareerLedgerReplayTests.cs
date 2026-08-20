@@ -375,11 +375,32 @@ namespace Parsek.Tests
             //     |rep|. So this is the right place to NOTICE the question, and the wrong
             //     place to answer it.
             //
-            // The way to answer it is a POST-fix career carrying many milestone awards at
-            // a non-trivial reputation, replayed the same way. Until one exists, this
-            // stays a pinned characterization: it is a REGRESSION FLOOR for the curve
-            // arithmetic, not a verdict on it. Do not open a product finding off this
-            // number without that corroboration.
+            // ANSWERED 2026-08-20, and not by another career - by KSP itself.
+            // ReputationCurve_HighRep_AgreesWithStocksGranularPool (StrategyLifecycle,
+            // SPACECENTER) walks ten INTEGER awards through stock's own
+            // Reputation.AddReputation from rep 60, reads KSP's pool after each, and runs
+            // BOTH candidate residual formulas over the same nominals from the same start.
+            // Integer nominals are the discriminator: for an integer award the PRE-fix
+            // residual (nominal - delta * num) is identically zero so the top-up never
+            // fires, while the shipping residual (nominal - accumulated) tops it back up.
+            // Run 2026-08-20_2052_L3-strategy-currency-conversion, PASS attempt 1:
+            //
+            //   RepCurveHighRep VERDICT: agreesWith=current startRep=60 awards=10
+            //     kspFinal=99.9952545 currentModelFinal=99.9952545
+            //     preFixModelFinal=99.30036 errCurrent=0
+            //     errPreFix=0.69489288330078125
+            //
+            // errCurrent was EXACTLY 0 at eight of the ten steps and one float32 ulp
+            // (7.62939453E-06) at the other two, across a -5 step as well as the +5s. So
+            // the curve is right at |rep| 60-100 and this fixture's +0.047 is a
+            // CAPTURE-ERA artifact of its 2026-08 rows, not a curve defect. The two live
+            // pool readings are additionally pinned headlessly by
+            // ReputationModuleTests.ApplyReputationCurve_HighRep_ReproducesStocksMeasuredPool.
+            //
+            // The pin below therefore stays exactly what it always was - a REGRESSION
+            // FLOOR for the recalc arithmetic - and it is now backed rather than merely
+            // hedged. A future move in these numbers is still a recalc-side change to
+            // read, not a licence to re-pin.
             Assert.True(Math.Abs(reconRep - ReconReputation) < 1e-6,
                 "REPUTATION reconstruction moved off its pinned value. " + report);
             Assert.True(Math.Abs((reconRep - SaveReputation) - ReputationDelta) < 1e-6,

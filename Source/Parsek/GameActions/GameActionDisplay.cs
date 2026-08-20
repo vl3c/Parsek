@@ -319,6 +319,8 @@ namespace Parsek
                 case ReputationPenaltySource.ContractDecline: return "Contract decline";
                 case ReputationPenaltySource.KerbalDeath:     return "Kerbal death";
                 case ReputationPenaltySource.Strategy:        return "Strategy";
+                case ReputationPenaltySource.StrategyConverter:
+                    return "Strategy converter";
                 default:                                      return "Penalty";
             }
         }

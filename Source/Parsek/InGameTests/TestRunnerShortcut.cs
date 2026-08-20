@@ -33,7 +33,9 @@ namespace Parsek.InGameTests
         private GUIStyle opaqueStyle;
         private GUIStyle zeroHeightLabelStyle;
         private GUIStyle wrappedErrorLabelStyle;
-        private GUIStyle wrappedTooltipStyle;
+        // Bottom "hovered control help text" strip. See TooltipEchoBox for why it is a
+        // permanently visible box of constant height.
+        private readonly TooltipEchoBox tooltipEcho = new TooltipEchoBox();
         private GameScenes opaqueStyleScene;
         private bool hasOpaqueStyleScene;
 
@@ -265,7 +267,9 @@ namespace Parsek.InGameTests
             ClearOpaqueStyle();
             zeroHeightLabelStyle = null;
             wrappedErrorLabelStyle = null;
-            wrappedTooltipStyle = null;
+            // This window lives across every scene, and GUI.skin is scene-scoped, so
+            // the strip's cached styles are dropped with the rest.
+            tooltipEcho.ResetStyles();
         }
 
         internal bool TryEnsureOpaqueStyleForTesting(GUISkin skin)
@@ -401,7 +405,7 @@ namespace Parsek.InGameTests
             GUI.enabled = !running;
             if (GUILayout.Button("Run All")) { runner.ResetResults(); runner.RunAll(); }
             if (GUILayout.Button(new GUIContent("Run All + Isolated",
-                "Runs ordinary batch-safe tests plus [isolated] FLIGHT tests by capturing a temporary baseline save and quickloading it after each destructive test.")))
+                "Runs batch-safe plus [isolated] FLIGHT tests, quickloading a baseline after each destructive test.")))
             {
                 runner.ResetResults();
                 runner.RunAllIncludingFlightRestore();
@@ -534,6 +538,12 @@ namespace Parsek.InGameTests
 
             GUILayout.EndScrollView();
 
+            // Bottom "hovered control help text" strip (shared house helper), drawn
+            // after the test list (so the live GUI.tooltip read sees a hovered row) and
+            // directly above the Close button - the house ordering every Parsek window
+            // uses. Fixed two-line height, always present, house box style.
+            tooltipEcho.Draw();
+
             // Results auto-export after every run, so there is no manual export
             // button (the file always reflects the latest run). Full-width Close
             // (matches the Logistics / Kerbals / Settings windows).
@@ -541,14 +551,6 @@ namespace Parsek.InGameTests
             GUILayout.Label("Results file auto-updates after each run. Multi-scene runs accumulate.",
                 GUI.skin.label);
             GUILayout.Label("Ctrl+Shift+T to toggle from any scene", GUI.skin.label);
-
-            // Always render tooltip label — conditional rendering causes
-            // Layout/Repaint control count mismatch (IMGUI exception).
-            string tooltip = GUI.tooltip ?? "";
-            GUILayout.Label(
-                tooltip.Length > 0 ? tooltip : string.Empty,
-                tooltip.Length > 0 ? wrappedTooltipStyle : zeroHeightLabelStyle,
-                tooltip.Length > 0 ? GUILayout.ExpandWidth(true) : GUILayout.Height(0f));
 
             ParsekUI.DrawResizeHandle(windowRect, ref isResizingWindow, "TestRunner global window");
 
@@ -593,15 +595,6 @@ namespace Parsek.InGameTests
                     wordWrap = true
                 };
                 wrappedErrorLabelStyle.margin = new RectOffset(0, 0, 0, 0);
-            }
-
-            if (wrappedTooltipStyle == null)
-            {
-                wrappedTooltipStyle = new GUIStyle(GUI.skin.label)
-                {
-                    wordWrap = true
-                };
-                wrappedTooltipStyle.margin = new RectOffset(0, 0, 0, 0);
             }
         }
 

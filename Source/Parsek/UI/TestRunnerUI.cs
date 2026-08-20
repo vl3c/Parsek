@@ -44,7 +44,10 @@ namespace Parsek
         private bool isResizingTestRunnerWindow;
         private GUIStyle zeroHeightLabelStyle;
         private GUIStyle wrappedErrorLabelStyle;
-        private GUIStyle wrappedTooltipStyle;
+
+        // Bottom "hovered control help text" strip. See TooltipEchoBox for why it is a
+        // permanently visible box of constant height.
+        private readonly TooltipEchoBox tooltipEcho = new TooltipEchoBox(SpacingSmall);
 
         private const float SpacingSmall = 3f;
         private const float DefaultWindowWidth = 440f;
@@ -352,15 +355,6 @@ namespace Parsek
                 };
                 wrappedErrorLabelStyle.margin = new RectOffset(0, 0, 0, 0);
             }
-
-            if (wrappedTooltipStyle == null)
-            {
-                wrappedTooltipStyle = new GUIStyle(GUI.skin.label)
-                {
-                    wordWrap = true
-                };
-                wrappedTooltipStyle.margin = new RectOffset(0, 0, 0, 0);
-            }
         }
 
         private void DrawTestRunnerWindow(int windowID)
@@ -384,7 +378,7 @@ namespace Parsek
                 ParsekLog.Info("UI", "Test runner: Run All clicked");
             }
             if (GUILayout.Button(new GUIContent("Run All + Isolated",
-                "Runs ordinary batch-safe tests plus [isolated] FLIGHT tests by capturing a temporary baseline save and quickloading it after each destructive test.")))
+                "Runs batch-safe plus [isolated] FLIGHT tests, quickloading a baseline after each destructive test.")))
             {
                 testRunner.ResetResults();
                 testRunner.RunAllIncludingFlightRestore();
@@ -471,6 +465,12 @@ namespace Parsek
             GUILayout.EndScrollView();
 
             // --- Bottom bar ---
+            // Bottom "hovered control help text" strip (shared house helper), drawn
+            // after the test list (so the live GUI.tooltip read sees a hovered row) and
+            // directly above the Close button - the house ordering every Parsek window
+            // uses. Fixed two-line height, always present, house box style.
+            tooltipEcho.Draw();
+
             // Results auto-export after every run, so there is no manual export
             // button (the file always reflects the latest run). Full-width Close
             // (matches the Logistics / Kerbals / Settings windows).
@@ -481,15 +481,6 @@ namespace Parsek
                 ParsekLog.Verbose("UI", "Test runner window closed");
             }
             GUILayout.Label("Ctrl+Shift+T to toggle from any scene", GUI.skin.label);
-
-            // Always render tooltip label — conditional rendering causes
-            // Layout/Repaint control count mismatch (IMGUI exception).
-            string tooltip = GUI.tooltip ?? "";
-            GUILayout.Space(SpacingSmall);
-            GUILayout.Label(
-                tooltip.Length > 0 ? tooltip : string.Empty,
-                tooltip.Length > 0 ? wrappedTooltipStyle : zeroHeightLabelStyle,
-                tooltip.Length > 0 ? GUILayout.ExpandWidth(true) : GUILayout.Height(0f));
 
             ParsekUI.DrawResizeHandle(testRunnerWindowRect, ref isResizingTestRunnerWindow,
                 "TestRunner window");

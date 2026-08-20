@@ -287,39 +287,6 @@ namespace Parsek.Tests.Logistics
         }
     }
 
-    /// <summary>
-    /// Pins <see cref="LogisticsWindowUI.ResolveTooltipEcho"/>, the pure decision
-    /// (QW6) behind the bottom tooltip echo box: report whether a control is hovered
-    /// (GUI.tooltip non-empty) so the box renders boxed help text, or collapses to
-    /// zero height. The boolean drives the box's spacing / content / style only; the
-    /// control count emitted by DrawTooltipEchoBox is invariant across the IMGUI
-    /// Layout and Repaint passes. Unity-free, so exercised directly.
-    /// </summary>
-    public class LogisticsWindowUITooltipEchoTests
-    {
-        [Fact]
-        public void NullTooltip_DoesNotShow()
-        {
-            (bool show, string text) = LogisticsWindowUI.ResolveTooltipEcho(null);
-            Assert.False(show);
-            Assert.Equal(string.Empty, text);
-        }
-
-        [Fact]
-        public void EmptyTooltip_DoesNotShow()
-        {
-            (bool show, string text) = LogisticsWindowUI.ResolveTooltipEcho("");
-            Assert.False(show);
-            Assert.Equal(string.Empty, text);
-        }
-
-        [Fact]
-        public void NonEmptyTooltip_ShowsSameText()
-        {
-            const string tip = "Delete this route";
-            (bool show, string text) = LogisticsWindowUI.ResolveTooltipEcho(tip);
-            Assert.True(show);
-            Assert.Equal(tip, text);
-        }
-    }
+    // The Logistics bottom tooltip echo box moved to the shared TooltipEchoBox
+    // helper; its pure decisions are pinned by Parsek.Tests.TooltipEchoBoxTests.
 }
