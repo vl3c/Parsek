@@ -399,8 +399,6 @@ namespace Parsek
 
             DrawDataManagementSettings(s);
 
-            GUILayout.Space(SpacingLarge);
-
             // Bottom "hovered control help text" strip (shared house helper). Fixed
             // two-line height, always present, drawn directly above the button row -
             // the house ordering every Parsek window uses, so the Close button is
