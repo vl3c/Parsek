@@ -415,14 +415,21 @@ namespace Parsek.Tests
             AssertNoLeg(exp.Sci);
         }
 
-        [Fact]
-        public void ClassifyPostWalk_ReputationEarning_OtherSource_NotReconciled()
+        [Theory]
+        // Both synthetic-from-the-reconciler's-point-of-view: no reason-keyed
+        // ReputationChanged event exists to pair against. For Strategy that is a stock
+        // fact about the query family (the converter mutates a CurrencyModifierQuery in
+        // place and any event that follows carries the ORIGINAL reason), not a shortcut.
+        [InlineData(ReputationSource.Other)]
+        [InlineData(ReputationSource.Strategy)]
+        public void ClassifyPostWalk_ReputationEarning_UnpairedSource_NotReconciled(
+            ReputationSource source)
         {
             var action = new GameAction
             {
                 UT = 700,
                 Type = GameActionType.ReputationEarning,
-                RepSource = ReputationSource.Other,
+                RepSource = source,
                 EffectiveRep = 7.25f
             };
 

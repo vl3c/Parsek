@@ -632,7 +632,8 @@ class CommittedFixtureSweepTests(unittest.TestCase):
     """Corpus 1: every committed fixture save parses, and its structural counts
     are pinned EXACTLY. Eleven fixtures carry the spliced inert ParsekScenario
     node (a flyable template must, or the FLIGHT route records nothing); the
-    three fresh-* templates carry none. ALL committed fixtures carry zero
+    three fresh-* templates carry none, and neither does `strategy-career`,
+    which is `fresh-career` plus a reputation seed. ALL committed fixtures carry zero
     trees / staging rows - the rich payloads are injected at stage time and
     deliberately NOT committed. A fixture edit that changes any of this reds
     here instead of on the next nightly."""
@@ -771,6 +772,16 @@ class CommittedFixtureSweepTests(unittest.TestCase):
         "fresh-career": False,
         "fresh-sandbox": False,
         "fresh-science": False,
+        # `fresh-career` WITH A REPUTATION SEED and nothing else - two lines of
+        # the save differ. It inherits the base's deliberate ABSENCE of a
+        # ParsekScenario node (False) along with everything else, which is right
+        # for the same reason it is right on the base: `L3-strategy-currency-
+        # conversion` enters through the seam's SPACECENTER route, where
+        # `LoadGameImpl` writes persistent.sfs after `UpdateScenarioModules` and
+        # the node gets created for it. Derived by
+        # `harness/tools/build_strategy_career.py`, drift-guarded by
+        # `StrategyCareerFixtureDriftTests`.
+        "strategy-career": False,
         "gloops-airshow": True,
         "gs1-two-stage-pad": True,
         "gs2-orbital-stack": True,

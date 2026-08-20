@@ -294,7 +294,23 @@ namespace Parsek
     {
         ContractComplete = 0,
         Milestone        = 1,
-        Other            = 2
+        Other            = 2,
+        /// <summary>
+        /// The reputation OUTPUT leg of a stock <c>Strategies.Effects.CurrencyConverter</c>
+        /// (Open-Source Tech Program, Appreciation Campaign), captured by the query-family
+        /// door in <c>LedgerOrchestrator.BuildStrategyConversionAction</c>.
+        ///
+        /// <para>Its <c>NominalRep</c> is the query's PRE-curve effect delta -
+        /// <c>qry.GetEffectDelta(Currency.Reputation)</c>, the very argument stock's
+        /// <c>Reputation.OnCurrenciesModified</c> hands to <c>addReputation_granular</c> -
+        /// so <c>ReputationModule.ProcessRepEarning</c>'s ordinary
+        /// <c>ApplyReputationCurve</c> call reproduces the pool movement exactly. It is
+        /// therefore a NOMINAL source like the other two, NOT a pre-curved one; the
+        /// pre-curved arm on the penalty enum (<see cref="ReputationPenaltySource.Strategy"/>,
+        /// the exchanger family's post-curve <c>ReputationChanged</c> capture) is a
+        /// different mechanism and must not be confused with this.</para>
+        /// </summary>
+        Strategy         = 3
     }
 
     /// <summary>Where reputation penalties came from.</summary>

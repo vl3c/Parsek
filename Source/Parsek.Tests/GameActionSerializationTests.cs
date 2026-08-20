@@ -891,6 +891,7 @@ namespace Parsek.Tests
         [InlineData(ReputationSource.ContractComplete)]
         [InlineData(ReputationSource.Milestone)]
         [InlineData(ReputationSource.Other)]
+        [InlineData(ReputationSource.Strategy)]
         public void ReputationSource_AllValues_RoundTrip(ReputationSource source)
         {
             var original = new GameAction
