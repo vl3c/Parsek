@@ -20,8 +20,9 @@ difference is which half is precious. There the career was empty
 credit, five milestones, a recorded crewed recovery and Jebediah's career log -
 and the craft is only the key that opens the FLIGHT scene.
 
-WHAT IT SPLICES. Four edits against the harvested career SAVE, plus a
-`persistent.loadmeta` restamp (vessel count only - see `build_loadmeta`):
+WHAT IT SPLICES. Six edits against the harvested career SAVE, one against the
+career's copied `ledger.pgld`, plus a `persistent.loadmeta` restamp (vessel count
+only - see `build_loadmeta`):
 
   1. `career-science-pad`'s single `type = Ship` `VESSEL` node is inserted into
      the base's own (vessel-less) `FLIGHTSTATE`. THE BASE'S `FLIGHTSTATE` IS
@@ -54,7 +55,18 @@ WHAT IT SPLICES. Four edits against the harvested career SAVE, plus a
      analyzer RED under the harness's Forbid fresh-save gate). The copy step
      below drops `Parsek/Saves/` for the first half; this edit is the second.
 
-  5. Jebediah's ROSTER row has `state` flipped `Available` -> `Assigned`,
+  5. ONE of the career's seven `Offered` `CONTRACT` nodes is RE-STATED AS
+     `Active`, and one matching `type = 5` (`ContractAccept`) `GAME_ACTION` row
+     is appended to the copied `Parsek/GameState/ledger.pgld`. Together they are
+     the D8 `contracts` cell: `LedgerGroundTruthDiff.CompareContracts` already
+     ran inside this spec's `facetsCompared=10`, but VACUOUSLY - the seven
+     Offered rows keep it from skipping while both sides read
+     `reconActive=0 saveActive=0`, so a zero there stated nothing. With these two
+     edits the compare reads `reconActive=1 saveActive=1` and the strict gate
+     covers a real contract identity. See `_restate_contract_as_active` and
+     `build_ledger` for the arithmetic each edit has to honor.
+
+  6. Jebediah's ROSTER row has `state` flipped `Available` -> `Assigned`,
      because the spliced craft carries him. HIS ROW IS OTHERWISE UNTOUCHED, and
      that is deliberate: `build_career_pad_craft.py` swaps the whole row for the
      donor's, which HERE would delete his `CAREER_LOG` (`flight = 1`,
@@ -168,6 +180,117 @@ EXPECT_CAREER_LOG_ENTRY = "0 = Recover"
 # matches it so the strip and the gate cannot drift apart.
 _REWIND_HINT_RE = re.compile(r"^\s*rewindSave = parsek_rw_\w+\s*$")
 
+# ---------------------------------------------------------------------------
+# THE D8 `contracts` CELL. Fixed literals, for the same byte-reproducibility
+# reason the vessel identity above is fixed.
+#
+# WHY THE CLAIM IS FIXTURE-CARRIED RATHER THAN DRIVEN, stated here because that
+# is the first question a reader should ask: the M-A2 command seam's `KscAction`
+# has exactly four kinds (ResearchNode, UpgradeFacility, HireKerbal,
+# DismissKerbal - see `Source/Parsek/TestCommands/TestCommandKscAction.cs`), so
+# there is no verb that accepts a contract; and `Contract.Accept()` is a
+# UI-only entry point that Parsek itself Harmony-PREFIXES to block
+# (`Source/Parsek/Patches/ContractAcceptPatch.cs`). A driven accept is not
+# merely expensive here, it is unreachable.
+#
+# IT IS STILL FAITHFUL, and that is measured rather than asserted: the real
+# hand-played c2 career's ledger carries a PartTest accept+complete pair whose
+# accept row has NO `recordingId` and originates at KSC, i.e. exactly the shape
+# below. The one thing NOT copied from it is a completion, deliberately - see
+# TRAP 3 on `build_ledger`.
+#
+# RE-DERIVED 2026-08-20 (branch `kerbal-xp-row`) AGAINST THE SECOND HARVEST, and
+# the re-derivation was FORCED rather than optional: KSP mints fresh contract
+# guids per career run, so every literal in this block moved when
+# `C2CareerPostFix` was re-harvested from run
+# `2026-08-20_1925_L3-career-science-recover_run2`. The builder caught it loudly
+# ("base carries no CONTRACT with guid ... - the harvest's contract set moved and
+# this recipe must be re-derived against the new one"), which is that guard
+# earning its keep. The SELECTION RULE below is what carried over; the values are
+# read off the new save.
+#
+# WHICH CONTRACT, and why this one of the base's seven Offered rows:
+#   - `PartTest` is inert - it can only advance when its part is activated
+#     through the staging sequence.
+#   - `Decoupler.1` (TD-12) IS NOT ON THE PAD CRAFT. The craft carries
+#     mk1pod.v2 / parachuteSingle / 2x GooExperiment / solidBooster.sm.v2 /
+#     3x basicFin / SurfAntenna / 2x batteryPack, so this contract's test can
+#     NEVER be performed by the vessel the batch focuses. That rules out the new
+#     set's `375b4446...`, whose subject is `solidBooster.sm.v2` - i.e. the part
+#     the parked craft carries.
+#   - Its `sit = ESCAPING` is unreachable from a craft parked PRELAUNCH on the
+#     pad, so even the situation parameter cannot complete. This is a STRONGER
+#     second guard than the previous harvest's `sit = LANDED` and stronger than
+#     the remaining alternative `8a2b7d40...` (`solidBooster.v2` at
+#     `sit = FLYING`), whose situation a launched craft could in principle reach
+#     even though its part is absent.
+# A contract that completes or fails mid-batch would leave the cell's quicksave
+# reading `saveActive=0` and red the run on a fixture artifact.
+#
+# THE TITLE IS DERIVED, NOT INVENTED. KSP generates PartTest titles at runtime
+# and the save carries none, so the accept row's `contractTitle` is authored
+# here - but it is composed from the shipped dictionary rather than guessed:
+# `#autoLOC_6100005 = Test <<1>> <<2>>.` with <<1>> the part title
+# (`#autoLOC_501784 = TD-12 Decoupler`) and <<2>> the TEST-direction escape
+# phrase (`#autoLOC_6100020 = on an escape trajectory out of <<1>>`; the
+# `into ...` sibling 6100019 is the HAUL direction). Cosmetic either way -
+# `LedgerGroundTruthDiff.CompareContracts` matches on GUID alone - but a
+# fixture that states a title should state the right one.
+ACTIVE_CONTRACT_GUID = "07c8e34d-0464-4416-a973-1e2b472bc347"
+ACTIVE_CONTRACT_TYPE = "PartTest"
+ACTIVE_CONTRACT_PART = "Decoupler.1"
+ACTIVE_CONTRACT_TITLE = 'Test TD-12 Decoupler on an escape trajectory out of Kerbin.'
+
+# The accept UT. 360 sits in the KSC gap between the career's last ledger action
+# (the recovery credit at 348.08) and its FLIGHTSTATE clock (409.56, which is
+# also where the splice puts the craft's rollout), so the story the fixture tells
+# is the ordinary one: land, recover, accept a contract at Mission Control, roll
+# out. It is NOT a free choice in one direction - see TRAP 2.
+CONTRACT_ACCEPT_UT = "360"
+CONTRACT_ACCEPT_ACTION_ID = "act_5c1a7f0b6d3e42a9b8f04e17c92d6a35"
+CONTRACT_ACCEPT_SEQ = "2"
+
+# The KSP-side `values` pack is a 12-float CSV whose layout is read off the c2
+# snapshot's own accepted-then-completed PartTest row (its [9] is byte-identical
+# to that contract's ledger accept UT and its [10] is [9] + [1]):
+#   [0] expiry duration   [1] deadline duration  [2] advance funds
+#   [3] completion funds  [4] failure funds      [5] science completion
+#   [6] rep completion    [7] rep failure        [8] dateExpire
+#   [9] dateAccepted      [10] dateDeadline      [11] dateFinished
+# THREE SLOTS ARE RE-STAMPED on this harvest's contract, where the previous one
+# needed six - the difference is not a change of recipe but of luck: this
+# contract's [1] / [4] / [7] are ALREADY float-exact integers (9201600 / 27225.000590086
+# rounds to 27225 / 12), so only one of the three coherence edits has any work to
+# do. The traps are identical.
+#   [2] 24750 -> 0                TRAP 1
+#   [9] 0 -> 360                  the contract was accepted, so it has a date
+#   [10] 0 -> 9201960             = [9] + [1], TRAP 2's save-side half
+#   [4] 27225.000590086 -> 27225  the one number here the ledger row MIRRORS that
+#                                 is not already exact, moved onto a float-exact
+#                                 value so both sides carry the same literal text
+#                                 rather than two roundings of one number.
+#                                 ([1] = 9201600 and [7] = 12 need no such move.)
+# The other slots are the harvest's own and are inert here.
+BASE_CONTRACT_VALUES = ("21600,9201600,24750,"
+                        "68062.501475215,27225.000590086,9,14.54545,12,"
+                        "21615.14,0,0,0")
+ACTIVE_CONTRACT_VALUES = ("21600,9201600,0,"
+                          "68062.501475215,27225,9,14.54545,12,"
+                          "21615.14,360,9201960,0")
+
+# The ledger row's mirrors of [1] / [4] / [7]. `deadlineUT` is a DURATION and not
+# an absolute date, which looks wrong and is not: the c2 accept row's
+# `deadlineUT = 8228571.5` is float(values[1]) of the contract it accepted, not
+# that contract's `dateDeadline`. Mirroring the recorder rather than correcting it
+# is the whole point of a fixture-carried row.
+CONTRACT_DEADLINE_UT = "9201600"
+CONTRACT_FUNDS_PENALTY = "27225"
+CONTRACT_REP_PENALTY = "12"
+
+# The base's last KSC-scoped action (`FirstCrewToSurvive`) carries `seq = 1`, so
+# the next KSC action is 2. Asserted rather than assumed - see `verify_ledger`.
+LEDGER_LAST_KSC_SEQ = 1
+
 # Harvest exhaust the fixture must not carry (same cell, first half).
 PRUNED_PARSEK_SUBDIRS = ("Saves",)
 
@@ -260,8 +383,99 @@ def build(base_lines: List[str], donor_lines: List[str],
     if not set_value(base, kerbal, "state", "Assigned"):
         raise SystemExit("could not set %s state" % crew_name)
 
+    # ---- the D8 `contracts` cell: one Offered contract re-stated Active ----
+    _restate_contract_as_active(base)
+
     set_top_value(base, "Title", title)
     return base
+
+
+def contracts_node(lines: List[str]) -> Optional[Tuple[int, int]]:
+    """The `ContractSystem` SCENARIO's own `CONTRACTS` node, or None.
+
+    SCOPED through the scenario rather than found by a bare `find_node`, for the
+    same reason `child_nodes` is depth-scoped: `CONTRACTS` is a common enough
+    node name that a bare scan is a bet on nothing else ever using it."""
+    scn = _scenario_node(lines, "ContractSystem")
+    if scn is None:
+        return None
+    return find_node(lines, "CONTRACTS", scn[0], scn[1])
+
+
+def contract_named(lines: List[str], guid: str) -> Optional[Tuple[int, int]]:
+    """The direct `CONTRACT` child of `CONTRACTS` carrying ``guid``, or None."""
+    node = contracts_node(lines)
+    if node is None:
+        return None
+    for contract in child_nodes(lines, node, "CONTRACT"):
+        if get_value(lines, contract, "guid") == guid:
+            return contract
+    return None
+
+
+def active_contract_guids(lines: List[str]) -> List[str]:
+    """Every `CONTRACT` guid whose `state` is `Active`, in file order.
+
+    Mirrors `CareerSaveParser.ParseContracts`: `CONTRACT` nodes only (a
+    `CONTRACT_FINISHED` node is a different name and is not counted) and an
+    ORDINAL `Active` match on the `state` value."""
+    node = contracts_node(lines)
+    if node is None:
+        return []
+    out: List[str] = []
+    for contract in child_nodes(lines, node, "CONTRACT"):
+        if get_value(lines, contract, "state") == "Active":
+            guid = get_value(lines, contract, "guid")
+            if guid:
+                out.append(guid)
+    return out
+
+
+def _restate_contract_as_active(lines: List[str]) -> None:
+    """Re-state one committed `Offered` PartTest row as an `Active` contract.
+
+    RE-STATED RATHER THAN ADDED, and the choice is load-bearing. Adding a second
+    `CONTRACT` node would have to author a contract KSP has never loaded from
+    this save, and the only way to make one that is certain to load is to clone an
+    existing node - which duplicates that node's `part`, `seed` and parameter
+    `uniqueID` and produces a save state stock's own generator never emits (two
+    live PartTest contracts for one part, under `repeatability = ONCEPERPART`).
+    The node below already loads in this exact save today, on the exact instance
+    profile the spec flies. Its guid is therefore deterministic in the strongest
+    sense available: it is committed, not generated.
+
+    The base shape is ASSERTED before the edit rather than pattern-matched, so a
+    re-harvest that moved this contract reds here naming what moved, instead of
+    silently producing a fixture whose Active row is somebody else's."""
+    contract = contract_named(lines, ACTIVE_CONTRACT_GUID)
+    if contract is None:
+        raise SystemExit(
+            "base carries no CONTRACT with guid %r - the harvest's contract set "
+            "moved and this recipe must be re-derived against the new one"
+            % ACTIVE_CONTRACT_GUID)
+
+    for key, expected in (("type", ACTIVE_CONTRACT_TYPE),
+                          ("part", ACTIVE_CONTRACT_PART),
+                          ("state", "Offered"),
+                          ("values", BASE_CONTRACT_VALUES)):
+        got = get_value(lines, contract, key)
+        if got != expected:
+            raise SystemExit(
+                "base CONTRACT %s has %s = %r, expected %r - the harvest moved "
+                "and the re-stamp below is sized against the expected shape"
+                % (ACTIVE_CONTRACT_GUID, key, got, expected))
+
+    if len(active_contract_guids(lines)) != 0:
+        raise SystemExit(
+            "base already carries an Active contract - this recipe assumes the "
+            "all-Offered shape and would produce two")
+
+    for key, value in (("state", "Active"),
+                       # An accepted contract has necessarily been read.
+                       ("viewed", "Read"),
+                       ("values", ACTIVE_CONTRACT_VALUES)):
+        if not set_value(lines, contract, key, value):
+            raise SystemExit("could not set CONTRACT %s" % key)
 
 
 def _kerbal_named(lines: List[str], roster: Tuple[int, int],
@@ -289,6 +503,185 @@ def build_loadmeta(base_meta: List[str], lines: List[str]) -> List[str]:
         if line.startswith("vesselCount = "):
             out[i] = "vesselCount = %d" % count
     return out
+
+
+# ---------------------------------------------------------------------------
+# The ledger half of the D8 `contracts` cell.
+# ---------------------------------------------------------------------------
+
+
+# The appended row, field for field off the c2 snapshot's real accept row
+# (`c2-snapshot-20260817/Parsek/GameState/ledger.pgld`): `ut`, `type`, `actionId`,
+# `seq`, then the five contract fields, with NO `recordingId` because a contract
+# is accepted at Mission Control and not inside a flight. The key SET is not a
+# style choice either - `GameAction.SerializeContractAccept` writes `advanceFunds`
+# unconditionally and the other four only when non-default, so this is exactly
+# what Parsek would have written for this action.
+#
+# THE THREE ARITHMETIC TRAPS, each of which corrupts a DIFFERENT already-armed
+# facet if it is got wrong:
+#
+#   TRAP 1 - `advanceFunds` MUST be 0. `FundsModule.ProcessContractAccept`
+#   credits the advance to the running balance unconditionally (its only guard is
+#   `advance <= 0.0 -> return`), and the funds pool is HARD-gated in this cell
+#   rather than report-only. A nonzero advance would move the reconstruction off
+#   the save's 536558 and red the run on the pool facet, which reads exactly like
+#   a product defect. The contract node's own `values[2]` is re-stamped to 0 for
+#   the same reason, so the two sides tell one story.
+#
+#   TRAP 2 - the deadline MUST NOT have elapsed. `ContractsModule.PrePass` scans
+#   every accept with a non-NaN deadline and INJECTS a synthetic `ContractFail`
+#   at the deadline UT once `HasContractDeadlineElapsed(nowUT, deadline)`, where
+#   `nowUT` falls back to the last surviving action's UT; `ProcessAction` then
+#   re-checks via `CheckDeadlines(action.UT)` on every single action. Either path
+#   empties the active set and re-vacuifies the compare - and the injected fail
+#   would ALSO apply `fundsPenalty` + `repPenalty`, moving two hard-gated pools.
+#   8680754 against a walk whose largest UT is this row's own 360 is roughly four
+#   orders of magnitude of margin. (Omitting the key entirely is the other legal
+#   answer - `DeserializeContractAccept` defaults a missing `deadlineUT` to NaN
+#   and NaN deadlines never expire - but c2's real row carries one, so this one
+#   does too.)
+#
+#   TRAP 3 - NO `type = 6` (`ContractComplete`) ROW. A completion would remove the
+#   id from `activeContracts` (the slot is freed regardless of effectiveness),
+#   putting `reconActive` back to 0 and making the compare vacuous again - the
+#   exact condition this cell exists to end. It would also move THREE hard-gated
+#   pools at once through `fundsReward` / `repReward` / `scienceReward`. The
+#   accepted-and-unresolved state is the one that says something.
+CONTRACT_ACCEPT_ROW = [
+    "GAME_ACTION",
+    "{",
+    "\tut = %s" % CONTRACT_ACCEPT_UT,
+    "\ttype = 5",
+    "\tactionId = %s" % CONTRACT_ACCEPT_ACTION_ID,
+    "\tseq = %s" % CONTRACT_ACCEPT_SEQ,
+    "\tcontractId = %s" % ACTIVE_CONTRACT_GUID,
+    "\tcontractType = %s" % ACTIVE_CONTRACT_TYPE,
+    "\tcontractTitle = %s" % ACTIVE_CONTRACT_TITLE,
+    "\tadvanceFunds = 0",
+    "\tdeadlineUT = %s" % CONTRACT_DEADLINE_UT,
+    "\tfundsPenalty = %s" % CONTRACT_FUNDS_PENALTY,
+    "\trepPenalty = %s" % CONTRACT_REP_PENALTY,
+    "}",
+]
+
+
+def build_ledger(base_ledger: List[str]) -> List[str]:
+    """Return the base `ledger.pgld` with the accept row APPENDED.
+
+    Appended rather than UT-ordered on purpose: the committed ledger is not
+    sorted by UT (its two `ut = 0` seed rows sit fifth and ninth), because
+    `Ledger` writes in list order and the engine sorts on read. Appending is
+    what a later KSC action actually produces."""
+    lines = list(base_ledger)
+    if not lines or lines[-1] != "":
+        raise SystemExit("base ledger does not end with a trailing newline - "
+                         "the append below would join two lines")
+    if _count_game_action_rows(lines, "type = 5") != 0:
+        raise SystemExit("base ledger already carries a ContractAccept row - "
+                         "this recipe assumes the contract-free career")
+
+    # The KSC-scoped sequence the appended row continues. Checked rather than
+    # assumed: `LedgerOrchestrator.AllocateKscSequence` hands out 1, 2, 3 ... to
+    # actions with no `recordingId`, so a base whose highest one moved would make
+    # the appended `seq = 2` a duplicate rather than the next value.
+    highest = 0
+    i = 0
+    while True:
+        node = find_node(lines, "GAME_ACTION", i)
+        if node is None:
+            break
+        if get_value(lines, node, "recordingId") is None:
+            seq = get_value(lines, node, "seq")
+            if seq is not None:
+                highest = max(highest, int(seq))
+        i = node[1]
+    if highest != LEDGER_LAST_KSC_SEQ:
+        raise SystemExit(
+            "base ledger's highest KSC-scoped seq is %d, expected %d - the "
+            "appended row's seq = %s is sized against that and would now collide"
+            % (highest, LEDGER_LAST_KSC_SEQ, CONTRACT_ACCEPT_SEQ))
+
+    lines[len(lines) - 1:len(lines) - 1] = CONTRACT_ACCEPT_ROW
+    return lines
+
+
+def _count_game_action_rows(lines: List[str], type_line: str) -> int:
+    """How many top-level `GAME_ACTION` blocks carry ``type_line``."""
+    count = 0
+    i = 0
+    while True:
+        node = find_node(lines, "GAME_ACTION", i)
+        if node is None:
+            return count
+        if contains_line(lines, node, type_line):
+            count += 1
+        i = node[1]
+
+
+def verify_ledger(lines: List[str]) -> List[str]:
+    """Return a list of failure strings for the produced/committed ledger."""
+    problems: List[str] = []
+
+    accepts = []
+    i = 0
+    while True:
+        node = find_node(lines, "GAME_ACTION", i)
+        if node is None:
+            break
+        if contains_line(lines, node, "type = 5"):
+            accepts.append(node)
+        if contains_line(lines, node, "type = 6"):
+            # TRAP 3, asserted rather than merely documented.
+            problems.append(
+                "ledger carries a ContractComplete (type = 6) row: the completion "
+                "frees the contract's slot, so reconActive returns to 0 and "
+                "CompareContracts is vacuous again - and three hard-gated pools move")
+        i = node[1]
+
+    if len(accepts) != 1:
+        problems.append("expected exactly 1 ContractAccept (type = 5) row, found %d"
+                        % len(accepts))
+        return problems
+    accept = accepts[0]
+
+    for key, expected in (("contractId", ACTIVE_CONTRACT_GUID),
+                          ("contractType", ACTIVE_CONTRACT_TYPE),
+                          ("contractTitle", ACTIVE_CONTRACT_TITLE),
+                          ("actionId", CONTRACT_ACCEPT_ACTION_ID),
+                          ("ut", CONTRACT_ACCEPT_UT),
+                          ("seq", CONTRACT_ACCEPT_SEQ)):
+        got = get_value(lines, accept, key)
+        if got != expected:
+            problems.append("accept row %s is %r, expected %r" % (key, got, expected))
+
+    # TRAP 1.
+    advance = get_value(lines, accept, "advanceFunds")
+    if advance is None or float(advance) != 0.0:
+        problems.append(
+            "accept row advanceFunds is %r, expected '0': FundsModule credits any "
+            "positive advance to the running balance, which would move the "
+            "HARD-gated funds pool off the save's %s" % (advance, EXPECT_FUNDS))
+
+    # TRAP 2. The margin is stated against the walk's own largest UT, which after
+    # the append is this row's, rather than against the FLIGHTSTATE clock: PrePass
+    # and CheckDeadlines both compare against action UTs, not against "now".
+    deadline = get_value(lines, accept, "deadlineUT")
+    if deadline is None:
+        problems.append("accept row has no deadlineUT (a missing key is legal - it "
+                        "reads back NaN - but this recipe writes one, so its "
+                        "absence means the row was rewritten)")
+    elif float(deadline) <= float(CONTRACT_ACCEPT_UT):
+        problems.append(
+            "accept row deadlineUT %r has already elapsed at the accept UT %s: "
+            "ContractsModule.PrePass would inject a synthetic ContractFail, "
+            "emptying the active set AND applying fundsPenalty/repPenalty to two "
+            "hard-gated pools" % (deadline, CONTRACT_ACCEPT_UT))
+
+    if get_value(lines, accept, "recordingId") is not None:
+        problems.append("accept row carries a recordingId: a contract is accepted "
+                        "at Mission Control, and c2's real row carries none")
+    return problems
 
 
 # ---------------------------------------------------------------------------
@@ -403,6 +796,45 @@ def verify(lines: List[str], crew_name: str) -> List[str]:
                     "read PhantomInRecon, a fixture artifact strict promotes to hard"
                     % (crew_name, EXPECT_CAREER_LOG_ENTRY))
 
+    # ---- THE D8 `contracts` CELL, save side ----
+    #
+    # EXACTLY ONE Active contract, and it is ours. Both halves matter: a zero
+    # would make `CompareContracts` read `reconActive=1 saveActive=0` and raise a
+    # `MissingInRecon` hard failure under strict, and a second one would put a
+    # guid in the save's active set that no ledger row accepts - the same
+    # divergence in the other direction.
+    active = active_contract_guids(lines)
+    if active != [ACTIVE_CONTRACT_GUID]:
+        problems.append(
+            "save's Active contract guids are %r, expected exactly [%r]"
+            % (active, ACTIVE_CONTRACT_GUID))
+    else:
+        contract = contract_named(lines, ACTIVE_CONTRACT_GUID)
+        got_values = get_value(lines, contract, "values")
+        if got_values != ACTIVE_CONTRACT_VALUES:
+            problems.append("Active CONTRACT values pack is %r, expected %r"
+                            % (got_values, ACTIVE_CONTRACT_VALUES))
+        else:
+            pack = got_values.split(",")
+            # TRAP 1's save-side half: the contract advertises no advance
+            # payment, so the pools the save carries and the pools the ledger
+            # reconstructs tell one story.
+            if float(pack[2]) != 0.0:
+                problems.append("Active CONTRACT advance funds (values[2]) is %r, "
+                                "expected '0' to match the accept row" % pack[2])
+            # TRAP 2's save-side half: the contract's own dateDeadline must sit
+            # far past the career clock, or KSP fails it during the batch and the
+            # cell's quicksave reads saveActive=0.
+            if ut is not None and float(pack[10]) <= float(ut):
+                problems.append(
+                    "Active CONTRACT dateDeadline (values[10]) is %r, at or before "
+                    "the career clock %r: KSP would fail the contract during the "
+                    "batch" % (pack[10], ut))
+            if float(pack[9]) != float(CONTRACT_ACCEPT_UT):
+                problems.append("Active CONTRACT dateAccepted (values[9]) is %r, "
+                                "expected the accept row's UT %s"
+                                % (pack[9], CONTRACT_ACCEPT_UT))
+
     for node_name, key, expected in (("Funding", "funds", EXPECT_FUNDS),
                                      ("ResearchAndDevelopment", "sci", EXPECT_SCIENCE),
                                      ("Reputation", "rep", EXPECT_REPUTATION)):
@@ -454,11 +886,17 @@ def main(argv: Optional[List[str]] = None) -> int:
     target_dir = os.path.join(_SAVES, args.target_name)
     target_sfs = os.path.join(target_dir, "persistent.sfs")
 
+    target_ledger = os.path.join(target_dir, "Parsek", "GameState", "ledger.pgld")
+
     if args.check:
         if not os.path.isfile(target_sfs):
             print("FAIL: %s does not exist" % target_sfs)
             return 1
+        if not os.path.isfile(target_ledger):
+            print("FAIL: %s does not exist" % target_ledger)
+            return 1
         problems = verify(read_lines(target_sfs), args.crew)
+        problems += verify_ledger(read_lines(target_ledger))
         for p in problems:
             print("FAIL: %s" % p)
         if problems:
@@ -502,6 +940,23 @@ def main(argv: Optional[List[str]] = None) -> int:
     # whole of the prune - no fixture file is ever removed.
     shutil.copytree(parsek_src, parsek_dst,
                     ignore=shutil.ignore_patterns(*PRUNED_PARSEK_SUBDIRS))
+
+    # The ledger half of the D8 `contracts` cell. Written AFTER the copy rather
+    # than into the base, because the base is the xUnit fixture
+    # `C2CareerPostFix` - the one committed copy of what a real harness run
+    # produced - and `C2CareerPostFixReplayTests` makes its own closes-to-zero
+    # claim about those exact bytes. A harness-side need never edits a harvest.
+    base_ledger = os.path.join(BASE_DIR, "Parsek", "GameState", "ledger.pgld")
+    if not os.path.isfile(base_ledger):
+        print("FAIL: base carries no Parsek/GameState/ledger.pgld")
+        return 1
+    built_ledger = build_ledger(read_lines(base_ledger))
+    ledger_problems = verify_ledger(built_ledger)
+    if ledger_problems:
+        for p in ledger_problems:
+            print("FAIL: %s" % p)
+        return 1
+    write_lines(os.path.join(parsek_dst, "GameState", "ledger.pgld"), built_ledger)
 
     # POST-CONDITION ON THE PAYLOAD, checked here rather than in `verify` because
     # `verify` is pure over the save TEXT and this is a file-tree fact. Every

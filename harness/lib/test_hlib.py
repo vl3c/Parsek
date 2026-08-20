@@ -4785,6 +4785,20 @@ class UnityExceptionScanTests(unittest.TestCase):
             # therefore a FINDING about the Administration hydration, and the honest
             # response is to record the count and decide, never to raise the ceiling.
             "L3-strategy-currency-conversion.toml": 0,
+            # L3-strategy-exchanger-floor, armed 2026-08-20 on the STRONGEST evidence
+            # any first-flight arming in this table has had. It is the sibling above
+            # with ONE difference - the fixture reverts to the UNSEEDED `fresh-career`
+            # - and it drives the SAME category through the SAME four seam steps on the
+            # same stock-minimal profile. So it inherits both populations at once: the
+            # eleven-spec zero-armed family that boots this exact shape over this exact
+            # template, AND the sibling's own four driver-valid readings of this exact
+            # category, two of which (`2026-08-18_2039`, `2026-08-18_2140`) were flown
+            # on this very unseeded template. The Administration-canvas question that
+            # armed the sibling on borrowed evidence is ANSWERED for this shape by those
+            # readings: the hidden canvas raises no counted class. A nonzero reading
+            # here would still be a FINDING - record the count and decide, never raise
+            # the ceiling.
+            "L3-strategy-exchanger-floor.toml": 0,
             "M1-mission-loop-unit.toml": 0,
             "V1-map-dwell-mun-orbit.toml": 0,
             "H23-tracking-station.toml": 6,
