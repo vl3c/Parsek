@@ -303,6 +303,111 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void ApplyReputationCurve_StrategyConverterDiversion_ReproducesTheMeasuredPoolMove()
+        {
+            // THE ABSOLUTE STOCK-AGREEMENT ANCHOR for the query-family reputation DEBIT,
+            // and it is a two-stage measurement rather than a single reading, because that
+            // is what stock actually does. On harness run
+            // 2026-08-20_2052_L3-strategy-currency-conversion, Fundraising Campaign
+            // (input=Reputation output=Funds) at the stock default Factor 0.05 was handed a
+            // 20-point award from reputation 17.697382:
+            //
+            //   under VesselRecovery (excluded by the cfg's AffectReasons - no diversion)
+            //       the pool moved  19.999963760375977          = stage 1 alone
+            //   under ContractReward (masked - the converter takes share * input = 1.0)
+            //       the pool moved  18.999906539916992          = stage 1 + stage 2
+            //
+            // so stage 2 - the diversion - moved -1.0000572204589844, applied against the
+            // pool AFTER stage 1 had already moved it (17.697382 + 19.999963760375977).
+            // Decompiled Reputation.AddReputation is exactly that: granular(input) first,
+            // then granular(GetEffectDelta) from OnCurrenciesModified against the moved
+            // pool. Both halves are asserted here, so the cell pins KSP's own pool
+            // movements rather than a pin of our arithmetic.
+            const float RepAtStageOneStart = 17.697382f;
+            const float StageOneMove = 19.999963760375977f;
+            const float StageTwoMove = -1.0000572204589844f;
+
+            var stageOne = ReputationModule.ApplyReputationCurve(20f, RepAtStageOneStart);
+            Assert.True(Math.Abs(stageOne.actualDelta - StageOneMove) < 1e-4f,
+                $"the undiverted 20-point award moved KSP's pool {StageOneMove:R}; curve " +
+                $"produced {stageOne.actualDelta:R}");
+
+            var stageTwo = ReputationModule.ApplyReputationCurve(-1f, stageOne.newRep);
+            Assert.True(Math.Abs(stageTwo.actualDelta - StageTwoMove) < 1e-4f,
+                $"the converter's 1.0 diversion moved KSP's pool {StageTwoMove:R} at the " +
+                $"post-stage-1 reputation; curve produced {stageTwo.actualDelta:R}");
+        }
+
+        [Fact]
+        public void ProcessRepPenalty_StrategyConverterSource_AppliesTheCurveLikeAnyNominalPenalty()
+        {
+            // The StrategyConverter source is a NOMINAL source: it must NOT take
+            // ReputationPenaltySource.Strategy's no-recurve shortcut (that one captures a
+            // POST-curve magnitude off a ReputationChanged event and is the exchanger
+            // family's mechanism). This cell reds if the two are ever conflated - the
+            // mirror image of ProcessRepEarning_StrategySource_AppliesTheCurveLikeAnyNominalEarning.
+            var seed = new GameAction
+            {
+                Type = GameActionType.ReputationInitial,
+                UT = 0.0,
+                InitialReputation = 37.697346f
+            };
+            var penalty = new GameAction
+            {
+                Type = GameActionType.ReputationPenalty,
+                UT = 100.0,
+                RecordingId = null,
+                NominalPenalty = 1f,
+                RepPenaltySource = ReputationPenaltySource.StrategyConverter
+            };
+
+            module.Reset();
+            module.ProcessAction(seed);
+            module.ProcessAction(penalty);
+
+            // The curve AMPLIFIES a loss above rep 0, so the effective magnitude must
+            // EXCEED the nominal 1 - the no-recurve shortcut would have applied exactly
+            // -1 instead, which is the failure this cell exists to catch.
+            Assert.True(penalty.EffectiveRep < -1f,
+                $"the subtraction curve amplifies above rep 0, so a nominal -1 must land " +
+                $"below -1; was {penalty.EffectiveRep:R}");
+            Assert.True(Math.Abs(penalty.EffectiveRep - (-1.0000572204589844f)) < 1e-4f,
+                $"and it must land on KSP's own measured 1.0000572204589844 diversion; was " +
+                $"{penalty.EffectiveRep:R}");
+        }
+
+        [Fact]
+        public void ApplyReputationCurve_HighRep_ReproducesStocksMeasuredPool()
+        {
+            // THE HIGH-REPUTATION ANCHOR, and the answer to the question
+            // C1CareerLedgerReplayTests' REPUTATION block could not settle from c1 alone.
+            // MEASURED in-game on run 2026-08-20_2052_L3-strategy-currency-conversion by
+            // ReputationCurve_HighRep_AgreesWithStocksGranularPool, which walked ten
+            // integer awards through stock's own Reputation.AddReputation from rep 60 and
+            // read KSP's pool after each:
+            //
+            //   rep 60          + 5  ->  64.9999161      (KSP's own pool)
+            //   rep 84.9992447  - 5  ->  79.996666
+            //   ... ten awards later ->  99.9952545
+            //
+            // The shipping curve reproduced the whole walk with errCurrent = 0 at eight of
+            // the ten steps and one float32 ulp (7.6e-06) at the other two, while the
+            // PRE-fix residual shape (nominal - delta * num, identically zero for an
+            // integer nominal) drifted 0.69489288330078125 low by the end. So the curve is
+            // right at |rep| ~ 60-100, and the c1 fixture's +0.047 divergence is a
+            // capture-era artifact of its 2026-08 rows rather than a curve defect.
+            var gain = ReputationModule.ApplyReputationCurve(5f, 60f);
+            Assert.True(Math.Abs(gain.newRep - 64.9999161f) < 1e-4f,
+                $"a +5 award at rep 60 landed KSP's pool on 64.9999161; curve produced " +
+                $"{gain.newRep:R}");
+
+            var loss = ReputationModule.ApplyReputationCurve(-5f, 84.9992447f);
+            Assert.True(Math.Abs(loss.newRep - 79.996666f) < 1e-4f,
+                $"a -5 penalty at rep 84.9992447 landed KSP's pool on 79.996666; curve " +
+                $"produced {loss.newRep:R}");
+        }
+
+        [Fact]
         public void ApplyReputationCurve_IntegerAward_AppliesAResidualStep_MutationGuard()
         {
             // MUTATION VERIFY. Reverting the residual to `nominal - (delta * num)` makes

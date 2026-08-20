@@ -304,36 +304,67 @@ count = { min = 0, max = 0 }
 # STRATEGY-SCIENCE-CONVERSION-LEAK entry in docs/dev/todo-and-known-bugs.md.
 # ####################################################
 #
-# ############ THE READING RUN (2026-08-20, rep-debit-capture) ############
-# TWO DECLARATIONS WERE ADDED to this category and `total` moves 7 -> 9. The new
-# total is DERIVED (hlib.derive_batch_tally: scene_skipped=0 batch_skipped=0
+# ############ THE READING RUN, MEASURED (2026-08-20, rep-debit-capture) ############
+# TWO DECLARATIONS WERE ADDED to this category and `total` moved 7 -> 9. The total
+# is DERIVED (hlib.derive_batch_tally: scene_skipped=0 batch_skipped=0
 # executable=9) and CommittedBatchTallySourceSyncTests re-derives it. `passed=8
-# skipped=1` is a PREDICTION on this commit and is labelled as one: run-time
-# InGameAssert.Skip decides the split, and the split cannot be loosened to a
-# wildcard because hlib.batch_contract_vacuity_gap rejects any pattern a
-# `passed=0 skipped=9` batch would satisfy - a spec may not own a batch it cannot
-# gate, not even for one run. So the prediction is pinned, the reading run either
-# confirms it or reds PARSEK-FAIL(expectation) against it, and the MEASURED split
-# replaces it in the same PR. That is the L2 / 2026-08-20_1817 precedent verbatim.
+# skipped=1` was authored as a PREDICTION - the split is not derivable, run-time
+# InGameAssert.Skip decides it, and it cannot be loosened to a wildcard because
+# hlib.batch_contract_vacuity_gap rejects any pattern a `passed=0 skipped=9` batch
+# would satisfy: a spec may not own a batch it cannot gate, not even for one run.
+# The reading run CONFIRMED it (`expectations mismatches=0`), so the literal below
+# is MEASURED. The named skip is unchanged - still
+# ExchangerStrategy_OneShot_CapturesBothLegs, for the reputation-band reason
+# recorded above.
 #
-#   ConverterStrategy_ReputationDebitLeg_IsObservedAndUncaptured - the MEASUREMENT
-#     cell for STRATEGY-REP-DEBIT-CONVERTERS-UNCAPTURED. Activates
+#   ConverterStrategy_ReputationDebitLeg_CapturesPenalty - the cell that MEASURED
+#     and now GATES STRATEGY-REP-DEBIT-CONVERTERS-UNCAPTURED. Activates
 #     `FundraisingCampaignCfg` (stock input=Reputation output=Funds, lerped
-#     reputation setup cost 4..70 -> 7.3 at the default Factor 0.05) and measures the
-#     diverted pool movement MODEL-FREE: the same award at the same reputation with
-#     the same strategy active, once under `VesselRecovery` (which the cfg's
+#     reputation setup cost 4..70 -> 7.3 at the default Factor 0.05) and measures
+#     the diverted pool movement MODEL-FREE: the same award at the same reputation
+#     with the same strategy active, once under `VesselRecovery` (which the cfg's
 #     AffectReasons deliberately EXCLUDE) and once under `ContractReward` (which it
 #     masks). The difference is the converter's take with no curve replica in it.
-#     Expected to RUN on this fixture (rep 25 affords the 7.3 setup charge) and to
-#     SKIP on the `L3-strategy-exchanger-floor` sibling (rep 0 does not).
-#   ReputationCurve_HighRep_AgreesWithStocksGranularPool - the c1 adjudicator. Walks
-#     ten integer awards through stock's own `Reputation.AddReputation` from rep 60
-#     and reports whether KSP's pool agrees with `ApplyReputationCurve`'s shipping
-#     formula or with its pre-2026-08-20 residual shape. Ledger-neutral (every KSP
-#     call is inside SuppressionGuard.Resources()), so it cannot move this spec's
-#     oracle manifest or raise a pool guard.
+#     RUNS on this fixture (rep 25 affords the 7.3 setup charge) and SKIPS on the
+#     `L3-strategy-exchanger-floor` sibling (rep 0 does not).
+#   ReputationCurve_HighRep_AgreesWithStocksGranularPool - the c1 adjudicator.
+#     Walks ten integer awards through stock's own `Reputation.AddReputation` from
+#     rep 60 and reports whether KSP's pool agrees with `ApplyReputationCurve`'s
+#     shipping formula or with its pre-2026-08-20 residual shape. Ledger-neutral
+#     (every KSP call is inside SuppressionGuard.Resources()), so it cannot move
+#     this spec's oracle manifest or raise a pool guard.
 #
-# The measured literals replace this hold in the same PR.
+# ############ WHAT RUN `2026-08-20_2052` MEASURED ############
+# PASS attempt 1, 65 s wall, fully unattended, every verifier PASS/REPORT
+# (driverValidity, batchComplete `failed=0`, analyzer red=0, logValidate,
+# anomalySweep `hits=[] counts={}`, unityExceptions `total=0`, expectations
+# `mismatches=0`, ledgerOracle `hardDivergences=0 reportOnly=4`, saveParse REPORT
+# clean, recordings 0). GUARDED CENSUS: ZERO.
+#
+# THE DEBIT CELL, on its PRE-FIX reading - the run that measured the defect: from
+# reputation 17.697382 a 20-point award moved the pool 19.999963760375977 under
+# the EXCLUDED VesselRecovery reason and 18.999906539916992 under the MASKED
+# ContractReward one, a diversion of 1.0000572204589844 reputation - 100x the
+# reputation guard's 0.01 epsilon - that ZERO ledger rows carried. The door had
+# observed it the whole time (`inR=20 dR=-1`) and the funds OUTPUT leg landed
+# correctly as one FundsEarning/Strategy of 1015.0841674804688, so this was a
+# HALF-captured conversion rather than an invisible one. The scoping rule's
+# premise turned out to be FALSE for reputation - decompiled
+# Reputation.AddReputation applies the input and the effect delta as TWO separate
+# addReputation_granular calls, and every Parsek reputation channel records a
+# configured nominal rather than an observed pool delta - so the rule is now
+# unconditional for reputation, the debit lands as a nominal ReputationPenalty
+# sourced StrategyConverter, and the cell asserts the capture with the pool left
+# MOVED through the deferred recalc (its no-clamp scan is therefore a product gate
+# on the debit path, not a statement about the fixture).
+#
+# THE CURVE CELL: `agreesWith=current kspFinal=99.9952545
+# currentModelFinal=99.9952545 preFixModelFinal=99.30036 errCurrent=0
+# errPreFix=0.69489288330078125` - errCurrent EXACTLY 0 at eight of the ten steps
+# and one float32 ulp (7.62939453E-06) at the other two, across the -5 step as
+# well as the +5s. The c1 reputation question closes as a capture-era artifact;
+# see REP-CURVE-HIGH-REP-UNADJUDICATED in docs/dev/todo-and-known-bugs.md.
+# ###############################################################################
 # #############################################################################
 required  = ["BATCH_COMPLETE v1 total=9 passed=8 failed=0 skipped=1 category=StrategyLifecycle scene=SPACECENTER"]
 # The GUARDED pair is the whole point of the lane. `GUARDED UPLIFT clamped` is the

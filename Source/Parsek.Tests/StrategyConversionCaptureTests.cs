@@ -132,7 +132,8 @@ namespace Parsek.Tests
         {
             // The SIGN is preserved through the pure evaluation; what each sign becomes is
             // BuildStrategyConversionAction's decision (positive -> a nominal
-            // ReputationEarning, negative -> a loud refusal). Both are pinned below.
+            // ReputationEarning, negative -> a nominal ReputationPenalty sourced
+            // StrategyConverter). Both are pinned below.
             var legs = StrategyConversionCapture.EvaluateLegs(Query(dR: -3.0));
 
             var rep = legs.Single(l => l.Currency == StrategyConversionCurrency.Reputation);
@@ -140,11 +141,49 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void NonZeroInputReputation_IsNotCaptured()
+        public void NonZeroInputReputation_IsCaptured_UnlikeFunds()
         {
-            var legs = StrategyConversionCapture.EvaluateLegs(Query(inR: 10.0, dR: 2.0));
+            // THE ASYMMETRY, PINNED AS ONE CELL because the two halves are only meaningful
+            // together. Reputation is captured at ANY input; funds is captured only at
+            // zero input. That is not an inconsistency - it is the decompiled mechanism:
+            //
+            //   Funding.AddFunds       -> funds += v;  then  funds += GetEffectDelta(Funds)
+            //   Reputation.AddReputation -> rep += granular(v);
+            //                               then rep += granular(GetEffectDelta(Rep))
+            //
+            // For FUNDS the ordinary event-driven channel watches the transaction and sees
+            // the value net of the modifier, so a row here would double-count. For
+            // REPUTATION every Parsek channel records a CONFIGURED NOMINAL - the contract's
+            // ReputationCompletion, the progress node's award - and nothing anywhere is
+            // derived from the observed pool delta, so the second granular call has no
+            // channel at all. Capturing it is the only way the reconstruction can follow.
+            //
+            // This cell replaces NonZeroInputReputation_IsNotCaptured, which asserted the
+            // opposite and was the rule that hid STRATEGY-REP-DEBIT-CONVERTERS-UNCAPTURED:
+            // every stock reputation-INPUT converter has GetInput(Reputation) != 0 by
+            // construction, so the old rule excluded the entire family. MEASURED live at
+            // 1.0000572204589844 reputation of uncaptured pool movement on run
+            // 2026-08-20_2052_L3-strategy-currency-conversion.
+            var repLegs = StrategyConversionCapture.EvaluateLegs(Query(inR: 10.0, dR: 2.0));
+            var rep = repLegs.Single(l => l.Currency == StrategyConversionCurrency.Reputation);
+            Assert.Equal(2.0, rep.Delta, 6);
 
-            Assert.Empty(legs);
+            var fundsLegs = StrategyConversionCapture.EvaluateLegs(Query(inF: 10.0, dF: 2.0));
+            Assert.Empty(fundsLegs);
+        }
+
+        [Fact]
+        public void NonZeroInputNegativeReputation_IsCaptured_TheDebitFamily()
+        {
+            // The shape every stock reputation-INPUT converter actually produces:
+            // FundraisingCampaign / UnpaidResearchProgram compute
+            // GetInput(Reputation) * share and write it back as a NEGATIVE delta, so the
+            // input is nonzero by construction. This is the exact query the old scoping
+            // rule dropped on the floor.
+            var legs = StrategyConversionCapture.EvaluateLegs(Query(inR: 20.0, dR: -1.0));
+
+            var rep = legs.Single(l => l.Currency == StrategyConversionCurrency.Reputation);
+            Assert.Equal(-1.0, rep.Delta, 6);
         }
 
         // ================================================================
@@ -286,12 +325,13 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void NegativeReputationLeg_IsRefusedAndWarned()
+        public void NegativeReputationLeg_IsANominalStrategyConverterPenalty()
         {
-            // Structurally unreachable through EvaluateLegs (every stock reputation-INPUT
-            // converter has a nonzero GetInput(Currency.Reputation), which the scoping
-            // rule excludes), so reaching it means an unmodelled mechanism. Refuse loudly
-            // rather than guess a debit shape - the same stance as the negative funds arm.
+            // THE MIRROR IMAGE of the credit cell above, and the row shape the debit
+            // family lands as. NominalPenalty carries the POSITIVE magnitude (the sign is
+            // in the action type) and the source is StrategyConverter, NOT Strategy -
+            // pinned separately below because conflating the two is the one mistake that
+            // would silently break the arithmetic.
             var action = LedgerOrchestrator.BuildStrategyConversionAction(
                 123.0,
                 new StrategyConversionLeg
@@ -301,9 +341,76 @@ namespace Parsek.Tests
                 },
                 "ContractReward");
 
-            Assert.Null(action);
+            Assert.NotNull(action);
+            Assert.Equal(GameActionType.ReputationPenalty, action.Type);
+            Assert.Equal(ReputationPenaltySource.StrategyConverter, action.RepPenaltySource);
+            Assert.Equal(3.0f, action.NominalPenalty);
+            Assert.Equal(123.0, action.UT);
+            // UNTAGGED, like the science / funds / credit siblings on this path.
+            Assert.Null(action.RecordingId);
             Assert.Contains(logLines, l =>
-                l.Contains("[WARN]") && l.Contains("NEGATIVE zero-input reputation delta"));
+                l.Contains("reputation DEBIT captured pre-curve"));
+        }
+
+        [Fact]
+        public void NegativeReputationLeg_DoesNotTakeTheExchangersPreCurvedSource()
+        {
+            // MUTATION GUARD. ReputationPenaltySource.Strategy is the EXCHANGER family's
+            // capture: it reads a POST-curve magnitude off a ReputationChanged event and
+            // ReputationModule.ProcessRepPenalty gives it a no-recurve shortcut. Routing
+            // the query family's PRE-curve delta through it would apply the curve's INPUT
+            // as if it were the curve's OUTPUT. This cell reds the moment the two are
+            // conflated, in either direction.
+            var action = LedgerOrchestrator.BuildStrategyConversionAction(
+                123.0,
+                new StrategyConversionLeg
+                {
+                    Currency = StrategyConversionCurrency.Reputation,
+                    Delta = -1.0
+                },
+                "ContractReward");
+
+            Assert.NotEqual(ReputationPenaltySource.Strategy, action.RepPenaltySource);
+        }
+
+        [Fact]
+        public void StrategyReputationPenaltyRows_DedupKeyDisambiguatesByAmount()
+        {
+            // Same shape and same two honest limitations as the credit sibling: no
+            // strategy identity is available at this seam and the KSC clock is FROZEN, so
+            // the pre-curve magnitude is the only disambiguator between two conversions at
+            // one UT.
+            var first = LedgerOrchestrator.BuildStrategyConversionAction(
+                123.0,
+                new StrategyConversionLeg
+                {
+                    Currency = StrategyConversionCurrency.Reputation,
+                    Delta = -1.0
+                },
+                "ContractReward");
+            var second = LedgerOrchestrator.BuildStrategyConversionAction(
+                123.0,
+                new StrategyConversionLeg
+                {
+                    Currency = StrategyConversionCurrency.Reputation,
+                    Delta = -2.0
+                },
+                "ContractReward");
+
+            Assert.NotEqual(
+                LedgerOrchestrator.GetActionKey(first),
+                LedgerOrchestrator.GetActionKey(second));
+
+            // A non-converter reputation penalty keeps the historical empty key, so this
+            // narrows nothing that was previously unique.
+            var unrelated = new GameAction
+            {
+                UT = 123.0,
+                Type = GameActionType.ReputationPenalty,
+                NominalPenalty = 1.0f,
+                RepPenaltySource = ReputationPenaltySource.KerbalDeath
+            };
+            Assert.Equal("", LedgerOrchestrator.GetActionKey(unrelated));
         }
 
         [Fact]
@@ -825,18 +932,48 @@ namespace Parsek.Tests
             // WARNs "no matching FundsChanged event keyed 'Other'" on every recalc.
             Assert.Contains("FundsSource = FundsEarningSource.Strategy", src);
 
-            // EVERY fixture row this category writes is stamped in the PAST, so none of
-            // them sits inside the 0.1s window the KSC reconcilers pair against - at the
-            // frozen KSC clock a row at "now" would net against the very award under
-            // test. Counted as an EQUALITY over the StrategyLifecycle region rather than
-            // against a hardcoded number, so a fifth cell that adds a fixture row is
+            Assert.Contains("WriteLedgerVisibleReputationRow", src);
+
+            // EVERY FUNDS / SCIENCE fixture row this category writes is stamped in the
+            // PAST, so none of them sits inside the 0.1s window the KSC reconcilers pair
+            // against - at the frozen KSC clock a row at "now" would net against the very
+            // award under test. Counted as an EQUALITY over the StrategyLifecycle region
+            // rather than against a hardcoded number, so a cell that adds a fixture row is
             // checked rather than merely changing a total.
+            //
+            // REPUTATION IS THE ONE DELIBERATE EXCEPTION, and it is asserted POSITIVELY
+            // rather than carved out of the count. Reputation has no KSC pairing window
+            // and no pending adjuster, so there is nothing for a backdate to protect it
+            // from; what it DOES have is a state-dependent curve, which makes ORDER decide
+            // the arithmetic. A backdated reputation row sorts ahead of the strategy's own
+            // StrategyActivate setup charge and the walk applies the award at the
+            // pre-charge reputation - measured ~0.002 off KSP's pool, a quarter of the
+            // reputation guard's 0.01 epsilon spent on a stamping artefact. At "now" it
+            // sorts after the activation and, at the same UT as the conversion's debit
+            // row, ahead of it via SortActions' earnings-before-spendings secondary key,
+            // which is the order stock applied them in.
             string region = StrategyLifecycleRegion(src);
             int fixtureRows = Regex.Matches(region, @"Ledger\.AddAction\(new GameAction").Count;
             int pastStamped = Regex.Matches(
                 region, @"UT = Planetarium\.GetUniversalTime\(\) - 1\.0").Count;
+            int nowStamped = Regex.Matches(
+                region, @"UT = Planetarium\.GetUniversalTime\(\),").Count;
             Assert.True(fixtureRows > 0, "the StrategyLifecycle region writes no fixture ledger row at all");
-            Assert.Equal(fixtureRows, pastStamped);
+            Assert.Equal(fixtureRows, pastStamped + nowStamped);
+
+            // Exactly one now-stamped row, and it must be the reputation one: a funds or
+            // science helper that stopped backdating would land in this count and red
+            // here rather than silently netting itself against its own award.
+            Assert.Equal(1, nowStamped);
+            int repHelperStart = src.IndexOf(
+                "private static void WriteLedgerVisibleReputationRow", StringComparison.Ordinal);
+            Assert.True(repHelperStart >= 0,
+                "WriteLedgerVisibleReputationRow has moved or been renamed");
+            int repHelperEnd = src.IndexOf("private static void", repHelperStart + 20, StringComparison.Ordinal);
+            Assert.True(repHelperEnd > repHelperStart, "cannot bound WriteLedgerVisibleReputationRow");
+            string repHelper = src.Substring(repHelperStart, repHelperEnd - repHelperStart);
+            Assert.Contains("UT = Planetarium.GetUniversalTime(),", repHelper);
+            Assert.Contains("ReputationSource.Other", repHelper);
         }
 
         /// <summary>

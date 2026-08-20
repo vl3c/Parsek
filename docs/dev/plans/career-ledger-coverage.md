@@ -735,9 +735,21 @@ Three classifications:
   large |rep| (45.5, against ~2 and ~5 on the C2 pair), and the fix's own commit
   message notes the pre-fix error grew with |rep| - so this is the right place to
   NOTICE the question and the wrong place to answer it, because c1's rep-bearing
-  rows are themselves pre-fix-wave captures. **Open follow-up:** corroborate on a
-  POST-fix career carrying many milestone awards at non-trivial reputation. Do
-  not open a product finding off c1 alone.
+  rows are themselves pre-fix-wave captures. ~~**Open follow-up:** corroborate on a
+  POST-fix career carrying many milestone awards at non-trivial reputation.~~
+  **ADJUDICATED 2026-08-20 on `rep-debit-capture`, and NOT by another career - by
+  KSP itself.** `ReputationCurve_HighRep_AgreesWithStocksGranularPool` walks ten
+  INTEGER awards through stock's own `Reputation.AddReputation` from rep 60,
+  reads KSP's pool after each, and runs BOTH candidate residual formulas over the
+  same nominals; integer nominals are the discriminator because the pre-fix
+  residual is identically zero for them. Run
+  `2026-08-20_2052_L3-strategy-currency-conversion`: `agreesWith=current`,
+  `kspFinal=99.9952545` against `currentModelFinal=99.9952545` (errCurrent 0 at
+  eight of ten steps, one float32 ulp at the other two) and
+  `preFixModelFinal=99.30036`. The curve is right at |rep| 60-100, so c1's +0.047
+  is a CAPTURE-era artifact and this row stays a characterization rather than
+  becoming a product finding. See REP-CURVE-HIGH-REP-UNADJUDICATED in
+  `docs/dev/todo-and-known-bugs.md`.
 
 **The parked finding, restated with its status.** A headless walk of c1's ledger
 reproduced **funds bit-exactly** (400199.2742919922 vs 400199.27429199219) and

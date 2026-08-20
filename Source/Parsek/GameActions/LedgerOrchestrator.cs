@@ -972,6 +972,14 @@ namespace Parsek
                         when a.RepSource == ReputationSource.Strategy:
                     return (a.RecordingId ?? "") + ":" +
                            a.NominalRep.ToString("R", CultureInfo.InvariantCulture);
+                // The query-family reputation DEBIT leg, same shape and same standing as
+                // its credit sibling directly above. Non-converter reputation penalties
+                // keep the historical "" key (they fall through to the default), so this
+                // narrows nothing that was previously unique.
+                case GameActionType.ReputationPenalty
+                        when a.RepPenaltySource == ReputationPenaltySource.StrategyConverter:
+                    return (a.RecordingId ?? "") + ":" +
+                           a.NominalPenalty.ToString("R", CultureInfo.InvariantCulture);
                 case GameActionType.FundsEarning: return a.RecordingId ?? "";
                 // FundsSpending: RecordingId alone collides when multiple KSC part
                 // purchases share a null/empty RecordingId. DedupKey is the part name
@@ -3210,11 +3218,14 @@ namespace Parsek
         /// <c>ReputationModule.ProcessRepPenalty</c>'s no-recurve arm). Do not merge the
         /// two: each is faithful only through its own arm.</para>
         ///
-        /// <para>Negative reputation legs are logged and dropped, for the same reason as
-        /// negative funds: every stock reputation-INPUT converter has a nonzero
-        /// <c>GetInput(Currency.Reputation)</c>, which the scoping rule excludes, so a
-        /// negative zero-input reputation delta is an unmodelled mechanism rather than a
-        /// row shape to guess at.</para>
+        /// <para>REPUTATION DEBIT legs land as a NOMINAL <c>ReputationPenalty</c> row
+        /// (<c>ReputationPenaltySource.StrategyConverter</c>) - the mirror image of the
+        /// credit arm, and nominal for the identical reason. Decompiled
+        /// <c>Reputation.AddReputation</c> applies the transaction's own amount and the
+        /// converter's diversion as TWO separate <c>addReputation_granular</c> calls, so
+        /// two nominal rows reproduce exactly what stock did. Do NOT route this through
+        /// <c>ReputationPenaltySource.Strategy</c>: that member is the EXCHANGER family's
+        /// post-curve capture and bypasses the curve.</para>
         ///
         /// <para>NEGATIVE funds legs are logged and dropped too: a converter's funds
         /// OUTPUT is positive by construction and a funds INPUT necessarily has a
@@ -3387,22 +3398,45 @@ namespace Parsek
                         };
                     }
 
-                    // THE DEBIT ARM IS DELIBERATELY NOT BUILT. Every stock rep-INPUT
-                    // converter (FundraisingCampaign, UnpaidResearchProgram) diverts a
-                    // fraction of a reputation transaction, so InputReputation != 0 and the
-                    // scoping rule above excludes it before this method is ever called - a
-                    // negative zero-input reputation leg means the mechanism does something
-                    // this door was not built against. Guessing a row shape for it is worse
-                    // than saying so loudly. Same stance as the negative funds arm.
-                    // See STRATEGY-REP-DEBIT-CONVERTERS-UNCAPTURED in
-                    // docs/dev/todo-and-known-bugs.md.
-                    ParsekLog.Warn(Tag,
-                        $"Strategy conversion: unexpected NEGATIVE zero-input reputation delta=" +
-                        $"{leg.Delta.ToString("R", CultureInfo.InvariantCulture)} at " +
+                    // THE DEBIT ARM. Symmetric with the credit arm above and nominal for
+                    // the identical reason: decompiled Reputation.AddReputation moves the
+                    // pool TWICE - addReputation_granular(input) first, then
+                    // addReputation_granular(GetEffectDelta(Reputation)) from
+                    // Reputation.OnCurrenciesModified against the already-moved pool - so
+                    // this leg is the curve's own input argument for the SECOND of those
+                    // two calls, and ReputationModule.ProcessRepPenalty's ordinary arm
+                    // re-derives it at the reconstruction's running rep.
+                    //
+                    // ReputationPenaltySource.StrategyConverter, NOT ...Strategy: that one
+                    // is the EXCHANGER family's post-curve capture and takes a no-recurve
+                    // shortcut in ProcessRepPenalty, which would apply this pre-curve
+                    // magnitude as if it were already effective. The two mechanisms share a
+                    // word and nothing else.
+                    //
+                    // NominalPenalty carries the POSITIVE magnitude - the sign is in the
+                    // action type - and the row is UNTAGGED like its siblings on this path.
+                    //
+                    // MEASURED live, model-free, on run
+                    // 2026-08-20_2052_L3-strategy-currency-conversion: Fundraising Campaign
+                    // at the stock default Factor 0.05 diverted 1.0000572204589844
+                    // reputation out of a 20-point ContractReward award (the same award
+                    // under the cfg-excluded VesselRecovery reason moved the pool
+                    // 19.999963760375977; under ContractReward it moved 18.999906539916992),
+                    // and before this arm existed no ledger row carried any of it.
+                    ParsekLog.Info(Tag,
+                        $"Strategy conversion: reputation DEBIT captured pre-curve " +
+                        $"nominal={leg.Delta.ToString("R", CultureInfo.InvariantCulture)} at " +
                         $"UT={ut.ToString("F1", CultureInfo.InvariantCulture)} " +
-                        $"(reason={reason ?? "(none)"}) - not captured, see " +
-                        "OnStrategyCurrencyConversion's contract");
-                    return null;
+                        $"(reason={reason ?? "(none)"}) - ReputationModule applies KSP's " +
+                        "granular curve to it at the reconstruction's own running rep");
+                    return new GameAction
+                    {
+                        UT = ut,
+                        Type = GameActionType.ReputationPenalty,
+                        RecordingId = null,
+                        NominalPenalty = (float)(-leg.Delta),
+                        RepPenaltySource = ReputationPenaltySource.StrategyConverter
+                    };
             }
         }
 
