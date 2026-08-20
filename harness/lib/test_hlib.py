@@ -5595,6 +5595,20 @@ class SaveStructureVerifierWiringTests(unittest.TestCase):
                        # nowhere else, then reverted (the V4/V5/V14/V15 precedent -
                        # both gate through the single shared saveParse evaluator).
                        "V16M-laythe-player-loop.toml", "V16T-laythe-ts-arrival.toml",
+                       # V17M: `rewind` (all max 0 - the family's replay-observation
+                       # claim, now across a SELF-OVERLAPPING 20-instance loop whose
+                       # re-arms the jumps repeatedly cross) + `structure` (trees
+                       # {1,2} for V2's duplicate-writer hazard, everything else
+                       # pinned at the measured 1/1 with terminalStates
+                       # {Orbiting: 1}; recordings {1,1} is the sharp form of the
+                       # reading-era {1,3} count window - the admitted load-time
+                       # optimizer split never materialized on any of four runs)
+                       # armed 2026-08-20 off its OWN green reading run
+                       # `2026-08-20_1915` (PASS attempt 1, the H3-clock re-pin
+                       # round; facets 0/0/0/0 and 1/1/1, points 746/746/746).
+                       # V17T is NOT here yet - it arms only once it has a green
+                       # reading run of its own.
+                       "V17M-laythe-vall-player-loop.toml",
                        "GS-1-auto-chute-booster.toml", "GS-2-orbital-probe-deploy.toml",
                        "GS-3-switch-nudge-deployed.toml",
                        # B17: rewind (all max 0 - a clean single-launch flight

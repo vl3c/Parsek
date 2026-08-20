@@ -1002,17 +1002,33 @@ class V17SeedTests(unittest.TestCase):
         uts = self._jump_uts(self.m)
         self.assertAlmostEqual(round(c2_seam - 180.0), uts[4], delta=0.5)
 
-    def test_the_ts_only_ghost_forbid_lives_only_on_the_ts_lane(self):
-        """`created 0 ghost vessel(s)` is emitted by `ParsekTrackingStation` and
-        by nothing else, so on V17M - which never leaves FLIGHT - it is
-        STRUCTURALLY INERT and was dropped. An un-fireable forbid is a false
-        assurance, not a cheap one; it reads as a guard in review and can never
-        red. V17T keeps it, where the TS scene makes it live."""
+    def test_the_ts_ghost_forbid_is_retired_on_BOTH_lanes(self):
+        """THE INVERSION of this cell's own pre-flight assertion, which required
+        `created 0 ghost vessel(s)` as a V17T forbid. V17T run 1
+        (2026-08-20_1917) measured init-zero as the CORRECT product outcome on
+        this subject: with the loop armed the init walk skips the base recording
+        (`noOrbit=1` - the Vall tail is segment-less, no orbit source resolves)
+        and every real ghost comes from the DYNAMIC overlap path. Forbidding the
+        init line would forbid a deliberate product behavior; the anti-vacuity
+        duty moved to the two required dynamic-path tokens (the next cell)."""
         tok = "created 0 ghost vessel\\(s\\)"
-        self.assertNotIn(tok, self.m["expectations"]["logContracts"]["forbidden"])
-        self.assertIn(tok, self.t["expectations"]["logContracts"]["forbidden"])
-        # V17M's remaining three are the road-independent set
+        for spec in (self.m, self.t):
+            self.assertNotIn(tok, spec["expectations"]["logContracts"]["forbidden"])
+        # both lanes now carry exactly the road-independent forbid set
         self.assertEqual(3, len(self.m["expectations"]["logContracts"]["forbidden"]))
+        self.assertEqual(3, len(self.t["expectations"]["logContracts"]["forbidden"]))
+
+    def test_v17t_anti_vacuity_rides_the_dynamic_overlap_path(self):
+        """Run 1's re-pin: the init-walk pin (`initialized: created [1-9]`) is
+        unsatisfiable on a loop-armed segment-less-tail subject, so the TS
+        anti-vacuity is the dynamic path materializing instances in-scene, plus
+        the Vall-frame GhostCreated pin that needs cycle 1 (spawned LAST,
+        newest-first at MaxSpawnsPerFrame=2 - the reason the TS phase carries the
+        forty-tick dwell)."""
+        req = self.t["expectations"]["logContracts"]["required"]
+        self.assertIn("GhostMap\\] Created ghost vessel .*orbitSource=overlap-instance-segment .*scene=TRACKSTATION", req)
+        self.assertIn("phase=GhostCreated surface=ProtoIcon pid=\\d+ .*body=Vall scene=TRACKSTATION", req)
+        self.assertFalse(any("initialized: created [1-9]" in t for t in req))
 
     def test_v17m_jumps_are_strictly_forward(self):
         uts = self._jump_uts(self.m)
@@ -1062,22 +1078,36 @@ class V17SeedTests(unittest.TestCase):
             self.assertIn("timejump refused reason=backward-jump",
                           spec["expectations"]["logContracts"]["forbidden"])
 
-    def test_only_v17m_carries_the_census_pacing_block(self):
+    def test_both_lanes_carry_dwell_blocks_for_two_different_reasons(self):
+        """Grown from `test_only_v17m_carries_the_census_pacing_block` across the
+        reading rounds. V17M's dwells are CENSUS PACING (two 40-tick blocks after
+        the +140 brackets plus the two park blocks - see its run-2/run-3 ledger);
+        V17T's single 40-tick block is SPAWN-THROTTLE HEADROOM (run 1: two ticks
+        = 3 lifecycle ticks = 6 of 20 overlap instances, and cycle 1 - the
+        Vall-leg instance both its anti-vacuity pins need - spawns LAST)."""
         m_ticks = sum(1 for s in self.m["driver"]["steps"]
                       if s.get("cmd") == "RecordingState")
         t_ticks = sum(1 for s in self.t["driver"]["steps"]
                       if s.get("cmd") == "RecordingState")
-        self.assertGreaterEqual(m_ticks * 0.25, 2.0 * 5.0)
-        self.assertEqual(2, t_ticks)
+        self.assertEqual(120, m_ticks)  # 3 x 40: +140 c1, park c1 (+watch), +140 c2... see spec
+        self.assertEqual(40, t_ticks)
 
-    def test_neither_v17_spec_arms_a_gating_block(self):
-        for spec in (self.m, self.t):
-            for block in ("rewind", "recordings"):
-                sub = (spec.get("expectations") or {}).get(block) or {}
-                self.assertNotIn("gating", sub)
-                for nested in sub.values():
-                    if isinstance(nested, dict):
-                        self.assertNotIn("gating", nested)
+    def test_v17m_arms_gating_and_v17t_does_not_yet(self):
+        """Grown from `test_neither_v17_spec_arms_a_gating_block`. V17M armed
+        `rewind` + `recordings.structure` 2026-08-20 off its OWN green reading
+        run `2026-08-20_1915` (PASS attempt 1; facets 0/0/0/0 and 1/1/1
+        {Orbiting: 1}) - the V16M discipline, allowlisted in
+        test_hlib.ARMED_ALLOWLIST. V17T stays REPORT-ONLY until it has a green
+        reading run of its own to arm from."""
+        for block in ("rewind", "recordings"):
+            sub = (self.t.get("expectations") or {}).get(block) or {}
+            self.assertNotIn("gating", sub)
+            for nested in sub.values():
+                if isinstance(nested, dict):
+                    self.assertNotIn("gating", nested)
+        self.assertTrue(self.m["expectations"]["rewind"].get("gating"))
+        self.assertTrue(
+            self.m["expectations"]["recordings"]["structure"].get("gating"))
 
     def test_the_anomaly_posture_is_the_established_pair_shape(self):
         """V17M is the stepped-bracket CONTROL and V17T ships untolerated so its

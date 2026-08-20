@@ -11,6 +11,36 @@ id = "V17T-laythe-vall-ts-arrival"
 # SAME instant from the two scenes). The self-retiring
 # `SharedShipsManifestTests.PENDING_FIXTURE_LANES` exemption is deleted.
 #
+# ---------------------------------------------------------------------------------
+# RUN 1 LEDGER (2026-08-20_1917, PARSEK-FAIL(expectations) attempt 1) - the red
+# was the pre-registered calibration catch, but NOT on the surface this header
+# predicted. THREE readings:
+#
+# (1) BOTH TS anti-vacuity pins missed and the `created 0` forbid fired - all
+# three against the SAME product mechanism, measured for the first time on a
+# self-overlapping TS subject: the init walk skips the loop-armed base recording
+# (`noOrbit=1`: the Vall tail is segment-less, no orbit source resolves), the
+# real ghosts come from the DYNAMIC overlap path at `MaxSpawnsPerFrame = 2` per
+# lifecycle tick NEWEST-CYCLE-FIRST, and the two-tick TS phase (~0.65 s, 3
+# ticks) ended after 6 ghosts (cycles 14-19) - before cycle 1, the one instance
+# in its Vall leg. The pins are re-targeted to the dynamic path, the forbid is
+# retired as measuring a deliberate product behavior, and the TS phase carries
+# the forty-tick dwell (see the step-list comments at each site).
+#
+# (2) THE EXPECTED `icon-off-orbit` RED DID NOT HAPPEN - `anomalySweep` PASSED
+# clean, BREAKING the 6/6 single-jump streak. The step shape is IDENTICAL to
+# V14T/V15T/V16T (FLIGHT jump -> SaveGame -> TS re-entry), so the discriminating
+# variable is NOT the workflow - it is the subject: first self-overlapping loop,
+# and first nested-SOI recording whose ProtoOrbitLine fail-closes to a
+# root-frame verbatim render (V17M's run-3 finding). WHICH of those breaks the
+# trigger is NOT determined by this run; recorded as an open reading on the
+# family entry, no mechanism claimed.
+#
+# (3) The sharper pre-registered negative held too: no `seam-endpoint-outside-soi`
+# raise (the displacement scales with the cadence multiple, and this subject's
+# effective multiple at the observed epoch is small).
+# ---------------------------------------------------------------------------------
+#
 # THE DERIVATION LIVES IN V17M'S HEADER SECTION 3 and is deliberately not
 # duplicated here. **READ ITS FINDING**: the pre-flight warning that no seed set
 # could serve both roads is REFUTED at this pair - the 1:2:4 resonance puts
@@ -259,10 +289,52 @@ steps = [
   { cmd = "DiscardTree",                                                     expect = "OK" },
   # RE-ENTER IN THE TRACKING STATION (R12's additive `scene=` arg, the H23 route).
   { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent", scene = "trackstation" }, expect = "OK", budget = 300 },
-  # TWO DWELL TICKS. RecordingState is AnyScene and side-effect-free; each costs one
-  # harness poll round-trip of 1x TS time. They are the ONLY time-passing instrument
-  # available in this scene and are named as ticks, not as a dwell window. NOT
-  # V17M's forty-tick census block - a single-arrival shape has nothing to rescue.
+  # FORTY DWELL TICKS - grown from two at the run-1 re-pin (2026-08-20_1917),
+  # because on THIS subject the dwell is not census pacing but SPAWN-THROTTLE
+  # HEADROOM: overlap-instance creation runs newest-cycle-first at
+  # `MaxSpawnsPerFrame = 2` per lifecycle tick, and cycle 1 - the Vall-leg
+  # instance both anti-vacuity pins need - is the LAST of 20 to spawn (~10
+  # ticks). Run 1's two ticks gave the scene ~0.65 s = 3 ticks = 6 ghosts and
+  # FlushAndQuit cut cycle 1 off. Forty RecordingState ticks (>= 10 wall s,
+  # V16M's proven sizing) give the fill-in loop ~4x the headroom it needs.
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
   { cmd = "RecordingState",                                                  expect = "OK" },
   { cmd = "RecordingState",                                                  expect = "OK" },
   { cmd = "FlushAndQuit",                                                    expect = "OK" },
@@ -332,15 +404,31 @@ count = { min = 1, max = 3 }
 #     this fixture has a focusable vessel and would otherwise route to FLIGHT, so a
 #     TRACKSTATION landing can only mean the requested scene overrode the
 #     save-derived route - the claim is falsifiable).
-# THE TWO TS ANTI-VACUITY GATES:
-#   "ParsekTrackingStation initialized: created [1-9][0-9]* ghost vessel\\(s\\)" -
-#     the TS host's OWN line, emitted only in that scene. A TS boot that
-#     materializes ZERO ghosts is an empty tracking station, and reading that as a
-#     pass is the V1/V2 vacuity failure. Routing-agnostic by design.
+# THE TWO TS ANTI-VACUITY GATES - BOTH RE-PINNED after the run-1 reading
+# (2026-08-20_1917) measured that the family's init-line pin does not apply to a
+# SELF-OVERLAPPING subject whose base recording ends in a segment-less park:
+#   "GhostMap\\] Created ghost vessel .*orbitSource=overlap-instance-segment .*scene=TRACKSTATION"
+#     - the DYNAMIC overlap path actually materializing a loop instance in the TS.
+#     The old pin was the INIT walk's `initialized: created [1-9]` line, and run 1
+#     measured init-zero as the CORRECT product outcome here: with the loop
+#     armed, the init walk evaluates the BASE recording at the entry epoch and
+#     skips it `noOrbit=1` (the recording's Vall tail is SEGMENT-LESS - the
+#     B25/V16M shape - so no visibleSegment / terminalOrbit / endpointTail /
+#     stateVector source resolves), and every real ghost comes from the
+#     per-lifecycle-tick overlap path instead. An empty TS still cannot green:
+#     this token requires the dynamic path to have created at least one instance
+#     in-scene.
 #   "phase=GhostCreated surface=ProtoIcon pid=\\d+ .*body=Vall scene=TRACKSTATION" -
 #     V6T's `body=Mun` pin with the body swapped, which turns the D14 `vall` claim
-#     from an EPOCH claim into a RENDERED-FRAME claim. ROAD-INDEPENDENT: both
-#     chains put a ghost at Vall at this epoch.
+#     from an EPOCH claim into a RENDERED-FRAME claim. Run 1 measured WHY this
+#     needs the dwell block in the TS phase: overlap-instance creation is
+#     NEWEST-CYCLE-FIRST at `MaxSpawnsPerFrame = 2` per lifecycle tick, so cycle
+#     1 - the ONE instance in its Vall leg at this epoch, and the OLDEST live
+#     cycle - is created LAST (~10 ticks in). Run 1's TS phase lasted ~0.65 s =
+#     3 ticks = 6 ghosts (cycles 14-19, Jool/Laythe frames), and FlushAndQuit
+#     ended the scene before cycle 1's turn. The SAME epoch in the FLIGHT phase
+#     created all 20 including `body=Vall cycle=1`, so the pin is satisfiable -
+#     the scene just has to live long enough.
 # THE PROBE / LENS PRESENCE PINS (V6T/V14T/V15T/V16T's, verbatim):
 #   "faithful-parity summary sampled=\\d+ overTolerance=\\d+" - emitted only when
 #     the per-pid parity pass touched the lens, so PRESENCE cannot be produced by a
@@ -361,7 +449,7 @@ required  = [
   "FastForwardToEventUT: jumping to UT=",
   "loadgame trackstation route: booting to TRACKSTATION save=",
   "loadgame complete scene=TRACKSTATION save=.* game-loaded=true expected=TrackingStation",
-  "ParsekTrackingStation initialized: created [1-9][0-9]* ghost vessel\\(s\\)",
+  "GhostMap\\] Created ghost vessel .*orbitSource=overlap-instance-segment .*scene=TRACKSTATION",
   "phase=GhostCreated surface=ProtoIcon pid=\\d+ .*body=Vall scene=TRACKSTATION",
   "faithful-parity summary sampled=\\d+ overTolerance=\\d+",
   "seam-endpoint summary evaluated=\\d+ outsideSoi=\\d+",
@@ -383,9 +471,12 @@ forbidden = [
   # a rendered-vs-recorded drift, which is a RENDER defect rather than a reading
   # about the routing. Road-independent.
   "faithful-parity summary sampled=\\d+ overTolerance=[1-9][0-9]*",
-  # A TS boot that materializes zero ghosts would make every arrival reading
-  # vacuous. Cheaper as a forbid than as a second required token.
-  "created 0 ghost vessel\\(s\\)",
+  # The `created 0 ghost vessel(s)` forbid the family carries here was REMOVED at
+  # the run-1 re-pin: on THIS subject the init walk's zero is the measured correct
+  # product outcome (loop-armed base recording, segment-less Vall tail, skip
+  # counter `noOrbit=1`), and the anti-vacuity duty moved to the two required
+  # dynamic-path tokens above. Forbidding the init line would forbid a behavior
+  # run 1 proved deliberate.
 ]
 
 [expectations.rewind]

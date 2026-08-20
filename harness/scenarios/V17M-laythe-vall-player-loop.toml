@@ -808,17 +808,39 @@ forbidden = [
 ]
 
 [expectations.rewind]
-# REPORT-ONLY (the ARMED_ALLOWLIST discipline). The claim is V4/V6M/V14M/V15M/V16M's:
-# a pure replay-observation workflow must author NOTHING durable. Every one of
-# those lanes measured 0/0/0. Arm it at the arming pass, off this lane's own bytes.
+# ARMED 2026-08-20 (the V2/B17/V4/V14M/V15M/V16M arming discipline) off this
+# lane's OWN green reading run `2026-08-20_1915` (PASS attempt 1), whose
+# saveParse REPORT measured rewindPoints=0, supersedeRows=0, tombstones=0,
+# rewindRetirements=0 - every window below already met, so the arming re-pinned
+# nothing and moved no verdict. The claim is the family's on the moon-to-moon
+# axis: a pure replay-observation workflow (arm -> Warp-to -> stepped arrival
+# brackets -> two 40-tick dwells -> parks, twice over) must author NOTHING
+# durable, across a SELF-OVERLAPPING 20-instance loop whose re-arms the jumps
+# repeatedly cross.
+gating = true
 rewindPoints  = { max = 0 }
 supersedeRows = { max = 0 }
 tombstones    = { max = 0 }
 
-# [expectations.recordings.structure] and the points facets are DELIBERATELY
-# ABSENT on a first run: a report-only block of PREDICTED numbers reads like a
-# measurement, and this lane's predicted topology is the least certain of the
-# family (one recording or three).
+[expectations.recordings.structure]
+# ARMED 2026-08-20, same reading run, which measured trees=1, committedTrees=1,
+# recordings=1, terminalStates {Orbiting: 1}, branchPoints {},
+# duplicateRecordingIds [] - and the points facet read 746/746/746, the exact
+# on-disk point count of the harvested fixture, so the loop replayed without
+# authoring or splitting anything. The pre-flight worry this block was DEFERRED
+# for - a load-time optimizer split at either of the recording's two body-change
+# seams, the reason [expectations.recordings] count carries {1,3} - DID NOT
+# MATERIALIZE on any of four runs; `recordings = {1,1}` here is the sharp
+# armed statement (the wide count window above stays as the committed
+# reading-era admission, subsumed by this gate).
+#
+# `trees` keeps V2's max = 2 - the documented duplicate-tree writer hazard -
+# deliberately WIDER than the single measurement rather than pinned to it.
+gating = true
+trees          = { min = 1, max = 2 }
+committedTrees = { min = 1, max = 1 }
+recordings     = { min = 1, max = 1 }
+terminalStates = { Orbiting = { min = 1 } }
 
 [runtime]
 # 300 LoadGame + 2x300 StartLoopPlayback + 8x300 TimeJump + 40 RecordingState ticks

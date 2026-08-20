@@ -1321,6 +1321,16 @@
         "2026-08-19T22:13:03Z": 50.0
       }
     },
+    "V17M-laythe-vall-player-loop": {
+      "last": 81.0,
+      "lastVsP50": 1.0,
+      "n": 1,
+      "p50": 81.0,
+      "p95": 81.0,
+      "samples": {
+        "2026-08-20T19:17:12Z": 81.0
+      }
+    },
     "V2-loop-arrival-dwell": {
       "last": 955.0,
       "lastVsP50": 1.0,

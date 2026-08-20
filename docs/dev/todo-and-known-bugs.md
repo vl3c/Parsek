@@ -1706,6 +1706,14 @@ offset or the seam-endpoint epoch). Self-correcting by the next distant epoch
 (the cycle-2 -180 bracket read root-frame Jool again). REPORT-ONLY, same as the
 rest of the family; NO product change is proposed.
 
+**AND ONE NON-RECURRENCE ON THE SAME SUBJECT** (`V17T-laythe-vall-ts-arrival`
+run 1, `2026-08-20_1917`): the original `icon-off-orbit` raise did NOT fire -
+the first silent single-jump run after six raising ones at three parents,
+despite a step shape IDENTICAL to V14T/V15T/V16T. The subject differs in two
+ways at once (first self-overlapping loop; first nested-SOI recording whose
+ProtoOrbitLine fail-closes to a root-frame verbatim render), so WHICH one breaks
+the trigger is an open reading - no mechanism claimed.
+
 ---
 
 ## SEAM-STARTRECORDING-JOINS-COMMITTED-TREE: a seam `StartRecording` on a vessel that is a committed tree's own launch cannot open a standalone tree - it no-ops onto the recording the committed-restore path re-resumed [MEASURED 2026-08-18 by `B23-ike-orbit` flight 1; WORKAROUND LIVE-PROVEN the same day by flight 2. REPORT-ONLY: a HARNESS/FIXTURE constraint on the automation surface, NOT a proposed product change]
