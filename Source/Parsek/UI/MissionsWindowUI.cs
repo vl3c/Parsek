@@ -2047,35 +2047,6 @@ namespace Parsek
                     new GUIContent("Looped by route", $"Looped by route: {routeName}"),
                     missionHeaderInlineLabel);
             }
-            if (loopNow != mission.LoopPlayback)
-            {
-                if (missionRouteBound)
-                {
-                    // Commit guard: a route owns this tree's loop; never let a manual turn-ON reach
-                    // MissionStore.SetLoopEnabled.
-                    ParsekLog.Info("RouteGuard",
-                        $"Missions-tab Loop toggle blocked for tree={mission.TreeId} " +
-                        $"(bound by route {(bindingRoute != null ? bindingRoute.Id : "<none>")}); manual loop " +
-                        $"request={loopNow} ignored");
-                }
-                else
-                {
-                    // Trees passed so a cross-tree-linked mission also clears looping missions
-                    // on its linked foreign tree(s) (M-MIS-8 spanned-set rule).
-                    MissionStore.SetLoopEnabled(mission, loopNow, Planetarium.GetUniversalTime(),
-                        RecordingStore.CommittedTrees);
-                    // R6 double-clock advisory (design 7.7), on ENABLE only and only AFTER the
-                    // enable succeeded - the enable itself clears every mission the hard rule
-                    // considers conflicting, so what is left looping is exactly the population the
-                    // advisory is about. Advisory only: nothing is switched off here.
-                    if (loopNow)
-                        PostDoubleClockAdvisoryIfAny(mission);
-                    // Turning loop off disables the period field; end any in-progress edit on it.
-                    if (!loopNow && loopPeriodFocusedMissionId == mission.Id)
-                        loopPeriodFocusedMissionId = null;
-                }
-            }
-
 
             // Periodicity (the Phase-1 / Tier-1 solution) is computed once per mission by the draw
             // loop and passed in; the period cell shows the faithful period P + basis label when
@@ -2158,6 +2129,12 @@ namespace Parsek
             // on its linked foreign tree(s) (M-MIS-8 spanned-set rule).
             MissionStore.SetLoopEnabled(mission, loopNow, Planetarium.GetUniversalTime(),
                 RecordingStore.CommittedTrees);
+            // R6 double-clock advisory (design 7.7), on ENABLE only and only AFTER the
+            // enable succeeded - the enable itself clears every mission the hard rule
+            // considers conflicting, so what is left looping is exactly the population the
+            // advisory is about. Advisory only: nothing is switched off here.
+            if (loopNow)
+                PostDoubleClockAdvisoryIfAny(mission);
             // Turning loop off disables the period field; end any in-progress edit on it.
             if (!loopNow && loopPeriodFocusedMissionId == mission.Id)
                 loopPeriodFocusedMissionId = null;
