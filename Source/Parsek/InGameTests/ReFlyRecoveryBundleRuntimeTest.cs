@@ -424,6 +424,13 @@ namespace Parsek.InGameTests
                     "endState=Aboard on the recovery segment, and Classify's crew leg keys " +
                     "on endState=Recovered, so it is not in the resurrection bundle. The " +
                     "merge path retires it regardless.");
+                // The set is CLOSED, not just a superset: Classify's scan is scoped to
+                // this recording by the positive pid+guid match, so nothing else can
+                // enter and an extra row means the classifier widened.
+                InGameAssert.AreEqual(3, retiredByResurrection.Count,
+                    "Resurrection must retire EXACTLY the funds anchor + recovered science " +
+                    $"+ XP row; got {retiredByResurrection.Count} " +
+                    $"[{string.Join(",", retiredByResurrection.ToArray())}]");
 
                 ParsekLog.Info(Tag,
                     Marker + ": installed origin=" + originId + " fork=" + forkId +
@@ -542,23 +549,35 @@ namespace Parsek.InGameTests
                     "Post-merge the KerbalExperience accumulator must have no entry for the " +
                     "bundle's kerbal at all");
 
-                // (b) Against a roster that ALREADY carries the recovery's entries -
-                //     the state a live save is in when the merge runs - the append-only
-                //     facade neither re-appends them nor removes them. That is the
-                //     MEASURED behaviour of the monotone re-assert, and it is correct
-                //     by design: the rewind's quicksave load is what removes the
-                //     superseded flight's XP, and the re-assert exists only to put back
-                //     what a SURVIVING flight earned. Pinned so a change to the
-                //     append-only contract announces itself here.
+                // (b) The OTHER half, and deliberately driven off the row while it is
+                //     STILL EFFECTIVE so it measures something (a) cannot. `elsBefore`
+                //     is the pre-merge snapshot: a stale list, so the retired rows are
+                //     still in it, and the split retagged those same GameAction objects
+                //     in place onto TIP - hence the two-id scope. Against a roster that
+                //     ALREADY carries the recovery's three entries (the state a live
+                //     save is in when the merge runs) the re-assert appends NOTHING:
+                //     that is the SET DIFFERENCE, not the empty-accumulator early
+                //     return (a) exercises. And the roster still has exactly three
+                //     afterwards - the facade has no remove verb and the re-assert
+                //     never invents one. Correct by design: removing a superseded
+                //     flight's XP is the rewind quicksave load's job, and this facet
+                //     exists only to put back what a SURVIVING flight earned. Pinned so
+                //     a change to the append-only contract announces itself here.
                 var preloaded = new RecordingRosterFacade();
                 preloaded.Existing.Add(new KerbalCareerLogEntry(0, "Land", "Kerbin"));
                 preloaded.Existing.Add(new KerbalCareerLogEntry(0, "Flight", "Kerbin"));
                 preloaded.Existing.Add(new KerbalCareerLogEntry(0, "Recover", ""));
                 var preloadedResult = MeasureCareerReassert(
-                    elsAfter, preloaded, originId, tip.RecordingId, reFlyActive: false);
+                    elsBefore, preloaded, originId, tip.RecordingId, reFlyActive: false);
+                InGameAssert.IsNotNull(
+                    preloadedResult.Module.GetCareerEntriesForTesting(BundleKerbal),
+                    "The (b) measurement must run against a LIVE accumulator - if the " +
+                    "pre-merge snapshot no longer carries the KerbalExperience row this " +
+                    "cell is re-measuring (a)'s early return and proves nothing new");
                 InGameAssert.AreEqual(0, preloadedResult.Appended.Count,
                     "MEASURED: with the recovery's entries already on the roster the " +
-                    "post-merge re-assert appends nothing (no double-append)");
+                    "re-assert appends nothing even while the row is still effective " +
+                    "(no double-append)");
                 InGameAssert.AreEqual(3, preloaded.Existing.Count,
                     "MEASURED: the re-assert never removes - the facade has no remove verb, " +
                     "and the roster keeps the three entries. Removal of a superseded " +
