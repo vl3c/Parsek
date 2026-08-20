@@ -1,0 +1,58 @@
+version = 1
+GAME_STATE_EVENT
+{
+	ut = 347.27999999997411
+	type = 18
+	key = FirstCrewToSurvive
+	detail = funds=800;rep=0;sci=0
+}
+GAME_STATE_EVENT
+{
+	ut = 347.27999999997411
+	type = 15
+	key = Progression
+	valBefore = 531200
+	valAfter = 532000
+}
+GAME_STATE_EVENT
+{
+	ut = 347.27999999997411
+	type = 16
+	key = VesselRecovery
+	valBefore = 103
+	valAfter = 111.59999847412109
+}
+GAME_STATE_EVENT
+{
+	ut = 347.27999999997411
+	type = 22
+	key = Jebediah Kerman
+	detail = flight=0;entries=0,Land,Kerbin|0,Flight,Kerbin|0,Recover,;trait=Pilot
+}
+GAME_STATE_EVENT
+{
+	ut = 347.27999999997411
+	type = 15
+	key = VesselRecovery
+	detail = vessel=Jumping%20Flea;rawVessel=%23autoLOC_501224;pid=2905720181;vesselType=Ship;fundsEarned=(unknown);recoveryFactor=1
+	valBefore = 532000
+	valAfter = 536558
+}
+SCIENCE_SUBJECTS
+{
+	SUBJECT
+	{
+		id = crewReport@KerbinSrfLandedLaunchPad
+		science = 3
+	}
+	SUBJECT
+	{
+		id = mysteryGoo@KerbinSrfLandedLaunchPad
+		science = 3.60000014
+	}
+	SUBJECT
+	{
+		id = recovery@KerbinFlew
+		science = 5
+	}
+}
