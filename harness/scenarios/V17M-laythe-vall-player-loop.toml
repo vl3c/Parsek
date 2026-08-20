@@ -35,6 +35,113 @@ id = "V17M-laythe-vall-player-loop"
 # code path the research doc says is live, reachable and untested.
 #
 # ---------------------------------------------------------------------------------
+# 0. THE ANSWER (MEASURED 2026-08-20, run `2026-08-20_1841`) - AND IT IS **H3**
+# ---------------------------------------------------------------------------------
+# **NEITHER PRE-REGISTERED HYPOTHESIS WAS RIGHT, AND THAT IS THE RESULT.** The
+# reading run reached the classifier, and the classifier DECLINED - but not on the
+# single-hop guard (H1's failure mode) and not on section 5.2's seam magnitude
+# (H2's). It declined on a THIRD thing nobody named: the PARKING-ORBIT /
+# MID-COURSE structural check. Verbatim, KSP.log 10608-10609:
+#
+#   [ReaimDiag] mission='Duna Rocket' member#0 segs=13 startBody=Laythe
+#     supported=False reason='transfer departs from a heliocentric parking orbit
+#     or mid-course correction (deferred); staying faithful'
+#   [ReaimDiag] mission='Duna Rocket' gatheredSegs=13 transferMemberSegs=0
+#     plan.Supported=False reason='no member yields a re-aim transfer'
+#
+# and phase-lock declined too (10612):
+#
+#   PhaseLock SKIPPED: mission='Duna Rocket' tree=9aa3c87c... support=
+#     UnsupportedCrossParent keeping anchor=28896850.262240175 (today's behavior)
+#
+# **SO THE M-MIS-7 ANSWER, FOR TODAY'S CODE, IS: PARSEK NEITHER RE-AIMS NOR
+# PHASE-LOCKS A MOON-TO-MOON HOP. IT REPLAYS IT FAITHFULLY ON THE RAW CADENCE** -
+# the V9-dres shape, now measured for a moon pair. The render side agrees:
+# `factory chain rec=625d63e0... phases=12 reaimed=False faithfulFallback=False`.
+#
+# ### WHERE IT DECLINED, EXACTLY
+#
+# `Source/Parsek/Reaim/ReaimClassifier.cs:270-277`, the PARTIAL-TRANSFER-DEPARTURE
+# check:
+#
+#     bool sunPredecessor = transferStartIdx - 1 >= 0
+#         && segs[transferStartIdx - 1].bodyName == commonAncestor;
+#     bool parkingDeparture = sunPredecessor
+#         && IsHeliocentricParkingDeparture(...);
+#     if (sunPredecessor && !parkingDeparture)
+#         return ReaimMissionPlan.Unsupported(launchBody, "transfer departs ...");
+#
+# (The string says "heliocentric" but the variable is `commonAncestor` - the check
+# is frame-generic and here the common ancestor is JOOL. The name is a Sun-era
+# artifact, not a Sun-only gate.)
+#
+# **WHY IT FIRED, AND IT IS OUR OWN FLIGHT PROFILE'S DOING.** The parent-relay
+# mode necessarily flies TWO burns: an escape from Laythe, then a coast, then the
+# stage-2 transfer burn planned from Jool's frame. That middle coast is a real
+# Jool orbit - the fixture's segment 4, **a = 26,056,055 m, ecc 0.0126**,
+# 28,823,386.230 -> 28,866,569.726 - and it sits immediately before the transfer
+# run on a DIFFERENT orbit, so `sunPredecessor` is TRUE.
+#
+# **AND THE EXCEPTION MISSED BY 15%, WHICH IS THE SHARPEST PART OF THIS READING.**
+# `IsHeliocentricParkingDeparture` would have re-admitted the shape (the s15
+# Kerbal X #2 path). Its three conjuncts, evaluated against the fixture's bytes:
+#
+#     near-circular            ecc 0.0126 <= 0.1                        **PASS**
+#     co-orbital with Laythe   |26,056,055 - 27,184,000| / 27,184,000
+#                              = 4.15% <= 10%                           **PASS**
+#     a CLOSED park (>= 1 rev) T = 2*pi*sqrt(a^3/mu_Jool) = 49,717.82 s
+#                              duration 43,183.50 s = **0.8686 rev**
+#                              -> wholeRevs = floor(0.8686) = 0         **FAIL**
+#
+# `ReaimLoiterCompressor.DetectRuns` emits a `LoiterRun` only at `wholeRevs >= 1`,
+# so no run is found and the `!found` early return fires - whose own comment names
+# exactly this case: *"the Sun predecessor is a sub-period (< 1 rev) MCC arc, not
+# a closed park"*. **The coast is 6,534.33 s - 15.13% - short of closing one
+# revolution.** Two of three gates passed. This is not a structural impossibility;
+# it is a duration miss, and it is worth writing down that precisely, because the
+# obvious next question ("could a moon-to-moon hop ever re-aim?") has a much more
+# interesting answer than "no".
+#
+# ### WHAT REMAINS UNTESTED, STATED HONESTLY
+#
+# The classifier's SUPPORTED path needs `sunPredecessor == false`: the segment
+# before the transfer run must be the launch-body SOI exit, i.e. **one single
+# ejection burn that leaves Laythe already on the Vall transfer**, with no
+# intermediate Jool coast. **NO CURRENTLY FLYABLE PROFILE PRODUCES THAT SHAPE**,
+# and the reason is documented rather than assumed:
+#   * MechJeb's `OperationInterplanetaryTransfer` is the operation that plans a
+#     direct single-burn ejection - and it REFUSES a moon-parked origin
+#     (B26 flight 1, deterministic; todo -> MECHJEB-INTERPLANETARY-PLANNER-REJECTS-MOON-ORIGIN).
+#   * The parent-relay mode that CAN fly the hop is two-burn BY CONSTRUCTION -
+#     escape first, plan the transfer from the parent frame second - so it emits
+#     the declined shape every time. It does not aim the escape, and aiming it
+#     would need the vessel's and Laythe's state vectors in Jool's frame plus an
+#     asymptote solve (the mode's stated v1 limitation).
+# So the direct-ejection branch of M-MIS-7 is UNREACHABLE by the harness today,
+# and saying otherwise would be a guess.
+#
+# **THE ONE CHEAP THING THAT WOULD MOVE IT** - recorded as an observation, NOT a
+# plan, because nobody has tried it: the parking-departure EXCEPTION needs only
+# 6,534 s more coast. A profile that let the post-escape Jool coast close one full
+# revolution before the stage-2 burn would satisfy all three conjuncts and take
+# the `DepartedFromHeliocentricPark` path. That is a DIFFERENT code path from the
+# direct-ejection one - it would answer "does the parking-departure exception work
+# in a moon frame", not "does a direct moon-to-moon ejection re-aim" - and whether
+# MechJeb's `operation_transfer` can be made to plan one revolution later is
+# untested. Do not read this paragraph as a scheduled follow-up.
+#
+# ### WHAT THE RUN COST, AND WHY IT STILL READS AS A SUCCESS
+#
+# `PARSEK-FAIL(expectations)` on ONE missed required token - the anti-vacuity pin
+# `phase=body-orbit surface=ProtoOrbitLine .*body=Vall`. That is the
+# **pre-registered dwell-nowhere outcome**, not a product fact: the committed
+# jumps were seeded at an anchor 97 ks past the real one (section 3), so every
+# bracket landed in the Jool leg (the log reads `body=Jool` at 28,998,248) instead
+# of at Vall. Section 3 is re-pinned off the measured H3 clock. Everything else
+# passed: `driverValidity` all steps met, analyzer clean, `recordings 1`,
+# `faithful-parity summary sampled=9 overTolerance=0`.
+#
+# ---------------------------------------------------------------------------------
 # 1. THE MEASUREMENT - and it is the ROUTING, not a tolerance
 # ---------------------------------------------------------------------------------
 # Every loop subject the suite has ever had is SAME-PARENT: the recording's launch
@@ -76,15 +183,24 @@ id = "V17M-laythe-vall-player-loop"
 # moon-to-moon hops. It is untested, unmeasured, and unrepresented in any harness
 # lane."
 #
-# **THIS LANE IS THAT LANE.** What it measures is which road a cross-parent
-# recording actually takes, and NOTHING BELOW GATES ON EITHER ANSWER.
+# **THIS LANE IS THAT LANE, AND IT HAS NOW READ THE ANSWER** - see section 0. The
+# guard walk above is kept VERBATIM and unedited, because every step of it was
+# right: the classifier WAS reached, the single-hop guard did NOT fire, and
+# `IsSaneTransferConic` was never the problem. What the walk did not model is the
+# structural check on what comes IMMEDIATELY BEFORE the transfer run, which is
+# where the decline actually happened. NOTHING BELOW GATES ON THE ANSWER.
 #
 # ---------------------------------------------------------------------------------
-# 2. THE TWO HYPOTHESES, AND THE EXACT LINES THAT DISCRIMINATE
+# 2. THE TWO HYPOTHESES AS PRE-REGISTERED - **BOTH REFUTED**, kept verbatim
 # ---------------------------------------------------------------------------------
-# Both are written out because a pre-registered pair of alternatives is what makes
-# the reading scoreable - the V14 lesson (its tidal-collapse prediction was
-# REFUTED, and that refutation was worth more than a confirmation).
+# **READ SECTION 0 FIRST: the answer is H3 and neither alternative below was it.**
+# They are kept UNEDITED rather than rewritten, because a pre-registration that
+# gets quietly corrected after the fact is worth nothing - and because the V14
+# lesson applies twice over here: its tidal-collapse prediction was REFUTED too,
+# and that refutation was worth more than a confirmation would have been. What the
+# pair got right is that the routing was worth measuring; what it got wrong is
+# that it assumed the decline (if any) would come from a guard either hypothesis
+# had walked.
 #
 # **H1 - RE-AIM ENGAGES.** Every guard in section 1 passes, the synthesizer builds
 # a Jool-frame Lambert, and the window planner spaces on the 105,961.4 s synodic.
@@ -129,100 +245,90 @@ id = "V17M-laythe-vall-player-loop"
 # the whole reason this lane's posture differs from its three predecessors'.
 #
 # ---------------------------------------------------------------------------------
-# 3. THE SCHEDULE - RE-PINNED OFF THE HARVESTED BYTES (2026-08-20)
+# 3. THE SCHEDULE - RE-PINNED OFF THE **MEASURED H3 CLOCK** (2026-08-20, run `_1841`)
 # ---------------------------------------------------------------------------------
-# **THE PRE-FLIGHT WORRY IS REFUTED, AND THAT IS THE FIRST THING TO READ.** This
-# block used to say "the two hypotheses give DIFFERENT anchors, and no seed set
-# can be right for both". Measured against the real fixture, THAT IS FALSE AT
-# THIS PAIR - and for the same 1:2:4 resonance that made Laythe->Vall the right
-# first moon-to-moon subject:
+# **EVERY UT BELOW IS NOW READ OUT OF A FLIGHT, NOT DERIVED.** The previous pass
+# re-pinned these off the harvested recording's bytes under H1/H2 anchor formulas.
+# Both formulas were wrong, because both belong to planners that DECLINED (section
+# 0). The run printed the clock the unit actually chose, and that is what this
+# table is built from.
 #
-#     P_Vall  = 105,962.090 s        (Vall's period about Jool)
-#     synodic = 105,961.428 s        (the Laythe-Vall synodic)
-#     difference = **0.6615 s**
+# THE FOUR NUMBERS, verbatim from KSP.log:
+#   anchorUT   = **28,896,850.262240175**   `SetLoopEnabled ... anchorUT=` - "the
+#                UT the loop was enabled at", today's behavior, kept because
+#                `PhaseLock SKIPPED ... support=UnsupportedCrossParent`.
+#   span       = [**28,817,026.597051531**, **28,896,847.102240246**],
+#                spanDur **79,820.505188715 s**.
+#                **NOTE THIS IS NOT `explicitStartUT`/`explicitEndUT`.** The unit's
+#                span comes from the member's first/last POINT (the recorder's
+#                explicit stamps are 28,817,026.617051531 / 28,896,846.042240269 -
+#                0.020 s and 1.060 s away). The span clock is what drives playback,
+#                so the OFFSETS below are measured from the UNIT's spanStart. Using
+#                explicitStartUT would put every bracket 0.02 s off - harmless
+#                here, but the convention needs to be right for the next lane.
+#   cadence    = **79,820.505188714713 s** = spanDur exactly. `LoopTimeUnit.Auto`
+#                -> `max(span, MinCycleDuration)` (`MissionLoopUnitBuilder.cs:251`).
+#                **THIS IS THE V9-dres SHAPE**: cadence == span, no phase-lock
+#                quantization, because the phase-lock solver skipped.
+#   overlapCadence = **3,991.0252594357357 s**, `overlaps=yes`.
 #
-# H1 anchors on the synodic and H2 on `NextWindow(UT0, P_Vall, referenceUT)`, so
-# the two candidate anchors sit 0.662 s apart, cycle 2 sits 1.323 s apart, and
-# THE TWO JUMP TABLES ARE IDENTICAL ON CYCLE 1 AND DIFFER BY ONE SECOND ON
-# CYCLE 2. Both are far inside the -180 / -60 / +140 bracket. So the committed
-# table is authored under H1 as planned, the H2 table is printed below as the
-# re-pin, and either road lands the brackets on the seam.
+# **THE OVERLAP CADENCE IS WHAT ACTUALLY DRIVES THE RELAUNCH TRAIN, AND IT IS THE
+# PART OF H3 THAT NOBODY PREDICTED.** It is NOT the span and it is NOT a
+# derived-from-physics number:
 #
-# **THIS DOES NOT WEAKEN THE MEASUREMENT.** The routing is still read from the
-# LOG LINES (`[ReaimDiag]` / `ENGAGED re-aim` / `factory chain ... reaimed=`),
-# not from whether the jumps happened to land - and both hypotheses stay
-# unrequired and unforbidden. What it removes is the risk that a mis-seeded
-# bracket dwells nowhere and the reading run measures nothing.
+#     overlapCadence = span / MaxOverlapMissionInstances = 79,820.505188715 / 20
+#                    = 3,991.0252594357357
 #
-# THE INPUTS, ALL READ FROM `fixtures/saves/vall-transfer-recorded` (B26 flight
-# 3, run 2026-08-20_1752, PASS attempt 1):
-#   UT0        = **28,817,026.617051531**  the recording's `explicitStartUT`.
-#                THE V6M CONVENTION MATTERS HERE AS ALWAYS: segment 0's startUT
-#                is 28,817,029.317051470, a **2.700 s** gap, and anchoring on it
-#                would put every bracket 2.7 s off.
-#   span       = **79,819.425188738 s**    `explicitEndUT - explicitStartUT`
-#                (explicitEndUT 28,896,846.042240269). The pre-flight SEED was
-#                96,874.9 with a declared band of 43,874.9 -> 149,836.3; the real
-#                span lands in the LOW half of it, because the relay's escape
-#                places its OWN node at the next park periapsis and therefore
-#                spends NO transfer-window wait at all - the free variable the
-#                band was built around never opened.
-#   ESCAPE seam= **28,823,386.230090793**  Laythe->Jool, offset **6,359.613 s**.
-#                SEED was UT0 + 53,470; the real offset is 8.4x smaller, same
-#                reason as the span.
-#   ARRIVAL seam=**28,892,466.219888370**  Jool->Vall, offset **75,439.603 s**.
-#                SEED was UT0 + 92,449.9.
-#   dest phase = **4,379.822 s**           (span - arrival offset). SEED 4,425 -
-#                the one pre-flight number that was nearly right.
-#   THIRTEEN ORBIT_SEGMENTs, Laythe 0-3, Jool 4-9, Vall 10-12.
+# from `GhostPlaybackLogic.ComputeEffectiveLaunchCadence(rawOverlapPeriod, span,
+# GhostPlayback.MaxOverlapMissionInstances)` (`MissionLoopUnitBuilder.cs:261`),
+# whose `cadenceFloor = duration / maxCycles` dominates the `MinCycleDuration`
+# floor; `MaxOverlapMissionInstances = 20` (`ParsekConfig.cs:168`). CHECKED
+# AGAINST THE LOG TO THE LAST DIGIT: `anchorUT + overlapCadence =
+# 28,900,841.287499610`, and the run printed
+# `startloopplayback initiated: relaunchUt=28900841.28749961`. Delta 0.000000000.
 #
-# THE PARK EPOCH IS BASED ON THE TAIL, NOT THE PHASE - the prediction in the
-# pre-flight text ("B26's capture burn is ~49 s ... the recording is not expected
-# to end with a long segment-less tail") was WRONG, and the fixture says so:
-# Vall segments 10-12 are ALL the APPROACH HYPERBOLA (sma -2,733,908.68, ecc
-# 1.1715) and the last one ends at 28,896,012.542259, leaving an **833.500 s
-# SEGMENT-LESS PARKED TAIL** to explicitEndUT. That is B25/V16M's shape exactly.
-# Applying V14M's 70.7% to the whole 4,379.822 s phase would land the epoch on
-# the INBOUND hyperbola, which is not what "the park epoch" means on any lane.
-# So, V16M's rule:
-#     park offset = arrival offset + inbound leg + 0.707 * parked tail
-#                 = 75,439.603 + 3,546.322 + 0.707 * 833.500
-#                 = **79,575.210 s**
+# SO THE LOOP IS **SELF-OVERLAPPING**: twenty concurrent instances of a 79,820.5 s
+# mission, launched 3,991.0 s apart. "Cycle N" is the Nth relaunch, not the Nth
+# replay-then-wait.
 #
-# THE ARITHMETIC, H1 (AUTHORED):
-#   anchor  = UT0 + synodic = **28,922,988.045**
-#   cadence = synodic       = **105,961.428**
+# **AND THE TWO CADENCES COINCIDE AT INSTANCE 21, WHICH IS WHY CYCLE 2 IS THERE.**
+# Because `overlapCadence = span / 20` EXACTLY, the 21st relaunch is exactly one
+# span after the 1st: `20 * 3,991.0252594357357 = 79,820.505188714714 = spanDur`.
+# So "cycle 2 = cycle 1 + one span" and "cycle 2 = a real relaunch of the train"
+# are the SAME epoch - the reading gets a genuine one-full-cycle-later observation
+# (V16M's spirit) while landing on an epoch the machine actually launches at.
+# Consecutive instances would have been only 3,991 s apart, which is too close
+# together to say anything about recurrence.
 #
-# THE ARITHMETIC, H2 (THE RE-PIN, if the reading run measures FORCED FAITHFUL):
-#   referenceUT = max(save clock 28,896,848.582240213, spanEnd 28,896,846.042240269)
-#               = 28,896,848.582240213
-#   k_a         = ceil((referenceUT - UT0)/P_Vall - 1e-9) = ceil(0.753307) = **1**
-#   anchor      = UT0 + 1 * P_Vall = **28,922,988.707**   (+0.662 s vs H1)
-#   cadence     = smallest multiple of P_Vall >= span = 1 * P_Vall
-#               = **105,962.090**                        (+0.662 s vs H1)
+# THE OFFSETS, from the UNIT's spanStart 28,817,026.597051531:
+#   ESCAPE seam  Laythe->Jool 28,823,386.230090793 -> **6,359.633039262**
+#                (and the product echoed it: `Orbital(Jool) cross-parent
+#                P=104661432.1079886 off=6359.6330392621458`)
+#   ARRIVAL seam Jool->Vall   28,892,466.219888370 -> **75,439.622836839**
+#   park offset  arrival + inbound leg + 0.707 * parked tail
+#                = 75,439.622836839 + 3,546.322371 + 0.707 * 834.560
+#                = **79,575.979114**
+#                (the tail is measured to the UNIT's spanEnd, so it is 834.560 s
+#                here rather than the 833.500 s measured to explicitEndUT)
 #
-# THE JUMP TABLE (rounded to whole seconds, the V14M/V15M/V16M convention). All
-# eight bracket the **ARRIVAL** seam; the escape seam is deliberately not
-# bracketed, because one lane cannot read two seams at two cycles without a step
-# list nobody can follow - and the arrival is where the census lens looks.
+# THE JUMP TABLE (whole seconds, the V14M/V15M/V16M convention):
 #
-# The LEFT value on each line is the AUTHORED H1 figure (what `steps` carries);
-# the parenthesised one is the H2 re-pin.
-#   cycle-1 anchor       = 28,922,988.045   (H2: 28,922,988.707)
-#   cycle-1 arrival seam = 28,998,427.648   (H2: 28,998,428.310)
-#     bracket -180 / -60 / +140  -> 28998248 / 28998368 / 28998568
-#     ... and under H2 those three round to the SAME whole seconds: IDENTICAL.
-#   cycle-1 park (anchor + 79,575.210)  -> 29002563   (H2: 29002564)
-#   cycle-2 anchor       = 29,028,949.473   (H2: 29,028,950.796)
-#   cycle-2 arrival seam = 29,104,389.076   (H2: 29,104,390.399)
-#     bracket -180 / -60 / +140  -> 29104209 / 29104329 / 29104529
-#     ... under H2: 29104210 / 29104330 / 29104530, i.e. +1 s each.
-#   cycle-2 park                        -> 29108525   (H2: 29108526)
+#   cycle-1 relaunch     = anchor + 1*overlapCadence  = 28,900,841.287500
+#   cycle-1 arrival seam = 28,976,280.910336
+#     bracket -180 / -60 / +140  -> 28976101 / 28976221 / 28976421
+#   cycle-1 park (relaunch + 79,575.979)            -> 28980417
+#   cycle-2 relaunch     = anchor + 21*overlapCadence = 28,980,661.792688
+#   cycle-2 arrival seam = 29,056,101.415525
+#     bracket -180 / -60 / +140  -> 29055921 / 29056041 / 29056241
+#   cycle-2 park                                     -> 29060238
 #
-# ONLY FOUR OF THE EIGHT MOVE UNDER H2, AND ONLY BY ONE SECOND. If the reading
-# run measures H2, substituting the right-hand column is the whole re-pin; if it
-# measures H1 nothing moves. Either way the SHAPE to keep is "cadence = one
-# Vall-period-or-synodic", which the two roads agree on to 0.0006%.
+# **HOW BADLY THE PREVIOUS TABLE MISSED, since that is the evidence that this one
+# is worth trusting:** the old cycle-1 bracket sat at 28,998,248 / 28,998,368 /
+# 28,998,568 - i.e. **21,967 / 22,087 / 22,287 s PAST** the real arrival - and the
+# old cycle-2 bracket was 128 ks past. The log confirms the consequence directly:
+# at 28,998,248 the proto orbit line reads `body=Jool`, not Vall, which is exactly
+# the missed anti-vacuity token. Nothing was wrong with the fixture bytes; the
+# ANCHOR was wrong, and only a flight could have supplied the right one.
 # ---------------------------------------------------------------------------------
 # 4. THE CENSUS-PACING BLOCK IS CARRIED FORWARD, AND IT IS NOW PROVEN MACHINERY
 # ---------------------------------------------------------------------------------
@@ -291,7 +397,7 @@ id = "V17M-laythe-vall-player-loop"
 # is ABSENT. Author them from run 1's saveParse facets.
 # =====================================================================================
 tier = "operator"
-description = "FLYABLE AT LAST - THE SUBJECT EXISTS AND THIS LANE IS RE-PINNED OFF ITS REAL BYTES, first reading run pending. It took B26 three flights across two mission shapes: flight 1 (2026-08-19) refused in PLAN-TRANSFER on a MechJeb moon-origin limitation (docs/dev/todo-and-known-bugs.md -> MECHJEB-INTERPLANETARY-PLANNER-REJECTS-MOON-ORIGIN); flight 2 (2026-08-20) flew the PARENT-RELAY mode built for it, proved its core (the whole two-stage phase flow, `escapedHomeSoi met=True`) and measured two defects of its own; flight 3 (run 2026-08-20_1752, PASS attempt 1, mission wall 1,408 s) flew both fixes green end to end through ORBIT-COMMITTED and produced `vall-transfer-recorded` - THE SUITE'S FIRST COMPLETED MOON-TO-MOON TRANSFER. The `PENDING_FIXTURE_LANES` exemption is retired. EVERY JUMP UT BELOW IS NOW DERIVED FROM THE HARVESTED BYTES rather than seeded: UT0 = the recording's explicitStartUT 28,817,026.617051531, span 79,819.425188738 s, TWO body-change seams (Laythe->Jool at 28,823,386.230090793, Jool->Vall at 28,892,466.219888370), and a park epoch re-based on the 833.500 s SEGMENT-LESS PARKED TAIL because the three Vall segments are all the approach hyperbola - the B25/V16M shape, which this spec's pre-flight text predicted would NOT happen. AND THE PRE-FLIGHT WORRY IS REFUTED: this header used to say no seed set could be right for both roads, but at this pair the 1:2:4 resonance puts P_Vall and the Laythe-Vall synodic 0.6615 s apart, so H1's and H2's jump tables are IDENTICAL on cycle 1 and 1 s apart on cycle 2 - both far inside the -180/-60/+140 bracket. The table is authored under H1 with the H2 re-pin printed beside it. NONE OF THAT TOUCHES THE MEASUREMENT: the routing is read from the log lines, both hypotheses stay pre-registered, and this lane gates on neither. Committed AHEAD of its subject with a ZERO tree id and eight CALIBRATION-SEED jump UTs, tracked by the self-retiring SharedShipsManifestTests.PENDING_FIXTURE_LANES exemption. THE FIRST MOON-TO-MOON LOOP SUBJECT, and the lane that measures a code path the research doc says is live and untested. Every loop subject so far is SAME-PARENT and takes the phase-lock road (measured three times: `constraints=1`, `method=single-orbital`, residual 0). B26's recording is the OTHER class - Vall is not a child of Laythe, so it is CROSS-PARENT and `MissionConfig loop=true` should reach `ApplyReaim` with the JOOL-frame synodic. `docs/dev/research/same-parent-reaim-jool-system.md` section 5.1 walks `TrySynthesizeTransfer` guard by guard for exactly this shape - the parent gate passes (both resolve to Jool), mu is a parameter, r1/r2 are Jool-relative, the tilt gate is a no-op (both moons inc 0), `IsSaneTransferConic` passes on a=35,168,000 e=0.22702 - and concludes it 'already works in a Jool-centric frame for P3 today, unmodified', calling that 'the single most surprising finding in this investigation'. THIS SPEC GATES ON NEITHER OUTCOME. Both hypotheses are written out with the exact discriminating lines (H1 re-aim engages: `[ReaimDiag]`, `ENGAGED re-aim`, `re-aimed transfer ready`, `factory chain ... reaimed=True`; H2 a guard declines - most plausibly the section-5.2 SEAM MAGNITUDE, which is 0.23% of the orbit at Duna but 13.70% at Laythe: `FORCED FAITHFUL`, `reaimed=False`), and the re-aim trio is left BOTH unrequired AND unforbidden - the exact inversion of V14M/V15M/V16M, which forbid it because on a same-parent subject re-aim is structurally unreachable. THE SEEDS ARE WEAKER THAN ANY PRIOR PAIR'S ON PURPOSE: the anchor formula that served V14M/V15M/V16M is a phase-lock artifact and does not apply under H1, so the table is seeded under H1 at a one-synodic (105,961.4 s = 2.0000 Laythe periods) anchor and WILL move under H2. Run 1 is a routing read first and a bracket calibration second; a dwell-nowhere run 1 is an accepted outcome, not a lane failure. Carries V16M's now-PROVEN forty-tick census-pacing block (it measured both cycles 11.502 wall-s apart where V15M's three runs printed one), with the new question of what the lens does with a recording that has TWO cross-body seams rather than one."
+description = "**THE ROUTING IS MEASURED AND THE ANSWER IS H3 - NEITHER PRE-REGISTERED HYPOTHESIS.** Reading run 2026-08-20_1841, PARSEK-FAIL(expectations) attempt 1 on ONE missed anti-vacuity token, which is the pre-registered dwell-nowhere outcome rather than a product fact (the seeded anchor sat 97 ks past the real one, so every bracket landed in the Jool leg - the log reads body=Jool at 28,998,248). EVERYTHING ELSE PASSED: all steps met, analyzer clean, recordings 1, `faithful-parity summary sampled=9 overTolerance=0`. THE MEASUREMENT LANDED. The classifier WAS reached and it DECLINED - not on the single-hop guard (H1's failure mode) and not on the seam magnitude (H2's), but on the PARKING-ORBIT / MID-COURSE structural check at `Source/Parsek/Reaim/ReaimClassifier.cs:270-277`: `[ReaimDiag] member#0 segs=13 startBody=Laythe supported=False reason='transfer departs from a heliocentric parking orbit or mid-course correction (deferred); staying faithful'` then `gatheredSegs=13 transferMemberSegs=0 plan.Supported=False reason='no member yields a re-aim transfer'`. Phase-lock ALSO declined (`PhaseLock SKIPPED ... support=UnsupportedCrossParent`), so the loop runs PLAIN FIXED-CADENCE FAITHFUL - the V9-dres shape, now measured for a moon pair - and the render side agrees (`factory chain rec=625d63e0... phases=12 reaimed=False faithfulFallback=False`). **THE M-MIS-7 ANSWER FOR TODAY'S CODE: Parsek neither re-aims nor phase-locks moon-to-moon hops; they replay faithfully on the raw cadence.** THE MECHANISM IS OUR OWN FLIGHT PROFILE'S: the parent-relay mode necessarily flies TWO burns with a Jool coast between them (the fixture's segment 4, a = 26,056,055 m ecc 0.0126), so a DIFFERENT-orbit common-ancestor segment sits immediately before the transfer run and `sunPredecessor` is true. The re-admitting exception `IsHeliocentricParkingDeparture` MISSED BY ONE CONJUNCT OF THREE: near-circular PASSED (0.0126 <= 0.1), co-orbital with Laythe PASSED (4.15% <= 10%), but the coast is 0.8686 revolutions against its 49,717.82 s period so `wholeRevs = 0` and `DetectRuns` emits no closed park - **6,534 s, 15.13%, short of one revolution**. Not a structural impossibility; a duration miss. WHAT REMAINS UNTESTED, STATED HONESTLY: the SUPPORTED path needs one single ejection burn that leaves Laythe already on the Vall transfer, and NO CURRENTLY FLYABLE PROFILE PRODUCES THAT SHAPE - MechJeb's OperationInterplanetaryTransfer plans it but refuses a moon-parked origin (B26 flight 1), and the parent-relay mode that can fly the hop is two-burn by construction. RE-PINNED OFF THE MEASURED H3 CLOCK: anchor 28,896,850.262240175, span [28,817,026.597051531, 28,896,847.102240246] = 79,820.505 s, cadence = span exactly (LoopTimeUnit.Auto, no phase-lock quantization), and the relaunch train steps by overlapCadence = span / MaxOverlapMissionInstances = 79,820.505/20 = **3,991.0252594357357 s** (`ComputeEffectiveLaunchCadence`, `ParsekConfig.cs:168`), which reproduces the logged `relaunchUt=28900841.28749961` to the last digit. The loop is SELF-OVERLAPPING - twenty concurrent instances launched 3,991 s apart - and because overlapCadence is exactly span/20, instance 21 is exactly one span after instance 1, so cycle 2 is both 'one full cycle later' and a real relaunch epoch. Brackets straddle the measured arrival seams at 28,976,280.910 and 29,056,101.416. THE RE-AIM TRIO STAYS UNREQUIRED AND UNFORBIDDEN: the measurement is made, and the re-fly should record it, not gate on it. FLYABLE AT LAST - THE SUBJECT EXISTS AND THIS LANE IS RE-PINNED OFF ITS REAL BYTES, first reading run pending. It took B26 three flights across two mission shapes: flight 1 (2026-08-19) refused in PLAN-TRANSFER on a MechJeb moon-origin limitation (docs/dev/todo-and-known-bugs.md -> MECHJEB-INTERPLANETARY-PLANNER-REJECTS-MOON-ORIGIN); flight 2 (2026-08-20) flew the PARENT-RELAY mode built for it, proved its core (the whole two-stage phase flow, `escapedHomeSoi met=True`) and measured two defects of its own; flight 3 (run 2026-08-20_1752, PASS attempt 1, mission wall 1,408 s) flew both fixes green end to end through ORBIT-COMMITTED and produced `vall-transfer-recorded` - THE SUITE'S FIRST COMPLETED MOON-TO-MOON TRANSFER. The `PENDING_FIXTURE_LANES` exemption is retired. EVERY JUMP UT BELOW IS NOW DERIVED FROM THE HARVESTED BYTES rather than seeded: UT0 = the recording's explicitStartUT 28,817,026.617051531, span 79,819.425188738 s, TWO body-change seams (Laythe->Jool at 28,823,386.230090793, Jool->Vall at 28,892,466.219888370), and a park epoch re-based on the 833.500 s SEGMENT-LESS PARKED TAIL because the three Vall segments are all the approach hyperbola - the B25/V16M shape, which this spec's pre-flight text predicted would NOT happen. AND THE PRE-FLIGHT WORRY IS REFUTED: this header used to say no seed set could be right for both roads, but at this pair the 1:2:4 resonance puts P_Vall and the Laythe-Vall synodic 0.6615 s apart, so H1's and H2's jump tables are IDENTICAL on cycle 1 and 1 s apart on cycle 2 - both far inside the -180/-60/+140 bracket. The table is authored under H1 with the H2 re-pin printed beside it. NONE OF THAT TOUCHES THE MEASUREMENT: the routing is read from the log lines, both hypotheses stay pre-registered, and this lane gates on neither. Committed AHEAD of its subject with a ZERO tree id and eight CALIBRATION-SEED jump UTs, tracked by the self-retiring SharedShipsManifestTests.PENDING_FIXTURE_LANES exemption. THE FIRST MOON-TO-MOON LOOP SUBJECT, and the lane that measures a code path the research doc says is live and untested. Every loop subject so far is SAME-PARENT and takes the phase-lock road (measured three times: `constraints=1`, `method=single-orbital`, residual 0). B26's recording is the OTHER class - Vall is not a child of Laythe, so it is CROSS-PARENT and `MissionConfig loop=true` should reach `ApplyReaim` with the JOOL-frame synodic. `docs/dev/research/same-parent-reaim-jool-system.md` section 5.1 walks `TrySynthesizeTransfer` guard by guard for exactly this shape - the parent gate passes (both resolve to Jool), mu is a parameter, r1/r2 are Jool-relative, the tilt gate is a no-op (both moons inc 0), `IsSaneTransferConic` passes on a=35,168,000 e=0.22702 - and concludes it 'already works in a Jool-centric frame for P3 today, unmodified', calling that 'the single most surprising finding in this investigation'. THIS SPEC GATES ON NEITHER OUTCOME. Both hypotheses are written out with the exact discriminating lines (H1 re-aim engages: `[ReaimDiag]`, `ENGAGED re-aim`, `re-aimed transfer ready`, `factory chain ... reaimed=True`; H2 a guard declines - most plausibly the section-5.2 SEAM MAGNITUDE, which is 0.23% of the orbit at Duna but 13.70% at Laythe: `FORCED FAITHFUL`, `reaimed=False`), and the re-aim trio is left BOTH unrequired AND unforbidden - the exact inversion of V14M/V15M/V16M, which forbid it because on a same-parent subject re-aim is structurally unreachable. THE SEEDS ARE WEAKER THAN ANY PRIOR PAIR'S ON PURPOSE: the anchor formula that served V14M/V15M/V16M is a phase-lock artifact and does not apply under H1, so the table is seeded under H1 at a one-synodic (105,961.4 s = 2.0000 Laythe periods) anchor and WILL move under H2. Run 1 is a routing read first and a bracket calibration second; a dwell-nowhere run 1 is an accepted outcome, not a lane failure. Carries V16M's now-PROVEN forty-tick census-pacing block (it measured both cycles 11.502 wall-s apart where V15M's three runs printed one), with the new question of what the lens does with a recording that has TWO cross-body seams rather than one."
 instanceProfile = "stock-minimal"
 tags = ["V17", "player-loop", "watch-mode", "loop-playback", "re-aim", "cross-parent",
         "moon-to-moon", "vall", "laythe", "jool", "jool-moon", "census-pacing"]
@@ -367,12 +473,12 @@ steps = [
   # CYCLE-1 ARRIVAL BRACKET, strictly forward, straddling the SEEDED Jool->Vall SOI
   # seam 29,015,437.328 at -180 / -60 / +140 s. CALIBRATION SEEDS UNDER H1 - see
   # header section 3, and expect them to move.
-  { cmd = "TimeJump", args = { ut = "28998248" }, expect = "OK", budget = 300 },
-  { cmd = "TimeJump", args = { ut = "28998368" }, expect = "OK", budget = 300 },
-  { cmd = "TimeJump", args = { ut = "28998568" }, expect = "OK", budget = 300 },
+  { cmd = "TimeJump", args = { ut = "28976101" }, expect = "OK", budget = 300 },
+  { cmd = "TimeJump", args = { ut = "28976221" }, expect = "OK", budget = 300 },
+  { cmd = "TimeJump", args = { ut = "28976421" }, expect = "OK", budget = 300 },
   # CYCLE-1 PARK EPOCH: anchor + 95,578.4, i.e. 70.7% into the predicted ~4,425 s
   # destination phase, leaving ~1,296 s of recorded tail - 60x the dwell block.
-  { cmd = "TimeJump", args = { ut = "29002563" }, expect = "OK", budget = 300 },
+  { cmd = "TimeJump", args = { ut = "28980417" }, expect = "OK", budget = 300 },
   # STEP 3: "Watch", auto-select over all committed recordings. PINNED REJECTED on
   # the chord arithmetic in header section 5 (2a >= 640,000 m against a ~120 km
   # boundary) - but read V16M's result first: its identically-pinned steps came
@@ -434,11 +540,11 @@ steps = [
   { cmd = "StartLoopPlayback", args = { tree = "9aa3c87c95a147388e6220bd36796fd9" }, expect = "OK", budget = 300 },
   # CYCLE-2 ARRIVAL BRACKET, the same -180 / -60 / +140 offsets about the seeded
   # cycle-2 seam 29,121,399.328.
-  { cmd = "TimeJump", args = { ut = "29104209" }, expect = "OK", budget = 300 },
-  { cmd = "TimeJump", args = { ut = "29104329" }, expect = "OK", budget = 300 },
-  { cmd = "TimeJump", args = { ut = "29104529" }, expect = "OK", budget = 300 },
+  { cmd = "TimeJump", args = { ut = "29055921" }, expect = "OK", budget = 300 },
+  { cmd = "TimeJump", args = { ut = "29056041" }, expect = "OK", budget = 300 },
+  { cmd = "TimeJump", args = { ut = "29056241" }, expect = "OK", budget = 300 },
   # CYCLE-2 PARK EPOCH: the same +95,578.4 offset off the cycle-2 anchor.
-  { cmd = "TimeJump", args = { ut = "29108525" }, expect = "OK", budget = 300 },
+  { cmd = "TimeJump", args = { ut = "29060238" }, expect = "OK", budget = 300 },
   # STEP 5: "Watch" again, same pinned verdict. A DIFFERENT verdict between the two
   # would itself be the reading.
   { cmd = "EnterWatchMode",                                                  expect = "REJECTED" },

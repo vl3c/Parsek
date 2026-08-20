@@ -713,6 +713,16 @@ class V17SeedTests(unittest.TestCase):
     IDENTICAL on cycle 1 and 1 s apart on cycle 2. The cells below drive the
     committed H1 table AND the H2 re-pin table from the fixture's own bytes."""
 
+    # --- THE MEASURED H3 CLOCK (V17M reading run 2026-08-20_1841) -----------
+    # Every one of these is READ OUT OF KSP.log, not derived. The H1/H2 anchor
+    # formulas both belonged to planners that DECLINED, and both overshot the
+    # real cycle-1 arrival by 22-128 ks.
+    ANCHOR_UT = 28_896_850.262240175        # SetLoopEnabled ... anchorUT=
+    UNIT_SPAN_START = 28_817_026.597051531  # the unit's span, NOT explicitStartUT
+    UNIT_SPAN_END = 28_896_847.102240246
+    RELAUNCH_1 = 28_900_841.28749961        # startloopplayback relaunchUt=
+    MAX_OVERLAP_INSTANCES = 20              # ParsekConfig.cs MaxOverlapMissionInstances
+
     TREE = "9aa3c87c95a147388e6220bd36796fd9"
     RECORDING = "625d63e022c449d6a44b5269c8b54a21"
     # ALL FOUR READ FROM `fixtures/saves/vall-transfer-recorded`.
@@ -727,21 +737,40 @@ class V17SeedTests(unittest.TestCase):
 
     @property
     def SPAN(self):
+        """The RECORDING's span (explicit stamps). Kept for the fixture cells."""
         return self.END_UT - self.UT0
 
     @property
+    def UNIT_SPAN(self):
+        """The LOOP UNIT's span - what the playback clock actually uses, and what
+        every jump below is measured from. It is NOT the recording's explicit
+        span: the unit takes the member's first/last POINT, 0.020 s and 1.060 s
+        away from explicitStartUT/explicitEndUT."""
+        return self.UNIT_SPAN_END - self.UNIT_SPAN_START
+
+    @property
+    def OVERLAP_CADENCE(self):
+        """`ComputeEffectiveLaunchCadence`'s `duration / maxCycles` floor - the
+        spacing of the SELF-OVERLAPPING relaunch train, and the number the run's
+        first relaunch actually used."""
+        return self.UNIT_SPAN / self.MAX_OVERLAP_INSTANCES
+
+    @property
     def SEAM_OFF(self):
-        return self.SEAM_ARRIVAL - self.UT0
+        return self.SEAM_ARRIVAL - self.UNIT_SPAN_START
 
     @property
     def DEST_PHASE(self):
-        return self.END_UT - self.SEAM_ARRIVAL
+        return self.UNIT_SPAN_END - self.SEAM_ARRIVAL
 
     @property
     def PARK_OFF(self):
         inbound = self.LAST_SEG_END - self.SEAM_ARRIVAL
-        tail = self.END_UT - self.LAST_SEG_END
+        tail = self.UNIT_SPAN_END - self.LAST_SEG_END
         return self.SEAM_OFF + inbound + self.PARK_FRACTION * tail
+
+    def _relaunch(self, instance):
+        return self.ANCHOR_UT + instance * self.OVERLAP_CADENCE
 
     def _p_vall(self):
         return 2.0 * math.pi * math.sqrt(A_VALL ** 3 / MU_JOOL)
@@ -826,42 +855,78 @@ class V17SeedTests(unittest.TestCase):
         self.assertAlmostEqual(gap, 2.700, delta=0.01)
         self.assertGreater(gap, 0.0)
 
-    def test_the_jump_table_is_derived_from_the_harvested_bytes_under_H1(self):
-        anchor = self.UT0 + self._synodic()
-        uts = self._jump_uts(self.m)
-        for got, want in zip(uts[:3], (self.SEAM_OFF - 180.0,
-                                       self.SEAM_OFF - 60.0,
-                                       self.SEAM_OFF + 140.0)):
-            self.assertAlmostEqual(got, round(anchor + want), delta=0.5)
-        self.assertAlmostEqual(uts[3], round(anchor + self.PARK_OFF), delta=0.5)
+    def test_the_overlap_cadence_reproduces_the_logged_relaunch_exactly(self):
+        """**THE H3 IDENTIFICATION, and it is exact to the last digit.** The
+        relaunch train does NOT step by the span cadence; it steps by
+        `ComputeEffectiveLaunchCadence`'s `span / MaxOverlapMissionInstances`
+        floor. If that constant or that formula ever moves, every jump below is
+        wrong and this cell is where it reds."""
+        self.assertAlmostEqual(self.UNIT_SPAN, 79_820.505188715, delta=1e-6)
+        self.assertAlmostEqual(self.OVERLAP_CADENCE, 3991.0252594357357,
+                               delta=1e-9)
+        self.assertAlmostEqual(self._relaunch(1), self.RELAUNCH_1, delta=1e-6)
+        # SELF-OVERLAPPING: the launch spacing is far shorter than one play.
+        self.assertLess(self.OVERLAP_CADENCE, self.UNIT_SPAN)
 
-    def test_the_H2_table_differs_by_at_most_one_second(self):
-        """**THE FINDING THE CALIBRATION PRODUCED, and it inverts this pair's
-        own pre-flight text.** The spec used to say no seed set could be right
-        for both roads. At Laythe->Vall the 1:2:4 resonance puts P_Vall and the
-        synodic 0.6615 s apart, so H2's anchor is 0.662 s later than H1's, cycle
-        2 is 1.323 s later, and the whole table moves by at most ONE SECOND -
-        two orders inside the -180/-60/+140 bracket. Both roads land."""
+    def test_instance_21_is_exactly_one_span_after_instance_1(self):
+        """WHY CYCLE 2 IS INSTANCE 21 RATHER THAN INSTANCE 2. Because the overlap
+        cadence is EXACTLY span/20, the 21st relaunch is exactly one span after
+        the 1st - so 'one full cycle later' and 'a real relaunch epoch' are the
+        same instant. Consecutive instances are only 3,991 s apart, which says
+        nothing about recurrence."""
+        delta = self._relaunch(21) - self._relaunch(1)
+        self.assertAlmostEqual(delta, self.UNIT_SPAN, delta=1e-6)
+        self.assertAlmostEqual(self.MAX_OVERLAP_INSTANCES * self.OVERLAP_CADENCE,
+                               self.UNIT_SPAN, delta=1e-6)
+
+    def test_the_jump_table_is_derived_from_the_MEASURED_H3_clock(self):
+        uts = self._jump_uts(self.m)
+        self.assertEqual(8, len(uts))
+        for cycle, instance in enumerate((1, 21)):
+            relaunch = self._relaunch(instance)
+            arrival = relaunch + self.SEAM_OFF
+            want = [round(arrival - 180.0), round(arrival - 60.0),
+                    round(arrival + 140.0), round(relaunch + self.PARK_OFF)]
+            self.assertEqual(want, uts[cycle * 4:cycle * 4 + 4], instance)
+
+    def test_the_previous_H1_table_overshot_the_real_arrival(self):
+        """THE EVIDENCE THAT THE NEW TABLE IS WORTH TRUSTING, kept as a cell
+        because it is the whole reason the reading run red: the H1 anchor was
+        derived from a planner that declined, and it put every cycle-1 bracket
+        ~22 ks past the arrival - which the log confirms directly by reading
+        `body=Jool` at the old epoch instead of Vall."""
+        arrival = self._relaunch(1) + self.SEAM_OFF
+        self.assertAlmostEqual(arrival, 28_976_280.910336, delta=0.01)
+        h1_anchor = self.UT0 + self._synodic()
+        h1_bracket = round(h1_anchor + (self.SEAM_ARRIVAL - self.UT0) - 180.0)
+        self.assertGreater(h1_bracket - arrival, 20_000.0)
+        self.assertLess(h1_bracket - arrival, 25_000.0)
+
+    def test_both_pre_flight_hypotheses_agreed_with_each_other_and_still_missed(self):
+        """**THE SHARPEST THING THE READING RUN TAUGHT, kept as a cell so it is
+        not re-learned.** The calibration pass found that H1 (re-aim, synodic) and
+        H2 (the phase-lock window snap) produced jump tables 0-1 s apart, and
+        concluded the seeds were robust to the routing outcome. THEY WERE ROBUST
+        TO EACH OTHER AND WRONG TOGETHER: the real road was H3, both planners
+        DECLINED, and the loop kept the plain enable-time anchor - 97 ks earlier
+        than either candidate.
+
+        The lesson is not "the arithmetic was bad"; both tables were correct for
+        the planners they modelled. It is that AGREEMENT BETWEEN CANDIDATE MODELS
+        IS NOT EVIDENCE when a third road exists that neither models."""
         p_vall = self._p_vall()
         self.assertAlmostEqual(p_vall - self._synodic(), 0.6615, delta=0.01)
         h1 = self.UT0 + self._synodic()
         ref = max(self.SAVE_UT, self.END_UT)
-        k = math.ceil((ref - self.UT0) / p_vall - 1e-9)
-        self.assertEqual(1, k, "the NextWindow snap moved off k=1")
-        h2 = self.UT0 + k * p_vall
+        h2 = self.UT0 + math.ceil((ref - self.UT0) / p_vall - 1e-9) * p_vall
         self.assertAlmostEqual(h2 - h1, 0.6615, delta=0.01)
-        committed = self._jump_uts(self.m)
-        deltas = []
-        for cycle in (0, 1):
-            a1 = h1 + cycle * self._synodic()
-            a2 = h2 + cycle * p_vall
-            for off in (self.SEAM_OFF - 180.0, self.SEAM_OFF - 60.0,
-                        self.SEAM_OFF + 140.0, self.PARK_OFF):
-                deltas.append(round(a2 + off) - round(a1 + off))
-        self.assertEqual(8, len(committed))
-        self.assertTrue(all(0 <= d <= 1 for d in deltas), deltas)
-        # cycle 1 is IDENTICAL; only the cycle-2 half and the cycle-1 park move.
-        self.assertEqual([0, 0, 0], deltas[:3])
+        # ... and the MEASURED anchor is nowhere near either of them.
+        self.assertGreater(h1 - self.ANCHOR_UT, 20_000.0)
+        self.assertGreater(h2 - self.ANCHOR_UT, 20_000.0)
+        # The measured anchor is the loop-enable UT, which sits just past the
+        # recording's own end - no planner arithmetic in it at all.
+        self.assertGreater(self.ANCHOR_UT, self.UNIT_SPAN_END)
+        self.assertLess(self.ANCHOR_UT - self.UNIT_SPAN_END, 10.0)
 
     def test_the_park_epoch_sits_in_the_segment_less_parked_tail(self):
         """**THE PRE-FLIGHT PREDICTION THAT CAME BACK WRONG, and the fixture is
@@ -896,18 +961,18 @@ class V17SeedTests(unittest.TestCase):
         self.assertAlmostEqual(escape_off, 6359.613, delta=0.01)
         self.assertLess(escape_off, 0.2 * 53_470.0)
 
-    def test_the_cycle_two_bracket_is_one_CADENCE_past_cycle_one(self):
+    def test_the_cycle_two_bracket_is_one_UNIT_SPAN_past_cycle_one(self):
         """Under H1 the cadence is the moon-moon synodic, NOT a moon period - the
         thing that most distinguishes this pair's arithmetic from V14/V15/V16's.
         The cell pins the shape so a well-meaning edit cannot quietly re-base it
         on a period."""
-        syn = self._synodic()
         uts = self._jump_uts(self.m)
         self.assertEqual(8, len(uts))
         for c1, c2 in zip(uts[:4], uts[4:]):
-            self.assertAlmostEqual(c2 - c1, syn, delta=1.5)
-        p_l = 2.0 * math.pi * math.sqrt(A_LAYTHE ** 3 / MU_JOOL)
-        self.assertGreater(uts[4] - uts[0], 1.5 * p_l)
+            self.assertAlmostEqual(c2 - c1, self.UNIT_SPAN, delta=1.5)
+        # ... and NOT the synodic the pre-flight seeds used: the planner that
+        # would have produced a synodic cadence DECLINED (H3).
+        self.assertNotAlmostEqual(uts[4] - uts[0], self._synodic(), delta=1000.0)
 
     def test_the_printed_cycle_two_seam_matches_the_cadence_it_claims(self):
         # Retained verbatim from the seed era: the header still prints both
@@ -932,7 +997,7 @@ class V17SeedTests(unittest.TestCase):
 
         c1_seam = printed("cycle-1 arrival seam")
         c2_seam = printed("cycle-2 arrival seam")
-        self.assertAlmostEqual(c2_seam - c1_seam, self._synodic(), delta=0.05)
+        self.assertAlmostEqual(c2_seam - c1_seam, self.UNIT_SPAN, delta=0.05)
         # and the printed figure must agree with the jumps derived from it
         uts = self._jump_uts(self.m)
         self.assertAlmostEqual(round(c2_seam - 180.0), uts[4], delta=0.5)

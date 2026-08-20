@@ -168,10 +168,49 @@ id = "V17T-laythe-vall-ts-arrival"
 # reads it back through a SECOND scene load.
 # =====================================================================================
 tier = "operator"
-description = "FLYABLE AT LAST - THE SUBJECT EXISTS AND THIS LANE IS RE-PINNED OFF ITS REAL BYTES, first reading run pending. B26 took three flights to produce it: flight 1 (2026-08-19) refused on a MechJeb moon-origin limitation (docs/dev/todo-and-known-bugs.md -> MECHJEB-INTERPLANETARY-PLANNER-REJECTS-MOON-ORIGIN), flight 2 (2026-08-20) proved the PARENT-RELAY mode's core and measured two defects in it, and flight 3 (run 2026-08-20_1752, PASS attempt 1) flew both fixes green through ORBIT-COMMITTED - the suite's first completed moon-to-moon transfer. The `PENDING_FIXTURE_LANES` exemption is retired. This lane's ONE jump UT is V17M's third cycle-1 bracket, re-derived from the harvested bytes so the pair still observes the SAME instant from the two scenes; it lands 140 s past the recording's Jool->Vall seam at 28,892,466.219888370. None of it touches the routing question this lane asks, which stays unanswered and gated on neither hypothesis. Committed AHEAD of its subject with a ZERO tree id and ONE calibration-seed jump UT (V17M's third cycle-1 bracket jump, reused so the two lanes observe the same instant from the two scenes), tracked by the self-retiring SharedShipsManifestTests.PENDING_FIXTURE_LANES exemption. The tracking-station half of the Laythe->Vall pair and THE FIRST TS LOOP SUBJECT WHOSE RECORDING IS CROSS-PARENT. V5 put a looped RE-AIMED interplanetary member in the tracking station and pinned `reaimed=True`; V6T, V14T, V15T and V16T each asked the same question of a SAME-PARENT subject and got the exact inversion four times over, at four parents. This is the first TS subject since V5 that might legitimately go either way - Vall is not a child of Laythe, so `IsSameParentTarget` is false and the unit should reach `ApplyReaim`, and whether the TS render then assembles a re-aimed chain or falls back to the faithful one IS the measurement. `factory chain rec=... reaimed=True|False` is the single sharpest discriminator and is deliberately left UNREQUIRED and UNFORBIDDEN, as is the whole re-aim trio - the exact inversion of V14T/V15T/V16T, which forbid it because on a same-parent subject re-aim is structurally unreachable. THE CONIC IS WRITTEN OUT AS ARITHMETIC AND NOT PINNED, for a reason specific to this lane: a re-aimed chain does not render the RECORDED conic at all, so the conic a reader sees is itself a routing signal and predicting 'the recorded hyperbola' would assume the answer. IT SHIPS WITH allowedAnomalies = [] ON PURPOSE and is EXPECTED TO RED on `icon-off-orbit` - the V15T/V16T pattern, now a deterministic property of the single-jump shape across six runs at three parents (94.05 / 26.49 / 129.15 deg) with the stepped-bracket controls silent on all six of theirs; a fourth pair tests whether V16T's first-ever count > 1 reading is the new normal or was specific to its k = 20 cadence. A SECOND, SHARPER PREDICTION IS PRE-REGISTERED AND EXPECTED TO COME BACK NEGATIVE: V16T's `seam-endpoint-outside-soi` raise came from a creation-frame binding gap whose displacement SCALES WITH THE CADENCE MULTIPLE, and this lane's cadence is a synodic rather than 20 moon periods, so the raise should NOT recur - if it does anyway that is a finding about the mechanism rather than about the lane."
+description = "**THE ROUTING IS ANSWERED BY V17M's READING RUN (2026-08-20_1841) AND IT IS H3 - NEITHER PRE-REGISTERED HYPOTHESIS.** The classifier was reached and DECLINED on the PARKING-ORBIT / MID-COURSE structural check (`ReaimClassifier.cs:270-277`, reason 'transfer departs from a heliocentric parking orbit or mid-course correction (deferred); staying faithful'), and phase-lock declined too (`support=UnsupportedCrossParent`), so a moon-to-moon hop replays PLAIN FIXED-CADENCE FAITHFUL - the V9-dres shape. The mechanism is the parent-relay profile's own two-burn shape; the re-admitting exception missed by one conjunct of three (the post-escape Jool coast is 0.8686 revolutions, 6,534 s short of closing one). V17M's section 0 carries the full derivation and the honest untested-remainder statement. **WHAT THIS LANE STILL ADDS**: V17M read `reaimed=False` from the FLIGHT scene; whether the TS scene assembles the same faithful chain for a cross-parent subject with TWO body-change seams is this lane's own measurement, and `factory chain ... reaimed=True|False` stays UNREQUIRED and UNFORBIDDEN so the re-fly records rather than gates. RE-PINNED OFF THE MEASURED H3 CLOCK: its single jump is still V17M's third cycle-1 bracket, now 28,976,421 - 140 s past the measured cycle-1 arrival seam 28,976,280.910, where the previous seed sat 22,287 s past it. FLYABLE AT LAST - THE SUBJECT EXISTS AND THIS LANE IS RE-PINNED OFF ITS REAL BYTES, first reading run pending. B26 took three flights to produce it: flight 1 (2026-08-19) refused on a MechJeb moon-origin limitation (docs/dev/todo-and-known-bugs.md -> MECHJEB-INTERPLANETARY-PLANNER-REJECTS-MOON-ORIGIN), flight 2 (2026-08-20) proved the PARENT-RELAY mode's core and measured two defects in it, and flight 3 (run 2026-08-20_1752, PASS attempt 1) flew both fixes green through ORBIT-COMMITTED - the suite's first completed moon-to-moon transfer. The `PENDING_FIXTURE_LANES` exemption is retired. This lane's ONE jump UT is V17M's third cycle-1 bracket, re-derived from the harvested bytes so the pair still observes the SAME instant from the two scenes; it lands 140 s past the recording's Jool->Vall seam at 28,892,466.219888370. None of it touches the routing question this lane asks, which stays unanswered and gated on neither hypothesis. Committed AHEAD of its subject with a ZERO tree id and ONE calibration-seed jump UT (V17M's third cycle-1 bracket jump, reused so the two lanes observe the same instant from the two scenes), tracked by the self-retiring SharedShipsManifestTests.PENDING_FIXTURE_LANES exemption. The tracking-station half of the Laythe->Vall pair and THE FIRST TS LOOP SUBJECT WHOSE RECORDING IS CROSS-PARENT. V5 put a looped RE-AIMED interplanetary member in the tracking station and pinned `reaimed=True`; V6T, V14T, V15T and V16T each asked the same question of a SAME-PARENT subject and got the exact inversion four times over, at four parents. This is the first TS subject since V5 that might legitimately go either way - Vall is not a child of Laythe, so `IsSameParentTarget` is false and the unit should reach `ApplyReaim`, and whether the TS render then assembles a re-aimed chain or falls back to the faithful one IS the measurement. `factory chain rec=... reaimed=True|False` is the single sharpest discriminator and is deliberately left UNREQUIRED and UNFORBIDDEN, as is the whole re-aim trio - the exact inversion of V14T/V15T/V16T, which forbid it because on a same-parent subject re-aim is structurally unreachable. THE CONIC IS WRITTEN OUT AS ARITHMETIC AND NOT PINNED, for a reason specific to this lane: a re-aimed chain does not render the RECORDED conic at all, so the conic a reader sees is itself a routing signal and predicting 'the recorded hyperbola' would assume the answer. IT SHIPS WITH allowedAnomalies = [] ON PURPOSE and is EXPECTED TO RED on `icon-off-orbit` - the V15T/V16T pattern, now a deterministic property of the single-jump shape across six runs at three parents (94.05 / 26.49 / 129.15 deg) with the stepped-bracket controls silent on all six of theirs; a fourth pair tests whether V16T's first-ever count > 1 reading is the new normal or was specific to its k = 20 cadence. A SECOND, SHARPER PREDICTION IS PRE-REGISTERED AND EXPECTED TO COME BACK NEGATIVE: V16T's `seam-endpoint-outside-soi` raise came from a creation-frame binding gap whose displacement SCALES WITH THE CADENCE MULTIPLE, and this lane's cadence is a synodic rather than 20 moon periods, so the raise should NOT recur - if it does anyway that is a finding about the mechanism rather than about the lane."
 instanceProfile = "stock-minimal"
 tags = ["V17", "tracking-station", "loop-arrival", "re-aim", "cross-parent",
         "moon-to-moon", "vall", "laythe", "jool", "jool-moon", "map-render"]
+
+# ---------------------------------------------------------------------------------
+# 0. THE ROUTING IS ANSWERED, AND IT IS **H3** (V17M run `2026-08-20_1841`)
+# ---------------------------------------------------------------------------------
+# **NEITHER PRE-REGISTERED HYPOTHESIS WAS RIGHT.** V17M's reading run reached the
+# classifier and it DECLINED - not on the single-hop guard (H1's failure mode) and
+# not on the seam magnitude (H2's), but on the PARKING-ORBIT / MID-COURSE
+# structural check, `Source/Parsek/Reaim/ReaimClassifier.cs:270-277`:
+#
+#   [ReaimDiag] mission='Duna Rocket' member#0 segs=13 startBody=Laythe
+#     supported=False reason='transfer departs from a heliocentric parking orbit
+#     or mid-course correction (deferred); staying faithful'
+#
+# and phase-lock declined too (`support=UnsupportedCrossParent`), so the loop runs
+# **PLAIN FIXED-CADENCE FAITHFUL** - the V9-dres shape, now measured for a moon
+# pair. THE M-MIS-7 ANSWER FOR TODAY'S CODE: Parsek neither re-aims nor
+# phase-locks moon-to-moon hops.
+#
+# THE MECHANISM IS OUR OWN FLIGHT PROFILE'S. The parent-relay mode necessarily
+# flies two burns with a Jool coast between them (the fixture's segment 4,
+# a = 26,056,055 m, ecc 0.0126), so a DIFFERENT-orbit common-ancestor segment sits
+# immediately before the transfer run. The re-admitting exception
+# (`IsHeliocentricParkingDeparture`) missed by ONE CONJUNCT OF THREE: near-circular
+# PASSED (0.0126 <= 0.1), co-orbital PASSED (4.15% <= 10%), but the coast is
+# **0.8686 revolutions** against a 49,717.82 s period - `wholeRevs = 0`, so
+# `DetectRuns` emits no closed park. **6,534 s short.** The full derivation, the
+# untested-remainder statement and the honest "no flyable profile produces the
+# direct-ejection shape" argument live in V17M's section 0 and are not duplicated
+# here.
+#
+# **WHAT THIS LANE STILL ADDS.** The routing question is answered, but the RENDER
+# question is not: `factory chain rec=... reaimed=True|False` is a TS-side truth,
+# and V5 is the only TS lane that ever pinned `reaimed=True`. V17M read
+# `reaimed=False faithfulFallback=False` from the FLIGHT scene; whether the TS
+# scene assembles the same faithful chain for a cross-parent subject with TWO
+# body-change seams is this lane's own measurement. The trio stays UNREQUIRED and
+# UNFORBIDDEN - the routing is measured, but a re-fly should RECORD it, not gate
+# on it.
+#
 
 [fixture]
 # *** DOES NOT EXIST YET *** - the same B26-laythe-vall-transfer harvest V17M
@@ -211,7 +250,7 @@ steps = [
   { cmd = "StartLoopPlayback", args = { tree = "9aa3c87c95a147388e6220bd36796fd9" }, expect = "OK", budget = 300 },
   # FORWARD TO ~140 s PAST THE SEEDED CYCLE-1 Jool->Vall SEAM (FLIGHT-only).
   # V17M's third cycle-1 bracket jump, reused verbatim. CALIBRATION SEED under H1.
-  { cmd = "TimeJump", args = { ut = "28998568" }, expect = "OK", budget = 300 },
+  { cmd = "TimeJump", args = { ut = "28976421" }, expect = "OK", budget = 300 },
   # PERSIST the armed mission state + the jumped clock.
   { cmd = "SaveGame",   args = { name = "persistent" },                      expect = "OK" },
   # RE-KILL THE RECORDER immediately before the load the guard rejects (V5's

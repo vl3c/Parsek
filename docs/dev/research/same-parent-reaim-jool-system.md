@@ -413,6 +413,15 @@ section 2.3 the classifier engages. That is the single most surprising finding i
 investigation: Parsek may already be re-aiming moon-to-moon hops. It is untested, unmeasured, and
 unrepresented in any harness lane.
 
+> **MEASURED 2026-08-20 (`V17M-laythe-vall-player-loop`, run `2026-08-20_1841`): THE GUARD WALK
+> ABOVE IS RIGHT AND THE CONCLUSION IS STILL WRONG FOR EVERY PROFILE WE CAN FLY.** Every step
+> checked here held - the classifier WAS reached, the single-hop guard did NOT fire,
+> `IsSaneTransferConic` was never the problem. The decline came from a check this walk does not
+> model: the PARKING-ORBIT / MID-COURSE structural test on what sits IMMEDIATELY BEFORE the
+> transfer run (`ReaimClassifier.cs:270-277`). Read section 11.3 before using anything in this
+> subsection - "the synthesizer would work" is still true, and "a moon-to-moon hop re-aims" is
+> now measured false.
+
 > **STATUS 2026-08-20: STILL UNTESTED - BUT THE SUBJECT NOW EXISTS, AND THAT IS A
 > DIFFERENT KIND OF "UNTESTED" FROM YESTERDAY'S.** `B26-laythe-vall-transfer` was
 > authored to produce exactly this subject (a Laythe-rooted recording targeting Vall).
@@ -1194,5 +1203,79 @@ What it produced, and what this document may now use:
   kept BOTH cohesive - the count came back at 1, the bottom of B26's derived {1,4}
   window. Every prior loop subject had exactly one body change; nobody had measured what
   an escape-under-thrust boundary does.
+
+### 11.3 THE ANSWER (`V17M`, run `2026-08-20_1841`): **H3** - the classifier defers this shape
+
+**THE QUESTION SECTION 5.1 OPENED IS ANSWERED FOR TODAY'S CODE, AND THE ANSWER IS NEITHER
+PRE-REGISTERED HYPOTHESIS.** `V17M`'s reading run drove the loop unit over the harvested
+cross-parent subject. The classifier was reached and it DECLINED:
+
+```
+[ReaimDiag] mission='Duna Rocket' member#0 segs=13 startBody=Laythe supported=False
+  reason='transfer departs from a heliocentric parking orbit or mid-course correction
+  (deferred); staying faithful'
+[ReaimDiag] mission='Duna Rocket' gatheredSegs=13 transferMemberSegs=0
+  plan.Supported=False reason='no member yields a re-aim transfer'
+MissionPeriodicity PhaseLock SKIPPED: mission='Duna Rocket' tree=9aa3c87c...
+  support=UnsupportedCrossParent keeping anchor=28896850.262240175 (today's behavior)
+```
+
+**BOTH PLANNERS DECLINE.** Re-aim defers the shape; phase-lock declines cross-parent. So a
+moon-to-moon hop loops on PLAIN FIXED-CADENCE FAITHFUL - the V9-dres shape, now measured for a
+moon pair - and the render side agrees: `factory chain rec=625d63e0... phases=12 reaimed=False
+faithfulFallback=False`.
+
+**WHERE IT DECLINED, PRECISELY.** `Source/Parsek/Reaim/ReaimClassifier.cs:270-277`, the
+partial-transfer-departure check. (Its reason string says "heliocentric" but the code tests
+`segs[transferStartIdx - 1].bodyName == commonAncestor`, and here the common ancestor is JOOL -
+the name is a Sun-era artifact, not a Sun-only gate. **Section 2's reading was right about the
+family and the string is misleading about the frame.**)
+
+**THE MECHANISM IS THE FLIGHT PROFILE'S, NOT THE PAIR'S** - and this is the part that matters for
+future work. The parent-relay mode B26 had to use flies TWO burns: escape Laythe, coast, then
+plan the transfer from Jool's frame. That middle coast is a real Jool orbit (segment 4,
+a = 26,056,055 m, ecc 0.0126) sitting immediately before the transfer run on a different orbit,
+so `sunPredecessor` is true.
+
+**AND THE RE-ADMITTING EXCEPTION MISSED BY ONE CONJUNCT OF THREE**, which makes this a duration
+result rather than a structural one. `IsHeliocentricParkingDeparture` against the fixture's bytes:
+
+| conjunct | value | verdict |
+|---|---|---|
+| near-circular (`ecc <= 0.1`) | 0.0126 | **PASS** |
+| co-orbital with the launch body (`<= 10%` of Laythe's 27,184,000 m) | 4.15% | **PASS** |
+| a CLOSED park (`wholeRevs >= 1`) | 43,183.50 s / 49,717.82 s = **0.8686 rev** | **FAIL** |
+
+`ReaimLoiterCompressor.DetectRuns` emits a run only at `wholeRevs >= 1`, so none is found and the
+`!found` early return fires - whose own comment names this exact case ("a sub-period (< 1 rev) MCC
+arc, not a closed park"). **The coast is 6,534 s - 15.13% - short.**
+
+**WHAT REMAINS UNTESTED, AND WHETHER ANY FLYABLE PROFILE COULD REACH IT.** The SUPPORTED path
+needs `sunPredecessor == false`: the segment before the transfer run must be the launch-body SOI
+exit, i.e. **a single ejection burn that leaves Laythe already on the Vall transfer**. State the
+answer plainly:
+
+- **No currently flyable profile produces that shape.** MechJeb's
+  `OperationInterplanetaryTransfer` is the operation that plans a direct single-burn ejection, and
+  it REFUSES a moon-parked origin (B26 flight 1, deterministic - section 11.0). The parent-relay
+  mode that CAN fly the hop is two-burn BY CONSTRUCTION and emits the declined shape every time.
+  It does not aim its escape, and aiming it would need the vessel's and Laythe's state vectors in
+  Jool's frame plus an asymptote solve.
+- So the **direct-ejection branch of M-MIS-7 is unreachable by the harness today.** Nothing in
+  this document should claim otherwise, and the section 5.1 walk - which is about the SYNTHESIZER,
+  not about the classifier's admission test - remains unexercised on a real subject.
+- **One cheaper thing would move a DIFFERENT branch**, recorded as an observation and not as a
+  plan: the exception needs only 6,534 s more coast. A profile whose post-escape Jool coast closed
+  one full revolution before the stage-2 burn would satisfy all three conjuncts and take the
+  `DepartedFromHeliocentricPark` path. That would answer "does the parking-departure exception
+  work in a moon frame", **not** "does a direct moon-to-moon ejection re-aim" - a different code
+  path and a different question. Whether MechJeb's `operation_transfer` can be made to plan one
+  revolution later is untested.
+
+**WHAT THIS DOES TO THE REST OF THE DOCUMENT.** Sections 4 and 5's arithmetic is untouched and
+uncontradicted - the synthesizer was never asked to run, so nothing about its Jool-frame
+correctness was tested. What IS now settled is the ADMISSION question those sections assumed away:
+for every profile the harness can fly, a moon-to-moon recording does not reach the synthesizer at
+all. Section 6's recommendation is unaffected; section 10's V16 readings are unaffected.
 
 ---
