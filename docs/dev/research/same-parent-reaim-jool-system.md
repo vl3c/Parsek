@@ -123,12 +123,19 @@ for the periods, `:78-92` for SOI/velocity). Pol is not in the repo fixture and 
 
 | Moon | SMA (m) | ecc | Period (s) | v_orb (m/s) | SOI (m) | tol = SOI/v (s) | duty = tol/P |
 |---|---|---|---|---|---|---|---|
-| Laythe | 27,184,000 | 0 | 52,980.9 | 3,223.8 | 3,723,645.8 | 1,155.0 | 0.021801 |
+| **Laythe** `flown` | 27,184,000 | 0 | 52,980.9 | 3,223.8 | 3,723,645.8 | 1,155.0 | 0.021801 |
 | Vall | 43,152,000 | 0 | 105,962.1 | 2,558.8 | 2,406,401.4 | 940.5 | 0.008875 |
 | Tylo | 68,500,000 | 0 | 211,926.4 | 2,030.9 | 10,856,518.0 | 5,345.7 | 0.025224 |
 | Bop | 128,500,000 | 0.235 | 544,507.4 | 1,482.8 | 1,221,060.9 | 823.5 | 0.001512 |
 | Pol `derived` | 179,890,000 | 0.17085 | 901,902.6 | 1,253.2 | 1,042,138.9 | 831.6 | 0.000922 |
 | **Gilly (Eve)** `flown` | **31,500,000** | **0.55** | **388,587.4** | **509.3** | **126,123.3** | **247.6** | **0.000637** |
+
+THE LAYTHE ROW IS THE FIRST OF THESE THAT ANYONE HAS FLOWN (`B25-laythe-orbit`, run
+2026-08-19_2039, PASS attempt 1 - section 10). Its numbers are unchanged by that flight, which is
+itself the result: the row was arithmetic over stock elements and the flight is consistent with it.
+What the flight ADDS is a Jool-park-to-moon RECORDING, i.e. a live P2 subject, plus the first
+measured value for the one entry in section 7's open-items table this programme can currently
+reach.
 
 The GILLY row is not a Jool moon and is carried here as the **CALIBRATION CASE for the Bop/Pol
 rows**: it is the only ECCENTRIC moon anyone has actually flown a phase-locked loop subject on
@@ -275,6 +282,33 @@ depend on Laythe/Vall/Tylo being tidally locked to Jool, and it does not depend 
 ephemerides landing inside a 1e-6 band. A Jool-park recording targeting one moon gets exact
 phase-lock because it has one constraint, full stop.
 
+**AND P2 ITSELF HAS NOW BEEN FLOWN**, which is what section 3.5 was reasoning about in the
+abstract: `B25-laythe-orbit` (2026-08-19_2039, PASS attempt 1) took a craft from a JOOL PARK at
+590,325,784.59 m down to LAYTHE and committed the tree there, producing the `laythe-orbit-recorded`
+fixture. Two things about that are worth pinning here rather than only in the spec.
+
+1. **It is an INWARD transfer, and P2 will usually be one.** Every prior same-parent subject
+   (Kerbin->Mun, Kerbin->Minmus, Duna->Ike, Eve->Gilly) parks LOW and transfers UP. A Jool park
+   placed to clear the moon system - B22's terminal park is 3.28x Pol's orbit - transfers DOWN to
+   every moon, so the ejection is retrograde and the intercept is the transfer's PERIAPSIS. That is
+   a MACHINE fact, not a rocketry one: the b5 mission machine keys both its burn-done evidence and
+   its correction-round spacing to an apsis RISING, and neither survives the direction change. Both
+   were worked around with VALUES (`ejectionEccFloor` for the evidence; a single scheduled round
+   plus the direction-agnostic arrival-quality extras for the spacing), and the two workarounds are
+   MUTUALLY EXCLUSIVE without an mlib change. Full account:
+   `docs/dev/todo-and-known-bugs.md` -> B5-INWARD-TRANSFER-EVIDENCE-AND-TRIGGERS-ASSUME-OUTWARD.
+   ANY FUTURE P2 LANE TO VALL / TYLO / BOP / POL FROM A CLEARING PARK INHERITS THIS.
+2. **The routing prediction IS NOW MEASURED AT JOOL (2026-08-19).** Section 3.5's claim - one
+   constraint, `method=single-orbital`, residual 0, cadence a whole multiple of the moon's period -
+   was measured at Duna->Ike and Eve->Gilly and is now measured a THIRD time, at a gas-giant parent,
+   by both V16 lanes: `members=1 launchBody=Jool support=Supported constraints=1 [Orbital(Laythe)
+   same-parent P=52980.879059379578 off=1027136.1469265819]` and `method=single-orbital
+   fixedCadenceResidual=0 fixedCadenceWithinTol=yes zeroDrift=no`. **AND THE "WHOLE MULTIPLE" HALF OF
+   THE CLAIM FINALLY HAD SOMETHING TO SAY**: every prior subject's span was under one moon period, so
+   the multiple was always 1 and the clause was untested. Here the span is 19.435 Laythe periods and
+   the cadence quantized to **20 * P**, with cycle 2 landing exactly one cadence past cycle 1. See J6
+   and J7 in section 7.
+
 A Jool-park recording aerobraking through Jool's atmosphere would additionally emit
 `Rotation(Jool)` (P = 36,000 s, duty 6.94e-4) and take over as the lattice anchor - a shape worth
 a fixture but not analysed further here. **The V14M measurement raises this note's stakes**: since
@@ -378,6 +412,27 @@ equivalent is `ArrivalHoldPlanner` returning an amber reason that reaches
 section 2.3 the classifier engages. That is the single most surprising finding in this
 investigation: Parsek may already be re-aiming moon-to-moon hops. It is untested, unmeasured, and
 unrepresented in any harness lane.
+
+> **STATUS 2026-08-19: STILL UNTESTED, AND NOW BLOCKED AT THE HARNESS LAYER RATHER
+> THAN THE PRODUCT LAYER.** `B26-laythe-vall-transfer` was authored to produce exactly
+> this subject (a Laythe-rooted recording targeting Vall) and flew on 2026-08-19. Both
+> attempts refused in PLAN-TRANSFER, deterministically, six seconds in - and the refusal
+> is MECHJEB'S, not Parsek's. `OperationInterplanetaryTransfer.MakeNodes` throws
+> `OrbitExtensions.NextTimeOfRadius: given radius of 3723645.81113302 is never achieved:
+> o.PeR = 572085.800578244 and o.ApR = 3632679.92883477` on a moon-parked origin: it
+> idealises the origin to a circle at the park's mean radius, builds a sub-escape
+> ejection whose apoapsis lands 2.443% short of the SOI, and then asks for a crossing
+> that does not exist. Filed as `docs/dev/todo-and-known-bugs.md` -> MECHJEB-INTERPLANETARY-PLANNER-REJECTS-MOON-ORIGIN.
+>
+> **READ THE BOUNDARY CAREFULLY, because it is the whole point of this note.** What is
+> blocked is the HARNESS'S ABILITY TO PRODUCE THE SUBJECT RECORDING. Not one line of
+> the argument above is touched, refuted or supported by that flight - no Parsek code
+> ran, `TrySynthesizeTransfer` was never reached, and the classifier was never asked.
+> The claim in this subsection remains exactly as strong and exactly as unverified as
+> it was before the flight. `V17M-laythe-vall-player-loop` / `V17T-laythe-vall-ts-arrival`
+> stay committed carrying BOTH hypotheses with their discriminating log lines, and gating
+> on neither, waiting for a `vall-transfer-recorded` fixture that a moon-origin ejection
+> capability would let the harness build.
 
 ### 5.2 The physical answer: the seam term does not survive the frame change
 
@@ -583,11 +638,14 @@ control):
 
 | # | Quantity | Predicted | Measured | Notes |
 |---|---|---|---|---|
-| J1 | Live `P_Laythe / P_Vall / P_Tylo` | 52,980.9 / 105,962.1 / 211,926.4 | | fixture constants, `MultiMoonAlignmentTests.cs:22-25` |
-| J2 | Live moon SOI radii | 3,723,645.8 / 2,406,401.4 / 10,856,518.0 | | wiki figures; the Jool asset-vs-wiki gap (`B22:206`) says re-read these from the live bodies |
+| J1 | Live `P_Laythe / P_Vall / P_Tylo` | 52,980.9 / 105,962.1 / 211,926.4 | **Laythe: 52,980.879059379578** (MEASURED 2026-08-19) | the live figure printed by `Orbital(Laythe) same-parent P=...` on both V16 lanes; it agrees with the fixture constant (`MultiMoonAlignmentTests.cs:22-25`) to 0.02 s. **Vall and Tylo remain untouched**, so J1 is one-third discharged |
+| J2 | Live moon SOI radii | 3,723,645.8 / 2,406,401.4 / 10,856,518.0 | **Laythe: 3,723,645.81113302** (MEASURED 2026-08-19) | wiki figures; the Jool asset-vs-wiki gap (`B22:206`) says re-read these from the live bodies. **B25 did NOT discharge this** - nothing on that lane prints an SOI radius. **B26's BLOCKED FLIGHT DID, from an unlikely source: the MechJeb exception that stopped it.** `OrbitExtensions.NextTimeOfRadius: given radius of 3723645.81113302 is never achieved` is MechJeb reading Laythe's SOI radius off the LIVE body, and it confirms the wiki figure to every digit the wiki carries. So J2 is **one-third discharged** and the asset-vs-wiki worry is retired for Laythe. **Vall and Tylo remain untouched** and are now blocked behind `docs/dev/todo-and-known-bugs.md` -> MECHJEB-INTERPLANETARY-PLANNER-REJECTS-MOON-ORIGIN for as long as no lane reaches them. The correction, had there been one, would still have moved nothing - every bound B25/B26 derive from Laythe's SOI carries tens of percent of margin |
 | J3 | `ARRIVAL HOLD kind=config` `T_config=` | 211,924.2 s | | `= 2 * P_Vall` |
 | J4 | `alignedWindows=` | ~40 | | `CountAlignedWindowPrefix`; 3.3 derives k <= 3,850 |
 | J5 | Bop-inclusive set outcome | amber, D6 slack gate | | required hold 7.4x the 10,090,902 s window |
+| J8 `new` | Does the phase lock survive a MULTI-PERIOD re-anchor? (`outsideSoi` at cycle 2 vs cycle 1) | equal zeros | **MEASURED 2026-08-19 - EQUAL ZEROS at +20 P** | V16M `seam-endpoint summary evaluated=2 outsideSoi=0` at BOTH cycles, 11.502 wall-s apart. THE FIRST k > 1 RECURRENCE READING IN THE SUITE - see section 9.3, whose 'unmeasurable at seam pacing' limit this retires for lanes carrying the dwell block. N = 2, so it is a BOUND (`dP < 57.8 s`), not a drift rate |
+| J6 `new` | P2 routing at a JOOL moon (`constraints=1`, `method=single-orbital`, residual 0) | one constraint, `single-orbital`, cadence = k*P | **MEASURED 2026-08-19 - HELD** | `ExtractConstraints: ... members=1 launchBody=Jool support=Supported constraints=1 [Orbital(Laythe) same-parent ...]` + `PhaseLock APPLIED: ... method=single-orbital ... fixedCadenceResidual=0 fixedCadenceWithinTol=yes zeroDrift=no` on BOTH V16 lanes (`_2114`, `_2115`). Third orbit-rooted subject, first at a gas-giant parent |
+| J7 `new` | P2 loop CADENCE multiple `k` at a Jool moon | **20** (span/P = 19.435357 off the harvested recording) | **MEASURED 2026-08-19 - k = 20 CONFIRMED LIVE** | the product quantized `cadence 1029703.4375407547->1059617.5811875917` = 20*P, and V16M's cycle 2 resolved to `relaunchUt=29906555.841886014` = cycle 1 + exactly that. THE SUITE'S FIRST LOOP CADENCE THAT IS NOT ONE MOON PERIOD |
 
 ---
 
@@ -781,6 +839,58 @@ NO PRODUCT CHANGE IS PROPOSED. The rate limiter is doing its job; what is record
 fast-stepped multi-cycle lane cannot read a shared-key summary twice, and that closing this gap
 is the precondition for the harness saying anything about k > 1.
 
+**RECOURSE 1 IS BUILT, FLOWN AND PROVEN (2026-08-19) - READ THIS BEFORE THE PARAGRAPHS ABOVE.**
+`V16M-laythe-player-loop`'s reading run `2026-08-19_2114` (PASS attempt 1) emitted the
+`seam-endpoint summary` MEASURING line at BOTH arrivals - `evaluated=2 outsideSoi=0` at cycle 1
+(10860, 00:14:39.433) and again at cycle 2 (13199, 00:14:50.935) - **11.502 wall-seconds apart**,
+against V15M's 1.4 s and its three runs that never printed a cycle-2 measuring pass. The
+`suppressed=25` counter on the second line is the limiter still working on the frames between them,
+which is the shape wanted: the rate limit is untouched and only the PACING moved.
+
+**SO THIS SECTION'S HEADLINE LIMIT IS RETIRED FOR ANY LANE CARRYING THE BLOCK, AND STANDS FOR EVERY
+LANE WITHOUT IT.** What the measurement buys is J8: at a cadence of TWENTY Laythe periods the
+replayed SOI-entry endpoints are still inside the 3,723,646 m SOI. Every phase-lock statement this
+document could previously make was a **k = 1** statement; that is no longer true. It is still an
+N = 2 reading - a BOUND (`dP < 57.8 s`), not a drift rate - and a third cycle would be needed for a
+rate.
+
+TWO COSTS, so the recourse is not applied by reflex: the block spends ~10-22 wall s and ~22 GAME
+seconds of 1x playback at the park epoch, so a lane whose destination tail is short cannot afford it
+(V16M's Laythe tail left 104.5 s of clearance, 4.8x the block at its most expensive measured
+per-tick cost; V15M's 381 s Gilly tail would have left 112 s).
+
+THE ORIGINAL AUTHORING NOTE FOLLOWS, kept because it is the sizing argument.
+
+**RECOURSE 1 AS AUTHORED (2026-08-19).**
+`V16M-laythe-player-loop`, the FLIGHT half of the first Jool-moon program, carries a FORTY-tick
+`RecordingState` dwell block between its cycle-1 park epoch and its cycle-2 re-arm. It is sized
+against `run.py`'s `POLL_INTERVAL_SECONDS = 0.25` hard floor rather than V5's measured
+0.54 s/tick, so it spends **>= 10.0 wall s (2.0x the 5.0 s window) even in the worst case** and
+~21.6 s at the measured rate. Nothing about the measurement changes - only its pacing - and it
+costs log volume on no other lane, exactly as this section argued.
+
+TWO THINGS TO KEEP STRAIGHT ABOUT WHAT THAT LANE WILL AND WILL NOT SETTLE, because they are
+independent and it is easy to credit one with the other. (a) The PACING half is what makes a
+cycle-2 census emission possible at all; if the reading run still prints one census line, the
+block was too short and the recourse is to raise the count, not to conclude anything. (b) The
+lane ALSO happens to be the suite's first **k > 1 CADENCE**: `B25-laythe-orbit`'s span is
+dominated by a 1,014,005 s transfer coast = 19.14 Laythe periods, so
+`QuantizeCadenceToMultipleOfP` takes `k = ceil(span/P) = 20` and cycle 2 lands TWENTY moon orbits
+after cycle 1 rather than one. **That multiple is now bounded rather than assumed**: B25 flew on
+2026-08-19 (INVALID(driver-flake) on its park window, but its CLOCK is real - it reached
+CAPTURE-BURN) and measured `span = 1,029,700 s`, `span/P = 19.4353`, on a 27,865.5 s transfer
+window wait. Re-basing that across the whole wait band gives k = 19 below a 4,802 s wait, k = 20
+above it, and **k = 21 excluded outright** (it would need 4,273 s more wait than a synodic can
+supply). The sensitivity inverts either way - the `dP` budget a cycle boundary buys is
+`tol / ((N-1) * k)` = 1,155.0/20 = **57.8 s**, against V15M's 200.2 s, i.e. ~3.5x sharper despite
+reading at a tolerance 5.8x looser. Neither half measures anything on its own: (b) gives the lane
+a recurrence worth reading twice and (a) gives it the ability to read it twice.
+
+AND THE LIMIT SURVIVES EITHER WAY: two cycles is **N = 2**. A cycle-2 `outsideSoi=0` would bound
+`dP < 57.8 s`, which is a real bound and the first of its kind, but it is not a drift RATE and it
+does not distinguish "no residual" from "a residual too small to walk 3.7 Mm in twenty orbits".
+A third cycle would.
+
 ### 9.4 A measured consequence of phase-locked replay for any CO-ORBITING observer
 
 V15M's observer is the fixture's own parked stage, in the same Gilly orbit the ghost replays.
@@ -846,5 +956,159 @@ Nothing here moves the verdict, and the two halves move in opposite directions b
   census-pacing gap is now a precondition for any future claim about multi-cycle recurrence, and
   it is cheap (recourse 1). It does NOT outrank item 1 - covering P3 is still the highest-value
   next step, because P3 is an unguarded code path and 9.3 is a measurement gap.
+
+---
+
+---
+
+## 10. FLOWN - the first Jool moon (`B25-laythe-orbit`, 2026-08-19_2039)
+
+Sections 3 and 6 reason over a five-row table of Jool moons that nobody had flown. **Laythe is now
+flown.** `B25-laythe-orbit` took the crewed Duna Rocket from B22's terminal Jool park
+(590,325,784.59 m SMA, 3.28x Pol's orbit) DOWN to Laythe, captured into an 87,931 x 56,240 m park
+at ecc 0.0277 and committed the tree there, producing the committed `laythe-orbit-recorded`
+fixture. It took two flights; the first was INVALID on a park WINDOW rather than on the flight, and
+the diagnosis it produced is what made the second trustworthy.
+
+**WHAT IS MEASURED, and it is deliberately little in this document's terms.** The recording is a P2
+subject and its own bytes are pinned (span 1,029,702.298 s, Jool->Laythe seam offset 1,027,136.107
+s, ten ORBIT_SEGMENTs with the last four the approach hyperbola). The table in 3.1 is unchanged -
+the flight is consistent with the arithmetic that produced it, which is a weak but real check.
+
+**AND THE LOOP PAIR HAS NOW FLOWN (2026-08-19), which is where the P2 content actually is.**
+`V16M-laythe-player-loop` (`_2114`, PASS attempt 1) and `V16T-laythe-ts-arrival` (`_2115`,
+PARSEK-FAIL(anomaly) with all sixteen steps green - a pre-registered catch on an unrelated render
+token) read the recording from FLIGHT and from the tracking station. Three results:
+
+- **J6 - THE ROUTING HELD AT A THIRD ORBIT-ROOTED SUBJECT, first at a gas-giant parent.**
+  `members=1 launchBody=Jool support=Supported constraints=1 [Orbital(Laythe) same-parent
+  P=52980.879059379578 off=1027136.1469265819]`, `method=single-orbital fixedCadenceResidual=0
+  zeroDrift=no`. Section 3.5's structural argument now has three data points across three parents.
+- **J7 - k = 20 CONFIRMED LIVE.** `cadence 1029703.4375407547->1059617.5811875917` = 20*P, and cycle
+  2 resolved to `relaunchUt=29906555.841886014` = cycle 1 plus exactly that. Every prior loop subject
+  had a span under one moon period, so the "whole multiple of the moon's period" clause in 3.5 had
+  never been exercised; it is now.
+- **J8 - THE FIRST k > 1 RECURRENCE READING.** `seam-endpoint summary evaluated=2 outsideSoi=0` at
+  BOTH cycles: at +20 Laythe periods the replayed SOI-entry endpoints are still inside the SOI. This
+  is the thing section 9.3 said could not be read at seam pacing, and section 9.3 has been updated
+  rather than deleted - the limit is retired only for lanes carrying V16M's forty-tick dwell block.
+
+**WHAT IS STILL NOT MEASURED:** J1's Vall and Tylo thirds, J2's Vall and Tylo thirds (its
+Laythe third fell out of B26's blocked flight - see the table), and J3/J4/J5, which are
+properties of a MULTI-moon constraint set that a single-moon subject cannot produce. All of
+those remainders are now **MEASURED-PENDING BEHIND A NAMED HARNESS BLOCKER**, not merely
+unscheduled: the lane that would reach a second moon is `B26-laythe-vall-transfer`, and it
+is blocked by `docs/dev/todo-and-known-bugs.md` -> MECHJEB-INTERPLANETARY-PLANNER-REJECTS-MOON-ORIGIN. That blocker is a MechJeb
+limitation on moon-origin ejections; it constrains what the harness can FLY, and says
+nothing about any product claim in this document. Nothing here
+moves section 6's recommendation, and nothing here says anything about Bop or Pol - the readings are
+at N = 2 cycles on a moon whose tolerance (1,155 s) is the LOOSEST in the table, which is the
+opposite end from where the Bop/Pol question bites.
+
+### 10.0 One instrument caveat that a k > 1 cadence created
+
+`V16T`'s reading run raised `seam-endpoint-outside-soi` with an accompanying census
+`evaluated=2 outsideSoi=1` - which reads exactly like the drift this document predicts for Bop and
+Pol. **IT IS NOT DRIFT.** The lens evaluated the recording's UN-SHIFTED seam epoch on the ghost
+proto's creation frame (`effUT` = `recordedSeamUT`, `clock=raw seed=no-seed`), which places the
+endpoint back at the JOOL PARK, 585.8 Mm from Laythe, ratio 157.3. V16M's censuses - same fixture,
+same recording, taken at STEPPED epochs where the loop shift has bound - read `outsideSoi=0` at both
+cycles.
+
+**WHY IT APPEARED HERE AND NOWHERE EARLIER, and this is the part worth carrying:** at k = 1 the
+un-shifted epoch sits under one moon period from the live clock and the lens skips on
+`body-mismatch`; at k = 20 it is 1.06 Ms away, far enough that the recorded position is in a
+DIFFERENT BODY'S SOI and the lens has something to fail on. **A HIGHER k WILL MAKE THIS LOUDER, not
+quieter** - which matters because every future Jool P2 lane will have a large k. Filed report-only as
+`docs/dev/todo-and-known-bugs.md` -> MAPRENDER-SEAM-LENS-EVALUATES-UNSHIFTED-EPOCH-ON-CREATION-FRAME.
+Anyone reading a future `outsideSoi > 0` on a Jool lane must check the `clock=` and `effUT` fields
+before calling it recurrence failure.
+
+### 10.1 The one general fact this flight did establish
+
+**A P2 mission from a park that CLEARS the moon system is an INWARD transfer, and the mission
+machine assumes outward.** This is a harness fact rather than a product one, and it will apply to
+every future Jool P2 lane:
+
+- `_b5_transfer_burn_done`'s default evidence is `apoapsis >= transferMinApoapsisMeters`, and a
+  retrograde ejection happens AT what becomes the transfer's apoapsis - so that floor is either
+  unreachable forever or already satisfied before the burn. Worked around with `ejectionEccFloor`,
+  which reads the home-frame ECCENTRICITY (park 7.9e-06 -> transfer 0.954 as flown).
+- `_b5_correction_round_ready`'s altitude mode is a bare level test on a DESCENDING altitude, so no
+  value places a second correction round mid-coast. Worked around by declaring one round and
+  delegating the late refinement to `MAX_ARRIVAL_EXTRA_ROUNDS`; measured firing as `rounds=2
+  extraRounds=1` on both flights.
+- **The two workarounds are mutually exclusive** without an mlib change, because the time-mode
+  trigger needs `viaBodyNames` and that key short-circuits the eccentricity branch. Full account:
+  `docs/dev/todo-and-known-bugs.md` -> B5-INWARD-TRANSFER-EVIDENCE-AND-TRIGGERS-ASSUME-OUTWARD.
+
+A fourth consequence is geometric rather than mechanical and is worth carrying to Vall/Tylo/Bop/Pol
+lanes: the descent crosses every intervening moon's orbital SHELL (this one crossed four), so the
+spec forbids their SOI-boundary tokens by name. Measured zero on both flights.
+
+### 10.2 A capture-burn fact for any low-thrust P2 lane
+
+The delivered park's periapsis came in **~15.4 km BELOW the arrival periapsis** on all three
+attempts across the two flights (15,382 / 15,385 / 15,415 m - a 33 m spread). It is finite burn:
+937 m/s at 60 kN on 11.1 t is a = 5.40 m/s^2 and a 163.5 s burn straddling a periapsis crossed at
+2,794 m/s, so a large true-anomaly arc is swept under thrust and the apse line rotates. It is not
+an under-burn (the vessel flew 937.3 of a 939.785 m/s planned node) and there is no
+periapsis-raising trim to recover it - mlib's only round-out step is reachable from the ASCENT
+circularization phase, which an orbit-started lane never enters.
+
+**WHY IT MATTERS BEYOND THIS LANE:** any P2 capture at a moon with an atmosphere has to size its
+park floor against the ARRIVAL periapsis MINUS this wedge, and the wedge scales with burn time -
+i.e. it grows as thrust-to-weight falls. At Laythe (50 km of air) the wedge ate 15.4 km of the
+~20 km separating the arrival from the atmosphere. Tylo has no atmosphere and a much larger mu;
+Vall likewise. A future lane should not copy the 52 km floor, it should re-derive it.
+
+---
+## 11. BLOCKED - the moon-to-moon experiment (`B26-laythe-vall-transfer`, 2026-08-19)
+
+Section 5.1 named "Parsek may already be re-aiming moon-to-moon hops" the single most
+surprising finding in this investigation. `B26-laythe-vall-transfer` was authored to
+settle it by producing the subject: a Laythe-rooted recording targeting Vall, which
+`IsSameParentTarget` classifies CROSS-PARENT and which `V17M` / `V17T` would then read.
+
+**IT DID NOT FLY, AND THE REASON IS IN THE HARNESS, NOT THE PRODUCT.** Both attempts
+(`2026-08-19_2214`, `2026-08-19_2215_a2`) refused in PLAN-TRANSFER after ~33 game
+seconds and six wall seconds, `INVALID(autopilot-flake)`, deterministic:
+
+```
+[Mission][Warn][Plan] operation_interplanetary_transfer.make_nodes failed:
+OrbitExtensions.NextTimeOfRadius: given radius of 3723645.81113302 is never
+achieved: o.PeR = 572085.800578244 and o.ApR = 3632679.92883477
+  at KRPC.MechJeb.Maneuver.Operation.MakeNodes ()
+```
+
+MechJeb 2.15.1 asks when the orbit next reaches the origin body's SOI - when the
+ejection leaves - and the orbit it asks that of has no such radius. That orbit is not
+the park (ecc 0.028): PeR sits 0.003 m from the park's SMA and ApR gives e = 0.7279, so
+MechJeb idealised the origin to a circle at the park's mean radius and built a
+SUB-ESCAPE ejection whose apoapsis falls 90,965.88 m (2.443%) short of the SOI. A
+moon-parked origin, whose park radius is 15.4% of its SOI, is unhandled here; the eight
+flown interplanetary lanes all depart Kerbin, where the SOI is ~120x the park radius
+(84,159,286 / ~700,000).
+WHY MechJeb sizes it short was not read and is not claimed. Filed as
+`docs/dev/todo-and-known-bugs.md` -> MECHJEB-INTERPLANETARY-PLANNER-REJECTS-MOON-ORIGIN,
+with two candidate paths forward named and neither chosen (a flag-gated manual-ejection
+mode in mlib letting the existing Jool-frame correction rounds create the encounter -
+the B17 pattern, and the house-style fit - or a different MechJeb operation set).
+
+**WHAT THIS DOES AND DOES NOT DO TO THIS DOCUMENT.**
+
+- It changes **nothing** in sections 4 and 5. No Parsek code ran on that flight.
+  `TrySynthesizeTransfer` was never reached and the classifier was never asked, so the
+  section 5.1 claim is neither supported nor refuted and stands exactly where it stood.
+  The experiment is deferred, not answered - and specifically it is deferred at the
+  HARNESS layer. Do not let a harness block be re-told as a product finding.
+- It leaves the pre-registration intact. `V17M` / `V17T` stay committed carrying both
+  hypotheses with the discriminating log lines, gating on neither, in
+  `PENDING_FIXTURE_LANES` against a `vall-transfer-recorded` that cannot yet be built.
+- It discharges **one third of J2** - see the table. The exception line is MechJeb
+  reading Laythe's SOI radius off the live body, `3,723,645.81113302`, confirming the
+  wiki figure to every digit the wiki carries. A blocked flight still measured something.
+- It leaves section 10 and the whole V16 programme untouched: the k = 20 cadence, J6,
+  J7 and J8's equal zeros were all measured at Laythe by lanes that flew green.
 
 ---

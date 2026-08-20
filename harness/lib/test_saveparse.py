@@ -702,6 +702,70 @@ class CommittedFixtureSweepTests(unittest.TestCase):
         # `test_every_persistent_sfs_parses_with_pinned_counts` are therefore not
         # bookkeeping here either: they are the fixture's whole reason to exist.
         "eve-park-kerbalx": True,
+        # THE THIRD PARSEK-STRIPPED DERIVED FIXTURE, and the strip is now a
+        # PATTERN rather than two special cases. `jool-park-nerv` is
+        # `jool-orbit-recorded` (B22's --keep-parsek harvest, which carries FIVE
+        # committed recordings) with Parsek's own state removed: the `Parsek/`
+        # sidecar directory pruned by a harvest WITHOUT --keep-parsek, plus a
+        # manual brace-balanced excision of the residual ParsekScenario CHILDREN.
+        # It belongs HERE and not in RECORDED_FIXTURES precisely because the strip
+        # puts it back under the zero-trees contract this map asserts.
+        #
+        # THE NODE IS STILL PRESENT (True) AND THAT IS DELIBERATE: only the
+        # children were excised. A flyable template must carry the node or the
+        # FLIGHT route records nothing.
+        #
+        # EIGHT CHILD NODES OF FIVE TYPES WERE REMOVED, the same five
+        # `eve-park-kerbalx` needed (this subject is CREWED too): RECORDING_TREE
+        # (1), GROUP_HIERARCHY (1), MILESTONE_STATE (4), KERBAL_SLOTS (1) and
+        # CREW_REPLACEMENTS (1). The last two are Parsek's crew-reservation
+        # bookkeeping - here `Valentina Kerman` reserved with `Debmal Kerman`
+        # allocated as the stand-in - and they POINT AT THE RECORDINGS THAT WERE
+        # JUST REMOVED, so leaving them would be residue by any reading. What
+        # survives is Debmal as an ordinary Available pilot and Valentina Assigned
+        # aboard the pod exactly as before; the WORLD is untouched, including the
+        # inherited oddity that Jebediah reads `Missing` in this save (a B18-B22
+        # chain leftover carried through unchanged, NOT a strip artefact).
+        #
+        # WHY THE STRIP IS LOAD-BEARING, so a future re-harvest does not undo it:
+        # `B25-laythe-orbit` starts its recording through the seam on a vessel
+        # that `jool-orbit-recorded` holds a COMMITTED TREE for, and a seam
+        # StartRecording cannot open a standalone tree on a committed tree's own
+        # launch (the same defect quoted twice above). The zero-trees assertions
+        # in `test_every_persistent_sfs_parses_with_pinned_counts` are therefore
+        # not bookkeeping here either: they are the fixture's whole reason to
+        # exist. (5 is the number to watch for in the produced save: it is what
+        # `jool-orbit-recorded`, the save this was stripped from, carries.)
+        "jool-park-nerv": True,
+        # THE FOURTH PARSEK-STRIPPED DERIVED FIXTURE, and the one that shows the
+        # strip recipe is "excise every child" rather than "excise these five
+        # names". `laythe-park-nerv` is `laythe-orbit-recorded` (B25's
+        # --keep-parsek harvest, one committed recording) with Parsek's own state
+        # removed: the `Parsek/` sidecar directory pruned by a harvest WITHOUT
+        # --keep-parsek, plus a manual brace-balanced excision of the residual
+        # ParsekScenario CHILDREN.
+        #
+        # THE NODE IS STILL PRESENT (True) AND THAT IS DELIBERATE: only the
+        # children were excised. A flyable template must carry the node or the
+        # FLIGHT route records nothing.
+        #
+        # FIVE CHILD NODES OF **FOUR** TYPES WERE REMOVED, and the difference from
+        # its three predecessors is the point: `RECORDING_TREE` (1),
+        # `KERBAL_SLOTS` (1), `CREW_REPLACEMENTS` (1) and `MILESTONE_STATE` (2) -
+        # **NO `GROUP_HIERARCHY`**, because B25's tree is a single standalone
+        # recording with no debris subgroup to nest, and only TWO milestone rows
+        # rather than `jool-park-nerv`'s four. A strip written as a fixed list of
+        # five node names would have been fine here by luck; one written as "walk
+        # the node and drop every child" is correct by construction, and that is
+        # what was done.
+        #
+        # WHY THE STRIP IS LOAD-BEARING: `B26-laythe-vall-transfer` starts its
+        # recording through the seam on a vessel that `laythe-orbit-recorded`
+        # holds a COMMITTED TREE for, and a seam StartRecording cannot open a
+        # standalone tree on a committed tree's own launch (measured, B23 flight
+        # 1). It ALSO decouples B26 from V16M/V16T, whose eight jump UTs are
+        # calibrated off `laythe-orbit-recorded`'s exact bytes.
+        "laythe-park-nerv": True,
         "eva2-lko-crewed": True,
         "eva3-pad-3crew": True,
         "fresh-career": False,
@@ -840,6 +904,74 @@ class CommittedFixtureSweepTests(unittest.TestCase):
             "branchPoints": {},
             "minAuthoritativeSidecars": 4,
             "recordingIds": ["77f724bb1d4844c3b132a1ccc00a7df3"],
+            "schemaGeneration": 4,
+        },
+        # --- THE FIRST JOOL-MOON LOOP SUBJECT ----------------------------
+        # PROVENANCE: laythe-orbit-recorded <- B25-laythe-orbit, run
+        # 2026-08-19_2039, PASS attempt 1 (mission wall 742 s, the full phase
+        # chain through ORBIT-COMMITTED), --keep-parsek. THE SUITE'S FIRST
+        # RECORDING OF AN INWARD TRANSFER: the crewed Duna Rocket starts already
+        # parked in JOOL orbit at ~584,321 km - 3.28x Pol's orbit, i.e. OUTSIDE
+        # the whole moon system - and transfers DOWN to Laythe on a retrograde
+        # ejection, so the intercept is the transfer's PERIAPSIS and the
+        # home-frame apoapsis never moves. Every prior b5 moon transfer went the
+        # other way.
+        #
+        # IT TOOK TWO FLIGHTS, AND FLIGHT 1 IS WHY THE PINS BELOW CAN BE TRUSTED.
+        # Flight 1 (`_1948` / `_2001`, both INVALID(driver-flake)) flew the
+        # identical profile clean through capture and delivered an
+        # 86,843 x 55,089 m Laythe park at ecc 0.028 that the lane's own declared
+        # `parkMinPeriapsisMeters = 60000` refused - a healthy park 4,911 m below
+        # a floor written before anyone had measured what a 163.5 s capture burn
+        # at 5.40 m/s^2 does to a periapsis (it drops it ~15.4 km, systematically:
+        # 15,382 m then 15,415 m). The floor was resized to 52,000 off that
+        # measurement and flight 2 green'd on the first attempt.
+        #
+        # THE ONE-RECORDING TOPOLOGY IS THE CONTRACT, not an accident. B25 runs
+        # against the Parsek-stripped `jool-park-nerv` for exactly this reason and
+        # its seam answered `startrecording
+        # recordingId=370d38246d6e42848f140884081428af already=false` -
+        # `already=FALSE`, minting the fresh standalone JOOL-rooted tree
+        # 0ffee6458331466481f5c7aa0212b515. If a future re-harvest reads 2 or FIVE
+        # recordings here that defect is back (5 is the specific number to watch:
+        # it is what `jool-orbit-recorded`, the save `jool-park-nerv` was stripped
+        # from, carries). See todo-and-known-bugs.md ->
+        # SEAM-STARTRECORDING-JOINS-COMMITTED-TREE.
+        #
+        # `branchPoints` is EMPTY and must stay so: one craft, no separation event
+        # anywhere in the profile (everything sheddable came off on B18-B22's
+        # Kerbin ascent and interplanetary legs, several missions upstream).
+        #
+        # THE SEAM THE LOOP LANES CONSUME, read off the committed `.prec.txt`
+        # ORBIT_SEGMENT chain and quoted here because V16M/V16T anchor their
+        # brackets on it: TEN segments, Jool 0-5 then Laythe 6-9, with the body
+        # change at the adjacent `endUT == startUT` pair 28,814,456.826437414.
+        # Against the recording's own `explicitStartUT = 27,787,320.719510831`
+        # that is a seam offset of 1,027,136.107 s - the number
+        # MissionPeriodicity's `Orbital(Laythe) same-parent ... off=` should
+        # reproduce (the V6M convention: measured from the recording's EXPLICIT
+        # start, NOT from segment 0's startUT, which here is 27,787,323.260 and
+        # would put every bracket 2.540 s off - the same ~2.5 s trap Gilly's and
+        # Ike's fixtures both carry).
+        #
+        # TWO PROPERTIES THAT MAKE THIS SUBJECT DIFFERENT FROM EVERY PRIOR ONE.
+        # (1) THE SPAN IS 1,029,702.298 s = 19.435 LAYTHE PERIODS, so
+        # `QuantizeCadenceToMultipleOfP` should take k = 20 and the loop cadence
+        # is TWENTY moon periods rather than the one every previous loop subject
+        # had - the suite's first k > 1 cadence, and the whole reason the V16 pair
+        # exists. (2) ALL FOUR Laythe-framed segments are the APPROACH HYPERBOLA
+        # (`sma = -2,107,372.848 ecc = 1.2713`); the captured park itself is the
+        # 356.780 s tail after the last closed segment (28,816,666.237 ->
+        # explicitEndUT 28,817,023.017), which is where V16M's park epoch has to
+        # sit and is NOT where the destination phase's 70.7% point falls.
+        "laythe-orbit-recorded": {
+            "trees": 1, "committedTrees": 1, "recordings": 1,
+            "supersedes": 0, "tombstones": 0, "rewind_points": 0,
+            "rewind_retirements": 0,
+            "terminalStates": {"Orbiting": 1},
+            "branchPoints": {},
+            "minAuthoritativeSidecars": 4,
+            "recordingIds": ["370d38246d6e42848f140884081428af"],
             "schemaGeneration": 4,
         },
         # --- THE MOON LOOP-VALIDATION PAIR -------------------------------

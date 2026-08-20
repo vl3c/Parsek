@@ -5062,6 +5062,30 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
         "B24-gilly-orbit.toml":             "calibration-discipline - LIVE-PROVEN 2026-08-19 (`_1655`, PASS attempt 1, mission wall 1,075 s, every assertion met with NOT ONE PARAMETER MOVED): `startrecording ... already=false` minting the fresh standalone Eve-rooted tree, one `Eve to Gilly` boundary, terminal Orbiting/Gilly, a 27,024 x 26,321 m Gilly park at ecc 0.009, saveParse 1 recording / 520 points / all rewind facets 0. Its produced save is the committed `gilly-orbit-recorded` fixture, and BOTH consumers have since flown and armed off it (V15M `_1736`, V15T `_1739`), which is the strongest confirmation the produced subject is structurally right. Nothing armed on THIS lane: the count window stays a derived range and no save-structure block is declared, because the fixture's structure is pinned where it is CONSUMED. Operator tier is now the ordinary promotion call, not outstanding work",
         "V15M-gilly-player-loop.toml":      "calibration-discipline - READING RUN FLOWN GREEN 2026-08-19 (`_1736`, PASS attempt 1, all 21 steps met, all 8 TimeJumps OK, anomalySweep hits=[] hitCounts={}) and ARMED off its own bytes the same day: 12 required tokens incl. the MEASURED routing conjunction `method=single-orbital ... zeroDrift=no`, V14M's full six forbids, count pinned {1,1} and both save-structure blocks gating. THE DERIVED CALIBRATION HELD to 0.041 s against the product's own anchor and no jump UT moved. TWO MEASUREMENTS WORTH THE TIER: the cycle-1 EnterWatchMode is a GENUINE ENTRY at 775 m ghost separation - only the suite's second ever, after V7M's - while the cycle-2 step answered `already-watching` (idempotency + survival across a loop re-arm, NOT a second entry); and the seam-endpoint census fired ONCE because both lens summaries are VerboseRateLimited on a shared key and this lane's two brackets are ~1.4 wall-s apart, so the cycle-1-vs-cycle-2 comparison the lane was designed around is NOT readable from one run at this pacing (recorded as a measured limitation with three named recourses, no product change proposed). Report-only and deliberately unarmed: the NRE storm now filed as WATCH-LOOPED-PARK-TARGET-LOSS-NRE-STORM, 447 on the reading run and 443 on the armed one - the same family as V7M's filed teardown NRE, which V7M also declines to ceiling. DISCIPLINE COMPLETE 2026-08-19: armed re-flight `_1808` PASS attempt 1 (all 12 required, all 6 forbidden, count {1,1}, both gated save-structure blocks PASS), negative control `_1810` correctly PARSEK-FAIL(save-structure) on the inverted `supersedeRows` window and reverted - the pair's single shared inversion. That control run also swept one INTERMITTENT `line-blink` (1-of-3, cycle-2 park, `director-traced-path-suppress` OFF edge - a case the window-exit exemption deliberately does not cover); the lane keeps `allowedAnomalies = []` and the raise is filed as the 14th archived one. Operator tier is now the ordinary promotion call, not outstanding work",
         "V15T-gilly-ts-arrival.toml":       "calibration-discipline - READING RUN FLOWN 2026-08-19 (`_1739`, PARSEK-FAIL(anomaly) attempt 1 with ALL 16 STEPS GREEN and the TS session clean - the CORRECT catch this spec pre-registered by shipping `allowedAnomalies = []` on purpose) and ARMED off its own bytes the same day: 13 required tokens incl. the measured routing conjunction, the `body=Gilly scene=TRACKSTATION` proto pin and `reaimed=False`, V14T's full six forbids, count {1,1}, both save-structure blocks gating, and the anomaly tolerated by the BARE token. WHAT THE RED BOUGHT: the single-jump creation-frame `icon-off-orbit` trigger is now MEASURED PARENT-INDEPENDENT (Duna/Ike 94.05 deg, Eve/Gilly 26.49 deg, deterministic at both, with V15M the stepped-bracket control at the same arrival UT) - the discriminating experiment the todo entry named, now answered and written up there. DISCIPLINE COMPLETE 2026-08-19: armed re-flight `_1809` PASS attempt 1 (all 13 required, all 6 forbidden, count {1,1}, both gated save-structure blocks PASS) with the tolerated anomaly RECURRING at `hits=[] counts={'icon-off-orbit': 1}` - the FOURTH sighting of the trigger, two per body pair, and this lane's first GREEN `hitCounts` baseline; negative control shared with V15M (`_1810`). THE CEILING `{ token = ..., maxCount = 1 }` IS NOW ONLY 'NOT YET TAKEN': the doctrine's precondition (measured hitCounts from a green run) is met on BOTH V14T and V15T, and the sole remaining blocker is the whole-set inert-budget invariant, which must move to a named allowlist in the same edit and should then cover both lanes at once. Operator tier is now the ordinary promotion call, not outstanding work",
+        # THE B26/V17 LAYTHE->VALL TRIO, the THIRD two-stage program and the first
+        # MOON-TO-MOON lane. All three are operator for the CALIBRATION DISCIPLINE.
+        # B26 HAS NOW FLOWN AND IS BLOCKED: both attempts refused in PLAN-TRANSFER on a
+        # MECHJEB limitation (`OperationInterplanetaryTransfer.MakeNodes` throws on a
+        # moon-parked origin), so the whole trio is BLOCKED-PENDING a harness transfer
+        # capability - see docs/dev/todo-and-known-bugs.md ->
+        # MECHJEB-INTERPLANETARY-PLANNER-REJECTS-MOON-ORIGIN. What is owed is that
+        # capability plus the ordinary first flights and post-reading arming pass, NOT
+        # outstanding human review work, which is what this list records.
+        "B26-laythe-vall-transfer.toml":    "calibration-discipline - FLOWN 2026-08-19 AND BLOCKED-PENDING A HARNESS CAPABILITY (docs/dev/todo-and-known-bugs.md -> MECHJEB-INTERPLANETARY-PLANNER-REJECTS-MOON-ORIGIN). A first-flight READING lane and THE FIRST MOON-TO-MOON TRANSFER: a Laythe park -> Jool frame -> Vall, committed at Vall, producing the M-MIS-7 subject that lets V17M/V17T measure what a CROSS-PARENT recording does at `MissionConfig loop=true`. The machine side is a COMPOSITION of two live-proven blocks that have never met - the interplanetary path (eight lanes, always Kerbin-from-the-Sun) with JOOL as the transfer frame, entered through the orbit-start door (three lanes, always on the moon path) - audited end to end before authoring: zero Sun-frame assumptions on the live path (the heliocentric ephemeris is quarantined behind `padAlignEjection`, three call sites, all flag-gated; the phase angle is entirely MechJeb's), `ejectionEccFloor` reads the Laythe frame correctly, `_b5_correction_via_bodies` narrows to an identity, the warp table already carries all three bodies, and `startInOrbit` composes with `interplanetaryTransfer` with no coupling. VERDICT CLEAN, VALUES ONLY - and flight 1 CONFIRMED that verdict by failing somewhere else entirely. Three value consequences the audit named are handled at their own keys and one would have cost a flight: `ejectionEccFloor` had to drop to 1.001 because the required Laythe ejection hyperbola has ecc 1.0352 and B7's 1.05 WOULD NEVER BE REACHED. FLIGHT 1 (`2026-08-19_2214` / `_2215_a2`): BOTH attempts INVALID(autopilot-flake), deterministic, refused in PLAN-TRANSFER six wall-seconds in on `OrbitExtensions.NextTimeOfRadius: given radius of 3723645.81113302 is never achieved` out of `KRPC.MechJeb.Maneuver.Operation.MakeNodes` - MechJeb idealises a moon-parked origin to a circle at the park's mean radius and builds a SUB-ESCAPE ejection whose apoapsis lands 2.443% short of the SOI. NOT mlib, NOT this spec, NOT Parsek: the ORBIT-START door, the fixture and target acquisition all behaved (`reachedOrbit met=True`, `startedInHomeOrbit value=0.028 met=True`, `tgtD` snapped to Vall's 59,303,828 m). BLOCKED-PENDING a moon-origin ejection capability, two candidate paths named and NEITHER chosen; the spec stays committed and its dry-run stays valid. Nothing armed: count window {1,3} - deliberately wider than every predecessor because this recording has TWO body-change seams and the optimizer's answer at an ESCAPE boundary has never been measured - no save-structure block, no `gating = true`. Operator tier is the calibration discipline plus the first flight, not outstanding human work",
+        "V17M-laythe-vall-player-loop.toml": "calibration-discipline - NOT YET FLYABLE, committed AHEAD of its fixture under the `PENDING_FIXTURE_LANES` exemption, and its fixture's PRODUCTION IS NOW BLOCKED-PENDING (B26 flew 2026-08-19 and refused on a MechJeb moon-origin limitation - docs/dev/todo-and-known-bugs.md -> MECHJEB-INTERPLANETARY-PLANNER-REJECTS-MOON-ORIGIN), so what is owed is a harness capability rather than merely a green B26. Operator by construction, and with a WEAKER claim to derived seeds than any prior pair: the anchor formula that served V14M/V15M/V16M is a phase-lock artifact, and this subject's routing IS the measurement, so the two candidate roads produce anchors from different planners and no seed set can be right for both. The spec seeds under the re-aim hypothesis at a one-synodic anchor, pre-registers BOTH outcomes with the exact discriminating lines, and gates on neither - leaving the re-aim trio unrequired AND unforbidden, the exact inversion of its three predecessors. It also carries V16M's now-PROVEN forty-tick census-pacing block, with the new question of what the lens does with a recording that has two cross-body seams. A dwell-nowhere run 1 is an accepted, documented outcome. Nothing armed. Operator tier is the calibration discipline plus the first flight, not outstanding human work",
+        "V17T-laythe-vall-ts-arrival.toml": "calibration-discipline - NOT YET FLYABLE, committed AHEAD of its fixture under the same exemption (one jump UT reused from V17M so the pair observes the same instant from the two scenes), and BLOCKED-PENDING on the same MechJeb moon-origin limitation B26 measured on 2026-08-19. Operator by construction. It is the FIRST TS loop subject since V5 that might legitimately render a RE-AIMED chain, so `factory chain ... reaimed=True|False` - V6T's sharpest line and V16T's armed pin - is deliberately left unrequired AND unforbidden here, and the TS conic is written out as arithmetic but NOT pinned, because a re-aimed chain does not render the recorded conic at all and predicting it would assume the answer. It additionally ships `allowedAnomalies = []` ON PURPOSE and is EXPECTED TO RED on `icon-off-orbit` - the V15T/V16T pattern, now deterministic across six runs at three parents - with a second, sharper prediction pre-registered and expected to come back NEGATIVE: V16T's `seam-endpoint-outside-soi` raise scales with the cadence multiple, and this lane's cadence is a synodic rather than 20 moon periods. Nothing armed. Operator tier is the calibration discipline plus the first flight, not outstanding human work",
+        # THE B25/V16 LAYTHE TRIO, the SECOND two-stage program to use the
+        # `PENDING_FIXTURE_LANES` exemption and the first Jool-moon lane. All three are
+        # operator for the CALIBRATION DISCIPLINE. B25 has now FLOWN (flight 1 INVALID on
+        # a park window written before anyone had measured a finite-burn periapsis drop,
+        # flight 2 PASS attempt 1 once it was resized); the V16 pair has now flown its
+        # reading runs, ARMED off their own bytes, re-flown green under the arming and
+        # taken a shared negative control, so the CALIBRATION DISCIPLINE IS COMPLETE on
+        # all three. Nothing is owed on any of them but the ordinary operator -> nightly
+        # promotion call, which is what this list records.
+        "B25-laythe-orbit.toml":            "calibration-discipline - LIVE-PROVEN 2026-08-19 ON FLIGHT 2 (`_2039`, PASS attempt 1, mission wall 741.6 s, full chain through ORBIT-COMMITTED): an 87,931 x 56,240 m Laythe park at ecc 0.0277, terminal Orbiting/Laythe, all five required tokens and ALL NINE forbidden (the ERROR floor plus eight Vall/Tylo/Bop/Pol named-poison forms) met, zero `Atmospheric`, and `already=false` minting the standalone Jool-rooted tree. The suite's FIRST INWARD TRANSFER, and all three of its values-only workarounds held on both flights. FLIGHT 1 (`_1948` / `_2001`) was INVALID(driver-flake) on both attempts and the flake was the WINDOW, not the flight: a healthy park 4,911 m under a floor written before anyone had measured that a 163.5 s capture burn at 5.40 m/s^2 drops the periapsis ~15.4 km (now 15,382 / 15,385 / 15,415 m over three flights, a 33 m spread). Fixed by resizing `parkMinPeriapsisMeters` 60,000 -> 52,000 and nothing else - the B17 precedent - which flight 2 vindicated. Its produced save is the committed `laythe-orbit-recorded` fixture. Nothing armed: the count window stays a derived range and no save-structure block is declared, because the fixture's structure is pinned where it is CONSUMED (the B24 disposition). Operator tier is now the ordinary promotion call, not outstanding work",
+        "V16M-laythe-player-loop.toml":     "calibration-discipline - CALIBRATED 2026-08-19 off the harvested `laythe-orbit-recorded` bytes, then FLOWN, ARMED and DISCIPLINE-COMPLETE the same day. Operator additionally because BOTH of its claims were pre-registered and BOTH came back MEASURED: the suite's FIRST k > 1 CADENCE - the recording's span/P = 19.435357 gives k = 20, so cycle 2 lands TWENTY moon orbits after cycle 1 rather than one, with k = 21 excluded outright across the transfer-window-wait band - and the CENSUS-PACING UPGRADE that is supposed to make it readable: forty `RecordingState` dwell ticks spending >= 10 wall s at run.py's 0.25 s poll floor, implementing research section 9.3's RECOURSE 1 verbatim against the limiter that swallowed V15M's cycle-2 census on all three of its runs - and the upgrade WORKED, retiring research section 9.3's 'unmeasurable at seam pacing' limit for lanes carrying the block. Both watch steps are pinned REJECTED on arithmetic that, unlike V15M's, is PARK-INDEPENDENT (2a >= 1,120,000 m against a ~120 km boundary), which also predicted the WATCH-LOOPED-PARK-TARGET-LOSS-NRE-STORM population ABSENT. DISCIPLINE COMPLETE 2026-08-19: reading run `_2114` (PASS attempt 1), ARMED off its own bytes (12 required incl. the strict census pin `seam-endpoint summary evaluated=[1-9]\\d* outsideSoi=0`, 6 forbidden, count {1,1}, both save-structure blocks gating), armed re-flight `_2211` PASS attempt 1 and COMPLETELY SILENT (`hitCounts={} hits=[] unlistedReasons=[]`, so the strict pin held), negative control `_2213` correctly PARSEK-FAIL(save-structure) on `rewind.supersedeRows 0 < min 1` with every other verifier PASS, then reverted - the pair's single shared inversion. Operator tier is now the ordinary promotion call, not outstanding work",
+        "V16T-laythe-ts-arrival.toml":      "calibration-discipline - CALIBRATED 2026-08-19 off the same harvested bytes (one jump UT reused from V16M so the pair observes the same instant from the two scenes), then FLOWN, ARMED and DISCIPLINE-COMPLETE the same day. Operator by construction, and it shipped `allowedAnomalies = []` ON PURPOSE and DID RED on `icon-off-orbit` with every step green - the V15T pattern verbatim, and the PRE-REGISTERED correct catch it was written to be rather than a debt. Parent-independence of that trigger is already MEASURED (Duna/Ike and Eve/Gilly, deterministic at both), so what a third body pair adds is the widest lever anyone has on the MAGNITUDE question the todo entry records as NOT constant (26.49 deg at Gilly vs 94.05 at Ike): Laythe's SOI is 29.5x Gilly's, so three points across that range is where a correlation with SOI scale would first be visible. Its pre-flight TS-conic prediction has ALREADY been scored by B25 (predicted |a| 1.29 Mm / e 1.582, measured 2.11 Mm / 1.271 - both within a factor of 1.7, against V15T's three-orders-of-magnitude miss). DISCIPLINE COMPLETE 2026-08-19: reading run `_2115` (PARSEK-FAIL(anomaly) attempt 1, all sixteen steps green - the correct catch, and it read 129.15 deg, the FIRST count > 1 sighting and a SECOND lens), ARMED off its own bytes (13 required, 6 forbidden, count {1,1}, both blocks gating, the anomaly tolerated by the BARE token and the census pin left at the PRESENCE form because the strict value form would red on the known artifact), armed re-flight `_2212` PASS attempt 1 with BOTH lenses RECURRING exactly as predicted (`allowed=['icon-off-orbit'] hitCounts={'icon-off-orbit': 2} hits=[] unlistedReasons=['seam-endpoint-outside-soi']`), negative control shared with V16M (`_2213`). NEITHER RECURRENCE IS DRIFT: the seam lens is the creation-frame instrument artifact, and V16M's stepped censuses read `outsideSoi=0` on both cycles with its armed run silent, so the true k = 20 recurrence is clean. Operator tier is now the ordinary promotion call, not outstanding work",
         # THE V14 PAIR, and they are operator for the same calibration discipline for a
         # reason that is theirs alone: they are the FIRST loop lanes whose subject is not
         # rooted at Kerbin (B23's Duna->Ike recording), and the first to reach a TIDALLY
@@ -5544,13 +5568,33 @@ class SaveStructureVerifierWiringTests(unittest.TestCase):
     # `structure` (trees {1,2} for V2's duplicate-writer hazard, everything else
     # pinned at the measured 1/1 with terminalStates {Orbiting: 1}). Neither lane
     # declared either block before, so the windows are written FROM the
-    # measurement rather than flipped onto a prediction. STILL OWED: one armed
-    # re-flight each, and ONE negative control shared across the pair - the
-    # V4/V5/V14 precedent, since they gate through the single shared saveParse
-    # evaluator.
+    # measurement rather than flipped onto a prediction. DISCHARGED 2026-08-19:
+    # armed re-flights `_1808` (V15M) and `_1809` (V15T), both PASS attempt 1 with
+    # every gated block green, and ONE negative control `_1810` shared across the
+    # pair - the V4/V5/V14 precedent, since they gate through the single shared
+    # saveParse evaluator, so a second inversion would re-prove the evaluator
+    # rather than these windows.
     ARMED_ALLOWLIST = {"S4.1-rewind-merge.toml", "CL-3-refly-crew-tombstone.toml",
                        "V14M-ike-player-loop.toml", "V14T-ike-ts-arrival.toml",
                        "V15M-gilly-player-loop.toml", "V15T-gilly-ts-arrival.toml",
+                       # V16M / V16T: `rewind` (all max 0 - a replay-observation
+                       # workflow, even one carrying forty extra seam round-trips,
+                       # authors nothing durable) + `structure` (trees {1,2} for
+                       # V2's duplicate-writer hazard, everything else pinned at
+                       # the measured 1/1 with terminalStates {Orbiting: 1}) armed
+                       # 2026-08-19 off their OWN reading runs `2026-08-19_2114`
+                       # (V16M, PASS attempt 1) and `_2115` (V16T,
+                       # PARSEK-FAIL(anomaly) with all sixteen steps green - the
+                       # pre-registered catch, whose save-structure facets were
+                       # clean). Both measured 0/0/0/0 and 1/1/1 before arming, so
+                       # the arming re-pinned nothing. DISCHARGED 2026-08-19: armed
+                       # re-flights `_2211` (V16M) and `_2212` (V16T), both PASS
+                       # attempt 1 with byte-identical gating saveParse payloads,
+                       # and ONE negative control `_2213` shared across the pair,
+                       # which red exactly on `rewind.supersedeRows 0 < min 1` and
+                       # nowhere else, then reverted (the V4/V5/V14/V15 precedent -
+                       # both gate through the single shared saveParse evaluator).
+                       "V16M-laythe-player-loop.toml", "V16T-laythe-ts-arrival.toml",
                        "GS-1-auto-chute-booster.toml", "GS-2-orbital-probe-deploy.toml",
                        "GS-3-switch-nudge-deployed.toml",
                        # B17: rewind (all max 0 - a clean single-launch flight
@@ -11117,17 +11161,58 @@ class SharedShipsManifestTests(unittest.TestCase):
     # listed here must carry a NOT FLYABLE banner and calibration-seed jump UTs, so
     # nothing here pretends a listed lane is runnable.
     #
-    # IT IS EMPTY, AND EMPTY IS ITS HEALTHY STATE (the `INTERIM_PIN_IDS` convention).
-    # Its ONE use so far was the B24/V15 Gilly program: `V15M-gilly-player-loop` and
-    # `V15T-gilly-ts-arrival` were listed on 2026-08-19 because they were committed
-    # ahead of `gilly-orbit-recorded`, and BOTH ENTRIES WERE REMOVED the same day
-    # when `B24-gilly-orbit` flew (run 2026-08-19_1655, PASS attempt 1) and its
-    # produced save was harvested - which is exactly the red the retirement cell
-    # below exists to raise. The MECHANISM is kept rather than deleted because the
-    # shape recurs (B23/V14 had it too and paid for it by landing the pair only after
-    # the flight), and because an empty map restores the gate below to full strength:
-    # with nothing listed, EVERY committed spec's saveTemplate is checked.
-    PENDING_FIXTURE_LANES = {}
+    # EMPTY IS ITS HEALTHY STATE (the `INTERIM_PIN_IDS` convention), and it has been
+    # empty exactly once so far. Its FIRST use was the B24/V15 Gilly program:
+    # `V15M-gilly-player-loop` and `V15T-gilly-ts-arrival` were listed on 2026-08-19
+    # because they were committed ahead of `gilly-orbit-recorded`, and BOTH ENTRIES
+    # WERE REMOVED the same day when `B24-gilly-orbit` flew (run 2026-08-19_1655,
+    # PASS attempt 1) and its produced save was harvested - which is exactly the red
+    # the retirement cell below raises. The MECHANISM was kept rather than deleted
+    # because the shape recurs (B23/V14 had it too and paid for it by landing the
+    # pair only after the flight), AND IT RECURRED IMMEDIATELY: the B25/V16 Laythe
+    # program is its SECOND use, which is the cheapest possible vindication of not
+    # deleting it.
+    #
+    # ITS SECOND USE RETIRED THE SAME WAY THE FIRST DID, AND THE CELL BELOW FIRED
+    # BOTH TIMES. `V16M-laythe-player-loop` and `V16T-laythe-ts-arrival` were listed
+    # on 2026-08-19 because they were committed ahead of `laythe-orbit-recorded`;
+    # `B25-laythe-orbit` then flew (flight 1 `_1948` / `_2001` INVALID on a park
+    # window written before anyone had measured what a finite capture burn does to a
+    # periapsis, flight 2 `_2039` PASS attempt 1 once the window was resized to that
+    # measurement), its produced save was harvested, and BOTH ENTRIES WERE REMOVED
+    # in the calibration commit - which is exactly the red the retirement cell below
+    # raises. The map is EMPTY again, its healthy state, which restores the gate
+    # below to full strength: with nothing listed, EVERY committed spec's
+    # saveTemplate is checked.
+    #
+    # WORTH RECORDING FROM THAT PROGRAM, because it is what the exemption bought:
+    # the pair's ORIGINAL seed set put the seam offset 14,768 s off against a
+    # +-180 s bracket, and flight 1 - a FAILED run whose CLOCK was nonetheless real -
+    # corrected it to within 1 s of the harvested truth before the fixture existed.
+    # Committing the downstream lanes early is what made that mid-course correction
+    # possible at all, which is the strongest argument yet for keeping this
+    # mechanism rather than deleting it between programs.
+    # THE CURRENT ENTRIES, both awaiting `B26-laythe-vall-transfer`'s produced
+    # save: `V17M-laythe-vall-player-loop` and `V17T-laythe-vall-ts-arrival`. This
+    # is the mechanism's THIRD use in three consecutive programs, which is by now
+    # less a special case than the shape a two-stage program has.
+    #
+    # WHAT MAKES THIS PAIR DIFFERENT FROM THE TWO BEFORE IT, and why the exemption
+    # earns its keep even more here: V15's and V16's seeds were merely UNMEASURED -
+    # the ROUTING was known (same-parent -> phase-lock), so the anchor formula was
+    # known and only the UTs had to be substituted. V17's subject is CROSS-PARENT
+    # and its routing IS the measurement, so the two candidate roads produce
+    # anchors from DIFFERENT PLANNERS and no seed set can be right for both. The
+    # specs say so at length, seed under the re-aim hypothesis, and pre-register
+    # both outcomes with the log lines that discriminate. A dwell-nowhere run 1 is
+    # an accepted outcome there rather than a lane failure.
+    #
+    # DELETE BOTH in the same commit that re-pins the pair off the harvested bytes;
+    # this cell reds until then.
+    PENDING_FIXTURE_LANES = {
+        "V17M-laythe-vall-player-loop.toml": "vall-transfer-recorded",
+        "V17T-laythe-vall-ts-arrival.toml": "vall-transfer-recorded",
+    }
 
     def test_the_pending_fixture_exemption_retires_itself(self):
         """The exemption's own guard, in BOTH directions. If the awaited fixture
