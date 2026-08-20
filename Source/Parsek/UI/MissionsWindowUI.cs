@@ -359,18 +359,27 @@ namespace Parsek
 
             // Composition-row cell: same padding, but vertically centered + stretched to the row
             // height so the text sits centered in the MinHeight'd row (not floating at the top).
+            // The 5 px BOTTOM padding exists for the WRAPPED case: when a long cell (the T2.2
+            // vessel event chain, typically) wraps, IMGUI's computed height comes up a few px
+            // short and the last line's descenders clip (owner playtest 2026-08-20). Padding
+            // grows the computed height only past what the row's MinHeight already grants, so
+            // single-line rows render exactly as before (label ~16+5 px < the 22 px row floor).
             compositionCellLabel = new GUIStyle(bodyCellLabel)
             {
                 alignment = TextAnchor.MiddleLeft,
-                stretchHeight = true
+                stretchHeight = true,
+                padding = new RectOffset(BodyCellTextIndent, 0, 0, 5)
             };
 
             // Non-wrapping variant for the dock-partner "Start event" cell (T1.4): a long partner
             // name clips instead of wrapping the row taller (the full phrase is the tooltip).
+            // Keeps the ORIGINAL padding - it is single-line by construction, and the wrapped-crop
+            // bottom padding above would push its centered text off-baseline.
             compositionCellLabelNoWrap = new GUIStyle(compositionCellLabel)
             {
                 wordWrap = false,
-                clipping = TextClipping.Clip
+                clipping = TextClipping.Clip,
+                padding = cellLabelPadding
             };
 
             tableBodyBoxStyle = new GUIStyle(GUI.skin.box)
@@ -1757,12 +1766,12 @@ namespace Parsek
             // [enable+index] width so the title lines up with the recordings "Name" column.
             GUILayout.Label("", missionHeaderTextStyle, GUILayout.Width(ColW_Enable));
             // Index cell: the per-tree number, non-modifiable. Shared by clones. Bold transparent
-            // text on the row bubble (no box of its own). In Basic the number itself is hidden
-            // (T1.7): it is a per-tree support/debug ordinal with no meaning to the player, and its
-            // slot is shared with the include checkbox on the rows below. The cell is kept (blank)
-            // so every column stays aligned with the header above.
+            // text on the row bubble (no box of its own). Shown in BOTH modes: T1.7 originally
+            // hid it in Basic as a support ordinal, but a numberless first column read as a
+            // rendering gap (owner playtest 2026-08-20), and with the # header sortable in both
+            // modes the number is what the sort is BY.
             GUILayout.Label(
-                !basicUiMode && index > 0
+                index > 0
                     ? index.ToString(System.Globalization.CultureInfo.InvariantCulture)
                     : "",
                 missionHeaderTextStyle, GUILayout.Width(ColW_Index));
@@ -1792,7 +1801,16 @@ namespace Parsek
             // Clone / Delete next. Delete is disabled when this is the tree's last mission. Log,
             // Clone, Delete, Warp to, Watch, and Rewind/Forward all share ColW_HeaderButton so they
             // read as one group.
-            if (GUILayout.Button(new GUIContent("Clone", MissionPresentation.CloneButtonTooltip),
+            //
+            // Clone is loop AUTHORING (a clone exists to carry a second include set / loop period
+            // over the same recordings - all controls Basic hides), so it goes with the section-4.5
+            // authoring set: hidden in Basic, its width absorbed by the FlexibleSpace like the Loop
+            // controls' (owner decision 2026-08-20). Delete STAYS in Basic: it is cleanup of a
+            // clone made in Advanced, and CanDelete keeps the tree's last mission safe, so a Basic
+            // player can remove a stray duplicate but never the mission itself.
+            bool loopAuthoring = ShowsLoopAuthoringControls(ParsekUI.AppliedUiComplexityMode);
+            if (loopAuthoring
+                && GUILayout.Button(new GUIContent("Clone", MissionPresentation.CloneButtonTooltip),
                     GUILayout.Width(ColW_HeaderButton)))
                 MissionStore.Clone(mission);
             GUI.enabled = MissionStore.CanDelete(mission);
@@ -1826,7 +1844,7 @@ namespace Parsek
             // flights repeat. Dropping controls only frees slack for the FlexibleSpace further
             // down, so Watch / Rewind / Archive stay pinned at the same x as in Advanced.
             bool missionRouteBound = RouteTreeGuard.RouteBindingFor(mission.TreeId, out Route bindingRoute);
-            bool loopAuthoring = ShowsLoopAuthoringControls(ParsekUI.AppliedUiComplexityMode);
+            // loopAuthoring latched once above (at the Clone button, the first gated control).
             if (loopAuthoring)
             {
                 bool prevGuiEnabled = GUI.enabled;
@@ -3467,16 +3485,9 @@ namespace Parsek
             GUILayout.BeginHorizontal(colHdrCellContainerStyle,
                 GUILayout.Width(ColW_Enable + ColW_Index + 8f), GUILayout.Height(ColHeaderHeight));
             GUILayout.Label("", GUILayout.Width(ColW_Enable));
-            if (basicUiMode)
-            {
-                // Basic (T1.7): the "#" header labels TWO unrelated things - a per-tree support
-                // ordinal on mission rows and the include checkbox on vessel rows - so the label
-                // (and the sort it offers) is dropped and the slot stays blank. Same width, so the
-                // name column below still lines up. The mode is latched for the whole pass, so this
-                // branch cannot change the control count between Layout and Repaint.
-                GUILayout.Label("", boldHeaderInnerLabel, GUILayout.Width(ColW_Index));
-            }
-            else
+            // Sortable "#" in BOTH modes: the per-tree index number now shows on mission rows in
+            // Basic too (the T1.7 hide read as a rendering gap - owner playtest 2026-08-20), so
+            // the header that sorts by it comes back with it.
             {
                 string hashArrow = (sortColumn == MissionSortColumn.Index)
                     ? (sortAscending ? " \u25b2" : " \u25bc") : "";
