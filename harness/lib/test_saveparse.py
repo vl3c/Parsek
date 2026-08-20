@@ -985,6 +985,70 @@ class CommittedFixtureSweepTests(unittest.TestCase):
             "recordingIds": ["370d38246d6e42848f140884081428af"],
             "schemaGeneration": 4,
         },
+        # --- THE CROSS-PARENT (MOON-TO-MOON) LOOP SUBJECT ----------------
+        # PROVENANCE: vall-transfer-recorded <- B26-laythe-vall-transfer, run
+        # 2026-08-20_1752, PASS attempt 1 (mission wall 1,408 s), --keep-parsek.
+        # **THE FIRST COMPLETED MOON-TO-MOON TRANSFER IN THE SUITE**, and it took
+        # THREE FLIGHTS across two mission shapes to produce - which is why the
+        # provenance is a story rather than a run id:
+        #   FLIGHT 1 (2026-08-19) refused in PLAN-TRANSFER: MechJeb 2.15.1's
+        #     OperationInterplanetaryTransfer cannot plan from a MOON-PARKED
+        #     origin (`NextTimeOfRadius: given radius of 3723645.81113302 is
+        #     never achieved`). Not a Parsek defect and not a spec defect; filed
+        #     as MECHJEB-INTERPLANETARY-PLANNER-REJECTS-MOON-ORIGIN.
+        #   FLIGHT 2 (2026-08-20) flew the PARENT-RELAY mode built in response.
+        #     Its core worked - the whole two-stage phase flow and
+        #     `escapedHomeSoi met=True` - but it measured two defects: an escape
+        #     sized for a hyperbolic excess AT INFINITY where KSP hands over AT
+        #     THE SOI BOUNDARY (3.12x over), and a coast-warp thrash on a
+        #     `time_to_soi` that flapped between two candidate encounters.
+        #   FLIGHT 3 (2026-08-20) flew both fixes green, end to end through
+        #     ORBIT-COMMITTED. THIS FIXTURE IS ITS PRODUCT.
+        #
+        # WHY IT EXISTS ALONGSIDE the three same-parent moon subjects: Vall is
+        # NOT a child of Laythe, so a Laythe-rooted recording targeting Vall is
+        # the CROSS-PARENT class `IsSameParentTarget` sends to `ApplyReaim`
+        # rather than to the phase-lock solver. Ike/Gilly/Laythe all measured
+        # `method=single-orbital`; this is the payload that lets V17M/V17T
+        # measure whether the OTHER road exists. **THE ROUTING IS UNMEASURED** -
+        # this fixture is the subject, not the answer.
+        #
+        # THE ONE-RECORDING TOPOLOGY IS THE CONTRACT, not an accident: B26 ran
+        # against the Parsek-stripped `laythe-park-nerv` for exactly that reason.
+        # `branchPoints` is EMPTY and must stay so - one craft, no separation
+        # event anywhere in the profile.
+        #
+        # THE BYTES V17M/V17T ANCHOR ON, read off this fixture and quoted here
+        # because both lanes' jump tables are derived from them:
+        #   explicitStartUT  28,817,026.617051531   (UT0 - the V6M convention;
+        #                    segment 0's startUT is 28,817,029.317051470, a
+        #                    2.700 s gap, and using it would put every bracket
+        #                    2.7 s off)
+        #   explicitEndUT    28,896,846.042240269
+        #   span             **79,819.425188738 s**
+        #   THIRTEEN ORBIT_SEGMENTs and **TWO** body-change seams, which no prior
+        #   loop subject has had:
+        #     ESCAPE  Laythe->Jool at 28,823,386.230090793  (offset 6,359.613)
+        #     ARRIVAL Jool->Vall   at 28,892,466.219888370  (offset 75,439.603)
+        #   destination phase  4,379.822 s, of which the last ORBIT_SEGMENT ends
+        #     at 28,896,012.542259 - so the recording closes with an
+        #     **833.500 s SEGMENT-LESS PARKED TAIL** (the B25/V16M shape: the
+        #     Vall segments 10-12 are all the APPROACH HYPERBOLA, sma
+        #     -2,733,908.68 ecc 1.1715, and the captured park carries no closed
+        #     segment of its own). V17M's park epoch is based on that TAIL, not
+        #     on the whole destination phase.
+        #   save clock (FLIGHTSTATE UT)  28,896,848.582240213
+        #   pointCount 746, endpointBodyName Vall, endpointPhase 3
+        "vall-transfer-recorded": {
+            "trees": 1, "committedTrees": 1, "recordings": 1,
+            "supersedes": 0, "tombstones": 0, "rewind_points": 0,
+            "rewind_retirements": 0,
+            "terminalStates": {"Orbiting": 1},
+            "branchPoints": {},
+            "minAuthoritativeSidecars": 4,
+            "recordingIds": ["625d63e022c449d6a44b5269c8b54a21"],
+            "schemaGeneration": 4,
+        },
         # --- THE MOON LOOP-VALIDATION PAIR -------------------------------
         # PROVENANCE: mun-orbit-recorded  <- B11-mun-orbit, run
         # 2026-08-08_1458, PASS attempt 1, wall 1321 s (harvested
