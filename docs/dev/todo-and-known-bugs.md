@@ -1864,11 +1864,16 @@ StrategyInput/StrategyOutput pair, so what is lost is a standing regression
 floor, not the observation.
 
 **What would close it,** if the exchanger floor is ever wanted back at the same
-time: give the seam's `RunTests` a per-test selector (it has `category` and
-`isolated` only), then split this category across two specs staging
-`fresh-career` and `strategy-career` respectively. That is a seam feature, not a
-fixture change, and is deliberately NOT done here - one batch buying the
-category's only negative control is the better trade until someone needs both.
+time: a COMPLEMENTARY SECOND SPEC staging `fresh-career` (rep 0) - the pre-swap
+L3 shape - which runs the same category batch with the OPPOSITE named skip
+(exchanger runs, operation skips). Between the two specs every one of the seven
+declarations is gated nightly, each spec pinning its own measured
+`passed=6 skipped=1` with its own named skip, at the cost of one more ~55 s
+nightly flight. No seam feature is needed for that; a per-test `RunTests`
+selector (it has `category` and `isolated` only) would only serve the cosmetic
+goal of zero skips per spec. Deliberately not done in this lane - one batch
+buying the category's only negative control was the immediate trade - but the
+two-spec route is the standing cheap close.
 
 ## STRATEGY-REPUTATION-DROP-CLAMPS-THE-GUARD: the query door's deliberately-dropped reputation leg diverges the reconstruction, and reputation has no pending adjuster to absorb it [FILED 2026-08-19 off the strategy-test-matrix lane. NOT FIXED - the DROP is correct; the CONSEQUENCE was undocumented]
 
