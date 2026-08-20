@@ -49,6 +49,13 @@ namespace Parsek
         public bool IsLeaf;               // single atom: nothing to expand
         public bool IsAtom;               // a roster atom (one pod/probe/crew) under a terminal: no own interval
 
+        // True on every interval of an EVA-kerbal run (a person, not a vessel). Stamped from the
+        // run HEAD's EvaCrewName, so it holds on interval 1+ too - unlike the old label-equality
+        // heuristic (VesselName == CompositionLabel), which broke on later intervals because
+        // BuildIntervalLeg nulls EvaCrewName past the first. Consumers: the header's vessel
+        // count, peel naming, and the T2.2 row model's person classification.
+        public bool IsPerson;
+
         // The through-line head this interval belongs to: the recording id of the physical vessel
         // whose timeline this interval is a slice of. Every structural interval of one vessel
         // (e.g. the launch stack and the post-decouple survivor) shares the same OwnerHeadId, so
@@ -321,6 +328,10 @@ namespace Parsek
                     // All structural intervals of this physical vessel share the through-line head
                     // so the selection can derive ONE render window per vessel from them.
                     OwnerHeadId = headLegId,
+                    // Person-ness is a property of the RUN (the head leg), not of the interval:
+                    // BuildIntervalLeg nulls EvaCrewName past the first interval, so the head is
+                    // the only reliable source.
+                    IsPerson = !string.IsNullOrEmpty(headLeg.EvaCrewName),
                     IsSelectable = true,
                     VesselName = VesselLabel(segLeg),
                     CompositionLabel = FormatComposition(segLeg),

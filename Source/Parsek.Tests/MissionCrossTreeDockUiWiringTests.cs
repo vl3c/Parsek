@@ -45,9 +45,21 @@ namespace Parsek.Tests
             Assert.True(add >= 0, "partner-journey include mutation site not found");
             int clear = src.IndexOf(
                 "MissionStore.ClearLoopsConflictingWith(mission,", add, StringComparison.Ordinal);
-            Assert.True(clear >= 0 && clear - add < 900,
+            Assert.True(clear >= 0 && clear - add < 1600,
                 "including a link on a looping mission must clear conflicting loops " +
                 "(spanned-set rule) in the same toggle block");
+
+            // T1.6 parity: this is the SECOND path that can take another mission's loop, so the
+            // clear must be bracketed by the same snapshot + on-screen announcement the Loop
+            // toggle uses - a loop moving silently here is the symptom T1.6 removed.
+            int snapshot = src.IndexOf(
+                "SnapshotOtherLoopingMissions(mission);", add, StringComparison.Ordinal);
+            Assert.True(snapshot >= 0 && snapshot < clear,
+                "partner-journey loop clear is not preceded by SnapshotOtherLoopingMissions");
+            int announce = src.IndexOf(
+                "AnnounceClearedLoops(mission, wereLooping);", clear, StringComparison.Ordinal);
+            Assert.True(announce >= 0 && announce - clear < 400,
+                "partner-journey loop clear is not followed by AnnounceClearedLoops");
         }
 
         [Fact]
