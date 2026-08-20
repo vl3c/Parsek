@@ -207,6 +207,10 @@ count = { min = 0, max = 0 }
 # currentModelFinal=99.9952545 preFixModelFinal=99.30036 errCurrent=0` - the same
 # verdict the sibling read, which is the point: the cell is fixture-independent.
 #
+# RE-FLOWN GREEN on `2026-08-20_2140` after the branch-review pass (PASS attempt 1,
+# 56 s, same tally, same `agreesWith=current` verdict, GUARDED census ZERO), so the
+# pin is measured against the DLL this branch ships.
+#
 # RUN `2026-08-20_2117`: PASS attempt 1, 54 s wall, fully unattended, every verifier
 # PASS/REPORT (driverValidity, batchComplete `failed=0`, analyzer red=0, logValidate,
 # anomalySweep `hits=[] counts={}`, unityExceptions `gating=True total=0`,
