@@ -1,12 +1,13 @@
 schema = 1
 id = "L4-ledger-groundtruth-strict"
-# READING RUN. `operator` for exactly as long as this spec's numbers are
-# PREDICTIONS, which is the tier discipline L2's B.1 established and 4c wrote
-# down: the promotion to `nightly` lands in the SAME commit that pins the
-# measurement, never as a follow-up. What is unmeasured here is the one thing
-# the run exists to measure - how many report-only per-identity divergences
-# this subject carries, i.e. what strict actually promotes.
-tier = "operator"
+# PROMOTED operator -> nightly 2026-08-20, in the SAME commit that pins the
+# measurements - the tier discipline L2's B.1 established and 4c wrote down. It
+# shipped `operator` for exactly as long as its numbers were PREDICTIONS, and
+# they are now measurements off run `2026-08-20_1519`. Nothing operator-shaped
+# was ever owed: seam driver, no RequiresFlight verb, no human judgement in the
+# loop. `nightly` rather than `daily` is the batch-only shape's home, matching
+# L2 next door.
+tier = "nightly"
 # WHAT THIS IS. The career-ledger lane's B.4 STRICT-PER-IDENTITY scenario: L2's
 # ground-truth loop, run against a career that EARNED, with
 # `LedgerGroundTruthDiff.StrictPerIdentityForTesting` armed through the
@@ -45,9 +46,9 @@ tier = "operator"
 # what `career-earned-pad` is. There is no third seam route: `LoadGame` is the
 # only verb that reaches FLIGHT, and it reaches it only through a save that
 # already holds a focusable vessel.
-description = "Reading run: drive the LedgerGroundTruth category with strict per-identity mode ARMED against a career that earned flight science and a crewed recovery, and measure what strict promotes."
+description = "Armed: drive the LedgerGroundTruth category with strict per-identity mode against a career that earned flight science and a crewed recovery, and gate that EVERY per-identity facet - not merely the seeded pools - reconstructs to agree with KSP's own save."
 instanceProfile = "stock-minimal"
-tags = ["ledger", "L4", "ingame-batch", "ground-truth", "strict", "reading-run"]
+tags = ["ledger", "L4", "ingame-batch", "ground-truth", "strict"]
 
 [fixture]
 # `career-earned-pad`: the save harness run `2026-08-19_2130_L3-career-science-`
@@ -110,13 +111,30 @@ steps = [
 ]
 
 [dimensionsCovered]
-# CONSERVATIVE ON PURPOSE, exactly as L3's reading run was: a reading run may
-# claim only what its required tokens actually BACK, and this run's own headline
-# number is unmeasured. D8 `ground-truth-harness` is NOT re-claimed here either -
-# L2 already covers that cell, and claiming it twice would say nothing new. The
-# per-identity D8 cells this fixture physically exercises (`science`,
-# `milestones`, `kerbals`) become claimable in the arming commit, alongside the
-# exact `result:` token that would gate them.
+# CLAIMED IN THE ARMING COMMIT (2026-08-20), and the wording of the claim matters
+# as much as the list.
+#
+# WHAT IS CLAIMED, and what BACKS it. `result: hardFailures=0 reportOnly=0
+# facetsCompared=10 strict=True` is the whole backing: under strict, `hardFailures`
+# counts EVERY per-identity divergence, so a zero there is a positive statement
+# about each facet below rather than about the pools alone.
+#
+#   `science`     `CompareSubjectScience: reconSubjects=3 saveSubjects=3
+#                 mismatches=0 phantoms=0` - three flight subjects (crewReport,
+#                 mysteryGoo, recovery@KerbinFlew) reconstructed per identity, not
+#                 merely summed into the pool. THIS is the facet L2 could not claim:
+#                 on career-pad-craft the same compare reads 0 against 0.
+#   `milestones`  `CompareMilestones: reconCredited=5 saveCompleted=4 phantoms=0
+#                 missing=0` - a two-sided compare in BOTH directions.
+#   `funds`       `CompareRecovery: credits=1 hardViolations=0 reportOnly=0
+#                 consistent=1` - the vessel-recovery credit resolved to a real
+#                 recording and correlated against the save's vessel set.
+#
+# D8 `ground-truth-harness` is NOT re-claimed: L2 already covers that cell, and the
+# LOOP is not what this spec adds. `kerbals` is NOT claimed either, and the reason
+# is measured rather than assumed - the P9a cell SKIPPED (see the tally note), so
+# nothing here gates a kerbal-identity assertion.
+D8 = ["science", "milestones", "funds"]
 D14 = ["career", "scene-flight"]
 
 [expectations]
@@ -135,66 +153,85 @@ allowedAnomalies = []
 count = { min = 2, max = 2 }
 
 [expectations.logContracts]
-# ANTI-VACUITY WITHOUT PREDICTING THE OUTCOME, which is the whole authoring
-# problem of a strict reading run and is worth stating plainly.
+# ############ MEASURED 2026-08-20, AND ONE OF THE TWO MOVED ############
+# Both lines below are read TOKEN FOR TOKEN out of the collected KSP.log of run
+# `2026-08-20_1519_L4-ledger-groundtruth-strict` (PASS attempt 1, 55 s). The
+# reading run `2026-08-20_1508` measured a DIFFERENT `result:` line, and the
+# difference is the whole story of this arming - see the ledger at the bottom.
 #
-# `hlib.batch_contract_vacuity_gap` requires ONE required pattern that rejects the
-# entire vacuous family on its own, and the gate's own error text names the form
-# used here: `passed=[1-9][0-9]*` "when the exact split is not yet measured".
-# `total=2` is a LITERAL and is DERIVED, not guessed - `hlib.derive_batch_tally`
-# over the C# attributes gives total=2, scene-skipped 0, batch-skipped 0,
-# executable 2 for `LedgerGroundTruth` on a FLIGHT-routing fixture.
+# THE TALLY. `total=2` was DERIVED before either flight (`hlib.derive_batch_tally`
+# over the C# attributes: total 2, scene-skipped 0, batch-skipped 0, executable 2)
+# and both flights confirmed it. The split is MEASURED:
+#   passed=1   the ground-truth cell EXECUTING and closing - it cleared all six
+#              guards, quicksaved the live career, re-parsed that file off disk,
+#              ran RecalculateAndPatch over the fixture's 14-action ledger and
+#              diffed 10 facets to zero.
+#   skipped=1  the P9a cell (`KerbalExperienceReassertTest
+#              .SurvivingCareerLogEntriesAreOnTheLiveRoster`), quoted here so a
+#              future change of REASON shows up as a diff rather than a number:
+#                "No KerbalExperience rows in the effective ledger - recover a
+#                 crewed vessel first, then rerun."
+#              THIS ONE IS WORTH READING TWICE. L2's header predicted that a
+#              fixture carrying a recorded crewed recovery would flip this cell to
+#              passing ("if it ever reads passed=2, the fixture changed"). This
+#              fixture HAS one - the ledger's `FundsEarning`/`Recovery` row resolves
+#              to a real recording, and `CompareRecovery` reads it - and the cell
+#              STILL skips, because it needs a `GameActionType.KerbalExperience`
+#              row specifically, which a recovery does not by itself produce. The
+#              prediction was wrong and this is where that is recorded; `kerbals`
+#              is deliberately NOT claimed in D8 above as a consequence.
 #
-# WHAT IS DELIBERATELY LEFT OPEN, and why each:
-#   `passed=` / `failed=` / `skipped=`  BOTH cells carry run-time
-#       `InGameAssert.Skip` guards the runner cannot predict, and one of them is
-#       the very cell under test. Pinning `failed=0` would turn this reading run
-#       into a gate on the number it exists to measure. `passed=[1-9][0-9]*` still
-#       rejects every vacuous tally.
-#   the P9a cell's verdict            `KerbalExperienceReassertTest
-#       .SurvivingCareerLogEntriesAreOnTheLiveRoster` shares this category and
-#       needs an ELS carrying a `GameActionType.KerbalExperience` row. On
-#       `career-pad-craft` L2 measured it SKIPPING for want of a recorded crewed
-#       recovery - and this fixture HAS one, so it may now execute. L2's header
-#       says "if it ever reads passed=2, the fixture changed"; here the fixture
-#       changed on purpose, and this run is what reads the consequence.
+# THE RESULT LINE, and every token in it does work:
+#   `hardFailures=0`     the value the cell's own InGameAssert.IsTrue(hard == 0)
+#                        reads, so the pin and the assertion cannot drift apart.
+#                        UNDER STRICT this is the strong form: it counts every
+#                        per-identity divergence, not just the seeded pools.
+#   `reportOnly=0`       a DERIVATION, not a measurement - strict promotes the whole
+#                        report-only set, so the residue is 0 by construction. A
+#                        non-zero one means `HardFailures` stopped promoting.
+#   `facetsCompared=10`  the ANTI-VACUITY half, and THREE MORE THAN L2's 7 - the
+#                        measured difference between a thin subject and a rich one
+#                        (this career adds the recovery, milestone and kerbal-career-
+#                        log facets). A facet that silently stopped comparing reds
+#                        here instead of greening on an emptier loop.
+#   `strict=True`        capital T: it is `bool.ToString(InvariantCulture)`, not the
+#                        lowercase wire literal. It is BOTH the arming's witness and
+#                        the DLL verification - a batch that ran the default diff
+#                        cannot emit it, so greening on a stale automation DLL is
+#                        impossible.
 #
-# `strict=True` (capital T - it is `bool.ToString(InvariantCulture)`, not the
-# lowercase wire literal) is the load-bearing token of the whole spec. It is
-# BOTH the arming's own witness and the DLL verification: a batch that ran the
-# default diff cannot emit it, so a run that greens on a stale automation DLL is
-# impossible. `reportOnly=0` is pinned as a DERIVATION rather than a measurement -
-# strict promotes the whole report-only set, so the residue is 0 by construction,
-# and a non-zero one would mean `HardFailures` had stopped promoting.
-# `facetsCompared=[1-9][0-9]*` is the second anti-vacuity half: a diff that
-# compared NOTHING would also report zero of everything.
+# RE-PIN CONTRACT: a flight that measures different text gets these lines REPLACED
+# with the measured ones plus the run id, and the facet count re-derived
+# deliberately - never nudged toward what was expected.
+# #######################################################################
 required = [
-  "BATCH_COMPLETE v1 total=2 passed=[1-9][0-9]* failed=[0-9]+ skipped=[0-9]+ category=LedgerGroundTruth scene=FLIGHT",
-  "result: hardFailures=[0-9]+ reportOnly=0 facetsCompared=[1-9][0-9]* strict=True",
+  "BATCH_COMPLETE v1 total=2 passed=1 failed=0 skipped=1 category=LedgerGroundTruth scene=FLIGHT",
+  "result: hardFailures=0 reportOnly=0 facetsCompared=10 strict=True",
 ]
 # The cell reports every facet at Warn (report.Format()), never at Error, so a
 # Parsek ERROR line here is a genuine defect signal and not the diff talking.
 forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
 
-# NO [expectations.ledger] AND NO [expectations.unityExceptions] BLOCK, both
-# deferred to the arming commit and neither overlooked - the same split L2 used
-# between B.1 and B.2, and L3 between its reading run and its promotion. Arming
-# either costs an edit to a hardcoded allowlist in `harness/lib/test_hlib.py`,
-# and every armed 0 in that table is a measurement off that spec's OWN flown
-# runs. This spec has none yet.
+# STILL NO [expectations.ledger] AND NO [expectations.unityExceptions] BLOCK, and
+# both are now DECLINED rather than deferred - a different thing from the reading
+# run's posture, so it is restated rather than left standing.
 #
-# The ledger block additionally has a real question behind it here that L2 already
-# answered for its own fixture and this one has not: the cell calls
-# `LedgerOrchestrator.RecalculateAndPatch()`, which WRITES the reconstruction into
-# the live Funding / RnD / Reputation singletons before restoring the pre-test
-# pools in a finally. On `career-pad-craft` B.1 measured that patch-then-restore
-# as a NO-OP, so the produced save came out at the seed. On THIS career the
-# reconstruction closes to float noise rather than exactly (science +2.14e-06,
-# reputation +2.36e-07 - see `C2CareerPostFixReplayTests`), and both are below
-# `FacetTolerances.Default` (science 0.1, rep 0.1) and below the patchers' own
-# 0.01 restore thresholds - but "below the threshold" is a derivation, and whether
-# the produced save comes out bit-identical to the staged one is exactly the kind
-# of thing this reading run should MEASURE before anything gates on it.
+# unityExceptions: run `2026-08-20_1519` measured `total=0` across all four counted
+# classes, so the number is in hand. It is NOT armed because ONE reading is the
+# thinner half of the evidence an armed 0 wants, and this spec's gate already
+# carries the whole claim: a raw Unity exception during the diff would have to pass
+# through `hardFailures=0` to green. The scan runs report-only on every run and
+# records the count in `detail.unityExceptions` meanwhile.
+#
+# ledger: the M-B2 oracle has no report-only mode, and unlike L2's fixture this
+# career does NOT reconstruct to exactly its own pools - it closes to float noise
+# (science +2.14e-06, reputation +2.36e-07; see `C2CareerPostFixReplayTests`). Both
+# residuals sit below `FacetTolerances.Default` AND below the patchers' own 0.01
+# restore thresholds, and run `2026-08-20_1519` came out with the produced save at
+# the staged values - but an empty-manifest oracle block asserts bit-equality of the
+# PRODUCED save against the SEED across a patch-then-restore, and arming that on a
+# subject whose reconstruction is deliberately not bit-exact would be arming a
+# float-noise tripwire. The gate this spec exists for is the diff, not the pools.
 
 [runtime]
 # 720, matching L2's batch-only shape on this instance profile: 300 (LoadGame) +
@@ -207,3 +244,113 @@ policy = "once"
 
 [expectedFail]
 bugId = ""
+
+# ===========================================================================
+# THE ARMING RUN LEDGER (career-ledger wave C, 2026-08-20)
+#
+# THREE FLIGHTS, TWO DLLs, and the DLL split is the point rather than a footnote:
+# the reading run FOUND A DEFECT, and the arming stands on a build that fixed it.
+#
+#   `2026-08-20_1508`  READING RUN. PARSEK-FAIL, 75 s, on the PRE-FIX DLL - and
+#                      the red IS the measurement this run existed to take.
+#                      Measured `result: hardFailures=2 reportOnly=0
+#                      facetsCompared=10 strict=True` on exactly two divergences:
+#                        facet=Milestone kind=PhantomInRecon id=FirstLaunch
+#                        facet=Milestone kind=PhantomInRecon id=Kerbin/Science
+#                      EVERYTHING ELSE AGREED, which is what made the diagnosis
+#                      cheap: `CompareSubjectScience: reconSubjects=3 saveSubjects=3
+#                      mismatches=0 phantoms=0`, `CompareRecovery: credits=1
+#                      hardViolations=0 reportOnly=0 consistent=1` (the re-stamp
+#                      working exactly as designed), roster / tech / contracts /
+#                      facilities clean. Every other verifier was green: analyzer
+#                      red=0, logValidate PASS, driverValidity PASS, saveParse
+#                      clean, recordings 2 exactly as pinned.
+#                      NOT RETRIED, and not a fixture fault: the RECONSTRUCTION was
+#                      right and the save-side PARSE was short.
+#                      `CareerSaveParser` read only `completed`, while decompiled
+#                      `ProgressNode.Save` writes completion under one of THREE
+#                      keys, and the walk stopped at any node carrying `reached`,
+#                      so a body node's children were invisible. Filed and fixed as
+#                      CAREER-SAVE-PARSER-UNDERCOUNTS-COMPLETED-MILESTONES.
+#
+#   `2026-08-20_1519`  ARMED RUN. PASS attempt 1, 55 s, on the FIXED DLL
+#                      (rebuilt from this branch, deployed by `python
+#                      provision/provision.py --profile stock-minimal`, and
+#                      hash-verified against the worktree build - the new
+#                      `completedManned` / `completedUnmanned` literals are present
+#                      in the automation instance's own Parsek.dll, and the log's
+#                      `runtests start category=LedgerGroundTruth isolated=false
+#                      strict=true` echo confirms the seam ran armed).
+#                      Every verifier PASS or REPORT: driverValidity PASS,
+#                      batchComplete PASS `failed=0`, analyzer red=0, logValidate
+#                      PASS, anomalySweep `hits=[] counts={}`, unityExceptions
+#                      REPORT `total=0`, expectations `mismatches=0`, saveParse
+#                      REPORT clean (1 tree, 2 recordings, 527 points), recordings
+#                      2 exactly as pinned.
+#                      THE FIX MOVED EXACTLY WHAT IT SHOULD AND NOTHING ELSE:
+#                      `ParseMilestones` 5/1 -> 7 all / 3 completed (8/4 emitted
+#                      with both spellings), `CompareMilestones` phantoms 2 -> 0
+#                      with `missing=0` still, and `facetsCompared` stayed 10. The
+#                      two pinned lines above are read out of this run's log.
+#
+#   THE NEGATIVE CONTROLS - THREE ATTEMPTS, and the two that FAILED TO RED are
+#   kept because each measured a real property of this gate that nothing else
+#   states. A control that cannot break the thing it is controlling is evidence
+#   about the subject, not a mistake to delete.
+#
+#   `2026-08-20_1525`  CONTROL 1, DID NOT RED (PASS, 53 s). Corrupted the SAVE's
+#                      per-subject science - `crewReport@KerbinSrfLandedLaunchPad`
+#                      `sci = 3` -> `7` - to raise a `CompareSubjectScience`
+#                      per-identity ValueMismatch, report-only by default and
+#                      exactly what strict promotes. The pool was deliberately left
+#                      alone so only the per-identity facet could red.
+#                      WHY IT DID NOT: PARSEK HEALED IT BEFORE THE MEASUREMENT.
+#                      `PatchPerSubjectScience: all 1 changed subject(s):
+#                      crewReport@KerbinSrfLandedLaunchPad:7->3` fired on the
+#                      load-time recalc, three seconds BEFORE the cell took its
+#                      ground-truth quicksave - and the cell quicksaves the LIVE
+#                      career, so the corruption never reached the diff
+#                      (`CompareSubjectScience: ... mismatches=0 phantoms=0`).
+#
+#   `2026-08-20_1527`  CONTROL 2, DID NOT RED (PASS, 55 s). Stripped
+#                      `completedManned = 15.12` from the save's `FirstLaunch`
+#                      Progress node, reproducing by hand the exact phantom the
+#                      reading run found - chosen BECAUSE that class had just been
+#                      shown to survive the load-time recalc.
+#                      WHY IT DID NOT: KSP HEALED THIS ONE. `ProgressTracking`
+#                      re-achieves `FirstLaunch` on load (the craft is on the pad),
+#                      so the quicksave carried `completedManned` again and the
+#                      parse read the clean `all=7 completed=3`.
+#
+#   THE PROPERTY THOSE TWO ESTABLISH, and it is worth knowing before anyone writes
+#   the next control for this cell: **fixture-side corruption of any facet the load
+#   path re-establishes is not injectable here.** The cell measures the LIVE career
+#   as of its own quicksave, which is downstream of both Parsek's patcher and KSP's
+#   own progress re-evaluation. It does not weaken the gate - the reading run's
+#   phantoms DID survive, because they were a defect in how the save was READ
+#   rather than a value anything re-asserts - but it does mean a control has to
+#   target the measurement rather than the subject.
+#
+#   `2026-08-20_1528`  CONTROL 3, RED AS INTENDED. `PARSEK-FAIL(expectation)`,
+#                      53 s. ONE character changed: the RunTests step's
+#                      `strict = "true"` -> `"false"`, nothing else. MEASURED:
+#                        logContracts.required not matched: result: hardFailures=0
+#                        reportOnly=0 facetsCompared=10 strict=True
+#                      with the log reading `strict=False` and the seam echo
+#                      reading `runtests start ... strict=false`. Reverted.
+#                      THIS IS THE CONTROL AN ARMING ACTUALLY NEEDS: it proves the
+#                      arming cannot be silently DROPPED. Every other verifier
+#                      stayed green on that run - the default diff also reports
+#                      `hardFailures=0` on this healthy subject - so without the
+#                      pinned `strict=True` token, disarming this spec would have
+#                      passed unnoticed and the gate would have quietly degraded to
+#                      L2's. The token is what makes the difference observable, and
+#                      this run is what proves the token bites.
+#
+#   WHAT PROVES STRICT'S PROMOTION ITSELF CHANGES THE VERDICT is not a control run
+#   but the READING RUN plus a unit cell: `2026-08-20_1508` measured
+#   `hardFailures=2` on two Milestone divergences, and `Milestone` is not in
+#   `LedgerGroundTruthDiff.IsAlwaysHard`'s set - so under the DEFAULT diff those
+#   same two would have been `reportOnly=2` and the cell would have PASSED. That
+#   A/B is asserted directly by `Diff_MilestoneStrictMode_PromotesReportOnly`.
+# ===========================================================================

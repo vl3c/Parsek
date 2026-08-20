@@ -625,7 +625,25 @@ per-subject science, facilities, contracts, milestones, roster, tech, kerbal car
 pid-only recovery matches and phantoms alike. It is not a per-facet dial, and `reportOnly`
 on a strict run is 0 BY CONSTRUCTION.
 
-**THE THREE-RUN LEDGER** is kept at the bottom of the spec file, in the L2 form.
+**THE FLIGHTS, and the reading run is the one that earned its keep.**
+
+| Run | What it was | Outcome |
+| --- | --- | --- |
+| `2026-08-20_1508` | READING RUN, strict armed, pre-fix DLL | **PARSEK-FAIL, and the red IS the measurement.** `result: hardFailures=2 reportOnly=0 facetsCompared=10 strict=True` on exactly two `PhantomInRecon` milestones (`FirstLaunch`, `Kerbin/Science`) and nothing else - science 3-vs-3 clean, the recovery credit consistent, roster / tech / contracts / facilities clean. The reconstruction was RIGHT and the save-side PARSE was short. NOT retried. Filed and fixed as CAREER-SAVE-PARSER-UNDERCOUNTS-COMPLETED-MILESTONES. |
+| `2026-08-20_1519` | ARMED RUN, fixed DLL | **PASS attempt 1**, 55 s, every verifier PASS or REPORT. `BATCH_COMPLETE v1 total=2 passed=1 failed=0 skipped=1`, `result: hardFailures=0 reportOnly=0 facetsCompared=10 strict=True`. The fix moved exactly what it should: `ParseMilestones` 5/1 -> 7/3, phantoms 2 -> 0, `facetsCompared` unchanged at 10. |
+| `2026-08-20_1525` / `_1527` | negative controls 1 and 2 | **DID NOT RED, and both are kept as evidence.** Control 1 corrupted a per-subject science value; Parsek's own load-time `PatchPerSubjectScience` healed it (`7->3`) BEFORE the cell's quicksave. Control 2 stripped `FirstLaunch`'s completion key; KSP's `ProgressTracking` re-achieved it on load. Together they establish a property nothing else states: **fixture-side corruption of any facet the load path re-establishes is not injectable into this cell**, because it measures the LIVE career as of its own quicksave. The reading run's phantoms survived precisely because they were a defect in how the save was READ. |
+| `2026-08-20_1528` | negative control 3 | **RED AS INTENDED.** `PARSEK-FAIL(expectation)` on `logContracts.required not matched: result: ... strict=True`, from flipping the step's `strict = "true"` to `"false"` and nothing else. This is the control an arming needs: every other verifier stayed green (the default diff also reports `hardFailures=0` on a healthy subject), so without the pinned `strict=True` token a silent disarm would have passed unnoticed. Reverted. |
+
+**What proves strict's promotion itself changes the verdict** is the reading run plus
+a unit cell rather than a control flight: `Milestone` is not in
+`LedgerGroundTruthDiff.IsAlwaysHard`'s set, so `_1508`'s two divergences would have
+been `reportOnly=2` and PASSED under the default diff -
+`Diff_MilestoneStrictMode_PromotesReportOnly` asserts exactly that A/B.
+
+**WAVE C IS COMPLETE.** `StrictPerIdentityForTesting` is settable (B.4) AND armed
+(here), on a subject whose per-identity facets are populated and two-sided. The lane's
+`test_no_committed_spec_arms_the_runtests_strict_arg` fence is REWRITTEN, not deleted,
+into `RUNTESTS_STRICT_ARMED_SPECS` - a roster a SECOND arming still reds against.
 
 ### Phase C - Manufacture a career subject (**largely obsolete - c2 exists; see 4d**)
 
