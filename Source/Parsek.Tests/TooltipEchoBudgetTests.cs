@@ -27,7 +27,7 @@ namespace Parsek.Tests
     /// exactly the direction a guard wants.</para>
     ///
     /// <para><b>What this gate covers.</b> Every <c>new GUIContent(label, tooltip)</c>
-    /// in the six strip-hosting windows whose tooltip argument is a plain string
+    /// in the strip-hosting windows whose tooltip argument is a plain string
     /// literal (or a concatenation of them) - the population that a copy edit can
     /// actually regress. Tooltips assembled at runtime from data (recording names,
     /// hold reasons, in-game test descriptions) cannot be pinned by a source scan;
@@ -51,16 +51,37 @@ namespace Parsek.Tests
         private const int StripLines = 2;
 
         /// <summary>
-        /// The six strip-hosting windows: source path, the window's first-open width in
+        /// The strip-hosting windows: source path, the window's first-open width in
         /// px, and the minimum number of literal GUIContent tooltips the scan must find
         /// in that file (a floor, not a target - raise it only if the parser is proven).
+        ///
+        /// <para>The narrowest entry is the main window at 250 px, which is also the mod's
+        /// entry point: every launcher in it must say what its window is for in about 62
+        /// characters. Width is the WINDOW's, never the control's - the strip spans the
+        /// content width, so a sentence that fits Logistics clips in the main window.</para>
         /// </summary>
         public static IEnumerable<object[]> StripWindows()
         {
+            // Main window: both hosts (ParsekFlight, ParsekKSC) pin GUILayout.Width(250).
+            yield return new object[] { "ParsekUI.cs", 250f, 8 };
             // Settings: DrawIfOpen seeds new Rect(..., 280, 600) on first open.
             yield return new object[] { "UI/SettingsWindowUI.cs", 280f, 15 };
+            // Gloops Flight Recorder: first-open DefaultWindowWidth = 280.
+            yield return new object[] { "UI/GloopsRecorderUI.cs", 280f, 3 };
+            // Kerbals: DefaultWindowWidth = 410 (half of Career's 820, side by side).
+            yield return new object[] { "UI/KerbalsWindowUI.cs", 410f, 5 };
+            // Career State: DefaultWindowWidth = 820.
+            yield return new object[] { "UI/CareerStateWindowUI.cs", 820f, 14 };
+            // Timeline: DefaultWindowWidth = CareerStateWindowUI.DefaultWindowWidth (820).
+            yield return new object[] { "UI/TimelineWindowUI.cs", 820f, 14 };
             // Recordings: DefaultCollapsedWindowWidth = 1205 + ColW_Rewind(60) + ColW_ReFly(90).
             yield return new object[] { "UI/RecordingsTableUI.cs", 1355f, 3 };
+            // Missions is not its own window: MissionsWindowUI.DrawMissionsTabContent draws
+            // INSIDE the Recordings window, so its tooltips echo in that window's strip and
+            // are budgeted at that window's width. Floor 0 on purpose - every tooltip it
+            // renders today comes from MissionPresentation (a const or a runtime build), so
+            // the scan finds none; the row exists to budget the first literal added here.
+            yield return new object[] { "UI/MissionsWindowUI.cs", 1355f, 0 };
             // Logistics: first-open default new Rect(..., 1556, 500).
             yield return new object[] { "UI/LogisticsWindowUI.cs", 1556f, 20 };
             // Real Spawn Control: first-open default new Rect(..., 750, 200).

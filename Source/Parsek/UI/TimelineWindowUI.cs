@@ -62,6 +62,13 @@ namespace Parsek
         // Every button in the Timeline's top zone uses the same width so the rows align.
         private const float FilterButtonWidth = 93f;
 
+        // Bottom "hovered control help text" strip. See TooltipEchoBox for why it is a
+        // permanently visible box of constant height. This window already authored a
+        // tooltip on nearly every filter toggle and row action; before the strip landed
+        // none of them were reachable, because KSP draws no tooltip layer of its own.
+        // Default spacing (3f) matches every other window's SpacingSmall.
+        private readonly TooltipEchoBox tooltipEcho = new TooltipEchoBox();
+
         // Cached timeline data (invalidated on triggers)
         private List<TimelineEntry> cachedTimeline;
         private bool timelineDirty = true;
@@ -455,6 +462,12 @@ namespace Parsek
             // Warp-to-time row (above Close).
             DrawWarpRow();
 
+            // Bottom "hovered control help text" strip (shared house helper), drawn after
+            // every filter, row and the warp row (so the live GUI.tooltip read sees a
+            // hovered control) and directly above the Close button - the house ordering
+            // every Parsek window uses. Fixed two-line height, always present.
+            tooltipEcho.Draw();
+
             if (GUILayout.Button("Close"))
             {
                 CloseWindow();
@@ -708,12 +721,18 @@ namespace Parsek
             bool overviewActive = tierFilterMode == TimelineTierFilterMode.Overview;
             bool detailActive = tierFilterMode == TimelineTierFilterMode.Details;
 
-            if (GUILayout.Toggle(overviewActive, "Overview", toggleButtonStyle, GUILayout.Width(btnW)) && !overviewActive)
+            if (GUILayout.Toggle(overviewActive,
+                    new GUIContent("Overview",
+                        "Shows only the headline rows: launches, endings and career events."),
+                    toggleButtonStyle, GUILayout.Width(btnW)) && !overviewActive)
             {
                 tierFilterMode = TimelineTierFilterMode.Overview;
                 ParsekLog.Verbose("UI", "Timeline filter: Overview");
             }
-            if (GUILayout.Toggle(detailActive, "Details", toggleButtonStyle, GUILayout.Width(btnW)) && !detailActive)
+            if (GUILayout.Toggle(detailActive,
+                    new GUIContent("Details",
+                        "Adds the fine-grained rows Overview hides, such as staging and docking."),
+                    toggleButtonStyle, GUILayout.Width(btnW)) && !detailActive)
             {
                 tierFilterMode = TimelineTierFilterMode.Details;
                 ParsekLog.Verbose("UI", "Timeline filter: Details");
@@ -736,20 +755,29 @@ namespace Parsek
             // Source toggles (columns 4-6).
             bool previousGuiEnabled = GUI.enabled;
             GUI.enabled = !actionFilterMode;
-            bool newShowRec = GUILayout.Toggle(showRecordingEntries, "Recordings", toggleButtonStyle, GUILayout.Width(btnW));
+            bool newShowRec = GUILayout.Toggle(showRecordingEntries,
+                new GUIContent("Recordings",
+                    "Shows or hides the rows that come from your recorded flights."),
+                toggleButtonStyle, GUILayout.Width(btnW));
             if (newShowRec != showRecordingEntries)
             {
                 showRecordingEntries = newShowRec;
                 ParsekLog.Verbose("UI", $"Timeline source toggle: Recordings={showRecordingEntries}");
             }
-            bool newShowAct = GUILayout.Toggle(showActionEntries, "Actions", toggleButtonStyle, GUILayout.Width(btnW));
+            bool newShowAct = GUILayout.Toggle(showActionEntries,
+                new GUIContent("Actions",
+                    "Shows or hides career moves: funds, science, contracts, upgrades."),
+                toggleButtonStyle, GUILayout.Width(btnW));
             if (newShowAct != showActionEntries)
             {
                 showActionEntries = newShowAct;
                 ParsekLog.Verbose("UI", $"Timeline source toggle: Actions={showActionEntries}");
             }
 
-            bool newShowEvt = GUILayout.Toggle(showEventEntries, "Events", toggleButtonStyle, GUILayout.Width(btnW));
+            bool newShowEvt = GUILayout.Toggle(showEventEntries,
+                new GUIContent("Events",
+                    "Shows or hides in-flight happenings such as crew deaths and recoveries."),
+                toggleButtonStyle, GUILayout.Width(btnW));
             if (newShowEvt != showEventEntries)
             {
                 showEventEntries = newShowEvt;
@@ -763,7 +791,8 @@ namespace Parsek
             bool rewindOrFastForwardActive = tierFilterMode == TimelineTierFilterMode.RewindOrFastForward;
             if (GUILayout.Toggle(
                     rewindOrFastForwardActive,
-                    new GUIContent("Rewind/FF", "Show rows with R or FF."),
+                    new GUIContent("Rewind/FF",
+                        "Shows only the flights you can rewind to or fast-forward to."),
                     toggleButtonStyle,
                     GUILayout.Width(btnW)) &&
                 !rewindOrFastForwardActive)
@@ -776,7 +805,8 @@ namespace Parsek
             bool reFlyActive = tierFilterMode == TimelineTierFilterMode.ReFly;
             if (GUILayout.Toggle(
                     reFlyActive,
-                    new GUIContent("Re-Fly", "Show rows with Fly or Seal."),
+                    new GUIContent("Re-Fly",
+                        "Shows only the flights you can fly again or seal as final."),
                     toggleButtonStyle,
                     GUILayout.Width(btnW)) &&
                 !reFlyActive)
@@ -805,10 +835,11 @@ namespace Parsek
                 // just removed elsewhere. Mode-dependent text is permitted (design 9.1)
                 // but unnecessary here: wording that describes the ITEMS rather than the
                 // surface is correct in both modes and needs no mode read.
+                // No hard newlines: the help strip is exactly two wrapped lines, so a \n
+                // spends one of them and clips the rest (TooltipEchoBudgetTests).
                 new GUIContent("Archived",
-                    "Show rows for flights you archived.\n"
-                    + "This is the same Archive filter the recordings list uses, so turning it\n"
-                    + "on is how an archived flight comes back."),
+                    "Brings back rows for flights you archived - the same Archive filter "
+                    + "the recordings list uses."),
                 toggleButtonStyle,
                 GUILayout.Width(btnW));
             if (newShowArchived != showArchived)
@@ -865,18 +896,32 @@ namespace Parsek
             int secsPerDay = ParsekTimeFormat.SecsPerDay;
             int secsPerYear = ParsekTimeFormat.SecsPerYear;
 
-            DrawPresetButton(filter, "Last Day", currentUT - secsPerDay, currentUT, currentUT, btnW);
-            DrawPresetButton(filter, "Last 7d", currentUT - 7.0 * secsPerDay, currentUT, currentUT, btnW);
-            DrawPresetButton(filter, "Last 30d", currentUT - 30.0 * secsPerDay, currentUT, currentUT, btnW);
+            DrawPresetButton(filter,
+                new GUIContent("Last Day",
+                    "Narrows the list to rows from the last day of game time."),
+                currentUT - secsPerDay, currentUT, currentUT, btnW);
+            DrawPresetButton(filter,
+                new GUIContent("Last 7d",
+                    "Narrows the list to rows from the last seven days of game time."),
+                currentUT - 7.0 * secsPerDay, currentUT, currentUT, btnW);
+            DrawPresetButton(filter,
+                new GUIContent("Last 30d",
+                    "Narrows the list to rows from the last thirty days of game time."),
+                currentUT - 30.0 * secsPerDay, currentUT, currentUT, btnW);
 
             // "This Year" = current Kerbin/Earth calendar year boundaries
             double yearStart = System.Math.Floor(currentUT / secsPerYear) * secsPerYear;
             double yearEnd = yearStart + secsPerYear;
-            DrawPresetButton(filter, "This Year", yearStart, yearEnd, currentUT, btnW);
+            DrawPresetButton(filter,
+                new GUIContent("This Year",
+                    "Narrows the list to rows from the current game year."),
+                yearStart, yearEnd, currentUT, btnW);
 
             // "All" = clear filter
             bool allActive = !filter.IsActive;
-            if (GUILayout.Toggle(allActive, "All", toggleButtonStyle, GUILayout.Width(btnW)) && !allActive)
+            if (GUILayout.Toggle(allActive,
+                    new GUIContent("All", "Clears the time filter and shows the whole timeline."),
+                    toggleButtonStyle, GUILayout.Width(btnW)) && !allActive)
             {
                 filter.Clear();
                 sliderMin = sliderBoundMin;
@@ -887,7 +932,10 @@ namespace Parsek
             // "Custom" toggle at the end of the preset row — reveals the sliders underneath.
             if (hasRange)
             {
-                bool newShowCustom = GUILayout.Toggle(showCustomRange, "Custom", toggleButtonStyle, GUILayout.Width(btnW));
+                bool newShowCustom = GUILayout.Toggle(showCustomRange,
+                    new GUIContent("Custom",
+                        "Reveals sliders for picking your own start and end time."),
+                    toggleButtonStyle, GUILayout.Width(btnW));
                 if (newShowCustom != showCustomRange)
                 {
                     showCustomRange = newShowCustom;
@@ -948,11 +996,20 @@ namespace Parsek
             }
         }
 
-        private void DrawPresetButton(TimeRangeFilterState filter, string name,
+        /// <summary>
+        /// One time-range preset toggle. Takes the whole <see cref="GUIContent"/> rather
+        /// than a name plus a tooltip string so the caller's tooltip is a literal
+        /// <c>new GUIContent(...)</c> argument, which is the shape the help-strip budget
+        /// gate (TooltipEchoBudgetTests) can actually scan. The preset key is
+        /// <c>content.text</c>, so label and stored preset name cannot drift apart.
+        /// </summary>
+        private void DrawPresetButton(TimeRangeFilterState filter, GUIContent content,
             double minUT, double maxUT, double currentUT, float width)
         {
+            string name = content.text;
             bool isActive = filter.IsActive && filter.ActivePresetName == name;
-            if (GUILayout.Toggle(isActive, name, toggleButtonStyle, GUILayout.Width(width)) && !isActive)
+            if (GUILayout.Toggle(isActive, content, toggleButtonStyle,
+                    GUILayout.Width(width)) && !isActive)
             {
                 // Clamp to slider bounds so we don't filter outside the data range
                 double clampedMin = System.Math.Max(minUT, sliderBoundMin);
@@ -1669,7 +1726,10 @@ namespace Parsek
 
             var ic = System.Globalization.CultureInfo.InvariantCulture;
             GUILayout.Space(5);
-            GUILayout.Label("Resources", parentUI.GetSectionHeaderStyle());
+            GUILayout.Label(
+                new GUIContent("Resources",
+                    "What is left to spend once the flights ahead of you take their share."),
+                parentUI.GetSectionHeaderStyle());
 
             bool anyOverCommitted = false;
             bool isScienceMode = currentMode == Game.Modes.SCIENCE_SANDBOX;
@@ -1715,7 +1775,9 @@ namespace Parsek
             bool over = available < 0;
             Color prev = GUI.contentColor;
             if (over) GUI.contentColor = Color.red;
-            GUILayout.Label($"{label}: {available.ToString(format, ic)} available to use ({reserved.ToString(format, ic)} committed out of {total.ToString(format, ic)} total)");
+            GUILayout.Label(new GUIContent(
+                $"{label}: {available.ToString(format, ic)} available to use ({reserved.ToString(format, ic)} committed out of {total.ToString(format, ic)} total)",
+                "Committed means already promised to recorded flights that have not run yet."));
             GUI.contentColor = prev;
             return over;
         }

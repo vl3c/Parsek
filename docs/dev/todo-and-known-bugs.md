@@ -80,7 +80,7 @@ rewritten. How much fits is a property of the WINDOW, not the control: Settings 
 opens at 1556px (about 436), so eighteen Settings tooltips were four-line paragraphs
 clipping mid-sentence while the same length is unremarkable in Logistics. Two hard `\n`s
 went too - one spends a line whatever its length, and the Recordings Period header spent
-all four. The budget is now mechanical: `TooltipEchoBudgetTests` scans the six
+all four. The budget is now mechanical: `TooltipEchoBudgetTests` scans the
 strip-hosting files for literal `new GUIContent(label, tooltip)` calls and fails any
 tooltip over its file's pinned budget or carrying a `\n`, with each file pinning a
 minimum match count so a scanner regression cannot make the gate vacuous, plus direct
@@ -89,6 +89,27 @@ asserts on the two pure builders whose output the scan cannot see
 whose candidate-row composition also stopped joining with `\n`). Runtime-assembled
 tooltips (recording names, hold reasons, in-game test descriptions) stay outside the
 gate by construction.
+
+Coverage extension (same branch): the strip is no longer a six-window feature. It was
+added to the main launcher window (`ParsekUI.DrawWindow`, 250px - the narrowest host in
+the mod at about 62 chars, and the mod's entry point), the Gloops Flight Recorder
+(280px), Kerbals (410px), Career State (820px) and Timeline (820px), each at the same
+bottom-of-window position. Timeline was the strongest case: it already authored ~10
+tooltips that rendered NOWHERE (one of them a three-line `\n` paragraph), because KSP
+draws no tooltip layer of its own. Windows deliberately skipped: the Structure/Log
+window (read-only step list whose only control is Close) and the group picker (transient
+280x300 overlay where a permanent two-line box costs more list rows than it explains).
+Missions needs no strip of its own - `MissionsWindowUI.DrawMissionsTabContent` draws
+inside the Recordings window and already echoes there. The same pass added first-time-user
+tooltips to the controls that carried none (every main-window launcher, the Gloops
+buttons, both Kerbals tabs and their fold/cross-link rows, all four Career tabs plus the
+pending-section toggles and the UT / Status / Flow / Rewards column headers, and the
+Timeline tier, source, archive and time-range filters). `TooltipEchoBudgetTests` grew a
+row per new file, plus a floor-0 row for `MissionsWindowUI` (whose tooltips all come from
+`MissionPresentation`, so the scan finds none today) - twelve scanned files in total.
+None of the new adopters needs `ResetStyles`: `ParsekUI` and every sub-window it owns is
+constructed per scene by `ParsekFlight` / `ParsekKSC`, so a skin-scoped style never
+outlives its scene (only the DDOL `TestRunnerShortcut` has that problem).
 
 ## ~~SAME-TREE-DOCK-INVISIBLE-FROM-ABSORBED-SIDE: a cross-session dock inside one tree named nobody and was derivable from neither side~~ [FOUND by the 2026-08-12 dock/loop-coherence analysis (I2-ii); FIXED 2026-08-12/13, branches `same-tree-dock-claims` + `dock-event-graph` (design `docs/dev/design-dock-event-graph.md` 6.2 / 6.3-6.5, PR sequence steps 2-3)]
 
