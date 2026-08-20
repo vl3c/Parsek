@@ -11,6 +11,8 @@ caught against a real file (mirroring test_provlib.py's RealProfileFileTests).
 
 import contextlib
 import copy
+import glob
+import inspect
 import io
 import os
 import re
@@ -29,6 +31,7 @@ HARNESS_ROOT = os.path.dirname(HERE)
 REPO_ROOT = os.path.dirname(HARNESS_ROOT)
 REGISTRY_PATH = os.path.join(HARNESS_ROOT, "coverage", "registry.toml")
 SCENARIOS_DIR = os.path.join(HARNESS_ROOT, "scenarios")
+MISSIONS_DIR = os.path.join(HARNESS_ROOT, "missions")
 # The mod assembly the in-game test runner reflects over. DiscoverTests scans the
 # WHOLE executing assembly, so the sweep walks the whole project rather than just
 # InGameTests/ -- an [InGameTest] method that lands elsewhere in Parsek.dll counts
@@ -7411,6 +7414,107 @@ class AutopilotSpecValidationTests(unittest.TestCase):
         spec = load_spec("B10-career-passive-safety.toml")
         v = hlib.validate_spec(spec, reg)
         self.assertTrue(v.ok, "seam spec must be unaffected by the autopilot addition; errors=%s" % (v.errors,))
+
+
+class MissionSchemaDeclaredTypeTests(unittest.TestCase):
+    """Guard: every ``type`` a committed harness/missions/*.schema.toml declares must
+    be one hlib actually understands.
+
+    The regression this names is SILENT, not a load error. Three committed schemas
+    shipped ``type = "boolean"`` (b17_duna_direct, b26_laythe_vall,
+    m3_loop_arrival_dwell), which is not one of ``_check_param_type``'s spellings, so
+    the declaration fell through the whole if/elif chain, returned no errors, and
+    validated ANY value -- a string, a list, 7. A param that LOOKS type-checked and is
+    checked by nothing is worse than an undeclared one, and nothing red'd when it
+    happened; it was caught by eye while a fourth schema was being authored.
+
+    The accepted set is READ FROM ``hlib.MISSION_PARAM_TYPES`` rather than re-listed
+    here, so this cell cannot drift from the validator it guards. The last cell walks
+    the SAME hole in the mirror direction: a misspelled FACET key (``minimum`` for
+    ``min``, ``require`` for ``required``) is read by nobody and silently drops the
+    bound or makes the param optional, exactly the way a misspelled ``type`` silently
+    dropped the type check. Zero instances today; the guard is so there stay zero."""
+
+    def _declared_types(self):
+        """(schema filename, param name, declared type) for every committed schema."""
+        rows = []
+        paths = sorted(glob.glob(os.path.join(MISSIONS_DIR, "*.schema.toml")))
+        self.assertTrue(paths, "no mission schemas found under %s" % MISSIONS_DIR)
+        for path in paths:
+            with open(path, "rb") as fh:
+                schema = tomllib.load(fh)
+            for pname, decl in (schema.get("params") or {}).items():
+                rows.append((os.path.basename(path), pname, (decl or {}).get("type")))
+        return rows
+
+    def test_every_declared_type_is_one_hlib_accepts(self):
+        rows = self._declared_types()
+        self.assertTrue(rows, "no [params.*] declarations found to check")
+        bad = [row for row in rows if row[2] not in hlib.MISSION_PARAM_TYPES]
+        self.assertEqual(
+            [], bad,
+            "mission schema declares a type hlib does not accept (accepted: %s). "
+            "Such a declaration checks NOTHING -- it validates any value while "
+            "looking checked: %s" % (", ".join(hlib.MISSION_PARAM_TYPES), bad))
+
+    def test_accepted_set_matches_the_dispatch_chains_own_literals(self):
+        """The constant and the if/elif chain must not gain a spelling separately.
+        A spelling in the CHAIN but not the constant is rejected by the gate (a live
+        branch made dead); one in the CONSTANT but not the chain falls through
+        unchecked -- the exact hole this guard closes. Both directions red here, so
+        ``MISSION_PARAM_TYPES`` stays the honest single source the sweep above reads."""
+        src = inspect.getsource(hlib._check_param_type)
+        literals = set(re.findall(r'ptype\s*==\s*"([A-Za-z]+)"', src))
+        for group in re.findall(r'ptype\s+in\s+\(([^)]*)\)', src):
+            literals.update(re.findall(r'"([A-Za-z]+)"', group))
+        self.assertEqual(
+            set(hlib.MISSION_PARAM_TYPES), literals,
+            "hlib.MISSION_PARAM_TYPES and _check_param_type's dispatch literals "
+            "disagree; a type in the constant with no branch validates anything")
+
+    def test_an_unknown_spelling_rejects_instead_of_passing_anything(self):
+        """The gate is live, not documentation. Before it, ``"boolean"`` returned []
+        for every value; now it names the declaration as the fault."""
+        errs = hlib._check_param_type("padAlignEjection", "not-a-bool", {"type": "boolean"})
+        self.assertTrue(errs, "an unknown declared type must not validate silently")
+        self.assertTrue(any("unknown type" in e for e in errs), errs)
+        # Even a value that WOULD have been fine is rejected: the declaration is the
+        # fault, and a schema author must see it rather than have it pass by luck.
+        self.assertTrue(hlib._check_param_type("padAlignEjection", True, {"type": "boolean"}))
+        # ... while the corrected spelling checks the value for real, both ways.
+        self.assertEqual([], hlib._check_param_type("padAlignEjection", True,
+                                                    {"type": "bool"}))
+        self.assertTrue(hlib._check_param_type("padAlignEjection", "true",
+                                               {"type": "bool"}))
+
+    def test_every_declared_facet_key_is_one_hlib_actually_reads(self):
+        """Mirror of the type hole: hlib reads a fixed set of per-param facet keys and
+        IGNORES every other, so `minimum = 0.0` (for `min`) or `require = true` (for
+        `required`) silently drops a bound / makes a param optional with nothing red.
+        The known set is DERIVED from the validator's own ``decl.get("...")`` reads
+        rather than re-listed, so a facet hlib gains is admitted here automatically.
+        The subset assert below is the derivation's own sanity check: it reds if the
+        regex ever stops matching (a refactor to ``decl["type"]``, say) instead of
+        letting an empty set flag all 1,169 declarations as stray, and it reds if hlib
+        DROPS one of the four -- a deliberate change worth a look, not a silent one."""
+        src = (inspect.getsource(hlib._check_param_type)
+               + inspect.getsource(hlib._validate_mission_params))
+        read_facets = set(re.findall(r'decl\.get\(\s*"([A-Za-z]+)"', src))
+        self.assertLessEqual({"required", "type", "min", "max"}, read_facets,
+                             "hlib no longer reads a facet this guard derives from; "
+                             "derived set was %s" % (sorted(read_facets),))
+        stray = []
+        for path in sorted(glob.glob(os.path.join(MISSIONS_DIR, "*.schema.toml"))):
+            with open(path, "rb") as fh:
+                schema = tomllib.load(fh)
+            for pname, decl in (schema.get("params") or {}).items():
+                for facet in (decl or {}):
+                    if facet not in read_facets:
+                        stray.append((os.path.basename(path), pname, facet))
+        self.assertEqual([], stray,
+                         "mission schema declares a facet hlib never reads (read: %s); "
+                         "it is silently ignored, not applied: %s"
+                         % (sorted(read_facets), stray))
 
 
 class ClassifyMissionStepTests(unittest.TestCase):

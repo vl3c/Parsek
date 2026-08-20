@@ -8,6 +8,24 @@ All notable changes to Parsek are documented here.
 
 ### Dev
 
+- A check in the automated-testing harness that silently did nothing now does its
+  job. Each automated mission declares what type every one of its parameters must
+  be, and the validator understands a closed list of type names; three of those
+  declarations had written `boolean` where the list says `bool`. That is not an
+  error - it is a fall-through: the declaration matched no check at all, so the
+  parameter accepted any value whatsoever, a string or a list or 7. It was inert as
+  it stood, because every committed scenario either passes a genuine true/false
+  there or leaves the parameter out, but a parameter that looks type-checked and is
+  checked by nothing is worse than one that was never declared. The three are
+  corrected; an unrecognised type name now rejects loudly instead of passing
+  everything; and a new guard sweeps all 1,169 parameter declarations across every
+  committed mission on each test run, reading the list of accepted names out of the
+  validator itself rather than keeping a second copy that could drift, so another
+  misspelling cannot slip in unnoticed. The same sweep covers the mirror of that
+  hole: a misspelled facet name (`minimum` where the validator reads `min`) would
+  likewise be read by nobody, silently dropping a range bound. Test-tooling only;
+  no gameplay change.
+
 - GitHub Actions CI: every PR and every push to `main` now builds the mod and runs
   the xUnit suite on `ubuntu-latest` via `scripts/cloud-test.sh`
   (`.github/workflows/tests.yml`). The private `vl3c/ksp-refs` DLL repo is cloned
