@@ -246,6 +246,63 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void ApplyReputationCurve_StrategyConverterYield_ReproducesTheMeasuredPoolMove()
+        {
+            // THE ABSOLUTE STOCK-AGREEMENT ANCHOR for the query-family reputation credit.
+            // Both numbers were MEASURED in one live frame on harness run
+            // 2026-08-18_2140_L3-strategy-currency-conversion (Open-Source Tech Program at
+            // the stock default Factor 0.05, a 400-point ScienceTransmission award, live
+            // reputation 0):
+            //
+            //   the door's query delta  dR = 0.33540129661560059   (PRE-curve)
+            //   the reputation pool moved   0.33515101671218872    (POST-curve)
+            //
+            // The ledger row carries the FIRST number as NominalRep and this curve has to
+            // turn it into the SECOND. That makes the cell an assertion against KSP's own
+            // pool movement rather than against a pin of our arithmetic - the same
+            // standing as the two milestone cells above, and the reason the credit arm
+            // can be written at all.
+            var result = ReputationModule.ApplyReputationCurve(0.33540129661560059f, 0f);
+
+            Assert.True(Math.Abs(result.actualDelta - 0.33515101671218872f) < 1e-6f,
+                $"the measured live pool move is 0.33515101671218872; curve produced " +
+                $"{result.actualDelta:R}");
+            Assert.True(Math.Abs(result.newRep - 0.33515101671218872f) < 1e-6f,
+                $"from rep 0 the new pool must equal the delta; was {result.newRep:R}");
+        }
+
+        [Fact]
+        public void ProcessRepEarning_StrategySource_AppliesTheCurveLikeAnyNominalEarning()
+        {
+            // The Strategy source is a NOMINAL source: it must NOT take the no-recurve
+            // shortcut ReputationPenaltySource.Strategy takes (that one captures a
+            // POST-curve magnitude off a ReputationChanged event and is a different
+            // mechanism entirely). This cell reds if the two are ever conflated.
+            var seed = new GameAction
+            {
+                Type = GameActionType.ReputationInitial,
+                UT = 0.0,
+                InitialReputation = 0f
+            };
+            var earning = new GameAction
+            {
+                Type = GameActionType.ReputationEarning,
+                UT = 100.0,
+                RecordingId = null,
+                NominalRep = 0.33540129661560059f,
+                RepSource = ReputationSource.Strategy
+            };
+
+            module.Reset();
+            module.ProcessAction(seed);
+            module.ProcessAction(earning);
+
+            Assert.True(Math.Abs(earning.EffectiveRep - 0.33515101671218872f) < 1e-6f,
+                $"EffectiveRep must be the curve-applied delta; was {earning.EffectiveRep:R}");
+            Assert.NotEqual(earning.NominalRep, earning.EffectiveRep);
+        }
+
+        [Fact]
         public void ApplyReputationCurve_IntegerAward_AppliesAResidualStep_MutationGuard()
         {
             // MUTATION VERIFY. Reverting the residual to `nominal - (delta * num)` makes

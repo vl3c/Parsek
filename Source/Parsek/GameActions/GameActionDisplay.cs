@@ -306,6 +306,7 @@ namespace Parsek
             {
                 case ReputationSource.ContractComplete: return "Contract";
                 case ReputationSource.Milestone:        return "Milestone";
+                case ReputationSource.Strategy:         return "Strategy";
                 default:                                return "Rep";
             }
         }
