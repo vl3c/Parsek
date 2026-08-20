@@ -1464,8 +1464,11 @@ namespace Parsek
                 && candCost.Applicable && candCost.CostKnown)
             {
                 wouldDeliverText += LogisticsCostPresentation.FormatCandidateSuffix(candCost);
+                // Space, never "\n": the shared tooltip strip is exactly two wrapped
+                // lines, so a hard break here spent one of them on the short cost line
+                // and clipped the tail of the explanation.
                 wouldDeliverTip = LogisticsCostPresentation.FormatDetailLine(candCost)
-                    + "\n" + LogisticsCostPresentation.FormatDetailTooltip(candCost);
+                    + "  " + LogisticsCostPresentation.FormatDetailTooltip(candCost);
             }
             GUILayout.Label(
                 new GUIContent(wouldDeliverText, wouldDeliverTip),

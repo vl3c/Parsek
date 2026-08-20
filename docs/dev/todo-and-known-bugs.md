@@ -73,6 +73,23 @@ height between an empty frame and one showing a long tooltip) and
 `TooltipEchoWrapSizingImguiTest` (both states equal the helper's own fixed two-line
 height at a 220px width, and that constant is taller than a single line).
 
+A fixed two-line strip makes the TEXT the remaining variable, so every help string that
+can reach one was audited against its own window's width and the over-long ones were
+rewritten. How much fits is a property of the WINDOW, not the control: Settings opens at
+280px (about 71 chars over two wrapped lines at a pessimistic 7px/char), while Logistics
+opens at 1556px (about 436), so eighteen Settings tooltips were four-line paragraphs
+clipping mid-sentence while the same length is unremarkable in Logistics. Two hard `\n`s
+went too - one spends a line whatever its length, and the Recordings Period header spent
+all four. The budget is now mechanical: `TooltipEchoBudgetTests` scans the six
+strip-hosting files for literal `new GUIContent(label, tooltip)` calls and fails any
+tooltip over its file's pinned budget or carrying a `\n`, with each file pinning a
+minimum match count so a scanner regression cannot make the gate vacuous, plus direct
+asserts on the two pure builders whose output the scan cannot see
+(`ParsekSettings.DensityTooltip`, `LogisticsCostPresentation.FormatDetailTooltip` -
+whose candidate-row composition also stopped joining with `\n`). Runtime-assembled
+tooltips (recording names, hold reasons, in-game test descriptions) stay outside the
+gate by construction.
+
 ## ~~ORACLE-REP-CURVE-PORT-DIVERGED: the harness ledger oracle's Python reputation curve kept the PRE-fix residual step after the C# side fixed it, so the two ports silently disagreed for every integer-or-larger nominal~~ [FOUND and FIXED 2026-08-20 on `oracle-rep-curve-port`, the same day the divergence opened. NO COMMITTED GATE WAS AFFECTED - see "Blast radius". CLOSED]
 
 **The divergence.** Commit `817773dcb` (2026-08-20,

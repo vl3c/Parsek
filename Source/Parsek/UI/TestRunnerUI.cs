@@ -378,7 +378,7 @@ namespace Parsek
                 ParsekLog.Info("UI", "Test runner: Run All clicked");
             }
             if (GUILayout.Button(new GUIContent("Run All + Isolated",
-                "Runs ordinary batch-safe tests plus [isolated] FLIGHT tests by capturing a temporary baseline save and quickloading it after each destructive test.")))
+                "Runs batch-safe plus [isolated] FLIGHT tests, quickloading a baseline after each destructive test.")))
             {
                 testRunner.ResetResults();
                 testRunner.RunAllIncludingFlightRestore();

@@ -1204,7 +1204,7 @@ namespace Parsek
             }
 
             GUILayout.Label(new GUIContent("Period",
-                "Launch-to-launch period: how often the ghost relaunches.\nWhen shorter than the recording duration, successive launches overlap.\nClick unit to cycle: sec \u2192 min \u2192 hr \u2192 auto.\n\"auto\" inherits from Settings > Looping."),
+                "Launch-to-launch period: how often the ghost relaunches. Shorter than the recording duration means launches overlap. Click the unit to cycle sec / min / hr / auto; 'auto' inherits from Settings > Looping."),
                 colHdr, GUILayout.Width(ColW_Period), GUILayout.Height(ColHeaderHeight));
             if (alignmentDebugArmed && !alignmentDebugHeaderCaptured) AlignDebugLogLastRect(alignmentDebugHeaderLog, "hdrPeriod");
 

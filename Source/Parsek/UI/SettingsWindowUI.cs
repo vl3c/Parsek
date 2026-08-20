@@ -560,7 +560,7 @@ namespace Parsek
                 s.autoRecordOnFirstModificationAfterSwitch,
                 new GUIContent(
                     " Auto-record on first modification after switch",
-                    "Arm after switching to a real vessel and start recording on the first meaningful physical change"));
+                    "Start recording at the first real change after a vessel switch."));
             if (autoRecordOnFirstModificationAfterSwitch != s.autoRecordOnFirstModificationAfterSwitch)
             {
                 s.autoRecordOnFirstModificationAfterSwitch = autoRecordOnFirstModificationAfterSwitch;
@@ -569,7 +569,8 @@ namespace Parsek
             }
 
             bool autoMerge = GUILayout.Toggle(s.autoMerge,
-                new GUIContent(" Auto-merge recordings", "Commit recordings to the timeline automatically, with no confirmation dialog. When off, a confirmation dialog appears after each recording."));
+                new GUIContent(" Auto-merge recordings",
+                    "Commit recordings automatically. Off = confirm each one in a dialog."));
             if (autoMerge != s.autoMerge)
             {
                 s.autoMerge = autoMerge;
@@ -582,7 +583,7 @@ namespace Parsek
             GUILayout.Label("Looping", parentUI.GetSectionHeaderStyle());
             GUILayout.BeginHorizontal();
             GUILayout.Label(new GUIContent("Auto-launch every",
-                "Default launch-to-launch period (seconds) for recordings set to 'auto' unit. Overlap occurs naturally when the period is shorter than the recording duration."),
+                "Default launch-to-launch period for 'auto' rows. Shorter = overlap."),
                 GUILayout.ExpandWidth(false));
             GUILayout.FlexibleSpace();
             {
@@ -636,13 +637,7 @@ namespace Parsek
             // (interplanetary) against the approach-to-landing handoff seam on the destination body.
             GUILayout.BeginHorizontal();
             GUILayout.Label(new GUIContent("Landing-body alignment",
-                "For a looped mission that lands on another body (the Mun, or an interplanetary "
-                + "destination such as Duna): how precisely that body's rotation lines up at each "
-                + "relaunch. Off = launch as often as possible (largest landing-handoff seam); Loose = "
-                + "a small seam; Precise = a pixel-perfect handoff (for an interplanetary landing the "
-                + "deorbit is aligned each cycle by holding and re-timing the destination parking "
-                + "loiter). The launch pad is always aligned exactly. Affects only looped inter-body "
-                + "missions."),
+                "How closely a landed-on body lines up each relaunch; finer = rarer."),
                 GUILayout.Width(150));
             if (GUILayout.Button(TransitedBodyRotationModeLabel(s.TransitedBodyRotationMode),
                     GUILayout.Width(120)))
@@ -658,12 +653,7 @@ namespace Parsek
             // replays the recorded trajectory verbatim on the loop clock instead.
             bool forceFaithful = GUILayout.Toggle(s.forceFaithfulLoopPlayback,
                 new GUIContent(" Force faithful loop playback (no re-aim)",
-                    "Replay a looped interplanetary mission exactly as recorded instead of re-aiming "
-                    + "each transfer at the destination's actual position for that launch window. Off "
-                    + "(default) = re-aim engages automatically wherever it is supported, so the ghost "
-                    + "still arrives at the destination. On = the verbatim recorded trajectory, which "
-                    + "will miss the destination on most cycles. Affects only looped inter-body "
-                    + "missions."));
+                    "Replay the recorded transfer verbatim; the ghost misses most cycles."));
             if (forceFaithful != s.forceFaithfulLoopPlayback)
             {
                 s.forceFaithfulLoopPlayback = forceFaithful;
@@ -700,7 +690,7 @@ namespace Parsek
 
             GUILayout.BeginHorizontal();
             GUILayout.Label(new GUIContent("Ghost audio",
-                "Volume multiplier for ghost vessel audio (engines, RCS, events). 0% = muted."),
+                "Volume for ghost audio: engines, RCS, events. 0% = muted."),
                 GUILayout.Width(85));
             float newAudioVol = GUILayout.HorizontalSlider(s.ghostAudioVolume, 0f, 1f);
             GUILayout.Label(
@@ -716,7 +706,7 @@ namespace Parsek
 
             bool showRouteLines = GUILayout.Toggle(s.showRouteLines,
                 new GUIContent(" Show supply route paths on map",
-                    "Draw each committed same-body supply route's recorded launch-to-dock path as a line on the flight map and Tracking Station, so you can see where a route runs"));
+                    "Draw supply routes' recorded paths on the map and Tracking Station."));
             if (showRouteLines != s.showRouteLines)
             {
                 s.showRouteLines = showRouteLines;
@@ -731,7 +721,7 @@ namespace Parsek
 
             bool showCommittedFutureOverlays = GUILayout.Toggle(s.showCommittedFutureOverlays,
                 new GUIContent(" Show committed-future overlays in stock UI",
-                    "Show stock-screen markers for R&D, Astronaut Complex, and Mission Control actions already committed on the timeline"));
+                    "Mark committed R&D, Astronaut Complex and Mission Control actions."));
             if (showCommittedFutureOverlays != s.showCommittedFutureOverlays)
             {
                 s.showCommittedFutureOverlays = showCommittedFutureOverlays;
@@ -742,7 +732,7 @@ namespace Parsek
 
             bool blockCommittedActions = GUILayout.Toggle(s.blockCommittedActions,
                 new GUIContent(" Block player actions that conflict with committed timeline",
-                    "Prevent stock-screen clicks that would duplicate actions already committed by pending recordings"));
+                    "Block stock clicks that would repeat an already-committed action."));
             if (blockCommittedActions != s.blockCommittedActions)
             {
                 s.blockCommittedActions = blockCommittedActions;
@@ -764,7 +754,7 @@ namespace Parsek
 
             bool ghostRenderTracing = GUILayout.Toggle(s.ghostRenderTracing,
                 new GUIContent(" Ghost render tracing (Warning: huge logs)",
-                    "Write detailed per-ghost render placement diagnostics to KSP.log. Leave off unless investigating playback placement."));
+                    "Log per-ghost render placement to KSP.log. Leave off unless debugging."));
             if (ghostRenderTracing != s.ghostRenderTracing)
             {
                 s.ghostRenderTracing = ghostRenderTracing;
@@ -774,7 +764,7 @@ namespace Parsek
 
             bool mapRenderTracing = GUILayout.Toggle(s.mapRenderTracing,
                 new GUIContent(" Map/TS render tracing (Warning: huge logs)",
-                    "Write detailed map and tracking-station ghost render diagnostics to KSP.log. Leave off unless investigating map/TS rendering. Per-frame detail also requires Verbose logging on."));
+                    "Log map and Tracking Station ghost rendering to KSP.log. Leave off."));
             if (mapRenderTracing != s.mapRenderTracing)
             {
                 s.mapRenderTracing = mapRenderTracing;
@@ -784,7 +774,7 @@ namespace Parsek
 
             bool ledgerTracing = GUILayout.Toggle(s.ledgerTracing,
                 new GUIContent(" Ledger apply tracing (Warning: huge logs)",
-                    "Write detailed ledger reconstruction diagnostics to KSP.log: a structural snapshot per recalc, per-identity change lines, and computed-vs-live read-back mismatch warnings. Leave off unless investigating ledger / career-state apply. Per-identity detail also requires Verbose logging on."));
+                    "Log ledger reconstruction and apply detail to KSP.log. Leave off."));
             if (ledgerTracing != s.ledgerTracing)
             {
                 s.ledgerTracing = ledgerTracing;
@@ -794,7 +784,7 @@ namespace Parsek
 
             bool writeReadableSidecarMirrors = GUILayout.Toggle(s.writeReadableSidecarMirrors,
                 new GUIContent(" Write readable sidecar mirrors (Warning: extra disk usage)",
-                    "Also write human-readable .txt mirrors of .prec and snapshot sidecars for debugging and binary/text comparison"));
+                    "Also write .txt mirrors of recording sidecars, for debugging."));
             if (writeReadableSidecarMirrors != s.writeReadableSidecarMirrors)
             {
                 s.writeReadableSidecarMirrors = writeReadableSidecarMirrors;
@@ -804,7 +794,7 @@ namespace Parsek
             }
 
             if (GUILayout.Button(new GUIContent("In-Game Test Runner",
-                "Run runtime tests to verify ghost spawning, playback, and visuals.\nAlso available via Ctrl+Shift+T in any scene.")))
+                "Run runtime tests for ghosts and playback. Also Ctrl+Shift+T.")))
             {
                 parentUI.ToggleTestRunner();
             }
@@ -824,9 +814,7 @@ namespace Parsek
             var rpSnap = RewindPointDiskUsage.GetSnapshot(rpDir);
             GUILayout.Label(new GUIContent(
                 RewindPointDiskUsage.FormatLine(rpSnap),
-                "Total size of rewind-point quicksaves under saves/<save>/Parsek/RewindPoints/. "
-                + "Also shows live RP counts split by crashed, stable, and concluded slots. "
-                + "Refreshed every 10 seconds or when RP state changes."));
+                "Rewind-point quicksave disk use, by crashed / stable / concluded."));
         }
 
         private void DrawSamplingSettings(ParsekSettings s)
@@ -860,7 +848,7 @@ namespace Parsek
 
             bool autoBackupExistingSaves = GUILayout.Toggle(s.autoBackupExistingSaves,
                 new GUIContent(" Auto-backup existing saves before first use",
-                    "The first time Parsek opens a save with no Parsek data yet, copy it to a separate timestamped 'pre-Parsek' entry in the Load menu, so you can return to your career as it was before installing Parsek. Runs once per save."));
+                    "Copy a Parsek-free save to a 'pre-Parsek' Load-menu entry, once."));
             if (autoBackupExistingSaves != s.autoBackupExistingSaves)
             {
                 s.autoBackupExistingSaves = autoBackupExistingSaves;

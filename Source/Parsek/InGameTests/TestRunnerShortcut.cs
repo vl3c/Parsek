@@ -405,7 +405,7 @@ namespace Parsek.InGameTests
             GUI.enabled = !running;
             if (GUILayout.Button("Run All")) { runner.ResetResults(); runner.RunAll(); }
             if (GUILayout.Button(new GUIContent("Run All + Isolated",
-                "Runs ordinary batch-safe tests plus [isolated] FLIGHT tests by capturing a temporary baseline save and quickloading it after each destructive test.")))
+                "Runs batch-safe plus [isolated] FLIGHT tests, quickloading a baseline after each destructive test.")))
             {
                 runner.ResetResults();
                 runner.RunAllIncludingFlightRestore();
