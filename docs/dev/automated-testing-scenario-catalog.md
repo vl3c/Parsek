@@ -282,6 +282,13 @@ HARD = hand-build; IMPRACTICAL = human needed.
 - A19 Jool-5 single leg (flagship many-SOI test), Kessler swarm (N
   satellites for simultaneous-ghost stress). A18 Eve ascent, A11 rover,
   A12 SSTO, A17 ISRU: HARD, defer; A20 grand tour: IMPRACTICAL, segment.
+- **Loop-render coverage toward "any origin, any destination"**: the class
+  taxonomy, gap register and ranked sequencing live in
+  `autotest-roadmap.md` -> "The loop-render coverage program", which is also
+  the single home for those lanes' scenario-id reservations (that doc owns the
+  direction; this catalog gains the scenario blocks as lanes are authored).
+  Tier 4's S4.4 above (station rendezvous phase-locked loop) is subsumed by
+  that program's first gap - track it there, not under both ids.
 
 ## 4. Regression replay list (R1-R26)
 

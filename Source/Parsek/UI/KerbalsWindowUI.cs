@@ -32,6 +32,11 @@ namespace Parsek
         private const float DefaultWindowHeight = 400f;
         private Rect lastKerbalsWindowRect;
 
+        // Bottom "hovered control help text" strip. See TooltipEchoBox for why it is a
+        // permanently visible box of constant height. Default spacing (3f) matches every
+        // other window's SpacingSmall.
+        private readonly TooltipEchoBox tooltipEcho = new TooltipEchoBox();
+
         private KerbalsViewModel? cachedVM;
 
         // Fold-toggle arrow glyphs; match the chain-block pattern in RecordingsTableUI.
@@ -66,9 +71,14 @@ namespace Parsek
         // Transient tab selection for the Kerbals window. Matches the Career State pattern.
         private int selectedTab;
 
-        private static readonly string[] TabLabels = new[]
+        // GUIContent (not bare strings) so each tab explains itself in the bottom help
+        // strip on hover - the tab names are the two least obvious words in the window.
+        private static readonly GUIContent[] TabLabels = new[]
         {
-            "Roster State", "Mission Outcomes"
+            new GUIContent("Roster State",
+                "Who fills each crew slot now: reserved, flying or retired stand-ins."),
+            new GUIContent("Mission Outcomes",
+                "Every recorded flight a kerbal took, and how each one ended.")
         };
 
         internal struct KerbalsViewModel
@@ -330,6 +340,12 @@ namespace Parsek
 
             GUILayout.EndScrollView();
 
+            // Bottom "hovered control help text" strip (shared house helper), drawn after
+            // the roster list (so the live GUI.tooltip read sees a hovered row) and
+            // directly above the Close button - the house ordering every Parsek window
+            // uses. Fixed two-line height, always present.
+            tooltipEcho.Draw();
+
             if (GUILayout.Button("Close"))
             {
                 showKerbalsWindow = false;
@@ -403,7 +419,10 @@ namespace Parsek
             }
 
             string arrow = expanded ? UnfoldedArrow : FoldedArrow;
-            if (GUILayout.Button($"{arrow} {body}{countSuffix}", GUI.skin.label, GUILayout.ExpandWidth(true)))
+            if (GUILayout.Button(
+                new GUIContent($"{arrow} {body}{countSuffix}",
+                    "Shows the stand-ins who have covered this kerbal's slot."),
+                GUI.skin.label, GUILayout.ExpandWidth(true)))
             {
                 if (expanded) expandedSlots.Remove(entry.OwnerName);
                 else expandedSlots.Add(entry.OwnerName);
@@ -427,7 +446,10 @@ namespace Parsek
         {
             if (orphans.Count == 0) return;
             GUILayout.Space(5);
-            GUILayout.Label($"Unlinked Retired ({orphans.Count})", sectionHeaderStyle);
+            GUILayout.Label(
+                new GUIContent($"Unlinked Retired ({orphans.Count})",
+                    "Retired stand-ins that no longer belong to any crew slot."),
+                sectionHeaderStyle);
             GUILayout.BeginVertical(GUI.skin.box);
             for (int i = 0; i < orphans.Count; i++)
             {
@@ -569,7 +591,10 @@ namespace Parsek
                 // Per-kerbal fold row: label-styled button so the dropdown header
                 // sits visually as a row rather than a sub-heading. Rich text is
                 // limited to the main kerbal-name substring.
-                if (GUILayout.Button($"{arrow} {headerText}", missionOutcomeHeaderStyle, GUILayout.ExpandWidth(true)))
+                if (GUILayout.Button(
+                    new GUIContent($"{arrow} {headerText}",
+                        "Folds or unfolds this kerbal's recorded mission history."),
+                    missionOutcomeHeaderStyle, GUILayout.ExpandWidth(true)))
                 {
                     ToggleFold(foldedKerbals, name, j - i);
                 }
@@ -581,7 +606,10 @@ namespace Parsek
                         var e = endStates[k];
                         // Subitem indent: shared with the Roster State tab's chain-
                         // member format — see FormatMissionOutcomeSubitemText.
-                        if (GUILayout.Button(FormatMissionOutcomeSubitemText(e), StyleForEndState(e.EndState)))
+                        if (GUILayout.Button(
+                            new GUIContent(FormatMissionOutcomeSubitemText(e),
+                                "Scrolls the Timeline window to the flight this row came from."),
+                            StyleForEndState(e.EndState)))
                         {
                             // Mirrors the Timeline row cross-link pattern
                             // (TimelineWindowUI.DrawEntryRow). Note Timeline.GoTo itself now

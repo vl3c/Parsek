@@ -180,9 +180,9 @@ namespace Parsek
 
         internal static string DensityTooltip(SamplingDensity level) =>
             level == SamplingDensity.Low
-                ? "Fewer samples \u2014 smaller files, less CPU. Trajectories may look angular during sharp maneuvers."
+                ? "Fewer samples: smaller files, less CPU. Sharp turns look angular."
             : level == SamplingDensity.High
-                ? "Dense sampling \u2014 smooth curves for cinematic recordings. Larger files."
+                ? "Dense sampling: smooth cinematic curves. Larger files."
             : "Balanced sampling for most flights.";
 
         internal static string DensitySummary(SamplingDensity level)

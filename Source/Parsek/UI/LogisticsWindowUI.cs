@@ -356,6 +356,10 @@ namespace Parsek
         // candidate has no Interval, so transit gets a real cell here).
         private const float ColW_CandidateTransit = 80f;
 
+        // Bottom "hovered control help text" strip. See TooltipEchoBox for why it is a
+        // permanently visible box of constant height.
+        private readonly TooltipEchoBox tooltipEcho = new TooltipEchoBox(SpacingSmall);
+
         private const float SpacingSmall = 3f;
         private const float SpacingLarge = 8f;
         // L2: fixed columns now total ~1175px after dropping the 70px Transit column
@@ -531,11 +535,11 @@ namespace Parsek
 
             GUILayout.EndScrollView();
 
-            // Tooltip echo box (matches SettingsWindowUI house style). Read
-            // GUI.tooltip AFTER all controls have drawn this frame so it reflects
-            // the currently hovered control, then echo it in a box so hovering any
-            // cell / button shows its help text in-window.
-            DrawTooltipEchoBox(GUI.tooltip);
+            // Tooltip echo strip (shared house helper). Fixed two-line height, always
+            // present, and drawn AFTER every cell / button so the live GUI.tooltip read
+            // inside Draw() sees the hovered control's text - but directly ABOVE the
+            // Close button, which is the house ordering: Close is always last.
+            tooltipEcho.Draw();
 
             // Full-width Close button at the bottom (matches Kerbals / Settings windows).
             GUILayout.Space(SpacingSmall);
@@ -1460,8 +1464,11 @@ namespace Parsek
                 && candCost.Applicable && candCost.CostKnown)
             {
                 wouldDeliverText += LogisticsCostPresentation.FormatCandidateSuffix(candCost);
+                // Space, never "\n": the shared tooltip strip is exactly two wrapped
+                // lines, so a hard break here spent one of them on the short cost line
+                // and clipped the tail of the explanation.
                 wouldDeliverTip = LogisticsCostPresentation.FormatDetailLine(candCost)
-                    + "\n" + LogisticsCostPresentation.FormatDetailTooltip(candCost);
+                    + "  " + LogisticsCostPresentation.FormatDetailTooltip(candCost);
             }
             GUILayout.Label(
                 new GUIContent(wouldDeliverText, wouldDeliverTip),
@@ -3686,46 +3693,6 @@ namespace Parsek
         {
             if (string.IsNullOrEmpty(id)) return "<none>";
             return id.Length > 8 ? id.Substring(0, 8) : id;
-        }
-
-        /// <summary>
-        /// Decides whether the bottom tooltip echo box should render boxed help
-        /// text. Returns (false, "") when there is no hovered-control tooltip this
-        /// frame (the echo box collapses to zero height), or (true, tooltip) when a
-        /// control is hovered. The boolean drives the box's spacing / content /
-        /// style only, never the number of IMGUI controls emitted (see
-        /// <see cref="DrawTooltipEchoBox"/>). Pure and Unity-free for unit testing.
-        /// </summary>
-        internal static (bool show, string text) ResolveTooltipEcho(string guiTooltip)
-        {
-            if (string.IsNullOrEmpty(guiTooltip))
-                return (false, string.Empty);
-            return (true, guiTooltip);
-        }
-
-        /// <summary>
-        /// Draws the bottom tooltip echo box with a control count that is invariant
-        /// across the IMGUI Layout and Repaint passes: it ALWAYS emits exactly one
-        /// GUILayout.Space plus one GUILayout.Label, and only varies their spacing,
-        /// content, and style by whether a control is hovered. This matters because
-        /// GUI.tooltip is empty during Layout and only becomes populated during
-        /// Repaint (after a hovered control draws), so any branch here that emits a
-        /// DIFFERENT number of controls between the two passes desyncs the layout
-        /// group and makes the next control (the Close button) overrun it, throwing
-        /// "Getting control N's position in a group with only N controls when doing
-        /// repaint". Mirrors the invariant-count pattern in SettingsWindowUI.
-        /// </summary>
-        internal static void DrawTooltipEchoBox(string guiTooltip)
-        {
-            (bool showEcho, string echoText) = ResolveTooltipEcho(guiTooltip);
-            // Always one Space + always one Label. When there is no tooltip the
-            // Space collapses to 0 and the Label renders empty at zero height, so
-            // the box disappears visually without changing the control count.
-            GUILayout.Space(showEcho ? SpacingSmall : 0f);
-            GUILayout.Label(
-                showEcho ? echoText : string.Empty,
-                showEcho ? GUI.skin.box : GUI.skin.label,
-                showEcho ? GUILayout.ExpandWidth(true) : GUILayout.Height(0f));
         }
 
         // Human-readable reason for a status. For blocked-active states this

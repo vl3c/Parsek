@@ -416,6 +416,8 @@ Stock-first automated cargo delivery from proven player-flown Supply Runs. Shipp
 
 Every supply ship remains a replay of a real mission the player flew, but v0 deliberately keeps the mechanics narrow so the first implementation is reliable and stock-realistic.
 
+**Render-confirmation coverage (testing direction).** The network can run any route the player can fly, but automated confirmation that a looped route RENDERS accurately in map view, the Tracking Station and the KSC scene covers only part of the origin -> destination space. The class taxonomy, gap register and ranked plan to close it live in [`docs/dev/autotest-roadmap.md`](dev/autotest-roadmap.md) -> "The loop-render coverage program".
+
 ### Logistics: milestones to feature-complete (M1-M6, all SHIPPED)
 
 **Status: COMPLETE as of 0.10.3.** M1 through M6 are all shipped, and the claw was lifted in as the second connection producer, so Supply Routes now cover any route the player can fly. The milestone sequence below is retained as the record of how it was built, each item marked with its shipping release.

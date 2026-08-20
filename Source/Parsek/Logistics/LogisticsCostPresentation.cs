@@ -76,10 +76,12 @@ namespace Parsek.Logistics
         /// </summary>
         internal static string FormatDetailTooltip(RouteRunCostCalculator.RouteRunCost cost)
         {
+            // Kept to ONE wrapped strip line at the Logistics window's default width
+            // (the shared two-line TooltipEchoBox clips silently past that), so the
+            // candidate row can prefix it with FormatDetailLine and still fit.
             var sb = new StringBuilder();
-            sb.Append("Net cost per run = launch cost - recovered credits. ");
-            sb.Append("Recovered is the actual distance-scaled payout KSP paid back ");
-            sb.Append("when the transport (and any jettisoned parts) were recovered in the recording. ");
+            sb.Append("Net cost per run = launch cost - recovered credits ");
+            sb.Append("(KSP's distance-scaled recovery payout). ");
             if (cost.RecoveryEventCount <= 0 && cost.RecoveredCredits <= 0.0)
                 sb.Append(RecoverToReduceHint).Append(' ');
             sb.Append("The per-cycle charge now matches the displayed net: the gross launch cost (")
