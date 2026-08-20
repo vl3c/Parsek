@@ -199,6 +199,74 @@ The spec-to-fixture pairing (career, one vessel, antenna aboard, inert ParsekSce
 node) is gated by `CareerSciencePadSpecFixtureSyncTests` in
 `harness/missions/lib/test_science_bench_recover.py`.
 
+## career-earned-pad (GAME Mode = CAREER, 1 VESSEL)
+
+The suite's only fixture that is BOTH a career with populated per-identity facets AND
+focusable into the FLIGHT scene. Used by `L4-ledger-groundtruth-strict`, the
+career-ledger B.4 strict-per-identity lane.
+
+**WHY IT EXISTS.** The in-game `LedgerGroundTruth` cell is `Scene = GameScenes.FLIGHT`,
+and strict mode promotes every report-only per-identity divergence to a hard failure -
+so arming it needs a subject whose per-identity facets are actually populated. Exactly
+one committed career has them: the save harness run
+`2026-08-19_2130_L3-career-science-recover` produced, a driven flight that earned three
+science subjects, transmitted them, and RECOVERED a crewed craft. That save carries
+**zero VESSEL nodes**, precisely because the craft was recovered - so booting it routes
+`LoadGame` to NoVesselSpaceCenter and a FLIGHT-scene batch scene-skips its only
+declaration, the vacuity defect B10 and `L1-passive-sandbox` were re-flown to fix.
+Splicing a PRELAUNCH craft into a career that has none is the same problem
+`build_career_pad_craft.py` solved for `fresh-career`, with the halves reversed: there
+the career was empty and the craft was the payload; **here the career IS the payload**.
+
+Built BY CONSTRUCTION, headlessly, by `harness/tools/build_career_earned_pad.py` - no
+forge flight and no operator session. `python harness/tools/build_career_earned_pad.py
+--check` re-verifies every post-condition against the COMMITTED bytes. That path is
+WIRED, not decorative: `CareerEarnedPadFixtureDriftTests` in
+`harness/lib/test_career_earned_pad.py` runs the same verify in-process AND re-runs the
+splice over the current inputs, asserting byte-identity with the committed save. Its
+BASE is the xUnit fixture `Source/Parsek.Tests/Fixtures/C2CareerPostFix/`, so a
+re-harvest of that career reds here rather than leaving a strict-armed flight measuring
+a subject nobody meant to ship.
+
+**Four edits** against the harvested career save:
+
+1. `career-science-pad`'s single `type = Ship` VESSEL, inserted into the base's OWN
+   FLIGHTSTATE. The base's node is KEPT rather than replaced - the one deliberate
+   departure from `build_career_pad_craft.py`'s whole-node swap - because it carries
+   `UT = 408.72`, the clock all 14 ledger actions were written against; the donor's is
+   `9.06`, i.e. before every one of them.
+2. The spliced vessel's `pid` and `persistentId` are RE-STAMPED. **This is the
+   load-bearing edit, not hygiene.** The donor craft IS the craft this career flew and
+   recovered, so its committed identity (`f77e4207...` / `2905720181`) is byte-identical
+   to both recordings' `recordedVesselGuid` / `vesselPersistentId`, and
+   `LedgerGroundTruthDiff.CompareRecovery` treats a recovery credit whose vessel is still
+   PRESENT in the save as a divergence - ALWAYS-HARD when guid-corroborated, report-only
+   when pid-only, and strict promotes the report-only one anyway. A verbatim splice would
+   have red the armed run on a fixture artifact that reads exactly like a product defect.
+3. The `rewindSave = parsek_rw_*` hints are stripped and `Parsek/Saves/` is not copied,
+   the two halves `CommittedFixtureRewindSaveTests` pins together.
+4. Jebediah's ROSTER `state` is flipped `Available` -> `Assigned`, and **nothing else in
+   his row is touched**. The base builder swaps the whole row for the donor's; that here
+   would delete his `CAREER_LOG` (`flight = 1`, `Land,Kerbin`, `Flight,Kerbin`,
+   `Recover`) - the SAVE side of the diff's `KerbalXp` facet. The reconstruction credits
+   those entries off the ledger, so losing them would manufacture a `PhantomInRecon`
+   divergence: report-only by default, promoted by strict, and a fixture artifact again.
+
+| Facet | Pinned value | Why it matters |
+| --- | --- | --- |
+| Mode | `CAREER` | the cell is career-only and Skips otherwise |
+| Funding / RnD / Reputation | `536558` / `111.599998` / `1.99999881` | the EARNED pools, not the seed. A fixture reading 500000 / 100 / 0 would mean the splice dropped the career it exists to carry |
+| Vessel | one `type = Ship` Jumping Flea, `sit = PRELAUNCH`, `activeVessel = 0` | the FLIGHT route, and nothing else. It is the key, not the subject |
+| Vessel identity | `pid` / `persistentId` re-stamped, asserted to collide with no recorded identity | see edit 2 - the difference between a real red and a manufactured one |
+| FLIGHTSTATE UT | `408.72`, asserted greater than every `explicitEndUT` | the career's own clock survived the splice |
+| Parsek footprint | 1 committed tree, 2 recordings, `ledger.pgld` with 14 actions | THE PAYLOAD. The tree carries no `isActive` key, so the cell's no-active-uncommitted-tree guard passes |
+| Crew | `Jebediah Kerman`, `state = Assigned`, `CAREER_LOG` intact | see edit 4 |
+| Trajectory mirrors | `.prec.txt` committed, `_vessel.craft.txt` / `_ghost.craft.txt` absent | the harness gates the two mirror families in OPPOSITE directions; carrying exactly one family is what lets this fixture be a plain copy of the base tree |
+
+The spec-to-fixture pairing is gated by `L4SpecFixtureSyncTests` in the same file, and
+the structural counts by `CommittedFixtureSweepTests.RECORDED_FIXTURES` in
+`harness/lib/test_saveparse.py`.
+
 ## fresh-science (GAME Mode = SCIENCE_SANDBOX)
 
 Science pool only: `ResearchAndDevelopment sci = 100`, no Funding / Reputation /

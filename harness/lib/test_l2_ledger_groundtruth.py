@@ -214,10 +214,20 @@ class L2ArmedBlockTests(unittest.TestCase):
 class L2StrictModeFenceTests(unittest.TestCase):
     """Group 4: career-ledger B.4's deferral, pinned on this spec specifically.
 
-    The lane-wide version of this fence lives in test_hlib
-    (`test_no_committed_spec_arms_the_runtests_strict_arg`). This one is narrower and
-    says WHY for the one spec the arg was written for: strict promotes report-only
-    per-identity divergences to hard failures, and B.1 measured `reportOnly=0` here.
+    STILL LIVE AFTER THE 2026-08-20 ARMING, and that is the point of it being
+    narrow. The lane-wide fence in test_hlib is now an ALLOWLIST
+    (`SpecValidationRejectTests.RUNTESTS_STRICT_ARMED_SPECS`, checked by
+    `test_only_the_strict_allowlist_arms_the_runtests_strict_arg`) rather than the
+    old blanket `test_no_committed_spec_arms_the_runtests_strict_arg`, because a
+    subject finally justified arming: `L4-ledger-groundtruth-strict` over
+    `career-earned-pad`, a career that EARNED flight science and recovered a crewed
+    craft.
+
+    THIS SPEC IS NOT THAT SUBJECT AND STILL IS NOT. Strict promotes report-only
+    per-identity divergences to hard failures, and B.1 measured `reportOnly=0` on
+    career-pad-craft - so arming HERE would still be a gate that cannot bite for a
+    value-drift regression. The lane-wide allowlist would now ACCEPT an arming on any
+    named spec, which is exactly why this per-spec cell keeps saying no for this one.
     """
 
     @classmethod
