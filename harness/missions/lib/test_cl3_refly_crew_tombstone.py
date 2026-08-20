@@ -2044,8 +2044,12 @@ class Cl3SpecCoverageClaimTests(unittest.TestCase):
     def test_head_tip_split_and_terminal_kind_classify_stay_unclaimed(self):
         # `head-tip-split` fires only when the closure-root recording SPANS the
         # rewind UT, and `cl-pod-a` BEGINS at the split the RewindPoint marks -
-        # the same shape argument that moved the cell off S4.1 to NOBODY.
-        # `terminal-kind-classify` is S4.1's.
+        # the same shape argument that took the cell off S4.1. The value IS
+        # claimed fleet-wide as of 2026-08-20 (R7c-rewind-spacecenter, off the
+        # in-game cell that forges a spanning origin), so the rationale is no
+        # longer "nobody owns it"; the assertion below is unchanged and still
+        # true, because it rests on THIS spec's shape rather than on the value
+        # being unowned. `terminal-kind-classify` is S4.1's.
         for value in ("head-tip-split", "terminal-kind-classify"):
             self.assertNotIn(value, self.claimed["D9"])
 

@@ -66,16 +66,63 @@ steps = [
 ]
 
 [dimensionsCovered]
-# HONEST and deliberately thin. Two of the four executing cells drive the unfinished
-# -flight SEAL dialog end to end (confirm seals the slot and clears the lock; cancel
-# clears the lock without sealing), and a third drives the stable-leaf group seal
+# HONEST and deliberately thin. FIVE cells execute here (the whole SPACECENTER-scoped
+# slice of the Rewind category - mechanically: `hlib.parse_ingame_test_declarations`
+# over Source/Parsek counts 37 Rewind declarations, 32 FLIGHT and 5 SPACECENTER, and
+# all five SPACECENTER ones carry AllowBatchExecution=true). Two of the five drive the
+# unfinished-flight SEAL dialog end to end (confirm seals the slot and clears the lock;
+# cancel clears the lock without sealing), and a third drives the stable-leaf group seal
 # plus the last-slot RP reap - that is D9 `seal-stash-fly` and `rp-disk-reaper`
 # executed rather than decided.
 # `unfinished-flights-stash` is claimed off UnfinishedFlightsRenderingAndNoHide,
 # which EXECUTES now that the injected b9 booster satisfies IsUnfinishedFlight
 # (see the fixture note) - the first R7 wave left this cell skipped and the value
 # unclaimed for exactly that reason.
-D9  = ["seal-stash-fly", "rp-disk-reaper", "unfinished-flights-stash"]
+#
+# THE FIFTH CELL, AND THE THREE VALUES ADDED 2026-08-20. The fifth executing member is
+# `ReFlyFromSpannedRecording_PreservesLaunchRowAndTombstonesPostRewindCrew`
+# (Source/Parsek/InGameTests/IncompleteBallisticRuntimeTests.cs, Category="Rewind",
+# Scene=SPACECENTER). It forges a production-shaped spanning origin + BranchPoint +
+# RewindPoint + re-fly marker IN-BODY and drives `MergeJournalOrchestrator.RunMerge`
+# end to end inside a real KSP process, then asserts on the RESULT with hard
+# in-process assertions. Its coverage was entirely unclaimed until now.
+#
+# STATE THE SHAPE PLAINLY SO NOBODY OVERREADS IT: the split here is reached because an
+# IN-GAME TEST forges a spanning origin, NOT because a seam-driven re-fly flew one.
+# S4.1 / CL-3 remain structurally incapable of the split (their closure roots BEGIN at
+# the separation the RewindPoint marks) and correctly do not claim it. What this spec
+# adds is that the splitting branch of `RecordingTreeSplitter.SplitOriginAtRewindUT`
+# and the ERS/ELS consequences of the split are EXECUTED live, in the shipped DLL,
+# under a gate - not merely unit-proven headless.
+#
+# ONE MEASUREMENT PER VALUE (no double-labelling of a single assertion):
+#  - D9 `head-tip-split` <- the split-SHAPE assertions (step 1 of the cell): HEAD keeps
+#    origin's id with bounds [originStartUT..rewindUT], TIP is a NEW id with bounds
+#    [rewindUT..originEndUT], both share a ChainId at ChainIndex 0 and 1. A skipped
+#    split leaves `tip == null` and the cell reds. BACKED IN THE LOG by the new
+#    required `Split origin ... HEAD=[..] (kept, id unchanged), TIP=... (will be
+#    superseded)` token (`RecordingTreeSplitter` Step 2.13 summary), plus the two
+#    forbidden skip tokens that make a fallback-to-whole-recording-supersede red
+#    instead of quietly passing the tally.
+#  - D8 `ers-els-routing` <- the ROUTING assertions: the cell calls
+#    `EffectiveState.ComputeERS()` directly and requires ERS to include HEAD, EXCLUDE
+#    TIP (superseded by the fork) and include the fork (step 3); and it calls
+#    `EffectiveState.EffectiveTipRecordingId` and requires the composite walker to
+#    chase HEAD -> chain -> TIP -> supersede -> fork (step 7). Those are the two
+#    EffectiveState entry points every ERS/ELS consumer routes through.
+#  - D8 `tombstones` <- the TOMBSTONE-EXCLUSION assertion (step 4): the post-rewind
+#    Dead crew action is retagged onto TIP, `SupersedeCommit` writes a
+#    `LedgerTombstone` for its ActionId, and `EffectiveState.ComputeELS()` - called
+#    directly - must NOT credit that action. The tombstone is written AND observed to
+#    take effect on the effective ledger, which is the whole point of the value.
+#
+# NOT claimed off this cell, deliberately: `supersede-relation` (R1 owns it on a real
+# re-flight), `merge-journal` and `terminal-kind-classify` (S4.1 owns them off a
+# seam-driven cycle; this cell installs test hooks over the durable barriers, so its
+# journal is not the shipped save path), `refly-gate` / `reconciliation-bundle` /
+# `read-back-guard` (no invoke happens here - the marker is forged).
+D9  = ["seal-stash-fly", "rp-disk-reaper", "unfinished-flights-stash", "head-tip-split"]
+D8  = ["tombstones", "ers-els-routing"]
 D14 = ["career", "scene-ksc"]
 
 [expectations]
@@ -153,8 +200,42 @@ count = { min = 3, max = 3 }
 # token looks like when the category is 86% scoped to another scene. The
 # alternative - pinning only the five-member slice - is not expressible:
 # BATCH_COMPLETE's total counts filtered tests too.
-required  = ["BATCH_COMPLETE v1 total=37 passed=5 failed=0 skipped=32 category=Rewind scene=SPACECENTER"]
-forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
+#
+# THE SPLITTER TOKEN (added 2026-08-20 with the D9 `head-tip-split` claim). The tally
+# alone would let the split cell pass while the splitter took its FALLBACK branch: the
+# batch counts pass/fail, and a fallback would red the cell's own assertions, but the
+# tally cannot say WHICH branch ran, and a future fixture drift that stops the origin
+# spanning the rewind UT would change the failure mode without changing the pin's shape.
+# So the branch is pinned positively and its two escape hatches negatively.
+#
+#  - REQUIRED, the Step 2.13 success summary from `RecordingTreeSplitter`
+#    (`Source/Parsek/RecordingTreeSplitter.cs`, the `Split origin {id} at UT=...`
+#    ParsekLog.Info). The regex is derived from that interpolated format string and was
+#    VALIDATED against the archived KSP.log of run `2026-08-04_1914_R7c-rewind-
+#    spacecenter` (line 11682) before it was committed - it matches, token for token:
+#      Split origin spanned_split_origin_9da5f2e7 at UT=34.24: HEAD=[8.42..34.24]
+#      (kept, id unchanged), TIP=1c8fe8192a114a609d97d5634720a109 [34.24..52.70]
+#      (will be superseded). ...
+#    The 2026-08-04_1630 collection carries the same line with different ids, so the
+#    only volatile parts are the ids and the UTs, which is exactly what the pattern
+#    leaves free.
+#  - FORBIDDEN, the two ways the splitter declines to split, both of which fall back to
+#    whole-recording supersede: `SplitOriginAtRewindUT: skip` (the origin's actual
+#    trajectory bounds do not strictly span rewindUT) and `SplitAtUT returned null for
+#    origin` (SplitAtUT's remaining guards). Both tokens stop deliberately SHORT of the
+#    em dash the product's messages carry, so these patterns stay plain ASCII while
+#    remaining substrings unique to those two sites. Both were confirmed ABSENT (0
+#    occurrences) in both archived R7c logs, which is what makes them a live
+#    discriminator rather than a hopeful negative.
+required  = [
+  "BATCH_COMPLETE v1 total=37 passed=5 failed=0 skipped=32 category=Rewind scene=SPACECENTER",
+  "Split origin \\S+ at UT=[0-9.]+: HEAD=\\[[0-9.]+\\.\\.[0-9.]+\\] \\(kept, id unchanged\\), TIP=\\S+ \\[[0-9.]+\\.\\.[0-9.]+\\] \\(will be superseded\\)",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "SplitOriginAtRewindUT: skip",
+  "SplitAtUT returned null for origin",
+]
 
 [runtime]
 # 660 (LoadGame) + 660 (RunTests) = 1320 worst case; 1400 clears it. The batch
