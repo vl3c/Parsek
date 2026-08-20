@@ -624,6 +624,119 @@ namespace Parsek
         }
 
         /// <summary>
+        /// R6 DOUBLE-CLOCK ADVISORY (design-dock-event-graph.md 7.7, open question Q9; analysis
+        /// section 2(e), invariant I6). Returns the advisory sentence to show when
+        /// <paramref name="enabling"/> starts looping while ANOTHER mission whose tree is
+        /// dock-connected to it (transitively) is ALSO looping, or null when there is nothing to
+        /// say.
+        ///
+        /// <para>WHY IT IS ONLY AN ADVISORY. The two loops then run two independent span clocks
+        /// over recordings that share physical matter: the docked stretch one mission replays
+        /// CONTAINS the other vessel's parts, baked into the post-couple merged snapshot, while the
+        /// other mission replays that same vessel's own recording at a different recorded time. The
+        /// verification (DoubleClockVerificationTests, on the AB/CD fixture) measured 302 of 801
+        /// swept wall UTs rendering both concurrently, every one of them with the two clocks
+        /// diverged - 137-237 s apart there, 50-300 s being the fixture's geometric bound. NO HARD
+        /// ENFORCEMENT: extending <see cref="ClearLoopsConflictingWith"/> to graph-connected trees
+        /// would silently switch off a loop the player just asked for and would regress the pinned
+        /// "two disjoint-tree missions may loop concurrently" behavior (pinned behavior #4 of
+        /// CrossTreeDockLoopUnitInGameTest) for every harmless case - two missions that merely
+        /// touched once and never overlap in wall time.</para>
+        ///
+        /// <para>Connectivity is TRANSITIVE over <see cref="DockEventGraph.DockConnectedTreePairs"/>
+        /// (a breadth-first walk): A docked B and B docked C means A's story and C's can share
+        /// matter through B. Same-tree looping missions are NOT reported - they are already
+        /// impossible (<see cref="SetLoopEnabled"/> cleared them one line earlier), so naming one
+        /// would describe a state that no longer exists.</para>
+        ///
+        /// <para>Degradation: a null graph (the host has none yet) returns null - silence, exactly
+        /// today's behavior. Pure except the single Info audit line (SuppressLogging-gated), which
+        /// is emitted only when the advisory actually fires.</para>
+        /// </summary>
+        internal static string TryDescribeDoubleClockAdvisory(
+            Mission enabling, IReadOnlyList<Mission> allMissions, DockEventGraph graph)
+        {
+            if (enabling == null || allMissions == null || graph == null
+                || string.IsNullOrEmpty(enabling.TreeId))
+                return null;
+
+            HashSet<string> connectedTrees = CollectDockConnectedTreeIds(graph, enabling.TreeId);
+            if (connectedTrees.Count == 0)
+                return null;
+
+            Mission first = null;
+            int count = 0;
+            for (int i = 0; i < allMissions.Count; i++)
+            {
+                Mission m = allMissions[i];
+                if (m == null || ReferenceEquals(m, enabling) || !m.LoopPlayback
+                    || string.IsNullOrEmpty(m.TreeId))
+                    continue;
+                // Same-tree siblings are handled by the hard one-loop-per-tree rule, not here.
+                if (string.Equals(m.TreeId, enabling.TreeId, StringComparison.Ordinal))
+                    continue;
+                if (!connectedTrees.Contains(m.TreeId))
+                    continue;
+                count++;
+                if (first == null)
+                    first = m;
+            }
+
+            if (first == null)
+                return null;
+
+            string otherName = string.IsNullOrEmpty(first.Name) ? "another mission" : first.Name;
+            string subject = count > 1
+                ? "'" + otherName + "' (+"
+                  + (count - 1).ToString(CultureInfo.InvariantCulture) + " more)"
+                : "'" + otherName + "'";
+            string text = subject + " loops the same docked flight - ghosts may appear twice";
+
+            if (!SuppressLogging)
+                ParsekLog.Info("Mission",
+                    $"double-clock advisory: mission='{enabling.Name}' " +
+                    $"connectedLooping='{first.Name}' trees={enabling.TreeId}->{first.TreeId}" +
+                    (count > 1
+                        ? $" (+{(count - 1).ToString(CultureInfo.InvariantCulture)} more)"
+                        : ""));
+            return text;
+        }
+
+        // Breadth-first walk of the graph's dock adjacency from <paramref name="fromTreeId"/>,
+        // returning every OTHER tree id reachable through one or more docks. The pair set is
+        // stored in claim direction, so both directions are walked. The start tree is deliberately
+        // excluded from the result (a tree is not "connected to itself" for advisory purposes).
+        private static HashSet<string> CollectDockConnectedTreeIds(
+            DockEventGraph graph, string fromTreeId)
+        {
+            var reached = new HashSet<string>(StringComparer.Ordinal);
+            if (graph == null || string.IsNullOrEmpty(fromTreeId)
+                || graph.DockConnectedTreePairs.Count == 0)
+                return reached;
+
+            var visited = new HashSet<string>(StringComparer.Ordinal) { fromTreeId };
+            var frontier = new Queue<string>();
+            frontier.Enqueue(fromTreeId);
+            while (frontier.Count > 0)
+            {
+                string current = frontier.Dequeue();
+                foreach (var pair in graph.DockConnectedTreePairs)
+                {
+                    string next = null;
+                    if (string.Equals(pair.Item1, current, StringComparison.Ordinal))
+                        next = pair.Item2;
+                    else if (string.Equals(pair.Item2, current, StringComparison.Ordinal))
+                        next = pair.Item1;
+                    if (string.IsNullOrEmpty(next) || !visited.Add(next))
+                        continue;
+                    reached.Add(next);
+                    frontier.Enqueue(next);
+                }
+            }
+            return reached;
+        }
+
+        /// <summary>
         /// Enforces the one-loop-per-tree invariant after load. SetLoopEnabled keeps at most one
         /// Mission looping per tree during normal use, but a hand-edited save could carry several
         /// looping Missions that share a tree. Keeps the first in list order for each tree and

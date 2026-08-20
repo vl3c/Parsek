@@ -853,6 +853,36 @@ namespace Parsek
             return roots;
         }
 
+        // R6 double-clock advisory (design-dock-event-graph.md 7.7, gated on the section-7.8
+        // verification, which CONFIRMED the collision - see
+        // docs/dev/research/double-clock-verification-2026-08-13.md). Called on loop-ENABLE only:
+        // when the freshly-looping mission's tree is dock-connected (transitively) to a tree whose
+        // own mission is ALSO looping, the two loops run independent clocks over recordings that
+        // share physical matter, so one vessel can be on screen twice at two recorded times. ONE
+        // ScreenMessage, no enforcement.
+        //
+        // The link-include toggle does NOT need this: including a partner-journey link calls
+        // MissionStore.ClearLoopsConflictingWith, which turns the foreign tree's own loop OFF, so
+        // the two-concurrent-loops state the advisory describes cannot survive that path.
+        private void PostDoubleClockAdvisoryIfAny(Mission mission)
+        {
+            string advisory = MissionStore.TryDescribeDoubleClockAdvisory(
+                mission, MissionStore.Missions, GetDockEventGraph());
+            if (string.IsNullOrEmpty(advisory))
+                return;
+            try
+            {
+                ScreenMessages.PostScreenMessage(
+                    "[Parsek] " + advisory, 8f, ScreenMessageStyle.UPPER_LEFT);
+            }
+            catch (System.Exception ex)
+            {
+                // A ScreenMessages failure must never take the Missions-window draw pass with it.
+                ParsekLog.Warn("Mission",
+                    $"double-clock advisory PostScreenMessage threw: {ex.GetType().Name}: {ex.Message}");
+            }
+        }
+
         // ---- dock-partner naming (design-dock-event-graph.md 6.5 / 7.6) ----
 
         // The global dock-event graph, fetched at most once per frame. NOT log-suppressed: the
@@ -1948,6 +1978,12 @@ namespace Parsek
                     // on its linked foreign tree(s) (M-MIS-8 spanned-set rule).
                     MissionStore.SetLoopEnabled(mission, loopNow, Planetarium.GetUniversalTime(),
                         RecordingStore.CommittedTrees);
+                    // R6 double-clock advisory (design 7.7), on ENABLE only and only AFTER the
+                    // enable succeeded - the enable itself clears every mission the hard rule
+                    // considers conflicting, so what is left looping is exactly the population the
+                    // advisory is about. Advisory only: nothing is switched off here.
+                    if (loopNow)
+                        PostDoubleClockAdvisoryIfAny(mission);
                     // Turning loop off disables the period field; end any in-progress edit on it.
                     if (!loopNow && loopPeriodFocusedMissionId == mission.Id)
                         loopPeriodFocusedMissionId = null;

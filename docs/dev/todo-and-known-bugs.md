@@ -42,8 +42,39 @@ testable without a live host, and reset both on a loop-cycle change AND on a
 marker-list swap - a signature-gated rebuild replaces the list with no cycle
 change, and carrying the old cursor across it silently loses markers, worse still
 after a commit moves the committed-index space; `ParsekPlaybackPolicy` joins the
-markers raised in one frame into ONE ScreenMessage). That closes PR sequence
-steps 1-6.
+markers raised in one frame into ONE ScreenMessage). The double-clock
+verification + the R6 advisory (step 7) shipped on branch
+`double-clock-advisory`. That closes PR sequence steps 1-7.
+
+**I6-DOUBLE-CLOCK verified, Q9 decided: the advisory ships.** The analysis scored
+I6 ("one physical assembly is never concurrently rendered at two different replay
+times by two independent clocks") Violated-but-UNVERIFIED, and design 7.7 gated
+the advisory on confirming it. Verified AUTOMATED (owner's instruction, replacing
+the section-7.8 manual playtest) in `DoubleClockVerificationTests`: both units
+built by the REAL `MissionLoopUnitBuilder` over the AB/CD fixture, then a 1 s
+sweep of the wall clock across two cadences of the longer unit calling the REAL
+`DecideUnitMemberRender` for the merged `AB` member and the partner's own `B0`
+member. Result: 302 of 801 swept UTs render BOTH concurrently (37.7%), every one
+of them with the two span clocks diverged (min 137 s, max 237 s on this fixture;
+the geometric bound for any pair of enable UTs is 50-300 s). Control with the
+second loop off: 0 collisions, `AB` still rendering. `ClearLoopsConflictingWith`
+reports `clearedSameTree=0 clearedCrossTree=0` with the link off, so the pinned
+concurrent-loop behavior provably does not couple the two. Note:
+`docs/dev/research/double-clock-verification-2026-08-13.md`. Shipped:
+`MissionStore.TryDescribeDoubleClockAdvisory` (transitive BFS over
+`DockConnectedTreePairs`; null graph -> null) + one ScreenMessage from the
+Missions-tab loop toggle on ENABLE only (after the enable, so it reads the
+post-clear state) + the `double-clock advisory:` Info audit line. NO hard
+enforcement, by design: widening `ClearLoopsConflictingWith` to graph-connected
+trees would switch off a loop the player just asked for and regress pinned
+behavior #4 for every harmless case. **The open half:** only the STRUCTURAL double
+render is pinned. The VISUAL severity (two ghosts of one vessel on screen
+together, possibly kilometres apart) follows from it but is not measured, and is
+collected opportunistically in ordinary play like the other M-MIS-8 per-scene
+visuals; the advisory's wording ("ghosts may appear twice") is deliberately sized
+to that evidence. The link-include toggle deliberately posts nothing (it calls
+`ClearLoopsConflictingWith`, so the two-loop state cannot survive that path -
+verified by a source-text gate, not assumed).
 
 **Five v1 limits carried by the seam-marker step, all deliberate.** (1) **No
 ghost-label badge** (design Q5 asked for one alongside the ScreenMessages line):
