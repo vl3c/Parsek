@@ -556,6 +556,19 @@ not help: the refusal is at the seam, before any row is written. That finding
 stays owned by the synthetic two-action unit test (`ScienceSpendingOrderingTests`,
 plan task A.1), and a future forge must NOT be scoped to it.
 
+**Status update 2026-08-20 (plan tasks D.1 + D.3).** c1 is now committed as a
+headless replay REGRESSION FLOOR, not as an oracle: `Fixtures/C1Career/` (ledger
++ save) plus `C1CareerLedgerReplayTests`. The +90 science divergence is
+CHARACTERIZED there - value pinned (recon 119.30025362968445 vs the save's
+29.3002529, delta +90.000000729684444), mechanism observed on the real walk
+(exactly one `Spending NOT affordable` refusal in 323 rows, and it is
+`heavyRocketry`), and era-bounded. It is NOT adjudicated and remains NOT a filed
+defect: the fixture cannot separate "the 2026-08-09 capture layer under-recorded
+the science available at that UT" from "the walk values something differently
+from KSP", and per the ceiling above no forge can manufacture the shape that
+would separate them. Nothing about the ordering contract depends on c1 - the
+mechanism stays owned by `ScienceSpendingOrderingTests`.
+
 ## ~~CAREER-FORGE-NEEDS-A-DIRECT-ANTENNA: the post-fix career forge cannot transmit science, because stock refuses to transmit over a command pod's INTERNAL antenna~~ [MEASURED 2026-08-19 by `L3-career-science-recover` flight 2 (runs `2026-08-19_1823` + retry `_1831_a2`), root cause PROVEN from the decompiled `Assembly-CSharp`. NOT a product defect and NOT a harness defect: the MISSION named a FIXTURE fault correctly. SIBLING FIXTURE `career-science-pad` BUILT 2026-08-19 on branch `career-science-craft`, and LIVE-PROVEN the same day by flight 3 (run `2026-08-19_1912`, MISSION-OK, `transmit_science sent=1`) - see the FLIGHT 3 block below. CLOSED]
 
 `L3-career-science-recover` flight 2 flew a textbook mission and then condemned
