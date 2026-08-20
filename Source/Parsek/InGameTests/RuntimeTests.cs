@@ -17468,6 +17468,14 @@ namespace Parsek.InGameTests
             // family's POST-curve capture and a different mechanism entirely.
             public int StrategyConverterPenaltyRows;
             public double StrategyConverterPenaltyNominal;
+            // The query-family FUNDS DEBIT leg: FundsSpending rows sourced
+            // FundsSpendingSource.StrategyConverter, and the sum of their FundsSpent (a
+            // POSITIVE magnitude - the sign is in the type). Kept SEPARATE from
+            // StrategyFundsRows, which counts the funds CREDIT arm
+            // (FundsEarning/Strategy), and from FundsSpendingSource.Strategy, which is
+            // the exchanger family's reason-keyed input leg.
+            public int StrategyConverterFundsSpendRows;
+            public double StrategyConverterFundsSpent;
         }
 
         private static bool TryTallyStrategyLedgerRows(out StrategyLedgerTally tally)
@@ -17505,6 +17513,13 @@ namespace Parsek.InGameTests
                             tally.StrategyFundsRows++;
                         }
                         break;
+                    case GameActionType.FundsSpending:
+                        if (a.FundsSpendingSource == FundsSpendingSource.StrategyConverter)
+                        {
+                            tally.StrategyConverterFundsSpent += a.FundsSpent;
+                            tally.StrategyConverterFundsSpendRows++;
+                        }
+                        break;
                     case GameActionType.ReputationEarning:
                         tally.ReputationRows++;
                         if (a.RepSource == ReputationSource.Strategy)
@@ -17533,7 +17548,8 @@ namespace Parsek.InGameTests
                 "convDebitRows={0} convDebit={1} exchDebitRows={2} exchDebit={3} " +
                 "sciCreditRows={4} sciCredit={5} fundsRows={6} funds={7} repRows={8} " +
                 "strategyRepRows={9} strategyRepNominal={10} " +
-                "converterRepPenaltyRows={11} converterRepPenaltyNominal={12}",
+                "converterRepPenaltyRows={11} converterRepPenaltyNominal={12} " +
+                "converterFundsSpendRows={13} converterFundsSpent={14}",
                 after.ConverterDebitRows - before.ConverterDebitRows,
                 (after.ConverterDebit - before.ConverterDebit).ToString("R", CultureInfo.InvariantCulture),
                 after.ExchangerDebitRows - before.ExchangerDebitRows,
@@ -17548,6 +17564,9 @@ namespace Parsek.InGameTests
                     .ToString("R", CultureInfo.InvariantCulture),
                 after.StrategyConverterPenaltyRows - before.StrategyConverterPenaltyRows,
                 (after.StrategyConverterPenaltyNominal - before.StrategyConverterPenaltyNominal)
+                    .ToString("R", CultureInfo.InvariantCulture),
+                after.StrategyConverterFundsSpendRows - before.StrategyConverterFundsSpendRows,
+                (after.StrategyConverterFundsSpent - before.StrategyConverterFundsSpent)
                     .ToString("R", CultureInfo.InvariantCulture));
         }
 
@@ -17703,9 +17722,29 @@ namespace Parsek.InGameTests
         /// then WARNs "no matching FundsChanged event keyed 'Other'" on every recalc,
         /// because a suppressed top-up leaves no event to pair with.
         ///
+        /// <para><b>PASS THE GROSS NOMINAL, NEVER THE OBSERVED NET MOVEMENT.</b> This
+        /// helper stands in for the ORDINARY channel's record of a funds transaction, and
+        /// every such channel records a CONFIGURED amount: a contract's
+        /// <c>FundsCompletion</c> / <c>FundsAdvance</c>, a progress node's
+        /// <c>AwardProgress</c> argument. Handing it <c>fundsDelta</c> - the pool movement
+        /// read back after the strategy took its share - was STRUCTURAL BLINDNESS: the
+        /// reconstruction then tracked the live pool BY CONSTRUCTION, so the cell's
+        /// no-GUARDED scan could not clamp no matter what the capture door did, and the
+        /// funds-debit gap sat unmeasurable behind two cells that looked green. See
+        /// STRATEGY-FUNDS-DEBIT-CONVERTERS-UNCAPTURED in docs/dev/todo-and-known-bugs.md.
+        /// With the gross nominal here, the pools reconcile only when the door writes the
+        /// diverted half too - which is what makes those scans product gates.</para>
+        ///
         /// <para>Stamped one second in the past for the same reason the science top-up is:
         /// it is a PRIOR grant, not part of the conversion under test, and a row at the
-        /// frozen KSC "now" sits inside the 0.1s window the KSC reconcilers pair against.</para>
+        /// frozen KSC "now" sits inside the 0.1s window the KSC reconcilers pair against.
+        /// Unlike its REPUTATION sibling the backdate is arithmetically free: funds have
+        /// no curve and no state dependence, so the walk reaches the same balance in any
+        /// order, and the only ordering property that could matter -
+        /// <c>FundsModule.ProcessFundsSpending</c>'s affordability check - is satisfied
+        /// either way here (the fixture seeds 500000 against a diversion of a few
+        /// thousand), and would be satisfied anyway by <c>SortActions</c>' earnings-
+        /// before-spendings key at a shared UT.</para>
         /// </summary>
         private static void WriteLedgerVisibleFundsRow(double amount, string why)
         {
@@ -18101,7 +18140,7 @@ namespace Parsek.InGameTests
         }
 
         [InGameTest(Category = "StrategyLifecycle", Scene = GameScenes.SPACECENTER,
-            Description = "STRATEGY-SCIENCE-CONVERSION-LEAK, the OUTPUT direction: a stock CurrencyConverter that YIELDS science lands the yield in the ledger as a StrategyScienceCredit matching the measured pool movement, with no GUARDED clamp.")]
+            Description = "STRATEGY-SCIENCE-CONVERSION-LEAK, the OUTPUT direction: a stock CurrencyConverter that YIELDS science lands the yield in the ledger as a StrategyScienceCredit matching the measured pool movement - and its funds INPUT leg lands as one StrategyConverter-sourced FundsSpending - against a GROSS-nominal stand-in row, with no GUARDED clamp.")]
         public IEnumerator ConverterStrategy_ScienceYield_CapturesCredit()
         {
             // THE DIRECTION NEVER LIVE-PROVEN. Every converter cell so far drives science
@@ -18235,12 +18274,25 @@ namespace Parsek.InGameTests
                         yield break;
                     }
 
-                    // NOW make the fixture's own funds movement visible, before the door's
+                    // NOW make the fixture's own funds transaction visible, before the door's
                     // DEFERRED recalc runs on the next frame. ContractReward is not a
                     // ledger-modelled funds reason (only StrategyOutput forwards), and funds
                     // have no pending adjuster on the guard's discriminator, so leaving this
                     // bare would clamp - the 2026-08-18_2019 failure mode, in the funds pool.
-                    WriteLedgerVisibleFundsRow(fundsDelta, "ContractReward funds award is not a modelled reason");
+                    //
+                    // THE GROSS AWARD, NOT THE OBSERVED fundsDelta, and the difference is
+                    // what this cell can see. A real ContractReward award arrives with a
+                    // ContractComplete row carrying the contract's CONFIGURED FundsCompletion
+                    // - the whole 250000 - and the converter's take is a SEPARATE second
+                    // movement. Writing the net delta here instead made the reconstruction
+                    // track the live pool by construction, so the no-clamp scan below could
+                    // not fail however badly the door behaved; that blindness is why the
+                    // funds-debit gap went unmeasured until 2026-08-21. With the gross
+                    // nominal the pools reconcile ONLY IF the door also writes the diverted
+                    // half, which is exactly what the row assertions below check.
+                    WriteLedgerVisibleFundsRow(FundsAward,
+                        "the ContractReward award's own configured nominal, which a contract " +
+                        "channel would carry and which the converter's take is measured against");
 
                     // Settle so the door's one-frame deferred recalc actually runs; without
                     // this the no-clamp assertion below would be vacuous.
@@ -18311,13 +18363,29 @@ namespace Parsek.InGameTests
                         "the ledger's science credit must equal the science KSP actually credited");
                     InGameAssert.AreEqual(0, convDebitRows,
                         "a science YIELD must not also write a science debit");
-                    // The SCOPING RULE, live: the funds leg carries a nonzero GetInput, so the
-                    // ordinary event-driven channel already reports it NET and the door must
-                    // stand off it. The only Strategy FundsEarning row in the window is the
-                    // fixture's own, written after this tally was taken.
+                    // THE FUNDS INPUT LEG, WHICH THIS CELL USED TO PIN AS SUPPRESSED. The leg
+                    // carries a nonzero GetInput, and the old scoping rule excluded every
+                    // such leg on the premise that "the ordinary channel already reports it
+                    // NET". That premise is REASON-QUALIFIED: it holds where Parsek's funds
+                    // channel is event-derived (VesselRollout, RnDPartPurchase, the structure
+                    // reasons, StrategyOutput) and is FALSE under ContractReward, where the
+                    // channel carries the contract's configured GROSS. So the diversion now
+                    // lands as exactly one FundsSpending row sourced StrategyConverter, and
+                    // NOT as a funds EARNING - the direction lives in the action type.
+                    int doorFundsDebitRows =
+                        afterTally.StrategyConverterFundsSpendRows - beforeTally.StrategyConverterFundsSpendRows;
+                    double doorFundsDebit =
+                        afterTally.StrategyConverterFundsSpent - beforeTally.StrategyConverterFundsSpent;
                     InGameAssert.AreEqual(0, doorFundsRows,
-                        "the funds leg has a nonzero input, so the scoping rule must suppress it - " +
-                        "capturing it here would double-count the ordinary channel");
+                        "a funds INPUT converter must not write a funds EARNING row - the take is a " +
+                        "debit and its sign belongs to the action type");
+                    InGameAssert.AreEqual(1, doorFundsDebitRows,
+                        "the funds the converter took under ContractReward must land as exactly one " +
+                        "FundsSpending/StrategyConverter row: the ordinary channel records the " +
+                        "contract's configured GROSS reward, so nothing else carries the diverted half");
+                    InGameAssert.ApproxEqual(take, doorFundsDebit, System.Math.Max(1.0, take * 0.02),
+                        "the row's FundsSpent must equal the funds KSP actually diverted, as a POSITIVE " +
+                        "magnitude");
 
                     string clamp = FirstGuardedClampLine(captured);
                     InGameAssert.IsNull(clamp,
@@ -18355,29 +18423,40 @@ namespace Parsek.InGameTests
         }
 
         [InGameTest(Category = "StrategyLifecycle", Scene = GameScenes.SPACECENTER,
-            Description = "The NEGATIVE CONTROL of the capture matrix: a stock CurrencyOperation funds reward-multiplier moves the pool by the MODIFIED amount and the query-family door writes NO conversion row, because a nonzero GetInput means the ordinary event-driven channel already reports it net.")]
-        public IEnumerator OperationStrategy_RewardMultiplier_IsNotCaptured()
+            Description = "A stock CurrencyOperation funds reward-multiplier under Progression moves the pool by the MODIFIED amount, and the uplift lands as exactly one Strategy FundsEarning row - the milestone channel records the AwardProgress argument, so nothing else carries it.")]
+        public IEnumerator OperationStrategy_RewardMultiplier_IsCapturedOnNominalReason()
         {
-            // WHY A NEGATIVE CONTROL IS WORTH A CELL. Every other cell in this category
-            // asserts that a movement IS captured, so all of them would still pass if the
-            // scoping rule were deleted and the door captured everything. This one fails in
-            // that world: a CurrencyOperation reward multiplier is the exact case
-            // StrategyConversionCapture.EvaluateLegs is built to EXCLUDE (nonzero GetInput
-            // means the ordinary channel already reports the value net of the modifier, so a
-            // row here would double-count it).
+            // WHAT THIS CELL USED TO BE, AND WHY IT CHANGED SIDES. It was the capture
+            // matrix's NEGATIVE CONTROL: a CurrencyOperation reward multiplier was the
+            // exact case the funds scoping rule excluded, on the premise that a nonzero
+            // GetInput means the ordinary channel already reports the value NET. That
+            // premise is REASON-QUALIFIED and this cell's own reason is on the wrong side
+            // of the qualification. Under TransactionReasons.Progression the funds channel
+            // is MilestoneAchievement.MilestoneFundsAwarded, which ProgressRewardPatch
+            // captures from the ProgressNode.AwardProgress ARGUMENTS - the configured
+            // gross, read before Funding.AddFunds runs the query at all. Nothing recorded
+            // the multiplier's uplift, so the reconstruction ran LOW by it; the gate is now
+            // keyed on the reason (StrategyConversionCapture.IsNominalChannelFundsReason)
+            // and this movement is captured. See
+            // STRATEGY-FUNDS-DEBIT-CONVERTERS-UNCAPTURED in docs/dev/todo-and-known-bugs.md.
             //
-            // A FUNDS OPERATION, DELIBERATELY - and this is the trap in the family. The
-            // scoping rule is ASYMMETRIC, and FUNDS is now the only currency it gates:
-            // funds is captured only at zero input, while SCIENCE and (since the
-            // reputation-INPUT converter was measured) REPUTATION are both captured
-            // unconditionally, input or not - neither of their channels is derived from an
-            // observed pool delta, so the effect-delta half has no other reporter. So a
-            // CurrencyOperation SCIENCE or REPUTATION multiplier IS captured by design, and
-            // driving one here would assert the opposite of the contract. Leadership
-            // Initiative's funds arm is the true negative control, and it stays one: under a
-            // funds-only transaction its reputation and science Multiply ops see a ZERO
-            // input and contribute exactly zero delta, so the widened reputation rule is a
-            // no-op for this cell (assertion below measures that rather than assuming it).
+            // WHERE THE NEGATIVE CONTROL WENT. The suppression that remains - a nonzero
+            // funds input under an EVENT-DERIVED reason (VesselRollout, RnDPartPurchase,
+            // StructureRepair, StructureConstruction, StrategyOutput), where the channel
+            // really does record the observed net - is pinned headlessly by
+            // StrategyConversionCaptureTests.NonZeroInputFunds_UnderEventDerivedReason_
+            // IsNotCaptured. NO in-game cell can carry it cheaply: Leadership Initiative
+            // has no funds op on those reasons at all (its two funds arms are Progression
+            // and the Contract* trio), so an in-game control would need a SECOND strategy
+            // (AgressiveNegotiations) and a spend-shaped transaction, which is a cell of
+            // its own rather than an edit to this one. Recorded here so the loss is a
+            // known trade rather than an accident.
+            //
+            // A FUNDS OPERATION, DELIBERATELY. Under a funds-only transaction Leadership
+            // Initiative's reputation and science Multiply ops see a ZERO input and
+            // contribute exactly zero delta, so this cell moves ONE pool and stays clear of
+            // the reputation guard, which has no pending adjuster and a 0.01 epsilon (the
+            // assertions below measure that rather than assume it).
             //
             // ALL ITS OPERATIONS ARE Multiply (stock `operation = Multiply`), and a Multiply
             // op computes lerp*GetInput - GetInput. Under a funds-only transaction the
@@ -18488,27 +18567,12 @@ namespace Parsek.InGameTests
                     double sciDelta = ResearchAndDevelopment.Instance.Science - (double)sciPreAward;
                     double repDelta = (Reputation.Instance != null ? Reputation.Instance.reputation : 0f) - (double)repPreAward;
 
-                    // SETTLE BEFORE TALLYING, and this ordering is the whole difference
-                    // between a negative control and a vacuous one. Every assertion below
-                    // is "this row count did NOT move", so a tally taken in the same frame
-                    // as the award would pass against a door that captures ONE FRAME LATE
-                    // just as happily as against one that correctly stands off. The
-                    // positive cells can sample immediately because their doors write
-                    // synchronously and they assert a row IS there; a zero-assertion has to
-                    // outlast every deferred path before it means anything.
-                    //
-                    // Safe to settle before the compensating write, and only because the
-                    // non-capture is exactly what this cell asserts: with no capture-worthy
-                    // leg, GameStateRecorder.OnCurrencyModified returns at `legs.Count == 0`
-                    // without calling OnStrategyCurrencyConversion, so no deferred recalc is
-                    // scheduled and nothing reads the uncompensated pool during these
-                    // frames. If a regression ever DID capture here, the recalc would run
-                    // against an uncompensated funds pool and raise the funds guard - which
-                    // is a correct red for this cell, not a fixture artefact.
-                    for (int i = 0; i < StrategyLifecycleActivateSettleFrames; i++)
-                        yield return null;
-
-                    // ROW COUNTS BEFORE THE COMPENSATING WRITE - this tally IS the assertion.
+                    // ROW COUNTS READ IMMEDIATELY, AND BEFORE THE COMPENSATING WRITE. The
+                    // door writes synchronously inside the AddFunds above, so this tally is
+                    // exactly what the door produced - and it cannot be confused with the
+                    // fixture row below, which shares its shape (both are
+                    // FundsEarning/Strategy, so the tally cannot tell them apart once both
+                    // exist; the ORDER is the discriminator).
                     StrategyLedgerTally afterTally;
                     if (!TryTallyStrategyLedgerRows(out afterTally))
                     {
@@ -18516,7 +18580,23 @@ namespace Parsek.InGameTests
                         yield break;
                     }
 
-                    WriteLedgerVisibleFundsRow(fundsDelta, "Progression funds award is not a modelled reason");
+                    // THE GROSS AWARD, NOT THE OBSERVED fundsDelta. Under Progression a real
+                    // milestone lands a MilestoneAchievement carrying the AwardProgress
+                    // argument - the unmultiplied 100000 - and the uplift is a separate
+                    // second movement of the same pool. Writing the net delta here made the
+                    // reconstruction track the live pool by construction, which is why this
+                    // cell could sit green either side of the capture question for as long
+                    // as it did.
+                    WriteLedgerVisibleFundsRow(FundsAward,
+                        "the Progression award's own configured nominal, which the milestone " +
+                        "channel would carry and which the multiplier's uplift rides on top of");
+
+                    // SETTLE AFTER THE COMPENSATING WRITE, because the door now schedules a
+                    // DEFERRED recalc: a settle before the write would run that recalc
+                    // against an uncompensated funds pool and clamp the guard on a fixture
+                    // artefact rather than on the product.
+                    for (int i = 0; i < StrategyLifecycleActivateSettleFrames; i++)
+                        yield return null;
 
                     ParsekLog.Info("TestRunner",
                         $"OperationMultiplier: award={FundsAward.ToString("R", CultureInfo.InvariantCulture)} " +
@@ -18542,19 +18622,29 @@ namespace Parsek.InGameTests
                     InGameAssert.IsGreaterThan(fundsDelta, FundsAward,
                         "a funds reward MULTIPLIER must credit more than the raw award");
 
-                    // AND NOTHING WAS CAPTURED. This is the whole cell. Every conversion row
-                    // shape stays at zero: the funds leg is excluded by the scoping rule
-                    // (nonzero GetInput), and the reputation and science legs contribute no
-                    // delta at all because a Multiply op over a zero input is zero.
+                    // THE UPLIFT IS CAPTURED, AND AS AN EARNING. A positive funds delta under
+                    // a nominal-channel reason takes the FundsEarning arm of
+                    // BuildStrategyConversionAction; the debit arm and every other currency
+                    // stay at zero, because a Multiply op over a zero input is exactly zero.
+                    double doorFunds = afterTally.StrategyFunds - beforeTally.StrategyFunds;
+                    InGameAssert.AreEqual(1, afterTally.StrategyFundsRows - beforeTally.StrategyFundsRows,
+                        "the multiplier's uplift must land as exactly one Strategy FundsEarning row - " +
+                        "under Progression the milestone channel carries the configured AwardProgress " +
+                        "amount, so nothing else reports the uplift");
+                    InGameAssert.ApproxEqual(fundsDelta - FundsAward, doorFunds,
+                        System.Math.Max(1.0, (fundsDelta - FundsAward) * 0.02),
+                        "the row's FundsAwarded must equal the uplift KSP actually credited on top of " +
+                        "the raw award");
+                    InGameAssert.AreEqual(0,
+                        afterTally.StrategyConverterFundsSpendRows - beforeTally.StrategyConverterFundsSpendRows,
+                        "an UPWARD multiplier must not write a funds debit row - the direction lives in " +
+                        "the action type");
                     InGameAssert.AreEqual(0, afterTally.ConverterDebitRows - beforeTally.ConverterDebitRows,
                         "a CurrencyOperation reward multiplier must write no converter science debit");
                     InGameAssert.AreEqual(0, afterTally.ExchangerDebitRows - beforeTally.ExchangerDebitRows,
                         "a CurrencyOperation reward multiplier must write no exchanger science debit");
                     InGameAssert.AreEqual(0, afterTally.ScienceCreditRows - beforeTally.ScienceCreditRows,
                         "a CurrencyOperation reward multiplier must write no science credit");
-                    InGameAssert.AreEqual(0, afterTally.StrategyFundsRows - beforeTally.StrategyFundsRows,
-                        "a CurrencyOperation reward multiplier must write no Strategy FundsEarning - " +
-                        "the ordinary event-driven channel already reports this transaction NET of the modifier");
                     InGameAssert.AreEqual(0, afterTally.ReputationRows - beforeTally.ReputationRows,
                         "a CurrencyOperation reward multiplier must write no reputation row");
 
@@ -18570,7 +18660,14 @@ namespace Parsek.InGameTests
 
                     string clamp = FirstGuardedClampLine(captured);
                     InGameAssert.IsNull(clamp,
-                        $"no GUARDED UPLIFT/DRAWDOWN clamp may fire on a correctly-scoped non-capture: {clamp}");
+                        $"a clamp means the reconstruction did not track the moved pool across this " +
+                        $"multiplier - the uplift row is missing or carries the wrong magnitude, and the " +
+                        $"stand-in row above carries the GROSS award so this scan is a product gate: {clamp}");
+
+                    bool sawMultiplierDoorLog = FirstStrategyConversionDoorLine(captured) != null;
+                    InGameAssert.IsTrue(sawMultiplierDoorLog,
+                        "expected the [GameStateRecorder] strategy currency conversion INFO line - the " +
+                        "door must at least have evaluated the query");
                 }
                 finally
                 {
@@ -19344,6 +19441,413 @@ namespace Parsek.InGameTests
             finally
             {
                 DestroyHiddenAdministrationCanvasForTest(selection, "converter-reputation-debit-teardown");
+            }
+        }
+
+        /// <summary>
+        /// The funds award the funds-debit cell hands to KSP, and it is SOLVED rather than
+        /// picked. Appreciation Campaign's stock CurrencyConverter lerps its share 0.0..1.0
+        /// at the Factor, so the default 0.05 diverts share * input = 5000 funds out of this
+        /// award - five orders of magnitude above <c>KspStatePatcher.ResolveFundsPatch</c>'s
+        /// 0.01 write threshold and three above the post-walk funds reconcile tolerance of
+        /// 1.0, so a drift of that size is unambiguously a capture gap and not rounding.
+        /// The fixture seeds 500000 funds and the activation charge lerps 35000..750000 to
+        /// 70750, so both the setup cost and this award fit with room to spare.
+        /// </summary>
+        private const double FundsDebitLegAward = 100000.0;
+
+        [InGameTest(Category = "StrategyLifecycle", Scene = GameScenes.SPACECENTER,
+            Description = "A stock funds-INPUT CurrencyConverter (Appreciation Campaign) diverts a share of a ContractReward funds award; the diversion is measured model-free against a same-pool control and must land as exactly one StrategyConverter-sourced FundsSpending carrying the raw delta, against a GROSS-nominal stand-in row, with the pool left MOVED and no GUARDED clamp.")]
+        public IEnumerator ConverterStrategy_FundsDebitLeg_CapturesSpending()
+        {
+            // THE MECHANISM, FROM THE DECOMPILE (KSP 1.12.5, Funding.AddFunds). One AddFunds
+            // call moves the pool TWICE:
+            //
+            //   funds += value                                  // stage 1, the RAW input
+            //   ... OnCurrencyModifierQuery fires, converters mutate the query ...
+            //   funds += GetEffectDelta(Currency.Funds)          // stage 2, via
+            //                                                    // Funding.OnCurrenciesModified
+            //
+            // the same double pool-move Reputation.AddReputation performs - minus the curve,
+            // because funds are linear. So the transaction's own amount and the converter's
+            // diversion are two independent movements, which is exactly the shape a two-row
+            // ledger reproduces, in any walk order.
+            //
+            // WHY THE GAP EXISTED. StrategyConversionCapture.EvaluateLegs suppressed EVERY
+            // nonzero-input funds leg, on the premise that "the ordinary event-driven channel
+            // is already watching that transaction and reports the value NET of the
+            // modifier". That premise is REASON-QUALIFIED and nobody had qualified it: it is
+            // TRUE under VesselRollout / RnDPartPurchase / StructureRepair /
+            // StructureConstruction / StrategyOutput, where Parsek's funds channel really is
+            // derived from the observed FundsChanged delta - and FALSE under ContractReward /
+            // ContractAdvance / Progression, where the channel records a CONFIGURED GROSS
+            // nominal instead (contract.FundsCompletion via TransformedFundsReward,
+            // contract.FundsAdvance, the ProgressNode.AwardProgress arguments). Under those
+            // three the diverted fraction had NO capture channel at all and the
+            // reconstruction ran HIGH by it. The gate is now keyed on the reason; see
+            // STRATEGY-FUNDS-DEBIT-CONVERTERS-UNCAPTURED in docs/dev/todo-and-known-bugs.md.
+            //
+            // WHY NO EXISTING CELL COULD SEE IT, which is the transferable lesson. Both funds
+            // converter cells in this category compensate their fixture with
+            // WriteLedgerVisibleFundsRow, and that stand-in used to be handed fundsDelta -
+            // the pool movement read back AFTER the strategy took its share. The
+            // reconstruction then tracked the live pool BY CONSTRUCTION, so their no-GUARDED
+            // scans could not clamp however badly the door behaved. Every funds cell in this
+            // category now writes the GROSS nominal, which is what a contract or milestone
+            // channel actually carries.
+            //
+            // THE CONTROL IS THE POINT OF THE CELL, and it is model-free. Appreciation
+            // Campaign's stock AffectReasons are ContractReward / ContractAdvance /
+            // Progression - VesselRecovery is deliberately EXCLUDED by the cfg ("ignore
+            // income from recovery, because funds recovered were ours to begin with"). So the
+            // same award, at the same pool, with the same strategy active, diverts under
+            // ContractReward and does NOT divert under VesselRecovery. The difference between
+            // the two pool movements is the diversion itself, measured rather than modelled.
+            if (HighLogic.CurrentGame == null)
+            {
+                InGameAssert.Skip("HighLogic.CurrentGame is null");
+                yield break;
+            }
+            if (HighLogic.CurrentGame.Mode != Game.Modes.CAREER)
+            {
+                InGameAssert.Skip($"StrategySystem is career-only (mode={HighLogic.CurrentGame.Mode})");
+                yield break;
+            }
+            if (Funding.Instance == null || ResearchAndDevelopment.Instance == null
+                || Reputation.Instance == null)
+            {
+                InGameAssert.Skip("Funding / ResearchAndDevelopment / Reputation singletons not initialized");
+                yield break;
+            }
+            if (RecordingStore.HasPendingTree
+                || GameStateRecorder.HasActiveUncommittedTree()
+                || GameStateRecorder.HasLiveRecorder())
+            {
+                InGameAssert.Skip("a live/pending tree or live recorder would defer the patch");
+                yield break;
+            }
+
+            var selection = new StrategySelectionResult();
+            yield return WaitForStableActivatableStockStrategy(selection);
+
+            try
+            {
+                if (KSP.UI.Screens.Administration.Instance == null)
+                {
+                    InGameAssert.Skip(
+                        $"Administration never hydrated - {selection.Diagnostic ?? "(no diagnostic)"}");
+                    yield break;
+                }
+
+                const string TargetConfigName = "AppreciationCampaignCfg";
+                var strategy = FindStockStrategyByConfigName(TargetConfigName);
+                if (strategy == null)
+                {
+                    InGameAssert.Skip($"stock strategy '{TargetConfigName}' is not present on this install");
+                    yield break;
+                }
+                if (strategy.IsActive)
+                {
+                    InGameAssert.Skip($"'{TargetConfigName}' is already active - this cell owns its activation");
+                    yield break;
+                }
+
+                // ANY OTHER ACTIVE STRATEGY CONTAMINATES THE MEASUREMENT, exactly as in the
+                // reputation-debit sibling: the control and the treatment differ only in the
+                // transaction reason, so the difference between them is this converter's take
+                // ONLY while no other effect is subscribed to either reason. A second
+                // strategy touching funds under VesselRecovery or ContractReward would land
+                // in that difference and would also break the exactly-one-row assertions.
+                int activeStrategiesBefore = CountActiveStockStrategies();
+                if (activeStrategiesBefore > 0)
+                {
+                    InGameAssert.Skip(
+                        $"{activeStrategiesBefore.ToString(CultureInfo.InvariantCulture)} stock strategies are " +
+                        "already ACTIVE - another subscribed effect would land in the control-vs-treatment " +
+                        "difference and in this cell's row counts");
+                    yield break;
+                }
+
+                var (fundsBefore, sciBefore, repBefore) = SnapshotFinancials();
+                int eventCountBefore = GameStateStore.EventCount;
+                int ledgerCountBefore = Ledger.Actions.Count;
+
+                var captured = new List<string>();
+                var priorObserver = ParsekLog.TestObserverForTesting;
+                ParsekLog.TestObserverForTesting = line => { captured.Add(line); priorObserver?.Invoke(line); };
+
+                try
+                {
+                    // STOCK CHARGES A LERPED FUNDS SETUP COST (initialCostFunds 35000..750000
+                    // at Factor, so 70750 at the cfg default 0.05) and Strategy.CanBeActivated
+                    // compares the CURRENT pool against it. A save that cannot afford it is a
+                    // SKIP naming the requirement rather than an assertion against a fixture
+                    // this cell does not own. Its reputation cost is ZERO, which is why this
+                    // cell runs on BOTH committed StrategyLifecycle fixtures - the rep-25
+                    // strategy-career and the rep-0 exchanger floor.
+                    string cannotReason;
+                    if (!strategy.CanBeActivated(out cannotReason))
+                    {
+                        InGameAssert.Skip(
+                            $"'{TargetConfigName}' cannot be activated on this save: {cannotReason ?? "(no reason)"} " +
+                            $"(stock charges a lerped funds setup cost, 35000..750000 by Factor; live funds are " +
+                            $"{Funding.Instance.Funds.ToString("R", CultureInfo.InvariantCulture)})");
+                        yield break;
+                    }
+
+                    bool activated = strategy.Activate();
+                    InGameAssert.IsTrue(activated, $"Strategy.Activate returned false for '{TargetConfigName}'");
+
+                    for (int i = 0; i < StrategyLifecycleActivateSettleFrames; i++)
+                        yield return null;
+
+                    double fundsPre = Funding.Instance.Funds;
+                    float repPre = Reputation.Instance.reputation;
+
+                    // (A) THE CONTROL. Same award, same pool, same active strategy, under the
+                    // ONE reason the cfg excludes. Suppressed, so no door fires and no row is
+                    // written; restored exactly afterwards so the treatment starts from the
+                    // identical pool.
+                    double controlAfter;
+                    using (SuppressionGuard.Resources())
+                    {
+                        Funding.Instance.AddFunds(
+                            FundsDebitLegAward, TransactionReasons.VesselRecovery);
+                        controlAfter = Funding.Instance.Funds;
+                        Funding.Instance.SetFunds(fundsPre, TransactionReasons.None);
+                    }
+                    double controlDelta = controlAfter - fundsPre;
+
+                    // THE ORDINARY CHANNEL'S HALF, WRITTEN BEFORE THE TALLY SO IT IS NOT
+                    // COUNTED AS ONE OF THE DOOR'S ROWS. A real ContractReward award arrives
+                    // with a ContractComplete row carrying the contract's own configured
+                    // FundsCompletion; this stand-in carries the identical number through the
+                    // identical arithmetic (FundsModule credits TransformedFundsReward, which
+                    // RecalculationEngine assigns straight from FundsReward), which is what
+                    // makes assertion (5)'s no-clamp scan a statement about the DIVERSION
+                    // rather than about a missing transaction.
+                    //
+                    // BACKDATED ONE SECOND, and unlike its reputation sibling that is
+                    // arithmetically FREE rather than load-bearing: funds have no curve and no
+                    // state dependence, so the walk reaches the same balance whichever side of
+                    // the debit row this lands on, and the only order-sensitive step -
+                    // ProcessFundsSpending's affordability check - passes either way against a
+                    // 500000 pool. The backdate is kept because the helper's contract is to
+                    // sit outside the KSC reconcilers' 0.1 s pairing window.
+                    WriteLedgerVisibleFundsRow(
+                        FundsDebitLegAward,
+                        "the ContractReward award's own configured nominal, which a contract " +
+                        "channel would carry and which the diversion is measured against");
+
+                    int capturedCountPreAward = captured.Count;
+
+                    StrategyLedgerTally beforeTally;
+                    if (!TryTallyStrategyLedgerRows(out beforeTally))
+                    {
+                        InGameAssert.Skip("ComputeELS returned null before the award");
+                        yield break;
+                    }
+
+                    // (B) THE TREATMENT. The same award under ContractReward - the reason a
+                    // real contract completion uses (Contracts.Contract awards funds with
+                    // exactly this call) and one of the three the converter masks.
+                    Funding.Instance.AddFunds(
+                        FundsDebitLegAward, TransactionReasons.ContractReward);
+
+                    double treatDelta = Funding.Instance.Funds - fundsPre;
+                    double repDelta = (double)Reputation.Instance.reputation - repPre;
+                    double divertedPoolMove = controlDelta - treatDelta;
+
+                    // NO IN-BODY RESTORE, AND THAT IS WHAT MAKES (5) A PRODUCT GATE. The
+                    // ledger now carries BOTH halves of what stock did - the stand-in gross
+                    // nominal for the transaction and the door's row for the diversion - so
+                    // the reconstruction must land on the MOVED pool. A regression that stops
+                    // writing the debit row, writes it with the wrong sign, or routes it to a
+                    // source the walk skips clamps here and reds this cell. The finally still
+                    // restores exactly.
+                    for (int i = 0; i < StrategyLifecycleActivateSettleFrames + 2; i++)
+                        yield return null;
+
+                    StrategyLedgerTally afterTally;
+                    if (!TryTallyStrategyLedgerRows(out afterTally))
+                    {
+                        InGameAssert.Fail("ComputeELS returned null after the award");
+                        yield break;
+                    }
+
+                    string doorLine = null;
+                    for (int i = capturedCountPreAward; i < captured.Count; i++)
+                    {
+                        string l = captured[i];
+                        if (l != null
+                            && l.IndexOf("[GameStateRecorder]", System.StringComparison.Ordinal) >= 0
+                            && l.IndexOf("strategy currency conversion", System.StringComparison.Ordinal) >= 0)
+                        {
+                            doorLine = l;
+                            break;
+                        }
+                    }
+
+                    ParsekLog.Info("TestRunner",
+                        $"ConverterFundsDebit: award={FundsDebitLegAward.ToString("R", CultureInfo.InvariantCulture)} " +
+                        $"fundsPre={fundsPre.ToString("R", CultureInfo.InvariantCulture)} " +
+                        $"controlDelta={controlDelta.ToString("R", CultureInfo.InvariantCulture)} " +
+                        $"treatDelta={treatDelta.ToString("R", CultureInfo.InvariantCulture)} " +
+                        $"divertedPoolMove={divertedPoolMove.ToString("R", CultureInfo.InvariantCulture)} " +
+                        $"repDelta={repDelta.ToString("R", CultureInfo.InvariantCulture)} " +
+                        $"factor={strategy.Factor.ToString("R", CultureInfo.InvariantCulture)} " +
+                        $"ledger: {FormatStrategyLedgerDelta(beforeTally, afterTally)}");
+
+                    const double FundsGuardEpsilon = 0.01;
+                    if (System.Math.Abs(divertedPoolMove) <= FundsGuardEpsilon)
+                    {
+                        InGameAssert.Skip(
+                            $"'{TargetConfigName}' diverted nothing measurable under ContractReward at " +
+                            $"Factor={strategy.Factor.ToString("R", CultureInfo.InvariantCulture)} " +
+                            $"(divertedPoolMove={divertedPoolMove.ToString("R", CultureInfo.InvariantCulture)}) - " +
+                            "no subject for this cell");
+                        yield break;
+                    }
+
+                    InGameAssert.IsNotNull(doorLine,
+                        "expected the [GameStateRecorder] strategy currency conversion INFO line - " +
+                        "the reputation OUTPUT leg of this conversion is captured unconditionally, " +
+                        "so the door must at least have evaluated the query");
+
+                    // (1) THE DIVERSION IS REAL AND ITS MAGNITUDE IS MEASURED. The control and
+                    // the treatment differ only in the transaction reason, so the whole
+                    // difference is the converter's take.
+                    InGameAssert.IsGreaterThan(divertedPoolMove, 0.0,
+                        "a funds-INPUT converter must move the pool LESS than the same award under " +
+                        "an excluded reason - a non-positive difference means the converter did not " +
+                        "fire and the cell has no subject");
+                    InGameAssert.IsGreaterThan(divertedPoolMove, 1.0,
+                        "the diverted pool movement must clear the post-walk funds reconcile tolerance " +
+                        "of 1.0, or the drift it causes is not distinguishable from rounding");
+
+                    // (2) THE QUERY SAW IT, AND ON THE INPUT SIDE. inF is the transaction's own
+                    // funds and dF is the converter's take, negative.
+                    double loggedInputFunds, loggedFundsDelta;
+                    bool readInF = TryReadStrategyQueryLogField(doorLine, "inF", out loggedInputFunds);
+                    bool readDF = TryReadStrategyQueryLogField(doorLine, "dF", out loggedFundsDelta);
+                    InGameAssert.IsTrue(readInF && readDF,
+                        $"the door's summary line must carry parseable inF and dF fields: {doorLine}");
+                    InGameAssert.ApproxEqual(FundsDebitLegAward, loggedInputFunds,
+                        System.Math.Max(1.0, FundsDebitLegAward * 0.001),
+                        "inF must be the transaction's own funds - this is the NONZERO-INPUT case the " +
+                        "old scoping rule excluded outright, and if inF were zero the cell would be " +
+                        "measuring the historical zero-input yield arm instead");
+                    InGameAssert.IsLessThan(loggedFundsDelta, 0.0 - StrategyConversionCapture.MinCaptureMagnitude,
+                        "dF must be NEGATIVE - a funds-INPUT converter takes from the pool");
+
+                    // (3) THE REPUTATION OUTPUT LEG IS ALREADY CAPTURED, which is what makes
+                    // the funds gap a HALF-captured conversion rather than an invisible one:
+                    // reputation is captured for any nonzero delta, input or not.
+                    InGameAssert.AreEqual(1, afterTally.StrategyRepRows - beforeTally.StrategyRepRows,
+                        "the reputation OUTPUT leg must land as exactly one ReputationEarning/Strategy " +
+                        "row - without it the door did not run at all and (4) proves nothing");
+                    InGameAssert.IsGreaterThan(repDelta, 0.0,
+                        "a funds -> reputation converter must credit reputation");
+
+                    // (4) THE DIVERSION IS CAPTURED, AS A NOMINAL SPENDING. Exactly one new
+                    // funds-debit row, sourced StrategyConverter and carrying the RAW dF as a
+                    // POSITIVE magnitude. A FundsEarning row would move the pool the wrong way;
+                    // a FundsSpendingSource.Strategy row would be the exchanger family's
+                    // reason-keyed leg, which the KSC classifier skips for a different stated
+                    // reason and which no query-family movement should ever claim.
+                    int fundsDebitRows =
+                        afterTally.StrategyConverterFundsSpendRows - beforeTally.StrategyConverterFundsSpendRows;
+                    double fundsDebitNominal =
+                        afterTally.StrategyConverterFundsSpent - beforeTally.StrategyConverterFundsSpent;
+                    InGameAssert.AreEqual(1, fundsDebitRows,
+                        "the funds diversion must land as exactly one FundsSpending/StrategyConverter row - " +
+                        "the ordinary channel records the transaction's CONFIGURED GROSS amount, so nothing " +
+                        "else carries the diverted half");
+                    InGameAssert.AreEqual(0, afterTally.StrategyFundsRows - beforeTally.StrategyFundsRows,
+                        "a funds INPUT converter must not write a funds EARNING row - the direction lives " +
+                        "in the action type, and the fixture's own stand-in row was written before this " +
+                        "tally was taken");
+                    InGameAssert.ApproxEqual(-loggedFundsDelta, fundsDebitNominal,
+                        System.Math.Max(1.0, System.Math.Abs(loggedFundsDelta) * 0.001),
+                        "the row's FundsSpent must be the RAW dF the door observed, as a POSITIVE " +
+                        "magnitude - the sign lives in the action type, not in the field");
+                    InGameAssert.ApproxEqual(divertedPoolMove, fundsDebitNominal,
+                        System.Math.Max(1.0, divertedPoolMove * 0.001),
+                        "and it must equal the MEASURED control-vs-treatment difference - the door's own " +
+                        "number agreeing with the pool's is what makes this a capture rather than a claim");
+
+                    ParsekLog.Info("TestRunner",
+                        $"ConverterFundsDebit CAPTURED: door observed inF=" +
+                        $"{loggedInputFunds.ToString("R", CultureInfo.InvariantCulture)} dF=" +
+                        $"{loggedFundsDelta.ToString("R", CultureInfo.InvariantCulture)}, " +
+                        $"ledger row fundsSpent={fundsDebitNominal.ToString("R", CultureInfo.InvariantCulture)}, " +
+                        $"live pool diverted {divertedPoolMove.ToString("R", CultureInfo.InvariantCulture)} " +
+                        $"against the same award under the excluded reason; funds guard epsilon=" +
+                        $"{FundsGuardEpsilon.ToString("R", CultureInfo.InvariantCulture)}; the pool is left " +
+                        $"MOVED through the deferred recalc and the stand-in row carries the GROSS nominal, " +
+                        $"so the scan below is a product gate on the reconstruction rather than a statement " +
+                        $"about this fixture");
+
+                    // (5) NO CLAMP ON ANY POOL, split by pool because the two failures are
+                    // different bugs. A FUNDS clamp means the reconstruction did not track the
+                    // moved pool - the debit row is missing, carries the wrong magnitude, or
+                    // was written on the wrong side. Any OTHER clamp means the reputation or
+                    // science leg of the same conversion was missed.
+                    const string FundsResource = "Funds";
+                    string fundsClamp = FirstGuardedClampLineFor(captured, FundsResource);
+                    InGameAssert.IsNull(fundsClamp,
+                        $"a Funds clamp means the reconstruction did not track the pool across this " +
+                        $"conversion - the StrategyConverter spending row is missing or carries the wrong " +
+                        $"magnitude: {fundsClamp}");
+                    string otherClamp = FirstGuardedClampLineOtherThan(captured, FundsResource);
+                    InGameAssert.IsNull(otherClamp,
+                        $"a clamp on any pool other than Funds means a capture door missed a leg of the " +
+                        $"same conversion: {otherClamp}");
+                }
+                finally
+                {
+                    if (strategy.IsActive)
+                    {
+                        try { strategy.Deactivate(); }
+                        catch (System.Exception ex)
+                        {
+                            ParsekLog.Warn("TestRunner",
+                                $"ConverterFundsDebit teardown Deactivate threw: {ex}");
+                        }
+                    }
+                    ParsekLog.TestObserverForTesting = priorObserver;
+
+                    // EXACT REPUTATION RESTORE, no deadband. This cell CREDITS reputation (the
+                    // converter's output leg), and RestoreFinancials leaves anything under
+                    // 0.01 alone - which on the rep-0 exchanger-floor fixture would strand a
+                    // positive residue and skip ExchangerStrategy_OneShot_CapturesBothLegs,
+                    // whose subject carries requiredReputationMax = 0. Same discipline as the
+                    // reputation-debit sibling, for the same downstream cell.
+                    if (Reputation.Instance != null
+                        && Reputation.Instance.reputation != repBefore)
+                    {
+                        float repStrandedAt = Reputation.Instance.reputation;
+                        using (SuppressionGuard.Resources())
+                            Reputation.Instance.SetReputation(repBefore, TransactionReasons.None);
+                        ParsekLog.Info("TestRunner",
+                            $"ConverterFundsDebit teardown: exact reputation restore " +
+                            $"{repStrandedAt.ToString("R", CultureInfo.InvariantCulture)} -> " +
+                            $"{repBefore.ToString("R", CultureInfo.InvariantCulture)}");
+                    }
+
+                    RestoreFinancials(fundsBefore, sciBefore, repBefore);
+                    GameStateStore.TruncateEventsForTesting(eventCountBefore);
+                    TruncateLedgerForTeardown(
+                        ledgerCountBefore, "ConverterStrategy_FundsDebitLeg_CapturesSpending");
+                    ParsekLog.Verbose("TestRunner",
+                        $"ConverterFundsDebit teardown: " +
+                        $"eventsBack={eventCountBefore.ToString(CultureInfo.InvariantCulture)}, " +
+                        $"ledgerBack={ledgerCountBefore.ToString(CultureInfo.InvariantCulture)}");
+                }
+            }
+            finally
+            {
+                DestroyHiddenAdministrationCanvasForTest(selection, "converter-funds-debit-teardown");
             }
         }
 

@@ -756,6 +756,49 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void ClassifyAction_StrategyConverterFundsSpending_TransformedSkip()
+        {
+            // The QUERY family's funds debit. The default FundsSpending arm expects a
+            // FundsChanged event keyed "RnDPartPurchase" of -FundsSpent, and this family
+            // emits no reason-keyed event at all (the converter mutates the query in place
+            // and the FundsChanged that follows carries the ORIGINAL reason and the NET
+            // amount), so an Untransformed leg would WARN on every single row.
+            var a = new GameAction
+            {
+                UT = 8599.8755059835421,
+                Type = GameActionType.FundsSpending,
+                FundsSpent = 5000f,
+                FundsSpendingSource = FundsSpendingSource.StrategyConverter
+            };
+
+            var exp = LedgerOrchestrator.ClassifyAction(a);
+
+            Assert.Equal(KscActionExpectationClassifier.KscReconcileClass.Transformed, exp.Class);
+            Assert.False(exp.FundsLeg.IsPresent);
+            Assert.Contains("strategy currency-converter funds debit", exp.SkipReason);
+        }
+
+        [Fact]
+        public void ClassifyAction_OrdinaryPartPurchaseSpending_StillPairsAgainstItsEvent()
+        {
+            // The negative half of the cell above: adding the converter arm must not
+            // divert the ordinary spending rows, which DO have a reason-keyed event.
+            var a = new GameAction
+            {
+                UT = 8599.8755059835421,
+                Type = GameActionType.FundsSpending,
+                FundsSpent = 5000f,
+                FundsSpendingSource = FundsSpendingSource.Other
+            };
+
+            var exp = LedgerOrchestrator.ClassifyAction(a);
+
+            Assert.Equal(KscActionExpectationClassifier.KscReconcileClass.Untransformed, exp.Class);
+            Assert.True(exp.FundsLeg.IsPresent);
+            Assert.Equal("RnDPartPurchase", exp.FundsLeg.ExpectedReasonKey);
+        }
+
+        [Fact]
         public void EndToEnd_OnKscSpending_ScienceChangedStrategyInput_WritesStrategyScienceDebit()
         {
             LedgerOrchestrator.Initialize();

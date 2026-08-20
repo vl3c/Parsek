@@ -373,7 +373,43 @@ count = { min = 0, max = 0 }
 # this branch ships, not against the build that first read it.
 # ###############################################################################
 # #############################################################################
-required  = ["BATCH_COMPLETE v1 total=9 passed=8 failed=0 skipped=1 category=StrategyLifecycle scene=SPACECENTER"]
+#
+# ############ THE FUNDS-DEBIT WAVE, MEASURED (2026-08-21) ############
+# ONE DECLARATION WAS ADDED and `total` moved 9 -> 10. The total is DERIVED
+# (hlib.derive_batch_tally: scene_skipped=0 batch_skipped=0 executable=10) and
+# CommittedBatchTallySourceSyncTests re-derives it; `passed=9 skipped=1` keeps the
+# same named skip (ExchangerStrategy_OneShot_CapturesBothLegs, for the
+# reputation-band reason recorded above) and was authored as a PREDICTION, then
+# MEASURED by the run named below.
+#
+#   ConverterStrategy_FundsDebitLeg_CapturesSpending - the cell that MEASURED and
+#     now GATES STRATEGY-FUNDS-DEBIT-CONVERTERS-UNCAPTURED, the funds mirror of the
+#     reputation-debit cell one entry up. Activates `AppreciationCampaignCfg` (stock
+#     input=Funds output=Reputation, lerped FUNDS setup cost 35000..750000 -> 70750
+#     at the default Factor 0.05, and initialCostReputation = 0) and measures the
+#     diverted pool movement MODEL-FREE: the same 100000-funds award at the same
+#     pool with the same strategy active, once under `VesselRecovery` (which the
+#     cfg's AffectReasons deliberately EXCLUDE - "funds recovered were ours to begin
+#     with") and once under `ContractReward` (which it masks). Because its setup
+#     charge is funds-only, this cell RUNS ON BOTH fixtures - here at rep 25 and on
+#     the rep-0 `L3-strategy-exchanger-floor` sibling - unlike the reputation-debit
+#     cell, which needs 7.3 reputation to activate its subject.
+#
+# TWO EXISTING CELLS CHANGED SIDES IN THE SAME WAVE, and the reason is the same
+# reason-qualification:
+#   ConverterStrategy_ScienceYield_CapturesCredit now also asserts that the funds
+#     INPUT leg of the same conversion lands as one FundsSpending/StrategyConverter
+#     row, and writes its stand-in ledger row with the GROSS award rather than the
+#     observed net movement.
+#   OperationStrategy_RewardMultiplier_IsNotCaptured was RENAMED
+#     OperationStrategy_RewardMultiplier_IsCapturedOnNominalReason: its own reason
+#     (Progression, where the milestone channel records the AwardProgress argument)
+#     is a NOMINAL-channel reason, so its uplift is captured now. The suppression
+#     that remains - a nonzero funds input under an EVENT-DERIVED reason - is pinned
+#     headlessly by StrategyConversionCaptureTests, since no stock strategy offers
+#     that shape on a cell this category can activate cheaply.
+# ###############################################################################
+required  = ["BATCH_COMPLETE v1 total=10 passed=9 failed=0 skipped=1 category=StrategyLifecycle scene=SPACECENTER"]
 # The GUARDED pair is the whole point of the lane. `GUARDED UPLIFT clamped` is the
 # reconstruction running ABOVE live (the science take not captured - measured 0.72000
 # against a 0.7200818 gap) and `GUARDED DRAWDOWN clamped` is it running BELOW (the

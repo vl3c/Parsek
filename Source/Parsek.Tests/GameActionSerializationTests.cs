@@ -869,6 +869,7 @@ namespace Parsek.Tests
         [InlineData(FundsSpendingSource.ContractPenalty)]
         [InlineData(FundsSpendingSource.Strategy)]
         [InlineData(FundsSpendingSource.Other)]
+        [InlineData(FundsSpendingSource.StrategyConverter)]
         public void FundsSpendingSource_AllValues_RoundTrip(FundsSpendingSource source)
         {
             var original = new GameAction

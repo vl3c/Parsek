@@ -9,11 +9,15 @@ never run:
     "'LeadershipInitiative' cannot be activated on this save:
      Cannot afford Setup Cost: Not enough Reputation"
 
-That cell is the category's NEGATIVE CONTROL - the one declaration that fails if
-`StrategyConversionCapture.EvaluateLegs`'s scoping rule is deleted and the
-query-family door starts capturing everything. Every other cell asserts that a
-movement IS captured and would pass in that broken world, so the skip was the
-matrix's only real coverage hole.
+That cell was the category's NEGATIVE CONTROL - the one declaration that failed
+if `StrategyConversionCapture.EvaluateLegs`'s scoping rule was deleted and the
+query-family door started capturing everything - so the skip was the matrix's
+only real coverage hole. (It is now
+`OperationStrategy_RewardMultiplier_IsCapturedOnNominalReason`: the 2026-08-21
+funds-debit wave found its own reason, Progression, on the NOMINAL-channel side
+of the qualification, so the uplift it drives IS captured and the remaining
+suppression is pinned headlessly. The activation requirement below - the only
+thing this fixture exists to satisfy - is unchanged.)
 
 THE REQUIREMENT, READ FROM STOCK CONFIG AND STOCK CODE (not guessed):
 

@@ -285,8 +285,40 @@ namespace Parsek
         FacilityRepair   = 2,
         KerbalHire       = 3,
         ContractPenalty  = 4,
+        /// <summary>
+        /// The EXCHANGER family's funds INPUT leg (a <c>Strategies.CurrencyExchanger</c>
+        /// spending funds under <c>TransactionReasons.StrategyInput</c>). Reason-keyed
+        /// and captured directly from the <c>FundsChanged</c> event, so
+        /// <c>KscActionExpectationClassifier</c> skips it rather than pairing it.
+        /// </summary>
         Strategy         = 5,
-        Other            = 6
+        Other            = 6,
+        /// <summary>
+        /// The QUERY family's funds DEBIT leg, captured by the query-family door in
+        /// <c>LedgerOrchestrator.BuildStrategyConversionAction</c>: a
+        /// <c>Strategies.Effects.CurrencyConverter</c> with <c>input = Funds</c>
+        /// (<c>AppreciationCampaignCfg</c> funds -> reputation,
+        /// <c>OutsourcedResearchCfg</c> funds -> science) or a
+        /// <c>Strategies.Effects.CurrencyOperation</c> scaling funds DOWN
+        /// (<c>LeadershipInitiative</c>'s 1.00..0.25 multiplier on contract gains),
+        /// diverting part of an ordinary transaction by mutating its
+        /// <c>CurrencyModifierQuery</c> in place.
+        ///
+        /// <para><b>ONLY EVER WRITTEN UNDER A NOMINAL-CHANNEL REASON</b>
+        /// (<c>ContractReward</c> / <c>ContractAdvance</c> / <c>Progression</c> - see
+        /// <c>StrategyConversionCapture.IsNominalChannelFundsReason</c>), where the
+        /// ordinary funds channel recorded the CONFIGURED GROSS amount and this row is
+        /// the missing second half. Under the event-derived reasons the channel already
+        /// reports the value net and no leg is emitted at all.</para>
+        ///
+        /// <para>Distinct from <see cref="Strategy"/> because the two are different
+        /// mechanisms with different reconcile standings: that one has a reason-keyed
+        /// <c>StrategyInput</c> event behind it, this one has NO event of its own - the
+        /// <c>FundsChanged</c> that follows carries the ORIGINAL reason - so neither the
+        /// KSC classifier nor the post-walk reconciler can pair it, and both skip it for
+        /// that stated reason rather than by inheriting the other's skip.</para>
+        /// </summary>
+        StrategyConverter = 7
     }
 
     /// <summary>Where reputation earnings came from.</summary>

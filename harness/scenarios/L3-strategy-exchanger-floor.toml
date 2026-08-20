@@ -218,7 +218,26 @@ count = { min = 0, max = 0 }
 # saveParse REPORT clean, recordings 0). GUARDED CENSUS: ZERO.
 # ###############################################################################
 # #############################################################################
-required  = ["BATCH_COMPLETE v1 total=9 passed=7 failed=0 skipped=2 category=StrategyLifecycle scene=SPACECENTER"]
+#
+# ############ THE FUNDS-DEBIT WAVE, MEASURED (2026-08-21) ############
+# ONE DECLARATION WAS ADDED and `total` moved 9 -> 10 (hlib.derive_batch_tally:
+# scene_skipped=0 batch_skipped=0 executable=10), exactly as on the sibling.
+# `passed=8 skipped=2` was authored as a PREDICTION and MEASURED by the run named
+# below: the NEW cell RUNS HERE, and the two named skips are unchanged.
+#
+# WHY THE NEW CELL RUNS ON THE REP-0 FIXTURE WHILE ITS REPUTATION SIBLING DOES NOT.
+# `ConverterStrategy_FundsDebitLeg_CapturesSpending` activates
+# `AppreciationCampaignCfg`, whose stock setup charge is FUNDS-ONLY - initialCostFunds
+# lerps 35000..750000 to 70750 at the default Factor 0.05 and `initialCostReputation`
+# is 0.0 - against a fixture that seeds funds=500000, while `requiredReputationMin`
+# is -500 so the rep-0 pool clears the offer gate too. The cell CREDITS reputation
+# (the converter's output leg is funds -> reputation), so its teardown carries an
+# EXACT reputation restore with no deadband: a residue under RestoreFinancials'
+# 0.01 threshold would leave this fixture at positive reputation and skip
+# `ExchangerStrategy_OneShot_CapturesBothLegs`, whose subject carries
+# `requiredReputationMax = 0`.
+# ###############################################################################
+required  = ["BATCH_COMPLETE v1 total=10 passed=8 failed=0 skipped=2 category=StrategyLifecycle scene=SPACECENTER"]
 # The GUARDED pair is the whole point of the lane. `GUARDED UPLIFT clamped` is the
 # reconstruction running ABOVE live and `GUARDED DRAWDOWN clamped` is it running BELOW.
 # Either one on this run means a capture door did not close. The Parsek ERROR forbid is

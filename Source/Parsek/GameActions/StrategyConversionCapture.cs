@@ -159,37 +159,36 @@ namespace Parsek
         /// science recon high by 0.72000 against a 0.7200818 GUARDED UPLIFT
         /// gap).</para>
         ///
-        /// <para><b>Funds - capture ONLY when the transaction put nothing of that
-        /// currency in.</b> A nonzero funds input means the ordinary event-driven
-        /// channel is already watching that transaction and reports the value NET of
-        /// the modifier, so capturing here would double-count. That is exactly the
-        /// <c>CurrencyOperation</c> reward-multiplier case (a contract's funds reward
-        /// scaled by an active strategy): input != 0, so no row. A zero-input nonzero
-        /// delta is a genuine cross-currency YIELD with no transaction of its own -
-        /// measured 60.526316 funds of drift in one session, low by exactly the yields,
-        /// because they arrive under the ORIGINAL reason AND below the recorder's
-        /// 100-funds threshold, a double miss.</para>
+        /// <para><b>Funds - capture a zero-input delta always, and a NONZERO-input delta
+        /// only under a NOMINAL-channel reason.</b> A zero-input nonzero delta is a
+        /// genuine cross-currency YIELD with no transaction of its own - measured
+        /// 60.526316 funds of drift in one session, low by exactly the yields, because
+        /// they arrive under the ORIGINAL reason AND below the recorder's 100-funds
+        /// threshold, a double miss. A nonzero-input delta is the modifier riding an
+        /// ordinary transaction, and whether capturing it double-counts depends
+        /// ENTIRELY on what Parsek's funds channel recorded for that transaction, which
+        /// is a property of the REASON - hence
+        /// <see cref="IsNominalChannelFundsReason"/> and the paragraph below.</para>
         ///
-        /// <para><b>THAT PREMISE IS REASON-QUALIFIED, and the gate is kept anyway.</b>
-        /// "The ordinary channel reports NET" is TRUE only where Parsek's funds channel
-        /// is EVENT-DERIVED - i.e. derived from the observed pool movement:
+        /// <para><b>THE PREMISE IS REASON-QUALIFIED, SO THE GATE IS TOO.</b> "The
+        /// ordinary channel reports NET" is TRUE only where Parsek's funds channel is
+        /// EVENT-DERIVED - i.e. derived from the observed pool movement:
         /// <c>VesselRollout</c>, <c>RnDPartPurchase</c>, <c>StructureRepair</c>,
-        /// <c>StructureConstruction</c> and <c>StrategyOutput</c>. It is FALSE on the
+        /// <c>StructureConstruction</c> and <c>StrategyOutput</c>. There the zero-input
+        /// rule stands unchanged and a row really would double-count. It is FALSE on the
         /// NOMINAL-channel reasons <c>ContractReward</c>, <c>ContractAdvance</c> and
         /// <c>Progression</c>, where the channel records a CONFIGURED GROSS amount
-        /// instead - <c>contract.FundsCompletion</c> (via the documented identity no-op
-        /// <c>StrategiesModule.TransformContractReward</c>) and the
-        /// <c>AwardProgress</c> arguments - so a converter diverting funds under one of
-        /// those three reasons (<c>AppreciationCampaignCfg</c> funds -> reputation,
-        /// <c>OutsourcedResearchCfg</c> funds -> science) has NO capture channel and
-        /// the reconstruction is predicted to run HIGH by the diverted fraction. That
-        /// is the exact shape of the reputation finding one paragraph down;
-        /// <c>Funding.AddFunds</c> has the same double pool-move. The gate is RETAINED
-        /// as-is pending a live measurement - it is not yet known whether the fix is
-        /// unconditional funds legs on those three reasons or reason-qualified gating -
-        /// and the gap is filed as STRATEGY-FUNDS-DEBIT-CONVERTERS-UNCAPTURED in
-        /// docs/dev/todo-and-known-bugs.md. Do not read this gate as evidence that the
-        /// funds side is clean.</para>
+        /// instead - <c>contract.FundsCompletion</c> and <c>contract.FundsAdvance</c>
+        /// (the first via <c>TransformedFundsReward</c>, which
+        /// <c>RecalculationEngine</c> assigns straight from <c>FundsReward</c> because
+        /// <c>StrategiesModule.TransformContractReward</c> is a documented identity
+        /// no-op) and the <c>ProgressNode.AwardProgress</c> arguments that
+        /// <c>ProgressRewardPatch</c> captures. Nothing on those three reads an observed
+        /// delta, so the effect-delta half had no capture channel at all and the
+        /// reconstruction ran HIGH by every diverted fraction.
+        /// See <see cref="IsNominalChannelFundsReason"/> for the gate itself and
+        /// STRATEGY-FUNDS-DEBIT-CONVERTERS-UNCAPTURED in docs/dev/todo-and-known-bugs.md
+        /// for the measurement that closed it.</para>
         ///
         /// <para><b>Reputation - capture any nonzero delta, input or not, exactly like
         /// science, and for a MECHANISM reason rather than by analogy.</b> Decompiled
@@ -256,6 +255,60 @@ namespace Parsek
         /// </summary>
         internal static List<StrategyConversionLeg> EvaluateLegs(StrategyConversionQuery q)
         {
+            return EvaluateLegs(q, IsNominalChannelFundsReason(q.Reason));
+        }
+
+        /// <summary>
+        /// The three transaction reasons on which Parsek's FUNDS channel records a
+        /// CONFIGURED GROSS nominal rather than an observed pool movement, and therefore
+        /// the only three on which a nonzero-input funds effect delta is safe - and
+        /// necessary - to capture.
+        ///
+        /// <list type="bullet">
+        /// <item><c>ContractReward</c> - <c>ContractComplete.TransformedFundsReward</c>,
+        /// which <c>RecalculationEngine</c> assigns straight from the contract's
+        /// configured <c>FundsCompletion</c>.</item>
+        /// <item><c>ContractAdvance</c> - the <c>FundsEarning</c> built from
+        /// <c>contract.FundsAdvance</c> at accept time.</item>
+        /// <item><c>Progression</c> - <c>MilestoneAchievement.MilestoneFundsAwarded</c>,
+        /// captured by <c>ProgressRewardPatch</c> from the <c>AwardProgress</c>
+        /// ARGUMENTS, i.e. before <c>Funding.AddFunds</c> runs the query at all.</item>
+        /// </list>
+        ///
+        /// <para><b>THE MATCH IS EXACT AND THE DEFAULT IS SUPPRESSION.</b> The string
+        /// comes from <c>CurrencyModifierQuery.reason.ToString()</c>, so a single stock
+        /// <c>TransactionReasons</c> member renders as exactly one of these names. An
+        /// unknown reason, a null, or a combined flags spelling matches nothing and
+        /// keeps the historical zero-input rule - which is the CONSERVATIVE side: it
+        /// preserves today's behaviour rather than guessing that some unseen channel
+        /// records gross.</para>
+        ///
+        /// <para><b>WHY THE EVENT-DERIVED REASONS MUST STAY OUT.</b> Under
+        /// <c>VesselRollout</c>, <c>RnDPartPurchase</c>, <c>StructureRepair</c>,
+        /// <c>StructureConstruction</c> and <c>StrategyOutput</c> the channel records
+        /// the OBSERVED <c>FundsChanged</c> delta, which is already NET of the modifier.
+        /// A row there would be counted twice - once inside the observed amount and once
+        /// as this door's leg - and that is exactly what stock's
+        /// <c>AgressiveNegotiations</c> launch/purchase discount would produce. Pinned by
+        /// <c>StrategyConversionCaptureTests.NonZeroInputFunds_UnderEventDerivedReason_IsNotCaptured</c>.</para>
+        /// </summary>
+        internal static bool IsNominalChannelFundsReason(string reason)
+        {
+            if (string.IsNullOrEmpty(reason))
+                return false;
+            return string.Equals(reason, "ContractReward", System.StringComparison.Ordinal)
+                || string.Equals(reason, "ContractAdvance", System.StringComparison.Ordinal)
+                || string.Equals(reason, "Progression", System.StringComparison.Ordinal);
+        }
+
+        /// <summary>
+        /// Testable core of <see cref="EvaluateLegs(StrategyConversionQuery)"/> with the
+        /// reason decision hoisted out, so a test can drive both sides of the funds gate
+        /// without depending on the reason spelling.
+        /// </summary>
+        internal static List<StrategyConversionLeg> EvaluateLegs(
+            StrategyConversionQuery q, bool fundsChannelRecordsGross)
+        {
             var legs = new List<StrategyConversionLeg>();
 
             if (System.Math.Abs(q.DeltaScience) >= MinCaptureMagnitude)
@@ -267,7 +320,8 @@ namespace Parsek
                 });
             }
 
-            if (System.Math.Abs(q.InputFunds) < MinCaptureMagnitude &&
+            bool fundsInputIsZero = System.Math.Abs(q.InputFunds) < MinCaptureMagnitude;
+            if ((fundsInputIsZero || fundsChannelRecordsGross) &&
                 System.Math.Abs(q.DeltaFunds) >= MinCaptureMagnitude)
             {
                 legs.Add(new StrategyConversionLeg

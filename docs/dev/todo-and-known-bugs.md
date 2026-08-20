@@ -2351,7 +2351,8 @@ fully unattended, every verifier PASS or REPORT, GUARDED census ZERO, unityExcep
 pinning `BATCH_COMPLETE v1 total=7 passed=6 failed=0 skipped=1` with the OPPOSITE named
 skip: `ExchangerStrategy_OneShot_CapturesBothLegs` PASSED (`sciDelta=-14.5 take=14.5
 fundsDelta=609.46632729616249 factor=0.05`) and
-`OperationStrategy_RewardMultiplier_IsNotCaptured` is the skip. Between the two specs all
+`OperationStrategy_RewardMultiplier_IsNotCaptured` (renamed
+`..._IsCapturedOnNominalReason` by the 2026-08-21 funds wave) is the skip. Between the two specs all
 seven declarations are gated nightly, each pinning its own MEASURED split with its own
 NAMED skip, at the cost of one extra ~55 s nightly flight. The stock constraint below is
 unchanged and still true - it is not dissolved, it is covered from both sides.
@@ -2361,7 +2362,7 @@ The rest of this entry stands as the record of why one batch could not do it.
 Not a bug in Parsek and not fixable by a fixture. Two `StrategyLifecycle`
 declarations have mutually exclusive reputation preconditions:
 
-- `OperationStrategy_RewardMultiplier_IsNotCaptured` needs **rep >= 14.5**.
+- `OperationStrategy_RewardMultiplier_IsCapturedOnNominalReason` needs **rep >= 14.5**.
   Both stock `CurrencyOperation` strategies (`LeadershipInitiative`,
   `AgressiveNegotiations`) lerp `initialCostReputation` 10..100 at
   `factorSliderDefault = 0.05`, and `Strategy.CanBeActivated` compares the
@@ -2552,9 +2553,13 @@ pool delta: `ContractComplete` carries the contract's `ReputationCompletion`
 `GameStateEventConverter` converts a `ReputationChanged` event ONLY under
 `TransactionReasons.StrategyInput`. So nothing reported stage 2 - the zero-input
 rule was excluding a whole family of real movements rather than preventing a
-double count. (It remains correct for FUNDS, whose `AddFunds` moves the pool by
-raw amounts and whose event-driven channel does see the transaction net; that
-asymmetry is now stated as one cell,
+double count. (It remains correct for FUNDS only where that channel is
+EVENT-DERIVED - `VesselRollout`, `RnDPartPurchase`, the two structure reasons,
+`StrategyOutput` - and was FALSE on the three NOMINAL-channel reasons, which the
+2026-08-21 funds-debit wave measured and closed with a reason-set gate; see
+STRATEGY-FUNDS-DEBIT-CONVERTERS-UNCAPTURED. The remaining asymmetry - reputation
+needs no reason gate at all, because NO reputation channel anywhere is
+observed-derived - is stated as one cell,
 `NonZeroInputReputation_IsCaptured_UnlikeFunds`.)
 
 **THE FIX.** `StrategyConversionCapture.EvaluateLegs` captures any nonzero
@@ -2594,8 +2599,9 @@ captured too - and the residual is WIDER than "one un-flown positive branch", be
   penalty than the nominal), but it is the row shape most likely to read as a defect
   in a ledger dump, so it is written down here before anyone finds it live.
 
-None of the four is driven by a committed spec - the negative-control cell
-`OperationStrategy_RewardMultiplier_IsNotCaptured` deliberately fires a FUNDS-only
+None of the four is driven by a committed spec - the funds-operation cell
+`OperationStrategy_RewardMultiplier_IsCapturedOnNominalReason` (the category's
+negative control until the 2026-08-21 funds wave) deliberately fires a FUNDS-only
 transaction, so its reputation and science legs contribute exactly zero delta and it
 is unaffected. All of them ride the identical stock line (stage 2 above) and are
 correct by the same argument, but none has been flown; if a future lane drives ANY
@@ -2617,72 +2623,111 @@ pins that the source does not take the pre-curved shortcut;
 `NonZeroInputNegativeReputation_IsCaptured_TheDebitFamily` pin the row shape, the
 mutation guard, the key and the scoping.
 
-## STRATEGY-FUNDS-DEBIT-CONVERTERS-UNCAPTURED: on the three NOMINAL-channel funds reasons the scoping rule's premise is false, so a funds-INPUT converter's diversion has no capture channel either [FILED 2026-08-20 off the #1515 review. UNMEASURED - PREDICTED, not observed. NOT FIXED - measure first]
+## ~~STRATEGY-FUNDS-DEBIT-CONVERTERS-UNCAPTURED: on the three NOMINAL-channel funds reasons the scoping rule's premise was false, so a funds-INPUT converter's diversion had no capture channel~~ [FILED 2026-08-20 off the #1515 review as a PREDICTION. MEASURED LIVE 2026-08-21 and FIXED in the same wave]
 
-**PREDICTED BY SYMMETRY WITH THE ENTRY ABOVE, NOT MEASURED.** Everything here is
-derivable from the decompile and from Parsek's own channel shapes; NO live run has
-produced the drift. That is the first thing to do, and the entry says so up front so
-nobody quotes it as a measurement.
+**MEASURED FIRST, THEN FIXED - the entry below is now a record of both.** The
+prediction was written from the decompile and from Parsek's own channel shapes with
+no live run behind it, and it said so. Run
+`2026-08-20_2327_L3-strategy-currency-conversion` (collected logs
+`2026-08-21_0228_L3-strategy-currency-conversion`) drove the reading on a
+deliberately PRE-FIX build - the shipped tree with the reason gate forced off - and
+measured every number the prediction named, including the drift magnitude and the
+guard clamps. The gate run on the shipping build is
+`2026-08-20_2329_L3-strategy-currency-conversion`.
 
-**The mechanism is the same double pool-move.** Decompiled `Funding.AddFunds(v,
-reason)` moves the pool TWICE, exactly like `Reputation.AddReputation`:
-`funds += value` first, then - from `OnCurrenciesModified`, after the query has run -
-`funds += GetEffectDelta(Currency.Funds)`. Two stock effects divert funds out of an
-ordinary transaction that way: `AppreciationCampaignCfg` (Funds -> Reputation) and
-`OutsourcedResearchCfg` (Funds -> Science), both with `AffectReasons` covering
-`ContractReward`, `ContractAdvance` and `Progression`.
+**The mechanism.** Decompiled `Funding.AddFunds(v, reason)` moves the pool TWICE,
+exactly like `Reputation.AddReputation`: `funds += value` first, then - from
+`OnCurrenciesModified`, after the query has run - `funds += GetEffectDelta(Currency.Funds)`.
+Two stock effect kinds divert funds that way: `CurrencyConverter` with
+`input = Funds` (`AppreciationCampaignCfg` funds -> reputation,
+`OutsourcedResearchCfg` funds -> science) and `CurrencyOperation` on Funds
+(`LeadershipInitiative`, scaling 1.00..2.50 on milestone gains under `Progression`
+and 1.00..0.25 on contract gains under the `Contract*` trio). All of them carry
+`AffectReasons` covering `ContractReward`, `ContractAdvance` and `Progression`.
 
 **AND ON EXACTLY THOSE THREE REASONS PARSEK'S FUNDS CHANNEL RECORDS GROSS.** The
-scoping rule in `StrategyConversionCapture.EvaluateLegs` suppresses a funds leg
+scoping rule in `StrategyConversionCapture.EvaluateLegs` suppressed a funds leg
 whenever `GetInput(Funds) != 0`, on the stated premise that "the ordinary channel is
 already watching that transaction and reports the value NET of the modifier". That
-premise is REASON-QUALIFIED and nobody had qualified it:
+premise is REASON-QUALIFIED:
 
 - **TRUE** where the funds channel is EVENT-DERIVED, i.e. derived from the observed
   pool movement: `VesselRollout`, `RnDPartPurchase`, `StructureRepair`,
-  `StructureConstruction`, `StrategyOutput`. A row here really would double-count.
+  `StructureConstruction`, `StrategyOutput`. A row there really would double-count,
+  and the gate still suppresses every one of them.
 - **FALSE** on `ContractReward` / `ContractAdvance` / `Progression`, where the
   channel records a CONFIGURED GROSS nominal instead: `contract.FundsCompletion`
-  (through `TransformedFundsReward`, whose `StrategiesModule.TransformContractReward`
-  is the documented identity no-op) and the `AwardProgress` arguments. Nothing
-  anywhere reads the observed delta, so the diverted fraction has NO capture channel -
-  the identical hole the reputation entry above measured, in the other currency.
+  (through `TransformedFundsReward`, which `RecalculationEngine` assigns straight
+  from `FundsReward` because `StrategiesModule.TransformContractReward` is the
+  documented identity no-op), `contract.FundsAdvance`, and the
+  `ProgressNode.AwardProgress` arguments `ProgressRewardPatch` captures. Nothing
+  there reads the observed delta, so the modifier's half had NO capture channel.
 
-**Predicted symptom.** The reconstruction runs HIGH by the diverted fraction:
-`KspStatePatcher.PatchFunds` issues a GUARDED UPLIFT on every recalc, and the
-post-walk funds mismatch WARN fires at tolerance 1.0. Example scenario, with an
-Appreciation Campaign active at the default Factor and a 100000-funds contract
-completion: the pool moves +95000, the ledger carries 100000, drift 5000 - four
-orders of magnitude above the guard's tolerance, so this would be loud rather than
-subtle if the pair ever occurs.
+**WHAT THE PRE-FIX RUN MEASURED.** Three separate diversions in one batch, each
+model-free (the same award at the same pool with the same strategy active, once
+under a reason the cfg EXCLUDES and once under one it masks), and each with the
+matching guard clamp in the same log:
 
-**Why no existing cell catches it, and it is not an oversight - it is STRUCTURAL
-BLINDNESS.** Both funds-converter cells in the `StrategyLifecycle` category
-compensate their fixture with `WriteLedgerVisibleFundsRow`, and that stand-in writes
-the OBSERVED NET pool movement (`fundsDelta`, read off the pool). So the
-reconstruction tracks the live pool by construction and the cells' no-GUARDED scan
-cannot clamp no matter what the door does - see `RuntimeTests.cs` ~:18243 and ~:18519.
-Contrast the REPUTATION stand-in at ~:19108, which writes a GROSS NOMINAL exactly as
-a real contract would: that asymmetry between the two helpers is why the reputation
-hole was measurable on the first driven attempt and this one is not visible at all.
-A cell that would catch it has to write the funds row GROSS.
+| subject | reason | award | pool moved | uncaptured | guard |
+|---|---|---:|---:|---:|---|
+| `AppreciationCampaignCfg` (funds -> rep) | `ContractReward` | 100000 | 95000 | **5000** | `GUARDED UPLIFT clamped ... running=529250 live=524250` (x3) |
+| `OutsourcedResearchCfg` (funds -> sci) | `ContractReward` | 250000 | 237500 | **12500** | `GUARDED UPLIFT clamped ... running=673900 live=661400` (x3) |
+| `LeadershipInitiative` (Multiply 1.00..2.50) | `Progression` | 100000 | 107500.0048828125 | **7500.0048828125** | `GUARDED DRAWDOWN clamped ... running=563750 live=571250.0048828125` |
 
-**The measurement method transfers verbatim from the rep-debit cell.** Model-free
-control/treatment: the same funds award at the same pool with the same strategy
-active, once under a reason the cfg EXCLUDES and once under a reason it masks. The
-control reason carries over unchanged - `VesselRecovery` is outside both funds
-converters' `AffectReasons` too - so this is a straight port of
-`ConverterStrategy_ReputationDebitLeg_CapturesPenalty`'s shape onto
-`AppreciationCampaignCfg`, with the compensating row written GROSS rather than net.
+The control arm read `controlDelta=100000` against `treatDelta=95000` for the first
+row - the whole difference is the converter's take, with no model in the number -
+and the ledger carried `converterFundsSpendRows=0 converterFundsSpent=0` while the
+same conversion's reputation OUTPUT leg landed correctly
+(`strategyRepRows=1 strategyRepNominal=0.80793797969818115`). Half-captured
+conversions, in both directions: the two converters ran the reconstruction HIGH and
+the multiplier ran it LOW.
 
-**Close path.** MEASURE LIVE FIRST; do not ship a fix off this entry's prediction.
-Then mirror the reputation fix, and the design decision between the two options is
-for the fix wave rather than for this entry: (a) unconditional funds legs on the
-NOMINAL-channel reasons ONLY, or (b) reason-qualified gating that keeps the current
-suppression on the event-derived reasons and lifts it on the other three. Either way
-the current gate is RETAINED as-is meanwhile, with its premise now qualified by
-reason in `StrategyConversionCapture.cs` and in the mirrored WHY on
-`NonZeroInputReputation_IsCaptured_UnlikeFunds`.
+**THE FIX: a REASON-SET GATE, not an unconditional lift.** `EvaluateLegs` now emits a
+funds leg when the funds input is zero (unchanged) OR when
+`StrategyConversionCapture.IsNominalChannelFundsReason(reason)` matches one of the
+three names EXACTLY. Anything else - an unclassified reason, a null, a combined flags
+spelling - keeps the historical suppression, because the set is an allowlist of
+channels whose shape has been read rather than a denylist of known-bad ones. The
+DEBIT lands as a nominal `FundsSpending` sourced by the new
+`FundsSpendingSource.StrategyConverter` (distinct from `...Strategy`, which is the
+exchanger family's reason-keyed leg and skips reconciliation for a different stated
+reason); the CREDIT keeps the existing `FundsEarning`/`Strategy` shape. Funds carry no
+curve, so unlike its reputation sibling the row is exact in any walk order and no
+ordering caveat attaches.
+
+**GATE RUN, MEASURED.** `2026-08-20_2329_L3-strategy-currency-conversion`: PASS
+attempt 1, 59 s wall, fully unattended, every verifier PASS/REPORT
+(`batchComplete failed=0`, analyzer red=0, `anomalySweep hits=[]`,
+`unityExceptions total=0`, `expectations mismatches=0`,
+`ledgerOracle hardDivergences=0 reportOnly=4`, saveParse REPORT clean, recordings 0),
+**GUARDED CENSUS ZERO** across the whole KSP.log, and
+`BATCH_COMPLETE v1 total=10 passed=9 failed=0 skipped=1`. The three diversions now
+read `funds DEBIT captured nominal=-5000`, `nominal=-12500`, and
+`fundsRows=1 funds=7500.0048828125`.
+
+**THE STRUCTURAL BLINDNESS THAT HID IT, and the lesson that transfers.** Both funds
+converter cells compensated their fixture with `WriteLedgerVisibleFundsRow` handed
+`fundsDelta` - the pool movement read back AFTER the strategy took its share - so the
+reconstruction tracked the live pool BY CONSTRUCTION and their no-GUARDED scans could
+not clamp no matter what the door did. Every funds cell in the category now writes
+the GROSS nominal, which is what a contract or milestone channel actually carries.
+The same asymmetry is worth checking on any future compensating helper: a stand-in
+that mirrors the OBSERVED pool cannot fail, and a cell that cannot fail is not a gate.
+
+**Cells.** `ConverterStrategy_FundsDebitLeg_CapturesSpending` (new; Appreciation
+Campaign, control `VesselRecovery` vs treatment `ContractReward`, runs on BOTH L3
+fixtures because its setup charge is funds-only),
+`ConverterStrategy_ScienceYield_CapturesCredit` (now also asserts the funds debit
+row), and `OperationStrategy_RewardMultiplier_IsNotCaptured` renamed
+`OperationStrategy_RewardMultiplier_IsCapturedOnNominalReason`. The category lost its
+in-game NEGATIVE CONTROL in that rename - the suppression that remains is a nonzero
+funds input under an EVENT-DERIVED reason, and no stock strategy offers that shape on
+a cell this category can activate without a second strategy and a spend-shaped
+transaction. It is pinned headlessly instead by
+`StrategyConversionCaptureTests.NonZeroInputFunds_UnderAnEventDerivedReason_IsNotCaptured`
+(all five reasons, both directions) plus the unrecognised-reason and exact-match
+cells beside it. A future wave wanting the in-game control back should drive
+`AgressiveNegotiations` under `VesselRollout`.
 
 ## STRATEGY-PREFIX-HOLDBACK-PERMANENT: on a pre-fix save, an exchanger event with no matching row holds back the pending science adjustment forever [FILED 2026-08-19 off the strategy-multi-live session. NOT FIXED - small follow-up]
 
