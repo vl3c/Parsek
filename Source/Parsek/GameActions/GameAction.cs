@@ -330,13 +330,24 @@ namespace Parsek
         Strategy        = 3,
         Other           = 4,
         /// <summary>
-        /// The QUERY family's reputation DEBIT leg: a stock
-        /// <c>Strategies.Effects.CurrencyConverter</c> whose <c>input = Reputation</c>
-        /// (<c>FundraisingCampaign</c> reputation -> funds,
-        /// <c>UnpaidResearchProgram</c> reputation -> science) diverting
-        /// <c>GetInput(Reputation) * share</c> out of an ordinary reputation
-        /// transaction, captured by the query-family door in
+        /// The QUERY family's reputation DEBIT leg, captured by the query-family door in
         /// <c>LedgerOrchestrator.BuildStrategyConversionAction</c>.
+        ///
+        /// <para><b>THE SOURCE COVERS BOTH QUERY-DIVERSION EFFECT KINDS, despite the
+        /// name.</b> (1) <c>Strategies.Effects.CurrencyConverter</c> with
+        /// <c>input = Reputation</c> - <c>FundraisingCampaign</c> reputation -> funds,
+        /// <c>UnpaidResearchProgram</c> reputation -> science - diverting
+        /// <c>GetInput(Reputation) * share</c> out of an ordinary reputation
+        /// transaction. (2) <c>Strategies.Effects.CurrencyOperation</c> on Reputation -
+        /// <c>LeadershipInitiative</c> (multiplier 1.00..0.25 by Factor under
+        /// <c>ContractAdvance</c>/<c>ContractPenalty</c>/<c>ContractReward</c>), and
+        /// <c>AgressiveNegotiations</c> - scaling the reputation DOWN, which is a
+        /// negative effect delta on a positive input and lands here too. The credit
+        /// sibling <see cref="ReputationSource.Strategy"/> covers the same two kinds in
+        /// the other sign (a converter YIELD, and <c>LeadershipInitiative</c>'s
+        /// 1.00..2.50 <c>Progression</c> operation). "Converter" in this member's name
+        /// is the QUERY-FAMILY distinction from <see cref="Strategy"/> above, NOT a
+        /// claim that only <c>CurrencyConverter</c> produces it.</para>
         ///
         /// <para>A DIFFERENT MECHANISM FROM <see cref="Strategy"/> ABOVE, and the
         /// distinction is the whole reason this is a separate member rather than a

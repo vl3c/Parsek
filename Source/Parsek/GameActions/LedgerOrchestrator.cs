@@ -3227,6 +3227,22 @@ namespace Parsek
         /// <c>ReputationPenaltySource.Strategy</c>: that member is the EXCHANGER family's
         /// post-curve capture and bypasses the curve.</para>
         ///
+        /// <para><b>ORDERING CAVEAT on "reproduce exactly".</b> The curve is
+        /// STATE-DEPENDENT, so the two rows only reproduce stock when the walk applies
+        /// them in stock's order. That is GUARANTEED for an EARNING-type transaction:
+        /// <c>RecalculationEngine.SortActions</c>' earnings-before-spendings secondary
+        /// key puts the transaction's own credit ahead of the converter's debit at the
+        /// shared UT, which is the order stock used. It is NOT guaranteed when BOTH rows
+        /// are non-earning - a <c>ContractFail</c> penalty diverted by a reputation
+        /// converter at the same UT - because the secondary key ties and the
+        /// <c>Sequence</c> tertiary then applies the CONVERTER row first, the reverse of
+        /// stock. The resulting error is bounded and small: ~1e-4 for a -10 nominal
+        /// pair, an order of magnitude under the reputation guard's 0.01 epsilon, so it
+        /// cannot clamp. Recorded as a KNOWN BOUNDED IMPRECISION in the walk's ordering,
+        /// not a defect in this row shape - a fix would be a sort-key change, and one
+        /// should not be made without a measurement showing the pair actually occurs
+        /// live.</para>
+        ///
         /// <para>NEGATIVE funds legs are logged and dropped too: a converter's funds
         /// OUTPUT is positive by construction and a funds INPUT necessarily has a
         /// nonzero <c>GetInput</c>, which the scoping rule already excludes. A negative

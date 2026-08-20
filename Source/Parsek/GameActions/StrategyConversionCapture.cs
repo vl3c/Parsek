@@ -170,6 +170,27 @@ namespace Parsek
         /// because they arrive under the ORIGINAL reason AND below the recorder's
         /// 100-funds threshold, a double miss.</para>
         ///
+        /// <para><b>THAT PREMISE IS REASON-QUALIFIED, and the gate is kept anyway.</b>
+        /// "The ordinary channel reports NET" is TRUE only where Parsek's funds channel
+        /// is EVENT-DERIVED - i.e. derived from the observed pool movement:
+        /// <c>VesselRollout</c>, <c>RnDPartPurchase</c>, <c>StructureRepair</c>,
+        /// <c>StructureConstruction</c> and <c>StrategyOutput</c>. It is FALSE on the
+        /// NOMINAL-channel reasons <c>ContractReward</c>, <c>ContractAdvance</c> and
+        /// <c>Progression</c>, where the channel records a CONFIGURED GROSS amount
+        /// instead - <c>contract.FundsCompletion</c> (via the documented identity no-op
+        /// <c>StrategiesModule.TransformContractReward</c>) and the
+        /// <c>AwardProgress</c> arguments - so a converter diverting funds under one of
+        /// those three reasons (<c>AppreciationCampaignCfg</c> funds -> reputation,
+        /// <c>OutsourcedResearchCfg</c> funds -> science) has NO capture channel and
+        /// the reconstruction is predicted to run HIGH by the diverted fraction. That
+        /// is the exact shape of the reputation finding one paragraph down;
+        /// <c>Funding.AddFunds</c> has the same double pool-move. The gate is RETAINED
+        /// as-is pending a live measurement - it is not yet known whether the fix is
+        /// unconditional funds legs on those three reasons or reason-qualified gating -
+        /// and the gap is filed as STRATEGY-FUNDS-DEBIT-CONVERTERS-UNCAPTURED in
+        /// docs/dev/todo-and-known-bugs.md. Do not read this gate as evidence that the
+        /// funds side is clean.</para>
+        ///
         /// <para><b>Reputation - capture any nonzero delta, input or not, exactly like
         /// science, and for a MECHANISM reason rather than by analogy.</b> Decompiled
         /// <c>Reputation.AddReputation(r, reason)</c> moves the pool TWICE:
@@ -218,6 +239,20 @@ namespace Parsek
         /// observed pool delta rather than from a configured nominal. That would make
         /// the input half double-counted, and it is the invariant to re-check before
         /// adding any such channel.</para>
+        ///
+        /// <para><b>THE OTHER DIRECTION, for completeness.</b> The same double count
+        /// arrives from the effect side rather than the channel side if a
+        /// <c>Strategies.Effects</c> effect ever lists
+        /// <c>TransactionReasons.StrategyInput</c> in its <c>AffectReasons</c>: it would
+        /// then divert on the EXCHANGER's own query, and that movement is already
+        /// carried by <c>ConvertStrategyExchangeReputation</c>'s POST-curve observed row
+        /// read off the <c>ReputationChanged</c>/<c>StrategyInput</c> event - so the
+        /// second <c>addReputation_granular</c> call would be counted twice, once there
+        /// and once as the <c>StrategyConverter</c> row this door writes. Unreachable in
+        /// stock: NO stock effect lists <c>StrategyInput</c>. So the invariant is BOTH
+        /// halves - no post-modifier reputation channel AND no
+        /// <c>StrategyInput</c>-targeting effect - and either one appearing is what
+        /// makes the unconditional reputation capture unsafe.</para>
         /// </summary>
         internal static List<StrategyConversionLeg> EvaluateLegs(StrategyConversionQuery q)
         {

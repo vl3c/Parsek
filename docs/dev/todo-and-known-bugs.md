@@ -2478,14 +2478,31 @@ treats it as unpaired (the query family leaves no reason-keyed event), and
 
 **WHAT ALSO CHANGES, NAMED because it is the un-flown half.** The rule is
 sign-symmetric, so a POSITIVE reputation delta with a nonzero input is now
-captured too. Its only stock producer is `LeadershipInitiative`'s `CurrencyOperation`
-reputation `Multiply` under `Progression` (a milestone rep award scaled by the
-strategy), which no committed spec drives - the negative-control cell
+captured too - and the residual is WIDER than "one un-flown positive branch", because
+`LeadershipInitiative` carries **TWO** reputation `CurrencyOperation`s, not one:
+
+- **`Progression`, multiplier 1.00..2.50 by Factor.** A milestone rep award scaled
+  UP, so the effect delta is POSITIVE and the new row is a `ReputationEarning`. This
+  is the branch the paragraph originally named.
+- **`ContractAdvance` / `ContractPenalty` / `ContractReward`, multiplier 1.00..0.25
+  by Factor.** Scaled DOWN, so at anything below the top of the Factor slider a
+  POSITIVE input yields a NEGATIVE delta - a `StrategyConverter`-sourced
+  `ReputationPenalty` row produced by a `CurrencyOperation`, NOT by a
+  `CurrencyConverter`. The enum member's name says converter and its doc named only
+  the two converters; the producing family is wider than the name suggests.
+- **And the corner inside that corner:** under `ContractPenalty` the INPUT is
+  negative (a contract failure docking reputation), so scaling it down makes the
+  delta POSITIVE - a newly-captured Strategy **CREDIT arising from a contract
+  FAILURE**. Arithmetically correct (stock really does hand the reconstruction less
+  penalty than the nominal), but it is the row shape most likely to read as a defect
+  in a ledger dump, so it is written down here before anyone finds it live.
+
+None of the four is driven by a committed spec - the negative-control cell
 `OperationStrategy_RewardMultiplier_IsNotCaptured` deliberately fires a FUNDS-only
-transaction, so its reputation and science legs contribute exactly zero delta and
-it is unaffected. That branch rides the identical stock line (stage 2 above) and is
-correct by the same argument, but it has not been flown; if a future lane drives a
-Progression rep award under Leadership Initiative, this is the paragraph to read
+transaction, so its reputation and science legs contribute exactly zero delta and it
+is unaffected. All of them ride the identical stock line (stage 2 above) and are
+correct by the same argument, but none has been flown; if a future lane drives ANY
+reputation transaction under Leadership Initiative, this is the paragraph to read
 first.
 
 **Gates.** Live: the cell above, which now leaves the reputation pool MOVED
@@ -2502,6 +2519,73 @@ pins that the source does not take the pre-curved shortcut;
 `StrategyReputationPenaltyRows_DedupKeyDisambiguatesByAmount` and
 `NonZeroInputNegativeReputation_IsCaptured_TheDebitFamily` pin the row shape, the
 mutation guard, the key and the scoping.
+
+## STRATEGY-FUNDS-DEBIT-CONVERTERS-UNCAPTURED: on the three NOMINAL-channel funds reasons the scoping rule's premise is false, so a funds-INPUT converter's diversion has no capture channel either [FILED 2026-08-20 off the #1515 review. UNMEASURED - PREDICTED, not observed. NOT FIXED - measure first]
+
+**PREDICTED BY SYMMETRY WITH THE ENTRY ABOVE, NOT MEASURED.** Everything here is
+derivable from the decompile and from Parsek's own channel shapes; NO live run has
+produced the drift. That is the first thing to do, and the entry says so up front so
+nobody quotes it as a measurement.
+
+**The mechanism is the same double pool-move.** Decompiled `Funding.AddFunds(v,
+reason)` moves the pool TWICE, exactly like `Reputation.AddReputation`:
+`funds += value` first, then - from `OnCurrenciesModified`, after the query has run -
+`funds += GetEffectDelta(Currency.Funds)`. Two stock effects divert funds out of an
+ordinary transaction that way: `AppreciationCampaignCfg` (Funds -> Reputation) and
+`OutsourcedResearchCfg` (Funds -> Science), both with `AffectReasons` covering
+`ContractReward`, `ContractAdvance` and `Progression`.
+
+**AND ON EXACTLY THOSE THREE REASONS PARSEK'S FUNDS CHANNEL RECORDS GROSS.** The
+scoping rule in `StrategyConversionCapture.EvaluateLegs` suppresses a funds leg
+whenever `GetInput(Funds) != 0`, on the stated premise that "the ordinary channel is
+already watching that transaction and reports the value NET of the modifier". That
+premise is REASON-QUALIFIED and nobody had qualified it:
+
+- **TRUE** where the funds channel is EVENT-DERIVED, i.e. derived from the observed
+  pool movement: `VesselRollout`, `RnDPartPurchase`, `StructureRepair`,
+  `StructureConstruction`, `StrategyOutput`. A row here really would double-count.
+- **FALSE** on `ContractReward` / `ContractAdvance` / `Progression`, where the
+  channel records a CONFIGURED GROSS nominal instead: `contract.FundsCompletion`
+  (through `TransformedFundsReward`, whose `StrategiesModule.TransformContractReward`
+  is the documented identity no-op) and the `AwardProgress` arguments. Nothing
+  anywhere reads the observed delta, so the diverted fraction has NO capture channel -
+  the identical hole the reputation entry above measured, in the other currency.
+
+**Predicted symptom.** The reconstruction runs HIGH by the diverted fraction:
+`KspStatePatcher.PatchFunds` issues a GUARDED UPLIFT on every recalc, and the
+post-walk funds mismatch WARN fires at tolerance 1.0. Example scenario, with an
+Appreciation Campaign active at the default Factor and a 100000-funds contract
+completion: the pool moves +95000, the ledger carries 100000, drift 5000 - four
+orders of magnitude above the guard's tolerance, so this would be loud rather than
+subtle if the pair ever occurs.
+
+**Why no existing cell catches it, and it is not an oversight - it is STRUCTURAL
+BLINDNESS.** Both funds-converter cells in the `StrategyLifecycle` category
+compensate their fixture with `WriteLedgerVisibleFundsRow`, and that stand-in writes
+the OBSERVED NET pool movement (`fundsDelta`, read off the pool). So the
+reconstruction tracks the live pool by construction and the cells' no-GUARDED scan
+cannot clamp no matter what the door does - see `RuntimeTests.cs` ~:18243 and ~:18519.
+Contrast the REPUTATION stand-in at ~:19108, which writes a GROSS NOMINAL exactly as
+a real contract would: that asymmetry between the two helpers is why the reputation
+hole was measurable on the first driven attempt and this one is not visible at all.
+A cell that would catch it has to write the funds row GROSS.
+
+**The measurement method transfers verbatim from the rep-debit cell.** Model-free
+control/treatment: the same funds award at the same pool with the same strategy
+active, once under a reason the cfg EXCLUDES and once under a reason it masks. The
+control reason carries over unchanged - `VesselRecovery` is outside both funds
+converters' `AffectReasons` too - so this is a straight port of
+`ConverterStrategy_ReputationDebitLeg_CapturesPenalty`'s shape onto
+`AppreciationCampaignCfg`, with the compensating row written GROSS rather than net.
+
+**Close path.** MEASURE LIVE FIRST; do not ship a fix off this entry's prediction.
+Then mirror the reputation fix, and the design decision between the two options is
+for the fix wave rather than for this entry: (a) unconditional funds legs on the
+NOMINAL-channel reasons ONLY, or (b) reason-qualified gating that keeps the current
+suppression on the event-derived reasons and lifts it on the other three. Either way
+the current gate is RETAINED as-is meanwhile, with its premise now qualified by
+reason in `StrategyConversionCapture.cs` and in the mirrored WHY on
+`NonZeroInputReputation_IsCaptured_UnlikeFunds`.
 
 ## STRATEGY-PREFIX-HOLDBACK-PERMANENT: on a pre-fix save, an exchanger event with no matching row holds back the pending science adjustment forever [FILED 2026-08-19 off the strategy-multi-live session. NOT FIXED - small follow-up]
 
@@ -6871,7 +6955,7 @@ three directions are still dropped, unchanged by this fix:
   reputation INPUT leg IS captured by `ConvertStrategyExchangeReputation`, so the
   reconstruction lands reputation correctly and runs science LOW by exactly the
   granted amount - the mirror image of the c2 defect.
-- A funds-INPUT strategy (Fundraising Campaign: funds in, reputation out) leaks
+- A funds-INPUT strategy (Appreciation Campaign: funds in, reputation out) leaks
   BOTH legs: its funds leg is dropped by `ConvertStrategyExchangeFunds`'s
   `StrategyOutput`-only gate and its reputation OUT leg by
   `ConvertStrategyExchangeReputation`'s `StrategyInput`-only gate.

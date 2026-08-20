@@ -152,7 +152,17 @@ namespace Parsek.Tests
             //                               then rep += granular(GetEffectDelta(Rep))
             //
             // For FUNDS the ordinary event-driven channel watches the transaction and sees
-            // the value net of the modifier, so a row here would double-count. For
+            // the value net of the modifier, so a row here would double-count. THAT HALF IS
+            // REASON-QUALIFIED, and the qualification is not yet reflected in the gate: it
+            // holds where the funds channel is EVENT-DERIVED (VesselRollout, RnDPartPurchase,
+            // StructureRepair, StructureConstruction, StrategyOutput) and is FALSE under
+            // ContractReward / ContractAdvance / Progression, where the channel records a
+            // CONFIGURED GROSS nominal (contract.FundsCompletion, the AwardProgress
+            // arguments) exactly like the reputation channels below - so a funds diversion
+            // under those three reasons has no capture channel either. UNMEASURED, filed as
+            // STRATEGY-FUNDS-DEBIT-CONVERTERS-UNCAPTURED; the gate below is kept as-is
+            // pending that measurement, so this cell pins CURRENT behavior, not a proof that
+            // the funds side is clean. For
             // REPUTATION every Parsek channel records a CONFIGURED NOMINAL - the contract's
             // ReputationCompletion, the progress node's award - and nothing anywhere is
             // derived from the observed pool delta, so the second granular call has no
