@@ -431,6 +431,15 @@ The path from the shipped v0 to feature-complete is owned by **section 19 of `do
 
 Out of scope by doctrine (revisit on demand): non-docking connection producers beyond the claw (stock crossfeed/fuel-line: continuous-flow, no couple event, no window to snapshot), crew delivery, persisting-transport materialization, undocked-start origin proving. Claw/grapple LIFTED and shipped 2026-07-07 (branch `logistics-claw-producer`): claw couples are classified and admitted as the second connection producer, including asteroid (PotatoRoid) grabs; see `docs/dev/design-logistics-claw-producer.md` and the decompile findings at `docs/dev/research/claw-grapple-coupling-internals.md`. Already resolved earlier: "Dispatch now" (subsumed by Send Once), dock-side-baseline edge case (shipped 0.10.1), structure list window (shipped 0.10.1 as the mission / route Log window: pure builders `MissionStructureListBuilder` / `RouteStructureListBuilder` feeding a reusable `StructureListWindowUI`, opened from the "Log" button on each Missions-tab mission header and the "Log (Route)" / "Log (Mission)" buttons in each Logistics route detail panel).
 
+**Render-confirmation coverage (testing direction).** The network can run any
+route the player can fly, but automated confirmation that a looped route
+RENDERS accurately in map view / Tracking Station covers only part of the
+origin -> destination space (outbound, orbit-endpoint classes). The class
+taxonomy, gap register and ranked plan to close it - return legs, moon-to-moon
+breadth, dock/station endpoints, long-horizon cadence - live in
+`docs/dev/autotest-roadmap.md` -> "The loop-render coverage program: supply
+runs from any origin to any destination".
+
 ---
 
 ## Phase 14: Cooperative Async Multiplayer

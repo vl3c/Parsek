@@ -1117,6 +1117,197 @@ Clusters, in the design doc's phase order:
 
 ---
 
+## The loop-render coverage program: supply runs from any origin to any destination
+
+Added 2026-08-20, after the moon-to-moon program (PR #1513) answered M-MIS-7.
+This section is the DIRECTION document for the V-lane family: what "rendering is
+confirmed" means, what is confirmed today, which classes are missing, and the
+ranked order to close them. Status of individual lanes stays in
+`autotest-status.md`; this section owns only the taxonomy, the gap register and
+the sequencing.
+
+### The objective, stated as a product claim
+
+Logistics is FEATURE-COMPLETE in the product (Phase 13 M1-M6 all shipped as of
+0.10.3: any route the player can fly, the network can run - including
+inter-body routes dispatching on the same launch windows the ghost renders).
+Every origin -> destination pair is therefore PRODUCT-REACHABLE today, while
+render confirmation covers only the classes below. The product claim that
+needs confirmation is:
+
+> A looped transfer recording between ANY origin and ANY destination renders
+> accurately in map view and the Tracking Station - correct icons, correct
+> lines, correct body frames, correct cadence - for as long as the loop runs.
+
+Nobody can visually check every pair. The confirmation instrument is the V-lane
+discipline, already proven across the committed lane pairs: fly the transfer
+once (B-lane), harvest the produced save as a fixture, loop it, TimeJump to
+epochs DERIVED from the measured loop clock, hold census dwells there, and gate
+on the rendered-truth log lines (the `MapRenderTrace` / `MapRender` / `GhostMap`
+censuses, faithful-parity, seam-endpoint, anomaly sweep) through the three-run
+reading -> armed -> negative-control sequence. "Confirmed" for a class means: a
+representative pair has a green ARMED run whose required tokens pin the
+destination-frame render, plus a negative control that reds on demand.
+
+### The coverage unit is the equivalence class, not the pair
+
+Kerbol has 16 flyable bodies besides the Sun; origin x destination is ~240
+ordered pairs before counting endpoint types. Flying them all is neither
+possible nor necessary: the playback and render code paths are selected by
+CLASS, not by pair. The dimensions that actually change code paths, each known
+from at least one measurement:
+
+1. **Routing road** - which loop planner owns trajectory and timing:
+   `phase-lock` (same-parent target: cadence quantized to target-period
+   multiples, no trajectory synthesis), `re-aim` (classifier-admitted
+   transfers: synthesized ancestor-frame conic, synodic window spacing), or
+   `faithful fixed-cadence` (everything the classifier declines: verbatim
+   replay, frame-relative arrival rendering, self-overlapping when the span
+   exceeds the overlap cadence).
+2. **Recording shape** - properties of the subject bytes that flip render
+   policies: number of cross-body seams (0 / 1 / 2+; at 2+ the ProtoOrbitLine
+   producer fail-closes to a ROOT-frame verbatim render), segment-less tails
+   (kill the TS init walk's orbit source), self-overlap (spawn-throttle and
+   re-arm creation-frame behavior), eccentric / inclined targets.
+3. **Scene** - flight-map and Tracking Station render through different hosts
+   (`ParsekUI.DrawMapMarkers` vs `ParsekTrackingStation`; the TS additionally
+   splits into the one-shot init walk and the dynamic overlap path). Every
+   class needs both - the M/T pair convention.
+4. **Endpoint type** - orbit, moving vessel/station, or surface. Every
+   committed loop lane ends at an ORBIT; supply routes end at docks and
+   surface bases.
+
+### What is confirmed today (class matrix)
+
+Representative pairs only - per-lane verdicts, run ids and arming state live in
+`autotest-status.md`'s test-case tables, and this table must never grow status
+columns beyond the class-level yes/no.
+
+| Class | Road | Representatives flown | Class confirmed? |
+|---|---|---|---|
+| Planet -> its own moon | phase-lock | Kerbin->Mun (V6), Kerbin->Minmus (V7), Duna->Ike (V14), Eve->Gilly (V15), Jool->Laythe (V16) | YES - four parents, both scenes, k=20 multi-period cadence measured (V16) |
+| Kerbin -> planet, transfer admitted | re-aim | Kerbin->Duna (V5, `reaimed=True`), plus the V8/V10-V13 family (Eve, Dres, Moho, Eeloo, Jool) | YES for the family; per-lane roads in the status rows |
+| Kerbin -> planet, classifier-declined profile | faithful | V9-dres (mid-course-correction shape); V3F/V8F forced-faithful controls | YES |
+| Moon -> sibling moon | faithful (the H3 measurement: the classifier declines the flyable two-burn shape, phase-lock declines cross-parent) | Laythe->Vall (V17) | ONE pair at ONE parent - gap G2 |
+| Everything in the gap register below | - | none | NO |
+
+### The gap register, ranked
+
+Ranked by supply-run value per flight-hour. Each entry names the class, why it
+matters, the cheapest representative, the expected-but-unmeasured routing, and
+what counts as confirmation. Scenario ids B27+ / V18+ are RESERVED here so
+sibling PRs do not collide; check open PRs before authoring and renumber only if
+one already claims an id.
+
+**G1 - Return legs (moon -> its parent; planet -> Kerbin).** A supply run is a
+round trip and every committed loop subject is outbound. The return direction
+also delivers "Kerbin as a destination" - a body-frame arrival at the one body
+every route network touches. Cheapest representatives, both reusing committed
+fixtures: `B27-laythe-jool-return` (depart `laythe-park-nerv`, park in Jool
+orbit - a one-burn escape, no transfer planner involved) and
+`B28-duna-kerbin-return` (depart a Duna-orbit fixture, return to LKO).
+Routing is genuinely open: nobody has measured whether the same-parent
+classification and the re-aim classifier treat the INVERTED direction
+symmetrically, and the mirror-direction lesson (PRs #1474/#1475) says walk the
+mirror, not assume it. Lanes: V18M/V18T over B27's recording, V19M/V19T over
+B28's. Confirmation: destination-frame render tokens at derived epochs, both
+scenes, armed + shared negative control.
+
+**G2 - Second moon-to-moon point: Mun -> Minmus.** Confirms H3 is a property of
+the CLASS rather than of the Jool system, at a fraction of V17's cost
+(minutes-scale transfers, existing craft, the proven strip-fixture recipe).
+The same 2-seam nested-SOI shape as V17, so it also replicates the fail-closed
+root-frame proto-line policy at a second parent, and it is the natural subject
+for testing whether the parent-relay mission mode generalizes beyond Jool
+(`B29-mun-minmus-transfer`, V20M/V20T). Expected routing: identical to V17 -
+the relay coast will again miss the `wholeRevs >= 1` conjunct unless
+deliberately flown to close a revolution (that variant is G6, not this lane).
+
+**G3 - Moving-vessel endpoint (the actual supply-route terminus).** EVERY real
+supply route ends at a dock (docking is the primary connection producer;
+endpoint resolution is by vessel PID, not by orbit), and the product even ships
+a dedicated road for it - station phase-lock relaunches a rendezvous mission
+locked to the station's live orbit (v0.10.1). The render machinery exists
+(`MovingTargetStationApproach` in `MapRender/`) and no loop lane has ever
+exercised either the machinery or the station phase-lock road. Cheapest representative: reuse the BDOCK
+station fixtures - fly a short rendezvous-and-return run against the committed
+station, commit, loop it (`B30-station-supply-loop`, V21M/V21T). This is the
+first lane whose arrival truth is "renders at the station's CURRENT position",
+which no orbit-endpoint lane can stand in for; it also introduces dock/undock
+part events inside a looped subject and endpoint drift across cycles.
+
+**G4 - Moon -> foreign body (Laythe->Kerbin or Mun->Duna).** Three or more
+cross-body seams - one more than any flown subject - and the 2-seam
+fail-closed policy was only DISCOVERED at 2 seams, so 3 is a measurement, not
+an extrapolation. Also the realistic "export from a moon base" route shape.
+Expensive (a full interplanetary flight from a moon origin); schedule after
+G1-G3.
+
+**G5 - Planet -> planet not from Kerbin (e.g. Duna -> Jool).** Same
+heliocentric-parking class as the Kerbin lanes by inspection of the classifier;
+one representative flight converts the inspection into a measurement. Low
+expected information; defer until a real route wants it.
+
+**G6 - The re-aim road for moon-to-moon.** Currently UNREACHABLE by any
+flyable profile (MechJeb refuses moon-parked direct ejections; the relay mode
+is two-burn by construction). The one cheap unlock, recorded in V17M's header
+as an observation: let the post-escape parent-frame coast close ONE full
+revolution before stage 2 - all three conjuncts of the parking-departure
+exception then pass and the recording re-admits into re-aim. That measures a
+DIFFERENT code path ("does the parking-departure exception work in a moon
+frame"), which is exactly the path inter-moon supply routes would ride if the
+product ever wants them re-aimed rather than faithful. Pairs naturally with
+G2's subject.
+
+**G7 - Long-horizon recurrence (cycle 50, not cycle 2).** Every drift
+measurement so far is k <= 2 cycles (the census rate-limit work bought exactly
+two). A supply route runs for a career's lifetime. Needs instrument work
+before lanes: either wall-spaced multi-cycle brackets (cost linear in cycles)
+or a sampled far-cycle jump - which crosses many loop re-arms, and the V17
+creation-frame finding says a re-arm-crossing jump is itself a render state
+worth measuring, so the instrument and the measurement compose.
+
+**G8 - Surface endpoints and remaining bodies.** Landed-arrival loops (the
+logistics surface endpoint resolution carries a nearest-vessel fallback nobody
+has render-tested), and the untouched bodies: Tylo / Bop / Pol (Bop adds the
+inclined-and-eccentric MOON target the way Moho did for planets), plus
+deep-space return shapes. Breadth work; schedule opportunistically behind
+G1-G4.
+
+### The induction caveat (why classes must be flown, not argued)
+
+The moon-to-moon program is the standing exhibit: THREE render behaviors nobody
+predicted surfaced on the first subject of a new shape - the nested-SOI
+fail-closed root-frame proto line (which made the lane's original anti-vacuity
+pin structurally unsatisfiable), the TS overlap spawn-throttle (newest-first at
+2 per lifecycle tick, so the arrival-leg instance spawns LAST), and the re-arm
+creation-frame reversion. None of the three is a defect; all three would have
+silently distorted a coverage claim made by class-induction alone. Corollaries:
+
+- A class is confirmed by a FLOWN representative, never by inspection of the
+  routing code. Inspection ranks the queue; it does not close it.
+- Extend ONE shape dimension per new lane where possible. V17T changed two at
+  once (self-overlap AND nested-SOI), and the icon-off-orbit non-recurrence it
+  measured is consequently unattributable - an open reading instead of a
+  mechanism.
+- A new lane's reading run is EXPECTED to red at least once on an instrument or
+  pin miscalibration; that is the discipline working, and the reds are ledgered
+  in the spec headers as calibration evidence.
+
+### Definition of done
+
+The objective above is MET when every row of the class matrix plus G1-G5 and G8
+either (a) has a live-proven, ARMED representative pair in both scenes, or (b)
+carries a documented product limitation in `todo-and-known-bugs.md` stating
+what does not render and why (the fail-closed root-frame policy is the model: a
+deliberate, tested product behavior, not a gap). G6 is a product decision -
+faithful is a valid answer for moon-to-moon routes - and G7 is done when a
+k >= 50 reading exists for one self-overlapping and one phase-locked subject.
+At that point "supply runs render accurately for any origin and destination" is
+a checkable roster statement rather than a feeling.
+
+---
+
 ## Open bugs blocking or degrading the system
 
 Forensics live in `docs/dev/todo-and-known-bugs.md`; this is a pointer index only.
