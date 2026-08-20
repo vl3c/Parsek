@@ -28,6 +28,21 @@ tabs, controller side included. Same-tree recovered links mint no selection
 affordance by design (Q8). Remaining consumers (event digest, chapters, seam
 markers) are PR sequence steps 4-6.
 
+## MISSIONS-T2.2-LINEAGE-FAN-NOT-COLLAPSIBLE: the flattened per-vessel rows cannot fold a many-child separation fan [ACCEPTED LIMITATION 2026-08-20, from the Stage-2 review of the missions-UI branch]
+
+The T2.2 flattening (one row per physical vessel, lineage-only depth) renders a vessel's
+separated children unconditionally; the vessel-row caret expands/collapses only the interval
+DETAIL (Advanced). The old staircase's caret collapsed the entire child subtree, so an
+asparagus launch with 8 boosters could be folded to one row; the new view always shows the
+~9 vessel rows (still strictly fewer rows than the old EXPANDED default, which added interval
+and roster-atom rows on top). Accepted because a second meaning on the same caret needs a
+three-state affordance; revisit if long missions make the tab scroll-heavy in practice.
+Related deferral: `MissionPresentation.SeparationVerb` / `IsDockEventWord` classify on the
+RENDERED event words rather than `BranchPointType` + cause - re-wording `BranchEventName`
+silently degrades the T1.3/T1.4 phrasing to its fallbacks; the right home is a typed
+classifier beside `BranchEventName` (or a `BranchPointType?` on `MissionCompositionNode`),
+deliberately not done during the review-fix pass.
+
 ## ~~CAREER-SAVE-PARSER-UNDERCOUNTS-COMPLETED-MILESTONES: the ground-truth parser read only one of KSP's three completion keys and stopped at any node carrying `reached`, so most of a crewed career's milestones were invisible and the RECONSTRUCTION was reported as carrying phantoms~~ [FOUND 2026-08-20 by `L4-ledger-groundtruth-strict`'s reading run (`2026-08-20_1508`), the FIRST run ever to drive the ground-truth diff in strict mode against a career with populated per-identity facets. Root cause PROVEN from the decompiled `ProgressNode.Save`, not inferred. FIXED, unit-covered and LIVE-PROVEN the same day - see the arming ledger in `harness/scenarios/L4-ledger-groundtruth-strict.toml`. CLOSED]
 
 **What it measured.** The reading run came back `PARSEK-FAIL`, `result: hardFailures=2

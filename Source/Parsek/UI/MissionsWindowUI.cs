@@ -140,6 +140,50 @@ namespace Parsek
         private readonly Dictionary<string, string> dockPartnerTextCache =
             new Dictionary<string, string>();
 
+        // Per-frame cache of the T2.2 flattened per-vessel rows, keyed by TREE id (derived from
+        // the composition roots, so every Mission over one tree shares them). Cleared alongside
+        // missionViewCache on the first lookup of a new frame.
+        private readonly Dictionary<string, List<MissionVesselRow>> vesselRowsCache =
+            new Dictionary<string, List<MissionVesselRow>>();
+
+        // Vessel rows whose interval detail is EXPANDED (default collapsed - the flattened rows
+        // are the reading surface, the intervals are the opt-in authoring detail). Keyed like
+        // collapsedLegs (mission id + head id), session-transient.
+        private readonly HashSet<string> expandedVessels = new HashSet<string>();
+
+        // Constant-payload checkbox contents, allocated once instead of per row per pass.
+        private static readonly GUIContent VesselIncludeCheckboxContent =
+            new GUIContent("", MissionPresentation.VesselIncludeCheckboxTooltip);
+        private static readonly GUIContent IntervalIncludeCheckboxContent =
+            new GUIContent("", MissionPresentation.IncludeCheckboxTooltip);
+        private static readonly GUIContent PartnerJourneyCheckboxContent =
+            new GUIContent("", MissionPresentation.PartnerJourneyTooltip);
+
+        // The one stamp every ExcludedIntervalKeys write site must pair with the mutation: an
+        // interval edit is authored against CURRENT key numbering, and a gen-0 mission whose
+        // tree was uncommitted at load (reconcile stamp DEFERRED) becomes editable once the
+        // tree commits mid-session - without this stamp the next load's generation-0 reconcile
+        // would wrongly extend the fresh selection across @dock sub-siblings the player
+        // deliberately kept. Routing both toggles through here keeps the pairing mechanical.
+        private static void StampSelectionEdit(Mission mission)
+        {
+            mission.SelectionSchemaGeneration = Mission.CurrentSelectionSchemaGeneration;
+        }
+
+        // Per-frame cache of the header summary-line facts (T1.1), keyed by TREE id: the facts are
+        // derived from the tree's read models only (span, vessel count, crew union, terminal word),
+        // never from a Mission's selection, so every Mission over one tree shares them. Cleared
+        // alongside missionViewCache on the first lookup of a new frame.
+        private readonly Dictionary<string, MissionPresentation.MissionSummaryFacts> summaryFactsCache =
+            new Dictionary<string, MissionPresentation.MissionSummaryFacts>();
+
+        // The Basic / Advanced complexity mode, latched ONCE per draw pass from
+        // ParsekUI.AppliedUiComplexityMode (never from the settings field): the Layout and Repaint
+        // passes of one frame must agree on the control count, and in Basic the "#" index header is
+        // a label instead of a sort button (T1.7). The applied mode only changes from Update(),
+        // outside OnGUI, so a value read at the top of the pass holds for the whole pass.
+        private bool basicUiMode;
+
         // Per-frame cache of the REAL Mission LoopUnitSet (the SAME one the scene drivers build via
         // MissionLoopUnitBuilder.Build with FlightGlobalsBodyInfo.Instance), so the T- countdown
         // points to the engine's ACTUAL next relaunch (PhaseAnchorUT + n*relaunchCadence) instead of
@@ -162,7 +206,11 @@ namespace Parsek
         private const float ColW_Enable = 20f;
         private const float ColW_Index = 30f;
         private const float ColW_StartTime = 120f;
-        private const float ColW_StartEvent = 85f;
+        // "Start event" is wider than the other event cell because it also carries the named
+        // same-tree dock partner ("Docked with Munport Station", T1.4); the name still clips on a
+        // long station name, so that cell renders non-wrapping with the full phrase as its tooltip
+        // (a wrapping cell would grow the row's height instead).
+        private const float ColW_StartEvent = 110f;
         private const float ColW_EndEvent = 85f;
         private const float ColW_EndTime = 120f;
         // Uniform width for the mission-header-bar buttons (Clone, Delete, Watch, Rewind/Forward):
@@ -188,12 +236,14 @@ namespace Parsek
         // Re-Fly column (mirrors the recordings window's Re-Fly/Fly-Seal column width): a per-vessel
         // Fly / Seal cell for unfinished-flight recordings, drawn by reusing RecordingsTableUI.
         private const float ColW_ReFly = 90f;
-        // "Time to launch" column (mission periodicity, design doc UX): a live countdown to the next
+        // "Next launch" column (mission periodicity, design doc UX): a live countdown to the next
         // faithful launch window, shown ONLY on each mission's launch (first) vessel row, under this
         // column header; every other vessel row + the mission header bar leave a same-width blank
         // cell so the data columns stay aligned. Sits right after "Missions and vessels" (the name
-        // column), before "Start time".
-        private const float ColW_TMinus = 90f;
+        // column), before "Start time". Wide enough for the spelled-out "Next launch" header (the
+        // old three-letter "TTL" fit in 90 px; the readable name needs the extra room or the header
+        // label wraps inside its pinned-height cell).
+        private const float ColW_TMinus = 105f;
         // Fixed column-header height so every Missions header cell is the same height (matches
         // RecordingsTableUI.ColHeaderHeight); the toggle-bearing Archive cell would otherwise be
         // taller than the plain-label cells.
@@ -235,6 +285,10 @@ namespace Parsek
 
         private static readonly Color DimColor = new Color(1f, 1f, 1f, 0.45f);
 
+        // Mission-header summary line (T1.1): quieter than the bold title above it, so the line
+        // reads as annotation rather than a second heading.
+        private static readonly Color MissionSummaryColor = new Color(1f, 1f, 1f, 0.75f);
+
         // Tint for a loop-period value that the overlap cap raised above what was requested
         // (so the cell shows the real effective cadence in a distinct colour). Soft amber.
         private static readonly Color LoopPeriodClampColor = new Color(1f, 0.8f, 0.4f);
@@ -250,6 +304,14 @@ namespace Parsek
         // fill the row height via the row's buttons). The include checkbox is centered separately
         // (ExpandHeight on the toggle).
         private GUIStyle compositionCellLabel;
+        // Same cell label, but NON-wrapping: used only by the "Start event" cell when it names a
+        // same-tree dock partner ("Docked with Munport Station", T1.4). A long partner name in a
+        // wrapping cell would grow the row's height (and every aligned column with it), so the
+        // text clips inside the cell and the full phrase rides as the cell's tooltip.
+        private GUIStyle compositionCellLabelNoWrap;
+        // The mission-header summary line (T1.1): a thin, non-bold, non-wrapping second line inside
+        // the header bubble carrying span / duration / vessel + crew counts / outcome / next launch.
+        private GUIStyle missionSummaryLabel;
         private GUIStyle tableBodyBoxStyle;
         // Zero-horizontal-margin field/button styles for the loop-period cell, identical to
         // the recordings window's bodyCellTextFieldFlush / bodyCellButtonFlush so the value
@@ -313,6 +375,14 @@ namespace Parsek
             {
                 alignment = TextAnchor.MiddleLeft,
                 stretchHeight = true
+            };
+
+            // Non-wrapping variant for the dock-partner "Start event" cell (T1.4): a long partner
+            // name clips instead of wrapping the row taller (the full phrase is the tooltip).
+            compositionCellLabelNoWrap = new GUIStyle(compositionCellLabel)
+            {
+                wordWrap = false,
+                clipping = TextClipping.Clip
             };
 
             tableBodyBoxStyle = new GUIStyle(GUI.skin.box)
@@ -380,6 +450,17 @@ namespace Parsek
             {
                 alignment = TextAnchor.MiddleLeft,
                 stretchHeight = true
+            };
+
+            // Mission summary line (T1.1): a thin non-wrapping second line under the title inside
+            // the same header bubble. Non-wrapping so a long summary clips rather than growing the
+            // header row (and shifting every mission below it) on a narrow window.
+            missionSummaryLabel = new GUIStyle(GUI.skin.label)
+            {
+                alignment = TextAnchor.MiddleLeft,
+                fontSize = 11,
+                wordWrap = false,
+                clipping = TextClipping.Clip
             };
         }
 
@@ -493,8 +574,9 @@ namespace Parsek
             if (missionsLayoutFrame != Time.frameCount)
                 return;
 
-            // The rect of the header row's outermost horizontal, which DrawMissionHeader has
-            // just closed.
+            // The rect of the header bubble's outermost VERTICAL group (title row + summary
+            // line, T1.1), which DrawMissionHeader has just closed. Its y is still the block
+            // top, so the scroll math is unchanged by the second line.
             Rect headerRect = GUILayoutUtility.GetLastRect();
 
             // A real header row is never zero-height; an unsolved layout entry always is. Cheap
@@ -559,6 +641,11 @@ namespace Parsek
         internal void DrawMissionsTabContent()
         {
             EnsureStyles();
+
+            // Basic / Advanced gating for this pass (T1.7). Latched ONCE, from the applied mode the
+            // host window reads too, so the Layout and Repaint passes of one frame agree on the
+            // control count (in Basic the "#" header is a plain label, not a sort button).
+            basicUiMode = ParsekUI.AppliedUiComplexityMode == UiComplexityMode.Basic;
 
             // Click outside an active rename field -> commit (mirrors the recordings
             // window's defocus handling).
@@ -697,7 +784,7 @@ namespace Parsek
                     continue;
                 missionCount++;
 
-                var (_, view) = GetMissionView(tree);
+                var (structure, view) = GetMissionView(tree);
 
                 // Mission periodicity (Phase-1 / Tier-1 solution), computed ONCE per mission here
                 // and shared by the header's period cell + the launch row's "Time to launch" cell,
@@ -707,22 +794,27 @@ namespace Parsek
                     ? ComputeMissionPeriodicity(mission, view)
                     : default;
 
-                DrawMissionHeader(mission, ordered[i].index, view, periodicity);
+                DrawMissionHeader(mission, ordered[i].index, view, periodicity,
+                    GetSummaryFacts(tree));
                 CaptureRevealAnchor(mission);
 
-                // Composition-over-time tree (the vessel rows). Each node is a structural
-                // interval / branch with its own independent include checkbox (interval-level
-                // start/end trim), bound to Mission.ExcludedIntervalKeys - no cascade.
-                var compRoots = GetCompositionRoots(tree);
-                for (int r = 0; r < compRoots.Count; r++)
+                // T2.2: the FLATTENED per-vessel rows - one row per physical vessel / EVA
+                // kerbal, depth = separation lineage only, the event chain inline; each
+                // vessel's structural intervals are an expandable detail (Advanced) with the
+                // same independent include checkboxes bound to Mission.ExcludedIntervalKeys -
+                // no cascade (the per-vessel checkbox expands to the vessel's own explicit
+                // keys). The row derivations (T1.3 delta labels, T1.4 dock-partner naming)
+                // read this tree's own structure / through-line view.
+                var rowCtx = new RowDeriveContext { Structure = structure, View = view, Mission = mission };
+                var vesselRows = GetVesselRows(tree);
+                for (int r = 0; r < vesselRows.Count; r++)
                 {
-                    bool isLast = r == compRoots.Count - 1;
-                    // The launch row (the very first rendered composition row = the first root's
-                    // head node) carries the mission's "Time to launch" countdown under that
-                    // column; every other vessel row leaves it blank.
+                    bool isLast = r == vesselRows.Count - 1;
+                    // The launch row (the mission's first vessel row) carries the mission's
+                    // "Next launch" countdown under that column; every other row leaves it blank.
                     bool isLaunchRoot = r == 0;
-                    rowCount += DrawCompositionNode(compRoots[r], mission, 1, isLast, false,
-                        isLaunchRoot, periodicity);
+                    rowCount += DrawVesselRow(vesselRows[r], mission, 1, isLast,
+                        isLaunchRoot, periodicity, rowCtx);
                 }
 
                 // M-MIS-8: cross-tree partner-journey affordance - one row per derived foreign
@@ -778,9 +870,12 @@ namespace Parsek
             {
                 missionViewCache.Clear();
                 compositionCache.Clear();
+                vesselRowsCache.Clear();
                 foreignLinksCache.Clear();
                 journeyLegsCache.Clear();
                 dockPartnerTextCache.Clear();
+
+                summaryFactsCache.Clear();
                 missionViewCacheFrame = frame;
             }
 
@@ -953,29 +1048,10 @@ namespace Parsek
             return FormatDockPartner(d);
         }
 
-        /// <summary>
-        /// The Start-event cell. Identical to a plain label except on a Dock / Board merge whose
-        /// partner the graph can name: then the partner rides as the cell's TOOLTIP (the column is
-        /// fixed at <see cref="ColW_StartEvent"/> and "Docked" already fills it, so the inline
-        /// form is appended only when it genuinely measures inside the cell - the visible-label
-        /// rework of this column is issue-1's T1.3/T1.4, deliberately not pre-empted here).
-        /// </summary>
-        private void DrawStartEventCell(MissionCompositionNode node, Mission mission)
-        {
-            string text = node.StartEvent ?? "";
-            string partner = GetIntervalDockPartnerText(mission, node);
-            if (string.IsNullOrEmpty(partner))
-            {
-                GUILayout.Label(text, compositionCellLabel, GUILayout.Width(ColW_StartEvent));
-                return;
-            }
-
-            string full = text + " " + partner;
-            var content = new GUIContent(text, full);
-            if (compositionCellLabel.CalcSize(new GUIContent(full)).x <= ColW_StartEvent)
-                content.text = full;
-            GUILayout.Label(content, compositionCellLabel, GUILayout.Width(ColW_StartEvent));
-        }
+        // (The Mission-parameter DrawStartEventCell overload this branch carried merged into the
+        // RowDeriveContext cell above: the T1.4 two-parent walk answers first, the dock-event
+        // graph answers what it cannot - cross-tree and recovered same-tree partners, with the
+        // partner's mission name.)
 
         /// <summary>"with CD (mission 'CD Freighter')", or "with CD" when no mission names it.</summary>
         internal static string FormatDockPartner(DockPartnerDescription d)
@@ -996,6 +1072,100 @@ namespace Parsek
         // separator). Interval keys append "/segN" / "@dockM" to a recording id, so a printable
         // separator would not be provably collision-free.
         private const string KeySeparator = "";
+
+        // Returns the cached T2.2 flattened per-vessel rows for a tree (built once per frame
+        // from the same composition roots that GetCompositionRoots caches). The dock-partner
+        // resolver names same-tree Dock / Board boundaries in the inline event phrase
+        // ("Docked (Munport Station)") - resolved here at row-build time, once per frame,
+        // rather than per row per pass.
+        private List<MissionVesselRow> GetVesselRows(RecordingTree tree)
+        {
+            if (!vesselRowsCache.TryGetValue(tree.Id, out var rows))
+            {
+                var (structure, view) = GetMissionView(tree);
+                rows = MissionVesselRowBuilder.Build(
+                    GetCompositionRoots(tree),
+                    (ownerHeadId, boundaryUT) =>
+                        MissionPresentation.ResolveSameTreeDockPartnerVesselName(
+                            structure, view, ownerHeadId, boundaryUT));
+                vesselRowsCache[tree.Id] = rows;
+            }
+            return rows;
+        }
+
+        // Returns the header summary-line facts for a tree (T1.1), derived at most once per frame
+        // per tree from the same per-frame structure / through-line / composition caches. Facts are
+        // tree-level (span, vessel count, crew union, terminal word), so two Missions over one tree
+        // reuse one derivation.
+        private MissionPresentation.MissionSummaryFacts GetSummaryFacts(RecordingTree tree)
+        {
+            if (tree == null || string.IsNullOrEmpty(tree.Id))
+                return default;
+            if (!summaryFactsCache.TryGetValue(tree.Id, out MissionPresentation.MissionSummaryFacts facts))
+            {
+                var (structure, view) = GetMissionView(tree);
+                var compRoots = GetCompositionRoots(tree);
+                facts = MissionPresentation.ComputeSummaryFacts(structure, view, compRoots);
+                // T2.1: the narrative body path, from the SAME primary vessel the terminal word
+                // came from (composition roots[0]) - deriving the two halves of one sentence
+                // from two independently-sorted root lists could narrate one vessel's journey
+                // next to another vessel's outcome on a multi-root tree. Bodies live on
+                // Recordings, not on the read models, so this is stamped here where the tree
+                // is in hand.
+                string primaryHeadId = compRoots.Count > 0 && compRoots[0] != null
+                    ? compRoots[0].OwnerHeadId : null;
+                facts.BodyPath = MissionPresentation.BuildBodyPathText(
+                    CollectMainLineBodySequences(tree, view, primaryHeadId));
+                // Frame-invariant display strings, built once per rebuild rather than per pass.
+                facts.StartDateText = facts.HasSpan ? KSPUtil.PrintDateCompact(facts.StartUT, true) : "";
+                facts.EndDateText = facts.HasSpan ? KSPUtil.PrintDateCompact(facts.EndUT, true) : "";
+                facts.DetailTooltip = MissionPresentation.BuildSummaryDetailTooltip(
+                    facts.StartDateText, facts.EndDateText, facts.VesselCount, facts.CrewNames);
+                summaryFactsCache[tree.Id] = facts;
+                var loggedFacts = facts;
+                // Per-tree rate key: the line carries the tree id, so a shared key would let
+                // only the first-drawn tree ever log its facts.
+                ParsekLog.VerboseRateLimited("Mission", "missions-summary-facts|" + tree.Id,
+                    () => $"Missions summary facts: tree={tree.Id} span={(loggedFacts.HasSpan ? "yes" : "no")} " +
+                    $"vessels={loggedFacts.VesselCount.ToString(System.Globalization.CultureInfo.InvariantCulture)} " +
+                    $"crew={loggedFacts.CrewCount.ToString(System.Globalization.CultureInfo.InvariantCulture)} " +
+                    $"terminal='{loggedFacts.TerminalWord ?? ""}'", 5.0);
+            }
+            return facts;
+        }
+
+        // The per-leg body-transition sequences of the tree's PRIMARY through-line, in leg
+        // order, for the T2.1 narrative body path. primaryHeadId names the vessel (the same
+        // composition roots[0] owner the terminal word is derived from; null falls back to the
+        // through-line view's first root). Each leg's sequence comes from its committed
+        // Recording via RecordingStore.GetBodyTransitionSequence; a leg with no recording
+        // contributes nothing. Returns null when no through-line resolves (the body-path
+        // builder then yields null and the summary line falls back to span dates). Internal
+        // static for direct testability (Testing Requirements).
+        internal static List<List<string>> CollectMainLineBodySequences(
+            RecordingTree tree, MissionThroughLineView view, string primaryHeadId)
+        {
+            if (tree == null || tree.Recordings == null || view == null)
+                return null;
+            if (string.IsNullOrEmpty(primaryHeadId) && view.RootHeadIds.Count > 0)
+                primaryHeadId = view.RootHeadIds[0];
+            if (string.IsNullOrEmpty(primaryHeadId)
+                || !view.ByHeadId.TryGetValue(primaryHeadId, out MissionThroughLine tl)
+                || tl == null)
+                return null;
+
+            var sequences = new List<List<string>>(tl.MemberLegIds.Count);
+            for (int i = 0; i < tl.MemberLegIds.Count; i++)
+            {
+                if (tl.MemberLegIds[i] != null
+                    && tree.Recordings.TryGetValue(tl.MemberLegIds[i], out Recording rec)
+                    && rec != null)
+                {
+                    sequences.Add(RecordingStore.GetBodyTransitionSequence(rec));
+                }
+            }
+            return sequences;
+        }
 
         // Returns the REAL Mission LoopUnitSet, built at most once per frame, EXACTLY as the scene
         // drivers build it (MissionLoopUnitBuilder.Build over MissionStore.Missions +
@@ -1061,15 +1231,202 @@ namespace Parsek
             return loopUnitSetCache ?? GhostPlaybackLogic.LoopUnitSet.Empty;
         }
 
+        // The per-tree read model the composition rows' label derivations need: the delta-phrased
+        // interval label (T1.3) resolves the peeled sibling from the parent node's children, and
+        // the same-tree dock partner (T1.4) resolves through the structure + through-line view.
+        // Carried down the recursion (rather than read from a field) because a partner-journey
+        // subtree renders a FOREIGN tree's nodes and must resolve against that tree's own models.
+        private struct RowDeriveContext
+        {
+            public MissionStructure Structure;
+            public MissionThroughLineView View;
+            // The mission whose window is rendering, for the dock-event-graph naming
+            // fallback (design-dock-event-graph.md 6.5): the graph lookup keys on the
+            // mission's OWN tree, so on a foreign partner-journey subtree it resolves
+            // nothing and the bare event word stands, exactly as before.
+            public Mission Mission;
+        }
+
+        // T2.2: one FLATTENED row per physical vessel / EVA kerbal. Depth encodes separation
+        // lineage only (the booster under the ship it left), never time; the event chain renders
+        // inline after the name; the vessel's own structural intervals are an expandable flat
+        // detail (Advanced only - the detail exists to host the per-interval checkboxes Basic
+        // hides), each with its independent include checkbox. The per-vessel checkbox expands to
+        // the vessel's OWN explicit interval keys (never a child's), so the non-cascading
+        // ExcludedIntervalKeys contract is untouched. Returns the number of rows drawn.
+        private int DrawVesselRow(MissionVesselRow row, Mission mission, int depth, bool isLast,
+            bool isLaunchRow, MissionPeriodicityDisplay periodicity, RowDeriveContext ctx)
+        {
+            if (row == null || row.Intervals.Count == 0)
+                return 0;
+
+            bool loopAuthoring = ShowsLoopAuthoringControls(ParsekUI.AppliedUiComplexityMode);
+            MissionVesselInclusion inclusion =
+                MissionVesselRowBuilder.ClassifyInclusion(row, mission.ExcludedIntervalKeys);
+            bool greyed = inclusion == MissionVesselInclusion.None;
+            // A single-interval vessel has no detail to expand; Basic never expands (the detail
+            // is the authoring surface). Expandability never depends on the inclusion state, so
+            // a checkbox click cannot change the control count mid-frame.
+            bool expandable = loopAuthoring && row.Intervals.Count > 1;
+            string expandKey = CollapseKey(mission, row.OwnerHeadId);
+            bool expanded = expandable && expandedVessels.Contains(expandKey);
+
+            GUILayout.BeginHorizontal(GUILayout.MinHeight(CompositionRowMinHeight));
+
+            // Blank enable slot (see DrawCompositionRow): first column totals the recordings
+            // tab's [enable+index] width so vessel names line up with the recordings "Name".
+            GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_Enable));
+
+            // Per-vessel include checkbox (Advanced): writes the vessel's own EXPLICIT interval
+            // keys. Click on a fully-included vessel excludes everything; click on a None OR
+            // PARTIAL vessel includes everything - the destructive direction is reserved for
+            // the unambiguous state, so a hand-authored partial selection is first COMPLETED
+            // (recoverable one interval at a time in the expanded detail) rather than dropped
+            // wholesale by a click made to see what the box does.
+            if (loopAuthoring)
+            {
+                bool shownChecked = inclusion != MissionVesselInclusion.None;
+                bool toggled = GUILayout.Toggle(shownChecked, VesselIncludeCheckboxContent,
+                    GUILayout.Width(ColW_Index), GUILayout.ExpandHeight(true));
+                if (toggled != shownChecked)
+                {
+                    bool include = inclusion != MissionVesselInclusion.All;
+                    int changed = MissionVesselRowBuilder.ApplyVesselInclusion(
+                        row, include, mission.ExcludedIntervalKeys);
+                    if (changed > 0)
+                        StampSelectionEdit(mission);
+                    ParsekLog.Info("Mission",
+                        $"Mission '{mission.Name}' vessel '{row.VesselName}' " +
+                        $"(head={row.OwnerHeadId}) included={include} " +
+                        $"(was {inclusion}) keysChanged={changed}");
+                }
+            }
+            else
+            {
+                GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_Index));
+            }
+
+            Color prevColor = GUI.color;
+            if (greyed)
+                GUI.color = DimColor;
+
+            float indent = RecordingsTableUI.SelfConnectorIndent(depth);
+            if (indent > 0f)
+                GUILayout.Space(indent);
+            string connector = depth > 0 ? RecordingsTableUI.TreeConnector(isLast) : "";
+            string caret = expandable ? (expanded ? CaretDown : CaretRight) : "";
+            string partial = inclusion == MissionVesselInclusion.Partial ? " (partial)" : "";
+            string phrase = row.EventPhrase ?? "";
+            string wide = connector + caret + row.VesselName + partial
+                + (phrase.Length > 0 ? "   " + phrase : "");
+            // The event chain can outrun the cell, so the full chain rides the tooltip - along
+            // with the vessel's final composition ("pod x1, crew x2"), which the flattened row
+            // no longer prints inline and which Basic (no interval expansion) could otherwise
+            // not see at all. Persons skip it (their label IS their name).
+            string tooltip = phrase.Length > 0 ? phrase : null;
+            if (!row.IsPerson && row.Intervals.Count > 0)
+            {
+                string aboard = row.Intervals[row.Intervals.Count - 1].CompositionLabel;
+                if (!string.IsNullOrEmpty(aboard))
+                    tooltip = tooltip != null ? tooltip + "\nAboard: " + aboard : "Aboard: " + aboard;
+            }
+            var wideContent = new GUIContent(wide, tooltip);
+
+            if (expandable)
+            {
+                if (GUILayout.Button(wideContent, compositionCellLabel, GUILayout.ExpandWidth(true)))
+                {
+                    if (expanded) expandedVessels.Remove(expandKey);
+                    else expandedVessels.Add(expandKey);
+                }
+            }
+            else
+            {
+                GUILayout.Label(wideContent, compositionCellLabel, GUILayout.ExpandWidth(true));
+            }
+
+            // "Next launch" countdown on the mission's launch row only (mission-level value:
+            // never dimmed with an excluded vessel).
+            if (isLaunchRow)
+            {
+                Color prevTm = GUI.color;
+                GUI.color = prevColor;
+                DrawTMinusVesselCell(mission, periodicity);
+                GUI.color = prevTm;
+            }
+            else
+            {
+                GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_TMinus));
+            }
+
+            // The vessel's whole span + bounding events. The start-event cell reuses the T1.4
+            // dock-partner naming (relevant when a vessel's line BEGINS at a dock/board).
+            GUILayout.Label(KSPUtil.PrintDateCompact(row.StartUT, true), compositionCellLabel,
+                GUILayout.Width(ColW_StartTime));
+            DrawStartEventCell(row.Intervals[0], ctx);
+            GUILayout.Label(row.EndEvent ?? "", compositionCellLabel, GUILayout.Width(ColW_EndEvent));
+            GUILayout.Label(KSPUtil.PrintDateCompact(row.EndUT, true), compositionCellLabel,
+                GUILayout.Width(ColW_EndTime));
+
+            GUI.color = prevColor;
+
+            // Re-Fly cell: the vessel's head recording (the only interval key that IS a real
+            // recording id - same resolution the first interval row had in the staircase).
+            if (TryResolveCommittedRecording(row.OwnerHeadId, out int reFlyIdx, out Recording reFlyRec))
+            {
+                parentUI.GetRecordingsTableUI().DrawReFlyColumnCell(
+                    reFlyRec, reFlyIdx, Planetarium.GetUniversalTime());
+            }
+            else
+            {
+                GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_ReFly));
+            }
+
+            // Margin-0 trailing cell (see DrawCompositionRow's Archive-column note).
+            GUILayout.BeginHorizontal(GUILayout.Width(ColW_Archive));
+            GUILayout.FlexibleSpace();
+            GUILayout.EndHorizontal();
+            GUILayout.EndHorizontal();
+            int rows = 1;
+
+            // The expanded interval detail: this vessel's structural intervals as FLAT, equally
+            // indented sub-rows with their independent checkboxes and the four date columns.
+            // Interval j's composition-graph parent is interval j-1 (whose children carry the
+            // peel that ended it), so the T1.3 delta labels ride along.
+            if (expanded)
+            {
+                for (int j = 0; j < row.Intervals.Count; j++)
+                {
+                    MissionCompositionNode interval = row.Intervals[j];
+                    bool selfExcluded = mission.ExcludedIntervalKeys.Contains(interval.HeadLegId);
+                    DrawCompositionRow(interval, mission, depth + 1,
+                        j == row.Intervals.Count - 1 && row.Children.Count == 0,
+                        true, selfExcluded, selfExcluded, false, false,
+                        ctx, j > 0 ? row.Intervals[j - 1] : null);
+                    rows++;
+                }
+            }
+
+            // Separation lineage: the pieces that left this vessel, one level deeper.
+            for (int c = 0; c < row.Children.Count; c++)
+            {
+                rows += DrawVesselRow(row.Children[c], mission, depth + 1,
+                    c == row.Children.Count - 1, false, periodicity, ctx);
+            }
+            return rows;
+        }
+
         // Renders one composition node (a structural interval, a peeled-off branch, or a roster
         // atom) and recurses into its children. Every selectable node (interval / branch) carries
         // an INDEPENDENT include checkbox bound to Mission.ExcludedIntervalKeys: unchecking it
         // start/end-trims just that segment, with NO cascade (excluding the launch interval keeps
         // the post-decouple survivor checked, which is the whole point). A roster atom carries no
-        // checkbox and greys with its owning interval. Returns the number of rows drawn.
+        // checkbox and greys with its owning interval. Since T2.2 the mission path renders
+        // through DrawVesselRow above; this recursion remains the renderer for the foreign
+        // partner-journey subtrees (DrawForeignJourneyNode) and the interval detail rows.
         private int DrawCompositionNode(MissionCompositionNode node,
             Mission mission, int depth, bool isLast, bool parentExcluded,
-            bool isLaunchRow, MissionPeriodicityDisplay periodicity)
+            RowDeriveContext ctx, MissionCompositionNode parent)
         {
             if (node == null)
                 return 0;
@@ -1082,10 +1439,8 @@ namespace Parsek
             bool hasChildren = node.Children.Count > 0;
             bool collapsed = hasChildren && collapsedLegs.Contains(CollapseKey(mission, node.HeadLegId));
 
-            // Only the head node of the mission's first root is the launch row; its children and
-            // every later root row leave the "Time to launch" cell blank.
             DrawCompositionRow(node, mission, depth, isLast, selectable, selfExcluded, greyed,
-                hasChildren, collapsed, isLaunchRow, periodicity);
+                hasChildren, collapsed, ctx, parent);
             int rows = 1;
 
             if (hasChildren && !collapsed)
@@ -1096,7 +1451,7 @@ namespace Parsek
                 {
                     bool childLast = i == node.Children.Count - 1;
                     rows += DrawCompositionNode(node.Children[i], mission,
-                        depth + 1, childLast, childParentExcluded, false, periodicity);
+                        depth + 1, childLast, childParentExcluded, ctx, node);
                 }
             }
             return rows;
@@ -1104,7 +1459,8 @@ namespace Parsek
 
         private void DrawCompositionRow(MissionCompositionNode node, Mission mission,
             int depth, bool isLast, bool selectable, bool selfExcluded, bool greyed,
-            bool hasChildren, bool collapsed, bool isLaunchRow, MissionPeriodicityDisplay periodicity)
+            bool hasChildren, bool collapsed,
+            RowDeriveContext ctx, MissionCompositionNode parent)
         {
             // MinHeight floors the row at the recordings-table row stride so the rows do not pack
             // too tightly and the per-row Fly / Seal button has room (label-only cells alone measure
@@ -1127,18 +1483,15 @@ namespace Parsek
                 bool shownChecked = !selfExcluded;
                 // ExpandHeight so the checkbox fills the row height and the toggle style centers it
                 // vertically (matching the vertically-centered name text), rather than top-aligning.
-                bool toggled = GUILayout.Toggle(shownChecked, "",
+                // The tooltip is the F2 fix (T1.5): this checkbox is LOOP-UNIT membership, not ghost
+                // visibility - the effect no player would guess from an unlabelled tick box.
+                bool toggled = GUILayout.Toggle(shownChecked, IntervalIncludeCheckboxContent,
                     GUILayout.Width(ColW_Index), GUILayout.ExpandHeight(true));
                 if (toggled != shownChecked)
                 {
                     if (toggled) mission.ExcludedIntervalKeys.Remove(node.HeadLegId);
                     else mission.ExcludedIntervalKeys.Add(node.HeadLegId);
-                    // Any interval edit is authored against CURRENT key numbering. A gen-0
-                    // mission whose tree was uncommitted at load (reconcile stamp DEFERRED)
-                    // becomes editable once the tree commits mid-session; without this stamp
-                    // the next load's generation-0 reconcile would wrongly extend the fresh
-                    // selection across @dock sub-siblings the player deliberately kept.
-                    mission.SelectionSchemaGeneration = Mission.CurrentSelectionSchemaGeneration;
+                    StampSelectionEdit(mission);
                     ParsekLog.Info("Mission",
                         $"Mission '{mission.Name}' interval '{node.HeadLegId}' included={toggled}");
                 }
@@ -1157,11 +1510,20 @@ namespace Parsek
                 GUILayout.Space(indent);
             string connector = depth > 0 ? RecordingsTableUI.TreeConnector(isLast) : "";
             string caret = hasChildren ? (collapsed ? CaretRight : CaretDown) : "";
-            // "Vessel (composition)" for vessel/interval rows; the bare label for atoms and for
-            // single-piece rows whose name already equals the composition (e.g. an EVA kerbal).
-            string label = (!string.IsNullOrEmpty(node.VesselName) && node.VesselName != node.CompositionLabel)
-                ? node.VesselName + " (" + node.CompositionLabel + ")"
-                : node.CompositionLabel;
+            // "Vessel (composition)" for the FIRST interval of a vessel (and for atoms / EVA rows,
+            // whose name already equals the composition); a LATER interval that starts at a
+            // separation leads with the delta instead of repeating the vessel name down the
+            // staircase ("after undock: Kerbal X Lander left - (pod x1, crew x2)", T1.3). The
+            // interval key equals the through-line head only on the vessel's first interval.
+            // A roster atom has no OwnerHeadId and no boundary of its own, so it never delta-phrases.
+            bool isFirstInterval = node.IsAtom
+                || string.Equals(node.HeadLegId, node.OwnerHeadId, System.StringComparison.Ordinal);
+            string peeledSibling = isFirstInterval
+                ? null
+                : MissionPresentation.ResolvePeeledSiblingVesselName(parent, node);
+            string label = MissionPresentation.BuildIntervalRowLabel(
+                node.VesselName, node.CompositionLabel, isFirstInterval,
+                node.StartEvent, peeledSibling);
             string wide = connector + caret + label;
 
             if (hasChildren)
@@ -1178,33 +1540,17 @@ namespace Parsek
                 GUILayout.Label(wide, compositionCellLabel, GUILayout.ExpandWidth(true));
             }
 
-            // "Time to launch" cell: the live countdown to the mission's next faithful launch
-            // window (mission periodicity, design doc UX), sitting right after the name column (and
-            // before "Start time"). The countdown is a per-mission value, so it shows ONLY on the
-            // launch row (the mission's first vessel row) under the "Time to launch" header; every
-            // other vessel row leaves a same-width blank cell so the time/event columns stay
-            // aligned. The cell is drawn at the normal (un-dimmed) colour even when the launch
-            // interval is excluded/greyed, since the countdown is mission-level data rather than a
-            // property of that interval. A compositionCellLabel is fine here (the margin-0 caveat
-            // only applies to the right-EDGE cell, the trailing Archive cell below).
-            if (isLaunchRow)
-            {
-                Color prevTm = GUI.color;
-                GUI.color = prevColor; // mission-level value: never dim with an excluded launch interval
-                DrawTMinusVesselCell(mission, periodicity);
-                GUI.color = prevTm;
-            }
-            else
-            {
-                GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_TMinus));
-            }
+            // Blank "Next launch" slot: since T2.2 the mission's countdown lives on the launch
+            // VESSEL row (DrawVesselRow), so every composition row here just keeps the column
+            // aligned with a same-width blank cell.
+            GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_TMinus));
 
             // Interval / vessel rows show their span + bounding events; roster atoms inherit the
             // parent's span, so their time columns stay blank.
             if (!node.IsAtom)
             {
                 GUILayout.Label(KSPUtil.PrintDateCompact(node.StartUT, true), compositionCellLabel, GUILayout.Width(ColW_StartTime));
-                DrawStartEventCell(node, mission);
+                DrawStartEventCell(node, ctx);
                 GUILayout.Label(node.EndEvent ?? "", compositionCellLabel, GUILayout.Width(ColW_EndEvent));
                 GUILayout.Label(KSPUtil.PrintDateCompact(node.EndUT, true), compositionCellLabel, GUILayout.Width(ColW_EndTime));
             }
@@ -1248,6 +1594,59 @@ namespace Parsek
             GUILayout.EndHorizontal();
 
             GUILayout.EndHorizontal();
+        }
+
+        // The "Start event" cell. A same-tree Dock / Board boundary names the OTHER vessel that
+        // joined ("Docked with Munport Station", T1.4) - the rendezvous is the most narratively
+        // important moment in a station mission and the row used to present it as an unexplained
+        // inventory jump. The partner is derived from the merge leg's two branch parents (the one
+        // that is not this vessel's own line); a cross-tree / single-parent dock resolves to nothing
+        // and keeps the bare event word, which is what the "Partner journey" rows already cover.
+        // The named phrase does not fit the cell, so it renders non-wrapping (clipped) with the full
+        // text as its tooltip - a wrapping cell would grow the row height and every column with it.
+        private void DrawStartEventCell(MissionCompositionNode node, RowDeriveContext ctx)
+        {
+            string eventWord = node.StartEvent ?? "";
+            if (!MissionPresentation.IsDockEventWord(eventWord))
+            {
+                GUILayout.Label(eventWord, compositionCellLabel, GUILayout.Width(ColW_StartEvent));
+                return;
+            }
+
+            string partner = MissionPresentation.ResolveSameTreeDockPartnerVesselName(
+                ctx.Structure, ctx.View, node.OwnerHeadId, node.StartUT);
+            if (string.IsNullOrEmpty(partner))
+            {
+                // Dock-event-graph fallback (design-dock-event-graph.md 6.5): the two-parent
+                // walk above cannot name a CROSS-TREE partner or a RECOVERED same-tree
+                // single-parent dock (the A->D shape); the graph resolves both, with the
+                // partner's mission name. Tooltip-first, inline when it measures inside the
+                // cell (the visible-label rework of this column stays issue-1's concern).
+                string graphText = GetIntervalDockPartnerText(ctx.Mission, node);
+                if (!string.IsNullOrEmpty(graphText))
+                {
+                    string full = eventWord + " " + graphText;
+                    var graphContent = new GUIContent(eventWord, full);
+                    if (compositionCellLabel.CalcSize(new GUIContent(full)).x <= ColW_StartEvent)
+                        graphContent.text = full;
+                    GUILayout.Label(graphContent, compositionCellLabelNoWrap,
+                        GUILayout.Width(ColW_StartEvent));
+                    return;
+                }
+                // Fallback (a merge neither resolver can name): the bare word, exactly as
+                // before. Lazy overload: this runs per row per pass, so the string must not be
+                // built while suppressed.
+                ParsekLog.VerboseRateLimited("Mission", "missions-dock-partner-unresolved",
+                    () => $"Missions row: dock boundary '{eventWord}' at interval '{node.HeadLegId}' " +
+                    "named no partner (two-parent walk and dock graph both silent); " +
+                    "showing the bare event word", 30.0);
+                GUILayout.Label(eventWord, compositionCellLabel, GUILayout.Width(ColW_StartEvent));
+                return;
+            }
+
+            string text = MissionPresentation.BuildDockPartnerStartEventText(eventWord, partner);
+            GUILayout.Label(new GUIContent(text, text), compositionCellLabelNoWrap,
+                GUILayout.Width(ColW_StartEvent));
         }
 
         // ---- M-MIS-8: cross-tree partner-journey rows ----
@@ -1295,8 +1694,8 @@ namespace Parsek
             return legs;
         }
 
-        // One affordance row per derived link ("Partner journey - <vessel> (docked <date>)")
-        // with an include toggle bound to Mission.IncludedForeignDockLinkIds; when included,
+        // One affordance row per derived link ("Docked partner: <vessel>", with the dock date in the
+        // Start time column) with an include toggle bound to Mission.IncludedForeignDockLinkIds; when included,
         // the journey's foreign intervals render as child rows with the normal per-interval
         // checkboxes (same ExcludedIntervalKeys binding - keys are globally unique). Returns
         // the number of rows drawn.
@@ -1328,7 +1727,9 @@ namespace Parsek
                 }
                 else
                 {
-                    bool toggled = GUILayout.Toggle(included, "",
+                    // T1.5: the checkbox both pulls in foreign rows AND can clear a loop on the
+                    // linked mission (the spanned tree set widens), so it needs to say what it does.
+                    bool toggled = GUILayout.Toggle(included, PartnerJourneyCheckboxContent,
                         GUILayout.Width(ColW_Index), GUILayout.ExpandHeight(true));
                     if (toggled != included)
                     {
@@ -1340,11 +1741,18 @@ namespace Parsek
                             $"included={toggled}");
                         // Including a link on an ALREADY-LOOPING mission widens its spanned tree
                         // set, which can newly conflict with a loop on the foreign tree; clear the
-                        // conflict now (SetLoopEnabled only runs this on loop-enable).
+                        // conflict now (SetLoopEnabled only runs this on loop-enable). This is the
+                        // SECOND path that can take another mission's loop, so it gets the same
+                        // T1.6 snapshot + on-screen announcement as the Loop toggle - a loop
+                        // moving silently here is the exact symptom T1.6 removed.
                         if (toggled && mission.LoopPlayback)
+                        {
+                            List<Mission> wereLooping = SnapshotOtherLoopingMissions(mission);
                             MissionStore.ClearLoopsConflictingWith(mission,
                                 RecordingStore.CommittedTrees, out int _, out int _,
                                 "PartnerJourneyInclude");
+                            AnnounceClearedLoops(mission, wereLooping);
+                        }
                         included = toggled;
                     }
                 }
@@ -1356,9 +1764,13 @@ namespace Parsek
                 float indent = RecordingsTableUI.SelfConnectorIndent(1);
                 if (indent > 0f)
                     GUILayout.Space(indent);
+                // "Docked partner: <vessel>" (T1.7) - the old "Partner journey - X" was designer
+                // vocabulary; the row is the vessel that docked with this mission's ship.
                 GUILayout.Label(
-                    RecordingsTableUI.TreeConnector(li == links.Count - 1)
-                    + $"Partner journey - {link.ForeignVesselName}",
+                    new GUIContent(
+                        RecordingsTableUI.TreeConnector(li == links.Count - 1)
+                        + $"Docked partner: {link.ForeignVesselName}",
+                        MissionPresentation.PartnerJourneyTooltip),
                     compositionCellLabel, GUILayout.ExpandWidth(true));
                 GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_TMinus));
                 GUILayout.Label(KSPUtil.PrintDateCompact(link.DockUT, true),
@@ -1386,8 +1798,17 @@ namespace Parsek
                     GetJourneyLegIds(foreignTree, link), System.StringComparer.Ordinal);
                 var journeyWindows = MissionCrossTreeDock.ComputeJourneyWindowsByOwner(
                     foreignStructure, foreignView, journeySet);
+                // The foreign subtree's label derivations must resolve against the FOREIGN tree's
+                // own structure / view (its dock partners and peels live there, not in my tree).
+                var foreignCtx = new RowDeriveContext
+                {
+                    Structure = foreignStructure,
+                    View = foreignView,
+                    Mission = mission,
+                };
                 for (int r = 0; r < foreignRoots.Count; r++)
-                    rows += DrawMaximalJourneyNodes(foreignRoots[r], mission, journeyWindows, 2);
+                    rows += DrawMaximalJourneyNodes(foreignRoots[r], mission, journeyWindows, 2,
+                        foreignCtx);
                 // (journey leg derivation is suppressed + per-frame cached in GetJourneyLegIds;
                 // ComputeJourneyWindowsByOwner emits no diagnostics.)
             }
@@ -1399,15 +1820,16 @@ namespace Parsek
         // sub-interval and the partner's post-undock offshoot branch. Returns rows drawn.
         private int DrawMaximalJourneyNodes(MissionCompositionNode node, Mission mission,
             IReadOnlyDictionary<string, List<MissionIntervalSelection.RenderWindow>> journeyWindows,
-            int depth)
+            int depth, RowDeriveContext ctx, MissionCompositionNode parent = null)
         {
             if (node == null)
                 return 0;
             if (MissionCrossTreeDock.IsJourneyNode(node, journeyWindows))
-                return DrawForeignJourneyNode(node, mission, journeyWindows, depth, true);
+                return DrawForeignJourneyNode(node, mission, journeyWindows, depth, true, ctx, parent);
             int rows = 0;
             for (int i = 0; i < node.Children.Count; i++)
-                rows += DrawMaximalJourneyNodes(node.Children[i], mission, journeyWindows, depth);
+                rows += DrawMaximalJourneyNodes(node.Children[i], mission, journeyWindows, depth,
+                    ctx, node);
             return rows;
         }
 
@@ -1417,7 +1839,7 @@ namespace Parsek
         // vessel's own pre-dock / post-departure intervals never render here. Returns rows.
         private int DrawForeignJourneyNode(MissionCompositionNode node, Mission mission,
             IReadOnlyDictionary<string, List<MissionIntervalSelection.RenderWindow>> journeyWindows,
-            int depth, bool isLast)
+            int depth, bool isLast, RowDeriveContext ctx, MissionCompositionNode parent)
         {
             var drawChildren = new List<MissionCompositionNode>();
             for (int i = 0; i < node.Children.Count; i++)
@@ -1433,7 +1855,7 @@ namespace Parsek
             bool hasChildren = drawChildren.Count > 0;
             bool collapsed = hasChildren && collapsedLegs.Contains(CollapseKey(mission, node.HeadLegId));
             DrawCompositionRow(node, mission, depth, isLast, true, selfExcluded, selfExcluded,
-                hasChildren, collapsed, false, default);
+                hasChildren, collapsed, ctx, parent);
             int rows = 1;
 
             if (hasChildren && !collapsed)
@@ -1444,14 +1866,15 @@ namespace Parsek
                     bool childLast = i == drawChildren.Count - 1;
                     if (c.IsSelectable)
                     {
-                        rows += DrawForeignJourneyNode(c, mission, journeyWindows, depth + 1, childLast);
+                        rows += DrawForeignJourneyNode(c, mission, journeyWindows, depth + 1,
+                            childLast, ctx, node);
                     }
                     else
                     {
                         // Roster atom: greys with its owning interval, no checkbox. Reuse the
                         // standard recursion (its children, if any, are atoms too).
                         rows += DrawCompositionNode(c, mission, depth + 1, childLast,
-                            selfExcluded, false, default);
+                            selfExcluded, ctx, node);
                     }
                 }
             }
@@ -1492,18 +1915,29 @@ namespace Parsek
         // but at most one looping mission per tree (it only flips bools on same-tree siblings,
         // never adds/removes, so it is safe to call from inside the draw loop).
         private void DrawMissionHeader(Mission mission, int index, MissionThroughLineView view,
-            MissionPeriodicityDisplay periodicity)
+            MissionPeriodicityDisplay periodicity, MissionPresentation.MissionSummaryFacts summary)
         {
-            // The whole row's background is the dark section-header bubble (missionHeaderRowStyle),
-            // so the bubble spans index -> Archive and every control sits inside it.
-            GUILayout.BeginHorizontal(missionHeaderRowStyle);
+            // The bubble now wraps a VERTICAL (title row + summary line, T1.1) rather than the title
+            // row alone, so both lines sit on one dark bar. The style's left/right margin + padding
+            // are still zeroed, so the controls land at exactly the same x as before; the caller's
+            // CaptureRevealAnchor measures this group's rect, whose y is the block top either way.
+            GUILayout.BeginVertical(missionHeaderRowStyle);
+
+            // The title row itself carries no style (the bubble above supplies the background).
+            GUILayout.BeginHorizontal();
 
             // First column = blank enable slot + the index number, totalling the recordings tab's
             // [enable+index] width so the title lines up with the recordings "Name" column.
             GUILayout.Label("", missionHeaderTextStyle, GUILayout.Width(ColW_Enable));
             // Index cell: the per-tree number, non-modifiable. Shared by clones. Bold transparent
-            // text on the row bubble (no box of its own).
-            GUILayout.Label(index > 0 ? index.ToString(System.Globalization.CultureInfo.InvariantCulture) : "",
+            // text on the row bubble (no box of its own). In Basic the number itself is hidden
+            // (T1.7): it is a per-tree support/debug ordinal with no meaning to the player, and its
+            // slot is shared with the include checkbox on the rows below. The cell is kept (blank)
+            // so every column stays aligned with the header above.
+            GUILayout.Label(
+                !basicUiMode && index > 0
+                    ? index.ToString(System.Globalization.CultureInfo.InvariantCulture)
+                    : "",
                 missionHeaderTextStyle, GUILayout.Width(ColW_Index));
 
             // Small left inset on the title so its text starts at the same x as the "Missions and
@@ -1531,7 +1965,8 @@ namespace Parsek
             // Clone / Delete next. Delete is disabled when this is the tree's last mission. Log,
             // Clone, Delete, Warp to, Watch, and Rewind/Forward all share ColW_HeaderButton so they
             // read as one group.
-            if (GUILayout.Button("Clone", GUILayout.Width(ColW_HeaderButton)))
+            if (GUILayout.Button(new GUIContent("Clone", MissionPresentation.CloneButtonTooltip),
+                    GUILayout.Width(ColW_HeaderButton)))
                 MissionStore.Clone(mission);
             GUI.enabled = MissionStore.CanDelete(mission);
             if (GUILayout.Button("Delete", GUILayout.Width(ColW_HeaderButton)))
@@ -1539,13 +1974,13 @@ namespace Parsek
             GUI.enabled = true;
 
             // "Warp to..." (after Delete, before Loop): jumps the game clock to this mission's next
-            // faithful relaunch (the TTL countdown target = periodicity.NextRelaunchUT), reusing the
+            // faithful relaunch (the "Next launch" countdown target = periodicity.NextRelaunchUT), reusing the
             // Timeline "Warp to time" flow (confirmation dialog; in flight it defers to the Space
             // Center so the Merge / Discard dialog handles the active recording first). The next
             // relaunch is always in the future, so this is a forward (fast-forward) warp. Enabled only
             // when the mission is looping, an engine unit was built, the next relaunch is in the
             // future, and we are in a warp-capable scene (flight or Space Center). The ellipsis
-            // matches the existing "Warp to..." convention; the adjacent TTL column says "to what".
+            // matches the existing "Warp to..." convention; the adjacent "Next launch" column says "to what".
             DrawMissionWarpToWindowButton(mission, periodicity);
 
             // "Loop [x]": label then checkbox (bare siblings, normal ~4 px margins; a fixed-width
@@ -1570,8 +2005,10 @@ namespace Parsek
                 bool prevGuiEnabled = GUI.enabled;
                 if (missionRouteBound)
                     GUI.enabled = false;
-                GUILayout.Label("Loop", missionHeaderInlineLabel);
-                bool loopNow = GUILayout.Toggle(mission.LoopPlayback, "");
+                GUILayout.Label(new GUIContent("Loop", MissionPresentation.LoopToggleTooltip),
+                    missionHeaderInlineLabel);
+                bool loopNow = GUILayout.Toggle(mission.LoopPlayback,
+                    new GUIContent("", MissionPresentation.LoopToggleTooltip));
                 GUI.enabled = prevGuiEnabled;
                 CommitMissionLoopToggle(mission, loopNow, missionRouteBound, bindingRoute);
             }
@@ -1627,7 +2064,8 @@ namespace Parsek
             // the Archive column header.
             GUILayout.BeginHorizontal(GUILayout.Width(ColW_Archive));
             GUILayout.FlexibleSpace();
-            bool archived = GUILayout.Toggle(mission.Archived, "");
+            bool archived = GUILayout.Toggle(mission.Archived,
+                new GUIContent("", MissionPresentation.ArchiveCheckboxTooltip));
             GUILayout.FlexibleSpace();
             GUILayout.EndHorizontal();
             if (archived != mission.Archived)
@@ -1638,7 +2076,125 @@ namespace Parsek
 
             GUILayout.EndHorizontal();
 
+            // End of the title row.
             GUILayout.EndHorizontal();
+
+            // Second line inside the same bubble: the mission summary (T1.1 / T1.2).
+            DrawMissionSummaryLine(mission, periodicity, summary);
+
+            GUILayout.EndVertical();
+        }
+
+        // The mission summary line, narrative form (T2.1): "Kerbin -> Mun -> Kerbin · 2d 3h ·
+        // Jeb, Bob, Val · Landed · Loops ~6.4d · Next launch T- 2h 14m", drawn as a thin second
+        // line inside the header bubble under the title. It answers "what is this mission?"
+        // without expanding anything: where it went, how long, who flew, how it ended, and the
+        // schedule. The facts the narrative dropped from T1.1 (span dates, vessel count, full
+        // roster) move into the line's tooltip. Text-only: no control, so it cannot desync the
+        // pass.
+        private void DrawMissionSummaryLine(Mission mission, MissionPeriodicityDisplay periodicity,
+            MissionPresentation.MissionSummaryFacts summary)
+        {
+            // Whether this line draws AT ALL depends only on the per-frame-cached tree facts, never
+            // on the countdown: a mid-frame Loop toggle must not change how many layout entries this
+            // group emits between the frame's Layout and Repaint passes.
+            bool hasSummary = summary.HasSpan || summary.VesselCount > 0 || summary.CrewCount > 0
+                || !string.IsNullOrEmpty(summary.TerminalWord)
+                || !string.IsNullOrEmpty(summary.BodyPath);
+            if (!hasSummary)
+                return;
+
+            // The countdown, only when one exists (T1.2). Same text the row cell shows, so the two
+            // can never disagree.
+            string nextLaunch = MissionPresentation.SummaryNextLaunchText(
+                BuildTMinusCellText(
+                    mission != null && mission.LoopPlayback,
+                    periodicity.Solved,
+                    periodicity.Solution.ShouldPhaseLock,
+                    periodicity.UnitBuilt,
+                    periodicity.Solution.P,
+                    periodicity.NextRelaunchUT,
+                    periodicity.NowUT,
+                    periodicity.IsReaim));
+
+            // The span dates + detail tooltip are frame-invariant and pre-stamped on the cached
+            // facts (GetSummaryFacts) - only the countdown / loop pieces are built per pass.
+            string startText = summary.StartDateText ?? "";
+            string endText = summary.EndDateText ?? "";
+            string durationText = summary.HasSpan
+                ? ParsekTimeFormat.FormatDuration(summary.EndUT - summary.StartUT)
+                : "";
+
+            // "Loops ~P" only when the mission is actually looping and the engine solved a real
+            // period. Text-only (the piece appears/disappears with the loop state but never
+            // changes the control count - the whole line is one label either way).
+            string loopText = null;
+            if (mission != null && mission.LoopPlayback && periodicity.Solved
+                && periodicity.Solution.P > 0 && !double.IsNaN(periodicity.Solution.P))
+            {
+                loopText = "Loops ~" + ParsekTimeFormat.FormatDuration(periodicity.Solution.P);
+            }
+
+            string text = MissionPresentation.BuildNarrativeSummaryLine(
+                summary.BodyPath, startText, endText, durationText,
+                MissionPresentation.BuildCrewNamesText(summary.CrewNames), summary.CrewCount,
+                summary.TerminalWord, loopText, nextLaunch);
+            string tooltip = summary.DetailTooltip ?? MissionPresentation.MissionSummaryTooltip;
+
+            GUILayout.BeginHorizontal();
+            // Same leading cells as the title row above, so the summary starts under the title.
+            GUILayout.Label("", missionSummaryLabel, GUILayout.Width(ColW_Enable));
+            GUILayout.Label("", missionSummaryLabel, GUILayout.Width(ColW_Index));
+            GUILayout.Space(BodyCellTextIndent);
+            Color prev = GUI.color;
+            GUI.color = MissionSummaryColor;
+            GUILayout.Label(new GUIContent(text, tooltip),
+                missionSummaryLabel, GUILayout.ExpandWidth(true));
+            GUI.color = prev;
+            GUILayout.EndHorizontal();
+        }
+
+        // The other missions that are looping right now (T1.6): snapshotted BEFORE
+        // MissionStore.SetLoopEnabled so the ones it clears can be named afterwards. Returns null
+        // when nothing else is looping, so the common case allocates nothing.
+        private static List<Mission> SnapshotOtherLoopingMissions(Mission target)
+        {
+            var missions = MissionStore.Missions;
+            List<Mission> looping = null;
+            for (int i = 0; i < missions.Count; i++)
+            {
+                Mission m = missions[i];
+                if (m == null || ReferenceEquals(m, target) || !m.LoopPlayback)
+                    continue;
+                if (looping == null)
+                    looping = new List<Mission>(2);
+                looping.Add(m);
+            }
+            return looping;
+        }
+
+        // Names the missions whose loop the just-enabled one took over, on screen and in the log
+        // (T1.6). MissionStore logs the COUNTS at the clear site; this is the player-facing half.
+        private static void AnnounceClearedLoops(Mission winner, List<Mission> wereLooping)
+        {
+            if (wereLooping == null || wereLooping.Count == 0)
+                return;
+            List<string> cleared = null;
+            for (int i = 0; i < wereLooping.Count; i++)
+            {
+                Mission m = wereLooping[i];
+                if (m == null || m.LoopPlayback)
+                    continue;   // still looping (a disjoint tree) - nothing was taken from it
+                if (cleared == null)
+                    cleared = new List<string>(wereLooping.Count);
+                cleared.Add(m.Name);
+            }
+            string message = MissionPresentation.BuildLoopMovedScreenMessage(
+                winner != null ? winner.Name : null, cleared);
+            if (message == null)
+                return;
+            ParsekLog.Info("Mission", message);
+            ParsekLog.ScreenMessage(message, 5f);
         }
 
         // Commits a Loop-toggle click from the mission header. Extracted so the draw site stays a
@@ -1663,10 +2219,17 @@ namespace Parsek
                 return;
             }
 
+            // T1.6: enabling a loop can clear the loop on a mission that shares this tree
+            // (or a cross-tree-linked one). That used to be log-only - the other row simply
+            // showed its box unticked on the next frame - so snapshot the losers around the
+            // call and tell the player which mission's loop moved.
+            List<Mission> wereLooping = loopNow ? SnapshotOtherLoopingMissions(mission) : null;
             // Trees passed so a cross-tree-linked mission also clears looping missions
             // on its linked foreign tree(s) (M-MIS-8 spanned-set rule).
             MissionStore.SetLoopEnabled(mission, loopNow, Planetarium.GetUniversalTime(),
                 RecordingStore.CommittedTrees);
+            if (loopNow)
+                AnnounceClearedLoops(mission, wereLooping);
             // Turning loop off disables the period field; end any in-progress edit on it.
             if (!loopNow && loopPeriodFocusedMissionId == mission.Id)
                 loopPeriodFocusedMissionId = null;
@@ -1778,7 +2341,7 @@ namespace Parsek
         }
 
         // "Warp to..." button: fast-forwards the game clock to this mission's next faithful relaunch
-        // (periodicity.NextRelaunchUT, the same UT the TTL countdown targets) using the SAME
+        // (periodicity.NextRelaunchUT, the same UT the "Next launch" countdown targets) using the SAME
         // mechanism as the Recordings/Missions "Forward" button - an IN-PLACE forward jump (no scene
         // change) that lands RewindToLaunchLeadTimeSeconds (15 s) before the launch. In flight it
         // goes through ParsekFlight.FastForwardToEventUT (notifies the recorder, then
@@ -1799,7 +2362,8 @@ namespace Parsek
                 now);
 
             GUI.enabled = actionable;
-            if (GUILayout.Button("Warp to...", GUILayout.Width(ColW_HeaderButton)))
+            if (GUILayout.Button(new GUIContent("Warp to...", MissionPresentation.WarpToButtonTooltip),
+                    GUILayout.Width(ColW_HeaderButton)))
                 ShowMissionWarpToWindowConfirmation(mission, periodicity.NextRelaunchUT, inFlight);
             GUI.enabled = true;
         }
@@ -2175,7 +2739,7 @@ namespace Parsek
         // off the REAL loop unit), NOT the periodicity solution's next P-window, so it never ticks to
         // "T- 0s" on a window the engine skips (relaunch cadence = m*P with m>=2). Uses the same
         // vertically-centered compositionCellLabel as the row's other (time/event) cells so it reads
-        // as part of the vessel row, under the "Time to launch" column header.
+        // as part of the vessel row, under the "Next launch" column header.
         private void DrawTMinusVesselCell(Mission mission, MissionPeriodicityDisplay periodicity)
         {
             string text = BuildTMinusCellText(
@@ -2207,8 +2771,11 @@ namespace Parsek
             // The amber reasons ride as the tooltip, so the player can read WHY the countdown is
             // amber (D3 drift: station orbit drifted since recording; M4c arrival: D8 dual
             // constraint refused the hold). Both can coexist (an emitted-then-dual config).
-            string tooltip = JoinAmberReasons(
-                periodicity.DriftAmberReason, periodicity.ArrivalAmberReason);
+            // T1.5: the two engine state words ("not aligned" / "continuous") are vocabulary no
+            // player knows, so each carries its own explanation, joined with any amber reason.
+            string tooltip = MissionPresentation.BuildNextLaunchCellTooltip(
+                text,
+                JoinAmberReasons(periodicity.DriftAmberReason, periodicity.ArrivalAmberReason));
             GUIContent cellContent = tooltip != null
                 ? new GUIContent(text, tooltip)
                 : new GUIContent(text);
@@ -2855,7 +3422,11 @@ namespace Parsek
                 // same baseline as the "Loop" label and the buttons; ExpandWidth(false) keeps the
                 // label content-sized so the caller's FlexibleSpace right-pins the Watch / Rewind
                 // buttons (the cell no longer reserves a fixed width).
-                GUILayout.Label(locked, missionHeaderInlineLabel, GUILayout.ExpandWidth(false));
+                // T1.5: name the state the cell is in - the four period states are distinguished by
+                // greyness, editability, and tint alone, and none of them says so.
+                GUILayout.Label(
+                    new GUIContent(locked, MissionPresentation.PeriodTooltipLocked),
+                    missionHeaderInlineLabel, GUILayout.ExpandWidth(false));
                 GUI.contentColor = prevLocked;
                 GUI.enabled = true;
             }
@@ -2960,7 +3531,14 @@ namespace Parsek
 
             GUILayout.Space(4f);
             GUI.enabled = enabled;
-            if (GUILayout.Button(ParsekUI.UnitLabel(mission.LoopTimeUnit), bodyCellButtonFlush, GUILayout.Width(unitBtnW)))
+            // T1.5: the unit button carries the cell's STATE tooltip (loop off / auto / raised by
+            // the overlap cap) - a GUILayout.TextField takes no GUIContent, so the adjacent button
+            // is where a hover can explain the field beside it.
+            string periodStateTooltip = MissionPresentation.BuildPeriodStateTooltip(
+                enabled, false, auto, showEffective) ?? string.Empty;
+            if (GUILayout.Button(
+                    new GUIContent(ParsekUI.UnitLabel(mission.LoopTimeUnit), periodStateTooltip),
+                    bodyCellButtonFlush, GUILayout.Width(unitBtnW)))
             {
                 mission.LoopTimeUnit = RecordingsTableUI.CycleRecordingUnit(mission.LoopTimeUnit);
                 if (loopPeriodFocusedMissionId == mission.Id)
@@ -3062,23 +3640,37 @@ namespace Parsek
             GUILayout.BeginHorizontal(colHdrCellContainerStyle,
                 GUILayout.Width(ColW_Enable + ColW_Index + 8f), GUILayout.Height(ColHeaderHeight));
             GUILayout.Label("", GUILayout.Width(ColW_Enable));
-            string hashArrow = (sortColumn == MissionSortColumn.Index)
-                ? (sortAscending ? " \u25b2" : " \u25bc") : "";
-            if (GUILayout.Button("#" + hashArrow, boldHeaderInnerLabel, GUILayout.Width(ColW_Index)))
+            if (basicUiMode)
             {
-                if (sortColumn == MissionSortColumn.Index) sortAscending = !sortAscending;
-                else { sortColumn = MissionSortColumn.Index; sortAscending = true; }
-                LogSortChanged();
+                // Basic (T1.7): the "#" header labels TWO unrelated things - a per-tree support
+                // ordinal on mission rows and the include checkbox on vessel rows - so the label
+                // (and the sort it offers) is dropped and the slot stays blank. Same width, so the
+                // name column below still lines up. The mode is latched for the whole pass, so this
+                // branch cannot change the control count between Layout and Repaint.
+                GUILayout.Label("", boldHeaderInnerLabel, GUILayout.Width(ColW_Index));
+            }
+            else
+            {
+                string hashArrow = (sortColumn == MissionSortColumn.Index)
+                    ? (sortAscending ? " \u25b2" : " \u25bc") : "";
+                if (GUILayout.Button("#" + hashArrow, boldHeaderInnerLabel, GUILayout.Width(ColW_Index)))
+                {
+                    if (sortColumn == MissionSortColumn.Index) sortAscending = !sortAscending;
+                    else { sortColumn = MissionSortColumn.Index; sortAscending = true; }
+                    LogSortChanged();
+                }
             }
             GUILayout.EndHorizontal();
             parentUI.DrawSortableHeaderCore("Missions and vessels", MissionSortColumn.Name,
                 ref sortColumn, ref sortAscending, 0f, true, LogSortChanged, ColHeaderHeight);
 
-            // "TTL" (time to launch) column header (right after the name column, before "Start
-            // time"): each mission's launch (first) vessel row shows a live countdown to the next
-            // faithful launch window under this header (every other vessel row + the mission header
-            // bar leave it blank).
-            GUILayout.Label("TTL", colHdr, GUILayout.Width(ColW_TMinus), GUILayout.Height(ColHeaderHeight));
+            // "Next launch" (time to launch) column header (right after the name column, before
+            // "Start time"): each mission's launch (first) vessel row shows a live countdown to the
+            // next faithful launch window under this header (every other vessel row leaves it
+            // blank; the mission header bar's summary line repeats the countdown, T1.2). Spelled
+            // out rather than the old three-letter "TTL", which the code itself had to gloss as
+            // "Time to launch" in a comment.
+            GUILayout.Label("Next launch", colHdr, GUILayout.Width(ColW_TMinus), GUILayout.Height(ColHeaderHeight));
 
             parentUI.DrawSortableHeaderCore("Start time", MissionSortColumn.StartTime,
                 ref sortColumn, ref sortAscending, ColW_StartTime, false, LogSortChanged, ColHeaderHeight);

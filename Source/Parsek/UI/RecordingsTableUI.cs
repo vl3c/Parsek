@@ -1405,8 +1405,17 @@ namespace Parsek
 
             if (activeTab == TabMissions)
             {
+                // The Missions tab sets GUIContent tooltips (include checkbox, Loop, period cell,
+                // Next launch, Clone / Archive / Warp to, partner journey) but had no renderer for
+                // them, so they were set and never shown. Mirror the recordings tab: clear the
+                // sticky text this window uses for its own hover strings, draw the tab, then draw
+                // the same wrapped tooltip strip. DrawRecordingsWindowTooltip always emits exactly
+                // one label (a zero-height one when there is no tooltip), so the control count is
+                // the same whether or not the cursor is over a tooltipped control.
+                recordingsWindowTooltipText = string.Empty;
                 parentUI.GetMissionsUI().DrawMissionsTabContent();
                 DrawMissionsTabBottomBar();
+                DrawRecordingsWindowTooltip();
                 return;
             }
 
