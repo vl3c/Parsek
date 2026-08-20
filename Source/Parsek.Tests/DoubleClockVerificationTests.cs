@@ -157,11 +157,30 @@ namespace Parsek.Tests
                 unit.SpanStartUT,
                 unit.SpanEndUT,
                 unit.CadenceSeconds,
-                unit.MemberStartUT(memberIndex, rec.ExplicitStartUT),
-                unit.MemberEndUT(memberIndex, rec.ExplicitEndUT),
+                // rec.StartUT/EndUT (the Points-derived surface production reads via
+                // traj.StartUT at GhostPlaybackEngine's call site), not Explicit*:
+                // equal on this point-less fixture, but the derived surface removes
+                // the divergence risk if the fixture ever grows points.
+                unit.MemberStartUT(memberIndex, rec.StartUT),
+                unit.MemberEndUT(memberIndex, rec.EndUT),
                 out spanLoopUT,
                 out long _,
-                out bool _2);
+                out bool _2,
+                // Forward the SAME optional tail the flight engine forwards
+                // (GhostPlaybackEngine.UpdateUnitMemberPlayback), so this wrapper
+                // stays the real seam even if the builder ever populates schedule /
+                // hold fields for this fixture shape.
+                unit.RelaunchSchedule,
+                unit.LoiterCuts,
+                unit.ArrivalHoldSeconds,
+                unit.ArrivalHoldAtUT,
+                unit.ArrivalAlignPeriodSeconds,
+                unit.LaunchBodyRotationPeriodSeconds,
+                unit.LaunchHoldEngaged,
+                unit.RecordedSoiExitUT,
+                unit.ArrivalJointSecondaryPeriodSeconds,
+                unit.ArrivalJointSecondaryToleranceSeconds,
+                unit.ArrivalJointMaxWholeHoldPeriods);
 
         // ==================================================================
         // 1. Both units build, and the enforcement provably does not couple them
