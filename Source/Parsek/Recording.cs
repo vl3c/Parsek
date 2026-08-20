@@ -100,6 +100,17 @@ namespace Parsek
         [NonSerialized] internal string SegmentBodyDisplayLabelCacheStartBodyName;
         [NonSerialized] internal string SegmentBodyDisplayLabelCacheLastPointBodyName;
 
+        // T2.1 body-path sequence memo (RecordingStore.GetBodyTransitionSequence): the walk is
+        // O(Points) and reached from the Missions header's per-frame facts rebuild, so it is
+        // cached behind the same content signature the display-label cache above uses. A null
+        // cache list means "not computed"; callers must treat the returned list as read-only.
+        [NonSerialized] internal List<string> BodyTransitionSequenceCache;
+        [NonSerialized] internal int BodyTransitionSequenceCachePointCount;
+        [NonSerialized] internal int BodyTransitionSequenceCacheTrackSectionCount;
+        [NonSerialized] internal string BodyTransitionSequenceCacheSegmentBodyName;
+        [NonSerialized] internal string BodyTransitionSequenceCacheStartBodyName;
+        [NonSerialized] internal string BodyTransitionSequenceCacheLastPointBodyName;
+
         // Bug #572 follow-up (PR after #572). Transient marker set by
         // ParsekScenario.RestoreCommittedSidecarPayloadIntoActiveTreeRecording when
         // an active-tree record is repaired from the matching committed tree
