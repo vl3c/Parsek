@@ -3,79 +3,32 @@ using UnityEngine;
 namespace Parsek
 {
     /// <summary>
-    /// Which style the tooltip echo strip paints with this frame. Pure enum so the
-    /// branch decision can be unit-tested without Unity.
-    /// </summary>
-    internal enum TooltipEchoStyleKind
-    {
-        /// <summary>Collapsed strip: an empty label forced to zero height.</summary>
-        ZeroHeightLabel,
-
-        /// <summary>Visible strip: the house box style with word wrap on.</summary>
-        WrappedBox
-    }
-
-    /// <summary>
-    /// Which single GUILayoutOption the strip's label is given. Exactly one option is
-    /// always passed, so the emitted control shape never varies in arity.
-    /// </summary>
-    internal enum TooltipEchoWidthOption
-    {
-        /// <summary>Collapsed strip: GUILayout.Height(0f).</summary>
-        ZeroHeight,
-
-        /// <summary>Visible strip: GUILayout.ExpandWidth(true).</summary>
-        ExpandWidth
-    }
-
-    /// <summary>
-    /// The full per-frame decision for one tooltip echo strip. Pure data, produced by
-    /// <see cref="TooltipEchoBox.ResolveEchoLayout"/>.
-    /// </summary>
-    internal struct TooltipEchoLayout
-    {
-        internal bool Show;
-        internal string Text;
-        internal float Spacing;
-        internal TooltipEchoStyleKind StyleKind;
-        internal TooltipEchoWidthOption WidthOption;
-    }
-
-    /// <summary>
     /// Shared per-window-instance renderer for the bottom "hovered control help text"
     /// strip used by the Settings, Recordings, Logistics, Real Spawn Control and both
     /// test-runner windows.
     ///
-    /// <para><b>Why this exists (the two defects it closes).</b> IMGUI sizes a control
-    /// during the Layout event and REUSES that cached rect during Repaint
-    /// (GUILayoutUtility.DoGetRect); the style and options handed over at Repaint
-    /// affect drawing only, never sizing. <see cref="GUI.tooltip"/>, however, is
-    /// populated by the hovered control DURING Repaint. So a strip that reads
-    /// GUI.tooltip live diverges between the two passes of the same frame:</para>
-    /// <list type="number">
-    ///   <item>On the frame a hover starts (or the tooltip string changes), Layout
-    ///   sized the label for the OLD text - zero height when the hover just began -
-    ///   while Repaint painted the NEW text, leaving a one-frame dark sliver of box
-    ///   background at the window bottom on every crossing onto a tooltipped control.
-    ///   Hover end was the mirror image: an empty label painted into a tall rect.</item>
-    ///   <item>Where the strip also varied its CONTROL COUNT by whether a tooltip was
-    ///   present (Real Spawn Control emitted 1 control unhovered and 2 hovered), the
-    ///   layout group overran outright: "Getting control N's position in a group with
-    ///   only N controls when doing repaint", thrown every Repaint while hovering and
-    ///   aborting the rest of that window's draw (resize handle and DragWindow with
-    ///   it).</item>
-    /// </list>
+    /// <para><b>The shape contract.</b> The strip is PERMANENTLY visible and always
+    /// exactly two text lines tall - empty when nothing is hovered, clipped when the
+    /// hovered control's help text needs more than two wrapped lines. Every draw emits
+    /// exactly one <c>GUILayout.Space</c> plus one <c>GUILayout.Label</c>, with the same
+    /// spacing, the same style and the same explicit height option every time. Control
+    /// count, control shape and reserved size are therefore constant across both IMGUI
+    /// passes of a frame AND across frames.</para>
     ///
-    /// <para><b>The contract.</b> Both passes of a frame render from
-    /// <see cref="cachedText"/>, which is only ever written at the END of a Repaint
-    /// pass. Layout and Repaint therefore always agree on the string, so the reserved
-    /// rect and the painted content can never disagree - including the WRAPPED height,
-    /// which Layout computes from the exact text Repaint paints at the window's
-    /// current width, so a narrowed window reserves the full multi-line height instead
-    /// of clipping. The cost is one frame of latency at hover start and hover end,
-    /// invisible at frame rate. On top of that the emitted shape is invariant: ALWAYS
-    /// exactly one GUILayout.Space plus one GUILayout.Label, varying only their
-    /// spacing, content, style and single layout option.</para>
+    /// <para><b>Why constant size is the mechanism.</b> IMGUI sizes a control during the
+    /// Layout event and REUSES that cached rect during Repaint
+    /// (GUILayoutUtility.DoGetRect), while <see cref="GUI.tooltip"/> is populated by the
+    /// hovered control DURING Repaint. A strip whose size depends on the tooltip text
+    /// therefore sized itself for one string and painted another on every hover-start
+    /// frame (a one-frame dark sliver of box background), and a strip that varied its
+    /// CONTROL COUNT by whether a tooltip was present overran its layout group outright
+    /// ("Getting control N's position in a group with only N controls when doing
+    /// repaint", thrown every Repaint while hovering and aborting the rest of that
+    /// window's draw). Pinning the height removes both at the source: the reserved rect
+    /// does not depend on the text at all, so the text is read LIVE each pass and the
+    /// two passes cannot disagree about anything that matters. It also removes the
+    /// player-visible cost of a variable strip - the window no longer changes height,
+    /// and its bottom row no longer shuffles, when the pointer crosses a control.</para>
     ///
     /// <para>One instance per window (styles are built from <see cref="GUI.skin"/>, so
     /// a window whose skin is scene-scoped must call <see cref="ResetStyles"/> on a
@@ -83,18 +36,22 @@ namespace Parsek
     /// </summary>
     internal sealed class TooltipEchoBox
     {
-        /// <summary>House spacing above a visible strip; matches every window's SpacingSmall.</summary>
+        /// <summary>House spacing above the strip; matches every window's SpacingSmall.</summary>
         internal const float DefaultSpacing = 3f;
+
+        /// <summary>
+        /// Two explicit lines measured at a width nothing can wrap at, so the fixed
+        /// height is exactly two lines of the box style plus its own padding.
+        /// </summary>
+        private const string TwoLineProbeText = "Ay\nAy";
+
+        /// <summary>Width used for the two-line measurement; far wider than any Parsek window.</summary>
+        private const float NoWrapMeasureWidth = 10000f;
 
         private readonly float spacing;
 
-        // The single source of truth for BOTH passes of a frame. Written only at the
-        // end of a Repaint pass; read identically by that frame's Layout and Repaint.
-        private string cachedText = string.Empty;
-        private bool shownLastDraw;
-
-        private GUIStyle zeroHeightLabelStyle;
         private GUIStyle wrappedTooltipStyle;
+        private float fixedStripHeight;
 
         internal TooltipEchoBox() : this(DefaultSpacing)
         {
@@ -105,22 +62,6 @@ namespace Parsek
             this.spacing = spacing;
         }
 
-        /// <summary>
-        /// True when the strip rendered visible help text on the last completed draw.
-        /// Read by the Settings window's height re-measure gate: a measurement taken
-        /// while the strip is up would bake in a height that vanishes with it.
-        /// </summary>
-        internal bool ShownLastDraw
-        {
-            get { return shownLastDraw; }
-        }
-
-        /// <summary>The text both passes of the CURRENT frame render from.</summary>
-        internal string CachedText
-        {
-            get { return cachedText; }
-        }
-
         /// <summary>The wrapped box style, once built. Null before the first draw.</summary>
         internal GUIStyle WrappedStyle
         {
@@ -128,62 +69,32 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Drops the cached styles so the next draw rebuilds them from the current
-        /// <see cref="GUI.skin"/>. Windows whose skin is scene-scoped call this on a
-        /// scene change (see <c>TestRunnerShortcut.ResetSceneScopedWindowState</c>).
+        /// The constant two-line height every draw reserves. Zero before the first draw
+        /// (it is measured from <see cref="GUI.skin"/> the first time the strip renders).
+        /// </summary>
+        internal float FixedStripHeight
+        {
+            get { return fixedStripHeight; }
+        }
+
+        /// <summary>
+        /// Drops the cached style and its measured height so the next draw rebuilds both
+        /// from the current <see cref="GUI.skin"/>. Windows whose skin is scene-scoped
+        /// call this on a scene change (see
+        /// <c>TestRunnerShortcut.ResetSceneScopedWindowState</c>).
         /// </summary>
         internal void ResetStyles()
         {
-            zeroHeightLabelStyle = null;
             wrappedTooltipStyle = null;
+            fixedStripHeight = 0f;
         }
 
         /// <summary>
-        /// Seeds <see cref="cachedText"/> directly. Test-only seam so a probe can put
-        /// the strip into its "showing a long tooltip" state without a real hover.
-        /// </summary>
-        internal void PrimeCachedTextForTesting(string text)
-        {
-            cachedText = text ?? string.Empty;
-            shownLastDraw = cachedText.Length > 0;
-        }
-
-        /// <summary>
-        /// Decides whether the strip shows boxed help text this frame. Returns
-        /// (false, "") when there is nothing to echo (the strip collapses to zero
-        /// height), or (true, text) when there is. Pure and Unity-free.
-        /// </summary>
-        internal static (bool show, string text) ResolveTooltipEcho(string echoText)
-        {
-            if (string.IsNullOrEmpty(echoText))
-                return (false, string.Empty);
-            return (true, echoText);
-        }
-
-        /// <summary>
-        /// The full per-frame branch: spacing, content, style and layout option. Pure
-        /// and Unity-free (the enums stand in for the GUIStyle / GUILayoutOption the
-        /// draw picks), so every branch is unit-testable.
-        /// </summary>
-        internal static TooltipEchoLayout ResolveEchoLayout(string echoText, float spacingWhenShown)
-        {
-            (bool show, string text) = ResolveTooltipEcho(echoText);
-            return new TooltipEchoLayout
-            {
-                Show = show,
-                Text = text,
-                Spacing = show ? spacingWhenShown : 0f,
-                StyleKind = show ? TooltipEchoStyleKind.WrappedBox : TooltipEchoStyleKind.ZeroHeightLabel,
-                WidthOption = show ? TooltipEchoWidthOption.ExpandWidth : TooltipEchoWidthOption.ZeroHeight
-            };
-        }
-
-        /// <summary>
-        /// What the NEXT frame renders, captured at the end of this frame's Repaint: a
-        /// window-supplied manual override wins over <see cref="GUI.tooltip"/>, because
-        /// a window that computes its own hover string (RecordingsTableUI's clamped
-        /// loop-period cell) has already resolved a more specific answer than the
-        /// generic GUIContent tooltip. Pure and Unity-free.
+        /// What the strip renders: a window-supplied manual override wins over
+        /// <see cref="GUI.tooltip"/>, because a window that computes its own hover string
+        /// (RecordingsTableUI's clamped loop-period cell, Real Spawn Control's bottom-row
+        /// Warp button) has already resolved a more specific answer than the generic
+        /// GUIContent tooltip. Pure and Unity-free.
         /// </summary>
         internal static string ResolveCapturedText(string manualOverride, string guiTooltip)
         {
@@ -193,62 +104,51 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Emits the strip. Call once per draw pass, at the point in the window where
-        /// the strip belongs (before the Close button / resize handle).
+        /// Emits the strip. Call once per draw pass, at the point in the window where the
+        /// strip belongs - by house convention directly above the Close button row, which
+        /// is always the window's last content row.
+        ///
+        /// <para>The text is read LIVE: during Layout it is empty or one frame stale, and
+        /// that is irrelevant, because the rect Layout reserves is the same fixed height
+        /// either way. Only controls drawn BEFORE this call can feed
+        /// <see cref="GUI.tooltip"/> in time; a tooltipped control that sits below the
+        /// strip must hand its text in through <paramref name="manualOverride"/>.</para>
         /// </summary>
         /// <param name="manualOverride">
-        /// Optional window-computed hover text that outranks <see cref="GUI.tooltip"/>
-        /// for the NEXT frame's content. Only consulted during the Repaint capture, so
-        /// callers must set it before this call in the same pass.
+        /// Optional window-computed hover text that outranks <see cref="GUI.tooltip"/>.
         /// </param>
         internal void Draw(string manualOverride = null)
         {
             EnsureStyles();
 
-            // Both passes of this frame render from the SAME string, so the rect
-            // Layout reserved and the content Repaint paints can never disagree.
-            TooltipEchoLayout layout = ResolveEchoLayout(cachedText, spacing);
+            string text = ResolveCapturedText(manualOverride, GUI.tooltip);
 
-            GUILayout.Space(layout.Spacing);
+            GUILayout.Space(spacing);
             GUILayout.Label(
-                layout.Text,
-                layout.StyleKind == TooltipEchoStyleKind.WrappedBox
-                    ? wrappedTooltipStyle
-                    : zeroHeightLabelStyle,
-                layout.WidthOption == TooltipEchoWidthOption.ExpandWidth
-                    ? GUILayout.ExpandWidth(true)
-                    : GUILayout.Height(0f));
-
-            // Capture AFTER emitting: GUI.tooltip is filled in by the hovered control
-            // during Repaint, and every control that could be hovered has drawn by now.
-            if (Event.current != null && Event.current.type == EventType.Repaint)
-            {
-                cachedText = ResolveCapturedText(manualOverride, GUI.tooltip);
-                shownLastDraw = cachedText.Length > 0;
-            }
+                text,
+                wrappedTooltipStyle,
+                GUILayout.Height(fixedStripHeight),
+                GUILayout.ExpandWidth(true));
         }
 
         private void EnsureStyles()
         {
-            if (zeroHeightLabelStyle == null)
-            {
-                zeroHeightLabelStyle = new GUIStyle(GUI.skin.label)
-                {
-                    fixedHeight = 0f,
-                    stretchHeight = false,
-                    wordWrap = false
-                };
-                zeroHeightLabelStyle.margin = new RectOffset(0, 0, 0, 0);
-                zeroHeightLabelStyle.padding = new RectOffset(0, 0, 0, 0);
-            }
-
             if (wrappedTooltipStyle == null)
             {
                 wrappedTooltipStyle = new GUIStyle(GUI.skin.box)
                 {
                     wordWrap = true,
-                    alignment = TextAnchor.UpperLeft
+                    alignment = TextAnchor.UpperLeft,
+                    // Explicit rather than inherited: the strip's whole contract is that
+                    // over-long text CLIPS instead of growing the box.
+                    clipping = TextClipping.Clip
                 };
+            }
+
+            if (fixedStripHeight <= 0f)
+            {
+                fixedStripHeight = wrappedTooltipStyle.CalcHeight(
+                    new GUIContent(TwoLineProbeText), NoWrapMeasureWidth);
             }
         }
     }

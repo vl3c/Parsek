@@ -33,17 +33,45 @@ aborting the rest of that window's draw including the resize handle and `GUI.Dra
 The two test-runner strips had been papered over in `882b30417` by swapping their box
 style for a plain label, which hid the sliver rather than fixing it.
 
-Fix: one shared per-window-instance helper, `Source/Parsek/UI/TooltipEchoBox.cs`. Both
-passes of a frame render from a `cachedText` field written ONLY at the end of a Repaint
-pass, so size and paint can never disagree (the cost is one frame of latency at hover
-start / end); and the emitted shape is invariant - always exactly one `GUILayout.Space`
-plus one `GUILayout.Label`, varying only spacing, content, style and the single layout
-option. All six sites converted; the test runners get the house box style back. Pure
-core (`ResolveEchoLayout` / `ResolveCapturedText`) unit-covered in
+Fix: one shared per-window-instance helper, `Source/Parsek/UI/TooltipEchoBox.cs`,
+rendering a FIXED-HEIGHT, ALWAYS-VISIBLE strip. The first attempt kept the strip
+variable and made both passes render from a `cachedText` field written only at the end
+of a Repaint pass; that closed the sliver and the wrap-clipping, but a playtest found
+the variable strip is itself the wrong shape: the window changed height whenever the
+strip appeared, disappeared or wrapped, and the Close button sat above the strip in some
+windows and below it in others. The shipped design pins the size instead. The strip is
+permanently present at exactly two text lines (`CalcHeight` of a two-line probe string
+at a width nothing can wrap at, measured once per style build and rebuilt in
+`ResetStyles`), empty when nothing is hovered, `wordWrap` still on so line 1 wraps into
+line 2 and anything past that CLIPS (`TextClipping.Clip` set explicitly). Because the reserved rect no
+longer depends on the text at all, the Repaint cache and its one frame of latency are
+gone: the text is read LIVE each pass (`ResolveCapturedText` - manual override, else
+`GUI.tooltip`), and Layout reading stale or empty text is harmless. The emitted shape
+stays invariant: always exactly one `GUILayout.Space` plus one `GUILayout.Label` with a
+constant height option.
+
+All six windows were also unified to ONE bottom-of-window order - window content, then
+the strip, then the Close button row, then the resize handle and `GUI.DragWindow` - so
+Close is always the last row and never swaps places with the strip. That moved the strip
+above the button row in Settings, Real Spawn Control and both test runners, and out of
+its post-`DragWindow` position in the Recordings/Missions window into both tab bottom
+bars; Logistics already had it. Two consequences worth naming. Real Spawn Control's
+"Warp to Next Spawn" is the only tooltipped control in that window and now sits BELOW
+the strip, where `GUI.tooltip` cannot reach it in time, so its text is handed in through
+the manual-override channel using the button's captured rect against the live pointer.
+And the Settings window's height re-measure gate no longer excludes tooltip frames
+(`tooltipEcho.ShownLastDraw` and the property itself are gone): a constant-height strip
+contributes the same pixels to every measurement, so there is nothing to hold the fit
+back for - `SettingsWindowHeightFitInGameTests`' two "the pointer holds the fit back"
+skip branches were re-pointed at the only remaining cause, a window that was never laid
+out.
+
+Pure core (`ResolveCapturedText`, all that is left) unit-covered in
 `TooltipEchoBoxTests`; the live IMGUI properties are pinned in-game by
-`LogisticsTooltipEchoImguiTest` (invariant control count AND Layout/Repaint text
-agreement) and the new `TooltipEchoWrapSizingImguiTest` (a >200-character tooltip in a
-220px area reserves more than twice the single-line height).
+`LogisticsTooltipEchoImguiTest` (invariant control count AND an identical reserved rect
+height between an empty frame and one showing a long tooltip) and
+`TooltipEchoWrapSizingImguiTest` (both states equal the helper's own fixed two-line
+height at a 220px width, and that constant is taller than a single line).
 
 ## ~~ORACLE-REP-CURVE-PORT-DIVERGED: the harness ledger oracle's Python reputation curve kept the PRE-fix residual step after the C# side fixed it, so the two ports silently disagreed for every integer-or-larger nominal~~ [FOUND and FIXED 2026-08-20 on `oracle-rep-curve-port`, the same day the divergence opened. NO COMMITTED GATE WAS AFFECTED - see "Blast radius". CLOSED]
 

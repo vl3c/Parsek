@@ -44,9 +44,13 @@ namespace Parsek
         private const float SpawnColW_State = 110f;
         private const float SpawnColW_Warp = 118f;
 
-        // Bottom "hovered control help text" strip. See TooltipEchoBox for why it
-        // renders from a Repaint-captured cache rather than a live GUI.tooltip read.
+        // Bottom "hovered control help text" strip. See TooltipEchoBox for why it is a
+        // permanently visible box of constant height.
         private readonly TooltipEchoBox tooltipEcho = new TooltipEchoBox(SpacingSmall);
+
+        // Rect of the bottom row's "Warp to Next Spawn" button, captured on Repaint.
+        // The strip draws above that row, so this is how its tooltip reaches the strip.
+        private Rect warpButtonRect;
 
         private const float SpacingSmall = 3f;
         private const float MinWindowWidth = 350f;
@@ -338,17 +342,36 @@ namespace Parsek
             // Bottom section -- pinned to window bottom
             GUILayout.FlexibleSpace();
 
-            GUILayout.BeginHorizontal();
             var next = SelectiveSpawnUI.FindNextSpawnCandidate(candidates, currentUT, ParsekFlight.NearbySpawnRadius, ParsekFlight.MaxRelativeSpeed);
-            GUI.enabled = next != null;
             string tooltip = next != null
                 ? SelectiveSpawnUI.FormatNextSpawnTooltip(next, currentUT) : "";
+
+            // Bottom "hovered control help text" strip (shared house helper). Fixed
+            // two-line height, always present, drawn directly above the button row so
+            // Close stays the window's last content row.
+            //
+            // "Warp to Next Spawn" is the ONLY tooltipped control in this window and it
+            // sits BELOW the strip, so GUI.tooltip cannot reach the strip in time (the
+            // hovered control fills it in as it draws). Hand the text in explicitly
+            // instead, using the button's rect from the previous pass against the live
+            // pointer - the same hover test IMGUI itself does. The rect is captured on
+            // Repaint below and only moves when the window is resized.
+            string bottomBarEcho =
+                warpButtonRect.width > 0f && warpButtonRect.Contains(Event.current.mousePosition)
+                    ? tooltip
+                    : null;
+            tooltipEcho.Draw(bottomBarEcho);
+
+            GUILayout.BeginHorizontal();
+            GUI.enabled = next != null;
             if (GUILayout.Button(new GUIContent("Warp to Next Spawn", tooltip),
                 GUILayout.ExpandWidth(true)))
             {
                 ParsekLog.Info("UI", "Real Spawn Control: Warp to Next Spawn clicked");
                 flight.WarpToNextCraftSpawn();
             }
+            if (Event.current.type == EventType.Repaint)
+                warpButtonRect = GUILayoutUtility.GetLastRect();
             GUI.enabled = true;
             if (GUILayout.Button("Close", GUILayout.Width(132)))
             {
@@ -356,14 +379,6 @@ namespace Parsek
                 ParsekLog.Verbose("UI", "Real Spawn Control window closed");
             }
             GUILayout.EndHorizontal();
-
-            // Bottom "hovered control help text" strip (shared house helper). The
-            // block this replaced emitted ONE control when GUI.tooltip was empty and
-            // TWO when it was populated - and GUI.tooltip is only ever populated
-            // during Repaint - so hovering "Warp to Next Spawn" overran the layout
-            // group every Repaint ("Getting control N's position in a group with only
-            // N controls"), aborting the resize handle and DragWindow below.
-            tooltipEcho.Draw();
 
             ParsekUI.DrawResizeHandle(spawnControlWindowRect, ref isResizingSpawnControlWindow,
                 "Real Spawn Control window");

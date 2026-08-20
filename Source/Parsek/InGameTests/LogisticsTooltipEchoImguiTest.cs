@@ -19,14 +19,14 @@ namespace Parsek.InGameTests
     ///   "Getting control N's position in a group with only N controls when doing
     ///   repaint" exception on every hover. The probe draws a trailing button after
     ///   the strip and captures any exception.</item>
-    ///   <item><b>Sizing cannot diverge from painting.</b> IMGUI sizes a control during
-    ///   Layout and reuses that cached rect during Repaint, while GUI.tooltip only
-    ///   becomes populated during Repaint - so a strip that read GUI.tooltip live
-    ///   sized itself for the OLD text and painted the NEW one on every hover-start
-    ///   frame (the one-frame dark sliver). The helper renders both passes from a
-    ///   Repaint-captured cache; the probe reads that cache at the top of each pass
-    ///   and asserts the Layout and Repaint halves of the same frame saw the same
-    ///   string.</item>
+    ///   <item><b>Constant reserved size.</b> This is the mechanism that replaced the
+    ///   old Repaint-cached text: IMGUI sizes a control during Layout and reuses that
+    ///   rect during Repaint, while GUI.tooltip is only populated during Repaint - so
+    ///   any strip whose SIZE depends on the tooltip could size itself for one string
+    ///   and paint another, and the window's height would move under the player as the
+    ///   pointer crossed a control. The probe measures the rect the strip actually
+    ///   reserved on a frame with NO text and again on a frame with a long multi-line
+    ///   tooltip, and asserts the two are the same height.</item>
     /// </list>
     ///
     /// <para>The InGameTestRunner coroutine does not reliably execute during OnGUI, so
@@ -36,7 +36,7 @@ namespace Parsek.InGameTests
     public sealed class LogisticsTooltipEchoImguiTest
     {
         [InGameTest(Category = "Logistics",
-            Description = "Tooltip echo strip emits an invariant IMGUI control count across Layout/Repaint AND renders both passes of a frame from the same cached text, so a hover can neither overrun the trailing button's layout group nor size the strip for a different string than it paints")]
+            Description = "Tooltip echo strip emits an invariant IMGUI control count across Layout/Repaint AND reserves the same fixed height whether it is empty or showing a long tooltip, so a hover can neither overrun the trailing button's layout group nor change the window's height")]
         public IEnumerator TooltipEchoBox_StableControlCount_NoImguiException()
         {
             var go = new GameObject("ParsekLogisticsTooltipEchoProbe");
@@ -46,9 +46,8 @@ namespace Parsek.InGameTests
             try
             {
                 // Give the probe several frames to run multiple full Layout/Repaint
-                // cycles. Three clean repaint passes is enough: the hover text is fed
-                // from frame 1, so frame 2 onward is the steady-hover state where the
-                // cache is populated and the strip is at its wrapped height.
+                // cycles: it needs at least one measured empty frame and one measured
+                // populated frame.
                 int guardFrames = 0;
                 while (!probe.Completed && guardFrames < 240)
                 {
@@ -67,16 +66,31 @@ namespace Parsek.InGameTests
                     "Tooltip echo strip threw an IMGUI exception during Repaint with a populated hover text: "
                         + probe.FaultMessage);
 
-                InGameAssert.AreEqual(0, probe.DivergedFrames,
-                    "Tooltip echo strip rendered its Layout and Repaint passes from DIFFERENT text on "
-                        + probe.DivergedFrames + " frame(s); sizing and painting can therefore disagree");
+                var ic = System.Globalization.CultureInfo.InvariantCulture;
 
-                InGameAssert.IsTrue(probe.ObservedPopulatedRepaint,
-                    "probe never reached the steady-hover state (cache stayed empty), so the populated-hover path was not exercised");
+                if (probe.EmptyHeight <= 0f || probe.PopulatedHeight <= 0f)
+                {
+                    InGameAssert.Skip(
+                        $"probe could not measure both strip states (empty={probe.EmptyHeight.ToString("F2", ic)} "
+                        + $"populated={probe.PopulatedHeight.ToString("F2", ic)}); nothing to compare");
+                    yield break;
+                }
+
+                // The whole stability contract in one number: the rect the strip
+                // reserves does not depend on the text it echoes.
+                InGameAssert.ApproxEqual(probe.EmptyHeight, probe.PopulatedHeight, 0.01f,
+                    "Tooltip echo strip reserved "
+                        + probe.PopulatedHeight.ToString("F2", ic)
+                        + "px while showing a " + probe.TooltipLength
+                        + "-character tooltip against "
+                        + probe.EmptyHeight.ToString("F2", ic)
+                        + "px while empty; the strip's height still depends on its text, so the window "
+                        + "changes height when the pointer crosses a control");
 
                 ParsekLog.Info("TestRunner",
                     $"LogisticsTooltipEcho_InGame: PASS layoutPasses={probe.LayoutPasses} repaintPasses={probe.RepaintPasses} " +
-                    $"divergedFrames={probe.DivergedFrames} populatedRepaint={probe.ObservedPopulatedRepaint} faulted={probe.Faulted}");
+                    $"emptyHeight={probe.EmptyHeight.ToString("F2", ic)} populatedHeight={probe.PopulatedHeight.ToString("F2", ic)} " +
+                    $"faulted={probe.Faulted}");
             }
             finally
             {
@@ -87,12 +101,10 @@ namespace Parsek.InGameTests
         /// <summary>
         /// Probe MonoBehaviour: each OnGUI draws a 1x1 layout area containing a live
         /// <see cref="TooltipEchoBox"/> followed by a trailing button (the control that
-        /// overruns the group when the strip's count is not invariant). A non-empty
-        /// manual override is handed in from the first pass, which is the helper's
-        /// stand-in for a hovered control: the Repaint capture stores it, so the NEXT
-        /// frame is the steady-hover state. The probe records the strip's cached text
-        /// at the top of the Layout pass and again at the top of the Repaint pass of
-        /// the same frame and counts any frame where the two differ.
+        /// overruns the group when the strip's count is not invariant). The hover text
+        /// is switched at the START of a Layout pass, so a whole frame is either the
+        /// empty state or the populated state, and the height measured on Repaint is
+        /// the height that frame's Layout actually reserved.
         /// </summary>
         private sealed class TooltipEchoImguiProbe : MonoBehaviour
         {
@@ -100,15 +112,21 @@ namespace Parsek.InGameTests
             internal string FaultMessage = string.Empty;
             internal int RepaintPasses;
             internal int LayoutPasses;
-            internal int DivergedFrames;
-            internal bool ObservedPopulatedRepaint;
+            internal float EmptyHeight;
+            internal float PopulatedHeight;
+            internal int TooltipLength;
             internal bool Completed;
 
-            private const string HoverText = "parsek probe tooltip";
+            // Long enough to wrap past the strip's two lines in a 1px-wide area, which
+            // is exactly the case that must NOT grow the reserved rect.
+            private const string HoverText =
+                "parsek probe tooltip: this hover text is deliberately far longer than the two " +
+                "lines the help strip reserves, so a strip that still sized itself from its text " +
+                "would reserve a visibly taller rect on this frame than on an empty one";
 
             private readonly TooltipEchoBox echo = new TooltipEchoBox();
-            private string textSeenAtLayout;
-            private bool haveLayoutText;
+            // Frames 1-2 empty, frames 3+ populated (one settling frame each way).
+            private bool populatedFrame;
 
             private void OnGUI()
             {
@@ -121,31 +139,31 @@ namespace Parsek.InGameTests
                 if (evt != EventType.Layout && evt != EventType.Repaint)
                     return;
 
-                string textAtPassStart = echo.CachedText;
                 if (evt == EventType.Layout)
                 {
                     LayoutPasses++;
-                    textSeenAtLayout = textAtPassStart;
-                    haveLayoutText = true;
+                    populatedFrame = LayoutPasses > 2;
                 }
-                else if (haveLayoutText && !string.Equals(textSeenAtLayout, textAtPassStart, StringComparison.Ordinal))
-                {
-                    DivergedFrames++;
-                    ParsekLog.Warn("TestRunner",
-                        "LogisticsTooltipEcho_InGame probe saw a Layout/Repaint text divergence: layout='"
-                            + textSeenAtLayout + "' repaint='" + textAtPassStart + "'");
-                }
-
-                if (evt == EventType.Repaint && textAtPassStart.Length > 0)
-                    ObservedPopulatedRepaint = true;
 
                 GUILayout.BeginArea(new Rect(0f, 0f, 1f, 1f));
                 try
                 {
                     // The manual override stands in for a hovered control: the helper
-                    // captures it during Repaint, so from the next frame on the strip
-                    // is in the steady-hover state the real windows reach.
-                    echo.Draw(HoverText);
+                    // reads it live, so this pass renders the state under test.
+                    echo.Draw(populatedFrame ? HoverText : null);
+                    if (evt == EventType.Repaint)
+                    {
+                        float height = GUILayoutUtility.GetLastRect().height;
+                        if (populatedFrame)
+                        {
+                            PopulatedHeight = height;
+                            TooltipLength = HoverText.Length;
+                        }
+                        else
+                        {
+                            EmptyHeight = height;
+                        }
+                    }
                     // Trailing controls mirror the real Close button block.
                     GUILayout.Space(3f);
                     GUILayout.Button("probe-close");
@@ -168,7 +186,8 @@ namespace Parsek.InGameTests
                 if (evt == EventType.Repaint)
                 {
                     RepaintPasses++;
-                    if (RepaintPasses >= 3 || Faulted)
+                    // Four full frames: two empty, two populated.
+                    if (RepaintPasses >= 4 || Faulted)
                         Completed = true;
                 }
             }

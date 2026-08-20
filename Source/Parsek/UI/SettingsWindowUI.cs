@@ -35,8 +35,8 @@ namespace Parsek
         private const float SpacingSmall = 3f;
         private const float SpacingLarge = 10f;
 
-        // Bottom "hovered control help text" strip. See TooltipEchoBox for why it
-        // renders from a Repaint-captured cache rather than a live GUI.tooltip read.
+        // Bottom "hovered control help text" strip. See TooltipEchoBox for why it is a
+        // permanently visible box of constant height.
         private readonly TooltipEchoBox tooltipEcho = new TooltipEchoBox(SpacingSmall);
 
         public bool IsOpen
@@ -100,12 +100,12 @@ namespace Parsek
             // reported bug: Advanced -> Basic kept the taller Advanced height, while
             // Basic -> Advanced only appeared to work because it is the direction that grows.
             //
-            // Held back while the bottom tooltip box is showing: the mode toggle is the
-            // control the mouse rests on right after the click, and measuring then would
-            // latch a height that includes a tooltip which disappears the moment the pointer
-            // moves - dead space again, just less of it. The request survives, so the fit
-            // lands on the first tooltip-free frame.
-            bool remeasuring = settingsWindowHeightRemeasurePending && !tooltipEcho.ShownLastDraw;
+            // No tooltip exclusion: the bottom help strip is permanently present at a
+            // constant two-line height, so it contributes the same pixels to every
+            // measurement whether or not the pointer is resting on a tooltipped control.
+            // (It used to be measured only while showing, which is why the fit had to be
+            // held back until a tooltip-free frame.)
+            bool remeasuring = settingsWindowHeightRemeasurePending;
             // Only the Layout pass computes a size; releasing the height on any other event
             // would hand the chrome a collapsed rect for nothing.
             bool heightFitPass = remeasuring && Event.current.type == EventType.Layout;
@@ -400,6 +400,13 @@ namespace Parsek
             DrawDataManagementSettings(s);
 
             GUILayout.Space(SpacingLarge);
+
+            // Bottom "hovered control help text" strip (shared house helper). Fixed
+            // two-line height, always present, drawn directly above the button row -
+            // the house ordering every Parsek window uses, so the Close button is
+            // always the last thing in the window and never swaps places with the box.
+            tooltipEcho.Draw();
+
             GUILayout.BeginHorizontal();
             if (GUILayout.Button("Defaults"))
             {
@@ -448,12 +455,6 @@ namespace Parsek
                 ParsekLog.Verbose("UI", "Settings window closed via button");
             }
             GUILayout.EndHorizontal();
-
-            // Bottom "hovered control help text" strip (shared house helper). Its
-            // ShownLastDraw is read by the height re-measure gate in DrawIfOpen (next
-            // frame): a measurement taken while this box is up would bake in a height
-            // that vanishes with the box.
-            tooltipEcho.Draw();
 
             GUI.DragWindow();
         }

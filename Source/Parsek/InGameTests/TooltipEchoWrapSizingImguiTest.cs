@@ -5,31 +5,29 @@ using UnityEngine;
 namespace Parsek.InGameTests
 {
     /// <summary>
-    /// Live-IMGUI guard that the tooltip echo strip actually RESERVES its wrapped
-    /// height in a narrow window, rather than reserving one line and clipping the
-    /// rest.
+    /// Live-IMGUI guard that the tooltip echo strip is exactly TWO text lines tall at a
+    /// realistic window width - no taller when a long tooltip wraps past two lines, and
+    /// no shorter when nothing is hovered.
     ///
-    /// <para>This is the half of the sizing contract that the control-count guard
-    /// (<see cref="LogisticsTooltipEchoImguiTest"/>) cannot see. IMGUI computes a
-    /// control's size during the Layout event only; Repaint reuses that cached rect,
-    /// so the wrapped height a word-wrapping style needs must be computed during
-    /// Layout FROM THE SAME STRING Repaint paints. <see cref="TooltipEchoBox"/> gets
-    /// that by construction - both passes render from a Repaint-captured cache - and
-    /// this test proves it at the width where it matters: a narrowed window, where a
-    /// long tooltip needs several lines.</para>
+    /// <para>This is the half of the shape contract the control-count guard
+    /// (<see cref="LogisticsTooltipEchoImguiTest"/>) cannot see. That one proves the two
+    /// states agree with EACH OTHER; this one proves they both agree with the two-line
+    /// height the helper measured from <c>GUI.skin.box</c> - i.e. that the constant is
+    /// the intended constant, at a width where a >200-character tooltip genuinely wraps.
+    /// Together they are why a window's height and its bottom row no longer move when
+    /// the pointer crosses a control.</para>
     ///
-    /// <para>Cannot be a headless unit test: GUIStyle.CalcHeight and the GUILayout
-    /// group both need a live Unity GUI context.</para>
+    /// <para>Cannot be a headless unit test: GUIStyle.CalcHeight and the GUILayout group
+    /// both need a live Unity GUI context.</para>
     /// </summary>
     public sealed class TooltipEchoWrapSizingImguiTest
     {
         // Category is `Settings`, not the sibling guard's `Logistics`: the strip is
-        // shared window chrome (six windows host it, and the Settings window's height
-        // re-measure gate reads its ShownLastDraw), and `Logistics` is pinned by the
-        // committed H34 / H35 batch tallies, whose passed= / skipped= splits are only
-        // re-measurable from a live flight.
+        // shared window chrome (six windows host it, the Settings window included), and
+        // `Logistics` is pinned by the committed H34 / H35 batch tallies, whose passed= /
+        // skipped= splits are only re-measurable from a live flight.
         [InGameTest(Category = "Settings",
-            Description = "Tooltip echo strip reserves its full word-wrapped height in a narrow window, so a long multi-line tooltip renders whole instead of clipping to one line")]
+            Description = "Tooltip echo strip reserves exactly its fixed two-line height in a narrow window whether it is empty or clipping a >200-character tooltip, so hovering never changes a window's height")]
         public IEnumerator TooltipEchoBox_NarrowWindow_ReservesWrappedHeight()
         {
             var go = new GameObject("ParsekTooltipEchoWrapProbe");
@@ -48,39 +46,57 @@ namespace Parsek.InGameTests
                 if (probe.RepaintPasses == 0)
                 {
                     InGameAssert.Skip(
-                        $"probe never observed an IMGUI Repaint pass (frames={guardFrames}); cannot measure the wrapped strip in this context");
+                        $"probe never observed an IMGUI Repaint pass (frames={guardFrames}); cannot measure the strip in this context");
                     yield break;
                 }
 
                 InGameAssert.IsFalse(probe.Faulted,
-                    "Tooltip echo strip threw an IMGUI exception while drawing a long wrapped tooltip in a narrow area: "
+                    "Tooltip echo strip threw an IMGUI exception while drawing a long tooltip in a narrow area: "
                         + probe.FaultMessage);
 
-                if (probe.MeasuredRectHeight <= 0f || probe.SingleLineHeight <= 0f)
+                var ic = System.Globalization.CultureInfo.InvariantCulture;
+
+                if (probe.FixedHeight <= 0f || probe.EmptyRectHeight <= 0f || probe.LongRectHeight <= 0f)
                 {
                     InGameAssert.Skip(
-                        $"probe could not measure the strip (rectHeight={probe.MeasuredRectHeight.ToString("F2", System.Globalization.CultureInfo.InvariantCulture)} " +
-                        $"singleLine={probe.SingleLineHeight.ToString("F2", System.Globalization.CultureInfo.InvariantCulture)}); nothing to assert");
+                        $"probe could not measure the strip (fixed={probe.FixedHeight.ToString("F2", ic)} "
+                        + $"empty={probe.EmptyRectHeight.ToString("F2", ic)} "
+                        + $"long={probe.LongRectHeight.ToString("F2", ic)}); nothing to assert");
                     yield break;
                 }
 
-                // A >200-character tooltip at ~200px of content width wraps to far more
-                // than two lines; 2x the single-line height of the SAME style at the
-                // SAME width is a deliberately loose floor that still fails outright if
-                // Layout reserved only one line.
-                InGameAssert.IsGreaterThan(probe.MeasuredRectHeight, probe.SingleLineHeight * 2f,
-                    "Tooltip echo strip reserved only " +
-                    probe.MeasuredRectHeight.ToString("F2", System.Globalization.CultureInfo.InvariantCulture) +
-                    "px at width " +
-                    probe.MeasuredRectWidth.ToString("F2", System.Globalization.CultureInfo.InvariantCulture) +
-                    "px for a " + probe.TooltipLength + "-character tooltip, against a single line of " +
-                    probe.SingleLineHeight.ToString("F2", System.Globalization.CultureInfo.InvariantCulture) +
-                    "px; the wrapped height was not reserved during Layout");
+                // A rounded layout rect can differ from the measured style height by a
+                // fraction of a pixel; anything larger means the text moved the box.
+                const float Tolerance = 0.51f;
+
+                InGameAssert.ApproxEqual(probe.FixedHeight, probe.LongRectHeight, Tolerance,
+                    "Tooltip echo strip reserved "
+                        + probe.LongRectHeight.ToString("F2", ic) + "px at width "
+                        + probe.MeasuredRectWidth.ToString("F2", ic) + "px for a "
+                        + probe.TooltipLength + "-character tooltip, against its fixed two-line height of "
+                        + probe.FixedHeight.ToString("F2", ic)
+                        + "px; long text must CLIP inside the two lines, not grow the strip");
+
+                InGameAssert.ApproxEqual(probe.FixedHeight, probe.EmptyRectHeight, Tolerance,
+                    "Tooltip echo strip reserved "
+                        + probe.EmptyRectHeight.ToString("F2", ic)
+                        + "px while empty against its fixed two-line height of "
+                        + probe.FixedHeight.ToString("F2", ic)
+                        + "px; an empty strip must hold the same two lines open, not collapse");
+
+                // The constant must be a real two lines, not one: a single-line box would
+                // satisfy both equalities above and still clip half the help text.
+                InGameAssert.IsGreaterThan(probe.FixedHeight, probe.SingleLineHeight,
+                    "the strip's fixed height "
+                        + probe.FixedHeight.ToString("F2", ic)
+                        + "px is not taller than a single line of the same style ("
+                        + probe.SingleLineHeight.ToString("F2", ic) + "px)");
 
                 ParsekLog.Info("TestRunner",
-                    $"TooltipEchoWrapSizing_InGame: PASS rectHeight={probe.MeasuredRectHeight.ToString("F2", System.Globalization.CultureInfo.InvariantCulture)} " +
-                    $"rectWidth={probe.MeasuredRectWidth.ToString("F2", System.Globalization.CultureInfo.InvariantCulture)} " +
-                    $"singleLine={probe.SingleLineHeight.ToString("F2", System.Globalization.CultureInfo.InvariantCulture)} " +
+                    $"TooltipEchoWrapSizing_InGame: PASS fixed={probe.FixedHeight.ToString("F2", ic)} " +
+                    $"empty={probe.EmptyRectHeight.ToString("F2", ic)} long={probe.LongRectHeight.ToString("F2", ic)} " +
+                    $"rectWidth={probe.MeasuredRectWidth.ToString("F2", ic)} " +
+                    $"singleLine={probe.SingleLineHeight.ToString("F2", ic)} " +
                     $"chars={probe.TooltipLength} layoutPasses={probe.LayoutPasses} repaintPasses={probe.RepaintPasses}");
             }
             finally
@@ -91,11 +107,11 @@ namespace Parsek.InGameTests
 
         /// <summary>
         /// Probe MonoBehaviour: draws a <see cref="TooltipEchoBox"/> inside a narrow
-        /// (220px) GUILayout area with its cache primed to a long multi-word tooltip,
-        /// so from the very first Layout pass the strip is in the wrapped state. On
-        /// Repaint it reads GUILayoutUtility.GetLastRect() (valid only on Repaint) for
-        /// the rect Layout actually reserved, and measures the single-line height of
-        /// the same style at the same width for comparison.
+        /// (220px) GUILayout area, empty for the first frames and then fed a long
+        /// multi-word tooltip. On Repaint it reads GUILayoutUtility.GetLastRect() (valid
+        /// only on Repaint) for the rect Layout actually reserved, and also records the
+        /// helper's own fixed two-line height plus the single-line height of the same
+        /// style at the same width.
         /// </summary>
         private sealed class TooltipEchoWrapProbe : MonoBehaviour
         {
@@ -103,8 +119,10 @@ namespace Parsek.InGameTests
             internal string FaultMessage = string.Empty;
             internal int RepaintPasses;
             internal int LayoutPasses;
-            internal float MeasuredRectHeight;
+            internal float EmptyRectHeight;
+            internal float LongRectHeight;
             internal float MeasuredRectWidth;
+            internal float FixedHeight;
             internal float SingleLineHeight;
             internal int TooltipLength;
             internal bool Completed;
@@ -119,7 +137,7 @@ namespace Parsek.InGameTests
                 "stored resources or the available funds are not enough to fill the manifest in full.";
 
             private readonly TooltipEchoBox echo = new TooltipEchoBox();
-            private bool primed;
+            private bool longFrame;
 
             private void OnGUI()
             {
@@ -130,28 +148,33 @@ namespace Parsek.InGameTests
                 if (evt != EventType.Layout && evt != EventType.Repaint)
                     return;
 
-                if (!primed)
-                {
-                    // Prime the cache BEFORE the first Layout pass so the strip is in
-                    // its wrapped state from the very first sizing pass; a real window
-                    // reaches the same state one frame after the hover starts.
-                    echo.PrimeCachedTextForTesting(LongTooltip);
-                    TooltipLength = LongTooltip.Length;
-                    primed = true;
-                }
-
                 if (evt == EventType.Layout)
+                {
                     LayoutPasses++;
+                    // Whole frames are one state or the other, so the rect measured on
+                    // Repaint is the one this frame's Layout reserved for that state.
+                    longFrame = LayoutPasses > 2;
+                }
 
                 GUILayout.BeginArea(new Rect(0f, 0f, AreaWidth, 400f));
                 try
                 {
-                    echo.Draw(LongTooltip);
+                    echo.Draw(longFrame ? LongTooltip : null);
                     if (evt == EventType.Repaint)
                     {
                         Rect labelRect = GUILayoutUtility.GetLastRect();
-                        MeasuredRectHeight = labelRect.height;
                         MeasuredRectWidth = labelRect.width;
+                        if (longFrame)
+                        {
+                            LongRectHeight = labelRect.height;
+                            TooltipLength = LongTooltip.Length;
+                        }
+                        else
+                        {
+                            EmptyRectHeight = labelRect.height;
+                        }
+
+                        FixedHeight = echo.FixedStripHeight;
                         GUIStyle wrapped = echo.WrappedStyle;
                         if (wrapped != null && labelRect.width > 0f)
                             SingleLineHeight = wrapped.CalcHeight(new GUIContent("Wm"), labelRect.width);
@@ -178,9 +201,8 @@ namespace Parsek.InGameTests
                 if (evt == EventType.Repaint)
                 {
                     RepaintPasses++;
-                    // Two full frames: the first proves the primed cache sizes, the
-                    // second proves the Repaint capture kept it there.
-                    if (RepaintPasses >= 2 || Faulted)
+                    // Four full frames: two empty, two showing the long tooltip.
+                    if (RepaintPasses >= 4 || Faulted)
                         Completed = true;
                 }
             }

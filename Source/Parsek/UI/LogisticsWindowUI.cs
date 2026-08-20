@@ -356,8 +356,8 @@ namespace Parsek
         // candidate has no Interval, so transit gets a real cell here).
         private const float ColW_CandidateTransit = 80f;
 
-        // Bottom "hovered control help text" strip. See TooltipEchoBox for why it
-        // renders from a Repaint-captured cache rather than a live GUI.tooltip read.
+        // Bottom "hovered control help text" strip. See TooltipEchoBox for why it is a
+        // permanently visible box of constant height.
         private readonly TooltipEchoBox tooltipEcho = new TooltipEchoBox(SpacingSmall);
 
         private const float SpacingSmall = 3f;
@@ -535,11 +535,10 @@ namespace Parsek
 
             GUILayout.EndScrollView();
 
-            // Tooltip echo strip (shared house helper). Drawn AFTER every cell /
-            // button, so the Repaint capture inside Draw() sees the hovered control's
-            // GUI.tooltip. The strip renders from the text captured on the PREVIOUS
-            // Repaint, so this frame's Layout and Repaint size and paint the same
-            // string - including the wrapped height at a narrowed window width.
+            // Tooltip echo strip (shared house helper). Fixed two-line height, always
+            // present, and drawn AFTER every cell / button so the live GUI.tooltip read
+            // inside Draw() sees the hovered control's text - but directly ABOVE the
+            // Close button, which is the house ordering: Close is always last.
             tooltipEcho.Draw();
 
             // Full-width Close button at the bottom (matches Kerbals / Settings windows).

@@ -45,8 +45,8 @@ namespace Parsek
         private GUIStyle zeroHeightLabelStyle;
         private GUIStyle wrappedErrorLabelStyle;
 
-        // Bottom "hovered control help text" strip. See TooltipEchoBox for why it
-        // renders from a Repaint-captured cache rather than a live GUI.tooltip read.
+        // Bottom "hovered control help text" strip. See TooltipEchoBox for why it is a
+        // permanently visible box of constant height.
         private readonly TooltipEchoBox tooltipEcho = new TooltipEchoBox(SpacingSmall);
 
         private const float SpacingSmall = 3f;
@@ -465,6 +465,12 @@ namespace Parsek
             GUILayout.EndScrollView();
 
             // --- Bottom bar ---
+            // Bottom "hovered control help text" strip (shared house helper), drawn
+            // after the test list (so the live GUI.tooltip read sees a hovered row) and
+            // directly above the Close button - the house ordering every Parsek window
+            // uses. Fixed two-line height, always present, house box style.
+            tooltipEcho.Draw();
+
             // Results auto-export after every run, so there is no manual export
             // button (the file always reflects the latest run). Full-width Close
             // (matches the Logistics / Kerbals / Settings windows).
@@ -475,12 +481,6 @@ namespace Parsek
                 ParsekLog.Verbose("UI", "Test runner window closed");
             }
             GUILayout.Label("Ctrl+Shift+T to toggle from any scene", GUI.skin.label);
-
-            // Bottom "hovered control help text" strip (shared house helper). Restores
-            // the house box style: the plain-label workaround only existed to hide the
-            // one-frame dark sliver that the live GUI.tooltip read produced, which the
-            // helper's Repaint-captured cache removes at the source.
-            tooltipEcho.Draw();
 
             ParsekUI.DrawResizeHandle(testRunnerWindowRect, ref isResizingTestRunnerWindow,
                 "TestRunner window");

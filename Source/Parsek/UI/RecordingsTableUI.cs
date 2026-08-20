@@ -261,8 +261,8 @@ namespace Parsek
         // Tooltip state
         private GUIStyle tooltipLabelStyle;
         private Rect scrollViewRect;
-        // Bottom "hovered control help text" strip. See TooltipEchoBox for why it
-        // renders from a Repaint-captured cache rather than a live GUI.tooltip read.
+        // Bottom "hovered control help text" strip. See TooltipEchoBox for why it is a
+        // permanently visible box of constant height.
         private readonly TooltipEchoBox tooltipEcho = new TooltipEchoBox(SpacingSmall);
         // Window-computed hover text that outranks GUI.tooltip for the strip (the
         // clamped loop-period cell resolves its own string from a rect hit test).
@@ -1254,6 +1254,11 @@ namespace Parsek
         {
             // Bottom button bar — pinned to window bottom
             GUILayout.FlexibleSpace();
+
+            // Help strip first, Close row last - the house ordering (see
+            // DrawRecordingsWindowTooltip).
+            DrawRecordingsWindowTooltip();
+
             GUILayout.BeginHorizontal();
 
             if (committed.Count > 0)
@@ -1301,6 +1306,11 @@ namespace Parsek
         private void DrawMissionsTabBottomBar()
         {
             GUILayout.FlexibleSpace();
+
+            // Help strip first, Close row last - the house ordering (see
+            // DrawRecordingsWindowTooltip).
+            DrawRecordingsWindowTooltip();
+
             GUILayout.BeginHorizontal();
             if (GUILayout.Button("Close"))
             {
@@ -1401,14 +1411,14 @@ namespace Parsek
                 // The Missions tab sets GUIContent tooltips (include checkbox, Loop, period cell,
                 // Next launch, Clone / Archive / Warp to, partner journey) but had no renderer for
                 // them, so they were set and never shown. Mirror the recordings tab: clear the
-                // sticky text this window uses for its own hover strings, draw the tab, then draw
-                // the same wrapped tooltip strip. DrawRecordingsWindowTooltip always emits exactly
-                // one label (a zero-height one when there is no tooltip), so the control count is
-                // the same whether or not the cursor is over a tooltipped control.
+                // sticky text this window uses for its own hover strings, draw the tab, then let
+                // the bottom bar draw the same help strip above its Close button.
+                // DrawRecordingsWindowTooltip always emits exactly one label at one fixed
+                // height, so neither the control count nor the window height depends on whether
+                // the cursor is over a tooltipped control.
                 recordingsWindowTooltipText = string.Empty;
                 parentUI.GetMissionsUI().DrawMissionsTabContent();
                 DrawMissionsTabBottomBar();
-                DrawRecordingsWindowTooltip();
                 return;
             }
 
@@ -1641,7 +1651,6 @@ namespace Parsek
             }
 
             DrawRecordingsBottomBar(committed);
-            DrawRecordingsWindowTooltip();
         }
 
         /// <summary>
@@ -5747,15 +5756,14 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Bottom "hovered control help text" strip (shared house helper). Called
-        /// AFTER the rows and the bottom bar have drawn, which is the ordering the
-        /// manual side-channel needs: <see cref="recordingsWindowTooltipText"/> is
-        /// cleared at the top of every pass and re-set during Repaint by whichever row
-        /// resolved its own hover string (the clamped loop-period cell, via
-        /// GetLastRect), so by the time the strip's Repaint capture runs the override
-        /// is final for this frame. The strip itself renders from the text captured on
-        /// the PREVIOUS Repaint, so Layout and Repaint always size and paint the same
-        /// string.
+        /// Bottom "hovered control help text" strip (shared house helper). Called from
+        /// the bottom bar of each tab, AFTER every row has drawn and directly above the
+        /// Close button - the house ordering, and the ordering the manual side-channel
+        /// needs: <see cref="recordingsWindowTooltipText"/> is cleared at the top of
+        /// every pass and re-set during Repaint by whichever row resolved its own hover
+        /// string (the clamped loop-period cell, via GetLastRect), so the override is
+        /// already final by the time the strip reads it. Nothing below the strip carries
+        /// a tooltip, so the live GUI.tooltip read misses nothing.
         /// </summary>
         private void DrawRecordingsWindowTooltip()
         {
