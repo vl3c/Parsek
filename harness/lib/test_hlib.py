@@ -1275,20 +1275,52 @@ class SpecValidationRejectTests(unittest.TestCase):
         self.assertTrue(any("args.Strict" in e for e in v.errors),
                         "case-variant strict key not rejected: %s" % list(v.errors))
 
-    def test_no_committed_spec_arms_the_runtests_strict_arg(self):
-        # THE B.4 DEFERRAL, PINNED. `strict` promotes the ground-truth diff's
-        # report-only per-identity divergences to hard failures, and the one committed
-        # spec that drives that diff (L2-ledger-groundtruth-career) measured
-        # `reportOnly=0` on career-pad-craft - nothing to promote, so arming there adds
-        # NO coverage for a value-drift regression. It would still catch a
-        # recon-invents-an-identity regression (a phantom does not need a populated
-        # fixture), so the gate is not inert; the deferral stands because the SUBJECT is
-        # thin. Arming waits on a subject with populated per-identity facets (on current
-        # evidence: c2, or any future career fixture with recorded crewed recoveries).
+    # The armed set for RunTests' `strict` arg, and the SUBJECT each row stands on.
+    # Same shape and same discipline as the saveParse allowlist next door: the
+    # roster lives HERE rather than in a doc, so arming costs a deliberate edit in
+    # the file whose test reds when someone arms without one.
+    #
+    # THE NAME AVOIDS THE SUBSTRING `ARMED_ALLOWLIST` ON PURPOSE, and a future
+    # sibling roster must do the same. `Cl3SpecArmedTests
+    # .test_it_is_on_the_save_structure_armed_allowlist` reads the save-structure
+    # roster OUT OF THIS FILE'S SOURCE with `re.search(r"ARMED_ALLOWLIST\s*=\s*\{
+    # ([^}]*)\}")`, which takes the FIRST match - so a second constant whose name
+    # ended in `ARMED_ALLOWLIST` and sat above it would silently hand CL-3 the wrong
+    # list. It did exactly that on the first draft of this roster.
+    RUNTESTS_STRICT_ARMED_SPECS = {
+        # career-ledger B.4, ARMED 2026-08-20 (wave C). Subject:
+        # `career-earned-pad` - the save harness run
+        # `2026-08-19_2130_L3-career-science-recover` produced (a driven career that
+        # EARNED flight science and RECOVERED a crewed craft), with a PRELAUNCH
+        # vessel spliced in so the FLIGHT-scene cell can run at all. It carries the
+        # populated per-identity facets the 2026-08-17 deferral was waiting for -
+        # three science subjects, a vessel-recovery credit, five milestones and a
+        # kerbal career log - and all three of its pools reproduce to float noise
+        # (`C2CareerPostFixReplayTests`, the closes-to-zero proof).
+        "L4-ledger-groundtruth-strict.toml",
+    }
+
+    def test_only_the_strict_allowlist_arms_the_runtests_strict_arg(self):
+        # THE B.4 DEFERRAL, DISCHARGED AND REPLACED IN PLACE. Its history, kept
+        # because the reasoning is what makes the current row readable:
         #
-        # This cell is what makes that a DECISION rather than a comment: a spec that
-        # starts declaring `strict` reds here, and the fix is to record the subject and
-        # the reading run that justified it, then delete this cell - never to widen it.
+        #   2026-08-17  DEFERRED. `strict` promotes the ground-truth diff's
+        #     report-only per-identity divergences to hard failures, and the one
+        #     committed spec that drove that diff (L2-ledger-groundtruth-career)
+        #     measured `reportOnly=0` on career-pad-craft - nothing to promote, so
+        #     arming THERE added no coverage for a value-drift regression. It would
+        #     still have caught a recon-invents-an-identity regression, so the gate
+        #     was never inert; the SUBJECT was what was thin. The close condition
+        #     this cell named was explicit: "a subject with populated per-identity
+        #     facets ... or any future career fixture with recorded crewed
+        #     recoveries".
+        #   2026-08-20  MET, and armed on the subject named in the allowlist above.
+        #
+        # The cell is REWRITTEN rather than deleted, and that is the change of
+        # posture worth noticing: a bare "nobody arms this" fence retires the moment
+        # anyone does, taking its evidence trail with it. An allowlist keeps the
+        # question open forever - a SECOND spec arming strict still reds here, and
+        # still has to record its own subject before it can go green.
         armed = []
         for name in sorted(n for n in os.listdir(SCENARIOS_DIR) if n.endswith(".toml")):
             with open(os.path.join(SCENARIOS_DIR, name), "rb") as fh:
@@ -1296,9 +1328,30 @@ class SpecValidationRejectTests(unittest.TestCase):
             for step in ((spec.get("driver") or {}).get("steps") or []):
                 if ((step or {}).get("args") or {}).get(hlib.RUNTESTS_STRICT_KEY) is not None:
                     armed.append(name)
-        self.assertEqual([], armed,
+        self.assertEqual(sorted(self.RUNTESTS_STRICT_ARMED_SPECS), sorted(set(armed)),
                          "a committed spec declares RunTests strict= with no recorded "
-                         "subject justifying it (career-ledger B.4)")
+                         "subject justifying it (career-ledger B.4). Add it to "
+                         "RUNTESTS_STRICT_ARMED_SPECS with the subject and the reading run "
+                         "that justified it - never widen the assertion.")
+
+    def test_every_strict_armed_spec_pins_the_strict_true_token(self):
+        # CLAIM-IS-NOT-GATE, for the arming itself. A spec may sit in the allowlist
+        # only if its own log contract pins `strict=True` - the ground-truth cell's
+        # own echo of the flag it ran under. Without that token an armed spec is
+        # indistinguishable from an unarmed one at read time, and a run that greened
+        # on an automation DLL predating the seam would look identical to a real one.
+        for name in sorted(self.RUNTESTS_STRICT_ARMED_SPECS):
+            path = os.path.join(SCENARIOS_DIR, name)
+            self.assertTrue(os.path.isfile(path),
+                            "RUNTESTS_STRICT_ARMED_SPECS names a spec that does not "
+                            "exist: %s" % name)
+            with open(path, "rb") as fh:
+                spec = tomllib.load(fh)
+            required = (((spec.get("expectations") or {})
+                         .get("logContracts") or {}).get("required") or [])
+            self.assertTrue(any("strict=True" in tok for tok in required),
+                            "%s arms strict but pins no strict=True token: %s"
+                            % (name, required))
 
     def test_eva4_chute_verb_is_deferred_and_capped(self):
         # EVA-4: EvaChuteDeploy holds the FIFO head through the kerbal's whole chuted
@@ -4732,6 +4785,20 @@ class UnityExceptionScanTests(unittest.TestCase):
             # therefore a FINDING about the Administration hydration, and the honest
             # response is to record the count and decide, never to raise the ceiling.
             "L3-strategy-currency-conversion.toml": 0,
+            # L3-strategy-exchanger-floor, armed 2026-08-20 on the STRONGEST evidence
+            # any first-flight arming in this table has had. It is the sibling above
+            # with ONE difference - the fixture reverts to the UNSEEDED `fresh-career`
+            # - and it drives the SAME category through the SAME four seam steps on the
+            # same stock-minimal profile. So it inherits both populations at once: the
+            # eleven-spec zero-armed family that boots this exact shape over this exact
+            # template, AND the sibling's own four driver-valid readings of this exact
+            # category, two of which (`2026-08-18_2039`, `2026-08-18_2140`) were flown
+            # on this very unseeded template. The Administration-canvas question that
+            # armed the sibling on borrowed evidence is ANSWERED for this shape by those
+            # readings: the hidden canvas raises no counted class. A nonzero reading
+            # here would still be a FINDING - record the count and decide, never raise
+            # the ceiling.
+            "L3-strategy-exchanger-floor.toml": 0,
             "M1-mission-loop-unit.toml": 0,
             "V1-map-dwell-mun-orbit.toml": 0,
             "H23-tracking-station.toml": 6,

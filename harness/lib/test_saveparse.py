@@ -632,7 +632,8 @@ class CommittedFixtureSweepTests(unittest.TestCase):
     """Corpus 1: every committed fixture save parses, and its structural counts
     are pinned EXACTLY. Eleven fixtures carry the spliced inert ParsekScenario
     node (a flyable template must, or the FLIGHT route records nothing); the
-    three fresh-* templates carry none. ALL committed fixtures carry zero
+    three fresh-* templates carry none, and neither does `strategy-career`,
+    which is `fresh-career` plus a reputation seed. ALL committed fixtures carry zero
     trees / staging rows - the rich payloads are injected at stage time and
     deliberately NOT committed. A fixture edit that changes any of this reds
     here instead of on the next nightly."""
@@ -771,6 +772,16 @@ class CommittedFixtureSweepTests(unittest.TestCase):
         "fresh-career": False,
         "fresh-sandbox": False,
         "fresh-science": False,
+        # `fresh-career` WITH A REPUTATION SEED and nothing else - two lines of
+        # the save differ. It inherits the base's deliberate ABSENCE of a
+        # ParsekScenario node (False) along with everything else, which is right
+        # for the same reason it is right on the base: `L3-strategy-currency-
+        # conversion` enters through the seam's SPACECENTER route, where
+        # `LoadGameImpl` writes persistent.sfs after `UpdateScenarioModules` and
+        # the node gets created for it. Derived by
+        # `harness/tools/build_strategy_career.py`, drift-guarded by
+        # `StrategyCareerFixtureDriftTests`.
+        "strategy-career": False,
         "gloops-airshow": True,
         "gs1-two-stage-pad": True,
         "gs2-orbital-stack": True,
@@ -1572,6 +1583,46 @@ class CommittedFixtureSweepTests(unittest.TestCase):
                              "f049901e1f4641ffae490b2f52b1d55e",
                              "f17e1186e9ed449b93650eb5f011a932",
                              "fd29c89536564f31bccec5c8e3f0fbc9"],
+            "schemaGeneration": 4,
+        },
+        # --- THE CAREER-LEDGER STRICT SUBJECT ----------------------------
+        # PROVENANCE, and it is a two-step one rather than a harvest: harness run
+        # `2026-08-19_2130_L3-career-science-recover` (PASS attempt 1, MISSION-OK
+        # across all nine phases, zero `[Parsek][ERROR]` lines) produced the save;
+        # it was committed as the xUnit fixture
+        # `Source/Parsek.Tests/Fixtures/C2CareerPostFix/`, where
+        # `C2CareerPostFixReplayTests` proves its ledger replays to within float
+        # noise of KSP's own pools; and `harness/tools/build_career_earned_pad.py`
+        # then derives THIS fixture from it BY CONSTRUCTION by splicing in one
+        # PRELAUNCH vessel. The derivation (including byte-identity with a fresh
+        # rebuild) is gated by `CareerEarnedPadFixtureDriftTests` in
+        # `harness/lib/test_career_earned_pad.py`.
+        #
+        # WHY THE VESSEL HAD TO BE SPLICED, since it is the one thing here that is
+        # not a harvest artifact: the flight RECOVERED its craft, so the produced
+        # save carries zero VESSEL nodes, and `L4-ledger-groundtruth-strict` drives
+        # a `Scene = GameScenes.FLIGHT` in-game category. A vessel-less save routes
+        # LoadGame to NoVesselSpaceCenter and the batch would scene-skip its only
+        # declaration.
+        #
+        # THE 1/1/2 TOPOLOGY IS THE CONTRACT: the flown main recording plus the
+        # post-recovery continuation, both `Immutable`, in ONE committed tree - the
+        # same pair `L3-career-science-recover` pins as `recordings.count = 2` and
+        # the same pair the ledger's recovery credit resolves through. A different
+        # number means the fixture was re-derived from something else.
+        "career-earned-pad": {
+            "trees": 1, "committedTrees": 1, "recordings": 2,
+            "supersedes": 0, "tombstones": 0, "rewind_points": 0,
+            "rewind_retirements": 0,
+            "terminalStates": {"Landed": 1},
+            "branchPoints": {},
+            # 8 = two recordings x (.prec + .pann + _vessel.craft + _ghost.craft).
+            # The `.prec.txt` mirrors are committed (the harness requires them
+            # per-trajectory) but excluded from this floor by the `.txt` filter
+            # above, which is the point of that filter.
+            "minAuthoritativeSidecars": 8,
+            "recordingIds": ["6c1596087fb14a5b8874d2a4948e3172",
+                             "df54db60838c437a8ce953746ebffbab"],
             "schemaGeneration": 4,
         },
     }

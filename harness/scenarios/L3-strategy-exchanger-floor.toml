@@ -1,0 +1,237 @@
+schema = 1
+id = "L3-strategy-exchanger-floor"
+# nightly. Same tier and same ~55 s wall as its sibling, and for the same reason: a
+# seam driver with no RequiresFlight verb and no human judgement in the loop. Nothing
+# operator-shaped is owed; the tally below is MEASURED, not predicted.
+tier = "nightly"
+# WHAT THIS IS, AND WHY IT IS A SECOND SPEC RATHER THAN A SECOND ARGUMENT.
+#
+# `L3-strategy-currency-conversion` and this spec drive the SAME in-game category
+# (`StrategyLifecycle`, all seven declarations, one batch) over the SAME base career.
+# The ONLY difference is the reputation the fixture seeds, and that one number decides
+# which of two mutually exclusive cells is allowed to run:
+#
+#   rep 25 (`strategy-career`, the sibling) -> the NEGATIVE CONTROL runs
+#     `OperationStrategy_RewardMultiplier_IsNotCaptured` needs rep >= 14.5. Both stock
+#     `CurrencyOperation` strategies (`LeadershipInitiative`, `AgressiveNegotiations`)
+#     lerp `initialCostReputation` 10..100 at `factorSliderDefault = 0.05` to 14.5, and
+#     `Strategy.CanBeActivated` compares the CURRENT pool against it.
+#   rep 0 (`fresh-career`, THIS spec) -> the EXCHANGER FAMILY runs
+#     `ExchangerStrategy_OneShot_CapturesBothLegs` needs rep <= 0. Both stock
+#     `CurrencyExchanger` strategies (`researchIPsellout`, `BailoutGrant`) declare
+#     `requiredReputationMin = -1000` / `requiredReputationMax = 0`: they are EMERGENCY
+#     strategies and are not offered at positive reputation.
+#
+# `[14.5, +inf)` and `(-inf, 0]` do not intersect, and the M-A2 seam's `RunTests`
+# selects by CATEGORY only - there is no per-cell split. One batch, one reputation
+# value, one of the two skips. That is a stock constraint, measured live on
+# `2026-08-20_1817_L3-strategy-currency-conversion` and pinned by
+# `StrategyCareerCellExclusivityTests` in `harness/lib/test_strategy_career_fixture.py`;
+# it is not a Parsek defect and no fixture can dissolve it.
+#
+# SO THE CLOSE IS TWO SPECS. Between this one and its sibling every one of the seven
+# declarations is gated nightly, each pinning its own MEASURED `passed=6 skipped=1`
+# with its own NAMED skip, at the cost of one extra ~55 s nightly flight. This spec is
+# the pre-swap L3 shape restored: it is what puts the exchanger arm back on a standing
+# regression floor instead of leaving it resting on a run that has since been
+# superseded. See STRATEGY-LIFECYCLE-CELLS-NEED-OPPOSITE-REPUTATIONS in
+# docs/dev/todo-and-known-bugs.md for the finding this closes.
+description = "Drive the StrategyLifecycle category against the UNSEEDED fresh career (rep 0) so the stock CurrencyExchanger family runs, and assert its one-shot exchange lands as an exchanger-sourced science debit + a strategy funds earning with no GUARDED clamp."
+instanceProfile = "stock-minimal"
+tags = ["ledger", "L3", "ingame-batch", "strategies"]
+
+[fixture]
+# fresh-career, UNSEEDED, and both halves of that matter.
+#
+# THE BASE CHOICE IS FORCED BY THE SCENE. All SEVEN StrategyLifecycle declarations are
+# Scene = GameScenes.SPACECENTER. `fresh-career` carries ZERO VESSEL nodes, so
+# TestCommandLoadGame.DecideLoadRoute takes the NoVesselSpaceCenter route and the batch
+# runs where all seven are eligible (the same route B10 and the L1 career family
+# measure). career-pad-craft would route to FLIGHT and scene-skip every one of them -
+# the exact vacuity defect B10 was re-flown to fix.
+#
+# THE SEED IS WHAT SELECTS THIS SPEC'S HALF OF THE CATEGORY. funds=500000 science=100
+# rep=0: the funds seed affords every funds-costing strategy the cells activate, the
+# science seed does NOT afford the two science-costing setup charges (both cells top
+# science up ledger-visibly), and the ZERO reputation seed is what keeps
+# `researchIPsellout` OFFERED (requiredReputationMax = 0) - and, by the same token, what
+# makes `OperationStrategy_RewardMultiplier_IsNotCaptured` self-skip. That skip is the
+# sibling's subject, not a gap here; see the tally block.
+#
+# NOTHING IS SEEDED ONTO THIS FIXTURE. `fresh-career` is staged by seven committed specs
+# directly and by six more through `build_career_pad_craft.py`, and
+# `FreshCareerStaysUnseededTests` reds if anyone changes that - the reputation seed lives
+# on the `strategy-career` sibling precisely so this base stays untouched.
+#
+# The fixture also satisfies the cells' own guards: career mode, Funding /
+# ResearchAndDevelopment / Reputation singletons all present, an EMPTY `STRATEGIES` node
+# (so every strategy is built fresh from config at `factorSliderDefault`), and - because
+# nothing is injected and auto-record is off below - no live recorder and no pending
+# tree, which the cells require because the door's recalc defers its KSP patch while one
+# exists.
+saveTemplate = "fixtures/saves/fresh-career"
+injectedRecordings = "none"
+craft = []
+
+[driver]
+kind = "seam"
+# Identical to the sibling's, deliberately: the two specs must differ in the FIXTURE and
+# in nothing else, or a tally difference stops being attributable to the reputation seed.
+#
+# SetSetting mirrors B10 / the L1 family on this same fixture. It is not cosmetic here:
+# a live recorder makes CurrencyConverterStrategy_LedgerMatchesNetCredit Skip rather than
+# run, so auto-record must be off for the batch to have a subject.
+#
+# No `isolated` arg: all seven StrategyLifecycle declarations are batch-allowed, so the
+# isolated filter would admit exactly the same set and CommittedBatchTallySourceSyncTests
+# would (rightly) demand a seam-echo discriminator for a route this spec does not need.
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "RunTests",   args = { category = "StrategyLifecycle" },          expect = "OK", budget = 540 },
+  { cmd = "FlushAndQuit",                                                   expect = "OK" },
+]
+
+[dimensionsCovered]
+# CO-CLAIMED with `L3-strategy-currency-conversion`, on purpose, and the claim is split
+# between them rather than duplicated: the D8 `strategies` claim has an EXCHANGER half
+# and a CONVERTER/OPERATION half, and after the sibling's 2026-08-20 fixture swap only
+# the second of those is gated by a standing run. This spec carries the first. Claiming
+# the same value from both specs is what makes the claim survive either one being
+# re-fixtured again; claiming nothing here would leave the exchanger arm gated by a spec
+# that does not say so.
+#
+# What the claim does NOT extend to is unchanged from the sibling: it is a claim about
+# the stock strategy lifecycle and its currency conversion being OBSERVED end to end by a
+# driven batch, not a claim about any particular strategy config being present on every
+# install.
+#
+# CLAIM-IS-NOT-GATE: backed by the pinned tally below plus the forbidden GUARDED tokens.
+D8 = ["strategies", "science", "funds", "orchestrator", "ksp-state-patcher"]
+D14 = ["career", "scene-ksc"]
+
+[expectations]
+# PLACEMENT IS LOAD-BEARING: a bare key written after an [expectations.<sub>] header is
+# TOML-scoped to that sub-table and silently never read. hlib.validate_spec rejects the
+# misplaced form, so this must stay ahead of the sub-tables.
+allowedAnomalies = []
+
+[expectations.recordings]
+# Zero. Auto-record is off, the fixture injects nothing, and no cell in this category
+# records. count.max == 0 also selects the B1 recording-rules log-validation suppression
+# so a legitimately recording-free run does not red on REC-001/REC-003.
+count = { min = 0, max = 0 }
+
+[expectations.logContracts]
+# ############ THE TALLY: MEASURED, PINNED WHOLE ############
+# `2026-08-20_1902_L3-strategy-exchanger-floor` (PASS attempt 1, 55 s wall, fully
+# unattended, every verifier PASS or REPORT: driverValidity PASS, batchComplete PASS
+# `failed=0`, analyzer red=0, logValidate PASS, anomalySweep `hits=[] counts={}`,
+# unityExceptions PASS `gating=True total=0`, expectations `mismatches=0`, ledgerOracle
+# PASS `hardDivergences=0 reportOnly=0`, saveParse REPORT clean, recordings 0) measured
+#
+#   BATCH_COMPLETE v1 total=7 passed=6 failed=0 skipped=1 category=StrategyLifecycle scene=SPACECENTER
+#
+# and that is the line below, verbatim. SAME SPLIT as the sibling, OPPOSITE NAMED SKIP -
+# which is the whole reason both specs exist:
+#
+#   ExchangerStrategy_OneShot_CapturesBothLegs           PASS - the EXCHANGER family,
+#     `researchIPsellout`, which at rep 0 is OFFERED. This is the arm the sibling lost to
+#     its reputation seed, and putting it back on a standing nightly floor is this spec's
+#     entire job. MEASURED HERE at `sciDelta=-14.5 take=14.5 fundsDelta=609.46632729616249
+#     factor=0.05` - the same numbers the pre-swap `2026-08-18_2140` read, landing as
+#     exactly one EXCHANGER-sourced StrategyScienceDebit of 14.5 and one
+#     FundsEarning/Strategy, with both reason-keyed events present and activeStrategies
+#     back to 0 (the zero-duration exchanger self-deactivated). The cell logs its
+#     reputation gate first (`live reputation is 0`), so a residue left by an earlier cell
+#     in the batch reads as a named skip rather than an opaque activation failure.
+#   ConverterStrategy_ScienceYield_CapturesCredit        PASS - the science OUTPUT arm,
+#     `OutsourcedResearchCfg`: the BuildStrategyConversionAction branch whose first live
+#     subject was `2026-08-18_2140`. MEASURED HERE at award=250000 funds under
+#     ContractReward, share 0.05 (fundsDelta=237500), yielding
+#     sciYield=0.97559356689453125 as exactly one StrategyScienceCredit of
+#     0.97559225559234619.
+#   ConverterStrategy_ReputationLeg_CapturesEarning      PASS - `OpenSourceTechProgramCfg`
+#     (stock input=Science output=Reputation, NOT science-out as the name suggests). The
+#     reputation OUTPUT leg is OBSERVED on the door's summary line and lands as exactly
+#     one ReputationEarning row sourced ReputationSource.Strategy carrying the RAW
+#     pre-curve delta. THIS CELL RUNS IN BOTH SPECS' BATCHES, at rep 0 here and at rep 25
+#     on the sibling, and it must pass on both: the row is nominal, so
+#     ReputationModule.ApplyReputationCurve re-derives the pool movement at whatever
+#     running rep the reconstruction is actually at. A cell that only worked from rep 0
+#     would be a cell that had hardcoded the curve's input. MEASURED HERE: door
+#     dR=0.33540129661560059, ledger row nominalRep=0.33540129661560059, live pool moved
+#     0.33515101671218872 - against 0.33506584167480469 for the SAME input on the sibling
+#     at rep 25, which is the state-dependence a nominal row exists to re-derive.
+#   OperationStrategy_RewardMultiplier_IsNotCaptured     SKIP - and it is NAMED rather
+#     than merely counted, so a run that resolves it reads as a CHANGE. `LeadershipInitiative`
+#     self-skips with `cannot be activated on this save: Cannot afford Setup Cost: Not
+#     enough Reputation (stock charges lerped funds + science + reputation setup costs;
+#     live pools are funds=500000 science=100 rep=0)`: the lerped 10..100 reputation setup
+#     cost against a fixture that seeds reputation at 0. That
+#     is not a gap in the matrix - it is the SIBLING's subject, gated there at rep 25 on
+#     the `strategy-career` fixture. Between the two specs nothing is ungated.
+#
+# `total=7` is a LITERAL re-derived from the [InGameTest] attributes
+# (hlib.derive_batch_tally: scene_skipped=0 batch_skipped=0 executable=7) and is kept in
+# step by CommittedBatchTallySourceSyncTests. `passed` and `skipped` are MEASURED, not
+# floored. A future run that skips anything else is a CHANGE to be read, not a reason to
+# loosen this line back toward a range.
+# ############################################################################
+required  = ["BATCH_COMPLETE v1 total=7 passed=6 failed=0 skipped=1 category=StrategyLifecycle scene=SPACECENTER"]
+# The GUARDED pair is the whole point of the lane. `GUARDED UPLIFT clamped` is the
+# reconstruction running ABOVE live and `GUARDED DRAWDOWN clamped` is it running BELOW.
+# Either one on this run means a capture door did not close. The Parsek ERROR forbid is
+# the house floor.
+#
+# MEASURED ZERO on `2026-08-20_1902` - the whole KSP.log carries no `GUARDED` line of any
+# kind.
+forbidden = ["\\[Parsek\\]\\[ERROR\\]",
+             "GUARDED UPLIFT clamped",
+             "GUARDED DRAWDOWN clamped"]
+
+# THE M-B2 ORACLE WITH AN EMPTY MANIFEST - the B10 / L1-passive-sandbox / L2 precedent,
+# and here it is a REAL assertion rather than a formality, exactly as on the sibling. The
+# cells deliberately move all three pools: they top science up, activate strategies that
+# charge setup costs, award funds and science, let the doors write ledger rows and run
+# recalcs that PATCH the live singletons, then restore everything in a finally. The empty
+# manifest states that the whole of that comes back to the seed - i.e. the restores are
+# complete and the batch is save-neutral. A leak in a teardown, or a recalc that patches
+# to something other than the pre-test pools, classifies PARSEK-FAIL(ledger).
+#
+# ONE CELL IS WORTH NAMING HERE: ConverterStrategy_ReputationLeg_CapturesEarning now
+# leaves the reputation pool MOVED through the door's deferred recalc (that is what makes
+# its no-clamp assertion a product gate rather than a statement about its own fixture) and
+# restores exactly, without a deadband, in its finally. This empty manifest is what proves
+# the restore actually lands - and the exchanger cell running LATER in the same batch at
+# requiredReputationMax = 0 is what would notice first if it did not.
+#
+# captureCrossCheck is NOT declared, so it stays report-only (the armed set is CL-2-only).
+[expectations.ledger]
+seedFrom     = "template"
+tolerances   = "default"
+rec3CarveOut = false
+# No [[expectations.ledger.manifest]] entries: empty manifest = zero expected delta.
+
+# The raw-Unity-exception scan (hlib.scan_unity_exceptions), ARMED AT ZERO. This spec
+# boots the SAME LoadGame -> SetSetting -> RunTests -> FlushAndQuit shape on the same
+# stock-minimal profile over the SAME `fresh-career` template as B10 and the six L1 specs,
+# every driver-valid reading of which is 0 - and it runs the same category as
+# `L3-strategy-currency-conversion`, whose own readings are 0 across four runs including
+# two on this exact unseeded template (`2026-08-18_2039`, `2026-08-18_2140`). The hidden
+# Administration canvas the StrategyLifecycle readiness idiom instantiates is the one GUI
+# surface the L1 family does not raise, and it has now been measured not to raise a
+# counted class on five runs. MEASURED 0 on `2026-08-20_1902`.
+[expectations.unityExceptions]
+maxTotal = 0
+
+[runtime]
+# 720, matching the sibling: the per-step ceilings above exceed it on paper, but the
+# measured wall for this one-category batch is ~55-75 s.
+budgetSeconds = 720
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

@@ -27,6 +27,16 @@ with `TargetVesselPersistentId != 0` matching a recording pid in my tree, guid-g
 `VesselLaunchIdentity.GuidsConclusivelyDiffer` - the same claim rule `GhostChainWalker.
 ScanBranchPointClaims` + `MergeCrossTreeLinks` use. Nothing new needs to be recorded.
 
+Sibling derivation (2026-08-12, dock-event-graph scope): `MissionCrossTreeDock.
+FindSameTreeDockClaims` recovers SAME-tree single-parent Dock/Board claims - the
+cross-session shape where the partner's committed leaf missed BackgroundMap and the dock
+recorded single-parent inside its own tree (the A->D case). It feeds the dock-event graph's
+naming / digest / chapter consumers ONLY: it mints no selection affordance (both sides are
+already selectable members of the same tree), never joins a partner journey, and does not
+change `FindLinks`' other-trees-only scan. See `docs/dev/design-dock-event-graph.md`
+section 6.2 (and section 6.1 for the branch-point partner stamp becoming unconditional,
+which widens what both derivations can see on new recordings).
+
 ## 2. Persistence model (the decision)
 
 **Chosen: single-tree Mission + persisted INCLUDED DOCK-LINK ids.** `Mission` stays
@@ -98,7 +108,9 @@ exclusions across the seam live in the SAME `Mission.ExcludedIntervalKeys` set -
 exclusion namespace.
 
 **Missions window rendering**: for each mission whose tree has at least one derivable link,
-render one affordance row per link ("Partner journey - <foreign vessel> (docked <time>)")
+render one affordance row per link ("Docked partner: <foreign vessel>", with the dock time in
+the Start time column; the row read "Partner journey - <foreign vessel>" before the Tier-1
+presentation pass, `docs/dev/research/mission-presentation-ux-analysis-2026-08-12.md` T1.7)
 with an include toggle bound to `IncludedForeignDockLinkIds` (the explicit player action
 that engages the cross-tree path; default OFF). When included, the journey's intervals
 render as indented child rows with normal per-interval checkboxes (same

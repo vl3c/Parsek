@@ -459,6 +459,72 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void Parse_Milestones_CompletedMannedAndUnmannedCountAsCompleted()
+        {
+            // THE 2026-08-20 L4 READING-RUN FINDING. Decompiled `ProgressNode.Save`
+            // (KSP 1.12.5) writes completion under ONE OF THREE keys: `completedManned`
+            // when the node is manned-complete only, `completedUnmanned` when
+            // unmanned-complete only, and `completed` when both. Reading only the third
+            // misses most milestones on a crewed career - the run measured `FirstLaunch`
+            // (`completedManned = 15.12`) as absent from a save that plainly records it,
+            // and the diff then reported the RECONSTRUCTION as carrying a phantom.
+            var game = MakeGame(funds: 1.0);
+            ConfigNode progress = EnsureProgressNode(game);
+
+            var manned = new ConfigNode("FirstLaunch");
+            manned.AddValue("completedManned", R(15.12));
+            progress.AddNode(manned);
+
+            var unmanned = new ConfigNode("FirstOrbit");
+            unmanned.AddValue("completedUnmanned", R(99.5));
+            progress.AddNode(unmanned);
+
+            var snap = CareerSaveParser.Parse(game);
+
+            Assert.Contains("FirstLaunch", snap.AllMilestoneIds);
+            Assert.Contains("FirstLaunch", snap.CompletedMilestoneIds);
+            Assert.Contains("FirstOrbit", snap.AllMilestoneIds);
+            Assert.Contains("FirstOrbit", snap.CompletedMilestoneIds);
+        }
+
+        [Fact]
+        public void Parse_Milestones_ReachedBodyNodeStillYieldsItsChildren()
+        {
+            // THE SECOND HALF OF THE SAME FINDING, and the more damaging one. Being a
+            // milestone and being a container are INDEPENDENT in stock KSP: a body node
+            // is written `reached` (it is not itself complete) AND carries its
+            // achievements as children. The walk used to treat "carries reached" as
+            // "is a leaf" and stop, so `Kerbin/Science` was not merely uncompleted, it
+            // was ABSENT from the parse - which is what made it a recon phantom.
+            var game = MakeGame(funds: 1.0);
+            ConfigNode progress = EnsureProgressNode(game);
+
+            var body = new ConfigNode("Kerbin");
+            body.AddValue("reached", R(345.23));
+            var science = new ConfigNode("Science");
+            science.AddValue("completedManned", R(345.23));
+            // A `crew` payload sub-node must still be filtered rather than walked.
+            var crew = new ConfigNode("crew");
+            crew.AddValue("crews", "Jebediah Kerman");
+            science.AddNode(crew);
+            body.AddNode(science);
+            progress.AddNode(body);
+
+            var snap = CareerSaveParser.Parse(game);
+
+            // The body itself is reached-but-not-complete...
+            Assert.Contains("Kerbin", snap.AllMilestoneIds);
+            Assert.DoesNotContain("Kerbin", snap.CompletedMilestoneIds);
+            // ...and its child is visible, qualified and bare, and COMPLETE.
+            Assert.Contains("Kerbin/Science", snap.AllMilestoneIds);
+            Assert.Contains("Science", snap.AllMilestoneIds);
+            Assert.Contains("Kerbin/Science", snap.CompletedMilestoneIds);
+            // The payload node is not a milestone.
+            Assert.DoesNotContain("Kerbin/Science/crew", snap.AllMilestoneIds);
+            Assert.DoesNotContain("crew", snap.AllMilestoneIds);
+        }
+
+        [Fact]
         public void Parse_VesselResourceTotals_SumsAcrossParts()
         {
             // Guards: per-part RESOURCE summation breakage.

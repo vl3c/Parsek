@@ -22,7 +22,24 @@ pure base-stock set (ReStock / Making-History parts dropped).
 
 ## fresh-career (GAME Mode = CAREER)
 
-Shared by B10 + the four career L1 scripts (hire / dismiss / research / upgrade).
+Shared by B10 + the four career L1 scripts (hire / dismiss / research / upgrade) +
+`R7c-rewind-spacecenter`, and the derivation base for `career-pad-craft` (and, below
+that, `career-science-pad` / `career-earned-pad`) and for `strategy-career`.
+
+**Its `rep = 0` is load-bearing DOWNSTREAM, not just here.** KSP's granular reputation
+curve is state-dependent, and `CL-2-pod-impact-ledger` - which flies `career-pad-craft`,
+derived from this save - pins KSP's OWN post-curve digits as an EXACT-DIGIT logContract
+regex: `Added -9.999828 (-10) reputation: 'VesselLoss'`, plus
+`Added 0.9999995 (1) reputation: 'Progression'`. Measured against `oracle.apply_rep_curve`
+as of PR #1508's residual-step port - which now reproduces that Progression pin to all
+seven printed digits at rep 0, so it is a calibrated instrument rather than an analogy -
+a -10 nominal lands at -9.9996061 from rep 0 against -10.0001546 from rep 25, a 5.5e-4
+shift and ~500x the last printed digit. Note which surface binds: the oracle's reputation
+FACET would NOT red (5.5e-4 sits far inside its 0.1 tolerance); the exact-digit regex is
+what would have to be re-flown. A consumer that needs a nonzero reputation therefore gets a SIBLING
+(see `strategy-career`), never a seed here; `FreshCareerStaysUnseededTests` in
+`harness/lib/test_strategy_career_fixture.py` is what makes that a red rather than an
+argument.
 
 | Facet | Pinned value | Read by |
 | --- | --- | --- |
@@ -198,6 +215,150 @@ state, so a career fixture could otherwise quietly fly a part its career cannot 
 The spec-to-fixture pairing (career, one vessel, antenna aboard, inert ParsekScenario
 node) is gated by `CareerSciencePadSpecFixtureSyncTests` in
 `harness/missions/lib/test_science_bench_recover.py`.
+
+## career-earned-pad (GAME Mode = CAREER, 1 VESSEL)
+
+The suite's only fixture that is BOTH a career with populated per-identity facets AND
+focusable into the FLIGHT scene. Used by `L4-ledger-groundtruth-strict`, the
+career-ledger B.4 strict-per-identity lane.
+
+**WHY IT EXISTS.** The in-game `LedgerGroundTruth` cell is `Scene = GameScenes.FLIGHT`,
+and strict mode promotes every report-only per-identity divergence to a hard failure -
+so arming it needs a subject whose per-identity facets are actually populated. Exactly
+one committed career has them: the save harness run
+`2026-08-19_2130_L3-career-science-recover` produced, a driven flight that earned three
+science subjects, transmitted them, and RECOVERED a crewed craft. That save carries
+**zero VESSEL nodes**, precisely because the craft was recovered - so booting it routes
+`LoadGame` to NoVesselSpaceCenter and a FLIGHT-scene batch scene-skips its only
+declaration, the vacuity defect B10 and `L1-passive-sandbox` were re-flown to fix.
+Splicing a PRELAUNCH craft into a career that has none is the same problem
+`build_career_pad_craft.py` solved for `fresh-career`, with the halves reversed: there
+the career was empty and the craft was the payload; **here the career IS the payload**.
+
+Built BY CONSTRUCTION, headlessly, by `harness/tools/build_career_earned_pad.py` - no
+forge flight and no operator session. `python harness/tools/build_career_earned_pad.py
+--check` re-verifies every post-condition against the COMMITTED bytes. That path is
+WIRED, not decorative: `CareerEarnedPadFixtureDriftTests` in
+`harness/lib/test_career_earned_pad.py` runs the same verify in-process AND re-runs the
+splice over the current inputs, asserting byte-identity with the committed save. Its
+BASE is the xUnit fixture `Source/Parsek.Tests/Fixtures/C2CareerPostFix/`, so a
+re-harvest of that career reds here rather than leaving a strict-armed flight measuring
+a subject nobody meant to ship.
+
+**Five edits** against the harvested career save, plus one against the copied
+`Parsek/GameState/ledger.pgld`:
+
+1. `career-science-pad`'s single `type = Ship` VESSEL, inserted into the base's OWN
+   FLIGHTSTATE. The base's node is KEPT rather than replaced - the one deliberate
+   departure from `build_career_pad_craft.py`'s whole-node swap - because it carries
+   `UT = 408.72`, the clock all 14 ledger actions were written against; the donor's is
+   `9.06`, i.e. before every one of them.
+2. The spliced vessel's `pid` and `persistentId` are RE-STAMPED. **This is the
+   load-bearing edit, not hygiene.** The donor craft IS the craft this career flew and
+   recovered, so its committed identity (`f77e4207...` / `2905720181`) is byte-identical
+   to both recordings' `recordedVesselGuid` / `vesselPersistentId`, and
+   `LedgerGroundTruthDiff.CompareRecovery` treats a recovery credit whose vessel is still
+   PRESENT in the save as a divergence - ALWAYS-HARD when guid-corroborated, report-only
+   when pid-only, and strict promotes the report-only one anyway. A verbatim splice would
+   have red the armed run on a fixture artifact that reads exactly like a product defect.
+3. The `rewindSave = parsek_rw_*` hints are stripped and `Parsek/Saves/` is not copied,
+   the two halves `CommittedFixtureRewindSaveTests` pins together.
+4. Jebediah's ROSTER `state` is flipped `Available` -> `Assigned`, and **nothing else in
+   his row is touched**. The base builder swaps the whole row for the donor's; that here
+   would delete his `CAREER_LOG` (`flight = 1`, `Land,Kerbin`, `Flight,Kerbin`,
+   `Recover`) - the SAVE side of the diff's `KerbalXp` facet. The reconstruction credits
+   those entries off the ledger, so losing them would manufacture a `PhantomInRecon`
+   divergence: report-only by default, promoted by strict, and a fixture artifact again.
+5. **One `Offered` `CONTRACT` row is re-stated `Active`, and a matching `type = 5`
+   (`ContractAccept`) `GAME_ACTION` row is appended to the copied ledger.** Added
+   2026-08-20; together they are the D8 `contracts` cell. Before them the career's seven
+   contracts were all `Offered`, which is the worst of the three states for the gate:
+   enough to keep `LedgerGroundTruthDiff.CompareContracts` from taking its
+   "save has no contract facet -> skip" exit, so the facet always counted toward the
+   pinned `facetsCompared=10`, and not enough to make it compare anything - both sides
+   read 0. **It is fixture-carried because a driven accept is unreachable**, not merely
+   expensive: the M-A2 seam's `KscAction` has four kinds and none of them is "accept a
+   contract", and `Contract.Accept()` is a UI-only entry point Parsek itself
+   Harmony-blocks. It is faithful anyway - the hand-played c2 career's own ledger carries
+   a `PartTest` accept whose row has no `recordingId` and originates at KSC, and this row
+   is that one's shape field for field. **Three arithmetic traps** are honored and
+   asserted by `verify_ledger`: `advanceFunds = 0` (a positive advance is credited
+   unconditionally by `FundsModule` and would move the HARD-gated funds pool), an
+   unelapsed `deadlineUT` (`ContractsModule.PrePass` injects a synthetic `ContractFail`
+   at an elapsed deadline, emptying the active set AND applying two penalties), and NO
+   `type = 6` completion row (it would free the slot and re-vacuify the compare). WHICH
+   contract is load-bearing too: `19e7ba6c...` tests `liquidEngine2.v2` at
+   `sit = LANDED`, and the pad craft carries neither, so it cannot resolve mid-batch.
+
+| Facet | Pinned value | Why it matters |
+| --- | --- | --- |
+| Mode | `CAREER` | the cell is career-only and Skips otherwise |
+| Funding / RnD / Reputation | `536558` / `111.599998` / `1.99999881` | the EARNED pools, not the seed. A fixture reading 500000 / 100 / 0 would mean the splice dropped the career it exists to carry |
+| Vessel | one `type = Ship` Jumping Flea, `sit = PRELAUNCH`, `activeVessel = 0` | the FLIGHT route, and nothing else. It is the key, not the subject |
+| Vessel identity | `pid` / `persistentId` re-stamped, asserted to collide with no recorded identity | see edit 2 - the difference between a real red and a manufactured one |
+| FLIGHTSTATE UT | `408.72`, asserted greater than every `explicitEndUT` | the career's own clock survived the splice |
+| Parsek footprint | 1 committed tree, 2 recordings, `ledger.pgld` with 15 actions | THE PAYLOAD. The tree carries no `isActive` key, so the cell's no-active-uncommitted-tree guard passes. 14 of the 15 rows are the harvest's; the 15th is the appended `ContractAccept` (edit 5) |
+| Contracts | 7 `CONTRACT` nodes, EXACTLY ONE of them `Active` (`19e7ba6c...`), with a matching `type = 5` ledger row | see edit 5. Live-measured `ParseContracts: total=7 active=1` -> `CompareContracts: reconActive=1 saveActive=1 phantoms=0 mismatches=0 missing=0` on run `2026-08-20_1644` |
+| Crew | `Jebediah Kerman`, `state = Assigned`, `CAREER_LOG` intact | see edit 4 |
+| Trajectory mirrors | `.prec.txt` committed, `_vessel.craft.txt` / `_ghost.craft.txt` absent | the harness gates the two mirror families in OPPOSITE directions; carrying exactly one family is what lets this fixture be a plain copy of the base tree |
+
+The spec-to-fixture pairing is gated by `L4SpecFixtureSyncTests` in the same file, and
+the structural counts by `CommittedFixtureSweepTests.RECORDED_FIXTURES` in
+`harness/lib/test_saveparse.py`.
+
+## strategy-career (GAME Mode = CAREER, 0 VESSELS)
+
+`fresh-career` with a reputation seed and nothing else. Used by
+`L3-strategy-currency-conversion`, and it exists to close that spec's one pinned
+coverage gap.
+
+**WHY IT EXISTS.** `OperationStrategy_RewardMultiplier_IsNotCaptured` is the
+`StrategyLifecycle` category's NEGATIVE CONTROL - the only declaration that fails if
+`StrategyConversionCapture.EvaluateLegs`'s scoping rule is deleted and the query-family
+door starts capturing everything. Every other cell asserts a movement IS captured and
+would pass in that broken world. On `fresh-career` it self-skipped every run with
+`'LeadershipInitiative' cannot be activated on this save: Cannot afford Setup Cost: Not
+enough Reputation`, so the matrix's only real hole was its own negative control.
+
+**THE REQUIREMENT, READ FROM STOCK.** `Strategies.cfg`'s `LeadershipInitiative` declares
+`initialCostReputationMin = 10.0` / `initialCostReputationMax = 100.0` /
+`factorSliderDefault = 0.05`; `Strategy.InitialCostReputation` is
+`FactorLerp(min, max)` = `Mathf.Lerp(10, 100, 0.05)` = **14.5**, and
+`Strategy.CanBeActivated` compares the CURRENT pool against it (an activation-time
+check, not a persisted one). `Strategy.Create` assigns `factorSliderDefault` whenever
+`Factor == 0`, which the base's EMPTY `STRATEGIES` node guarantees.
+
+**WHY A SEED AND NOT AN IN-BATCH TOP-UP.** A top-up is a positive reputation ACTION and
+there is no positive no-recurve action type, so it would have to survive Parsek's replica
+of KSP's granular curve against the reputation guard's 0.01 epsilon - which is why the
+spec previously refused to force it. A SEED is not an action: it lands as a
+`ReputationInitial` row, which `ReputationModule.ProcessReputationInitial` assigns
+directly, no curve. `Activate()` then charges the 14.5 with
+`AddReputation(-cost, TransactionReasons.StrategySetup)` (a ledger-modelled reason), and
+the cell restores the pool with `SetReputation` (absolute, no curve) in its `finally`.
+
+**WHY A SIBLING AND NOT A SEED ON THE BASE.** See the `fresh-career` section: thirteen
+committed specs sit on that save or its derivatives, and two of them pin post-curve
+reputation amounts that a nonzero pool would move.
+
+| Facet | Pinned value | Why it matters |
+| --- | --- | --- |
+| Reputation rep | `25` | the subject. Solved for, not chosen: floor 14.5 (the gate above), ceiling 35.0 (`UnpaidResearchProgramCfg`'s own lerped reputation setup cost, the next stock threshold a rising pool would newly unblock; `AgressiveNegotiations`' `requiredReputationMin` 38.0 is next after that). 25 is the whole number nearest the centre of `[14.5, 35.0)`. The ceiling matters because two cells in this category take whatever `ProbeActivatableStockStrategy` returns - the FIRST activatable entry in `StrategySystem.Instance.Strategies` - so the seed must move the activatable set as little as the requirement allows. `AppreciationCampaignCfg` (funds-only, already activatable at rep 0) still sits ahead of everything the seed unblocks, so the probe's pick does not move |
+| loadmeta `reputationPercent` | `2` | `(int)(rep / 10f)`, verbatim what `LoadGameDialog`'s save-info reader computes. Load-menu preview only |
+| Funding / RnD | `500000` / `100` | inherited from `fresh-career`; the science seed is what the two science-costing cells top up from |
+| VESSEL count | `0` (inherited) | load-bearing: all seven `StrategyLifecycle` declarations are `Scene = SPACECENTER`, and it is the empty `FLIGHTSTATE` that makes `DecideLoadRoute` take the `NoVesselSpaceCenter` route where they are all eligible. One vessel would route to FLIGHT and scene-skip the whole category |
+| `STRATEGIES` node | empty (inherited) | every strategy is built fresh from config at `factorSliderDefault`, which is what pins the 14.5. A persisted strategy could carry any `factor` |
+| Parsek footprint | none (inherited) | same KSC-route reasoning as the base |
+
+Built BY CONSTRUCTION, headlessly, by `harness/tools/build_strategy_career.py` - no
+forge flight and no operator session. **Exactly two lines** of the save differ from
+`fresh-career`: the GAME `Title` and the `Reputation` SCENARIO's `rep`. `--check`
+re-verifies every post-condition against the COMMITTED bytes, and that path is WIRED:
+`StrategyCareerFixtureDriftTests` / `StrategyCareerSeedBandTests` /
+`L3SpecStagesTheSeededFixtureTests` in `harness/lib/test_strategy_career_fixture.py`
+run the same verify in-process, re-run the splice over the current `fresh-career`
+asserting byte-identity, re-derive BOTH band bounds from the stock numbers, and check
+the spec still stages this fixture and pins the closed tally.
 
 ## fresh-science (GAME Mode = SCIENCE_SANDBOX)
 
