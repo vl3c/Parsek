@@ -675,6 +675,85 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void Diff_MilestoneMissing_IsFormAgnosticLikeThePhantomDirection()
+        {
+            // THE ASYMMETRY THE 2026-08-20 PARSER FIX WOULD OTHERWISE HAVE EXPOSED.
+            // The parser emits BOTH spellings of every milestone, so a nested
+            // milestone the recon credits QUALIFIED used to be reported "missing" for
+            // its BARE twin - a divergence manufactured by the save-side parser's own
+            // double emission, and one strict promotes to a hard failure. The phantom
+            // direction was already form-agnostic; this pins that the reverse is too.
+            //
+            // Latent until now only because no committed career fixture carried a
+            // COMPLETED NESTED milestone. `career-earned-pad` does (`Kerbin/Science`).
+            var save = HealthySave();
+            save.AllMilestoneIds.Add("Kerbin/Science");
+            save.AllMilestoneIds.Add("Science");
+            save.CompletedMilestoneIds.Add("Kerbin/Science");
+            save.CompletedMilestoneIds.Add("Science");   // the parser's bare twin
+            var recon = HealthyRecon();
+            recon.CreditedMilestoneIds.Add("Kerbin/Science");  // qualified form ONLY
+
+            var report = LedgerGroundTruthDiff.Compare(
+                save, recon, FacetTolerances.Default, NoMaxLevels());
+
+            // No Milestone divergence at all - which subsumes "no MissingInRecon"
+            // and additionally pins that the qualified form did not go phantom.
+            Assert.DoesNotContain(report.All, d => d.Facet == DivergenceFacet.Milestone);
+        }
+
+        [Fact]
+        public void Diff_MilestoneMissing_TopLevelIdIsNotSilencedByANestedNamesake()
+        {
+            // THE BOUNDARY OF THE SUPPRESSION, pinned so it cannot widen. The rule is
+            // "a bare twin the PARSER minted from a qualified id it ALSO emitted is not
+            // an independent claim" - keyed on the save's own double emission, NOT on a
+            // last-segment match against the recon. Keying it on the recon would also
+            // silence a genuinely completed TOP-LEVEL milestone whenever the recon
+            // credited some `Body/<same name>`, which is a real (if stock-unreachable)
+            // hole rather than the double-emission artifact being cancelled.
+            //
+            // Here the save completed a TOP-LEVEL `Landing` - no `X/Landing` among its
+            // completed ids, so it has no qualified parent and is nobody's twin - while
+            // the recon credits only `Mun/Landing`. That is a real disagreement and
+            // must still fire.
+            var save = HealthySave();
+            save.AllMilestoneIds.Add("Landing");
+            save.CompletedMilestoneIds.Add("Landing");
+            var recon = HealthyRecon();
+            recon.CreditedMilestoneIds.Add("Mun/Landing");
+
+            var report = LedgerGroundTruthDiff.Compare(
+                save, recon, FacetTolerances.Default, NoMaxLevels());
+
+            Assert.Contains(report.All, d =>
+                d.Facet == DivergenceFacet.Milestone
+                && d.Kind == DivergenceKind.MissingInRecon
+                && d.Identity == "Landing");
+        }
+
+        [Fact]
+        public void Diff_MilestoneMissing_StillFiresWhenNoFormIsCredited()
+        {
+            // The other side of the form-agnostic check: relaxing the spelling must
+            // not relax the FACT. A save-completed milestone the recon credits under
+            // NO spelling is still missing.
+            var save = HealthySave();
+            save.AllMilestoneIds.Add("Kerbin/Science");
+            save.CompletedMilestoneIds.Add("Kerbin/Science");
+            var recon = HealthyRecon();
+            recon.CreditedMilestoneIds.Add("Mun/Landing");   // a different milestone
+
+            var report = LedgerGroundTruthDiff.Compare(
+                save, recon, FacetTolerances.Default, NoMaxLevels());
+
+            Assert.Contains(report.All, d =>
+                d.Facet == DivergenceFacet.Milestone
+                && d.Kind == DivergenceKind.MissingInRecon
+                && d.Identity == "Kerbin/Science");
+        }
+
+        [Fact]
         public void Diff_MilestoneStrictMode_PromotesReportOnly()
         {
             // The strict flag promotes milestone phantom + missing entries to hard.

@@ -570,8 +570,50 @@ namespace Parsek
             }
 
             // Save-completed ids the recon did not credit => missing.
+            //
+            // FORM-AGNOSTIC IN BOTH DIRECTIONS, which the phantom loop above already
+            // was and this one was not. The parser emits BOTH the qualified
+            // ("Kerbin/Science") and the bare ("Science") spelling of every milestone,
+            // so the phantom check's single Contains against AllMilestoneIds matches a
+            // recon id in either form. The reverse loop had no such symmetry: it
+            // demanded the recon credit EVERY spelling the save emitted, so a nested
+            // milestone the recon credits qualified would still be reported "missing"
+            // for its bare twin. That asymmetry was latent only because no career
+            // fixture carried a completed NESTED milestone until 2026-08-20; the
+            // parser fix that made `Kerbin/Science` visible is exactly what would have
+            // surfaced it, as a manufactured divergence strict then promotes to hard.
+            // THE SUPPRESSION IS KEYED ON THE SAVE'S OWN DOUBLE EMISSION, not on a
+            // last-segment match against the recon, and the difference is the only
+            // thing this loop weakens. Expanding RECON ids to their bare form would
+            // also silence a completed TOP-LEVEL milestone `X` whenever the recon
+            // credited any `Body/X` - unreachable on stock data (no stock top-level
+            // Progress id collides with a body-child id) but a real hole. Keying on
+            // the save instead makes the rule exactly "a bare twin the PARSER itself
+            // minted from a qualified id it also emitted is not an independent
+            // claim", so a genuine top-level miss still fires.
+            var saveBareTwins = new HashSet<string>(StringComparer.Ordinal);
             foreach (string id in save.CompletedMilestoneIds)
             {
+                if (string.IsNullOrEmpty(id)) continue;
+                int slash = id.LastIndexOf('/');
+                if (slash >= 0 && slash + 1 < id.Length)
+                    saveBareTwins.Add(id.Substring(slash + 1));
+            }
+
+            foreach (string id in save.CompletedMilestoneIds)
+            {
+                // A bare id the save also emitted in qualified form is the parser's
+                // twin, not a second milestone. (If a save ever completes BOTH a
+                // top-level `X` and some `Body/X`, the bare one is ambiguous and is
+                // suppressed - an ambiguity inherent to the double emission, and
+                // strictly narrower than silencing it from the recon side.)
+                if (!string.IsNullOrEmpty(id)
+                    && id.IndexOf('/') < 0
+                    && saveBareTwins.Contains(id))
+                {
+                    continue;
+                }
+
                 if (!recon.CreditedMilestoneIds.Contains(id))
                 {
                     report.All.Add(new LedgerDivergence
