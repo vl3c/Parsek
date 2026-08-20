@@ -43,7 +43,7 @@ tags = ["ledger", "L3", "ingame-batch", "strategies", "reading-run"]
 # THE BASE CHOICE IS FORCED BY THE SCENE, and the sibling inherits it. All SEVEN
 # StrategyLifecycle declarations are Scene = GameScenes.SPACECENTER. `fresh-career`
 # carries ZERO VESSEL nodes, so TestCommandLoadGame.DecideLoadRoute takes the
-# NoVesselSpaceCenter route and the batch runs where all seven are eligible (the same
+# NoVesselSpaceCenter route and the batch runs where all nine are eligible (the same
 # route B10 and the L1 career family measure). career-pad-craft would route to FLIGHT
 # and scene-skip every one of them - the exact vacuity defect B10 was re-flown to fix.
 #
@@ -96,7 +96,7 @@ kind = "seam"
 # here: a live recorder makes CurrencyConverterStrategy_LedgerMatchesNetCredit Skip
 # rather than run, so auto-record must be off for the batch to have a subject.
 #
-# No `isolated` arg: all seven StrategyLifecycle declarations are batch-allowed, so
+# No `isolated` arg: all nine StrategyLifecycle declarations are batch-allowed, so
 # the isolated filter would admit exactly the same set and
 # CommittedBatchTallySourceSyncTests would (rightly) demand a seam-echo discriminator
 # for a route this spec does not need.
@@ -123,8 +123,9 @@ steps = [
 # measures the drop rather than assuming it.
 #
 # CLAIM-IS-NOT-GATE: backed by the pinned tally below plus the forbidden GUARDED
-# tokens - and the tally is MEASURED (passed=6 skipped=1), so the claim rests on six
-# cells that all actually ran rather than on a predicted split. WHICH six changed on
+# tokens - and the tally is MEASURED (passed=8 skipped=1 as of the rep-debit-capture
+# wave), so the claim rests on cells that all actually ran rather than on a predicted
+# split. WHICH six changed on
 # 2026-08-20: the reputation seed swapped the exchanger arm out and the negative
 # control in, because the two cannot coexist at one reputation value. The EXCHANGER
 # half of the D8 `strategies` claim therefore rests on `2026-08-18_2140`s measurement
@@ -245,11 +246,11 @@ count = { min = 0, max = 0 }
 # source already states its half (RuntimeTests.cs, "REPUTATION GATE, CHECKED AND LOGGED
 # FIRST"), written as a guard against a residue from the reputation cell; what run
 # `2026-08-20_1817` establishes is that the same gate fires on a DELIBERATE seed, and
-# therefore that this category cannot run all seven declarations in ONE batch at ONE
+# therefore that this category cannot run every declaration in ONE batch at ONE
 # reputation value. The seam's `RunTests` selects by CATEGORY only, so there is no
 # per-cell split available either.
 #
-# SO THE PINNED TALLY IS STILL total=7 passed=6 skipped=1 - the SAME SPLIT, a DIFFERENT
+# SO THE PINNED TALLY WAS THEN total=7 passed=6 skipped=1 - the SAME SPLIT, a DIFFERENT
 # NAMED SKIP, and the trade is deliberate: the negative control is the only declaration
 # whose failure detects deletion of the scoping rule (every other cell asserts a
 # movement IS captured and would pass in that broken world), whereas the exchanger arm
