@@ -5612,7 +5612,13 @@ class SaveStructureVerifierWiringTests(unittest.TestCase):
                        # spawned, 9 Vall-frame TS lines) with a byte-identical
                        # gating saveParse payload - the pair's determinism
                        # statement. V5's mid-run-save shape makes the rewind arm
-                       # worth most here.
+                       # worth most here. DISCHARGED 2026-08-20: armed re-flights
+                       # `_1934` (V17M, PASS attempt 1) and `_1939_a2` (V17T,
+                       # PASS; attempt 1 INVALID on a transient TS-re-entry
+                       # LoadGame REJECTED, the retry's job), and ONE negative
+                       # control shared across the pair flown on V17M (`_1941`,
+                       # red EXACTLY on `rewind.supersedeRows 0 < min 1` and
+                       # nowhere else, then reverted).
                        "V17M-laythe-vall-player-loop.toml",
                        "V17T-laythe-vall-ts-arrival.toml",
                        "GS-1-auto-chute-booster.toml", "GS-2-orbital-probe-deploy.toml",

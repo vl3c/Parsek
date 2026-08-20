@@ -1279,3 +1279,29 @@ for every profile the harness can fly, a moon-to-moon recording does not reach t
 all. Section 6's recommendation is unaffected; section 10's V16 readings are unaffected.
 
 ---
+
+### 11.4 The V17 pair's discipline runs - two render findings on the faithful road (2026-08-20)
+
+Both lanes completed the reading -> armed -> negative-control discipline the same day
+(V17M `_1915`/`_1934`/`_1941`, V17T `_1933`/`_1939_a2`; details in the specs and the
+status doc rows). Two findings from the calibration rounds matter beyond the lanes:
+
+- **A nested-SOI recording renders its proto orbit line in the ROOT frame by policy.**
+  `phase=fail-closed-to-faithful surface=ProtoOrbitLine producer=nested-soi
+  provenance=faithful-fallback action=render-recorded-verbatim root=Jool visited=3
+  crossings=2 bodies=Laythe/Jool/Vall` - the two-crossing subject takes the fail-closed
+  verbatim path (`NestedSoiSubtree`/`PhaseFactory`), so a `body=<destination>` pin on the
+  proto-line lens is STRUCTURALLY unsatisfiable for this class. The destination-frame
+  render truth lives on the Director TracedPath shadow drive (`coverage=InSegment
+  segIdx=11 visible=True body=Vall`) and, in the TS, on the dynamic overlap path's
+  `GhostCreated ... body=Vall` at instance creation. Future moon-to-moon lanes should pin
+  those lenses from the start.
+
+- **`icon-off-orbit` did NOT recur on this subject's single-jump TS shape** - the first
+  silent run after six raising ones at three parents, twice over (V17T runs 1 and 2),
+  with the step shape identical to V14T/V15T/V16T. The subject differs in two ways at
+  once (self-overlapping loop; nested-SOI fail-closed proto line), so which one breaks
+  the trigger is an open reading recorded on the family todo entry, with no mechanism
+  claimed.
+
+---
