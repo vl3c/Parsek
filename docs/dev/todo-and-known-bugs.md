@@ -53,7 +53,9 @@ if (complete) {
    descended only into nodes carrying NEITHER key, so `Kerbin/Science` was not merely
    uncompleted, it was **absent from the parse entirely** - which is what made it a
    phantom rather than a "missing" row. Measured: `ParseMilestones: all=5 completed=1`
-   against a save whose Progress tree holds six milestones, three of them complete.
+   before the fix against `all=7 completed=3` after it, on the same bytes - the two
+   newly-visible milestones being `FirstLaunch` (a completion key the parse did not
+   read) and `Kerbin/Science` (a child of a node the walk would not enter).
 
 **A latent asymmetry the fix would otherwise have exposed.** The parser emits BOTH the
 qualified (`Kerbin/Science`) and bare (`Science`) spelling of every milestone. The

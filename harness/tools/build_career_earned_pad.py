@@ -223,9 +223,16 @@ def build(base_lines: List[str], donor_lines: List[str],
     if not base_ut:
         raise SystemExit("base FLIGHTSTATE has no UT")
 
-    # The craft rolls out NOW, not at the donor's launch time.
-    set_value(vessel, vessel_node, "lct", base_ut)
-    set_value(vessel, vessel_node, "lastUT", base_ut)
+    # The craft rolls out NOW, not at the donor's launch time. Return values are
+    # CHECKED, like the two re-stamps above: `verify` compares the FLIGHTSTATE UT
+    # against the recordings, not the vessel's own clock, so a donor that had lost
+    # either key would silently keep its launch time and nothing downstream would
+    # notice.
+    for key in ("lct", "lastUT"):
+        if not set_value(vessel, vessel_node, key, base_ut):
+            raise SystemExit(
+                "donor vessel has no %r key to move onto the career's clock - the "
+                "donor shape changed and this recipe must be re-derived" % key)
 
     # Indent the donor's lines are already at (FLIGHTSTATE child depth) matches
     # the base's, both being GAME > FLIGHTSTATE > VESSEL, so the block is

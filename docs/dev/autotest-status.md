@@ -2945,26 +2945,31 @@ six publish or compare numbers the runner already measured.
     are deliberately out of scope (they call the four entry points directly and no
     driven run reaches them). Review follow-up 2026-08-18; pinned by
     `IsolatedBatchDispatchWiringTests.TheNonSeamEntryPointsResetTheStrictStatic`.
-    **NO COMMITTED SPEC DECLARES IT, and that is a decision rather than an oversight.**
-    The only committed spec driving that diff is `L2-ledger-groundtruth-career`, whose
-    reading run measured `reportOnly=0` on `career-pad-craft`: with nothing to promote,
-    strict there adds NO coverage for a value-drift regression, and arming it would
-    advertise strictness coverage the fixture cannot provide. It is not an inert gate -
-    a recon-invents-an-identity regression (a phantom) is fixture-independent and strict
-    WOULD catch it - so the deferral stands on the SUBJECT being thin, not on the gate
-    being unable to bite.
-    **THE SUBJECT THAT WOULD MAKE IT NON-VACUOUS, named rather than left open-ended:**
-    `c2` promoted to a HARNESS fixture - which carries an open focusability question and
-    is today committed headless-only (`Source/Parsek.Tests/Fixtures/C2Career/`) - **or**
-    any future career fixture carrying recorded crewed recoveries, which is what
-    populates the per-identity facets in the first place. Re-flying `career-pad-craft`
-    cannot produce one.
-    TO CLOSE THIS GATE: land such a fixture, fly the spec that uses it REPORT-ONLY
-    first, triage every promoted divergence, and only then add `strict = "true"`.
-    Two mechanical fences hold the deferral meanwhile:
-    `test_hlib.test_no_committed_spec_arms_the_runtests_strict_arg` (lane-wide) and L2's
-    own pinned `strict=False` logContract token (per-spec) - so an arming that skipped
-    the triage reds in `harness/lib` and on the flight.
+    **ARMED 2026-08-20 (career-ledger wave C), and the gate is CLOSED.** The deferral
+    stood from 2026-08-17 on the SUBJECT being thin rather than the gate being unable to
+    bite: the only spec driving that diff was `L2-ledger-groundtruth-career`, whose
+    reading run measured `reportOnly=0` on `career-pad-craft` - nothing to promote. The
+    close condition it named was "any future career fixture carrying recorded crewed
+    recoveries", and `career-earned-pad` is one: the save
+    `2026-08-19_2130_L3-career-science-recover` produced, with a PRELAUNCH vessel spliced
+    in by `harness/tools/build_career_earned_pad.py` so the `Scene = FLIGHT` cell can run
+    at all (the flown save recovered its craft and carries zero VESSEL nodes).
+    THE CLOSING FOLLOWED THE PRESCRIBED ORDER - report-only reading run first, triage
+    every promoted divergence, only then arm - AND THE TRIAGE FOUND A REAL DEFECT rather
+    than rubber-stamping: reading run `2026-08-20_1508` red on two `PhantomInRecon`
+    milestones traced to `CareerSaveParser` reading one of KSP's three completion keys
+    and refusing to descend past a `reached` node. Fixed, unit-covered, CHANGELOG'd, and
+    re-flown green as `2026-08-20_1519` (`hardFailures=0 reportOnly=0 facetsCompared=10
+    strict=True`). See the `L4-ledger-groundtruth-strict` row in the test-case table and
+    CAREER-SAVE-PARSER-UNDERCOUNTS-COMPLETED-MILESTONES in todo-and-known-bugs.md.
+    THE FENCES CHANGED SHAPE RATHER THAN RETIRING. The lane-wide
+    `test_no_committed_spec_arms_the_runtests_strict_arg` is REWRITTEN into an allowlist
+    (`SpecValidationRejectTests.RUNTESTS_STRICT_ARMED_SPECS`, plus a companion cell
+    requiring every armed spec to pin its own `strict=True` token), so a SECOND arming
+    still reds until its subject is recorded - a bare "nobody arms this" fence would have
+    retired the moment anyone did, taking its evidence trail with it. L2's per-spec
+    `strict=False` token is untouched and still says no for `career-pad-craft`, which is
+    the right answer there and is now asserted with the allowlist's existence in view.
 
 ## Operator items outstanding
 

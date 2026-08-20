@@ -582,19 +582,39 @@ namespace Parsek
             // fixture carried a completed NESTED milestone until 2026-08-20; the
             // parser fix that made `Kerbin/Science` visible is exactly what would have
             // surfaced it, as a manufactured divergence strict then promotes to hard.
-            var reconForms = new HashSet<string>(StringComparer.Ordinal);
-            foreach (string id in recon.CreditedMilestoneIds)
+            // THE SUPPRESSION IS KEYED ON THE SAVE'S OWN DOUBLE EMISSION, not on a
+            // last-segment match against the recon, and the difference is the only
+            // thing this loop weakens. Expanding RECON ids to their bare form would
+            // also silence a completed TOP-LEVEL milestone `X` whenever the recon
+            // credited any `Body/X` - unreachable on stock data (no stock top-level
+            // Progress id collides with a body-child id) but a real hole. Keying on
+            // the save instead makes the rule exactly "a bare twin the PARSER itself
+            // minted from a qualified id it also emitted is not an independent
+            // claim", so a genuine top-level miss still fires.
+            var saveBareTwins = new HashSet<string>(StringComparer.Ordinal);
+            foreach (string id in save.CompletedMilestoneIds)
             {
                 if (string.IsNullOrEmpty(id)) continue;
-                reconForms.Add(id);
                 int slash = id.LastIndexOf('/');
                 if (slash >= 0 && slash + 1 < id.Length)
-                    reconForms.Add(id.Substring(slash + 1));
+                    saveBareTwins.Add(id.Substring(slash + 1));
             }
 
             foreach (string id in save.CompletedMilestoneIds)
             {
-                if (!reconForms.Contains(id))
+                // A bare id the save also emitted in qualified form is the parser's
+                // twin, not a second milestone. (If a save ever completes BOTH a
+                // top-level `X` and some `Body/X`, the bare one is ambiguous and is
+                // suppressed - an ambiguity inherent to the double emission, and
+                // strictly narrower than silencing it from the recon side.)
+                if (!string.IsNullOrEmpty(id)
+                    && id.IndexOf('/') < 0
+                    && saveBareTwins.Contains(id))
+                {
+                    continue;
+                }
+
+                if (!recon.CreditedMilestoneIds.Contains(id))
                 {
                     report.All.Add(new LedgerDivergence
                     {

@@ -293,6 +293,20 @@ bugId = ""
 #                      with `missing=0` still, and `facetsCompared` stayed 10. The
 #                      two pinned lines above are read out of this run's log.
 #
+#   `2026-08-20_1545`  ARMED RUN RE-MEASURED after the code review, and this is a
+#                      DISCIPLINE ENTRY rather than a fourth data point. The review
+#                      narrowed `CompareMilestones`' missing-direction suppression -
+#                      it now keys on the SAVE's own double emission instead of
+#                      expanding recon ids to their bare form, closing a hole where a
+#                      completed TOP-LEVEL milestone could be silenced by a nested
+#                      namesake. That is product code IN THE MEASURED PATH, so the
+#                      pins above stopped being measurements the moment it changed.
+#                      Rebuilt, re-provisioned, hash-verified, re-flown: PASS attempt
+#                      1, 55 s, and BOTH pinned lines came back byte-identical
+#                      (`CompareMilestones: reconCredited=5 saveCompleted=4
+#                      phantoms=0 missing=0` unchanged too). A pin carried across a
+#                      code change on trust is not a pin.
+#
 #   THE NEGATIVE CONTROLS - THREE ATTEMPTS, and the two that FAILED TO RED are
 #   kept because each measured a real property of this gate that nothing else
 #   states. A control that cannot break the thing it is controlling is evidence

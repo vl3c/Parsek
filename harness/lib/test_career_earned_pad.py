@@ -204,8 +204,10 @@ class L4SpecFixtureSyncTests(unittest.TestCase):
         run = [s for s in self._steps() if s.get("cmd") == "RunTests"]
         self.assertEqual(1, len(run))
         self.assertEqual("LedgerGroundTruth", run[0]["args"]["category"])
+        # A TOML bool would arrive here as Python True and fail this equality, which
+        # is the whole check - an isinstance assertion on top of it can never fail
+        # and was removed rather than kept as decoration.
         self.assertEqual("true", run[0]["args"]["strict"])
-        self.assertIsInstance(run[0]["args"]["strict"], str)
 
     def test_auto_record_is_turned_off_before_the_batch(self):
         # GUARD 4 of the in-game cell: a LIVE RECORDER makes

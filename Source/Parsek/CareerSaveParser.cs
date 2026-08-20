@@ -607,10 +607,15 @@ namespace Parsek
             // Recursively walk the Progress tree. Top-level milestone nodes use
             // their bare id; body-subtree children produce qualified ids
             // "<Body>/<Child>" (matching KspStatePatcher.PatchProgressNodeTree).
-            // Emit BOTH the qualified and bare child id. A node is "completed"
-            // when it carries a `completed` field (a `reached`-only node like
-            // RecordsDepth is NOT completed). crew{}/vessel{} sub-nodes are data,
-            // not milestones, and are not walked.
+            // Emit BOTH the qualified and bare child id. A node is "completed" when
+            // it carries ANY of KSP's three completion keys - `completed`,
+            // `completedManned`, `completedUnmanned` - so a `reached`-only node like
+            // RecordsDepth is NOT completed. Being a milestone and being a container
+            // are independent: the walk descends into every child regardless, because
+            // a body node is written `reached` and still carries its achievements.
+            // crew{}/vessel{} sub-nodes are data, not milestones, and are not walked.
+            // The full derivation from the decompiled `ProgressNode.Save` is on the
+            // key test inside WalkProgress.
             int completedCount = 0;
             int allCount = 0;
             WalkProgress(progress, "", snapshot, ref completedCount, ref allCount);

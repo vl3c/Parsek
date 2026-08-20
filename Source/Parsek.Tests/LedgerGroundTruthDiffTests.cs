@@ -697,11 +697,39 @@ namespace Parsek.Tests
             var report = LedgerGroundTruthDiff.Compare(
                 save, recon, FacetTolerances.Default, NoMaxLevels());
 
-            Assert.DoesNotContain(report.All, d =>
-                d.Facet == DivergenceFacet.Milestone
-                && d.Kind == DivergenceKind.MissingInRecon);
-            // ...and it is not silently swallowing a REAL miss either.
+            // No Milestone divergence at all - which subsumes "no MissingInRecon"
+            // and additionally pins that the qualified form did not go phantom.
             Assert.DoesNotContain(report.All, d => d.Facet == DivergenceFacet.Milestone);
+        }
+
+        [Fact]
+        public void Diff_MilestoneMissing_TopLevelIdIsNotSilencedByANestedNamesake()
+        {
+            // THE BOUNDARY OF THE SUPPRESSION, pinned so it cannot widen. The rule is
+            // "a bare twin the PARSER minted from a qualified id it ALSO emitted is not
+            // an independent claim" - keyed on the save's own double emission, NOT on a
+            // last-segment match against the recon. Keying it on the recon would also
+            // silence a genuinely completed TOP-LEVEL milestone whenever the recon
+            // credited some `Body/<same name>`, which is a real (if stock-unreachable)
+            // hole rather than the double-emission artifact being cancelled.
+            //
+            // Here the save completed a TOP-LEVEL `Landing` - no `X/Landing` among its
+            // completed ids, so it has no qualified parent and is nobody's twin - while
+            // the recon credits only `Mun/Landing`. That is a real disagreement and
+            // must still fire.
+            var save = HealthySave();
+            save.AllMilestoneIds.Add("Landing");
+            save.CompletedMilestoneIds.Add("Landing");
+            var recon = HealthyRecon();
+            recon.CreditedMilestoneIds.Add("Mun/Landing");
+
+            var report = LedgerGroundTruthDiff.Compare(
+                save, recon, FacetTolerances.Default, NoMaxLevels());
+
+            Assert.Contains(report.All, d =>
+                d.Facet == DivergenceFacet.Milestone
+                && d.Kind == DivergenceKind.MissingInRecon
+                && d.Identity == "Landing");
         }
 
         [Fact]

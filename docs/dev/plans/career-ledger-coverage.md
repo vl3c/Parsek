@@ -378,6 +378,9 @@ promote. It would still catch a recon-invents-an-identity regression, so the gat
 not inert; the deferral stands because the subject is thin. Two mechanical
 fences hold the deferral: `test_hlib.test_no_committed_spec_arms_the_runtests_strict_arg`
 (lane-wide) and L2's own pinned `strict=False` token (per-spec).
+**SUPERSEDED 2026-08-20 by section 4e** - the deferral is discharged and the lane-wide
+fence is REWRITTEN into the allowlist `RUNTESTS_STRICT_ARMED_SPECS`; this paragraph is
+kept as the evidence trail it was, not as current state.
 
 **A SECOND CANDIDATE SUBJECT EXISTS AS OF 2026-08-19**, and it is exactly the
 "any future career fixture carrying recorded crewed recoveries" this paragraph
@@ -632,6 +635,7 @@ on a strict run is 0 BY CONSTRUCTION.
 | `2026-08-20_1508` | READING RUN, strict armed, pre-fix DLL | **PARSEK-FAIL, and the red IS the measurement.** `result: hardFailures=2 reportOnly=0 facetsCompared=10 strict=True` on exactly two `PhantomInRecon` milestones (`FirstLaunch`, `Kerbin/Science`) and nothing else - science 3-vs-3 clean, the recovery credit consistent, roster / tech / contracts / facilities clean. The reconstruction was RIGHT and the save-side PARSE was short. NOT retried. Filed and fixed as CAREER-SAVE-PARSER-UNDERCOUNTS-COMPLETED-MILESTONES. |
 | `2026-08-20_1519` | ARMED RUN, fixed DLL | **PASS attempt 1**, 55 s, every verifier PASS or REPORT. `BATCH_COMPLETE v1 total=2 passed=1 failed=0 skipped=1`, `result: hardFailures=0 reportOnly=0 facetsCompared=10 strict=True`. The fix moved exactly what it should: `ParseMilestones` 5/1 -> 7/3, phantoms 2 -> 0, `facetsCompared` unchanged at 10. |
 | `2026-08-20_1525` / `_1527` | negative controls 1 and 2 | **DID NOT RED, and both are kept as evidence.** Control 1 corrupted a per-subject science value; Parsek's own load-time `PatchPerSubjectScience` healed it (`7->3`) BEFORE the cell's quicksave. Control 2 stripped `FirstLaunch`'s completion key; KSP's `ProgressTracking` re-achieved it on load. Together they establish a property nothing else states: **fixture-side corruption of any facet the load path re-establishes is not injectable into this cell**, because it measures the LIVE career as of its own quicksave. The reading run's phantoms survived precisely because they were a defect in how the save was READ. |
+| `2026-08-20_1545` | armed run RE-MEASURED after code review | **PASS attempt 1**, and a discipline entry rather than a fourth data point. The review narrowed `CompareMilestones`' missing-direction suppression to key on the save's own double emission instead of expanding recon ids - product code in the measured path, so the pins stopped being measurements the moment it changed. Rebuilt, re-provisioned, hash-verified, re-flown: both pinned lines came back byte-identical. A pin carried across a code change on trust is not a pin. |
 | `2026-08-20_1528` | negative control 3 | **RED AS INTENDED.** `PARSEK-FAIL(expectation)` on `logContracts.required not matched: result: ... strict=True`, from flipping the step's `strict = "true"` to `"false"` and nothing else. This is the control an arming needs: every other verifier stayed green (the default diff also reports `hardFailures=0` on a healthy subject), so without the pinned `strict=True` token a silent disarm would have passed unnoticed. Reverted. |
 
 **What proves strict's promotion itself changes the verdict** is the reading run plus
