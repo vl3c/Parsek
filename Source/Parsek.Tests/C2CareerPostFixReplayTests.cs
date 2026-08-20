@@ -204,9 +204,23 @@ namespace Parsek.Tests
             // A ledger row's `recordingId` pointing at a sidecar that was not copied in
             // is the way a hand-copied save tree rots. The two ids here are the flown
             // main recording and the post-recovery continuation; the trajectory sidecar
-            // is the authoritative one, so it is the one asserted. (The `.prec.txt` /
-            // `.craft.txt` mirrors are DERIVED debug dumps and are deliberately not
-            // carried - 395 KB of text nothing in this suite reads.)
+            // is the authoritative one, so it is the one asserted.
+            //
+            // THE MIRROR POLICY SPLIT (2026-08-20, career-ledger wave C). An earlier
+            // version of this comment said the `.prec.txt` AND `.craft.txt` mirrors were
+            // both deliberately uncarried, as debug dumps nothing in this suite reads.
+            // That is still true of `.craft.txt`, and it is now the WRONG call for
+            // `.prec.txt`, because something outside this suite does read it: the harness
+            // fixture `career-earned-pad` is DERIVED from this directory by
+            // `harness/tools/build_career_earned_pad.py`, and the harness gates the two
+            // mirror families in OPPOSITE directions -
+            // `CommittedFixtureMirrorTests.test_no_snapshot_mirror_is_committed` FORBIDS
+            // `_vessel.craft.txt` / `_ghost.craft.txt` (regenerable from the committed
+            // binaries), while `test_every_committed_trajectory_keeps_its_readable_mirror`
+            // REQUIRES a `.prec.txt` beside every `.prec` (a live test input that
+            // `OptimizerTransferCohesionTests` globs). Carrying exactly `.prec.txt` and
+            // exactly not `.craft.txt` is what lets the derived fixture be a plain copy of
+            // this tree rather than a copy plus an unreproducible hand-patch. 192 KB.
             string recordings = Path.Combine(ResolveFixtureDir(), "Parsek", "Recordings");
             Assert.True(Directory.Exists(recordings), $"no Recordings dir at '{recordings}'");
 
