@@ -261,8 +261,13 @@ namespace Parsek
         // Tooltip state
         private GUIStyle tooltipLabelStyle;
         private Rect scrollViewRect;
-        private GUIStyle zeroHeightLabelStyle;
-        private GUIStyle wrappedTooltipStyle;
+        // Bottom "hovered control help text" strip. See TooltipEchoBox for why it
+        // renders from a Repaint-captured cache rather than a live GUI.tooltip read.
+        private readonly TooltipEchoBox tooltipEcho = new TooltipEchoBox(SpacingSmall);
+        // Window-computed hover text that outranks GUI.tooltip for the strip (the
+        // clamped loop-period cell resolves its own string from a rect hit test).
+        // Cleared at the top of every pass; set during the row draw, i.e. BEFORE
+        // DrawRecordingsWindowTooltip runs.
         private string recordingsWindowTooltipText = "";
 
         // Expanded stats columns
@@ -5741,42 +5746,20 @@ namespace Parsek
             tooltipLabelStyle.fontSize = 11;
         }
 
-        private void EnsureWindowTooltipStyles()
-        {
-            if (zeroHeightLabelStyle == null)
-            {
-                zeroHeightLabelStyle = new GUIStyle(GUI.skin.label)
-                {
-                    fixedHeight = 0f,
-                    stretchHeight = false,
-                    wordWrap = false
-                };
-                zeroHeightLabelStyle.margin = new RectOffset(0, 0, 0, 0);
-                zeroHeightLabelStyle.padding = new RectOffset(0, 0, 0, 0);
-            }
-
-            if (wrappedTooltipStyle == null)
-            {
-                wrappedTooltipStyle = new GUIStyle(GUI.skin.box)
-                {
-                    wordWrap = true,
-                    alignment = TextAnchor.UpperLeft
-                };
-            }
-        }
-
+        /// <summary>
+        /// Bottom "hovered control help text" strip (shared house helper). Called
+        /// AFTER the rows and the bottom bar have drawn, which is the ordering the
+        /// manual side-channel needs: <see cref="recordingsWindowTooltipText"/> is
+        /// cleared at the top of every pass and re-set during Repaint by whichever row
+        /// resolved its own hover string (the clamped loop-period cell, via
+        /// GetLastRect), so by the time the strip's Repaint capture runs the override
+        /// is final for this frame. The strip itself renders from the text captured on
+        /// the PREVIOUS Repaint, so Layout and Repaint always size and paint the same
+        /// string.
+        /// </summary>
         private void DrawRecordingsWindowTooltip()
         {
-            EnsureWindowTooltipStyles();
-
-            string tooltip = !string.IsNullOrEmpty(recordingsWindowTooltipText)
-                ? recordingsWindowTooltipText
-                : (GUI.tooltip ?? string.Empty);
-            GUILayout.Space(tooltip.Length > 0 ? SpacingSmall : 0f);
-            GUILayout.Label(
-                tooltip.Length > 0 ? tooltip : string.Empty,
-                tooltip.Length > 0 ? wrappedTooltipStyle : zeroHeightLabelStyle,
-                tooltip.Length > 0 ? GUILayout.ExpandWidth(true) : GUILayout.Height(0f));
+            tooltipEcho.Draw(recordingsWindowTooltipText);
         }
 
         private void EnsureStatusStyles()

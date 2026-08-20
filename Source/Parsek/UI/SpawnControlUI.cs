@@ -44,6 +44,10 @@ namespace Parsek
         private const float SpawnColW_State = 110f;
         private const float SpawnColW_Warp = 118f;
 
+        // Bottom "hovered control help text" strip. See TooltipEchoBox for why it
+        // renders from a Repaint-captured cache rather than a live GUI.tooltip read.
+        private readonly TooltipEchoBox tooltipEcho = new TooltipEchoBox(SpacingSmall);
+
         private const float SpacingSmall = 3f;
         private const float MinWindowWidth = 350f;
         private const float MinWindowHeight = 150f;
@@ -353,16 +357,13 @@ namespace Parsek
             }
             GUILayout.EndHorizontal();
 
-            string guiTooltip = GUI.tooltip ?? "";
-            if (guiTooltip.Length > 0)
-            {
-                GUILayout.Space(SpacingSmall);
-                GUILayout.Label(guiTooltip, GUI.skin.box);
-            }
-            else
-            {
-                GUILayout.Label("", GUILayout.Height(0));
-            }
+            // Bottom "hovered control help text" strip (shared house helper). The
+            // block this replaced emitted ONE control when GUI.tooltip was empty and
+            // TWO when it was populated - and GUI.tooltip is only ever populated
+            // during Repaint - so hovering "Warp to Next Spawn" overran the layout
+            // group every Repaint ("Getting control N's position in a group with only
+            // N controls"), aborting the resize handle and DragWindow below.
+            tooltipEcho.Draw();
 
             ParsekUI.DrawResizeHandle(spawnControlWindowRect, ref isResizingSpawnControlWindow,
                 "Real Spawn Control window");

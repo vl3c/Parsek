@@ -44,7 +44,10 @@ namespace Parsek
         private bool isResizingTestRunnerWindow;
         private GUIStyle zeroHeightLabelStyle;
         private GUIStyle wrappedErrorLabelStyle;
-        private GUIStyle wrappedTooltipStyle;
+
+        // Bottom "hovered control help text" strip. See TooltipEchoBox for why it
+        // renders from a Repaint-captured cache rather than a live GUI.tooltip read.
+        private readonly TooltipEchoBox tooltipEcho = new TooltipEchoBox(SpacingSmall);
 
         private const float SpacingSmall = 3f;
         private const float DefaultWindowWidth = 440f;
@@ -352,15 +355,6 @@ namespace Parsek
                 };
                 wrappedErrorLabelStyle.margin = new RectOffset(0, 0, 0, 0);
             }
-
-            if (wrappedTooltipStyle == null)
-            {
-                wrappedTooltipStyle = new GUIStyle(GUI.skin.label)
-                {
-                    wordWrap = true
-                };
-                wrappedTooltipStyle.margin = new RectOffset(0, 0, 0, 0);
-            }
         }
 
         private void DrawTestRunnerWindow(int windowID)
@@ -482,14 +476,11 @@ namespace Parsek
             }
             GUILayout.Label("Ctrl+Shift+T to toggle from any scene", GUI.skin.label);
 
-            // Always render tooltip label — conditional rendering causes
-            // Layout/Repaint control count mismatch (IMGUI exception).
-            string tooltip = GUI.tooltip ?? "";
-            GUILayout.Space(SpacingSmall);
-            GUILayout.Label(
-                tooltip.Length > 0 ? tooltip : string.Empty,
-                tooltip.Length > 0 ? wrappedTooltipStyle : zeroHeightLabelStyle,
-                tooltip.Length > 0 ? GUILayout.ExpandWidth(true) : GUILayout.Height(0f));
+            // Bottom "hovered control help text" strip (shared house helper). Restores
+            // the house box style: the plain-label workaround only existed to hide the
+            // one-frame dark sliver that the live GUI.tooltip read produced, which the
+            // helper's Repaint-captured cache removes at the source.
+            tooltipEcho.Draw();
 
             ParsekUI.DrawResizeHandle(testRunnerWindowRect, ref isResizingTestRunnerWindow,
                 "TestRunner window");

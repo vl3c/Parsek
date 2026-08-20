@@ -17,7 +17,6 @@ namespace Parsek
         private const string SettingsInputLockId = "Parsek_SettingsWindow";
         private Rect lastSettingsWindowRect;
         private bool settingsWindowHeightRemeasurePending;
-        private bool tooltipShownLastDraw;
         // Armed on the pass that releases the height, cleared when the fitted height lands
         // (or when the wait below runs out). Only drives logging - never layout.
         private SettingsWindowPresentation.HeightFitLogState heightFitLog;
@@ -35,8 +34,10 @@ namespace Parsek
 
         private const float SpacingSmall = 3f;
         private const float SpacingLarge = 10f;
-        private GUIStyle zeroHeightLabelStyle;
-        private GUIStyle wrappedTooltipStyle;
+
+        // Bottom "hovered control help text" strip. See TooltipEchoBox for why it
+        // renders from a Repaint-captured cache rather than a live GUI.tooltip read.
+        private readonly TooltipEchoBox tooltipEcho = new TooltipEchoBox(SpacingSmall);
 
         public bool IsOpen
         {
@@ -104,7 +105,7 @@ namespace Parsek
             // latch a height that includes a tooltip which disappears the moment the pointer
             // moves - dead space again, just less of it. The request survives, so the fit
             // lands on the first tooltip-free frame.
-            bool remeasuring = settingsWindowHeightRemeasurePending && !tooltipShownLastDraw;
+            bool remeasuring = settingsWindowHeightRemeasurePending && !tooltipEcho.ShownLastDraw;
             // Only the Layout pass computes a size; releasing the height on any other event
             // would hand the chrome a collapsed rect for nothing.
             bool heightFitPass = remeasuring && Event.current.type == EventType.Layout;
@@ -298,7 +299,6 @@ namespace Parsek
 
         private void DrawSettingsWindow(int windowID)
         {
-            EnsureLayoutStyles();
             // Breathing room below the title bar — matches Timeline's visual spacing.
             GUILayout.Space(5);
             var s = ParsekSettings.Current;
@@ -449,40 +449,13 @@ namespace Parsek
             }
             GUILayout.EndHorizontal();
 
-            string tooltip = GUI.tooltip ?? "";
-            // Read by the height re-measure gate in DrawIfOpen (next frame): a measurement
-            // taken while this box is up would bake in a height that vanishes with the box.
-            tooltipShownLastDraw = tooltip.Length > 0;
-            GUILayout.Space(tooltip.Length > 0 ? SpacingSmall : 0f);
-            GUILayout.Label(
-                tooltip.Length > 0 ? tooltip : string.Empty,
-                tooltip.Length > 0 ? wrappedTooltipStyle : zeroHeightLabelStyle,
-                tooltip.Length > 0 ? GUILayout.ExpandWidth(true) : GUILayout.Height(0f));
+            // Bottom "hovered control help text" strip (shared house helper). Its
+            // ShownLastDraw is read by the height re-measure gate in DrawIfOpen (next
+            // frame): a measurement taken while this box is up would bake in a height
+            // that vanishes with the box.
+            tooltipEcho.Draw();
 
             GUI.DragWindow();
-        }
-
-        private void EnsureLayoutStyles()
-        {
-            if (zeroHeightLabelStyle == null)
-            {
-                zeroHeightLabelStyle = new GUIStyle(GUI.skin.label)
-                {
-                    fixedHeight = 0f,
-                    stretchHeight = false,
-                    wordWrap = false
-                };
-                zeroHeightLabelStyle.margin = new RectOffset(0, 0, 0, 0);
-                zeroHeightLabelStyle.padding = new RectOffset(0, 0, 0, 0);
-            }
-
-            if (wrappedTooltipStyle == null)
-            {
-                wrappedTooltipStyle = new GUIStyle(GUI.skin.box)
-                {
-                    wordWrap = true
-                };
-            }
         }
 
         /// <summary>

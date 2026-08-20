@@ -14,6 +14,37 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## ~~TOOLTIP-ECHO-SIZES-FROM-LAST-FRAMES-TEXT: every window's bottom hover-help strip was measured during Layout from the PREVIOUS text and painted during Repaint with the NEW one, and Real Spawn Control's variant also changed its control COUNT between the two passes~~ [FOUND 2026-08-20 from an in-game observation of a one-frame dark sliver at the window bottom; FIXED the same day on branch `tooltip-echo-sizing`]
+
+IMGUI sizes a control during the Layout event and reuses that cached rect during
+Repaint (`GUILayoutUtility.DoGetRect`), while `GUI.tooltip` is populated by the hovered
+control DURING Repaint. All six windows that echo the hovered control's tooltip
+(Settings, Recordings, Logistics, Real Spawn Control, and both test runners) read
+`GUI.tooltip` live, so on the frame a hover started - or the tooltip string changed -
+Layout had sized the label for the OLD value (zero height at hover start) while Repaint
+painted the NEW one: a one-frame dark sliver of `GUI.skin.box` background, re-triggered
+on every crossing onto a tooltipped control, and the mirror image (empty label in a tall
+rect) at hover end. The same divergence clipped a wrapped tooltip in a narrowed window,
+because the wrapped height was computed from a different string than the one painted.
+Real Spawn Control carried the older, worse shape: 1 control when unhovered, 2 when
+hovered, so hovering "Warp to Next Spawn" overran the layout group every Repaint
+(`ArgumentException: Getting control N's position in a group with only N controls`),
+aborting the rest of that window's draw including the resize handle and `GUI.DragWindow`.
+The two test-runner strips had been papered over in `882b30417` by swapping their box
+style for a plain label, which hid the sliver rather than fixing it.
+
+Fix: one shared per-window-instance helper, `Source/Parsek/UI/TooltipEchoBox.cs`. Both
+passes of a frame render from a `cachedText` field written ONLY at the end of a Repaint
+pass, so size and paint can never disagree (the cost is one frame of latency at hover
+start / end); and the emitted shape is invariant - always exactly one `GUILayout.Space`
+plus one `GUILayout.Label`, varying only spacing, content, style and the single layout
+option. All six sites converted; the test runners get the house box style back. Pure
+core (`ResolveEchoLayout` / `ResolveCapturedText`) unit-covered in
+`TooltipEchoBoxTests`; the live IMGUI properties are pinned in-game by
+`LogisticsTooltipEchoImguiTest` (invariant control count AND Layout/Repaint text
+agreement) and the new `TooltipEchoWrapSizingImguiTest` (a >200-character tooltip in a
+220px area reserves more than twice the single-line height).
+
 ## MISSIONS-T2.2-LINEAGE-FAN-NOT-COLLAPSIBLE: the flattened per-vessel rows cannot fold a many-child separation fan [ACCEPTED LIMITATION 2026-08-20, from the Stage-2 review of the missions-UI branch]
 
 The T2.2 flattening (one row per physical vessel, lineage-only depth) renders a vessel's
