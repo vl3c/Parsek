@@ -22,11 +22,21 @@ id = "FORGE-b18-dres-pad"
 # launch site + crew names. This spec is the SIXTH consumer of both.
 #
 # THE CRAFT is `Duna Rocket` (KerbalX, author Steltuck), a PURE STOCK 92-part
-# 1.12.1 craft committed VERBATIM -- byte-identical to its download, sha256
-# f664d7ce27710420976e5454ccaed9c1ae872a302455e7369048ffdf8f555fc2. It is NOT
+# 1.12.1 craft committed VERBATIM -- CONTENT-identical to its download, and
+# LF-NORMALISED on commit, so there are TWO hashes and only one of them is of
+# anything in this repository:
+#   f504608c5a3b36bd2d121f6f178d03d2b9e11b1cc4e5ed36b611f7a5a9289328  AS COMMITTED
+#     (harness/fixtures/ships/Duna Rocket.craft: 213,198 bytes, 0 CRLF, 12,804 LF)
+#   f664d7ce27710420976e5454ccaed9c1ae872a302455e7369048ffdf8f555fc2  the CRLF form
+#     the download arrives in (226,002 bytes) -- the figure this comment used to
+#     print alone, under the words "byte-identical to its download", which was FALSE
+#     as written because it matches no committed file (FORGE-CRAFT-BYTE-IDENTICAL-
+#     CLAIM-IS-FALSE-AS-WRITTEN in docs/dev/todo-and-known-bugs.md)
+# The LF form is STABLE in every working tree: .gitattributes:30 marks
+# `harness/fixtures/** -text`, disabling EOL conversion in both directions. It is NOT
 # authored by construction the way the DD1 was (build_dd1_craft.py), so it carries
-# no derivation record and no drift gate: the craft file itself IS the record. It
-# was NOT edited to add MechJeb -- MechJeb capability is INSTALL-side on this
+# no derivation record and NOTHING GATES EITHER HASH: the craft file itself IS the
+# record. It was NOT edited to add MechJeb -- MechJeb capability is INSTALL-side on this
 # profile (the provisioner's MM patch adds MechJebCore to every pod), which is why
 # a grep for `mechjeb` over this craft returns zero hits exactly like every other
 # committed fixture craft.

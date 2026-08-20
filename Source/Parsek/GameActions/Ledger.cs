@@ -930,8 +930,19 @@ namespace Parsek
                     if (actions[i].InitialFunds == 0f && initialFunds != 0.0)
                     {
                         actions[i].InitialFunds = (float)initialFunds;
+                        // MUST bump: this repair path MUTATES a row's value, and the
+                        // FundsInitial seed is the base of every running funds balance
+                        // the reconstruction computes. Readers cache derived values
+                        // against StateVersion - EffectiveState.ComputeELS,
+                        // SupersedeCommit's world-action safety cache, and
+                        // ParsekKSC.GetNextKscLedgerActionUTAfter's scan - so a repair
+                        // that does not bump leaves them serving answers built on the 0
+                        // seed this call just replaced. Same stale-cache class as the
+                        // truncate mutator below.
+                        BumpStateVersion();
                         ParsekLog.Info("Ledger",
-                            $"SeedInitialFunds: updated stale 0-value seed to {initialFunds.ToString("R", CultureInfo.InvariantCulture)}");
+                            $"SeedInitialFunds: updated stale 0-value seed to {initialFunds.ToString("R", CultureInfo.InvariantCulture)}, " +
+                            $"stateVersion={StateVersion.ToString(CultureInfo.InvariantCulture)}");
                         return;
                     }
 
@@ -1063,8 +1074,22 @@ namespace Parsek
             if (newCount >= actions.Count) return;
             int removed = actions.Count - newCount;
             actions.RemoveRange(newCount, removed);
+            // MUST bump, exactly like every other mutator on this list.
+            // EffectiveState.ComputeELS caches its result against StateVersion, so a
+            // truncation that does not bump leaves the ELS cache serving rows that are
+            // no longer in the ledger - and the next reader sees them as real.
+            //
+            // Measured on the L3 reading run 2026-08-18_2136: the in-game
+            // ExchangerStrategy_OneShot_CapturesBothLegs cell took a pre-exchange ELS
+            // tally straight after the preceding cell's teardown truncation, got that
+            // cell's already-removed rows in its baseline, and computed a row DELTA of
+            // convDebitRows=-1 sciCreditRows=-1 fundsRows=0. The exchanger door had in
+            // fact written its FundsEarning row correctly; the stale cache subtracted a
+            // phantom one, and a correct door read as a missing capture.
+            BumpStateVersion();
             ParsekLog.Verbose("Ledger",
-                $"TruncateActionsForTesting: removed={removed}, newCount={actions.Count}");
+                $"TruncateActionsForTesting: removed={removed}, newCount={actions.Count}, " +
+                $"stateVersion={StateVersion}");
         }
 
         // ================================================================

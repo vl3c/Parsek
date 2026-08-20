@@ -375,14 +375,30 @@ namespace Parsek.Reaim
         /// <summary>
         /// Re-plans + builds the heliocentric transfer Orbit for one window and finds its target-SOI
         /// entry. Returns true with <paramref name="transferOrbit"/> (Sun-relative conic),
-        /// <paramref name="soiEntryUT"/> (when the transfer enters the target's SOI), and
-        /// <paramref name="encounterBody"/> (== targetBody) on success. Returns false (with a reason)
-        /// when the bodies do not share a parent, the Lambert solve fails / is degenerate, or
-        /// PatchedConics finds no target encounter - the caller then steps to the next window. Live
-        /// (reads FlightGlobals body orbits + stock PatchedConics); not unit-testable off-Unity (the
-        /// in-game canary is its test). <paramref name="tofSeconds"/> should be the Hohmann time for
-        /// THIS window's geometry (plan review M3), not the recorded tof.
+        /// <paramref name="soiEntryUT"/> (a target-SOI handoff instant - see the precision contract in
+        /// the remarks), and <paramref name="encounterBody"/> (== targetBody) on success. Returns false
+        /// (with a reason) when the bodies do not share a parent, the Lambert solve fails / is
+        /// degenerate, or PatchedConics finds no target encounter - the caller then steps to the next
+        /// window. Live (reads FlightGlobals body orbits + stock PatchedConics); not unit-testable
+        /// off-Unity (the in-game canary is its test). <paramref name="tofSeconds"/> should be the
+        /// Hohmann time for THIS window's geometry (plan review M3), not the recorded tof.
         /// </summary>
+        /// <remarks>
+        /// <paramref name="soiEntryUT"/> PRECISION IS PATH-DEPENDENT (todo entry
+        /// REAIM-SYNTH-GEOMETRY-SOI-CHECK, settled 2026-08-19). The contract is the one
+        /// <see cref="IsGenuineTargetSoiEntry"/> states - an instant strictly after departure at which
+        /// the transfer is proven WITHIN the target's SOI - and NOT "the sphere-boundary crossing". On
+        /// the patched-conic fast path stock's <c>UTsoi</c> IS the boundary (measured: the geometry
+        /// line's @soi check reads the SOI radius to within 1 m at Dres, exactly at Moho). On the
+        /// proximity fallback it is the FIRST of 96 coarse samples inside the sphere - up to
+        /// tofSeconds/96 LATE, degenerating to arrivalUT itself (the target's centre, @soi = 0 m) when
+        /// only the final sample is inside (measured at Eeloo; Jool read 0.844 SOI). A consumer that
+        /// needs the actual boundary must refine it - ReaimPlaybackResolver.RefineSoiEntryUT is that
+        /// seam (the S4 restitch bisects before reading the entry bearing). Deliberately NOT refined
+        /// here: the sweep's job is encounter detection, the emitted sample is the datum that proved
+        /// the encounter, and two armed harness lanes (V12A, V13A) pin the emitted value
+        /// byte-for-byte.
+        /// </remarks>
         internal static bool TrySynthesizeTransfer(
             CelestialBody launchBody, CelestialBody targetBody, double departureUT, double tofSeconds,
             bool prograde,
@@ -761,8 +777,14 @@ namespace Parsek.Reaim
         // departure-seam geometric proof (that r1 == the rendered park-end, evaluated at RecordedDepartureUT
         // rather than departureUT) lives in the in-game r1==park-end gate (ReaimEndToEndInGameTest) + the
         // pure DecideDepartureAnchor eval-UT unit test, not here. xfer-vs-target@soi must be <= the target
-        // SOI. All positions are parent-relative in the orbit API's native frame. Verbose, one-shot per
-        // window resolve (the resolver caches the window).
+        // SOI - and that inequality is the WHOLE cross-path contract (REAIM-SYNTH-GEOMETRY-SOI-CHECK,
+        // settled 2026-08-19): on the (patched-conic) path soiEntryUT is stock's boundary crossing, so the
+        // check reads the SOI radius itself; on the (proximity) path it is the first coarse within-SOI
+        // sample, so the check reads anywhere in [0, SOI) - 0 m when the sample degenerated to arrivalUT
+        // (the measured Eeloo case), 0.844 SOI at Jool. The two variants are NOT comparable with each
+        // other, and lane specs must not arm the proximity reading as a boundary measurement (V13A
+        // deliberately pins only the `(SOI=...)` constant). All positions are parent-relative in the
+        // orbit API's native frame. Verbose, one-shot per window resolve (the resolver caches the window).
         private static void LogSynthGeometry(
             Orbit transfer, CelestialBody launchBody, CelestialBody targetBody,
             double departureUT, double arrivalUT, double soiEntryUT, string path,
@@ -803,6 +825,15 @@ namespace Parsek.Reaim
         // target's sphere of influence. The Lambert solve aims the transfer at the target's position at
         // arrivalUT, so a converged solution always passes near arrivalUT; this bypasses
         // PatchedConics.CalculatePatch masking the target behind the launch body's SOI.
+        //
+        // The returned soiEntryUT is the first within-SOI SAMPLE, not the sphere-boundary crossing: the
+        // true crossing is up to (arrivalUT - departureUT)/96 earlier, and when only the final sample
+        // (i == samples, t == arrivalUT) is inside, soiEntryUT == arrivalUT exactly - the conic sits at
+        // the target's CENTRE there (the measured Eeloo case, @soi = 0 m in the geometry line). That is
+        // the contract, not a defect (REAIM-SYNTH-GEOMETRY-SOI-CHECK, settled 2026-08-19): boundary
+        // refinement is the consumer's job (ReaimPlaybackResolver.RefineSoiEntryUT bisects before the S4
+        // restitch reads the entry bearing) - read the soiEntryUT remarks on TrySynthesizeTransfer
+        // before "fixing" this to bisect at source (two armed lanes pin the emitted value).
         private static bool TryFindTargetEncounterByProximity(
             Orbit transfer, CelestialBody target, double departureUT, double arrivalUT, out double soiEntryUT)
         {
