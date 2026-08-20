@@ -24,7 +24,8 @@ pure base-stock set (ReStock / Making-History parts dropped).
 
 Shared by B10 + the four career L1 scripts (hire / dismiss / research / upgrade) +
 `R7c-rewind-spacecenter`, and the derivation base for `career-pad-craft` (and, below
-that, `career-science-pad` / `career-earned-pad`) and for `strategy-career`.
+that, `career-science-pad` / `career-earned-pad`, and below `career-science-pad` again,
+`career-contract-pad`) and for `strategy-career`.
 
 **Its `rep = 0` is load-bearing DOWNSTREAM, not just here.** KSP's granular reputation
 curve is state-dependent, and `CL-2-pod-impact-ledger` - which flies `career-pad-craft`,
@@ -387,7 +388,7 @@ directly, no curve. `Activate()` then charges the 14.5 with
 `AddReputation(-cost, TransactionReasons.StrategySetup)` (a ledger-modelled reason), and
 the cell restores the pool with `SetReputation` (absolute, no curve) in its `finally`.
 
-**WHY A SIBLING AND NOT A SEED ON THE BASE.** See the `fresh-career` section: thirteen
+**WHY A SIBLING AND NOT A SEED ON THE BASE.** See the `fresh-career` section: fourteen
 committed specs sit on that save or its derivatives, and two of them pin post-curve
 reputation amounts that a nonzero pool would move.
 

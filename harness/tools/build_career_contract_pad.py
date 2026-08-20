@@ -105,7 +105,6 @@ get_value = base_builder.get_value
 set_value = base_builder.set_value
 set_top_value = base_builder.set_top_value
 
-CREW_NAME = base_builder.CREW_NAME
 FIXTURE_NAME = "career-contract-pad"
 BASE_NAME = "career-science-pad"
 TITLE = "career-contract-pad (CAREER)"
@@ -176,21 +175,34 @@ CONTRACT_A_DEADLINE_UT = "9201600"
 CONTRACT_B_DEADLINE_UT = "100"
 
 # The penalty pack the synthetic fail applies. `FundsModule` and the reputation
-# module subtract these from the reconstruction, and `KspStatePatcher` then
-# writes the reconstruction back into the live career - so these two numbers
-# MOVE TWO REAL POOLS, which is the half of the fail transition a log line alone
-# would not prove.
+# module subtract these from the RECONSTRUCTION - and that is where they stop.
 #
-# SIZED TO KEEP BOTH POOLS POSITIVE ON A YOUNG CAREER, deliberately. The funds
-# figure is a real generated PartTest's `values[4]` (`FundsFailure`) off
+# MEASURED, run `2026-08-20_2240`: the walk really does spend the pack
+# (`running=527558` against `live=536558` for funds, `running=0.99999749660491943`
+# against `live=1.9999988079071045` for reputation), and `KspStatePatcher`'s
+# guarded drawdown then refuses to write either pool back, so NEITHER LIVE POOL
+# MOVES in this fixture's shape. That is the guard working as designed here: this
+# save's stock `CONTRACTS` node is EMPTY by construction, so stock never debited
+# the pools for B and the recalc reaches the patcher as a bare drawdown with no
+# time-travel context. An earlier revision of this comment predicted the opposite
+# ("these two numbers MOVE TWO REAL POOLS"); the flight refuted it. Full finding:
+# SYNTHETIC-CONTRACT-FAIL-PENALTY-CLAMPED-BY-DRAWDOWN-GUARD in
+# `docs/dev/todo-and-known-bugs.md`.
+#
+# SIZED TO KEEP BOTH POOLS POSITIVE ON A YOUNG CAREER - which is now a DEFENSIVE
+# choice rather than a live constraint, since the guard clamps and no live pool
+# reaches these numbers at all today. The sizing holds against a future change of
+# guard POLICY: if the drawdown guard is ever taught to let a contract penalty
+# through, this fixture must not be the run that first drives a pool negative.
+# The funds figure is a real generated PartTest's `values[4]` (`FundsFailure`) off
 # `375b4446-c861-4b4d-bf97-ef38407246a4` in
 # `Source/Parsek.Tests/Fixtures/C2CareerPostFix/`, and 9000 against a career that
 # ends the flight near 536000 is comfortably inside the black. The reputation
 # figure is NOT that contract's `values[7]` of 4: this career ends the flight at
-# reputation 2, and a 4-point penalty would drive the pool NEGATIVE - a state
-# stock supports but that no committed run has ever exercised, which would put an
-# unrelated first on the same flight as this one. 1 keeps the pool positive and
-# still moves it, which is what the gate needs.
+# reputation 2, and a 4-point penalty would AIM the pool NEGATIVE - a state stock
+# supports but that no committed run has ever exercised, which would put an
+# unrelated first on the same flight as this one. 1 keeps the sizing safe and
+# still moves the reconstruction, which is what the gate needs.
 CONTRACT_FUNDS_PENALTY = "9000"
 CONTRACT_A_REP_PENALTY = "4"
 CONTRACT_B_REP_PENALTY = "1"
@@ -277,9 +289,11 @@ def build(base_lines: List[str], title: str) -> List[str]:
     also spliced a `state = Active` CONTRACT and a `FirstLaunch` progress node
     into the save; run `2026-08-20_2217_L5-career-contract-complete` measured
     both as inert - see the module docstring. Everything this fixture now claims
-    lives in the ledger sidecar, which the same run measured as loading
-    correctly (`Loaded ledger ... actions=1, parseErrors=0`, then `Accept:` for
-    the spliced guid)."""
+    lives in the ledger sidecar, which that same run measured as loading
+    correctly. THE QUOTE IS HISTORICAL: that build carried ONE accept row and
+    logged `Loaded ledger ... actions=1, parseErrors=0` followed by `Accept:` for
+    the spliced guid. The SHIPPED fixture carries TWO accept rows (see
+    `LEDGER_LINES`), so the current expectation is `actions=2`."""
     lines = list(base_lines)
     if not set_top_value(lines, "Title", title):
         raise SystemExit("base save has no GAME-level Title line")

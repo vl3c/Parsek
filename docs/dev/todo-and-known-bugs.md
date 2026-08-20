@@ -38,19 +38,38 @@ PatchFunds: GUARDED DRAWDOWN clamped resource=Funds running=527558 live=536558 w
 PatchReputation: GUARDED DRAWDOWN clamped resource=Reputation running=0.99999749660491943 live=1.9999988079071045 wouldBeTarget=0.99999749660491943 clampedTo=1.9999988079071045 (no time-travel context) - earned value preserved; ledger may be missing an earning channel
 ```
 
-The guard is doing exactly what it was built for: a pool going DOWN with no
-time-travel context is the signature of a ledger that is missing an earning channel,
-and the guard's whole job is to preserve earned value rather than trust an
-incomplete reconstruction. It cannot distinguish that case from a legitimate
-contract penalty, because the only evidence it has is the direction of travel.
+**Why the guard clamps HERE, and why that does not generalise.** In THIS fixture the
+save's stock `CONTRACTS` node is EMPTY BY CONSTRUCTION - `career-contract-pad` splices
+nothing into `ContractSystem`, and both contracts exist only as fixture-authored
+`type = 5` rows in `Parsek/GameState/ledger.pgld`. Stock therefore never debited the
+live pools for B's failure, because stock never knew B existed. The reconstruction
+spends the penalty pack and the live pool does not follow, so the recalc arrives at
+the patcher as a bare drawdown with no time-travel context - which is exactly the
+missing-earning-channel signature the guard exists to refuse. The drawdown direction
+here is an artifact of the fixture's shape, guaranteed by construction, and not
+evidence about how the guard treats contract penalties in general.
 
-**Why this is filed rather than fixed.** Deciding what SHOULD happen is a policy
-question about the drawdown guard, not a small obvious fix, and it has a real
-argument on each side. A contract failure is a genuine debit a player would expect
-to feel; equally, a guard that lets any recalc reduce a career's funds is exactly the
-protection PR #1097 exists to provide. The honest interim state is: the ledger
-reconstruction is CORRECT and the live career is UNCHANGED, and both halves are now
-measured rather than assumed. `L5-career-contract-complete` pins
+**A REAL stock contract fail is a different shape, and it is UNTESTED rather than
+measured to clamp.** When stock fails a live contract it applies the penalty to the
+live pool ITSELF at fail time, and Parsek captures the terminal `ContractFail` row
+through `GameStateEventConverter.ConvertContractFailed`
+(`Source/Parsek/GameActions/GameStateEventConverter.cs` ~:811-828) into `FundsModule`
+and the reputation module. Both sides then move together: the reconstruction's running
+value and the live pool step down by the same pack, so the patcher sees no unexplained
+drawdown and there is nothing to clamp. No committed run has ever flown that shape, so
+the real-stock-fail signature is an OPEN question, not a demonstrated clamp. **Do NOT
+relax the PR #1097 earned-value guard on this entry's evidence** - this entry measures
+a synthetic fixture in which the guard is behaving correctly.
+
+**The policy question, and why it is parked.** IF a real-stock-fail scenario is ever
+flown and IT measures a clamp, then there is a genuine policy decision to take about
+the drawdown guard, with a real argument on each side: a contract failure is a debit a
+player would expect to feel; equally, a guard that lets any recalc reduce a career's
+funds is exactly the protection PR #1097 exists to provide. Until such a run exists
+that question is not live, and nothing in this lane proposes a product change. The
+honest interim state is: on this synthetic fixture the ledger reconstruction is
+CORRECT and the live career is UNCHANGED, and both halves are now measured rather than
+assumed. `L5-career-contract-complete` pins
 `PatchFunds: GUARDED DRAWDOWN clamped resource=Funds` as a required token precisely
 so a change in either direction reds and forces the decision to be taken on purpose.
 The numbers are deliberately NOT in the token: `running=` moves during the recalc
@@ -58,13 +77,31 @@ burst (the same run logged an earlier clamp at `running=522200 live=531200`, bef
 the recovery credit landed) and `live=` is the flight's own earnings, which
 `L3-career-science-recover` owns.
 
-**Note for whoever takes it.** The same run measured that the synthetic row is
-WALK-LOCAL: the produced `ledger.pgld` carries the two accepts and NO `type = 7`
-row, so the injection re-derives on every walk rather than being persisted once.
-That is what makes the token stable across runs, and it also means any fix has to
-keep working on a re-derived row rather than on a stored one. Evidence:
-`logs/2026-08-21_0124_L5-career-contract-complete/` (flight 1) and the
-`2026-08-20_2240` result JSON.
+**Note for whoever takes it: the synthetic row is WALK-LOCAL, and that property is
+OBSERVED but UNGATED.** The same run measured that the produced `ledger.pgld` carries
+the two accepts and NO `type = 7` row, so the injection re-derives on every walk
+rather than being persisted once. That is what makes the token stable across runs, and
+it also means any fix has to keep working on a re-derived row rather than on a stored
+one. It is structurally true today - `RecalculationEngine.SortActions` returns a NEW
+list ("the input is not modified"), and `PrePassAllModules` hands the modules that
+copy (`Source/Parsek/GameActions/RecalculationEngine.cs` ~:709), so an injected row
+lives and dies inside one walk. But NOTHING GATES IT. Residual risk, one line: a
+refactor that passed the LIVE action list to `PrePass` instead of the copy would
+persist the synthetic row and this spec would still be green, because every run
+re-copies the committed fixture over the previous run's save.
+
+**Evidence, and it is quoted rather than pointed at.** The durable record is what is
+already reproduced VERBATIM above: the three measured lines (`PrePass: injected
+synthetic ContractFail ...` / `DeadlineExpired: ...` / `Fail: ...`), the two
+`GUARDED DRAWDOWN clamped` lines, and the pool comparisons `running=527558` against
+`live=536558` for funds and `running=0.99999749660491943` against
+`live=1.9999988079071045` for reputation. They are quoted in full BECAUSE the green
+run's artifacts (`2026-08-20_2240_L5-career-contract-complete.*` under
+`harness/results/`) are generated and gitignored - nothing outside this entry preserves
+them. Do NOT cite `logs/2026-08-21_0124_L5-career-contract-complete/` for THIS finding:
+that folder is flight 1, whose ledger loaded `actions=1` and which logged ZERO
+injection lines, so it contradicts rather than supports this entry. It is the correct
+pointer for the Progress-node finding below, and only there.
 
 ## SAVE-AUTHORED-PROGRESS-NODE-DOES-NOT-RESTORE: a `Progress { FirstLaunch }` node written into a file-constructed career save is not read back, and it silently kills any save-authored Active `PartTest` [MEASURED 2026-08-20 by `L5-career-contract-complete`'s first flight (run `2026-08-20_2217`). HARNESS-FIXTURE FINDING, REPORT-ONLY: no product change is proposed, and nothing gates it. It is filed because it BLOCKS a specific class of fixture and because the next author to try one will otherwise spend the same flight]
 
