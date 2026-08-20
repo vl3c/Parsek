@@ -27,11 +27,16 @@ Shared by B10 + the four career L1 scripts (hire / dismiss / research / upgrade)
 that, `career-science-pad` / `career-earned-pad`) and for `strategy-career`.
 
 **Its `rep = 0` is load-bearing DOWNSTREAM, not just here.** KSP's granular reputation
-curve is state-dependent, so `CL-2-pod-impact-ledger` - which flies `career-pad-craft`,
-derived from this save - pins POST-CURVE amounts that are functions of the pool:
-`Added -9.999828 (-10) reputation: 'VesselLoss'`, as a logContract regex AND as a
-ledger-oracle manifest amount. `oracle.apply_rep_curve` puts that same -10 nominal at
--10.254 from rep 25. A consumer that needs a nonzero reputation therefore gets a SIBLING
+curve is state-dependent, and `CL-2-pod-impact-ledger` - which flies `career-pad-craft`,
+derived from this save - pins KSP's OWN post-curve digits as an EXACT-DIGIT logContract
+regex: `Added -9.999828 (-10) reputation: 'VesselLoss'`, plus
+`Added 0.9999995 (1) reputation: 'Progression'`. Measured against `oracle.apply_rep_curve`
+as of PR #1508's residual-step port - which now reproduces that Progression pin to all
+seven printed digits at rep 0, so it is a calibrated instrument rather than an analogy -
+a -10 nominal lands at -9.9996061 from rep 0 against -10.0001546 from rep 25, a 5.5e-4
+shift and ~500x the last printed digit. Note which surface binds: the oracle's reputation
+FACET would NOT red (5.5e-4 sits far inside its 0.1 tolerance); the exact-digit regex is
+what would have to be re-flown. A consumer that needs a nonzero reputation therefore gets a SIBLING
 (see `strategy-career`), never a seed here; `FreshCareerStaysUnseededTests` in
 `harness/lib/test_strategy_career_fixture.py` is what makes that a red rather than an
 argument.

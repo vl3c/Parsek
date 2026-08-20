@@ -66,14 +66,19 @@ tags = ["ledger", "L3", "ingame-batch", "strategies", "reading-run"]
 # WHY A SIBLING RATHER THAN SEEDING `fresh-career`. Six other committed specs stage
 # `fresh-career` directly and six more stage `career-pad-craft`, which
 # `build_career_pad_craft.py` DERIVES from it. KSP's granular reputation curve is
-# STATE-DEPENDENT, so two of those pin values that are functions of the pool:
-# CL-2-pod-impact-ledger pins the post-curve crew-loss hit
-# `Added -9.999828 (-10) reputation: 'VesselLoss'` as both a logContract regex and a
-# ledger-oracle manifest amount. `oracle.apply_rep_curve` puts that -10 nominal at
-# -9.958 from rep 0 and at -10.254 from rep 25, against a 0.1 rep tolerance - so
-# seeding the base would have re-opened every one of those pins for a gap that belongs
-# to this spec alone. This is the `career-science-pad` precedent applied to the other
-# base fixture.
+# STATE-DEPENDENT, and `CL-2-pod-impact-ledger` pins its output as an EXACT-DIGIT
+# logContract regex on KSP's OWN line - the crew-loss hit
+# `Added -9.999828 (-10) reputation: 'VesselLoss'` and the two `+1` Progression awards
+# `Added 0.9999995 (1) reputation: 'Progression'`. Measured against
+# `oracle.apply_rep_curve` as of PR #1508's residual-step port - which now reproduces
+# that Progression pin to all seven printed digits at rep 0, so it is a calibrated
+# instrument and not an analogy - a -10 nominal lands at -9.9996061 from rep 0 against
+# -10.0001546 from rep 25. That 5.5e-4 shift is ~500x the last printed digit, so the
+# exact-digit regex would stop matching, and seeding the base would have re-opened it
+# for a gap that belongs to this spec alone. NOTE WHICH SURFACE BINDS: the oracle's own
+# reputation FACET would NOT red (5.5e-4 sits far inside its 0.1 tolerance), so the cost
+# is a re-flown logContract pin rather than a manifest amount. This is the
+# `career-science-pad` precedent applied to the other base fixture.
 #
 # The fixture also satisfies the cells' own guards: career mode, Funding /
 # ResearchAndDevelopment / Reputation singletons all present, an EMPTY `STRATEGIES`

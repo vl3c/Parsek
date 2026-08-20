@@ -223,12 +223,17 @@ class FreshCareerStaysUnseededTests(unittest.TestCase):
 
     Seeding `fresh-career` itself would have propagated through
     `build_career_pad_craft.py` into `career-pad-craft` and on into
-    `career-science-pad`, re-opening thirteen committed specs. Two of them pin
-    POST-CURVE reputation amounts, and KSP's granular reputation curve is
-    STATE-DEPENDENT - `oracle.apply_rep_curve` puts a -10 nominal at -9.958 from
-    rep 0 and at -10.254 from rep 25, against a 0.1 rep tolerance. This cell is
-    what makes a future "just seed the base" reopen the argument instead of the
-    pins."""
+    `career-science-pad`, re-opening thirteen committed specs. CL-2 pins KSP's
+    own post-curve digits as an EXACT-DIGIT logContract regex, and KSP's granular
+    reputation curve is STATE-DEPENDENT: `oracle.apply_rep_curve` - post PR
+    #1508's residual-step port, which reproduces CL-2's `+1` Progression pin to
+    all seven printed digits at rep 0, making it a calibrated instrument rather
+    than an analogy - puts a -10 nominal at -9.9996061 from rep 0 against
+    -10.0001546 from rep 25, a 5.5e-4 shift and ~500x the last printed digit.
+    WHICH SURFACE BINDS MATTERS: the oracle's own reputation FACET would NOT red
+    at that size (0.1 tolerance), so the cost is a re-flown logContract pin
+    rather than a manifest amount. This cell is what makes a future "just seed
+    the base" reopen the argument instead of the pins."""
 
     def test_fresh_career_still_seeds_reputation_zero(self):
         builder = _load_builder()

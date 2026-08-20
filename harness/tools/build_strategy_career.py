@@ -57,16 +57,26 @@ below that. Mutating the base would re-open all of them, and two of them pin
 values that are FUNCTIONS OF THE REPUTATION POOL, because KSP's granular
 reputation curve is state-dependent:
 
-    CL-2-pod-impact-ledger pins, as a logContract regex AND as a ledger-oracle
-    manifest amount, the post-curve crew-loss hit
+    CL-2-pod-impact-ledger pins KSP's OWN post-curve digits as an EXACT-DIGIT
+    logContract regex - the crew-loss hit
         "Added -9.999828 (-10) reputation: 'VesselLoss'"
-    and the two post-curve `+1` Progression awards
+    and the two `+1` Progression awards
         "Added 0.9999995 (1) reputation: 'Progression'"
 
-    `oracle.apply_rep_curve` (Parsek's replica of the same curve) puts a -10
-    nominal at -9.958 from rep 0 and at -10.254 from rep 25 - a ~0.3 shift
-    against a 0.1 rep tolerance. Every one of those pins would have to be
-    re-flown and re-measured.
+    `oracle.apply_rep_curve` (Parsek's replica of the same curve, as of PR
+    #1508's residual-step port - which reproduces that Progression pin to all
+    seven printed digits at rep 0, so it is a calibrated instrument and not an
+    analogy) puts a -10 nominal at -9.9996061 from rep 0 against -10.0001546
+    from rep 25. That 5.5e-4 shift is ~500x the last printed digit, so the
+    exact-digit regex would stop matching and would have to be re-flown and
+    re-measured.
+
+    NOTE WHICH SURFACE BINDS: the oracle's own reputation FACET would NOT red at
+    that size (its tolerance is 0.1), so the cost of seeding the base is a
+    re-flown logContract pin rather than a moved manifest amount. Stated
+    precisely because the first draft of this file claimed a ~0.3 shift against
+    the 0.1 facet tolerance, which was measured against the PRE-#1508 replica
+    and is wrong.
 
 So `fresh-career` is NOT touched. This builds a sibling beside it, and `--check`
 re-verifies both the base's career post-conditions and this fixture's own.
