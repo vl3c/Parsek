@@ -1194,7 +1194,7 @@ namespace Parsek
         {
             for (Exception current = ex; current != null; current = current.InnerException)
             {
-                if (current is System.Security.SecurityException)
+                if (current is System.Security.SecurityException || current is MissingMethodException)
                     return true;
             }
 

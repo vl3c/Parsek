@@ -416,14 +416,88 @@ namespace Parsek
 
         #region Resource Handlers
 
-        private void SeedResourceState()
+        /// <summary>
+        /// True while any resource baseline is still unseeded (NaN).
+        ///
+        /// <para>
+        /// An unseeded baseline is not inert: <see cref="OnScienceChanged"/> /
+        /// <see cref="OnFundsChanged"/> / <see cref="OnReputationChanged"/> all stamp the new
+        /// value and then <c>return</c> on <c>IsNaN(old)</c>, so the FIRST real change of the
+        /// scene is silently consumed as the primer - no event, no log, and (for science) no
+        /// reason capture for the subject that caused it. See
+        /// <see cref="SeedResourceState"/> for why a baseline can start out NaN.
+        /// </para>
+        /// </summary>
+        internal bool HasUnseededResourceBaselines =>
+            double.IsNaN(lastFunds) || double.IsNaN(lastScience) || double.IsNaN(lastReputation);
+
+        /// <summary>
+        /// Seeds any still-unseeded resource baseline from the live currency singletons, and
+        /// reports whether all three are now seeded.
+        ///
+        /// <para>
+        /// <b>Fill-only-NaN, so it is safe to call repeatedly.</b> A baseline that is already
+        /// seeded is left alone; overwriting one would silently swallow whatever changed since
+        /// it was taken.
+        /// </para>
+        ///
+        /// <para>
+        /// <b>Why a baseline can start out NaN</b> (CAREER-TRANSMIT-SCIENCE-EMITS-NO-CORROBORATING-EVENT):
+        /// a fresh recorder is constructed and subscribed from <c>ParsekScenario.OnLoad</c> on
+        /// every scene load, and KSP calls OnLoad from the middle of
+        /// <c>ScenarioRunner.LoadModules</c> - so the currency ScenarioModules that happen to
+        /// sit after Parsek's in the save can still be null here. On the flight that found
+        /// this, <c>ResearchAndDevelopment.Instance</c> was null at the space-centre subscribe,
+        /// <c>lastScience</c> stayed NaN, and the recovered Mystery Goo's +3.6 science credit
+        /// was eaten as the primer: no <c>ScienceChanged(VesselRecovery)</c> event, so the
+        /// subject reached the ledger with an empty reason, fell back to
+        /// <c>method=Transmitted</c>, and the post-walk reconcile could never match it.
+        /// <c>ParsekScenario</c> re-runs this once the singletons appear.
+        /// </para>
+        /// </summary>
+        internal bool SeedResourceState()
         {
-            if (Funding.Instance != null)
-                lastFunds = Funding.Instance.Funds;
-            if (ResearchAndDevelopment.Instance != null)
-                lastScience = ResearchAndDevelopment.Instance.Science;
-            if (Reputation.Instance != null)
-                lastReputation = Reputation.Instance.reputation;
+            lastFunds = SeedBaselineIfUnseeded(
+                lastFunds,
+                Funding.Instance != null,
+                Funding.Instance != null ? Funding.Instance.Funds : 0.0);
+            lastScience = SeedBaselineIfUnseeded(
+                lastScience,
+                ResearchAndDevelopment.Instance != null,
+                ResearchAndDevelopment.Instance != null ? ResearchAndDevelopment.Instance.Science : 0.0);
+            lastReputation = (float)SeedBaselineIfUnseeded(
+                lastReputation,
+                Reputation.Instance != null,
+                Reputation.Instance != null ? Reputation.Instance.reputation : 0.0);
+
+            return !HasUnseededResourceBaselines;
+        }
+
+        /// <summary>
+        /// Pure baseline-seeding decision: take the singleton's value ONLY when the baseline is
+        /// still unseeded (NaN) AND the singleton exists.
+        ///
+        /// <para>
+        /// Both halves matter. Overwriting a seeded baseline would discard the change history
+        /// between the old baseline and now - the very swallow this seeding exists to prevent -
+        /// and a value read from an absent singleton would be a fabricated zero, which for
+        /// funds or science is a large false delta on the next real change.
+        /// </para>
+        ///
+        /// <para>
+        /// A genuinely-zero pool (fresh career science, a career that started at reputation 0)
+        /// seeds to 0 and is then SEEDED, not unseeded: zero is a real baseline, and only NaN
+        /// means "never read".
+        /// </para>
+        /// </summary>
+        internal static double SeedBaselineIfUnseeded(
+            double currentBaseline,
+            bool singletonPresent,
+            double singletonValue)
+        {
+            if (!double.IsNaN(currentBaseline))
+                return currentBaseline;
+            return singletonPresent ? singletonValue : currentBaseline;
         }
 
         private void OnFundsChanged(double newFunds, TransactionReasons reason)

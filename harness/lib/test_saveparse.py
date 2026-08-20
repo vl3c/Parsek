@@ -647,6 +647,7 @@ class CommittedFixtureSweepTests(unittest.TestCase):
         "bdock-station-craft": True,
         "bdock-station-pad": True,
         "career-pad-craft": True,
+        "career-science-pad": True,
         # THE ONE ENTRY DERIVED FROM A RECORDED FIXTURE RATHER THAN FORGED.
         # `duna-park-probe` is `duna-direct-recorded` with Parsek's own state
         # removed: the `Parsek/` sidecar directory pruned by a harvest WITHOUT

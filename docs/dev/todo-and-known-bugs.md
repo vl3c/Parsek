@@ -310,6 +310,616 @@ in that spec.
 
 ---
 
+## ~~HARNESS-CANNOT-EARN-CAREER-CURRENCY~~ - no driven run could collect science, transmit it, or recover a vessel, so `ScienceEarning` rows and vessel-recovery credits were reachable only from a hand-played save [CAPABILITY SHIPPED 2026-08-19, branch `c2-postfix-forge`; FLOWN MISSION-OK 2026-08-19 on run 2026-08-19_1912 (career-science-pad); one residual survives and is NOT closed]
+
+Filed and closed in the same entry because the gap was never a defect - it was a
+missing capability nobody had written down, and writing it down only to close it
+two lines later is how the residual stays visible.
+
+### The gap, as measured
+
+Five facts, each verified against source rather than assumed:
+
+1. `mlib` had no `ACTION_*` constant for collecting science, transmitting it, or
+   recovering a vessel.
+2. `KrpcMissionControl.perform` had no branch for any of the three (an action
+   with no branch raises `unknown action kind` and ends the mission as
+   MISSION-ERROR, so the constant alone would have been worse than nothing).
+3. `TelemetrySnapshot` had no channel that could OBSERVE any of the three
+   outcomes - no experiment counts, no `Recoverable`, and no career pools.
+4. The M-A2 seam had no verb for any of it either, so the "drive it through the
+   seam instead" alternative did not exist.
+5. `KscAction` has exactly four sub-actions - research a node, upgrade a
+   facility, hire a kerbal, accept a contract - and **every one of them is a
+   SPEND**. Nothing in the harness credited anything.
+
+The consequence was structural, not cosmetic: `ScienceEarning` is produced only
+from flight science subjects via
+`GameStateEventConverter.ConvertScienceSubjects`, so with no mission collecting
+science, no driven run could ever produce one. Same for a vessel-recovery credit.
+Both row families are most of what a real career ledger is made of, which is why
+`docs/dev/plans/career-ledger-coverage.md` recorded "a forged career can NEVER
+cover science" as a hard ceiling, and why B.4's strict-mode arming had no subject
+except promoting a hand-played save.
+
+### What closed it
+
+Three mission actions (`run_science_experiments`, `transmit_science`,
+`recover_vessel`), six opt-in telemetry channels, and the
+`science_bench_recover` mission, which delegates its flight leg to `b1_decide`
+verbatim and adds COLLECT -> TRANSMIT -> RECOVER. Binding contract:
+`docs/dev/design-autotest-mission-library.md` Amendment A. The sequencing to a
+harvested fixture is `career-ledger-coverage.md` section 4d.
+
+**WAVE 2 OPENED 2026-08-19** (`postfix-career-flight`): the smoke spec is promoted
+verbatim as the committed `harness/scenarios/L3-career-science-recover.toml`
+(`tier = "operator"`, no pins - the L2 B.1 reading-run hold). Section 4d's one open
+fixture question ("does `career-pad-craft` carry a science part at all?") is
+**answered by READING the fixture rather than by flying it**: the craft is the stock
+Jumping Flea and already carries three `ModuleScienceExperiment` modules (two
+`GooExperiment` canisters plus the pod's crew report), a `ModuleScienceContainer`, a
+`ModuleDataTransmitter` and Jebediah aboard - so the budgeted sibling-fixture
+derivation is struck and no committed fixture is touched. The other named wave-2
+question, whether `CommitTree` is still the right verb once recovery has already
+changed the scene, is **answered from source before the flight and then MEASURED by
+keeping the step**: recovery destroys the active vessel, so
+`ParsekFlight.OnVesselWillDestroy` stashes the tree PENDING and
+`ParsekTestCommandAddon` answers `ERROR / no-active-tree`. The spec therefore adds
+`SetSetting autoMerge=true` (CL-2's measured silent scene-exit auto-commit path,
+without which `SceneExitInterceptor` raises an approval dialog no seam verb answers)
+and keeps `CommitTree` as a non-gating measurement.
+
+Two design points worth carrying out of it, because both are the kind of thing
+that is re-derived wrongly later:
+
+- **The career pools are populated on a `vessel_lost` snapshot**, alongside
+  `crew_roster_status` and for the identical reason. Recovering the active vessel
+  DESTROYS it, so the frame that proves the recovery happened necessarily has no
+  vessel on it. Without that carry the success terminal is unobservable and every
+  good recovery reads as a break-up. The three VESSEL-scoped science channels are
+  deliberately NOT carried there - a recovered craft has none.
+- **`Vessel.Recover()` is scene-level and terminal.** Stock recovery removes the
+  craft and leaves FLIGHT, and `_fly_loop_body` does not wrap `control.perform` -
+  so a machine that emits any action after the recover verb performs it against a
+  vessel that no longer resolves and reports MISSION-ERROR instead of the outcome
+  it had a name for. Emit it once, last. kRPC also THROWS on a non-recoverable
+  vessel, so both the runner and the machine read `Vessel.Recoverable` first.
+- **A recovery credit must STRADDLE the recovery, and this one cost a review to
+  catch.** "The craft is gone" and "the funds pool is higher than the baseline"
+  are both true of a craft that BLEW UP, if the second reading is allowed to be a
+  PRE-loss one. `recoverMinFundsGain` is author-set and legitimately 0.0, so
+  `0.0 >= 0.0` held on the first vessel-gone frame and a break-up was certified
+  RECOVERED - a wrong outcome in the SUCCESS direction, which is the worst class
+  this harness can emit, and no spec could have prevented it. Two structural
+  guards, both needed: the credit is computed from a reading taken ON a
+  vessel-gone frame, and a loss BEFORE the verb was issued is routed to
+  `vessel-lost-before-recovery` instead of reaching the success branch. A replay
+  negative control against the old predicates returned RECOVERED for both shapes.
+  The general lesson is the transferable one: when a gate compares a baseline
+  against "the latest reading", ask what happens if the latest reading predates
+  the event the gate is about.
+- **A COMMANDED LATCH IS NOT "IT HAPPENED", AND THE SAME HOLE HAD A SECOND
+  DOOR** - found by the follow-up review of the fix above. The carve-out that
+  decides whether a break-up is a loss or a candidate recovery keyed off the verb
+  having been EMITTED, but the runner's read-before-ask lock can DECLINE it:
+  `Vessel.Recoverable` reads false (or raises) at perform time, or `Recover()`
+  itself raises. Nothing told the machine, so the latch stood true for a recovery
+  that never happened, and at a 0.0 funds floor with a readable unmoved pool the
+  same settle-flicker-then-explosion run certified RECOVERED. The fix is a real
+  OBSERVATION CHANNEL rather than a stricter predicate:
+  `TelemetrySnapshot.recover_request_result` carries `ISSUED` / `DECLINED` /
+  `UNREADABLE` / `FAILED` back from every exit of the perform branch (sticky, and
+  carried on a `vessel_lost` snapshot for the career pools' reason exactly - a
+  successful recovery removes the craft, so ISSUED and vessel-gone arrive on the
+  same frame), and the latch now means ISSUED. A decline gets a BOUNDED RE-EMIT,
+  like the collect / transmit sweeps, because its live shape is a craft that has
+  not finished settling; a persistent one still lands on the existing
+  `vessel-not-recoverable` terminal, so no new verdict was invented. Pinned by a
+  replay-control pair: the same frames with the latch set by hand on emission
+  reach RECOVERED in-suite, which is what makes the fix cell a fix.
+  **The transferable half:** a latch fed by "we sent the command" is evidence of
+  nothing when the seam that performs it is allowed to say no. Either the seam
+  reports its outcome, or the latch has to be read as "we tried".
+
+### RESIDUAL - the unaffordable-spend ORDERING shape is still unforgeable
+
+This is the half of the ceiling that did NOT move, and it is the half the parked
+science finding needs. `KscAction` pre-refuses an unaffordable research at the
+door, so a forged ledger cannot contain a spend that was judged unaffordable at
+its reconstructed balance - which is exactly the shape of the c1 `heavyRocketry`
+finding (cost 90 against a reconstructed 85.3). Being able to CREDIT science does
+not help: the refusal is at the seam, before any row is written. That finding
+stays owned by the synthetic two-action unit test (`ScienceSpendingOrderingTests`,
+plan task A.1), and a future forge must NOT be scoped to it.
+
+## ~~CAREER-FORGE-NEEDS-A-DIRECT-ANTENNA: the post-fix career forge cannot transmit science, because stock refuses to transmit over a command pod's INTERNAL antenna~~ [MEASURED 2026-08-19 by `L3-career-science-recover` flight 2 (runs `2026-08-19_1823` + retry `_1831_a2`), root cause PROVEN from the decompiled `Assembly-CSharp`. NOT a product defect and NOT a harness defect: the MISSION named a FIXTURE fault correctly. SIBLING FIXTURE `career-science-pad` BUILT 2026-08-19 on branch `career-science-craft`, and LIVE-PROVEN the same day by flight 3 (run `2026-08-19_1912`, MISSION-OK, `transmit_science sent=1`) - see the FLIGHT 3 block below. CLOSED]
+
+`L3-career-science-recover` flight 2 flew a textbook mission and then condemned
+itself. The flight leg was perfect - peak apoapsis 19,990 m inside the
+6,000-30,000 m window, chute armed at the apoapsis crossing, `LANDED` - and
+COLLECT ran all three experiments aboard (`run_science_experiments ran=3
+skipped=0 failed=0`, `experimentsAboard=3 experimentsAvailable=3 dataMax=3`).
+TRANSMIT then ran its full 120 s budget across four bounded re-emit sweeps and
+credited nothing:
+
+    [Mission][Warn][Science] experiment transmit failed: RuntimeError:
+      No transmitters available to transmit the data
+        at KRPC.SpaceCenter.Services.Parts.Experiment.Trans...
+    [Mission][Info][Science] transmit_science sent=0 skipped=0 failed=3
+
+Ten identical raises, deterministic across both attempts, and the terminal is
+`transmit-credited-no-science` with `scienceBaseline=100.000 scienceNow=100.000`.
+
+### The root cause, decompiled rather than guessed
+
+kRPC filters the vessel's transmitters by `IScienceDataTransmitter.CanTransmit()`
+and raises when none passes. Decompiling the shipped
+`automation/stock-minimal/KSP_x64_Data/Managed/Assembly-CSharp.dll`,
+`ModuleDataTransmitter.CanTransmit()` reads, in order: `moduleIsEnabled`, then
+**`antennaType != 0`**, and only THEN the CommNet leg (`vessel.connection` non-null,
+`SignalStrength > 0`, `ControlPath.IsLastHopHome()`). `AntennaType.INTERNAL` is
+enum value 0, so **an INTERNAL antenna can never transmit science, connected or
+not.** The `career-pad-craft` Jumping Flea's only transmitter is `mk1pod.v2`'s
+built-in one (`antennaType = INTERNAL`, `antennaPower = 5000`), so no craft in
+that fixture can ever satisfy the TRANSMIT phase. Nothing about CommNet,
+ElectricCharge (50 units, unspent) or the ground stations is involved; the save's
+own `CommNetParams` are healthy (`enableGroundStations = True`).
+
+### Why this is a FIXTURE fault and not a contract to relax
+
+`design-autotest-mission-library.md` Amendment A already draws this line: a
+terminal that reads "the fixture is wrong, and re-flying it changes nothing" is
+an ASSERT-FAIL naming the fixture, which is exactly what fired, and the terminal's
+own reason text lists "no antenna" first. The mission behaved correctly. What the
+amendment got WRONG is one clause of A.2, now corrected in place: it claimed
+`Experiment.Transmit()` "succeeds with no antenna", and it does not - it raises.
+
+### ~~Fix: a career fixture whose craft carries a DIRECT antenna~~ BUILT 2026-08-19 as `career-science-pad`
+
+The `career-pad-craft` fixture must NOT be mutated (six committed specs fly it),
+so the fix is a SIBLING, and the `SurfAntenna` (Communotron 16-S,
+`antennaType = DIRECT`) is **already in the fixture's purchased-parts set**, so no
+tech-tree work was needed.
+
+**THE ROUTE THIS ENTRY ORIGINALLY SIZED WAS THE EXPENSIVE ONE, and the cheap one
+turned out to exist.** The sizing above proposed the FORGE precedent - author a
+`.craft` by construction, add a `FORGE-*` spec that launches it onto the pad over
+a CAREER base, harvest it, register it, re-point the spec: two flights plus
+scaffolding. It was reached for because no committed `.craft` for the Jumping Flea
+exists anywhere (the craft lives only as a `FLIGHTSTATE` VESSEL node inside
+`b1-pad-craft`), so `build_career_pad_craft.py`'s donor-splice had no donor - and
+because hand-authoring a surface-attached PART node into a FLIGHTSTATE is the
+failure mode this repo's automation-first fixture rule exists to avoid.
+
+**What was missed is that "hand-authored" and "authored by a committed script" are
+not the same thing, and the three named hazards each have a mechanical answer.**
+`harness/tools/build_career_science_pad.py` splices three additive PART nodes
+(`SurfAntenna` + 2x `batteryPack`) into `career-pad-craft`'s VESSEL node:
+
+- **fresh `persistentId`** - assigned as fixed literals, and `verify` asserts both
+  `persistentId` and `uid` are unique across the whole vessel. A collision is the
+  failure mode a hand-written node actually has and it does not announce itself.
+- **`srfN` / `attN` strings** - `srfN = srfAttach, 0` with `attm = 1`, which is the
+  exact shape the two Mystery Goos on this same pod already carry. Every parent /
+  surface-attach index in the produced save is range-checked.
+- **`stg` renumber** - **not needed.** Every spliced part is `istg = -1`, and they
+  are APPENDED after the last existing part, so no existing index moves and no
+  `parent` / `srfN` / `attN` / `sym` reference in the save is disturbed. The
+  eight parts the base flies are asserted BYTE-IDENTICAL.
+
+The pose is DERIVED rather than typed: position and rotation are the -x Mystery
+Goo's measured pair carried through one rigid yaw about the pod's +Y axis, so the
+new parts land on free azimuths of a ring KSP itself authored. The whole thing is
+gated by `CareerSciencePadFixtureDriftTests` (byte-identity against a fresh
+rebuild over the current base) and `CareerSciencePadSpecFixtureSyncTests` (the
+spec/fixture pairing) in `harness/missions/lib/test_science_bench_recover.py`, and
+the fixture measures `RED=0` under the analyzer's Forbid gate. Zero forge flights.
+
+**One thing the antenna alone would NOT have fixed, and it is why the fixture
+carries batteries too.** Stock charges `packetResourceCost` per `packetSize` Mits
+and both come off the ANTENNA: through a `SurfAntenna` (2 Mits / 12 EC) the three
+experiments aboard cost 156 EC to transmit, against the pod's 50 - which flight 2
+measured as UNSPENT at touchdown, so 50 was genuinely all a transmit would have
+had. Two Z-100s take the craft to 250 EC. Swapping
+`transmit-credited-no-science` for an EC stall would have cost another flight to
+discover.
+
+**Worth taking with that wave, but not before it:** "no transmitter aboard" and
+"transmitted and nothing was credited" are the same side of the retry line and
+different diagnoses, and only the first is a fixture fault a re-fly cannot change.
+The sweep already counts them separately (`failed=3` vs `sent=0`); the terminal
+reason does not yet distinguish them.
+
+**What flight 2 also proved in passing, and it is most of the forge:** everything
+up to the transmit is sound on this fixture. The recorder produced a real flight,
+the career funds pool moved on its own (`500000 -> 530400`, the stock launch
+milestones), the three career-scoped channels read cleanly on every frame, and
+the collect verb stored data on all three modules. Only the transmit leg is
+blocked, and the recovery leg was never reached.
+
+**FLIGHT 3 (`2026-08-19_1912`) FLEW THE NEW FIXTURE AND THE ANTENNA DIAGNOSIS HELD
+EXACTLY.** MISSION-OK, all nine phases (`PRELAUNCH ASCENT COAST DESCENT LANDED
+COLLECT TRANSMIT RECOVER RECOVERED`), 341 s of flight: `transmit_science sent=1
+skipped=2 failed=0` against flight 2's `sent=0 failed=3`, and the craft was
+recovered. The run still classified `PARSEK-FAIL(expectation)` - on a forbidden
+`[Parsek][ERROR]` token, and on three findings behind it, filed as the three
+entries immediately below. Those are the forge working: the whole point of making
+a career EARN was to reach ledger row families nothing could reach before, and the
+first flight to reach them found two of them broken.
+
+---
+
+## ~~CAREER-RECOVERY-FUNDS-NOT-LEDGERED: a recovered vessel's funds credit is observed as an event and never written as a ledger row, so a replay reconstructs funds short by the whole refund~~ [FOUND 2026-08-19 by `L3-career-science-recover` flight 3 (run `2026-08-19_1912`), the first driven run ever to recover a vessel. Cause read off the flight log, not guessed. CAPTURE-SIDE FIX LANDED 2026-08-19 on branch `career-capture-fixes`; the two `C2CareerPostFixReplayTests` pins below DO NOT move until the fixture is re-flown and re-harvested]
+
+**Fix:** the guard's input was wrong, exactly as this entry predicted, and the
+reason is structural rather than a race. Decompiled `VesselRecovery.OnVesselRecovered`
+(KSP 1.12.5) stamps `missionRecoveryDialog.beforeMissionFunds` BEFORE
+`GameEvents.onVesselRecoveryProcessing.Fire`, assigns `totalFunds` AFTER it, and
+never assigns `fundsEarned` before the fire at all - the part-value payout is
+produced by the event's own subscribers. So at Parsek's capture seam the snapshot
+is always `before=<real>, earned=0, total=0`, and
+`RecoveryPayoutContextStore.FundsSnapshotLooksInitialized`'s "any field is
+non-zero" test read that as an authoritative "stock will pay zero".
+
+The predicate is now `FundsSnapshotIsAuthoritative` and requires the triple to be
+internally COHERENT (`total == before + earned` within a float tolerance), which the
+pre-payout shape can never satisfy - so the guard reports "unknown" and the deferred
+pairing runs, taking its amount from the actual `FundsChanged(VesselRecovery)` delta.
+The guard now fails OPEN (queue and pair) instead of CLOSED (silently drop a real
+credit). A genuine zero-payout recovery read at a coherent moment is still coherent,
+still suppresses, and still writes nothing.
+
+Because that leaves every production context payout-unknown at the processing seam,
+`onVesselRecoveryProcessingComplete` is now also subscribed
+(`ParsekScenario.OnVesselRecoveryProcessingComplete` ->
+`RecoveryPayoutContextStore.TryRefreshPayoutFromCompletion`). KSP fires it as the
+LAST statement of `VesselRecovery.OnVesselRecovered`, right after stamping
+`totalFunds` and folding the currency-modifier delta into `fundsEarned` - the first
+moment the snapshot is coherent - so the zero / below-threshold suppression keeps a
+REAL expectation instead of being permanently unknown. It never downgrades an
+already-authoritative context, and KSP's `quick` recovery path fires completion with
+a null dialog, which correctly leaves the context unknown.
+
+Cells (`GameStateRecorderLedgerTests`): `FundsSnapshotIsAuthoritative_ProcessingSeamShape_IsNotAuthoritative`,
+`_CoherentSnapshots_AreAuthoritative`, `RecoveryPayoutContext_ProcessingSeamSnapshot_DefersInsteadOfSuppressing`,
+`_PairsTheRealCreditExactlyOnce` (both directions: the row is written once, and a
+replayed event does not double-count against the direct channel),
+`RecoveryPayoutContext_CoherentZeroPayout_StillWritesNothing`, and the two
+`TryRefreshPayoutFromCompletion_*` cells. Mutation-verified: restoring the old
+predicate reds 5 of them.
+
+The career forge exists to produce two row families a KSC button cannot: flight
+`ScienceEarning` rows, and the funds credit from a recovered vessel. Flight 3
+produced the first and NOT the second.
+
+Stock paid 4558 for the recovered Jumping Flea. The observation channel saw it:
+
+    [Parsek][VERBOSE][GameStateRecorder] Emit: FundsChanged key='VesselRecovery' ...
+    [Parsek][INFO][GameStateRecorder] Game state: FundsChanged +4558 (VesselRecovery) -> 536558
+
+The ledger did not. The committed `ledger.pgld` carries 13 actions and **zero
+`FundsEarning` (type 2) rows** - only `FundsInitial` and five
+`MilestoneAchievement` rows carry funds at all.
+
+### The branch, named
+
+    [Parsek][VERBOSE][Scenario] Recovery processing captured: vessel='Jumping Flea'
+      ... ut=347.5 fundsEarned=0.0 before=532000.0 total=0.0 recoveryFactor=1
+    [Parsek][VERBOSE][LedgerOrchestrator] OnVesselRecoveryFunds: vessel='Jumping Flea'
+      ... - skipping deferred recovery-funds pairing (stock expected zero recovery funds)
+
+Parsek pre-computes what it expects stock to pay, gets `fundsEarned=0.0`, and on
+that basis takes the "stock expected zero recovery funds" skip - so the deferred
+pairing that would have written the row never runs. Stock then paid 4558 anyway.
+The guard is not wrong to exist; its INPUT is wrong, and it fails CLOSED in the
+direction that silently drops a real credit.
+
+**Consequence, measured:** `C2CareerPostFixReplayTests` reconstructs funds at
+532000 against the save's 536558 - short by exactly 4558. Pinned there as a
+DATA-ERA magnitude, with a structural sibling cell
+(`FixtureLedger_HasNoFundsEarningRow_TheUncapturedRecoveryCredit`) that flips the
+moment a re-harvest on fixed code carries the row.
+
+**Not to be confused with** the recovery's SCIENCE leg, which IS captured
+correctly (`recovery@KerbinFlew`, `scienceAwarded = 5`, `method = Recovered`, and
+its post-walk reconcile MATCHES on the `VesselRecovery` key). One leg of one event
+is captured and the other is not - the same shape as
+STRATEGY-SCIENCE-CONVERSION-LEAK, mirrored.
+
+---
+
+## ~~CAREER-SCIENCE-SEED-LOST-ON-FLIGHT-ROUTE: the science and reputation seeds never land when a career is entered through FLIGHT, so a replay reconstructs the pool short by the whole starting balance~~ [FOUND 2026-08-19 by `L3-career-science-recover` flight 3 (run `2026-08-19_1912`). Cause read off the flight log. CAPTURE-SIDE FIX LANDED 2026-08-19 on branch `career-capture-fixes`; the two `C2CareerPostFixReplayTests` pins below DO NOT move until the fixture is re-flown and re-harvested]
+
+**Fix:** the refusing guard was left exactly as it is - it is correct, and this fix
+is entirely upstream of it, as this entry called for.
+
+The deferred seed was **not deferred at all**. `StartCoroutine` runs a coroutine body
+synchronously up to its first `yield`, and `DeferredSeedAndRecalculate` was started
+from `ParsekScenario.OnLoad` - which KSP calls from the MIDDLE of
+`ScenarioRunner.LoadModules`, while it is still walking the save's `SCENARIO` nodes and
+constructing the remaining `ScenarioModule`s. Every readiness probe in the coroutine
+could be satisfied without ever yielding: phase 1 waited only while ALL THREE currency
+singletons were null, and phase 2 only while ALL THREE read zero, so a single loaded
+`Funding` ended both waits on the calling frame. The whole "wait for the singletons"
+body therefore executed inside `OnLoad`, with `ResearchAndDevelopment.Instance` and
+`Reputation.Instance` still null. That is what the `Funding=500000, Science=null,
+Rep=null` line is: not a slow load, but a probe taken too early to see them.
+
+Two changes, both in `ParsekScenario`:
+
+1. **Phase 0** - an unconditional `yield return null` before any probe, so the
+   coroutine actually resumes after KSP's synchronous module-load pass. One frame is
+   enough: `LoadModules` is synchronous, so by the next frame every scenario module for
+   the scene exists.
+2. **Phase 1 requires ALL of them** via the new `AllCurrencySingletonsPresent()`, not
+   any one. The gate is PRESENCE, not a non-zero value: `ScenarioRunner.AddModule(ConfigNode)`
+   constructs a module and calls its `Load(node)` in one synchronous call, so a
+   coroutine can never observe a singleton existing-but-unloaded - while a pool that
+   genuinely sits at zero is indistinguishable from an unloaded one BY VALUE, which is
+   precisely why a value gate is the wrong instrument here. The wait stays bounded
+   (`CurrencySingletonWaitMaxFrames`) and falls through for sandbox / science-mode,
+   which never load the full set.
+
+The `DeferredSeed` log line now carries `singletons all present=<bool> after <n> frames`
+so the next run states this directly instead of leaving it to be inferred.
+
+Cells (`CareerSeedReadinessTests`): `DeferredSeed_YieldsBeforeProbingAndWaitsForEveryCurrencySingleton`
+and `AllCurrencySingletonsPresent_RequiresAllThreeNotAnyOne` (source-text gates - the
+coroutine runs on a `ScenarioModule` and reads Unity singletons, so it is held the same
+way the other `ParsekScenario` hookup tests are). Mutation-verified: deleting the phase-0
+yield reds the first cell. The refusing guard's own contract is unchanged and still
+covered by its existing cells.
+
+The committed post-fix fixture's ledger carries `initialScience = 0` on a save
+whose science pool was 100. The funds seed on the same load is correct
+(`initialFunds = 500000`).
+
+### Two log lines, five minutes apart, and the second one is a guard behaving well
+
+At load, the deferred seed found only one of the three pools readable:
+
+    [Parsek][VERBOSE][Scenario] DeferredSeed: values ready after 0 frames, clock ready=True
+      after 0 frames (currentUT=9.06) - Funding=500000, Science=null, Rep=null
+
+`Science` and `Rep` read NULL, so only funds seeded. The science seed was retried
+at scene exit - by which time the flight had already produced science actions:
+
+    [Parsek][INFO][Ledger] Seeded initial science: amount=0, total=8
+    [Parsek][WARN][LedgerOrchestrator] SeedInitialScience: refusing to treat current
+      science as initial because science timeline actions already exist and no baseline
+      was available
+
+That refusal is CORRECT - treating the then-current 106.6 as "initial" would have
+double-counted everything the flight earned. The defect is upstream: nothing
+re-attempts the seed while it is still safe to take one, so a career entered
+through FLIGHT gets a permanent zero seed for any pool whose instance was not yet
+alive at the deferred-seed frame.
+
+**Why it never surfaced before:** a zero science seed is invisible on a career
+that earns no science, and until flight 3 no driven run had earned any. `CL-2`
+flies the same base fixture through the same route and never notices. Reputation
+takes the same path and is likewise invisible here only because this career
+genuinely started at rep 0.
+
+**Consequence, measured:** `C2CareerPostFixReplayTests` reconstructs science at
+11.6 against the save's 111.6 - short by exactly 100, the whole starting balance.
+The three EARNED subjects themselves reconstruct perfectly, which is what isolates
+the seed as the entire cause. Pinned there as a DATA-ERA magnitude, with a
+structural sibling cell
+(`FixtureLedger_ScienceSeedIsZeroOnACareerThatStartedAtOneHundred`) that flips
+ONLY on a RE-HARVEST over fixed code: a capture-side fix cannot retro-fill a
+committed `ledger.pgld`, so fixing the seed moves neither cell until this fixture
+is re-flown and re-harvested. If either one moves WITHOUT a re-harvest, a
+RECALC-side change has occurred and must be investigated.
+
+In-game the damage is contained by `KspStatePatcher`'s drawdown guard, which
+clamps and preserves the live value rather than writing the low reconstruction
+back:
+
+    [Parsek][WARN][KspStatePatcher] PatchScience: GUARDED DRAWDOWN clamped resource=Science
+      running=6.6000001430511475 live=106.59999847412109
+      wouldBeTarget=6.6000001430511475 clampedTo=106.59999847412109
+      (no time-travel context) - earned value preserved; ledger may be missing an
+      earning channel [trailing per-subject NOTE clause elided]
+
+So this is a RECONSTRUCTION-fidelity defect, not a player-visible pool loss - but
+it is squarely blocking, because a strict per-identity gate cannot be armed
+against a ledger that cannot reproduce its own starting balance.
+
+---
+
+## ~~CAREER-TRANSMIT-SCIENCE-EMITS-NO-CORROBORATING-EVENT: a subject is written straight to the ledger with an empty reason and no `ScienceChanged` event, so the post-walk reconcile always mismatches and dumps at ERROR~~ [FOUND 2026-08-19 by `L3-career-science-recover` flight 3 (run `2026-08-19_1912`). This is the finding that actually red the run. CAPTURE-SIDE FIX LANDED 2026-08-19 on branch `career-capture-fixes`. The TITLE was wrong: the subject was RECOVERED, not transmitted - see the correction below]
+
+**Fix, and one correction to this entry's own reading.** All three symptoms - the
+missing event, the empty reason, and `method=Transmitted` - are ONE cause, and it is
+neither the transmit path nor a window-sizing problem.
+
+`GameStateRecorder.OnScienceChanged` stamps `lastScience = newScience` and then
+`return`s on `double.IsNaN(oldScience)`: the first change after a baseline is taken is
+silently consumed as the primer, emitting nothing and logging nothing. That baseline
+is taken by `SeedResourceState()` from `Subscribe()`, and a FRESH recorder is
+constructed and subscribed from `ParsekScenario.OnLoad` on EVERY scene load - which
+KSP calls from the middle of `ScenarioRunner.LoadModules` (the same seam as
+CAREER-SCIENCE-SEED-LOST-ON-FLIGHT-ROUTE). On this run `ResearchAndDevelopment.Instance`
+was still null at the space-centre subscribe (`22:19:01.929`), so `lastScience` stayed
+NaN and the recovered Mystery Goo's `+3.6` at `22:19:02.293` was eaten as the primer.
+The store's own `AddEvent` totals prove it: `total=2` at `02.288` and `total=3` at
+`02.299`, so nothing at all was added in between. The very next submit logged
+`Ignored ScienceChanged delta=+0.000` - the signature of a baseline that had just been
+primed by the change it swallowed.
+
+With no `ScienceChanged`, `latestScienceChangeCapture` was never set, so the subject
+reached `OnScienceReceived` with `reason=''` and
+`LedgerOrchestrator.ResolveKscScienceRecordingId` took its `method=Transmitted`
+FALLBACK - which is what put `reason='ScienceTransmission'` on the row and sent the
+reconcile hunting an event that never existed and never should have.
+
+**Correction to the "second symptom" paragraph below: the UT was never wrong.** The
+mission log's `transmit_science sent=1 skipped=2` transmitted the CREW REPORT (credited
+at ut 345.6); `mysteryGoo` was one of the two SKIPPED experiments and came home aboard
+the craft, credited during recovery processing at ut 347.5. KSP's own line at that
+frame is `+12 data on Mystery Goo(tm) Observation from LaunchPad. 4 Science added`,
+fired from `VesselRecovery` between `Jumping Flea recovered` and
+`onVesselRecoveryProcessing`. So 347.5 IS the credit UT, `method=Transmitted` was the
+fallback label rather than evidence of a transmission, and there is no scene-exit
+UT-stamping defect to fix. Keep the paragraph for the record; do not act on it.
+
+**Fix:** `SeedResourceState()` is now fill-only-NaN and returns whether all three
+baselines are seeded, and `ParsekScenario` starts
+`SeedRecorderResourceBaselinesWhenReady` right after `Subscribe()` to top up whatever
+the subscribe frame could not read, before anything can change. On the fixed path this
+run emits `ScienceChanged key='VesselRecovery' +3.6`, the capture carries
+`ReasonKey=VesselRecovery`, the row is written as `method=Recovered`, and the
+post-walk reconcile matches it exactly as the `recovery@KerbinFlew` subject on the same
+frame already did. The ERROR level is untouched, as this entry required - the missing
+event was the bug.
+
+Cells: `CareerSeedReadinessTests.SeedBaselineIfUnseeded_*` (three cells over the pure
+decision: fill-only-NaN, absent singleton leaves it unseeded, and a genuine zero is a
+REAL baseline rather than an unseeded one - otherwise a career starting at 0 science or
+0 reputation would swallow its first award too) plus
+`OnLoad_StartsTheRecorderBaselineTopUpRightAfterSubscribe`. Mutation-verified: deleting
+the top-up call reds the last cell.
+
+This is the token that classified flight 3 `PARSEK-FAIL(expectation)`: the spec
+forbids `[Parsek][ERROR]` and the run emitted exactly one.
+
+    [Parsek][WARN][LedgerOrchestrator] Earnings reconciliation (post-walk, sci):
+      ScienceEarning id=mysteryGoo@KerbinSrfLandedLaunchPad expected=3.6 but no matching
+      ScienceChanged event keyed 'ScienceTransmission' within science window
+      [347.5,347.5] for action ut=347.5 -- missing earning channel or stale event?
+    [Parsek][ERROR][LedgerOrchestrator] Science reconcile dump (post-walk):
+      action=mysteryGoo@KerbinSrfLandedLaunchPad reason='ScienceTransmission'
+      window=[347.4,347.6] events=(no ScienceChanged events in dump window)
+
+### It is not a window-sizing problem
+
+The whole run emits exactly ONE `ScienceChanged` event, and it is keyed
+`VesselRecovery`, not `ScienceTransmission` - widening the window finds nothing,
+because nothing was emitted. (The harvested `events.pgse` carries exactly one
+type-16 row, and the store's own `total=` field counts every event of every kind,
+not `ScienceChanged` events - reading it as a `ScienceChanged` count is what an
+earlier draft of this entry did.) One event for a run that credited THREE science
+subjects is the finding, and it is sharper than three events would have been.
+
+The transmitted subject reached the ledger by the direct path instead, and with
+an EMPTY reason:
+
+    [Parsek][INFO][GameStateRecorder] Science subject captured:
+      mysteryGoo@KerbinSrfLandedLaunchPad amount=3.6 total=3.6 reason='' ut=347.5
+      tag='' directLedger=True
+
+Compare the recovery subject on the same frame, which DOES emit its event, DOES
+carry `reason='VesselRecovery'`, and DOES match its reconcile. So the reconcile is
+right to complain: one capture path corroborates and the other does not.
+
+**A second symptom on the same row, worth fixing together:** the action's UT is
+347.54, the RECOVERY frame - but the transmit happened at ut ~342.3, five seconds
+and one mission phase earlier. The subject appears to be captured at scene exit
+using the then-current UT rather than the UT of the transmission.
+
+**The narrow question underneath the wide one:** whether an unmatched reconcile
+deserves ERROR at all. It is a reconciliation DIAGNOSTIC, and it fires on a
+condition the product recovers from cleanly - but the level is not the bug, the
+missing event is, and lowering the level to make a spec green would be exactly the
+masking the log contract exists to prevent. Fix the capture; leave the level.
+
+---
+
+## CAREER-MILESTONE-REP-AWARD-RECONSTRUCTS-LOW: two +1 milestone reputation awards replay to 1.9985 instead of 2 [NARROWED 2026-08-19 by the post-fix fixture harvested from `L3-career-science-recover` flight 3 (run `2026-08-19_1912`). **CAUSE FOUND 2026-08-19** during the `career-capture-fixes` wave and verified against the decompiled `Reputation.addReputation_granular`. FIX DELIBERATELY NOT TAKEN IN THAT WAVE - see "Why the fix was deferred". OPEN, but no longer a hunt: it is a known one-line change]
+
+### The cause, verified both sides
+
+`ReputationModule.ApplyReputationCurve` (`Source/Parsek/GameActions/ReputationModule.cs:318-321`)
+mirrors KSP's granular award loop but computes the FINAL residual step from the
+NOMINAL step count instead of the accumulated ACTUAL:
+
+    float input = (i != num) ? delta : (nominal - (delta * num));   // Parsek
+    if (input == 0f) continue;
+
+For any integer nominal, `nominal - (delta * num)` is identically **zero**, so the
+residual step is skipped. Stock does not do that - decompiled
+`Reputation.addReputation_granular` accumulates the POST-CURVE actual in `num2` and
+feeds the residual from it:
+
+    if (i != num) num3 = ModifyReputationDelta(delta);
+    else          num3 = ModifyReputationDelta(value - num2);   // accumulated ACTUAL
+    rep += num3;
+    num2 += num3;
+
+So for a `+1` award at rep 0, stock applies `curve(0) = 0.99925393` and then tops it
+back up with `ModifyReputationDelta(1 - 0.99925393)`, landing at `0.99999944` per
+award - `1.99999881` (float32) over two, exactly KSP's own pool. Parsek skips the
+top-up and lands at `1.9985167980194092`, reproducing the pinned magnitude
+bit-for-bit. The keyframes themselves are CORRECT; stock simply compensates for them
+in the residual step and Parsek does not.
+
+The fix is one line: track the accumulated actual (`accumulated`, already a local at
+`:315`) rather than `delta * num`:
+
+    input = (i != num) ? delta : (nominal - accumulated);
+
+Every `ApplyReputationCurve` caller is affected - contracts (`:209`), penalties
+(`:140`), strategy setup (`:244`), rep earnings (`:105`) - which is why it is
+invisible in careers where other reputation sources dominate. The error is ~0.075%
+per unit at rep ~ 0 and grows with `|rep|`.
+
+### Why the fix was deferred out of the `career-capture-fixes` wave
+
+This is a RECALC-side change, and the pin that measures it
+(`C2CareerPostFixReplayTests.PinnedReputationShortfall = 0.001482011980590725`) is a
+DATA-ERA magnitude over a committed `ledger.pgld`. The wave that found this cause was
+scoped capture-side precisely so that the next re-fly + re-harvest can be read
+unambiguously: a magnitude that moves after the re-harvest is the capture fix, and
+nothing else. Landing a recalc change in the same wave would have moved that pin
+without a re-harvest - the exact signal this entry's own closing paragraph reserves
+for "a RECALC-side change has occurred and must be investigated". It has now been
+investigated; taking the fix is a deliberate, separate decision.
+
+Whoever takes it must, in the same commit: update `PinnedReputationShortfall` (it
+should go to ~0, against `SaveReputation = 1.99999881`), refresh the now-stale
+cause-open commentary at `C2CareerPostFixReplayTests.cs:47-49`, `:112-116`, `:336-351`,
+and re-read `C2CareerLedgerReplayTests`' own `-0.00364` reputation window, which is a
+different fixture and may or may not close with it.
+
+### Suspects ruled out along the way (kept - they are what made the cause findable)
+
+`C2CareerLedgerReplayTests` has carried a `-0.00364` reputation divergence since
+2026-08-17, pinned as a 0.01 window with the note that whether it is "a second
+small leak or curve-rounding is unknown", and that it becomes re-measurable "on a
+post-fix re-harvest of c2 - which is when to look, not by guessing now".
+
+A post-fix fixture has now been harvested. It is NOT a c2 re-harvest, so it does
+not settle the c2 magnitude - but it is a far CLEANER instrument for the same
+family, and it rules suspects out:
+
+| Suspect | Ruled out by |
+| --- | --- |
+| the strategy currency exchange | the post-fix career activates no strategy at all |
+| a bad reputation SEED | its rep seed is 0 and the save genuinely started at 0 |
+| contract reputation | it accepts and completes no contracts |
+| reputation PENALTIES | nothing died and nothing failed |
+
+What is left is the MILESTONE reputation award path, which is the only reputation
+input the post-fix career has: `RecordsSpeed` and `RecordsAltitude`, `+1` each.
+KSP's own pool lands at `1.99999881` (float32 2.0); the replay lands at
+`1.9985167980194092`, i.e. 0.001482 low on a two-award career.
+
+**Pinned, not chased:** `C2CareerPostFixReplayTests` pins the 0.001482 as a
+magnitude rather than hiding it in a window, precisely so the next person has an
+instrument. That worked: the pin is what made the arithmetic checkable, and the
+award path has now been READ rather than inferred - the answer is the residual-step
+formula above, and it is neither "curve applied on one side only" nor "applied
+twice" (both sides apply it; only the top-up differs). C2Career's own window stays
+at 0.01 and is deliberately NOT tightened onto a number measured on different data.
+
+**What would move the pin, stated so nobody expects the wrong thing:** the 0.001482
+is a DATA-ERA magnitude over a committed `ledger.pgld`, so it flips ONLY on a
+RE-HARVEST over fixed code. A capture-side fix to the milestone award path changes
+nothing in this suite by itself - the committed rows are frozen at the era they
+were recorded in. If the magnitude moves WITHOUT a re-harvest, a RECALC-side change
+has occurred and must be investigated rather than re-pinned.
+
 ## WATCH-LOOPED-PARK-TARGET-LOSS-NRE-STORM: watch mode survives a loop RE-ARM with a null camera target and throws stock NREs on EVERY frame from there to scene end - 306 of them in 1.26 s [MEASURED 2026-08-19 by `V15M-gilly-player-loop`'s reading run and REPRODUCED on its armed re-flight the same day (447 then 443 total on byte-identical shapes), the FIRST successful watch entry on a looped arrival park. REPORT-ONLY: `unityExceptions` is report-only and BOTH runs PASSED; NO product change is proposed by this lane]
 
 `V15M-gilly-player-loop` run `2026-08-19_1736` came back **PASS attempt 1** with all
@@ -495,111 +1105,6 @@ zero-NRE control (V15T), the sharp before/after boundary at the cycle fallback, 
 separation from V7M's teardown NRE, and the named experiment that would move it.
 
 ---
-
-## MAPRENDER-ICON-OFF-ORBIT-CREATION-FRAME-AFTER-JUMP: a ghost's proto ICON sits tens of degrees around its own orbit line on the CREATION frame, after a single large TimeJump onto an epoch just inside a foreign moon's SOI [MEASURED 2026-08-18 by `V14T-ike-ts-arrival`, REPRODUCED on its armed run, shown PARENT-INDEPENDENT by `V15T-gilly-ts-arrival`, and measured at a THIRD parent 2026-08-19 by `V16T-laythe-ts-arrival` (Jool/Laythe, 129.15 deg) - which also produced the FIRST count > 1 reading (TWO raises, one frame, two proto pids) and a SECOND LENS showing the same creation-frame binding gap. **RECURRED AT COUNT 2 ON V16T's ARMED RUN `2026-08-19_2212` (PASS attempt 1, the tolerance doing its job)**, alongside the second lens - both deterministic on the armed run. REPORT-ONLY: self-correcting, DETERMINISTIC for the single-jump shape at all three bodies, tolerated by name in all three specs; NO product change is proposed]
-## ~~HARNESS-CANNOT-EARN-CAREER-CURRENCY~~ - no driven run could collect science, transmit it, or recover a vessel, so `ScienceEarning` rows and vessel-recovery credits were reachable only from a hand-played save [CAPABILITY SHIPPED 2026-08-19, branch `c2-postfix-forge`; NOT YET FLOWN; one residual survives and is NOT closed]
-
-Filed and closed in the same entry because the gap was never a defect - it was a
-missing capability nobody had written down, and writing it down only to close it
-two lines later is how the residual stays visible.
-
-### The gap, as measured
-
-Five facts, each verified against source rather than assumed:
-
-1. `mlib` had no `ACTION_*` constant for collecting science, transmitting it, or
-   recovering a vessel.
-2. `KrpcMissionControl.perform` had no branch for any of the three (an action
-   with no branch raises `unknown action kind` and ends the mission as
-   MISSION-ERROR, so the constant alone would have been worse than nothing).
-3. `TelemetrySnapshot` had no channel that could OBSERVE any of the three
-   outcomes - no experiment counts, no `Recoverable`, and no career pools.
-4. The M-A2 seam had no verb for any of it either, so the "drive it through the
-   seam instead" alternative did not exist.
-5. `KscAction` has exactly four sub-actions - research a node, upgrade a
-   facility, hire a kerbal, accept a contract - and **every one of them is a
-   SPEND**. Nothing in the harness credited anything.
-
-The consequence was structural, not cosmetic: `ScienceEarning` is produced only
-from flight science subjects via
-`GameStateEventConverter.ConvertScienceSubjects`, so with no mission collecting
-science, no driven run could ever produce one. Same for a vessel-recovery credit.
-Both row families are most of what a real career ledger is made of, which is why
-`docs/dev/plans/career-ledger-coverage.md` recorded "a forged career can NEVER
-cover science" as a hard ceiling, and why B.4's strict-mode arming had no subject
-except promoting a hand-played save.
-
-### What closed it
-
-Three mission actions (`run_science_experiments`, `transmit_science`,
-`recover_vessel`), six opt-in telemetry channels, and the
-`science_bench_recover` mission, which delegates its flight leg to `b1_decide`
-verbatim and adds COLLECT -> TRANSMIT -> RECOVER. Binding contract:
-`docs/dev/design-autotest-mission-library.md` Amendment A. The sequencing to a
-harvested fixture is `career-ledger-coverage.md` section 4d.
-
-Two design points worth carrying out of it, because both are the kind of thing
-that is re-derived wrongly later:
-
-- **The career pools are populated on a `vessel_lost` snapshot**, alongside
-  `crew_roster_status` and for the identical reason. Recovering the active vessel
-  DESTROYS it, so the frame that proves the recovery happened necessarily has no
-  vessel on it. Without that carry the success terminal is unobservable and every
-  good recovery reads as a break-up. The three VESSEL-scoped science channels are
-  deliberately NOT carried there - a recovered craft has none.
-- **`Vessel.Recover()` is scene-level and terminal.** Stock recovery removes the
-  craft and leaves FLIGHT, and `_fly_loop_body` does not wrap `control.perform` -
-  so a machine that emits any action after the recover verb performs it against a
-  vessel that no longer resolves and reports MISSION-ERROR instead of the outcome
-  it had a name for. Emit it once, last. kRPC also THROWS on a non-recoverable
-  vessel, so both the runner and the machine read `Vessel.Recoverable` first.
-- **A recovery credit must STRADDLE the recovery, and this one cost a review to
-  catch.** "The craft is gone" and "the funds pool is higher than the baseline"
-  are both true of a craft that BLEW UP, if the second reading is allowed to be a
-  PRE-loss one. `recoverMinFundsGain` is author-set and legitimately 0.0, so
-  `0.0 >= 0.0` held on the first vessel-gone frame and a break-up was certified
-  RECOVERED - a wrong outcome in the SUCCESS direction, which is the worst class
-  this harness can emit, and no spec could have prevented it. Two structural
-  guards, both needed: the credit is computed from a reading taken ON a
-  vessel-gone frame, and a loss BEFORE the verb was issued is routed to
-  `vessel-lost-before-recovery` instead of reaching the success branch. A replay
-  negative control against the old predicates returned RECOVERED for both shapes.
-  The general lesson is the transferable one: when a gate compares a baseline
-  against "the latest reading", ask what happens if the latest reading predates
-  the event the gate is about.
-- **A COMMANDED LATCH IS NOT "IT HAPPENED", AND THE SAME HOLE HAD A SECOND
-  DOOR** - found by the follow-up review of the fix above. The carve-out that
-  decides whether a break-up is a loss or a candidate recovery keyed off the verb
-  having been EMITTED, but the runner's read-before-ask lock can DECLINE it:
-  `Vessel.Recoverable` reads false (or raises) at perform time, or `Recover()`
-  itself raises. Nothing told the machine, so the latch stood true for a recovery
-  that never happened, and at a 0.0 funds floor with a readable unmoved pool the
-  same settle-flicker-then-explosion run certified RECOVERED. The fix is a real
-  OBSERVATION CHANNEL rather than a stricter predicate:
-  `TelemetrySnapshot.recover_request_result` carries `ISSUED` / `DECLINED` /
-  `UNREADABLE` / `FAILED` back from every exit of the perform branch (sticky, and
-  carried on a `vessel_lost` snapshot for the career pools' reason exactly - a
-  successful recovery removes the craft, so ISSUED and vessel-gone arrive on the
-  same frame), and the latch now means ISSUED. A decline gets a BOUNDED RE-EMIT,
-  like the collect / transmit sweeps, because its live shape is a craft that has
-  not finished settling; a persistent one still lands on the existing
-  `vessel-not-recoverable` terminal, so no new verdict was invented. Pinned by a
-  replay-control pair: the same frames with the latch set by hand on emission
-  reach RECOVERED in-suite, which is what makes the fix cell a fix.
-  **The transferable half:** a latch fed by "we sent the command" is evidence of
-  nothing when the seam that performs it is allowed to say no. Either the seam
-  reports its outcome, or the latch has to be read as "we tried".
-
-### RESIDUAL - the unaffordable-spend ORDERING shape is still unforgeable
-
-This is the half of the ceiling that did NOT move, and it is the half the parked
-science finding needs. `KscAction` pre-refuses an unaffordable research at the
-door, so a forged ledger cannot contain a spend that was judged unaffordable at
-its reconstructed balance - which is exactly the shape of the c1 `heavyRocketry`
-finding (cost 90 against a reconstructed 85.3). Being able to CREDIT science does
-not help: the refusal is at the seam, before any row is written. That finding
-stays owned by the synthetic two-action unit test (`ScienceSpendingOrderingTests`,
-plan task A.1), and a future forge must NOT be scoped to it.
 
 ## MAPRENDER-ICON-OFF-ORBIT-CREATION-FRAME-AFTER-JUMP: a ghost's proto ICON sits tens of degrees around its own orbit line on the CREATION frame, after a single large TimeJump onto an epoch just inside a foreign moon's SOI [MEASURED 2026-08-18 by `V14T-ike-ts-arrival`, REPRODUCED on its armed run, shown PARENT-INDEPENDENT by `V15T-gilly-ts-arrival`, and measured at a THIRD parent 2026-08-19 by `V16T-laythe-ts-arrival` (Jool/Laythe, 129.15 deg) - which also produced the FIRST count > 1 reading (TWO raises, one frame, two proto pids) and a SECOND LENS showing the same creation-frame binding gap. **RECURRED AT COUNT 2 ON V16T's ARMED RUN `2026-08-19_2212` (PASS attempt 1, the tolerance doing its job)**, alongside the second lens - both deterministic on the armed run. REPORT-ONLY: self-correcting, DETERMINISTIC for the single-jump shape at all three bodies, tolerated by name in all three specs; NO product change is proposed]
 

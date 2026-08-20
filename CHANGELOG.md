@@ -6,6 +6,36 @@ All notable changes to Parsek are documented here.
 
 ## 0.10.4
 
+### Dev
+
+- GitHub Actions CI: every PR and every push to `main` now builds the mod and runs
+  the xUnit suite on `ubuntu-latest` via `scripts/cloud-test.sh`
+  (`.github/workflows/tests.yml`). The private `vl3c/ksp-refs` DLL repo is cloned
+  through a read-only deploy key stored as the `KSP_REFS_DEPLOY_KEY` Actions
+  secret. Status shows as PR checks and the README badge. The pwsh grep-audit
+  gates (ERS/ELS routing et al.) run in Actions too: every gate now probes PATH
+  for `pwsh`/`pwsh.exe` cross-platform (ubuntu runners ship PowerShell 7) and
+  falls back to an equivalent managed scan when pwsh is absent — the two
+  allowlist-shaped `GrepAuditTests` gates gained that fallback (same patterns,
+  same allowlist semantics, plus a nonzero-hit anti-vacuity assert), so no gate
+  ever silently skips.
+
+- The xUnit suite now runs on Linux (mono) for cloud agent sessions and CI: added
+  `scripts/cloud-test.sh` (build + xunit console runner; `dotnet test` lacks a
+  net472 testhost on Linux) and a cloud-only SessionStart hook that provisions
+  dotnet/mono and the private `ksp-refs` DLL checkout. Product code gained
+  mono-spelled headless guards alongside the existing Windows ones: unresolvable
+  Unity internal calls surface as `MissingMethodException` on mono (vs
+  `SecurityException` on .NET Framework), and mono initializes `FlightGlobals`
+  while JIT-compiling a caller, so two probe sites moved their `FlightGlobals`
+  reads into `NoInlining` cores (`RewindInvoker.IsFlightReadyCore`,
+  `IncompleteBallisticSceneExitFinalizer.ProbeFlightGlobalsRuntimeCore`) to keep
+  the failure catchable — the established `ReadUnityApplicationIsPlayingCore`
+  pattern. A handful of tests that baked Windows filesystem semantics (share
+  locks blocking renames, `:`/`*`/`?` as invalid filename chars, `Z:\` paths,
+  CRLF source greps) got platform guards or portable equivalents. No in-game
+  behavior change.
+
 - **Interplanetary transfers no longer split at an on-rails SOI handoff, so looped
   replays of them re-aim instead of silently replaying the recorded path.** A
   recorded Kerbin→Dres mission was being cut in two by the load-time optimizer at
@@ -142,6 +172,12 @@ All notable changes to Parsek are documented here.
 - The automated test scenarios can now be run by asking for them by type. There are three types - the everyday set, the long full set, and a small set of expensive ones that only ever run when specifically asked for - and one command flies exactly one of them and leaves a single line saying how it went. It handles what goes wrong when nobody is watching the screen: it holds the computer awake for the whole run (a multi-hour set left alone otherwise gets suspended a couple of minutes in, mid-flight), and if the machine is already busy - another run in progress, or the game open for real work - it steps aside and says who has it rather than queueing behind it, which would have littered the results folder with dozens of records for a run that never flew. When the game installation the tests fly turns out to be out of date, it says so and stops; it never re-installs anything by itself, because which build of Parsek gets tested is a decision a person makes. A failing test is likewise reported and left alone, never quietly re-run until it passes. Afterwards, one line per run says green, red, needs-attention or skipped, with the verdict counts - and a test the harness had to kill for running over budget is always named explicitly so it cannot hide behind twenty passes beside it. The whole routine for asking, running and reading the result is written down, including what accumulates on disk and what is safe to delete. Test-tooling only; no gameplay change.
 
 ### Fixes
+
+- Recovering a craft now records the refund in your career history. Parsek asked the game up front how much the recovery would be worth, but the game has not worked that figure out yet at the moment it is asked - so the answer was always zero, and Parsek read that zero as "this recovery pays nothing" and dropped the credit for a recovery the game then paid in full. It now recognises a figure the game has not filled in yet and waits for the actual payment instead, and asks again once the sum is finished. A recovery that genuinely pays nothing is still recorded as paying nothing.
+
+- A career whose first contact with Parsek is a flight now records the science and reputation it started with, not just the funds. Parsek waits for the game to finish loading your three career balances before writing down what the career began at, but the wait was over as soon as any ONE of them had loaded - and on the flight route funds always arrive first, so science and reputation were recorded as starting from zero. By the time anything noticed, the flight had already earned science and it was too late to safely take a starting figure, so the zero stuck. The wait now requires all three, and no longer runs before the game has begun loading them.
+
+- Science credited in the opening moments of a scene is no longer missed. Parsek spots a change in funds, science or reputation by comparing against the total it read when the scene loaded - and when the game had not finished loading that total yet, there was nothing to compare against, so the first real change was quietly used as the starting point instead of being recorded. Recovering a craft carrying an experiment landed exactly there: the science was credited to you correctly, but Parsek's record of it lost the note saying where it came from, filed it as transmitted rather than recovered, and the career self-check then reported an error looking for a transmission that never happened. Those totals are now read as soon as the game provides them.
 
 - Two places that quietly edited an existing career row now announce the edit, so nothing downstream keeps answering from the version before it. Parsek keeps short-lived answers to questions like "has this flight already changed the world?" and "what does the career look like right now?", and throws them away whenever the career record changes - but two edits were not counted as changes. One is the moment a fresh launch claims the build cost the game charged a few seconds earlier, which moves that charge onto the flight; the other is a one-time repair of a starting-funds figure that was recorded as zero because the game had not finished loading. Neither had caused a reported problem, but a third case of exactly the same shape had just made a correctly-recorded strategy payout look like a missing one, so all three were closed together.
 

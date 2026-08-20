@@ -9,6 +9,26 @@ cd Source/Parsek.Tests && dotnet test     # all unit tests (does NOT deploy to K
 dotnet test --filter InjectAllRecordings  # inject 8 synthetic recordings into test save
 ```
 
+**Cloud (Linux) agent sessions** build and test via `scripts/cloud-test.sh` — NOT
+`dotnet test` (Ubuntu's apt-built SDK lacks the net472 testhost; tests run under
+mono + the xunit console runner; filter with xunit syntax, e.g. `-class`, `-method`).
+The KSP/Unity/mod reference DLLs come from the PRIVATE `vl3c/ksp-refs` repo
+(attach + clone to `/workspace/ksp-refs`; `KSPDIR` points there). A cloud-only
+SessionStart hook (`.claude/hooks/session-start.sh`) provisions dotnet-sdk-8.0 +
+mono and clones ksp-refs when it's attached. Mono gotchas when touching headless
+guards: Unity ECalls throw `MissingMethodException` on mono (vs `SecurityException`
+on Windows), and mono runs `FlightGlobals`' failing initializer at JIT of the
+CALLING method — keep `FlightGlobals` reads inside `[MethodImpl(NoInlining)]`
+cores (see `RecordingStore.ReadUnityApplicationIsPlayingCore`).
+
+**CI (GitHub Actions):** `.github/workflows/tests.yml` runs `scripts/cloud-test.sh`
+on `ubuntu-latest` for every PR and every push to `main` (xUnit suite under
+mono; ksp-refs cloned via the read-only `KSP_REFS_DEPLOY_KEY` secret). Status:
+PR checks + the README badge. The pwsh grep-audit gates run in Actions too:
+every gate probes PATH for `pwsh`/`pwsh.exe` cross-platform (ubuntu-latest
+runners ship PowerShell 7) and falls back to an equivalent managed scan when
+pwsh is absent, so no gate ever silently skips.
+
 **KSP deploy is intentional-only:** the post-build copy to `GameData/Parsek/Plugins` runs ONLY when the build is started from the building checkout's own `Source/Parsek` directory, or with `-p:ForceKspDeploy=true`. This works from ANY worktree: `cd Parsek-<branch>/Source/Parsek && dotnet build` deploys that branch's DLL (testing unmerged branches is unchanged). What never deploys: `dotnet test` (builds Parsek via ProjectReference from the Tests dir), builds started from the repo root or elsewhere, and `release.py`; those print `KSP deploy skipped` instead. `-p:SkipKspDeploy=true` suppresses the deploy even from the project dir. Rationale: with multiple worktrees sharing one KSP install, every sibling test run used to clobber the deployed DLL with whatever branch ran tests last.
 
 Post-build copy uses `ContinueOnError="true"` - builds succeed when KSP has DLL locked.
@@ -130,7 +150,7 @@ When investigating KSP API behavior, search the web and read other open-source K
 
 **Optimizer split predicate (§3 ordering)**: `RecordingOptimizer.IsSplittableEnvOrBodyBoundary` walks the boundary classification top-down: (1) seam short-circuit on `TrackSection.isBoundarySeam` - hard "always wins" override; (2) not-a-boundary skip; (3) same-class Exo body change kept cohesive for transfer coasts, with UI labels showing the body path - either both sides raw `ExoBallistic`, or both sections `OrbitalCheckpoint`-framed (an ON-RAILS SOI traversal, where a packed vessel cannot thrust so an `ExoPropulsive` label is recorder bookkeeping); a PHYSICS-frame burn across the crossing still splits; (4) other body changes (#251), including ExoPropulsive SOI boundaries; (5) Surface (class 2) default split, except brief Atmospheric/Approach runs bracketed by Surface on both sides suppress as surface grazes; (6) ExoPropulsive at the crossing; (7) persistence predicate (`IsGrazePattern` collapse-walk on `SplitEnvironmentClass` runs, suppressing brief bracketed runs < `BriefSectionMaxSeconds = 120s`). Producer-emitted recorder bookkeeping artifacts (e.g. `BackgroundRecorder.FlushLoadedStateForOnRailsTransition`) carry `isBoundarySeam=true`; future producers should set the same flag, NOT replicate the persistence predicate at producer level. See `docs/dev/done/plans/optimizer-persistence-split.md` (rationale) and `docs/dev/research/optimizer-meaningful-split-rule.md` (historical dead end).
 
-**ERS / ELS routing**: any code reading `RecordingStore.CommittedRecordings` / `Ledger.Actions` must route through `EffectiveState.ComputeERS()` / `ComputeELS()` unless its file is in `scripts/ers-els-audit-allowlist.txt`. Grep gate `scripts/grep-audit-ers-els.ps1` runs in CI via `GrepAuditTests` and fails the build on any un-allowlisted raw read. Add a file-level `[ERS-exempt]` comment + one-line rationale in the allowlist when a new exemption is justified (physical-identity correlation, tombstone construction, etc.).
+**ERS / ELS routing**: any code reading `RecordingStore.CommittedRecordings` / `Ledger.Actions` must route through `EffectiveState.ComputeERS()` / `ComputeELS()` unless its file is in `scripts/ers-els-audit-allowlist.txt`. Grep gate `scripts/grep-audit-ers-els.ps1` runs in the xUnit suite via `GrepAuditTests` and fails the build on any un-allowlisted raw read — on Windows AND on the Linux GitHub Actions runs (the guard probes PATH for `pwsh`/`pwsh.exe` cross-platform and falls back to an equivalent managed scan when pwsh is absent). Add a file-level `[ERS-exempt]` comment + one-line rationale in the allowlist when a new exemption is justified (physical-identity correlation, tombstone construction, etc.).
 
 ## Project Layout
 
