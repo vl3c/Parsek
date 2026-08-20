@@ -18731,9 +18731,15 @@ namespace Parsek
                 forceFaithful);
             if (!string.Equals(signature, lastLoopUnitSignature, StringComparison.Ordinal))
             {
+                // Loop seam markers (design-dock-event-graph.md 7.3): the FLIGHT scene is the only
+                // consumer (the engine raises the events; KSC / TS get no markers by design), so the
+                // dock-event graph is threaded in HERE rather than read inside the pure builder. The
+                // cache is signature-gated, and this whole block only runs when the loop-unit
+                // signature moved, so this is a handful of calls per topology change - never per
+                // frame. A null graph (nothing committed yet) simply yields marker-free units.
                 cachedLoopUnits = MissionLoopUnitBuilder.Build(
                     unioned, RecordingStore.CommittedTrees, committed, autoLoopIntervalSeconds, bodyInfo, tbrMode,
-                    forceFaithful);
+                    forceFaithful, DockEventGraphCache.GetOrBuild());
                 lastLoopUnitSignature = signature;
                 // The committed set / missions changed: drop every cached per-window re-aim adapter so a
                 // stale window transfer can never survive a recording edit / re-classification.

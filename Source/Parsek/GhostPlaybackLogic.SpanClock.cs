@@ -8,6 +8,66 @@ namespace Parsek
     {
         // --- Span-clock primitives (lifted for Mission-level looping; wired in a later phase) ---
 
+        // === Loop seam markers (design-dock-event-graph.md 5.1 / 7.3) ==========================
+        // A looping mission whose story crosses a dock has two silent moments: a ghost DOUBLES in
+        // size at the dock UT because the partner half materialised (R2), and a ghost VANISHES at
+        // its window end because its line was absorbed into a dock this mission does not replay
+        // (R3). Both are correct playback; neither is explicable from the screen. A seam marker is
+        // a PRECOMPUTED (UT window, kind, string) descriptor attached to the unit at build time, so
+        // the per-frame cost is one double comparison against a sorted cursor (design 14).
+        //
+        // The engine stays Recording-free: the marker carries a FULLY FORMATTED string that the
+        // engine passes through opaquely to the policy layer.
+
+        /// <summary>Which silent moment a <see cref="LoopSeamMarker"/> explains. Explicit values:
+        /// they appear in log lines and test assertions, so they are part of the diagnostic
+        /// contract.</summary>
+        internal enum SeamMarkerKind
+        {
+            /// <summary>R2: the merged stack this member renders grew at the dock because a partner
+            /// this mission does NOT replay joined it.</summary>
+            MergeAppear = 0,
+            /// <summary>R3: this member's line ENDS at a dock whose merged child this mission does
+            /// not replay - the vessel did not disappear, it docked and continues elsewhere.</summary>
+            DockedVanish = 1,
+        }
+
+        /// <summary>
+        /// One precomputed loop seam explanation (design 5.1). Value carrier; runtime-only, never
+        /// persisted (the unit itself is rebuilt per scene). Emitted once per (marker, unit cycle)
+        /// while the shared span clock sits inside [<see cref="SeamUT"/>,
+        /// <see cref="WindowEndUT"/>].
+        /// </summary>
+        internal readonly struct LoopSeamMarker
+        {
+            internal LoopSeamMarker(
+                double seamUT, double windowEndUT, SeamMarkerKind kind, int memberIndex, string text)
+            {
+                SeamUT = seamUT;
+                WindowEndUT = windowEndUT;
+                Kind = kind;
+                MemberIndex = memberIndex;
+                Text = text;
+            }
+
+            /// <summary>The dock UT in RECORDED time (the same frame as the span clock's loopUT).</summary>
+            internal double SeamUT { get; }
+
+            /// <summary>End of the display window, = <see cref="SeamUT"/> +
+            /// <see cref="LoopSeamMarkerBuilder.SeamWindowSeconds"/> of loop time (design Q5).</summary>
+            internal double WindowEndUT { get; }
+
+            internal SeamMarkerKind Kind { get; }
+
+            /// <summary>The committed-recording index of the member whose clock carries this marker
+            /// (the same index space as <see cref="LoopUnit.MemberIndices"/>).</summary>
+            internal int MemberIndex { get; }
+
+            /// <summary>Fully formatted player-facing text ("joined by CD - see mission 'CD
+            /// Freighter'"). The engine never parses it.</summary>
+            internal string Text { get; }
+        }
+
         /// <summary>
         /// One loop unit: the recordings a looping Mission replays together as a single unit. The
         /// MEMBERS (<see cref="MemberIndices"/>) are the Mission's included through-line legs ONLY;
@@ -120,7 +180,8 @@ namespace Parsek
                 double arrivalJointSecondaryPeriodSeconds = double.NaN,
                 double arrivalJointSecondaryToleranceSeconds = double.NaN,
                 int arrivalJointMaxWholeHoldPeriods = 0,
-                string transferMemberRecordingId = null)
+                string transferMemberRecordingId = null,
+                IReadOnlyList<LoopSeamMarker> seamMarkers = null)
             {
                 OwnerIndex = ownerIndex;
                 MemberIndices = memberIndices ?? System.Array.Empty<int>();
@@ -154,6 +215,7 @@ namespace Parsek
                 ArrivalJointSecondaryToleranceSeconds = arrivalJointSecondaryToleranceSeconds;
                 ArrivalJointMaxWholeHoldPeriods = arrivalJointMaxWholeHoldPeriods;
                 TransferMemberRecordingId = transferMemberRecordingId;
+                SeamMarkers = seamMarkers;
             }
 
             /// <summary>
@@ -453,6 +515,17 @@ namespace Parsek
             /// (byte-identical-off) on every non-descent-trigger unit.
             /// </summary>
             internal string TransferMemberRecordingId { get; }
+
+            /// <summary>
+            /// Precomputed loop seam explanations for this unit (design 7.3), sorted by
+            /// <see cref="LoopSeamMarker.SeamUT"/>, or NULL when the unit has none - which is every
+            /// unit built without a dock-event graph (KSC / Tracking Station / the UI mirror / every
+            /// existing test), so the default keeps every construction site byte-identical. The
+            /// flight engine walks it with a per-member sorted cursor and raises one
+            /// <c>SeamMarkerEvent</c> per (marker, unit cycle); nothing else reads it.
+            /// Runtime-only, never persisted.
+            /// </summary>
+            internal IReadOnlyList<LoopSeamMarker> SeamMarkers { get; }
 
             /// <summary>True only when this unit carries a fully-resolved descent trigger (a re-aim looped
             /// arrival with a non-empty descent member set, an early arrival, and valid periods).</summary>
@@ -1752,6 +1825,88 @@ namespace Parsek
             return loopUT >= memberStartUT - LoopTiming.BoundaryEpsilon
                 && loopUT <= memberEndUT + LoopTiming.BoundaryEpsilon;
         }
+
+        /// <summary>
+        /// The per-frame seam-marker check for ONE unit member (design 7.3 / 14): given the shared
+        /// <paramref name="spanLoopUT"/>, returns the index into <paramref name="markers"/> of the
+        /// marker for <paramref name="memberIndex"/> whose display window contains the clock, or -1.
+        ///
+        /// <para><b>Cost.</b> <paramref name="cursor"/> is per-member state the caller owns; it only
+        /// ever advances past markers whose whole window is BEHIND the clock. Markers are sorted by
+        /// SeamUT and every window is the same width, so WindowEndUT is sorted too and the walk is
+        /// monotone: the steady-state cost is one double comparison, with zero allocations. The scan
+        /// forward from the cursor stops at the first marker whose SeamUT is still ahead of the
+        /// clock, so it only ever visits the handful of windows open right now.</para>
+        ///
+        /// <para><b>Epsilon.</b> The window opens at <c>SeamUT - LoopTiming.BoundaryEpsilon</c> so a
+        /// marker sitting exactly on a member-window boundary (edge case 16 - the one frame where
+        /// both the pre-dock member and the merged member render) is INSIDE, matching
+        /// <see cref="IsLoopUTInMemberWindow"/>. Double-firing at that boundary is prevented by the
+        /// caller's (marker, cycle) dedup, not by the epsilon.</para>
+        ///
+        /// <para>Returns the FIRST matching marker; a second marker for the same member in the same
+        /// window is picked up on the next frame once the first is deduped away, so no marker is
+        /// lost. Pure: no logging, no allocation.</para>
+        ///
+        /// <para><b>Warp skip.</b> Firing is CONTAINMENT-based, so at high time warp one frame can
+        /// advance the loop clock past a whole 10-second window and the marker never fires. That is
+        /// deliberate (a line nobody could read is worse than none) but must not be SILENT:
+        /// <paramref name="skippedUnfired"/> counts this member's markers the cursor walked past
+        /// without firing and <paramref name="firstSkippedIndex"/> names one, so the caller can log
+        /// the skip.</para>
+        /// </summary>
+        internal static int TryResolveSeamMarkerToEmit(
+            IReadOnlyList<LoopSeamMarker> markers,
+            int memberIndex,
+            double spanLoopUT,
+            ref int cursor,
+            HashSet<long> alreadyFiredKeys,
+            long unitCycle,
+            out int skippedUnfired,
+            out int firstSkippedIndex)
+        {
+            skippedUnfired = 0;
+            firstSkippedIndex = -1;
+            if (markers == null || markers.Count == 0)
+                return -1;
+            if (cursor < 0)
+                cursor = 0;
+            while (cursor < markers.Count && markers[cursor].WindowEndUT < spanLoopUT)
+            {
+                if (markers[cursor].MemberIndex == memberIndex
+                    && (alreadyFiredKeys == null
+                        || !alreadyFiredKeys.Contains(SeamMarkerDedupKey(cursor, unitCycle))))
+                {
+                    skippedUnfired++;
+                    if (firstSkippedIndex < 0)
+                        firstSkippedIndex = cursor;
+                }
+                cursor++;
+            }
+
+            for (int i = cursor; i < markers.Count; i++)
+            {
+                LoopSeamMarker m = markers[i];
+                if (m.SeamUT - LoopTiming.BoundaryEpsilon > spanLoopUT)
+                    return -1;                       // sorted: nothing later can be open yet
+                if (m.MemberIndex != memberIndex || spanLoopUT > m.WindowEndUT)
+                    continue;
+                if (alreadyFiredKeys != null
+                    && alreadyFiredKeys.Contains(SeamMarkerDedupKey(i, unitCycle)))
+                    continue;
+                return i;
+            }
+            return -1;
+        }
+
+        /// <summary>
+        /// Dedup key for one (marker index, unit cycle) pair: a marker fires ONCE per loop cycle and
+        /// again on the next cycle (design 7.3). Pure and total - the cycle occupies the low 32 bits
+        /// so a wrap after 4 billion cycles is the only collision, and a loop cycle is at least
+        /// <see cref="LoopTiming.MinCycleDuration"/> seconds of game time.
+        /// </summary>
+        internal static long SeamMarkerDedupKey(int markerIndex, long unitCycle)
+            => ((long)markerIndex << 32) | (uint)unitCycle;
 
         /// <summary>The render outcome for one member of a chain-loop unit on a given frame.</summary>
         internal enum UnitMemberRenderDecision

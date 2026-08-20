@@ -14,6 +14,110 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## ~~SAME-TREE-DOCK-INVISIBLE-FROM-ABSORBED-SIDE: a cross-session dock inside one tree named nobody and was derivable from neither side~~ [FOUND by the 2026-08-12 dock/loop-coherence analysis (I2-ii); FIXED 2026-08-12/13, branches `same-tree-dock-claims` + `dock-event-graph` (design `docs/dev/design-dock-event-graph.md` 6.2 / 6.3-6.5, PR sequence steps 2-3)]
+
+A same-tree cross-session dock records single-parent (the partner's committed
+leaf fails `IsBackgroundMapEligible`), and `MissionCrossTreeDock.FindLinks`
+deliberately skips own-tree claims, so the A->D shape was structurally
+invisible from the absorbed side. Closed in two steps:
+`FindSameTreeDockClaims` (guid-gated recovery with parent / merged-child /
+pre-dock-start guards) and the `DockEventGraph` (pure, parameter-injected,
+signature-cached via `DockEventGraphCache`; no ERS allowlist entry - the core
+never reads the store) whose `TryDescribePartner` names dock partners in BOTH
+tabs, controller side included. Same-tree recovered links mint no selection
+affordance by design (Q8). Remaining consumers (event digest, chapters, seam
+markers) are PR sequence steps 4-6; the event digest (step 4) shipped on branch
+`mission-event-digest` and chapter grouping (step 5) on branch
+`mission-chapters` (`MissionChapters.cs`: switch-continuation +
+foreign-dock-departure roots, expansion to explicit `ExcludedIntervalKeys`, the
+tri-state header toggle, and the Q6 reconcile observation). Loop seam markers +
+the R5 gap statement (step 6) shipped on branch `loop-seam-markers`
+(`LoopSeamMarkerBuilder.cs` computes R2/R3 at loop-unit build from the graph plus
+the FINAL member windows; `LoopUnit.SeamMarkers` defaults null so every non-flight
+build site is byte-identical; `GhostPlaybackEngine.TryEmitSeamMarker` runs one
+sorted-cursor comparison per member per frame ABOVE the hide/destroy block, so R3
+still fires for a hidden-not-destroyed watched member; the cursor / dedup /
+same-frame-joining rules live in the pure `LoopSeamMarkerRuntime.cs` so they are
+testable without a live host, and reset both on a loop-cycle change AND on a
+marker-list swap - a signature-gated rebuild replaces the list with no cycle
+change, and carrying the old cursor across it silently loses markers, worse still
+after a commit moves the committed-index space; `ParsekPlaybackPolicy` joins the
+markers raised in one frame into ONE ScreenMessage). The double-clock
+verification + the R6 advisory (step 7) shipped on branch
+`double-clock-advisory`. That closes PR sequence steps 1-7.
+
+**I6-DOUBLE-CLOCK verified, Q9 decided: the advisory ships.** The analysis scored
+I6 ("one physical assembly is never concurrently rendered at two different replay
+times by two independent clocks") Violated-but-UNVERIFIED, and design 7.7 gated
+the advisory on confirming it. Verified AUTOMATED (owner's instruction, replacing
+the section-7.8 manual playtest) in `DoubleClockVerificationTests`: both units
+built by the REAL `MissionLoopUnitBuilder` over the AB/CD fixture, then a 1 s
+sweep of the wall clock across two cadences of the longer unit calling the REAL
+`DecideUnitMemberRender` for the merged `AB` member and the partner's own `B0`
+member. Result: 302 of 801 swept UTs render BOTH concurrently (37.7%), every one
+of them with the two span clocks diverged (min 137 s, max 237 s on this fixture;
+the geometric bound for any pair of enable UTs is 50-300 s). Control with the
+second loop off: 0 collisions, `AB` still rendering. `ClearLoopsConflictingWith`
+reports `clearedSameTree=0 clearedCrossTree=0` with the link off, so the pinned
+concurrent-loop behavior provably does not couple the two. Note:
+`docs/dev/research/double-clock-verification-2026-08-13.md`. Shipped:
+`MissionStore.TryDescribeDoubleClockAdvisory` (transitive BFS over
+`DockConnectedTreePairs`; null graph -> null) + one ScreenMessage from the
+Missions-tab loop toggle on ENABLE only (after the enable, so it reads the
+post-clear state) + the `double-clock advisory:` Info audit line. NO hard
+enforcement, by design: widening `ClearLoopsConflictingWith` to graph-connected
+trees would switch off a loop the player just asked for and regress pinned
+behavior #4 for every harmless case. **The open half:** only the STRUCTURAL double
+render is pinned. The VISUAL severity (two ghosts of one vessel on screen
+together, possibly kilometres apart) follows from it but is not measured, and is
+collected opportunistically in ordinary play like the other M-MIS-8 per-scene
+visuals; the advisory's wording ("ghosts may appear twice") is deliberately sized
+to that evidence. The link-include toggle deliberately posts nothing (it calls
+`ClearLoopsConflictingWith`, so the two-loop state cannot survive that path -
+verified by a source-text gate, not assumed).
+
+**Five v1 limits carried by the seam-marker step, all deliberate.** (1) **No
+ghost-label badge** (design Q5 asked for one alongside the ScreenMessages line):
+Parsek's only floating-label surface, `ParsekFlight.DrawGhostLabels`, draws over
+`activeGhostChains` - the chain-ghost system - while unit members are
+playback-ENGINE ghosts with no label surface at all, so a badge means new
+per-frame per-ghost UI infrastructure, which is what design 14 and the
+visual-design principle rule out for a v1 label. Shipped as ScreenMessages + a
+`[SeamMarker] emit` log line; the badge is a follow-up if the message alone reads
+thin in play. (2) **Self-overlap emits nothing** (edge case 20, as designed): the
+overlap branch returns before the marker check. (3) **Marker freshness rides the
+loop-unit signature, not the graph signature** - `MissionLoopUnitBuilder.Build`
+only re-runs when `BuildSignature` moves, so a graph rebuild that changes ONLY a
+partner's name (e.g. a mission rename in another tree) can leave a marker string
+stale until the next unit rebuild. It degrades to an out-of-date name on an
+explanatory line, never to a wrong seam. (4) **Two seams within
+`SeamMessageMinRealSeconds` (3 s) of real time still throttle the second away.**
+Same-frame markers are joined into one line first, so the throttle can no longer
+eat half of ONE seam moment; what it still drops is a genuinely DIFFERENT seam
+arriving within three real seconds - two looping missions crossing docks at once,
+or a high-warp cycle. The drop is logged (`screen=throttled`) rather than silent.
+A queue that replayed them in order would be the fuller fix and is deliberately
+not built for v1. (5) **A marker whose whole 10 s window one frame steps over
+never fires** - unavoidable at >= 1000x warp with a containment test, and a line
+nobody could read is worse than none; the pass is logged
+(`[SeamMarker] skipped-at-warp`), so it is never confused with a marker that was
+never computed.
+
+**Two v1 approximations carried by the chapter step, deliberately, both
+documented at their code sites.** (1) A `SwitchContinuation` chapter takes only
+the intervals that BEGIN at or after the switch: the recorder folds the switch
+segment into the same physical vessel's through-line as the pre-switch legs
+(`ChildRecordingIds[0]` -> `ContinuationSuccessor`), so the interval STRADDLING
+the switch shares one key with the mission's earlier flight and no selection can
+separate them - taking it would make "exclude this chapter" silently drop the
+launch. (2) The Q6 reconcile warning (`chapter '<title>' has new included
+topology`) raises on any chapter that is partially excluded, because the precise
+statement ("the excluded set still holds everything the chapter held WHEN it was
+excluded") needs a persisted per-chapter snapshot and this design adds no
+persistence. It therefore never misses the case it exists for and over-reports a
+deliberate single-interval trim inside a chapter; it is a Warn on a reporting
+path that writes nothing.
+
 ## ~~ORACLE-REP-CURVE-PORT-DIVERGED: the harness ledger oracle's Python reputation curve kept the PRE-fix residual step after the C# side fixed it, so the two ports silently disagreed for every integer-or-larger nominal~~ [FOUND and FIXED 2026-08-20 on `oracle-rep-curve-port`, the same day the divergence opened. NO COMMITTED GATE WAS AFFECTED - see "Blast radius". CLOSED]
 
 **The divergence.** Commit `817773dcb` (2026-08-20,
