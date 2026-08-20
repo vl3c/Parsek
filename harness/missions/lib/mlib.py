@@ -1895,9 +1895,17 @@ STOCK_SUN_GRAV_PARAMETER: float = 1.1723328e18
 # sized escape burn, which the `escapeMaxDeltaVMps` sanity cap bounds but does
 # not correct.
 # ---------------------------------------------------------------------------
-STOCK_BODY_GRAVITY: Dict[str, Tuple[float, float]] = {
-    # body -> (mu m^3/s^2, equatorial radius m)
-    "Laythe": (1.962e12, 500_000.0),   # B26-laythe-vall-transfer.toml header
+STOCK_BODY_GRAVITY: Dict[str, Tuple[float, float, float]] = {
+    # body -> (mu m^3/s^2, equatorial radius m, SOI radius m)
+    #
+    # THE SOI RADIUS IS NOT DECORATION - B26 FLIGHT 2 PROVED IT IS THE
+    # LOAD-BEARING THIRD NUMBER. KSP is a PATCHED-CONIC game: a departing vessel
+    # is handed to the parent frame AT THE SOI BOUNDARY, never at infinity. An
+    # escape sized for a hyperbolic excess of 347.245 m/s therefore arrived at
+    # Laythe's SOI carrying sqrt(v_inf^2 + 2*mu/r_soi) = **1,083.69 m/s** of
+    # parent-relative speed - 3.12x the intent - because 3.72 Mm out, Laythe's
+    # well is still deep. See escape_node_plan for the corrected contract.
+    "Laythe": (1.962e12, 500_000.0, 3_723_645.81113302),  # B26 spec header
 }
 STOCK_HELIO_ELEMENTS: Dict[str, Tuple[float, float, float, float]] = {
     "Kerbin": (13_599_840_256.0, 0.0, 3.14, 0.0),
@@ -1915,8 +1923,8 @@ _EJECTION_WINDOW_BISECT_ITERS = 60
 _EJECTION_WINDOW_SCAN_STEP = 50_000.0
 
 
-def _body_gravity(body: str) -> Tuple[float, float]:
-    """(mu, equatorial radius) for a body in ``STOCK_BODY_GRAVITY``.
+def _body_gravity(body: str) -> Tuple[float, float, float]:
+    """(mu, equatorial radius, SOI radius) for a body in ``STOCK_BODY_GRAVITY``.
 
     RAISES on an unknown body rather than guessing. The relay lane's spec load
     runs this check up front, so the raise lands at spec-parse time (free) and
@@ -3433,16 +3441,30 @@ class B5Params:
                                            # and a non-empty return_body (the
                                            # PARENT frame IS the whole premise).
                                            # Spec key parentRelayTransfer.
-    escape_target_v_inf: float = 0.0       # m/s. The HYPERBOLIC EXCESS SPEED the
-                                           # escape node is sized for, i.e. the
-                                           # parent-frame departure v_inf of the
-                                           # transfer this relay is aiming at
-                                           # (B26: the Laythe->Vall Hohmann's
-                                           # 347.24 m/s, derived in the spec
-                                           # header). The node dv follows from it
-                                           # and the LIVE park -- see
-                                           # escape_node_plan. Spec key
-                                           # escapeTargetVInfMps.
+    escape_soi_speed: float = 0.0          # m/s. The relative speed the escape
+                                           # should carry ACROSS THE HOME BODY'S
+                                           # SOI BOUNDARY -- which is where KSP's
+                                           # patched conic hands the vessel to
+                                           # the parent, and therefore the only
+                                           # departure quantity this mode can
+                                           # actually aim at.
+                                           #
+                                           # **IT IS NOT A HYPERBOLIC EXCESS, AND
+                                           # THE RENAME IS THE FIX FOR B26 FLIGHT
+                                           # 2's DEFECT A.** The first cut called
+                                           # this `escapeTargetVInfMps` and sized
+                                           # `sqrt(v_inf^2 + 2*mu/r_pe)` -- the
+                                           # speed for an asymptotic excess at
+                                           # INFINITY. At Laythe that delivered
+                                           # 1,083.69 m/s across a 3.72 Mm SOI
+                                           # instead of the intended 347.245, and
+                                           # the parent-frame orbit came out with
+                                           # a 126.3 Mm apoapsis. The key was
+                                           # RENAMED rather than re-tuned because
+                                           # its MEANING changed; a silent
+                                           # meaning change under the same name
+                                           # is the worst of the options.
+                                           # Spec key escapeSoiSpeedMps.
     escape_max_dv: float = 0.0             # m/s. SANITY CAP on the computed
                                            # escape node: a plan above this is
                                            # REFUSED with a named reason rather
@@ -3922,12 +3944,27 @@ def b5_params_from_dict(params: Dict) -> B5Params:
                 "it will not use for a frame it is not in")
         relay_home = str(params.get("homeBodyName", "Kerbin"))
         _body_gravity(relay_home)   # raises, with the add-a-cited-row message
-        if float(params.get("escapeTargetVInfMps", 0.0)) <= 0.0:
+        if float(params.get("escapeSoiSpeedMps", 0.0)) <= 0.0:
             raise ValueError(
-                "parentRelayTransfer requires a positive escapeTargetVInfMps: "
-                "it is the parent-frame departure v_inf the escape node is "
-                "sized for, and at 0 the node degrades to a bare escape with "
-                "no energy left for the transfer")
+                "parentRelayTransfer requires a positive escapeSoiSpeedMps: it "
+                "is the relative speed the escape carries across the home SOI "
+                "boundary, which is where KSP's patched conic hands the vessel "
+                "to the parent frame, and at 0 there is nothing to size the "
+                "node against")
+        if "escapeTargetVInfMps" in params:
+            # THE RETIRED KEY, REJECTED RATHER THAN IGNORED. It meant a
+            # hyperbolic excess AT INFINITY and B26 flight 2 measured that
+            # delivering 3.12x its own value across Laythe's SOI. A spec still
+            # carrying it is a spec written against the refuted contract, and
+            # silently ignoring the key would fly the wrong burn from a file
+            # that looks like it asked for the right one.
+            raise ValueError(
+                "escapeTargetVInfMps is RETIRED and its meaning did not "
+                "survive: it named a hyperbolic excess at INFINITY, but KSP "
+                "hands a departing vessel to the parent AT THE SOI BOUNDARY, "
+                "where the residual well adds 2*mu/r_soi (at Laythe: 347.245 "
+                "in -> 1,083.69 out, 3.12x). Use escapeSoiSpeedMps, which "
+                "names the quantity that is actually delivered")
     if bool(params.get("padAlignEjection", False)):
         home = str(params.get("homeBodyName", "Kerbin"))
         target = str(params.get("targetBodyName", "Mun"))
@@ -3979,7 +4016,7 @@ def b5_params_from_dict(params: Dict) -> B5Params:
         correction_trigger_time_to_soi=tuple(
             float(t) for t in params.get("correctionTriggerTimeToSoiSeconds", ())),
         parent_relay_transfer=bool(params.get("parentRelayTransfer", False)),
-        escape_target_v_inf=float(params.get("escapeTargetVInfMps", 0.0)),
+        escape_soi_speed=float(params.get("escapeSoiSpeedMps", 0.0)),
         escape_max_dv=float(params.get("escapeMaxDeltaVMps", 0.0)),
         escape_node_min_lead=float(params.get("escapeNodeMinLeadSeconds", 300.0)),
         escape_timeout=float(params.get("escapeTimeoutSeconds", 600.0)),
@@ -9957,10 +9994,34 @@ def escape_node_plan(params: B5Params,
     THE ARITHMETIC, and it is deliberately the whole of it. The node is placed
     at the park's NEXT PERIAPSIS, and there:
 
-        r    = R_home + periapsis_altitude                     (exact radius)
-        a    = R_home + (apoapsis_alt + periapsis_alt) / 2     (from the apsides)
-        v    = sqrt(mu * (2/r - 1/a))                          (vis-viva, EXACT)
-        dv   = sqrt(v_inf^2 + 2*mu/r) - v
+        r     = R_home + periapsis_altitude                    (exact radius)
+        a     = R_home + (apoapsis_alt + periapsis_alt) / 2    (from the apsides)
+        v     = sqrt(mu * (2/r - 1/a))                         (vis-viva, EXACT)
+        dv    = sqrt(v_soi^2 + 2*mu*(1/r - 1/r_soi)) - v
+
+    **THE `- 1/r_soi` TERM IS THE WHOLE OF B26 FLIGHT 2's DEFECT A**, and it is
+    worth the paragraph because the first cut looked right and was not. That cut
+    sized `sqrt(v_inf^2 + 2*mu/r)`, i.e. the speed for an asymptotic excess AT
+    INFINITY. KSP is a PATCHED-CONIC game: it hands a departing vessel to the
+    parent frame AT THE SOI BOUNDARY, where the home body's well has NOT been
+    fully climbed. What actually crosses is
+    `sqrt(v_inf^2 + 2*mu/r_soi)` -- at Laythe, 347.245 m/s of intent became
+    **1,083.69 m/s** of delivered parent-relative speed, 3.12x, and the energy
+    error goes as the square. The flight measured the consequence exactly: a
+    Jool-frame orbit with a 126.3 Mm apoapsis where the transfer wanted 43.2.
+    Subtracting `1/r_soi` targets the speed AT THE HAND-OFF, which is the only
+    departure quantity this mode can actually aim at.
+
+    THE REACHABILITY FLOOR, which the corrected formula makes reachable to
+    violate. A prograde burn at `r` puts apoapsis at the SOI only above
+    `v_floor = sqrt(2*mu*r_soi / (r*(r_soi + r)))`; below that the orbit never
+    crosses and the escape silently never happens. Equivalently the SMALLEST
+    SOI-crossing speed is `v_floor*r/r_soi` (370.08 m/s at B26's park) -- so a
+    spec asking for LESS excess than the SOI geometry can deliver is asking for
+    something that does not exist, and is REFUSED by name rather than rounded up.
+    **This is also why `ejectionEccFloor` cannot be the relay's stage-1
+    evidence**: the correct escape here is BOUND about Laythe (ecc 0.7586 at the
+    committed 450 m/s), because reaching the SOI does not require escaping.
 
     WHY PERIAPSIS, three reasons and each is load-bearing. (1) It is the one
     point on the orbit whose radius the telemetry states EXACTLY, so the burn is
@@ -9970,11 +10031,10 @@ def escape_node_plan(params: B5Params,
     `time_to_periapsis` is already a read channel on every capture lane, so the
     node UT costs no new telemetry.
 
-    WHY vis-viva AND NOT v_circ(r). The escape must leave with hyperbolic excess
-    ``escape_target_v_inf``, so the POST-burn speed at r is fixed at
-    sqrt(v_inf^2 + 2*mu/r) whatever the orbit is; the dv is the gap to the speed
-    the craft ACTUALLY has there. Substituting a circular-orbit speed
-    over-burns at periapsis (25.8 m/s on B26's park) and under-burns at
+    WHY vis-viva AND NOT v_circ(r). The post-burn speed at r is fixed by the
+    energy the departure needs, whatever the orbit's own shape is; the dv is the
+    gap to the speed the craft ACTUALLY has there. Substituting a circular-orbit
+    speed over-burns at periapsis (25.8 m/s on B26's park) and under-burns at
     apoapsis, for no gain.
 
     THE NODE IS NOT AIMED, and that is a deliberate v1 limitation rather than an
@@ -9997,7 +10057,7 @@ def escape_node_plan(params: B5Params,
     if not params.parent_relay_transfer:
         return EscapeNodePlan(reason="parent-relay mode is not armed")
     try:
-        mu, radius = _body_gravity(params.home_body)
+        mu, radius, soi = _body_gravity(params.home_body)
     except ValueError as exc:                      # pragma: no cover - load-gated
         return EscapeNodePlan(reason=str(exc))
     if snapshot.body != params.home_body:
@@ -10029,14 +10089,35 @@ def escape_node_plan(params: B5Params,
         return EscapeNodePlan(
             reason="degenerate vis-viva term %.6g at rPe=%.1f sma=%.1f"
                    % (vis_viva, r_p, sma))
+    if soi <= r_p:
+        return EscapeNodePlan(
+            reason="SOI radius %.1f is at or inside the burn radius %.1f -- the "
+                   "park is not inside the home body's SOI" % (soi, r_p))
     v_now = math.sqrt(mu * vis_viva)
-    v_needed = math.sqrt(params.escape_target_v_inf ** 2 + 2.0 * mu / r_p)
+    # The SOI-referenced energy: leave the boundary with escape_soi_speed.
+    v_needed = math.sqrt(params.escape_soi_speed ** 2
+                         + 2.0 * mu * (1.0 / r_p - 1.0 / soi))
+    # REACHABILITY: below this the apoapsis never touches the SOI and the escape
+    # simply does not happen. Named rather than silently clamped -- a clamp would
+    # fly a burn the spec did not ask for.
+    v_floor = math.sqrt(2.0 * mu * soi / (r_p * (soi + r_p)))
+    if v_needed <= v_floor:
+        return EscapeNodePlan(
+            reason="escapeSoiSpeedMps %.1f is below what this park's geometry "
+                   "can deliver: a prograde burn at rPe=%.0f cannot reach the "
+                   "%.0f m SOI with less than %.1f m/s of relative speed"
+                   % (params.escape_soi_speed, r_p, soi,
+                      v_floor * r_p / soi))
     dv = v_needed - v_now
     if not _is_finite(dv) or dv <= 0.0:
         return EscapeNodePlan(
             reason="escape dv %s is not positive (v at periapsis %.1f already "
                    "meets the required %.1f m/s)"
                    % (_obs_fmt(dv), v_now, v_needed))
+    if params.escape_soi_speed <= 0.0:
+        return EscapeNodePlan(
+            reason="escapeSoiSpeedMps %.1f is not positive"
+                   % (params.escape_soi_speed,))
     if params.escape_max_dv > 0.0 and dv > params.escape_max_dv:
         return EscapeNodePlan(
             reason="escape dv %.1f m/s exceeds the escapeMaxDeltaVMps cap %.1f "
@@ -10053,6 +10134,43 @@ def escape_node_plan(params: B5Params,
         # the burn is sized with, so no new constant enters here.
         lead += 2.0 * math.pi * math.sqrt(sma ** 3 / mu)
     return EscapeNodePlan(node_ut=float(snapshot.ut) + lead, dv=float(dv))
+
+
+def _relay_escape_burn_done(params: B5Params,
+                            snapshot: TelemetrySnapshot) -> bool:
+    """PARENT-RELAY STAGE-1 burn-done evidence: the home-frame orbit will LEAVE.
+
+    **THIS REPLACES `ejectionEccFloor` ON A RELAY LANE, and B26 flight 2 is why
+    the substitution is required rather than preferred.** A hyperbolic ejection
+    is not what a patched-conic escape needs: reaching the SOI boundary only
+    requires an APOAPSIS at or past it, and the correctly-sized escape at
+    Laythe is BOUND (ecc 0.7586 at the committed 450 m/s SOI speed). Demanding
+    ecc > 1 would force the parabolic burn -- 752.10 m/s instead of 586.69 --
+    and dump 1,026.55 m/s across the boundary instead of 450. The eccentricity
+    floor is not a stricter version of this gate; it is a gate on a DIFFERENT
+    claim, and on this lane it is the wrong one.
+
+    Three disjuncts, in decreasing strength, every one fail-closed:
+      - the craft ALREADY left the home SOI (a via body / the target) -- the
+        claim is settled by observation and nothing needs deriving;
+      - a NEGATIVE home-frame apoapsis, i.e. genuinely hyperbolic (a stronger
+        escape than needed, but unambiguously leaving);
+      - the home-frame apoapsis RADIUS reaches the SOI radius.
+    An unreadable apoapsis satisfies none of them, so the phase holds and its
+    watchdog owns the outcome."""
+    if snapshot.body in params.via_bodies or snapshot.body == params.target_body:
+        return True
+    if snapshot.body != params.home_body:
+        return False
+    if not _is_finite(snapshot.apoapsis):
+        return False
+    if snapshot.apoapsis < 0.0:
+        return True
+    try:
+        _mu, radius, soi = _body_gravity(params.home_body)
+    except ValueError:                             # pragma: no cover - load-gated
+        return False
+    return (radius + float(snapshot.apoapsis)) >= soi
 
 
 def _b5_transfer_plan_action(params: B5Params) -> Action:
@@ -10103,10 +10221,11 @@ def _b5_transfer_burn_done(params: B5Params, snapshot: TelemetrySnapshot,
     branch's own early return would fire unconditionally and the exit would
     reduce to "a node was consumed" with no evidence the burn achieved
     anything."""
-    if (params.parent_relay_transfer
-            and relay_stage >= RELAY_STAGE_TRANSFER):
-        return (_is_finite(snapshot.apoapsis)
-                and snapshot.apoapsis >= params.transfer_min_apoapsis)
+    if params.parent_relay_transfer:
+        if relay_stage >= RELAY_STAGE_TRANSFER:
+            return (_is_finite(snapshot.apoapsis)
+                    and snapshot.apoapsis >= params.transfer_min_apoapsis)
+        return _relay_escape_burn_done(params, snapshot)
     if params.ejection_ecc_floor > 0.0:
         if snapshot.body in params.via_bodies or snapshot.body == params.target_body:
             return True
@@ -10163,7 +10282,15 @@ def _b5_correction_round_ready(state: B5State, snapshot: TelemetrySnapshot) -> b
         return False
     idx = state.correction_rounds_done
     if p.correction_trigger_time_to_soi:
+        # THE ENCOUNTER-IDENTITY CONJUNCT (B26 flight 2) is the same lesson as
+        # the body-domain narrowing above, one level in: narrowing the BODY the
+        # craft is IN was not enough, because on a coast that re-crosses another
+        # body's orbit the clock itself alternates between two encounters. A
+        # Laythe-encounter reading trivially satisfies round 0's 35,000 s
+        # threshold and would spend the round course-correcting toward the wrong
+        # body. Fails OPEN on an unread next_body, so no flown lane moves.
         return (snapshot.body in _b5_correction_via_bodies(p)
+                and soi_clock_describes_target(snapshot.next_body, p.target_body)
                 and _is_finite(snapshot.time_to_soi)
                 and snapshot.time_to_soi <= p.correction_trigger_time_to_soi[idx])
     return (snapshot.body == p.home_body
@@ -10542,6 +10669,57 @@ def coast_native_warp_hold(time_to_soi: float, warp_to_cmd: Optional[float],
     return (warp_mode == WARP_RAILS
             or _is_finite(warping_to)
             or (_is_finite(warp_rate) and warp_rate > 1.0))
+
+
+def soi_clock_describes_target(next_body: str, target_body: str) -> bool:
+    """True unless ``next_body`` POSITIVELY names a body that is not the target.
+
+    ``time_to_soi`` is "seconds until the NEXT SOI change, whatever body that
+    is". Every lane flown before B26 coasted on an orbit with exactly ONE
+    candidate encounter, so that clock and "time to the target" were the same
+    number and nobody had to separate them.
+
+    **B26 FLIGHT 2's DEFECT B IS WHAT HAPPENS WHEN THEY ARE NOT.** Its
+    parent-frame coast re-crossed LAYTHE'S OWN ORBIT, so KSP's patched-conic
+    solver alternated between a Laythe encounter and a Vall encounter and
+    ``time_to_soi`` stepped between 123,077.9 s and 145,030.0 s -- a ~22 ks jump
+    every time it flipped. The coast derives its native warp target from that
+    clock, ~22 ks blows through WARP_RETARGET_THRESHOLD_SECONDS in BOTH
+    directions, and the policy spent the phase CANCELLING AND RE-ARMING its own
+    warp: 501 issues against the 500 cap, each one zeroing the warp factors, so
+    the game visibly fluttered between 1x and a few x instead of warping.
+
+    FAIL OPEN ON AN UNREAD NAME, and that is what makes this safe to apply
+    everywhere rather than behind the relay flag. Only a POSITIVE mismatch
+    suppresses; a blank ``next_body`` (unread, or no SOI change on the
+    trajectory) passes. On every flown lane a finite ``time_to_soi`` means an
+    encounter EXISTS, which means ``next_body`` is populated, which on a
+    single-candidate coast IS the target -- so this returns True on all of them
+    and their decisions are byte-identical. Pinned by ``ForeignSoiClockTests``."""
+    return not (next_body and target_body and next_body != target_body)
+
+
+def coast_foreign_soi_clock_hold(next_body: str, target_body: str,
+                                 warp_to_cmd: Optional[float],
+                                 ut: float) -> bool:
+    """True when COAST-TO-TARGET must HOLD an already-armed native warp because
+    this frame's ``time_to_soi`` describes a DIFFERENT encounter.
+
+    The sibling of ``coast_native_warp_hold``, and deliberately NOT folded into
+    it: that one holds on a BLIND read and only while the game is observably
+    warping, because blindness is evidence of nothing. This one holds on a
+    POSITIVELY FOREIGN read, which is evidence of something -- the armed target
+    was derived from the target's own clock and the new number simply is not
+    about it -- so it holds regardless of the warp state. Cancelling on a
+    reading that was never about our encounter IS the thrash.
+
+    Fail-closed on the preconditions: nothing armed, or an already-reached /
+    unreadable clock, holds nothing."""
+    if warp_to_cmd is None:
+        return False
+    if not (_is_finite(ut) and ut < warp_to_cmd):
+        return False
+    return not soi_clock_describes_target(next_body, target_body)
 
 
 def _b5_native_warp(state: B5State, snapshot: TelemetrySnapshot,
@@ -11800,12 +11978,12 @@ def b5_decide(state: B5State, snapshot: TelemetrySnapshot) -> Tuple[B5State, Lis
             # give-up nobody has seen yet.
             return _b5_named_flake(
                 staged,
-                "escape-node never computable: %s (home %r, target v_inf "
+                "escape-node never computable: %s (home %r, target SOI speed "
                 "%.1f m/s, dv cap %s, min lead %.0f s) -- the ESCAPE budget "
                 "expired with the node still refused, so nothing was ever "
                 "handed to the executor"
                 % (plan.reason or "<no reason recorded>", state.params.home_body,
-                   state.params.escape_target_v_inf,
+                   state.params.escape_soi_speed,
                    ("%.1f m/s" % state.params.escape_max_dv)
                    if state.params.escape_max_dv > 0.0 else "none",
                    state.params.escape_node_min_lead),
@@ -12350,6 +12528,24 @@ def b5_decide(state: B5State, snapshot: TelemetrySnapshot) -> Tuple[B5State, Lis
         if stayed.body_blank_count:
             stayed = replace(stayed, body_blank_count=0)
         stayed = _b5_clear_arrived_warp(stayed, snapshot)
+        # FOREIGN-CLOCK HOLD (B26 flight 2, defect B). Checked BEFORE any target
+        # is derived, because the whole failure is deriving one from a reading
+        # that is not about our encounter: this frame's time_to_soi names a
+        # DIFFERENT body's SOI change, so the armed target is not stale -- it is
+        # simply not what this number describes. HOLD it: emit nothing, cancel
+        # nothing. Fails OPEN on an unread next_body, so no flown lane reaches
+        # this branch at all.
+        if coast_foreign_soi_clock_hold(snapshot.next_body,
+                                        state.params.target_body,
+                                        stayed.warp_to_cmd, snapshot.ut):
+            return stayed, []
+        # ... and the same reading must not ARM a target either. Confined to the
+        # correction body domain so B15/B16's Kerbin-exit leg -- which
+        # legitimately transits the Mun with next_body="Mun" while targeting Eve
+        # -- keeps the native warp-to-boundary it was given in flight 7.
+        target_clock = soi_clock_describes_target(snapshot.next_body,
+                                                  state.params.target_body)
+        in_parent_frame = snapshot.body in _b5_correction_via_bodies(state.params)
         native_target: Optional[float] = None
         # B12 flight 2: set only by the SOI-coast fallback branch below, so
         # every other warp mode (pending node, altitude / time correction
@@ -12387,7 +12583,7 @@ def b5_decide(state: B5State, snapshot: TelemetrySnapshot) -> Tuple[B5State, Lis
                 desired = min(desired, max_legal_rails_factor(
                     snapshot.body, snapshot.altitude))
         elif (rounds_pending and state.params.correction_trigger_time_to_soi
-                and snapshot.body in _b5_correction_via_bodies(state.params)
+                and in_parent_frame and target_clock
                 and _is_finite(snapshot.time_to_soi) and _is_finite(snapshot.ut)):
             # Correction-trigger approach, TIME mode (B7): approach the next
             # round's time-to-SOI threshold on the CURRENT native-first
@@ -12438,7 +12634,8 @@ def b5_decide(state: B5State, snapshot: TelemetrySnapshot) -> Tuple[B5State, Lis
                 desired = min(desired, max_legal_rails_factor(
                     snapshot.body, snapshot.altitude))
         elif (_is_finite(snapshot.time_to_soi) and _is_finite(snapshot.ut)
-                and snapshot.time_to_soi > state.params.soi_lead):
+                and snapshot.time_to_soi > state.params.soi_lead
+                and (target_clock or not in_parent_frame)):
             # (b) Post-correction coast: NATIVE warp to the SOI boundary
             # minus soi_lead, so the machine regains 1x-poll control just
             # before the body change (never crosses inside a high-rate warp;
@@ -15539,7 +15736,7 @@ def evaluate_b5_assertions(frames, params: B5Params,
              "relayStage": relay_stage,
              "escapeNodeUt": getattr(state, "escape_node_ut", None),
              "escapeNodeDvMps": getattr(state, "escape_node_dv", None),
-             "targetVInfMps": params.escape_target_v_inf,
+             "targetSoiSpeedMps": params.escape_soi_speed,
              "lastRefusal": (getattr(state, "escape_refusal", "") or None)})]
 
     # PAD-ALIGN row (pad_align_ejection lanes only; every flown lane's row

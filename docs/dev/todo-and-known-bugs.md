@@ -52,7 +52,7 @@ scope (the derivation is pinned by synthetic in-game cells); file when docking
 coverage next expands. Also missing per BDOCK-1's own header note: an
 orbital-rendezvous-dock D10 value and a same-craft-twice identity D18 value.
 
-## MECHJEB-INTERPLANETARY-PLANNER-REJECTS-MOON-ORIGIN: MechJeb 2.15.1's `OperationInterplanetaryTransfer.MakeNodes` throws on a MOON-PARKED origin, so the harness could not fly any moon-to-moon transfer [MEASURED 2026-08-19 by `B26-laythe-vall-transfer` flight 1, DETERMINISTIC 2/2 attempts. HARNESS SURFACE, REPORT-ONLY - not a Parsek defect and not a spec defect; it blocked the M-MIS-7 subject's PRODUCTION, not the product question. **ROUTED AROUND 2026-08-20: candidate (a)-minimal is AUTHORED on branch `moon-to-moon-lane` as mlib's flag-gated PARENT-RELAY mode. ENTRY STAYS OPEN until B26 flight 2 proves it live** - see WHAT WAS BUILT at the end]
+## MECHJEB-INTERPLANETARY-PLANNER-REJECTS-MOON-ORIGIN: MechJeb 2.15.1's `OperationInterplanetaryTransfer.MakeNodes` throws on a MOON-PARKED origin, so the harness could not fly any moon-to-moon transfer [MEASURED 2026-08-19 by `B26-laythe-vall-transfer` flight 1, DETERMINISTIC 2/2 attempts. HARNESS SURFACE, REPORT-ONLY - not a Parsek defect and not a spec defect; it blocked the M-MIS-7 subject's PRODUCTION, not the product question. **ROUTED AROUND 2026-08-20: candidate (a)-minimal shipped as mlib's flag-gated PARENT-RELAY mode, and B26 FLIGHT 2 FLEW IT - the escape phase worked and `escapedHomeSoi met=True`. Two defects of its own were measured and fixed (see WHAT WAS BUILT). ENTRY STAYS OPEN until a flight completes the hop**]
 
 **THIS IS A HARNESS-CAPABILITY GAP, NOT A PRODUCT FINDING.** Nothing in Parsek ran,
 nothing in Parsek is implicated, and the spec that hit it is correct. Read the
@@ -190,12 +190,92 @@ non-dv consequence worth carrying here: an unaimed escape's parent-frame apoapsi
 reaches **71.28 Mm**, ABOVE Tylo's 68.50 Mm shell, so B26's Tylo/Bop/Pol
 forbidden tokens stopped being a restatement of geometry and became a real guard.
 
-**THIS ENTRY STAYS OPEN.** The capability is authored and unit-tested; it has not
-flown. It closes when B26 flight 2 measures it live. The likeliest way that
-flight fails is now a different MechJeb question from the one above, and it is
-pre-registered in B26's own observation targets: whether `OperationTransfer`
-plans a sane targeted intercept from the eccentric, ~1.7 deg inclined parent
-orbit an unaimed escape delivers.
+### FLIGHT 2 (2026-08-20, runs `2026-08-20_1646` / `_1701_a2`): THE MODE FLEW, AND MOST OF IT WORKED
+
+Both attempts `INVALID(autopilot-flake)`, mission wall 856 s / 864 s. State the
+working half first, because the normal failure of a new mode's first flight is
+the mode, and this was not that.
+
+**WHAT WORKED, every item a thing nobody had seen work before.** `phasesReached
+['PRELAUNCH','ORBIT','ESCAPE','TRANSFER-BURN','COAST-TO-TARGET','PLAN-TRANSFER',
+'TRANSFER-BURN','COAST-TO-TARGET']` - the whole two-stage flow. `assert
+escapedHomeSoi value=1 met=True`. The node was computed, added and read back
+EXACTLY ONCE (`escape node added ut=28818204.529 prograde=774.70 m/s (read back
+ut=28818204.529 prograde=774.705); nodes=1`), with no `escape node add SKIPPED`,
+so the additive-`add_node` race the runner guards never fired. It was placed AT
+the periapsis (ttPe 1,175.552 on the planning frame; ignition at alt 56,431
+against a 56,240 periapsis). The executor flew it to within 1%: LF 534.869 ->
+351.228 = 0.918 t = **767.4 m/s measured against 774.705 planned**, ending at
+Laythe-frame ecc **1.035** against the predicted 1.03418. And MechJeb's MOON-path
+`OperationTransfer` ACCEPTED the Jool-parented pair and produced a Vall encounter
+- which retires the top pre-registered risk.
+
+**DEFECT A - THE ESCAPE CONTRACT WAS WRONG, NOT THE ESCAPE.** Everything above
+says the node was exactly what it was asked for; what was wrong is what it was
+asked for. **KSP IS A PATCHED-CONIC GAME AND HANDS A DEPARTING VESSEL TO THE
+PARENT AT THE SOI BOUNDARY, NOT AT INFINITY.** Sizing for a hyperbolic excess of
+347.245 m/s therefore delivered `sqrt(v_inf^2 + 2*mu_Laythe/r_soi)` =
+**1,083.69 m/s** of Jool-relative speed - **3.12x** - because 3.72 Mm out
+Laythe's well is still deep, and the energy error goes as the square. MEASURED at
+the stage-2 PLAN-TRANSFER frame: a Jool orbit of pe 19.70 / ap 126.33 Mm
+altitude, i.e. **a = 79.0 Mm, ecc 0.675**, where the transfer wanted 35.2.
+
+  Swept over every departure direction and exit point, the flown contract admits
+  orbits from **a = 14.5 to 8,683 Mm**, a minimum periapsis of **5.51 Mm - BELOW
+  Jool's 6.20 Mm atmosphere top** - and samples that **leave Jool's SOI
+  entirely**. The flown draw was a middling one. The fix removes two lane-ending
+  outcomes, not just some dv.
+
+  **THE FIX IS ONE TERM AND A RENAME.** `escapeSoiSpeedMps` (450 on B26), sized
+  `sqrt(v_soi^2 + 2*mu*(1/r_pe - 1/r_soi))` = **586.69 m/s**, i.e. 188 m/s
+  CHEAPER as well as correct; the delivered band becomes a = 17.2 - 59.0 Mm with
+  no Jool escapes and a 11.01 Mm minimum periapsis. The retired
+  `escapeTargetVInfMps` is REJECTED BY NAME at spec load rather than ignored,
+  because the two differ by 3.12x in what they deliver and a silently-ignored key
+  would fly the wrong burn from a file that reads as if it asked for the right
+  one. Two corrections followed from it: **`ejectionEccFloor` is retired on relay
+  lanes** (a correct patched-conic escape from Laythe is BOUND, ecc 0.7586 -
+  reaching a SOI needs an apoapsis past it, not an escape; demanding hyperbolic
+  would force the 752.10 m/s parabolic burn), replaced by
+  `_relay_escape_burn_done`; and **B26's entry-gate apoapsis ceiling tightened
+  500,000 -> 300,000 m**, because above that a park the gate calls legal has a
+  geometric floor (up to 472.33 m/s) ABOVE the requested 450 and the planner would
+  refuse a fixture the gate had just admitted.
+
+**DEFECT B - COAST-WARP-THRASH IS AN AMBIGUOUS CLOCK.** Verdict: `phase
+COAST-TO-TARGET: coast-warp-thrash (501 native warp_to_ut issues in THIS phase,
+cap 500 ... ut=29041600.577 target=29062180.256 tts=55579.679 ttPe=43021.364
+warp=NONEx1.000)`. **The cap worked exactly as designed** - bounded and named -
+and is not what needed changing.
+
+  The stage-2 Jool ellipse (pe 19.70 Mm) re-crosses **LAYTHE'S OWN 27.184 Mm
+  orbit**, so the patched-conic solver alternated between a Vall encounter and a
+  Laythe one and `time_to_soi` stepped between **145,030.028 s** and
+  **123,077.921 s**. The time-mode trigger branch derives its native warp target
+  as `ut + (tts - 35,000)`, which reproduces the flake line's target exactly
+  (29,041,600.577 + 55,579.679 - 35,000 = 29,062,180.256). A ~22 ks step clears
+  `WARP_RETARGET_THRESHOLD_SECONDS` in BOTH directions, so every flip cancelled a
+  running warp and re-armed it - the log carries the pairs verbatim (`gate
+  warpToCmd 29062180.256->29043726.703`, `native warp cancelled (factors
+  zeroed)`, `native warp_to dispatched target ut=29043726.703`). Each cancel
+  zeroes the factors, which is the 1x<->3x flutter the operator watched live.
+
+  **THE FIX IS AN IDENTITY CHECK, NOT A WIDER THRESHOLD**:
+  `soi_clock_describes_target` / `coast_foreign_soi_clock_hold`. A `time_to_soi`
+  whose `next_body` POSITIVELY names a non-target body is not a refinement of the
+  armed target - it is about a different encounter - so the coast HOLDS instead
+  of cancelling, and the same conjunct stops a Laythe reading firing a Vall
+  correction round. It fails OPEN on an unread `next_body`, which is why it is
+  applied generally rather than behind the relay flag: on every flown lane a
+  finite `time_to_soi` means an encounter exists, so `next_body` is populated,
+  and on a single-candidate coast it IS the target. The warp-target branch is
+  additionally confined to the correction body domain so B15/B16's Kerbin-exit
+  leg - which legitimately transits the Mun while targeting Eve - keeps the
+  native warp-to-boundary flight 7 gave it.
+
+**THIS ENTRY STAYS OPEN.** Both defects are fixed at their roots with the
+arithmetic re-run in `Flight2DefectATests` / `Flight2DefectBTests`, and NOTHING
+HAS BEEN RE-FLOWN. It closes when a flight completes the hop.
 
 ## MAPRENDER-SEAM-LENS-EVALUATES-UNSHIFTED-EPOCH-ON-CREATION-FRAME: the seam-endpoint lens reads the RECORDED seam UT instead of the replayed one on a ghost proto's creation frame, and raises `seam-endpoint-outside-soi` against an endpoint 157x the SOI away [MEASURED 2026-08-19 by `V16T-laythe-ts-arrival`'s reading run and **RECURRED on its ARMED run `2026-08-19_2212` (PASS attempt 1)**, which makes it DETERMINISTIC for the single-jump shape rather than a one-off. REPORT-ONLY - the harness classified the reason UNLISTED and did not gate on it, and `V16M-laythe-player-loop`'s stepped-epoch censuses prove the underlying recurrence is FINE. Same family as MAPRENDER-ICON-OFF-ORBIT-CREATION-FRAME-AFTER-JUMP; NO product change is proposed]
 

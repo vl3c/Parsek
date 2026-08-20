@@ -56,6 +56,7 @@ MU_VALL = 2.074e11
 R_VALL = 300_000.0
 SOI_VALL = 2_406_401.4
 VALL_HIGHEST_TERRAIN_M = 8_000.0
+RJ_ = 6_000_000.0          # Jool's equatorial radius (kRPC apsides are ALTITUDES)
 
 # The fixture's MEASURED Laythe park, read off
 # `fixtures/saves/laythe-park-nerv/persistent.sfs` (unchanged by the strip - it
@@ -85,9 +86,27 @@ PESSIMISTIC_POLL_SECONDS = 4.0
 # but its stage-2 transfer is UNAIMED, so the plane term moves out of the ejection
 # and into a parent-frame bound of 2*v_inf.
 DV_AVAILABLE_MPS = 2483.9
-ESCAPE_NODE_MPS = 774.70          # the relay's stage-1 node, at the fixture's park
-NOMINAL_HOP_MPS = 1581.8          # escape + typical stage 2 + a ~100 km capture
-WORST_HOP_MPS = 1843.9            # escape + worst-direction stage 2 + a 20 km capture
+# RE-DERIVED AFTER FLIGHT 2. The first cut sized the escape for a hyperbolic
+# excess AT INFINITY and flew 774.70 m/s, which delivered 1,083.69 m/s across
+# Laythe's SOI (3.12x) - see Flight2DefectATests. The corrected SOI-referenced
+# contract is CHEAPER on the escape and DEARER on stage 2, because stage 2's
+# bound is 2*|v_rel| and |v_rel| is now the honest 450 rather than a believed 347.
+ESCAPE_NODE_MPS = 586.69          # the relay's stage-1 node, at the fixture's park
+ESCAPE_SOI_SPEED_MPS = 450.0      # the committed escapeSoiSpeedMps
+NOMINAL_HOP_MPS = 1530.8          # escape + typical stage 2 + a ~100 km capture
+WORST_HOP_MPS = 1861.4            # escape + worst-direction stage 2 + a 20 km capture
+# MEASURED on run 2026-08-20_1701_B26-laythe-vall-transfer_a2 (run _1646 agrees).
+F2_NODE_DV_MPS = 774.705          # what the pre-fix contract planned
+F2_NODE_UT = 28_818_204.529
+F2_LF_BEFORE = 534.869
+F2_LF_AFTER = 351.228
+F2_ECC_AFTER = 1.035              # Laythe-frame, post-escape
+F2_STAGE2_AP_M = 126_333_908.680  # Jool-frame apoapsis ALTITUDE at stage-2 entry
+F2_STAGE2_ALT_M = 20_968_630.330
+F2_TTS_VALL = 145_030.028         # the two clocks that flapped
+F2_TTS_LAYTHE = 123_077.921
+F2_THRASH_UT = 29_041_600.577
+F2_THRASH_TARGET = 29_062_180.256
 
 
 def _spec(name):
@@ -196,29 +215,28 @@ class JoolFrameArithmeticTests(unittest.TestCase):
         one the transfer wants."""
         mp = _spec("B26-laythe-vall-transfer.toml")["driver"]["missionParams"]
         v_inf_dep, v_inf_arr, _ = hohmann(A_LAYTHE, A_VALL)
-        # STAGE 1, at the PERIAPSIS the relay places its node at - vis-viva, not
-        # the circular formula, and the two differ by a real 15 m/s.
+        # STAGE 1, at the PERIAPSIS the relay places its node at, sized against
+        # the SOI BOUNDARY rather than infinity (flight 2's defect-A fix).
         r_pe = PARK_SMA * (1.0 - PARK_ECC)
         v_pe = math.sqrt(MU_LAYTHE * (2.0 / r_pe - 1.0 / PARK_SMA))
-        escape = math.sqrt(v_inf_dep ** 2 + 2.0 * MU_LAYTHE / r_pe) - v_pe
+        escape = (math.sqrt(ESCAPE_SOI_SPEED_MPS ** 2
+                            + 2.0 * MU_LAYTHE * (1.0 / r_pe - 1.0 / SOI_LAYTHE))
+                  - v_pe)
         self.assertAlmostEqual(escape, ESCAPE_NODE_MPS, delta=0.05)
-        circular_formula = (math.sqrt(v_inf_dep ** 2 + 2.0 * MU_LAYTHE / PARK_SMA)
-                            - math.sqrt(MU_LAYTHE / PARK_SMA))
-        self.assertAlmostEqual(circular_formula, 790.0, delta=1.0)
-        self.assertGreater(circular_formula - escape, 10.0,
-                           "the periapsis placement must actually buy something "
-                           "against the circular-at-sma sizing it replaces")
-        # STAGE 2: the parent-frame vector difference, bounded by 2*v_inf however
-        # the asymptote comes out. The PLANE TERM IS INSIDE this bound, not added
-        # to it - that is the whole reason the relay's worst case is cheaper than
-        # the pre-relay folded ejection bound.
-        out_of_plane = v_inf_dep * math.sin(math.radians(PARK_INC_DEG))
-        self.assertAlmostEqual(out_of_plane, 97.9, delta=0.5)
-        self.assertLess(out_of_plane, 2.0 * v_inf_dep)
-        stage2_worst = 2.0 * v_inf_dep
-        stage2_typical = (4.0 / 3.0) * v_inf_dep
-        self.assertAlmostEqual(stage2_worst, 694.5, delta=0.5)
-        self.assertAlmostEqual(stage2_typical, 463.0, delta=0.5)
+        # STAGE 2: the parent-frame vector difference, bounded by 2*|v_rel|
+        # however the departure direction comes out. The PLANE TERM IS INSIDE
+        # this bound, not added to it.
+        out_of_plane = ESCAPE_SOI_SPEED_MPS * math.sin(math.radians(PARK_INC_DEG))
+        self.assertAlmostEqual(out_of_plane, 126.8, delta=0.5)
+        self.assertLess(out_of_plane, 2.0 * ESCAPE_SOI_SPEED_MPS)
+        stage2_worst = 2.0 * ESCAPE_SOI_SPEED_MPS
+        stage2_typical = (4.0 / 3.0) * ESCAPE_SOI_SPEED_MPS
+        self.assertAlmostEqual(stage2_worst, 900.0, delta=0.5)
+        self.assertAlmostEqual(stage2_typical, 600.0, delta=0.5)
+        # THE IDEAL IS NOT DELIVERABLE, and that asymmetry is the point: the
+        # transfer wants 347.245 and the SOI geometry cannot hand over less than
+        # 370.08, so 450 is a compromise rather than a target.
+        self.assertGreater(ESCAPE_SOI_SPEED_MPS, v_inf_dep)
         # CAPTURE at the most expensive periapsis the park window admits.
         r_p = R_VALL + mp["parkMinPeriapsisMeters"]
         capture = (math.sqrt(v_inf_arr ** 2 + 2.0 * MU_VALL / r_p)
@@ -227,6 +245,11 @@ class JoolFrameArithmeticTests(unittest.TestCase):
         self.assertAlmostEqual(worst, WORST_HOP_MPS, delta=1.0)
         self.assertLess(worst, DV_AVAILABLE_MPS)
         self.assertGreater(DV_AVAILABLE_MPS - worst, 600.0)
+        # FOUR correction rounds at the committed cap must still fit.
+        rounds = (len(mp["correctionTriggerTimeToSoiSeconds"])
+                  + mlib.MAX_ARRIVAL_EXTRA_ROUNDS)
+        self.assertLessEqual(rounds * mp["maxCorrectionDvMps"],
+                             DV_AVAILABLE_MPS - worst)
 
     def test_the_margin_agrees_with_the_propellant_mass_it_is_made_of(self):
         """THE CROSS-CHECK the header claims to 0.4 m/s, and it is worth a cell
@@ -240,7 +263,7 @@ class JoolFrameArithmeticTests(unittest.TestCase):
         by_mass = ve * math.log(remaining / dry)
         by_subtraction = DV_AVAILABLE_MPS - WORST_HOP_MPS
         self.assertAlmostEqual(by_mass, by_subtraction, delta=1.0)
-        self.assertAlmostEqual(by_subtraction, 640.0, delta=1.0)
+        self.assertAlmostEqual(by_subtraction, 622.5, delta=1.0)
 
     def test_the_unaimed_escape_puts_tylos_shell_back_in_reach(self):
         """THE ONE THING THE RELAY MADE WORSE, and it is measured rather than
@@ -299,17 +322,25 @@ class EjectionFloorTests(unittest.TestCase):
                         "the required ejection eccentricity now clears B7's 1.05, "
                         "so this lane's whole reason for 1.001 needs re-reading")
 
-    def test_the_committed_floor_discriminates_the_park_from_the_ejection(self):
+    def test_the_floor_is_retired_on_this_lane_and_the_reason_outlives_it(self):
+        """**THE CELL ABOVE IS NOW HISTORY, AND SO IS THIS KEY.** Flight 2
+        showed the whole ejection-eccentricity framing is wrong for a
+        patched-conic escape: reaching the SOI needs an apoapsis past it, not an
+        escape, so the correct burn leaves a BOUND orbit and no floor above 1 is
+        meetable. The key stays at 0 and the machine does not read it.
+
+        Kept as a cell rather than deleted because the trap it guards is still
+        live: the next reader's instinct will be to 'restore' 1.001."""
         mp = _spec("B26-laythe-vall-transfer.toml")["driver"]["missionParams"]
-        floor = mp["ejectionEccFloor"]
-        v_inf, _, _ = hohmann(A_LAYTHE, A_VALL)
-        required_ecc = 1.0 + PARK_SMA * v_inf ** 2 / MU_LAYTHE
-        # Above 1 (a bound park can never reach it) and comfortably below the
-        # ejection the transfer actually needs.
-        self.assertGreater(floor, 1.0)
-        self.assertGreater(floor, PARK_ECC * 30.0)
-        self.assertLess(floor, required_ecc)
-        self.assertGreater(required_ecc - floor, 0.03)
+        self.assertEqual(0, mp["ejectionEccFloor"])
+        # The escape the spec actually commissions is BOUND, so any floor > 1
+        # would be unmeetable and would ride the phase to its budget.
+        p = mlib.b5_params_from_dict(mp)
+        plan = mlib.escape_node_plan(p, relay_snap())
+        r_pe = PARK_SMA * (1.0 - PARK_ECC)
+        v_pe = math.sqrt(MU_LAYTHE * (2.0 / r_pe - 1.0 / PARK_SMA))
+        energy = (v_pe + plan.dv) ** 2 / 2.0 - MU_LAYTHE / r_pe
+        self.assertLess(energy, 0.0)
 
 
 class CompositionAuditTests(unittest.TestCase):
@@ -354,25 +385,35 @@ class CompositionAuditTests(unittest.TestCase):
         self.assertTrue(set(mlib._b5_correction_via_bodies(self.params))
                         <= set(self.params.via_bodies))
 
-    def test_the_burn_done_evidence_reads_the_laythe_frame_and_the_early_return(self):
-        """The ecc branch across all three frame shapes the flight passes
-        through. This is the composition's load-bearing predicate: the FLOOR is
-        read in Laythe's frame while still in Laythe's SOI, and the early return
-        must fire once the craft is in JOOL's."""
-        self.assertGreater(self.params.ejection_ecc_floor, 0.0)
-        # (a) at the park - bound, must be False.
+    def test_the_stage_1_evidence_is_the_soi_reach_not_the_ecc_floor(self):
+        """**REWRITTEN BY FLIGHT 2.** The relay's stage-1 claim is "this orbit
+        will LEAVE", and on a patched-conic escape that means an APOAPSIS at or
+        past the SOI - not a hyperbolic eccentricity, which the correctly-sized
+        escape never reaches (ecc 0.7586). Three frame shapes, plus the negative
+        case the old gate would have accepted and this one must not."""
+        self.assertEqual(0.0, self.params.ejection_ecc_floor)
+        # (a) at the park - apoapsis nowhere near the SOI, must be False.
         self.assertFalse(mlib._b5_transfer_burn_done(self.params, parked_snap()))
-        # (b) post-ejection, still in Laythe's SOI - hyperbolic, must be True.
-        v_inf, _, _ = hohmann(A_LAYTHE, A_VALL)
-        ecc = 1.0 + PARK_SMA * v_inf ** 2 / MU_LAYTHE
+        # (b) post-escape, still in Laythe's SOI, BOUND but reaching: True.
+        reaching = parked_snap(eccentricity=0.7586,
+                               apoapsis=4_053_149.0 - R_LAYTHE,
+                               periapsis=PARK_SMA * (1.0 - PARK_ECC) - R_LAYTHE)
+        self.assertTrue(mlib._b5_transfer_burn_done(self.params, reaching))
+        # (b2) a BOUND orbit that does NOT reach the SOI must still be False -
+        # this is the under-burn the gate exists to catch.
+        short = parked_snap(eccentricity=0.60, apoapsis=3_000_000.0 - R_LAYTHE)
+        self.assertFalse(mlib._b5_transfer_burn_done(self.params, short))
+        # (b3) a genuinely hyperbolic reading (negative apoapsis) is accepted.
         self.assertTrue(mlib._b5_transfer_burn_done(
-            self.params, parked_snap(eccentricity=ecc, situation="ESCAPING",
-                                     apoapsis=-1.0)))
-        # (c) in Jool's SOI - the early return, whatever the ecc reads there.
+            self.params, parked_snap(eccentricity=1.035, apoapsis=-1.0)))
+        # (c) in Jool's SOI - the left-home early return, whatever the ecc says.
         self.assertTrue(mlib._b5_transfer_burn_done(
             self.params, snap(ut=PARK_UT + 1e4, body="Jool",
                               situation="ORBITING", eccentricity=0.227,
                               altitude=2.0e7)))
+        # (d) an unreadable apoapsis satisfies nothing.
+        self.assertFalse(mlib._b5_transfer_burn_done(
+            self.params, parked_snap(apoapsis=float("nan"))))
         # (d) The apoapsis floor is NO LONGER the inert 0 every other
         # interplanetary lane carries: under the relay it is STAGE 2's evidence,
         # read in JOOL's frame. It must sit under Vall's own orbital altitude
@@ -383,13 +424,12 @@ class CompositionAuditTests(unittest.TestCase):
         self.assertGreater(floor, 0)
         self.assertLess(floor, A_VALL - jool_radius)
         self.assertGreater(floor, 1.5 * (A_LAYTHE - jool_radius))
-        # (e) AND AT STAGE 1 THAT FLOOR MUST NOT BE CONSULTED. An escape drives
-        # the Laythe-frame apoapsis NEGATIVE, so a stage-1 call that read the
-        # apoapsis floor could never be satisfied.
-        escaping = parked_snap(eccentricity=ecc, situation="ESCAPING",
-                               apoapsis=-1.0)
+        # (e) AND AT STAGE 1 THE JOOL-FRAME FLOOR MUST NOT BE CONSULTED. The
+        # escape's own reaching-orbit reads a Laythe apoapsis of ~3.55 Mm, three
+        # orders under the stage-2 floor, so a stage-1 call that read it could
+        # never be satisfied.
         self.assertTrue(mlib._b5_transfer_burn_done(
-            self.params, escaping, mlib.RELAY_STAGE_ESCAPE))
+            self.params, reaching, mlib.RELAY_STAGE_ESCAPE))
         # (f) At STAGE 2 the ecc branch's left-the-home-SOI early return must NOT
         # be what decides: in Jool's SOI with a still-low apoapsis the answer is
         # FALSE (the transfer has not been flown), and TRUE only past the floor.
@@ -902,7 +942,7 @@ class Flight1BlockerTests(unittest.TestCase):
         dropped the blocker would leave the next reader with a mode whose
         justification lives nowhere."""
         desc = self.spec["description"]
-        self.assertIn("MODE BUILT, FLIGHT 2 PENDING", desc)
+        self.assertIn("MODE FLOWN, TWO DEFECTS FIXED, FLIGHT 3 PENDING", desc)
         self.assertIn("MECHJEB-INTERPLANETARY-PLANNER-REJECTS-MOON-ORIGIN", desc)
         self.assertIn("NextTimeOfRadius", desc,
                       "the measured exception is the blocker's evidence and must "
@@ -940,9 +980,10 @@ def relay_params(**overrides):
     base = dict(homeBodyName="Laythe", targetBodyName="Vall",
                 returnBodyName="Jool", viaBodyNames=["Jool"],
                 interplanetaryTransfer=True, parentRelayTransfer=True,
-                escapeTargetVInfMps=347.245, escapeMaxDeltaVMps=900.0,
+                escapeSoiSpeedMps=ESCAPE_SOI_SPEED_MPS,
+                escapeMaxDeltaVMps=700.0,
                 escapeNodeMinLeadSeconds=300.0, escapeTimeoutSeconds=2400.0,
-                ejectionEccFloor=1.001, transferMinApoapsisMeters=36_000_000)
+                ejectionEccFloor=0.0, transferMinApoapsisMeters=36_000_000)
     base.update(overrides)
     return base
 
@@ -968,7 +1009,7 @@ class ParentRelayLoadTimeTests(unittest.TestCase):
         self.assertFalse(p.pad_align_ejection)
         self.assertTrue(p.start_in_orbit)
         self.assertEqual("Jool", p.return_body)
-        self.assertGreater(p.escape_target_v_inf, 0.0)
+        self.assertGreater(p.escape_soi_speed, 0.0)
         self.assertGreater(p.escape_max_dv, 0.0)
 
     def test_the_relay_requires_the_interplanetary_flag(self):
@@ -995,9 +1036,25 @@ class ParentRelayLoadTimeTests(unittest.TestCase):
             mlib.b5_params_from_dict(relay_params(homeBodyName="Duna"))
         self.assertIn("STOCK_BODY_GRAVITY", str(ctx.exception))
 
-    def test_the_relay_requires_a_positive_target_v_inf(self):
+    def test_the_relay_requires_a_positive_soi_speed(self):
         with self.assertRaises(ValueError):
-            mlib.b5_params_from_dict(relay_params(escapeTargetVInfMps=0.0))
+            mlib.b5_params_from_dict(relay_params(escapeSoiSpeedMps=0.0))
+
+    def test_the_retired_v_inf_key_is_rejected_rather_than_ignored(self):
+        """**THE RENAME IS THE FIX, SO THE OLD NAME MUST NOT PARSE.** Silently
+        ignoring `escapeTargetVInfMps` would fly the corrected burn from a spec
+        that asked for the refuted one - or, worse, leave the new key absent and
+        refuse everything - from a file that reads as if it were fine. Flight 2
+        is the whole reason: the two names differ by a factor of 3.12 in what
+        they deliver."""
+        with self.assertRaises(ValueError) as ctx:
+            mlib.b5_params_from_dict(relay_params(escapeTargetVInfMps=347.245))
+        self.assertIn("RETIRED", str(ctx.exception))
+        self.assertIn("escapeSoiSpeedMps", str(ctx.exception))
+        # ... and the committed spec must not carry it
+        mp = _spec("B26-laythe-vall-transfer.toml")["driver"]["missionParams"]
+        self.assertNotIn("escapeTargetVInfMps", mp)
+        self.assertIn("escapeSoiSpeedMps", mp)
 
     def test_the_gravity_table_carries_only_cited_bodies(self):
         """THE DISCIPLINE, pinned: this table is STOCK_HELIO_ELEMENTS' sibling
@@ -1005,9 +1062,13 @@ class ParentRelayLoadTimeTests(unittest.TestCase):
         reviewed spec. A row added from memory is a wrongly sized burn that the
         dv cap bounds but does not correct."""
         self.assertEqual(["Laythe"], sorted(mlib.STOCK_BODY_GRAVITY))
-        mu, radius = mlib.STOCK_BODY_GRAVITY["Laythe"]
+        mu, radius, soi = mlib.STOCK_BODY_GRAVITY["Laythe"]
         self.assertEqual(MU_LAYTHE, mu)
         self.assertEqual(R_LAYTHE, radius)
+        # THE THIRD NUMBER IS FLIGHT 2's, and it is load-bearing rather than
+        # decorative: it is what makes the escape target the HAND-OFF speed
+        # instead of an asymptotic one that KSP never reaches.
+        self.assertAlmostEqual(SOI_LAYTHE, soi, delta=1.0)
 
 
 class EscapeNodePlanTests(unittest.TestCase):
@@ -1022,9 +1083,83 @@ class EscapeNodePlanTests(unittest.TestCase):
         self.assertEqual("", plan.reason)
         r_pe = PARK_SMA * (1.0 - PARK_ECC)
         v_pe = math.sqrt(MU_LAYTHE * (2.0 / r_pe - 1.0 / PARK_SMA))
-        want = math.sqrt(347.245 ** 2 + 2.0 * MU_LAYTHE / r_pe) - v_pe
+        want = math.sqrt(ESCAPE_SOI_SPEED_MPS ** 2
+                         + 2.0 * MU_LAYTHE * (1.0 / r_pe - 1.0 / SOI_LAYTHE)) - v_pe
         self.assertAlmostEqual(plan.dv, want, delta=1e-6)
         self.assertAlmostEqual(plan.dv, ESCAPE_NODE_MPS, delta=0.05)
+
+    def test_the_node_targets_the_soi_boundary_not_infinity(self):
+        """**FLIGHT 2's DEFECT A, AS A UNIT CELL.** The `- 1/r_soi` term is the
+        entire fix, so it is asserted as a DIFFERENCE against the formula that
+        was flown, not just as a number: sizing for an asymptotic excess
+        over-burns, and by a margin that matters."""
+        plan = mlib.escape_node_plan(self.p, relay_snap())
+        r_pe = PARK_SMA * (1.0 - PARK_ECC)
+        v_pe = math.sqrt(MU_LAYTHE * (2.0 / r_pe - 1.0 / PARK_SMA))
+        flown = math.sqrt(347.245 ** 2 + 2.0 * MU_LAYTHE / r_pe) - v_pe
+        self.assertAlmostEqual(flown, F2_NODE_DV_MPS, delta=0.05,
+                               msg="the pre-fix formula must reproduce the "
+                                   "node flight 2 actually planned")
+        self.assertLess(plan.dv, flown)
+        self.assertAlmostEqual(flown - plan.dv, 188.0, delta=1.0)
+
+    def test_the_planned_node_delivers_the_requested_speed_at_the_boundary(self):
+        """THE CONTRACT ITSELF, closed loop: propagate the planned orbit out to
+        the SOI radius and read the speed there. It must BE the requested one -
+        which is what flight 2's contract failed to do by a factor of 3.12."""
+        plan = mlib.escape_node_plan(self.p, relay_snap())
+        r_pe = PARK_SMA * (1.0 - PARK_ECC)
+        v_pe = math.sqrt(MU_LAYTHE * (2.0 / r_pe - 1.0 / PARK_SMA))
+        v_post = v_pe + plan.dv
+        energy = v_post ** 2 / 2.0 - MU_LAYTHE / r_pe
+        v_at_soi = math.sqrt(2.0 * (energy + MU_LAYTHE / SOI_LAYTHE))
+        self.assertAlmostEqual(v_at_soi, ESCAPE_SOI_SPEED_MPS, delta=0.05)
+        # ... and the flown contract's delivered speed, for the contrast.
+        v_flown = math.sqrt(347.245 ** 2 + 2.0 * MU_LAYTHE / r_pe)
+        e_flown = v_flown ** 2 / 2.0 - MU_LAYTHE / r_pe
+        soi_flown = math.sqrt(2.0 * (e_flown + MU_LAYTHE / SOI_LAYTHE))
+        self.assertAlmostEqual(soi_flown, 1083.69, delta=0.1)
+        self.assertAlmostEqual(soi_flown / 347.245, 3.12, delta=0.01)
+
+    def test_a_request_below_the_geometric_floor_is_refused_by_name(self):
+        """THE NEW FAILURE MODE THE CORRECTED FORMULA CREATES, and it must be
+        NAMED rather than clamped: a prograde burn at this periapsis cannot
+        reach the SOI at all below ~370.08 m/s of relative speed. Clamping up
+        would fly a burn the spec did not ask for."""
+        low = mlib.b5_params_from_dict(relay_params(escapeSoiSpeedMps=300.0))
+        plan = mlib.escape_node_plan(low, relay_snap())
+        self.assertNotEqual("", plan.reason)
+        self.assertIn("below what this park's geometry can deliver", plan.reason)
+        self.assertIn("370.1", plan.reason)
+        self.assertIsNone(plan.dv)
+        # and the committed value is above it, with real room
+        self.assertGreater(ESCAPE_SOI_SPEED_MPS, 370.08)
+        self.assertGreater(ESCAPE_SOI_SPEED_MPS / 370.08, 1.15)
+
+    def test_the_correct_escape_is_BOUND_which_is_why_the_ecc_floor_retired(self):
+        """The coupling flight 2 forced. Reaching a SOI needs an APOAPSIS past
+        it, not an escape - so the right burn leaves a BOUND orbit and any
+        `ejectionEccFloor` above 1 would be unmeetable. Demanding hyperbolic
+        would cost the parabolic burn instead."""
+        plan = mlib.escape_node_plan(self.p, relay_snap())
+        r_pe = PARK_SMA * (1.0 - PARK_ECC)
+        v_pe = math.sqrt(MU_LAYTHE * (2.0 / r_pe - 1.0 / PARK_SMA))
+        v_post = v_pe + plan.dv
+        energy = v_post ** 2 / 2.0 - MU_LAYTHE / r_pe
+        self.assertLess(energy, 0.0, "the correct escape must be BOUND")
+        a = -MU_LAYTHE / (2.0 * energy)
+        h = r_pe * v_post
+        ecc = math.sqrt(1.0 + 2.0 * energy * h * h / MU_LAYTHE ** 2)
+        self.assertAlmostEqual(ecc, 0.7586, delta=0.001)
+        self.assertGreater(a * (1.0 + ecc), SOI_LAYTHE,
+                           "a bound escape must still REACH the SOI")
+        # the parabolic alternative a hyperbolic gate would force
+        parabolic = math.sqrt(2.0 * MU_LAYTHE / r_pe) - v_pe
+        self.assertAlmostEqual(parabolic, 752.10, delta=0.5)
+        self.assertGreater(parabolic - plan.dv, 160.0)
+        # ... and the committed spec must therefore NOT arm the ecc floor
+        mp = _spec("B26-laythe-vall-transfer.toml")["driver"]["missionParams"]
+        self.assertEqual(0, mp["ejectionEccFloor"])
 
     def test_the_node_lands_at_the_next_periapsis(self):
         plan = mlib.escape_node_plan(self.p, relay_snap(time_to_periapsis=900.0))
@@ -1049,14 +1184,15 @@ class EscapeNodePlanTests(unittest.TestCase):
         self.assertAlmostEqual(near.dv, far.dv, delta=1e-9)
 
     def test_the_periapsis_placement_beats_the_circular_formula(self):
-        """WHY the placement is not incidental. The circular-at-sma sizing is
-        what MechJeb's planner uses and what the pre-relay spec derived; at the
-        periapsis it OVER-burns by a real margin."""
+        """WHY the placement is not incidental, held at the SAME contract on
+        both sides so the comparison is about the BURN POINT and not about the
+        SOI term (which the cell above owns)."""
         plan = mlib.escape_node_plan(self.p, relay_snap())
-        circular = (math.sqrt(347.245 ** 2 + 2.0 * MU_LAYTHE / PARK_SMA)
+        soi_term = 2.0 * MU_LAYTHE * (1.0 / PARK_SMA - 1.0 / SOI_LAYTHE)
+        circular = (math.sqrt(ESCAPE_SOI_SPEED_MPS ** 2 + soi_term)
                     - math.sqrt(MU_LAYTHE / PARK_SMA))
-        self.assertGreater(circular - plan.dv, 10.0)
-        self.assertLess(circular - plan.dv, 30.0)
+        self.assertGreater(circular - plan.dv, 5.0)
+        self.assertLess(circular - plan.dv, 40.0)
 
     def test_the_resulting_hyperbola_clears_the_committed_ejection_floor(self):
         """THE COUPLING between the node and the burn-done evidence: the node
@@ -1097,27 +1233,48 @@ class EscapeNodePlanTests(unittest.TestCase):
         self.assertIn("escapeMaxDeltaVMps", plan.reason)
         self.assertIsNone(plan.dv)
 
-    def test_the_committed_cap_covers_the_whole_entry_gate(self):
-        """THE CAP IS SIZED AGAINST THE GATE, NOT THE FIXTURE, and the expensive
-        corner is the ROUND park on the periapsis floor (an eccentric park is
-        faster at periapsis and therefore cheaper to escape). If the gate ever
-        widens, this reds before a flight is spent."""
+    def test_every_park_the_entry_gate_admits_is_actually_deliverable(self):
+        """**THE THIRD CORRECTION FLIGHT 2's DEFECT-A FIX FORCED**, and it is the
+        one that would otherwise have bitten silently. The SOI-speed floor RISES
+        with the park, so a gate ceiling that is too generous admits parks whose
+        floor is ABOVE the requested `escapeSoiSpeedMps` - and `escape_node_plan`
+        would then REFUSE a fixture the entry gate had just declared legal. At
+        the old 500,000 m ceiling that really happens (the floor reaches
+        472.33 m/s against a 450 request); at 300,000 it does not.
+
+        This cell sweeps the WHOLE admissible window, not three corners, because
+        the offending region is interior to it."""
         mp = _spec("B26-laythe-vall-transfer.toml")["driver"]["missionParams"]
         p = mlib.b5_params_from_dict(mp)
-        floor = mp["startInOrbitMinPeriapsisMeters"]
-        ceiling = mp["startInOrbitMaxApoapsisMeters"]
+        floor = int(mp["startInOrbitMinPeriapsisMeters"])
+        ceiling = int(mp["startInOrbitMaxApoapsisMeters"])
         worst = 0.0
-        for pe in (floor, PARK_SMA * (1.0 - PARK_ECC) - R_LAYTHE, ceiling):
-            for ap in (floor, 87_931.3, ceiling):
-                if ap < pe:
-                    continue
+        for pe in range(floor, ceiling + 1, 4_000):
+            for ap in (pe, (pe + ceiling) // 2, ceiling):
                 plan = mlib.escape_node_plan(
                     p, relay_snap(periapsis=pe, apoapsis=ap,
                                   eccentricity=0.0, altitude=pe))
-                self.assertEqual("", plan.reason, (pe, ap))
+                self.assertEqual("", plan.reason,
+                                 "the entry gate admits a park the escape "
+                                 "planner refuses: pe=%s ap=%s" % (pe, ap))
                 worst = max(worst, plan.dv)
-        self.assertAlmostEqual(worst, 803.43, delta=0.1)
+        self.assertAlmostEqual(worst, 616.18, delta=0.1)
         self.assertLess(worst, mp["escapeMaxDeltaVMps"])
+        self.assertGreater(mp["escapeMaxDeltaVMps"] / worst, 1.10)
+
+    def test_the_old_gate_ceiling_would_have_refused_a_legal_park(self):
+        """The premise of the cell above, asserted so the tightening cannot be
+        quietly reverted: at 500,000 m the gate really does admit a park whose
+        geometric floor exceeds the committed request."""
+        mp = _spec("B26-laythe-vall-transfer.toml")["driver"]["missionParams"]
+        p = mlib.b5_params_from_dict(mp)
+        self.assertEqual(300_000, mp["startInOrbitMaxApoapsisMeters"])
+        offender = mlib.escape_node_plan(
+            p, relay_snap(periapsis=470_000.0, apoapsis=470_000.0,
+                          eccentricity=0.0, altitude=470_000.0))
+        self.assertNotEqual("", offender.reason)
+        self.assertIn("below what this park's geometry can deliver",
+                      offender.reason)
 
     def test_an_unarmed_lane_never_produces_a_node(self):
         off = mlib.b5_params_from_dict({"homeBodyName": "Laythe",
@@ -1363,7 +1520,7 @@ class ParentRelayInertnessTests(unittest.TestCase):
     def test_absent_keys_default_to_the_inert_shape(self):
         off = mlib.b5_params_from_dict({})
         self.assertFalse(off.parent_relay_transfer)
-        self.assertEqual(0.0, off.escape_target_v_inf)
+        self.assertEqual(0.0, off.escape_soi_speed)
         self.assertEqual(0.0, off.escape_max_dv)
         self.assertEqual(300.0, off.escape_node_min_lead)
         self.assertEqual(600.0, off.escape_timeout)
@@ -1588,6 +1745,267 @@ class EscapeNodeRunnerSeamTests(unittest.TestCase):
         c, fake = self._control()
         c.perform(mlib.Action(mlib.ACTION_ADD_MANEUVER_NODE, value=774.70))
         self.assertEqual([], fake.nodes)
+
+
+# ---------------------------------------------------------------------------
+# Flight 2: the relay's first live data. Two defects, both fixed; the cells
+# below RE-RUN THE DIAGNOSIS from the run's own bytes, because a ledger nobody
+# can re-derive rots into folklore and these two numbers are the ones a future
+# reader will be tempted to "simplify".
+# ---------------------------------------------------------------------------
+
+
+class Flight2DefectATests(unittest.TestCase):
+    """DEFECT A: the escape CONTRACT was wrong, not the escape.
+
+    Read the order of these cells, because it is the order the diagnosis went
+    in and it is what rules out the three cheaper explanations first: the node
+    was computed correctly, added exactly once, placed at the periapsis, and
+    executed to within 1%. Only then does the contract itself come under
+    suspicion."""
+
+    R_PE = PARK_SMA * (1.0 - PARK_ECC)
+
+    def _v_pe(self):
+        return math.sqrt(MU_LAYTHE * (2.0 / self.R_PE - 1.0 / PARK_SMA))
+
+    def test_the_node_the_flight_planned_is_the_old_formula_exactly(self):
+        """RULES OUT AN ARITHMETIC SLIP. The flown 774.705 reproduces from the
+        pre-fix formula and the fixture's own park to two decimals, so nothing
+        was mis-derived - the formula was simply the wrong one."""
+        flown = (math.sqrt(347.245 ** 2 + 2.0 * MU_LAYTHE / self.R_PE)
+                 - self._v_pe())
+        self.assertAlmostEqual(flown, F2_NODE_DV_MPS, delta=0.05)
+
+    def test_the_node_was_placed_at_the_periapsis(self):
+        """RULES OUT A WRONG ANCHOR. The node UT minus the entry UT must equal
+        the periapsis clock the machine read on the frame it planned."""
+        entry_ut, tt_pe = 28_817_028.977, 1_175.552
+        self.assertAlmostEqual(F2_NODE_UT, entry_ut + tt_pe, delta=0.05)
+
+    def test_the_executor_burned_the_node_and_not_more(self):
+        """RULES OUT A LONG BURN. The propellant mass says what was actually
+        spent, which is the B25-diagnosis method: 767.4 m/s measured against
+        774.705 planned is under 1% - the executor did its job."""
+        spent_t = (F2_LF_BEFORE - F2_LF_AFTER) * 0.005
+        wet, ve = 9.854, 800.0 * 9.80665
+        measured = ve * math.log(wet / (wet - spent_t))
+        self.assertAlmostEqual(measured, 767.4, delta=1.0)
+        self.assertLess(abs(measured - F2_NODE_DV_MPS) / F2_NODE_DV_MPS, 0.01)
+
+    def test_the_resulting_laythe_orbit_is_the_one_the_node_asked_for(self):
+        """AND RULES OUT THE LAST CHEAP EXPLANATION. The post-burn Laythe-frame
+        eccentricity matches the planned hyperbola to three decimals, so the
+        escape delivered EXACTLY what it was told to."""
+        predicted = 1.0 + self.R_PE * 347.245 ** 2 / MU_LAYTHE
+        self.assertAlmostEqual(predicted, F2_ECC_AFTER, delta=0.001)
+
+    def test_the_contract_delivered_three_times_the_intended_excess(self):
+        """**THE ROOT CAUSE.** KSP hands a departing vessel to the parent AT THE
+        SOI BOUNDARY, where the home well is not fully climbed. The asymptotic
+        excess is never reached, so what crossed was
+        sqrt(v_inf^2 + 2*mu/r_soi) - 3.12x what the spec asked for."""
+        delivered = math.sqrt(347.245 ** 2 + 2.0 * MU_LAYTHE / SOI_LAYTHE)
+        self.assertAlmostEqual(delivered, 1083.69, delta=0.1)
+        self.assertAlmostEqual(delivered / 347.245, 3.12, delta=0.01)
+
+    def test_the_measured_jool_orbit_follows_from_that_delivered_speed(self):
+        """THE CONSEQUENCE, CHECKED AGAINST THE FLIGHT'S OWN READING. The
+        stage-2 entry orbit (a = 73.6 Mm) must sit inside the band the DELIVERED
+        1,083.69 m/s admits and OUTSIDE the band the intended 347.245 would --
+        which is what makes the SOI term the explanation rather than a story."""
+        a_measured = (2.0 * RJ_ + F2_STAGE2_AP_M + self._stage2_pe()) / 2.0
+        # 79.0 Mm, NOT the 73.6 a back-of-envelope gives: that one reads the
+        # stage-2 ENTRY ALTITUDE (20.97 Mm) as the periapsis, where the run's own
+        # telemetry line reports pe 19.70 Mm. The correction does not change the
+        # diagnosis; it is recorded because the ledger quotes the number.
+        self.assertAlmostEqual(a_measured / 1e6, 79.0, delta=0.5)
+        lo, hi = self._band(1083.69)
+        self.assertLessEqual(lo, a_measured)
+        self.assertGreaterEqual(hi, a_measured)
+        lo2, hi2 = self._band(347.245)
+        self.assertLess(hi2, a_measured,
+                        "the intended excess cannot produce the measured orbit, "
+                        "which is the whole diagnosis")
+        # ... and the CORRECTED contract's band excludes it too, so flight 3
+        # reading anything like this again would be a NEW defect.
+        lo3, hi3 = self._band(450.0)
+        self.assertLess(hi3, a_measured)
+
+    def _stage2_pe(self):
+        # pe ALTITUDE at the stage-2 entry frame, from the run's telemetry line.
+        return 19_697_088.474
+
+    def _band(self, v_rel):
+        v_moon = math.sqrt(MU_JOOL / A_LAYTHE)
+        lo, hi = float("inf"), 0.0
+        for deg in range(0, 181):
+            th = math.radians(deg)
+            for r in (A_LAYTHE - SOI_LAYTHE, A_LAYTHE, A_LAYTHE + SOI_LAYTHE):
+                vt = v_moon + v_rel * math.cos(th)
+                vr = v_rel * math.sin(th)
+                energy = (vt * vt + vr * vr) / 2.0 - MU_JOOL / r
+                if energy >= 0.0:
+                    continue
+                a = -MU_JOOL / (2.0 * energy)
+                lo, hi = min(lo, a), max(hi, a)
+        return lo, hi
+
+    def test_the_flown_contract_admitted_two_lane_ending_outcomes(self):
+        """WHY THE FIX IS NOT MERELY A dv SAVING. Swept over every departure
+        direction, the contract flight 2 flew admits orbits that leave JOOL
+        ENTIRELY and orbits whose periapsis is BELOW Jool's atmosphere top. The
+        corrected contract admits neither."""
+        for v_rel, expect_escape, min_pe_mm in ((1083.69, True, 5.51),
+                                                (450.0, False, 11.01)):
+            escaping, worst_pe = 0, float("inf")
+            v_moon = math.sqrt(MU_JOOL / A_LAYTHE)
+            for deg in range(0, 181):
+                th = math.radians(deg)
+                for r in (A_LAYTHE - SOI_LAYTHE, A_LAYTHE,
+                          A_LAYTHE + SOI_LAYTHE):
+                    vt = v_moon + v_rel * math.cos(th)
+                    vr = v_rel * math.sin(th)
+                    energy = (vt * vt + vr * vr) / 2.0 - MU_JOOL / r
+                    if energy >= 0.0:
+                        escaping += 1
+                        continue
+                    a = -MU_JOOL / (2.0 * energy)
+                    h = r * abs(vt)
+                    e = math.sqrt(max(0.0, 1.0 + 2.0 * energy * h * h
+                                      / MU_JOOL ** 2))
+                    worst_pe = min(worst_pe, a * (1.0 - e))
+            self.assertEqual(expect_escape, escaping > 0, v_rel)
+            self.assertAlmostEqual(worst_pe / 1e6, min_pe_mm, delta=0.05)
+        # Jool's atmosphere tops out at 200 km over a 6,000 km radius.
+        self.assertLess(5.51e6, RJ_ + 200_000.0)
+        self.assertGreater(11.01e6, RJ_ + 200_000.0)
+
+    def test_the_fix_is_cheaper_as_well_as_correct(self):
+        mp = _spec("B26-laythe-vall-transfer.toml")["driver"]["missionParams"]
+        p = mlib.b5_params_from_dict(mp)
+        plan = mlib.escape_node_plan(p, relay_snap())
+        self.assertAlmostEqual(plan.dv, ESCAPE_NODE_MPS, delta=0.05)
+        self.assertAlmostEqual(F2_NODE_DV_MPS - plan.dv, 188.0, delta=1.0)
+        self.assertLess(plan.dv, mp["escapeMaxDeltaVMps"])
+
+
+class Flight2DefectBTests(unittest.TestCase):
+    """DEFECT B: coast-warp-thrash, and it is an AMBIGUOUS CLOCK rather than a
+    warp bug. The cap fired correctly at 500; what needed fixing is the decision
+    that spent 501 issues."""
+
+    TRIGGER0 = 35_000.0
+
+    def test_the_thrash_target_reproduces_from_the_trigger_formula(self):
+        """THE IDENTIFICATION. The flake line's target is exactly
+        `ut + (tts - trigger0)`, which is what proves the coast was in the
+        TIME-MODE correction-trigger branch and not one of the other three."""
+        tts = 55_579.679                                    # the flake line's own
+        self.assertAlmostEqual(F2_THRASH_UT + (tts - self.TRIGGER0),
+                               F2_THRASH_TARGET, delta=0.01)
+
+    def test_the_two_clocks_that_flapped_are_two_different_encounters(self):
+        """THE CAUSE. The post-escape Jool ellipse re-crosses LAYTHE'S OWN
+        orbit, so the patched-conic solver alternated between a Vall encounter
+        and a Laythe one and `time_to_soi` stepped ~22 ks between them."""
+        step = F2_TTS_VALL - F2_TTS_LAYTHE
+        self.assertAlmostEqual(step, 21_952.1, delta=1.0)
+        # The pe of the flown Jool orbit really is below Laythe's radius, which
+        # is what makes a Laythe re-encounter geometrically possible at all.
+        self.assertLess(19_697_088.474 + RJ_, A_LAYTHE)
+
+    def test_that_step_blows_through_the_retarget_threshold_both_ways(self):
+        """WHY IT THRASHED RATHER THAN SETTLED. The shared native-warp policy
+        retargets on an EARLIER target past a 120 s floor and on a LATER one
+        past 2% of the span - a 22 ks step clears both by orders of magnitude,
+        so every flip cancelled a running warp and re-armed it."""
+        step = F2_TTS_VALL - F2_TTS_LAYTHE
+        self.assertGreater(step, mlib.WARP_RETARGET_THRESHOLD_SECONDS)
+        span = F2_THRASH_TARGET - F2_THRASH_UT
+        self.assertGreater(step, max(mlib.WARP_RETARGET_THRESHOLD_SECONDS,
+                                     0.02 * span))
+        self.assertEqual(500, mlib.MAX_PHASE_WARP_ISSUES,
+                         "the cap fired at 501 against 500; if this constant "
+                         "moves the ledger's numbers need re-reading")
+
+    def test_the_identity_check_suppresses_a_foreign_clock(self):
+        """THE FIX, at the predicate. A `next_body` that POSITIVELY names a
+        non-target body is not a refinement of the armed target."""
+        self.assertTrue(mlib.soi_clock_describes_target("Vall", "Vall"))
+        self.assertFalse(mlib.soi_clock_describes_target("Laythe", "Vall"))
+
+    def test_it_fails_OPEN_on_an_unread_next_body(self):
+        """WHY IT IS SAFE EVERYWHERE RATHER THAN BEHIND THE RELAY FLAG. Only a
+        POSITIVE mismatch suppresses; a blank name passes, so a read fault can
+        never close a proven lane's trigger."""
+        self.assertTrue(mlib.soi_clock_describes_target("", "Vall"))
+        self.assertTrue(mlib.soi_clock_describes_target("Vall", ""))
+        self.assertTrue(mlib.soi_clock_describes_target("", ""))
+
+    def test_the_hold_keeps_an_armed_warp_instead_of_cancelling_it(self):
+        """AND THE HOLD, which is the half that actually stops the thrash:
+        suppressing the branch alone would fall through and re-arm from the same
+        foreign clock."""
+        self.assertTrue(mlib.coast_foreign_soi_clock_hold(
+            "Laythe", "Vall", F2_THRASH_TARGET, F2_THRASH_UT))
+        # nothing armed -> nothing to hold
+        self.assertFalse(mlib.coast_foreign_soi_clock_hold(
+            "Laythe", "Vall", None, F2_THRASH_UT))
+        # target already reached -> the arrival path owns the frame
+        self.assertFalse(mlib.coast_foreign_soi_clock_hold(
+            "Laythe", "Vall", F2_THRASH_UT - 1.0, F2_THRASH_UT))
+        # a TARGET clock never holds - the ordinary policy decides
+        self.assertFalse(mlib.coast_foreign_soi_clock_hold(
+            "Vall", "Vall", F2_THRASH_TARGET, F2_THRASH_UT))
+        # an unreadable ut fails closed
+        self.assertFalse(mlib.coast_foreign_soi_clock_hold(
+            "Laythe", "Vall", F2_THRASH_TARGET, float("nan")))
+
+    def test_the_flapping_coast_now_emits_nothing_instead_of_re_arming(self):
+        """END TO END, on the flown geometry: a coast with an armed warp and a
+        Laythe reading must emit NO action at all. Before the fix this frame
+        produced a cancel plus a re-dispatch."""
+        mp = _spec("B26-laythe-vall-transfer.toml")["driver"]["missionParams"]
+        p = mlib.b5_params_from_dict(mp)
+        st = mlib._b5_enter(mlib.b5_initial_state(p), mlib.B5_COAST_TO_TARGET,
+                            F2_THRASH_UT - 1000.0, None)
+        st = mlib.replace(st, relay_stage=mlib.RELAY_STAGE_TRANSFER,
+                          warp_to_cmd=F2_THRASH_TARGET)
+        foreign = snap(ut=F2_THRASH_UT, body="Jool", situation="ORBITING",
+                       altitude=F2_STAGE2_ALT_M, apoapsis=F2_STAGE2_AP_M,
+                       periapsis=19_697_088.474, eccentricity=0.675,
+                       node_count=0, next_body="Laythe",
+                       time_to_soi=F2_TTS_LAYTHE, warp_mode=mlib.WARP_RAILS,
+                       warp_rate=7120.209, warping_to=F2_THRASH_TARGET)
+        issues_before = st.phase_warp_issues
+        for _ in range(20):
+            st, actions = mlib.b5_decide(st, foreign)
+            self.assertEqual([], actions,
+                             "a foreign-clock frame must emit nothing")
+        self.assertEqual(issues_before, st.phase_warp_issues)
+        self.assertEqual(F2_THRASH_TARGET, st.warp_to_cmd)
+        self.assertEqual(0, st.correction_rounds_done,
+                         "a Laythe reading must not fire a Vall round either")
+        self.assertIsNone(st.verdict)
+
+    def test_a_target_clock_frame_still_drives_the_warp_normally(self):
+        """THE OTHER SIDE, so the fix cannot be 'hold forever': the SAME coast
+        with a VALL reading must still arm and drive its warp."""
+        mp = _spec("B26-laythe-vall-transfer.toml")["driver"]["missionParams"]
+        p = mlib.b5_params_from_dict(mp)
+        st = mlib._b5_enter(mlib.b5_initial_state(p), mlib.B5_COAST_TO_TARGET,
+                            F2_THRASH_UT - 1000.0, None)
+        st = mlib.replace(st, relay_stage=mlib.RELAY_STAGE_TRANSFER)
+        good = snap(ut=F2_THRASH_UT, body="Jool", situation="ORBITING",
+                    altitude=F2_STAGE2_ALT_M, apoapsis=F2_STAGE2_AP_M,
+                    periapsis=19_697_088.474, eccentricity=0.675,
+                    node_count=0, next_body="Vall", time_to_soi=F2_TTS_VALL)
+        st, actions = mlib.b5_decide(st, good)
+        self.assertIn(mlib.ACTION_WARP_TO_UT, [a.kind for a in actions])
+        self.assertAlmostEqual(st.warp_to_cmd,
+                               F2_THRASH_UT + (F2_TTS_VALL - 35_000.0),
+                               delta=0.01)
 
 
 if __name__ == "__main__":

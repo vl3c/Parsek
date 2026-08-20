@@ -44,8 +44,11 @@ flight 1 turned out to require:
     returnBodyName = "Jool"        the TRANSFER FRAME, one level down from "Sun",
                                    and the SOI whose arrival triggers stage 2
     viaBodyNames = ["Jool"]        the SOI the coast legitimately operates in
-    ejectionEccFloor = 1.001       STAGE-1 burn-done evidence: a HYPERBOLIC
-                                   Laythe-frame eccentricity
+    ejectionEccFloor = 0           RETIRED on this lane by flight 2. A correct
+                                   patched-conic escape from Laythe is BOUND
+                                   (ecc 0.7586), so the stage-1 evidence is
+                                   `_relay_escape_burn_done` (apoapsis reaches
+                                   the SOI) and this key is not read.
     transferMinApoapsisMeters      STAGE-2 burn-done evidence: the JOOL-frame
       = 36,000,000                 apoapsis reaches Vall's orbit. NOT the inert 0
                                    every other interplanetary lane carries -
@@ -110,14 +113,22 @@ future re-point would happen:
 
 WHAT THE ESCAPE DOES *NOT* DO, stated here because it is the limitation a reader
 will look for and it is deliberate: it does not AIM. The node is pure prograde at
-the park's next periapsis, so the outgoing asymptote points where the park's own
+the park's next periapsis, so the outgoing direction is where the park's own
 orientation sends it, not at Vall. Aiming it would need the vessel's and Laythe's
 state VECTORS in Jool's frame plus an asymptote solve - a new multi-channel
 telemetry surface and an ephemeris solver, which was the explicit stop rule for
 v1. The cost is priced in the spec's delta-v section (stage 2 is bounded by
-2*v_inf = 694.5 m/s whatever direction comes out, and the margin covers it) and
+2*|v_rel| = 900 m/s whatever direction comes out, and the margin covers it) and
 in its forbidden-token derivation (an unaimed escape's parent apoapsis reaches
-71.28 Mm, past Tylo's shell, so those tokens are a real guard now).
+87.18 Mm, past Tylo's shell, so those tokens are a real guard now).
+
+WHAT THE ESCAPE *DOES* AIM AT, and flight 2 is the reason this sentence exists:
+the SOI-BOUNDARY relative speed, NOT a hyperbolic excess at infinity. KSP hands a
+departing vessel to the parent at the boundary, where the home well is not fully
+climbed, so the two differ by `2*mu/r_soi` - at Laythe, by a factor of 3.12. The
+first cut asked for the wrong one, flew a 774.70 m/s escape that delivered
+1,083.69 m/s into Jool's frame, and produced a 126.3 Mm-apoapsis orbit where the
+transfer wanted 43.2. See `mlib.escape_node_plan` and the spec's FLIGHT 2 ledger.
 
 A FIXTURE PRECONDITION THIS MISSION CANNOT ENFORCE, inherited verbatim from B23
 flight 1 and repeated on every orbit-start lane since: the save this mission is

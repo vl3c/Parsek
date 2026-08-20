@@ -441,15 +441,25 @@ max = 100.0
 required = false
 type = "bool"
 
-# The HYPERBOLIC EXCESS SPEED (m/s) the escape node is sized for: the
-# PARENT-FRAME departure v_inf of the transfer the relay is aiming at. mlib
-# derives the node's dv from it and the LIVE park
-# (dv = sqrt(v_inf^2 + 2*mu/r) - v, at the park's next periapsis, vis-viva
-# exact), so this is the ONE number the spec owes the escape and everything else
-# is measured. Required in practice (the load-time check rejects <= 0 when the
-# mode is armed) but declared optional here for the same reason every other
-# flag-gated key is: an unarmed spec must not be forced to state it.
-[params.escapeTargetVInfMps]
+# The relative speed (m/s) the escape carries ACROSS THE HOME BODY'S SOI
+# BOUNDARY - which is where KSP's patched conic hands the vessel to the parent,
+# and therefore the only departure quantity this mode can aim at. mlib derives
+# the node's dv from it and the LIVE park
+# (dv = sqrt(v_soi^2 + 2*mu*(1/r - 1/r_soi)) - v, at the park's next periapsis,
+# vis-viva exact), so this is the ONE number the spec owes the escape and
+# everything else is measured. Required in practice (the load-time check rejects
+# <= 0 when the mode is armed) but declared optional here for the same reason
+# every other flag-gated key is: an unarmed spec must not be forced to state it.
+#
+# **IT IS NOT A HYPERBOLIC EXCESS.** The retired `escapeTargetVInfMps` named one,
+# and B26 flight 2 measured that contract delivering 3.12x its own value across
+# Laythe's 3.72 Mm SOI (347.245 asked, 1,083.69 delivered). mlib REJECTS the old
+# key at spec load rather than ignoring it. There is also a GEOMETRIC FLOOR: a
+# prograde burn at the park's periapsis cannot reach the SOI below a certain
+# relative speed, and `escape_node_plan` refuses a request under it by name
+# instead of clamping - so this value must be checked against the whole entry
+# gate, not just against the fixture.
+[params.escapeSoiSpeedMps]
 required = false
 type = "number"
 min = 0.0
