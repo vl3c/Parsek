@@ -281,7 +281,9 @@ DEFERRED AS ITS OWN PROGRAM, not smuggled into a lane.
 WHAT THIS BLOCKED AND WHAT IT DID NOT. Blocked: the harness's ability to PRODUCE
 the M-MIS-7 subject recording, and with it `B26` (which stayed committed,
 flyable-but-blocked, dry-run valid) and the `V17M` / `V17T` reading pair (which
-stay in `PENDING_FIXTURE_LANES` awaiting `vall-transfer-recorded`). NOT blocked
+took the `PENDING_FIXTURE_LANES` exemption while `vall-transfer-recorded` did not
+exist - RETIRED 2026-08-20 when flight 3 produced the fixture, and that map is
+empty again). NOT blocked
 and NOT answered: the PRODUCT question - whether `ApplyReaim` engages on a
 cross-parent moon-to-moon recording, which
 `docs/dev/research/same-parent-reaim-jool-system.md` section 5.1 argues already
@@ -289,7 +291,22 @@ works unmodified. That flight said nothing about it. It remains pre-registered i
 V17M/V17T, which carry both hypotheses with the discriminating log lines and gate
 on neither.
 
-### WHAT WAS BUILT (2026-08-20, branch `moon-to-moon-lane`; NOT YET FLOWN)
+### WHAT WAS BUILT (2026-08-20, branch `moon-to-moon-lane`)
+
+> **READ THE FLIGHT-2 LEDGER BELOW BEFORE REUSING ANYTHING IN THIS SECTION - the
+> sizing contract it describes is the REFUTED v1 one.** This section is kept as
+> written because the entry header points future moon-origin work at it, but two of
+> its statements were corrected by flight 2 and are false as they stand: (1) the
+> escape dv formula is NOT `sqrt(v_inf^2 + 2*mu/r) - ...`, which asks for a
+> hyperbolic excess AT INFINITY and delivers 3.12x it across the boundary - the
+> committed contract is `escapeSoiSpeedMps` with
+> `dv = sqrt(v_soi^2 + 2*mu*(1/r_pe - 1/r_soi)) - v_pe`, sizing the speed KSP's
+> patched conic actually hands to the parent AT THE SOI BOUNDARY; and (2)
+> `ejectionEccFloor` does NOT judge stage 1 on a relay lane - it is RETIRED to 0
+> there, because a correctly-sized patched-conic escape is BOUND, and the evidence
+> is `_relay_escape_burn_done`'s SOI-REACH disjunct instead. Every number below
+> derived from the old formula (774.7 m/s, 71.28 Mm, the 640.0 m/s margin) moved
+> with it; the flight-2 and flight-3 ledgers carry the corrected ones.
 
 **Candidate (a), in its MINIMAL form, with one deliberate simplification against
 the sketch above: the Vall encounter does NOT come out of the correction rounds.**
@@ -463,9 +480,12 @@ anyone has on an ESCAPE boundary.
 **WHAT THIS ENTRY DOES AND DOES NOT CLOSE.** CLOSED: the harness can now fly a
 moon-to-moon transfer, and the M-MIS-7 subject exists. NOT closed and never
 touched by any of it: the PRODUCT question - whether `ApplyReaim` engages on a
-cross-parent moon-to-moon recording. That is measured by `V17M`/`V17T`, now
-re-pinned off these bytes and awaiting their first reading runs; they carry both
-hypotheses and gate on neither. AND NOT FIXED: MechJeb's own limitation. Nothing
+cross-parent moon-to-moon recording. That is measured by `V17M`/`V17T`, which
+were re-pinned off these bytes and then FLEW, ARMED and COMPLETED THE THREE-RUN
+DISCIPLINE on 2026-08-20 (V17M `_1915`/`_1934`, V17T `_1933`/`_1939_a2`, one
+shared negative control `_1941`) - see the M-MIS-7 entry and the two V17 spec
+headers for what they measured; both still carry the two hypotheses and gate on
+neither. AND NOT FIXED: MechJeb's own limitation. Nothing
 in MechJeb changed - a moon-parked origin still cannot be planned by
 `OperationInterplanetaryTransfer`, and the PARENT-RELAY mode is the route around
 it that any future moon-origin lane must reuse.

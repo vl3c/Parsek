@@ -422,6 +422,12 @@ unrepresented in any harness lane.
 > subsection - "the synthesizer would work" is still true, and "a moon-to-moon hop re-aims" is
 > now measured false.
 
+> **SUPERSEDED (kept as written) - the reading run it awaited has run; see the block above
+> and section 11.3.** Everything below was true when the subject existed and nothing had yet
+> observed it. `V17M`'s first reading run has since happened, so its closing sentence ("THE
+> NEXT THING THAT MOVES THIS SUBSECTION IS V17M's FIRST READING RUN") is discharged, not
+> pending. The calibration by-product at the end of the block still stands on its own.
+>
 > **STATUS 2026-08-20: STILL UNTESTED - BUT THE SUBJECT NOW EXISTS, AND THAT IS A
 > DIFFERENT KIND OF "UNTESTED" FROM YESTERDAY'S.** `B26-laythe-vall-transfer` was
 > authored to produce exactly this subject (a Laythe-rooted recording targeting Vall).
@@ -1290,12 +1296,16 @@ status doc rows). Two findings from the calibration rounds matter beyond the lan
   `phase=fail-closed-to-faithful surface=ProtoOrbitLine producer=nested-soi
   provenance=faithful-fallback action=render-recorded-verbatim root=Jool visited=3
   crossings=2 bodies=Laythe/Jool/Vall` - the two-crossing subject takes the fail-closed
-  verbatim path (`NestedSoiSubtree`/`PhaseFactory`), so a `body=<destination>` pin on the
-  proto-line lens is STRUCTURALLY unsatisfiable for this class. The destination-frame
-  render truth lives on the Director TracedPath shadow drive (`coverage=InSegment
-  segIdx=11 visible=True body=Vall`) and, in the TS, on the dynamic overlap path's
-  `GhostCreated ... body=Vall` at instance creation. Future moon-to-moon lanes should pin
-  those lenses from the start.
+  verbatim path (`NestedSoiSubtree`/`PhaseFactory`), so a `body=<destination>` pin is
+  STRUCTURALLY unsatisfiable **on the FLIGHT-scene loop-seeded proto-line lens V17M
+  measures**. Scope that claim to the lens it was measured on: the TRACKING STATION's
+  overlap-instance protos are built PER SEGMENT (`orbitSource=overlap-instance-segment`)
+  rather than through the nested-SOI fail-closed walk, and V17T's collected logs DO print
+  `phase=body-orbit ... body=Vall`. The destination-frame render truth therefore lives on
+  the Director TracedPath shadow drive (`coverage=InSegment segIdx=11 visible=True
+  body=Vall`) and, in the TS, on the dynamic overlap path - both at instance creation
+  (`GhostCreated ... body=Vall`) and on the per-segment orbit lens. Future moon-to-moon
+  lanes should pin those lenses from the start.
 
 - **`icon-off-orbit` did NOT recur on this subject's single-jump TS shape** - the first
   silent run after six raising ones at three parents, twice over (V17T runs 1 and 2),

@@ -3924,11 +3924,11 @@ def b5_params_from_dict(params: Dict) -> B5Params:
         if not bool(params.get("interplanetaryTransfer", False)):
             raise ValueError(
                 "parentRelayTransfer requires interplanetaryTransfer: the "
-                "relay's stage-1 burn-done evidence is the hyperbolic "
-                "ejectionEccFloor and its correction domain is "
-                "_b5_correction_via_bodies' parent narrowing, and BOTH read "
-                "interplanetary_transfer -- without it the mode degrades "
-                "silently into the moon machine")
+                "relay's correction domain is _b5_correction_via_bodies' "
+                "parent narrowing, which reads interplanetary_transfer -- "
+                "without it the mode degrades silently into the moon "
+                "machine (stage-1 burn-done evidence is the SOI-reach "
+                "disjunct and does not depend on this flag)")
         if not str(params.get("returnBodyName", "")):
             raise ValueError(
                 "parentRelayTransfer requires a non-empty returnBodyName: the "
@@ -3951,6 +3951,21 @@ def b5_params_from_dict(params: Dict) -> B5Params:
                 "boundary, which is where KSP's patched conic hands the vessel "
                 "to the parent frame, and at 0 there is nothing to size the "
                 "node against")
+        if float(params.get("transferMinApoapsisMeters", 0.0)) <= 0.0:
+            # THE SIBLING OF THE ABOVE, and the same silent-degradation shape.
+            # On every non-relay lane this floor is allowed to be the inert 0;
+            # on a relay lane it is the ONLY stage-2 burn-done evidence there
+            # is (`_b5_transfer_burn_done` takes the apoapsis arm at
+            # relay_stage >= RELAY_STAGE_TRANSFER and reads nothing else), so
+            # at 0 the TRANSFER-BURN exit reduces to "a node was consumed" and
+            # a no-op sibling burn would certify as a transfer.
+            raise ValueError(
+                "parentRelayTransfer requires a positive "
+                "transferMinApoapsisMeters: it is the PARENT-frame apoapsis "
+                "the stage-2 sibling transfer must reach, and it is the only "
+                "burn-done evidence stage 2 has -- at 0 the exit reduces to "
+                "'a node was consumed' and never checks that the burn "
+                "achieved anything")
         if "escapeTargetVInfMps" in params:
             # THE RETIRED KEY, REJECTED RATHER THAN IGNORED. It meant a
             # hyperbolic excess AT INFINITY and B26 flight 2 measured that
@@ -10236,6 +10251,42 @@ def _b5_transfer_burn_done(params: B5Params, snapshot: TelemetrySnapshot,
             and snapshot.apoapsis >= params.transfer_min_apoapsis)
 
 
+def b5_burn_done_evidence_text(params: B5Params,
+                               relay_stage: int = RELAY_STAGE_ESCAPE) -> str:
+    """NAME THE EVIDENCE THAT FAILED, for the TRANSFER-BURN under-burn give-up.
+
+    A MIRROR OF ``_b5_transfer_burn_done``'S DISPATCH, and it has to be exact:
+    quoting a floor the frame was never judged against is the give-up class this
+    codebase has repeatedly paid for (B15 flights 1-2 named a budget the
+    stagnation watchdog had fired instead of). The relay STAGE-1 arm is the
+    reason this became a function rather than a conditional expression: a
+    relay lane's escape phase is judged by ``_relay_escape_burn_done``'s
+    SOI-REACH disjunct, never by ``transfer_min_apoapsis``, and the old inline
+    selector fell through to the stage-2 apoapsis floor on it -- printing
+    "apoapsis floor 36000000 m not reached" at a frame whose real threshold on
+    B26 is a ~3.22 Mm apoapsis ALTITUDE (Laythe's 3,723,646 m SOI radius less
+    its 500,000 m body radius).
+
+    Stage 2 and every non-relay lane keep the text they already had."""
+    if params.parent_relay_transfer and relay_stage < RELAY_STAGE_TRANSFER:
+        try:
+            _mu, radius, soi = _body_gravity(params.home_body)
+        except ValueError:                         # pragma: no cover - load-gated
+            return ("SOI-reach floor not reached: the %s-frame apoapsis "
+                    "radius must reach the %s SOI radius (or the orbit be "
+                    "hyperbolic)" % (params.home_body, params.home_body))
+        return ("SOI-reach floor %.0f m apoapsis altitude not reached "
+                "(%s SOI radius %.0f m less body radius %.0f m; a NEGATIVE "
+                "apoapsis would satisfy it too)"
+                % (soi - radius, params.home_body, soi, radius))
+    if (params.ejection_ecc_floor > 0.0
+            and not (params.parent_relay_transfer
+                     and relay_stage >= RELAY_STAGE_TRANSFER)):
+        return ("ejection eccentricity floor %.4f not reached"
+                % (params.ejection_ecc_floor,))
+    return "apoapsis floor %.0f m not reached" % (params.transfer_min_apoapsis,)
+
+
 def _b5_correction_triggers(params: B5Params) -> Tuple[float, ...]:
     """The active correction-round trigger list: the time-to-SOI list when set
     (B7), else the altitude list (B5/B6)."""
@@ -10689,13 +10740,19 @@ def soi_clock_describes_target(next_body: str, target_body: str) -> bool:
     warp: 501 issues against the 500 cap, each one zeroing the warp factors, so
     the game visibly fluttered between 1x and a few x instead of warping.
 
-    FAIL OPEN ON AN UNREAD NAME, and that is what makes this safe to apply
-    everywhere rather than behind the relay flag. Only a POSITIVE mismatch
-    suppresses; a blank ``next_body`` (unread, or no SOI change on the
-    trajectory) passes. On every flown lane a finite ``time_to_soi`` means an
-    encounter EXISTS, which means ``next_body`` is populated, which on a
-    single-candidate coast IS the target -- so this returns True on all of them
-    and their decisions are byte-identical. Pinned by ``ForeignSoiClockTests``."""
+    FAIL OPEN ON AN UNREAD NAME. Only a POSITIVE mismatch suppresses; a blank
+    ``next_body`` (unread, or no SOI change on the trajectory) passes.
+
+    THIS PREDICATE DOES NOT SCOPE ITSELF, AND A POSITIVE MISMATCH IS NOT ALWAYS
+    AN AMBIGUITY. Both callers therefore confine it to the TRANSFER-PARENT frame
+    (``_b5_correction_via_bodies``), the only frame where two candidate
+    encounters compete for one ``time_to_soi``. On a home-SOI EXIT leg a
+    mismatch is instead the NORMAL reading, stably, for the whole leg: a Kerbin
+    exit reads ``next_body`` = "Sun" (the PARENT) while the target is Duna, and
+    B26's own stage 1 reads "Jool" while the target is Vall. Suppressing there
+    would disable proven behaviour rather than a defect, so the CALLERS -- not
+    this function -- keep those legs whole. Pinned by ``Flight2DefectBTests``
+    (harness/missions/lib/test_b26_laythe_vall.py)."""
     return not (next_body and target_body and next_body != target_body)
 
 
@@ -10713,8 +10770,22 @@ def coast_foreign_soi_clock_hold(next_body: str, target_body: str,
     about it -- so it holds regardless of the warp state. Cancelling on a
     reading that was never about our encounter IS the thrash.
 
+    PARENT-FRAME SCOPED BY ITS CALLER, and that scoping is part of the contract
+    rather than an accident of the call order. The flap this answers is a
+    TRANSFER-PARENT coast carrying two competing encounters (B26 stage 2, in
+    Jool's SOI). On a home-SOI EXIT leg the foreign reading is the normal one --
+    ``next_body`` is stably the PARENT ("Sun" on a Kerbin exit, "Jool" on B26's
+    stage 1) while the target is the far body -- and holding there would freeze
+    ``_b5_native_warp`` out of the whole leg, costing two MEASURED behaviours:
+    the asymmetric earlier-retarget at the 120 s floor (flight 7's 200 s /
+    4,000 s SOI-estimate flips on the Kerbin-exit leg; a stale LATER target must
+    not carry the warp through the boundary at speed) and the WARP_REISSUE
+    self-heal for a dropped warp. The call site therefore gates on
+    ``in_parent_frame`` exactly as the arm-suppression conjunct below it does.
+
     Fail-closed on the preconditions: nothing armed, or an already-reached /
-    unreadable clock, holds nothing."""
+    unreadable clock, holds nothing. Fails OPEN on a blank ``next_body``,
+    inherited from ``soi_clock_describes_target``."""
     if warp_to_cmd is None:
         return False
     if not (_is_finite(ut) and ut < warp_to_cmd):
@@ -12104,14 +12175,7 @@ def b5_decide(state: B5State, snapshot: TelemetrySnapshot) -> Tuple[B5State, Lis
                 "progress (burn-stagnation watchdog, NOT the phase budget) "
                 "with the burn-done evidence unmet -- %s, ap %s, ecc %s, "
                 "nodes %d, lf %s"
-                % (("ejection eccentricity floor %.4f not reached"
-                    % (state.params.ejection_ecc_floor,))
-                   if (state.params.ejection_ecc_floor > 0.0
-                       and not (state.params.parent_relay_transfer
-                                and state.relay_stage >= RELAY_STAGE_TRANSFER))
-                   else
-                   ("apoapsis floor %.0f m not reached"
-                    % (state.params.transfer_min_apoapsis,)),
+                % (b5_burn_done_evidence_text(state.params, state.relay_stage),
                    _obs_fmt(snapshot.apoapsis), _obs_fmt(snapshot.eccentricity),
                    snapshot.node_count, _obs_fmt(snapshot.liquid_fuel)),
                 peak), []
@@ -12528,24 +12592,40 @@ def b5_decide(state: B5State, snapshot: TelemetrySnapshot) -> Tuple[B5State, Lis
         if stayed.body_blank_count:
             stayed = replace(stayed, body_blank_count=0)
         stayed = _b5_clear_arrived_warp(stayed, snapshot)
+        # THE ENCOUNTER-IDENTITY AND BODY-DOMAIN READS, taken once here because
+        # BOTH consumers below need them: the FOREIGN-CLOCK HOLD immediately
+        # after, and the arm-suppression conjuncts on the trigger / SOI-coast
+        # branches. The arm side is confined to the correction body domain so
+        # B15/B16's Kerbin-exit leg -- which legitimately transits the Mun with
+        # next_body="Mun" while targeting Eve -- keeps the native
+        # warp-to-boundary it was given in flight 7.
+        target_clock = soi_clock_describes_target(snapshot.next_body,
+                                                  state.params.target_body)
+        in_parent_frame = snapshot.body in _b5_correction_via_bodies(state.params)
         # FOREIGN-CLOCK HOLD (B26 flight 2, defect B). Checked BEFORE any target
         # is derived, because the whole failure is deriving one from a reading
         # that is not about our encounter: this frame's time_to_soi names a
         # DIFFERENT body's SOI change, so the armed target is not stale -- it is
         # simply not what this number describes. HOLD it: emit nothing, cancel
-        # nothing. Fails OPEN on an unread next_body, so no flown lane reaches
-        # this branch at all.
-        if coast_foreign_soi_clock_hold(snapshot.next_body,
-                                        state.params.target_body,
-                                        stayed.warp_to_cmd, snapshot.ut):
+        # nothing.
+        #
+        # PARENT-FRAME SCOPED, exactly like the arm-suppression conjunct below
+        # (review follow-up). A foreign reading is AMBIGUOUS only in the
+        # transfer-parent frame, where two candidate encounters compete for one
+        # clock; on a home-SOI EXIT leg it is the NORMAL reading, stably, for
+        # the whole leg -- B15/B16's Kerbin exit reads next_body="Sun" while
+        # targeting Eve, B26's stage 1 reads "Jool" while targeting Vall.
+        # Holding there would freeze `_b5_native_warp` out of the leg and cost
+        # two MEASURED behaviours: the asymmetric earlier-retarget at the 120 s
+        # floor (flight 7's 200 s / 4,000 s SOI-estimate flips -- a stale LATER
+        # target would carry the warp through the boundary at speed) and the
+        # WARP_REISSUE self-heal for a dropped warp. Outside the parent frame
+        # the native-warp maintenance path therefore runs unchanged. Still fails
+        # OPEN on an unread next_body.
+        if in_parent_frame and coast_foreign_soi_clock_hold(
+                snapshot.next_body, state.params.target_body,
+                stayed.warp_to_cmd, snapshot.ut):
             return stayed, []
-        # ... and the same reading must not ARM a target either. Confined to the
-        # correction body domain so B15/B16's Kerbin-exit leg -- which
-        # legitimately transits the Mun with next_body="Mun" while targeting Eve
-        # -- keeps the native warp-to-boundary it was given in flight 7.
-        target_clock = soi_clock_describes_target(snapshot.next_body,
-                                                  state.params.target_body)
-        in_parent_frame = snapshot.body in _b5_correction_via_bodies(state.params)
         native_target: Optional[float] = None
         # B12 flight 2: set only by the SOI-coast fallback branch below, so
         # every other warp mode (pending node, altitude / time correction

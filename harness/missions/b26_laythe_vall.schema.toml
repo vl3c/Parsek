@@ -144,7 +144,9 @@ type = "string"
 # TRANSFER-BURN exit floor for the moon Hohmann shape (B5/B6). B16 sets
 # ejectionEccFloor > 0 and DISABLES this apoapsis-floor evidence (a hyperbolic
 # escape drives the Kerbin-frame apoapsis negative), but the key stays required
-# for schema symmetry with the shared block; B16 sets it to 0.
+# for schema symmetry with the shared block; B16 sets it to 0. ON A RELAY LANE it
+# must be POSITIVE (load-time raise): stage 2 is judged by this floor and nothing
+# else, so a 0 would reduce the TRANSFER-BURN exit to "a node was consumed".
 [params.transferMinApoapsisMeters]
 required = true
 type = "number"
@@ -431,7 +433,13 @@ max = 100.0
 # raising rather than degrading: parentRelayTransfer requires
 # interplanetaryTransfer, requires a non-empty returnBodyName, is mutually
 # exclusive with padAlignEjection, and requires homeBodyName to have a row in
-# mlib.STOCK_BODY_GRAVITY plus a positive escapeTargetVInfMps.
+# mlib.STOCK_BODY_GRAVITY. TWO POSITIVE-VALUE GATES ride alongside them, one per
+# stage: a positive escapeSoiSpeedMps -- the relative speed the escape carries
+# ACROSS THE HOME SOI BOUNDARY, which is where the patched conic hands the vessel
+# over and is therefore what sizes the stage-1 node (NOT a hyperbolic excess at
+# infinity; the retired escapeTargetVInfMps is rejected by name) -- and a positive
+# transferMinApoapsisMeters, which is the stage-2 sibling transfer's only
+# burn-done evidence.
 # =====================================================================================
 
 # ARMS the mode. Optional; mlib defaults False (the ESCAPE phase is unreachable,

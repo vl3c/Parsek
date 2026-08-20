@@ -1266,9 +1266,9 @@ class ParentRelayLoadTimeTests(unittest.TestCase):
         self.assertGreater(p.escape_max_dv, 0.0)
 
     def test_the_relay_requires_the_interplanetary_flag(self):
-        # Without it the stage-1 evidence falls back to an apoapsis floor an
-        # ESCAPE drives NEGATIVE, and the correction domain stops narrowing to
-        # the parent SOI.
+        # Without it the correction domain stops narrowing to the parent SOI
+        # (stage-1 burn-done evidence is the SOI-reach disjunct and does not
+        # depend on the flag).
         with self.assertRaises(ValueError):
             mlib.b5_params_from_dict(relay_params(interplanetaryTransfer=False))
 
@@ -1292,6 +1292,26 @@ class ParentRelayLoadTimeTests(unittest.TestCase):
     def test_the_relay_requires_a_positive_soi_speed(self):
         with self.assertRaises(ValueError):
             mlib.b5_params_from_dict(relay_params(escapeSoiSpeedMps=0.0))
+
+    def test_the_relay_requires_a_positive_transfer_apoapsis_floor(self):
+        """THE SIBLING GATE (review follow-up). Off a relay lane this floor is
+        allowed to be the inert 0 that every moon spec leaves it at; ON one it is
+        the ONLY stage-2 burn-done evidence there is, so at 0 the TRANSFER-BURN
+        exit reduces to 'a node was consumed' and a no-op sibling burn certifies
+        as a transfer. The raise belongs at SPEC LOAD like its escape twin."""
+        with self.assertRaises(ValueError) as ctx:
+            mlib.b5_params_from_dict(
+                relay_params(transferMinApoapsisMeters=0))
+        self.assertIn("transferMinApoapsisMeters", str(ctx.exception))
+        # An absent key is the same failure as an explicit 0 - the committed
+        # spec's own value is what keeps this gate open.
+        missing = relay_params()
+        del missing["transferMinApoapsisMeters"]
+        with self.assertRaises(ValueError):
+            mlib.b5_params_from_dict(missing)
+        # ... and a NON-relay spec is untouched: the inert 0 still parses.
+        mlib.b5_params_from_dict(relay_params(parentRelayTransfer=False,
+                                              transferMinApoapsisMeters=0))
 
     def test_the_retired_v_inf_key_is_rejected_rather_than_ignored(self):
         """**THE RENAME IS THE FIX, SO THE OLD NAME MUST NOT PARSE.** Silently
@@ -1754,6 +1774,49 @@ class ParentRelayMachineFlowTests(unittest.TestCase):
         self.assertIn(mlib.B5_ESCAPE, mlib.B5_PHASES)
         self.assertEqual(p.escape_timeout,
                          mlib._b5_phase_budget(p, mlib.B5_ESCAPE))
+
+    def test_a_stage_1_under_burn_names_the_SOI_reach_floor_not_the_stage_2_one(self):
+        """THE GIVE-UP MUST NAME THE EVIDENCE IT WAS ACTUALLY JUDGED AGAINST
+        (review follow-up), which is the B15-flights-1-2 lesson one stage in. A
+        relay STAGE-1 flake is the ESCAPE burn wedging, and stage 1 is judged by
+        `_relay_escape_burn_done`'s SOI-REACH disjunct - never by
+        `transfer_min_apoapsis`, which belongs to the sibling transfer two phases
+        later. The old inline selector fell through to it and printed 'apoapsis
+        floor 36000000 m not reached' at a frame whose real threshold is a
+        ~3.22 Mm apoapsis ALTITUDE, sending the reader at a number 11x too big
+        and at the wrong stage entirely."""
+        p = mlib.b5_params_from_dict(self.mp)
+        soi_floor = SOI_LAYTHE - R_LAYTHE
+        stage1 = mlib.b5_burn_done_evidence_text(p, mlib.RELAY_STAGE_ESCAPE)
+        self.assertIn("SOI-reach floor", stage1)
+        self.assertIn("%.0f m apoapsis altitude" % soi_floor, stage1)
+        self.assertNotIn("apoapsis floor", stage1)
+        self.assertNotIn("36000000", stage1)
+        # Stage 2 keeps the text it already had, and so does every non-relay
+        # lane - this is a stage-1 correction, not a rewording.
+        stage2 = mlib.b5_burn_done_evidence_text(p, mlib.RELAY_STAGE_TRANSFER)
+        self.assertEqual("apoapsis floor %.0f m not reached"
+                         % (p.transfer_min_apoapsis,), stage2)
+
+        # END TO END: wedge the stage-1 escape burn with the SOI-reach floor
+        # unmet (a still-small Laythe apoapsis) and read the flake's own text.
+        st = mlib._b5_enter(mlib.b5_initial_state(p), mlib.B5_TRANSFER_BURN,
+                            PARK_UT, None)
+        st = mlib.replace(st, relay_stage=mlib.RELAY_STAGE_ESCAPE,
+                          planned_node_count=1,
+                          burn_entry_ap=PARK_SMA * (1.0 + PARK_ECC) - R_LAYTHE,
+                          burn_entry_pe=PARK_SMA * (1.0 - PARK_ECC) - R_LAYTHE)
+        # The escape BURNED (the apoapsis moved off the park's) but nowhere near
+        # the SOI: 900 km against the ~3.22 Mm the boundary needs. Then wedged.
+        wedged = dict(body="Laythe", situation="ORBITING", node_count=1,
+                      apoapsis=900_000.0, periapsis=56_240.0,
+                      eccentricity=0.42, altitude=200_000.0)
+        for dt in (10.0, 20.0, 30.0, 400.0):
+            st, _ = mlib.b5_decide(st, snap(ut=PARK_UT + dt, **wedged))
+        self.assertEqual(mlib.MISSION_FLAKE, st.verdict)
+        self.assertEqual(mlib.B5_TRANSFER_BURN, st.flake_phase)
+        self.assertIn("SOI-reach floor", st.flake_reason)
+        self.assertNotIn("36000000", st.flake_reason)
 
 
 class ParentRelayInertnessTests(unittest.TestCase):
@@ -2259,6 +2322,112 @@ class Flight2DefectBTests(unittest.TestCase):
         self.assertAlmostEqual(st.warp_to_cmd,
                                F2_THRASH_UT + (F2_TTS_VALL - 35_000.0),
                                delta=0.01)
+
+    # --- THE SCOPE OF THE HOLD (review follow-up) -------------------------
+    # A POSITIVE mismatch is an AMBIGUITY only in the transfer-parent frame,
+    # where two candidate encounters compete for one `time_to_soi`. Everywhere
+    # else it is the NORMAL reading of a single-encounter leg, so the hold is
+    # gated on `in_parent_frame` exactly like the arm-suppression conjunct.
+
+    def test_the_parent_frame_is_Jool_and_the_exit_leg_frame_is_not(self):
+        """THE DISCRIMINATOR ITSELF, named once so the two cells below are not
+        each asserting it implicitly. `_b5_correction_via_bodies` narrows a relay
+        lane to its `returnBodyName`, so on B26 the parent frame is JOOL and the
+        stage-1 escape leg (still in LAYTHE'S SOI) is outside it."""
+        mp = _spec("B26-laythe-vall-transfer.toml")["driver"]["missionParams"]
+        p = mlib.b5_params_from_dict(mp)
+        self.assertEqual(("Jool",), mlib._b5_correction_via_bodies(p))
+        self.assertNotIn("Laythe", mlib._b5_correction_via_bodies(p))
+
+    def test_the_hold_leaves_the_home_SOI_EXIT_leg_alone(self):
+        """OUTSIDE THE PARENT FRAME THE HOLD MUST NOT ENGAGE, and B26's OWN
+        STAGE-1 COAST is the subject rather than a hypothetical. After the escape
+        burn the craft coasts to LAYTHE'S SOI boundary and `nextBody` reads the
+        PARENT, "Jool", against a target of "Vall" - a POSITIVE mismatch on every
+        frame of the leg, and the CORRECT reading of it, because only one
+        encounter exists there. The same shape is B15/B16's Kerbin exit
+        (next_body "Sun", target "Eve") and B7's flight-7 Kerbin/Duna legs.
+
+        Holding here would freeze `_b5_native_warp` out of the whole leg, so the
+        cell asserts what the maintenance path is FOR: it arms, it takes the
+        asymmetric EARLIER-retarget at the 120 s floor (flight 7 measured
+        200 s / 4,000 s SOI-estimate flips - a stale LATER target would carry the
+        warp through the boundary at speed), and its WARP_REISSUE self-heal
+        re-dispatches a dropped warp."""
+        mp = _spec("B26-laythe-vall-transfer.toml")["driver"]["missionParams"]
+        p = mlib.b5_params_from_dict(mp)
+        ut0 = F2_NODE_UT + 600.0
+        st = mlib._b5_enter(mlib.b5_initial_state(p), mlib.B5_COAST_TO_TARGET,
+                            ut0 - 100.0, None)
+        st = mlib.replace(st, relay_stage=mlib.RELAY_STAGE_ESCAPE)
+
+        def exit_leg(ut, tts, **kw):
+            # The BOUND escape flight 3 flew: Laythe-frame apoapsis 4,055,749 m,
+            # past the SOI-reach floor, ecc 0.7586. next_body is the PARENT.
+            base = dict(ut=ut, body="Laythe", situation="ORBITING",
+                        altitude=1_200_000.0, apoapsis=4_055_749.0,
+                        periapsis=56_240.0, eccentricity=0.7586,
+                        node_count=0, next_body="Jool", time_to_soi=tts,
+                        warping_to=float("nan"))
+            base.update(kw)
+            return snap(**base)
+
+        # The reading really is foreign, and the hold predicate on its own really
+        # would hold it - the SCOPING is what keeps this leg whole.
+        self.assertFalse(mlib.soi_clock_describes_target("Jool", "Vall"))
+        self.assertTrue(mlib.coast_foreign_soi_clock_hold(
+            "Jool", "Vall", ut0 + 5_000.0, ut0))
+
+        # (a) ARMS. Pre-change this frame returned [] and never commanded a warp.
+        st, actions = mlib.b5_decide(st, exit_leg(ut0, 9_000.0))
+        self.assertEqual([mlib.ACTION_WARP_TO_UT], [a.kind for a in actions])
+        self.assertAlmostEqual(ut0 + 9_000.0 - p.soi_lead, st.warp_to_cmd,
+                               delta=0.01)
+        armed = st.warp_to_cmd
+
+        # (b) EARLIER-RETARGET at the 120 s floor: the SOI estimate shrinks by
+        # 4,000 s (flight 7's own flip size) and the command must move EARLIER
+        # rather than ride the stale target through the boundary.
+        st, actions = mlib.b5_decide(
+            st, exit_leg(ut0 + 1.0, 5_000.0, warping_to=armed))
+        self.assertEqual([mlib.ACTION_WARP_TO_UT], [a.kind for a in actions])
+        self.assertLess(st.warp_to_cmd, armed)
+        self.assertAlmostEqual(ut0 + 1.0 + 5_000.0 - p.soi_lead, st.warp_to_cmd,
+                               delta=0.01)
+        retargeted = st.warp_to_cmd
+
+        # (c) SELF-HEAL: the game reports no active warp (warping_to NaN) with
+        # the commanded target still ahead, one WARP_REISSUE_SECONDS later.
+        heal_ut = ut0 + 1.0 + mlib.WARP_REISSUE_SECONDS
+        st, actions = mlib.b5_decide(
+            st, exit_leg(heal_ut, 5_000.0 - mlib.WARP_REISSUE_SECONDS))
+        self.assertEqual([mlib.ACTION_WARP_TO_UT], [a.kind for a in actions])
+        self.assertAlmostEqual(retargeted, actions[0].value, delta=0.01)
+        self.assertIsNone(st.verdict)
+
+    def test_the_hold_still_engages_in_the_parent_frame(self):
+        """AND THE OTHER HALF OF THE SCOPE, stated at the predicate rather than
+        only end-to-end (`test_the_flapping_coast_now_emits_nothing_instead_of_re_arming`
+        is the decide-level twin): in JOOL'S frame the same foreign reading IS
+        the ambiguity, because the stage-2 ellipse re-crosses Laythe's orbit and
+        two encounters compete for one clock."""
+        mp = _spec("B26-laythe-vall-transfer.toml")["driver"]["missionParams"]
+        p = mlib.b5_params_from_dict(mp)
+        st = mlib._b5_enter(mlib.b5_initial_state(p), mlib.B5_COAST_TO_TARGET,
+                            F2_THRASH_UT - 1000.0, None)
+        st = mlib.replace(st, relay_stage=mlib.RELAY_STAGE_TRANSFER,
+                          warp_to_cmd=F2_THRASH_TARGET)
+        # Same armed state, same foreign next_body, ONLY the frame body differs
+        # from the exit-leg cell above - and this one emits nothing.
+        st, actions = mlib.b5_decide(st, snap(
+            ut=F2_THRASH_UT, body="Jool", situation="ORBITING",
+            altitude=F2_STAGE2_ALT_M, apoapsis=F2_STAGE2_AP_M,
+            periapsis=19_697_088.474, eccentricity=0.675, node_count=0,
+            next_body="Laythe", time_to_soi=F2_TTS_LAYTHE,
+            warp_mode=mlib.WARP_RAILS, warp_rate=7120.209,
+            warping_to=F2_THRASH_TARGET))
+        self.assertEqual([], actions)
+        self.assertEqual(F2_THRASH_TARGET, st.warp_to_cmd)
 
 
 if __name__ == "__main__":

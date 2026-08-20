@@ -1058,9 +1058,9 @@ commitTimeoutSeconds       = 300
 # --- Shared machine housekeeping ---------------------------------------------
 # SIZING NOTE: the NERV is 60 kN on a 9.854 t stack falling to ~7.8 t, i.e.
 # 6.09 -> 7.70 m/s^2. THREE burns now, not two:
-#   escape   774.7 m/s at 6.09 m/s^2  ~127 s
-#   stage 2  347-695 m/s at 6.76      ~51-103 s
-#   capture  374.7 m/s at 6.98         ~54 s
+#   escape     586.7 m/s at 6.09 m/s^2   ~96 s
+#   stage 2  102.8-900.0 m/s at 6.76     ~15-133 s
+#   capture    374.7 m/s at 6.98         ~54 s
 # All three are comfortably inside the proven watchdog defaults, since
 # `burnStagnantSeconds` only starts counting after the apsides STOP moving and
 # `burnNoStartSeconds` only while the orbit is UNCHANGED.
@@ -1075,14 +1075,19 @@ frozenTelemetrySamples     = 10
 # FROM 150 TO 100 BY THE RELAY**, and the reason is arithmetic, not taste.
 #   THE MARGIN RULE, which is what moved it: up to FOUR rounds can fire (the two
 #     this spec schedules plus mlib's two `MAX_ARRIVAL_EXTRA_ROUNDS`
-#     arrival-quality extras). The relay's WORST hop is 1,843.9 m/s against
-#     2,483.9 available, i.e. 640.0 m/s of margin - so at 150 the worst
-#     correction spend is 600 and the flight lands 6 m/s from dry, which is not a
-#     margin at all. At 100 the worst spend is 400 and 239.6 m/s remain.
-#   THE B15 RULE still holds at the new value: 100 is 3.5x below the 347.2 m/s
-#     best-case stage-2 transfer it refines and 6.9x below the 694.5 worst case.
-#     What it is NOT is a cap on that transfer - no lane caps a transfer plan,
-#     and this one does not either.
+#     arrival-quality extras). The relay's WORST hop is 1,861.4 m/s against
+#     2,483.9 available, i.e. 622.5 m/s of margin - so at 150 the worst
+#     correction spend is 600 and the flight lands 22 m/s from dry, which is not
+#     a margin at all. At 100 the worst spend is 400 and 222.5 m/s remain.
+#   THE B15 RULE still holds at the new value, though less comfortably than the
+#     REFUTED band read: 100 is 9.0x below the 900.0 m/s worst-case stage-2
+#     transfer it refines and 6.0x below the 600.0 typical case, but only level
+#     with the 102.8 BEST case - and that best case is the cheapest hop the
+#     geometry admits (an asymptote already pointing where it needs to), not the
+#     size a correction is sized against. Flight 3's own stage-2 node read 415.46
+#     and its two corrections 63.72 and 11.66, neither discarded at the cap.
+#     What the cap is NOT is a cap on that transfer - no lane caps a transfer
+#     plan, and this one does not either.
 #   THE B20 LESSON pulls the other way (an under-sized cap DISCARDED the
 #     encounter-creating correction and cost two INVALID attempts), and it is why
 #     this is 100 rather than B24's 50. It also bites LESS here than it did on
@@ -1213,7 +1218,7 @@ count = { min = 1, max = 4 }
 # geometry they were. They mirror a machine-side guard that already exists:
 # `_b5_coast_bodies` is `("", "Laythe", "Jool")`, so any of the three is an
 # immediate ASSERT-FAIL. Bop and Pol stay geometrically excluded (128.5 and
-# 179.89 Mm are far above the 71.28 Mm extreme) and are kept for symmetry and for
+# 179.89 Mm are far above the 87.18 Mm extreme) and are kept for symmetry and for
 # the day someone aims a relay somewhere else.
 #
 # **NOTHING RE-AIM IS FORBIDDEN OR REQUIRED ANYWHERE IN THIS FILE**, and that is
@@ -1268,7 +1273,7 @@ forbidden = [
   "\\[Parsek\\]\\[ERROR\\]",
   # The three moons this transfer must not touch. Under the relay these are a
   # REAL guard rather than a restatement of geometry: an unaimed escape's
-  # parent-frame apoapsis reaches 71.28 Mm at the extreme, past Tylo's 68.50 Mm.
+  # parent-frame apoapsis reaches 87.18 Mm at the extreme, past Tylo's 68.50 Mm.
   # See the derivation above.
   "SOI change boundary suppressed in tree mode: \\w+ to Tylo",
   "SOI change boundary suppressed in tree mode: Tylo to \\w+",
