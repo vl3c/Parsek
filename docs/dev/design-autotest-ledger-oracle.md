@@ -330,9 +330,15 @@ pool + per-subject, rep, active contract guids, per-vessel resource totals).
 Milestone and facility fractions are exported too (they exist on the snapshot) but
 are report-only facets. Determinism: keys sorted, floats InvariantCulture "R",
 "\n" line endings, mirroring `ReportWriter` (the existing writer is already
-byte-deterministic). CREW ROSTER is NOT on `CareerSaveSnapshot` today and is NOT
-added in v1 (that would be new parse behavior); see the `world` roster note in
-Behavior.
+byte-deterministic). CREW ROSTER was NOT on `CareerSaveSnapshot` at v1 and was NOT
+added then (that would have been new parse behavior); see the `world` roster note in
+Behavior. The parser later gained the `GAME > ROSTER` read and the export gained
+`hasRoster` plus a `roster` array of `{name, gender, type, trait, state}`, sorted by
+(name, type, trait) - status in `docs/dev/autotest-status.md`, the single status
+authority. The tech /
+part-purchase / strategy domains the parser also reads are deliberately NOT
+exported - no Python consumer parses them, and an exported field nobody reads is
+surface to keep in step for nothing.
 
 ### Oracle expected-state + diff types (Python, `harness/lib/oracle.py`)
 
@@ -542,14 +548,27 @@ resources = { LiquidFuel = { expected = 90.0, tol = 0.1 }, Oxidizer = { expected
 - Default resource tolerance: `0.1` unit absolute (physics settling noise), tunable
   per resource, never a golden trajectory.
 
-ROSTER states: `CareerSaveSnapshot` carries no crew roster today, so a roster
-sub-facet would require a small additive `Roster` parse in `CareerSaveParser`
-(new parse behavior, out of the v1 export-only scope). v1 activates ONLY the vessel
-resource totals; roster-state comparison SEMANTICS are defined here (correlate crew
-by name; assert active/reserved/retired/stand-in status against the declared set)
-but the facet is DEFERRED until the first scenario needs it (L1 kerbal scripts /
-B3 EVA), at which point the single additive `Roster` parse lands with it. This
-keeps v1 strictly export-only.
+ROSTER states: v1 activated ONLY the vessel resource totals, because
+`CareerSaveSnapshot` carried no crew roster and adding one was new parse behavior
+outside the v1 export-only scope. **UN-DEFERRED 2026-08-17** (career-ledger lane
+A.2/A.6), for the scenario this note predicted would need it first - the L1 kerbal
+script. `oracle.diff_world_roster` evaluates `[expectations.world.roster]`:
+
+- correlation is BY NAME (a kerbal's name is its roster identity; the save carries
+  no other stable key for one);
+- `absent = [...]` - each named kerbal must NOT be in the produced roster; still
+  present -> hard `phantom`;
+- `present = [...]` - each named kerbal must be; gone -> hard `missing`;
+- a declared block against a save whose `hasRoster` is false is ONE hard `missing`:
+  an armed assertion must never green on a missing input;
+- an EMPTY roster with `hasRoster` true is a REAL state and is diffed normally.
+
+Both claims are HARD because the claim IS the scenario's action, and (unlike a
+measured window) the declared names come from the STAGED TEMPLATE, so the
+report-only-then-arm discipline does not apply. The remaining half of the semantics
+above - per-kerbal active/reserved/retired/stand-in STATUS - stays DEFERRED with
+zero declarers; an evaluator nobody declares is surface to keep in step for
+nothing.
 
 ### v1 scenario: B10 with a real (empty) manifest
 
@@ -711,9 +730,10 @@ Each: scenario -> expected behavior -> v1 or deferred.
   the `AnalysisReport` the writer serializes). It is EXPORT-ONLY: it serializes a
   snapshot the analyzer already parsed. It adds no save data, no runtime behavior,
   no new subprocess. It mirrors the existing `ReportWriter` determinism (sorted
-  keys, InvariantCulture, "\n"). If a future scenario needs roster assertions, a
-  single additive `Roster` facet on `CareerSaveParser`/`CareerSaveSnapshot` lands
-  then; it is NOT in v1.
+  keys, InvariantCulture, "\n"). The roster facet this bullet said would land "if a
+  future scenario needs roster assertions" DID land, 2026-08-17, for
+  `L1-dismiss-kerbal-career`: `CareerSaveParser` gained the ROSTER parse and the
+  writer gained the `hasRoster` + `roster` export, on the same export-only terms.
 - **The harness verdict taxonomy and verifier chain** are unchanged. The
   `ledger_drift -> PARSEK-FAIL(ledger)` branch and the `ledgerOracle` result slot
   ALREADY EXIST in `hlib.classify_verdict` and the result JSON (harness core); M-B2
@@ -762,8 +782,11 @@ batch-counting convention applies to the per-line capture grep (one summary line
   parsed=<p> delta=<d> tol=<t> within=<b> hard=<b>"; per hard divergence `Warn`
   "ledger-drift facet=<facet> id=<id> expected=<e> parsed=<p> utWindow=[<lo>,<hi>]".
 - **WORLD**: per vessel `Info` "world-vessel corr=<guid|pid> resource=<r>
-  expected=<e> parsed=<p> tol=<t> within=<b>"; roster deferral once
-  `Verbose` "world: roster sub-facet deferred (no CareerSaveSnapshot roster)".
+  expected=<e> parsed=<p> tol=<t> within=<b>"; per roster divergence `Info`
+  "world-roster name=<name> kind=<missing|phantom> hard=<b> detail=<...>", then once
+  `Verbose` "world: roster sub-facet declared=<b> present=<n> absent=<n>
+  divergences=<n>" (the old line read "roster sub-facet deferred (no
+  CareerSaveSnapshot roster)").
 - **VERIFY**: `Info` "verify ledgerOracle status=<PASS|FAIL|SKIPPED|INVALID>
   hardDivergences=<n> reportOnly=<m> reason=<...>"; on a missing export block
   `Warn` "verify ledgerOracle status=INVALID subkind=tooling: careerSave block
@@ -901,10 +924,11 @@ Recorded so they are not lost; none blocks the v1 B10 passive-safety oracle.
   x 3 career modes need the KscAction seam commands and the `gameevents-captured`
   provenance; v1 delivers only the zero-delta B10 cross-check. The manifest format
   already carries the entry schema those scripts populate.
-- **Roster world sub-facet.** `CareerSaveSnapshot` has no crew roster; the world
-  block v1 activates vessel resource totals only. The roster sub-facet lands with a
-  single additive `Roster` parse in `CareerSaveParser` when the first kerbal
-  scenario (L1 / B3 EVA) needs it; its comparison semantics are defined above.
+- **Roster world sub-facet.** The additive `Roster` parse in `CareerSaveParser`, its
+  analyzer export, and `oracle.diff_world_roster`'s `present` / `absent` half of the
+  semantics above (declared by `L1-dismiss-kerbal-career`) - status in
+  `docs/dev/autotest-status.md`, the single status authority. Per-kerbal STATUS
+  claims remain deferred with zero declarers.
 - **Stock-award capture enumeration completeness.** The v1 EN enumeration is
   conservative and safe for the zero-delta cross-check; a NONZERO L1 scenario must
   confirm each enumerated line against a live EN KSP.log (PENDING-OPERATOR) and,

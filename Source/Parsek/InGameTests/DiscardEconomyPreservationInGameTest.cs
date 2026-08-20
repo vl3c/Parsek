@@ -216,7 +216,8 @@ namespace Parsek.InGameTests
                 // save is always restored and any in-memory residue is bounded to that window.
                 if (RecordingStore.HasPendingTree)
                     RecordingStore.DiscardPendingTree(preserveIrreversibleLiveGameplay: false);
-                Ledger.TruncateActionsForTesting(beforeActions);
+                FlightIntegrationTests.TruncateLedgerForTeardown(
+                    beforeActions, "DiscardEconomyPreservation");
                 GameStateStore.TruncateEventsForTesting(beforeEvents);
                 try { LedgerOrchestrator.RecalculateAndPatch(); }
                 catch (Exception ex)

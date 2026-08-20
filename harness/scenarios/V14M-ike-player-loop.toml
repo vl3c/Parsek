@@ -1,0 +1,608 @@
+schema = 1
+id = "V14M-ike-player-loop"
+# =====================================================================================
+# V14M: THE PLAYER WORKFLOW ON A **SAME-PARENT MOON TRANSFER FLOWN FROM ORBIT** - the
+# first loop subject in the suite whose recording is not rooted at Kerbin.
+#
+# V6M flew this workflow on a Kerbin->Mun mission: a pad launch, a Rotation(Kerbin)
+# anchor and an Orbital(Mun) intercept with WILDLY different periods (21,549 s vs
+# 138,984 s), which is what gives that lane its non-uniform ZERO-DRIFT schedule. This
+# lane flies the identical workflow on B23's Duna->Ike recording, where the same two
+# constraint KINDS appear with periods that are equal to three milliseconds - so the
+# product should take a THIRD road, distinct from both V4's re-aim and V6M's
+# zero-drift schedule. Establishing which road it actually takes is what this run is
+# for.
+#
+# ---------------------------------------------------------------------------------
+# 1. THE PREDICTION AND ITS VERDICT: TIDAL-COLLAPSE WAS REFUTED, AND HOW IT FAILED
+#    IS THE FINDING
+# ---------------------------------------------------------------------------------
+# MEASURED, reading run 2026-08-18_2336 (PASS attempt 1, wall 50 s). The prediction
+# derived below is WRONG, and it is wrong in the one direction nobody had modelled:
+# the collapse never gets its SECOND CONSTRAINT. Verbatim, log line 10571:
+#
+#   ExtractConstraints: tree=f55918af... members=1 launchBody=Duna
+#     ut0=9160398.0636915881 support=Supported constraints=1
+#     [Orbital(Ike) same-parent P=65517.862134808071 off=17082.834318690002]
+#
+# `constraints=1`. There is NO `Rotation(Duna)` anywhere in the run. The extraction
+# emits a Rotation constraint for a SURFACE/PAD-ROOTED launch, and this recording has
+# no surface phase at all - it BEGINS IN ORBIT, which is the whole point of the
+# `startInOrbit` entry door B23 flew to produce it. So the equality band never gets
+# consulted, `AllDroppedSharePeriod` is never reached, and Tier 1 takes the
+# single-constraint branch instead (MissionPeriodicity.cs:726-733). Line 10574:
+#
+#   PhaseLock APPLIED: mission='DD1 Duna Direct Probe' tree=f55918af...
+#     anchor 9181612.89109542->9225915.9258263968 P=65517.862134808071
+#     method=single-orbital cadence 21212.067403893918->65517.862134808071
+#     fixedCadenceResidual=0 fixedCadenceWithinTol=yes zeroDrift=no
+#
+# WHAT SURVIVED AND WHAT DID NOT. The two OUTCOME predictions both held exactly:
+# ` zeroDrift=no` and a cadence of exactly one P (21,212.067 -> 65,517.862). The
+# MECHANISM prediction did not: `method=single-orbital`, not `tidal-collapse`. Both
+# roads reach residual 0 / withinTol=yes / no schedule, which is why the outcome
+# looked right for the wrong reason - and is exactly why pinning the METHOD (below)
+# is worth more than pinning `zeroDrift=no` alone.
+#
+# THE GENERAL FACT THIS BUYS, and it is bigger than this lane: an ORBIT-ROOTED loop
+# subject gets `single-orbital` DIRECTLY, and the tidal-collapse branch is reachable
+# only from a PAD-ROOTED same-parent subject (one that carries a Rotation constraint
+# to collapse). Phase-lock for a single-moon orbit-rooted subject is therefore EXACT
+# by construction - one constraint, residual literally 0, cadence = one moon period,
+# no schedule needed - rather than merely within tolerance. Propagated to
+# docs/dev/research/same-parent-reaim-jool-system.md sections 3.5 / 6 / 7.
+#
+# THE DERIVATION AS IT WAS WRITTEN PRE-FLIGHT IS KEPT BELOW, because the refutation
+# is only legible against it.
+#
+# ---------------------------------------------------------------------------------
+# 1b. THE PRE-FLIGHT PREDICTION (SUPERSEDED BY 1 - kept for legibility)
+# ---------------------------------------------------------------------------------
+# Ike is TIDALLY LOCKED to Duna, so its orbital period and Duna's rotation period are
+# the same number to within rounding:
+#   T_Rotation(Duna) = 65,517.859375 s            (stock rotationalPeriod)
+#   T_Orbital(Ike)   = 2*pi*sqrt(a^3/mu_Duna)
+#                    = 2*pi*sqrt(3.2e6^3/3.0136321e11) = 65,517.862350 s
+#   |dP|             = 0.002975 s
+# `MissionPeriodicity.PeriodEqualityRelTolerance` is 1e-6 RELATIVE, so the equality
+# band here is 1e-6 * 65,517.86 = 0.065518 s. |dP| is 22x INSIDE it. Two consequences
+# follow mechanically, and they are the prediction:
+#
+#   (a) TIER-1 COLLAPSES. `SelectDominantConstraintIndex` ranks Orbital above
+#       Rotation, so the dominant is Orbital(Ike) and P = 65,517.862350.
+#       `AllDroppedSharePeriod` then returns TRUE (MissionPeriodicity.cs:874-884),
+#       which takes the branch at :735 -> multiple = 1, residual = 0,
+#       **method = "tidal-collapse"**, withinTolerance = true.
+#   (b) THERE IS NO ZERO-DRIFT SCHEDULE. `PartitionScheduleConstraints` sets
+#       `anyDistinct` with the SAME relative band against the schedule anchor
+#       (:1417), so `anyDistinct` is FALSE and `TryBuildRelaunchSchedule` returns
+#       false at :1355 - "a uniform schedule == today's fixed cadence, so no
+#       schedule". `LogMissionUnitSummary` then appends the bare
+#       **` zeroDrift=no`** branch (MissionLoopUnitBuilder.cs:1410-1412).
+#
+# So the PREDICTED routing line was:
+#   PhaseLock APPLIED: mission='DD1 Duna Direct Probe' tree=f55918af...
+#     anchor <base>-><anchor> P=65517.862... method=tidal-collapse
+#     cadence <c>-><effC> fixedCadenceResidual=0 fixedCadenceWithinTol=yes zeroDrift=no
+# (MEASURED: identical except `method=single-orbital` - see section 1.)
+#
+# THIS IS THE DIVERGENCE FROM V6M THAT SHAPES EVERY PIN BELOW. V6M REQUIRES
+# `zeroDrift=yes` + `scheduleWithinTol=yes` and claims D11 `zero-drift-schedule` off
+# them. If the prediction here is right, BOTH of those tokens are ABSENT on this lane
+# and that cell is unclaimable - so it is NOT claimed, and neither token is required.
+# The prediction is stated rather than gated precisely because it is a prediction: the
+# reading run's own `ExtractConstraints:` / `PhaseLock APPLIED:` lines confirm or
+# refute it, and the arming pass writes whichever it turns out to be.
+#
+# TWO THINGS THE PREDICTION DOES NOT SAY, WRITTEN PRE-FLIGHT - AND (i) IS WHERE IT
+# BROKE. (i) It does not predict the CONSTRAINT LIST: the extraction may well emit
+# `Rotation(Duna)` alongside `Orbital(Ike) same-parent` with both periods present and
+# let the collapse happen downstream, which is the reading `ExtractConstraints:`
+# should show. MEASURED: `constraints=1`, Orbital only - the caveat was right to be
+# written and the prediction was wrong to lean past it. (ii) It does not predict
+# `support=`. A same-parent destination is the condition that keeps Support=Supported
+# on V6M, and Duna->Ike is same-parent, so `Supported` is expected - but this lane's
+# mission DEPARTS FROM ORBIT rather than from a pad, which no prior loop subject has
+# done, and whether the extraction models a Duna-orbit departure the way it models a
+# pad departure is exactly the sort of thing a first reading run exists to find out.
+# MEASURED: `support=Supported`, as expected.
+#
+# ---------------------------------------------------------------------------------
+# 2. THE SCHEDULE, DERIVED PRE-FLIGHT (V6M's method, this lane's numbers)
+# ---------------------------------------------------------------------------------
+# With no schedule the anchor is the plain Tier-1 window snap:
+#   `phaseAnchorUT = solution.NextWindowUT = NextWindow(extraction.UT0, P, referenceUT)`
+#   (MissionLoopUnitBuilder.cs:386), where
+#   `referenceUT = max(mission.LoopAnchorUT, spanEndUT)` (:295 + :378).
+# Every input is on disk in the committed fixture:
+#   UT0        = the main recording's `explicitStartUT` = 9,160,398.1036915872
+#   spanEndUT  = its `explicitEndUT`                    = 9,181,608.971095508
+#   save UT    = 9,181,611.231095   (the loop is armed on the first frames after
+#                                    LoadGame, so LoopAnchorUT ~ the save clock)
+#   referenceUT = max(9,181,611.231 , 9,181,608.971) = 9,181,611.231
+#   k = ceil((9,181,611.231 - 9,160,398.104)/65,517.862 - 1e-9) = ceil(0.3238) = 1
+#   => PREDICTED phaseAnchorUt = relaunchUt = 9,225,915.966
+#   => MEASURED  phaseAnchorUt = relaunchUt = **9,225,915.9258263968**
+#      (`missionconfig applied:` and `startloopplayback initiated:` both echo it) -
+#      AGREEMENT TO 0.04 s, the residue of my rounded 65,517.862 against the
+#      product's 65,517.862134808071 and of the base anchor 9,181,612.891 vs the save
+#      clock 9,181,611.231.
+# and the cadence is UNIFORM (this is what "no zero-drift schedule" means):
+#   `QuantizeCadenceToMultipleOfP` takes the smallest k*P >= the raw cadence, and the
+#   raw cadence is floored at the span (21,210.867 s), so k = 1 and
+#   effectiveCadence = 65,517.862350 = exactly one P.
+#   => PREDICTED cycle-2 relaunchUt = 9,225,915.966 + 65,517.862 = 9,291,433.828
+#   => MEASURED cadence 21,212.067403893918 -> **65,517.862134808071** (exactly one P,
+#      as predicted) and cycle-2 relaunchUt = **9,291,433.7879612055** = cycle 1 + P
+#      to the digit.
+# Contrast V6M, where the faithful-k series 13, 26, 45, 58 is visibly NOT an
+# arithmetic progression. Here it should be: cycle N = A1 + (N-1)*P, exactly.
+#
+# WINDOW ARITHMETIC (V2's recipe): window = phaseAnchorUt + (recordedUT - recordingStartUT).
+# The offsets come from the main recording's own ORBIT_SEGMENT chain
+# (`05ceee33806d4079a1d9d125a1359115.prec.txt`), ten segments, Duna 0-5 then Ike 6-9,
+# with the seam at the adjacent `endUT == startUT` body-change pair:
+#     ... Duna [9,175,790.908 , 9,177,480.898] ]
+#         Ike  [9,177,480.898 , 9,177,506.888]   <- Duna->Ike SOI entry
+#         Ike  [9,177,508.310 , 9,180,815.432]   <- the long in-SOI approach
+#         Ike  [9,180,825.032 , 9,181,412.491]   <- the last recorded segment
+#   recording: start 9,160,398.1036915872, end 9,181,608.971095508 (dur 21,210.867)
+#   seam offset = 9,177,480.8980102781 - 9,160,398.1036915872 = 17,082.794
+#      MEASURED, off the product's own constraint line:
+#      `Orbital(Ike) same-parent ... off=17082.834318690002` - 0.040 s from the
+#      derived value, and the CONVENTION IS CONFIRMED: the product's `ut0=` reads
+#      9,160,398.0636915881, i.e. the recording's EXPLICIT start (to 0.04 s), NOT
+#      segment 0's 9,160,400.624. Deriving the offset from segment 0 would have put
+#      every bracket 2.5 s off.
+#   park offset (2,917 s past the seam, inside the Ike phase)  = **20,000**
+# MEASURE THE OFFSET FROM THE RECORDING'S EXPLICIT START, NOT FROM SEGMENT 0. Those
+# differ here (segment 0 starts 9,160,400.624, 2.52 s later), and V6M settles which is
+# right: its measured `Orbital(Mun) same-parent ... off=16370.56191070605` equals
+# seam - `explicitStartUT` (34.42) exactly, while that fixture's first segment starts
+# at 230.03. Using the segment would put every bracket 2.5 s off.
+# So, on the PREDICTED anchors:
+#   cycle-1 seam = 9,225,915.966 + 17,082.794 = 9,242,998.760
+#   cycle-1 park = 9,225,915.966 + 20,000     = 9,245,915.966
+#   cycle-2 seam = 9,291,433.828 + 17,082.794 = 9,308,516.623
+#   cycle-2 park = 9,291,433.828 + 20,000     = 9,311,433.828
+#
+# THE JUMP UTs BELOW WERE THOSE PREDICTIONS AND THEY ARE UNCHANGED - THEY WERE RIGHT.
+# All eight landed, all eight answered OK, zero backward-jump refusals. The
+# calibration seeds needed no re-pin, which is worth stating precisely: the anchor
+# derivation held to 0.04 s EVEN THOUGH the mechanism prediction it was reasoned
+# through was refuted, because both roads produce the same P and the same
+# NextWindow(). That is luck of a specific and bounded kind, not vindication of the
+# mechanism - and it is why the METHOD is now pinned below.
+# (The V2-sense calibration recipe, for whoever re-pins after a fixture change: read
+# `phaseAnchorUt=` off `missionconfig applied:` and each cycle's `relaunchUt=` off
+# `startloopplayback initiated:`. A jump landing BACKWARD of the live clock answers
+# `REJECTED reason=backward-jump`; that token is now FORBIDDEN below, so a
+# mis-predicted anchor self-detects as an expectations mismatch rather than dwelling
+# nowhere under a green verdict.)
+#
+# ---------------------------------------------------------------------------------
+# 3. THE DESYNC HUNT - what the second cycle is for (V6M's shape, unchanged)
+# ---------------------------------------------------------------------------------
+# Cycle 1 cannot show a cumulative arrival desync by definition, so this lane crosses
+# cycle 1's arrival, presses "Warp to..." AGAIN (a real player action; mechanically
+# `StartLoopPlayback` rebuilds the unit and resolves `NextLaunchAfter(now)`), and
+# crosses cycle 2's arrival with the identical instrument set. The three legs are the
+# ones V6M established, and every one is a MEASUREMENT, not a gate:
+#   (a) does the ghost's map surface still rebind to an **Ike-framed** orbit at the
+#       cycle-2 arrival, as at cycle 1's?
+#   (b) does the armed `loop-seam-teleport` Tier-C instrument raise on cycle 2 where
+#       it stayed silent on cycle 1?
+#   (c) how far is the ghost from the parked observer at each cycle's park epoch (the
+#       engine's own `engine-frame-iter [... zone= rdist=]` line)?
+# NOTE what a UNIFORM cadence does to (a)-(c): cycles are spaced by exactly one P and
+# P is exactly Ike's orbital period, so the ghost's arrival geometry should repeat
+# with far LESS cycle-to-cycle variation than V6M's non-uniform schedule produced.
+# That is a prediction about the readings, not a threshold; read it, do not gate it.
+# READING RUN 1 RESULT: NO DETECTABLE DESYNC on the instruments this lane arms - the
+# Ike-framed body-orbit rebind fired on BOTH cycles (the `phase=body-orbit ...
+# body=Ike` pin below matched twice), `anomalySweep hits=[]` with
+# `ghostRenderTracing` armed across both cycles, and both watch attempts returned the
+# pinned REJECTED. The per-cycle SEPARATION digits were not extracted from this run;
+# do that at arming time if the (c) leg is wanted quantitatively.
+#
+# ---------------------------------------------------------------------------------
+# 4. THE WATCH PREDICTION
+# ---------------------------------------------------------------------------------
+# Watch mode is CAMERA-ONLY and range-gated. The observer here is the fixture's OWN
+# parked DD1, read off its `persistent.sfs`: ORBITING Ike, SMA **170,444.391 m**
+# (ecc 1.2e-4, alt 40,451 m over Ike's 130 km surface), and at its park epoch the
+# ghost flies that same recorded orbit - so the body test passes and only the chord
+# decides:
+#     2 * 170.444 km * sin(theta/2) < R
+# The production range term is `lastDistance < WatchEnterCutoffMeters` = 300,000 m
+# (ParsekFlight.cs:19580 -> WatchModeController.cs:698), which here admits theta up to
+# 123.3 deg - but V7M MEASURED entry REFUSED well inside 300 km and SUCCEEDING at
+# 51.5 km, bracketing the real boundary in (51.5 km, 144.3 km), and WHICH conjunction
+# term refuses inside 300 km is UNESTABLISHED (single authority:
+# docs/dev/todo-and-known-bugs.md -> WATCH-ENTRY-REFUSED-INSIDE-QUOTED-RANGE). Against
+# that measured ~120 km boundary the working condition is theta < 41.2 deg.
+# **PREDICTION: REJECTED - MEASURED REJECTED on BOTH cycles.** 2a = 340.9 km here, only 1.14x the 300 km cutoff, so this
+# lane sits closer to the boundary than V6M's Mun park (2a = 679 km) did - but still
+# on the reject side of the MEASURED one for ~89% of possible phases. The grammar has
+# ONE `expect` per step, so the likelier verdict is what is pinned; an `OK` lands as
+# driver-INVALID and IS THE INTERESTING FINDING (a co-orbiting observer CAN watch a
+# looped same-parent arrival's park tail). `retry = once` absorbs one unlucky
+# geometry. If the step ping-pongs INVALID twice, re-shape the step per the finding -
+# NEVER re-roll for the pinned verdict.
+# AND NOTE THE SEPARATION IS NOT A DRAW: both craft advance at the same rate on the
+# same orbit, so it is a fixed per-cycle geometric fact that moves only when the phase
+# anchor does (V6M's superseded-arithmetic banner, applied from the start here).
+#
+# ---------------------------------------------------------------------------------
+# 5. POSTURE - ARMED 2026-08-18 OFF THIS LANE'S OWN READING RUN
+# ---------------------------------------------------------------------------------
+# READING RUN `2026-08-18_2336`: PASS attempt 1, wall 50 s, fully unattended. All 21
+# steps met, all 8 TimeJumps OK, both EnterWatchMode REJECTED as pinned,
+# `anomalySweep hits=[]`, zero Unity exceptions, recordings count 1, and zero
+# occurrences of every token now forbidden. NOTHING IN THE FLOWN SHAPE CHANGED AT
+# ARMING - no jump UT, no step, no budget moved; only the expectations grew. That is
+# the S4.1 rule (arming must not smuggle in a re-pin) and it holds literally here.
+#
+# WHAT ARMING ADDED, all four taken off the bytes above:
+#   * `required` grows from 5 lifecycle tokens to 12, adding the MEASURED routing set
+#     + the arrival anti-vacuity pin + the cohesion pin (see the logContracts note for
+#     what each buys and the count it was verified at).
+#   * `forbidden` grows to V6M's full six.
+#   * the recordings count is PINNED at exactly 1 (was the derived range {1,2}).
+#   * `[expectations.rewind]` and `[expectations.recordings.structure]` are DECLARED
+#     AND `gating = true`, which is the one place this lane differs in KIND from its
+#     reading posture: it previously declared neither block at all.
+# Both save-structure blocks are registered in `ARMED_ALLOWLIST`
+# (harness/lib/test_hlib.py) with this run cited.
+#
+# WHAT STILL OWES A RUN: the armed re-flight, and the pair's negative control. V6M's
+# quartet flew ONE inversion across three lanes that share the saveParse evaluator
+# (the V4/V5 precedent), and the V14 pair should do the same rather than two.
+# =====================================================================================
+tier = "operator"
+description = "LIVE-PROVEN AND ARMED on the full three-run discipline: reading 2026-08-18_2336 (PASS attempt 1, 50 s), armed re-flight 2026-08-19_0001 (PASS attempt 1, 51 s, every gated window green), negative control 2026-08-19_0003 (correctly PARSEK-FAIL(save-structure), reverted). The player workflow (arm -> Warp-to -> cross the arrival -> Watch), twice over, on B23's Duna->Ike recording - the suite's first loop subject whose LAUNCH BODY is not Kerbin. Ike is tidally locked to Duna, so Rotation(Duna) 65,517.859 s and Orbital(Ike) 65,517.862 s are equal to 3 ms, 22x inside MissionPeriodicity's 1e-6 relative equality band: the sharpest pre-flight prediction is that the product takes a THIRD road - `method=tidal-collapse` with `zeroDrift=no` and a UNIFORM one-P cadence - distinct from both V4's re-aim and V6M's non-uniform zero-drift schedule. MEASURED: the OUTCOMES held (`zeroDrift=no`, cadence exactly one P) but the MECHANISM did not - `method=single-orbital`, because `ExtractConstraints` emits `constraints=1` with NO Rotation(Duna) at all. An ORBIT-ROOTED recording has no surface phase, so the tidal-collapse branch never gets a second constraint to collapse and phase-lock is EXACT rather than within-tolerance. The predicted anchor held to 0.04 s and the load-time optimizer kept the same-parent crossing cohesive (`exoCoastBodyChangeKept=1`)."
+instanceProfile = "stock-minimal"
+tags = ["V14", "player-loop", "watch-mode", "loop-playback", "phase-lock", "single-orbital", "ike", "duna", "same-parent", "moon", "flown"]
+
+[fixture]
+# The B23-ike-orbit harvest (run 2026-08-18_2308, PASS attempt 1, mission wall 370.5 s,
+# --keep-parsek): ONE committed tree f55918af..., ONE recording 05ceee33... (200
+# points), zero durable rows. The DD1 starts already parked in Duna orbit, transfers to
+# Ike and commits in a 40.5 x 40.4 km Ike park.
+#
+# WHY THE ONE-RECORDING TOPOLOGY IS THE CONTRACT AND NOT AN ACCIDENT: B23 flight 1
+# produced a mechanically green run whose hop was appended to B17's KERBIN-rooted
+# committed recording (its seam StartRecording answered `already=true` onto a
+# re-resumed committed tree). Flight 2 ran against the Parsek-stripped
+# `duna-park-probe` and answered `already=false`, minting this standalone Duna-rooted
+# tree. If a future re-harvest reads 2 or 3 recordings here, that defect is back -
+# docs/dev/todo-and-known-bugs.md -> SEAM-STARTRECORDING-JOINS-COMMITTED-TREE. The
+# payload is pinned byte-for-byte in
+# `harness/lib/test_saveparse.py::CommittedFixtureSweepTests.RECORDED_FIXTURES`.
+#
+# Its PARKED DD1 is the OBSERVER for both watch attempts - the player who watches a
+# replay is standing where the flight ended: ORBITING Ike, SMA 170,444.391 m, ecc
+# 1.2e-4, inc 11.886 deg. Also in the save, inherited and inert: the stock asteroid
+# Ast. VPA-167 on a heliocentric orbit.
+saveTemplate       = "fixtures/saves/ike-orbit-recorded"
+injectedRecordings = "none"
+craft              = []
+
+[driver]
+kind = "seam"
+
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  # KILL THE SCENE-ENTRY AUTO-RECORDER FIRST (V2 flight 4 / V5 run 1, measured on the
+  # duna fixture and structural, not fixture-specific): loading a save whose own parked
+  # craft is active makes the committed-tree restore path resume a promotion-stub
+  # recording ~1 s into the scene, BEFORE any step can run. StopRecording is
+  # idempotent-OK and DiscardTree answers OK with nothing-discarded when no plain tree
+  # is live, so the pair is safe on any entry state; the SetSetting stops a later one.
+  #
+  # READ THIS ONE HERE, BECAUSE THIS FIXTURE IS EXACTLY THE SHAPE THAT PROVOKES IT:
+  # B23 flight 1 MEASURED the committed-restore path re-arming 11 ms after DiscardTree
+  # on a save carrying a committed tree for its own parked craft. The pair kills ONE
+  # stub and is not a latch. That does not hurt HERE - this lane starts no recording of
+  # its own and only observes - but do not read the pair as a guarantee that no
+  # recorder is live afterwards.
+  { cmd = "StopRecording",                                                   expect = "OK" },
+  { cmd = "DiscardTree",                                                     expect = "OK" },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  # Three tracer pins, same rationale as V4/V6M: ghostRenderTracing is the FLIGHT-scene
+  # raise gate for the loop-seam-teleport Tier-C instrument; mapRenderTracing arms the
+  # map/TS tracer + probe (the source of the `surface=Proto*` truth lines this lane's
+  # arrival evidence is read off); verboseLogging is LOAD-BEARING for both (the tracer
+  # emits Tier-B truth at Verbose - the V1 lesson).
+  { cmd = "SetSetting", args = { name = "ghostRenderTracing", value = "true" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "mapRenderTracing",   value = "true" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "verboseLogging",     value = "true" }, expect = "OK" },
+  # STEP 1 OF THE WORKFLOW: the Missions window loop checkbox (production
+  # MissionStore.SetLoopEnabled). Its Info line echoes phaseAnchorUt - THE number the
+  # whole bracket arithmetic is anchored to, and the first thing to read when re-pinning.
+  { cmd = "MissionConfig", args = { tree = "f55918afd70b45e284006e01729d9e9a", loop = "true" }, expect = "OK" },
+  # STEP 2: "Warp to..." -> ComputeNextRelaunchUT -> FastForwardToEventUT, an
+  # INSTANTANEOUS Planetarium clock set (no rails warp to budget). CYCLE 1.
+  { cmd = "StartLoopPlayback", args = { tree = "f55918afd70b45e284006e01729d9e9a" }, expect = "OK", budget = 300 },
+  # CYCLE-1 ARRIVAL BRACKET, strictly forward, straddling the PREDICTED Duna->Ike SOI
+  # seam 9,242,998.760 at -180 / -60 / +140 s. Instantaneous, so the seam is CROSSED by
+  # the third jump rather than dwelled through. (V6M's offsets were -177.5/-57.5/+142.5
+  # about a seam that landed on a round number; these are the same shape rounded to
+  # whole seconds against a seam that does not.)
+  { cmd = "TimeJump", args = { ut = "9242819" }, expect = "OK", budget = 300 },
+  { cmd = "TimeJump", args = { ut = "9242939" }, expect = "OK", budget = 300 },
+  { cmd = "TimeJump", args = { ut = "9243139" }, expect = "OK", budget = 300 },
+  # CYCLE-1 PARK EPOCH: phaseAnchor + 20,000, which is 2,917 s past the seam and inside
+  # the recorded Ike phase - the only epoch where the auto-select's body test can pass
+  # for an Ike-parked observer, so the only place the watchable-chord question can be
+  # asked at all. (V6M used +20,800 into a 21,708 s recording; +20,000 into this
+  # 21,211 s one is the same "deep in the destination tail" position.)
+  { cmd = "TimeJump", args = { ut = "9245916" }, expect = "OK", budget = 300 },
+  # STEP 3: "Watch", auto-select over all committed recordings. PREDICTED REJECTED on
+  # the chord arithmetic in header section 4 (2a = 340.9 km against a MEASURED entry
+  # boundary of ~120 km); an OK is the finding, not a spec bug.
+  { cmd = "EnterWatchMode",                                                  expect = "REJECTED" },
+  # STEP 4: "Warp to..." AGAIN - the desync hunt's second half. The verb rebuilds the
+  # unit and resolves NextLaunchAfter(now); with `now` past cycle 1's park it should
+  # land on CYCLE 2 (predicted A1 + one P = 9,291,433.828).
+  { cmd = "StartLoopPlayback", args = { tree = "f55918afd70b45e284006e01729d9e9a" }, expect = "OK", budget = 300 },
+  # CYCLE-2 ARRIVAL BRACKET, the same -180 / -60 / +140 offsets about the predicted
+  # cycle-2 seam 9,308,516.623. Identical instrument set: whatever differs from cycle 1
+  # is the desync signal.
+  { cmd = "TimeJump", args = { ut = "9308337" }, expect = "OK", budget = 300 },
+  { cmd = "TimeJump", args = { ut = "9308457" }, expect = "OK", budget = 300 },
+  { cmd = "TimeJump", args = { ut = "9308657" }, expect = "OK", budget = 300 },
+  # CYCLE-2 PARK EPOCH: the same +20,000 offset off the cycle-2 anchor.
+  { cmd = "TimeJump", args = { ut = "9311434" }, expect = "OK", budget = 300 },
+  # STEP 5: "Watch" again. If the tidal-collapse prediction holds the cadence is
+  # EXACTLY one Ike orbital period, so - unlike V6M, where the anchor moved by a
+  # non-uniform schedule step - the cycle-2 separation should be very close to
+  # cycle 1's. Same pinned verdict, and a DIFFERENT verdict between the two watch
+  # steps would itself be the reading.
+  { cmd = "EnterWatchMode",                                                  expect = "REJECTED" },
+  { cmd = "FlushAndQuit",                                                    expect = "OK" },
+]
+
+# CLAIM-IS-NOT-GATE, and on a reading run the list is short for that reason.
+#   D9  `fast-forward`  is gated by the PRODUCT's own `FastForwardToEventUT: jumping to
+#       UT=` line (V4/V6M's precedent), NOT by the seam verb's OK - a seam that
+#       reported OK without the product jumping fails it.
+#   D11 `phase-lock`    is gated by the Info-level `PhaseLock APPLIED: mission=` line.
+#       That token is VALUE-FREE and therefore survives EITHER outcome of the
+#       tidal-collapse prediction: it fires whenever `solution.ShouldPhaseLock` held,
+#       whatever `method=` and `zeroDrift=` then read. If the lock does NOT apply
+#       (Support demoted for an orbit-departing mission, say) this reds - which is the
+#       correct outcome, because the claim would be false.
+#   D14 `ike` / `scene-flight` / `sandbox` are the environment axes this lane runs on.
+#
+# NOT CLAIMED, DELIBERATELY:
+#   D11 `zero-drift-schedule` - V6M's cell, gated there by `zeroDrift=yes` +
+#       `scheduleWithinTol=yes`. This lane PREDICTS `zeroDrift=no`, so claiming it
+#       would be claiming the opposite of what the run is expected to measure. If the
+#       reading run surprises us and a schedule IS built, add the cell AT ARMING with
+#       the two tokens, never on speculation.
+#   D11 any arrival cell - this OBSERVES an arrival epoch; it asserts no arrival
+#       geometry.
+#   any watch-mode cell - a measured REFUSAL to enter watch mode is not evidence of
+#       watch behaviour (V4's rule).
+#   D6 `time-jump`, and `duna` on D14 - the jumps are the instrument rather than the
+#       subject, and although the recording's first six ORBIT_SEGMENTs are Duna-framed
+#       nothing in THIS spec's contract gates a Duna-framed render. Claim it at arming
+#       if the reading shows a gateable Duna token.
+[dimensionsCovered]
+D9  = ["fast-forward"]
+D11 = ["phase-lock"]
+D14 = ["ike", "scene-flight", "sandbox"]
+
+[expectations]
+# PLACEMENT IS LOAD-BEARING: allowedAnomalies must precede every [expectations.<sub>]
+# header or TOML scopes it into the sub-table (hlib.validate_spec rejects that form).
+#
+# EMPTY, deliberately: the loop-seam-teleport instrument is armed with no budget so a
+# raise is REPORTED as the finding it would be rather than pre-budgeted away. That
+# instrument is half of the desync hunt.
+allowedAnomalies = []
+
+[expectations.recordings]
+# THE ARITHMETIC. `run.py count_recordings` counts `.prec` SIDECARS in the produced
+# save's `Parsek/Recordings` dir, and this fixture ships exactly ONE
+# (05ceee33806d4079a1d9d125a1359115.prec). This lane starts no recording of its own -
+# it arms, warps, watches and jumps - so:
+#   +1  the fixture's own committed recording, carried in and untouched.
+#   +1  ADMITTED, NOT PREDICTED: a LOAD-TIME optimizer split. This is the named
+#       observation target of the whole V14 pair, so it is worth stating precisely.
+#       V6M's fixture reads NINE because `RecordingOptimizer` splits its main
+#       recording at load at the UT 212.2 atmospheric->exo boundary. THIS recording
+#       has no atmospheric phase at all (it starts in orbit), and its ONE body change
+#       is the Duna->Ike seam - where §3 rule 3 of `IsSplittableEnvOrBodyBoundary`
+#       keeps a same-class Exo body change COHESIVE for transfer coasts, with the
+#       OrbitalCheckpoint-framed variant called out explicitly (an on-rails SOI
+#       traversal, which this crossing is: segments 5 and 6 are both rails coast).
+#       So the PREDICTION IS NO SPLIT, i.e. a reading of 1.
+#       Corroborating evidence, and its limit: the optimizer did NOT split this seam
+#       during the PRODUCING run (B23 flight 2, commit time). That is not the same
+#       pass - the load-time walk fires for the first time on THIS lane's LoadGame,
+#       which is exactly why the window admits 2 rather than pinning 1.
+# => the pre-flight window was { min = 1, max = 2 }, a derived range.
+#
+# MEASURED 1, AND THE PREDICTION'S REASON WAS CONFIRMED RATHER THAN ONLY ITS VALUE.
+# Reading run `2026-08-18_2336` counted 1, and the optimizer said WHY in its own words
+# at log line 10131:
+#   Split summary: rec=05ceee33... evaluated=1 grazeForward=0 grazeBackward=0
+#     surfaceGrazeForward=0 surfaceGrazeBackward=0 seamSkipped=0
+#     exoCoastBodyChangeKept=1 splittableButRejected=0
+# `exoCoastBodyChangeKept=1` is rule 3 firing at the Duna->Ike crossing: the
+# LOAD-TIME pass evaluated exactly one boundary and KEPT IT COHESIVE. That is the
+# named observation target of the V14 pair, answered, and it is now REQUIRED as a
+# token below so the answer cannot silently regress into a split.
+# PINNED EXACTLY AT 1: a 2 means the cohesion rule stopped firing (or a promotion stub
+# survived the StopRecording/DiscardTree pair), and a 0 means the fixture lost its
+# recording. Both are findings, which is what a tight window is for.
+count = { min = 1, max = 1 }
+
+[expectations.logContracts]
+# THE LIFECYCLE CHAIN (each the product's own line except the two seam-verb Info lines):
+#   "missionconfig applied:"       - the arm verb ran; ALSO echoes phaseAnchorUt, the
+#                                    single most important number to read when
+#                                    re-pinning the brackets.
+#   "SetLoopEnabled: loop ON"      - the PRODUCTION MissionStore path fired, not just
+#                                    the seam.
+#   "startloopplayback initiated:" - the Warp-to verb entered the production door and
+#                                    echoed the resolved relaunchUt (read this per
+#                                    cycle).
+#   "FastForwardToEventUT: jumping to UT=" - the PRODUCT's own jump line. This is what
+#                                    makes the D9 claim GATED rather than asserted.
+#   "PhaseLock APPLIED: mission="   - Info, from the builder. Gates D11 `phase-lock`,
+#                                    and is deliberately the VALUE-FREE prefix: it
+#                                    holds whether the run comes back tidal-collapse
+#                                    or something else.
+#
+# THE ROUTING PINS, ARMED 2026-08-18 OFF THIS LANE'S OWN READING RUN. Every one was
+# grepped against `results/2026-08-18_2336_V14M-ike-player-loop_shots/KSP.log` in its
+# EXACT regex form before being written here; the match count is quoted per token so a
+# future reader can tell a thin pin from a fat one.
+#   "Orbital\(Ike\) same-parent"  (4) - the extraction classified the destination as
+#       a direct child of the launch body, which is what keeps Support=Supported and
+#       makes re-aim structurally unreachable.
+#   "support=Supported"            (8) - and it was NOT demoted. Worth pinning for a
+#       reason peculiar to this lane: it is the first loop subject that departs from
+#       ORBIT, and a future change that stopped modelling an orbit departure as
+#       same-parent would surface here first.
+#   "PhaseLock APPLIED: mission=.*method=single-orbital.*zeroDrift=no"  (4) - ONE
+#       regex over ONE line, deliberately, rather than three independent presence
+#       checks. It pins the whole routing verdict as a conjunction: the lock APPLIED,
+#       it took the SINGLE-CONSTRAINT road, and it built NO zero-drift schedule. Three
+#       separate tokens would pass on a log that carried them on three different
+#       lines, which is exactly the drift a re-tiered mission could produce. This is
+#       the sharpest single line in the file and the one that would have caught the
+#       refuted prediction: `zeroDrift=no` alone reads identically under
+#       tidal-collapse and single-orbital.
+#   "factory chain ... reaimed=False"  (2) - the RENDER-side mode pin, the exact
+#       inversion of V5's `reaimed=True`: what the map pipeline assembled is the
+#       faithful chain, not a re-aimed one.
+# THE ANTI-VACUITY / ARRIVAL PIN:
+#   "phase=body-orbit surface=ProtoOrbitLine .*body=Ike"  (2, one per cycle) - a
+#       map-render TRUTH line showing the ghost's proto orbit surface REBOUND onto an
+#       IKE body frame. A run that never gets the ghost to Ike has measured nothing
+#       about an Ike arrival, and reading that as a pass is the V1/V2 vacuity failure.
+#       THIS IS THE STRONG FORM V6M ASKED FOR AND COULD NOT AFFORD: that spec pins the
+#       weaker `surface=Proto(Icon|OrbitLine) .*body=Mun`, which also matches a
+#       ProtoIcon CREATION line, and its own comment says "harden it the next time this
+#       lane flies anyway". A fresh lane arming off its first reading run pays nothing
+#       for the stronger form, so it starts with it. (The weak form matches 14x here;
+#       the strong form 2x - once per cycle, on the body-frame flip
+#       `from=[Duna|1932474|0.6323]` at the seam crossing, which is structural.)
+# THE COHESION PIN, and it is this lane's headline measurement:
+#   "Split summary: rec=\w+ .*exoCoastBodyChangeKept=1"  (1) - the LOAD-TIME optimizer
+#       evaluated the Duna->Ike boundary and KEPT IT COHESIVE (§3 rule 3, same-class
+#       Exo body change on a transfer coast). See the count block for why this is the
+#       named observation target of the V14 pair. Required so the answer cannot
+#       silently regress into a split - the recordings count would move too, but the
+#       count cannot say WHY and this token can.
+# THE PROBE / LENS PRESENCE PINS (V6M's, verbatim, and for V6M's reasons):
+#   "faithful-parity summary sampled=\d+ overTolerance=\d+"  (1) - emitted only when
+#       the per-pid parity pass touched the lens, so its PRESENCE cannot be produced by
+#       a frame with no resolved ghost. `sampled=[1-9]` is NOT pinned: V6M measured
+#       `sampled=0 skip.reaimed-or-foreign-seed=1` on a strictly faithful member and
+#       the cause is a real blind spot (docs/dev/todo-and-known-bugs.md ->
+#       FAITHFUL-PARITY-SEED-FRAGMENT-REBASE). THIS lane measured `sampled=1
+#       overTolerance=0` - it does NOT hit that skip - but pinning the count would gate
+#       on unresolved behaviour for no coverage gain.
+#   "seam-endpoint summary evaluated=[1-9]\d* outsideSoi=\d+"  (1) - and note this is
+#       the STRICT form, unlike V6M/V6T which pin `evaluated=\d+`. THIS LANE ACTUALLY
+#       REACHES THE LENS: it measured `evaluated=1 outsideSoi=0` at the seam, where all
+#       three moon lanes read the structural zero. Pinning `[1-9]` keeps that reach
+#       rather than freezing a zero. CAREFUL - the same run ALSO emits a benign
+#       `seam-endpoint summary evaluated=0 outsideSoi=0 skip.body-mismatch=1` at a
+#       Duna-framed epoch (line 10935); the regex above matches the MEASURING line and
+#       ignores the skip-only one, and the skip-only form is deliberately NOT forbidden.
+required  = [
+  "missionconfig applied:",
+  "SetLoopEnabled: loop ON",
+  "startloopplayback initiated:",
+  "FastForwardToEventUT: jumping to UT=",
+  "Orbital\\(Ike\\) same-parent",
+  "support=Supported",
+  "PhaseLock APPLIED: mission=.*method=single-orbital.*zeroDrift=no",
+  "factory chain rec=\\w+ idx=\\d+ inst=\\d+ phases=\\d+ reaimed=False",
+  "phase=body-orbit surface=ProtoOrbitLine .*body=Ike",
+  "Split summary: rec=\\w+ .*exoCoastBodyChangeKept=1",
+  "faithful-parity summary sampled=\\d+ overTolerance=\\d+",
+  "seam-endpoint summary evaluated=[1-9]\\d* outsideSoi=\\d+",
+]
+# V6M'S FULL SIX, armed 2026-08-18. Every one measured ZERO on the reading run.
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  # THE RE-AIM FORBID TRIO - the falsifiable half of the routing claim. Each is a token
+  # V4's re-aim lane either requires or guards; here every one of them appearing would
+  # mean the same-parent mission took the interplanetary road, which `!phaseLocked`
+  # says it cannot. Measured 0 / 0 / 0.
+  "\\[ReaimDiag\\]",
+  "ENGAGED re-aim",
+  "FORCED FAITHFUL",
+  # The V3C run-3 self-detection guard, and on a lane whose jump UTs are DERIVED
+  # PREDICTIONS this is the single most load-bearing forbid in the file (V6M's words):
+  # a refused backward jump is only a WARN, so without this token a mis-pinned bracket
+  # can green while dwelling nowhere. Measured 0 - all eight jumps landed forward.
+  "timejump refused reason=backward-jump",
+  # The S1.6/S1.7 parity pin verbatim: any faithful-parity sample OVER tolerance is a
+  # rendered-vs-recorded drift. Measured `sampled=1 overTolerance=0`.
+  "faithful-parity summary sampled=\\d+ overTolerance=[1-9][0-9]*",
+]
+
+[expectations.rewind]
+# ARMED 2026-08-18 (the V2/B17/V4 arming discipline) off this lane's OWN reading run
+# `2026-08-18_2336` (PASS attempt 1), whose saveParse REPORT measured rewindPoints=0,
+# supersedeRows=0, tombstones=0, rewindRetirements=0 - every declared window already
+# met, so the arming re-pinned nothing and moved no verdict. The claim being armed is
+# V4/V6M's on a new axis: a pure replay-observation workflow (arm -> warp -> watch ->
+# two cycles of forward jumps) must author NOTHING durable, and a future change that
+# starts writing an RP / supersede row / tombstone out of it reds here instead of
+# passing as a REPORT footnote.
+#
+# NOTE THIS LANE DECLARED NO SUCH BLOCK BEFORE, which is the one way its arming is not
+# a pure `gating` flip: the reading run shipped with neither save-structure block,
+# because a report-only block of PREDICTED numbers reads like a measurement. The
+# windows below are therefore written FROM the measurement, not flipped onto it.
+gating = true
+rewindPoints  = { max = 0 }
+supersedeRows = { max = 0 }
+tombstones    = { max = 0 }
+
+[expectations.recordings.structure]
+# ARMED 2026-08-18, same reading run, which measured trees=1, committedTrees=1,
+# recordings=1, terminalStates {Orbiting: 1}. Exactly one committed tree survives the
+# workflow: the scene-entry promotion stub never commits, and the
+# StopRecording/DiscardTree pair leaves nothing behind.
+#
+# `trees` keeps V2's max = 2 - the documented duplicate-tree writer hazard (OnSave
+# re-writes a still-active tree on ~3% of production saves) - deliberately WIDER than
+# the single measurement rather than pinned to it. Everything else is pinned at the
+# measured value, and `recordings = {1,1}` is doing double duty here: it is also the
+# FIXTURE CONTRACT (see the [fixture] note - a 2 or 3 would mean B23's
+# seam-StartRecording defect was back).
+#
+# NOT armed here: `[expectations.recordings] count`, which is a separate already-gating
+# window, and the points facets, which this lane never declared.
+gating = true
+trees          = { min = 1, max = 2 }
+committedTrees = { min = 1, max = 1 }
+recordings     = { min = 1, max = 1 }
+terminalStates = { Orbiting = { min = 1 } }
+
+[runtime]
+# 300 LoadGame + 2x300 StartLoopPlayback + 8x300 TimeJump + the fast non-deferred verbs
+# (2 watch attempts at the 60 s default, 6 settings/recorder verbs) + KSP boot +
+# collect. Every jump is an instantaneous clock set, so the ~86 ks of game time costs
+# no wall clock; V6M's identical 21-step shape measured 54 s end to end, and THIS
+# lane measured 50 s on its reading run.
+budgetSeconds = 2400
+
+[retry]
+# One retry absorbs an unlucky watch geometry (header §4) or a transient seam flake. It
+# does NOT absorb a mis-predicted anchor: that reproduces exactly on attempt 2, which
+# is the point - a calibration miss must self-detect, not be retried away.
+policy = "once"
+
+[expectedFail]
+bugId = ""

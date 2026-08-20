@@ -276,6 +276,10 @@ namespace Parsek
             {
                 return false;
             }
+            catch (MissingMethodException)
+            {
+                return false;
+            }
 
             float sqrMagnitude =
                 rawPivotRotation.x * rawPivotRotation.x
@@ -2912,6 +2916,9 @@ namespace Parsek
                     catch (MethodAccessException)
                     {
                     }
+                    catch (MissingMethodException)
+                    {
+                    }
                 }
 
                 watchedOverlapCycleIndex = primary.loopCycleIndex;
@@ -2940,6 +2947,9 @@ namespace Parsek
                 {
                 }
                 catch (MethodAccessException)
+                {
+                }
+                catch (MissingMethodException)
                 {
                 }
             }

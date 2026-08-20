@@ -234,15 +234,86 @@ namespace Parsek.Tests
 
             Assert.Contains("TryParseIsolatedArg(isolatedRaw, out isolated)", body);
             Assert.Contains("IsEmptyCategoryArg(category)", body);
-            // Two independent reject arms, each terminal.
-            Assert.Equal(2, Count(body, "SetExecResult(\"REJECTED\""));
-            Assert.Equal(2, Count(body, "return;"));
+            // career-ledger B.4 added a THIRD closed arg, `strict`, on the same
+            // fail-closed contract - so the count moved from 2 to 3 and this cell is
+            // where that had to be recorded. A fourth arg moves it again; a THIRD arm
+            // that quietly disappeared would drop back to 2 and red here.
+            Assert.Contains("TryParseStrictArg(strictRaw, out strict)", body);
+            // Three independent reject arms, each terminal.
+            Assert.Equal(3, Count(body, "SetExecResult(\"REJECTED\""));
+            Assert.Equal(3, Count(body, "return;"));
             // The reject arms must precede the dispatch, or a fall-through would run the
             // batch anyway with the verdict overwritten by the later PendingVerdict.
             Assert.True(
                 body.IndexOf("SetExecResult(\"REJECTED\"", StringComparison.Ordinal)
                 < body.IndexOf("RunBatchSelector(", StringComparison.Ordinal),
                 "a reject arm must come BEFORE the dispatch");
+        }
+
+        [Fact]
+        public void TheStrictArgIsAssignedUnconditionallyAndBeforeTheDispatch()
+        {
+            // career-ledger B.4. The parse is unit-covered in TestCommandRunTestsTests
+            // and the promotion behaviour in LedgerGroundTruthDiffTests; what NEITHER
+            // can see is the one line between them, which is Unity-side. Two properties
+            // are load-bearing and both are one-token mutations away from silently
+            // wrong:
+            //
+            //  1. UNCONDITIONAL. Guarding the assignment behind `if (strict)` would
+            //     leave the static carrying whatever a PREVIOUS batch in the same
+            //     process set - so a spec that declares nothing would inherit
+            //     strictness, and the flag would stop being per-scenario.
+            //  2. BEFORE THE DISPATCH. The batch reads the static from its first cell,
+            //     so an assignment after RunBatchSelector races the batch it is meant
+            //     to configure.
+            string body = StripComments(Between(
+                ReadSource("TestCommands", "ParsekTestCommandAddon.cs"),
+                "private void RunTestsImpl(", "private void CommitTreeImpl("));
+
+            const string assign =
+                "LedgerGroundTruthDiff.StrictPerIdentityForTesting = strict;";
+            Assert.Equal(1, Count(body, assign));
+            Assert.DoesNotContain("if (strict)", body);
+            Assert.True(
+                body.IndexOf(assign, StringComparison.Ordinal)
+                < body.IndexOf("RunBatchSelector(", StringComparison.Ordinal),
+                "the strict assignment must precede the batch dispatch");
+        }
+
+        [Fact]
+        public void TheNonSeamEntryPointsResetTheStrictStatic()
+        {
+            // career-ledger B.4 review follow-up. The seam's UNCONDITIONAL assignment
+            // (cell above) makes the flag per-SCENARIO, but only for batches that go
+            // through the seam. The three AUTORUN dispatches call RunBatchSelector
+            // directly, so a strict seam batch would LATCH the static for every later
+            // autorun batch in the same process - a headless-invisible, Unity-side
+            // one-liner exactly like the seam assignment it mirrors.
+            //
+            // The fix is a reset at each of those dispatches, and the property pinned
+            // here is ADJACENCY: the reset must sit immediately before the dispatch it
+            // guards, so a batch cannot start on an inherited value. The seam remains the
+            // only writer of `true` anywhere in the product - asserted below. (The
+            // hand-driven surfaces are out of scope by decision: they call the four entry
+            // points directly, pinned by
+            // TheInteractiveSurfacesStillCallTheEntryPointsDirectly, and no driven run
+            // reaches them.)
+            string region = StripComments(Between(
+                ReadSource("InGameTests", "TestRunnerShortcut.cs"),
+                "private void FireAutorun()", "private bool MarkerWouldReconcile()"));
+
+            const string reset =
+                "LedgerGroundTruthDiff.StrictPerIdentityForTesting = false;";
+            Assert.Equal(3, Count(region, reset));
+            Assert.Equal(3, Count(region, "runner.RunBatchSelector("));
+            // One reset per dispatch, each ADJACENT to it (only whitespace between).
+            Assert.Equal(3, Regex.Matches(region,
+                @"StrictPerIdentityForTesting = false;\s*runner\.RunBatchSelector\(").Count);
+
+            // And the reset is a reset, never an arm: nothing outside the RunTests seam
+            // may assign `true`. `= strict;` (the seam) lives in ParsekTestCommandAddon
+            // and is pinned by the cell above; here the shortcut must carry no `= true`.
+            Assert.DoesNotContain("StrictPerIdentityForTesting = true", region);
         }
 
         [Fact]

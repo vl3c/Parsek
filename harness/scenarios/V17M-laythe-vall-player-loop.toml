@@ -1,0 +1,573 @@
+schema = 1
+id = "V17M-laythe-vall-player-loop"
+# =====================================================================================
+# *** NOT FLYABLE YET. *** Committed AHEAD OF ITS SUBJECT: `saveTemplate` names
+# `fixtures/saves/vall-transfer-recorded`, which does not exist until
+# `B26-laythe-vall-transfer` flies green and its produced save is harvested. The
+# tree id is a ZERO PLACEHOLDER and all EIGHT TimeJump UTs are CALIBRATION SEEDS
+# derived from B26's PLANNED numbers. Tracked by the self-retiring
+# `SharedShipsManifestTests.PENDING_FIXTURE_LANES` exemption, which REDS the
+# moment the fixture appears.
+#
+# **AND THE SEEDS ARE WEAKER HERE THAN ON ANY PRIOR PAIR, ON PURPOSE.** V16M's
+# seeds could be derived because the routing was known: a same-parent subject
+# takes the phase-lock road, so the anchor is `NextWindow(UT0, P, referenceUT)`
+# and the only unknowns were UTs. **THIS LANE DOES NOT KNOW ITS OWN ROUTING** -
+# that IS the measurement (section 1) - and the two candidate roads produce
+# DIFFERENT anchors from different planners. The table in section 3 is seeded
+# under the RE-AIM hypothesis and will move under the other one. Section 3 says so
+# at length and gives the re-pin recipe; run 1 is a routing read first and a
+# bracket calibration second.
+#
+# =====================================================================================
+#
+# V17M: THE FIRST MOON-TO-MOON LOOP SUBJECT, and the lane that finally measures a
+# code path the research doc says is live, reachable and untested.
+#
+# ---------------------------------------------------------------------------------
+# 1. THE MEASUREMENT - and it is the ROUTING, not a tolerance
+# ---------------------------------------------------------------------------------
+# Every loop subject the suite has ever had is SAME-PARENT: the recording's launch
+# body is the target's parent (Kerbin->Mun, Kerbin->Minmus, Duna->Ike, Eve->Gilly,
+# Jool->Laythe), `IsSameParentTarget` returns true, and the unit builder takes the
+# PHASE-LOCK road. V14M, V15M and V16M measured that road three times and it is
+# now a well-supported general fact: `constraints=1`, `method=single-orbital`,
+# `fixedCadenceResidual=0`, `zeroDrift=no`.
+#
+# **B26's RECORDING IS THE OTHER CLASS.** Vall is not a child of Laythe, so a
+# Laythe-rooted recording targeting Vall is CROSS-PARENT. Per
+# `docs/dev/research/same-parent-reaim-jool-system.md` section 2.2 the
+# discriminator is `IsSameParentTarget` (NOT the classifier), so this subject
+# should route to `ApplyReaim` instead - and section 5.1 walks
+# `TrySynthesizeTransfer` guard by guard for exactly this shape:
+#
+#   * `parent = launchBody.referenceBody; if (parent == null ||
+#     targetBody.referenceBody != parent) fail` - for Laythe/Vall this **PASSES**;
+#     `parent` resolves to Jool.
+#   * `double mu = parent.gravParameter` - a parameter, so Jool's 2.82528e14.
+#   * `r1`/`r2` from `launchBody.orbit.getRelativePositionAtUT(...)` - both
+#     Jool-relative, same frame by construction.
+#   * the conic is built `UpdateFromStateVectors(..., parent, departureUT)`, i.e.
+#     Jool-relative.
+#   * the plane-tilt correction measures inclination against world +Y, and BOTH
+#     moons read 0 about Jool, so `InclinationBoundDegrees` is a no-op here (this
+#     is the EASIEST pair in the system for that gate - Pol at 4.25 deg and Bop at
+#     15 would be the hard ones).
+#   * `IsSaneTransferConic` requires `0 <= e < 1, a > 0`; a Laythe->Vall Hohmann in
+#     the Jool frame has `a = 35,168,000` and `e = 0.22702`. **PASSES.**
+#   * `ReaimWindowPlanner.Plan` spaces windows on
+#     `bodyInfo.OrbitPeriod(LaunchBody)` / `...(TargetBody)`, which for a P3 pair
+#     are the JOOL-FRAME periods, giving the moon-moon synodic - **105,961.4 s**
+#     for Laythe-Vall, a number section 4.1 already tabulates.
+#
+# The research doc's own conclusion on that walk: the synthesizer "already works
+# in a Jool-centric frame for P3 today, unmodified", which it calls "the single
+# most surprising finding in this investigation: Parsek may already be re-aiming
+# moon-to-moon hops. It is untested, unmeasured, and unrepresented in any harness
+# lane."
+#
+# **THIS LANE IS THAT LANE.** What it measures is which road a cross-parent
+# recording actually takes, and NOTHING BELOW GATES ON EITHER ANSWER.
+#
+# ---------------------------------------------------------------------------------
+# 2. THE TWO HYPOTHESES, AND THE EXACT LINES THAT DISCRIMINATE
+# ---------------------------------------------------------------------------------
+# Both are written out because a pre-registered pair of alternatives is what makes
+# the reading scoreable - the V14 lesson (its tidal-collapse prediction was
+# REFUTED, and that refutation was worth more than a confirmation).
+#
+# **H1 - RE-AIM ENGAGES.** Every guard in section 1 passes, the synthesizer builds
+# a Jool-frame Lambert, and the window planner spaces on the 105,961.4 s synodic.
+# EXPECTED IN THE LOG:
+#     `[ReaimDiag]` lines present (the diagnostic channel; V4/V5/V8 emit them)
+#     `ENGAGED re-aim`
+#     a `re-aimed transfer ready ... devFromRecorded=<n>s state=<retained|noop>`
+#       line, the shape V10/V11A/V13A all pin
+#     `factory chain rec=... reaimed=True` - the RENDER-side mode, V5's pin
+#     NO `PhaseLock APPLIED` for this tree (or one carrying a re-aim road rather
+#       than `single-orbital`)
+#     `support=` NOT `Supported` for a cross-parent extraction, or no extraction
+#       line at all
+#
+# **H2 - A GUARD DECLINES AND THE CHAIN FALLS BACK TO FAITHFUL.** Candidates, in
+# the order the walk makes them plausible:
+#     the SEAM MAGNITUDE. Section 5.2 is the physical objection: re-aim splices a
+#       centre-to-centre Lambert onto recorded escape/capture legs that end at the
+#       SOI SHELL, so the discontinuity is of order one SOI radius. That is 0.23%
+#       of the orbit at Duna and **13.70% at Laythe / 5.58% at Vall** - the seam
+#       term "does not survive the frame change". If anything declines, this is
+#       the most likely reason, and it is a PHYSICAL objection that the mechanical
+#       guards in section 1 do not encode.
+#     `IsSaneTransferConic` on a degenerate solve, or the tilt gate on a solved
+#       plane that (per V13A's four-point finding) is UNCORRELATED with the
+#       target's inclination and so cannot be predicted from Vall's 0 deg.
+#     a support demotion upstream of the synthesizer.
+# EXPECTED IN THE LOG:
+#     `FORCED FAITHFUL`, and/or a `[ReaimDiag]` line carrying a decline reason
+#     `factory chain rec=... reaimed=False`
+#
+# **THE SINGLE SHARPEST DISCRIMINATOR** is `factory chain ... reaimed=True|False`:
+# one token, one line, and it is the RENDER-side truth rather than a planner
+# intention. Read it first; read `[ReaimDiag]` for why.
+#
+# **NOTHING RE-AIM IS REQUIRED OR FORBIDDEN BELOW.** V14M, V15M and V16M all
+# FORBID the re-aim trio, because on a same-parent subject re-aim is structurally
+# unreachable and its appearance would falsify the routing claim. HERE THE OPPOSITE
+# HOLDS: re-aim is the thing that might legitimately happen, so forbidding those
+# tokens would red the interesting outcome and requiring them would gate on a
+# prediction. They are left OUT of both lists, deliberately, and that asymmetry is
+# the whole reason this lane's posture differs from its three predecessors'.
+#
+# ---------------------------------------------------------------------------------
+# 3. THE SCHEDULE - CALIBRATION SEEDS, AND WEAKER ONES THAN USUAL
+# ---------------------------------------------------------------------------------
+# **READ THIS BEFORE TRUSTING ANY NUMBER IN THE JUMP TABLE.** On V14M/V15M/V16M the
+# anchor was derivable because the road was known:
+#   `phaseAnchorUT = NextWindow(UT0, P, max(LoopAnchorUT, spanEndUT))`
+# and the only unknowns were the recording's own UTs. **THAT FORMULA DOES NOT
+# APPLY UNDER H1.** If re-aim engages, the relaunch UT comes from
+# `ReaimWindowPlanner.Plan` spaced on the moon-moon synodic, not from the Tier-1
+# window snap. The two hypotheses therefore give DIFFERENT anchors, and no seed
+# set can be right for both.
+#
+# THE TABLE BELOW IS SEEDED UNDER **H1**, because H1 is the outcome the research
+# doc's guard walk predicts and because a synodic-spaced anchor is the one a reader
+# can check by hand. Under H2 every jump moves.
+#
+# THE INPUTS, ALL FROM B26'S PLANNED PROFILE (each names what will replace it):
+#   UT0        = 28,817,026   SEED: the `laythe-park-nerv` fixture's own
+#                FLIGHTSTATE UT is 28,817,025.337051559 and B26's seam
+#                StartRecording fires within a second or two of its LoadGame.
+#                REPLACE WITH: the recording's `explicitStartUT` - NOT segment 0's
+#                startUT (the V6M convention, and four fixtures running have
+#                reproduced a ~2.5 s gap between the two candidates).
+#   span       = 96,874.9 s   SEED, and its BAND is wide because the transfer
+#                window wait is a free variable in [0, one synodic]:
+#                  PLAN-TRANSFER                     ~     300
+#                  TRANSFER-BURN autowarp to node    ~  53,000  (HALF a synodic;
+#                                                     the range is 0 -> 105,961)
+#                  the ejection burn                 ~     170
+#                  Jool-frame coast (Hohmann half-P) =  38,979.9
+#                  Vall SOI entry -> periapsis       ~   3,900
+#                  capture burn + WARPALIGN hold     ~     325
+#                  park dwell                        =     180
+#                  commit tail                       ~      20
+#                  => 96,874.9 midpoint; **43,874.9 (no wait) to 149,836.3 (a full
+#                     synodic wait)**, i.e. a 3.4x band, far wider than B25's 1.05x.
+#                REPLACE WITH: `explicitEndUT - explicitStartUT`.
+#   ESCAPE seam= UT0 + 53,470   SEED: the Laythe->Jool crossing (PLAN + wait +
+#                burn). This lane's recording has **TWO** body-change seams, which
+#                no prior loop subject has had.
+#   ARRIVAL seam=UT0 + 92,449.9 SEED: the Jool->Vall crossing, i.e. span minus a
+#                ~4,425 s destination phase.
+#                REPLACE BOTH WITH: the adjacent `endUT == startUT` BODY-CHANGE
+#                pairs in the `.prec.txt` ORBIT_SEGMENT chain.
+#
+# THE ARITHMETIC, under H1:
+#   P_Laythe   =  52,980.879 s      P_Vall  = 105,962.090 s
+#   SYNODIC    = 1/|1/P_L - 1/P_V| = **105,961.428 s** = 2.0000 P_Laythe, which is
+#                the 1:2:4 resonance showing up in the window spacing (research doc
+#                section 4.1 tabulates it as 29.4 h).
+#   anchor     = UT0 + one synodic  = **28,922,987.428**
+#   cadence    = one synodic        = **105,961.428**
+#
+#   NOTE WHAT IS **NOT** CLAIMED: that the re-aim planner's first window is exactly
+#   one synodic past UT0. It is the natural first spacing and it is what makes the
+#   seed checkable, but the planner's own anchor rules are not walked here. If run
+#   1 shows a different offset, the SHAPE (cadence = synodic) is what to keep and
+#   the anchor is what to substitute.
+#
+# THE JUMP TABLE (rounded to whole seconds, the V14M/V15M/V16M convention). All
+# eight bracket the **ARRIVAL** seam; the escape seam is deliberately not
+# bracketed, because one lane cannot read two seams at two cycles without a step
+# list nobody can follow - and the arrival is where the census lens looks.
+#
+#   cycle-1 anchor  28,922,987.428
+#   cycle-1 arrival seam  anchor + 92,449.9  = 29,015,437.328
+#     bracket -180 / -60 / +140              -> 29015257 / 29015377 / 29015577
+#   cycle-1 park    anchor + 95,578.4        -> 29018566
+#   cycle-2 anchor  cycle-1 + cadence        = 29,028,948.856
+#   cycle-2 arrival seam                     = 29,121,398.756
+#     bracket -180 / -60 / +140              -> 29121219 / 29121339 / 29121539
+#   cycle-2 park                             -> 29124527
+#
+# THE PARK OFFSET is 70.7% of the way through the destination phase (V14M's
+# fraction). NOTE it is applied to the WHOLE phase here rather than to a parked
+# tail, unlike V16M - because B26's capture burn is ~49 s against a ~3,490 s park
+# period (1.4% of an orbit, against B25's 8%), so the recording is not expected to
+# end with a long segment-less tail. **THAT IS A PREDICTION**; if the harvested
+# `.prec.txt` shows a hyperbola-only Vall segment chain like B25's, re-base the
+# fraction on the tail exactly as V16M does and say so.
+#
+# THE FAILURE IS SELF-DETECTING IN ONE DIRECTION ONLY: a jump that lands BACKWARD
+# of the live clock answers `REJECTED reason=backward-jump`, only a WARN, so that
+# token is FORBIDDEN below. A forward jump to the wrong epoch greens while
+# dwelling nowhere. **ON A SEED SET THIS UNCERTAIN THAT IS THE LIKELY OUTCOME OF
+# RUN 1, AND IT IS ACCEPTABLE**: run 1's product is the routing read plus the
+# echoed `relaunchUt`, and the brackets are re-pinned from it. Do not treat a
+# dwell-nowhere run 1 as a failure of the lane.
+#
+# (THE RE-PIN RECIPE: read `startloopplayback initiated: ... relaunchUt=` for each
+# cycle - that is the ONE number the whole table hangs off, and it is echoed
+# whichever road the unit took. Then read the two seam UTs off the harvested
+# `.prec.txt`. The offsets above are all relative to the anchor, so one anchor
+# substitution fixes four jumps and one cadence substitution fixes the other four.)
+#
+# ---------------------------------------------------------------------------------
+# 4. THE CENSUS-PACING BLOCK IS CARRIED FORWARD, AND IT IS NOW PROVEN MACHINERY
+# ---------------------------------------------------------------------------------
+# The forty-tick `RecordingState` dwell block between the cycle-1 park epoch and
+# the cycle-2 re-arm is V16M's, unchanged, and it is here because V16M MEASURED
+# that it works: its reading run `2026-08-19_2114` emitted the `seam-endpoint
+# summary` MEASURING line at BOTH arrivals, 11.502 wall-seconds apart, against the
+# 5.0 s `ParsekLog.VerboseRateLimited` window that swallowed V15M's cycle-2
+# emission on all three of its runs. Research doc section 9.3's RECOURSE 1 is no
+# longer a proposal.
+#
+# WHAT IT COSTS HERE: ~10-22 wall s (sized against `run.py`'s 0.25 s
+# `POLL_INTERVAL_SECONDS` floor, not V5's measured 0.54 s/tick) and ~22 GAME
+# seconds of 1x playback at the cycle-1 park epoch. The destination phase is
+# predicted ~4,425 s with the park epoch 70.7% into it, leaving ~1,296 s of
+# recorded tail - 60x the block. Comfortable, and the most comfortable margin any
+# lane carrying this block has had.
+#
+# WHAT IT MIGHT BUY THAT V16M's COULD NOT: this recording has **TWO** cross-body
+# seams, so the census has two candidate endpoints per cycle rather than one.
+# Whether the lens evaluates one, both, or neither is a reading in its own right.
+# Nothing below pins a count.
+#
+# ---------------------------------------------------------------------------------
+# 5. THE WATCH PREDICTION - REJECTED, and the arithmetic is Vall's
+# ---------------------------------------------------------------------------------
+# The observer is the fixture's own parked craft at Vall. B26's park window admits
+# a periapsis in [20,000 m, 600,000 m] about a 300,000 m body, so two co-orbiting
+# objects are at most `2a` apart:
+#   SMALLEST admissible park  2a = 2 * (300,000 + 20,000)  =   640,000 m
+#   LARGEST                   2a = 2 * (300,000 + 600,000) = 1,800,000 m
+# Even the smallest is **5.3x** the 120,000 m `GhostVisualRangeMeters` boundary
+# that drives the measured refusals (docs/dev/todo-and-known-bugs.md ->
+# WATCH-ENTRY-REFUSED-INSIDE-QUOTED-RANGE, the open interval (51.5 km, 144.3 km)),
+# so REJECTED is pinned - park-independent across the whole admissible window, as
+# on V16M.
+#
+# **AND READ V16M's RESULT BEFORE READING TOO MUCH INTO THAT.** Its two watch
+# steps were also pinned REJECTED and also came back REJECTED - but with
+# `reason=no-watchable-ghost`, not a range refusal, with the adjacent engine line
+# reading `retired=F zone=Beyond rdist=616131735m`. So the chord arithmetic above
+# is UNTESTED at Jool-system scale, and this lane's pinned verdict may well be met
+# for the same unpredicted reason. A REJECTED here confirms very little; an OK
+# would be the finding.
+#
+# ---------------------------------------------------------------------------------
+# 6. POSTURE - FIRST-RUN READING, AND DELIBERATELY THE THINNEST OF THE FAMILY
+# ---------------------------------------------------------------------------------
+# `required` is SEVEN tokens, not V16M's nine, and the two that are missing are
+# missing on purpose: `PhaseLock APPLIED: mission=` and `Orbital\(...\)
+# same-parent` are BOTH phase-lock-road artifacts, and requiring either would gate
+# this reading run on H2. What is required is only what must hold under EITHER
+# road: the arm/warp lifecycle, the product's own jump line, the ghost reaching a
+# Vall-framed map surface, and the two lens PRESENCE forms.
+#
+# `forbidden` is THREE, not the family's six: the re-aim trio is REMOVED (section
+# 2) and what remains is the ERROR floor, the backward-jump self-detection guard -
+# which matters more here than anywhere, given how provisional the seeds are - and
+# the parity over-tolerance pin. A fourth, `created 0 ghost vessel\(s\)`, was
+# dropped as STRUCTURALLY INERT: the only emitter of that line is
+# `ParsekTrackingStation`, and this lane never leaves FLIGHT, so the token could
+# not fire on any outcome. An un-fireable forbid is a false assurance, not a
+# cheap one. V17T keeps it, where the TS scene makes it live.
+#
+# `[expectations.rewind]` is REPORT-ONLY and `[expectations.recordings.structure]`
+# is ABSENT. Author them from run 1's saveParse facets.
+# =====================================================================================
+tier = "operator"
+description = "NOT YET FLYABLE - and its SUBJECT'S PRODUCTION IS BLOCKED-PENDING, not merely pending a green B26: `B26-laythe-vall-transfer` flew 2026-08-19 and both attempts refused in PLAN-TRANSFER on a MechJeb limitation (`OperationInterplanetaryTransfer.MakeNodes` throws on a moon-parked origin), so `vall-transfer-recorded` cannot be harvested until a moon-origin ejection capability exists - see docs/dev/todo-and-known-bugs.md -> MECHJEB-INTERPLANETARY-PLANNER-REJECTS-MOON-ORIGIN. Nothing below is touched by that block: it stops the harness PRODUCING the subject and says nothing about the routing question this lane asks. Committed AHEAD of its subject with a ZERO tree id and eight CALIBRATION-SEED jump UTs, tracked by the self-retiring SharedShipsManifestTests.PENDING_FIXTURE_LANES exemption. THE FIRST MOON-TO-MOON LOOP SUBJECT, and the lane that measures a code path the research doc says is live and untested. Every loop subject so far is SAME-PARENT and takes the phase-lock road (measured three times: `constraints=1`, `method=single-orbital`, residual 0). B26's recording is the OTHER class - Vall is not a child of Laythe, so it is CROSS-PARENT and `MissionConfig loop=true` should reach `ApplyReaim` with the JOOL-frame synodic. `docs/dev/research/same-parent-reaim-jool-system.md` section 5.1 walks `TrySynthesizeTransfer` guard by guard for exactly this shape - the parent gate passes (both resolve to Jool), mu is a parameter, r1/r2 are Jool-relative, the tilt gate is a no-op (both moons inc 0), `IsSaneTransferConic` passes on a=35,168,000 e=0.22702 - and concludes it 'already works in a Jool-centric frame for P3 today, unmodified', calling that 'the single most surprising finding in this investigation'. THIS SPEC GATES ON NEITHER OUTCOME. Both hypotheses are written out with the exact discriminating lines (H1 re-aim engages: `[ReaimDiag]`, `ENGAGED re-aim`, `re-aimed transfer ready`, `factory chain ... reaimed=True`; H2 a guard declines - most plausibly the section-5.2 SEAM MAGNITUDE, which is 0.23% of the orbit at Duna but 13.70% at Laythe: `FORCED FAITHFUL`, `reaimed=False`), and the re-aim trio is left BOTH unrequired AND unforbidden - the exact inversion of V14M/V15M/V16M, which forbid it because on a same-parent subject re-aim is structurally unreachable. THE SEEDS ARE WEAKER THAN ANY PRIOR PAIR'S ON PURPOSE: the anchor formula that served V14M/V15M/V16M is a phase-lock artifact and does not apply under H1, so the table is seeded under H1 at a one-synodic (105,961.4 s = 2.0000 Laythe periods) anchor and WILL move under H2. Run 1 is a routing read first and a bracket calibration second; a dwell-nowhere run 1 is an accepted outcome, not a lane failure. Carries V16M's now-PROVEN forty-tick census-pacing block (it measured both cycles 11.502 wall-s apart where V15M's three runs printed one), with the new question of what the lens does with a recording that has TWO cross-body seams rather than one."
+instanceProfile = "stock-minimal"
+tags = ["V17", "player-loop", "watch-mode", "loop-playback", "re-aim", "cross-parent",
+        "moon-to-moon", "vall", "laythe", "jool", "jool-moon", "census-pacing"]
+
+[fixture]
+# *** DOES NOT EXIST YET. *** `vall-transfer-recorded` is the intended
+# `--keep-parsek` harvest of `B26-laythe-vall-transfer`'s produced save. Until that
+# flight lands green this spec is un-runnable by construction, and the
+# `PENDING_FIXTURE_LANES` exemption in `harness/lib/test_hlib.py` is what lets it
+# be committed anyway (and what reds when the fixture appears).
+#
+# WHAT IT WILL CARRY, predicted from B26's own count arithmetic: ONE committed
+# tree, ONE recording (the stack flies the whole hop as one piece), zero durable
+# rows, terminal Orbiting at Vall - **but with more topological uncertainty than
+# any predecessor**. B26's recording has TWO body-change seams (Laythe->Jool and
+# Jool->Vall), and section-3 rule 3 of `IsSplittableEnvOrBodyBoundary` keeps a
+# same-class Exo body change cohesive on a transfer COAST; whether an ESCAPE
+# boundary under thrust qualifies is exactly what nobody has measured. B26's own
+# count window is `{1, 3}` for that reason and this lane's matches it.
+#
+# WHY THE ONE-RECORDING TOPOLOGY MATTERS ANYWAY: B23 flight 1 produced a
+# mechanically green run whose hop was APPENDED to another tree's committed
+# recording. B26 avoids that by pointing at the Parsek-stripped `laythe-park-nerv`.
+# See docs/dev/todo-and-known-bugs.md -> SEAM-STARTRECORDING-JOINS-COMMITTED-TREE.
+#
+# Its PARKED stage at Vall will be the OBSERVER for both watch attempts. THE
+# SUBJECT IS CREWED (Valentina Kerman in the mk1pod.v2), the third crewed loop
+# subject after B24's and B25's.
+saveTemplate       = "fixtures/saves/vall-transfer-recorded"
+injectedRecordings = "none"
+craft              = []
+
+[driver]
+kind = "seam"
+
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  # KILL THE SCENE-ENTRY AUTO-RECORDER FIRST (V2 flight 4 / V5 run 1, measured and
+  # structural). StopRecording is idempotent-OK and DiscardTree answers OK with
+  # nothing-discarded when no plain tree is live; the SetSetting stops a later one.
+  # Do NOT read the pair as a latch (B23 flight 1 measured a re-arm 11 ms after
+  # DiscardTree on this fixture's shape) - it does not hurt here, because this lane
+  # starts no recording of its own and only observes.
+  { cmd = "StopRecording",                                                   expect = "OK" },
+  { cmd = "DiscardTree",                                                     expect = "OK" },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  # Three tracer pins: ghostRenderTracing is the FLIGHT-scene raise gate for the
+  # loop-seam-teleport Tier-C instrument; mapRenderTracing arms the map/TS tracer +
+  # probe; verboseLogging is LOAD-BEARING for both AND for the two census lenses
+  # (Tier-B truth is at Verbose - the V1 lesson).
+  { cmd = "SetSetting", args = { name = "ghostRenderTracing", value = "true" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "mapRenderTracing",   value = "true" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "verboseLogging",     value = "true" }, expect = "OK" },
+  # STEP 1: the Missions window loop checkbox (production MissionStore.SetLoopEnabled).
+  # **THIS IS THE STEP THE WHOLE LANE HANGS ON**: it is where a CROSS-PARENT tree
+  # either reaches ApplyReaim or does not, and its Info line echoes the anchor the
+  # bracket arithmetic needs. Read it before anything else in the log.
+  # TREE ID: **ZERO PLACEHOLDER**. Substitute B26's committed tree.
+  { cmd = "MissionConfig", args = { tree = "00000000000000000000000000000000", loop = "true" }, expect = "OK" },
+  # STEP 2: "Warp to..." -> the resolved relaunch UT -> FastForwardToEventUT, an
+  # INSTANTANEOUS Planetarium clock set. CYCLE 1. Its `relaunchUt=` echo is the
+  # ONE number the re-pin recipe needs, and it is emitted whichever road the unit
+  # took.
+  { cmd = "StartLoopPlayback", args = { tree = "00000000000000000000000000000000" }, expect = "OK", budget = 300 },
+  # CYCLE-1 ARRIVAL BRACKET, strictly forward, straddling the SEEDED Jool->Vall SOI
+  # seam 29,015,437.328 at -180 / -60 / +140 s. CALIBRATION SEEDS UNDER H1 - see
+  # header section 3, and expect them to move.
+  { cmd = "TimeJump", args = { ut = "29015257" }, expect = "OK", budget = 300 },
+  { cmd = "TimeJump", args = { ut = "29015377" }, expect = "OK", budget = 300 },
+  { cmd = "TimeJump", args = { ut = "29015577" }, expect = "OK", budget = 300 },
+  # CYCLE-1 PARK EPOCH: anchor + 95,578.4, i.e. 70.7% into the predicted ~4,425 s
+  # destination phase, leaving ~1,296 s of recorded tail - 60x the dwell block.
+  { cmd = "TimeJump", args = { ut = "29018566" }, expect = "OK", budget = 300 },
+  # STEP 3: "Watch", auto-select over all committed recordings. PINNED REJECTED on
+  # the chord arithmetic in header section 5 (2a >= 640,000 m against a ~120 km
+  # boundary) - but read V16M's result first: its identically-pinned steps came
+  # back REJECTED for an UNPREDICTED reason, so a REJECTED here confirms little.
+  { cmd = "EnterWatchMode",                                                  expect = "REJECTED" },
+  # ============================================================================
+  # THE CENSUS-PACING DWELL BLOCK - 40 x RecordingState, V16M's verbatim and now
+  # PROVEN machinery: its reading run emitted the census MEASURING line at BOTH
+  # arrivals, 11.502 wall-seconds apart, against the 5.0 s VerboseRateLimited
+  # window that swallowed V15M's cycle-2 emission on all three of its runs.
+  # Sized against run.py's 0.25 s POLL_INTERVAL_SECONDS floor (>= 10.0 wall s)
+  # rather than V5's measured 0.54 s/tick (~21.6 s). Costs ~22 GAME seconds of 1x
+  # at the cycle-1 park epoch against a predicted ~1,296 s of recorded tail.
+  # ============================================================================
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  # STEP 4: "Warp to..." AGAIN - the desync hunt's second half. Under H1 this
+  # should land one SYNODIC past cycle 1 (29,028,948.856), which is itself a
+  # reading: a re-aimed unit spaces on the moon-moon synodic, a faithful one does
+  # not.
+  { cmd = "StartLoopPlayback", args = { tree = "00000000000000000000000000000000" }, expect = "OK", budget = 300 },
+  # CYCLE-2 ARRIVAL BRACKET, the same -180 / -60 / +140 offsets about the seeded
+  # cycle-2 seam 29,121,399.328.
+  { cmd = "TimeJump", args = { ut = "29121219" }, expect = "OK", budget = 300 },
+  { cmd = "TimeJump", args = { ut = "29121339" }, expect = "OK", budget = 300 },
+  { cmd = "TimeJump", args = { ut = "29121539" }, expect = "OK", budget = 300 },
+  # CYCLE-2 PARK EPOCH: the same +95,578.4 offset off the cycle-2 anchor.
+  { cmd = "TimeJump", args = { ut = "29124527" }, expect = "OK", budget = 300 },
+  # STEP 5: "Watch" again, same pinned verdict. A DIFFERENT verdict between the two
+  # would itself be the reading.
+  { cmd = "EnterWatchMode",                                                  expect = "REJECTED" },
+  { cmd = "FlushAndQuit",                                                    expect = "OK" },
+]
+
+# CLAIM-IS-NOT-GATE, and this list is the SHORTEST of the family because the
+# routing - the thing a loop lane usually claims D11 for - is what this run
+# MEASURES rather than asserts.
+#   D9  `fast-forward`  gated by the PRODUCT's own `FastForwardToEventUT: jumping
+#       to UT=` line, which fires whichever road the unit took.
+#   D14 `vall` / `scene-flight` / `sandbox` are the environment axes; `vall` is
+#       gated by the `body=Vall` map-render truth line below rather than by the
+#       epoch alone (V14T's iteration-1 lesson).
+#
+# NOT CLAIMED, DELIBERATELY:
+#   D11 `phase-lock` - V14M/V15M/V16M all claim it, gated by `PhaseLock APPLIED:
+#       mission=`. **THIS LANE MUST NOT**, because under H1 that line does not
+#       fire for this tree at all, and claiming a cell whose gate is one of two
+#       possible outcomes would make the claim a coin flip. If run 1 measures H2,
+#       the cell can be claimed at the arming pass with the token that showed it.
+#   D11 `re-aim` cells - the mirror of the same argument, under H1 rather than H2.
+#       Whichever road it takes, the cell is claimed AFTER the measurement.
+#   D6 `time-jump`, `laythe` / `jool` on D14 - the jumps are the instrument, and
+#       nothing in this contract gates a Laythe- or Jool-framed render even though
+#       the recording carries both.
+[dimensionsCovered]
+D9  = ["fast-forward"]
+D14 = ["vall", "scene-flight", "sandbox"]
+
+[expectations]
+# PLACEMENT IS LOAD-BEARING: allowedAnomalies must precede every
+# [expectations.<sub>] header.
+#
+# EMPTY. The loop-seam-teleport instrument is armed with no budget so a raise is
+# REPORTED as the finding it would be. NOTE TWO KNOWN populations this lane may
+# meet and does NOT pre-tolerate: the intermittent `line-blink` V15M's control run
+# swept at a cycle-2 park epoch, and - more likely here - the creation-frame
+# family (`icon-off-orbit`, `seam-endpoint-outside-soi`) that V16T measured. This
+# lane uses a STEPPED bracket, which was the silent control in all three earlier
+# programs, so the expectation is silence; a raise is a real reading.
+allowedAnomalies = []
+
+[expectations.recordings]
+# THE ARITHMETIC. `run.py count_recordings` counts `.prec` SIDECARS in the produced
+# save's `Parsek/Recordings` dir. The (not yet harvested) fixture is predicted to
+# ship ONE, and this lane starts no recording of its own, so:
+#   +1  the fixture's own committed recording, carried in and untouched.
+#   +2  ADMITTED, NOT PREDICTED: a LOAD-TIME optimizer split at EITHER of the
+#       recording's TWO body-change seams. Every earlier loop lane had exactly one
+#       boundary and all four measured `exoCoastBodyChangeKept=1`; this recording
+#       has an ESCAPE boundary (under thrust) and an ARRIVAL boundary (a rails
+#       coast), and rule 3's cohesion is argued for the latter shape. The load-time
+#       walk fires for the FIRST time on this lane's LoadGame - B26's own run
+#       commits and flushes without re-loading - so this is where it would show.
+# => { min = 1, max = 3 }, matching B26's own window and deliberately wider than
+# every predecessor's {1,2}.
+count = { min = 1, max = 3 }
+
+[expectations.logContracts]
+# SEVEN TOKENS, and the two that a reader will notice are MISSING are missing on
+# purpose (header section 6): `PhaseLock APPLIED: mission=` and an
+# `Orbital(...) same-parent` classification are BOTH phase-lock-road artifacts,
+# and requiring either would gate this reading run on H2 - i.e. on the outcome the
+# research doc's guard walk predicts AGAINST.
+#   "missionconfig applied:"       - the arm verb ran, and its Info line is where
+#                                    the anchor is echoed. THE most important line
+#                                    in the log for this lane.
+#   "SetLoopEnabled: loop ON"      - the PRODUCTION MissionStore path fired.
+#   "startloopplayback initiated:" - the Warp-to verb entered the production door
+#                                    and echoed the resolved relaunchUt (read it
+#                                    per cycle; under H1 the two should differ by
+#                                    one 105,961.4 s synodic).
+#   "FastForwardToEventUT: jumping to UT=" - the PRODUCT's own jump line, which
+#                                    makes the D9 claim GATED. Road-independent.
+#   "phase=body-orbit surface=ProtoOrbitLine .*body=Vall" - the ANTI-VACUITY /
+#       ARRIVAL pin: a map-render TRUTH line showing the ghost's proto orbit
+#       surface REBOUND onto a VALL body frame. A run that never gets the ghost to
+#       Vall has measured nothing about a Vall arrival, and reading that as a pass
+#       is the V1/V2 vacuity failure. Road-independent: both roads render.
+#   "faithful-parity summary sampled=\\d+ overTolerance=\\d+" - the PRESENCE form.
+#       `sampled=[1-9]` is NOT pinned (the standing
+#       FAITHFUL-PARITY-SEED-FRAGMENT-REBASE blind spot).
+#   "seam-endpoint summary evaluated=\\d+ outsideSoi=\\d+" - the PRESENCE form, and
+#       it must stay that way on a first run for TWO reasons rather than one.
+#       (a) The value is unmeasured at this subject. (b) V16T MEASURED that the
+#       lens can raise `outsideSoi=1` from a creation-frame binding artifact
+#       rather than from real drift, and the mechanism it named SCALES WITH THE
+#       CADENCE MULTIPLE - so a lane whose cadence is a synodic rather than a
+#       moon period is not obviously safe from it either. Pin presence; read the
+#       value.
+required  = [
+  "missionconfig applied:",
+  "SetLoopEnabled: loop ON",
+  "startloopplayback initiated:",
+  "FastForwardToEventUT: jumping to UT=",
+  "phase=body-orbit surface=ProtoOrbitLine .*body=Vall",
+  "faithful-parity summary sampled=\\d+ overTolerance=\\d+",
+  "seam-endpoint summary evaluated=\\d+ outsideSoi=\\d+",
+]
+# THREE, NOT THE FAMILY'S SIX. `[ReaimDiag]`, `ENGAGED re-aim` and `FORCED
+# FAITHFUL` are all REMOVED relative to V14M/V15M/V16M - those lanes forbid them
+# because on a same-parent subject re-aim is structurally unreachable and its
+# appearance would falsify the routing claim. HERE RE-AIM IS THE THING THAT MIGHT
+# LEGITIMATELY HAPPEN, so forbidding those tokens would red the interesting
+# outcome. They are left out of BOTH lists.
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  # THE V3C RUN-3 SELF-DETECTION GUARD, and on a lane whose eight jump UTs are
+  # seeded under a HYPOTHESIS rather than derived from a known road, this is by
+  # far the most load-bearing forbid in the file: a refused backward jump is only
+  # a WARN, so without this token a mis-seeded bracket can green while dwelling
+  # nowhere. Expect it to be the thing that reds run 1, and read that as the
+  # calibration signal it is.
+  "timejump refused reason=backward-jump",
+  # The S1.6/S1.7 parity pin verbatim: any faithful-parity sample OVER tolerance
+  # is a rendered-vs-recorded drift, which is a defect in the RENDER rather than a
+  # reading about the routing. Road-independent.
+  "faithful-parity summary sampled=\\d+ overTolerance=[1-9][0-9]*",
+]
+
+[expectations.rewind]
+# REPORT-ONLY (the ARMED_ALLOWLIST discipline). The claim is V4/V6M/V14M/V15M/V16M's:
+# a pure replay-observation workflow must author NOTHING durable. Every one of
+# those lanes measured 0/0/0. Arm it at the arming pass, off this lane's own bytes.
+rewindPoints  = { max = 0 }
+supersedeRows = { max = 0 }
+tombstones    = { max = 0 }
+
+# [expectations.recordings.structure] and the points facets are DELIBERATELY
+# ABSENT on a first run: a report-only block of PREDICTED numbers reads like a
+# measurement, and this lane's predicted topology is the least certain of the
+# family (one recording or three).
+
+[runtime]
+# 300 LoadGame + 2x300 StartLoopPlayback + 8x300 TimeJump + 40 RecordingState ticks
+# (~10-22 wall s) + the fast non-deferred verbs + KSP boot + collect. Every jump is
+# an instantaneous clock set; V16M's identical 61-step shape measured 64 s end to
+# end.
+budgetSeconds = 2400
+
+[retry]
+# One retry absorbs a transient seam flake. It does NOT absorb a mis-seeded anchor
+# - that reproduces exactly on attempt 2, which is the point, and on this lane it
+# is the LIKELY outcome of run 1 rather than an edge case (header section 3). A
+# backward-jump red on both attempts is the calibration signal, not a failure.
+policy = "once"
+
+[expectedFail]
+bugId = ""

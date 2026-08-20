@@ -177,6 +177,68 @@ class TitleNormalizeTests(unittest.TestCase):
         self.assertEqual(len(out.splitlines()), len(SFS.splitlines()))
 
 
+class TitleSuffixModeTests(unittest.TestCase):
+    """The suffix is DERIVED from the save's own `Mode`, not hardcoded
+    (career-ledger task C.3, done 2026-08-19).
+
+    It read `(SANDBOX)` unconditionally before, which was correct only because
+    every forge until then produced a sandbox save. The first CAREER harvest
+    would have stamped a fixture whose title contradicted its own `Mode = CAREER`
+    line - and a fixture that lies about its own mode is exactly the kind of thing
+    a later reader trusts. `build_career_pad_craft.py` already writes `(CAREER)`
+    by hand for the fixture it builds by construction, so this only brings the
+    harvested path into line with the constructed one."""
+
+    def test_a_career_save_gets_the_career_suffix(self):
+        career = SFS.replace("\tTitle = forge-run (SANDBOX)",
+                             "\tTitle = forge-run (SANDBOX)\n\tMode = CAREER")
+        out = harvest.normalize_title(career, "c2-career-postfix")
+        self.assertIn("Title = c2-career-postfix (CAREER)", out)
+
+    def test_a_sandbox_save_is_unchanged_from_the_old_behaviour(self):
+        sandbox = SFS.replace("\tTitle = forge-run (SANDBOX)",
+                              "\tTitle = forge-run (SANDBOX)\n\tMode = SANDBOX")
+        self.assertIn("Title = bdock-station-pad (SANDBOX)",
+                      harvest.normalize_title(sandbox, "bdock-station-pad"))
+
+    def test_science_sandbox_reads_its_own_name(self):
+        sci = SFS.replace("\tTitle = forge-run (SANDBOX)",
+                          "\tTitle = forge-run (SANDBOX)\n\tMode = SCIENCE_SANDBOX")
+        self.assertIn("Title = x (SCIENCE_SANDBOX)", harvest.normalize_title(sci, "x"))
+
+    def test_an_unreadable_mode_falls_back_to_the_previous_hardcoded_value(self):
+        # SFS carries no Mode line at all. Falling back to (SANDBOX) keeps every
+        # save this cannot read behaving EXACTLY as it did before the change, so
+        # the four committed sandbox fixtures cannot move underneath a re-harvest.
+        self.assertEqual("", harvest.read_game_mode(SFS))
+        self.assertIn("Title = y (SANDBOX)", harvest.normalize_title(SFS, "y"))
+
+    def test_the_mode_read_is_case_and_whitespace_normalised(self):
+        self.assertEqual("CAREER", harvest.read_game_mode("GAME\n\tMode =  career \n"))
+        self.assertEqual("(CAREER)", harvest.title_suffix_for_mode("CAREER"))
+
+    def test_a_nested_mode_value_is_not_mistaken_for_the_games(self):
+        # `Mode` is a common value name inside nested nodes (part modules, several
+        # mods). A greedy-indent match would read whichever came first in the file,
+        # so a part's setting could stamp the fixture's title. The GAME node's own
+        # values sit at exactly one tab.
+        nested_first = ("GAME\n\tFLIGHTSTATE\n\t{\n\t\tVESSEL\n\t\t{\n\t\t\tMODULE\n"
+                        "\t\t\t{\n\t\t\t\tMode = Follow\n\t\t\t}\n\t\t}\n\t}\n"
+                        "\tMode = CAREER\n")
+        self.assertEqual("CAREER", harvest.read_game_mode(nested_first))
+
+    def test_the_real_committed_career_fixture_reads_career(self):
+        # The read against real bytes, not a hand-built string: this is the exact
+        # save a CAREER harvest would be stamping from.
+        path = os.path.join(os.path.dirname(os.path.dirname(_HERE)),
+                            "harness", "fixtures", "saves", "career-pad-craft",
+                            "persistent.sfs")
+        if not os.path.isfile(path):
+            self.skipTest("career-pad-craft fixture not present")
+        with open(path, "r", encoding="utf-8", errors="replace") as fh:
+            self.assertEqual("CAREER", harvest.read_game_mode(fh.read()))
+
+
 class KeepParsekModeTests(unittest.TestCase):
     """--keep-parsek: the RECORDED-STATE fixture mode (the B17 duna-direct
     recording fixture). The save's Parsek/ dir (recording sidecars) must

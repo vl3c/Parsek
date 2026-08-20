@@ -52,6 +52,2345 @@ scope (the derivation is pinned by synthetic in-game cells); file when docking
 coverage next expands. Also missing per BDOCK-1's own header note: an
 orbital-rendezvous-dock D10 value and a same-craft-twice identity D18 value.
 
+## MECHJEB-INTERPLANETARY-PLANNER-REJECTS-MOON-ORIGIN: MechJeb 2.15.1's `OperationInterplanetaryTransfer.MakeNodes` throws on a MOON-PARKED origin, so the harness cannot currently fly any moon-to-moon transfer [MEASURED 2026-08-19 by `B26-laythe-vall-transfer` flight 1, DETERMINISTIC 2/2 attempts. HARNESS SURFACE, REPORT-ONLY - not a Parsek defect and not a spec defect; it blocks the M-MIS-7 subject's PRODUCTION, not the product question]
+
+**THIS IS A HARNESS-CAPABILITY GAP, NOT A PRODUCT FINDING.** Nothing in Parsek ran,
+nothing in Parsek is implicated, and the spec that hit it is correct. Read the
+verdict that way; the temptation to file a moon-to-moon failure as a Parsek
+finding is exactly what this paragraph exists to stop.
+
+THE SHAPE: a vessel parked around a MOON (`B26`: the crewed Duna Rocket in the
+87,931 x 56,240 m Laythe orbit `B25` delivered) transferring to a SIBLING MOON
+(Vall) through mlib's `interplanetaryTransfer` path with JOOL as the transfer
+frame. Every one of the eight flown interplanetary lanes departs KERBIN; this was
+the first attempt from a moon.
+
+THE EXCEPTION, verbatim from `results/2026-08-19_2215_B26-laythe-vall-transfer_a2_mission.stdout.log`
+(three occurrences per attempt; run `2026-08-19_2214` identical to six decimals):
+
+```
+[Mission][Warn][Plan] operation_interplanetary_transfer.make_nodes failed:
+OrbitExtensions.NextTimeOfRadius: given radius of 3723645.81113302 is never
+achieved: o.PeR = 572085.800578244 and o.ApR = 3632679.92883477
+Server stack trace:
+  at KRPC.MechJeb.Maneuver.Operation.MakeNodes () [0x00101] in <...>:0
+```
+
+READ THE THREE NUMBERS, because they say more than "it threw".
+
+- **3,723,645.81113302 m is LAYTHE'S SOI RADIUS.** `MakeNodes` asks when the
+  vessel's orbit next reaches the origin body's SOI, i.e. when the ejection
+  leaves. That is the call that has no answer.
+- **The orbit it asks that of is NOT the park orbit.** The park is ecc 0.028;
+  this one has e = (ApR-PeR)/(ApR+PeR) = **0.7279**. Its PeR 572,085.800578244
+  sits **0.003 m** from the fixture park's SMA 572,085.80370560708 - so MechJeb
+  idealised the origin to a circle at the park's MEAN radius and built an
+  ejection from there.
+- **That ejection is SUB-ESCAPE.** ApR 3,632,679.93 falls **90,965.88 m, i.e.
+  2.443%, SHORT** of the SOI. The crossing it then asks for does not exist, and
+  `NextTimeOfRadius` throws rather than returning a sentinel.
+
+WHAT IS ESTABLISHED: this code path does not handle an origin whose park radius
+is a large fraction of its SOI. At Laythe the park sits at ~15% of the SOI
+radius; at Kerbin, where all eight flown lanes depart, the SOI is ~120x the park
+radius (84,159,286 / ~700,000) and the same construction escapes with two orders
+of magnitude to spare. WHAT IS **NOT**
+ESTABLISHED, and must not be recorded as if it were: WHY MechJeb sizes the
+ejection short. That lives inside MechJeb 2.15.1 and was not read. Do not
+propagate a mechanism nobody decompiled.
+
+WHAT WORKED, which is most of it. Admission, the venv gate, the derived
+`laythe-park-nerv` fixture, the ORBIT-START door and the whole preamble are
+clean: `assert reachedOrbit value=PLAN-TRANSFER met=True`, `assert
+startedInHomeOrbit value=0.028 met=True`, `phasesReached ['PRELAUNCH', 'ORBIT',
+'PLAN-TRANSFER']`. **Target acquisition worked** - `action set_target_body
+value=none text=Vall` ran and `tgtD` snapped from 584,660 m (no target) to
+59,303,828 m, Vall's actual separation. The refusal is one call deep.
+
+AND IT WAS CHEAP: mission wall **5.955 s / 5.976 s** to refusal, ~33 game
+seconds, 46 s per attempt end to end, `INVALID(autopilot-flake)` both times. A
+planner that refuses in six seconds is the good failure mode.
+
+TWO CANDIDATE PATHS FORWARD, **NEITHER CHOSEN**. Inventing a transfer mechanism
+was explicitly out of scope for the night that measured this, and the stop rule
+was honoured.
+
+- **(a) A flag-gated MANUAL-EJECTION mode.** mlib computes the ejection node
+  itself; MechJeb only executes it. The precedent is PAD-ALIGN, whose window math
+  is already frame-generic - the only Sun-hardcoded piece is the
+  `STOCK_HELIO_ELEMENTS` TABLE, extendable with Jool-system elements or replaced
+  by live kRPC elements. Crucially the Vall encounter does NOT have to come out
+  of the ejection: the EXISTING Jool-frame correction rounds create it, which is
+  the B17 round-0-creates-the-encounter pattern and is already live-proven.
+- **(b) A different MechJeb operation set.** Escape Laythe with a plain ejection
+  operation, then Lambert / course-correct to Vall from Jool orbit.
+
+**(a) is the house-style fit** - pure decision in mlib, thin execution in the
+runner, reusing a proven correction loop instead of adding a mechanism. It is
+DEFERRED AS ITS OWN PROGRAM, not smuggled into a lane.
+
+WHAT THIS BLOCKS AND WHAT IT DOES NOT. Blocked: the harness's ability to PRODUCE
+the M-MIS-7 subject recording, and with it `B26` (which stays committed,
+flyable-but-blocked, dry-run valid) and the `V17M` / `V17T` reading pair (which
+stay in `PENDING_FIXTURE_LANES` awaiting `vall-transfer-recorded`). NOT blocked
+and NOT answered: the PRODUCT question - whether `ApplyReaim` engages on a
+cross-parent moon-to-moon recording, which
+`docs/dev/research/same-parent-reaim-jool-system.md` section 5.1 argues already
+works unmodified. This flight said nothing about it. It remains pre-registered in
+V17M/V17T, which carry both hypotheses with the discriminating log lines and gate
+on neither.
+
+## MAPRENDER-SEAM-LENS-EVALUATES-UNSHIFTED-EPOCH-ON-CREATION-FRAME: the seam-endpoint lens reads the RECORDED seam UT instead of the replayed one on a ghost proto's creation frame, and raises `seam-endpoint-outside-soi` against an endpoint 157x the SOI away [MEASURED 2026-08-19 by `V16T-laythe-ts-arrival`'s reading run and **RECURRED on its ARMED run `2026-08-19_2212` (PASS attempt 1)**, which makes it DETERMINISTIC for the single-jump shape rather than a one-off. REPORT-ONLY - the harness classified the reason UNLISTED and did not gate on it, and `V16M-laythe-player-loop`'s stepped-epoch censuses prove the underlying recurrence is FINE. Same family as MAPRENDER-ICON-OFF-ORBIT-CREATION-FRAME-AFTER-JUMP; NO product change is proposed]
+
+**READ THE VERDICT BEFORE THE MECHANISM, because this raise names the one thing the
+whole Jool research programme is watching for and it is NOT that thing.** The
+accompanying census line reads `evaluated=2 outsideSoi=1`, i.e. "one replayed
+SOI-entry endpoint fell outside the destination SOI" - which is precisely the
+eccentric-moon phase-lock drift
+`docs/dev/research/same-parent-reaim-jool-system.md` predicts for Bop and Pol.
+**IT IS NOT DRIFT.** `V16M-laythe-player-loop`, same fixture, same recording, same
+arrival, taking its readings at STEPPED bracket epochs where the loop shift has
+bound, measured `evaluated=2 outsideSoi=0` at cycle 1 AND at cycle 2 - i.e. after a
+full 20-period cadence the replayed entries really do still sit inside Laythe's SOI.
+The `outsideSoi=1` below is the instrument evaluating the wrong epoch on one frame.
+Do not let a future ledger cite it as an observed recurrence failure.
+
+### The measurement, verbatim
+
+`harness/results/2026-08-19_2115_V16T-laythe-ts-arrival_shots/KSP.log` line 11866:
+
+    phase=Anomaly surface=ProtoOrbitLine pid=3145128013
+      recId=370d38246d6e42848f140884081428af frame=6626
+      currentUT=29874214.240 effUT=28814456.826 reason=seam-endpoint-outside-soi
+      fromBody=Jool toBody=Laythe seamUT=28814456.8
+      endpointDist=585846592m soi=3723646m ratio=157.3314 tol=1.0050
+      recordedSeamUT=28814456.8 clock=raw seed=no-seed loopShift=2066254.3
+
+and the census two lines later (11875): `seam-endpoint summary evaluated=2 outsideSoi=1`.
+
+### What the fields say, in the order that matters
+
+1. **`effUT` IS THE RECORDED SEAM EPOCH.** `effUT=28814456.826` equals
+   `recordedSeamUT=28814456.8` equals the committed recording's own Jool->Laythe
+   ORBIT_SEGMENT body change. The live clock at that frame is
+   `currentUT=29874214.240`. The lens evaluated the endpoint **1,059,757 s in the
+   past** - about one full loop cadence.
+2. **`clock=raw seed=no-seed`** - the effective-UT resolution had no seed to work
+   from, so it fell back to the raw recorded epoch rather than the replayed one.
+   `loopShift=2066254.3` is present on the line but was evidently not applied to the
+   value the lens tested.
+3. **The distance follows mechanically.** At the recorded seam epoch the recording's
+   subject is still in its JOOL PARK, so the endpoint lands 585,846,592 m from
+   Laythe against a 3,723,646 m SOI - `ratio=157.33`. The raise is arithmetically
+   correct about the wrong point.
+4. **It is a CREATION frame.** Frame 6626 also carries
+   `phase=GhostCreated surface=ProtoIcon pid=3145128013 ... body=Jool
+   scene=TRACKSTATION` at a Jool-scale `worldPos`, i.e. the proto is being brought
+   into existence on this frame - the same frame class as the icon entry's.
+
+### Why it surfaced HERE and not on any earlier lane: k scales the gap
+
+Every prior loop subject had a cadence of exactly ONE moon period, so the un-shifted
+epoch sits under one period away from the live clock and the lens skips on
+`body-mismatch` (V15M and V15T both read exactly that skip form). **This lane is the
+suite's first k > 1 cadence** - 20 Laythe periods, 1,059,617.581 s - so the same
+binding gap displaces the evaluated epoch by 1.06 Ms, far enough that the ghost's
+recorded position at that epoch is in a DIFFERENT BODY'S SOI and the lens has
+something to fail on. The defect is not new; the k = 20 cadence is what made it
+observable.
+
+### The family claim, and its limit
+
+This and MAPRENDER-ICON-OFF-ORBIT-CREATION-FRAME-AFTER-JUMP are one family: two
+different lenses (`ProtoIcon` phase, `ProtoOrbitLine` seam endpoint) raising on the
+same frame class (ghost-proto creation) with the same underlying reading - the loop
+shift has not bound at the moment the surface is first evaluated. The icon entry's
+lines carry `loopShift=0.0`; this one carries a nonzero `loopShift` that the tested
+value did not use. **THAT DIFFERENCE IS NOT EXPLAINED HERE** and it is the reason
+this is filed as a sibling rather than merged into the icon entry: "the shift is
+zero" and "the shift exists but was not applied" are not obviously the same bug, and
+one observation of each is not enough to say.
+
+A third possible member is noted and explicitly NOT claimed:
+`V16M-laythe-player-loop`'s two `EnterWatchMode` steps were refused
+`reason=no-watchable-ghost` with the adjacent engine line reading
+`retired=F zone=Beyond rdist=616131735m` - a ghost that exists but sits at
+Jool-park distance from a Laythe-parked observer, the same magnitude as the endpoint
+above. Same order, different surface, different code path (a watch auto-select, not
+a render lens), and one coincidence of magnitude is not a mechanism.
+
+### Nothing gates it
+
+The harness classified the reason as UNLISTED and therefore REPORT-ONLY - the result
+JSON carries `unlistedReasons: ["seam-endpoint-outside-soi"]` - so this raise did not
+contribute to that run's PARSEK-FAIL (the `icon-off-orbit` pair did). `V16T` does NOT
+tolerate it in `allowedAnomalies`, deliberately: adding a tolerance for something
+that is not currently a gate is the wrong direction. If the sweep's classification
+ever changes, revisit WITH the run that shows it.
+
+**THE DISCRIMINATING EXPERIMENT**, if anyone wants one: a lane whose cadence is k > 1
+but whose observation epoch is reached through a STEPPED bracket rather than a single
+jump. V16M is exactly that and raised nothing, which is suggestive but not decisive,
+because V16M also never enters the tracking station. A TS lane with a stepped bracket
+would separate "creation frame" from "single jump" for both members of the family at
+once.
+
+## B5-INWARD-TRANSFER-EVIDENCE-AND-TRIGGERS-ASSUME-OUTWARD: the moon-transfer machine keys BOTH its burn-done evidence and its correction-round spacing to an apsis RISING, and the two available workarounds are MUTUALLY EXCLUSIVE [FOUND BY AUDIT 2026-08-19 while authoring `B25-laythe-orbit`, the suite's first INWARD moon transfer, and BOTH WORKAROUNDS LIVE-PROVEN THE SAME DAY on that lane's flight 1 (runs `_1948` / `_2001`). REPORT-ONLY: a HARNESS constraint on `harness/missions/lib/mlib.py`, NOT a proposed product change; B25 flies with values only and accepts one named degradation]
+
+Every b5 moon-path flight to date (Kerbin->Mun, Kerbin->Minmus, Duna->Ike,
+Eve->Gilly) parks LOW and transfers UP to a moon at a HIGHER orbital radius.
+`B25-laythe-orbit` is the first to go the other way: its park sits at
+590,325,784.59 m, 3.28x Pol's orbit and outside the whole Jool moon system, so the
+ejection is RETROGRADE, the intercept is the transfer's PERIAPSIS, and the
+home-frame APOAPSIS never moves.
+
+**FIVE OF SEVEN AREAS ARE DIRECTION-AGNOSTIC BY CONSTRUCTION**, and they are
+listed so the finding is bounded rather than alarming: the MechJeb plan call
+(`_b5_transfer_plan_action` -> `operation_transfer` with `rendezvous = True`, a
+general two-orbit solve with no direction argument); the whole COAST phase (every
+gate is body- or time-based - `snapshot.body == target_body`,
+`body not in _b5_coast_bodies`, `ut + time_to_soi - soi_lead`,
+`approach_latch_state` / `approach_warp_clamp` - with no apoapsis or
+altitude-increasing test anywhere, and the one `vertical_speed` read taking its
+absolute value); the WINDOW logic (mlib's only window solver is the PAD-ALIGN
+heliocentric family, which `b5_params_from_dict` hard-rejects without
+`interplanetaryTransfer`); TARGET-FLYBY and CAPTURE (the arm gate, the
+`ut + time_to_periapsis - lead` warp target, the `0 < ap <= park_max_apoapsis`
+capture window and `_b5_left_target_soi` are all read in the TARGET body's own
+frame); and the burn-stagnation watchdog (`_b5_track_burn_stagnation` compares
+BOTH apsides against their burn-entry values, so an inward burn that moves only
+periapsis still registers `burned`).
+
+**TWO SITES ENCODE "OUTWARD", and both are the same mistake: evidence keyed to an
+apsis RISING.**
+
+1. **`_b5_transfer_burn_done`'s apoapsis floor is VACUOUS on an inward transfer.**
+   The default branch is `apoapsis >= transfer_min_apoapsis`. The retrograde burn
+   happens AT the park, which BECOMES the transfer's apoapsis, so the home-frame
+   apoapsis does not move: any floor above the park is unreachable forever, and
+   any floor below it is already satisfied on the frame BEFORE the burn - which
+   leaves `consumed` (an empty node list) as the sole exit evidence and disarms
+   the phase's whole purpose. There is NO periapsis-side key: `grep` for
+   `transfer_min_periapsis` / `transferMaxPeriapsis` returns nothing anywhere in
+   `mlib`.
+2. **The ALTITUDE correction trigger cannot space rounds on a descent.**
+   `_b5_correction_round_ready`'s altitude mode is a bare
+   `body == home and altitude >= trigger[idx]` LEVEL test, not a rising-edge
+   crossing. On a descending coast a trigger above the park never fires at all and
+   one below it fires on the FIRST coast frame, so a `[0, X]` list spends both
+   rounds back to back at transfer start - precisely the shape the mid-coast round
+   was added to prevent (the fourth B5 flight's corrected +60 km flyby periapsis
+   drifting to -29 km). No altitude value places a second round mid-coast.
+
+**AND THE TWO WORKAROUNDS COLLIDE, which is the part worth writing down.**
+
+- For (1), `ejectionEccFloor` is a working, direction-agnostic substitute
+  requiring NO mlib change: it reads the HOME-frame ECCENTRICITY, which on B25's
+  hop moves from 7.944e-06 to 0.911956, and `b5_params_from_dict` does not gate it
+  on `interplanetaryTransfer`. (Eight interplanetary lanes already set it, all
+  just above 1 for a hyperbolic ejection; B25 is the first sub-1 use, and the
+  schema's `min = 0.0` already admits that.)
+- For (2), `correctionTriggerTimeToSoiSeconds` is direction-agnostic (`time_to_soi`
+  descends whichever way the craft is going), but its body domain is
+  `_b5_correction_via_bodies`, which on the moon path returns `via_bodies`
+  VERBATIM - so it needs `viaBodyNames = ["Jool"]`.
+- **THAT SETTING IS EXACTLY WHAT BREAKS (1):** the ecc branch's FIRST disjunct is
+  `snapshot.body in params.via_bodies or snapshot.body == params.target_body`,
+  which returns True at the park and makes the eccentricity floor vacuous. Naming
+  the home body in `viaBodyNames` also does nothing useful for coast legality
+  (home is already legal), and naming any OTHER body would LEGALISE a moon transit
+  that `_b5_coast_bodies` should be failing loudly - the B15-flight-5 hazard, and a
+  live one on a descent that crosses Pol's, Bop's, Tylo's and Vall's shells.
+
+**WHAT B25 DOES, and it is values only.** It takes (1) - burn evidence is a
+correctness question and round spacing is a quality one - setting
+`ejectionEccFloor = 0.55` (the eccentricity at which the transfer's periapsis has
+fallen inside Pol's orbit, so the floor certifies a genuine inward burn rather
+than an arbitrary threshold) and keeping `transferMinApoapsisMeters` declared at 0
+(the B15 disposition for a schema-required key the evidence does not use). It then
+declares exactly ONE scheduled correction round, `[0]`, and delegates the LATE
+refinement to `MAX_ARRIVAL_EXTRA_ROUNDS = 2` arrival-quality extras, which are
+direction-agnostic but are a SAFETY NET rather than a refinement: they fire only
+when the PREDICTED target periapsis is already BELOW
+`targetPeriapsisFloorMeters`, with `time_to_soi` inside (600, 3600) s. **A merely
+mediocre arrival gets no second look, and that is an accepted degradation on this
+lane rather than a fix.**
+
+**BOTH WORKAROUNDS ARE NOW LIVE-PROVEN, on `B25-laythe-orbit` flight 1** (both
+attempts INVALID(driver-flake) on that lane's park WINDOW, which is a different
+question - the flight itself reached CAPTURE-BURN and delivered a healthy park):
+
+- **The ecc burn-done evidence WORKED.** `startedInHomeOrbit` met on the fixture's
+  own park (`value=7.944061403402496e-06`), and then TRANSFER-BURN EXITED - which
+  under `ejectionEccFloor` it can only do on a home-frame eccentricity at or above
+  0.55. The corrected transfer's last home-framed telemetry reads `ecc=0.954`. The
+  apoapsis floor this replaced would have been satisfied AT THE PARK, before the
+  burn, which is the vacuity the substitution exists to avoid.
+- **The delegation to the arrival-quality extras FIRED.** The machine reports
+  `rounds=2 extraRounds=1`: the one scheduled round plus one direction-agnostic
+  extra, on a DESCENDING coast. So the degradation is real but bounded, and the
+  fallback is not theoretical.
+- **And the empty `viaBodyNames` did its second job**: the descent crossed Pol's,
+  Bop's, Tylo's and Vall's orbital shells and the collected KSP.log carries ZERO
+  occurrences of any of their SOI-boundary tokens, with exactly one `Jool to
+  Laythe`.
+
+**THE HONEST FIX, if a future inward lane needs the mid-coast round back**, is a
+periapsis-side burn-done predicate in `mlib` - a `transferMaxPeriapsisMeters`
+("the burn LOWERED periapsis to at/below this"), which would free `viaBodyNames`
+for the time-mode triggers. That is a real machine change and must be argued
+rather than patched in; it is NOT proposed here, because one lane is not a
+population and B25 has not flown. Pinned meanwhile by
+`harness/missions/lib/test_b25_laythe_orbit.py::InwardTransferAuditTests`, which
+runs `_b5_transfer_burn_done` against a park-shaped frame and a post-burn-shaped
+frame and asserts False-then-True, and which reds if `viaBodyNames` ever appears
+in that spec.
+
+---
+
+## ~~HARNESS-CANNOT-EARN-CAREER-CURRENCY~~ - no driven run could collect science, transmit it, or recover a vessel, so `ScienceEarning` rows and vessel-recovery credits were reachable only from a hand-played save [CAPABILITY SHIPPED 2026-08-19, branch `c2-postfix-forge`; FLOWN MISSION-OK 2026-08-19 on run 2026-08-19_1912 (career-science-pad); one residual survives and is NOT closed]
+
+Filed and closed in the same entry because the gap was never a defect - it was a
+missing capability nobody had written down, and writing it down only to close it
+two lines later is how the residual stays visible.
+
+### The gap, as measured
+
+Five facts, each verified against source rather than assumed:
+
+1. `mlib` had no `ACTION_*` constant for collecting science, transmitting it, or
+   recovering a vessel.
+2. `KrpcMissionControl.perform` had no branch for any of the three (an action
+   with no branch raises `unknown action kind` and ends the mission as
+   MISSION-ERROR, so the constant alone would have been worse than nothing).
+3. `TelemetrySnapshot` had no channel that could OBSERVE any of the three
+   outcomes - no experiment counts, no `Recoverable`, and no career pools.
+4. The M-A2 seam had no verb for any of it either, so the "drive it through the
+   seam instead" alternative did not exist.
+5. `KscAction` has exactly four sub-actions - research a node, upgrade a
+   facility, hire a kerbal, accept a contract - and **every one of them is a
+   SPEND**. Nothing in the harness credited anything.
+
+The consequence was structural, not cosmetic: `ScienceEarning` is produced only
+from flight science subjects via
+`GameStateEventConverter.ConvertScienceSubjects`, so with no mission collecting
+science, no driven run could ever produce one. Same for a vessel-recovery credit.
+Both row families are most of what a real career ledger is made of, which is why
+`docs/dev/plans/career-ledger-coverage.md` recorded "a forged career can NEVER
+cover science" as a hard ceiling, and why B.4's strict-mode arming had no subject
+except promoting a hand-played save.
+
+### What closed it
+
+Three mission actions (`run_science_experiments`, `transmit_science`,
+`recover_vessel`), six opt-in telemetry channels, and the
+`science_bench_recover` mission, which delegates its flight leg to `b1_decide`
+verbatim and adds COLLECT -> TRANSMIT -> RECOVER. Binding contract:
+`docs/dev/design-autotest-mission-library.md` Amendment A. The sequencing to a
+harvested fixture is `career-ledger-coverage.md` section 4d.
+
+**WAVE 2 OPENED 2026-08-19** (`postfix-career-flight`): the smoke spec is promoted
+verbatim as the committed `harness/scenarios/L3-career-science-recover.toml`
+(`tier = "operator"`, no pins - the L2 B.1 reading-run hold). Section 4d's one open
+fixture question ("does `career-pad-craft` carry a science part at all?") is
+**answered by READING the fixture rather than by flying it**: the craft is the stock
+Jumping Flea and already carries three `ModuleScienceExperiment` modules (two
+`GooExperiment` canisters plus the pod's crew report), a `ModuleScienceContainer`, a
+`ModuleDataTransmitter` and Jebediah aboard - so the budgeted sibling-fixture
+derivation is struck and no committed fixture is touched. The other named wave-2
+question, whether `CommitTree` is still the right verb once recovery has already
+changed the scene, is **answered from source before the flight and then MEASURED by
+keeping the step**: recovery destroys the active vessel, so
+`ParsekFlight.OnVesselWillDestroy` stashes the tree PENDING and
+`ParsekTestCommandAddon` answers `ERROR / no-active-tree`. The spec therefore adds
+`SetSetting autoMerge=true` (CL-2's measured silent scene-exit auto-commit path,
+without which `SceneExitInterceptor` raises an approval dialog no seam verb answers)
+and keeps `CommitTree` as a non-gating measurement.
+
+Two design points worth carrying out of it, because both are the kind of thing
+that is re-derived wrongly later:
+
+- **The career pools are populated on a `vessel_lost` snapshot**, alongside
+  `crew_roster_status` and for the identical reason. Recovering the active vessel
+  DESTROYS it, so the frame that proves the recovery happened necessarily has no
+  vessel on it. Without that carry the success terminal is unobservable and every
+  good recovery reads as a break-up. The three VESSEL-scoped science channels are
+  deliberately NOT carried there - a recovered craft has none.
+- **`Vessel.Recover()` is scene-level and terminal.** Stock recovery removes the
+  craft and leaves FLIGHT, and `_fly_loop_body` does not wrap `control.perform` -
+  so a machine that emits any action after the recover verb performs it against a
+  vessel that no longer resolves and reports MISSION-ERROR instead of the outcome
+  it had a name for. Emit it once, last. kRPC also THROWS on a non-recoverable
+  vessel, so both the runner and the machine read `Vessel.Recoverable` first.
+- **A recovery credit must STRADDLE the recovery, and this one cost a review to
+  catch.** "The craft is gone" and "the funds pool is higher than the baseline"
+  are both true of a craft that BLEW UP, if the second reading is allowed to be a
+  PRE-loss one. `recoverMinFundsGain` is author-set and legitimately 0.0, so
+  `0.0 >= 0.0` held on the first vessel-gone frame and a break-up was certified
+  RECOVERED - a wrong outcome in the SUCCESS direction, which is the worst class
+  this harness can emit, and no spec could have prevented it. Two structural
+  guards, both needed: the credit is computed from a reading taken ON a
+  vessel-gone frame, and a loss BEFORE the verb was issued is routed to
+  `vessel-lost-before-recovery` instead of reaching the success branch. A replay
+  negative control against the old predicates returned RECOVERED for both shapes.
+  The general lesson is the transferable one: when a gate compares a baseline
+  against "the latest reading", ask what happens if the latest reading predates
+  the event the gate is about.
+- **A COMMANDED LATCH IS NOT "IT HAPPENED", AND THE SAME HOLE HAD A SECOND
+  DOOR** - found by the follow-up review of the fix above. The carve-out that
+  decides whether a break-up is a loss or a candidate recovery keyed off the verb
+  having been EMITTED, but the runner's read-before-ask lock can DECLINE it:
+  `Vessel.Recoverable` reads false (or raises) at perform time, or `Recover()`
+  itself raises. Nothing told the machine, so the latch stood true for a recovery
+  that never happened, and at a 0.0 funds floor with a readable unmoved pool the
+  same settle-flicker-then-explosion run certified RECOVERED. The fix is a real
+  OBSERVATION CHANNEL rather than a stricter predicate:
+  `TelemetrySnapshot.recover_request_result` carries `ISSUED` / `DECLINED` /
+  `UNREADABLE` / `FAILED` back from every exit of the perform branch (sticky, and
+  carried on a `vessel_lost` snapshot for the career pools' reason exactly - a
+  successful recovery removes the craft, so ISSUED and vessel-gone arrive on the
+  same frame), and the latch now means ISSUED. A decline gets a BOUNDED RE-EMIT,
+  like the collect / transmit sweeps, because its live shape is a craft that has
+  not finished settling; a persistent one still lands on the existing
+  `vessel-not-recoverable` terminal, so no new verdict was invented. Pinned by a
+  replay-control pair: the same frames with the latch set by hand on emission
+  reach RECOVERED in-suite, which is what makes the fix cell a fix.
+  **The transferable half:** a latch fed by "we sent the command" is evidence of
+  nothing when the seam that performs it is allowed to say no. Either the seam
+  reports its outcome, or the latch has to be read as "we tried".
+
+### RESIDUAL - the unaffordable-spend ORDERING shape is still unforgeable
+
+This is the half of the ceiling that did NOT move, and it is the half the parked
+science finding needs. `KscAction` pre-refuses an unaffordable research at the
+door, so a forged ledger cannot contain a spend that was judged unaffordable at
+its reconstructed balance - which is exactly the shape of the c1 `heavyRocketry`
+finding (cost 90 against a reconstructed 85.3). Being able to CREDIT science does
+not help: the refusal is at the seam, before any row is written. That finding
+stays owned by the synthetic two-action unit test (`ScienceSpendingOrderingTests`,
+plan task A.1), and a future forge must NOT be scoped to it.
+
+## ~~CAREER-FORGE-NEEDS-A-DIRECT-ANTENNA: the post-fix career forge cannot transmit science, because stock refuses to transmit over a command pod's INTERNAL antenna~~ [MEASURED 2026-08-19 by `L3-career-science-recover` flight 2 (runs `2026-08-19_1823` + retry `_1831_a2`), root cause PROVEN from the decompiled `Assembly-CSharp`. NOT a product defect and NOT a harness defect: the MISSION named a FIXTURE fault correctly. SIBLING FIXTURE `career-science-pad` BUILT 2026-08-19 on branch `career-science-craft`, and LIVE-PROVEN the same day by flight 3 (run `2026-08-19_1912`, MISSION-OK, `transmit_science sent=1`) - see the FLIGHT 3 block below. CLOSED]
+
+`L3-career-science-recover` flight 2 flew a textbook mission and then condemned
+itself. The flight leg was perfect - peak apoapsis 19,990 m inside the
+6,000-30,000 m window, chute armed at the apoapsis crossing, `LANDED` - and
+COLLECT ran all three experiments aboard (`run_science_experiments ran=3
+skipped=0 failed=0`, `experimentsAboard=3 experimentsAvailable=3 dataMax=3`).
+TRANSMIT then ran its full 120 s budget across four bounded re-emit sweeps and
+credited nothing:
+
+    [Mission][Warn][Science] experiment transmit failed: RuntimeError:
+      No transmitters available to transmit the data
+        at KRPC.SpaceCenter.Services.Parts.Experiment.Trans...
+    [Mission][Info][Science] transmit_science sent=0 skipped=0 failed=3
+
+Ten identical raises, deterministic across both attempts, and the terminal is
+`transmit-credited-no-science` with `scienceBaseline=100.000 scienceNow=100.000`.
+
+### The root cause, decompiled rather than guessed
+
+kRPC filters the vessel's transmitters by `IScienceDataTransmitter.CanTransmit()`
+and raises when none passes. Decompiling the shipped
+`automation/stock-minimal/KSP_x64_Data/Managed/Assembly-CSharp.dll`,
+`ModuleDataTransmitter.CanTransmit()` reads, in order: `moduleIsEnabled`, then
+**`antennaType != 0`**, and only THEN the CommNet leg (`vessel.connection` non-null,
+`SignalStrength > 0`, `ControlPath.IsLastHopHome()`). `AntennaType.INTERNAL` is
+enum value 0, so **an INTERNAL antenna can never transmit science, connected or
+not.** The `career-pad-craft` Jumping Flea's only transmitter is `mk1pod.v2`'s
+built-in one (`antennaType = INTERNAL`, `antennaPower = 5000`), so no craft in
+that fixture can ever satisfy the TRANSMIT phase. Nothing about CommNet,
+ElectricCharge (50 units, unspent) or the ground stations is involved; the save's
+own `CommNetParams` are healthy (`enableGroundStations = True`).
+
+### Why this is a FIXTURE fault and not a contract to relax
+
+`design-autotest-mission-library.md` Amendment A already draws this line: a
+terminal that reads "the fixture is wrong, and re-flying it changes nothing" is
+an ASSERT-FAIL naming the fixture, which is exactly what fired, and the terminal's
+own reason text lists "no antenna" first. The mission behaved correctly. What the
+amendment got WRONG is one clause of A.2, now corrected in place: it claimed
+`Experiment.Transmit()` "succeeds with no antenna", and it does not - it raises.
+
+### ~~Fix: a career fixture whose craft carries a DIRECT antenna~~ BUILT 2026-08-19 as `career-science-pad`
+
+The `career-pad-craft` fixture must NOT be mutated (six committed specs fly it),
+so the fix is a SIBLING, and the `SurfAntenna` (Communotron 16-S,
+`antennaType = DIRECT`) is **already in the fixture's purchased-parts set**, so no
+tech-tree work was needed.
+
+**THE ROUTE THIS ENTRY ORIGINALLY SIZED WAS THE EXPENSIVE ONE, and the cheap one
+turned out to exist.** The sizing above proposed the FORGE precedent - author a
+`.craft` by construction, add a `FORGE-*` spec that launches it onto the pad over
+a CAREER base, harvest it, register it, re-point the spec: two flights plus
+scaffolding. It was reached for because no committed `.craft` for the Jumping Flea
+exists anywhere (the craft lives only as a `FLIGHTSTATE` VESSEL node inside
+`b1-pad-craft`), so `build_career_pad_craft.py`'s donor-splice had no donor - and
+because hand-authoring a surface-attached PART node into a FLIGHTSTATE is the
+failure mode this repo's automation-first fixture rule exists to avoid.
+
+**What was missed is that "hand-authored" and "authored by a committed script" are
+not the same thing, and the three named hazards each have a mechanical answer.**
+`harness/tools/build_career_science_pad.py` splices three additive PART nodes
+(`SurfAntenna` + 2x `batteryPack`) into `career-pad-craft`'s VESSEL node:
+
+- **fresh `persistentId`** - assigned as fixed literals, and `verify` asserts both
+  `persistentId` and `uid` are unique across the whole vessel. A collision is the
+  failure mode a hand-written node actually has and it does not announce itself.
+- **`srfN` / `attN` strings** - `srfN = srfAttach, 0` with `attm = 1`, which is the
+  exact shape the two Mystery Goos on this same pod already carry. Every parent /
+  surface-attach index in the produced save is range-checked.
+- **`stg` renumber** - **not needed.** Every spliced part is `istg = -1`, and they
+  are APPENDED after the last existing part, so no existing index moves and no
+  `parent` / `srfN` / `attN` / `sym` reference in the save is disturbed. The
+  eight parts the base flies are asserted BYTE-IDENTICAL.
+
+The pose is DERIVED rather than typed: position and rotation are the -x Mystery
+Goo's measured pair carried through one rigid yaw about the pod's +Y axis, so the
+new parts land on free azimuths of a ring KSP itself authored. The whole thing is
+gated by `CareerSciencePadFixtureDriftTests` (byte-identity against a fresh
+rebuild over the current base) and `CareerSciencePadSpecFixtureSyncTests` (the
+spec/fixture pairing) in `harness/missions/lib/test_science_bench_recover.py`, and
+the fixture measures `RED=0` under the analyzer's Forbid gate. Zero forge flights.
+
+**One thing the antenna alone would NOT have fixed, and it is why the fixture
+carries batteries too.** Stock charges `packetResourceCost` per `packetSize` Mits
+and both come off the ANTENNA: through a `SurfAntenna` (2 Mits / 12 EC) the three
+experiments aboard cost 156 EC to transmit, against the pod's 50 - which flight 2
+measured as UNSPENT at touchdown, so 50 was genuinely all a transmit would have
+had. Two Z-100s take the craft to 250 EC. Swapping
+`transmit-credited-no-science` for an EC stall would have cost another flight to
+discover.
+
+**Worth taking with that wave, but not before it:** "no transmitter aboard" and
+"transmitted and nothing was credited" are the same side of the retry line and
+different diagnoses, and only the first is a fixture fault a re-fly cannot change.
+The sweep already counts them separately (`failed=3` vs `sent=0`); the terminal
+reason does not yet distinguish them.
+
+**What flight 2 also proved in passing, and it is most of the forge:** everything
+up to the transmit is sound on this fixture. The recorder produced a real flight,
+the career funds pool moved on its own (`500000 -> 530400`, the stock launch
+milestones), the three career-scoped channels read cleanly on every frame, and
+the collect verb stored data on all three modules. Only the transmit leg is
+blocked, and the recovery leg was never reached.
+
+**FLIGHT 3 (`2026-08-19_1912`) FLEW THE NEW FIXTURE AND THE ANTENNA DIAGNOSIS HELD
+EXACTLY.** MISSION-OK, all nine phases (`PRELAUNCH ASCENT COAST DESCENT LANDED
+COLLECT TRANSMIT RECOVER RECOVERED`), 341 s of flight: `transmit_science sent=1
+skipped=2 failed=0` against flight 2's `sent=0 failed=3`, and the craft was
+recovered. The run still classified `PARSEK-FAIL(expectation)` - on a forbidden
+`[Parsek][ERROR]` token, and on three findings behind it, filed as the three
+entries immediately below. Those are the forge working: the whole point of making
+a career EARN was to reach ledger row families nothing could reach before, and the
+first flight to reach them found two of them broken.
+
+---
+
+## ~~CAREER-RECOVERY-FUNDS-NOT-LEDGERED: a recovered vessel's funds credit is observed as an event and never written as a ledger row, so a replay reconstructs funds short by the whole refund~~ [FOUND 2026-08-19 by `L3-career-science-recover` flight 3 (run `2026-08-19_1912`), the first driven run ever to recover a vessel. Cause read off the flight log, not guessed. CAPTURE-SIDE FIX LANDED 2026-08-19 on branch `career-capture-fixes` (PR #1498). **LIVE-PROVEN AND CLOSED 2026-08-20** by the re-fly + re-harvest on `career-closes-to-zero`: run `2026-08-19_2130_L3-career-science-recover` flew PASS on attempt 1, and the `C2CareerPostFixReplayTests` pins below are REPLACED by tight closure assertions over the re-harvested fixture - see "The re-harvest that closed it"]
+
+**Fix:** the guard's input was wrong, exactly as this entry predicted, and the
+reason is structural rather than a race. Decompiled `VesselRecovery.OnVesselRecovered`
+(KSP 1.12.5) stamps `missionRecoveryDialog.beforeMissionFunds` BEFORE
+`GameEvents.onVesselRecoveryProcessing.Fire`, assigns `totalFunds` AFTER it, and
+never assigns `fundsEarned` before the fire at all - the part-value payout is
+produced by the event's own subscribers. So at Parsek's capture seam the snapshot
+is always `before=<real>, earned=0, total=0`, and
+`RecoveryPayoutContextStore.FundsSnapshotLooksInitialized`'s "any field is
+non-zero" test read that as an authoritative "stock will pay zero".
+
+The predicate is now `FundsSnapshotIsAuthoritative` and requires the triple to be
+internally COHERENT (`total == before + earned` within a float tolerance), which the
+pre-payout shape can never satisfy - so the guard reports "unknown" and the deferred
+pairing runs, taking its amount from the actual `FundsChanged(VesselRecovery)` delta.
+The guard now fails OPEN (queue and pair) instead of CLOSED (silently drop a real
+credit). A genuine zero-payout recovery read at a coherent moment is still coherent,
+still suppresses, and still writes nothing.
+
+Because that leaves every production context payout-unknown at the processing seam,
+`onVesselRecoveryProcessingComplete` is now also subscribed
+(`ParsekScenario.OnVesselRecoveryProcessingComplete` ->
+`RecoveryPayoutContextStore.TryRefreshPayoutFromCompletion`). KSP fires it as the
+LAST statement of `VesselRecovery.OnVesselRecovered`, right after stamping
+`totalFunds` and folding the currency-modifier delta into `fundsEarned` - the first
+moment the snapshot is coherent - so the zero / below-threshold suppression keeps a
+REAL expectation instead of being permanently unknown. It never downgrades an
+already-authoritative context, and KSP's `quick` recovery path fires completion with
+a null dialog, which correctly leaves the context unknown.
+
+Cells (`GameStateRecorderLedgerTests`): `FundsSnapshotIsAuthoritative_ProcessingSeamShape_IsNotAuthoritative`,
+`_CoherentSnapshots_AreAuthoritative`, `RecoveryPayoutContext_ProcessingSeamSnapshot_DefersInsteadOfSuppressing`,
+`_PairsTheRealCreditExactlyOnce` (both directions: the row is written once, and a
+replayed event does not double-count against the direct channel),
+`RecoveryPayoutContext_CoherentZeroPayout_StillWritesNothing`, and the two
+`TryRefreshPayoutFromCompletion_*` cells. Mutation-verified: restoring the old
+predicate reds 5 of them.
+
+The career forge exists to produce two row families a KSC button cannot: flight
+`ScienceEarning` rows, and the funds credit from a recovered vessel. Flight 3
+produced the first and NOT the second.
+
+Stock paid 4558 for the recovered Jumping Flea. The observation channel saw it:
+
+    [Parsek][VERBOSE][GameStateRecorder] Emit: FundsChanged key='VesselRecovery' ...
+    [Parsek][INFO][GameStateRecorder] Game state: FundsChanged +4558 (VesselRecovery) -> 536558
+
+The ledger did not. The committed `ledger.pgld` carries 13 actions and **zero
+`FundsEarning` (type 2) rows** - only `FundsInitial` and five
+`MilestoneAchievement` rows carry funds at all.
+
+### The branch, named
+
+    [Parsek][VERBOSE][Scenario] Recovery processing captured: vessel='Jumping Flea'
+      ... ut=347.5 fundsEarned=0.0 before=532000.0 total=0.0 recoveryFactor=1
+    [Parsek][VERBOSE][LedgerOrchestrator] OnVesselRecoveryFunds: vessel='Jumping Flea'
+      ... - skipping deferred recovery-funds pairing (stock expected zero recovery funds)
+
+Parsek pre-computes what it expects stock to pay, gets `fundsEarned=0.0`, and on
+that basis takes the "stock expected zero recovery funds" skip - so the deferred
+pairing that would have written the row never runs. Stock then paid 4558 anyway.
+The guard is not wrong to exist; its INPUT is wrong, and it fails CLOSED in the
+direction that silently drops a real credit.
+
+**Consequence, measured:** `C2CareerPostFixReplayTests` reconstructs funds at
+532000 against the save's 536558 - short by exactly 4558. Pinned there as a
+DATA-ERA magnitude, with a structural sibling cell
+(`FixtureLedger_HasNoFundsEarningRow_TheUncapturedRecoveryCredit`) that flips the
+moment a re-harvest on fixed code carries the row.
+
+**Not to be confused with** the recovery's SCIENCE leg, which IS captured
+correctly (`recovery@KerbinFlew`, `scienceAwarded = 5`, `method = Recovered`, and
+its post-walk reconcile MATCHES on the `VesselRecovery` key). One leg of one event
+is captured and the other is not - the same shape as
+STRATEGY-SCIENCE-CONVERSION-LEAK, mirrored.
+
+---
+
+
+### The re-harvest that closed it (2026-08-20)
+
+A capture-side fix cannot retro-fill a committed `ledger.pgld`, so this entry could
+only ever close by RE-FLYING the spec and harvesting the save again over fixed code.
+That is run `2026-08-19_2130_L3-career-science-recover`: PASS on attempt 1, 469 s
+wall / 341 s mission, every phase reached, every verifier PASS or SKIPPED, zero
+`[Parsek][ERROR]` lines. Its save REPLACES the wave-2 fixture at
+`Source/Parsek.Tests/Fixtures/C2CareerPostFix/`, and `C2CareerPostFixReplayTests` is
+rewritten from divergence-characterization into a closes-to-zero proof.
+
+KSP's own pools came out IDENTICAL across the two flights (536558 / 111.599998 /
+1.99999881, the same three science subjects at the same values), so the two runs
+differ in the LEDGER and nowhere else - the reconstruction moved, the thing being
+reconstructed did not:
+
+| pool | reconstructed | save | delta | was |
+| --- | --- | --- | --- | --- |
+| FUNDS | 536558 | 536558 | **0** | -4558 |
+| SCIENCE | 111.60000014305115 | 111.599998 | **+2.14e-06** | -100 |
+| REPUTATION | 1.9999990463256836 | 1.99999881 | **+2.36e-07** | -0.00148 |
+
+The remaining deltas are float32 representation gaps against pools KSP rounded into
+its save, not residual leaks: the smallest real row in this ledger is 3 science /
+800 funds, six orders of magnitude above either.
+
+The ledger grew from 13 rows to 14 - the new one is the vessel-recovery
+`FundsEarning` - and `initialScience` reads 100 where it read 0. The spec is
+PROMOTED `operator` -> `nightly` in the same commit, with its measurements pinned
+(`recordings.count` exact at 2, plus three career-leg log tokens, one per capture
+defect).
+
+## ~~CAREER-SCIENCE-SEED-LOST-ON-FLIGHT-ROUTE: the science and reputation seeds never land when a career is entered through FLIGHT, so a replay reconstructs the pool short by the whole starting balance~~ [FOUND 2026-08-19 by `L3-career-science-recover` flight 3 (run `2026-08-19_1912`). Cause read off the flight log. CAPTURE-SIDE FIX LANDED 2026-08-19 on branch `career-capture-fixes` (PR #1498). **LIVE-PROVEN AND CLOSED 2026-08-20** by the re-fly + re-harvest on `career-closes-to-zero`: run `2026-08-19_2130_L3-career-science-recover` flew PASS on attempt 1, and the `C2CareerPostFixReplayTests` pins below are REPLACED by tight closure assertions over the re-harvested fixture - see "The re-harvest that closed it"]
+
+**Fix:** the refusing guard was left exactly as it is - it is correct, and this fix
+is entirely upstream of it, as this entry called for.
+
+The deferred seed was **not deferred at all**. `StartCoroutine` runs a coroutine body
+synchronously up to its first `yield`, and `DeferredSeedAndRecalculate` was started
+from `ParsekScenario.OnLoad` - which KSP calls from the MIDDLE of
+`ScenarioRunner.LoadModules`, while it is still walking the save's `SCENARIO` nodes and
+constructing the remaining `ScenarioModule`s. Every readiness probe in the coroutine
+could be satisfied without ever yielding: phase 1 waited only while ALL THREE currency
+singletons were null, and phase 2 only while ALL THREE read zero, so a single loaded
+`Funding` ended both waits on the calling frame. The whole "wait for the singletons"
+body therefore executed inside `OnLoad`, with `ResearchAndDevelopment.Instance` and
+`Reputation.Instance` still null. That is what the `Funding=500000, Science=null,
+Rep=null` line is: not a slow load, but a probe taken too early to see them.
+
+Two changes, both in `ParsekScenario`:
+
+1. **Phase 0** - an unconditional `yield return null` before any probe, so the
+   coroutine actually resumes after KSP's synchronous module-load pass. One frame is
+   enough: `LoadModules` is synchronous, so by the next frame every scenario module for
+   the scene exists.
+2. **Phase 1 requires ALL of them** via the new `AllCurrencySingletonsPresent()`, not
+   any one. The gate is PRESENCE, not a non-zero value: `ScenarioRunner.AddModule(ConfigNode)`
+   constructs a module and calls its `Load(node)` in one synchronous call, so a
+   coroutine can never observe a singleton existing-but-unloaded - while a pool that
+   genuinely sits at zero is indistinguishable from an unloaded one BY VALUE, which is
+   precisely why a value gate is the wrong instrument here. The wait stays bounded
+   (`CurrencySingletonWaitMaxFrames`) and falls through for sandbox / science-mode,
+   which never load the full set.
+
+The `DeferredSeed` log line now carries `singletons all present=<bool> after <n> frames`
+so the next run states this directly instead of leaving it to be inferred.
+
+Cells (`CareerSeedReadinessTests`): `DeferredSeed_YieldsBeforeProbingAndWaitsForEveryCurrencySingleton`
+and `AllCurrencySingletonsPresent_RequiresAllThreeNotAnyOne` (source-text gates - the
+coroutine runs on a `ScenarioModule` and reads Unity singletons, so it is held the same
+way the other `ParsekScenario` hookup tests are). Mutation-verified: deleting the phase-0
+yield reds the first cell. The refusing guard's own contract is unchanged and still
+covered by its existing cells.
+
+The committed post-fix fixture's ledger carries `initialScience = 0` on a save
+whose science pool was 100. The funds seed on the same load is correct
+(`initialFunds = 500000`).
+
+### Two log lines, five minutes apart, and the second one is a guard behaving well
+
+At load, the deferred seed found only one of the three pools readable:
+
+    [Parsek][VERBOSE][Scenario] DeferredSeed: values ready after 0 frames, clock ready=True
+      after 0 frames (currentUT=9.06) - Funding=500000, Science=null, Rep=null
+
+`Science` and `Rep` read NULL, so only funds seeded. The science seed was retried
+at scene exit - by which time the flight had already produced science actions:
+
+    [Parsek][INFO][Ledger] Seeded initial science: amount=0, total=8
+    [Parsek][WARN][LedgerOrchestrator] SeedInitialScience: refusing to treat current
+      science as initial because science timeline actions already exist and no baseline
+      was available
+
+That refusal is CORRECT - treating the then-current 106.6 as "initial" would have
+double-counted everything the flight earned. The defect is upstream: nothing
+re-attempts the seed while it is still safe to take one, so a career entered
+through FLIGHT gets a permanent zero seed for any pool whose instance was not yet
+alive at the deferred-seed frame.
+
+**Why it never surfaced before:** a zero science seed is invisible on a career
+that earns no science, and until flight 3 no driven run had earned any. `CL-2`
+flies the same base fixture through the same route and never notices. Reputation
+takes the same path and is likewise invisible here only because this career
+genuinely started at rep 0.
+
+**Consequence, measured:** `C2CareerPostFixReplayTests` reconstructs science at
+11.6 against the save's 111.6 - short by exactly 100, the whole starting balance.
+The three EARNED subjects themselves reconstruct perfectly, which is what isolates
+the seed as the entire cause. Pinned there as a DATA-ERA magnitude, with a
+structural sibling cell
+(`FixtureLedger_ScienceSeedIsZeroOnACareerThatStartedAtOneHundred`) that flips
+ONLY on a RE-HARVEST over fixed code: a capture-side fix cannot retro-fill a
+committed `ledger.pgld`, so fixing the seed moves neither cell until this fixture
+is re-flown and re-harvested. If either one moves WITHOUT a re-harvest, a
+RECALC-side change has occurred and must be investigated.
+
+In-game the damage is contained by `KspStatePatcher`'s drawdown guard, which
+clamps and preserves the live value rather than writing the low reconstruction
+back:
+
+    [Parsek][WARN][KspStatePatcher] PatchScience: GUARDED DRAWDOWN clamped resource=Science
+      running=6.6000001430511475 live=106.59999847412109
+      wouldBeTarget=6.6000001430511475 clampedTo=106.59999847412109
+      (no time-travel context) - earned value preserved; ledger may be missing an
+      earning channel [trailing per-subject NOTE clause elided]
+
+So this is a RECONSTRUCTION-fidelity defect, not a player-visible pool loss - but
+it is squarely blocking, because a strict per-identity gate cannot be armed
+against a ledger that cannot reproduce its own starting balance.
+
+---
+
+
+### The re-harvest that closed it (2026-08-20)
+
+A capture-side fix cannot retro-fill a committed `ledger.pgld`, so this entry could
+only ever close by RE-FLYING the spec and harvesting the save again over fixed code.
+That is run `2026-08-19_2130_L3-career-science-recover`: PASS on attempt 1, 469 s
+wall / 341 s mission, every phase reached, every verifier PASS or SKIPPED, zero
+`[Parsek][ERROR]` lines. Its save REPLACES the wave-2 fixture at
+`Source/Parsek.Tests/Fixtures/C2CareerPostFix/`, and `C2CareerPostFixReplayTests` is
+rewritten from divergence-characterization into a closes-to-zero proof.
+
+KSP's own pools came out IDENTICAL across the two flights (536558 / 111.599998 /
+1.99999881, the same three science subjects at the same values), so the two runs
+differ in the LEDGER and nowhere else - the reconstruction moved, the thing being
+reconstructed did not:
+
+| pool | reconstructed | save | delta | was |
+| --- | --- | --- | --- | --- |
+| FUNDS | 536558 | 536558 | **0** | -4558 |
+| SCIENCE | 111.60000014305115 | 111.599998 | **+2.14e-06** | -100 |
+| REPUTATION | 1.9999990463256836 | 1.99999881 | **+2.36e-07** | -0.00148 |
+
+The remaining deltas are float32 representation gaps against pools KSP rounded into
+its save, not residual leaks: the smallest real row in this ledger is 3 science /
+800 funds, six orders of magnitude above either.
+
+The ledger grew from 13 rows to 14 - the new one is the vessel-recovery
+`FundsEarning` - and `initialScience` reads 100 where it read 0. The spec is
+PROMOTED `operator` -> `nightly` in the same commit, with its measurements pinned
+(`recordings.count` exact at 2, plus three career-leg log tokens, one per capture
+defect).
+
+## ~~CAREER-TRANSMIT-SCIENCE-EMITS-NO-CORROBORATING-EVENT: a subject is written straight to the ledger with an empty reason and no `ScienceChanged` event, so the post-walk reconcile always mismatches and dumps at ERROR~~ [FOUND 2026-08-19 by `L3-career-science-recover` flight 3 (run `2026-08-19_1912`). This is the finding that actually red the run. CAPTURE-SIDE FIX LANDED 2026-08-19 on branch `career-capture-fixes` (PR #1498). **LIVE-PROVEN AND CLOSED 2026-08-20**: run `2026-08-19_2130_L3-career-science-recover` flew PASS on attempt 1 with **zero `[Parsek][ERROR]` lines** - this entry's ERROR dump was the single line that red the reading run, and the same flight path now emits none. The TITLE was wrong: the subject was RECOVERED, not transmitted - see the correction below]
+
+**Fix, and one correction to this entry's own reading.** All three symptoms - the
+missing event, the empty reason, and `method=Transmitted` - are ONE cause, and it is
+neither the transmit path nor a window-sizing problem.
+
+`GameStateRecorder.OnScienceChanged` stamps `lastScience = newScience` and then
+`return`s on `double.IsNaN(oldScience)`: the first change after a baseline is taken is
+silently consumed as the primer, emitting nothing and logging nothing. That baseline
+is taken by `SeedResourceState()` from `Subscribe()`, and a FRESH recorder is
+constructed and subscribed from `ParsekScenario.OnLoad` on EVERY scene load - which
+KSP calls from the middle of `ScenarioRunner.LoadModules` (the same seam as
+CAREER-SCIENCE-SEED-LOST-ON-FLIGHT-ROUTE). On this run `ResearchAndDevelopment.Instance`
+was still null at the space-centre subscribe (`22:19:01.929`), so `lastScience` stayed
+NaN and the recovered Mystery Goo's `+3.6` at `22:19:02.293` was eaten as the primer.
+The store's own `AddEvent` totals prove it: `total=2` at `02.288` and `total=3` at
+`02.299`, so nothing at all was added in between. The very next submit logged
+`Ignored ScienceChanged delta=+0.000` - the signature of a baseline that had just been
+primed by the change it swallowed.
+
+With no `ScienceChanged`, `latestScienceChangeCapture` was never set, so the subject
+reached `OnScienceReceived` with `reason=''` and
+`LedgerOrchestrator.ResolveKscScienceRecordingId` took its `method=Transmitted`
+FALLBACK - which is what put `reason='ScienceTransmission'` on the row and sent the
+reconcile hunting an event that never existed and never should have.
+
+**Correction to the "second symptom" paragraph below: the UT was never wrong.** The
+mission log's `transmit_science sent=1 skipped=2` transmitted the CREW REPORT (credited
+at ut 345.6); `mysteryGoo` was one of the two SKIPPED experiments and came home aboard
+the craft, credited during recovery processing at ut 347.5. KSP's own line at that
+frame is `+12 data on Mystery Goo(tm) Observation from LaunchPad. 4 Science added`,
+fired from `VesselRecovery` between `Jumping Flea recovered` and
+`onVesselRecoveryProcessing`. So 347.5 IS the credit UT, `method=Transmitted` was the
+fallback label rather than evidence of a transmission, and there is no scene-exit
+UT-stamping defect to fix. Keep the paragraph for the record; do not act on it.
+
+**Fix:** `SeedResourceState()` is now fill-only-NaN and returns whether all three
+baselines are seeded, and `ParsekScenario` starts
+`SeedRecorderResourceBaselinesWhenReady` right after `Subscribe()` to top up whatever
+the subscribe frame could not read, before anything can change. On the fixed path this
+run emits `ScienceChanged key='VesselRecovery' +3.6`, the capture carries
+`ReasonKey=VesselRecovery`, the row is written as `method=Recovered`, and the
+post-walk reconcile matches it exactly as the `recovery@KerbinFlew` subject on the same
+frame already did. The ERROR level is untouched, as this entry required - the missing
+event was the bug.
+
+Cells: `CareerSeedReadinessTests.SeedBaselineIfUnseeded_*` (three cells over the pure
+decision: fill-only-NaN, absent singleton leaves it unseeded, and a genuine zero is a
+REAL baseline rather than an unseeded one - otherwise a career starting at 0 science or
+0 reputation would swallow its first award too) plus
+`OnLoad_StartsTheRecorderBaselineTopUpRightAfterSubscribe`. Mutation-verified: deleting
+the top-up call reds the last cell.
+
+This is the token that classified flight 3 `PARSEK-FAIL(expectation)`: the spec
+forbids `[Parsek][ERROR]` and the run emitted exactly one.
+
+    [Parsek][WARN][LedgerOrchestrator] Earnings reconciliation (post-walk, sci):
+      ScienceEarning id=mysteryGoo@KerbinSrfLandedLaunchPad expected=3.6 but no matching
+      ScienceChanged event keyed 'ScienceTransmission' within science window
+      [347.5,347.5] for action ut=347.5 -- missing earning channel or stale event?
+    [Parsek][ERROR][LedgerOrchestrator] Science reconcile dump (post-walk):
+      action=mysteryGoo@KerbinSrfLandedLaunchPad reason='ScienceTransmission'
+      window=[347.4,347.6] events=(no ScienceChanged events in dump window)
+
+### It is not a window-sizing problem
+
+The whole run emits exactly ONE `ScienceChanged` event, and it is keyed
+`VesselRecovery`, not `ScienceTransmission` - widening the window finds nothing,
+because nothing was emitted. (The harvested `events.pgse` carries exactly one
+type-16 row, and the store's own `total=` field counts every event of every kind,
+not `ScienceChanged` events - reading it as a `ScienceChanged` count is what an
+earlier draft of this entry did.) One event for a run that credited THREE science
+subjects is the finding, and it is sharper than three events would have been.
+
+The transmitted subject reached the ledger by the direct path instead, and with
+an EMPTY reason:
+
+    [Parsek][INFO][GameStateRecorder] Science subject captured:
+      mysteryGoo@KerbinSrfLandedLaunchPad amount=3.6 total=3.6 reason='' ut=347.5
+      tag='' directLedger=True
+
+Compare the recovery subject on the same frame, which DOES emit its event, DOES
+carry `reason='VesselRecovery'`, and DOES match its reconcile. So the reconcile is
+right to complain: one capture path corroborates and the other does not.
+
+**A second symptom on the same row, worth fixing together:** the action's UT is
+347.54, the RECOVERY frame - but the transmit happened at ut ~342.3, five seconds
+and one mission phase earlier. The subject appears to be captured at scene exit
+using the then-current UT rather than the UT of the transmission.
+
+**The narrow question underneath the wide one:** whether an unmatched reconcile
+deserves ERROR at all. It is a reconciliation DIAGNOSTIC, and it fires on a
+condition the product recovers from cleanly - but the level is not the bug, the
+missing event is, and lowering the level to make a spec green would be exactly the
+masking the log contract exists to prevent. Fix the capture; leave the level.
+
+---
+
+## ~~CAREER-MILESTONE-REP-AWARD-RECONSTRUCTS-LOW: two +1 milestone reputation awards replay to 1.9985 instead of 2~~ [**FIXED 2026-08-20** on `career-closes-to-zero`. NARROWED 2026-08-19 by the post-fix fixture harvested from `L3-career-science-recover` flight 3 (run `2026-08-19_1912`); CAUSE FOUND 2026-08-19 during the `career-capture-fixes` wave and verified against the decompiled `Reputation.addReputation_granular`; fix deliberately deferred out of that wave so the capture-side re-harvest would read unambiguously - see "Why the fix was deferred"]
+
+### The fix, and what it measured (2026-08-20)
+
+`ReputationModule.ApplyReputationCurve` now sizes its final residual step from the
+accumulated POST-CURVE actual, exactly as the decompile does:
+
+    float input = (i != num) ? delta : (nominal - accumulated);
+
+**Both career-replay suites closed on it, on two independently produced careers.**
+This is a RECALC-side change, so unlike the three capture-side entries it moves
+committed `ledger.pgld` fixtures legitimately and WITHOUT a re-harvest - the rows are
+unchanged, the arithmetic replaying them is not. That is the movement this entry's
+closing paragraph reserved as "a RECALC-side change has occurred and must be
+investigated rather than re-pinned": it was investigated, it is this, and the pins
+were flipped deliberately.
+
+| Suite (fixture) | Reputation divergence before | after |
+| --- | --- | --- |
+| `C2CareerPostFixReplayTests` (driven flight, no strategy, two +1 milestones) | -0.001482011980590725 | **+2.36e-07** |
+| `C2CareerLedgerReplayTests` (hand-played career WITH a strategy exchange) | -0.00364 | **-1.75e-09** |
+
+The second row is the stronger statement: C2Career's reputation divergence had been
+open since 2026-08-17 with the standing note "second small leak, or curve rounding?
+unknown", and it closed on this one change without that fixture being touched. Its
+window was tightened from 0.01 onto the closure (1e-6), because 0.01 would now hide a
+full regression of the residual step.
+
+**Four other cells moved, each updated deliberately rather than accommodated:**
+
+- `ReputationModuleTests.LossCurve_AtNegativeRep_DiminishedLoss` - bound widened -10 ->
+  -20 (measures -13.02). Intent unchanged: a nominal -50 at deeply negative rep still
+  lands at a small fraction of nominal.
+- `EarningsReconciliationTests`' four `KspRefDelta_*` constants - re-measured. THE
+  PROVENANCE CAVEAT IS THE POINT: the original note said in its own second sentence
+  that they were "computed offline against the exact keyframes AND ALGORITHM in
+  ReputationModule.cs", i.e. they were never an independent capture of KSP's output and
+  therefore encoded the defect. That is why this "gate zero" cell did not catch it. The
+  new values are recomputed the same way against the fixed algorithm, so the cell keeps
+  the drift-detector role it always had and claims no more than it ever did; the
+  independent corroboration is the two save-diffing replay suites above. Largest
+  movement: +50 at rep 500, 23.845410 -> 35.555260 (26 points of curve loss the top-up
+  now delivers).
+- `EarningsReconciliationTests.ComputeExpectedDeltaForLeg_ReputationCurve_SameUtMatchesUseSequenceTiebreaker`
+  - order-dependence guard lowered 0.1 -> 0.001. The fix SHRINKS order dependence
+  (awards land near nominal), so forward-vs-reverse measures 0.00299 where it was ~0.5.
+  Still 6x the 0.0005 rounding tolerance of the three-decimal comparison it guards.
+- Five new cells in `ReputationModuleTests` state the contract fixture-independently:
+  the two-award chain reproduces KSP's own 1.99999881; a mutation guard reds if the
+  residual collapses back to the bare unit step; sub-unit awards are proved
+  BIT-IDENTICAL either way (for |nominal| < 1 the loop is the residual step alone and
+  `accumulated` is still 0, so the two formulas are the same number); the negative side
+  mirrors; and a non-integer award above 1 moves toward stock without landing exactly on
+  nominal, because a large residual is itself curve-attenuated.
+
+### The cause, verified both sides
+
+`ReputationModule.ApplyReputationCurve` (`Source/Parsek/GameActions/ReputationModule.cs:318-321`)
+mirrors KSP's granular award loop but computes the FINAL residual step from the
+NOMINAL step count instead of the accumulated ACTUAL:
+
+    float input = (i != num) ? delta : (nominal - (delta * num));   // Parsek
+    if (input == 0f) continue;
+
+For any integer nominal, `nominal - (delta * num)` is identically **zero**, so the
+residual step is skipped. Stock does not do that - decompiled
+`Reputation.addReputation_granular` accumulates the POST-CURVE actual in `num2` and
+feeds the residual from it:
+
+    if (i != num) num3 = ModifyReputationDelta(delta);
+    else          num3 = ModifyReputationDelta(value - num2);   // accumulated ACTUAL
+    rep += num3;
+    num2 += num3;
+
+So for a `+1` award at rep 0, stock applies `curve(0) = 0.99925393` and then tops it
+back up with `ModifyReputationDelta(1 - 0.99925393)`, landing at `0.99999944` per
+award - `1.99999881` (float32) over two, exactly KSP's own pool. Parsek skips the
+top-up and lands at `1.9985167980194092`, reproducing the pinned magnitude
+bit-for-bit. The keyframes themselves are CORRECT; stock simply compensates for them
+in the residual step and Parsek does not.
+
+The fix is one line: track the accumulated actual (`accumulated`, already a local at
+`:315`) rather than `delta * num`:
+
+    input = (i != num) ? delta : (nominal - accumulated);
+
+Every `ApplyReputationCurve` caller is affected - contracts (`:209`), penalties
+(`:140`), strategy setup (`:244`), rep earnings (`:105`) - which is why it is
+invisible in careers where other reputation sources dominate. The error is ~0.075%
+per unit at rep ~ 0 and grows with `|rep|`.
+
+### Why the fix was deferred out of the `career-capture-fixes` wave
+
+This is a RECALC-side change, and the pin that measures it
+(`C2CareerPostFixReplayTests.PinnedReputationShortfall = 0.001482011980590725`) is a
+DATA-ERA magnitude over a committed `ledger.pgld`. The wave that found this cause was
+scoped capture-side precisely so that the next re-fly + re-harvest can be read
+unambiguously: a magnitude that moves after the re-harvest is the capture fix, and
+nothing else. Landing a recalc change in the same wave would have moved that pin
+without a re-harvest - the exact signal this entry's own closing paragraph reserves
+for "a RECALC-side change has occurred and must be investigated". It has now been
+investigated; taking the fix is a deliberate, separate decision.
+
+Whoever takes it must, in the same commit: update `PinnedReputationShortfall` (it
+should go to ~0, against `SaveReputation = 1.99999881`), refresh the now-stale
+cause-open commentary at `C2CareerPostFixReplayTests.cs:47-49`, `:112-116`, `:336-351`,
+and re-read `C2CareerLedgerReplayTests`' own `-0.00364` reputation window, which is a
+different fixture and may or may not close with it.
+
+### Suspects ruled out along the way (kept - they are what made the cause findable)
+
+`C2CareerLedgerReplayTests` has carried a `-0.00364` reputation divergence since
+2026-08-17, pinned as a 0.01 window with the note that whether it is "a second
+small leak or curve-rounding is unknown", and that it becomes re-measurable "on a
+post-fix re-harvest of c2 - which is when to look, not by guessing now".
+
+A post-fix fixture has now been harvested. It is NOT a c2 re-harvest, so it does
+not settle the c2 magnitude - but it is a far CLEANER instrument for the same
+family, and it rules suspects out:
+
+| Suspect | Ruled out by |
+| --- | --- |
+| the strategy currency exchange | the post-fix career activates no strategy at all |
+| a bad reputation SEED | its rep seed is 0 and the save genuinely started at 0 |
+| contract reputation | it accepts and completes no contracts |
+| reputation PENALTIES | nothing died and nothing failed |
+
+What is left is the MILESTONE reputation award path, which is the only reputation
+input the post-fix career has: `RecordsSpeed` and `RecordsAltitude`, `+1` each.
+KSP's own pool lands at `1.99999881` (float32 2.0); the replay lands at
+`1.9985167980194092`, i.e. 0.001482 low on a two-award career.
+
+**Pinned, not chased:** `C2CareerPostFixReplayTests` pins the 0.001482 as a
+magnitude rather than hiding it in a window, precisely so the next person has an
+instrument. That worked: the pin is what made the arithmetic checkable, and the
+award path has now been READ rather than inferred - the answer is the residual-step
+formula above, and it is neither "curve applied on one side only" nor "applied
+twice" (both sides apply it; only the top-up differs). C2Career's own window stays
+at 0.01 and is deliberately NOT tightened onto a number measured on different data.
+
+**What would move the pin, stated so nobody expects the wrong thing:** the 0.001482
+is a DATA-ERA magnitude over a committed `ledger.pgld`, so it flips ONLY on a
+RE-HARVEST over fixed code. A capture-side fix to the milestone award path changes
+nothing in this suite by itself - the committed rows are frozen at the era they
+were recorded in. If the magnitude moves WITHOUT a re-harvest, a RECALC-side change
+has occurred and must be investigated rather than re-pinned.
+
+## WATCH-LOOPED-PARK-TARGET-LOSS-NRE-STORM: watch mode survives a loop RE-ARM with a null camera target and throws stock NREs on EVERY frame from there to scene end - 306 of them in 1.26 s [MEASURED 2026-08-19 by `V15M-gilly-player-loop`'s reading run and REPRODUCED on its armed re-flight the same day (447 then 443 total on byte-identical shapes), the FIRST successful watch entry on a looped arrival park. REPORT-ONLY: `unityExceptions` is report-only and BOTH runs PASSED; NO product change is proposed by this lane]
+
+`V15M-gilly-player-loop` run `2026-08-19_1736` came back **PASS attempt 1** with all
+21 steps met and `anomalySweep hits=[]`. It also read `unityExceptions total=447`,
+`status=REPORT` - by far the largest NRE population any loop lane has produced, against
+the 1 and 5 of the nearest sibling. The verdict is unaffected (that verifier does not
+gate), which is exactly why this needs writing down rather than leaving in a log.
+
+### Why this run and not the eleven before it
+
+**IT IS THE FIRST RUN THAT ACTUALLY WATCHES A LOOPED ARRIVAL PARK.** Every prior
+loop-lane watch attempt was REJECTED on separation - V6M, V6T, V7T, V14M and V14T all
+pin `expect = "REJECTED"` and measured it - and V7M, the one lane that DID enter,
+entered on a Minmus park and quit shortly after. `V15M` is the first to enter (a 27,024
+x 26,321 m Gilly park puts the co-orbiting observer and ghost 775 m apart, 1.51x inside
+the 120 km render-zone boundary; see WATCH-ENTRY-REFUSED-INSIDE-QUOTED-RANGE for what
+that boundary is and is not) **and then keep flying**: a second `StartLoopPlayback` and
+four more `TimeJump`s run with watch mode still active.
+
+THE CONTROL IS IN THE SAME PROGRAM: `V15T-gilly-ts-arrival` (run `2026-08-19_1739`)
+walks the same fixture with the same tracers and has NO watch steps. It counted **zero**
+NullReferenceExceptions. So the watched stretch is the source, not the fixture, not the
+tracers and not the Gilly conic.
+
+### The measurement, and the boundary is sharp on both sides
+
+All line numbers are
+`harness/results/2026-08-19_1736_V15M-gilly-player-loop_shots/KSP.log`.
+
+| moment | line | wall clock | NREs so far |
+|---|---|---|---|
+| `enterwatchmode complete: index=0 recId=77f724bb...` | 11308 | 20:37:42.974 | 0 |
+| `Watch focus (enter): ... targetMatches=True` | 11290 | 20:37:42.932 | 0 |
+| cycle-2 `startloopplayback initiated: ... relaunchUt=16541207.758711128` | 11348 | 20:37:43.164 | **still 0** |
+| FIRST NRE | 11529 | 20:37:43.431 | 1 |
+| `Watched cycle lost - falling back to primary cycle=1` | 11534 | **20:37:43.431** | - |
+| `Watch focus (cycle-fallback): ... actualTarget=null targetMatches=False` | 11535 | 20:37:43.431 | - |
+| LAST in-flight NRE | ~14190 | 20:37:44.694 | **306** |
+
+**ZERO NREs BETWEEN THE WATCH ENTRY AND THE LOOP RE-ARM** (lines 11308-11348, ~190 ms
+of watched frames with a valid target), and the first NRE shares a TIMESTAMP with the
+`Watched cycle lost` fallback. From that frame to the end of the flight scene, 306 NREs
+land across ~86 distinct frame timestamps - i.e. **every frame, 3-4 throws per frame**,
+for 1.26 wall-seconds. It is not a burst and not a leak; it is a steady per-frame rate
+that starts at a nameable event and never stops.
+
+The two production lines that bracket it, verbatim:
+
+    11290  [Parsek][INFO][CameraFollow] Watch focus (enter): watch=active rec=#0
+           id=77f724bb1d4844c3b132a1ccc00a7df3 vessel="Kerbal X" source=primary cycle=0
+           mode=HorizonLocked expectedTarget=horizonProxy actualTarget=hori...
+    11534  [Parsek][INFO][CameraFollow] Watched cycle lost - falling back to primary cycle=1
+    11535  [Parsek][INFO][CameraFollow] Watch focus (cycle-fallback): watch=active rec=#0
+           id=77f724bb1d4844c3b132a1ccc00a7df3 vessel="Kerbal X" source=primary cycle=1
+           mode=HorizonLocked expectedTarget=horizonProxy actualTarget=null
+           targetMatches=False zone=Physics dist=56159.0km alt=13717082m ghostBody=Eve
+           activeVessel="#autoLOC_501232" activeBody=Gilly
+
+Read `cycle=0 -> cycle=1`, `targetMatches=True -> False` and
+`actualTarget=hori... -> null`. The fallback fires ONCE and the null target is never
+re-resolved; the log carries exactly one `Watched cycle lost` and exactly one
+`actualTarget=null` line, so this is a persistent state rather than a repeating event.
+Note also `dist=56159.0km ghostBody=Eve` on that line while the ACTIVE vessel is at
+Gilly: at the moment of the re-arm the ghost is back at the start of its replay, an Eve
+parking orbit 56,159 km away, and the camera is asked to follow it from a Gilly park.
+
+### What is throwing, and it is all stock
+
+Four distinct Unity/KSP call sites repeat, in a fixed rotation (counts over the whole
+run):
+
+| thrower | count |
+|---|---|
+| `CrewHatchController.LateUpdate ()` | 77 |
+| `Sun.Sun.LateUpdate_Patch1(Sun)` (wrapper dynamic-method) | 77 |
+| `UIPartActionController.UpdateFlight ()` | 76 |
+| `Vessel.Update ()` | 76 |
+| `UnityEngine.Component.GetComponent[T] ()` (the teardown one, see below) | 1 |
+
+plus 140 `[ERR] [FlightGlobals]: threw during UpdateInformation, fixed=True. Exception:
+System.NullReferenceException` lines, which is how the total reaches the runner's 447
+(`unityExceptions` counts every line mentioning the type, not only `[EXC]` headers -
+307 `[EXC]` + 140 `[ERR]`).
+
+**NO PARSEK FRAME APPEARS IN ANY OF THE 306 IN-FLIGHT STACKS.** That is the single most
+important thing on this page and it is what keeps the entry report-only: what is
+measured is stock code dereferencing something the camera state has left null, not a
+Parsek method throwing. Which of `actualTarget`, the horizon proxy or the retired ghost
+is the null is UNDIAGNOSED here.
+
+### The nearest sibling, cross-linked and NOT claimed to be the same thing
+
+`MOON-LOOP-FINDINGS` -> **(2) Teardown NRE when a run ends inside watch mode** is the
+closest filed relative: V7M is the only other lane that ends inside watch mode, and its
+two green flights read `total=1` and `total=5`, the second being one Parsek line
+(`WatchModeController.RestoreCameraAfterWatchExit` -> `GetActiveVesselSafe` ->
+`FlightGlobals.get_ActiveVessel`) plus four stock teardown knock-ons.
+
+**THIS RUN HAS THAT ONE TOO, AND IT IS SEPARABLE.** The 307th `[EXC]`, at 20:37:45.596
+(line 14204), is a `CrewHatchController.OnDestroy -> DespawnUIs -> HideTooltip ->
+get_CrewHatchTooltip -> DialogCanvasUtil.get_DialogCanvasRect` throw during scene
+teardown - V7M's class, ~0.9 s after the last in-flight one and after
+`KbApp.OnDestroy` / `[UIApp] OnDestroy`. So the run contains **1 teardown NRE (the known
+finding) + 306 in-flight ones (this finding)**, and they should not be pooled.
+
+**THE TWO ARE NOT SHOWN TO SHARE A MECHANISM.** V7M's is a shutdown-ordering NRE with a
+Parsek frame in it; this one is a per-gameplay-frame storm with no Parsek frame, bounded
+by a camera-state transition rather than by `OnDestroy`. Treat the cross-link as "look
+here too", not as a diagnosis.
+
+### What makes this subject unusual, stated as the plausible trigger
+
+The watched ghost's replay is PHASE-LOCKED with a cadence of exactly one Gilly period
+(388,587.377 s), and the second `StartLoopPlayback` re-resolves the unit onto the NEXT
+cycle. So between the two watch steps the ghost's replay **retires and relaunches**: the
+cycle the camera was following ceases to exist, which is precisely what `Watched cycle
+lost - falling back to primary` reports. The fallback then hands the camera a target it
+cannot resolve, and the storm runs from there.
+
+**THAT TRANSITION IS UNMEASURED ANYWHERE ELSE IN THE SUITE.** No other lane both enters
+watch mode and crosses a loop-cycle boundary while watching: V7M enters and quits inside
+the same cycle; every other watcher was refused entry. So the trigger is not "watch
+mode" and not "loop playback" - it is the INTERSECTION, and this is the only run that
+has ever reached it.
+
+### REPRODUCED - and the pacing hypothesis survives its first test (2026-08-19)
+
+The ARMED re-flight of the identical shape, run `2026-08-19_1808`, **PASS attempt 1**,
+read `unityExceptions total=443` against the reading run's 447 - a 0.9 % spread on two
+runs whose flown shape is byte-identical (arming moved only expectations, never a step,
+a jump UT or a budget). Its `Watched cycle lost - falling back to primary cycle=1` fires
+at KSP.log line 12846, the same position in the same sequence.
+
+**443-vs-447 IS THE INTERESTING NUMBER, not the 447.** A one-off would not have landed
+within four counts; a leak would not have stopped growing. What a ~1 % spread across two
+runs looks like is a per-frame rate multiplied by a frame count that differs slightly
+between runs - which is open question 1's hypothesis, now with a datum on both sides
+rather than a single reading. It also settles open question 4 (does it reproduce): yes,
+deterministically.
+
+AND IT DOUBLES AS THE ARGUMENT AGAINST A CEILING. `maxTotal` would have to be set above
+447 to admit both, which is a bound on nothing; set at 447 it would red the armed run.
+The quantity is run PACING, and a verifier ceiling cannot distinguish a slow frame from
+a product regression at that resolution.
+
+### Open questions
+
+1. **Is the NRE count simply proportional to watched-frames-with-a-null-target?** The
+   evidence says probably yes and now bounds it from two runs: 0 throws over ~190 ms of
+   valid-target watching, then 3-4 per frame over ~86 frames with a null target, with no
+   decay - and 447 vs 443 across two byte-identical shapes. If that holds, the
+   population is a pure function of how long a run keeps flying after the fallback,
+   which makes any `maxTotal` ceiling a measure of run PACING rather than of product
+   health. NOT YET CONFIRMED DIRECTLY: nobody has counted the null-target frames in the
+   443 run and divided.
+2. **Does exiting watch mode before the relaunch avoid it?** i.e. would a variant with
+   `ExitWatchMode` before the second `StartLoopPlayback` read zero? That is the cheap
+   discriminating experiment and the seam verb for it already exists. **DO NOT add it to
+   `V15M`**: the S4.1 rule is that arming must not change the flown shape, and V15M's
+   shape is what produced every measurement in its header. A variant lane is the place.
+3. **Which reference is null**, and whether the camera should be dropping watch entirely
+   on a lost cycle rather than falling back to a target it cannot resolve. Nothing here
+   settles it; the stacks are stock-only.
+4. **~~Does it reproduce?~~ ANSWERED 2026-08-19: yes.** The armed re-flight
+   `2026-08-19_1808` read 443 against the reading run's 447 (section above). What is
+   still open is whether it reproduces on a DIFFERENT subject - every reading so far is
+   the same fixture, the same park and the same two-cycle shape, because no other lane
+   in the suite reaches watch-across-a-loop-boundary at all.
+
+### Nothing gates it
+
+`unityExceptions` is REPORT-ONLY on this lane (`status=REPORT`, `gating=false`,
+`maxTotal=null`) and the run is a PASS. No `[expectations.unityExceptions] maxTotal` is
+armed, and the reason is V7M's, restated: that lane's own row declines a ceiling because
+two green flights of ONE spec spread 1-vs-5, and a single reading cannot size a bound.
+Here the spread is now MEASURED at 447-vs-443 across two green flights of one spec - a
+tighter spread than V7M's, and still a bound on nothing, because open question 1 says the
+quantity tracks run pacing. `V15M-gilly-player-loop.toml`'s header section 5 records the
+population inline so a future reader meets it where the watch steps are.
+
+**NO PRODUCT CHANGE IS PROPOSED BY THIS LANE.** What is recorded is the measurement, the
+zero-NRE control (V15T), the sharp before/after boundary at the cycle fallback, the
+separation from V7M's teardown NRE, and the named experiment that would move it.
+
+---
+
+## MAPRENDER-ICON-OFF-ORBIT-CREATION-FRAME-AFTER-JUMP: a ghost's proto ICON sits tens of degrees around its own orbit line on the CREATION frame, after a single large TimeJump onto an epoch just inside a foreign moon's SOI [MEASURED 2026-08-18 by `V14T-ike-ts-arrival`, REPRODUCED on its armed run, shown PARENT-INDEPENDENT by `V15T-gilly-ts-arrival`, and measured at a THIRD parent 2026-08-19 by `V16T-laythe-ts-arrival` (Jool/Laythe, 129.15 deg) - which also produced the FIRST count > 1 reading (TWO raises, one frame, two proto pids) and a SECOND LENS showing the same creation-frame binding gap. **RECURRED AT COUNT 2 ON V16T's ARMED RUN `2026-08-19_2212` (PASS attempt 1, the tolerance doing its job)**, alongside the second lens - both deterministic on the armed run. REPORT-ONLY: self-correcting, DETERMINISTIC for the single-jump shape at all three bodies, tolerated by name in all three specs; NO product change is proposed]
+
+`V14T-ike-ts-arrival` run `2026-08-18_2337` came back PARSEK-FAIL(anomaly) on
+attempt 1 with **all sixteen steps green** - every tracking-station route line
+fired, `created 1 ghost vessel(s)`, the TS session itself swept clean. The red is
+the armed Tier-C sweep doing its job: `anomalySweep hits=['icon-off-orbit']`,
+**exactly one line in the whole log**.
+
+### The measurement, verbatim
+
+`harness/results/2026-08-18_2337_V14T-ike-ts-arrival_shots/KSP.log` line 10774:
+
+    phase=Anomaly surface=ProtoIcon pid=2928501323 recId=05ceee33806d4079a1d9d125a1359115
+      frame=6979 currentUT=9243139.000 effUT=9243139.000 reason=icon-off-orbit
+      angleIconVsOrbitEff=94.05 angleEffVsLive=0.00 loopShift=0.0 effUT=9243139.0
+      | lonIcon=107.35 lonOrbitEff=-157.93 lonOrbitLive=-157.93
+      | iconR=1019937 orbitEffR=1019937
+      | lineActive=True inc=11.886 LAN=285.703 argPe=154.625 sma=-1230685 ecc=1.1385 body=Ike
+
+Read the three groups: **right body, right conic, right radius, wrong phase**.
+`iconR` and `orbitEffR` are the SAME 1,019,937 m; `lonOrbitEff` and `lonOrbitLive`
+agree exactly (`angleEffVsLive=0.00`, so the loop shift is not involved -
+`loopShift=0.0`); only `lonIcon` is 94.05 deg away from both.
+
+### The trigger shape, stated as narrowly as the evidence supports
+
+- **Ghost-proto CREATION frame.** The same frame 6979 carries
+  `phase=GhostCreated surface=ProtoIcon ... body=Ike scene=FLIGHT` and
+  `phase=FirstPosition ... reason=first-truth-read`. It is the first frame the
+  proto exists.
+- **FLIGHT scene, not TS.** It fires at 02:38:18.648; this lane's TS `LoadGame`
+  is at 02:38:19.58, about a second LATER. The tracking-station ghost
+  (pid 3383498847) is created clean and raises nothing. Do not read this as a TS
+  defect because it happens to appear in a TS lane's log.
+- **After ONE large TimeJump.** V14T jumps 17,223 s in a single step straight onto
+  the arrival epoch. **`V14M-ike-player-loop` is the control**: same fixture, same
+  tracers, same arrival UT 9,243,139, but reached through a STEPPED bracket
+  (-180 / -60 / +140 s). Its reading run `2026-08-18_2336` swept `hits=[]`. That
+  pair is what makes "the jump shape, not the fixture" the leading reading.
+- **Just inside a foreign moon's SOI, on a hyperbolic approach segment.** r =
+  1,019.9 km against Ike's 1,049.6 km SOI boundary; the conic is
+  `sma=-1230685 ecc=1.1385`, i.e. segments 6-9 of the committed recording.
+- **Self-corrects on the next frame**, and there is exactly one line per run.
+
+### REPRODUCED - it is a trigger, not an incident (2026-08-19)
+
+The reading run showed this ONCE, which is the weakest possible evidence: a single
+self-correcting frame is exactly what a one-off transient looks like. The ARMED
+re-flight settles it. Run `2026-08-19_0002`, PASS attempt 1:
+
+    anomalySweep status=PASS hits=[] counts={'icon-off-orbit': 1}
+
+Read both halves. `hits=[]` is the TOLERANCE working - the token is declared in
+`allowedAnomalies`, so it produces no unallowed hit and the run is green. `counts`
+is the raw tally, and it reads **1 again**. Same lane, same fixture, same single
+17,223-second jump, same one raise.
+
+That upgrades the finding from an observation to a **reproducible trigger**, and it
+sharpens the control at the same time: `V14M-ike-player-loop` has now flown TWICE
+(`2026-08-18_2336`, `2026-08-19_0001`, both PASS) against the same fixture, the same
+tracers and the same arrival UT through a STEPPED bracket, and swept `hits=[]` with an
+empty `counts` on both. Two runs each, one variable between them, opposite results
+every time. "The jump shape, not the fixture and not the scene" is no longer the
+leading reading - it is the measured one.
+
+WHAT IT DOES NOT UPGRADE: which surface is wrong, or whether V7T's persistent Minmus
+raise shares the mechanism. Reproducibility says the trigger is stable.
+
+### PARENT-INDEPENDENT - MEASURED 2026-08-19 at a SECOND parent and moon (V15T)
+
+The "what is NOT established" list used to open with *whether the mechanism is
+parent-specific*, and it named the experiment: fly the same single-jump shape at a
+different parent. `V15T-gilly-ts-arrival` is that experiment, and it ran as an
+ordinary reading run rather than as a probe - which is the stronger form, because
+nothing about it was shaped to provoke the raise.
+
+`harness/results/2026-08-19_1739_V15T-gilly-ts-arrival_shots/KSP.log` line 10814,
+run `2026-08-19_1739`, PARSEK-FAIL(anomaly) attempt 1 with **all sixteen steps
+green** and the TS session clean (`created 1 ghost vessel(s)`,
+`phase=GhostCreated surface=ProtoIcon pid=3282224066 ... body=Gilly
+scene=TRACKSTATION`):
+
+    phase=Anomaly surface=ProtoIcon pid=687187265 recId=77f724bb1d4844c3b132a1ccc00a7df3
+      frame=7757 currentUT=16267740.000 effUT=16267740.000 reason=icon-off-orbit
+      angleIconVsOrbitEff=26.49 angleEffVsLive=0.00 loopShift=0.0 effUT=16267740.0
+      | lonIcon=46.98 lonOrbitEff=73.92 lonOrbitLive=73.92
+      | iconR=49232 orbitEffR=49232
+      | lineActive=True inc=17.980 LAN=39.322 argPe=180.550 sma=-20 ecc=1996.2409 body=Gilly
+
+**THE SIGNATURE IS IDENTICAL IN EVERY STRUCTURAL RESPECT.** Ghost-proto CREATION
+frame, FLIGHT scene (20:40:10.324, ~2 s before the TS `LoadGame` at 20:40:12), after
+ONE large TimeJump onto an epoch just inside a foreign moon's SOI, `iconR` and
+`orbitEffR` the SAME value (49,232 m), `lonOrbitEff == lonOrbitLive` with
+`angleEffVsLive=0.00` and `loopShift=0.0`, and exactly ONE line in the whole log.
+Right body, right conic, right radius, wrong phase - the same three-group read.
+
+**SO PARENT-INDEPENDENCE IS MEASURED, not inferred:** two parents (Duna, Eve), two
+moons (Ike, Gilly), SOI scales differing by 8.3x (1,049,599 m vs 126,123 m), two
+different recordings, deterministic at both. And the CONTROL travelled with it:
+`V15M-gilly-player-loop` (run `2026-08-19_1736`, PASS) reaches the SAME arrival UT
+16,267,740 through V14M's stepped -180/-60/+140 bracket on the same fixture with the
+same tracers, and swept `anomalySweep hits=[] hitCounts={}`. Two body pairs, one
+variable, opposite results in all four runs.
+
+**THE MAGNITUDE IS NOT A CONSTANT, and that is the one genuinely new fact.**
+`angleIconVsOrbitEff` reads **94.05 deg at Ike** and **26.49 deg at Gilly** - a 3.5x
+difference in the quantity the detector thresholds on. Whatever the icon's phase is
+stale BY, it scales with something body- or geometry-dependent rather than being a
+fixed angular offset. NOT DIAGNOSED: two points do not separate "stale by a fixed TIME
+along very different conics" from anything else, and the Gilly conic is pathological in
+its own right (`sma = -20 m, ecc = 1996.24` - recorded in
+`harness/scenarios/V15T-gilly-ts-arrival.toml`'s header together with the unexplained
+observation that the speed those elements imply is closer to Gilly's own orbital speed
+than to the encounter's v_inf). A third body pair, or the frame-by-frame comparison
+below, is what would move it.
+
+### What is NOT established
+
+**Whether it shares a mechanism with V7T's persistent raise.** V7T raises
+`icon-off-orbit` deterministically at MINMUS on every flight
+(`MOON-LOOP-FINDINGS`), so the token is neither new nor moon-specific. Whether THIS
+one - creation-frame, one-shot, post-single-jump - is the same mechanism as V7T's
+persistent raise is UNKNOWN and would need the two compared frame by frame.
+
+**Whether the icon or the line is wrong.** `angleIconVsOrbitEff` says only that
+they disagree. The radius agreement makes a stale-phase icon the natural first
+guess (the icon drawn before its position resolves against the freshly-jumped
+clock), but nothing here measures which surface is authoritative on a creation
+frame.
+
+**The cheap discriminating experiment**, for whoever picks this up: give V14M (or
+V15M) a variant with the single-jump shape, or give V14T (or V15T) a variant with the
+stepped bracket, and see whether the raise follows the JUMP SHAPE or the SCENE. Four
+lanes now exist across two body pairs, each pair sharing a fixture and differing in
+exactly that one variable, so the experiment is a step-list edit rather than a new
+fixture. The evidence already points hard at the jump shape (stepped: 3 runs, 0
+raises; single-jump: 3 runs, 3 raises); what the variant would add is the SCENE half,
+which is still confounded - every single-jump run so far is a TS lane.
+
+### The tolerance now in force, and its ceiling
+
+`V14T-ike-ts-arrival` declares `allowedAnomalies = ["icon-off-orbit"]`, added WITH
+the flight that shows it (the S1.4 rule). It is BARE rather than
+`{ token = ..., maxCount = 1 }`, and that is a deliberate, temporary weakness:
+`harness/lib/test_hlib.py::MisplacedAllowedAnomaliesRejectionTests.test_no_committed_spec_arms_a_count_budget`
+holds the budget mechanism INERT across the whole suite, and its own comment says
+arming one is "an operator decision taken against measured `anomalySweep.hitCounts`
+from a GREEN run" - which this lane does not have yet, since the run that measured
+the token is the run it red'd. **THAT PRECONDITION IS NOW MET.** The armed re-flight `2026-08-19_0002` is a PASS and
+it carries the reading the doctrine asks for: `anomalySweep status=PASS hits=[]
+counts={'icon-off-orbit': 1}`. So the arming is READY - an operator may now declare
+`allowedAnomalies = [{ token = "icon-off-orbit", maxCount = 1 }]` in
+`V14T-ike-ts-arrival`, citing that run, as the suite's FIRST budgeted entry. Two things
+must move together when they do: the whole-set invariant cell
+`test_no_committed_spec_arms_a_count_budget` currently asserts the empty set and would
+red, so it needs a named allowlist in the same edit - the same shape as
+`ARMED_ALLOWLIST`, and the same discipline (record the run, not just the token).
+
+`V15T-gilly-ts-arrival` joins on the SAME terms as of 2026-08-19: its reading run
+`2026-08-19_1739` red on exactly this token with every step green - the correct catch
+its spec pre-registered - and the arming added the same BARE
+`allowedAnomalies = ["icon-off-orbit"]` with that run cited.
+
+**AND ITS ARMED RE-FLIGHT MAKES THE RAISE A THIRD DETERMINISTIC SIGHTING, AND MEETS THE
+CEILING PRECONDITION ON BOTH LANES.** Run `2026-08-19_1809`, **PASS attempt 1**:
+
+    anomalySweep status=PASS hits=[] counts={'icon-off-orbit': 1}
+
+Read it exactly as V14T's `2026-08-19_0002` was read: `hits=[]` is the tolerance working
+and `counts` is the raw tally, which reads **1 again**. So the single-jump creation-frame
+trigger has now fired on **FOUR runs across TWO body pairs - TWICE EACH** (V14T `_2337`
+and `_0002` at Ike; V15T `_1739` and `_1809` at Gilly) - at a population of exactly 1
+every time, with the stepped-bracket control silent on all four of ITS runs (V14M x2,
+V15M x2). Four raises, four silences, one variable.
+
+**THE `maxCount = 1` PRECONDITION IS NOW MET FOR BOTH LANES.** The doctrine in the
+budget cell asks for "measured `anomalySweep.hitCounts` from a GREEN run"; V14T supplied
+one on `2026-08-19_0002` and V15T has now supplied its own on `2026-08-19_1809`. So the
+only thing still blocking the ceiling is the whole-set invariant
+(`test_no_committed_spec_arms_a_count_budget`), which must move to a named allowlist in
+the same edit. When it is taken it should cover BOTH lanes at once, since they are the
+same trigger and now have the same evidence: three green readings, population 1 each.
+
+Until that decision is taken the tolerance stays BARE in both specs and the ceiling
+lives in their comments rather than in their declarations - so a SECOND raise in one
+run would pass unnoticed. That is the honest, and now precisely bounded, cost of
+respecting the invariant: the measured population is 1 on each of THREE runs across two
+body pairs, so the gap between what is declared (any count) and what is observed
+(exactly one) is the entire exposure.
+
+`V14M-ike-player-loop` and `V15M-gilly-player-loop` keep `allowedAnomalies = []` and
+stay the controls.
+
+**NO PRODUCT CHANGE IS PROPOSED BY THIS LANE.** A one-frame creation-time icon
+phase error that self-corrects is a rendering transient, not a recorded-data
+defect; nothing in the recording, the loop unit or the committed save is affected.
+What is recorded here is the measurement, the control that isolates the jump
+shape, and the discriminating experiment.
+
+### A THIRD PARENT, AND TWO PROPERTIES RETIRED (2026-08-19, `V16T-laythe-ts-arrival`)
+
+`V16T-laythe-ts-arrival` run `2026-08-19_2115` came back PARSEK-FAIL(anomaly) on
+attempt 1 with **all sixteen steps green**, exactly as the two earlier readings did.
+Its measurement adds a third body pair and changes two things this entry had
+previously stated as settled.
+
+**(1) THE PER-RUN COUNT IS NOT 1.** `anomalySweep hits=['icon-off-orbit']
+hitCounts={'icon-off-orbit': 2}` - **TWO raises**, on the SAME frame (6572), at the
+SAME angle (129.15 deg), on TWO DIFFERENT proto pids
+(`3930042019` at `iconR=985172270` and `3249379867` at `iconR=933939331`; KSP.log
+lines 10835 and 10843). The creation-frame trigger hit two proto instances at once.
+Four earlier runs (V14T `_2337` / `_0002`, V15T `_1739` / `_1809`) each measured
+exactly one, and this entry described that as "one self-correcting frame per run".
+**That was a measurement over four runs at two bodies, never a ceiling** - and it is
+now falsified. THE PRACTICAL CONSEQUENCE is for the deferred
+`{ token = "icon-off-orbit", maxCount = N }` arming that all three specs discuss:
+**N would have to be 2, not 1**, and whoever takes that edit must re-read all three
+lanes together rather than copying V14T's number.
+
+**(2) THE MAGNITUDE STILL CORRELATES WITH NOTHING THREE POINTS CAN SEPARATE.**
+`angleIconVsOrbitEff` now reads 94.05 (Ike) / 26.49 (Gilly) / **129.15** (Laythe)
+across SOI radii of 1,049,599 / 126,123 / 3,723,646 m. It is not monotonic in SOI
+scale, in parent mu, or in the arrival conic's eccentricity (1.1385 / 1996.24 /
+1.2713). Three points, no ordering. Recorded, not modelled.
+
+**EVERYTHING ELSE IS IDENTICAL AGAIN:** ghost-proto CREATION frame, FLIGHT scene,
+after ONE large TimeJump onto an epoch just inside a foreign moon's SOI,
+`iconR == orbitEffR` on both pids, `lonOrbitEff == lonOrbitLive` with
+`angleEffVsLive=0.00` and `loopShift=0.0`. And the control travelled with it:
+`V16M-laythe-player-loop` (run `2026-08-19_2114`, PASS) reaches the SAME arrival UT
+29,874,214 through a stepped bracket and swept `hits=[] hitCounts={}` - the third
+control in three programs.
+
+**AND THE SAME RUN SHOWED THE GAP ON A SECOND LENS**, which is the most useful thing
+it produced. See
+MAPRENDER-SEAM-LENS-EVALUATES-UNSHIFTED-EPOCH-ON-CREATION-FRAME: on that lane's
+creation frame the seam-endpoint lens evaluated the recording's **un-shifted** epoch
+(`effUT` = the recorded seam UT, `clock=raw seed=no-seed`) and raised
+`seam-endpoint-outside-soi`. Two different lenses, one frame class, the same
+"the loop shift has not bound yet" reading - which is what turns a rendering
+curiosity into a NAMED family with a candidate mechanism.
+
+---
+
+## SEAM-STARTRECORDING-JOINS-COMMITTED-TREE: a seam `StartRecording` on a vessel that is a committed tree's own launch cannot open a standalone tree - it no-ops onto the recording the committed-restore path re-resumed [MEASURED 2026-08-18 by `B23-ike-orbit` flight 1; WORKAROUND LIVE-PROVEN the same day by flight 2. REPORT-ONLY: a HARNESS/FIXTURE constraint on the automation surface, NOT a proposed product change]
+
+`B23-ike-orbit` exists to produce the suite's first recording whose LAUNCH BODY
+is not Kerbin: the DD1 starts already parked in Duna orbit and hops to Ike, so the
+loop lanes can read it as a SAME-PARENT transfer. Its flight-1 fixture was
+`duna-direct-recorded` - B17's `--keep-parsek` harvest, which carries a COMMITTED
+TREE for that very vessel. The run came back **PASS attempt 1 with every
+assertion met** and the product was still wrong.
+
+### What happened, from the run's own log
+
+Run `2026-08-18_2242`, collected at
+`harness/results/2026-08-18_2242_B23-ike-orbit_shots/KSP.log`:
+
+- **11509** - at LoadGame the load-time optimizer SPLIT the committed main
+  recording `311d98e3` at `UT=4653681.9` (`first: 147 pts/2 sections, second:
+  363 pts/40 sections`), minting `17c32d96` for the Duna tail. `311d98e3` is left
+  as the FIRST half: a 177-second KERBIN pad-ascent fragment (bounds stamped
+  `startUT=4653504.3039999772 endUT=4653681.9038905427`, line 11507).
+- **12026 / 12097** - the spec's scene-entry preamble did its job:
+  `stoprecording stopped=true idle=false`, then `discardtree discarded=true`.
+  The promotion stub was killed and its tree torn down.
+- **12167** - 11 ms later, `[#8][CommittedSpawnedRestore:post] mode=tree
+  tree=ccb5e4af rec=311d98e3 pid=2200110044`: the committed-restore path
+  **re-resumed the committed recording**, BETWEEN DiscardTree (01:43:23.119) and
+  the seam StartRecording (01:43:23.863).
+- **12210** - `startrecording recordingId=311d98e32547491e8dd37aec2526d25d
+  already=true`. StartRecording no-opped onto that recording and started nothing.
+
+The whole Duna->Ike hop was therefore appended to a Kerbin-rooted ascent
+fragment. At commit the ledger line reads `startUT=4653504.3, endUT=9181612.7`
+for `311d98e3` (line 14308) - **one committed recording legally carrying a
+~4.5-million-second UT gap** - and the commit terminals (13995-13997) are
+`311d98e3=Orbiting/Ike`, `3397c2e5=Destroyed/Kerbin`,
+`17c32d96=Orbiting/Duna`, all three still inside B17's tree `ccb5e4af`.
+
+### Why this is the TS-LOADGAME-RECORDING-ACTIVE-RACE family plus one more thing
+
+The re-arm window is the same shape as the scene-entry race the V-lanes'
+StopRecording + DiscardTree pair was written for, and the pair is NOT a latch: it
+kills ONE stub, and the committed-restore path re-arms behind it. What the
+V-lanes never hit is the SECOND half - **committed-tree same-launch-guid
+continuation semantics**. The resumed recording belongs to a COMMITTED tree for
+the same vessel launch, so `StartRecording` correctly reports the vessel as
+already recording; there is no state in which it would instead fork a standalone
+tree. No re-ordering of the seam steps closes the window, because the resume
+happens before any step can run.
+
+### Why no verifier caught it
+
+Worth stating plainly, because "PASS attempt 1" is what this entry is really
+about:
+
+- the recordings **count** would have read a perfectly healthy number - it counts
+  `.prec` sidecars and cannot see which tree a recording belongs to;
+- the `Recording started` logContract token MATCHED, but all five occurrences
+  came from the promotion path and say so on their face (`..., promotion,
+  treeRec=rec[311d98e3|...]`, lines 11833 / 12159 / 14655) - the seam started
+  nothing;
+- nothing in the expectations vocabulary (logContracts, `saveParse`) can express
+  "this recording's launch body is Duna".
+
+So a green verdict is not evidence of the contract here, and any future lane that
+starts a recording on a parked committed craft inherits the same blind spot.
+
+### Consequence for the loop lanes
+
+A recording rooted at Kerbin with a deep multi-hop chain is exactly what the
+re-aim classifier declines, falling through to FAITHFUL - the opposite of the
+same-parent phase-lock route B23 exists to produce. The defect is invisible until
+a loop lane consumes the fixture, which is why it is filed rather than left in the
+spec header alone.
+
+### Workaround, and the scope of what is claimed
+
+`B23-ike-orbit` is re-pointed at **`duna-park-probe`**, a Parsek-stripped derived
+copy of the same save: `harvest_bdock_station.py --save-dir
+fixtures/saves/duna-direct-recorded --target-name duna-park-probe
+--expect-situation ORBITING` WITHOUT `--keep-parsek` (which prunes the `Parsek/`
+sidecars), PLUS a manual excision of the residual ParsekScenario children
+(`RECORDING_TREE`, `GROUP_HIERARCHY`, `MILESTONE_STATE`). **The second step is not
+optional**: the harvest tool prunes sidecars but leaves the scenario node, and the
+`RECORDING_TREE`'s `activeRecordingId` is precisely what drove the resume. Same
+DD1, same orbit, same epoch, no committed tree, so there is nothing to resume and
+`StartRecording` opens the standalone Duna-rooted tree. Guarded headlessly by
+`missions/lib/test_b23_ike_orbit.py::SpecArithmeticTests` (the saveTemplate pin,
+the byte-level "no `Parsek/` and no scenario children" check, and the count
+arithmetic), because a one-string revert would restore the defect with every
+verifier still green.
+
+**THE WORKAROUND IS LIVE-PROVEN, and the proof is the same day's flight 2.** Run
+`2026-08-18_2308` (PASS attempt 1, mission wall 370.5 s, zero Unity exceptions)
+flew the identical spec against `duna-park-probe` and the seam answered
+
+    startrecording recordingId=05ceee33806d4079a1d9d125a1359115 already=false
+
+(KSP.log line 10509 in `harness/results/2026-08-18_2308_B23-ike-orbit_shots`) -
+`already=FALSE`, the exact inversion of flight 1's line, and the whole point of
+the strip. It minted a FRESH STANDALONE tree
+`f55918afd70b45e284006e01729d9e9a`, crossed the boundary exactly once (`SOI change
+boundary suppressed in tree mode: Duna to Ike`, 11176), and committed with
+`CommitTreeFlight terminal: rec=05ceee33... terminalState=Orbiting
+terminalOrbitBody=Ike` (11863). saveParse on the produced save: ONE recording, 200
+points, zero supersede / tombstone / rewind rows. That save is now the committed
+`ike-orbit-recorded` fixture, and its one-recording topology is pinned in
+`harness/lib/test_saveparse.py::CommittedFixtureSweepTests.RECORDED_FIXTURES` -
+where a 2 or a 3 would mean this defect is back.
+
+So the entry stands as a CONSTRAINT with a proven workaround, not as an open
+problem. **NO PRODUCT CHANGE IS PROPOSED BY THIS LANE.** The observed behaviour is
+arguably correct - a committed tree's vessel IS still that recording's subject,
+and silently forking a standalone tree on top of it would be its own hazard. What
+is recorded here is (a) the automation-surface constraint, so the next spec author
+does not spend a flight rediscovering it, (b) the fact that a committed recording
+can legally span a multi-million-second gap, which is a property any future
+consumer of committed spans should not assume away, and (c) the shape of the fix,
+which is a two-step fixture derivation and NOT a spec re-ordering: no arrangement
+of the seam steps closes the window, because the re-resume happens before any step
+can run.
+
+---
+## ~~LEDGER-TRUNCATE-LEAVES-A-STALE-ELS-CACHE: `Ledger.TruncateActionsForTesting` mutated the ledger without bumping `StateVersion`, so `ComputeELS` went on serving removed rows~~ [FOUND 2026-08-19 by the L3 capture-matrix reading run `2026-08-18_2136`. FIXED the same day.]
+
+`EffectiveState.ComputeELS` caches its result against `Ledger.StateVersion`, and
+every mutator on `Ledger.actions` bumps that version - except
+`TruncateActionsForTesting`, which every in-game cell calls in its teardown to
+put the save back. The cache therefore kept serving rows that had already been
+removed, until something unrelated happened to bump the version.
+
+**How it surfaced, and why it is worth an entry despite being test-only.** It
+made a CORRECT capture door read as a broken one. On the first reading of the
+capture matrix, `ExchangerStrategy_OneShot_CapturesBothLegs` took its
+pre-exchange ELS baseline immediately after the preceding cell's teardown
+truncation, inherited that cell's already-deleted rows into the baseline, and
+computed a row DELTA of `convDebitRows=-1 sciCreditRows=-1 fundsRows=0` against
+a `funds=441.33766174316406` sum. The exchanger door had in fact written its
+`FundsEarning`/`Strategy` row correctly (the re-read measured
+`fundsRows=1 funds=609.46630859375`); the stale cache subtracted a phantom row
+and the cell failed its "exactly one FundsEarning row" assertion. A delta-based
+assertion is the house idiom precisely so a fixture's pre-existing rows cannot
+satisfy or break it - this defect turned that safety property into a hazard.
+
+**Fix.** Bump `StateVersion` in `TruncateActionsForTesting`, like every other
+mutator. The no-op early return (nothing removed) deliberately does NOT bump, so
+a teardown that removes nothing cannot force a needless ELS rebuild. Two cells in
+`LedgerTests` pin both directions.
+
+**TWO MORE OF THE SAME CLASS, found by the review of that fix and fixed alongside
+it - both PRODUCTION paths, unlike the one above.** The sweep looked for other
+sites that mutate a row or the list without bumping, and found two.
+(1) `LedgerRolloutAdoption.TryAdoptRolloutAction` retags an existing rollout row's
+`RecordingId` and clears its `DedupKey` - which changes which RECORDING the row
+belongs to - with no bump. `SupersedeCommit`'s world-action safety cache keys on
+`Ledger.StateVersion` (`worldActionSafetyCacheLedgerVersion`) and answers exactly
+that per-recording question, so an unbumped adoption could leave the Re-Fly safety
+gate saying "no world action" for a recording that had just acquired one.
+(2) `Ledger.SeedInitialFunds`'s stale-0-seed repair mutates the `FundsInitial`
+row's value in place, and that seed is the base of every running funds balance the
+reconstruction computes. Both now bump; the no-match / no-repair paths deliberately
+do not, mirroring the truncate no-op. Pinned by `TryAdoptRolloutAction_Bumps...` /
+`_DoesNotBumpWhenNothingIsAdopted` in `Bug445RolloutCostLeakTests` and
+`SeedInitialFunds_StaleZeroRepair_BumpsStateVersion` /
+`SeedInitialFunds_DoesNotUpdateNonZeroSeed` in `LedgerTests`. Neither had a
+reported symptom - they are the same defect class caught before it cost a
+diagnosis.
+
+## STRATEGY-REPUTATION-DROP-CLAMPS-THE-GUARD: the query door's deliberately-dropped reputation leg diverges the reconstruction, and reputation has no pending adjuster to absorb it [FILED 2026-08-19 off the strategy-test-matrix lane. NOT FIXED - the DROP is correct; the CONSEQUENCE was undocumented]
+
+The drop itself is a settled decision and is not in question.
+`StrategyConversionCapture.EvaluateLegs` returns a reputation leg and
+`LedgerOrchestrator.BuildStrategyConversionAction` deliberately returns null for
+it, because the query delta is the modifier's PRE-curve contribution while
+`Reputation.AddReputation` applies KSP's granular curve on top - the magnitude
+available at that seam is not the magnitude the pool moved by, and writing it
+through either the earning or the penalty arm would trade a known drift for a
+wrong one.
+
+What was NOT written down is what the drift then costs. Live reputation moves and
+the reconstruction does not, and unlike science - which has three pending
+adjusters plus `ComputePendingRecentKscScienceCredit`'s frozen-clock window
+masking a pool-only award - **reputation has no pending adjuster at all**.
+`KspStatePatcher.ResolveReputationPatch` guards at epsilon `0.01`, so any dropped
+reputation leg larger than a hundredth of a point raises
+`PatchReputation: GUARDED DRAWDOWN clamped resource=Reputation` on the next
+recalc, and keeps raising it on every recalc thereafter. The clamp is CORRECT (it
+preserves the live value); it is the WARN that is unbounded, exactly as in
+`STRATEGY-PREFIX-HOLDBACK-PERMANENT` above.
+
+**MEASURED LIVE** on `2026-08-18_2140_L3-strategy-currency-conversion`. Open-Source
+Tech Program at the stock default Factor 0.05, a 400-point science award: take=20
+science, and the reputation pool moved **0.33515101671218872** while the door
+observed **dR=0.33540129661560059**. Two things worth keeping. First, the
+magnitude is 33x the 0.01 guard epsilon, so this is not a rounding-scale drift.
+Second, that 0.00025 gap between the two numbers IS the pre-curve / post-curve
+difference the drop exists because of - the door's number really is not the
+pool's number, measured rather than argued. Appreciation Campaign
+(funds -> reputation) is the larger-magnitude sibling and is untested.
+
+**Fix shape:** the same shape as the prefix-holdback entry, and the two should
+probably be solved together - bound or account for the observed side rather than
+widening the guard. The candidate that does NOT require a pre-curve magnitude is
+to read the POST-curve delta from the `ReputationChanged` event that follows, the
+way `ConvertStrategyExchangeReputation` already does for the exchanger family's
+rep leg, and write that. Blocked on one measurement: `GameStateRecorder`'s
+`ReputationThreshold` is `1.0f`, so a sub-point conversion yield fires no
+`ReputationChanged` event to read - which means the small yields (the common
+case) would need a different source or a lowered threshold, and lowering that
+threshold has its own blast radius. Do NOT suppress the WARN generically.
+
+**Observed, not asserted away.** `ConverterStrategy_ReputationLeg_IsObservedAndDropped`
+(StrategyLifecycle, SPACECENTER) drives Open-Source Tech Program, asserts the leg
+IS observed (a nonzero `dR` parsed off the door's own summary line) and IS
+dropped (zero reputation rows), and logs the measured divergence together with
+whether it exceeds the guard epsilon, every run. The cell then RESTORES the
+reputation leg before the door's deferred recalc - deliberately, so the fixture
+cannot manufacture a clamp out of a documented product decision and red the L3
+spec's whole-log `GUARDED` forbid for a reason the door does not own. The number
+in that cell's `ACCEPTED DRIFT` line is the live measurement this entry rests on.
+
+## STRATEGY-PREFIX-HOLDBACK-PERMANENT: on a pre-fix save, an exchanger event with no matching row holds back the pending science adjustment forever [FILED 2026-08-19 off the strategy-multi-live session. NOT FIXED - small follow-up]
+
+`ComputePendingUncommittedStrategyScienceDebit` nets the observed population
+(stored `ScienceChanged`/`StrategyInput` events) against the ingested one
+(committed `StrategyScienceDebit` rows). On a save whose exchange predates the
+capture fix (PR #1483), the event exists but the row never will, so the
+adjustment holds the patch target back by the take on EVERY recalc and the
+drawdown guard clamps each time. Measured live: the test career's original
+`researchIPsellout` exchange holds back exactly 108.84 science permanently
+(collected snapshot `logs/2026-08-19_0002_strategy-multi-live`, the 00:01:23
+`PatchScience: GUARDED DRAWDOWN clamped` line; the rework build report predicted
+this residual verbatim). Cosmetic only - the guard preserves live values and
+post-fix careers are unaffected - but it is unbounded WARN noise on any pre-fix
+save that ever ran an exchanger strategy.
+
+**Fix shape:** bound the observed side so an event that can no longer gain a row
+stops counting - either an age gate (event older than the current session and no
+matching row after a full recalc means the row is unrecoverable) or a one-time
+load-sweep reconciliation that marks such events adjusted. Do NOT widen the
+guard or suppress the WARN generically; the clamp is correct, the pending
+adjustment is what overstays. Test: a store carrying a pre-fix-shaped
+`StrategyInput` event with no row must produce zero pending adjustment after the
+bound, while a fresh in-session event still produces the full hold-back
+(the L3 lane's cells cover the fresh case).
+
+## REAIM-SOLVED-INCLINATION-IS-UNCORRELATED-WITH-TARGET-INCLINATION: the four-lane tilt table [MEASURED 2026-08-17, NOT A DEFECT]
+
+**READ THIS BEFORE GENERALISING FROM A SINGLE LANE'S TILT READING.**
+`REAIM-TILT-NOOP-AT-EELOO-6.15-DEG` says Eeloo "tested the BOUND ARITHMETIC, not the
+retention branch". That is true OF EELOO, and it is easy to misread as a statement about
+the program -- it is not. `V10-dres-loop-arrival` and `V11A-moho-loop-arrival` both ARM
+`state=retained`, and the `MOHO-PROGRAM-MEASUREMENTS-COMPLETE` table in this file already
+tabulates both. THE RETENTION BRANCH IS EXERCISED. Any claim that it is not, or that some
+newly-flown lane is the first to approach the gate, should be checked against the table
+below before it is written down.
+
+### What the four lanes actually measure
+
+All four re-flown / re-read 2026-08-17 off their own logs:
+
+| lane | target | targetInc | bound | SOLVED inc | state |
+|---|---|---:|---:|---:|---|
+| V10  | Dres  |  5.0000 | 5.5000 | **13.1958** | `retained` (incAch 3.6426) |
+| V11A | Moho  |  7.0000 | 7.5000 | **23.5906** | `retained` (incAch 3.3633) |
+| V12A | Eeloo |  6.1500 | 6.6500 |   4.0725 | `noop reason=in-plane` |
+| V13A | Jool  |  1.3040 | 1.8040 |   1.6174 | `noop reason=in-plane` |
+
+**THE RETENTION BRANCH IS EXERCISED, at Dres and at Moho.** Any statement that it is not
+is wrong.
+
+### The reading that is actually new
+
+The SOLVED transfer's inclination is **not** a function of the target's. Sorted by target
+inclination the solved values are 1.6174 (Jool 1.304), 13.1958 (Dres 5.0), 4.0725 (Eeloo
+6.15), 23.5906 (Moho 7.0) -- no ordering at all. The bound tracks the target
+(`Max(Max(l,t),0) + 0.5`); the solved plane does not, so which side of the gate a lane
+lands on is a property of the SOLVED TRANSFER and cannot be predicted from the
+destination.
+
+Jool's narrow contribution, stated at its true size: among the two lanes that read `noop`,
+it is the closer to its bound -- 1.6174 / 1.8040 = 89.7%, against Eeloo's 4.0725 / 6.6500
+= 61.2%. That is a fourth point on an uncorrelated scatter, not a trend and not a lead.
+
+### Consequence for lane selection
+
+Choosing destinations by target inclination does not control which branch gets exercised.
+If more retention coverage is wanted, the selector is the solved conic's inclination,
+which is only known after a solve -- so the cheap move is to read `synth geometry` on
+fixtures that already exist rather than to fly a new destination hoping for a steep solve.
+
+---
+
+## REAIM-SYNTH-GEOMETRY-SOI-CHECK: the third proximity check differs because THE PATH DIFFERS [DIAGNOSED 2026-08-17, NOT A DEFECT; SETTLED 2026-08-19: (b), documented, no behavior change]
+
+`xfer-vs-<target>@soi` reads ~0 m at Eeloo and 2,072,273,069 m (0.84 SOI) at Jool. Read
+across all four arrival lanes that resolves, and the answer is in the line's own label:
+
+| lane | label | soiEntryUT vs arrivalUT | `xfer-vs-<target>@soi` | SOI |
+|---|---|---|---:|---:|
+| V10  | `(patched-conic)` | 43,144,578 < 43,162,645 | 32,832,839 | 32,832,840 |
+| V11A | `(patched-conic)` |  5,806,509 <  5,807,872 |  9,646,663 |  9,646,663 |
+| V12A | `(proximity)`     | 95,851,632 = 95,851,632 |          0 | 119,082,942 |
+| V13A | `(proximity)`     | 55,582,515 < 56,745,407 | 2,072,273,069 | 2,455,985,185 |
+
+**On the `patched-conic` path the check reads the SOI radius to within 1 m** -- which is
+the physically correct reading, because `soiEntryUT` there IS the boundary crossing.
+
+**On the `proximity` path it does not.** At Eeloo `soiEntryUT` degenerated to equal
+`arrivalUT`, so the conic is at the body's centre and the check reads 0 m. At Jool the
+proximity path found a genuinely earlier time, and the conic is 0.844 of the way out --
+inside the sphere, but NOT on its boundary.
+
+So the two readings are not inconsistent with each other; they are two different code
+paths, and **the `proximity` path's `soiEntryUT` is not a boundary crossing.** Eeloo's 0 m
+is the degenerate extreme of that, not a healthy reference value.
+
+NOT A FAILURE, and nothing here reds: the independent seam-endpoint census reads
+`evaluated=1 outsideSoi=0` on all four lanes, so every arrival is genuinely inside its
+sphere. What it does mean is that `xfer-vs-<target>@soi` is NOT comparable across the two
+paths, and no lane should be written as though it were.
+
+SETTLED 2026-08-19, answer **(b): the `proximity` path's `soiEntryUT` is NOT a boundary
+crossing, by contract, and stays that way.** The question was "should it be?"; the deciding
+evidence, all read from HEAD:
+
+- **The codebase's own written contract is inside-sphere, not on-boundary.** The shared
+  predicate `ReaimTransferSynthesizer.IsGenuineTargetSoiEntry` defines a usable entry
+  instant as "strictly after departure AND within the target's SOI (<= SOI * (1 + 1e-6))".
+  Both paths meet that contract; only the field NAME over-promised.
+- **The one consumer that needs boundary precision already refines.** The S4 arrival
+  re-stitch bisects the raw value to the sphere crossing
+  (`ReaimPlaybackResolver.RefineSoiEntryUT`, with a residual-radius decline gate at
+  0.5-1.5 SOI), and its comments state the coarse contract verbatim ("up to usedTof/96
+  late = deep inside the SOI"). Emitting a pre-refined boundary from the synthesizer would
+  converge to the SAME refined UT -- zero product-behavior change from fix (a).
+- **Nothing else consumes it semantically.** Render span + capture re-time derive from
+  usedTof (`newArrivalUT = min(RecordedDepartureUT + usedTof, RecordedArrivalUT)`,
+  `ReaimPlaybackResolver` render-span block), never from `soiEntryUT`; the in-game asserts
+  (CrossParentReaimCanary "finite and after departure", ReaimEndToEnd step 3b "strictly
+  inside the span" + `IsGenuineTargetSoiEntry`) assert the inside-sphere contract and pass
+  under either semantics. The SeamEndpointOracle note that V12A's proto line closed "at
+  the re-aimed soiEntryUT to the digit" is the Eeloo degeneracy (`soiEntryUT == arrivalUT`
+  there), not a render dependency on the field.
+- **Fix (a) would red two armed operator lanes to buy that zero.** V12A arms both
+  `soiEntryUT=95851632.03180024` and `xfer-vs-Eeloo@soi=0m \(SOI=119082942\)`; V13A arms
+  `soiEntryUT=55582515.124523856`, and its seven-jump TimeJump schedule is arithmetic on
+  the emitted value. Any change to the proximity path's emitted bytes forces the full
+  re-arm discipline (reading run -> re-arm -> confirmation run) on both lanes.
+
+What shipped (comments/docs only, emitted bytes untouched): the two-path precision
+contract is now written at all three surfaces in `ReaimTransferSynthesizer.cs` -- the
+`TrySynthesizeTransfer` remarks (the authoritative statement), the
+`TryFindTargetEncounterByProximity` comment (first-inside-SAMPLE semantics, the Eeloo
+degenerate case, and a do-not-bisect-at-source warning), and the `LogSynthGeometry` @soi
+comment (per-path readings; the two variants are not comparable). Lane discipline is
+unchanged and now stated in code: arrival brackets must use the EMITTED `soiEntryUT`, and
+the proximity `@soi` reading is never armed as a boundary measurement.
+
+The distance is deliberately NOT armed in V13A -- the lane pins `(SOI=2455985185)` alone.
+That stays right under the settled contract: the proximity `@soi` reading is a
+coarse-sample artifact in [0, SOI), not a reference value, so it remains un-arm-able on
+that path even with the question closed.
+
+---
+
+## FINDING-16D-MISCITED-DIRECTION-AND-DENOMINATOR: nine committed comment sites quote finding 16d's `956-1,142 km` band against a 250 km request that never produced it [RECORD CORRECTION 2026-08-15, found while sizing `B22-jool-orbit`'s aim]
+
+**THIS IS A RECORD CORRECTION, NOT A PRODUCT DEFECT.** Nothing in Parsek or in the
+mission machines behaves wrongly. What is wrong is the program's own written account of
+what finding 16d says, and nine committed comment sites across seven files repeat the
+mis-denominated number (most of them also inverting the direction). Every flight cited
+below passed; nothing here changes a verdict.
+
+**WHAT FINDING 16D ACTUALLY SAYS.** There is no standalone entry titled "16d" -- its only
+definition is embedded mid-paragraph in this file's flight-26 record, the entry that opens
+`NO-1X CERTIFICATION ACHIEVED (twenty-sixth flight, 2026-07-22)`. Every citation below
+into THIS file is by that kind of content anchor and never by line number: entries are
+prepended at the top, so a self-referential line number is stale the moment the next entry
+lands -- this entry's own 174 lines already shifted the three records it cites:
+
+> Finding 16d root cause (flights 22-25, nextPe forensics): MechJeb's
+> OperationCourseCorrection systematically under-prices low-periapsis targets by ~an
+> order of magnitude (a 9.5 m/s in-window plan claiming 60 km moved the prediction
+> +2.7 km where ~39 m/s was needed) while always burning the correct direction -- so the
+> fix is target margin (60 -> 250 km, the contract is the 10 km FLOOR)
+
+The stated root cause is **UNDER-delivery**: the corrector under-prices the burn, so it
+does not reach the periapsis it was asked for. Raising the request is a sensible fix
+*because* delivery falls short. Most citing sites state the opposite -- but NOT all, and
+the TWO exceptions matter because they show the errors are independent
+(`B5-mun-flyby.toml:73-74` also states UNDER-DELIVERS):
+`harness/scenarios/B11-mun-orbit.toml:260-261` gets the DIRECTION right ("systematically
+under-delivers toward low periapsis targets (finding 16d)") and then carries the WRONG
+DENOMINATOR in the very next clause ("B5's certified flights turned this 250 km request
+into 956-1,142 km actual arrivals"). Direction and denominator must be corrected
+separately; fixing one does not fix the other.
+
+**THE NUMBER IS ON THE WRONG DENOMINATOR.** The quoted `956-1,142 km` band is B5 flight 21
+(956 km, `Flight 21 (2026-07-22): full-stack PASS` -- "flyby 956 km") and B5 flight 9
+(1,142 km); flights 15 and 16 flew **1,138 km**, not 1,142. Every one of them flew
+`courseCorrectPeriapsisMeters = 60000`, not 250,000 -- which is the part that matters, and
+it holds for all of them regardless of which flights the band's two endpoints belong to. Verified in this repo rather than inferred: the 60 -> 250 km change is commit
+`c41a6b5eb` ("Finding 16d: B5 course-correct target 60 km -> 250 km (planner bias
+margin)", 2026-07-22 19:23:27), and every archived B5 flight predates it. The FIRST B5
+flight ever flown at 250 km is flight 26, ten minutes later (`122a1b496`, 19:33:26), and
+it delivered **138.9 km** (same `NO-1X CERTIFICATION ACHIEVED` record) -- UNDER by ~111 km,
+exactly as the root cause says. "250 km became 956-1,142 km" therefore divides a
+60 km-request outcome by a 250 km request.
+
+**THE BAND'S UPPER ENDPOINT IS A DOCUMENTED ARTEFACT, NOT A CORRECTOR MEASUREMENT.**
+This file's `Live finding 9 (first B6 flight + B5-pass forensics, 2026-07-22)` record
+attributes the 1,142 km flyby to **flight 9**: "a wild off-axis burn whose ap 11.5M ->
+17.5M accident produced the 1,142 km flyby. THE B5 PASS WAS LUCKY". That is evidence of an
+attitude-gate sign bug, not of corrector bias. Note the chronology, which is the check
+that settles the attribution: finding 9 is dated 2026-07-22 and flight 15 is recorded as
+flown "under the full finding-1..12 stack", so finding 9 cannot be describing flight 15 --
+flight 15 is the honest re-proof that REPLACED the lucky pass ("this re-proof replaces
+it"). An earlier draft of this entry pinned the artefact on flight 15 and had the band as
+flights 15/16/21; both were wrong and are corrected here.
+
+**THE COMPANION B7 CLAIM IS CORRECT AND MUST NOT BE "FIXED".** `B15-eve-flyby.toml:499`
+also says "B7 turned 300 km into ~564 km derived from the recorded arrival elements", and
+that half checks out end to end: run `logs/2026-07-25_1216_B7-duna-flyby` pins commit
+`aedc47092`, whose `B7-duna-flyby.toml` reads `courseCorrectPeriapsisMeters = 300000`, and
+that run's own sidecar carries a Duna-referenced `ORBIT_SEGMENT` with
+`sma = -364453.712`, `ecc = 3.426796`, giving
+`sma*(1-ecc) - R_Duna = 564,454.795 m`. The figure, the denominator and the stated
+provenance are all right, and 564/300 = 1.88 sits inside this corpus's own Duna row
+(k = 0.77 - 2.39). An earlier draft of this entry called both halves of that sentence
+wrong; only the B5 half is. Correcting a correct citation is the same failure mode this
+entry exists to fix, so it is recorded here rather than quietly dropped.
+
+**THE REAL STRUCTURE**, over the 25 correction-complete points the 2026-08-15 forensic
+pass recovered from archived mission stdout logs and `.prec.txt` sidecars (7 bodies, only
+4 distinct requested values, 16 of the 25 sharing one 300 km request). The delivered
+arrival periapsis is better described NOT as a multiple of the request but as a
+**body-specific fraction of the target's SOI**, largely independent of what was asked
+for. Fitted over the corpus, `D = g x SOI` gives g = 0.482% / 3.350% / 9.525%
+(lo/median/hi), CV **0.678**; the multiplicative law `D = k x req` gives k = 0.545 /
+1.502 / 37.81, a 69.4x spread at CV 2.179. No law fits tightly -- the fraction-of-SOI one
+merely fits least badly -- AND B22 SUBSEQUENTLY REFUTED IT: law (d) predicted an 88.3 Mm median independent of the request and the flight delivered 590.3 Mm on a 600 Mm request (see M2 in B22-jool-orbit.toml). The ordering is unambiguous, and the ordering is what the
+citations get wrong.
+
+**AND THE BIAS INVERTS.** Sorted by `req / SOI`, k collapses monotonically:
+
+| body | req / SOI | k = delivered / requested | delivered / SOI |
+| --- | --- | --- | --- |
+| Eeloo | 0.252% | 35.36 - 37.81 | 8.91 - 9.53% |
+| Duna | 0.626% | 0.77 - 2.39 | 0.48 - 1.50% |
+| Minmus | 0.890% | 1.89 - 1.92 | 1.68 - 1.71% |
+| Dres | 0.914% | 2.90 - 3.67 | 2.65 - 3.35% |
+| Moho | 3.110% | 1.43 - 1.73 | 4.44 - 5.37% |
+| Eve | 5.875% | 0.997 | 5.86% |
+| Mun | 10.290% | 0.545 - 0.563 | 5.61 - 5.79% |
+| **Jool** | **24.430%** | **0.974** | **24.04%** |
+
+**Above `req/SOI ~= 4%` the "arrives higher" bias disappears and inverts.** The folklore
+is entirely a `req/SOI < 1%` phenomenon: a large k means the request was tiny relative to
+the scale the corrector naturally delivers at, not that the corrector overshoots. Two
+honesty limits on that table, both of which must travel with it: the `req/SOI >= 4%`
+regime had **n = 2** when this was written (one Eve flight, five Mun flights of a single
+lane) and is **n = 3** since B22 flew Jool at 24.430%, and within-body
+repeatability is good everywhere (Eeloo +-3.5%, Moho +-9%, Dres +-12%, Mun +-1.6%,
+Minmus +-0.9%) EXCEPT Duna, which spans 230.9 - 718.2 km on an identical 300 km request,
+a factor of 3.1. Any sizing built on this must be built against a ~3x spread rather than
+a point estimate.
+
+**THE NINE SITES CARRYING THE MIS-DENOMINATED BAND** (measured with
+`grep -rn "956" harness/scenarios/*.toml docs/dev/autotest-status.md`, not listed from
+memory. **ALL NINE ARE NOW CORRECTED (2026-08-18), together with the two framing sites
+below**; the list is kept as the record of what was wrong and where. Each is
+marked with which of the two errors it carries -- DENOMINATOR (quoting `956-1,142 km`
+against a 250 km request) and/or DIRECTION (calling the bias "arrives HIGHER"):
+
+- `harness/scenarios/B5-mun-flyby.toml:80` -- "the proven passes flew 956-1,142 km".
+  DENOMINATOR, at the source. Also inherits the flight-attribution error corrected above.
+- `harness/scenarios/B11-mun-orbit.toml:187` -- "certified flights arrived at
+  956-1,142 km", sizing a worst case. DENOMINATOR.
+- `harness/scenarios/B11-mun-orbit.toml:260-263` -- DIRECTION **correct**
+  ("under-delivers"), DENOMINATOR wrong ("this 250 km request into 956-1,142 km").
+- `harness/scenarios/B11-mun-orbit.toml:298-299` -- the band used to justify a capture
+  window ("anything from 15 km to 2,000 km altitude is a legitimate ..."). DENOMINATOR,
+  and load-bearing.
+- `harness/scenarios/B15-eve-flyby.toml:499` -- "arrives HIGHER than requested (B5 turned
+  250 km into 956-1,142 km; B7 turned 300 km into ~564 km ...)". DENOMINATOR + DIRECTION
+  in the B5 half only -- **the B7 half is correct**, see above.
+- `harness/scenarios/B16-eve-orbit.toml:371-373` -- "arrives HIGHER than requested (B5
+  turned 250 km into 956-1,142 km) - so even a 2x overshoot lands at ~10,000 km".
+  DENOMINATOR + DIRECTION.
+- `harness/scenarios/B19-dres-orbit.toml:249-253` -- "arrives HIGHER than requested (B5
+  turned 250 km into 956-1,142 km)". DENOMINATOR + DIRECTION.
+- `harness/scenarios/B20-moho-orbit.toml:270-274` -- "A B5-scale overshoot (250 km ->
+  956-1,142 km) still lands far inside Moho's SOI". DENOMINATOR + DIRECTION, and this is
+  the lane whose own arrival is one of the corpus points below.
+- `harness/scenarios/B21-eeloo-orbit.toml:1206-1209` -- the same parenthetical, retargeted
+  to Eeloo. DENOMINATOR + DIRECTION.
+
+Two further sites carry the FRAMING without the number, and are worth touching in the same
+pass because they are where a reader meets it first:
+
+- `docs/dev/autotest-status.md:1046` (the B6 row) -- "20 km course-correct target predates
+  finding 16d ... re-target ~150 km only if it reds".
+- `docs/dev/autotest-status.md:1708-1709` -- "planner-bias margin targets (finding 16d)",
+  the phrase wrapping across those two lines. "Planner-bias margin" is the folklore in
+  shorthand.
+
+`B22-jool-orbit.toml` quotes the band too, but only inside its own statement of this
+correction, so it is not on the fix list.
+
+The `autotest-status.md` line numbers are as of the commit that files this entry (which
+inserts one scenario table row above the last of them); cite by content if they drift.
+
+**WHY IT MATTERED ENOUGH TO WRITE DOWN.** `B22-jool-orbit` aims at 600,000,000 m, which is
+24.43% of Jool's 2,455,985,185 m SOI (600e6 / 2,455,985,185 = 0.2443) -- deeper into the
+inverted regime than anything ever flown. Sized on the folklore ("it arrives higher, so
+aim low and the bias is safe") the lane would be aimed at a periapsis the only two
+in-regime points say it will UNDER-shoot. Sized on the measurement, the aim is the
+*smallest* request whose low tail still clears Pol. The direction of the bias IS the
+sizing argument at Jool, and the record had it backwards.
+
+**~~Fix~~ FIXED 2026-08-18:** the nine sites no longer quote `956-1,142 km` against a
+250 km request, and the five that also inverted the direction now state under-delivery at
+low `req/SOI` with the inversion above ~4%. Each site was re-based on measurement rather
+than reworded: B5 on the one 250 km outcome (138.9 km) plus the 60 km provenance of the
+956 / 1,138 / 1,142 km passes and flight 9's artefact status; B11's three sites on the
+five Mun points measured at a 250 km request (136.2-140.7 km, which moves its capture
+pricing to the ~220 m/s end and its worst case to ~1,420 m/s, still inside budget);
+B15 and B16 on the `delivered/SOI` framing plus Eve's own measured k = 0.997; B19, B20
+and B21 on their own arrivals (870-1,100 km at 0.914% req/SOI, 428-518 km at 3.110%,
+10,607-11,343 km at 0.252%). The two `autotest-status.md` framing sites are softened in
+the same pass. Every parameter value is byte-unchanged and every conclusion survives the
+correction, which is the point: no code change, no spec value change, no verdict changes.
+The B7 `~564 km` citation was left verbatim, as this entry requires.
+
+---
+
+## AUTOTEST-STATUS-B20-PE-MISDESCRIBED: flight `_1855`'s 450.6 km periapsis is called "a 200 km periapsis altitude" [RECORD CORRECTION 2026-08-15, found in passing]
+
+`docs/dev/autotest-status.md:1110` (the B20-moho-orbit row) reads: the first in-SOI frame
+read `pe=450629.528 ttPe=+3154.010`, **"a 200 km periapsis altitude"** with periapsis
+3,154 s ahead. `pe=450629.528` is a **450.6 km** altitude. 200 km is neither that altitude
+nor Moho's 250 km radius, so it is not a units slip in either direction -- just a wrong
+number in prose. The surrounding claim (the geometry was right; the flight was one warp
+frame from a capture) is unaffected, and no enforcing cell reads the figure.
+
+**Fix:** change "a 200 km periapsis altitude" to "a 450.6 km periapsis altitude" at that
+site. Deliberately NOT done in the commit that files this entry, which is scoped to the
+scenario-count total and the new B22 row.
+
+---
+
+## MOHO-PROGRAM-MEASUREMENTS-COMPLETE: the tilt disposition at 7 deg, the cadence at a ~1.0-synodic span, and the eccentric tof band earning its keep [RECORDED 2026-08-13 by `V11-moho-player-loop` + `V11A-moho-loop-arrival`. NOT A DEFECT - the closing measurement record for the Moho program]
+
+**THE HEADLINE: the tilt-retention fix holds at the TOP of its own documented failing
+band.** Moho is the case the synthesizer's own comments name -- `docs/dev/done/plans/
+reaim-eccentric-tof-reliability.md` S4.2.3 calls it "the COMBINED case" (high
+inclination AND small SOI AND moderate eccentricity) -- and the disposition, measured
+byte-identically on two runs:
+
+```
+tilt-correction inc-before=23.5906 bound=7.5000 targetInc=7.0000 incAch=3.3633
+                inc-after=NaN state=retained reason=unreachable-plane
+```
+
+The band, now walked end to end:
+
+| target | inclination | disposition |
+| --- | --- | --- |
+| Duna | 0.06 deg | always safe |
+| Eve | 2.1 deg | DECLINED all 27 tof candidates (`unreachable-plane`), pre-fix |
+| Dres | 5 deg | `state=retained`, incAch 3.6426 < targetInc 5.0000 (V10) |
+| **Moho** | **7 deg** | **`state=retained`, incAch 3.3633 < targetInc 7.0000** |
+
+The achievability gate is UNSAFE at Moho exactly as it was at Eve and Dres, and the
+retention fix's third arm holds the un-corrected conic instead of killing the window.
+Pre-fix that combination declined. **There is no ceiling between 5 and 7 degrees.**
+
+**THE ARRIVAL GEOMETRY IS EXACT.** `xfer-vs-Kerbin@depart=0m | xfer-vs-Moho@arrival=0m
+| xfer-vs-Moho@soi=9646663m (SOI=9646663)` -- the re-aimed conic meets Moho's sphere of
+influence to ZERO metres, where V10 measured Dres to within one.
+
+**A SECOND FINDING, not looked for: stage B's eccentric tof band is what MAKES this
+window resolve.** The ready line reads `eTarget=0.2000 halfWidthFraction=0.1600` with
+`devFromGeom=-211482.317s` against `tof=2446149.5876669968`. That deviation is 8.6% of
+the tof, so **the old fixed +-6% band would have DECLINED this window**; the
+`0.06 + 0.5*ecc` law widening to 16% for Moho's 0.2 eccentricity is the only reason it
+does not. `reaim-eccentric-tof-reliability.md` S4.2.3 predicted exactly this for a Moho
+fixture ("the band widens substantially toward the geometric tof, the sanctioned
+M-MIS-3 direction") and no fixture had demonstrated it live until now. It is pinned as
+a required token, so narrowing that law reds V11A.
+
+**THE CADENCE DIFFERS FROM DRES, AND THE DISCRIMINATOR IS THE SPAN -- but the
+byte-equality is partly an artifact, so state it carefully.** V11 measured
+`cadence == synodic` at 2,909,172.3997171265 for both, i.e. the unit schedules on ONE
+window spacing where V9 measured Dres landing on TWO (22,785,806.61 against
+11,392,903.31). The difference is where the span sits: 2,884,066.6 game s against that
+divisor is **0.9914**, where Dres spanned ~1.79.
+
+What the byte-equality is NOT is an independent measurement.
+`ReaimWindowPlanner.PadAlignLaunch` quantizes the synodic to a whole Kerbin sidereal day
+and then assigns the cadence THE SAME VARIABLE (`r.SynodicPeriodSeconds =
+quantizedSynodic; r.CadenceSeconds = quantizedSynodic;`), so the two tokens are equal BY
+CONSTRUCTION whenever pad-align applies and the multiple is one. Two consequences:
+the pinned value is EXACTLY 135 sidereal days (135 x 21,549.4251830898), not the physical
+Kerbin-Moho synodic of 2,918,346.4 s (0.314% away, ratio 0.9883 against the physical
+divisor -- the conclusion survives either way); and V9's Dres pin is the RAW synodic
+because pad-align was SKIPPED there, so the two lanes pin different quantities under one
+name. **The measured fact is the MULTIPLE** -- one here, two at Dres -- and that
+pad-align applied here and not there. That is what the tokens are armed for.
+
+**THE COHESION FIX HOLDS ON A SECOND BODY.** `member#1 segs=18 startBody=Kerbin
+supported=True target=Moho` with `transferMemberSegs=18 plan.Supported=True` -- the PR
+#1458 rule-3 cohesion fix keeping the on-rails Kerbin->Sun handoff from splitting the
+transfer, on a recording it was not tuned against.
+
+**LOITER COMPRESSION AT A NEW SCALE.** `loiterCuts=1 cutSeconds=391267` -- the
+compressor finding a ~398,000 game-second LKO ejection-window wait, an ORDER OF
+MAGNITUDE below the 8,436,248 s cut V9 measured on Dres. Nothing else in the suite
+exercises it there.
+
+**WHAT IS DELIBERATELY NOT ARMED, with the trade stated rather than buried:** the
+seam-endpoint census. V11A reads `evaluated=0 outsideSoi=0 skip.no-usable-ratio=1`,
+which is EXACTLY V10 iteration 4's reading and for exactly V10's reason -- reaching
+`evaluated=1` requires a pre-D0 TimeJump, and every pre-D0 jump reproduces the filed
+LINE-BLINK-JUMP-STRADDLE-DETECTOR-GAP. The census and a green verdict cannot both be
+had today. The armed lane is the green one, and the same arrival claim is carried
+deterministically by the synth-geometry token instead -- from the synthesizer rather
+than the renderer. If that detector gap is ever closed, add V10 iteration 3's escape
+bracket (-900 / -300 / +600) and arm the census pair too. `allowedAnomalies` stays [].
+
+## ~~APPROACH-WARP-CLAMP-FAILS-OPEN-ON-AN-INTERMITTENT-TTS: the ceiling is dropped by a single unread time-to-SOI, at the one moment it is load-bearing~~ [MEASURED 2026-08-12 by `B20-moho-orbit` run `_1855`. A SHARED-MACHINE gap in `mlib.approach_warp_clamp`, not a lane-parameter error. FIXED 2026-08-12 with an approach LATCH, on an explicit decision to change shared machinery]
+
+**What was measured.** With the correction cap restored, B20's third flight
+(`2026-08-12_1855`) reached Moho's SOI for the first time in the program -- and then
+died on `capture-never-armed (past-periapsis)`, the same give-up Dres flights 3 and 4
+produced and the exact failure the approach clamp exists to prevent.
+
+**The clamp worked, and then was switched off by a missing read.** The final approach,
+frame by frame:
+
+```
+tts=nan         nextBody=?     warp=RAILSx88.000      ut=2780619.790
+tts=nan         nextBody=?     warp=RAILSx22.002      ut=2780672.892
+tts=nan         nextBody=?     warp=RAILSx10.000      ut=2780685.413
+tts=nan         nextBody=?     warp=PHYSICSx3.400     ut=2780692.797
+tts=100001.413  nextBody=Moho  warp=NONEx1.000        ut=2780694.621
+tts=100000.353  nextBody=Moho  warp=NONEx1.000        ut=2780695.681
+tts=nan         nextBody=?     warp=RAILSx52.482      ut=2780709.607
+tts=nan         nextBody=?     warp=RAILSx100000.000  ut=2835750.877
+```
+
+The stair-down is textbook: 88 -> 22 -> 10 -> 3.4 -> 1x, halting at `tts=100,000`,
+which is `soiLeadSeconds` to the digit. The sizing was right. Then `tts` returned `nan`
+and `nextBody` returned `?` -- the patched-conic encounter read was lost -- and 14
+seconds later the machine was back at x100,000. One frame then advanced **55,041 game
+seconds**, covering the remaining lead, the SOI boundary and the entire
+SOI-entry -> periapsis coast.
+
+**The mechanism is the clamp's own first line.** `mlib.approach_warp_clamp` opens with
+
+```python
+if window <= 0.0 or not _is_finite(time_to_soi) or time_to_soi <= 0.0:
+    return desired, native_target      # FAIL OPEN
+```
+
+and its docstring defends this: "Fails OPEN on a non-finite `time_to_soi` (an unread
+clock never triggers a clamp)". That is right for the heliocentric leg, where `tts` is
+legitimately `nan` for most of the length. But the function is PURE and STATELESS, so it
+cannot distinguish "not yet on approach" from "on approach, and the read blinked". A
+single unread frame therefore removes the ceiling permanently, and it does so precisely
+in the window where the ceiling is the only thing preventing the overshoot.
+
+**Why this is not a lane-parameter problem.** Nothing in B20's sizing is implicated, and
+the flight proves it: the clamp engaged, stepped down correctly, and stopped exactly at
+the configured lead. Enlarging `approachWindowSeconds` cannot help (the gate is
+`_is_finite`, not a magnitude). Shrinking `soiLeadSeconds` only moves where the handoff
+happens; a fail-open x100,000 frame covers ~50,000 game s and Moho's whole coast is
+2,168-4,119 s, so any lead is swallowed. Lowering `coastWarpFactor` to 5 (x1,000) would
+bound one frame under the coast, but it taxes the entire 2.7M game-second heliocentric
+leg to work around a blink.
+
+**The geometry was RIGHT, which is what makes this worth fixing rather than routing
+around.** The first in-SOI frame read `pe=450629.528 ttPe=+3154.010` -- a 200 km
+periapsis altitude, comfortably above the 50 km floor, with periapsis 3,154 s AHEAD.
+Had the ceiling held, PLAN-CAPTURE had a clean arrival to arm on. This flight was one
+warp frame from a capture.
+
+**Fix, APPLIED 2026-08-12 on an explicit decision to touch shared machinery.** Latch the clamp:
+once `tts` has been observed finite and `<= window` FOR THE TARGET (`next_body ==
+target_body`), hold the cap until the target SOI is actually entered, so an intermittent
+unread frame cannot re-open the ceiling. There is deliberately NO "encounter abandoned"
+release: engage already requires next_body to BE the target, so a lost or re-planned
+encounter simply stops re-engaging. The residual cost of that choice, named rather than
+hidden: after engaging, a PERMANENTLY lost encounter crawls at the cap until the WALL
+budget kills the run, where fail-open would have reached the game-time give-up sooner --
+the bound that fires is the less diagnosable one. Low likelihood, and the alternative is
+the defect this fixes.
+Shipped as a new pure predicate `mlib.approach_latch_state` plus an `approach_latched`
+state field and a `latched=False` keyword on `approach_warp_clamp` -- so every lane that
+does not arm the clamp, and every existing caller, is BYTE-IDENTICAL (all 1,496
+pre-existing mission cells pass unchanged). While held it applies the cap and DROPS the
+native target rather than leaving a stale one armed.
+
+BLAST RADIUS, counted rather than asserted: exactly TWO committed specs set
+`approachWindowSeconds` -- `B19-dres-orbit` and `B20-moho-orbit`. Every other lane
+leaves it at 0, where the clamp and the latch are both inert. (An earlier draft of this
+entry named B7/B11/B12/B16/B17 as well; they never arm it, and gating a review on the
+wrong set is worse than gating it on none.) For B19 the change is one-directional and
+favourable: the latch can only hold the ceiling it already asked for, and it prevents
+precisely the past-periapsis overshoot that killed B19's own flights 3 and 4.
+
+THE ENGAGE CONDITION NEEDS A SECOND DISCRIMINATOR, and the first implementation missed
+it -- caught in clean-context review BEFORE it flew. `time_to_soi` is time to the NEXT
+SOI transition of ANY kind, not to the target's. B20's own escape leg measured
+`body=Kerbin tts=45901.038 nextBody=Mun` (a legitimate via-body transit -- the lane
+lists Mun in `viaBodyNames`) and `tts=309757.221 nextBody=Sun`. A latch keyed on `tts`
+alone engaged on the MUN transit and, since release requires arrival at the target, held
+the ceiling across the whole heliocentric coast -- taxing the exact leg the clamp exists
+to leave alone. Engage therefore requires `next_body == target_body`, read off the same
+patched conic (`nextBody=Moho` on both finite frames of the measured approach) and
+failing closed on a blank. Release happens on the live COAST -> TARGET-FLYBY hop, not in
+the predicate: that hop runs BEFORE the latch computation, so the predicate's own
+arrival branch never executes on the live path.
+
+VERIFIED AGAINST THE MEASURED FRAMES, replayed through the real predicate:
+
+```
+leg (from B20's own measured frames)   tts        next   BEFORE   AFTER
+post-TLI, Mun transit ahead            45901      Mun    x100     x100     (pre-existing
+escape, Sun ahead                      309757     Sun    x100000  x100000   clamp
+heliocentric, no encounter             nan        ?      x100000  x100000   behaviour,
+encounter exists, far                  1255576    Moho   x100000  x100000   unchanged)
+approach, inside the window            100001     Moho   x100     x100     <- latch engages
+THE BLINK                              nan        ?      x100000  x100     <- THE DEFECT
+the frame that overshot                nan        ?      x100000  x100     <- THE DEFECT
+arrived at Moho                        nan        ?      x100000  x100000  <- released
+```
+
+Only the two post-blink frames change, which is exactly the defect and nothing else: the
+escape, the via-body transit and the 2.7M game-second heliocentric coast all keep their
+speed. (The `x100` on the Mun-transit row is the UNLATCHED clamp's own pre-existing
+behaviour -- it caps whenever `tts <= window` regardless of which boundary -- and is left
+alone here because B19 is live-proven green with it.) Nine cells added beside
+`ApproachWarpClampTests`: the fail-open regression guard for the unlatched heliocentric
+leg, the non-target-boundary guard pinned on the measured Mun/Sun frames, a blank
+next_body fail-closed guard, and a Moho sibling of the Dres sizing claim.
+
+**THE COVERAGE GAP IS NOW CLOSED.** The first pass shipped nine cells that all
+exercised the PURE predicates, which is precisely the coverage shape that MISSED this
+latch's own shipped bug (keyed on `tts` alone it engaged on any SOI boundary, and a
+clean-context review caught it rather than a test). A decide-level cell was attempted at
+the time and REMOVED rather than committed weak, because on a hand-built COAST fixture
+the frames never reached the latch and the cell asserted a state they never had.
+
+The entry condition turned out to be the opposite of the guess. It is not a shared
+prelude: `_b5_coast_bodies` (mlib.py:8306) allows only `("", home_body) + via_bodies`, so
+with `via_bodies=()` the first heliocentric frame is rejected as "left home SOI without
+reaching the target", sets `done=True`, and `b5_decide`'s idempotence guard
+(mlib.py:9814) then swallows every later frame -- the arrival hop was UNREACHABLE, not
+broken. THE fixture requirement that follows is invisible from the predicate signature:
+`via_bodies` must contain "Sun", or the heliocentric leg is an ejection. (A first draft
+of this paragraph also claimed the apsides must vary per frame to dodge the
+frozen-telemetry watchdog. That is FALSE for a cell this short --
+`frozen_sample_limit` is 10 and the cell has five frames, so the counter tops out at
+four and cannot trip. Re-measured with bitwise-identical apsides on all five frames:
+identical phases, latch values and actions. It is a real hazard for a LONGER hand-built
+sequence and a false requirement for this one.) The other two overrides that ARE
+load-bearing are `coast_timeout` -- the inherited 400,000 flakes at the second frame --
+and having the correction rounds already spent, without which the target-approach frame
+hops to PLAN-CORRECTION instead of latching.
+
+`test_decide_holds_the_ceiling_across_a_blink_and_releases_on_arrival` now drives the
+real `b5_decide` through B20's measured shape (via-body transit, heliocentric coast,
+target approach, the blink, arrival), on the REAL LANE'S PARAMS -- B20-moho-orbit.toml's
+own `via_bodies`, `coast_timeout` and correction triggers, with `correction_rounds_done=2`
+putting the state where a real flight is by tts ~ 100k. (An earlier draft emptied the
+trigger list instead, which reaches the coast branch by DISARMING what a real flight has
+merely finished; with the real triggers restored, f3 hops to PLAN-CORRECTION and the latch
+never engages at all.)
+
+ITS STRONGEST ASSERTION IS A PAIR: frames 2 and 4 are both `tts=nan` on `body=Sun` and
+indistinguishable to a stateless clamp, but the unlatched one emits the raw
+coastWarpFactor 7 (x100,000) and the latched one emits the cap 4 (x100). That one-digit
+difference IS the latch, and it is the frame that cost B20 flight 3 its capture. The
+ut/apsides deltas between those two frames were checked to be decision-inert, so the
+latch is the sole discriminator.
+
+WHAT THE CELL CATCHES ALONE, stated precisely because the first draft of this paragraph
+overclaimed it. Four mutants were applied to `mlib.py` and reverted:
+  (a) the clamp fails open even when latched      -> new cell reds, AND so does the
+      pre-existing `test_a_blinking_clock_cannot_reopen_the_ceiling_once_latched`
+  (b) the latch keyed on `tts` alone (the real bug) -> new cell reds, AND so do the
+      pre-existing non-target-boundary and blank-next_body cells
+  (c) arrival stops releasing the latch            -> ONLY the new cell reds
+  (d) the call site passes a literal False instead of the threaded state
+                                                   -> ONLY the new cell reds
+So (a) and (b) were already covered at predicate level; the cell's unique value is the
+LIVE RELEASE and the CALL-SITE WIRING, which no predicate cell can see. That is a
+narrower claim than "it catches the bug review found", and it is the true one.
+
+WHAT BACKS THE FIX END TO END REMAINS THE FLIGHT, not this cell: run `_2331`'s log shows
+the ceiling holding at x100 across the measured blink (`tts=nan` at ut 2,780,709 and again
+at 2,835,750) where flight 3 read x100,000 and overshot, with the capture then arming on
+`ttPe=+3152.474`. The cell is the regression floor under that measurement, not a
+replacement for it.
+
+Cheaper alternative CONSIDERED AND REJECTED: a much smaller `soiLeadSeconds` on the
+theory that `tts` reads reliably closer in. That is a guess about read stability, and a
+fail-open x100,000 frame covers ~50,000 game s against a 2,168-4,119 s coast, so no lead
+survives one. This lane has already spent two flights on derivations that were not
+measured first.
+
+## ~~CORRECTION-CAP-DERIVED-BELOW-THE-PLANNED-CORRECTION: B20's own `maxCorrectionDvMps = 700` discarded the encounter-creating burn six times a flight~~ [MEASURED 2026-08-12 by `B20-moho-orbit`, two identical INVALID flights. FIXED the same day by restoring B19's 1200; re-fly pending. A LANE-PARAMETER error, NOT a Parsek defect and NOT a MechJeb limitation]
+
+**What was measured.** `B20-moho-orbit` flew twice (runs `2026-08-12_1628` and its
+retry `_1704`). Both reached `COAST-TO-TARGET` and both timed out there with
+`MISSION-FLAKE reason=phase COAST-TO-TARGET timed out`, classified `INVALID
+(autopilot-flake)`. The two heliocentric orbits agree to the 8th significant figure
+(ap 13,336,525,125.193 vs 13,336,525,165.914), so this was systematic.
+
+**The cause was this lane's own parameter.** MechJeb planned an encounter-CREATING
+course correction on every invocation, and the lane's cap removed it:
+
+```
+[Mission][Warn][Plan] course-correction dv 1089.5 m/s exceeds cap 700.0; plan removed
+(correction disqualified, coast will fly the raw intercept)
+```
+
+Six times per flight (attempt 1 log lines 2490/2515/2540/2577/2603/2606; attempt 2
+1899/1926/1950/1987/2012/2016), across both correction rounds, in both attempts, at
+1,089.5-1,090.8 m/s. The coast then flew the raw intercept, never encountered Moho, and
+ran out its 16M game-second bound. **1,090 is below B19's untouched 1200**, so the
+proven value would have flown it.
+
+**How the wrong cap was arrived at, because the mistake is reusable.** The first
+authoring DERIVED the cap from a dv reserve: 5% of B18's measured 7,483 leaves 7,109
+usable, less a ~1,803 ejection and a ~3,862 worst-case capture, leaves 1,444 across the
+two rounds the trigger list arms, i.e. 722 each -> 700. Every one of those numbers is
+right. The error is that a correction cap is not a budget share to be allocated -- it is
+a threshold that must sit ABOVE WHAT THE PLANNER ACTUALLY ASKS FOR, and what it asks for
+was never measured. B15's lesson, quoted in B20's own spec at the time, is exactly this:
+a cap below the needed burn silently discards the node and the coast flies the raw
+intercept.
+
+**The diagnosis that was published first was wrong, and the way it was wrong is the
+lesson.** The first reading of these flights concluded "MechJeb never produced a node"
+from the telemetry field `nodeDv=nan`, and filed it as a planner limitation
+(MECHJEB-COURSE-CORRECT-CANNOT-CREATE-AN-INCLINED-ENCOUNTER). But `mission_runner.py`
+removes the node synchronously inside the action, so `nodeDv=nan` is the POST-REMOVAL
+steady state -- 886 telemetry lines of consequence, with the six `Warn` lines that
+explain them sitting two lines above each `action mj_plan_course_correct`. **A
+rate-limited telemetry field is a symptom; the Warn line is the event.** Read the Warn
+level before concluding from telemetry, especially when the conclusion exonerates a
+parameter you changed.
+
+**The inclination story is real but is NOT the blocker.** The ejection genuinely came
+out coplanar -- the harness's plan diagnostic reads `reachesTargetOrbit=reaches gap=0 m
+(0.000 SOI)` with `targetSoiEncounterPredicted=NO`, and the transfer orbit is
+`inc=0.007` against Moho's 7 deg. That is WHY the correction costs ~1,090 m/s where a
+low-inclination lane needs tens: at the 5.015e9 m crossing a 6.993 deg plane error
+displaces Moho ~610,595 km, and closing it is a real burn. But MechJeb planned that burn
+perfectly well. `mlib`'s finding-18 delegation (the phase-angle ejection produces no
+encounter; the course-correct plan CREATES it) is intact and working. What failed was
+the lane refusing to pay.
+
+Note also that a naive impulsive estimate of the plane change (`2*v*sin(dinc/2)` = 2,254
+m/s at the transfer's 18,481 m/s at the crossing) is ~2x what MechJeb's optimizer
+actually found. Deriving a cap from that geometry would have been wrong in the other
+direction too; the planner's own number is the only one worth capping against.
+
+**Fix.** `maxCorrectionDvMps` restored to B19's proven 1200. At the measured 5,724 m/s
+remaining after ejection: the realistic case (round 1 creates the encounter at ~1,090,
+round 2 refines) leaves ~4,434 m/s against a worst-case ~3,862 capture, closing with
+~572 spare. The one combination that does not close is BOTH rounds landing on the 1200
+ceiling AND the worst-case r=sma encounter (~538 short); that conjunction is named in
+the spec, and if it lands there the answer is a bigger craft rather than a smaller cap.
+
+**Status.** Re-fly pending. Until it greens, `moho-orbit-recorded` cannot be harvested
+and the V11 (loop unit) / V11A (tilt disposition at 7 deg) lanes have no fixture.
+
+**What was NOT in question, all measured on both flights:** the 700 km park (769,845 x
+769,649 m, ecc ~1e-4); JETTISON stopping at TWO pops and handing off at
+`avThr=60000.000`, reproducing B19's Skipper-live path on the identical craft; the
+ejection node `nodeDv=1735.502`, which is +4.5% over the ~1,661 m/s COPLANAR derivation
+(and NOT evidence that the 7 deg was folded in -- it was not); and 5,724 m/s still in
+the stage. The craft is not the problem, and no Parsek surface past the Kerbin->Sun
+handoff was exercised, which is why this is INVALID rather than PARSEK-FAIL.
 ## ~~FORGE-CREW-SEATING-SILENT-FAILURE: kRPC launch_vessel seats NOBODY when a requested crew name is unseatable, and the pad forge stamped an empty-pod fixture without noticing~~ [FOUND 2026-08-11 by the first FORGE-b18-dres-pad run + B18 flight 1 (PR #1459 carries the measurement in that spec's header). GUARD SHIPPED 2026-08-12, branch `forge-crew-guard`: the forge_lko minCrew gate ported to forge_station. CLOSED 2026-08-12: fixture re-forged crewed (FORGE-gs1-two-stage run `2026-08-12_1552` PASS attempt 1, `crewAboard value=1` live) and GS-1 flew the re-stamp to a full PASS (run `2026-08-12_1556`, attempt 1, armed saveParse green)]
 
 **The trap.** kRPC 0.5.4 `launch_vessel(crew=[names])` does NOT fail when a name
@@ -103,6 +2442,122 @@ flight-proven. (2) No roster PRE-flight check: kRPC has
 launch_vessel - rejected for now because the post-launch crew_count gate catches
 the same failure with zero new RPC surface, and a pre-check would race the same
 scene reload the settle debounce already owns.
+
+## HARNESS-PRODUCED-SAVE-CLOBBERED-BY-SIBLING-RUN: the machine lock serialises RUNS, not the produced save, so a finished green flight's output is destroyed by the next run that shares its `saveTemplate` leaf [FOUND 2026-08-12 while harvesting `eeloo-orbit-recorded` from `B21-eeloo-orbit`. A HARNESS LIFECYCLE GAP, not a Parsek defect - the lock is doing exactly what it says]
+
+**What happened.** `B21-eeloo-orbit` flew green twice on 2026-08-12. The FIRST green
+run, `2026-08-12_2003` (PASS attempt 1, wall 3,083 s, ~51 minutes of real flight), had
+its produced save destroyed before it could be harvested. The harvest refused with
+
+```
+situation gate failed: active vessel 'Duna Rocket' is PRELAUNCH, expected one of ORBITING
+```
+
+which reads exactly like a mission that did not reach orbit - and the mission JSON for
+that run says `MISSION-OK` with all six assertions met and a park at Eeloo. A second
+symptom named the real cause: repeated greps of the same `persistent.sfs` returned
+INCONSISTENT results, because a sibling's live `KSP_x64.exe` was rewriting the file
+underneath the reads.
+
+**The mechanism, and it is one line.** The produced-save directory is the
+`saveTemplate` LEAF, not the scenario id: `hlib` derives `run_save_name = _leaf_of(
+save_template)` (`harness/lib/hlib.py:2792`, with `_leaf_of` at `:2648`) and its own
+comment says "The saveTemplate leaf IS runSaveName, staged as a directory the shell
+rmtree's + copytree's". The shell then does exactly that at the top of staging:
+
+```
+harness/run.py:905    if os.path.isdir(target_save):
+harness/run.py:906        shutil.rmtree(target_save, ignore_errors=True)
+```
+
+So EVERY scenario sharing a `saveTemplate` leaf shares ONE produced-save directory in
+the instance, `<instance>/saves/<leaf>`, and each new run deletes the previous
+occupant's output as its first destructive act. `<umbrella>/automation/.ksp-machine.lock`
+does not help: it serialises RUNS so two KSP processes never overlap, and it is released
+when a run ENDS. The produced save's useful lifetime begins exactly then.
+
+**Verified, not inferred.** Four specs share the `b18-dres-pad` leaf - `B18-dres-lko-
+ascent`, `B19-dres-orbit`, `B21-eeloo-orbit` (all in this worktree) and
+`B20-moho-orbit.toml:148` in the sibling worktree `Parsek-moho-lane`. The lockfile
+caught the collision in the act: after B21's second green run `_2239` ended at
+`2026-08-12T23:30:45Z`, `.ksp-machine.lock` read
+`{"worktree": "...\\Parsek-moho-lane", "selection": "--id B20-moho-orbit",
+"startedIso": "2026-08-12T23:30:54Z"}` - NINE SECONDS later. The instance's
+`saves/b18-dres-pad/persistent.sfs` now holds a single RECORDING_TREE whose every
+`endpointBodyName` reads `Kerbin`; B21's Eeloo payload is gone from the instance
+entirely, and survives only because it was snapshotted first. The `_2003` clobber was
+the same event about 53 s after that run ended; its lockfile evidence has since been
+overwritten, so that interval is reported rather than re-verified, while the mechanism
+and the `_2239` timing above are both measured.
+
+**Why it is worse than it looks.** The failure is SILENT and MISATTRIBUTED. Nothing
+warns; the harvest simply describes a pad-bound vessel, and the natural reading is that
+the flight failed. It cost one wrong diagnosis here before the lockfile was read. It is
+also RECIPROCAL - whoever flies second destroys the first one's harvest source - so on a
+machine with 28 sibling worktrees the hazard is a function of neighbours, not of
+anything the flying spec did. And the cost unit is a whole ~51-minute flight.
+
+**Mitigation used, and worth recommending.** Chain the harvest into the SAME command as
+the run, snapshot the produced-save directory the moment the run returns, and harvest
+from the snapshot:
+
+```
+python run.py --id <SPEC> && cp -r <instance>/saves/<leaf> <snapshot> \
+  && python tools/harvest_bdock_station.py --save-dir <snapshot> --target-name <fixture> ...
+```
+
+`harvest_bdock_station.py --save-dir` already accepts an arbitrary directory, so no tool
+change is needed for the workaround.
+
+**Fixes worth considering, none taken here.** (a) Make the produced-save directory
+per-RUN (`<leaf>__<runId>`) and have staging reap only its own; that removes the
+collision outright but touches every consumer that resolves a produced save by leaf.
+(b) Keep the leaf but have staging MOVE rather than delete an existing occupant, into
+`<leaf> (superseded <runId>)`, so the bytes survive one generation. (c) Cheapest and
+smallest: have staging log a WARN naming the runId whose output it is about to delete,
+so the destruction is at least visible in the harness log. Even (c) would have turned
+this from a wrong diagnosis into a one-line read.
+
+---
+
+## FORGE-CRAFT-BYTE-IDENTICAL-CLAIM-IS-FALSE-AS-WRITTEN: two sites say the committed `Duna Rocket.craft` is byte-identical to its download at a sha256 that is actually the CRLF form's [FOUND 2026-08-12 while registering the Eeloo fixture. A DOC-ACCURACY defect, not a craft defect - the craft is content-correct and nothing gates the pin]
+
+**What the two sites claim.** `docs/dev/autotest-status.md:1102` (the
+`FORGE-b18-dres-pad` row) and `harness/scenarios/FORGE-b18-dres-pad.toml:26` both say
+the craft is "committed VERBATIM, byte-identical to its download, sha256
+`f664d7ce27710420976e5454ccaed9c1ae872a302455e7369048ffdf8f555fc2`", and the spec adds
+that because the craft is not authored by construction "the craft file itself IS the
+record".
+
+**What is measured.** Over `harness/fixtures/ships/Duna Rocket.craft`:
+
+```
+bytes        213,198      CRLF 0      LF 12,804
+sha256(committed bytes)                  f504608c5a3b36bd2d121f6f178d03d2b9e11b1cc4e5ed36b611f7a5a9289328
+sha256(same content re-CRLF'd, 226,002 bytes)  f664d7ce27710420976e5454ccaed9c1ae872a302455e7369048ffdf8f555fc2
+```
+
+So `f664d7ce...5fc2` IS the download's hash - of the CRLF form KerbalX serves. The
+committed file is LF-normalised and hashes `f504608c...9328`. Same craft,
+content-identical modulo end-of-line, but "byte-identical to its download" is FALSE as
+written, and the stated hash matches nothing in the repository.
+
+**Why it survived.** Nothing gates the pin. The craft is deliberately NOT
+builder-authored (unlike the DD1, which has `build_dd1_craft.py --check`), so there is
+no drift gate to notice, and `.gitattributes:30` marks `harness/fixtures/** -text`,
+which makes the LF form stable in every working tree on every platform - so the number
+is wrong but the file is not going to move under it.
+
+**Fix applied.** Both sites now state BOTH hashes and the mechanism: content-identical
+to the download, LF-normalised on commit, `f504608c...9328` as committed and
+`f664d7ce...5fc2` for the CRLF form the download arrives in. That keeps the derivation
+record intact - which is the whole point of the sentence - while making it checkable.
+
+**Not done, and a real option.** Adding a `--check` byte gate for this craft (hash the
+committed bytes against `f504608c...9328`) would make the claim enforced rather than
+merely accurate. It was not added here because the craft is downloaded rather than
+generated, so a gate would pin a fact with no generator to re-derive it from; the
+`-text` attribute already supplies the stability the gate would be protecting.
 
 ## ~~FIXTURE-CRAFT-DUPLICATED-PER-SAVE: every committed save fixture carries its own byte-identical copy of each craft it flies~~ [FOUND 2026-08-12 while accounting for the six-figure line counts on the recent fixture-lane PRs. FIXED 2026-08-12, branch `claude/large-pr-code-volume-xt1z02`]
 
@@ -647,9 +3102,12 @@ traversal while burning -> split"). A mission flown that way would reproduce the
 exact V9 symptom -- `no member yields a re-aim transfer`, a FAITHFUL replay, and a
 reason string that blames a missing heliocentric leg the recording actually contains.
 
-**Why it is not loud.** Nothing distinguishes "this recording has no transfer" from
+**Why it is not loud.** ~~Nothing distinguishes "this recording has no transfer" from
 "this recording's transfer is spread across two members". Both emit the same
-decline. That is what made the original defect cost a full reading run to find.
+decline.~~ **LANDED 2026-08-14, branch `reaim-loud-decline`** -- see "the interim, as
+shipped" below. That is what made the original defect cost a full reading run to find.
+THE ENTRY STAYS OPEN: the interim only makes the failure diagnosable; Design C is
+still the structural cure and is NOT implemented.
 
 **The direction, and why it is viable** (Design C of the plan, rejected for that
 branch only to keep V9's re-measure attributable to one change). The topology marker
@@ -667,10 +3125,61 @@ member", per-member heliocentric substitution in `ReaimPlaybackResolver`); a pla
 spanning two members would strain them. That is the actual work, and it is why this
 is a separate entry rather than a follow-up commit.
 
-**Cheaper interim option worth considering first:** make the failure LOUD rather than
+**Cheaper interim option worth considering first:** ~~make the failure LOUD rather than
 robust -- when a decline's reason is "no heliocentric leg" but a sibling member in the
-same chain group HAS one, say so in the reason string. That converts a silent
-misclassification into a diagnosable one for a fraction of the cost.
+same chain group HAS one, say so in the reason string.~~ **DONE 2026-08-14** (branch
+`reaim-loud-decline`). That converts a silent misclassification into a diagnosable one
+for a fraction of the cost.
+
+**The interim, as shipped.** `Source/Parsek/Reaim/ReaimSplitSiblingDiag.cs` -- pure,
+diagnostic-only, no classification outcome moves. `ApplyReaim` now classifies every
+member first and logs in a second pass (sibling awareness is a statement about the
+OTHER members, so it cannot be written mid-loop), then appends a clause to the
+`[ReaimDiag] member#N` line and to the unit-level decline line. A member is annotated
+only when it declined with `ReaimClassifier.MissingHeliocentricLegReason` (hoisted to
+a constant so the predicate cannot drift from the emitter), carries a `ChainId`, sits
+in a >=2-member chain group where NO member classified Supported, and **the group's
+UNION of segments classifies Supported** -- the real `ReaimClassifier.Classify`, run
+over the members concatenated in UT order the way Design C would read them. Both sides
+of a cut are annotated, from their own side: the parking half names the sibling that
+holds the common-ancestor leg, and the ancestor-started half names the sibling that
+holds the launch-body legs. Grep token `split-sibling-transfer`; every clause carries
+this entry's id, and each leads with the union verdict (`classify Supported as
+Kerbin->Duna via 'Sun'`) -- the measured proof behind the claim.
+
+**Why the union classify is the gate, and not "a sibling records a strict ancestor".**
+That weaker predicate was the first implementation, and it FALSELY annotates two
+reachable shapes (both caught in review before merge, both now pinned as
+must-not-annotate cells). (a) `[Kerbin parking] + [Sun coast, no arrival]` -- a probe
+ejected to solar orbit, or a recording ending mid-coast: joined it still declines `no
+target arrival leg after the heliocentric coast`, so there is no transfer to announce.
+(b) `[Mun orbit] + [Kerbin orbit]` -- a Mun return cut at the SOI exit, i.e. the
+deliberately preserved burn-split calibration row: Kerbin IS a strict ancestor of Mun,
+so the weak predicate announced a "'Kerbin'-legged transfer" that is not an
+interplanetary transfer at all. Running the real classifier over the union makes "no
+SINGLE member carries this whole" literally true. A second review finding fixed with
+it: the carrier-side clause must not assert that the common-ancestor body has no parent
+-- true only when the ancestor is the Sun, false for a Mun->Kerbin->Minmus group whose
+ancestor is Kerbin. It now states the fact the classifier actually acted on (this
+member recorded nothing at a strict ancestor of its OWN earliest body).
+
+**The lane trap this had to dodge, recorded because it nearly cost three guards.**
+`V9-dres-player-loop`, `V11-moho-player-loop` and `V12-eeloo-player-loop` forbid the
+literal `not re-aim \(no member yields a re-aim transfer\); faithful`, and `V10` /
+`V11A` forbid the bare `no member yields a re-aim transfer` -- their ENGAGED regression
+floors. Rewriting that text would have left all five lanes green while their guard
+silently stopped matching. The clause is therefore APPENDED AFTER `faithful` (the
+patterns are applied with `re.search`, so a suffix keeps every one matching) and
+`plan.Reason` is untouched. No spec file changed. Guarded in-repo by
+`ReaimSplitSiblingDiagTests.TheAggregateDeclineLineAnnotatesTheSplitAndKeepsTheCommittedLaneSubstrings`.
+
+**What is still open.** Design C (per-chain-group classification), the product-visible
+member seam, and every downstream single-transfer-member assumption listed above.
+Also note the interim's deliberate narrowness: only the missing-heliocentric-leg
+decline class is annotated. Other split shapes can decline for other reasons (a first
+half with parking + coast but no arrival would emit `no target arrival leg after the
+heliocentric coast`), and those stay unannotated -- widening the predicate without a
+measured instance would be guessing.
 
 ## RECORDER-LABELS-ON-RAILS-CHECKPOINTS-EXOPROPULSIVE: a packed vessel cannot thrust, but the recorder still stamps some on-rails checkpoint re-emissions ExoPropulsive [FILED 2026-08-12 as the hygiene follow-up to OPTIMIZER-SPLIT-DEFEATS-REAIM-CLASSIFIER (open question 3, recommendation accepted: file it, do not act on it yet). LOW PRIORITY - the consumer that was misled has been fixed]
 
@@ -2934,6 +5443,543 @@ Those two conditions say stock promoted an encounter and the closest one is our 
 **The fix (same method, fail-closed, no new decline).** A pure `internal static IsGenuineTargetSoiEntry(soiEntryUT, departureUT, distanceAtSoiEntry, targetSoiRadius)` now validates the reported instant before it is trusted: it must be finite and STRICTLY after departure, AND the transfer must be within the target's SOI at it (relative slack `SoiEntryRadiusRelativeTolerance = 1e-6` - a genuine entry sits exactly ON the sphere, and the measured genuine entries read the SOI radius to the metre, so a strict `<` would have rejected real entries; 1e-6 of Eve's SOI is ~85 m against a failure mode that misses by gigametres). The distance comes from a new shared `TargetDistanceAtUT` helper that `LogSynthGeometry` also uses, so the guard and the diagnostic that states the contract cannot drift apart. **A false verdict is NOT a decline:** the conic is untouched and still passes through the target's position at arrival by construction, so control falls through to the existing `TryFindTargetEncounterByProximity` sweep, which derives its own genuine instant - failing the candidate would re-introduce exactly the window-killing Phase 1 removed. The fall-through logs the grep-stable `soi-entry fastpath rejected: soiUT=... dep=... dist=... soi=... - proximity fallback` at Verbose (not Warn: it is a working, designed recovery, and the candidate normally resolves through the sweep on the next line).
 
 **Guards.** Headless: `ReaimTransferSynthesizerTests` cells over the MEASURED tuples above (each rejected, plus each failing condition asserted in isolation so a one-sided regression cannot pass on the other's coattails), the measured GENUINE entries (accepted - including a retained candidate at inc 10.7427 - so the fix cannot silently demote every good fast-path window to the sweep), the on-sphere / tolerance boundaries, and nine degenerate-input rows that must all fail closed. In-game: `Reaim_KerbinToEve_UnreachablePlaneRetainsTiltAndStillEncounters` asserts the ARRIVAL miss and the REPORTED-INSTANT sanity as two separate claims, sharing the production predicate.
+
+---
+
+## ~~STRATEGY-SCIENCE-CONVERSION-LEAK: a stock strategy's science-to-funds exchange has its FUNDS leg captured and its SCIENCE leg dropped, so the recalc reconstructs science 108.84 too high~~ [FOUND 2026-08-17 by career-ledger-lane task A.0, the first real-ledger replay. TWO DOORS, BOTH CLOSED: the EXCHANGER door FIXED AND OBSERVED 2026-08-18; the QUERY-FAMILY door BUILT 2026-08-18 on `strategy-science-leak-fix` and **LIVE-PROVEN 2026-08-18** by `2026-08-18_2039_L3-strategy-currency-conversion` (PASS attempt 1, `total=3 passed=3 failed=0 skipped=0`, ZERO GUARDED lines), after the reading run `2026-08-18_2019` red'd and bought three fixes.]
+
+**THE ENTRY IS NO LONGER STRUCK, and the un-striking is a correction rather than a
+regression.** It was closed on the belief that ONE mechanism was leaking. There
+are TWO, they leave completely different traces, and only one of them was
+captured by the original fix. See THE TWO MECHANISMS below; the forensic body
+that follows is kept verbatim as the evidence for the first.
+
+**DOOR 1, THE EXCHANGER FAMILY (`Strategies.CurrencyExchanger`) - FIXED AND NOW
+OBSERVED, not inferred.** The earlier write-up said the `StrategyInput` reason key
+was INFERRED from the measured `StrategyOutput` funds leg and demanded a live
+flight before closing. That evidence now exists on disk and is quoted here so the
+demand is discharged rather than repeated: the c2 save's
+`Parsek/GameState/events.pgse` carries the actual pair at the very UT the ledger
+replay measured -
+
+    GAME_STATE_EVENT { ut = 8599.8755059835421  type = 16  key = StrategyInput
+                       valBefore = 750.63189697265625  valAfter = 641.790283203125 }
+    GAME_STATE_EVENT { ut = 8599.8755059835421  type = 15  key = StrategyOutput
+                       valBefore = 80591.466684483632  valAfter = 85166.31533847659 }
+
+Science 750.632 -> 641.790 is exactly the 108.842 the replay reconstructed too
+high, keyed `StrategyInput` on `ScienceChanged` (type 16) as the fix assumed. The
+reason-keyed doors are keyed RIGHT and stay exactly as built.
+
+**DOOR 2, THE QUERY FAMILY (`Strategies.Effects.CurrencyConverter` /
+`CurrencyOperation`) - the door the original fix could not see, BUILT 2026-08-18,
+NOT YET LIVE-PROVEN.** Eight stock strategies including Patents Licensing
+(`PatentsLicensingCfg`, activated in that same c2 session at ut=8714.396) do NOT
+do a direct `Add*` under a strategy reason at all. They subscribe
+`GameEvents.Modifiers.OnCurrencyModifierQuery` and mutate the query's deltas IN
+PLACE; `ResearchAndDevelopment.AddScience` / `Funding.AddFunds` then fire
+`OnScienceChanged` / `OnFundsChanged` with values ALREADY NET, under the ORIGINAL
+reason. **No `StrategyInput` / `StrategyOutput` event exists for this family at
+all**, so every reason-keyed door is structurally blind to it, and no amount of
+re-keying could have caught it.
+
+Measured on the live session snapshot `logs/2026-08-18_2223_strategy-live-proof`:
+science recon HIGH by exactly the takes (0.72000 measured against a 0.7200818
+`GUARDED UPLIFT` gap) and funds recon LOW by exactly the yields (60.526316 summed
+against a 60.525981 `GUARDED DRAWDOWN` gap).
+
+**Fix as built for door 2.** A new door reading `OnCurrencyModified` - the event
+that rides an actual `Add*`, NOT `OnCurrencyModifierQuery`, which stock's 33
+`CurrencyModifierQuery.RunQuery` DISPLAY sites fire without moving any balance (a
+`[CurrencyConverter ...]` log line is not proof of a balance change):
+
+- `GameStateRecorder.OnCurrencyModified` (instance handler, added and removed
+  symmetrically beside the three reason-keyed resource doors) snapshots the
+  query's per-currency `GetInput` / `GetEffectDelta` and hands it to the pure
+  `StrategyConversionCapture`.
+- SCOPING RULE, and it is asymmetric on purpose. **Science: capture any nonzero
+  delta**, input or not - Parsek's science earning channel is archive-derived
+  (subject value), so it never sees a pool-only movement at all, and a
+  `CurrencyOperation` science multiplier is just as invisible as a converter take.
+  **Funds / reputation: capture only when `GetInput(currency) == 0`** - a nonzero
+  input means the ordinary event-driven channel already reports that transaction
+  NET of the modifier, so capturing would double-count. That is exactly the
+  `CurrencyOperation` reward-multiplier case.
+- `LedgerOrchestrator.OnStrategyCurrencyConversion` writes DIRECT, UNTAGGED rows
+  even when a recorder is live. Forced by the mechanism: with no reason-keyed
+  event there is nothing for the commit-time `ConvertEvents` path to convert
+  later, so deferring would simply lose it - and the movement is irreversible
+  global economy, so a discard must not take it back (an untagged row is already
+  where `PreserveIrreversibleLiveGameplayOnDiscard` would put it).
+- Row shapes: a science TAKE reuses `StrategyScienceDebit`; a science YIELD gets a
+  new sibling `GameActionType.StrategyScienceCredit = 33`; a funds YIELD reuses
+  `FundsEarning` / `FundsEarningSource.Strategy`.
+- New `StrategyConversionSource { Exchanger = 0, Converter = 1 }` serialized on
+  `StrategyScienceDebit`. LOAD-BEARING, not cosmetic:
+  `ComputePendingUncommittedStrategyScienceDebit` nets an OBSERVED population
+  (stored `StrategyInput` events) against a COMMITTED one, and a converter row has
+  no observed counterpart - counting it would silently shrink a genuine pending
+  exchanger adjustment. The default `Exchanger` keeps every pre-existing row's
+  meaning on load.
+
+**WHY `ScienceEarning` COULD NOT CARRY THE YIELD - verified, not assumed.**
+`ScienceModule.ProcessEarning` computes `headroom = SubjectMaxValue - CreditedTotal`
+and credits `min(awarded, headroom)`. A pool-only yield has no subject, so
+`SubjectMaxValue = 0`, `headroom = 0`, and the credit is silently ZEROED. A
+negative-`Cost` `StrategyScienceDebit` was rejected too: the field is named `Cost`,
+the row would render "Strategy exchange --5 sci", and the negative would flow into
+`ScienceModule.ComputeTotalSpendings` and silently RAISE spendable science through
+the reservation math. A sibling type keeps the sign in the type and every
+magnitude positive.
+
+**REPUTATION IS OBSERVED AND DROPPED, deliberately.** The query delta is the
+modifier's PRE-curve contribution while `Reputation.AddReputation` applies KSP's
+granular curve on top, so the number available at this seam is not the number the
+pool moved by - and the seam exposes no post-curve value to read. The exchanger
+family's rep leg is captured instead from the `ReputationChanged` event, which IS
+post-curve. Writing a pre-curve magnitude would trade a known drift for a wrong
+one, so the door logs the observation and says so.
+
+**LIVE PROOF DELIVERED for door 2 (2026-08-18), and it is exactly what was
+demanded.** Run `2026-08-18_2039_L3-strategy-currency-conversion`, PASS attempt 1,
+57 s wall, fully unattended, every verifier PASS or REPORT:
+
+    [GameStateRecorder] Game state: strategy currency conversion - reason=ScienceTransmission
+                        inF=0 dF=168.12864685058594 inS=40 dS=-2 inR=0 dR=0 legs=2
+    [LedgerOrchestrator] Strategy conversion recorded: type=StrategyScienceDebit,
+                         currency=Science, delta=-2, reason=ScienceTransmission
+    [LedgerOrchestrator] Strategy conversion recorded: type=FundsEarning,
+                         currency=Funds, delta=168.12864685058594, reason=ScienceTransmission
+    [TestRunner] CurrencyConverterStrategy: award=40 sciDelta=38 take=2
+                 fundsDelta=168.12864685058594 factor=0.05
+
+`debit == take == 2` and `strategy funds == fundsDelta == 168.12864685058594`, both
+against the MEASURED pool movement rather than a config prediction (this KSP's
+`CurrencyConverter` exposes no min/max rate fields, so the optional cross-check
+stood down and the cell asserted against what the pools actually did). The whole
+KSP.log carries ZERO `GUARDED` lines of any kind. The scoping rule is now observed
+end to end, not argued from decompiled evidence.
+
+**RESIDUAL (door 2): a converter take inside a flight COMMIT WINDOW can fire an
+"Earnings reconciliation (sci)" WARN of the take's magnitude.** The commit
+reconciler compares the window's stored pool deltas against the commit's OWN
+`newActions`; the store's `ScienceChanged` is already NET of the take while the
+debit row is UNTAGGED and therefore not in `newActions`, so the two sides differ
+by the take (tolerance 0.1). The reconciler is deliberately NOT touched here - the
+compensation is threshold-dependent in the funds direction (the store drops any
+funds move under 100, so folding funds rows in would fix the large case and break
+the small one) and getting that wrong would trade a WARN for a wrong number. It is
+a reporting artefact only: the pool reconstruction is correct the moment the row
+is written, which is what the GUARDED guard reads. Measure it on the L3 reading
+run before deciding.
+
+**READING RUN 1 (2026-08-18_2019, PARSEK-FAIL(results)) AND THE THREE THINGS IT
+BOUGHT.** The run is part of the record and is not superseded by the green one
+that follows it. The conversion DOOR captured exactly - `debit = take = 2`,
+`funds = yield = 168.12864685058594`, ledger oracle restore PASS - and the cell
+still red'd on its final no-GUARDED-clamp assertion, for THREE separable reasons.
+All three are fixed; the second is the one that would have red'd a re-fly of the
+first two on its own.
+
+1. **A FIXTURE-INDUCED clamp, 4x Science DRAWDOWN.** The cell topped 200 science
+   up under `SuppressionGuard.Resources()` + `TransactionReasons.None`, which is
+   deliberately invisible to the ledger - so the reconstruction ran 200 low, the
+   strategy's 263.25 setup charge (which the ledger DOES model, via
+   `ScienceModule.ProcessStrategySetupScienceCost`) drove running to -163.25
+   against a live 36.75, and the guard clamped four times, twice before the
+   conversion even fired. FIXED in the cell, not the product: the top-up is now
+   paired with a matching `StrategyScienceCredit` ledger row - the one action type
+   that credits a SUBJECT-LESS science movement unconditionally (`ScienceEarning`
+   would be zeroed by the `SubjectMaxValue - CreditedTotal` headroom cap) - stamped
+   one second in the past so it sits outside the 0.1s window helper #2 reads. The
+   existing count-based `Ledger.TruncateActionsForTesting` teardown removes it.
+   Arithmetic after the fix: 100 seed + 200 top-up - 263.25 setup = 36.75, + 38
+   award-net = 74.75, positive throughout.
+
+2. **A PRODUCT defect the cell only happened to expose: the pending-credit basis
+   mismatch.** `ComputePendingRecentKscScienceCredit` subtracts a GROSS committed
+   side (`ScienceEarning.ScienceAwarded`) from a NET observed side (the stored
+   `ScienceChanged` delta, already net of the converter's take). With the take now
+   carried as its own untagged converter row, the pending credit came out exactly
+   one take short, `ComputePendingAdjustedRunningScience` landed one take BELOW
+   live, and the guard `GUARDED DRAWDOWN` clamped on EVERY award-coupled
+   conversion at KSC / TS - not just in this cell. FIXED by folding the in-window
+   converter legs back into the observed side (add a Converter-sourced
+   `StrategyScienceDebit.Cost`, subtract a `StrategyScienceCredit.ScienceAwarded`),
+   restoring a gross-vs-gross comparison and closing the mirrored uplift risk on
+   science yields at the same time. Exchanger-sourced debits are NOT folded in:
+   they move under `StrategyInput`, never reach the observed side, and are netted
+   by `ComputePendingUncommittedStrategyScienceDebit` instead. The gross-up is
+   gated behind an observed subject credit, so a converter leg can never invent a
+   pending credit out of an award that was never observed. Six cells in
+   `LedgerOrchestratorTests` pin both directions. **Deferring the door's recalc
+   does NOT make this moot** - the mismatch is structural and persists after
+   everything has settled.
+
+3. **A one-recalc-early transient, 1x Funds UPLIFT, self-healing - now FIXED BY
+   DEFERRAL rather than left as a residual.** `OnCurrencyModified` fires from
+   INSIDE the `CurrencyModifierQuery`, before KSP has applied the output leg, so
+   the door's synchronous `RecalculateAndPatchForLiveTimelineEvent` patched against
+   a live pool briefly missing the yield: measured `running=500168.12864685059
+   live=500000`, clamped down once and correct on the next recalc. The ROWS stay
+   synchronous (capture-loss risk zero by construction - they are in the ledger
+   before anything is deferred, and a deferred recalc that never runs costs only
+   freshness); only the recalc moves, one frame, through
+   `WarpToTimeConsumer.RunNextFrame`, the repo's existing one-frame defer host. The
+   decision itself is the pure `StrategyConversionCapture.DecideRecalcDispatch`
+   (`None` / `Deferred` / `Immediate`, the last being the no-frame-host fallback so
+   a missing host degrades to the old synchronous shape rather than dropping the
+   recalc). A source-ordering cell pins that the ledger write precedes the dispatch
+   decision.
+
+**ALSO FIXED alongside: `StrategyScienceCredit` was missing from
+`RecalculationEngine.IsEarningType`.** The earlier note arguing it out was right
+that the arm is inert for ordering and wrong about the other consumer.
+`Ledger.Reconcile`'s earning branch keeps an untagged row UNCONDITIONALLY while
+the fall-through "other" branch prunes an untagged row past `maxUT`, so a
+maxUT-bounded reconcile (a rewind) kept a conversion's untagged `FundsEarning`
+yield and DELETED its `StrategyScienceCredit` - one movement, half of it gone.
+`StrategyScienceDebit` stays out of `IsSpendingType` for the unrelated BUG-F
+cold-load reason already recorded there (and that path preserves future rows
+anyway).
+
+**Measured, on a committed fixture.** `C2CareerLedgerReplayTests` (fixture
+`Source/Parsek.Tests/Fixtures/C2Career/`) calls `LedgerOrchestrator.Initialize()` so
+the module graph under replay IS the production one, runs the REAL
+`RecalculationEngine.Recalculate` over the fixture's 68-row `ledger.pgld`, and
+diffs the result against the same save's `persistent.sfs` pools. Non-circular:
+KSP wrote the pools, Parsek's observers wrote the ledger.
+
+| Pool | Reconstructed | Save | Delta |
+| --- | --- | --- | --- |
+| Funds | 85166.315673828125 | 85166.31533847659 | **+0.00034** (float32 print noise) |
+| Science | 750.63200151920319 | 641.790283 | **+108.8417185192** |
+| Reputation | 5.02047253 | 5.02411318 | -0.00364 |
+
+The subject: save `c2`, hand-played 2026-08-17 on current code, schema generation
+4. Two flights auto-recorded and merged, one contract accepted and completed,
+tech nodes researched, and the strategy `researchIPsellout` (Patents Licensing,
+commitment 0.05) activated and then deactivated from the Administration building.
+
+**The science delta is not a share of the science EARNINGS.** Every
+`ScienceEarning` row in the whole c2 ledger sums to 46.664 awarded / 42.632
+effective after `ScienceModule`'s subject hard cap - less than half the missing
+108.84. The missing science therefore came out of the 750-point career seed, not
+out of the flights. It is also not a dropped `ScienceSpending`: tech-node costs
+are integers and every subset of them sums to an integer, while 108.84171851920314
+is not one.
+
+**What the ledger does and does not contain at the strategy UT.** All three
+strategy-adjacent rows share one KSC-frozen UT, `8599.8755059835421`:
+
+    type=2  FundsEarning     fundsAwarded=4574.84863  fundsSource=6 (Strategy)
+    type=18 StrategyActivate strategyId=researchIPsellout commitment=0.05
+                             sourceResource=0 targetResource=0
+                             setupCost=0 setupSci=0 setupRep=0
+    type=19 StrategyDeactivate strategyId=researchIPsellout
+
+The funds OUTPUT leg is there; there is **no science row of any kind** at that UT.
+That asymmetry is exactly why funds reconstruct to 0.00034 and science does not.
+
+**Root cause: the CurrencyExchanger carve-out was built for two currencies out of
+three.** The Bail-Out Grant fix (`docs/dev/plans/fix-bailout-grant-currency-exchange-capture.md`)
+added a dedicated capture for a stock strategy's direct currency moves, in two
+places, twice each - and science got neither:
+
+- `GameStateRecorder.OnFundsChanged` forwards `TransactionReasons.StrategyOutput`
+  straight to the ledger; `GameStateRecorder.OnReputationChanged` forwards
+  `TransactionReasons.StrategyInput`. `GameStateRecorder.OnScienceChanged` emits
+  its `ScienceChanged` event and forwards **nothing** - it has no StrategyInput
+  twin.
+- `GameStateEventConverter.ConvertEvent` carves `FundsChanged` out to
+  `ConvertStrategyExchangeFunds` and `ReputationChanged` out to
+  `ConvertStrategyExchangeReputation`. `ScienceChanged` is still in the
+  unconditional `return null` group, and there is no
+  `ConvertStrategyExchangeScience` in the file.
+
+So KSP's science debit under the exchange is observed, emitted as a
+`GameStateEvent`, and then dropped on the floor by both capture doors. The recalc
+path could not compensate even in principle: `StrategiesModule` documents itself
+as transforming **contract rewards only** ("Strategies divert a percentage of one
+contract reward resource into another"), and neither `ScienceModule` nor
+`FundsModule` consults it during earning processing.
+
+**Secondary observation - the recorded flow direction is wrong too. OUT OF SCOPE
+for this fix, still open.** The
+`StrategyActivate` row carries `sourceResource = 0, targetResource = 0`
+(`StrategyResource.Funds` both sides) for a strategy that actually moves Science
+into Funds. That is the fallback
+`GameStateRecorder.Handlers.OnStrategyActivated` writes when
+`TryExtractStrategyResourceFlow` fails to recognise a CurrencyConverter effect on
+the strategy. It is display-only today (`StrategiesModule` stores it,
+`GameActionDisplay` renders it), so it is NOT the cause of the delta - but any fix
+that models the exchange rather than capturing its legs would need it to be right,
+and WHY it missed on `researchIPsellout` is UNESTABLISHED (no KSP.log in the
+fixture).
+
+**Also UNESTABLISHED: the exact stock trigger.** That KSP moved ~108.84 science
+out and 4574.84863 funds in at that one UT is measured. Whether stock fires that
+on `Activate()`, on `Deactivate()`, or continuously across the frozen KSC UT is
+inferred from a save plus a ledger and was not observed live. Do not write a fix
+against the guess; reproduce it in-game first, with `[Parsek]` capture on.
+
+**Reputation, recorded not chased. STILL OPEN.** `-0.00364` is above float32
+print noise at that magnitude and far below display precision. It is pinned as a
+`0.01` window, not a value. Whether it is a second small leak or curve-rounding is
+unknown. It is now RE-MEASURABLE on a post-fix re-harvest of c2 (the science leg
+no longer masks it), which is when to look - not by guessing now.
+
+**The C2Career fixture is FROZEN PRE-FIX DATA, so BOTH C2 cells stay GREEN and
+UNCHANGED.** This supersedes the earlier instruction to swap the pinned magnitude
+for a closure assertion; that instruction was written assuming a recalc-side fix
+and is WRONG for the capture-side one that shipped. `ledger.pgld` is a committed
+file on disk. A capture-side fix changes what FUTURE recordings write and cannot
+retro-fill a committed fixture, so both
+`FixtureLedger_StrategyExchange_HasAFundsCreditAndNoScienceDebit` (structural) and
+`RealEngine_ReplaysC2Ledger_PoolsVsSave` (the `108.84171851920314` magnitude pin)
+keep asserting the pre-fix shape and keep passing. They are DATA-ERA pins over
+pre-fix data. They flip only when c2 is re-harvested, or a new fixture is captured,
+on post-fix code - and THAT re-harvest is the moment to replace the pin with the
+closure assertion. Corollary worth keeping: if either cell ever moves WITHOUT the
+fixture being re-harvested, a RECALC-side change has occurred and must be
+investigated, because a capture-side fix cannot move it.
+
+**Fix as built (2026-08-18, branch `strategy-science-leak-fix`).** Capture-side,
+input-direction only, mirroring the reputation pair exactly:
+
+- `GameStateRecorder.OnScienceChanged` now forwards
+  `TransactionReasons.StrategyInput` to `LedgerOrchestrator.OnKscSpending`, gated
+  on `ShouldForwardDirectLedgerEvent`, placed AFTER the `Emit` so the event is in
+  `GameStateStore` before the recalc that call runs at its tail reads the store
+  (the pending-debit helper below must see it to net it against the row being
+  written). NOT for `ReconcileKscAction` pairing - `ClassifyAction` returns
+  `Transformed` for this type and the reconcile short-circuits before any leg is
+  matched, so no pairing ever happens; the original write-up said otherwise and was
+  wrong. Byte-symmetric with the funds (`StrategyOutput`) and reputation
+  (`StrategyInput`) forwards.
+- `GameStateEventConverter.ConvertStrategyExchangeScience` converts a NEGATIVE
+  `ScienceChanged`/`StrategyInput` delta; `ScienceChanged` moved out of the
+  unconditional `return null` group into the carve-out group beside
+  `FundsChanged` / `ReputationChanged`. Every other `ScienceChanged` reason still
+  returns null, so `ConvertScienceSubjects` keeps sole ownership of science
+  EARNINGS - the double-count hazard the comment block warns about.
+- New `GameActionType.StrategyScienceDebit = 32`, NOT a source discriminator on
+  `ScienceSpending`. `ScienceSpending` is MONOMORPHIC - it is the tech-node
+  contract read by `KspStatePatcher`'s unlock set, `LedgerOrchestrator.GetActionKey`
+  (keys off `NodeId`), `KscActionExpectationClassifier` (expects a
+  `TechResearchScienceReasonKey` leg), `LedgerGroundTruth` /
+  `LedgerGroundTruthDiff` / `SupersedeCommit`'s researched-node derivation, and
+  three display sites. Overloading it would inherit a WRONG tech-shaped default at
+  each, silently, forever. A new type defaults to no-op / `NoResourceImpact` /
+  not-reconciled almost everywhere, so every consumer opts IN explicitly and the
+  tech-node domain needs NO edit.
+- `ScienceModule.ProcessStrategyScienceDebit` deducts UNCONDITIONALLY, modelled on
+  `ProcessStrategySetupScienceCost` and explicitly NOT on `ProcessSpending`:
+  ProcessSpending refuses to deduct when unaffordable, but KSP has already removed
+  this science from the pool, so a refusal would diverge the reconstruction in the
+  opposite direction. It never sets `action.Affordable` (that field is the
+  tech-node contract `KspStatePatcher` reads), and it does not gate on
+  `action.Effective` either - consistent with `ProcessSpending`, which is also
+  ungated (that flag is the EARNING channels' duplicate suppressor). The
+  unaffordable branch is a rate-limited Verbose, NOT a Warn: commit-stamped
+  earnings land at their recording's END UT while the exchange debit carries the
+  exchange's TRUE UT, so a mid-walk negative balance is the expected shape on a
+  legitimate ledger and the final totals are unaffected.
+
+**Review-batch follow-ups (2026-08-18, same branch).** Applied after the first
+build was reviewed; each closes a way the leak re-opened or a way the fix made
+noise:
+
+- **Migration retro-fill excluded.** `LedgerLoadMigration.MigrateOldSaveEvents`
+  converts with a NULL recording scope, so it matches every stored event
+  regardless of age and would retro-create a `StrategyScienceDebit` for an OLD
+  save's exchange - while that era's science EARNINGS are not reconstructible here
+  (they rode `PendingScienceSubjects`, never a `GameStateEvent`). Reconstructing
+  one half biases LOW and trips the drawdown-guard clamp + player toast on the
+  first load. `IsMigrationConvertibleEvent` excludes `ScienceChanged` on that path
+  ONLY; the KSC and commit doors keep converting. Pre-fix history stays pre-fix.
+- **Pending-adjustment mechanism added** (the third member of the family beside
+  the RnDTechResearch debit and the KSC science credit). On the LIVE-RECORDER
+  branch KSP debits the pool immediately while the ledger row lands only at
+  commit, so without it the drawdown guard fired `GUARDED UPLIFT clamped` - WARN
+  plus a player ScreenMessage - on every recalc for the rest of the flight, and
+  the rewind read-back's byte-identity broke.
+  `LedgerOrchestrator.ComputePendingUncommittedStrategyScienceDebit` +
+  `KspStatePatcher.AdjustSciencePatchTargetForPendingStrategyScienceDebit`, wired
+  into the same two call sites as the tech-research adjuster (the patch target and
+  `ComputePendingAdjustedRunningScience`). SHAPE DEVIATION, deliberate: the two
+  siblings window on `|evt.ut - nowUt| <= KscReconcileEpsilonSeconds` because
+  their races close within a frame; this race stays open until commit, so the
+  window is instead "observed-but-not-yet-ingested" and drains to zero when the
+  commit lands the row. Both sides are the same population, so an ownerless KSC
+  exchange cancels itself and a discard's re-homed untagged row cancels its
+  orphaned event.
+- **Discard door closed.** A flight-tagged exchange discarded on the NON-rewind
+  path lost its debit while KSP kept the science removed - the leak straight back
+  open. `PreserveIrreversibleLiveGameplayOnDiscard` now re-homes it through a
+  key-aware `IsIrreversibleLiveGameplayEvent(GameStateEvent)` overload, the same
+  shape contract terminals and milestones use. (The type-only overload's stale
+  "Science is handled separately" note is corrected there.)
+- **`RecalculationEngine.IsSpendingType` arm REMOVED.** It was inert for ordering
+  (`SortActions` keys its secondary level on `IsEarningType` only) and harmful for
+  pruning: `Ledger.Reconcile`'s spending branch drops any row with `UT > maxUT`
+  even when a valid `RecordingId` owns it, and a BUG-F-family cold load runs with
+  `maxUT = 0`, which would have permanently DELETED the debit.
+- **Coalescing identity now includes the event KEY.** `GameStateStore.AddEvent`
+  merged two same-type events within 0.1 s regardless of transaction reason, so an
+  exchange landing beside an unrelated same-type move could erase one reason and
+  fold the other's magnitude into it.
+- **`SupersedeCommit.IsWorldStateChangingRecordingAction`** gained an explicit
+  exclusion arm (the file warns twice that a new type falls through to
+  `return true`): the merge already retires these rows via
+  `IsSupersedeTombstoneEligible`, so a strict block would only refuse a merge over
+  a row that same merge is about to tombstone.
+
+**RESIDUAL: the dedup key disambiguates by AMOUNT, so two identical-amount
+exchanges at one frozen KSC UT still collapse.** `GetActionKey` gives
+`StrategyScienceDebit` a `RecordingId` + `Cost` key so distinct amounts survive
+`DeduplicateAgainstLedger` (pinned by a cell). Two exchanges of the SAME amount at
+the same UT still merge into one and one debit is lost. No ordinal was invented to
+close it: an ordinal would have to be stable across save/load and re-derivable at
+every producer, and nothing at that seam can supply one. Separately, the key
+governs the DEDUP path only - the direct KSC door (`OnKscSpending` straight from
+`GameStateRecorder`) performs no dedup at all.
+
+**RESIDUAL, NARROWED: a mid-recovery exchange costs the recovered science its
+recording attribution - but only a REAL negative delta does now, not the far more
+common zero-delta echo.** See STRATEGY-ECHO-CAPTURE-WIPE below, which reordered
+the handler so a below-threshold change returns before the capture block.
+`GameStateRecorder.OnScienceChanged` still clears
+`latestScienceChangeCapture` on any real non-positive delta, which the exchange debit
+is. The clear itself is right (that cache is for POSITIVE subject awards and a
+stale capture would mis-attribute one) and is deliberately NOT changed here, but
+it is not free: an exchange firing between a recovery's `ScienceChanged` credit
+and its `OnScienceReceived` callbacks drops the `reasonKey` the capture carried,
+so `LedgerOrchestrator.ResolveKscScienceRecordingId` no longer sees
+`VesselRecovery` and the recovered science is credited UNTAGGED instead of to its
+recording. Interleave-dependent, science total unaffected, attribution lost.
+
+**NAMED RESIDUAL: only ONE DIRECTION PER CURRENCY is captured, and that is
+deliberate.** Today the carve-out captures funds OUT (`StrategyOutput`),
+reputation IN (`StrategyInput`), and now science IN (`StrategyInput`). The other
+three directions are still dropped, unchanged by this fix:
+
+- A science-OUTPUT strategy (Unpaid Research Program: reputation in, science out)
+  arrives as `ScienceChanged`/`StrategyOutput` with a POSITIVE delta. Its
+  reputation INPUT leg IS captured by `ConvertStrategyExchangeReputation`, so the
+  reconstruction lands reputation correctly and runs science LOW by exactly the
+  granted amount - the mirror image of the c2 defect.
+- A funds-INPUT strategy (Fundraising Campaign: funds in, reputation out) leaks
+  BOTH legs: its funds leg is dropped by `ConvertStrategyExchangeFunds`'s
+  `StrategyOutput`-only gate and its reputation OUT leg by
+  `ConvertStrategyExchangeReputation`'s `StrategyInput`-only gate.
+
+Not fixed because not observed. And a science credit is NOT a sign-flipped mirror
+of this fix: it collides with the `ConvertScienceSubjects` earnings channel the
+hazard comment protects, and the obvious action shape for it
+(`ScienceEarning`) is silently ZEROED - `ScienceModule.ProcessEarning` computes
+`headroom = SubjectMaxValue - CreditedTotal`, and a subject-less exchange row has
+`SubjectMaxValue = 0`, so `effectiveScience = min(awarded, 0) = 0` and the credit
+vanishes without a warning. The output direction therefore needs its own action
+shape and its own design pass. Closing the remaining three directions is one
+live-observed strategy each.
+
+**STATUS OF THAT NAMED RESIDUAL AFTER DOOR 2 (2026-08-18).** It is scoped down,
+not closed, and the two halves must not be conflated:
+
+- The output direction now HAS its own action shape.
+  `GameActionType.StrategyScienceCredit` is exactly the "own design pass" the
+  paragraph above asked for, and the ZEROING it warns about is the reason it is a
+  sibling type rather than a `ScienceEarning` (verified against
+  `ProcessEarning`, not assumed).
+- That shape is reachable from the QUERY door ONLY. The three
+  reason-keyed directions the paragraph enumerates - science OUT under
+  `StrategyOutput`, funds IN, reputation OUT - are still dropped by the exchanger
+  doors' one-direction-per-currency gates, exactly as written. A stock exchanger
+  moving currency in one of those three directions leaks unchanged, and closing
+  each is still one live-observed strategy.
+
+---
+
+## ~~STRATEGY-FUNDS-YIELD-DRIFT: a standing strategy's small funds yields arrive under the ORIGINAL transaction reason AND below the 100-funds recorder threshold, so the recon runs LOW by their sum~~ [FOUND 2026-08-18 on the `logs/2026-08-18_2223_strategy-live-proof` session snapshot. FIX BUILT the same day on `strategy-science-leak-fix`; **LIVE-PROVEN 2026-08-18** by `2026-08-18_2039_L3-strategy-currency-conversion`: `Strategy conversion recorded: type=FundsEarning, currency=Funds, delta=168.12864685058594` against a measured `fundsDelta=168.12864685058594`, with no `GUARDED DRAWDOWN clamped` anywhere in the log.]
+
+**Measured.** Funds reconstruction LOW by 60.526316 (the summed yields) against a
+`GUARDED DRAWDOWN` gap of 60.525981 - agreement to five decimal places, which is
+what identifies the yields as the whole of the drift rather than a coincidence of
+magnitude.
+
+**A DOUBLE MISS, and both halves are needed to explain it.** A
+`Strategies.Effects.CurrencyConverter` such as Patents Licensing converts a share
+of a science award into funds by mutating the `CurrencyModifierQuery` in place.
+KSP then credits those funds:
+
+1. **Under the ORIGINAL transaction reason** (`ScienceTransmission`,
+   `VesselRecovery`, ...), never `StrategyOutput`. So
+   `GameStateEventConverter.ConvertStrategyExchangeFunds`, which gates on
+   `StrategyOutput` only, returns null - correctly, by its own contract.
+2. **Below `GameStateRecorder.FundsThreshold` (100)**. Each individual yield is
+   small, so `OnFundsChanged` returns at the threshold gate and the movement never
+   even reaches `GameStateStore`. There is no event for any downstream channel to
+   convert.
+
+Either miss alone would be visible somewhere; together the funds simply vanish
+between KSP and the ledger.
+
+**Fix.** The query-family door captures a funds leg whenever
+`GetInput(Currency.Funds) == 0` and the delta is nonzero - a genuine cross-currency
+yield with no transaction of its own - and writes it as an untagged
+`FundsEarning` / `FundsEarningSource.Strategy`. Deliberately NOT re-applying the
+100-funds threshold at that door: the threshold IS half the defect, so re-applying
+it would re-open the leak it exists to close (`StrategyConversionCapture`'s
+capture floor is 0.001, matching the science threshold instead).
+
+**It is real on the `authoritativeReduction` rewind path**, which is why the drift
+matters beyond a report: a rewind's authoritative pool reduction reads the
+reconstructed target, so a recon running low by the yields hands the player back
+less money than they had.
+
+**Live proof delivered (2026-08-18).** Same run as door 2 of
+STRATEGY-SCIENCE-CONVERSION-LEAK, `2026-08-18_2039_L3-strategy-currency-conversion`:
+`Strategy conversion recorded: type=FundsEarning, currency=Funds,
+delta=168.12864685058594` against a measured `fundsDelta=168.12864685058594` on a
+40-point award at factor 0.05, and no `GUARDED DRAWDOWN clamped` - no `GUARDED` line
+at all - anywhere in the log. Note the magnitude: this single yield is ABOVE the
+100-funds recorder threshold, so what the run proves is the reason-key half of the
+double miss end to end plus the door's arithmetic; the threshold half stays argued
+from the 60.526316 session measurement quoted above, which no single-award run can
+reproduce.
+
+---
+
+## ~~STRATEGY-ECHO-CAPTURE-WIPE: a strategy's zero-delta trailing science echo wipes the recovery-attribution capture, so every recovery award during an active converter strategy is misclassified as Transmitted~~ [FOUND 2026-08-18 alongside the query-door investigation. FIXED the same day on `strategy-science-leak-fix`.]
+
+**The mechanism, in order.** `GameStateRecorder.OnScienceChanged` maintained
+`latestScienceChangeCapture` - the small cache
+`LedgerOrchestrator.ResolveKscScienceRecordingId` reads to tell a `VesselRecovery`
+award from a `ScienceTransmission` one and to attribute the science to its
+recording - in a set-or-clear block placed ABOVE the below-threshold early return.
+Any change that was not a positive subject award cleared it, INCLUDING a change
+too small to be worth recording.
+
+A `CurrencyConverter` strategy produces exactly such a change: after taking its
+share it leaves a trailing ZERO-delta `ScienceChanged`. That echo is below
+`ScienceThreshold` (0.001) and is dropped for every other purpose - but it reached
+the clear first, so the capture was gone by the time the recovery's
+`OnScienceReceived` callbacks ran. With any query-family strategy active, EVERY
+recovery award lost its `VesselRecovery` reason key, fell back to
+`method=Transmitted`, and was credited untagged.
+
+**Fix.** Move the set/clear block BELOW the `IsScienceDeltaBelowThreshold` early
+return, so a below-threshold change returns before it can touch the cache. The
+REAL negative-delta clear is unchanged and still deliberate (that cache is for
+positive subject awards; a stale one would mis-attribute the next award). Pinned
+by an ordering source gate in `StrategyConversionCaptureTests`
+(`Recorder_ScienceCaptureBlockSitsBelowTheThresholdReturn`) because the handler
+itself is not xUnit-drivable.
+
+**Independent of the query door.** The reorder is correct on its own terms and
+would have been worth making even if the converter family were never captured -
+which is why it shipped as its own entry rather than as a residual on that one.
 
 ---
 
@@ -7213,7 +10259,9 @@ Two other Basic-mode dangling cross-links found by the same audit and fixed in t
 
 ~~Open Basic-mode gap found by the same audit, NOT fixed here because it needs a design decision: `Recording.Hidden` suppresses timeline rows but every writer of that flag lives in the Recordings tab, so an archive made in Advanced was irreversible in Basic.~~ DECIDED and fixed 2026-08-01 (doc section 4.4 NEW, v0.4). The decision states the flag's meaning first, because both recorded candidates presupposed an answer: **Archive is a per-list view filter, never a suppression, and every list that honours `Recording.Hidden` carries its own control to show archived items again.** That was already true everywhere except the Timeline - the Recordings tab pairs the flag with its Archive header checkbox (`GroupHierarchyStore.HideActive`, persisted, default on) and the mission-level twin `Mission.Archived` pairs with the Missions tab's own checkbox; the Timeline was the single list consuming the flag with no paired reveal, a defect predating Basic mode that Basic only made terminal. Fix: `TimelineBuilder.Build` takes `includeArchivedRecordings` (default false, so every existing caller and the whole default row set are unchanged) and stays pure - the window supplies the value; the Timeline's filter bar gains an `Archived` toggle in row 2 column 4, directly under the `Recordings` source toggle it qualifies, in BOTH modes, bound through `TimelineWindowUI.ShowArchivedRecordings` to the SAME state the Recordings tab already owns (polarity inverted because that tab's label means "hide archived" while every Timeline toggle means "show this"); a Timeline-private second flag was rejected as one flag with two switches that could disagree. Because the state is shared, the Recordings tab can move it while the Timeline cache is warm with nothing marking it dirty, so the rebuild routes through the pure `TimelineWindowUI.ShouldRebuildTimeline(dirty, cacheMissing, cachedShowedArchived, showArchivedNow)`. Revealed rows are marked `[archived]`, composed into the row's existing single description `Label` (never a second control, so the IMGUI control count is identical in Layout and Repaint) - without it the player sees the rows return but cannot tell which ones were archived, and so cannot tell what to un-archive; the marker rides `TimelineEntry.IsArchivedRecording`, stamped by the collector over the entry range one recording contributed rather than threaded through four `Try*Add` signatures. **Nothing in this reads the UI mode**: the Timeline's row set is identical in Basic and Advanced, no mode symbol enters `Source/Parsek/Timeline/`, and the phase-8 grep-gate allowlist is untouched. Candidate (a) - Timeline ignores `Hidden` in Basic - was rejected on four counts: it inverts the Basic-subset-of-Advanced model so switching to Advanced would silently DELETE rows (the exact failure doc 7.3 exists to prevent); it crosses the doc 5 / 9.1 line, which lets the mode decide what a message SAYS but never "what is detected", and a per-row inclusion decision is detection; it would force `Source/Parsek/Timeline/` onto the grep-gate allowlist to make a data filter mode-dependent, which is the rot that gate exists to catch; and it gives the player nothing, since the recording stays archived and the mode merely masks the flag. Candidate (b) as literally written - an un-archive affordance in the Missions tab - was rejected as a second mission-level archive control beside the `Mission.Archived` one that already exists, which is doc 17.8's design space (granularity, does debris follow the parent, composition with the include checkboxes); the shipped fix IS a Basic-reachable restore, placed where the loss is felt and bound to state that already exists. Consistent with the section 7.33 precedent, which already refuses to archive an Unfinished Flight so rewind access stays visible: the codebase already treats "an archive made something unreachable" as a bug class and already solves it by preserving reachability. Known residual, deliberately not widened: the archive filter has always been partial - it gates the four row flavours the recording collector emits (RecordingStart, Separation / UnfinishedFlightSeparation, VesselSpawn, CrewDeath) while the same flight's ledger action and legacy event rows come from collectors that never read the flag, so revealing is additive and honest but archiving still leaves a flight's career actions on the Timeline; making the flag reach those collectors would change what Advanced shows for every archived flight and is its own decision. Tests: `Source/Parsek.Tests/TimelineArchivedRowsTests.cs` (12 cells) + `Source/Parsek.Tests/TimelineArchiveFilterWiringTests.cs` (4 loose source-text cells over the IMGUI wiring; the silent regressions are a dropped `Build` argument that leaves the toggle rendering and storing while the row set never moves, and a rewritten rebuild condition that drops the archive arm, so that cell pins the CALL SITE `if (ShouldRebuildTimeline(` rather than the bare method name the definition also satisfies).
 
-Playtest fix (2026-07-28): the Settings window kept its old height across a mode change - dead space below the buttons in Basic (which drops the Diagnostics + Sample Density sections), clipped content back in Advanced - because the window passes a stored fixed height and has no resize handle. Fix: `ParsekUI.OnUiComplexityModeApplied` now calls `SettingsWindowUI.RequestHeightRemeasure()` in BOTH directions (doc 7.2 step 4), which flags a one-shot re-measure the next Layout pass consumes by dropping the `GUILayout.Height` option for that single pass; only the height is re-derived, so the window never jumps. The Missions window is left alone on purpose: its height is player-owned via the resize handle and its tab bar sits above a scroll view that absorbs the freed 26 px. Tests: `ModeApplyRequestsSettingsWindowHeightRemeasureInBothDirections` and `NoOpLatchDoesNotRequestAHeightRemeasure` in `UiComplexityModeCloseHandlerTests`.
+Playtest fix (2026-07-28): the Settings window kept its old height across a mode change - dead space below the buttons in Basic (which drops the Diagnostics + Sample Density sections), clipped content back in Advanced - because the window passes a stored fixed height and has no resize handle. Fix: `ParsekUI.OnUiComplexityModeApplied` now calls `SettingsWindowUI.RequestHeightRemeasure()` in BOTH directions (doc 7.2 step 4), which flags a one-shot re-measure the next Layout pass consumes; only the height is re-derived, so the window never jumps. **Completed 2026-08-17 (the shrink half was still broken).** Dropping the `GUILayout.Height` option was not enough: a GUILayout window resolves to `Max(passedHeight, contentMin)`, and the re-measure kept passing the CURRENT height in the rect. Verified by decompiling Unity's IMGUI module: on a Layout pass `GUI.CallWindowDelegate` seeds the window's layout group with `Width`/`Height` taken from the window's own rect and the caller's options are applied OVER that, so omitting Height leaves the seeded `minHeight = maxHeight = passedHeight` standing; `GUILayoutGroup.CalcHeight` raises it to `Max(passedHeight, contentMin)` and `GUILayoutUtility.LayoutSingleGroup` (the `isWindow` branch) clamps to it. So an over-tall window clamps back to itself - true of EVERY GUILayout window, not a quirk of this one's content. Advanced -> Basic never shrank; Basic -> Advanced only looked correct because it is the direction that grows. Confirmed against a live session log before any code moved: `storedHeight=948` -> `re-measured: h=948` with no following rect change on the switch to Basic, against `storedHeight=636` -> a `Settings window position: ... h=948` line on the switch to Advanced. The fit pass now also hands GUILayout a ZERO-height rect (`SettingsWindowPresentation.BuildHeightFitLayoutRect`), which resolves the clamp to `contentMin` - the true fit - in both directions; `KeepStoredHeightAcrossFitPass` keeps the collapsed height out of the stored rect because that rect is also the hit rect behind the window's CAMERACONTROLS lock and `ParsekUI.IsPointerOverOpenWindow`, both of which require a positive height. The old `height re-measured: h=` log was itself misleading - it printed the pre-layout height on the measuring pass, so it read as a success on a switch that had resized nothing - and is replaced by a released / applied / unchanged trio reported where the fit actually lands. Tests: `SettingsWindowHeightFitTests` (13 headless cells over the four pure decisions - `BuildHeightFitLayoutRect`, `KeepStoredHeightAcrossFitPass`, `ClassifyHeightFitLog`, `AdvanceHeightFitLog`) plus the in-game `SettingsWindowShrinksWhenEnteringBasic` (`Settings` category), which is the only place the real GUILayout resolution runs; it raises `ParsekFlight.ShowUIForTesting` because opening the window is not enough to DRAW it in an unattended batch. The Missions window is left alone on purpose: its height is player-owned via the resize handle and its tab bar sits above a scroll view that absorbs the freed 26 px. Tests: `ModeApplyRequestsSettingsWindowHeightRemeasureInBothDirections` and `NoOpLatchDoesNotRequestAHeightRemeasure` in `UiComplexityModeCloseHandlerTests`.
+
+Basic-mode scope amendment (2026-08-18, doc section 4.5 NEW, v0.5): the Missions tab's three manual-loop AUTHORING controls are now hidden in Basic - the per-mission `Loop` label + toggle, the loop-period cell beside it (value field + `Sec/Min/Hour/Auto` unit button), and the include checkboxes on interval / branch rows and on the partner-journey link row. Manually looping a mission is a presentation choice with no career consequence, and those three are the tab's densest cluster; the include checkboxes in particular write `Mission.ExcludedIntervalKeys` / `IncludedForeignDockLinkIds`, which nothing but the loop-unit pipeline reads, so keeping them beside a hidden `Loop` toggle would leave the player controls with no observable effect. Rule as decided: **Basic hides what AUTHORS a manual loop and keeps what REPORTS or NAVIGATES a loop that is already running** - so `Looped by route`, the TTL countdown column, `Warp to...`, `Watch`, `Rewind / Forward`, `Log`, `Clone`, `Delete`, `Archive`, rename and the composition tree all stay, and rows excluded in Advanced still render greyed. That split is what keeps philosophy 1 intact: a mission looped in Advanced KEEPS LOOPING after the switch (nothing here writes `LoopPlayback` or either selection set), so hiding the report controls would blind a Basic player to ghosts they can still watch fly. Clearing `LoopPlayback` on entering Basic was REJECTED for the same reason - a behavior write driven by a visibility mode is the one thing doc section 5 forbids, and it would make the switch destructive. Routes are untouched: a route drives its tree through `RouteBackingMission`, a synthesized mission never inserted into `MissionStore` and never rendered here, and Logistics is a surface Basic keeps. Accepted consequence, same shape as the doc 4.3 limitation: a mission looped in Advanced can only be un-looped in Advanced (the Settings Interface section is always visible, one click away). Implementation: new gate key `UiSurface.MissionsLoopControls` - the first key gating a CONTROL GROUP inside a kept window rather than a whole window / tab / settings section, so it maps to no entry in the doc 7.2 close set - read at four `MissionsWindowUI` draw sites through the pure `ShowsLoopAuthoringControls(mode)` helper, always over the frame-latched `ParsekUI.AppliedUiComplexityMode`. Each hidden checkbox is replaced by the SAME single blank cell the roster-atom rows already draw, so the `#` column keeps its width and rows stay aligned; on the header bar the freed width is absorbed by the existing `FlexibleSpace`, so Watch / Rewind / Archive stay pinned at the same x. An open loop-period edit is DROPPED (not committed) when Basic draws no field, through `CommitMissionLoopPeriodEdit(null)` (the documented "just ends the edit" path, so the buffer and the undrawn field's keyboard focus are released too) - the Escape path, `Mission.LoopIntervalSeconds` untouched. That drop is load-bearing for philosophy 1, not tidiness: every other teardown needs the mission's own period cell to draw, so without it the focus id stays armed and the click-away branch would commit the stale buffer to `LoopIntervalSeconds` on the next MouseDown anywhere in the window - a loop write performed in Basic. The Loop-toggle commit moved out of `DrawMissionHeader` into `CommitMissionLoopToggle` so the draw site is a single gated block; the route commit guard is unchanged. Philosophy 3 is amended in place (the "loop" in "fly, commit, loop, watch, rewind, supply" means ghosts replaying committed flights, which is automatic, not manual per-mission loop authoring). PR-review addition (same day): the Settings `Looping` section is hidden in Basic too, under a second key `UiSurface.SettingsSectionLooping`, wrapped exactly like the Diagnostics / Sample Density gates (draw call + trailing separator inside the gate). Reason: the section's auto-launch period IS the period of any `Auto`-unit mission - the very value the hidden per-mission cell displays - so hiding the per-mission controls while keeping the globals that govern them would split one decision across two windows; the landing-body alignment and force-faithful knobs are the same shape. Two keys rather than one because they gate different windows and the Settings one is an ordinary section gate, not a control group. Honest caveat now stated in doc 4.5 (the earlier "routes are unaffected" line was too broad): `RouteOrchestrator` folds `TransitedBodyRotationMode` and `forceFaithfulLoopPlayback` into the route delivery clock's builder signature, so those two are reachable from Basic's hide-set - but the change is REACHABILITY only: the stored values are untouched and keep driving route playback bit-identically across the switch, and what goes away is the ability to retune them without returning to Advanced. Not a window-to-window coupling either: Logistics is ungated and the Missions-tab half has no route relevance at all; these are two global settings with a second consumer. Accepted because both ship on the value a route wants (`Loose`, re-aim ON). Route CADENCE is genuinely untouched: `RouteBackingMission` builds `LoopTimeUnit.Sec` with `LoopIntervalSeconds = route.DispatchInterval`, so `autoLoopIntervalSeconds` is never read for a route. Same edit-state trap as the Missions half and the same fix: `DrawSettingsWindow`'s window-level auto-loop click-away commit runs before any section draws, so it is now the `else` of the gate and the hidden branch drops the edit through a shared `EndAutoLoopEdit()` (flag + rect + keyboard focus) that `CommitAutoLoopEdit` and the `Defaults` button also call; the mode latch moved to the top of the callback so the check can read it. Tests: `SettingsSectionGateWiringTests.LoopingSectionIsGatedWithItsSeparator` + `TheAutoLoopClickAwayCommitIsGatedAndDropsTheEditInBasic`, with `NoOtherSettingsSectionIsGated` re-pinned at three gated sections plus the one edit-state read, and `BasicHidesExactlyTheDocumentedSet` now 9 keys. Playtest fix (2026-08-19, found on the first in-game pass of this change): the Settings window's FIRST open in Basic sat at the hardcoded init height (600) with dead space below the buttons - the init rect never requested a height fit, only mode APPLIES did, and hiding the Looping section is what first pushed Basic's content fit (~534) BELOW 600, turning the latent grow-only asymmetry visible (Advanced ~948 auto-grows past a short init; GUILayout never shrinks unasked). Fix: the first-open rect init in `DrawIfOpen` now calls `RequestHeightRemeasure()` too, so the first open lands on the measured height in either mode; the init branch runs once at the top of the first Layout pass, so the request is consumed with the same frame semantics as the Update-latch path. Verified against the collected `2026-08-19_0028_basic-ui-check` log (`storedHeight=600` on a session seeded Basic, every SWITCH fitting 948<->534 correctly - only the first open was wrong). Tests: `Source/Parsek.Tests/MissionsWindowLoopGateTests.cs` (3 cells: hidden in Basic / kept in Advanced, derived from `UiSurfaceVisibility.IsVisible` rather than a private second opinion, and the scope guard that hiding the controls does not hide the Missions tab or its launcher) plus the updated `BasicHidesExactlyTheDocumentedSet`. The in-game `AdvancedRenderParityAfterRoundTrip` walk covers the new key for free (reflection over `UiSurface`), so no in-game test changed.
 
 Analysis result - Basic keeps Timeline, Missions, Logistics, Settings; hides the Recordings tab (the raw per-recording table, 62 buttons / 13 toggles), the Career window (2 buttons, 2 toggles, zero mutations - pure read-only reference), the Kerbals window (4 buttons, 0 toggles, zero mutations), Gloops Flight Recorder, Real Spawn Control, and the Diagnostics + Sample Density settings sections. Advanced stays byte-identical to today.
 
@@ -8566,22 +11614,22 @@ Ground truth, DERIVED FROM SOURCE (not hand-listed): `hlib.ANOMALY_REASONS_RAISE
 
 | Raised reason | In ANOMALY_TOKENS? | Producer (decision site) |
 |---|---|---|
-| `parity-drift` | yes | `MapRenderProbe.cs:1363`, `:1619`, `:2116` (via `MapRenderTrace.AnomalyParityDrift`) |
-| `line-blink` | yes | `MapRenderProbe.cs:782` |
-| `decision-vs-truth` | yes | `MapRenderProbe.cs:659` |
-| `polyline-orbit-overlap` | yes | `MapRenderProbe.cs:679` |
+| `parity-drift` | yes | `MapRenderProbe.cs:1464`, `:1720`, `:2349` (via `MapRenderTrace.AnomalyParityDrift`) |
+| `line-blink` | yes | `MapRenderProbe.cs:860` |
+| `decision-vs-truth` | yes | `MapRenderProbe.cs:689` |
+| `polyline-orbit-overlap` | yes | `MapRenderProbe.cs:709` |
 | `rigid-seam-tangent-discontinuity` | yes | `MapRender/CrossMemberSeamStitcher.cs:419` |
 | `ledger-vs-truth` | yes | `GameActions/KspStatePatcher.cs` x6, `FacilityStatePatcher.cs:158` |
-| `icon-teleport` | yes (promoted 2026-08-04) | `MapRenderProbe.cs:911` |
-| `icon-off-orbit` | yes (promoted 2026-08-04) | `MapRenderProbe.cs:992` |
-| `unaccounted-drawn-recording` | **NO** (report-only instrument) | `MapRenderProbe.cs:517` |
+| `icon-teleport` | yes (promoted 2026-08-04) | `MapRenderProbe.cs:1012` |
+| `icon-off-orbit` | yes (promoted 2026-08-04) | `MapRenderProbe.cs:1093` |
+| `unaccounted-drawn-recording` | **NO** (report-only instrument) | `MapRenderProbe.cs:544` |
 | `gap-vs-retire` | yes (promoted 2026-08-04) | `MapRender/GhostRenderReconciler.cs:240` |
 | `decision-vs-old-truth` | yes (promoted 2026-08-04) | `MapRender/GhostRenderReconciler.cs:260` |
 | `clock-not-ready` | yes (promoted 2026-08-04) | `MapRender/ShadowRenderDriver.cs:316` -> `MapRenderTrace.EmitClockNotReady` (`:1417`) |
 | `retire-not-held` | yes (promoted 2026-08-04) | `MapRender/ShadowRenderDriver.cs:394` -> `MapRenderTrace.EmitRetireNotHeld` (`:1440`) |
 | `anchor-resolve-fail` | yes (promoted 2026-08-04) | `MapRender/AnchorFrameResolver.cs:87` -> `MapRenderTrace.EmitAnchorResolveFail` (`:1465`) |
 | `factory-parity` | **NO** (report-only instrument) | `MapRender/ShadowRenderDriver.cs:709` -> `MapRenderTrace.EmitFactoryParity` (`:1495`) |
-| `seam-endpoint-outside-soi` | **NO** (report-only instrument, added with the ENCOUNTER-GEOMETRY lens) | `MapRenderProbe.cs:2187` (`TrySampleAndEmitSeamEndpoint`; decision core `MapRender/SeamEndpointOracle.cs`). READ THE PASS SUMMARY BEFORE READING THE SILENCE: `seam-endpoint summary evaluated=<n> outsideSoi=<n> skip.<reason>=<n>` (Verbose, `[Parsek][VERBOSE][MapRenderTrace]`, one per probe pass, 5 s rate-limited) says how many destination-approach checks actually ran; a zero-raise run with `evaluated=0` measured nothing at all. WHY REPORT-ONLY, because this one differs from the two instruments above: a raise WOULD be a real finding, and it took the same report-only first lap the seven promoted tokens each took. (This clause used to read "but the lens has never flown"; the 2026-08-09 census below retired that, and left the clause standing inside the very row that records the retirement. Corrected: flight is no longer a blocker - `hlib.ANOMALY_REASONS_RAISED_UNGATED`'s comment block names the three that are.) It measures the RENDERED conic at a recorded cross-body SOI handoff against the destination body's sphere - both terms propagated to the seam UT via `getTruePositionAtUT`, never a current-anchored position - and raises on `dist/soi > 1.005`. That tolerance is calibrated between two MEASURED populations: healthy = the S1.8 seam continuity, 10,146.3 m (Kerbin->Sun) and 7,284.0 m (Sun->Duna), i.e. 1.2e-4 / 1.5e-4 of the crossed sphere against a 25 km pin; defect = the 2026-06-15 looped re-aim, 1.027 (Duna) / 1.043 (Kerbin - a CALIBRATION reference only; that quantity is unproducible by the field capture, see limit (1) in the M-06 entry). KNOWN BENIGN POPULATION still to be measured: a FAITHFUL loop replay of an interplanetary transfer reads far above 1.0 by design (the destination has moved on in inertial space by the loop shift), so a raise needs the line's `seed=` / `loopShift=` fields read before it is called a defect. Deliberately NOT re-aim-gated - the whole point is that the parity oracle skips exactly those members. **FIRST REAL-GEOMETRY CENSUS 2026-08-09, and it FALSIFIED the offline derivation on two of five lanes** (full write-up + the UT arithmetic under the M-06 re-aim entry). The five V-lanes re-flown with the census on read: V4 `evaluated=1 outsideSoi=0` (Sun->Duna arrival seam - the geometry class the 1.027 defect lived in, measured INSIDE the sphere, on a frame where the faithful-parity sibling stood down `skip.reaimed-or-foreign-seed=1`), V7M `evaluated=1 outsideSoi=0` (Kerbin->Minmus arrival seam, faithful / phase-locked / same-parent, also inside), and V6M / V6T / V7T all `evaluated=0 outsideSoi=0 skip.no-cross-body-successor=1`. ZERO raises anywhere and no verdict moved (V7T's red is its own `icon-off-orbit` finding), so the report-only registration behaves. The lens is therefore NO LONGER UNPROVEN on real geometry - two healthy readings, each reproduced bit-identically on three consecutive flights, and `evaluated=[1-9]` is now REQUIRED on V4 + V7M. STILL NOT MEASURED, and both are why this stays report-only: the RATIO (printed only on a raise, so `outsideSoi=0` proves reach but not margin) and the RAISE itself |
+| `seam-endpoint-outside-soi` | **NO** (report-only instrument, added with the ENCOUNTER-GEOMETRY lens) | `MapRenderProbe.cs:2288` (`TrySampleAndEmitSeamEndpoint`; decision core `MapRender/SeamEndpointOracle.cs`). READ THE PASS SUMMARY BEFORE READING THE SILENCE: `seam-endpoint summary evaluated=<n> outsideSoi=<n> skip.<reason>=<n>` (Verbose, `[Parsek][VERBOSE][MapRenderTrace]`, one per probe pass, 5 s rate-limited) says how many destination-approach checks actually ran; a zero-raise run with `evaluated=0` measured nothing at all. WHY REPORT-ONLY, because this one differs from the two instruments above: a raise WOULD be a real finding, and it took the same report-only first lap the seven promoted tokens each took. (This clause used to read "but the lens has never flown"; the 2026-08-09 census below retired that, and left the clause standing inside the very row that records the retirement. Corrected: flight is no longer a blocker - `hlib.ANOMALY_REASONS_RAISED_UNGATED`'s comment block names the three that are.) It measures the RENDERED conic at a recorded cross-body SOI handoff against the destination body's sphere - both terms propagated to the seam UT via `getTruePositionAtUT`, never a current-anchored position - and raises on `dist/soi > 1.005`. That tolerance is calibrated between two MEASURED populations: healthy = the S1.8 seam continuity, 10,146.3 m (Kerbin->Sun) and 7,284.0 m (Sun->Duna), i.e. 1.2e-4 / 1.5e-4 of the crossed sphere against a 25 km pin; defect = the 2026-06-15 looped re-aim, 1.027 (Duna) / 1.043 (Kerbin - a CALIBRATION reference only; that quantity is unproducible by the field capture, see limit (1) in the M-06 entry). KNOWN BENIGN POPULATION still to be measured: a FAITHFUL loop replay of an interplanetary transfer reads far above 1.0 by design (the destination has moved on in inertial space by the loop shift), so a raise needs the line's `seed=` / `loopShift=` fields read before it is called a defect. Deliberately NOT re-aim-gated - the whole point is that the parity oracle skips exactly those members. **FIRST REAL-GEOMETRY CENSUS 2026-08-09, and it FALSIFIED the offline derivation on two of five lanes** (full write-up + the UT arithmetic under the M-06 re-aim entry). The five V-lanes re-flown with the census on read: V4 `evaluated=1 outsideSoi=0` (Sun->Duna arrival seam - the geometry class the 1.027 defect lived in, measured INSIDE the sphere, on a frame where the faithful-parity sibling stood down `skip.reaimed-or-foreign-seed=1`), V7M `evaluated=1 outsideSoi=0` (Kerbin->Minmus arrival seam, faithful / phase-locked / same-parent, also inside), and V6M / V6T / V7T all `evaluated=0 outsideSoi=0 skip.no-cross-body-successor=1`. ZERO raises anywhere and no verdict moved (V7T's red is its own `icon-off-orbit` finding), so the report-only registration behaves. The lens is therefore NO LONGER UNPROVEN on real geometry - two healthy readings, each reproduced bit-identically on three consecutive flights, and `evaluated=[1-9]` is now REQUIRED on V4 + V7M. STILL NOT MEASURED, and both are why this stays report-only: the RATIO (printed only on a raise, so `outsideSoi=0` proves reach but not margin) and the RAISE itself |
 | `loop-seam-teleport` | yes (gated at birth 2026-08-07, flight-arrival lane) | `ParsekFlight.cs` `TrackLoopSeamTeleport` -> `GhostRenderTrace.EmitAnomaly` (the third tracer signature; walker taught in the same change). SENSITIVITY, because silence gets cited as evidence: it raises on a SINGLE-FRAME world delta above `max(GhostRenderTrace.LoopSeamTeleportFloorMeters = 1,000,000 m, expected motion * dt * multiplier)`, so a clean sweep excludes discontinuities over 1,000 km between consecutive frames and nothing finer |
 
 That WAS nine ungated reasons, not five (seven now gated per the RESOLUTION below; the table's per-row flags carry the current truth). **The first version of this table listed five**, and the four it missed are the wrapper-routed rows: the cutover-hardening raises, which reach `EmitAnomaly` through thin once-per-event `MapRenderTrace` wrappers instead of calling it at the guard site, so a grep for `EmitAnomaly` call sites does not land on them. They emit the same `phase=Anomaly ... reason=<token>` line as any direct raise (all four route through `MapRenderTrace`'s shared `EmitRaw(true, "Anomaly", ...)`), so all four were genuinely ungated then (three are promoted now; `factory-parity` stays the declared instrument). Understating the ungated count understates the size of the fail-open, which is the one thing this entry existed to size, hence the source-derived gate above. `clock-not-ready` in particular is the cold-load UT<=0 defer - a defect class this project already tracks separately.
@@ -11014,7 +14062,7 @@ Every Tier 1 merge-queue item below LANDED on `main` (verified 2026-07-11 via `g
 - ~~**M-MIS-5 P2** (L) - lift the undock->undock shuttle mid-recording start-trim limitation (`MidRecordingStartTrimUnsupported=9`); unlocks multi-stop shuttle logistics routes rejected today. Prereq: #1239.~~ **SHIPPED 2026-07-08** via #1251 (P2a detector) + #1254 (P2b start-trim lift). Supported shape accepted, degenerate shapes still rejected (NOT a full removal of status 9): an undock->undock mid-tree docked origin with a committed tree, `>=2` completed connection windows, and a finite non-overlapping origin window is now admitted with origin = the first window's undock UT (`RouteAnalysisEngine.IsSupportedMidTreeDockedOrigin` wired into the analysis gate + stand-downs; `RouteBuilder` mid-tree-origin plumbing; `RouteBackingMission.ComputeStartExcludedIntervalKeys`; `Route.RecordedOriginUndockUT` persisted; updated reject text in `RouteCreationFormatters`). Status `MidRecordingStartTrimUnsupported=9` still fires for the degenerate remainder (null/legacy `AnalyzeRecording` tree, origin window overlapping the next stop, inverted origin window, the mid-tree-origin-proof variant), which stay intentionally out of scope per `docs/dev/done/plans/plan-mmis5-p2b-start-trim.md` section 7.
 
 ### Tier 3 - LATER: verification + hygiene
-- **Validation debt (the real bottleneck)** - code-complete-but-in-game-unconfirmed fixes, clustering onto ~4-5 playtest sessions: (1) career-economy (Rec-1 #1242 gate PASSED in-game 2026-07-08; still open: career-freeze milestone-storm, contract-discard-desync, OnMainMenuTransition); (2) looped re-aim descent-render (reaim-descent cluster, arc truncation, M-MIS-2 P4, cross-SOI encounter observation); (3) eccentric-target Eeloo/Moho constant pinning (M-MIS-3); (4) cross-parent station resupply (M4c); (5) in-game test-runner camera-survival batch. KSP cannot run headless, so this is playtest-bound.
+- **Validation debt (the real bottleneck)** - code-complete-but-in-game-unconfirmed fixes, clustering onto ~4-5 playtest sessions: (1) career-economy (Rec-1 #1242 gate PASSED in-game 2026-07-08; still open: career-freeze milestone-storm, contract-discard-desync, OnMainMenuTransition); (2) looped re-aim descent-render (reaim-descent cluster, arc truncation, M-MIS-2 P4, cross-SOI encounter observation); (3) eccentric-target Eeloo/Moho constant pinning (M-MIS-3) - BEHAVIOURAL HALF CLOSED 2026-08-15: the band is now WALKED in flight (three departures accept outside the base band, deepest 0.1550 vs a 0.0600 base), so what remains is only the constant-pinning judgement on `EccGain` / `MaxHalfWidthFraction`, not a validation debt - see M-MIS-3-BAND-COMPUTED-NOT-EXERCISED; (4) cross-parent station resupply (M4c); (5) in-game test-runner camera-survival batch. KSP cannot run headless, so this is playtest-bound.
 - **M-MIS-10 archetype verification sweep** - constellation deploy / booster flyback / off-Kerbin launch / claw couples / Elcano; cheap verify-and-file, no known break.
 - **Remove `MapRenderWarpControl`** temporary debug aid once re-aim descent-render is signed off.
 - ~~**Doc hygiene** - flip the stale "In progress - Forward trajectory rendering" header (shipped 0.10.2) + add SHIPPED markers to roadmap §19.4 M3/M4.~~ DONE (verified 2026-07-11): roadmap §19.4 already marks M1-M5 SHIPPED and no "In progress / Forward trajectory rendering" header remains in the roadmap or this file.
@@ -11355,13 +14403,598 @@ ZERO raises on any lane; V7T's `icon-off-orbit` red is its own documented findin
 
 **Why it matters.** `terminalState` is how a committed recording's outcome is classified everywhere downstream (the Recordings table, `TerminalKindClassifier`, the RECORDED_FIXTURES pins). A PLAYER who visits the tracking station and quits gets the same TS-path save, so debris classifications in a real save can silently degrade to unclassified. Unknown (deliberately not chased here): whether the drop round-trips destructively (does a later FLIGHT load + save restore the keys from sidecars, or are they gone for good?), and whether the mechanism is the TS route's augmented-game persist (`loadgame trackstation route: persisted augmented game`), the TS scenario rehydration skipping debris terminal fields, or the OnSave path itself. V5/V6T/V7T (the Duna/moon TS lanes, flying since 2026-08-08) would show the same drop if it is general - their observed structure facets were never compared against their fixtures' maps, so this was present-but-unnoticed. NOT gated anywhere: V8T's armed structure block pins committedTrees/trees, which are unaffected; gating the terminal map on a TS lane would gate on this bug.
 
-## LINE-BLINK-JUMP-STRADDLE-DETECTOR-GAP - back-to-back seam TimeJumps raise the gated `line-blink` on legitimate window transitions (measured 2026-08-11, branch `eve-loop-lanes`; two PARSEK-FAIL artifacts; lane re-paced, detector NOT modified)
+## REAIM-TILT-NOOP-AT-EELOO-6.15-DEG - the tilt-RETENTION branch is still unexercised at the highest stock inclination below Moho, because the synthesized conic came in BELOW the bound (measured 2026-08-13, branch `eeloo-loop-lanes`, four green V12A-eeloo-loop-arrival runs; NOT a defect, and NOT a widening of the tilt plan's claim scope)
+
+**The measurement, byte-identical on all four runs** (`2026-08-13_0120`, `_1513`, `_1515`, `_1536`):
+
+```
+[ReaimSeam] tilt-correction inc-before=4.0725 bound=6.6500 targetInc=6.1500 incAch=NaN inc-after=4.0725 state=noop reason=in-plane
+```
+
+The prediction was `state=retained reason=unreachable-plane`, extrapolated from the two measured points (incAch/targetInc = 0.588 at Eve, 0.729 at Dres). It is not what happened, and the miss is STRUCTURAL rather than marginal: `inc-before` 4.0725 deg is BELOW the 6.6500 deg bound, so `IsExcessiveTiltTransfer(incBefore, tiltBound)` is FALSE and control never enters the excessive branch. `incAch` is NaN because it is only computed inside that branch (`ReaimTransferSynthesizer.cs`, the `if (IsExcessiveTiltTransfer(...))` gate), and `inc-after == inc-before` because nothing was touched. **Eeloo's 6.15 deg did not force a tilt on this geometry.**
+
+**Why this does NOT widen the tilt plan's claim scope.** The plan scopes itself "Eve only ... Moho/Dres/Eeloo are unmeasured collateral". Eeloo is the highest inclination the retention arm has ever been AIMED at - Eve 2.1 -> Dres 5.0 -> Eeloo 6.15, the last stock step below Moho's 7 - and the retention arm was STILL NOT REACHED, because **the retention branch lives inside the excessive-tilt gate and the gate never opened.** So Eeloo tested the BOUND ARITHMETIC (6.65 = Max(Max(0, 6.15), 0) + `InclinationToleranceDegrees` 0.5, confirmed to the digit) and confirmed the not-excessive arm LOGS a Noop rather than falling silent - and nothing else. The retention branch remains Eve-only-validated plus Dres's `state=retained` reading. **Any note reading "Eeloo validated retention" would be false.**
+
+**What would actually exercise it, and it is not what the program assumed.** A geometry whose SOLVED transfer inclination exceeds the bound - NOT a higher-inclination TARGET. Target inclination sets the BOUND, so raising it makes the gate HARDER to trip; what trips the gate is the Lambert solution's own plane. Dres reached `inc-before=13.1958` against a 5.5000 bound on a shorter, more bent transfer, while this Eeloo window solves nearly in-plane at 4.0725 because a 484-day near-Hohmann coast barely leaves the ecliptic. Moho (7 deg target, but a fast bent INNER transfer) is the better candidate, and it needs a NEW FIXTURE, not a re-aim of this one.
+
+**Recorded as a FINDING, not a failure, per the lane's own posture** - V12A declared all four tilt outcomes findings-to-report-verbatim in advance, and the noop literal is now ARMED as its regression floor (with `bound=6.6500 targetInc=6.1500` armed separately so a red distinguishes "the solved conic moved" from "the bound arithmetic moved"; proved on the negative control `2026-08-13_1537`, where inverting one digit of `inc-before` red the literal while the pair still matched). Note also that a Noop DOES emit a tilt line, so ABSENCE of a tilt line means the synth never reached the tilt block at all - a different and larger finding.
+
+## ~~M-MIS-3-BAND-COMPUTED-NOT-EXERCISED~~ CLOSED 2026-08-15 - the eccentricity-gated tof band is now WALKED AND MEASURED: three departures accept outside the base band, deepest at 0.1550 of the recorded tof against a 0.0600 base (branch `reaim-band-walk`, M2-periodicity-solver: armed PASS attempt 1 + negative control `_1555`; the measurements are read off the reading run `_1551`, and a PASS run collects no logs so no id names the PASS)
+
+### CLOSED (2026-08-15). What the arbiter measured
+
+`Reaim_KerbinToEeloo_BandWalk_AcceptsOutsideTheBaseBand` (Periodicity, batch-executable) walks every
+step-0-INFEASIBLE departure in the pinned Kerbin->Eeloo scan through the product's own candidate list
+and its own accept/reject arbiter (`ReaimTransferSynthesizer.TrySynthesizeTransfer`, PatchedConics tail
+included), then drives the DEEPEST-walking departure through the real resolver. On
+`logs/2026-08-15_1551_M2-periodicity-solver`:
+
+```
+band walk Kerbin->Eeloo: outsideBaseBand=3 deepestWalk=0.1550 baseHalfWidth=0.0600
+scaledHalfWidth=0.1900 eTarget=0.2600 | scanSteps=48 step0Infeasible=15 insideBaseBand=10
+declined=2 ... | 24:cand=32,dev=0.0800 25:cand=48,dev=0.1200 26:cand=62,dev=0.1550 ...
+band walk Kerbin->Eeloo resolver end-to-end: scanIdx=26 deepestWalk=0.1550 map=RRRRR resolved=5
+```
+
+**Three accepted candidates sit OUTSIDE the base band**, the deepest at 0.1550 of the recorded tof -
+2.6x the base-band edge, inside the 0.1900 scaled band. The eccentricity-widened region is entered and
+USED, not merely computed.
+
+**The primary evidence is the resolver's OWN line, not the cell's re-walk.** Driving scanIdx 26 end to
+end makes `ReaimPlaybackResolver` itself choose the out-of-band tof and say so:
+
+```
+member=reaim-e2e-eeloo-bandwalk-26 window=0 re-aimed transfer ready: ... tof=44326636.313413888
+(recorded=38378040.098193839 geom=34266107.23053021 eTarget=0.2600 halfWidthFraction=0.1900
+devFromRecorded=5948596.215220049s ...) encounter=Eeloo
+```
+
+`5948596.215220049 / 38378040.098193839 = 0.1550` exactly. This is the **first `devFromRecorded`
+outside the base band in the entire log archive** - the prior 79 emissions max out at |k| = 7 (0.035).
+
+`MaxHalfWidthFraction` is now APPROACHED (0.155 of 0.19) rather than untouched, though still not
+reached; that remains the one unmeasured constant.
+
+**The pin is deliberately NARROW, because the measurement is not run-to-run deterministic.**
+`TrySynthesizeTransfer`'s PatchedConics tail does not reproduce exactly: two runs of this cell five
+minutes apart (`logs/2026-08-15_1517` and `_1521`, same DLL, same fixture) disagreed at scanIdx=36,
+where the first accepted candidate moved k=+2 -> k=+3. That flip stayed inside the base band and moved
+no armed number, but a flip near the 0.06 edge would move `insideBaseBand` / `declined` /
+`step0Infeasible`. The cell therefore emits the stable quantities FIRST as one contiguous run and the
+volatile counts after a `|`, and only the stable run is armed. The three walking departures sit at
+candidates 32/48/62 - deep in the expansion, nowhere near a boundary - and reproduced exactly across
+every run.
+
+Five tokens armed in `M2-periodicity-solver.toml`, all on the cell's own line or on the resolver's line
+for the driven member, never on the `re-aimed transfer ready:` emissions the V-lanes arm. Run
+accounting, in full: **8 flights plus 2 pre-flight spec rejections**. The rejections were the harness
+refusing an unescaped `(` in a required token (required tokens are regexes) - caught before launch
+rather than after. **A PASS run collects no logs**, so only the non-PASS flights have an archived
+folder and the ids below are attached accordingly: first attempt SKIPPED (`_1514`), reading run on
+the old tally (`_1517`), armed PASS on the first token set (no log), its negative control (`_1521`),
+re-reading after the review narrowed the tokens (`_1551`), armed PASS (no log), negative control
+PARSEK-FAIL(expectation) naming the one flipped digit (`_1555`), and the reverted PASS (no log). The
+measured values quoted above therefore come from `_1551`; `_1555` carries the same band-walk lines
+and differs only in the one deliberately corrupted token.
+
+**The route, for the record, was not per-window replay.** It was the fixture's own pinned scan: the
+in-game cell picks `midIdx = CenterOfLongestRunIndex`, the centre of the longest run of departures whose
+step-0 tof synthesizes - BY CONSTRUCTION the most comfortable departure in the band, where step 0 is
+accepted immediately and no expansion step is ever probed. The walking departures are exactly the ones
+`ctx.Scan` marks infeasible, which that pick is built to skip.
+
+**A prediction was falsified on the way, and the guard caught it rather than a wrong assertion passing.**
+The first version of the cell pinned five departures a headless tilt-gate model named. The live
+synthesizer accepts step 0 at two of them (scan indices 0 and 1, step-0 inclinations 35 and 44 deg): the
+fired correction's conic still finds the encounter there. The model was right about the tilt gate - it
+reproduces the logged candidate inclinations exactly - and wrong to assume a fired correction then dies
+at the encounter check, which is true at the M2 window-1 geometry and is NOT a law. Its predictions for
+the other three (candidates 32, 48, 62) were confirmed EXACTLY by the arbiter. The headless cells now
+claim only the tilt gate and pin the live-confirmed three as their regression floor.
+
+**What remains open under M-MIS-3** is only the constant-pinning judgement, not the behaviour:
+`EccGain` and `MaxHalfWidthFraction` are still the values chosen for reasonableness. The band law is
+now demonstrated to compute correctly AND to be walked and bounded in flight; whether 0.5 / 0.20 are the
+RIGHT numbers is a tuning question this work deliberately did not touch.
+
+**What is proven - the computation half.** `ReaimTofSearch.HalfWidthFraction(e) = clamp(BaseHalfWidthFraction + EccGain*e, BaseHalfWidthFraction, MaxHalfWidthFraction)` = clamp(0.06 + 0.5 x 0.26, 0.06, 0.20) = **0.19 exactly**, and the product emitted it, on four runs, byte-identically:
+
+```
+[ReaimPlayback] ... eTarget=0.2600 halfWidthFraction=0.1900 devFromRecorded=0s devFromGeom=7577876.6049437672s
+```
+
+So at e = 0.26 the band law COMPUTES correctly on the shipped constants, and the 0.20 cap is NOT engaged: engaging it needs `EccGain >= (0.20 - 0.06)/0.26 = 0.5385`, so the shipped 0.5 sits 7.7% below engagement. This is the first real measurement the two `PLACEHOLDER - pin against the Eeloo fixture` comments (`EccGain`, `MaxHalfWidthFraction`) have ever had, and the token is ARMED in V12A.
+
+**What is NOT proven - the behavioural half.** `ReaimTofSearch.BuildCandidateTofs` is recorded-centered: step 0 is ALWAYS the recorded tof (invariant b), the band is `recordedTof +- k*step` with `step = recordedTof * stepFraction`, and `geomTof` chooses only which SIDE is probed first (`towardSign`). So `devFromGeom` exceeding 0.19 x geom is **irrelevant** - the band is never measured against geom, and a large devFromGeom is not a band violation.
+
+The open statement, in the form that can be closed: **no accepted candidate has ever sat outside the base band.** Archive census 2026-08-15 over every `KSP.log` under `logs/`: **79 `devFromRecorded=` emissions, 69 zero and 10 nonzero**, the 10 being **5 distinct values each emitted twice**. One of the five (`-2870561.2028224487`) is a PARKING-path artifact where `devFromRecorded` is meaningless (`recorded NOT used`), leaving **4 genuine `BuildCandidateTofs` accepts: k = +2, -1, +5, -7**. Max |k| = 7 against `baseSteps` 12. The eccentricity-WIDENED region (|k| > 12) has never been entered, and `MaxHalfWidthFraction` remains an unreached ceiling.
+
+**CLOSURE TARGET:** accept a candidate with `|devFromRecorded| > 0.06 * recordedTof` - outside the base band, in the region only the eccentricity gain opens.
+
+### Three corrections to this entry's earlier text (2026-08-15, all measured)
+
+**(1) `state=fired` is not a rejection.** It is the tilt correction's SUCCESS disposition (`ReaimTransferSynthesizer.cs:631-634`, `LogTiltCorrection(..., "fired", "ok")`), emitted on `[ReaimSeam]`, not from the candidate loop. The 14 consecutive `state=fired` lines at `logs/2026-08-11_1514_M2-periodicity-solver/KSP.log:11991-12007` are 14 candidates whose plane was successfully re-pinned to `incAch=5.9863` and which then died DOWNSTREAM at the PatchedConics encounter check. Reading them as band rejections misattributes the mechanism.
+
+**(2) The step count is not the candidate count.** At e=0.26 the expansion is steps k=13..38 - **26 steps = 52 candidates** of the 77 derived. The earlier "26 of the derived 77 candidates" conflated the two.
+
+**(3) `BuildParkingCandidateTofs` is NOT unexercised.** `logs/2026-08-11_1514_M2-periodicity-solver/KSP.log:11901,11906` shows members `reaim-e2e-parking-w0` / `-wN` emitting `tof=6524002.7336873859 (geom=6524002.7336873859 [parking band center; recorded NOT used] eTarget=0.0510 halfWidthFraction=0.0855 devFromGeom=0s)` - the geom-centered builder, accepted at its own step 0. It is driven by the batch-executable Periodicity cell `Reaim_KerbinToDuna_ParkingDeparture_TransferStartsAtParkEnd` (`ReaimEndToEndInGameTest.cs:1476`). The `parking=False` token that suggested otherwise is a DIFFERENT field (`plan.DepartedFromHeliocentricPark`, emitted by `MissionLoopUnitBuilder.cs:673,1314`), not a statement about which builder ran. That half of the debt is closed; only the `BuildCandidateTofs` expansion region remains open.
+
+### The mechanism that INFLUENCES acceptance (measured 2026-08-15)
+
+The band does not decide acceptance. The **tilt gate** is the first filter, and PatchedConics is the
+arbiter: a candidate whose natural transfer-plane inclination `inc(r1, r2(tof))` exceeds
+`InclinationBoundDegrees(launchInc, targetInc)` takes the correction path and has its plane re-pinned,
+after which it may still be accepted if the corrected conic finds the encounter - which is exactly what
+happens at scan indices 0 and 1. A candidate under the bound takes the `noop` path. So a gate opening
+outside the base band is NECESSARY for a walk and not SUFFICIENT.
+
+At the M2 Eeloo window 1 (`bound = 6.6500`) inclination falls ~0.0235 deg per step on the `-k` side,
+`inc@k=0` is 6.8115, and the first sub-bound candidate is k=-7 at 6.6469 - a 0.0031 deg margin. That
+window-1 slope is LOCAL to that departure and does NOT generalise: the interval it implies
+(`inc@k=0` in (6.9322, 7.5436)) is satisfied by none of the three confirmed walkers, whose `inc@k=0`
+are 27.1810, 29.6150 and 10.0910 because their per-step slope is ~1 deg rather than 0.0235. Quote the
+window-1 numbers as a worked example of the mechanism, never as a fixture-wide predicate.
+
+This is a PURE, headlessly computable predicate: `UvLambert` and `ReaimTransferSynthesizer`'s plane helpers are Unity-free, and `EveCycleZeroGeometry` is the standing precedent for driving them off-game. A two-body model of Kerbin/Eeloo reproduces all 15 logged candidate inclinations of M2 window 1 to the log's full 4-decimal precision, on two independent windows.
+
+### REFUTED: replaying a later window of a committed fixture cannot reach the zone
+
+Per-window replay was the leading hypothesis. It does not work, for a structural reason:
+
+- The lane's cadence is **4 x synodic = 0.2491 of Eeloo's orbital period**, so successive windows walk a near-period-4 subgrid of departure phase, revisiting four transfer angles (79 / 120 / 134 / 103 deg) indefinitely. Peak `inc@k=0` over windows 0..39 is **6.8286** and DECAYING; the zone needs > 6.9322. Max |k| ever required is 7.
+- No synodic multiple m = 1..12 reaches the zone within 60 windows either.
+- Independently: every committed V-lane resolves **window 0 only** (`V2`/`V4`/`V5`/`V3C` Duna, `V8`/`V8T` Eve, `V10` Dres, `V11A` Moho, `V12A` Eeloo). There is no window-k knob on them to turn. Only the M2 synthetic solver cell walks windows.
+- The zone is not intrinsically unreachable - ~4.5% of arbitrary departure phases land in it, in the near-antiparallel regime (transfer angle -> 180 deg) where the plane through r1 and r2 is ill-conditioned and the inclination spikes. The cadence-locked subgrid simply never samples it.
+
+### The reachable closure: the fixture's OWN pinned scan already contains it
+
+`BuildPinnedScanOrSkip` (`ReaimEndToEndInGameTest.cs:1401-1428`) sweeps `tDep(i) = PinnedScanBaseUT + synodic*i/ScanSteps` for i = 0..47 (`PinnedScanBaseUT = 5000000.0`, `ScanSteps = 48`). At i = 14 that is 7851536.4286 - **exactly** the departUT the M2 Eeloo member logged, confirming the grid. Evaluating the acceptance predicate across all 48:
+
+The pure tilt-gate model evaluated across all 48 gives the departures whose gate FIRST OPENS outside
+the base band. **This table is the model's prediction, and two of its five rows were falsified by the
+2026-08-15 flight** - it is kept because the three that survived are the closure, and because the shape
+of the error is the useful part:
+
+| scanIdx | inc@k=0 | first k the TILT GATE admits | abs(dev)/recordedTof | what the live arbiter did |
+|---|---|---|---|---|
+| 0 | 35.2454 | +29 | 0.145 | **accepted STEP 0** - correction fired AND encounter succeeded |
+| 1 | 44.1826 | +37 | 0.185 | **accepted STEP 0** - same |
+| 24 | 27.1810 | +16 | 0.080 | accepted candidate 32, dev 0.0800 - as predicted |
+| 25 | 29.6150 | +24 | 0.120 | accepted candidate 48, dev 0.1200 - as predicted |
+| 26 | 10.0910 | +31 | 0.155 | accepted candidate 62, dev 0.1550 - as predicted |
+
+The column is "first k the TILT GATE admits", NOT "first accepting k": the gate is a filter, not the
+arbiter, and a fired-correction conic can still find the encounter and be accepted. Three of the five
+walk; the model's error was additive (it named two extra), not directional (it missed none). The cell picks `midIdx = ReaimFeasibilityScan.CenterOfLongestRunIndex(ctx.Scan, cyclic: true)` = 14 - the centre of the longest run of departures whose step-0 tof synthesizes, i.e. BY CONSTRUCTION the most comfortable departure in the band. **That is precisely why the band was never walked.** The five expansion-only indices are exactly the ones the mid-band pick is built to avoid: `scan[i]` tests the recorded tof ALONE, so a departure whose step 0 is rejected reads false and is skipped over.
+
+**The headless instrument exists as of 2026-08-15** (`Source/Parsek.Tests/EelooBandWalkGeometry.cs` + `EelooBandWalkTests.cs`, 10 cells, unattended, no KSP). It reuses `EveCycleZeroGeometry`'s ephemeris rather than copying it, drives the PRODUCT's own `ReaimTofSearch.BuildCandidateTofs` / `TransferWindowMath` / `InclinationBoundDegrees`, and is licensed by a CALIBRATION cell that reproduces all fifteen logged window-1 inclinations plus the window-0 value to the log's own four decimals. It carries its own negative control (at the mid-band index the gate opens at step 0, so the cells cannot fire on today's geometry) and a counterfactual (at eTarget=0 the opening candidates do not exist in the 25-candidate band). A 0.1 deg perturbation of Eeloo's LAN reds exactly the three calibration cells, so the calibration is sensitive rather than vacuous.
+
+**Caveat on what the headless prediction proves.** It evaluates the tilt gate, which is pure. Final acceptance additionally requires the PatchedConics encounter check, which is Unity-bound. The prediction is therefore FALSIFIABLE and the in-game cell is the arbiter, not a formality.
+
+**Do not mark M-MIS-3 closed off the Eeloo computation pin alone.**
+
+## LINE-BLINK-EXEMPTION-DOES-NOT-PIN-THE-BOUNDARY - the window-transition exemption proves "one half read Outside, the other Inside", not "the SAME boundary was crossed" (found by review 2026-08-14, branch `line-blink-census`; UNEVIDENCED across all 13 archived raises; filed rather than fixed, and the OBVIOUS fix is measurably the wrong one)
+
+**The gap.** `MapRenderTrace.ResolveWindowTransitionExempt` exempts a `line-blink` pair
+when one half classifies `WindowExitOff` and the other `InsideWindowOn`. Each half is a
+real measurement made by the decision site whose branch condition IS that measurement -
+but `LineRenderIntent` carries only the three-state `RenderWindowCoverage`, never the
+BOUNDS the site measured against. So the exemption proves two independent claims and
+presents them as one transition across a single boundary. Two consequences:
+
+**(a) A bounds FLAP is indistinguishable from a clock transition.** If the window moves
+while the clock does not, the same clock reads Inside on one frame and Outside on the
+next, and a genuine one-frame dark flash is exempted. This is INHERENT to the exemption's
+premise as the design authority now states it: the instrument has no bounds-stability
+signal and never had one. It is not a regression introduced by this work - the same
+blindness sat behind the un-exempted detector, which simply raised on everything.
+**And the flap is not hypothetical:** in `logs/2026-08-12_0627_V10-dres-loop-arrival`
+one ghost's bounds walk `[31276682.1,43162584.0]` (frame 7189) ->
+`[31276682.7,43162584.5]` (7218) -> `[31276742.8,43162644.6]` (7248) while the lane
+re-aims, i.e. the window edge advances ~0.02 s per frame on a re-aiming lane.
+
+**(b) The sharper half: the two halves prove their claims against STRUCTURALLY DIFFERENT
+bound sets.** `director-stockconic-visible` stamps `Inside` after checking
+`appliedBoundsCoverHead` - the APPLIED SEGMENT bounds (`segStartUT`/`segEndUT`). The
+`past-body-frame-end` / `before-body-frame-start` block stamps `Outside` against the
+BODY-FRAME bounds (`startUT`/`endUT`). Nothing makes those the same interval, so the
+exemption can in principle be satisfied by a pair that never crossed one boundary at all.
+
+**UNEVIDENCED, and measured that way rather than asserted.** Across all 13 archived
+raises there is no pair whose exemption rests on mismatched boundaries.
+
+**THE OBVIOUS FIX - "carry startUT/endUT and require the two halves' bounds to be equal" -
+IS NOT THE FIX, and the reason is a measurement that also CORRECTS the prediction that
+motivated this entry.** The review expected equality to break 5 of the 6 now-exempted
+raises, on the reasoning in (b): five of them pair an applied-segment `Inside` with a
+body-frame `Outside`, so their bounds "must" differ. Read against the logs, **that is
+wrong - all six pairs carry BYTE-IDENTICAL bounds on both halves**:
+
+| raise | dark half | lit half | bounds (both halves) |
+|---|---|---|---|
+| V8 `_1111` | f7843 `past-body-frame-end` | f7839 `director-stockconic-visible` | `[30360218.8,30450249.6]` |
+| V8 `_1114` | f7618 `past-body-frame-end` | f7611 `visible-body-frame` | `[26616878.0,30360218.8]` |
+| V10 `_0627` | f7218 `before-body-frame-start` | f7219 `director-stockconic-visible` | `[31276682.7,43162584.5]` |
+| V10 `_0630`a | f7232 `before-body-frame-start` | f7233 `director-stockconic-visible` | `[31276552.7,43162454.6]` |
+| V10 `_0630`b | f7262 `before-body-frame-start` | f7263 `director-stockconic-visible` | `[31276682.5,43162584.3]` |
+| V10 `_0632` | f7237 `before-body-frame-start` | f7238 `director-stockconic-visible` | `[31276442.6,43162344.4]` |
+
+So (b) is a STRUCTURAL gap, not an observed divergence: on this corpus the applied
+segment and the body frame COINCIDE numerically at every pair, and only `_1114` is a
+both-halves-body-frame pair by construction. Equality would therefore have un-exempted
+NOTHING today - the lanes would stay green.
+
+**Which is exactly why equality is still the wrong rule.** It is satisfiable on the
+corpus by coincidence, and it is fragile against the drift measured in (a): the pairs
+that satisfy it are 1 frame apart (V10) or 4-7 frames apart with a window that happened
+not to move (V8), while the same logs show the window moving ~0.02 s/frame during a
+re-aim. An equality check is therefore a TOLERANCE question disguised as an identity one,
+and picking a tolerance without measuring the drift distribution is the trap the rest of
+this work avoided. Whoever picks this up needs a COHERENCE rule designed from measurement
+- e.g. what relationship the `Inside` bounds must bear to the `Outside` bounds for the two
+to describe one boundary (containment? shared edge? edge within a measured drift budget?)
+- and the first step is measuring how the applied-segment and body-frame intervals relate
+across a corpus, not adding an `==`.
+
+**Cross-reference:** the exemption itself and its cannot-mask argument are the resolved
+LINE-BLINK-JUMP-STRADDLE-DETECTOR-GAP entry below; this entry is the one thing that
+review left standing, and it is a sharpening of the exemption's PREMISE rather than a
+hole in its implementation.
+
+## ~~SEAM-ENDPOINT-CENSUS-UNREADABLE-ON-A-SHORT-LANE~~ - the census summary rides a SHARED 5 s rate-limit key, so on a ~55 s lane the first ghost-bearing frame consumes the only reported pass (measured 2026-08-13, branch `eeloo-loop-lanes`, four V12A runs; an INSTRUMENT limit, not a product defect) [FIXED 2026-08-14, branch `line-blink-census`, by CLASS-SPLITTING the key - see the resolution at the end]
+
+**The measurement.** V12A's arrival bracket was retargeted onto the product's own `soiEntryUT` (the V10 iteration-1 lesson), all three bracket jumps landing within +-190 s of `95851632.03180024` - and the census STILL read, byte-identically on all four runs:
+
+```
+[MapRenderTrace] seam-endpoint summary evaluated=0 outsideSoi=0 skip.no-usable-ratio=1
+```
+
+**The retarget resolved WHY, and the answer is that the emitted line is not an arrival reading at all.** In every run the single summary comes from the frame at `currentUT=53970043.597` - **jump 1**, the cycle-0 Kerbin ascent leg. The summary rides `ParsekLog.VerboseRateLimited(..., "seam-endpoint-summary", 5.0)` on a SHARED key whose counters reset each pass, so it reports ONE pass; jump 1 primes the 5 s key and the whole rest of the lane - all three arrival-bracket jumps included - executes inside the shadow. (V10's iterations 2/3 got two lines; a ~55 s lane gets one.) The bucket is CORRECT for that frame: the proto conic there is the Kerbin-frame escape hyperbola (`sma=-404710 ecc=4.3873`) whose cross-body successor destination is the SUN, and `no-usable-ratio`'s own documented cause at the `HasMeasurement` gate in `MapRenderProbe.ComputeSeamEndpointGeometry` is exactly a destination with no finite sphere.
+
+**The arrival seam WAS reached** - on independent render-side evidence rather than inference: at jump 6 the proto line closed with `reason=past-body-frame-end lineActive=False drawIcons=NONE ... bounds=[54007648.2,95851632.0]`, bounds ending at `soiEntryUT` to the digit. **So the census is SILENT about the arrival, not negative about it,** and V12A leaves it a documented reading rather than arming an `evaluated=0` token that would pin an instrument artefact as a product contract.
+
+**This retires one carried claim.** V10 iteration 4 concluded "the census evaluating at all depends on the render having passed through the PRE-D0 state". That does NOT survive here: V12A's jump 1 IS pre-D0 (by 37,604.599 s) and is precisely what reached the lens - and it produced an unusable sample. So the pre-D0 correlation V10 measured is not the mechanism.
+
+**What would fix it:** free the rate-limit key near the seam, or move the summary to a per-onset / per-pid key so one primed shared key cannot suppress every later seam. Both are instrument changes to a shared gated tracer and neither belongs on a lane branch - the same call V1/V8 made for `line-blink`. Note for whoever restores V10's census bracket (`-900 / -300 / +600`): on a short lane that recipe is **necessary but not sufficient**, because the shared key suppresses the arrival sample even when the bracket is dead on the seam.
+
+### RESOLUTION 2026-08-14 (branch `line-blink-census`) - the key now matches WHAT IT SUMMARISES
+
+Neither of the two options above was taken verbatim. Widening the interval or dropping
+the limiter would raise log volume on every lane to buy one lane's reading, and a
+per-pid key multiplies the line by the ghost count for a summary that is per-PASS by
+definition. What the measurement actually shows is narrower than "the key is shared":
+**a pass that reached the lens and measured NOTHING shadowed the pass that measured
+something.** Those are two different statements, so they now ride two keys -
+`seam-endpoint-summary-measured` and `seam-endpoint-summary-skip-only`, selected by the
+pure `SeamEndpointOracle.ResolvePassSummaryRateKey(evaluated)`.
+
+A skip-only pass can therefore no longer consume the budget for the first measuring
+pass, which is the reading every arrival lane is after. Within each class the 5.0 s
+limiter is untouched, so steady-state volume rises by at most one line per 5 s and only
+when a pass genuinely changes class. `ShouldEmitPassSummary` is UNCHANGED and still
+refuses a ghostless frame, so neither key can be primed at scene entry - the
+`probe frame summary` failure mode that guard was written for stays closed. Pinned by
+`SeamEndpointOracleTests`: the two keys differ, every measuring pass shares one key, and
+the ghostless-frame guard is asserted unchanged.
+
+Note the SECOND blocker on the same lanes was closed in the same pass: see
+LINE-BLINK-JUMP-STRADDLE-DETECTOR-GAP below.
+
+### A SECOND, DIFFERENT CASE THE CLASS SPLIT DOES NOT COVER (measured 2026-08-19, `V15M-gilly-player-loop`)
+
+The split fixed *a skip-only pass shadowing a measuring pass*. It does NOT fix
+**a measuring pass shadowing a LATER measuring pass**, because within each class the
+5.0 s limiter is untouched - by design, and correctly so for every lane that has one
+arrival. A MULTI-CYCLE lane has two.
+
+`V15M-gilly-player-loop` crosses the arrival TWICE, at cycle 1 and cycle 2 of a
+phase-locked loop. All three of its runs (`2026-08-19_1736` reading, `_1808` armed,
+`_1810` control) emit exactly TWO census lines, byte-identically:
+
+    seam-endpoint summary evaluated=1 outsideSoi=0                      (cycle 1)
+    seam-endpoint summary evaluated=0 outsideSoi=0 skip.body-mismatch=1 (an Eve-framed epoch)
+
+i.e. the class split IS working - the measuring and skip-only lines both print - and
+there is still **no cycle-2 measuring pass anywhere in any of the three logs**. The
+cycle-2 arrival bracket runs ~1.4 WALL-seconds after cycle-1's, because every `TimeJump`
+is an instantaneous Planetarium clock set and the 388,587 GAME-seconds between the two
+cycles cost no wall time at all. Both cycles' passes land in the
+`seam-endpoint-summary-measured` class, inside one 5.0 s window, and the second is
+dropped. `faithful-parity summary` behaves identically (one line, cycle 1 only).
+
+**WHAT IT COSTS, and it is not this lane's convenience.** It is the reason no
+multi-cycle recurrence measurement exists at any body: the k = 1 census is readable and
+the k = 2 one is not, so "does a phase-lock residual amplify with k?" is currently
+unanswerable from a single run at seam pacing. That question is the miniature of the
+Bop/Pol lattice question in
+`docs/dev/research/same-parent-reaim-jool-system.md` (section 9.3, which states it as
+the named gap and notes it applies retroactively to the Ike lanes, whose pacing is the
+same).
+
+**NO FIX PROPOSED HERE, and the cheap workaround is a LANE change rather than an
+instrument one:** wall-space the two arrival brackets more than 5 s apart with
+`RecordingState` spacers (V8's established instrument, used there for the line-blink
+straddle). That costs one lane's pacing and no log volume anywhere else. A per-cycle or
+per-onset key would be the instrument-side answer and carries the same
+"multiplies the line" objection the resolution above already weighed; it should only be
+taken if wall-spacing turns out not to work.
+
+**FLOWN, AND IT FALSIFIED THE OTHER HALF OF THE DIAGNOSIS.** All three arrival lanes
+were re-flown with NO spec change (`V10 2026-08-14_1837`, `V11A _1839`, `V12A _1840`,
+each PASS attempt 1, zero anomalies) and ALL THREE emitted the measuring pass that none
+of them had ever been able to print:
+
+```
+seam-endpoint summary evaluated=0 outsideSoi=0 skip.no-usable-ratio=1
+seam-endpoint summary evaluated=1 outsideSoi=0
+```
+
+So the key was the WHOLE blocker on every lane, and **V10 iteration 4's conclusion -
+"the census evaluating at all depends on the render having passed through the pre-D0
+state" - does not survive**: iteration 4's own no-pre-D0 shape had been reaching the
+lens all along and having its second line eaten. V12A had already falsified the pre-D0
+correlation from the other side; this settles it. The escape-bracket half of V10's
+restoration recipe turned out to be neither necessary nor sufficient for the census (it
+was restored anyway, as the live regression floor for the detector exemption - see
+below). `evaluated=1 outsideSoi=0` is now an ARMED required token on all three lanes,
+each with two byte-identical readings, an armed PASS, a negative control that correctly
+red `PARSEK-FAIL(expectation)` naming the inverted token, and a reverted PASS.
+
+### THE SECOND CASE IS NOW **CLOSED BY PACING**, and the recourse is proven (2026-08-19, `V16M-laythe-player-loop`)
+
+The V15M case above recorded that a fast-stepped MULTI-CYCLE lane cannot read a
+per-class census twice, listed three recourses, and named recourse 1 (wall-space the
+brackets with `RecordingState` spacers) as the cheapest. **RECOURSE 1 HAS NOW BEEN
+BUILT AND FLOWN, AND IT WORKS.**
+
+`V16M-laythe-player-loop` carries a **forty-tick `RecordingState` dwell block** between
+its cycle-1 park epoch and its cycle-2 re-arm, sized against `run.py`'s
+`POLL_INTERVAL_SECONDS = 0.25` hard floor rather than V5's measured 0.54 s/tick - so it
+buys >= 10.0 wall s even in the worst case. Reading run `2026-08-19_2114` (PASS attempt
+1) emitted the measuring line at BOTH arrivals:
+
+```
+10860  00:14:39.433  seam-endpoint summary evaluated=2 outsideSoi=0
+13199  00:14:50.935  seam-endpoint summary evaluated=2 outsideSoi=0 | suppressed=25
+```
+
+**11.502 wall-seconds apart**, against V15M's 1.4 s and its three runs that never
+printed a cycle-2 measuring pass. The `suppressed=25` counter on the second line is the
+limiter still working on the frames in between, which is exactly the shape wanted: the
+rate limit is untouched, only the PACING moved.
+
+**WHAT THAT BUYS BEYOND THIS LANE:** it is the suite's first k > 1 recurrence
+measurement. V16M's cadence is 20 Laythe periods, so the cycle-2 census is a reading at
++20 moon periods rather than +1, and `outsideSoi=0` there is the first evidence anyone
+has that the phase lock survives a multi-period re-anchor. Every phase-lock statement
+this programme could previously make was a k = 1 statement.
+
+**NO PRODUCT CHANGE, AGAIN.** The limiter is doing its job; the fix was in the SPEC's
+step list. Two limits stay: the block costs ~10-22 wall s and ~22 GAME seconds of 1x
+playback, so a lane whose destination tail is short cannot afford it (V15M's Gilly tail
+is 381 s and would have had 112 s of margin; V16M's Laythe tail gave 104.5 s of
+clearance at the park epoch, which is 4.8x the block at its most expensive measured
+per-tick cost) - and N = 2 is still N = 2, so this measures a bound, not a drift rate.
+**THE CAVEAT ABOVE THEREFORE STANDS UNCHANGED FOR EVERY LANE WITHOUT THE BLOCK**; what
+is retired is only the claim that it could not be done.
+
+## ~~LINE-BLINK-JUMP-STRADDLE-DETECTOR-GAP~~ - back-to-back seam TimeJumps raise the gated `line-blink` on legitimate window transitions (measured 2026-08-11, branch `eve-loop-lanes`; two PARSEK-FAIL artifacts; lane re-paced, detector NOT modified) [RE-MEASURED across the whole 13-raise archive and FIXED 2026-08-14, branch `line-blink-census`, with a WINDOW-EXIT exemption - see the resolution at the end of this entry]
 
 **The measurement.** Two V8-eve-player-loop iterations PARSEK-FAILed on the gated Tier-C `line-blink` with every other verifier green: run `2026-08-11_0810` (Eve-leg proto line, `sinceFrames=4`, at a TimeJump landing 850 s PAST the phase window end 30,450,249.6 - the ghost retires, `GuardSkip mission-loop-unit-inactive`, and the line's ON-at-rebind -> OFF-at-retire pair lands inside the detector window) and run `2026-08-11_0814` (Sun-leg proto line, `sinceFrames=7`, at the arrival bracket's third jump - the line toggles ON at one jump's rebind and OFF at the next jump's `past-body-frame-end`, the two jumps executing ~7 visual frames apart in WALL time regardless of the 240 game-seconds between them). Both collected-log folders exist (non-PASS runs collect); both raises are legitimate-transition pairs, not flickers - nothing a player can produce, because only the seam can slam two epoch shifts inside `LineBlinkFrameWindow = 8` visual frames.
 
 **The gap, precisely.** `MapRenderTrace.IsLineBlink` already carries a `bodyChanged` exemption whose own comment says "a toggle pair that crosses a reference-body / segment boundary is two legitimate transitions at a real geometry seam, not a flicker" - which describes BOTH sightings - but the flag cannot see either shape: the line's body does not change when the CLOCK leaves its window (`past-body-frame-end`) or when the unit retires; `offWindowCovered` does not apply (no polyline painted the dark window; both raises read `offWindowCovered=False polylinePainted=False`). A jump-rebind exemption analogous to `loop-seam-teleport`'s clock-delta rebind exemption would close it; NOT built here - the detector is a shared gated instrument and V1's closed diagnosis (see V1-REPLAY-LINE-BLINK above) shows its guards are calibrated on evidence per mechanism, so the fix deserves its own measured pass rather than a rider on a lane branch.
 
 **What the lane did instead (and why it is not softening):** V8 paces its bracket jumps with `RecordingState` spacer pairs so adjacent seam-straddling jumps land more than 8 visual frames apart - a player-scale clock instead of a detector-window-scale one. `allowedAnomalies` stays `[]`; the two artifacts stand as the record of what un-paced jumps do; runs `2026-08-11_0818`/`_0819` prove the paced shape green with clean sweeps twice consecutively.
+
+### RESOLUTION 2026-08-14 (branch `line-blink-census`) - a WINDOW-EXIT exemption, measured against the whole archive first
+
+**FIRST, TWO CORRECTIONS TO THE MEASUREMENT ABOVE**, both found by re-reading the raw
+logs rather than the summary:
+
+1. **The run folders named above do not exist under those names.** `collect-logs.py`
+   names its folder by COLLECT time, not run id, so the two artifacts are
+   `logs/2026-08-11_1111_V8-eve-player-loop/` and `logs/2026-08-11_1114_V8-eve-player-loop/`
+   (both `git-state.txt` reads `Branch: eve-loop-lanes`; every discriminating field
+   matches). Same run-id-vs-collect-time split this doc already records elsewhere for
+   `2026-07-30_1955` / `2026-07-30_2322`.
+2. **The corpus is 13 raises across 9 runs, not 2, and it splits by EDGE DIRECTION** -
+   which is what the fix turns on. Archive-wide `grep -c "reason=line-blink"`: V1
+   `2026-07-30_2251`/`_2322`/`_2357` (2 each), `2026-08-01_1925` (1), V8
+   `2026-08-11_1111`/`_1114` (1 each), V10 `2026-08-12_0627` (1), `_0630` (2), `_0632`
+   (1). Moho and Eeloo have ZERO. The two V8 straddles are the DARK edge
+   (`lineActive=False prevActive=True`); **all three V10 raises are the RE-ACTIVATION
+   edge** (`lineActive=True prevActive=False sinceFrames=1 body=Sun`), whose OFF half
+   was the `before-body-frame-start` decision ONE FRAME EARLIER. The entry above,
+   written from the V8 pair alone, describes only the dark-edge half. (Also: the token
+   is `reason=line-blink` on a `phase=Anomaly` line - there is no `anomaly=` key - and
+   `recId` rendered `<none>` on all 13 because the raise call site never passed it.
+   That is now fixed too.)
+
+**THE FRAME-LEVEL EVIDENCE, both directions.** V8 `_1114` `KSP.log:12099` raises at
+frame 7618 with `sinceFrames=7 body=Sun offWindowCovered=False polylinePainted=False`;
+the SAME frame's authoritative decision (`:12096`) reads
+`reason=past-body-frame-end lineActive=False currentUT=30360400.0
+bounds=[26616878.0,30360218.8]` - the clock is 181.2 s PAST the window end. V8 `_1111`
+is the same shape 850.4 s past `bounds=[30360218.8,30450249.6]`. V10 `_0627`
+`KSP.log:11582` raises at frame 7219 on the LIT edge; the OFF half at frame 7218 reads
+`reason=before-body-frame-start lineActive=False currentUT=31276682.660
+bounds=[31276682.7,43162584.5]` - BEFORE the window start. In every case the line was
+correctly dark: **there is no recorded arc to draw at that clock.**
+
+**THE FIX - a positive discriminator on BOTH halves, not a widened window.**
+`GhostOrbitLinePatch` now stamps a three-state `RenderWindowCoverage` onto each frame's
+`LineRenderIntent`, and ONLY where the branch condition IS a measurement of the drive
+clock against the recording's rendered body-frame window. Four sites, no more:
+`Outside` at `past-body-frame-end` / `before-body-frame-start` (the dark half) and at
+`parking-conic-loiter-hold` (which holds the line LIT out there); `Inside` at
+`director-stockconic-visible` and `visible-body-frame` (the two branches that verified
+covering bounds). Everything else stays `Unknown`.
+
+`MapRenderTrace.ClassifyLineToggle` turns one toggle into `WindowExitOff` /
+`InsideWindowOn` / `Other`, and `ResolveWindowTransitionExempt` exempts a pair **only
+when both halves are proven**: the dark half left the window AND the lit half sits on a
+clock the recording covers. The probe stamps each toggle's verdict per pid, so whichever
+edge the detector catches, the other half is the stamped one. Both pure, Unity-free,
+directly unit-tested.
+
+**ONE HALF IS NEVER ENOUGH, and that is a measured lesson rather than a design taste.**
+The first cut judged the pair from the OFF half alone. `parking-conic-loiter-hold`
+defeats that, and it defeats the mirror rule too - it is the ONE decision that holds the
+line lit while the clock is outside the window, and it lives in the same
+`pastEnd || beforeStart` block as the window-exit OFF, so a pair pivoting on it has
+NOTHING inside the window and is a real on-screen flash:
+
+- `past-body-frame-end` (dark) -> `parking-conic-loiter-hold` (lit): caught on the LIT
+  edge. A dark-half-only rule exempts it.
+- ... hold (lit) -> hold disarms -> `past-body-frame-end` (dark): the same flash going
+  out one frame later, caught on the DARK edge at `sinceFrames=1`. Its partner has
+  already aged past `LineBlinkFrameWindow`, so under a dark-half-only rule the ENTIRE
+  flash raised nothing - gating exactly the direction `MapRenderProbe`'s own emit comment
+  calls "deliberately ungated (a conic flashing on for a couple of frames ... is its own
+  visible artefact)".
+
+Both directions now decline. The old cannot-mask paragraph "held" only because it
+DEFINED a real blink as an inside-window toggle and these pairs are outside; that is
+proof by definition, and it is exactly the kind worth distrusting.
+
+**WHAT IT COVERS AND WHAT IT DOES NOT.** It covers exactly one statement: the pair left
+the rendered window and came back onto a clock the recording covers, both halves proven
+by the decision site's own branch condition. It does NOT cover, and all of these still
+raise:
+
+- any OFF decided INSIDE the window - `polyline-owns-phase`,
+  `director-traced-path-suppress`, `below-atmosphere` / `terminal-below-atmosphere`,
+  `post-polyline-release-grace`, `director-terminal-suppress`, and **especially
+  `stale-segment-awaiting-reseed`**, whose own "clock outside bounds" is the APPLIED
+  SEGMENT bounds lagging INSIDE the window. A generic bounds comparison would have
+  swallowed that one; the stamp is deliberately per-branch instead;
+- any ON that is not PROVEN inside - `parking-conic-loiter-hold` (stamped `Outside`) and
+  **`terminal-visible`**, which is lit past the recorded window with no bounds at all and
+  stamps nothing. `Inside` is a positive fact for exactly this reason: a "not `Outside`"
+  test would have read `terminal-visible` as covered;
+- either half on a frame where our Postfix never ran (no measurement = no exemption), so
+  a line KSP or another patch lit or darkened behind our back still raises;
+- either half where the decision DISAGREES with the truth read (that is
+  `decision-vs-truth`'s job);
+- either half on a degenerate line read.
+
+**WHY IT CANNOT MASK A REAL BLINK.** Every conjunct is fail-closed: anything unproven
+lands in `Other`, and `Other` never exempts on either edge. So the exemption fires only
+on a pair whose two halves were each MEASURED, by the site whose branch condition is that
+measurement - never on absence of evidence. Pinned by
+`LineBlinkWindowExitExemptionTests`: the four archived raises replay to "exempt";
+`ArchivedRaiseGeometry_ButAHalfIsNotProven_StillRaises` replays byte-identical frame
+geometry with one fact changed, four ways, and asserts each STILL RAISES;
+`Resolve_DarkEdge_PriorLitHalfNotProvenInside_StillRaises` and
+`Resolve_LitEdge_LitHalfNotProvenInside_StillRaises` pin the two flash directions; and
+`CoverageStamps_AreConfinedToTheFourMeasuringDecisions` is a SOURCE gate - because the
+stamp is an ENUM VALUE rather than a bare `true`, any widening must spell
+`RenderWindowCoverage.Inside` / `.Outside` and is counted, which catches the trailing
+POSITIONAL argument (`..., endUT, true)`) that would have slipped past the first cut's
+string grep. `CoverageStamp_DefaultsToUnknown_AndHasOneWriter` pins `RecordLineIntent` to
+a single production call site so nothing else can write coverage at all. Both gate
+directions were negative-controlled and confirmed red.
+
+The line above is reproducible from a collected artifact, not just from a run
+directory: `logs/2026-08-14_2309_line-blink-census-postfix/harness-runs/`
+carries the KSP.log + result JSON for the three post-fix readings (`_1956` V10,
+`_1957` V11A, `_1958` V12A) and the V10 negative control (`_2002`). Note that
+`collect-logs.py` snapshots the DEV instance, which never runs a harness flight -
+so a harness line has to be carried over from `harness/results/<run>_shots/`
+explicitly, which is what that subfolder is.
+
+### THE 14TH RAISE (2026-08-19, `V15M-gilly-player-loop`) - the first LIVE instance of a case this exemption DELIBERATELY does not cover
+
+The archive above is 13 raises across 9 runs, all of them window-transition or
+straddle shapes. The Gilly loop lane adds a 14th of a DIFFERENT kind, and it is worth
+recording precisely because the "WHAT IT COVERS AND WHAT IT DOES NOT" list PREDICTED it
+by name.
+
+`harness/results/2026-08-19_1810_V15M-gilly-player-loop_shots/KSP.log:13162`, on the
+pair's shared NEGATIVE CONTROL run (a temporary `supersedeRows = { min = 1 }` mutation;
+that run is a `PARSEK-FAIL` by design on `saveParse`, and this raise is an INDEPENDENT
+second hit on the same run):
+
+    phase=Anomaly surface=ProtoOrbitLine pid=4024370714 recId=77f724bb1d4844c3b132a1ccc00a7df3
+      frame=7207 currentUT=16656457.000 effUT=16656457.000 reason=line-blink
+      lineActive=False prevActive=True lastToggleFrame=7199 sinceFrames=8 body=Gilly
+      offWindowCovered=False polylinePainted=False polylineOwns=False
+      windowTransitionExempt=False bodyChanged=False
+      toggleVerdict=Other priorToggleVerdict=InsideWindowOn
+      intentReason=director-traced-path-suppress
+
+**THE DETECTOR IS BEHAVING EXACTLY AS DOCUMENTED.** The OFF half is
+`director-traced-path-suppress` - the second bullet of the "still raise" list above
+("any OFF decided INSIDE the window ... `director-traced-path-suppress`") - so
+`toggleVerdict=Other` and the exemption correctly declines. Its partner, the ON at frame
+7199 (`director-stockconic-visible`, `priorToggleVerdict=InsideWindowOn`), WAS itself
+exempted eight frames earlier as a window transition
+(`line-blink-suppressed ... sinceFrames=7 windowTransitionExempt=True bodyChanged=True`,
+line 12844). So one leg of this ghost's line history rode the exemption and the next did
+not, each on its own merits. Nothing here argues for widening anything.
+
+**WHAT IS NEW IS THE SHAPE, and it is the V1 OWNERSHIP-HANDOFF family rather than a
+window transition.** The line goes dark because the DIRECTOR'S TRACED PATH takes over
+the leg - the proto line is deliberately hidden so the polyline can draw it - which is
+mechanism (a) of V1-REPLAY-LINE-BLINK, the one V1 closed with the paint/ownership guard.
+That guard did not fire here: the raise reads `polylinePainted=False polylineOwns=False`
+even though the intent reason IS the TracedPath suppress, and the very next frame logs
+`Director TracedPath suppress pid=4024370714 frame=7208 (polyline owns the leg, proto
+icon hidden)`. **CANDIDATE, NOT A DIAGNOSIS: a one-frame lag between the OFF decision
+and the ownership/paint signals the guard reads.** Nobody has traced it; it is written
+down here because the next person to look at an ownership-handoff raise should check
+that first.
+
+**IT IS INTERMITTENT, 1-of-3, AND THAT IS THE OTHER NEW FACT.** Three runs of the
+byte-identical V15M shape: `2026-08-19_1736` (reading) and `2026-08-19_1808` (armed)
+both swept `hits=[] hitCounts={}`; `2026-08-19_1810` (control) raised once. Every
+prior line-blink sighting in this archive was deterministic for its shape. `sinceFrames=8`
+is exactly `LineBlinkFrameWindow`, i.e. this pair sits ON the detector's boundary - one
+slower frame and the partner ages out - which is the obvious explanation for a 1-in-3
+and is consistent with it firing on the run that also carried a mutation. NOT CONFIRMED.
+
+**DISPOSITION: nothing changes.** `V15M-gilly-player-loop` keeps `allowedAnomalies = []`
+and stays the strict control for the `icon-off-orbit` work; its spec header and status
+row record the intermittency so a future armed-run red on `line-blink` is READ rather
+than retried away (`retry = once` will spend an attempt when it fires - priced, not
+dodged). No detector change is proposed: the exemption declined on a documented case,
+which is the fail-closed behaviour it was built for.
+
+**ONE THING THIS DOES NOT PROVE, filed separately:** the exemption establishes that one
+half read `Outside` and the other `Inside`, not that both measured the SAME boundary -
+see LINE-BLINK-EXEMPTION-DOES-NOT-PIN-THE-BOUNDARY above. Unevidenced across all 13
+archived raises (all six exempted pairs carry byte-identical bounds on both halves), and
+the obvious bounds-equality fix is measurably the wrong one.
+
+**LIVE PROOF, on the shape that red three times running.** `V10-dres-loop-arrival` had
+its iteration-3 escape bracket (-900 / -300 / +600) RESTORED and flown: run
+`2026-08-14_1956` PASS, zero anomalies, and the exemption visibly fired at the very UT
+iteration 3 measured its raise at -
+
+```
+phase=line-blink-suppressed surface=ProtoOrbitLine pid=2085490815
+recId=05cb08259cba4ad2b8257c88727b91d4 frame=6183 currentUT=31276442.240
+lineActive=True prevActive=False lastToggleFrame=6182 sinceFrames=1 body=Sun
+offWindowCovered=False polylinePainted=False polylineOwns=False
+windowTransitionExempt=True bodyChanged=False toggleVerdict=InsideWindowOn
+priorToggleVerdict=WindowExitOff intentReason=director-stockconic-visible
+```
+
+FIVE things to read there. `offWindowCovered=False polylinePainted=False
+bodyChanged=False` - ALL THREE other guards are demonstrably inactive, so the
+suppression is the window-transition exemption and nothing else; that is the whole
+attribution claim, stated by the line rather than inferred. `toggleVerdict=InsideWindowOn
+priorToggleVerdict=WindowExitOff` - BOTH halves proven, one of each kind, which is
+exactly what the corrected predicate requires; a reader auditing a raise sees which of
+the two proofs was missing instead of guessing. `lineActive=True prevActive=False` - the
+RE-ACTIVATION edge, so the dark half came from the STAMPED prior toggle. `intentReason`
+is THIS FRAME'S decision, which on this edge is the ON
+(`director-stockconic-visible`, i.e. INSIDE the window - the lit half's positive proof).
+And `recId=` carries a real id, where all 13 archived raises rendered `<none>`.
+`sinceFrames` reads 1 or 2 depending on frame timing across runs; it is deliberately not
+pinned. The lane KEEPS those pre-D0 jumps and now arms this line POSITIVELY, so the floor
+cannot go vacuous: strip the exemption and V10 reds on `allowedAnomalies`, stop producing
+the toggle at all and V10 reds on the missing token.
 
 ## TODO - D11 `loiter-compression` is UNCOVERED and ~~CANNOT be covered by any committed fixture~~ NOW REACHABLE (first non-zero measurement 2026-08-11, branch `eve-loop-lanes`; the cell itself stays UNCLAIMED until a lane pins a cut token)
 

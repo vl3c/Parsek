@@ -1,6 +1,8 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
+using System.Text.RegularExpressions;
 using Xunit;
 
 namespace Parsek.Tests
@@ -690,6 +692,289 @@ namespace Parsek.Tests
                 a.StrategyId == "UnpaidResearch");
             Assert.NotNull(written);
             Assert.DoesNotContain(logLines, l => l.Contains("KSC reconciliation: Funds mismatch"));
+        }
+
+        // ================================================================
+        // STRATEGY-SCIENCE-CONVERSION-LEAK: the science INPUT leg of a stock
+        // CurrencyExchanger / CurrencyConverter exchange (Patents Licensing,
+        // researchIPsellout). See docs/dev/todo-and-known-bugs.md.
+        // ================================================================
+
+        [Fact]
+        public void EnumValue_StrategyScienceDebit_AppendedAt32()
+        {
+            // Append-only enum contract: existing ledgers with action ids 0-31 continue
+            // to load, and any future addition must keep this id fixed.
+            Assert.Equal(32, (int)GameActionType.StrategyScienceDebit);
+        }
+
+        [Fact]
+        public void RoundTrip_StrategyScienceDebit_SurvivesSaveLoad()
+        {
+            logLines.Clear();
+
+            var original = new GameAction
+            {
+                UT = 8599.8755059835421,
+                Type = GameActionType.StrategyScienceDebit,
+                RecordingId = "rec-round-trip",
+                Cost = 108.84171851920314f
+            };
+
+            var parent = new ConfigNode("ROOT");
+            original.SerializeInto(parent);
+            var reloaded = GameAction.DeserializeFrom(parent.GetNode("GAME_ACTION"));
+
+            Assert.Equal(original.Type, reloaded.Type);
+            Assert.Equal(original.UT, reloaded.UT);
+            Assert.Equal(original.RecordingId, reloaded.RecordingId);
+            // "R" round-trips the float byte-exact.
+            Assert.Equal(original.Cost, reloaded.Cost);
+            // Deliberately carries no tech-node id.
+            Assert.Null(reloaded.NodeId);
+            Assert.Empty(logLines);
+        }
+
+        [Fact]
+        public void ClassifyAction_StrategyScienceDebit_TransformedSkip()
+        {
+            var a = new GameAction
+            {
+                UT = 8599.8755059835421,
+                Type = GameActionType.StrategyScienceDebit,
+                Cost = 108.84171851920314f
+            };
+
+            var exp = LedgerOrchestrator.ClassifyAction(a);
+
+            // Transformed/skip, NOT NoResourceImpact (it moves the science pool) and NOT
+            // Untransformed (the row is BUILT from the very event a leg would pair
+            // against, so a leg could never catch anything).
+            Assert.Equal(KscActionExpectationClassifier.KscReconcileClass.Transformed, exp.Class);
+            Assert.False(exp.ScienceLeg.IsPresent);
+            Assert.Contains("strategy currency-exchange science leg", exp.SkipReason);
+        }
+
+        [Fact]
+        public void EndToEnd_OnKscSpending_ScienceChangedStrategyInput_WritesStrategyScienceDebit()
+        {
+            LedgerOrchestrator.Initialize();
+
+            var evt = new GameStateEvent
+            {
+                ut = 8599.8755059835421,
+                eventType = GameStateEventType.ScienceChanged,
+                key = GameStateEventConverter.StrategyInputReasonKey,
+                valueBefore = 750.0,
+                valueAfter = 641.15828148
+            };
+            GameStateStore.AddEvent(ref evt);
+
+            LedgerOrchestrator.OnKscSpending(evt);
+
+            var written = Ledger.Actions
+                .Where(a => a.Type == GameActionType.StrategyScienceDebit)
+                .ToList();
+            Assert.Single(written);
+            Assert.Equal(108.84171852, (double)written[0].Cost, 4);
+            Assert.NotEqual(0, written[0].Sequence);
+
+            // The tech-node domain stays clean: no ScienceSpending row was written.
+            Assert.DoesNotContain(Ledger.Actions, a => a.Type == GameActionType.ScienceSpending);
+
+            Assert.Contains(logLines, l =>
+                l.Contains("[LedgerOrchestrator]") &&
+                l.Contains("KSC spending recorded") &&
+                l.Contains("StrategyScienceDebit"));
+        }
+
+        [Fact]
+        public void RecalculateAndPatch_StrategyExchange_FundsCreditAndScienceDebitBothLand()
+        {
+            // THE regression cell for STRATEGY-SCIENCE-CONVERSION-LEAK. This is exactly
+            // the shape the committed C2Career fixture is MISSING: at one KSC-frozen UT
+            // the exchange's funds credit and its science debit both exist. Before the
+            // fix only the credit was captured, so the reconstruction ran science high
+            // by the traded-away amount (+108.84 on c2). See the
+            // STRATEGY-SCIENCE-CONVERSION-LEAK entry in docs/dev/todo-and-known-bugs.md.
+            //
+            // It doubles as the ORDERING cell. RecalculationEngine.IsSpendingType has NO
+            // StrategyScienceDebit arm (an arm there would be inert for ordering and
+            // harmful for Reconcile pruning - see the comment at that switch and
+            // LedgerTests.Reconcile_ColdLoadMaxUtZero_KeepsTaggedStrategyScienceDebit).
+            // SortActions keys its secondary level on IsEarningType ONLY, so every
+            // non-earning type already sorts after earnings at a shared UT. The seed is
+            // deliberately SMALLER than the debit and a same-UT ScienceEarning covers the
+            // difference, so the order is observable in the balance and in the log: the
+            // earning first leaves the debit affordable, the debit first would dip
+            // negative and print the "ahead of its earnings" line.
+            LedgerOrchestrator.Initialize();
+            logLines.Clear();
+
+            const float SeedScience = 50f;
+            const float EarnedScience = 200f;
+            const float ExchangeScienceCost = 108.84171851920314f;
+
+            Ledger.AddAction(new GameAction
+            {
+                UT = 0.0,
+                Type = GameActionType.ScienceInitial,
+                InitialScience = SeedScience
+            });
+            Ledger.AddAction(new GameAction
+            {
+                UT = 0.0,
+                Type = GameActionType.FundsInitial,
+                InitialFunds = 33000f
+            });
+
+            const double ExchangeUT = 8599.8755059835421;
+            Ledger.AddAction(new GameAction
+            {
+                UT = ExchangeUT,
+                Type = GameActionType.ScienceEarning,
+                SubjectId = "subj-exchange",
+                ScienceAwarded = EarnedScience,
+                SubjectMaxValue = EarnedScience
+            });
+            Ledger.AddAction(new GameAction
+            {
+                UT = ExchangeUT,
+                Type = GameActionType.FundsEarning,
+                FundsAwarded = 4574.84863f,
+                FundsSource = FundsEarningSource.Strategy
+            });
+            Ledger.AddAction(new GameAction
+            {
+                UT = ExchangeUT,
+                Type = GameActionType.StrategyScienceDebit,
+                Cost = ExchangeScienceCost
+            });
+
+            LedgerOrchestrator.RecalculateAndPatch();
+
+            // EXACT equality, not a 2dp window: the walk is seed + earning - debit in
+            // that order, over the same float-to-double conversions.
+            Assert.Equal(
+                (double)SeedScience + (double)EarnedScience - (double)ExchangeScienceCost,
+                LedgerOrchestrator.Science.GetRunningScience());
+            Assert.Equal(33000.0 + 4574.84863,
+                LedgerOrchestrator.Funds.GetRunningBalance(), 2);
+
+            // The ordering proof: the debit ran against a balance the earning had already
+            // credited (50 + 200 = 250 covers 108.84). Had it run first it would have hit
+            // 50 - 108.84 and logged the ahead-of-its-earnings line instead.
+            Assert.Contains(logLines, l =>
+                l.Contains("[ScienceModule]") &&
+                l.Contains("StrategyScienceDebit: cost="));
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("StrategyScienceDebit ahead of its earnings"));
+        }
+
+        [Fact]
+        public void DeduplicateAgainstLedger_TwoExchangesSameUtDifferentAmounts_BothSurvive()
+        {
+            // GetActionKey gives StrategyScienceDebit a RecordingId + Cost key precisely
+            // so the KSC clock's FROZEN UT cannot collapse two distinct exchanges into
+            // one. Distinct amounts survive.
+            //
+            // DOCUMENTED LIMITATION, not fixed here: two exchanges of the SAME amount at
+            // the same UT still collapse (the amount is the only disambiguator available
+            // at this seam - the ScienceChanged event's key is the transaction reason and
+            // carries no strategy identity). Recorded as a residual on the
+            // STRATEGY-SCIENCE-CONVERSION-LEAK entry rather than closed with an invented
+            // ordinal. The direct KSC door does no dedup at all.
+            LedgerOrchestrator.Initialize();
+
+            const double ExchangeUT = 8599.8755059835421;
+            Ledger.AddAction(new GameAction
+            {
+                UT = ExchangeUT,
+                Type = GameActionType.StrategyScienceDebit,
+                Cost = 108.84171851920314f
+            });
+
+            var candidates = new List<GameAction>
+            {
+                new GameAction
+                {
+                    UT = ExchangeUT,
+                    Type = GameActionType.StrategyScienceDebit,
+                    Cost = 108.84171851920314f   // identical -> a duplicate
+                },
+                new GameAction
+                {
+                    UT = ExchangeUT,
+                    Type = GameActionType.StrategyScienceDebit,
+                    Cost = 42.5f                 // different amount -> a distinct row
+                }
+            };
+
+            var result = LedgerOrchestrator.DeduplicateAgainstLedger(candidates);
+
+            Assert.Single(result);
+            Assert.Equal(42.5f, result[0].Cost);
+        }
+
+        [Theory]
+        // Ownerless KSC exchange: forwarded straight to the ledger.
+        [InlineData("", false, true)]
+        [InlineData(null, false, true)]
+        // A live recorder owns the event: it flows through the commit-time
+        // ConvertEvents path instead, so the direct forward must stand down.
+        [InlineData("", true, false)]
+        [InlineData("rec-1", true, false)]
+        // Tagged with no live recorder is tag drift, not proof of ownerlessness.
+        [InlineData("rec-1", false, false)]
+        public void RecorderDoor_ScienceStrategyInput_ForwardsOnlyWhenOwnerless(
+            string recordingTag, bool hasLiveRecorder, bool expected)
+        {
+            // The science leg reuses the exact same door predicate as the funds and
+            // reputation legs; this pins that it keeps the same answers.
+            Assert.Equal(expected,
+                GameStateRecorder.ShouldForwardDirectLedgerEvent(recordingTag, hasLiveRecorder));
+        }
+
+        [Fact]
+        public void Recorder_OnScienceChanged_ForwardsStrategyInputAfterTheEmit()
+        {
+            // OnScienceChanged is an instance handler that needs a live KSP runtime, so
+            // the hookup is pinned by source scan (the pattern used for the recovery
+            // subscription pair). Two things are load-bearing: the forward exists at
+            // all, and it FOLLOWS the Emit - the recalc OnKscSpending runs at its tail
+            // reads GameStateStore synchronously (the pending-strategy-debit helper must
+            // see this event to net it against the row being written), so an earlier call
+            // would compute against a store that has not seen it yet.
+            string path = Path.GetFullPath(Path.Combine(
+                AppDomain.CurrentDomain.BaseDirectory,
+                "..", "..", "..", "..", "..", "Source", "Parsek", "GameStateRecorder.cs"));
+            Assert.True(File.Exists(path), "source file not found for scan: " + path);
+            string source = File.ReadAllText(path);
+
+            int handlerStart = source.IndexOf("private void OnScienceChanged(", StringComparison.Ordinal);
+            Assert.True(handlerStart >= 0, "OnScienceChanged not found");
+            int handlerEnd = source.IndexOf("private void OnReputationChanged(", StringComparison.Ordinal);
+            Assert.True(handlerEnd > handlerStart, "OnReputationChanged not found after OnScienceChanged");
+            string body = source.Substring(handlerStart, handlerEnd - handlerStart);
+
+            int emitIndex = body.IndexOf("Emit(ref sciEvt", StringComparison.Ordinal);
+            int forwardIndex = body.IndexOf(
+                "LedgerOrchestrator.OnKscSpending(sciEvt)", StringComparison.Ordinal);
+            Assert.True(emitIndex >= 0, "OnScienceChanged no longer emits its ScienceChanged event");
+            Assert.True(forwardIndex > emitIndex,
+                "OnScienceChanged must forward StrategyInput to the ledger AFTER the Emit");
+
+            // Anchor on the WHOLE if-statement, whitespace-collapsed. Asserting the two
+            // conditions as separate substrings was negation-blind: inserting a '!' in
+            // front of ShouldForwardDirectLedgerEvent - which inverts the door and
+            // forwards exactly the events a live recorder already owns - left both
+            // substring assertions green.
+            string collapsed = Regex.Replace(body, @"\s+", " ");
+            Assert.Contains(
+                "if (reason == TransactionReasons.StrategyInput && " +
+                "ShouldForwardDirectLedgerEvent(sciEvt.recordingId, HasLiveRecorder())) " +
+                "LedgerOrchestrator.OnKscSpending(sciEvt);",
+                collapsed);
         }
     }
 }

@@ -1231,10 +1231,8 @@ namespace Parsek.InGameTests
                 // tagged with originId pre-split or TIP post-split; the
                 // simplest restore is to truncate the ledger back to its
                 // pre-test count, since AddAction only appends.
-                if (Ledger.Actions.Count > priorLedgerCount)
-                {
-                    Ledger.TruncateActionsForTesting(priorLedgerCount);
-                }
+                FlightIntegrationTests.TruncateLedgerForTeardown(
+                    priorLedgerCount, "IncompleteBallistic split-restore");
 
                 // Drop the synthetic launch milestone (and any retagged one).
                 // MilestoneStore.AddMilestoneForTesting also only appends.

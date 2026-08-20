@@ -297,6 +297,20 @@ namespace Parsek
             switch (type)
             {
                 case GameActionType.ScienceEarning:
+                // GameActionType.StrategyScienceCredit IS an earning, and the earlier
+                // note arguing it out of this list was wrong on its second half. The
+                // first half stands: it is INERT for ordering, because both strategy
+                // conversion rows apply their magnitude UNCONDITIONALLY in
+                // ScienceModule, so where they sort relative to a same-UT earning
+                // cannot change the total. What the note missed is the OTHER consumer.
+                // Ledger.Reconcile's earning branch keeps an untagged row
+                // UNCONDITIONALLY, while the fall-through "other" branch prunes an
+                // untagged row whose UT is past maxUT. Left out of this list, a
+                // conversion's science credit is pruned by a maxUT-bounded reconcile
+                // while the SAME conversion's untagged FundsEarning yield survives -
+                // one movement, one leg kept and one dropped. Listing it is the only
+                // classification that keeps the pair together.
+                case GameActionType.StrategyScienceCredit:
                 case GameActionType.FundsEarning:
                 // Logistics deferred recovery credit: a funds earning (FundsModule adds
                 // it to totalEarnings), so it sorts before spendings at a shared UT.
@@ -323,6 +337,23 @@ namespace Parsek
             switch (type)
             {
                 case GameActionType.ScienceSpending:
+                // GameActionType.StrategyScienceDebit is DELIBERATELY ABSENT. Two facts,
+                // in this order:
+                //   (1) it would be INERT for ordering. SortActions keys its secondary
+                //       level on IsEarningType ONLY ("earning ? 0 : 1"), so every
+                //       non-earning type already sorts after earnings at a shared UT.
+                //       The exchange's same-UT funds credit / science debit pair is
+                //       correctly ordered without an arm here (pinned by
+                //       StrategyCaptureTests' same-UT end-to-end cell).
+                //   (2) it would be HARMFUL for pruning. The real consumer of
+                //       IsSpendingType is Ledger.Reconcile, whose spending branch prunes
+                //       any row with UT > maxUT even when a valid RecordingId owns it.
+                //       A BUG-F-family cold-load Reconcile runs with maxUT = 0
+                //       (Planetarium reports UT 0 on a cold OnLoad), which would
+                //       PERMANENTLY DELETE a flight-tagged exchange debit while KSP keeps
+                //       the science removed - re-opening the very leak this type closes.
+                //       Falling through to Reconcile's generic branch keeps a
+                //       valid-id-tagged row regardless of maxUT.
                 case GameActionType.FundsSpending:
                 // Logistics gross dispatch charge (Option A): a funds spending in the
                 // recalc walk, so it sorts after earnings at a shared UT.

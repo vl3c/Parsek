@@ -478,6 +478,11 @@ namespace Parsek.Tests
                     // Headless xUnit can still lack Unity GUI teardown; this test only
                     // cares about Tracking Station window wiring.
                 }
+                catch (System.MissingMethodException)
+                {
+                    // Headless xUnit can still lack Unity GUI teardown; this test only
+                    // cares about Tracking Station window wiring.
+                }
             }
         }
 

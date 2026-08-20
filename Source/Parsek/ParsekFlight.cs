@@ -17673,6 +17673,10 @@ namespace Parsek
             {
                 return 1f;
             }
+            catch (MissingMethodException)
+            {
+                return 1f;
+            }
         }
 
         private void SpawnVesselOrChainTip(Recording rec, int index)
