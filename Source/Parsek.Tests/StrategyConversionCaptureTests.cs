@@ -130,8 +130,9 @@ namespace Parsek.Tests
         [Fact]
         public void ZeroInputReputationDelta_IsEvaluatedAsALeg()
         {
-            // Evaluated (so the observation is testable and the asymmetry explicit);
-            // NOT turned into a row - see BuildStrategyConversionAction below.
+            // The SIGN is preserved through the pure evaluation; what each sign becomes is
+            // BuildStrategyConversionAction's decision (positive -> a nominal
+            // ReputationEarning, negative -> a loud refusal). Both are pinned below.
             var legs = StrategyConversionCapture.EvaluateLegs(Query(dR: -3.0));
 
             var rep = legs.Single(l => l.Currency == StrategyConversionCurrency.Reputation);
@@ -256,8 +257,41 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void ReputationLeg_IsObservedButNotWritten()
+        public void ReputationYield_BuildsAStrategySourcedEarning()
         {
+            // THE ROW CARRIES THE RAW PRE-CURVE DELTA, ON PURPOSE. The query delta is the
+            // very argument stock's Reputation.OnCurrenciesModified hands to
+            // addReputation_granular, and ReputationModule.ApplyReputationCurve mirrors
+            // that routine - so NominalRep must be the untouched leg delta and the curve
+            // must be left to the walk. A row that pre-applied the curve here would apply
+            // it twice, and one that carried a post-curve magnitude would be measured
+            // against the LIVE running rep rather than the reconstruction's.
+            var action = LedgerOrchestrator.BuildStrategyConversionAction(
+                123.0,
+                new StrategyConversionLeg
+                {
+                    Currency = StrategyConversionCurrency.Reputation,
+                    Delta = 0.33540129661560059
+                },
+                "ScienceTransmission");
+
+            Assert.NotNull(action);
+            Assert.Equal(GameActionType.ReputationEarning, action.Type);
+            Assert.Equal(ReputationSource.Strategy, action.RepSource);
+            Assert.Equal(0.33540129661560059f, action.NominalRep);
+            // UNTAGGED, like the science / funds siblings on this path.
+            Assert.Null(action.RecordingId);
+            Assert.Contains(logLines, l =>
+                l.Contains("reputation CREDIT captured pre-curve"));
+        }
+
+        [Fact]
+        public void NegativeReputationLeg_IsRefusedAndWarned()
+        {
+            // Structurally unreachable through EvaluateLegs (every stock reputation-INPUT
+            // converter has a nonzero GetInput(Currency.Reputation), which the scoping
+            // rule excludes), so reaching it means an unmodelled mechanism. Refuse loudly
+            // rather than guess a debit shape - the same stance as the negative funds arm.
             var action = LedgerOrchestrator.BuildStrategyConversionAction(
                 123.0,
                 new StrategyConversionLeg
@@ -268,7 +302,46 @@ namespace Parsek.Tests
                 "ContractReward");
 
             Assert.Null(action);
-            Assert.Contains(logLines, l => l.Contains("pre-curve"));
+            Assert.Contains(logLines, l =>
+                l.Contains("[WARN]") && l.Contains("NEGATIVE zero-input reputation delta"));
+        }
+
+        [Fact]
+        public void StrategyReputationRows_DedupKeyDisambiguatesByAmount()
+        {
+            // Mirrors the converter science rows: two conversions at one FROZEN KSC UT
+            // must not collapse into one if these rows ever reach DeduplicateAgainstLedger.
+            var first = LedgerOrchestrator.BuildStrategyConversionAction(
+                123.0,
+                new StrategyConversionLeg
+                {
+                    Currency = StrategyConversionCurrency.Reputation,
+                    Delta = 0.25
+                },
+                "ScienceTransmission");
+            var second = LedgerOrchestrator.BuildStrategyConversionAction(
+                123.0,
+                new StrategyConversionLeg
+                {
+                    Currency = StrategyConversionCurrency.Reputation,
+                    Delta = 0.75
+                },
+                "ScienceTransmission");
+
+            Assert.NotEqual(
+                LedgerOrchestrator.GetActionKey(first),
+                LedgerOrchestrator.GetActionKey(second));
+
+            // A non-strategy reputation earning keeps the historical empty key: this
+            // change narrows nothing that was previously unique.
+            var contractRep = new GameAction
+            {
+                UT = 123.0,
+                Type = GameActionType.ReputationEarning,
+                NominalRep = 5f,
+                RepSource = ReputationSource.ContractComplete
+            };
+            Assert.Equal("", LedgerOrchestrator.GetActionKey(contractRep));
         }
 
         // ================================================================
@@ -712,7 +785,7 @@ namespace Parsek.Tests
             Assert.Contains("OperationStrategy_RewardMultiplier_IsNotCaptured", src);
             Assert.Contains("LeadershipInitiative", src);
 
-            Assert.Contains("ConverterStrategy_ReputationLeg_IsObservedAndDropped", src);
+            Assert.Contains("ConverterStrategy_ReputationLeg_CapturesEarning", src);
             Assert.Contains("OpenSourceTechProgramCfg", src);
         }
 

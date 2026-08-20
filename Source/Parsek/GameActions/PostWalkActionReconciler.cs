@@ -82,7 +82,8 @@ namespace Parsek
         /// <item><c>MilestoneAchievement</c> -> <c>Progression</c> (all three legs, via
         /// the generic resource-event path; <c>MilestoneAchieved.detail</c> is NOT parsed)</item>
         /// <item><c>ReputationEarning</c> maps by <see cref="ReputationSource"/>;
-        /// <c>Other</c> returns Reconcile=false (synthetic, no paired event).</item>
+        /// <c>Other</c> and <c>Strategy</c> return Reconcile=false (no paired
+        /// reason-keyed event).</item>
         /// <item><c>ReputationPenalty</c> maps by <see cref="ReputationPenaltySource"/>;
         /// <c>Other</c> returns Reconcile=false.</item>
         /// </list>
@@ -185,6 +186,15 @@ namespace Parsek
                             key = "ContractReward"; break;
                         case ReputationSource.Milestone:
                             key = "Progression"; break;
+                        // Strategy: the query-family converter mutates a
+                        // CurrencyModifierQuery IN PLACE and the ReputationChanged that
+                        // follows (when it fires at all - GameStateRecorder's
+                        // ReputationThreshold is 1.0f and the common yield is a fraction
+                        // of a point) carries the ORIGINAL transaction reason, not a
+                        // strategy-keyed one. There is no reason-keyed event to pair
+                        // against, so an Untransformed leg would WARN on every row.
+                        // Same standing as FundsEarningSource.Strategy below.
+                        case ReputationSource.Strategy:
                         case ReputationSource.Other:
                         default:
                             return exp; // synthetic, no paired event

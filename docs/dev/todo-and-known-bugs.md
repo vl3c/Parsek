@@ -48,6 +48,69 @@ persistence. It therefore never misses the case it exists for and over-reports a
 deliberate single-interval trim inside a chapter; it is a Warn on a reporting
 path that writes nothing.
 
+## ~~ORACLE-REP-CURVE-PORT-DIVERGED: the harness ledger oracle's Python reputation curve kept the PRE-fix residual step after the C# side fixed it, so the two ports silently disagreed for every integer-or-larger nominal~~ [FOUND and FIXED 2026-08-20 on `oracle-rep-curve-port`, the same day the divergence opened. NO COMMITTED GATE WAS AFFECTED - see "Blast radius". CLOSED]
+
+**The divergence.** Commit `817773dcb` (2026-08-20,
+CAREER-MILESTONE-REP-AWARD-RECONSTRUCTS-LOW, the entry below) changed
+`ReputationModule.ApplyReputationCurve`'s final residual step to size itself from the
+accumulated POST-CURVE actual:
+
+    float input = (i != num) ? delta : (nominal - accumulated);       // C#, fixed
+
+`harness/lib/oracle.py`'s `apply_rep_curve` - which its own docstring calls a "Port of
+``ReputationModule.ApplyReputationCurve``" - was not updated with it and kept the
+pre-fix form:
+
+    step_input = delta if i != num else (nominal - (delta * num))     # Python, stale
+
+For any integer nominal that residual is identically ZERO, so the top-up never fired
+and the Python oracle under-computed by the curve loss. Measured on the port itself,
+new vs old: nominal +5 at rep 0 lands 4.999997418898138 against 4.9963564181215165;
+nominal +2 at rep 0 lands 1.999998920659382 (KSP's own measured 1.99999881) against
+1.9985167620623079; nominal +50 at rep 500 lands 35.555266643600916 against
+23.845409518325653. For `|nominal| < 1` the loop is the residual step alone with
+`accumulated` still 0, so sub-unit awards were - and remain - bit-identical either way.
+
+**Blast radius: none, and the reason is worth keeping.** The oracle only runs the curve
+for manifest entries in `repMode = "nominal"`. Every nonzero reputation entry in every
+committed scenario spec is `repMode = "applied"` (`CL-2-pod-impact-ledger.toml`'s three
+stock-award rows: -9.999828, +0.9999995, +0.9999995), which bypasses the curve entirely
+because the value is already what stock applied post-curve; the only other declared rep
+value is `L1-dismiss-kerbal-career.toml`'s `reputation = 0.0`, which short-circuits.
+So the stale port never produced a committed expected value and no gated flight was
+measured against a wrong number. Nothing was re-pinned in any spec.
+
+**The fix and the guards.** `apply_rep_curve` now mirrors the C# residual step
+(`nominal - accumulated`), and the `ReputationCurveTests` class in
+`harness/lib/test_oracle.py` grew from 6 cells to 10:
+`test_apply_rep_curve_pins_live_measured_stock_pair` is the ABSOLUTE in-game anchor the
+port's own residual-blind-spot docstring had deferred - the live pair measured on run
+`2026-08-18_2140`'s `ConverterStrategy_ReputationLeg_IsObservedAndDropped` cell (renamed
+`ConverterStrategy_ReputationLeg_CapturesEarning` on 2026-08-20 when the leg stopped
+being dropped - see STRATEGY-REPUTATION-DROP-CLAMPS-THE-GUARD; the measured pair below
+is unchanged, and the curve it anchors is now what the ledger row runs through) (curve
+input 0.33540129661560059, KSP pool movement 0.33515101671218872), asserted to float32
+tolerance because KSP computes in float32 and the port in float64;
+`test_apply_rep_curve_residual_step_uses_accumulated` pins integer nominals where the
+two formulas DISAGREE so the pre-fix formula cannot silently return; and two more pin
+the sub-unit (formula-agnostic) branch and the negative-nominal path, whose residual
+comes out POSITIVE and correctly routes through the ADDITION curve (the branch test is
+on `step_input`, not on `nominal`). The two pre-existing absolute pins (+100 at rep 0,
+and the chained two-award composition) were RE-PINNED onto the fixed arithmetic:
+99.6565192711913 -> 99.99652641919174 and 197.02809227386504 -> 199.86793999630493.
+NEGATIVE CONTROL RUN: with the pre-fix line temporarily restored, 4 of the 10 cells red
+and the live-measured stock anchor stays green, which is exactly the split the two cells
+are designed for - the anchor pins the KEYFRAMES, the disagreement cells pin the FORMULA.
+
+**What this incident proves.** The port docstring already carried a "RESIDUAL BLIND
+SPOT" warning about the two legs being independent only up to a shared-curve error. The
+warning was warranted, and the drift arrived from the direction it did not name: not a
+fault shared by both ports, but a FIXED C# leg against a STALE port. The docstring now
+records the incident. The structural lesson is that a hand-maintained Python port of a
+C# method has no compiler and no cross-language test tying the two together - what holds
+it is the value pins, so a C# change to `ApplyReputationCurve` must be mirrored into
+`harness/lib/oracle.py` in the SAME wave, and the pinned values re-derived.
+
 ## MISSIONS-T2.2-LINEAGE-FAN-NOT-COLLAPSIBLE: the flattened per-vessel rows cannot fold a many-child separation fan [ACCEPTED LIMITATION 2026-08-20, from the Stage-2 review of the missions-UI branch]
 
 The T2.2 flattening (one row per physical vessel, lineage-only depth) renders a vessel's
@@ -589,6 +652,19 @@ finding (cost 90 against a reconstructed 85.3). Being able to CREDIT science doe
 not help: the refusal is at the seam, before any row is written. That finding
 stays owned by the synthetic two-action unit test (`ScienceSpendingOrderingTests`,
 plan task A.1), and a future forge must NOT be scoped to it.
+
+**Status update 2026-08-20 (plan tasks D.1 + D.3).** c1 is now committed as a
+headless replay REGRESSION FLOOR, not as an oracle: `Fixtures/C1Career/` (ledger
++ save) plus `C1CareerLedgerReplayTests`. The +90 science divergence is
+CHARACTERIZED there - value pinned (recon 119.30025362968445 vs the save's
+29.3002529, delta +90.000000729684444), mechanism observed on the real walk
+(exactly one `Spending NOT affordable` refusal in 323 rows, and it is
+`heavyRocketry`), and era-bounded. It is NOT adjudicated and remains NOT a filed
+defect: the fixture cannot separate "the 2026-08-09 capture layer under-recorded
+the science available at that UT" from "the walk values something differently
+from KSP", and per the ceiling above no forge can manufacture the shape that
+would separate them. Nothing about the ordering contract depends on c1 - the
+mechanism stays owned by `ScienceSpendingOrderingTests`.
 
 ## ~~CAREER-FORGE-NEEDS-A-DIRECT-ANTENNA: the post-fix career forge cannot transmit science, because stock refuses to transmit over a command pod's INTERNAL antenna~~ [MEASURED 2026-08-19 by `L3-career-science-recover` flight 2 (runs `2026-08-19_1823` + retry `_1831_a2`), root cause PROVEN from the decompiled `Assembly-CSharp`. NOT a product defect and NOT a harness defect: the MISSION named a FIXTURE fault correctly. SIBLING FIXTURE `career-science-pad` BUILT 2026-08-19 on branch `career-science-craft`, and LIVE-PROVEN the same day by flight 3 (run `2026-08-19_1912`, MISSION-OK, `transmit_science sent=1`) - see the FLIGHT 3 block below. CLOSED]
 
@@ -1791,58 +1867,193 @@ do not, mirroring the truncate no-op. Pinned by `TryAdoptRolloutAction_Bumps...`
 reported symptom - they are the same defect class caught before it cost a
 diagnosis.
 
-## STRATEGY-REPUTATION-DROP-CLAMPS-THE-GUARD: the query door's deliberately-dropped reputation leg diverges the reconstruction, and reputation has no pending adjuster to absorb it [FILED 2026-08-19 off the strategy-test-matrix lane. NOT FIXED - the DROP is correct; the CONSEQUENCE was undocumented]
+## ~~STRATEGY-LIFECYCLE-CELLS-NEED-OPPOSITE-REPUTATIONS: the category's negative control and its exchanger cell cannot both run in one batch~~ [FILED 2026-08-20 off the `fresh-career-rep-seed` lane. NOT A DEFECT - a stock constraint, measured. CLOSED 2026-08-20 on `strategy-rep-leg` by the two-spec route this entry names below]
 
-The drop itself is a settled decision and is not in question.
-`StrategyConversionCapture.EvaluateLegs` returns a reputation leg and
-`LedgerOrchestrator.BuildStrategyConversionAction` deliberately returns null for
-it, because the query delta is the modifier's PRE-curve contribution while
-`Reputation.AddReputation` applies KSP's granular curve on top - the magnitude
-available at that seam is not the magnitude the pool moved by, and writing it
-through either the earning or the penalty arm would trade a known drift for a
-wrong one.
+**CLOSED BY THE COMPLEMENTARY SPEC.** `harness/scenarios/L3-strategy-exchanger-floor.toml`
+is the pre-swap L3 shape restored: same category, same four seam steps, same
+stock-minimal profile, `fresh-career` (rep 0) instead of `strategy-career` (rep 25).
+It flew PASS attempt 1 on `2026-08-20_1902_L3-strategy-exchanger-floor` - 55 s wall,
+fully unattended, every verifier PASS or REPORT, GUARDED census ZERO, unityExceptions 0 -
+pinning `BATCH_COMPLETE v1 total=7 passed=6 failed=0 skipped=1` with the OPPOSITE named
+skip: `ExchangerStrategy_OneShot_CapturesBothLegs` PASSED (`sciDelta=-14.5 take=14.5
+fundsDelta=609.46632729616249 factor=0.05`) and
+`OperationStrategy_RewardMultiplier_IsNotCaptured` is the skip. Between the two specs all
+seven declarations are gated nightly, each pinning its own MEASURED split with its own
+NAMED skip, at the cost of one extra ~55 s nightly flight. The stock constraint below is
+unchanged and still true - it is not dissolved, it is covered from both sides.
 
-What was NOT written down is what the drift then costs. Live reputation moves and
-the reconstruction does not, and unlike science - which has three pending
-adjusters plus `ComputePendingRecentKscScienceCredit`'s frozen-clock window
-masking a pool-only award - **reputation has no pending adjuster at all**.
-`KspStatePatcher.ResolveReputationPatch` guards at epsilon `0.01`, so any dropped
-reputation leg larger than a hundredth of a point raises
-`PatchReputation: GUARDED DRAWDOWN clamped resource=Reputation` on the next
-recalc, and keeps raising it on every recalc thereafter. The clamp is CORRECT (it
-preserves the live value); it is the WARN that is unbounded, exactly as in
-`STRATEGY-PREFIX-HOLDBACK-PERMANENT` above.
+The rest of this entry stands as the record of why one batch could not do it.
 
-**MEASURED LIVE** on `2026-08-18_2140_L3-strategy-currency-conversion`. Open-Source
-Tech Program at the stock default Factor 0.05, a 400-point science award: take=20
-science, and the reputation pool moved **0.33515101671218872** while the door
-observed **dR=0.33540129661560059**. Two things worth keeping. First, the
-magnitude is 33x the 0.01 guard epsilon, so this is not a rounding-scale drift.
-Second, that 0.00025 gap between the two numbers IS the pre-curve / post-curve
-difference the drop exists because of - the door's number really is not the
-pool's number, measured rather than argued. Appreciation Campaign
-(funds -> reputation) is the larger-magnitude sibling and is untested.
+Not a bug in Parsek and not fixable by a fixture. Two `StrategyLifecycle`
+declarations have mutually exclusive reputation preconditions:
 
-**Fix shape:** the same shape as the prefix-holdback entry, and the two should
-probably be solved together - bound or account for the observed side rather than
-widening the guard. The candidate that does NOT require a pre-curve magnitude is
-to read the POST-curve delta from the `ReputationChanged` event that follows, the
-way `ConvertStrategyExchangeReputation` already does for the exchanger family's
-rep leg, and write that. Blocked on one measurement: `GameStateRecorder`'s
-`ReputationThreshold` is `1.0f`, so a sub-point conversion yield fires no
-`ReputationChanged` event to read - which means the small yields (the common
-case) would need a different source or a lowered threshold, and lowering that
-threshold has its own blast radius. Do NOT suppress the WARN generically.
+- `OperationStrategy_RewardMultiplier_IsNotCaptured` needs **rep >= 14.5**.
+  Both stock `CurrencyOperation` strategies (`LeadershipInitiative`,
+  `AgressiveNegotiations`) lerp `initialCostReputation` 10..100 at
+  `factorSliderDefault = 0.05`, and `Strategy.CanBeActivated` compares the
+  CURRENT pool against that 14.5 at activation time.
+- `ExchangerStrategy_OneShot_CapturesBothLegs` needs **rep <= 0**. Both stock
+  `CurrencyExchanger` strategies (`researchIPsellout`, `BailoutGrant`) declare
+  `requiredReputationMin = -1000` / `requiredReputationMax = 0`: they are
+  EMERGENCY strategies and are not offered at positive reputation.
 
-**Observed, not asserted away.** `ConverterStrategy_ReputationLeg_IsObservedAndDropped`
-(StrategyLifecycle, SPACECENTER) drives Open-Source Tech Program, asserts the leg
-IS observed (a nonzero `dR` parsed off the door's own summary line) and IS
-dropped (zero reputation rows), and logs the measured divergence together with
-whether it exceeds the guard epsilon, every run. The cell then RESTORES the
-reputation leg before the door's deferred recalc - deliberately, so the fixture
-cannot manufacture a clamp out of a documented product decision and red the L3
-spec's whole-log `GUARDED` forbid for a reason the door does not own. The number
-in that cell's `ACCEPTED DRIFT` line is the live measurement this entry rests on.
+`[14.5, +inf)` and `(-inf, 0]` do not intersect, and the M-A2 seam's `RunTests`
+selects by CATEGORY only, so there is no per-cell split either. One batch, one
+reputation value, one of the two skips. Measured live on run
+`2026-08-20_1817_L3-strategy-currency-conversion` (the seed made the exchanger
+cell's own residue guard fire on purpose) and pinned by
+`StrategyCareerCellExclusivityTests` in
+`harness/lib/test_strategy_career_fixture.py`.
+
+**The trade taken:** `L3-strategy-currency-conversion` stages `strategy-career`
+(rep 25) and runs the NEGATIVE CONTROL, because it is the only declaration whose
+failure detects deletion of `StrategyConversionCapture.EvaluateLegs`'s scoping
+rule - every other cell in the category asserts that a movement IS captured and
+would pass with the rule deleted. The exchanger arm was already driven live and
+measured on `2026-08-18_2140` (take=14.5 science -> 609.46632729616249 funds) and
+is additionally evidenced by the c2 save's `events.pgse`
+StrategyInput/StrategyOutput pair, so what is lost is a standing regression
+floor, not the observation.
+
+**What closed it** (predicted here on 2026-08-20, executed the same day): a
+COMPLEMENTARY SECOND SPEC staging `fresh-career` (rep 0) - the pre-swap L3 shape -
+running the same category batch with the OPPOSITE named skip (exchanger runs,
+operation skips). No seam feature was needed; a per-test `RunTests` selector (it
+has `category` and `isolated` only) would only have served the cosmetic goal of
+zero skips per spec. Shipped as `L3-strategy-exchanger-floor`; see the closing
+note at the top of this entry for the measured run.
+
+## ~~STRATEGY-REPUTATION-DROP-CLAMPS-THE-GUARD: the query door's dropped reputation leg diverges the reconstruction, and reputation has no pending adjuster to absorb it~~ [FILED 2026-08-19 off the strategy-test-matrix lane. FIXED 2026-08-20 on `strategy-rep-leg` - the CREDIT leg is now a ledger row, exact through KSP's own curve]
+
+**THE DROP WAS THE WRONG CONCLUSION FROM A RIGHT OBSERVATION, and the correction
+is one decompiled line.** The entry stood on "the query delta is PRE-curve, so it
+is not the magnitude the pool moved by". Both halves are true; what does not
+follow is that the number is unusable. Stock's
+`Reputation.OnCurrenciesModified` does
+
+```
+addReputation_granular(query.GetEffectDelta(Currency.Reputation))
+```
+
+and Parsek's capture door reads that SAME expression off that SAME event
+(`GameStateRecorder.OnCurrencyModified` ->
+`StrategyConversionQuery.DeltaReputation`). The pre-curve delta is therefore not
+an approximation of the pool movement - it is the curve's own INPUT ARGUMENT. And
+since PR #1508's residual-step port, `ReputationModule.ApplyReputationCurve` is a
+faithful line-by-line mirror of `addReputation_granular`. So a NOMINAL
+`ReputationEarning` row carrying the raw delta reproduces the movement EXACTLY,
+and does it better than a post-curve capture would: the walk re-derives it at the
+RECONSTRUCTION's own running rep rather than copying a number KSP measured against
+the live one. The curve is state-dependent, so those are not the same rep.
+
+**The fix.** `LedgerOrchestrator.BuildStrategyConversionAction`'s reputation arm
+writes a `ReputationEarning` row for a POSITIVE leg: `NominalRep` = the raw
+`leg.Delta`, `RecordingId = null` (untagged - irreversible global economy, like
+its science / funds siblings on that path), `RepSource = ReputationSource.Strategy`
+(new enum member; `GameActionDisplay.FormatRepSource` labels it and
+`PostWalkActionReconciler` treats it as unpaired, because the query family leaves
+no reason-keyed event to reconcile against). `ReputationModule.ProcessRepEarning`
+needed no change at all - it already takes `NominalRep`, runs the curve at the
+running rep and advances it. `GetActionKey` gained a Strategy-only key
+(RecordingId + NominalRep) so two conversions at one FROZEN KSC UT cannot collapse
+if these rows ever reach `DeduplicateAgainstLedger`; non-strategy reputation
+earnings keep the historical empty key.
+
+**Three things the original entry got wrong, recorded so they are not re-derived.**
+(1) The measured case is a **CREDIT**, not a drawdown. "GUARDED DRAWDOWN" is
+`KspStatePatcher`'s `ClampDirection.Up` wording for the reconstruction running
+BELOW live, which is what a missing credit produces - the label describes the
+clamp direction, not the sign of the leg. (2) `GameStateRecorder`'s
+`ReputationThreshold = 1.0f` was never in the capture door's path: it gates the
+`ReputationChanged` echo only, and this door reads the query event. The
+"blocked on one measurement" note therefore blocked nothing. (3) The
+pending-adjuster route (the shape `STRATEGY-PREFIX-HOLDBACK-PERMANENT` suggests)
+was assessed and does not fit: converter rows are written SYNCHRONOUSLY inside the
+query, so there is no observed-but-not-yet-ingested population for an adjuster to
+net against.
+
+**MEASURED LIVE, twice, at two different reputations - which is the point.**
+Open-Source Tech Program at stock default Factor 0.05, a 400-point science award
+(take=20 science):
+
+| run | fixture rep | door observed (pre-curve) | pool moved (post-curve) |
+|---|---|---|---|
+| `2026-08-18_2140_L3-strategy-currency-conversion` | 0 | 0.33540129661560059 | 0.33515101671218872 |
+| `2026-08-20_1858_L3-strategy-currency-conversion` | 25 | 0.33540129661560059 | 0.33506584167480469 |
+
+Same input, different output, because the curve is state-dependent. A post-curve
+capture would have pinned one of those two numbers; the nominal row re-derives
+whichever one applies. Both runs carried **zero `GUARDED` lines of any kind** in
+the whole KSP.log - on the second run that is a genuine gate rather than a
+restored fixture, see below.
+
+**The gate.** `ConverterStrategy_ReputationLeg_CapturesEarning` (StrategyLifecycle,
+SPACECENTER, renamed from `..._IsObservedAndDropped`) drives Open-Source Tech
+Program and now asserts the leg IS observed (nonzero `dR` parsed off the door's
+summary line), IS captured (exactly one reputation row, exactly one sourced
+`ReputationSource.Strategy`, its `NominalRep` equal to the raw `dR`), and that the
+same query's science INPUT leg still lands as one converter-sourced debit. The
+load-bearing change is what it no longer does: **it no longer restores the
+reputation before the door's deferred recalc.** The pool is left MOVED, so the
+no-clamp scan is a product gate on the credit path - a regression that stops
+writing the row, writes it post-curve, or double-applies the curve clamps there
+and reds the cell. The exact restore in the `finally` stays, because
+`ExchangerStrategy_OneShot_CapturesBothLegs` runs later in the same batch and needs
+reputation <= 0.
+
+**Headless controls:** `ReputationModuleTests.ApplyReputationCurve_StrategyConverterYield_ReproducesTheMeasuredPoolMove`
+(the absolute stock-agreement anchor: the measured rep-0 pair, float32 tolerance),
+`ProcessRepEarning_StrategySource_AppliesTheCurveLikeAnyNominalEarning` (the
+Strategy source must NOT take `ReputationPenaltySource.Strategy`'s no-recurve
+shortcut - that one captures a POST-curve magnitude off a `ReputationChanged`
+event and is a different mechanism), and in `StrategyConversionCaptureTests` the
+inverted row-shape cell plus `NegativeReputationLeg_IsRefusedAndWarned` and the
+dedup-key cell. `NonZeroInputReputation_IsNotCaptured` is untouched and is what
+keeps the row from double-counting against `TransformedRepReward` /
+`MilestoneRepAwarded` / the reason-keyed exchanger door.
+
+**Residual, filed separately:** the reputation DEBIT direction is still
+uncaptured - see STRATEGY-REP-DEBIT-CONVERTERS-UNCAPTURED below. Appreciation
+Campaign (funds -> reputation) is the larger-magnitude CREDIT sibling and now
+routes through this same arm, though it has not been driven.
+
+## STRATEGY-REP-DEBIT-CONVERTERS-UNCAPTURED: a reputation-INPUT converter's diversion has no capture channel at all, and drifts the reconstruction the other way [FILED 2026-08-20 off the `strategy-rep-leg` lane. UNMEASURED - filed because closing the credit arm made the asymmetry visible]
+
+The credit arm above is closed. The DEBIT arm is not, and it is not merely
+unwritten - it is unreachable, which is why it needs its own entry rather than a
+line in that one.
+
+`StrategyConversionCapture.EvaluateLegs` emits a reputation leg ONLY when
+`InputReputation == 0`. That scoping rule is load-bearing and correct: a nonzero
+input means an ordinary event-driven channel is already watching the transaction
+and reports it NET of the modifier, so capturing there would double-count. But
+every stock reputation-INPUT converter - `FundraisingCampaign` (reputation ->
+funds), `UnpaidResearchProgram` (reputation -> science) - works by diverting a
+fraction of a reputation transaction, so `GetInput(Currency.Reputation) != 0` by
+construction and the rule excludes it before the row-shape mapper is ever called.
+`BuildStrategyConversionAction`'s negative arm therefore refuses loudly (a WARN
+naming an unmodelled mechanism) rather than guessing a debit shape, and that is
+the right behaviour for a leg that should not have arrived.
+
+What has NO channel is the diversion itself. The exchanger family's rep leg is
+captured post-curve off `ReputationChanged`/`StrategyInput`
+(`ConvertStrategyExchangeReputation` -> `ProcessRepPenalty`'s no-recurve arm), but
+the query family emits no such reason-keyed event, and `GameStateRecorder`'s
+`ReputationThreshold = 1.0f` means the echo it does emit is suppressed for any
+sub-point diversion anyway. So a career running Fundraising Campaign drifts the
+OPPOSITE way from the one this lane just fixed: the reconstruction runs ABOVE
+live, which is the **GUARDED UPLIFT** direction.
+
+**Unmeasured, deliberately.** No committed spec has driven either strategy, and
+nothing here should be built on an inference. What closing it needs, in order:
+(1) a driven cell activating `FundraisingCampaign` on a reputation-seeded fixture -
+`strategy-career` (rep 25) now exists and both converters need positive reputation
+to have anything to divert; (2) the MEASURED pair (the query's `inR`/`dR` against
+the actual pool movement) to establish whether the ordinary channel really does
+report the transaction net, which is the assumption the scoping rule rests on;
+(3) only then a decision. Do NOT relax the scoping rule to "capture negative
+reputation legs too" - that is the double-count the rule exists to prevent, and
+the measurement above is what would say whether a narrower exception is safe.
 
 ## STRATEGY-PREFIX-HOLDBACK-PERMANENT: on a pre-fix save, an exchanger event with no matching row holds back the pending science adjustment forever [FILED 2026-08-19 off the strategy-multi-live session. NOT FIXED - small follow-up]
 
@@ -3578,7 +3789,7 @@ section-authoritative recordings in the log. Diagnostic only, no control flow â€
 misleading WARN on exactly the recordings the prune fix now protects was worth closing in
 the same pass. That triple appearing in a fourth place is the smell to watch for.
 
-## KERBAL-XP-UNTAGGED-RECOVERY-HAS-NO-LEDGER-ROW: a tracking-station or KSC recovery records the XP event but no ledger action [OPEN, filed 2026-08-11 with the P9a facet]
+## ~~KERBAL-XP-UNTAGGED-RECOVERY-HAS-NO-LEDGER-ROW: a tracking-station or KSC recovery records the XP event but no ledger action~~ [filed 2026-08-11 with the P9a facet. CAPTURE SIDE FIXED and LIVE-PROVEN 2026-08-20, branch `kerbal-xp-row` - see "The correlation that closed it"]
 
 `GameStateRecorder.OnVesselRecoveryProcessingForExperience` deliberately does NOT forward
 an untagged `ExperienceGained` event to the ledger. The Bail-Out Grant carve-out can
@@ -3610,6 +3821,229 @@ committed harness spec pins `LedgerGroundTruth`, whereas `Rewind` is pinned at
 cell there would move a pinned tally whose `passed=`/`skipped=` split cannot be
 re-derived without flying it. The `autotest-ingame-category-inventory.md` row and the
 566 -> 567 declaration total moved in the same commit.
+
+### The correlation that closed it (2026-08-20, branch `kerbal-xp-row`)
+
+**The scope was wider than the title.** "Tracking-station or KSC recovery" understated
+it: the ORDINARY FLIGHT recovery lands here too, and that is measured rather than
+argued. On run `2026-08-19_2220_L3-career-science-recover` the tree is finalized,
+auto-merged and COMMITTED at the FLIGHT -> SPACECENTER exit, and the stock reward burst
+then fires in SPACECENTER inside the next 250 ms - so by the time the XP seam runs there
+is no live recorder to tag it, and the handler logged `untaggedNoLedgerRow=1` on a
+perfectly ordinary crewed hop. Every driven career recovery was losing its XP row, not
+an exotic minority of them.
+
+**The fix is the correlation, exactly as the "Fix:" line above proposed, and the
+correlator matters more than the plumbing.**
+`LedgerOrchestrator.TryRecordRecoveryKerbalExperience` resolves an owner through
+`PickRecoveryRecordingId` - THE SAME function the recovery funds and science legs already
+use - and stamps it onto the rows before `Ledger.AddActions`. Any other correlator would
+have been quietly wrong: `ResurrectionRetirementEligibility` retires a recovery's
+`FundsEarning(Recovery)`, `ScienceEarning`, `KerbalAssignment` and `KerbalExperience` rows
+as ONE same-`RecordingId` bundle, so scoping the XP row differently would split a bundle
+that is retired as a unit. The same-id agreement is MEASURED on the green run: the
+produced `ledger.pgld` carries the `type = 31` row and the recovery `type = 2` row both
+at `recordingId = 5436a7e8840b4c5885afcbaedc9dc037`.
+
+**The original fail-safe is KEPT, not traded away.** A null pick REFUSES the write
+(`reason=no-recovery-recording`, logged, counted) rather than falling back to the
+null-scoped row this entry was filed about. Nothing writes an untombstoneable XP row; the
+difference is that a correlatable recovery now gets a tombstoneable one.
+
+**Gate ordering.** The forward runs behind `ShouldForwardDirectScienceSubject` - the
+recovery-SCIENCE gate, not the plain `ShouldForwardDirectLedgerEvent` one - so a live
+recorder (the commit-time `ConvertEvents` path will write the row) and an active
+uncommitted tree (a future commit can still claim it) both decline, and only a genuinely
+ownerless recovery is forwarded.
+
+**A landmine found on the way in.** `LedgerOrchestrator.GetActionKey` had no
+`KerbalExperience` case and fell through to the empty-string default. Every crew member's
+XP row shares the recovery's UT exactly - one `ArchiveFlightLog` pass, one
+`Planetarium.GetUniversalTime()` read - so Type + UT + "" matched them against each other
+and a two-kerbal recovery would have deduped down to one row. Keyed by `KerbalName` now,
+mirroring `KerbalHire`, and pinned by a two-crew cell.
+
+**Live proof.** Run `2026-08-20_1925_L3-career-science-recover_run2`, PASS on attempt 1,
+452 s, zero `[Parsek][ERROR]` lines. The negative control is already flown and archived
+rather than owed: run `2026-08-19_2220` on the same spec and the same craft logged
+`untaggedNoLedgerRow=1` with ZERO `type = 31` rows in its produced ledger. Both new lines
+are pinned as `logContracts.required` tokens in the spec:
+
+```
+Recovery kerbal XP recorded: vessel='Jumping Flea' ... rows=1 deduped=0 noAction=0 kerbals='Jebediah Kerman'
+Game state: ExperienceGained crew=1 emitted=1 noEntries=0 ledgerRows=1 untaggedNoLedgerRow=0
+```
+
+Headless cover: `LedgerRecoveryKerbalExperienceTests` (gate, write, correlation-agrees-
+with-the-funds-leg, two-crew dedup, null-pick refusal, no-entries refusal, idempotent
+re-fire, and the produced row's tombstone eligibility).
+
+**THE GROUND-TRUTH HALF LANDED IN THE SAME WAVE.** Both career fixtures were
+re-harvested off the green run (`C2CareerPostFix`, and `career-earned-pad` rebuilt from
+it by its builder), and `L4-ledger-groundtruth-strict`'s `KerbalXp` facet is ARMED on the
+result. The facet had been vacuous in the most literal way - `CompareKerbalCareerLogs`
+early-returns BEFORE its `FacetsCompared++` when the reconstruction credits no career
+entries, so it was not merely comparing zero against zero, it was not being counted at
+all. With the row present it compares and agrees. MEASURED TWICE, byte-identical, on the
+reading run `2026-08-20_1953` (PARSEK-FAIL on the two now-stale pins, which IS the
+reading) and the armed run `2026-08-20_1957` (PASS, `expectations mismatches=0`):
+
+```
+CompareKerbalCareerLogs: kerbals=1 divergent=0
+result: hardFailures=0 reportOnly=0 facetsCompared=11 strict=True
+BATCH_COMPLETE v1 total=2 passed=2 failed=0 skipped=0 category=LedgerGroundTruth scene=FLIGHT
+KerbalExperienceReassert: kerbals=1 entries=3 absent=0 missing=0
+```
+
+The `passed=2` is the second, independent witness: the P9a in-game cell
+(`KerbalExperienceReassertTest`) had SKIPPED for want of exactly this row since it was
+written, and L2's header had predicted a recorded crewed recovery would flip it. It did
+not - because the missing thing was this finding, not fixture thinness - and it does now.
+
+**One residual, filed rather than fixed here:** see
+KERBAL-XP-RECOVERY-PICK-IS-NAME-AND-UT-ONLY below.
+
+## KERBAL-XP-RECOVERY-PICK-IS-NAME-AND-UT-ONLY: the recovery correlator matches by vessel NAME plus a UT tier, and the XP row makes a wrong pick irreversible [OPEN, filed 2026-08-20 with the correlation fix above]
+
+`LedgerOrchestrator.PickRecoveryRecordingId` matches candidate recordings by vessel NAME
+(`RecoveredVesselIdentity.MatchesName`, raw or localized) and then ranks them by a UT
+tier - bracketing, else most-recent-ended, else global-latest. It never consults
+`Vessel.id` / `Recording.RecordedVesselGuid` or `persistentId`. Two launches of the same
+craft name therefore differ only by their UT ordering, and the tier the driven career
+recovery actually lands on is `most-recent-ended` - the weakest of the three.
+
+**This is PRE-EXISTING** - the recovery funds and science legs have always resolved this
+way - and it is NOT introduced by the XP correlation. What the XP row changes is the
+CONSEQUENCE of a wrong pick. Funds and science rows are re-derived idempotently from the
+effective ledger on every recalc, so a mis-scoped one is wrong but revisable. A
+`KerbalExperience` row feeds `KerbalsModule.ReassertCareerLogEntries`, whose facade
+exposes `AppendCareerLogEntries` with NO remove counterpart: once a mis-scoped row's
+entries are appended to a roster, nothing walks them back except a tombstone on the row
+that put them there - and a row scoped to the WRONG recording is tombstoned by the wrong
+merge.
+
+**Fix:** tighten the pick to guid-positive identity where a guid is available -
+`VesselLaunchIdentity.RecordingsShareLaunch` semantics, or the stricter
+`ResurrectionRetirementEligibility.IsPositivelySameLaunch` shape (pid equal AND both guids
+known AND equal) - falling back to the current name+tier walk only when no guid is
+recorded. Not attempted alongside the correlation fix on purpose: changing the correlator
+changes the funds and science legs too, so it is its own change with its own live proof,
+and doing it inside a fix whose whole argument is "use the SAME correlator the funds leg
+uses" would have made both claims unfalsifiable at once.
+
+**Not currently observable in a driven run:** every committed career fixture flies one
+launch of one craft name, so the tiers are never in competition. A repro needs two
+launches of the same craft name with a recovery of the second - which is also the shape
+the eventual fix should be live-proven on.
+
+## ~~KERBAL-XP-FIXTURE-REHARVEST-BLOCKED-ON-FILE-DELETION: the career fixtures still predate the XP row, so L4's KerbalXp facet cannot be armed~~ [filed and CLOSED 2026-08-20, branch `kerbal-xp-row`, once the fixture replacement was approved]
+
+The capture-side fix above is landed and live-proven, but the GROUND-TRUTH half of the
+same wave is not: `L4-ledger-groundtruth-strict`'s `KerbalXp` facet still SKIPS, because
+`LedgerGroundTruthDiff.CompareKerbalCareerLogs` early-returns when the reconstruction
+credits no career entries, and the committed career fixtures were harvested from a run
+that predates the fix and carry zero `GameActionType.KerbalExperience` rows.
+
+**This leaves nothing red.** L4's pinned `facetsCompared=10` and `skipped=1` are correct
+for the subject it currently flies, and its own spec comment already records the decline
+of the D8 `kerbals` claim and why. The gate is honest; it is just thinner than it could
+be.
+
+**What unblocks it is a FILE DELETION, which is why it is filed instead of done.** The
+subject has to be re-harvested from the green run
+`2026-08-20_1925_L3-career-science-recover_run2`, whose produced save carries the
+`type = 31` row. The harvest is NOT name-stable - the run mints fresh recording ids and a
+fresh tail-baseline filename - so an additive copy would leave a fixture whose save names
+two recordings while its sidecar tree holds four, and
+`harness/tools/build_career_earned_pad.py` copies that tree VERBATIM, so
+`career-earned-pad` would inherit the orphans and is likely to go analyzer-RED under the
+harness Forbid fresh-save gate. Filtering the copy to hide the orphans was considered and
+REJECTED: a fixture that hides orphans is a lying fixture.
+
+These committed files under `Source/Parsek.Tests/Fixtures/C2CareerPostFix/` are superseded
+by the re-harvest and must be removed rather than overwritten:
+
+```
+Parsek/GameState/baseline_347.11999999997425.pgsb
+Parsek/Recordings/6c1596087fb14a5b8874d2a4948e3172.pann
+Parsek/Recordings/6c1596087fb14a5b8874d2a4948e3172.prec
+Parsek/Recordings/6c1596087fb14a5b8874d2a4948e3172.prec.txt
+Parsek/Recordings/6c1596087fb14a5b8874d2a4948e3172_ghost.craft
+Parsek/Recordings/6c1596087fb14a5b8874d2a4948e3172_vessel.craft
+Parsek/Recordings/df54db60838c437a8ce953746ebffbab.pann
+Parsek/Recordings/df54db60838c437a8ce953746ebffbab.prec
+Parsek/Recordings/df54db60838c437a8ce953746ebffbab.prec.txt
+Parsek/Recordings/df54db60838c437a8ce953746ebffbab_ghost.craft
+Parsek/Recordings/df54db60838c437a8ce953746ebffbab_vessel.craft
+Parsek/Saves/parsek_rw_4b74d4.sfs
+```
+
+(One stale tail baseline, the two stale recordings' sidecar sets, and the previous
+harvest's rewind-save exhaust. Everything else in the fixture is overwritten in place by
+the new harvest, and `harness/fixtures/saves/career-earned-pad/` needs NO deletion at all
+- its builder rewrites it whole.)
+
+**THE REST OF THE WAVE IS SPECIFIED AND READY**, so the follow-up is execution rather
+than design:
+
+1. Re-harvest the produced save into `Source/Parsek.Tests/Fixtures/C2CareerPostFix/`, then
+   re-run `python harness/tools/build_career_earned_pad.py` and its `--check`.
+   `C2CareerPostFixReplayTests` pins must be RE-DERIVED from measurement (the
+   closes-to-zero claim should still hold; if a pool moved, measure, pin, explain), and
+   `harness/lib/test_career_earned_pad.py`'s byte-identity cells red until the builder is
+   re-run - that is the designed flow, not a failure.
+2. Fly `L4-ledger-groundtruth-strict` as a READING pass and read the `KerbalXp` facet. The
+   single-kerbal subject is expected to compare clean (the untagged `events.pgse`
+   `ExperienceGained` entry set matches Jebediah's `CAREER_LOG` exactly), but arming is
+   conditional on the READING, not on the expectation.
+3. If clean, ARM in the same commit: add the required token
+   `CompareKerbalCareerLogs: kerbals=1 divergent=0`, re-pin `facetsCompared=11`, re-pin
+   the batch tally to `passed=2 skipped=0` (`KerbalExperienceReassertTest` stops skipping
+   once the effective ledger carries an XP row - verify with `hlib.derive_batch_tally` AND
+   the flight), and claim D8 `kerbals` on L4, rewriting that spec's decline comment (the
+   `skipped=1` rationale block) to the closed state.
+4. FIX THE DOC DRIFT in the same edit: that spec's `facetsCompared=10` note claims the
+   count "adds the recovery, milestone and kerbal-career-log facets", but the measured log
+   shows the kerbal-career-log facet SKIPPING. The enumeration is wrong today and would be
+   right only after arming - correct it either way rather than letting the arming quietly
+   launder it.
+5. Re-fly L4 armed and confirm PASS.
+
+**A smaller residual to note when that tally is touched:** a tombstoned `KerbalExperience`
+row currently reports under `Other=` rather than `Kerbal=` in `SupersedeCommit`'s
+tombstone tally. Cosmetic, left as-is.
+
+### CLOSED THE SAME DAY - what actually happened, and the two things worth keeping
+
+The fixture replacement was approved and all five steps above were executed. Two notes
+that were NOT anticipated by the plan and cost a cycle each:
+
+**1. THE CONTRACT RECIPE HAD TO BE RE-DERIVED, because KSP mints fresh contract guids per
+career run.** `build_career_earned_pad.py`'s Active-contract splice pins a specific
+contract by guid, and every literal in that block died with the re-harvest. The builder
+caught it loudly and by name ("the harvest's contract set moved and this recipe must be
+re-derived against the new one") rather than splicing something wrong, which is that
+guard paying for itself. The re-derivation kept the SELECTION RULE and re-read the
+values: the new pick is `07c8e34d...`, `PartTest` on `Decoupler.1` at `sit = ESCAPING` -
+a part the pad craft does not carry, in a situation a craft parked on the pad cannot
+reach, which is a STRICTLY STRONGER second guard than the previous pick's `sit = LANDED`.
+Its title is composed from the shipped dictionary (`#autoLOC_6100005` + `#autoLOC_501784`
++ the TEST-direction escape phrase `#autoLOC_6100020`) rather than invented. ANY future
+re-harvest of this career must expect to redo this.
+
+**2. THE `.craft.txt` MIRRORS ARE FORBIDDEN IN THE BASE, and a verbatim copy of a
+produced save carries them.** The harness gates the two mirror families in OPPOSITE
+directions - `.prec.txt` REQUIRED beside every `.prec`, `_vessel.craft.txt` /
+`_ghost.craft.txt` FORBIDDEN - so the harvest is a copy MINUS exactly those two suffixes.
+`build_career_earned_pad.py` refuses to build when the base carries them, naming them,
+which is how this was caught rather than shipped.
+
+Everything else went as specified: `C2CareerPostFixReplayTests` moved by exactly ONE pin
+(14 -> 15 actions) with all three closure deltas byte-identical, because a
+`KerbalExperience` row carries no currency and cannot move a pool; and
+`test_saveparse.py`'s `career-earned-pad` payload pin needed its two recording ids
+re-stamped, while its 1/1/2 topology did not move - which is the check that the
+re-harvest produced the same SHAPE of subject rather than a different one.
 
 ## ~~REFLY-RESURRECTS-RECOVERED-CRAFT-KEEPS-REWARDS: a Re-Fly puts a recovered vessel back in the world while its recovery funds, science and crew rows stay banked~~ [#15, user-decided 2026-08-11. FIXED 2026-08-11, branch `ledger-facets`]
 
@@ -10792,7 +11226,7 @@ Fixing the driver alone would have left the spec asserting things S4.1 cannot do
 - `expectedFail.bugId` / `subkind` DELETED. The signature they named no longer exists in the code, so they could never match - and a key that cannot match silently demotes any UNRELATED expectation-subkind failure under a resolved bug id.
 - `AppendRelations outcome=refused-unflown-provisional` ADDED to `logContracts.required` - the positive assertion of what this scenario uniquely covers.
 - `[expectations.rewind] supersedeRows` flipped `min = 1` -> `max = 0`. As written it would have RED S4.1 for CORRECT behaviour the day the M-C2 verifier landed. VINDICATED 2026-07-31: the block is now ARMED (`gating = true`), the reading run measured exactly 0, and the negative control that put `min = 1` back reddened the run `PARSEK-FAIL(save-structure)` - i.e. the un-flipped spec would have failed live, precisely as predicted.
-- `supersede-relation` D9 claim MOVED to R1 (proven there by `Added 1 supersede relations...`); `head-tip-split` moved to NOBODY and is now honestly uncovered, since no archived run proves any scenario reaches the splitting branch.
+- `supersede-relation` D9 claim MOVED to R1 (proven there by `Added 1 supersede relations...`); `head-tip-split` moved to NOBODY at the time, since no archived run then proved any scenario reaching the splitting branch. CLOSED 2026-08-20: R7c-rewind-spacecenter claims `head-tip-split` off the in-game cell `ReFlyFromSpannedRecording_PreservesLaunchRowAndTombstonesPostRewindCrew`, which forges a SPANNING origin in-body and drives `MergeJournalOrchestrator.RunMerge`; the splitter's Step 2.13 summary (`Split origin ... HEAD=[..] (kept, id unchanged), TIP=... (will be superseded)`) is now a required token there and the two fallback-skip lines are forbidden. S4.1 still cannot reach the branch and correctly still does not claim it.
 
 ### Observability: better than expected, but with a real gap
 

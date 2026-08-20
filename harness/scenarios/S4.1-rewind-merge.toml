@@ -121,12 +121,19 @@ steps = [
 # They did NOT both move to R1. `supersede-relation` did, on evidence: R1 flies the
 # re-flight and its run `2026-07-28_1509` logged `Added 1 supersede relations for subtree
 # rooted at b9-booster-a`, and R1 pins that line as a required logContract.
-# `head-tip-split` moved to NOBODY and is now honestly UNCOVERED. No archived run proves
-# any scenario reaches `RecordingTreeSplitter.SplitOriginAtRewindUT`'s splitting branch,
-# and the shape argues against it here: that branch fires only when the closure-root
-# recording SPANS the rewind UT, whereas the B9 booster's recording BEGINS at the
-# separation the RewindPoint marks. Re-claim it only when a run demonstrates the split;
-# moving an unproven claim from one scenario to another would just relocate the lie.
+# `head-tip-split` did NOT move to R1 either. It sat at NOBODY until 2026-08-20, when
+# R7c-rewind-spacecenter claimed it on evidence: its SPACECENTER Rewind batch runs the
+# in-game cell `ReFlyFromSpannedRecording_PreservesLaunchRowAndTombstonesPostRewindCrew`,
+# which forges a SPANNING origin in-body and drives MergeJournalOrchestrator.RunMerge, and
+# the archived R7c logs carry the splitter's own Step 2.13 summary
+# (`Split origin ... HEAD=[..] (kept, id unchanged), TIP=... (will be superseded)`), now
+# pinned as a required token there with the two fallback-skip lines forbidden.
+# THE SHAPE ARGUMENT AGAINST CLAIMING IT *HERE* IS UNCHANGED and still binding: that
+# branch fires only when the closure-root recording SPANS the rewind UT, whereas the B9
+# booster's recording BEGINS at the separation the RewindPoint marks, so S4.1 cannot
+# reach it no matter how green it flies. R7c's claim is a forged-fixture in-game claim,
+# not a seam-driven re-fly one - which is why it does not license re-adding the value
+# to this list.
 D9 = ["rewind-to-separation", "refly-gate", "reconciliation-bundle", "read-back-guard",
       "terminal-kind-classify", "merge-journal"]
 D8 = ["recalc-engine"]
