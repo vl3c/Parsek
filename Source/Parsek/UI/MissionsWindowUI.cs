@@ -532,8 +532,9 @@ namespace Parsek
             if (missionsLayoutFrame != Time.frameCount)
                 return;
 
-            // The rect of the header row's outermost horizontal, which DrawMissionHeader has
-            // just closed.
+            // The rect of the header bubble's outermost VERTICAL group (title row + summary
+            // line, T1.1), which DrawMissionHeader has just closed. Its y is still the block
+            // top, so the scroll math is unchanged by the second line.
             Rect headerRect = GUILayoutUtility.GetLastRect();
 
             // A real header row is never zero-height; an unsolved layout entry always is. Cheap
