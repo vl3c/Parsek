@@ -199,27 +199,50 @@ _REWIND_HINT_RE = re.compile(r"^\s*rewindSave = parsek_rw_\w+\s*$")
 # below. The one thing NOT copied from it is a completion, deliberately - see
 # TRAP 3 on `build_ledger`.
 #
+# RE-DERIVED 2026-08-20 (branch `kerbal-xp-row`) AGAINST THE SECOND HARVEST, and
+# the re-derivation was FORCED rather than optional: KSP mints fresh contract
+# guids per career run, so every literal in this block moved when
+# `C2CareerPostFix` was re-harvested from run
+# `2026-08-20_1925_L3-career-science-recover_run2`. The builder caught it loudly
+# ("base carries no CONTRACT with guid ... - the harvest's contract set moved and
+# this recipe must be re-derived against the new one"), which is that guard
+# earning its keep. The SELECTION RULE below is what carried over; the values are
+# read off the new save.
+#
 # WHICH CONTRACT, and why this one of the base's seven Offered rows:
 #   - `PartTest` is inert - it can only advance when its part is activated
 #     through the staging sequence.
-#   - `liquidEngine2.v2` (LV-T45) IS NOT ON THE PAD CRAFT. The craft carries
+#   - `Decoupler.1` (TD-12) IS NOT ON THE PAD CRAFT. The craft carries
 #     mk1pod.v2 / parachuteSingle / 2x GooExperiment / solidBooster.sm.v2 /
 #     3x basicFin / SurfAntenna / 2x batteryPack, so this contract's test can
-#     NEVER be performed by the vessel the batch focuses. That rules out the
-#     obvious alternative `633b7578...`, whose subject is `solidBooster.sm.v2`
-#     at `sit = PRELAUNCH` - i.e. the part the parked craft carries, in the
-#     situation it is parked in.
-#   - Its `sit = LANDED` is not the craft's `PRELAUNCH` either, so even the
-#     situation parameter cannot complete.
+#     NEVER be performed by the vessel the batch focuses. That rules out the new
+#     set's `375b4446...`, whose subject is `solidBooster.sm.v2` - i.e. the part
+#     the parked craft carries.
+#   - Its `sit = ESCAPING` is unreachable from a craft parked PRELAUNCH on the
+#     pad, so even the situation parameter cannot complete. This is a STRONGER
+#     second guard than the previous harvest's `sit = LANDED` and stronger than
+#     the remaining alternative `8a2b7d40...` (`solidBooster.v2` at
+#     `sit = FLYING`), whose situation a launched craft could in principle reach
+#     even though its part is absent.
 # A contract that completes or fails mid-batch would leave the cell's quicksave
 # reading `saveActive=0` and red the run on a fixture artifact.
-ACTIVE_CONTRACT_GUID = "19e7ba6c-2ef6-43cf-80d6-8a985ebfde18"
+#
+# THE TITLE IS DERIVED, NOT INVENTED. KSP generates PartTest titles at runtime
+# and the save carries none, so the accept row's `contractTitle` is authored
+# here - but it is composed from the shipped dictionary rather than guessed:
+# `#autoLOC_6100005 = Test <<1>> <<2>>.` with <<1>> the part title
+# (`#autoLOC_501784 = TD-12 Decoupler`) and <<2>> the TEST-direction escape
+# phrase (`#autoLOC_6100020 = on an escape trajectory out of <<1>>`; the
+# `into ...` sibling 6100019 is the HAUL direction). Cosmetic either way -
+# `LedgerGroundTruthDiff.CompareContracts` matches on GUID alone - but a
+# fixture that states a title should state the right one.
+ACTIVE_CONTRACT_GUID = "07c8e34d-0464-4416-a973-1e2b472bc347"
 ACTIVE_CONTRACT_TYPE = "PartTest"
-ACTIVE_CONTRACT_PART = "liquidEngine2.v2"
-ACTIVE_CONTRACT_TITLE = 'Test LV-T45 "Swivel" Liquid Fuel Engine landed at Kerbin.'
+ACTIVE_CONTRACT_PART = "Decoupler.1"
+ACTIVE_CONTRACT_TITLE = 'Test TD-12 Decoupler on an escape trajectory out of Kerbin.'
 
 # The accept UT. 360 sits in the KSC gap between the career's last ledger action
-# (the recovery credit at 347.28) and its FLIGHTSTATE clock (408.72, which is
+# (the recovery credit at 348.08) and its FLIGHTSTATE clock (409.56, which is
 # also where the splice puts the craft's rollout), so the story the fixture tells
 # is the ordinary one: land, recover, accept a contract at Mission Control, roll
 # out. It is NOT a free choice in one direction - see TRAP 2.
@@ -234,31 +257,35 @@ CONTRACT_ACCEPT_SEQ = "2"
 #   [3] completion funds  [4] failure funds      [5] science completion
 #   [6] rep completion    [7] rep failure        [8] dateExpire
 #   [9] dateAccepted      [10] dateDeadline      [11] dateFinished
-# SIX SLOTS ARE RE-STAMPED, and each one is either a trap or a coherence edit:
-#   [2] 1666.66663885117 -> 0     TRAP 1
+# THREE SLOTS ARE RE-STAMPED on this harvest's contract, where the previous one
+# needed six - the difference is not a change of recipe but of luck: this
+# contract's [1] / [4] / [7] are ALREADY float-exact integers (9201600 / 27225.000590086
+# rounds to 27225 / 12), so only one of the three coherence edits has any work to
+# do. The traps are identical.
+#   [2] 24750 -> 0                TRAP 1
 #   [9] 0 -> 360                  the contract was accepted, so it has a date
-#   [10] 0 -> 8681114             = [9] + [1], TRAP 2's save-side half
-#   [1] 8680754.02364731 -> 8680754, [4] 1889.99991416931 -> 1890,
-#   [7] 0.9803922 -> 1            the three numbers the ledger row MIRRORS, moved
-#                                 onto float-exact values so both sides carry the
-#                                 same literal text rather than two roundings of
-#                                 one number.
-# The other six are the harvest's own and are inert here.
-BASE_CONTRACT_VALUES = ("20377.3568630219,8680754.02364731,1666.66663885117,"
-                        "4374.99972830216,1889.99991416931,1,1.068908,0.9803922,"
-                        "20392.4968630219,0,0,0")
-ACTIVE_CONTRACT_VALUES = ("20377.3568630219,8680754,0,"
-                          "4374.99972830216,1890,1,1.068908,1,"
-                          "20392.4968630219,360,8681114,0")
+#   [10] 0 -> 9201960             = [9] + [1], TRAP 2's save-side half
+#   [4] 27225.000590086 -> 27225  the one number here the ledger row MIRRORS that
+#                                 is not already exact, moved onto a float-exact
+#                                 value so both sides carry the same literal text
+#                                 rather than two roundings of one number.
+#                                 ([1] = 9201600 and [7] = 12 need no such move.)
+# The other slots are the harvest's own and are inert here.
+BASE_CONTRACT_VALUES = ("21600,9201600,24750,"
+                        "68062.501475215,27225.000590086,9,14.54545,12,"
+                        "21615.14,0,0,0")
+ACTIVE_CONTRACT_VALUES = ("21600,9201600,0,"
+                          "68062.501475215,27225,9,14.54545,12,"
+                          "21615.14,360,9201960,0")
 
 # The ledger row's mirrors of [1] / [4] / [7]. `deadlineUT` is a DURATION and not
 # an absolute date, which looks wrong and is not: the c2 accept row's
 # `deadlineUT = 8228571.5` is float(values[1]) of the contract it accepted, not
 # that contract's `dateDeadline`. Mirroring the recorder rather than correcting it
 # is the whole point of a fixture-carried row.
-CONTRACT_DEADLINE_UT = "8680754"
-CONTRACT_FUNDS_PENALTY = "1890"
-CONTRACT_REP_PENALTY = "1"
+CONTRACT_DEADLINE_UT = "9201600"
+CONTRACT_FUNDS_PENALTY = "27225"
+CONTRACT_REP_PENALTY = "12"
 
 # The base's last KSC-scoped action (`FirstCrewToSurvive`) carries `seq = 1`, so
 # the next KSC action is 2. Asserted rather than assumed - see `verify_ledger`.

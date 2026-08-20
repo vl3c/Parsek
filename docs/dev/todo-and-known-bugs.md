@@ -3755,7 +3755,7 @@ section-authoritative recordings in the log. Diagnostic only, no control flow â€
 misleading WARN on exactly the recordings the prune fix now protects was worth closing in
 the same pass. That triple appearing in a fourth place is the smell to watch for.
 
-## KERBAL-XP-UNTAGGED-RECOVERY-HAS-NO-LEDGER-ROW: a tracking-station or KSC recovery records the XP event but no ledger action [OPEN, filed 2026-08-11 with the P9a facet]
+## ~~KERBAL-XP-UNTAGGED-RECOVERY-HAS-NO-LEDGER-ROW: a tracking-station or KSC recovery records the XP event but no ledger action~~ [filed 2026-08-11 with the P9a facet. CAPTURE SIDE FIXED and LIVE-PROVEN 2026-08-20, branch `kerbal-xp-row` - see "The correlation that closed it"]
 
 `GameStateRecorder.OnVesselRecoveryProcessingForExperience` deliberately does NOT forward
 an untagged `ExperienceGained` event to the ledger. The Bail-Out Grant carve-out can
@@ -3787,6 +3787,229 @@ committed harness spec pins `LedgerGroundTruth`, whereas `Rewind` is pinned at
 cell there would move a pinned tally whose `passed=`/`skipped=` split cannot be
 re-derived without flying it. The `autotest-ingame-category-inventory.md` row and the
 566 -> 567 declaration total moved in the same commit.
+
+### The correlation that closed it (2026-08-20, branch `kerbal-xp-row`)
+
+**The scope was wider than the title.** "Tracking-station or KSC recovery" understated
+it: the ORDINARY FLIGHT recovery lands here too, and that is measured rather than
+argued. On run `2026-08-19_2220_L3-career-science-recover` the tree is finalized,
+auto-merged and COMMITTED at the FLIGHT -> SPACECENTER exit, and the stock reward burst
+then fires in SPACECENTER inside the next 250 ms - so by the time the XP seam runs there
+is no live recorder to tag it, and the handler logged `untaggedNoLedgerRow=1` on a
+perfectly ordinary crewed hop. Every driven career recovery was losing its XP row, not
+an exotic minority of them.
+
+**The fix is the correlation, exactly as the "Fix:" line above proposed, and the
+correlator matters more than the plumbing.**
+`LedgerOrchestrator.TryRecordRecoveryKerbalExperience` resolves an owner through
+`PickRecoveryRecordingId` - THE SAME function the recovery funds and science legs already
+use - and stamps it onto the rows before `Ledger.AddActions`. Any other correlator would
+have been quietly wrong: `ResurrectionRetirementEligibility` retires a recovery's
+`FundsEarning(Recovery)`, `ScienceEarning`, `KerbalAssignment` and `KerbalExperience` rows
+as ONE same-`RecordingId` bundle, so scoping the XP row differently would split a bundle
+that is retired as a unit. The same-id agreement is MEASURED on the green run: the
+produced `ledger.pgld` carries the `type = 31` row and the recovery `type = 2` row both
+at `recordingId = 5436a7e8840b4c5885afcbaedc9dc037`.
+
+**The original fail-safe is KEPT, not traded away.** A null pick REFUSES the write
+(`reason=no-recovery-recording`, logged, counted) rather than falling back to the
+null-scoped row this entry was filed about. Nothing writes an untombstoneable XP row; the
+difference is that a correlatable recovery now gets a tombstoneable one.
+
+**Gate ordering.** The forward runs behind `ShouldForwardDirectScienceSubject` - the
+recovery-SCIENCE gate, not the plain `ShouldForwardDirectLedgerEvent` one - so a live
+recorder (the commit-time `ConvertEvents` path will write the row) and an active
+uncommitted tree (a future commit can still claim it) both decline, and only a genuinely
+ownerless recovery is forwarded.
+
+**A landmine found on the way in.** `LedgerOrchestrator.GetActionKey` had no
+`KerbalExperience` case and fell through to the empty-string default. Every crew member's
+XP row shares the recovery's UT exactly - one `ArchiveFlightLog` pass, one
+`Planetarium.GetUniversalTime()` read - so Type + UT + "" matched them against each other
+and a two-kerbal recovery would have deduped down to one row. Keyed by `KerbalName` now,
+mirroring `KerbalHire`, and pinned by a two-crew cell.
+
+**Live proof.** Run `2026-08-20_1925_L3-career-science-recover_run2`, PASS on attempt 1,
+452 s, zero `[Parsek][ERROR]` lines. The negative control is already flown and archived
+rather than owed: run `2026-08-19_2220` on the same spec and the same craft logged
+`untaggedNoLedgerRow=1` with ZERO `type = 31` rows in its produced ledger. Both new lines
+are pinned as `logContracts.required` tokens in the spec:
+
+```
+Recovery kerbal XP recorded: vessel='Jumping Flea' ... rows=1 deduped=0 noAction=0 kerbals='Jebediah Kerman'
+Game state: ExperienceGained crew=1 emitted=1 noEntries=0 ledgerRows=1 untaggedNoLedgerRow=0
+```
+
+Headless cover: `LedgerRecoveryKerbalExperienceTests` (gate, write, correlation-agrees-
+with-the-funds-leg, two-crew dedup, null-pick refusal, no-entries refusal, idempotent
+re-fire, and the produced row's tombstone eligibility).
+
+**THE GROUND-TRUTH HALF LANDED IN THE SAME WAVE.** Both career fixtures were
+re-harvested off the green run (`C2CareerPostFix`, and `career-earned-pad` rebuilt from
+it by its builder), and `L4-ledger-groundtruth-strict`'s `KerbalXp` facet is ARMED on the
+result. The facet had been vacuous in the most literal way - `CompareKerbalCareerLogs`
+early-returns BEFORE its `FacetsCompared++` when the reconstruction credits no career
+entries, so it was not merely comparing zero against zero, it was not being counted at
+all. With the row present it compares and agrees. MEASURED TWICE, byte-identical, on the
+reading run `2026-08-20_1953` (PARSEK-FAIL on the two now-stale pins, which IS the
+reading) and the armed run `2026-08-20_1957` (PASS, `expectations mismatches=0`):
+
+```
+CompareKerbalCareerLogs: kerbals=1 divergent=0
+result: hardFailures=0 reportOnly=0 facetsCompared=11 strict=True
+BATCH_COMPLETE v1 total=2 passed=2 failed=0 skipped=0 category=LedgerGroundTruth scene=FLIGHT
+KerbalExperienceReassert: kerbals=1 entries=3 absent=0 missing=0
+```
+
+The `passed=2` is the second, independent witness: the P9a in-game cell
+(`KerbalExperienceReassertTest`) had SKIPPED for want of exactly this row since it was
+written, and L2's header had predicted a recorded crewed recovery would flip it. It did
+not - because the missing thing was this finding, not fixture thinness - and it does now.
+
+**One residual, filed rather than fixed here:** see
+KERBAL-XP-RECOVERY-PICK-IS-NAME-AND-UT-ONLY below.
+
+## KERBAL-XP-RECOVERY-PICK-IS-NAME-AND-UT-ONLY: the recovery correlator matches by vessel NAME plus a UT tier, and the XP row makes a wrong pick irreversible [OPEN, filed 2026-08-20 with the correlation fix above]
+
+`LedgerOrchestrator.PickRecoveryRecordingId` matches candidate recordings by vessel NAME
+(`RecoveredVesselIdentity.MatchesName`, raw or localized) and then ranks them by a UT
+tier - bracketing, else most-recent-ended, else global-latest. It never consults
+`Vessel.id` / `Recording.RecordedVesselGuid` or `persistentId`. Two launches of the same
+craft name therefore differ only by their UT ordering, and the tier the driven career
+recovery actually lands on is `most-recent-ended` - the weakest of the three.
+
+**This is PRE-EXISTING** - the recovery funds and science legs have always resolved this
+way - and it is NOT introduced by the XP correlation. What the XP row changes is the
+CONSEQUENCE of a wrong pick. Funds and science rows are re-derived idempotently from the
+effective ledger on every recalc, so a mis-scoped one is wrong but revisable. A
+`KerbalExperience` row feeds `KerbalsModule.ReassertCareerLogEntries`, whose facade
+exposes `AppendCareerLogEntries` with NO remove counterpart: once a mis-scoped row's
+entries are appended to a roster, nothing walks them back except a tombstone on the row
+that put them there - and a row scoped to the WRONG recording is tombstoned by the wrong
+merge.
+
+**Fix:** tighten the pick to guid-positive identity where a guid is available -
+`VesselLaunchIdentity.RecordingsShareLaunch` semantics, or the stricter
+`ResurrectionRetirementEligibility.IsPositivelySameLaunch` shape (pid equal AND both guids
+known AND equal) - falling back to the current name+tier walk only when no guid is
+recorded. Not attempted alongside the correlation fix on purpose: changing the correlator
+changes the funds and science legs too, so it is its own change with its own live proof,
+and doing it inside a fix whose whole argument is "use the SAME correlator the funds leg
+uses" would have made both claims unfalsifiable at once.
+
+**Not currently observable in a driven run:** every committed career fixture flies one
+launch of one craft name, so the tiers are never in competition. A repro needs two
+launches of the same craft name with a recovery of the second - which is also the shape
+the eventual fix should be live-proven on.
+
+## ~~KERBAL-XP-FIXTURE-REHARVEST-BLOCKED-ON-FILE-DELETION: the career fixtures still predate the XP row, so L4's KerbalXp facet cannot be armed~~ [filed and CLOSED 2026-08-20, branch `kerbal-xp-row`, once the fixture replacement was approved]
+
+The capture-side fix above is landed and live-proven, but the GROUND-TRUTH half of the
+same wave is not: `L4-ledger-groundtruth-strict`'s `KerbalXp` facet still SKIPS, because
+`LedgerGroundTruthDiff.CompareKerbalCareerLogs` early-returns when the reconstruction
+credits no career entries, and the committed career fixtures were harvested from a run
+that predates the fix and carry zero `GameActionType.KerbalExperience` rows.
+
+**This leaves nothing red.** L4's pinned `facetsCompared=10` and `skipped=1` are correct
+for the subject it currently flies, and its own spec comment already records the decline
+of the D8 `kerbals` claim and why. The gate is honest; it is just thinner than it could
+be.
+
+**What unblocks it is a FILE DELETION, which is why it is filed instead of done.** The
+subject has to be re-harvested from the green run
+`2026-08-20_1925_L3-career-science-recover_run2`, whose produced save carries the
+`type = 31` row. The harvest is NOT name-stable - the run mints fresh recording ids and a
+fresh tail-baseline filename - so an additive copy would leave a fixture whose save names
+two recordings while its sidecar tree holds four, and
+`harness/tools/build_career_earned_pad.py` copies that tree VERBATIM, so
+`career-earned-pad` would inherit the orphans and is likely to go analyzer-RED under the
+harness Forbid fresh-save gate. Filtering the copy to hide the orphans was considered and
+REJECTED: a fixture that hides orphans is a lying fixture.
+
+These committed files under `Source/Parsek.Tests/Fixtures/C2CareerPostFix/` are superseded
+by the re-harvest and must be removed rather than overwritten:
+
+```
+Parsek/GameState/baseline_347.11999999997425.pgsb
+Parsek/Recordings/6c1596087fb14a5b8874d2a4948e3172.pann
+Parsek/Recordings/6c1596087fb14a5b8874d2a4948e3172.prec
+Parsek/Recordings/6c1596087fb14a5b8874d2a4948e3172.prec.txt
+Parsek/Recordings/6c1596087fb14a5b8874d2a4948e3172_ghost.craft
+Parsek/Recordings/6c1596087fb14a5b8874d2a4948e3172_vessel.craft
+Parsek/Recordings/df54db60838c437a8ce953746ebffbab.pann
+Parsek/Recordings/df54db60838c437a8ce953746ebffbab.prec
+Parsek/Recordings/df54db60838c437a8ce953746ebffbab.prec.txt
+Parsek/Recordings/df54db60838c437a8ce953746ebffbab_ghost.craft
+Parsek/Recordings/df54db60838c437a8ce953746ebffbab_vessel.craft
+Parsek/Saves/parsek_rw_4b74d4.sfs
+```
+
+(One stale tail baseline, the two stale recordings' sidecar sets, and the previous
+harvest's rewind-save exhaust. Everything else in the fixture is overwritten in place by
+the new harvest, and `harness/fixtures/saves/career-earned-pad/` needs NO deletion at all
+- its builder rewrites it whole.)
+
+**THE REST OF THE WAVE IS SPECIFIED AND READY**, so the follow-up is execution rather
+than design:
+
+1. Re-harvest the produced save into `Source/Parsek.Tests/Fixtures/C2CareerPostFix/`, then
+   re-run `python harness/tools/build_career_earned_pad.py` and its `--check`.
+   `C2CareerPostFixReplayTests` pins must be RE-DERIVED from measurement (the
+   closes-to-zero claim should still hold; if a pool moved, measure, pin, explain), and
+   `harness/lib/test_career_earned_pad.py`'s byte-identity cells red until the builder is
+   re-run - that is the designed flow, not a failure.
+2. Fly `L4-ledger-groundtruth-strict` as a READING pass and read the `KerbalXp` facet. The
+   single-kerbal subject is expected to compare clean (the untagged `events.pgse`
+   `ExperienceGained` entry set matches Jebediah's `CAREER_LOG` exactly), but arming is
+   conditional on the READING, not on the expectation.
+3. If clean, ARM in the same commit: add the required token
+   `CompareKerbalCareerLogs: kerbals=1 divergent=0`, re-pin `facetsCompared=11`, re-pin
+   the batch tally to `passed=2 skipped=0` (`KerbalExperienceReassertTest` stops skipping
+   once the effective ledger carries an XP row - verify with `hlib.derive_batch_tally` AND
+   the flight), and claim D8 `kerbals` on L4, rewriting that spec's decline comment (the
+   `skipped=1` rationale block) to the closed state.
+4. FIX THE DOC DRIFT in the same edit: that spec's `facetsCompared=10` note claims the
+   count "adds the recovery, milestone and kerbal-career-log facets", but the measured log
+   shows the kerbal-career-log facet SKIPPING. The enumeration is wrong today and would be
+   right only after arming - correct it either way rather than letting the arming quietly
+   launder it.
+5. Re-fly L4 armed and confirm PASS.
+
+**A smaller residual to note when that tally is touched:** a tombstoned `KerbalExperience`
+row currently reports under `Other=` rather than `Kerbal=` in `SupersedeCommit`'s
+tombstone tally. Cosmetic, left as-is.
+
+### CLOSED THE SAME DAY - what actually happened, and the two things worth keeping
+
+The fixture replacement was approved and all five steps above were executed. Two notes
+that were NOT anticipated by the plan and cost a cycle each:
+
+**1. THE CONTRACT RECIPE HAD TO BE RE-DERIVED, because KSP mints fresh contract guids per
+career run.** `build_career_earned_pad.py`'s Active-contract splice pins a specific
+contract by guid, and every literal in that block died with the re-harvest. The builder
+caught it loudly and by name ("the harvest's contract set moved and this recipe must be
+re-derived against the new one") rather than splicing something wrong, which is that
+guard paying for itself. The re-derivation kept the SELECTION RULE and re-read the
+values: the new pick is `07c8e34d...`, `PartTest` on `Decoupler.1` at `sit = ESCAPING` -
+a part the pad craft does not carry, in a situation a craft parked on the pad cannot
+reach, which is a STRICTLY STRONGER second guard than the previous pick's `sit = LANDED`.
+Its title is composed from the shipped dictionary (`#autoLOC_6100005` + `#autoLOC_501784`
++ the TEST-direction escape phrase `#autoLOC_6100020`) rather than invented. ANY future
+re-harvest of this career must expect to redo this.
+
+**2. THE `.craft.txt` MIRRORS ARE FORBIDDEN IN THE BASE, and a verbatim copy of a
+produced save carries them.** The harness gates the two mirror families in OPPOSITE
+directions - `.prec.txt` REQUIRED beside every `.prec`, `_vessel.craft.txt` /
+`_ghost.craft.txt` FORBIDDEN - so the harvest is a copy MINUS exactly those two suffixes.
+`build_career_earned_pad.py` refuses to build when the base carries them, naming them,
+which is how this was caught rather than shipped.
+
+Everything else went as specified: `C2CareerPostFixReplayTests` moved by exactly ONE pin
+(14 -> 15 actions) with all three closure deltas byte-identical, because a
+`KerbalExperience` row carries no currency and cannot move a pool; and
+`test_saveparse.py`'s `career-earned-pad` payload pin needed its two recording ids
+re-stamped, while its 1/1/2 topology did not move - which is the check that the
+re-harvest produced the same SHAPE of subject rather than a different one.
 
 ## ~~REFLY-RESURRECTS-RECOVERED-CRAFT-KEEPS-REWARDS: a Re-Fly puts a recovered vessel back in the world while its recovery funds, science and crew rows stay banked~~ [#15, user-decided 2026-08-11. FIXED 2026-08-11, branch `ledger-facets`]
 

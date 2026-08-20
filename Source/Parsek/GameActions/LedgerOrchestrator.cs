@@ -988,6 +988,15 @@ namespace Parsek
                 case GameActionType.ContractFail:
                 case GameActionType.ContractCancel: return a.ContractId ?? "";
                 case GameActionType.KerbalHire: return a.KerbalName ?? "";
+                // KerbalExperience: the kerbal name, mirroring KerbalHire. Falling through
+                // to the default "" would make one recovery's crew collapse into a single
+                // row - every crew member's XP row shares the recovery's UT exactly (one
+                // ArchiveFlightLog pass, one Planetarium.GetUniversalTime() read), so
+                // Type + UT alone matches every one of them against every other. The name
+                // is the only per-row identity at that seam and it is always populated
+                // (ConvertExperienceGained refuses a nameless event). Pinned by the
+                // two-crew cell in LedgerRecoveryKerbalExperienceTests.
+                case GameActionType.KerbalExperience: return a.KerbalName ?? "";
                 default: return "";
             }
         }
@@ -3730,6 +3739,122 @@ namespace Parsek
 
             RecalculateAndPatchForLiveTimelineEvent(subject.captureUT, "ksc-science");
             return true;
+        }
+
+        /// <summary>
+        /// KERBAL-XP-UNTAGGED-RECOVERY-HAS-NO-LEDGER-ROW: writes the crew's
+        /// <see cref="GameActionType.KerbalExperience"/> rows for a recovery that reached
+        /// the XP seam with no live recorder to tag it - the KSC / tracking-station
+        /// recovery, and (measured) the ordinary FLIGHT recovery too, whose reward burst
+        /// fires in SPACECENTER milliseconds AFTER the scene-exit auto-commit has already
+        /// closed the tree.
+        ///
+        /// <para>
+        /// <b>The correlation is the whole fix.</b> The carve-out this replaces refused to
+        /// write anything because a null-<c>RecordingId</c> XP row could never be
+        /// tombstoned (<see cref="TombstoneEligibility"/> is scoped by recording), so a
+        /// re-fly could not take the XP back and the monotone career-log re-assert would
+        /// put it on the roster forever. Resolving an owner through
+        /// <see cref="PickRecoveryRecordingId"/> removes that objection: the row is scoped,
+        /// so the merge retires it exactly like the recovery's funds row.
+        /// </para>
+        ///
+        /// <para>
+        /// <b>Why THIS correlator and no other.</b>
+        /// <see cref="ResurrectionRetirementEligibility"/> bundles a recovery's
+        /// <c>FundsEarning(Recovery)</c>, <c>ScienceEarning</c>, <c>KerbalAssignment</c> and
+        /// <c>KerbalExperience</c> rows by SHARED <c>RecordingId</c>. The funds and science
+        /// legs both resolve through <see cref="PickRecoveryRecordingId"/>; picking any
+        /// other way here would scope the XP row to a different recording and split a
+        /// bundle that is retired as a unit.
+        /// </para>
+        ///
+        /// <para>
+        /// <b>A null pick REFUSES the write</b> rather than falling back to an untagged
+        /// row - that is the carve-out's fail-safe kept intact, not a regression. The
+        /// refusal is logged with the kerbal count so an unowned recovery is visible as a
+        /// positive fact rather than as silence.
+        /// </para>
+        /// </summary>
+        /// <returns>
+        /// Number of input events that end the call WITH a ledger row - rows written plus
+        /// rows an earlier pass had already written (dedup). 0 on refusal. Counting the
+        /// deduped ones as covered is deliberate: the caller's summary counter names the
+        /// events left WITHOUT a row, and a suppressed duplicate is not one of those.
+        /// </returns>
+        internal static int TryRecordRecoveryKerbalExperience(
+            IList<GameStateEvent> experienceEvents,
+            RecoveredVesselIdentity identity,
+            double ut)
+        {
+            if (experienceEvents == null || experienceEvents.Count == 0)
+                return 0;
+
+            Initialize();
+
+            string utText = ut.ToString("F1", CultureInfo.InvariantCulture);
+            string countText = experienceEvents.Count.ToString(CultureInfo.InvariantCulture);
+
+            string recordingId = PickRecoveryRecordingId(identity, ut);
+            if (string.IsNullOrEmpty(recordingId))
+            {
+                ParsekLog.Info(Tag,
+                    $"Recovery kerbal XP refused: {identity.FormatForLog()} ut={utText} " +
+                    $"kerbals={countText} reason=no-recovery-recording");
+                return 0;
+            }
+
+            var actions = new List<GameAction>(experienceEvents.Count);
+            int noAction = 0;
+            for (int i = 0; i < experienceEvents.Count; i++)
+            {
+                var action = GameStateEventConverter.ConvertEvent(experienceEvents[i], recordingId);
+                if (action == null)
+                {
+                    noAction++;
+                    continue;
+                }
+                actions.Add(action);
+            }
+
+            if (actions.Count == 0)
+            {
+                ParsekLog.Info(Tag,
+                    $"Recovery kerbal XP refused: {identity.FormatForLog()} ut={utText} " +
+                    $"kerbals={countText} reason=no-convertible-row");
+                return 0;
+            }
+
+            int beforeDedup = actions.Count;
+            actions = DeduplicateAgainstLedger(actions);
+            if (actions.Count == 0)
+            {
+                ParsekLog.Verbose(Tag,
+                    $"Recovery kerbal XP: all {beforeDedup.ToString(CultureInfo.InvariantCulture)} " +
+                    $"row(s) already in the ledger for {identity.FormatForLog()} ut={utText} " +
+                    $"recordingId={recordingId}");
+                return beforeDedup;
+            }
+
+            for (int i = 0; i < actions.Count; i++)
+                actions[i].Sequence = AllocateKscSequence();
+
+            Ledger.AddActions(actions);
+
+            var names = new List<string>(actions.Count);
+            for (int i = 0; i < actions.Count; i++)
+                names.Add(actions[i].KerbalName ?? "");
+
+            ParsekLog.Info(Tag,
+                $"Recovery kerbal XP recorded: {identity.FormatForLog()} ut={utText} " +
+                $"recordingId={recordingId} " +
+                $"rows={actions.Count.ToString(CultureInfo.InvariantCulture)} " +
+                $"deduped={(beforeDedup - actions.Count).ToString(CultureInfo.InvariantCulture)} " +
+                $"noAction={noAction.ToString(CultureInfo.InvariantCulture)} " +
+                $"kerbals='{string.Join(",", names.ToArray())}'");
+
+            RecalculateAndPatchForLiveTimelineEvent(ut, "recovery-kerbal-xp");
+            return beforeDedup;
         }
 
         private static string ResolveKscScienceRecordingId(
