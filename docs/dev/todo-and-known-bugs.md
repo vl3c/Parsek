@@ -1685,23 +1685,26 @@ creation frame the seam-endpoint lens evaluated the recording's **un-shifted** e
 curiosity into a NAMED family with a candidate mechanism.
 
 **A THIRD LENS AND A NEW TRIGGER SHAPE, measured 2026-08-20 by
-`V17M-laythe-vall-player-loop`'s run-2 reading (`2026-08-20_1859`), on the suite's
-first SELF-OVERLAPPING loop subject** (the moon-to-moon `vall-transfer-recorded`
-tree: 20 concurrent instances, overlapCadence = span/20 = 3,991.03 s). The
-`phase=body-orbit surface=ProtoOrbitLine` census read the HEALTHY per-instance
-elapsed mapping at the -180 arrival brackets - 17x `body=Jool` + 1x `body=Laythe`
-at 28,976,101, exactly the 20-instance model - but at BOTH park epochs
-(28,980,417 / 29,060,238) all 19 live protos printed the recording's CREATION
-frame `body=Laythe` and HELD it through a 40-tick census dwell, where the same
-mapping says 2x Vall + 16x Jool + 1x Laythe. The discriminating fact between the
-two epochs: the park jump CROSSES a self-overlap re-arm (instance-20 relaunch at
-28,976,670.9; instance-40 at 29,056,491.4) and the bracket jumps do not. So the
-trigger here is not the single-large-jump shape - it is a jump crossing a loop
-re-arm, after which every overlap instance's proto reads the creation frame,
-dwell-stable, on a THIRD lens (the orbit-line body itself, not the icon offset or
-the seam-endpoint epoch). Self-correcting by the next distant epoch (the cycle-2
--180 bracket read the healthy mapping again). REPORT-ONLY, same as the rest of
-the family; NO product change is proposed.
+`V17M-laythe-vall-player-loop`'s runs 2-3 (`2026-08-20_1859` / `_1908`,
+deterministic across both), on the suite's first SELF-OVERLAPPING loop subject**
+(the moon-to-moon `vall-transfer-recorded` tree: 20 concurrent instances,
+overlapCadence = span/20 = 3,991.03 s). Baseline first: for this nested-SOI
+recording (2 crossings) the ProtoOrbitLine producer fail-closes to a verbatim
+render in the ROOT frame (`fail-closed-to-faithful ... root=Jool
+bodies=Laythe/Jool/Vall`), so a seeded proto's steady-state census body is JOOL
+regardless of which leg its instance is replaying. Against that baseline: at the
+-180 arrival brackets the census read 17x root-frame `body=Jool` (+ 1x
+creation-frame `body=Laythe`), but at BOTH park epochs (28,980,417 / 29,060,238)
+ALL 19 live protos printed creation-frame `body=Laythe` and HELD it through a
+40-tick census dwell. The discriminating fact between the two epoch classes: the
+park jump CROSSES a self-overlap re-arm (instance-20 relaunch at 28,976,670.9;
+instance-40 at 29,056,491.4) and the bracket jumps do not. So the trigger here is
+not the single-large-jump shape - it is a jump crossing a loop re-arm, after
+which every overlap instance's proto reverts from the root frame to the creation
+frame, dwell-stable, on a THIRD lens (the orbit-line body itself, not the icon
+offset or the seam-endpoint epoch). Self-correcting by the next distant epoch
+(the cycle-2 -180 bracket read root-frame Jool again). REPORT-ONLY, same as the
+rest of the family; NO product change is proposed.
 
 ---
 
