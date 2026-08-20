@@ -3375,7 +3375,7 @@ class IsolatedBatchWiringGroupTests(unittest.TestCase):
     # trusted; the table exists so a rename reds HERE with both names named.
     GROUP = {
         "H21-scene-exit-merge-isolated": ("SceneExitMerge", 2),
-        "R7a-rewind-session-absent": ("Rewind", 37),
+        "R7a-rewind-session-absent": ("Rewind", 38),
     }
 
     # Members whose category is only PARTLY batch-disabled, i.e. the ordinary path
@@ -3403,10 +3403,10 @@ class IsolatedBatchWiringGroupTests(unittest.TestCase):
     # attributes cannot derive; what it costs is that the number is MEASURED, so it
     # must be re-measured (not re-guessed) whenever the fixture or the guards move.
     MEASURED_SKIPPED = {
-        # R7a: 5 attribute-forced (the SPACECENTER-scoped five scene-skip at FLIGHT)
+        # R7a: 6 attribute-forced (the SPACECENTER-scoped six scene-skip at FLIGHT)
         # + 16 run-time, the marker-dependent family plus the two-command-pod staging
         # trio plus InvokeRPStripAndActivate. Derivation in the spec's own comment.
-        "R7a-rewind-session-absent": 21,
+        "R7a-rewind-session-absent": 22,
     }
 
     @classmethod
