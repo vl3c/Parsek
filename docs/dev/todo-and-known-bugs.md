@@ -14,6 +14,44 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## ~~DOCK-PARTNER-STAMP-GATED-ON-ROUTE-ELIGIBILITY: a route-ineligible dock discarded the partner identity forever~~ [FOUND by the 2026-08-12 dock/loop-coherence analysis (I2-iii); FIXED 2026-08-12, branch `dock-partner-stamp` (design `docs/dev/design-dock-event-graph.md` 6.1, PR sequence step 1)]
+
+`BranchPoint.TargetVesselPersistentId` was fed by the route-eligibility-GATED
+partner pid (`ParsekFlight.cs` OnPartCouple eligibility gate ->
+`pendingDockRouteTargetPid`), so a dock whose partner had neither a pre-couple
+snapshot nor a known recording stamped 0 and every downstream derivation
+(`MissionCrossTreeDock.FindLinks`, `GhostChainWalker` claims) was permanently
+blind to it. Fix: a second ungated pending field (`pendingDockPartnerPid`, from
+the pure `ResolveBranchPartnerStampPid`: self/zero filtered, EVA-suppressed)
+threads to `BuildMergeBranchData`'s new `branchPartnerPid` parameter and feeds
+ONLY the branch-point stamp; route surfaces keep the gated pid. Old recordings
+keep their zeros and degrade to prior behavior. Pinned by
+`DockStampDecouplingTests`; contract added as invariant 7 in
+`docs/dev/dock-undock-recording-structure.md` section 9.
+
+## PHANTOM-SUPERSEDE-RIDES-GATED-PID: absorbed-vessel spawn suppression skips route-ineligible docks
+
+Noted during the stamp decoupling (design 6.1 step 3):
+`MarkTerminalSpawnSupersededByDockMerge` is called with the route-eligibility-
+gated pid (`ParsekFlight.cs` CreateMergeBranch, `routeTargetVesselPid != 0`
+gate), so a dock that absorbs a vessel Parsek recorded earlier but that fails
+route eligibility does not mark the absorbed leaf's terminal spawn superseded
+(possible phantom re-materialisation). The suppression is semantically a
+partner-identity concern, not a route concern; rewiring it to the ungated
+`branchPartnerPid` is a deliberate behavior change deferred out of the stamp PR.
+Decide after the dock-event-graph work soaks.
+
+## BDOCK-2-SAME-TREE-DOCK-COVERAGE: no harness scenario flies a same-tree cross-session dock
+
+`BDOCK-1-station-interceptor` covers the cross-tree dock recording pipeline; the
+same-tree cross-session shape (fly A, commit, switch-fly the offshoot D, dock
+A->D: records single-parent with a same-tree target, model extract section 1.5)
+is flown by no spec. Candidate `BDOCK-2`: fly, commit, switch-fly, dock, assert
+the recovered same-tree link derives. Not a merge gate for the dock-event-graph
+scope (the derivation is pinned by synthetic in-game cells); file when docking
+coverage next expands. Also missing per BDOCK-1's own header note: an
+orbital-rendezvous-dock D10 value and a same-craft-twice identity D18 value.
+
 ## MECHJEB-INTERPLANETARY-PLANNER-REJECTS-MOON-ORIGIN: MechJeb 2.15.1's `OperationInterplanetaryTransfer.MakeNodes` throws on a MOON-PARKED origin, so the harness cannot currently fly any moon-to-moon transfer [MEASURED 2026-08-19 by `B26-laythe-vall-transfer` flight 1, DETERMINISTIC 2/2 attempts. HARNESS SURFACE, REPORT-ONLY - not a Parsek defect and not a spec defect; it blocks the M-MIS-7 subject's PRODUCTION, not the product question]
 
 **THIS IS A HARNESS-CAPABILITY GAP, NOT A PRODUCT FINDING.** Nothing in Parsek ran,
