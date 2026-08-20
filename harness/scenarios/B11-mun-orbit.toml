@@ -183,10 +183,16 @@ tags = ["B11", "orbit", "mechjeb", "mun", "cross-soi", "capture", "commit-in-for
 # Mun TLI ~860 m/s + up to ~340 m/s of corrections (B5 priced a legitimate
 # round at ~170 m/s) + the capture. Capture cost at the Mun (mu 6.514e10,
 # R 200 km) from a v_inf ~200 m/s arrival is ~220 m/s at a 100 km periapsis and
-# ~150 m/s at a 1,000 km periapsis -- capturing HIGH is CHEAPER, and B5's
-# certified flights arrived at 956-1,142 km. Worst case ~1,360 m/s, inside the
-# budget, with the B5 flameout-staging watchdog reaching the X200-16 upper tank
-# if the core dies mid-burn. PROVISIONAL: flight 1 measures the real margin.
+# ~150 m/s at a 1,000 km periapsis -- capturing HIGH is CHEAPER, but this lane's
+# 250 km request DELIVERS LOW, so the capture must be priced at the expensive
+# end: the five Mun points measured against a 250 km request span 136.2-140.7 km
+# (a B11 first in-SOI frame read 136,235.7 m), which is the ~220 m/s side of that
+# curve, not the ~150 one. The 956-1,142 km band once quoted here belongs to B5's
+# 60 km requests -- see the todo doc's
+# FINDING-16D-MISCITED-DIRECTION-AND-DENOMINATOR. Worst case ~1,420 m/s, still
+# inside the budget, with the B5 flameout-staging watchdog reaching the X200-16
+# upper tank if the core dies mid-burn. (Originally PROVISIONAL pending flight 1;
+# the five measured 250 km-request arrivals above are that measurement.)
 saveTemplate       = "fixtures/saves/b2-lko-craft"
 injectedRecordings = "none"
 craft              = []
@@ -259,11 +265,15 @@ homeBodyName               = "Kerbin"
 transferMinApoapsisMeters  = 10000000
 # B5's HEAD value, unchanged and deliberately NOT re-tuned: MechJeb's
 # OperationCourseCorrection systematically under-delivers toward low periapsis
-# targets (finding 16d), and B5's certified flights turned this 250 km request
-# into 956-1,142 km actual arrivals. For a CAPTURE mission that bias is in the
-# SAFE direction (a high arrival periapsis is both terrain-clear and a CHEAPER
-# capture), and the park window below is sized to accept the whole observed
-# band rather than chase a golden number.
+# targets (finding 16d), and the five Mun points measured against this 250 km
+# request arrived at 136.2-140.7 km -- SHORT of it by ~110 km, exactly as the
+# root cause says. (The 956-1,142 km band this block used to quote here belongs
+# to B5's 60 km requests; see the todo doc's
+# FINDING-16D-MISCITED-DIRECTION-AND-DENOMINATOR.) For a CAPTURE mission the
+# shortfall is still SAFE: 136-141 km clears the Mun's ~7 km peaks by ~20x, sits
+# an order of magnitude above the 10 km floor below, and prices the capture at
+# ~220 m/s, which the dv budget above carries. The park window below is sized to
+# accept the whole observed band rather than chase a golden number.
 courseCorrectPeriapsisMeters = 250000
 maxCorrectionDvMps         = 300
 correctionTriggerAltsMeters = [0, 6000000]
@@ -295,9 +305,12 @@ capturePlanTimeoutSeconds  = 300
 # and under-burn watchdogs bound BROKEN.
 captureBurnTimeoutSeconds  = 60000
 # THE CAPTURE WINDOW (also the PARK gate). Deliberately WIDE, because the
-# arrival periapsis is MechJeb's business and the observed B5 band is
-# 956-1,142 km: anything from 15 km to 2,000 km altitude is a legitimate
-# captured Mun orbit. The apoapsis CEILING is the load-bearing conjunct - a
+# arrival periapsis is MechJeb's business and the measured deliveries against
+# this 250 km request sit at 136-141 km: anything from 15 km to 2,000 km altitude
+# is a legitimate captured Mun orbit, and 136-141 km sits comfortably inside that
+# window with room left BELOW it for the under-delivery this lane actually sees
+# (the 15 km floor is still ~9x under the measured band) as well as above.
+# The apoapsis CEILING is the load-bearing conjunct - a
 # hyperbolic (uncaptured) approach reads a NEGATIVE apoapsis in the Mun frame,
 # so "0 < ap <= 2,000 km" is the actually-captured evidence; the ceiling also
 # keeps the park comfortably inside the ~2,230 km SOI edge instead of grazing it.

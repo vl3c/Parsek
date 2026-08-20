@@ -62,12 +62,104 @@ namespace Parsek
         public List<SaveVessel> Vessels = new List<SaveVessel>();
 
         /// <summary>
+        /// True when the save carried a GAME &gt; ROSTER node. ROSTER is a DIRECT
+        /// child of GAME, not a SCENARIO, so it is unreachable through the
+        /// SCENARIO lookup every other facet uses.
+        /// </summary>
+        public bool HasRoster;
+
+        /// <summary>GAME &gt; ROSTER &gt; KERBAL entries, in file order.</summary>
+        public List<SaveKerbal> Roster = new List<SaveKerbal>();
+
+        /// <summary>
+        /// True when the save carried a ResearchAndDevelopment SCENARIO (the node
+        /// holding both the Tech unlock set and the per-node part purchases).
+        /// Independent of <see cref="HasScience"/>, which additionally requires a
+        /// parsable `sci` value.
+        /// </summary>
+        public bool HasTechTree;
+
+        /// <summary>
+        /// Tech node ids the save lists as unlocked (one ResearchAndDevelopment
+        /// &gt; Tech node per unlocked node; KSP writes no node for a locked one).
+        /// </summary>
+        public HashSet<string> UnlockedTechIds = new HashSet<string>(StringComparer.Ordinal);
+
+        /// <summary>
+        /// Every purchased part name, unioned across all Tech nodes. Purchases are
+        /// the REPEATED `part` values inside a Tech node.
+        /// </summary>
+        public HashSet<string> PurchasedPartNames = new HashSet<string>(StringComparer.Ordinal);
+
+        /// <summary>techId -&gt; number of purchased parts recorded under that node.</summary>
+        public Dictionary<string, int> TechNodePartCounts =
+            new Dictionary<string, int>(StringComparer.Ordinal);
+
+        /// <summary>True when the save carried a StrategySystem SCENARIO.</summary>
+        public bool HasStrategySystem;
+
+        /// <summary>
+        /// StrategySystem &gt; STRATEGIES &gt; STRATEGY entries, in file order. An
+        /// EMPTY STRATEGIES block is the normal shape for a career whose strategy
+        /// was deactivated (KSP removes the node) and is NOT a parse failure.
+        /// </summary>
+        public List<SaveStrategy> Strategies = new List<SaveStrategy>();
+
+        /// <summary>Names of the strategies the save reports as active.</summary>
+        public HashSet<string> ActiveStrategyIds = new HashSet<string>(StringComparer.Ordinal);
+
+        /// <summary>
         /// Per-kerbal career-log entries parsed from ROSTER &gt; KERBAL &gt; CAREER_LOG. The
         /// unit stock derives experience from - XP itself is never stored, it is recomputed
         /// from this log, so the log IS the ground truth for the KerbalXp facet.
         /// </summary>
         public Dictionary<string, HashSet<KerbalCareerLogEntry>> KerbalCareerLog =
             new Dictionary<string, HashSet<KerbalCareerLogEntry>>(StringComparer.Ordinal);
+    }
+
+    /// <summary>A kerbal parsed from GAME &gt; ROSTER &gt; KERBAL.</summary>
+    internal struct SaveKerbal
+    {
+        /// <summary>KERBAL.name ("Bill Kerman"); the roster's identity key.</summary>
+        public string Name;
+
+        /// <summary>KERBAL.gender ("Male" / "Female").</summary>
+        public string Gender;
+
+        /// <summary>KERBAL.type ("Crew" / "Applicant" / "Tourist" / "Unowned").</summary>
+        public string Type;
+
+        /// <summary>KERBAL.trait ("Pilot" / "Engineer" / "Scientist" / "Tourist").</summary>
+        public string Trait;
+
+        /// <summary>KERBAL.state ("Available" / "Assigned" / "Dead" / "Missing").</summary>
+        public string State;
+    }
+
+    /// <summary>
+    /// A strategy parsed from StrategySystem &gt; STRATEGIES &gt; STRATEGY.
+    ///
+    /// SHAPE NOTE (measured against the one real sample on this machine): a
+    /// STRATEGY node carries `name`, `date` and `factor` plus EFFECT children.
+    /// Stock KSP writes no `isActive` field - PRESENCE in the STRATEGIES block is
+    /// the active signal, and a deactivated strategy is removed from the save
+    /// entirely. <see cref="IsActive"/> therefore defaults to true on presence,
+    /// and only an EXPLICIT `isActive = False` value (defensive: a mod or a future
+    /// KSP could write one) turns it off.
+    /// </summary>
+    internal struct SaveStrategy
+    {
+        /// <summary>STRATEGY.name ("PatentsLicensingCfg").</summary>
+        public string Name;
+
+        /// <summary>True unless an explicit `isActive = False` value was present.</summary>
+        public bool IsActive;
+
+        /// <summary>STRATEGY.date (activation UT); 0 when absent.</summary>
+        public double ActivatedUT;
+
+        /// <summary>STRATEGY.factor (the commitment slider, 0..1); 0 when absent.</summary>
+        public double Factor;
     }
 
     /// <summary>A vessel parsed from FLIGHTSTATE &gt; VESSEL.</summary>
@@ -120,6 +212,49 @@ namespace Parsek
         public List<RecoveryCredit> RecoveryCredits = new List<RecoveryCredit>();
 
         /// <summary>
+        /// True when the reconstruction has a ROSTER surface to compare at all (the
+        /// KerbalsModule resolved). False leaves the roster facet UNCOMPARED: the
+        /// diff then reports the save-side census only and never invents a
+        /// reconstruction the recalc does not produce.
+        /// </summary>
+        public bool HasRosterSurface;
+
+        /// <summary>
+        /// Kerbals the ledger believes IT created (KerbalsModule.LedgerCreatedKerbals).
+        /// DELTA-only: this is not the full roster, so the meaningful direction is
+        /// "created in recon but absent from the save".
+        /// </summary>
+        public HashSet<string> LedgerCreatedKerbals = new HashSet<string>(StringComparer.Ordinal);
+
+        /// <summary>
+        /// Kerbals the ledger holds permanently reserved (a KerbalsModule permanent
+        /// reservation means dead, never freed).
+        /// </summary>
+        public HashSet<string> PermanentlyGoneKerbals = new HashSet<string>(StringComparer.Ordinal);
+
+        /// <summary>
+        /// True when the reconstruction has a researched-tech surface (the ledger's
+        /// affordable ScienceSpending rows). DELTA-only, see
+        /// <see cref="ResearchedTechIds"/>.
+        /// </summary>
+        public bool HasTechSurface;
+
+        /// <summary>
+        /// Tech node ids the ledger's affordable ScienceSpending rows claim were
+        /// researched. DELTA-only: a mixed-history career unlocked nodes before
+        /// Parsek was installed and those rows do not exist, so only the "claimed
+        /// by recon but not unlocked in the save" direction is meaningful.
+        /// </summary>
+        public HashSet<string> ResearchedTechIds = new HashSet<string>(StringComparer.Ordinal);
+
+        // NO purchased-part or active-strategy surface, deliberately: the recalc
+        // models tech-node RESEARCH (part unlock is derived at patch time from KSP's
+        // own part list, KspStatePatcher.AddPurchasedPartsForTech) and StrategiesModule
+        // keeps its active set private. Both facets are save-side CENSUS ONLY in
+        // LedgerGroundTruthDiff; a field nothing ever fills would only make an
+        // unreachable compare half look reachable.
+
+        /// <summary>
         /// Per-kerbal career-log entries the reconstruction credits, read off the
         /// KerbalsModule accumulator.
         /// </summary>
@@ -169,7 +304,17 @@ namespace Parsek
         /// (pre-Parsek flights, stand-ins, mod-written entries), so a mismatch here is
         /// information rather than corruption until a scenario proves otherwise.
         /// </summary>
-        KerbalXp
+        KerbalXp,
+
+        /// <summary>GAME &gt; ROSTER kerbals (report-only).</summary>
+        Roster,
+
+        /// <summary>ResearchAndDevelopment Tech unlock set (report-only).</summary>
+        TechNode
+
+        // NO PartPurchase / Strategy members: those two facets are save-side census
+        // only (no reconstruction surface produces either set), so no divergence can
+        // ever be tagged with them. Add a member back WITH the producer.
     }
 
     /// <summary>What kind of disagreement a divergence represents.</summary>
@@ -257,8 +402,9 @@ namespace Parsek
         ///   - guid-corroborated vessel-recovery Consistency divergences.
         ///
         /// When <paramref name="strict"/> is true, ALSO promotes the report-only
-        /// per-identity facets (SubjectScience / Facility / Contract / Milestone),
-        /// phantoms, and uncorroborated (pid-only) recovery Consistency entries.
+        /// per-identity facets (SubjectScience / Facility / Contract / Milestone /
+        /// KerbalXp / Roster / TechNode / PartPurchase / Strategy), phantoms, and
+        /// uncorroborated (pid-only) recovery Consistency entries.
         /// </summary>
         internal List<LedgerDivergence> HardFailures(bool strict)
         {

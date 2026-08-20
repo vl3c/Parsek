@@ -538,6 +538,7 @@ namespace Parsek.Tests
         {
             try { ui.Cleanup(); }
             catch (SecurityException) { }
+            catch (MissingMethodException) { }
         }
     }
 }

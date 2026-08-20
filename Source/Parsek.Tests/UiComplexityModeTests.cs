@@ -45,13 +45,15 @@ namespace Parsek.Tests
                 UiSurface.MainButtonCareer,
                 UiSurface.MainButtonGloops,
                 UiSurface.TabRecordings,
+                UiSurface.MissionsLoopControls,
+                UiSurface.SettingsSectionLooping,
                 UiSurface.SettingsSectionDiagnostics,
                 UiSurface.SettingsSectionSampleDensity,
             };
 
             var actual = new HashSet<UiSurface>(UiSurfaceVisibility.HiddenSurfaces(UiComplexityMode.Basic));
 
-            Assert.Equal(7, actual.Count);
+            Assert.Equal(9, actual.Count);
             Assert.True(expected.SetEquals(actual),
                 "Basic hide-set drifted from design section 4. Expected: " +
                 string.Join(", ", expected.OrderBy(s => s.ToString())) + "; actual: " +

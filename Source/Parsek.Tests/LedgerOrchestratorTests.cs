@@ -1395,6 +1395,424 @@ namespace Parsek.Tests
         }
 
         // ================================================================
+        // Query-family gross-up (the take-sized GUARDED DRAWDOWN blocker):
+        // the stored ScienceChanged delta is NET of a CurrencyConverter's take
+        // while the committed side is the GROSS subject value, so the in-window
+        // converter legs must be folded back in before the two are subtracted.
+        // ================================================================
+
+        private static List<GameStateEvent> SubjectAwardEvent(double ut, double before, double after)
+        {
+            return new List<GameStateEvent>
+            {
+                new GameStateEvent
+                {
+                    ut = ut,
+                    eventType = GameStateEventType.ScienceChanged,
+                    key = "ScienceTransmission",
+                    valueBefore = before,
+                    valueAfter = after
+                }
+            };
+        }
+
+        [Fact]
+        public void ComputePendingRecentKscScienceCredit_GrossesUpAConverterTake()
+        {
+            // KSP credited 38 net of a 2-point converter take on a 40-point award, and
+            // the earning row has not landed yet. Without the gross-up the pending credit
+            // reads 38, the pending-adjusted running balance lands exactly one take below
+            // live, and PatchScience GUARDED-DRAWDOWN clamps.
+            var events = SubjectAwardEvent(3000.0, 100.0, 138.0);
+            var actions = new List<GameAction>
+            {
+                new GameAction
+                {
+                    UT = 3000.0,
+                    Type = GameActionType.StrategyScienceDebit,
+                    RecordingId = null,
+                    Cost = 2f,
+                    ConversionSource = StrategyConversionSource.Converter
+                }
+            };
+
+            double pending = LedgerOrchestrator.ComputePendingRecentKscScienceCredit(
+                events, actions, nowUt: 3000.02);
+
+            Assert.Equal(40.0, pending, 3);
+        }
+
+        [Fact]
+        public void ComputePendingRecentKscScienceCredit_SubtractsAConverterScienceYield()
+        {
+            // The mirrored direction: a converter that yields INTO science inflates the
+            // observed delta above the gross award, so the yield must come back off or the
+            // pending credit over-reports and the guard uplift-clamps.
+            var events = SubjectAwardEvent(3100.0, 0.0, 45.0);
+            var actions = new List<GameAction>
+            {
+                new GameAction
+                {
+                    UT = 3100.0,
+                    Type = GameActionType.StrategyScienceCredit,
+                    RecordingId = null,
+                    ScienceAwarded = 5f
+                }
+            };
+
+            double pending = LedgerOrchestrator.ComputePendingRecentKscScienceCredit(
+                events, actions, nowUt: 3100.02);
+
+            Assert.Equal(40.0, pending, 3);
+        }
+
+        [Fact]
+        public void ComputePendingRecentKscScienceCredit_GrossUpNetsToZeroOnceTheEarningLands()
+        {
+            // The settled production shape: gross award 40 in the ledger as a
+            // ScienceEarning, take 2 as its own converter row, KSP credited 38. Both sides
+            // are gross, so there is nothing pending and the guard must stay silent.
+            var events = SubjectAwardEvent(3200.0, 0.0, 38.0);
+            var actions = new List<GameAction>
+            {
+                new GameAction
+                {
+                    UT = 3200.0,
+                    Type = GameActionType.ScienceEarning,
+                    RecordingId = "rec-flight",
+                    ScienceAwarded = 40f
+                },
+                new GameAction
+                {
+                    UT = 3200.0,
+                    Type = GameActionType.StrategyScienceDebit,
+                    RecordingId = null,
+                    Cost = 2f,
+                    ConversionSource = StrategyConversionSource.Converter
+                }
+            };
+
+            double pending = LedgerOrchestrator.ComputePendingRecentKscScienceCredit(
+                events, actions, nowUt: 3200.02);
+
+            Assert.Equal(0.0, pending, 3);
+        }
+
+        [Fact]
+        public void ComputePendingRecentKscScienceCredit_IgnoresExchangerSourcedDebits()
+        {
+            // The exchanger family moves science under its own StrategyInput reason key,
+            // which is not a subject reason key and never reaches the observed side.
+            // ComputePendingUncommittedStrategyScienceDebit nets that family instead;
+            // folding it in here would double-count it.
+            var events = SubjectAwardEvent(3300.0, 0.0, 40.0);
+            var actions = new List<GameAction>
+            {
+                new GameAction
+                {
+                    UT = 3300.0,
+                    Type = GameActionType.StrategyScienceDebit,
+                    RecordingId = null,
+                    Cost = 9f,
+                    ConversionSource = StrategyConversionSource.Exchanger
+                }
+            };
+
+            double pending = LedgerOrchestrator.ComputePendingRecentKscScienceCredit(
+                events, actions, nowUt: 3300.02);
+
+            Assert.Equal(40.0, pending, 3);
+        }
+
+        [Fact]
+        public void ComputePendingRecentKscScienceCredit_IgnoresConverterLegsOutsideTheWindow()
+        {
+            var events = SubjectAwardEvent(3400.0, 0.0, 40.0);
+            var actions = new List<GameAction>
+            {
+                new GameAction
+                {
+                    UT = 3400.5,
+                    Type = GameActionType.StrategyScienceDebit,
+                    RecordingId = null,
+                    Cost = 7f,
+                    ConversionSource = StrategyConversionSource.Converter
+                },
+                new GameAction
+                {
+                    UT = 3399.0,
+                    Type = GameActionType.StrategyScienceCredit,
+                    RecordingId = null,
+                    ScienceAwarded = 200f
+                }
+            };
+
+            double pending = LedgerOrchestrator.ComputePendingRecentKscScienceCredit(
+                events, actions, nowUt: 3400.02);
+
+            Assert.Equal(40.0, pending, 3);
+        }
+
+        [Fact]
+        public void ComputePendingRecentKscScienceCredit_ConverterLegAloneInventsNothing()
+        {
+            // No observed subject award at all. The gross-up exists to correct an observed
+            // NET credit, never to manufacture one out of a converter row.
+            var actions = new List<GameAction>
+            {
+                new GameAction
+                {
+                    UT = 3500.0,
+                    Type = GameActionType.StrategyScienceDebit,
+                    RecordingId = null,
+                    Cost = 25f,
+                    ConversionSource = StrategyConversionSource.Converter
+                }
+            };
+
+            double pending = LedgerOrchestrator.ComputePendingRecentKscScienceCredit(
+                new List<GameStateEvent>(), actions, nowUt: 3500.0);
+
+            Assert.Equal(0.0, pending, 3);
+        }
+
+        // ================================================================
+        // Uncommitted strategy currency-exchange science debit holdback
+        // (STRATEGY-SCIENCE-CONVERSION-LEAK)
+        // ================================================================
+
+        private static GameStateEvent StrategyInputScienceDebit(
+            double ut, double before, double after, string recordingId = null)
+        {
+            return new GameStateEvent
+            {
+                ut = ut,
+                eventType = GameStateEventType.ScienceChanged,
+                key = GameStateEventConverter.StrategyInputReasonKey,
+                recordingId = recordingId,
+                valueBefore = before,
+                valueAfter = after
+            };
+        }
+
+        [Fact]
+        public void ComputePendingUncommittedStrategyScienceDebit_TaggedExchangeNotYetCommitted_ReturnsGap()
+        {
+            // The live-recorder race: KSP debited the pool the moment the exchange fired,
+            // but the recording that owns the event has not committed, so no
+            // StrategyScienceDebit row exists yet. Unlike the two sibling helpers there is
+            // no recent-UT window here - the race stays open until commit, which can be
+            // an hour of flight later.
+            var events = new List<GameStateEvent>
+            {
+                StrategyInputScienceDebit(8599.87, 750.0, 641.15828148, "rec-flight")
+            };
+
+            double pending = LedgerOrchestrator.ComputePendingUncommittedStrategyScienceDebit(
+                events, new List<GameAction>());
+
+            Assert.Equal(108.84171852, pending, 4);
+        }
+
+        [Fact]
+        public void ComputePendingUncommittedStrategyScienceDebit_DrainsOnceTheCommitLandsTheRow()
+        {
+            var events = new List<GameStateEvent>
+            {
+                StrategyInputScienceDebit(8599.87, 750.0, 641.15828148, "rec-flight")
+            };
+            var actions = new List<GameAction>
+            {
+                new GameAction
+                {
+                    UT = 8599.87,
+                    Type = GameActionType.StrategyScienceDebit,
+                    RecordingId = "rec-flight",
+                    Cost = 108.84171851920314f
+                }
+            };
+
+            double pending = LedgerOrchestrator.ComputePendingUncommittedStrategyScienceDebit(
+                events, actions);
+
+            Assert.Equal(0.0, pending, 4);
+        }
+
+        [Fact]
+        public void ComputePendingUncommittedStrategyScienceDebit_OwnerlessKscExchange_CancelsToZero()
+        {
+            // Both sides are the same population, so an ownerless KSC-door exchange (whose
+            // row is written synchronously) appears on both and nets to zero: the
+            // recording-TAGGED exchange is the only population that can produce a nonzero
+            // result. The same symmetry is what makes a non-rewind discard safe - the
+            // re-homed UNTAGGED row still cancels its orphaned event.
+            var events = new List<GameStateEvent>
+            {
+                StrategyInputScienceDebit(500.0, 300.0, 200.0)   // untagged, -100
+            };
+            var actions = new List<GameAction>
+            {
+                new GameAction
+                {
+                    UT = 500.0,
+                    Type = GameActionType.StrategyScienceDebit,
+                    Cost = 100f
+                }
+            };
+
+            Assert.Equal(0.0,
+                LedgerOrchestrator.ComputePendingUncommittedStrategyScienceDebit(events, actions),
+                4);
+        }
+
+        [Fact]
+        public void ComputePendingUncommittedStrategyScienceDebit_IgnoresWrongReasonAndWrongSign()
+        {
+            var events = new List<GameStateEvent>
+            {
+                // Wrong reason: an ordinary transmission credit.
+                new GameStateEvent
+                {
+                    ut = 400.0,
+                    eventType = GameStateEventType.ScienceChanged,
+                    key = "ScienceTransmission",
+                    valueBefore = 0.0,
+                    valueAfter = 60.0
+                },
+                // Right reason, wrong sign: a StrategyInput CREDIT is not something KSP
+                // took away, and ConvertStrategyExchangeScience returns null for it.
+                StrategyInputScienceDebit(410.0, 60.0, 200.0, "rec-flight"),
+                // The only qualifying event.
+                StrategyInputScienceDebit(420.0, 200.0, 150.0, "rec-flight")
+            };
+
+            Assert.Equal(50.0,
+                LedgerOrchestrator.ComputePendingUncommittedStrategyScienceDebit(
+                    events, new List<GameAction>()),
+                4);
+        }
+
+        [Fact]
+        public void ComputePendingUncommittedStrategyScienceDebit_VisibilityFilterExcludesRetiredTimeline()
+        {
+            // Production passes GameStateStore.IsEventVisibleToCurrentTimeline so a
+            // retired timeline's orphaned event cannot hold a phantom adjustment open.
+            var events = new List<GameStateEvent>
+            {
+                StrategyInputScienceDebit(8599.87, 750.0, 641.15828148, "rec-retired")
+            };
+
+            Assert.Equal(0.0,
+                LedgerOrchestrator.ComputePendingUncommittedStrategyScienceDebit(
+                    events,
+                    new List<GameAction>(),
+                    e => !string.Equals(e.recordingId, "rec-retired", StringComparison.Ordinal)),
+                4);
+        }
+
+        [Fact]
+        public void PendingStrategyScienceDebit_KeepsTheDrawdownGuardFromClampingAnUplift()
+        {
+            // The symptom this mechanism exists for: mid-flight the ledger's running
+            // balance sits ABOVE the live pool (KSP already debited, the row lands at
+            // commit), so the guard fires "GUARDED UPLIFT clamped" - a WARN plus a player
+            // ScreenMessage - on every recalc for the rest of the flight.
+            const double LiveScience = 641.15828148;   // KSP already took the science
+            const double RawRunning = 750.0;           // ledger has no debit row yet
+            const double PendingDebit = 108.84171852;
+
+            // WITHOUT the adjustment the guard clamps DOWN to live and toasts.
+            var unadjusted = KspStatePatcher.ResolveSciencePoolPatch(
+                (float)LiveScience, RawRunning, RawRunning, authoritativeReduction: false);
+            Assert.True(unadjusted.Clamped);
+            Assert.Equal(KspStatePatcher.ClampDirection.Down, unadjusted.Direction);
+
+            // WITH it, the discriminator equals live and nothing is clamped. This is the
+            // exact fold ComputePendingAdjustedRunningScience performs.
+            var adjusted = KspStatePatcher.ResolveSciencePoolPatch(
+                (float)LiveScience,
+                RawRunning - PendingDebit,
+                RawRunning - PendingDebit,
+                authoritativeReduction: false);
+            Assert.False(adjusted.Clamped);
+            Assert.Equal(KspStatePatcher.ClampDirection.None, adjusted.Direction);
+        }
+
+        [Fact]
+        public void AdjustSciencePatchTargetForPendingStrategyScienceDebit_HoldsBackTheUncommittedDebit()
+        {
+            // The live wrapper gates on GameStateStore.IsEventVisibleToCurrentTimeline,
+            // so the owning recording has to be on the current timeline for its event to
+            // count - register it rather than relying on an untagged event, because the
+            // recording-TAGGED case is the one this mechanism exists for.
+            RecordingStore.AddRecordingWithTreeForTesting(
+                new Recording { RecordingId = "rec-flight", VesselName = "Exchanger" });
+
+            var evt = StrategyInputScienceDebit(8599.87, 750.0, 650.0, "rec-flight");
+            GameStateStore.AddEvent(ref evt);
+
+            // Ledger target still carries the un-debited 750; live is 650.
+            double adjusted = KspStatePatcher.AdjustSciencePatchTargetForPendingStrategyScienceDebit(
+                targetScience: 750.0, currentScience: 650f);
+
+            Assert.Equal(650.0, adjusted, 4);
+            Assert.Contains(logLines, l =>
+                l.Contains("[KspStatePatcher]") &&
+                l.Contains("holding back") &&
+                l.Contains("pending strategy-exchange science"));
+        }
+
+        // ================================================================
+        // MigrateOldSaveEvents: the retro-fill exclusion
+        // ================================================================
+
+        [Fact]
+        public void MigrateOldSaveEvents_ScienceChangedStrategyInput_ProducesNoStrategyScienceDebit()
+        {
+            // STRATEGY-SCIENCE-CONVERSION-LEAK. The migration converts with a NULL
+            // recording scope, so it matches EVERY stored event regardless of age - and
+            // an old save's science EARNINGS rode PendingScienceSubjects, not a
+            // GameStateEvent, so they cannot be reconstructed here. Retro-creating only
+            // the debit half biases the reconstruction LOW and trips the drawdown-guard
+            // clamp + player toast on the old save's first load. Pre-fix history stays
+            // pre-fix.
+            LedgerOrchestrator.Initialize();
+
+            var exchange = StrategyInputScienceDebit(8599.87, 750.0, 641.15828148);
+            GameStateStore.AddEvent(ref exchange);
+            // A convertible neighbour proves the filter is scoped to ScienceChanged and
+            // has not disabled the migration wholesale.
+            var tech = new GameStateEvent
+            {
+                ut = 8600.0,
+                eventType = GameStateEventType.TechResearched,
+                key = "basicRocketry",
+                detail = "cost=45"
+            };
+            GameStateStore.AddEvent(ref tech);
+
+            LedgerLoadMigration.MigrateOldSaveEvents(new HashSet<string>());
+
+            Assert.DoesNotContain(Ledger.Actions,
+                a => a.Type == GameActionType.StrategyScienceDebit);
+            Assert.Contains(Ledger.Actions,
+                a => a.Type == GameActionType.ScienceSpending);
+        }
+
+        [Fact]
+        public void IsMigrationConvertibleEvent_ExcludesOnlyScienceChanged()
+        {
+            Assert.False(LedgerLoadMigration.IsMigrationConvertibleEvent(
+                GameStateEventType.ScienceChanged));
+            Assert.True(LedgerLoadMigration.IsMigrationConvertibleEvent(
+                GameStateEventType.FundsChanged));
+            Assert.True(LedgerLoadMigration.IsMigrationConvertibleEvent(
+                GameStateEventType.ReputationChanged));
+            Assert.True(LedgerLoadMigration.IsMigrationConvertibleEvent(
+                GameStateEventType.TechResearched));
+        }
+
+        // ================================================================
         // ExtractCrewFromRecording
         // ================================================================
 

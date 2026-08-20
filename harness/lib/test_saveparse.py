@@ -647,6 +647,125 @@ class CommittedFixtureSweepTests(unittest.TestCase):
         "bdock-station-craft": True,
         "bdock-station-pad": True,
         "career-pad-craft": True,
+        "career-science-pad": True,
+        # THE ONE ENTRY DERIVED FROM A RECORDED FIXTURE RATHER THAN FORGED.
+        # `duna-park-probe` is `duna-direct-recorded` with Parsek's own state
+        # removed: the `Parsek/` sidecar directory pruned by a harvest WITHOUT
+        # --keep-parsek, plus a manual excision of the residual ParsekScenario
+        # CHILDREN (RECORDING_TREE / GROUP_HIERARCHY / MILESTONE_STATE). It
+        # belongs HERE and not in RECORDED_FIXTURES precisely because the strip
+        # puts it back under the zero-trees contract this map asserts.
+        #
+        # THE NODE IS STILL PRESENT (True) AND THAT IS DELIBERATE: only the
+        # children were excised. A flyable template must carry the node or the
+        # FLIGHT route records nothing.
+        #
+        # WHY THE STRIP IS LOAD-BEARING, so a future re-harvest does not undo it:
+        # `B23-ike-orbit` starts its recording through the seam on a vessel that
+        # `duna-direct-recorded` holds a COMMITTED TREE for, and a seam
+        # StartRecording cannot open a standalone tree on a committed tree's own
+        # launch - the committed-restore path re-resumes that recording and
+        # StartRecording no-ops onto it (measured, B23 flight 1, run
+        # 2026-08-18_2242; see todo-and-known-bugs.md ->
+        # SEAM-STARTRECORDING-JOINS-COMMITTED-TREE). The zero-trees assertions in
+        # `test_every_persistent_sfs_parses_with_pinned_counts` are therefore not
+        # bookkeeping here: they are the fixture's whole reason to exist.
+        "duna-park-probe": True,
+        # THE SECOND PARSEK-STRIPPED DERIVED FIXTURE, and the same strip for the
+        # same reason. `eve-park-kerbalx` is `eve-orbit-recorded` (B16's
+        # --keep-parsek harvest, which carries 8 committed recordings) with
+        # Parsek's own state removed: the `Parsek/` sidecar directory pruned by a
+        # harvest WITHOUT --keep-parsek, plus a manual brace-balanced excision of
+        # the residual ParsekScenario CHILDREN. It belongs HERE and not in
+        # RECORDED_FIXTURES precisely because the strip puts it back under the
+        # zero-trees contract this map asserts.
+        #
+        # THE NODE IS STILL PRESENT (True) AND THAT IS DELIBERATE: only the
+        # children were excised. A flyable template must carry the node or the
+        # FLIGHT route records nothing.
+        #
+        # FIVE CHILD NODE TYPES WERE REMOVED, not `duna-park-probe`'s three:
+        # RECORDING_TREE (1), GROUP_HIERARCHY (1) and MILESTONE_STATE (4) - the
+        # B23 recipe - PLUS KERBAL_SLOTS (1) and CREW_REPLACEMENTS (1), which
+        # exist here only because the source recording is CREWED. Those two are
+        # Parsek's crew-reservation bookkeeping (Jebediah reserved, `Suster
+        # Kerman` allocated as the stand-in) and they POINT AT THE RECORDING THAT
+        # WAS JUST REMOVED, so leaving them would be residue by any reading. What
+        # survives is Suster as an ordinary Available pilot and Jebediah Assigned
+        # aboard the pod exactly as before - the WORLD is untouched.
+        #
+        # WHY THE STRIP IS LOAD-BEARING, so a future re-harvest does not undo it:
+        # `B24-gilly-orbit` starts its recording through the seam on a vessel that
+        # `eve-orbit-recorded` holds a COMMITTED TREE for, and a seam
+        # StartRecording cannot open a standalone tree on a committed tree's own
+        # launch (the same defect quoted just above). The zero-trees assertions in
+        # `test_every_persistent_sfs_parses_with_pinned_counts` are therefore not
+        # bookkeeping here either: they are the fixture's whole reason to exist.
+        "eve-park-kerbalx": True,
+        # THE THIRD PARSEK-STRIPPED DERIVED FIXTURE, and the strip is now a
+        # PATTERN rather than two special cases. `jool-park-nerv` is
+        # `jool-orbit-recorded` (B22's --keep-parsek harvest, which carries FIVE
+        # committed recordings) with Parsek's own state removed: the `Parsek/`
+        # sidecar directory pruned by a harvest WITHOUT --keep-parsek, plus a
+        # manual brace-balanced excision of the residual ParsekScenario CHILDREN.
+        # It belongs HERE and not in RECORDED_FIXTURES precisely because the strip
+        # puts it back under the zero-trees contract this map asserts.
+        #
+        # THE NODE IS STILL PRESENT (True) AND THAT IS DELIBERATE: only the
+        # children were excised. A flyable template must carry the node or the
+        # FLIGHT route records nothing.
+        #
+        # EIGHT CHILD NODES OF FIVE TYPES WERE REMOVED, the same five
+        # `eve-park-kerbalx` needed (this subject is CREWED too): RECORDING_TREE
+        # (1), GROUP_HIERARCHY (1), MILESTONE_STATE (4), KERBAL_SLOTS (1) and
+        # CREW_REPLACEMENTS (1). The last two are Parsek's crew-reservation
+        # bookkeeping - here `Valentina Kerman` reserved with `Debmal Kerman`
+        # allocated as the stand-in - and they POINT AT THE RECORDINGS THAT WERE
+        # JUST REMOVED, so leaving them would be residue by any reading. What
+        # survives is Debmal as an ordinary Available pilot and Valentina Assigned
+        # aboard the pod exactly as before; the WORLD is untouched, including the
+        # inherited oddity that Jebediah reads `Missing` in this save (a B18-B22
+        # chain leftover carried through unchanged, NOT a strip artefact).
+        #
+        # WHY THE STRIP IS LOAD-BEARING, so a future re-harvest does not undo it:
+        # `B25-laythe-orbit` starts its recording through the seam on a vessel
+        # that `jool-orbit-recorded` holds a COMMITTED TREE for, and a seam
+        # StartRecording cannot open a standalone tree on a committed tree's own
+        # launch (the same defect quoted twice above). The zero-trees assertions
+        # in `test_every_persistent_sfs_parses_with_pinned_counts` are therefore
+        # not bookkeeping here either: they are the fixture's whole reason to
+        # exist. (5 is the number to watch for in the produced save: it is what
+        # `jool-orbit-recorded`, the save this was stripped from, carries.)
+        "jool-park-nerv": True,
+        # THE FOURTH PARSEK-STRIPPED DERIVED FIXTURE, and the one that shows the
+        # strip recipe is "excise every child" rather than "excise these five
+        # names". `laythe-park-nerv` is `laythe-orbit-recorded` (B25's
+        # --keep-parsek harvest, one committed recording) with Parsek's own state
+        # removed: the `Parsek/` sidecar directory pruned by a harvest WITHOUT
+        # --keep-parsek, plus a manual brace-balanced excision of the residual
+        # ParsekScenario CHILDREN.
+        #
+        # THE NODE IS STILL PRESENT (True) AND THAT IS DELIBERATE: only the
+        # children were excised. A flyable template must carry the node or the
+        # FLIGHT route records nothing.
+        #
+        # FIVE CHILD NODES OF **FOUR** TYPES WERE REMOVED, and the difference from
+        # its three predecessors is the point: `RECORDING_TREE` (1),
+        # `KERBAL_SLOTS` (1), `CREW_REPLACEMENTS` (1) and `MILESTONE_STATE` (2) -
+        # **NO `GROUP_HIERARCHY`**, because B25's tree is a single standalone
+        # recording with no debris subgroup to nest, and only TWO milestone rows
+        # rather than `jool-park-nerv`'s four. A strip written as a fixed list of
+        # five node names would have been fine here by luck; one written as "walk
+        # the node and drop every child" is correct by construction, and that is
+        # what was done.
+        #
+        # WHY THE STRIP IS LOAD-BEARING: `B26-laythe-vall-transfer` starts its
+        # recording through the seam on a vessel that `laythe-orbit-recorded`
+        # holds a COMMITTED TREE for, and a seam StartRecording cannot open a
+        # standalone tree on a committed tree's own launch (measured, B23 flight
+        # 1). It ALSO decouples B26 from V16M/V16T, whose eight jump UTs are
+        # calibrated off `laythe-orbit-recorded`'s exact bytes.
+        "laythe-park-nerv": True,
         "eva2-lko-crewed": True,
         "eva3-pad-3crew": True,
         "fresh-career": False,
@@ -685,6 +804,174 @@ class CommittedFixtureSweepTests(unittest.TestCase):
             # (generation-older) while saveparse still parses the sfs fine,
             # so without this pin the fixture would degrade SILENTLY into
             # one that loads zero recordings and tests nothing.
+            "schemaGeneration": 4,
+        },
+        # --- THE SAME-PARENT MOON-TRANSFER LOOP SUBJECT ------------------
+        # PROVENANCE: ike-orbit-recorded <- B23-ike-orbit, run 2026-08-18_2308,
+        # PASS attempt 1 (mission wall 370.5 s, zero Unity exceptions),
+        # --keep-parsek. THE SUITE'S FIRST RECORDING WHOSE LAUNCH BODY IS NOT
+        # KERBIN: the DD1 starts already parked in Duna orbit, Hohmann-transfers
+        # to IKE and commits in Ike orbit, so the loop lanes can read it as a
+        # SAME-PARENT transfer - the class no committed fixture carried before.
+        #
+        # THE ONE-RECORDING TOPOLOGY IS THE POINT, not an accident of a simple
+        # craft. B23 flight 1 produced a green run whose hop was APPENDED to
+        # B17's Kerbin-rooted committed recording (seam StartRecording answered
+        # `already=true`); flight 2 ran against the Parsek-stripped
+        # `duna-park-probe` and answered `already=false`, minting the fresh
+        # standalone tree pinned here. So `trees`/`committedTrees`/`recordings`
+        # = 1/1/1 IS the fixture's contract, not merely its shape: a 2 or 3 here
+        # means that defect is back. See todo-and-known-bugs.md ->
+        # SEAM-STARTRECORDING-JOINS-COMMITTED-TREE.
+        #
+        # `branchPoints` is EMPTY and must stay so: one craft, no separation
+        # event anywhere in the profile (the booster was shed on the Kerbin
+        # ascent two missions upstream, in B17).
+        #
+        # THE SEAM THE LOOP LANES CONSUME, read off the committed
+        # `.prec.txt` ORBIT_SEGMENT chain and quoted here because V14M/V14T
+        # anchor their brackets on it: ten segments, Duna 0-5 then Ike 6-9, with
+        # the body change at the adjacent `endUT == startUT` pair
+        # 9,177,480.8980102781. Against the recording's own
+        # `explicitStartUT = 9,160,398.1036915872` that is a seam offset of
+        # 17,082.794 s - the number MissionPeriodicity's `Orbital(Ike)
+        # same-parent ... off=` should reproduce (the V6M convention: the offset
+        # is measured from the recording's EXPLICIT start, NOT from the first
+        # orbit segment's startUT, which here is 9,160,400.624).
+        "ike-orbit-recorded": {
+            "trees": 1, "committedTrees": 1, "recordings": 1,
+            "supersedes": 0, "tombstones": 0, "rewind_points": 0,
+            "rewind_retirements": 0,
+            "terminalStates": {"Orbiting": 1},
+            "branchPoints": {},
+            "minAuthoritativeSidecars": 4,
+            "recordingIds": ["05ceee33806d4079a1d9d125a1359115"],
+            "schemaGeneration": 4,
+        },
+        # --- THE ECCENTRIC-MOON LOOP SUBJECT -----------------------------
+        # PROVENANCE: gilly-orbit-recorded <- B24-gilly-orbit, run
+        # 2026-08-19_1655, PASS attempt 1 (mission wall 1,075 s, every assertion
+        # met with NO parameter moved), --keep-parsek. The crewed Kerbal X upper
+        # stage starts already parked in Eve orbit at ~4,986 km, Hohmann-transfers
+        # to GILLY and commits in a 27,024 x 26,321 m Gilly park (ecc 0.009).
+        #
+        # WHY IT EXISTS ALONGSIDE `ike-orbit-recorded`, since both are
+        # orbit-rooted same-parent moon transfers: Ike is near-circular (e 0.03),
+        # near-equatorial (i 0.2 deg) and its SOI is 32.80% of its own orbital
+        # radius, so the phase-lock TOLERANCE there is ~3,420 s wide and any
+        # residual disappears into it. Gilly is e 0.55, i 12 deg and SOI/SMA
+        # 0.40%, giving tol = SOI/v_orb = 247.6 s at the circular speed (133-460 s
+        # across the eccentricity swing) - the tightest duty cycle in the stock
+        # system, tighter than Pol's. This is the payload V15M/V15T read, and the
+        # first on which a phase-lock residual would be measurable at all.
+        #
+        # THE ONE-RECORDING TOPOLOGY IS THE CONTRACT, not an accident. B24 ran
+        # against the Parsek-stripped `eve-park-kerbalx` for exactly this reason
+        # and the seam answered `startrecording
+        # recordingId=77f724bb1d4844c3b132a1ccc00a7df3 already=false` (KSP.log
+        # 11910) - `already=FALSE`, minting the fresh standalone Eve-rooted tree
+        # 355840bc81bf45f8868b7d2508ca6de4. If a future re-harvest reads 2 or 8
+        # recordings here that defect is back (8 is the specific number to watch:
+        # it is what `eve-orbit-recorded`, the save `eve-park-kerbalx` was
+        # stripped from, carries). See todo-and-known-bugs.md ->
+        # SEAM-STARTRECORDING-JOINS-COMMITTED-TREE.
+        #
+        # `branchPoints` is EMPTY and must stay so: one craft, no separation event
+        # anywhere in the profile (the boosters and the flameout-staged core were
+        # shed on B16's Kerbin ascent, two missions upstream).
+        #
+        # THE SEAM THE LOOP LANES CONSUME, read off the committed `.prec.txt`
+        # ORBIT_SEGMENT chain and quoted here because V15M/V15T anchor their
+        # brackets on it: SEVEN segments, Eve 0-3 then Gilly 4-6, with the body
+        # change at the adjacent `endUT == startUT` pair 15,879,012.441954412.
+        # Against the recording's own `explicitStartUT = 15,764,033.04501527`
+        # that is a seam offset of 114,979.397 s - the number
+        # MissionPeriodicity's `Orbital(Gilly) same-parent ... off=` should
+        # reproduce (the V6M convention: measured from the recording's EXPLICIT
+        # start, NOT from segment 0's startUT, which here is 15,764,035.545 and
+        # would put every bracket 2.500 s off).
+        #
+        # AND THE DESTINATION TAIL IS ONLY 381.489 s LONG (explicitEndUT
+        # 15,879,393.931458754 minus the seam) against a 115,360.886 s span, i.e.
+        # 0.33% of the recording. That is by far the shortest destination phase of
+        # any loop subject and it is what bounds where V15M/V15T may place a park
+        # epoch; it is a property of Gilly's 126,123 m SOI, not of the flight.
+        "gilly-orbit-recorded": {
+            "trees": 1, "committedTrees": 1, "recordings": 1,
+            "supersedes": 0, "tombstones": 0, "rewind_points": 0,
+            "rewind_retirements": 0,
+            "terminalStates": {"Orbiting": 1},
+            "branchPoints": {},
+            "minAuthoritativeSidecars": 4,
+            "recordingIds": ["77f724bb1d4844c3b132a1ccc00a7df3"],
+            "schemaGeneration": 4,
+        },
+        # --- THE FIRST JOOL-MOON LOOP SUBJECT ----------------------------
+        # PROVENANCE: laythe-orbit-recorded <- B25-laythe-orbit, run
+        # 2026-08-19_2039, PASS attempt 1 (mission wall 742 s, the full phase
+        # chain through ORBIT-COMMITTED), --keep-parsek. THE SUITE'S FIRST
+        # RECORDING OF AN INWARD TRANSFER: the crewed Duna Rocket starts already
+        # parked in JOOL orbit at ~584,321 km - 3.28x Pol's orbit, i.e. OUTSIDE
+        # the whole moon system - and transfers DOWN to Laythe on a retrograde
+        # ejection, so the intercept is the transfer's PERIAPSIS and the
+        # home-frame apoapsis never moves. Every prior b5 moon transfer went the
+        # other way.
+        #
+        # IT TOOK TWO FLIGHTS, AND FLIGHT 1 IS WHY THE PINS BELOW CAN BE TRUSTED.
+        # Flight 1 (`_1948` / `_2001`, both INVALID(driver-flake)) flew the
+        # identical profile clean through capture and delivered an
+        # 86,843 x 55,089 m Laythe park at ecc 0.028 that the lane's own declared
+        # `parkMinPeriapsisMeters = 60000` refused - a healthy park 4,911 m below
+        # a floor written before anyone had measured what a 163.5 s capture burn
+        # at 5.40 m/s^2 does to a periapsis (it drops it ~15.4 km, systematically:
+        # 15,382 m then 15,415 m). The floor was resized to 52,000 off that
+        # measurement and flight 2 green'd on the first attempt.
+        #
+        # THE ONE-RECORDING TOPOLOGY IS THE CONTRACT, not an accident. B25 runs
+        # against the Parsek-stripped `jool-park-nerv` for exactly this reason and
+        # its seam answered `startrecording
+        # recordingId=370d38246d6e42848f140884081428af already=false` -
+        # `already=FALSE`, minting the fresh standalone JOOL-rooted tree
+        # 0ffee6458331466481f5c7aa0212b515. If a future re-harvest reads 2 or FIVE
+        # recordings here that defect is back (5 is the specific number to watch:
+        # it is what `jool-orbit-recorded`, the save `jool-park-nerv` was stripped
+        # from, carries). See todo-and-known-bugs.md ->
+        # SEAM-STARTRECORDING-JOINS-COMMITTED-TREE.
+        #
+        # `branchPoints` is EMPTY and must stay so: one craft, no separation event
+        # anywhere in the profile (everything sheddable came off on B18-B22's
+        # Kerbin ascent and interplanetary legs, several missions upstream).
+        #
+        # THE SEAM THE LOOP LANES CONSUME, read off the committed `.prec.txt`
+        # ORBIT_SEGMENT chain and quoted here because V16M/V16T anchor their
+        # brackets on it: TEN segments, Jool 0-5 then Laythe 6-9, with the body
+        # change at the adjacent `endUT == startUT` pair 28,814,456.826437414.
+        # Against the recording's own `explicitStartUT = 27,787,320.719510831`
+        # that is a seam offset of 1,027,136.107 s - the number
+        # MissionPeriodicity's `Orbital(Laythe) same-parent ... off=` should
+        # reproduce (the V6M convention: measured from the recording's EXPLICIT
+        # start, NOT from segment 0's startUT, which here is 27,787,323.260 and
+        # would put every bracket 2.540 s off - the same ~2.5 s trap Gilly's and
+        # Ike's fixtures both carry).
+        #
+        # TWO PROPERTIES THAT MAKE THIS SUBJECT DIFFERENT FROM EVERY PRIOR ONE.
+        # (1) THE SPAN IS 1,029,702.298 s = 19.435 LAYTHE PERIODS, so
+        # `QuantizeCadenceToMultipleOfP` should take k = 20 and the loop cadence
+        # is TWENTY moon periods rather than the one every previous loop subject
+        # had - the suite's first k > 1 cadence, and the whole reason the V16 pair
+        # exists. (2) ALL FOUR Laythe-framed segments are the APPROACH HYPERBOLA
+        # (`sma = -2,107,372.848 ecc = 1.2713`); the captured park itself is the
+        # 356.780 s tail after the last closed segment (28,816,666.237 ->
+        # explicitEndUT 28,817,023.017), which is where V16M's park epoch has to
+        # sit and is NOT where the destination phase's 70.7% point falls.
+        "laythe-orbit-recorded": {
+            "trees": 1, "committedTrees": 1, "recordings": 1,
+            "supersedes": 0, "tombstones": 0, "rewind_points": 0,
+            "rewind_retirements": 0,
+            "terminalStates": {"Orbiting": 1},
+            "branchPoints": {},
+            "minAuthoritativeSidecars": 4,
+            "recordingIds": ["370d38246d6e42848f140884081428af"],
             "schemaGeneration": 4,
         },
         # --- THE MOON LOOP-VALIDATION PAIR -------------------------------
@@ -864,6 +1151,218 @@ class CommittedFixtureSweepTests(unittest.TestCase):
                              "e3c055b7af8f4d9e8f9e8bf3b8aa0f1a"],
             "schemaGeneration": 4,
         },
+        # --- THE EELOO PROGRAM'S ORBIT FIXTURE ---------------------------
+        # PROVENANCE: eeloo-orbit-recorded <- B21-eeloo-orbit, run
+        # 2026-08-12_2239, PASS attempt 1, wall 3092 s (mission 3020 s).
+        # Harvested with `harvest_bdock_station.py --save-dir <snapshot>
+        # --target-name eeloo-orbit-recorded --expect-situation ORBITING
+        # --keep-parsek`; the gate passed on 'Duna Rocket' ORBITING at Eeloo,
+        # vessels=4. Every number below was re-measured off THESE COMMITTED
+        # BYTES with saveparse.parse_parsek_scenario +
+        # observed_structure_facets and is identical to that run's own
+        # saveParse verifier facets.
+        #
+        # WHY THE HARVEST WENT THROUGH A SNAPSHOT, and why the run id matters
+        # more here than on any earlier fixture. B21 flew green TWICE. The
+        # FIRST green run (2026-08-12_2003, also PASS, wall 3083 s) had its
+        # produced save DESTROYED 53 s after it ended, because sibling
+        # scenario B20-moho-orbit declares the same `saveTemplate =
+        # "fixtures/saves/b18-dres-pad"` and the produced-save directory is
+        # `_leaf_of(saveTemplate)` - so both runs stage into the same
+        # `<instance>/saves/b18-dres-pad`, and the machine lock serialises
+        # RUNS, not the produced save's lifetime (filed as
+        # HARNESS-PRODUCED-SAVE-CLOBBERED-BY-SIBLING-RUN in
+        # todo-and-known-bugs.md). THE COMMITTED BYTES ARE _2239's, harvested
+        # from a snapshot taken in the same command as the run. Do not
+        # re-measure any pin here against _2003.
+        #
+        # WHAT THE FIVE RECORDINGS ARE, by measured span UT -- the count
+        # alone cannot distinguish the Eeloo payload from the Kerbin-parked
+        # debris that also read Orbiting:
+        #   20d890f9  main orbiter, ut 26.2 -> 47,036,743.9 (the 47.037M
+        #             game-second loop-unit span), 1,501 points,
+        #             Orbiting/Eeloo, terminal elements sma 11,552,911.723
+        #             ecc 0.000713 inc 87.743 at epoch 47,036,746.304 -
+        #             which is exactly _2239's ORBIT-COMMIT entry UT, the
+        #             tightest available tie between these bytes and that run
+        #   c849bbee  ascent booster, ut 97.1 -> 149.0, Destroyed
+        #   d8bfbb2c  ascent booster, ut 97.1 -> 148.7, Destroyed
+        #   34ba13d3  core stack dropped by MechJeb AUTOSTAGE during ascent,
+        #             ut 1,697.3 -> 1,716.4 (MJ-ASCENT ran 26.2 -> 1,715.3),
+        #             Orbiting/Kerbin
+        #   cf7ff6b8  Skipper stack dropped by the JETTISON phase, ut 2,699.0
+        #             -> 2,703.9 (the JETTISON PHASE itself ran 2,698.475 ->
+        #             2,703.315, ORBIT -> JETTISON -> PLAN-TRANSFER; 2,703.9
+        #             is the RECORDING's end, 0.6 s past the phase exit, not
+        #             the phase exit itself), Orbiting/Kerbin
+        # So 3 terminals are Orbiting and 2 Destroyed, and two of the
+        # Orbiting three are parked DEBRIS at Kerbin, not the Eeloo orbiter.
+        #
+        # STRUCTURALLY IDENTICAL TO dres-orbit-recorded ON EVERY FACET
+        # PINNED HERE - 5 recordings, Orbiting 3 / Destroyed 2, JointBreak 3,
+        # 20 authoritative sidecars - because it is the same craft flown on
+        # the same B19 profile to a different target. The two fixtures differ
+        # only in points and in span. Read that as confirmation the profile
+        # is body-independent, NOT as evidence one fixture can stand in for
+        # the other: the consumer lanes key off the Eeloo tree id
+        # d4ce5c45adae4f3e89c4ac6bbec6b167 and on the terminal body being
+        # Eeloo, and a stale Dres GUID answers OK-with-nothing-to-do. TWO
+        # DIFFERENT SPELLINGS, do not grep the wrong one: IN THIS FIXTURE the
+        # key is `tOrbBody = Eeloo` (persistent.sfs:729, with the two parked
+        # Kerbin debris reading `tOrbBody = Kerbin` at :1021 and :1073);
+        # `terminalOrbitBody=` is the KSP.log spelling, emitted by
+        # ParsekFlight.cs:13446 and GhostMapPresence.Observability.cs:295 and
+        # found in a collected log, never in the save.
+        #
+        # LINE ENDINGS: THIS FIXTURE IS CRLF WHERE THE OLDER RECORDED
+        # FIXTURES ARE LF, AND THAT IS DELIBERATE. Census of the committed
+        # bytes: 14 of these 33 files contain CRLF and 19 do not. The pure-
+        # CRLF ones are the ConfigNode writes - `persistent.loadmeta` (16
+        # CRLF / 0 LF), all five `Parsek/GameState/*` files (`ledger.pgld`
+        # 210/0, `milestones.pgsm` 157/0, the two `.pgsb` baselines, and
+        # `events.pgse`), and all five `.prec.txt` (29,395/0 for the main
+        # orbiter). `persistent.sfs` is LF-only (15,562 LF); the sidecars are
+        # predominantly LF, and EXACTLY THREE FILES ARE MIXED - all three
+        # named so the census is complete rather than illustrative:
+        # 20d890f9's `.prec` (3 CRLF / 331 LF), 20d890f9's `_ghost.craft`
+        # (1 CRLF / 91 LF) and d8bfbb2c's `.prec` (1 CRLF / 49 LF). The
+        # other 11 CRLF-bearing files are pure CRLF. By contrast
+        # dres-orbit-recorded commits 1
+        # CRLF-bearing file of 33 and bdock-recorded 2 of 106 - in both cases
+        # a single CRLF inside one `.prec`.
+        # MECHANISM. `harvest_bdock_station.py` writes persistent.sfs
+        # EXPLICITLY with an LF-only `newline` argument
+        # (harvest_bdock_station.py:314-316) and copies everything else
+        # verbatim - `shutil.copy2` for the kept root files at :325 and
+        # `shutil.copytree` for the kept directories at :335 - so every
+        # non-sfs file lands byte-for-byte as KSP and
+        # Parsek wrote it on Windows, which for ConfigNode output is CRLF.
+        # `.gitattributes:30` (`harness/fixtures/**    -text`) then keeps
+        # those bytes stable on every platform: no index normalisation on
+        # add, no smudge on checkout, and no gate anywhere compares these
+        # bytes against LF-generated output - the consumers parse structure,
+        # not bytes.
+        # WHY THE OLDER FIXTURES ARE LF - VERIFIED, not assumed. Both were
+        # committed BEFORE the `-text` rule existed: it landed in cc257c44d
+        # (2026-08-12 13:03 UTC), which `git merge-base --is-ancestor`
+        # reports is NOT an ancestor of either dres-orbit-recorded's add
+        # commit fc0a6e8b0 (2026-08-12 01:48 UTC) or bdock-recorded's
+        # 60de84ac2 (2026-08-11 17:24 UTC). This checkout has
+        # `core.autocrlf = true`, so those adds went through CRLF -> LF index
+        # normalisation. The fingerprint proves it rather than merely
+        # suggesting it: dres's committed `ledger.pgld` blob is 0 CRLF / 210
+        # LF while this fixture's, from the same Parsek writer on the same
+        # OS, is 210 CRLF / 0 LF - same 210 lines, opposite endings, a
+        # difference no game code produces. And the one thing that DID
+        # survive normalisation in the old fixtures is explained by the same
+        # rule: `.prec` carries NUL bytes in its first 8 KB, git therefore
+        # classified it binary and skipped the filter, which is why dres's
+        # `.prec` kept its lone CRLF exactly as this fixture's `.prec` files
+        # keep theirs.
+        # WHY IT IS NOT BEING NORMALISED. The provenance block above asserts
+        # that the committed bytes ARE `_2239`'s output. Rewriting the line
+        # endings for tidiness would make that assertion false in exactly the
+        # way this branch has just had to correct elsewhere (the Duna Rocket
+        # craft's retracted "byte-identical to its download" claim). Truthful
+        # bytes beat a tidy convention: these are left as the game wrote them
+        # so the claim stays literally true. Do NOT LF-normalise this
+        # fixture, and do NOT "fix" the inconsistency with the older two.
+        #
+        # POINTS ARE NOT STABLE TO THE UNIT - deliberately NOT pinned here,
+        # and any consumer window over them must not be tight. Measured
+        # across the two green B21 runs: total 1,700 / largest 1,517
+        # (_2003) against total 1,684 / largest 1,501 (_2239), a 16-point
+        # swing in the main orbiter on two runs of the same spec. smallest
+        # (21) and every structural facet were identical across both.
+        #
+        # RISK 2 DID NOT FIRE, AND THE MARGIN IS THE FINDING: THE
+        # 5-RECORDING PIN HERE IS A KNIFE EDGE, NOT A COMFORTABLE
+        # MEASUREMENT. The count rests on the four radial LF drop tanks
+        # (istg 1, 4 x 360 = 1,440 units) never emptying, because emptying
+        # them would let MechJeb autostage pop a SIXTH recording. Measured
+        # from `_2239`'s telemetry lf track, all three readings: 2,240.000 at
+        # TRANSFER-BURN entry, 1,305.522 at CAPTURE-BURN entry (934.478
+        # spent, well inside the radial group) - but 800.452 at ORBIT-COMMIT,
+        # i.e. 1,439.548 of the 1,440 spent by the end of the capture burn.
+        # THE RADIALS RETAINED 0.452 UNITS, 0.03% OF THE GROUP. _2003 landed
+        # at 801.135 (1.135 retained - still under a tenth of a percent). So
+        # the 5-recording topology is measured and correct for both green
+        # runs, and the flight came within 0.03% of being a 6-recording one.
+        # THE CONCRETE CONSEQUENCE for anyone re-harvesting: a marginally
+        # different arrival geometry, a slightly larger correction round, or
+        # ANY change to the craft or the park altitude spends those 0.452
+        # units, autostage sheds istg 1, and the count becomes 6 - which
+        # would red the spec's {5, 5} pin AND this fixture's `recordings`/
+        # `recordingIds` pins ON AN ENTIRELY CORRECT FLIGHT. That is the
+        # drop-tank shed, not a regression.
+        # WHAT TO DO WHEN IT HAPPENS: re-pin to the measured value, add the
+        # new recording's id and span UT to the list above, and say which
+        # recording appeared. DO NOT relax `recordings` to a range - B19's
+        # contract is pin the measurement, and a range would re-hide the
+        # transition this margin exists to warn about.
+        # IT ALSO MOVES THE FLAMEOUT ANALYSIS in the spec's
+        # maxCorrectionDvMps block: its two-trip reading assumes istg 1 is
+        # still attached, so on a flight that DOES shed, istg 1 is gone and a
+        # flameout pop lands on istg 0 - the POD decoupler - on the FIRST
+        # trip rather than the second.
+        "eeloo-orbit-recorded": {
+            "trees": 1, "committedTrees": 1, "recordings": 5,
+            "supersedes": 0, "tombstones": 0, "rewind_points": 0,
+            "rewind_retirements": 0,
+            "terminalStates": {"Orbiting": 3, "Destroyed": 2},
+            "branchPoints": {"JointBreak": 3},
+            "minAuthoritativeSidecars": 20,
+            "recordingIds": ["20d890f9f34b466fb8be07d83103a9a7",
+                             "34ba13d3aaea4297a3e5bee543de4b9d",
+                             "c849bbeea3df44a1bcb85d8f9f2fc06b",
+                             "cf7ff6b80f8649df962cfbf1a37907b1",
+                             "d8bfbb2c7c654b0fa83f1a6d43394833"],
+            "schemaGeneration": 4,
+        },
+        # --- THE JOOL ORBIT FIXTURE --------------------------------------
+        # PROVENANCE: jool-orbit-recorded <- B22-jool-orbit, run
+        # 2026-08-17_1959, PASS attempt 1, wall 2441 s, every verifier PASS
+        # or SKIPPED (result JSON in harness/results/). Harvested with
+        # `harvest_bdock_station.py --keep-parsek --expect-situation
+        # ORBITING` from a SNAPSHOT COPY of the produced b18-dres-pad save,
+        # taken the instant run.py returned -- that leaf is shared by
+        # B18-B21 and the machine lock does not protect a finished run's
+        # save (HARNESS-PRODUCED-SAVE-CLOBBERED-BY-SIBLING-RUN).
+        #
+        # Every number below is READ BACK through this cell's own parser
+        # (saveparse.observed_structure_facets), never counted by hand.
+        # The topology is SHAPE-IDENTICAL to eeloo-orbit-recorded above --
+        # same tree count, same 5 recordings, same {Orbiting 3, Destroyed 2}
+        # terminals, same {JointBreak 3} branch points, same 20 authoritative
+        # sidecars -- which is what a clean RETARGET of the same profile
+        # should produce, and is the cheapest evidence that it was one.
+        #
+        # THE V-LANE PRECONDITION, VERIFIED ON THE HARVESTED BYTES: the
+        # recordings reference Kerbin, Sun and Jool ONLY -- zero Laythe /
+        # Vall / Tylo / Bop / Pol occurrences across all five `.prec.txt`
+        # sidecars (the five hits in persistent.sfs are KSP's own celestial
+        # `BodyName =` roster, not recorded legs). So `moons=0` off the
+        # dest-constraints line, and this fixture cannot silently route a
+        # consumer onto the never-live-flown M-MIS-6 multi-moon path.
+        #
+        # The arrival this fixture carries: requested 600,000,000 m ALTITUDE,
+        # delivered 584,327,170.912 (k = 0.9739) = 590,327,171 m RADIUS,
+        # 2.789x Pol's 211,666,345 m clearance edge, 24.04% of Jool's SOI.
+        # Terminal park ap 584,330,474.177 / pe 584,321,095.004, ecc 8e-6.
+        "jool-orbit-recorded": {
+            "trees": 1, "committedTrees": 1, "recordings": 5,
+            "supersedes": 0, "tombstones": 0, "rewind_points": 0,
+            "rewind_retirements": 0,
+            "terminalStates": {"Orbiting": 3, "Destroyed": 2},
+            "branchPoints": {"JointBreak": 3},
+            "minAuthoritativeSidecars": 20,
+            "recordingIds": ["1d6fa27e66bd47fc85baffe90522bef3",
+                             "98c11e0d19804aecb1b7e66a94f8ede7",
+                             "ad34ea8948ba4c1fb839bbc691f21deb",
+                             "b13418e758764bb8adf061cff8236f1b",
+                             "ddcc6d007ff54a9c8246c7958011883a"],
+            "schemaGeneration": 4,
+        },
         # --- THE ROUTE-PROOF (DOCKING) FIXTURE ---------------------------
         # PROVENANCE: bdock-recorded <- BDOCK-1-station-interceptor, run
         # 2026-08-11_1606, PASS attempt 1, wall 2146 s / mission 2093 s
@@ -921,6 +1420,68 @@ class CommittedFixtureSweepTests(unittest.TestCase):
         # mirrors; those are no longer committed (the two snapshot mirrors
         # are regenerated from the binaries on demand), and the floor now
         # counts ONLY authoritative sidecars so a mirror cannot pad it.
+        # --- THE MOHO PROGRAM'S ORBIT FIXTURE ----------------------------
+        # PROVENANCE: moho-orbit-recorded <- B20-moho-orbit, run
+        # 2026-08-12_2331, PASS attempt 1. Harvested with
+        # `harvest_bdock_station.py --keep-parsek --expect-situation ORBITING`
+        # (situation gate PASSED on 'Duna Rocket' ORBITING at Moho, no --force)
+        # from a SNAPSHOT of the produced save rather than from the instance
+        # directly -- see the note below. Every number here was re-measured off
+        # THESE COMMITTED BYTES with saveparse.parse_parsek_scenario +
+        # observed_structure_facets, never copied from the run.
+        #
+        # WHY A SNAPSHOT, and it cost a flight to learn: the saveTemplate LEAF
+        # IS the runSaveName, and B20 shares `fixtures/saves/b18-dres-pad` with
+        # the sibling B21-eeloo-orbit lane, so BOTH stage into
+        # `automation/stock-minimal/saves/b18-dres-pad`. The produced save is
+        # destroyed by whichever run stages next. A first harvest of THIS lane
+        # was overwritten exactly that way, and the situation gate caught it
+        # ('is PRELAUNCH, expected ORBITING') -- the gate was then overridden
+        # with --force, which turned a correct refusal into silent data loss.
+        # DO NOT PASS --force TO A FIXTURE HARVEST. Copy the produced save out
+        # first and harvest the copy.
+        #
+        # WHAT THE FIVE RECORDINGS ARE, by measured span UT -- the SAME five
+        # roles as dres-orbit-recorded, because the craft and the ascent profile
+        # are identical and only the destination changed:
+        #   2d99b581  main orbiter, ut 26.3 -> 2,884,092.9 (the 2.884M
+        #             game-second loop-unit span), 1,834 points, Orbiting/Moho
+        #   92bfc5b4  ascent booster, ut 97.1 -> 149.0, 68 points, Destroyed
+        #   8bee0671  ascent booster, ut 97.1 -> 148.8, 67 points, Destroyed
+        #   4fa3a07d  core Mainsail stack dropped by MechJeb AUTOSTAGE during
+        #             ascent, ut 1,697.2 -> 1,716.6, 27 points, Orbiting/Kerbin
+        #   8218e120  Skipper stack dropped by the JETTISON phase, ut 2,699.1
+        #             -> 2,703.9 (exactly the JETTISON window), 21 points,
+        #             Orbiting/Kerbin
+        # So 3 terminals are Orbiting and only 2 Destroyed, and two of the
+        # Orbiting three are parked DEBRIS at Kerbin rather than the Moho
+        # orbiter -- the same trap dres-orbit-recorded carries. The four debris
+        # point counts (68/67/27/21) reproduced EXACTLY across two flights of
+        # this profile, which is what makes the topology a pin rather than a
+        # snapshot of one run.
+        #
+        # THE SPAN IS THE INTERESTING DIFFERENCE, and V11 will care: 2.884M game
+        # seconds against the Dres fixture's 20.393M. This flight's
+        # Kerbin->Moho ejection window fell ~398,000 s out (B19's Dres wait was
+        # ~8.4M), so almost the whole span is transfer rather than LKO loiter.
+        # The unit spans ~0.99 of a Kerbin->Moho synodic (2,884,066.6 game s
+        # against a physical 2,918,346.4) where the Dres unit was ~1.79 of one.
+        # V11 MEASURED what the loop machinery derives from that: the unit
+        # schedules on ONE window spacing where Dres took two.
+        "moho-orbit-recorded": {
+            "trees": 1, "committedTrees": 1, "recordings": 5,
+            "supersedes": 0, "tombstones": 0, "rewind_points": 0,
+            "rewind_retirements": 0,
+            "terminalStates": {"Orbiting": 3, "Destroyed": 2},
+            "branchPoints": {"JointBreak": 3},
+            "minAuthoritativeSidecars": 20,
+            "recordingIds": ["2d99b581c9e942acb8519233a9fbd64b",
+                             "4fa3a07d06734889bdfceebcde3b1325",
+                             "8218e1205711401fa765998c0baea66f",
+                             "8bee06711eb34a84be0355523858784b",
+                             "92bfc5b4b61a4fd78eac1619409f1389"],
+            "schemaGeneration": 4,
+        },
         "bdock-recorded": {
             "trees": 2, "committedTrees": 2, "recordings": 19,
             "supersedes": 0, "tombstones": 0, "rewind_points": 3,

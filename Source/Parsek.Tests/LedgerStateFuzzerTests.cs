@@ -918,6 +918,13 @@ namespace Parsek.Tests
                     action.NodeId = "node-" + rng.Next(0, 5).ToString(IC);
                     action.Cost = Amount(rng, 1f, 60f);
                     break;
+                // StrategyScienceDebit needs a real payload or the corpus would only
+                // ever fuzz a zero-cost row and the equal-UT permutation invariants
+                // would never see the debit interact with a same-UT earning - which is
+                // exactly the c2 exchange shape (STRATEGY-SCIENCE-CONVERSION-LEAK).
+                case GameActionType.StrategyScienceDebit:
+                    action.Cost = 5f + rng.Next(0, 200);
+                    break;
                 case GameActionType.FundsEarning:
                     action.FundsAwarded = Amount(rng, 10f, 5000f);
                     break;

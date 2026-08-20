@@ -78,7 +78,13 @@ namespace Parsek
             ParseContracts(gameNode, snapshot);
             ParseMilestones(gameNode, snapshot);
             ParseVessels(flightState, snapshot);
+            // Two deliberate ROSTER walks: ParseRoster reads per-kerbal identity
+            // (name/type/trait/state) for the roster facets, ParseKerbalCareerLogs (P9a)
+            // reads CAREER_LOG entry sets for the KerbalXp facet. They keep separate skip
+            // rules and separate greppable summary lines, so they are NOT folded together.
+            ParseRoster(gameNode, snapshot);
             ParseKerbalCareerLogs(gameNode, snapshot);
+            ParseStrategies(gameNode, snapshot);
 
             ParsekLog.Verbose(Tag,
                 $"Parse: complete hasFunds={snapshot.HasFunds.ToString(IC)} " +
@@ -91,6 +97,11 @@ namespace Parsek
                 $"completedMilestones={snapshot.CompletedMilestoneIds.Count.ToString(IC)} " +
                 $"allMilestones={snapshot.AllMilestoneIds.Count.ToString(IC)} " +
                 $"vessels={snapshot.Vessels.Count.ToString(IC)} " +
+                $"roster={snapshot.Roster.Count.ToString(IC)} " +
+                $"unlockedTech={snapshot.UnlockedTechIds.Count.ToString(IC)} " +
+                $"purchasedParts={snapshot.PurchasedPartNames.Count.ToString(IC)} " +
+                $"strategies={snapshot.Strategies.Count.ToString(IC)} " +
+                $"activeStrategies={snapshot.ActiveStrategyIds.Count.ToString(IC)} " +
                 $"kerbalCareerLogs={snapshot.KerbalCareerLog.Count.ToString(IC)}");
 
             return snapshot;
@@ -228,6 +239,10 @@ namespace Parsek
                 return;
             }
 
+            // The SCENARIO exists, so the tech facet is available even when `sci`
+            // is missing/unparsable (HasScience and HasTechTree are independent).
+            snapshot.HasTechTree = true;
+
             if (TryGetDouble(rnd, "sci", out double sci))
             {
                 snapshot.HasScience = true;
@@ -255,6 +270,228 @@ namespace Parsek
             ParsekLog.Verbose(Tag,
                 $"ParseScience: hasScience={snapshot.HasScience.ToString(IC)} " +
                 $"sciencePool={snapshot.SciencePool.ToString("R", IC)} subjects={subjectCount.ToString(IC)}");
+
+            // Tech unlock set + part purchases live in the SAME already-opened
+            // SCENARIO (A.3): ResearchAndDevelopment > Tech { id, state, cost,
+            // part = <name> (repeated) }.
+            ParseTechTree(rnd, snapshot);
+        }
+
+        /// <summary>
+        /// Parses the unlocked tech-node set and the per-node part purchases out of
+        /// an already-resolved ResearchAndDevelopment SCENARIO node.
+        ///
+        /// Shape: <c>Tech { id, state, cost, part = &lt;name&gt;, part = &lt;name&gt;, ... }</c>.
+        /// KSP writes ONE Tech node per UNLOCKED node (a locked node has no node at
+        /// all), so the node set IS the unlock set; the REPEATED `part` values are
+        /// that node's purchased parts. A Tech node with no `id` is skipped (it has
+        /// no identity to key on) and a duplicate id folds into the same entry
+        /// rather than throwing.
+        /// </summary>
+        private static void ParseTechTree(ConfigNode rnd, CareerSaveSnapshot snapshot)
+        {
+            ConfigNode[] techNodes = rnd.GetNodes("Tech");
+            if (techNodes == null || techNodes.Length == 0)
+            {
+                ParsekLog.Verbose(Tag, "ParseTechTree: no Tech nodes -> empty unlock set");
+                return;
+            }
+
+            int nodes = 0;
+            int parts = 0;
+            int skippedNoId = 0;
+            foreach (var tech in techNodes)
+            {
+                if (tech == null)
+                    continue;
+                string id = tech.GetValue("id");
+                if (string.IsNullOrEmpty(id))
+                {
+                    skippedNoId++;
+                    continue;
+                }
+
+                snapshot.UnlockedTechIds.Add(id);
+                nodes++;
+
+                string[] partValues = tech.GetValues("part");
+                int nodeParts = 0;
+                if (partValues != null)
+                {
+                    for (int i = 0; i < partValues.Length; i++)
+                    {
+                        string partName = partValues[i];
+                        if (string.IsNullOrEmpty(partName))
+                            continue;
+                        snapshot.PurchasedPartNames.Add(partName);
+                        nodeParts++;
+                        parts++;
+                    }
+                }
+
+                int priorCount;
+                snapshot.TechNodePartCounts.TryGetValue(id, out priorCount);
+                snapshot.TechNodePartCounts[id] = priorCount + nodeParts;
+            }
+
+            ParsekLog.Verbose(Tag,
+                $"ParseTechTree: techNodes={nodes.ToString(IC)} " +
+                $"unlockedIds={snapshot.UnlockedTechIds.Count.ToString(IC)} " +
+                $"partValues={parts.ToString(IC)} " +
+                $"distinctParts={snapshot.PurchasedPartNames.Count.ToString(IC)} " +
+                $"skippedNoId={skippedNoId.ToString(IC)}");
+        }
+
+        /// <summary>
+        /// Parses GAME &gt; ROSTER &gt; KERBAL (A.2).
+        ///
+        /// ROSTER is a DIRECT child of the GAME node, NOT a SCENARIO, so
+        /// <see cref="FindScenario"/> can never reach it - this dedicated path off
+        /// the gameNode is the only way in. A KERBAL with no `name` is skipped (no
+        /// identity to key on); every other field is optional and lands as null.
+        /// </summary>
+        private static void ParseRoster(ConfigNode gameNode, CareerSaveSnapshot snapshot)
+        {
+            ConfigNode roster = gameNode.GetNode("ROSTER");
+            if (roster == null)
+            {
+                ParsekLog.Verbose(Tag, "ParseRoster: no ROSTER node -> HasRoster=false");
+                return;
+            }
+
+            snapshot.HasRoster = true;
+
+            ConfigNode[] kerbals = roster.GetNodes("KERBAL");
+            if (kerbals == null)
+            {
+                ParsekLog.Verbose(Tag, "ParseRoster: ROSTER has no KERBAL nodes -> empty roster");
+                return;
+            }
+
+            int parsed = 0;
+            int skippedNoName = 0;
+            int crew = 0;
+            int applicants = 0;
+            int dead = 0;
+            foreach (var k in kerbals)
+            {
+                if (k == null)
+                    continue;
+                string name = k.GetValue("name");
+                if (string.IsNullOrEmpty(name))
+                {
+                    skippedNoName++;
+                    continue;
+                }
+
+                var sk = new SaveKerbal
+                {
+                    Name = name,
+                    Gender = k.GetValue("gender"),
+                    Type = k.GetValue("type"),
+                    Trait = k.GetValue("trait"),
+                    State = k.GetValue("state")
+                };
+                snapshot.Roster.Add(sk);
+                parsed++;
+
+                if (string.Equals(sk.Type, "Crew", StringComparison.Ordinal))
+                    crew++;
+                else if (string.Equals(sk.Type, "Applicant", StringComparison.Ordinal))
+                    applicants++;
+                if (string.Equals(sk.State, "Dead", StringComparison.Ordinal))
+                    dead++;
+            }
+
+            ParsekLog.Verbose(Tag,
+                $"ParseRoster: kerbals={parsed.ToString(IC)} crew={crew.ToString(IC)} " +
+                $"applicants={applicants.ToString(IC)} dead={dead.ToString(IC)} " +
+                $"skippedNoName={skippedNoName.ToString(IC)}");
+        }
+
+        /// <summary>
+        /// Parses SCENARIO[name=StrategySystem] &gt; STRATEGIES &gt; STRATEGY (A.4),
+        /// SHAPE-ONLY: the values are recorded, nothing gates on them.
+        ///
+        /// An EMPTY STRATEGIES block is the NORMAL end state for a career whose
+        /// strategy was deactivated (KSP removes the node), and every committed
+        /// fixture is shaped that way - it must parse to zero strategies, not to a
+        /// failure. Presence in the block IS the active signal (stock writes no
+        /// `isActive` field); an explicit `isActive = False` is honoured
+        /// defensively if some producer ever writes one.
+        /// </summary>
+        private static void ParseStrategies(ConfigNode gameNode, CareerSaveSnapshot snapshot)
+        {
+            ConfigNode ss = FindScenario(gameNode, "StrategySystem");
+            if (ss == null)
+            {
+                ParsekLog.Verbose(Tag,
+                    "ParseStrategies: no StrategySystem SCENARIO -> HasStrategySystem=false");
+                return;
+            }
+
+            snapshot.HasStrategySystem = true;
+
+            ConfigNode strategiesNode = ss.GetNode("STRATEGIES");
+            if (strategiesNode == null)
+            {
+                ParsekLog.Verbose(Tag,
+                    "ParseStrategies: StrategySystem has no STRATEGIES node -> empty");
+                return;
+            }
+
+            ConfigNode[] strategies = strategiesNode.GetNodes("STRATEGY");
+            if (strategies == null || strategies.Length == 0)
+            {
+                ParsekLog.Verbose(Tag,
+                    "ParseStrategies: STRATEGIES block is empty (normal for a deactivated strategy)");
+                return;
+            }
+
+            int parsed = 0;
+            int active = 0;
+            int skippedNoName = 0;
+            foreach (var st in strategies)
+            {
+                if (st == null)
+                    continue;
+                string name = st.GetValue("name");
+                if (string.IsNullOrEmpty(name))
+                {
+                    skippedNoName++;
+                    continue;
+                }
+
+                bool isActive = true;
+                string rawActive = st.GetValue("isActive");
+                if (!string.IsNullOrEmpty(rawActive)
+                    && bool.TryParse(rawActive, out bool parsedActive))
+                {
+                    isActive = parsedActive;
+                }
+
+                TryGetDouble(st, "date", out double date);
+                TryGetDouble(st, "factor", out double factor);
+
+                snapshot.Strategies.Add(new SaveStrategy
+                {
+                    Name = name,
+                    IsActive = isActive,
+                    ActivatedUT = date,
+                    Factor = factor
+                });
+                parsed++;
+
+                if (isActive)
+                {
+                    snapshot.ActiveStrategyIds.Add(name);
+                    active++;
+                }
+            }
+
+            ParsekLog.Verbose(Tag,
+                $"ParseStrategies: strategies={parsed.ToString(IC)} active={active.ToString(IC)} " +
+                $"skippedNoName={skippedNoName.ToString(IC)}");
         }
 
         private static void ParseReputation(ConfigNode gameNode, CareerSaveSnapshot snapshot)

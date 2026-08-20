@@ -198,9 +198,9 @@ namespace Parsek.Tests.Analyzer
             (AnalysisBaseline baseline, List<BaselineLoadFault> faults) = BaselineCodec.Load(path);
             Assert.Empty(faults);
             // Provenance stamp = AnalysisReport.CurrentAnalyzerVersion at write time
-            // (bumped 2 -> 3 for the careerSave export block, module M-B2). Never gates
+            // (bumped 3 -> 4 for the additive careerSave ROSTER export). Never gates
             // baseline matching, so the bump does not invalidate existing baselines.
-            Assert.Equal("3", baseline.CreatedAtAnalyzerVersion);
+            Assert.Equal("4", baseline.CreatedAtAnalyzerVersion);
             Assert.Equal(4, baseline.SubjectSchemaGeneration);
 
             Dictionary<BaselineKey, BaselineEntry> index = baseline.BuildIndex();

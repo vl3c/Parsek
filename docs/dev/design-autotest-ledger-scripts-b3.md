@@ -538,8 +538,8 @@ pool. The manifest entry per action, with the author-constant discipline applied
   load-bearing: `KscActionExpectationClassifier.cs:140-148` keys the ledger's hire funds
   leg on it) then `KerbalRoster.HireApplicant`, confirming roster membership.
 - Manifest: `kind = "kerbal-hire"`, `funds = -<hireCost>`, provenance seam-declared.
-  The roster ADD lands on the (deferred, M-B2) world roster sub-facet; the funds spend
-  is the HARD assertion.
+  The roster ADD lands on the M-B2 world roster sub-facet (status:
+  `docs/dev/autotest-status.md`); the funds spend is the HARD assertion.
 - **Author-constant rule: STATE-DEPENDENT-BUT-FIXTURE-PINNED.** The hire cost rises with
   the HIRED-CREW COUNT via the `GameVariables` recruit-cost curve -- the curve input is
   the number of already-hired kerbals, NOT the applicant's identity (M-C1 confirms it is
@@ -567,8 +567,9 @@ pool. The manifest entry per action, with the author-constant discipline applied
   pool; stock does not refund a hire). The entry exists to record the roster change and
   to assert VIA the zero-delta cross-check that NO pool moved (a dismiss must not
   spuriously credit or debit funds).
-- **Assertion:** `expected == seed` on all pools (the dismiss is pool-neutral, the SOLE
-  trusted leg), plus the roster removal on the deferred world roster sub-facet. The
+- **Assertion:** `expected == seed` on all pools (the dismiss is pool-neutral), plus the
+  roster removal on the `[expectations.world.roster]` sub-facet (status:
+  `docs/dev/autotest-status.md`, the single status authority). The
   `unmatched_captured_awards`-empty check IS trusted here (unlike the nonzero economic
   scripts): a dismiss fires NO economic award, so the captured set is empty and the
   any-captured-award-reds signal is sound for any `seq_key` -- exactly the B10
@@ -577,9 +578,10 @@ pool. The manifest entry per action, with the author-constant discipline applied
   dismiss L1 script is effectively a passive-safety cross-check scoped to a roster
   mutation: it proves a KSC roster action does not perturb the economy. This is the
   R6/R7-adjacent "no phantom economy movement on a non-economic action" guard.
-- Because the roster world sub-facet is DEFERRED in M-B2 (no `Roster` parse on
-  `CareerSaveSnapshot`), the dismiss script's ROSTER assertion is a Deferred item; its
-  POOL-neutrality assertion is drivable today. Named honestly in Deferred Items.
+- The dismiss script's ROSTER assertion rides the world roster sub-facet, which M-B2
+  originally deferred (no `Roster` parse on `CareerSaveSnapshot`); its POOL-neutrality
+  assertion was always drivable. Current state of both:
+  `docs/dev/autotest-status.md`, the single status authority.
 
 ### The four L1 items with no seam verb (per-item decision)
 
@@ -624,9 +626,8 @@ None has an M-C1 verb. Decided per-item, honestly:
 - **EVA science -> NOT a KSC action; route to FLOWN B-track (B3 EVA).** EVA science needs
   a kerbal on EVA taking a science report: a flown vessel plus EVA control, which the
   plan defers as HARD autopilot (EVA-jetpack). It is a flown B-track concern (B3 EVA) and
-  is precisely where the M-B2 roster world sub-facet lands (M-B2 defers the `Roster`
-  parse until the first kerbal/EVA scenario needs it). Deferred to B3 + the roster
-  sub-facet.
+  is adjacent to the M-B2 roster world sub-facet (whose state is tracked in
+  `docs/dev/autotest-status.md`). Deferred to B3.
 
 So the M-B3 L1 SCRIPT deliverable is the FOUR drivable sub-actions; the other four L1
 items are Deferred with their named seam sub-actions or flown routes.
@@ -837,12 +838,12 @@ Each: scenario -> expected behavior -> v1 or deferred.
    `node-already-unlocked` check. -> The Sandbox script therefore drives NO KscAction at
    all; it is a PURE B10 passive variant (`expected == seed`, all pools absent, no verb
    step). v1.
-6. **dismiss-kerbal moves no pool but the roster sub-facet is unparsed.** -> The
-   pool-neutrality assertion (`expected == seed` on all pools + empty capture) is drivable
-   today and is the R6/R7-adjacent guard (its empty-capture leg is TRUSTED like B10, since
-   a dismiss fires no economic award); the ROSTER-changed assertion is Deferred with the
-   M-B2 world roster sub-facet (`CareerSaveSnapshot` has no roster). v1 (pool-neutral part);
-   deferred (roster part).
+6. **dismiss-kerbal moves no pool, and the roster sub-facet states the rest.** -> The
+   pool-neutrality assertion (`expected == seed` on all pools + empty capture) is the
+   R6/R7-adjacent guard (its empty-capture leg is TRUSTED like B10, since a dismiss fires
+   no economic award); the ROSTER-changed assertion rides the
+   `[expectations.world.roster]` sub-facet. Status for both:
+   `docs/dev/autotest-status.md` (the single status authority).
 7. **Sandbox / Science pool absence reds nothing.** `CareerSaveParser` sets the absent
    `hasX` flags false; the seed and the oracle facet-skip the absent pools (M-B2 edge 5).
    -> A Science-mode funds assertion is impossible (no pool), so Science scripts only
@@ -1121,7 +1122,8 @@ On a provisioned stock-minimal EN instance, per L1 script:
 4. **hire-kerbal / dismiss-kerbal (Career).** hire: confirm funds dropped by the pinned hire
    cost (grep `OnCrewmemberHired`), `expected = seed.funds - pinnedCost` diffs clean. dismiss:
    confirm NO pool moved (`expected == seed`, empty capture; grep `onKerbalRemoved`), the
-   pool-neutrality guard. The roster-changed assertion is Deferred (M-B2 roster sub-facet).
+   pool-neutrality guard. The roster-changed assertion rides the M-B2 roster sub-facet;
+   status in `docs/dev/autotest-status.md`.
 5. **research-node (Science).** Requires the SUB-ACTION-SCOPED M-C1 readiness widening for
    `research-node` (OQ1, plan of record). With it, run `L1-research-node-science` (confirm the
    verb fires in `SCIENCE_SANDBOX`, science drops by the node cost, no funds/rep facet
@@ -1173,17 +1175,18 @@ drivable today -- the one L2 candidate, R6, is deferred behind the `SaveGame` ve
   `activate-strategy strategy=<id> commitment=<0..1>`), gated on the M-B2 oracle's
   contract/strategy facets being operator-verified end-to-end. milestone and EVA science are NOT
   KSC actions: milestone-fed rewards defer to FLOWN B-track missions (B2/B7) + a
-  `ProgressTracking` capture pattern; EVA science defers to B3 EVA + the M-B2 roster world
-  sub-facet.
+  `ProgressTracking` capture pattern; EVA science defers to B3 EVA (the M-B2 roster world
+  sub-facet's own state is tracked in `docs/dev/autotest-status.md`).
 - **The three L2 cross-module interactions besides facility-refund.** Contract triple-credit
   (funds + rep + science at one UT, three seam entries, the reputation curve on the rep leg),
   strategy currency conversion (post-transform captured byproduct, M-B2 edge 16), and
   milestone-fed rewards all defer with the contract / strategy / milestone instruments above.
   The oracle already supports multi-entry expected and the curve; only the driving verbs /
   flown scenarios are missing.
-- **The roster world sub-facet.** The dismiss-kerbal and hire-kerbal ROSTER assertions defer
-  with M-B2's single additive `Roster` parse on `CareerSaveSnapshot`; their POOL assertions are
-  drivable today. B3 EVA is the first scenario that forces the roster parse to land.
+- **The roster world sub-facet.** The dismiss-kerbal and hire-kerbal ROSTER assertions ride
+  M-B2's single additive `Roster` parse on `CareerSaveSnapshot`; their POOL assertions were
+  always drivable. Status for the parse and for each assertion:
+  `docs/dev/autotest-status.md`, the single status authority.
 - **The full stock-award capture enumeration.** Subsumed by the pattern-rewrite item above:
   the facility-upgrade-funds, hire-funds, and research-spend `tech-unlock` patterns are NOT
   added by M-B3 (adding one would false-red its own script), and land only as part of the

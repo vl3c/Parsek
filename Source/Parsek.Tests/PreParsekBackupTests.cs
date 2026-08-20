@@ -83,6 +83,13 @@ namespace Parsek.Tests
         [InlineData(" MyCareer ", "MyCareer")]
         public void SanitizeSaveName_ReplacesInvalidChars(string input, string expected)
         {
+            // The ':'/'*'/'?' row bakes Windows expectations; SanitizeSaveName
+            // deliberately uses the running OS's invalid-char set, and on Unix
+            // those characters are legal filename characters.
+            if (input != null && input.IndexOf(':') >= 0
+                && Array.IndexOf(Path.GetInvalidFileNameChars(), ':') < 0)
+                return;
+
             Assert.Equal(expected, PreParsekBackup.SanitizeSaveName(input));
         }
 
@@ -112,6 +119,11 @@ namespace Parsek.Tests
         [Fact]
         public void BuildBackupFolderName_SanitizesBaseName()
         {
+            // ':' is only an invalid filename character on Windows; on Unix
+            // SanitizeSaveName correctly leaves it alone.
+            if (Array.IndexOf(Path.GetInvalidFileNameChars(), ':') < 0)
+                return;
+
             var dt = new DateTime(2026, 1, 2, 3, 4, 0);
             string name = PreParsekBackup.BuildBackupFolderName("a:b", dt, _ => false);
             Assert.StartsWith("a_b (pre-Parsek", name);

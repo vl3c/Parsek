@@ -219,6 +219,61 @@ floating-origin / zero-velocity carve-outs):
   scene-transition clearing below).
 - `line-blink`: `line.active` toggled within N frames. Detectable from the truth read
   alone (no decision needed), so it is in the MVP.
+
+  THREE PRINCIPLED EXEMPTIONS, each a POSITIVE fact about a real transition rather
+  than a widened threshold, and each added only after its own measured pass:
+  `bodyChanged` (the toggle pair straddles a reference-body / segment seam),
+  `offWindowCovered` (every frame of the dark window had an actual trajectory-polyline
+  line painted for the same recording — nothing went dark), and, since
+  LINE-BLINK-JUMP-STRADDLE-DETECTOR-GAP was closed, `windowTransitionExempt` — **the pair
+  left the recording's rendered body-frame window and came back onto a clock the
+  recording COVERS.** That third one is the only exemption that reads the DECISION side
+  rather than the truth side. `GhostOrbitLinePatch` stamps a three-state
+  `RenderWindowCoverage` onto each frame's `LineRenderIntent`, and only where the branch
+  condition IS the measurement: `Outside` at `past-body-frame-end` /
+  `before-body-frame-start` and at `parking-conic-loiter-hold`, `Inside` at
+  `director-stockconic-visible` and `visible-body-frame`, `Unknown` everywhere else.
+  `ClassifyLineToggle` reduces one toggle to `WindowExitOff` / `InsideWindowOn` /
+  `Other`; `ResolveWindowTransitionExempt` exempts only when BOTH halves are proven, one
+  of each kind, with the probe stamping each toggle's verdict per pid so whichever edge
+  the detector catches has the other half on record.
+
+  BOTH HALVES, because one is never enough — in either direction.
+  `parking-conic-loiter-hold` holds the line LIT while the clock is outside the window
+  and sits in the same `pastEnd || beforeStart` block as the window-exit OFF, so a pair
+  pivoting on it has nothing inside the window and is a real on-screen flash: dark →
+  hold (caught on the lit edge) and hold → dark one frame later (caught on the dark edge,
+  where its partner has already aged past the frame window, so a dark-half-only rule made
+  the whole flash raise NOTHING). The coverage is also deliberately NOT a generic "clock
+  outside whatever bounds this site logged": `stale-segment-awaiting-reseed` reads
+  outside-bounds but those are the APPLIED SEGMENT bounds lagging INSIDE the window, and
+  `terminal-visible` is LIT past the recorded window while stamping nothing — which is
+  why `Inside` must be a positive fact rather than "not `Outside`".
+
+  CANNOT-MASK CONTRACT (the house analogue is the log validator's
+  `ParseSuppressionList` refusing to suppress FMT/WRN). Every conjunct is fail-closed:
+  anything unproven lands in `Other`, and `Other` never exempts on either edge — so the
+  exemption fires only on a pair whose two halves were each MEASURED by the site whose
+  branch condition is that measurement, never on absence of evidence. Every within-window
+  OFF reason (`polyline-owns-phase`, `director-traced-path-suppress`, `below-atmosphere` /
+  `terminal-below-atmosphere`, `stale-segment-awaiting-reseed`,
+  `post-polyline-release-grace`, `director-terminal-suppress`) still raises, as do a frame
+  where the Postfix never ran, a decision that disagrees with the truth read, and a
+  degenerate line read. Pinned by `LineBlinkWindowExitExemptionTests`, whose
+  `CoverageStamps_AreConfinedToTheFourMeasuringDecisions` cell is a SOURCE gate — the stamp
+  is an ENUM VALUE, so any widening must spell `RenderWindowCoverage.Inside` / `.Outside`
+  and is counted, catching the trailing POSITIONAL argument a string grep would miss — and
+  `CoverageStamp_DefaultsToUnknown_AndHasOneWriter` pins `RecordLineIntent` to one
+  production call site.
+
+  Both coverage suppressions log a `line-blink-suppressed` line carrying every guard flag
+  (`offWindowCovered=` / `windowTransitionExempt=` / `bodyChanged=`), the two toggle
+  verdicts (`toggleVerdict=` / `priorToggleVerdict=`, so a reader sees WHICH proof was
+  missing) and the decision's `intentReason=`, because a silent guard on a gated token is undebuggable. Read the
+  attribution precisely: `bodyChanged` short-circuits AHEAD of both and never reaches
+  that line, so a toggle pair a body change would also have exempted is attributed to
+  whichever coverage guard is true. That overstates the coverage guards' reach rather
+  than hiding it, which is the safe direction for an over-firing audit.
 - `orbit-discontinuity`: sma / ecc / body changed between truth reads without a
   `SegmentApplied` (second cut) or SOI change explaining it. In the MVP this degrades
   to a plain change-log; the "without an explaining event" qualifier needs the decision

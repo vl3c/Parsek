@@ -210,6 +210,94 @@ namespace Parsek.Tests
             vessel.AddNode(part);
         }
 
+        /// <summary>
+        /// Adds a KERBAL under GAME &gt; ROSTER (a DIRECT GAME child, NOT a SCENARIO).
+        /// A null name omits the `name` value entirely (the skip path).
+        /// </summary>
+        private static void AddKerbal(
+            ConfigNode game, string name, string type, string trait, string state,
+            string gender = "Male")
+        {
+            ConfigNode roster = game.GetNode("ROSTER");
+            if (roster == null)
+            {
+                roster = new ConfigNode("ROSTER");
+                game.AddNode(roster);
+            }
+            var k = new ConfigNode("KERBAL");
+            if (name != null)
+                k.AddValue("name", name);
+            k.AddValue("gender", gender);
+            if (type != null) k.AddValue("type", type);
+            if (trait != null) k.AddValue("trait", trait);
+            if (state != null) k.AddValue("state", state);
+            roster.AddNode(k);
+        }
+
+        /// <summary>
+        /// Adds a Tech node inside the ResearchAndDevelopment SCENARIO. Purchases are
+        /// the REPEATED `part` values, exactly as KSP writes them. A null id omits
+        /// the `id` value (the skip path).
+        /// </summary>
+        private static void AddTech(ConfigNode game, string id, double cost, params string[] parts)
+        {
+            ConfigNode rnd = FindScenario(game, "ResearchAndDevelopment");
+            if (rnd == null)
+            {
+                rnd = MakeScenario("ResearchAndDevelopment");
+                game.AddNode(rnd);
+            }
+            var tech = new ConfigNode("Tech");
+            if (id != null)
+                tech.AddValue("id", id);
+            tech.AddValue("state", "Available");
+            tech.AddValue("cost", R(cost));
+            foreach (string p in parts ?? new string[0])
+                tech.AddValue("part", p);
+            rnd.AddNode(tech);
+        }
+
+        /// <summary>Ensures the StrategySystem SCENARIO + its STRATEGIES block exist.</summary>
+        private static ConfigNode EnsureStrategiesNode(ConfigNode game)
+        {
+            ConfigNode ss = FindScenario(game, "StrategySystem");
+            if (ss == null)
+            {
+                ss = MakeScenario("StrategySystem");
+                game.AddNode(ss);
+            }
+            ConfigNode strategies = ss.GetNode("STRATEGIES");
+            if (strategies == null)
+            {
+                strategies = new ConfigNode("STRATEGIES");
+                ss.AddNode(strategies);
+            }
+            return strategies;
+        }
+
+        /// <summary>
+        /// Adds a STRATEGY node in the REAL stock shape (name / date / factor +
+        /// EFFECT children; stock writes NO isActive field). Passing
+        /// <paramref name="explicitIsActive"/> writes the defensive isActive value.
+        /// </summary>
+        private static void AddStrategy(
+            ConfigNode game, string name, double date, double factor,
+            bool? explicitIsActive = null)
+        {
+            ConfigNode strategies = EnsureStrategiesNode(game);
+            var st = new ConfigNode("STRATEGY");
+            if (name != null)
+                st.AddValue("name", name);
+            st.AddValue("date", R(date));
+            st.AddValue("factor", R(factor));
+            if (explicitIsActive.HasValue)
+                st.AddValue("isActive", explicitIsActive.Value ? "True" : "False");
+            var effect = new ConfigNode("EFFECT");
+            effect.AddValue("name", "CurrencyConverter");
+            st.AddNode(effect);
+            strategies.AddNode(st);
+        }
+
         private static ConfigNode FindScenario(ConfigNode game, string name)
         {
             foreach (var sc in game.GetNodes("SCENARIO"))
@@ -431,6 +519,233 @@ namespace Parsek.Tests
 
             Assert.False(snap.Parsed);
             Assert.Contains("null", snap.Reason, StringComparison.OrdinalIgnoreCase);
+        }
+
+        // ================================================================
+        // A.2 - ROSTER (a DIRECT GAME child, not a SCENARIO)
+        // ================================================================
+
+        [Fact]
+        public void Parse_Roster_ReadsEveryKerbalField()
+        {
+            // Guards: the ROSTER path (FindScenario can NEVER reach it) and the
+            // per-kerbal field set.
+            var game = MakeGame(funds: 1.0);
+            AddKerbal(game, "Jebediah Kerman", "Crew", "Pilot", "Available");
+            AddKerbal(game, "Bill Kerman", "Crew", "Engineer", "Assigned");
+            AddKerbal(game, "Valentina Kerman", "Applicant", "Pilot", "Available", gender: "Female");
+
+            var snap = CareerSaveParser.Parse(game);
+
+            Assert.True(snap.HasRoster);
+            Assert.Equal(3, snap.Roster.Count);
+
+            var jeb = snap.Roster[0];
+            Assert.Equal("Jebediah Kerman", jeb.Name);
+            Assert.Equal("Male", jeb.Gender);
+            Assert.Equal("Crew", jeb.Type);
+            Assert.Equal("Pilot", jeb.Trait);
+            Assert.Equal("Available", jeb.State);
+
+            Assert.Equal("Assigned", snap.Roster[1].State);
+            Assert.Equal("Female", snap.Roster[2].Gender);
+            Assert.Equal("Applicant", snap.Roster[2].Type);
+
+            Assert.Contains(logLines, l => l.Contains("[LedgerGroundTruth]")
+                && l.Contains("ParseRoster: kerbals=3") && l.Contains("crew=2") && l.Contains("applicants=1"));
+        }
+
+        [Fact]
+        public void Parse_Roster_SkipsNamelessKerbalAndCountsDead()
+        {
+            // Guards: a KERBAL with no `name` has no identity to key on and must be
+            // skipped rather than added as a blank entry / throwing.
+            var game = MakeGame(funds: 1.0);
+            AddKerbal(game, "Bob Kerman", "Crew", "Scientist", "Dead");
+            AddKerbal(game, null, "Crew", "Pilot", "Available");
+
+            var snap = CareerSaveParser.Parse(game);
+
+            Assert.True(snap.HasRoster);
+            Assert.Single(snap.Roster);
+            Assert.Equal("Bob Kerman", snap.Roster[0].Name);
+            Assert.Contains(logLines, l => l.Contains("ParseRoster")
+                && l.Contains("dead=1") && l.Contains("skippedNoName=1"));
+        }
+
+        [Fact]
+        public void Parse_NoRosterNode_HasRosterFalseNoThrow()
+        {
+            // Guards: an absent ROSTER throwing / claiming a roster facet.
+            var game = MakeGame(funds: 1.0);
+
+            var snap = CareerSaveParser.Parse(game);
+
+            Assert.True(snap.Parsed);
+            Assert.False(snap.HasRoster);
+            Assert.Empty(snap.Roster);
+            Assert.Contains(logLines, l => l.Contains("ParseRoster: no ROSTER node"));
+        }
+
+        [Fact]
+        public void Parse_EmptyRosterNode_HasRosterTrueZeroKerbals()
+        {
+            // Guards: a present-but-empty ROSTER must report the facet as PRESENT
+            // (an empty roster is a real state), not collapse to "no roster".
+            var game = MakeGame(funds: 1.0);
+            game.AddNode(new ConfigNode("ROSTER"));
+
+            var snap = CareerSaveParser.Parse(game);
+
+            Assert.True(snap.HasRoster);
+            Assert.Empty(snap.Roster);
+        }
+
+        // ================================================================
+        // A.3 - tech unlock set + part purchases (inside the R&D SCENARIO)
+        // ================================================================
+
+        [Fact]
+        public void Parse_TechNodes_UnlockSetAndRepeatedPartValues()
+        {
+            // Guards: the Tech child enumeration and the REPEATED `part` value read
+            // (a single GetValue would keep only the first part per node).
+            var game = MakeGame(sciencePool: 100.0);
+            AddTech(game, "start", 0.0, "mk1pod.v2", "basicFin", "parachuteSingle");
+            AddTech(game, "basicRocketry", 5.0, "liquidEngine2", "fuelTankSmallFlat");
+
+            var snap = CareerSaveParser.Parse(game);
+
+            Assert.True(snap.HasTechTree);
+            Assert.Equal(2, snap.UnlockedTechIds.Count);
+            Assert.Contains("start", snap.UnlockedTechIds);
+            Assert.Contains("basicRocketry", snap.UnlockedTechIds);
+
+            Assert.Equal(5, snap.PurchasedPartNames.Count);
+            Assert.Contains("mk1pod.v2", snap.PurchasedPartNames);
+            Assert.Contains("fuelTankSmallFlat", snap.PurchasedPartNames);
+
+            Assert.Equal(3, snap.TechNodePartCounts["start"]);
+            Assert.Equal(2, snap.TechNodePartCounts["basicRocketry"]);
+        }
+
+        [Fact]
+        public void Parse_TechNode_WithoutId_IsSkipped()
+        {
+            // Guards: an id-less Tech node has no identity and must not enter the
+            // unlock set (its parts are not attributable either).
+            var game = MakeGame(sciencePool: 10.0);
+            AddTech(game, null, 0.0, "orphanPart");
+            AddTech(game, "stability", 18.0, "winglet");
+
+            var snap = CareerSaveParser.Parse(game);
+
+            Assert.Single(snap.UnlockedTechIds);
+            Assert.Contains("stability", snap.UnlockedTechIds);
+            Assert.Single(snap.PurchasedPartNames);
+            Assert.DoesNotContain("orphanPart", snap.PurchasedPartNames);
+            Assert.Contains(logLines, l => l.Contains("ParseTechTree") && l.Contains("skippedNoId=1"));
+        }
+
+        [Fact]
+        public void Parse_TechTreeFacet_IsIndependentOfSciencePoolParse()
+        {
+            // Guards: coupling HasTechTree to HasScience. An R&D SCENARIO with no
+            // parsable `sci` still carries a real unlock set.
+            var game = new ConfigNode("GAME");
+            var rnd = MakeScenario("ResearchAndDevelopment");
+            game.AddNode(rnd);
+            AddTech(game, "start", 0.0, "mk1pod.v2");
+
+            var snap = CareerSaveParser.Parse(game);
+
+            Assert.False(snap.HasScience);
+            Assert.True(snap.HasTechTree);
+            Assert.Contains("start", snap.UnlockedTechIds);
+        }
+
+        [Fact]
+        public void Parse_NoResearchAndDevelopment_NoTechFacet()
+        {
+            var game = MakeGame(funds: 1.0);
+
+            var snap = CareerSaveParser.Parse(game);
+
+            Assert.False(snap.HasTechTree);
+            Assert.Empty(snap.UnlockedTechIds);
+            Assert.Empty(snap.PurchasedPartNames);
+            Assert.Empty(snap.TechNodePartCounts);
+        }
+
+        // ================================================================
+        // A.4 - StrategySystem (SHAPE-ONLY)
+        // ================================================================
+
+        [Fact]
+        public void Parse_Strategies_PresenceIsTheActiveSignal()
+        {
+            // Guards: the real stock STRATEGY shape (name / date / factor; NO
+            // isActive field). Presence in STRATEGIES means active.
+            var game = MakeGame(funds: 1.0);
+            AddStrategy(game, "PatentsLicensingCfg", 17022.76, 0.05);
+
+            var snap = CareerSaveParser.Parse(game);
+
+            Assert.True(snap.HasStrategySystem);
+            Assert.Single(snap.Strategies);
+            var st = snap.Strategies[0];
+            Assert.Equal("PatentsLicensingCfg", st.Name);
+            Assert.True(st.IsActive);
+            Assert.Equal(17022.76, st.ActivatedUT);
+            Assert.Equal(0.05, st.Factor);
+            Assert.Contains("PatentsLicensingCfg", snap.ActiveStrategyIds);
+        }
+
+        [Fact]
+        public void Parse_Strategies_ExplicitIsActiveFalseIsHonoured()
+        {
+            // Guards: the defensive isActive read. Stock never writes it, but if a
+            // producer ever does, "False" must NOT land in the active set.
+            var game = MakeGame(funds: 1.0);
+            AddStrategy(game, "ResearchTiming", 100.0, 0.25, explicitIsActive: false);
+            AddStrategy(game, "PatentsLicensingCfg", 200.0, 0.5, explicitIsActive: true);
+
+            var snap = CareerSaveParser.Parse(game);
+
+            Assert.Equal(2, snap.Strategies.Count);
+            Assert.Single(snap.ActiveStrategyIds);
+            Assert.Contains("PatentsLicensingCfg", snap.ActiveStrategyIds);
+            Assert.DoesNotContain("ResearchTiming", snap.ActiveStrategyIds);
+        }
+
+        [Fact]
+        public void Parse_EmptyStrategiesBlock_IsTheNormalShape()
+        {
+            // Guards: the EMPTY STRATEGIES block (every committed fixture is shaped
+            // that way - a deactivated strategy is REMOVED from the save). It must
+            // report the SCENARIO as present with zero strategies, never a failure.
+            var game = MakeGame(funds: 1.0);
+            EnsureStrategiesNode(game);
+
+            var snap = CareerSaveParser.Parse(game);
+
+            Assert.True(snap.Parsed);
+            Assert.True(snap.HasStrategySystem);
+            Assert.Empty(snap.Strategies);
+            Assert.Empty(snap.ActiveStrategyIds);
+            Assert.Contains(logLines, l => l.Contains("ParseStrategies")
+                && l.Contains("STRATEGIES block is empty"));
+        }
+
+        [Fact]
+        public void Parse_NoStrategySystemScenario_HasStrategySystemFalse()
+        {
+            var game = MakeGame(funds: 1.0);
+
+            var snap = CareerSaveParser.Parse(game);
+
+            Assert.False(snap.HasStrategySystem);
+            Assert.Empty(snap.Strategies);
         }
 
         [Fact]

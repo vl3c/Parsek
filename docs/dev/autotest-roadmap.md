@@ -194,8 +194,9 @@ so the unreachable set is exactly as hard as it was. `TrackingStation` alone is 
 batch-eligible tests stranded behind one missing seam verb.
 
 The D1-D9 blocks that are batch-allowed and reachable RIGHT NOW, with no code change
-and no new fixture. Struck-through rows were CLOSED by #1358 and are kept so the
-remaining work is legible against the original list:
+and no new fixture. Struck-through rows have been CLOSED since - by #1358, then by
+wave 2, then by the career-ledger lane; each strike names the spec that closed it -
+and are kept so the remaining work is legible against the original list:
 
 | Category | Tests | Dimension cells it reaches |
 |---|---:|---|
@@ -217,9 +218,9 @@ remaining work is legible against the original list:
 | ~~`MapPresence`~~ | 5 | DRIVEN since wave-2 by `H28` (live-proven 2026-08-04). D6 `ghost-map-presence`; `commnet-relay` NOT closed - its only cell is vacuous under every committed asset (no generator writes AntennaSpecs; see W2-VACUOUS-CELLS) |
 | `ReentryFx` | 3 | D6 `reentry-fx` |
 | `Watch` | 2 | D6 `watch-mode-retarget-explosion-hold` |
-| `LedgerGroundTruth` | 1 | D8 `ground-truth-harness` |
+| ~~`LedgerGroundTruth`~~ | 2 | DRIVEN since the career-ledger lane by `L2-ledger-groundtruth-career` (live-proven 2026-08-17, armed run `2026-08-17_2233`). D8 `ground-truth-harness`. The count was 1 here and is 2: `KerbalExperienceReassertTest.SurvivingCareerLogEntriesAreOnTheLiveRoster` (P9a) also declares this category |
 | `Contracts` | 2 | D8 `contracts` |
-| `StrategyLifecycle` | 2 | D8 `strategies` |
+| ~~`StrategyLifecycle`~~ | 7 | DRIVEN since the career-ledger lane by `L3-strategy-currency-conversion` (live-proven 2026-08-18, green runs `2026-08-18_2039` and, for the capture matrix, `2026-08-18_2140`). D8 `strategies` |
 | `SpawnRotation` + 7 more | 29 | D13, all 11 cells |
 | ~~`CrewReservation`~~ | 15 | DRIVEN since wave-2 by `H31` on b2-lko-craft (live-proven 2026-08-04, 14 of 15 executing). D12 `seat-matching`, `rescue-marker`; the rest of D12 has no producer in the category |
 

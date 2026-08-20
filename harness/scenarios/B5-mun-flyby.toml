@@ -76,8 +76,17 @@ transferMinApoapsisMeters  = 10000000
 # 9.5 m/s plan (claiming 60 km) moved the prediction only +2.7 km where the
 # geometry needed ~39 m/s. Every plan burns the RIGHT direction, just far
 # too little, so the fix is margin: target 250 km and let the characterized
-# ~90-100 km bias land the arrival comfortably above the 10 km assertion
-# floor (the contract is the FLOOR; the proven passes flew 956-1,142 km).
+# ~110 km shortfall (measured 109-114 km across the six 250 km-request Mun
+# flights) land the arrival comfortably above the 10 km assertion
+# floor (the contract is the FLOOR, and the ONE flight ever flown at this
+# 250 km request -- flight 26 -- delivered 138.9 km, short by ~111 km and
+# still ~14x the floor). The 956-1,142 km passes are NOT this request's
+# outcomes: flights 15 and 16 flew 1,138 km and flight 21 flew 956 km, all
+# at `courseCorrectPeriapsisMeters = 60000` (the 60 -> 250 km change is
+# commit c41a6b5eb, later than every one of them), and the 1,142 km
+# endpoint is flight 9's documented off-axis-burn artefact rather than a
+# corrector measurement -- see the todo doc's
+# FINDING-16D-MISCITED-DIRECTION-AND-DENOMINATOR.
 # The finding-16 arrival-quality gate stays as the closed-loop guard.
 courseCorrectPeriapsisMeters = 250000
 # The dv cap blocks the WILD-BURN INSANITY class only (finding 2's 15,930
