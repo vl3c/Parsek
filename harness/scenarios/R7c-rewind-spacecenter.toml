@@ -1,12 +1,12 @@
 schema = 1
 id = "R7c-rewind-spacecenter"
 tier = "nightly"
-# ROADMAP R7, SPEC 3 OF 3 - the five SPACECENTER-scoped Rewind members, which no
+# ROADMAP R7, SPEC 3 OF 3 - the six SPACECENTER-scoped Rewind members, which no
 # FLIGHT boot can reach at all.
 #
 # This is the split the roadmap's R7 entry actually anticipated ("One or two specs
 # (split FLIGHT / SPACECENTER)"). It is the CHEAPEST of the three and the most
-# certain: four of its five cells build every object they touch in-body, so the
+# certain: five of its six cells build every object they touch in-body, so the
 # fixture has one job - land the batch in SPACECENTER - and a vessel-less save does
 # that by construction (TestCommandLoadGame.DecideLoadRoute returns
 # NoVesselSpaceCenter when the save has no focusable vessel).
@@ -15,7 +15,7 @@ tier = "nightly"
 # and runs in ONE scene (hlib.SINGLE_BATCH_SELECTOR_RULE), and the seam has no verb
 # that transitions FLIGHT -> SPACECENTER mid-run. R12's `scene=` LoadGame argument
 # picks the LANDING scene, not a transition.
-description = "Run the in-game Rewind category unattended at SPACECENTER: the unfinished-flight seal-dialog pair (confirm and cancel), the stable-leaf group seal + last-slot reap, and the spanned-recording re-fly launch-row/tombstone cell - five members that scene-skip in every FLIGHT batch."
+description = "Run the in-game Rewind category unattended at SPACECENTER: the unfinished-flight seal-dialog pair (confirm and cancel), the stable-leaf group seal + last-slot reap, and the spanned-recording re-fly launch-row/tombstone cell, and the recovery-bundle re-fly retirement cell - six members that scene-skip in every FLIGHT batch."
 instanceProfile = "stock-minimal"
 tags = ["ingame-batch", "rewind", "spacecenter", "R7", "R7c"]
 
@@ -26,14 +26,14 @@ tags = ["ingame-batch", "rewind", "spacecenter", "R7", "R7c"]
 # MEASURED rather than assumed - and the `scene=SPACECENTER` token in the pin below
 # is what makes a silently-wrong route red instead of passing.
 #
-# CAREER rather than fresh-sandbox: none of the five cells needs career state, but
+# CAREER rather than fresh-sandbox: none of the six cells needs career state, but
 # SealPopupConfirmSealsSlotAndClearsLock has a LIVE SIDE EFFECT - clicking "Seal
 # Permanently" reaches UnfinishedFlightsGroup's real seal path, which writes through
 # GamePersistence.SaveGame - and a career save exercises that write against the same
 # ScenarioModule set the product ships. Sandbox would work; career is the stricter
 # of the two at identical cost.
 #
-# injectedRecordings = "rewind-b9", and it exists for exactly ONE of the five
+# injectedRecordings = "rewind-b9", and it exists for exactly ONE of the six
 # cells. UnfinishedFlightsRenderingAndNoHide is the only one that does not
 # self-set-up: it needs a recording satisfying EffectiveState.IsUnfinishedFlight.
 # The first R7 wave shipped this spec with "none" because no preset COULD satisfy
@@ -53,9 +53,9 @@ craft = []
 
 [driver]
 kind = "seam"
-# ORDINARY batch path. All five SPACECENTER-scoped Rewind declarations carry
+# ORDINARY batch path. All six SPACECENTER-scoped Rewind declarations carry
 # AllowBatchExecution = true and no restore flag, so the isolated filter admits
-# exactly the same five and the arg would be pure decoration - which
+# exactly the same six and the arg would be pure decoration - which
 # IsolatedBatchWiringGroupTests.test_the_ordinary_path_could_not_run_this_category
 # would (correctly) red on.
 steps = [
@@ -66,10 +66,10 @@ steps = [
 ]
 
 [dimensionsCovered]
-# HONEST and deliberately thin. FIVE cells execute here (the whole SPACECENTER-scoped
+# HONEST and deliberately thin. SIX cells execute here (the whole SPACECENTER-scoped
 # slice of the Rewind category - mechanically: `hlib.parse_ingame_test_declarations`
-# over Source/Parsek counts 37 Rewind declarations, 32 FLIGHT and 5 SPACECENTER, and
-# all five SPACECENTER ones carry AllowBatchExecution=true). Two of the five drive the
+# over Source/Parsek counts 38 Rewind declarations, 32 FLIGHT and 6 SPACECENTER, and
+# all six SPACECENTER ones carry AllowBatchExecution=true). Two of the six drive the
 # unfinished-flight SEAL dialog end to end (confirm seals the slot and clears the lock;
 # cancel clears the lock without sealing), and a third drives the stable-leaf group seal
 # plus the last-slot RP reap - that is D9 `seal-stash-fly` and `rp-disk-reaper`
@@ -116,6 +116,16 @@ steps = [
 #    directly - must NOT credit that action. The tombstone is written AND observed to
 #    take effect on the effective ledger, which is the whole point of the value.
 #
+# THE RECOVERY-BUNDLE CELL CLAIMS NOTHING NEW, and that is deliberate. Its subject is
+# the composite retirement of a stock recovery bundle across a re-fly merge - the
+# first time that path has ever been composed live - but every dimension value it
+# would name is already claimed fleet-wide on evidence: D8 `tombstones` and
+# `ers-els-routing` by this spec (above), D9 `tombstones` by CL-3, D9 `head-tip-split`
+# by this spec, D8 `kerbals` by CL-2 / both L1 kerbal specs / L4, and D8 `funds` /
+# `science` by B10 and the L-series. Claim-is-not-gate: the cell's value is its hard
+# assertions and the BATCH_COMPLETE tally that proves it ran, not a registry row, and
+# re-labelling an already-covered value would make the coverage map read as growth
+# where there is none.
 # NOT claimed off this cell, deliberately: `supersede-relation` (R1 owns it on a real
 # re-flight), `merge-journal` and `terminal-kind-classify` (S4.1 owns them off a
 # seam-driven cycle; this cell installs test hooks over the durable barriers, so its
@@ -167,7 +177,7 @@ count = { min = 3, max = 3 }
 # correct the derivation, never the pattern.
 #
 # WHAT EACH TOKEN RESTS ON:
-#  - total=37 is ATTRIBUTE-EXACT (see R7a); the token counts the whole category, not
+#  - total=38 is ATTRIBUTE-EXACT (see R7a); the token counts the whole category, not
 #    the scene-eligible slice.
 #  - skipped=32, ALL ATTRIBUTE-FORCED: every FLIGHT-scoped Rewind declaration
 #    scene-skips here. That is the mirror image of R7a/R7b's 5, and it is why
@@ -177,10 +187,21 @@ count = { min = 3, max = 3 }
 #    save"; the injected b9 booster now satisfies IsUnfinishedFlight (unit-proven,
 #    see the fixture note), so it is predicted to EXECUTE.
 #  - failed=0 is the ASSERTION.
-#  - passed=5:
+#  - passed=6:
 #      ReFlyFromSpannedRecording_PreservesLaunchRowAndTombstonesPostRewindCrew - its
 #        ONLY precondition is the SPACECENTER scene; everything else is built
 #        in-body (now including a production-shaped RP, per the Site B-1 fix).
+#      ReFlyMergeRetiresRecoveryBundleAndStopsCareerLogReassert - added 2026-08-20 by
+#        the recovery-bundle wave. Same shape as the cell above and the same single
+#        precondition (the SPACECENTER scene): it forges a production-shaped recovery
+#        BUNDLE (FundsEarning(Recovery) + ScienceEarning(Recovered) + KerbalAssignment
+#        + KerbalExperience, one RecordingId, fields read off the committed
+#        Source/Parsek.Tests/Fixtures/C2CareerPostFix ledger) on an origin that SPANS
+#        the rewind UT, drives RunMerge, and asserts on ComputeERS/ComputeELS plus the
+#        shipping Funds/Science/Kerbals modules. Its origin spans DELIBERATELY: a
+#        non-spanning fixture would emit `SplitOriginAtRewindUT: skip`, which the
+#        forbidden list below reds on - the split branch is this spec's contract, so a
+#        new cell has to honour it rather than route around it.
 #      StableLeafGroupSealAndLastSlotReap - SPACECENTER + no live marker + no active
 #        merge journal, all true on this save.
 #      SealPopupCancelClearsLockWithoutSealing and
@@ -189,16 +210,16 @@ count = { min = 3, max = 3 }
 #        genuinely run-time-decided guard; a headless-UI regression would drop this
 #        to passed=3 and name itself in the log.
 #      UnfinishedFlightsRenderingAndNoHide - the newly-unblocked cell, and the least
-#        certain of the five: its member resolution is unit-proven headless, but its
+#        certain of the six: its member resolution is unit-proven headless, but its
 #        rendering/no-hide assertions over a live KSC scene are exactly what only
 #        this flight measures.
 #  - scene=SPACECENTER is the fresh-career NoVesselSpaceCenter route.
 #
-# NOTE on the anti-vacuity gate: passed=5 with skipped=32 is a lopsided but
+# NOTE on the anti-vacuity gate: passed=6 with skipped=32 is a lopsided but
 # NON-vacuous line - hlib.batch_contract_vacuity_gap rejects passed == 0, and a
 # 32-skip floor that is entirely ATTRIBUTE-forced is exactly what a whole-category
 # token looks like when the category is 86% scoped to another scene. The
-# alternative - pinning only the five-member slice - is not expressible:
+# alternative - pinning only the six-member slice - is not expressible:
 # BATCH_COMPLETE's total counts filtered tests too.
 #
 # THE SPLITTER TOKEN (added 2026-08-20 with the D9 `head-tip-split` claim). The tally
@@ -228,7 +249,7 @@ count = { min = 3, max = 3 }
 #    occurrences) in both archived R7c logs, which is what makes them a live
 #    discriminator rather than a hopeful negative.
 required  = [
-  "BATCH_COMPLETE v1 total=37 passed=5 failed=0 skipped=32 category=Rewind scene=SPACECENTER",
+  "BATCH_COMPLETE v1 total=38 passed=6 failed=0 skipped=32 category=Rewind scene=SPACECENTER",
   "Split origin \\S+ at UT=[0-9.]+: HEAD=\\[[0-9.]+\\.\\.[0-9.]+\\] \\(kept, id unchanged\\), TIP=\\S+ \\[[0-9.]+\\.\\.[0-9.]+\\] \\(will be superseded\\)",
 ]
 forbidden = [
