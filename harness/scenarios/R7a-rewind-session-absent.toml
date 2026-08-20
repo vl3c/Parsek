@@ -2,7 +2,7 @@ schema = 1
 id = "R7a-rewind-session-absent"
 tier = "nightly"
 # ROADMAP R7, SPEC 1 OF 3. The `Rewind` category is the largest undriven asset in
-# the tree - 37 declarations, more than any other category nothing drives - and it
+# the tree - 38 declarations, more than any other category nothing drives - and it
 # is the one the inventory doc's bucket B4 names first: "most members carrying
 # self-skips ... wiring them now produces green-looking specs that execute nothing."
 #
@@ -28,7 +28,7 @@ tier = "nightly"
 # necessarily minimises the other, so R7 flies both modes:
 #   R7a (this spec) - session ABSENT. Owns the marker-null half.
 #   R7b            - session LIVE, armed by a real InvokeRewind. Owns the other.
-#   R7c            - the five SPACECENTER-scoped members, which no FLIGHT boot can
+#   R7c            - the six SPACECENTER-scoped members, which no FLIGHT boot can
 #                    reach at all.
 # Union across the three is what makes the category genuinely driven; neither
 # FLIGHT spec is redundant with the other, and each pins its own measured split.
@@ -82,8 +82,9 @@ kind = "seam"
 # three and the isolated filter admits them.
 #
 # NOTE this spec is NOT the H21 shape, and the difference matters to the group
-# tests: Rewind is only PARTLY batch-disabled (26 of 37 are batch-eligible on the
-# ordinary path too), where SceneExitMerge is wholly so. The isolated arg therefore
+# tests: Rewind is only PARTLY batch-disabled (26 of the 32 FLIGHT-scoped ones are
+# batch-eligible on the ordinary path too), where SceneExitMerge is wholly so.
+# The isolated arg therefore
 # earns its place by executing STRICTLY MORE (32 admitted vs 26), not by being the
 # only way to run anything. IsolatedBatchWiringGroupTests was generalised in the
 # same commit to state that property; see its test_the_ordinary_path_could_not_run_
@@ -155,14 +156,26 @@ count = { min = 0, max = 0 }
 # out of the log and correct the derivation below.
 #
 # WHAT EACH TOKEN RESTS ON:
-#  - total=37 is ATTRIBUTE-EXACT and the only statically certain token: 37
-#    [InGameTest(Category = "Rewind")] declarations across 29 files. BATCH_COMPLETE's
+#  - total=38 is ATTRIBUTE-EXACT and the only statically certain token: 38
+#    [InGameTest(Category = "Rewind")] declarations. BATCH_COMPLETE's
 #    total is allTests.Count(Status != NotRun) over the single batch, so it counts
 #    filtered tests too. Kept in sync by CommittedBatchTallySourceSyncTests.
-#  - skipped=21 = 5 ATTRIBUTE-FORCED + 16 RUN-TIME.
-#      The 5 attribute-forced are scene-ineligible at FLIGHT (all SPACECENTER-scoped,
-#      and all five are R7c's payload): ReFlyFromSpannedRecording_PreservesLaunchRow-
-#      AndTombstonesPostRewindCrew, StableLeafGroupSealAndLastSlotReap,
+#    MOVED 37 -> 38 on 2026-08-20 by the recovery-bundle wave, which added ONE
+#    SPACECENTER-scoped Rewind cell (ReFlyMergeRetiresRecoveryBundleAndStopsCareer-
+#    LogReassert, Source/Parsek/InGameTests/ReFlyRecoveryBundleRuntimeTest.cs).
+#    A SPACECENTER-scoped addition moves this FLIGHT spec's `total` AND its
+#    `skipped` even though nothing about the FLIGHT slice changed - the token
+#    counts the whole category, and the new cell scene-skips here. Derived, not
+#    guessed: `hlib.derive_batch_tally(decls, "Rewind", "FLIGHT", isolated=True)`
+#    returns total=38 scene_skipped=6 batch_skipped=0 executable=32. The isolated
+#    argument is REQUIRED to reproduce: this spec drives RunTests with
+#    isolated = "true", and the call WITHOUT it models the ordinary entry point and
+#    returns batch_skipped=6 executable=26, which is not the path R7a flies.
+#  - skipped=22 = 6 ATTRIBUTE-FORCED + 16 RUN-TIME.
+#      The 6 attribute-forced are scene-ineligible at FLIGHT (all SPACECENTER-scoped,
+#      and all six are R7c's payload): ReFlyFromSpannedRecording_PreservesLaunchRow-
+#      AndTombstonesPostRewindCrew, ReFlyMergeRetiresRecoveryBundleAndStopsCareer-
+#      LogReassert, StableLeafGroupSealAndLastSlotReap,
 #      SealPopupCancelClearsLockWithoutSealing, SealPopupConfirmSealsSlotAndClearsLock,
 #      UnfinishedFlightsRenderingAndNoHide. On the ISOLATED path nothing is
 #      batch-skipped - the filter is AllowBatchExecution ||
@@ -203,7 +216,7 @@ count = { min = 0, max = 0 }
 # tally: 6 is the restore-flagged count, NOT total - H21's 2 coincided with its
 # total and that coincidence was baked into the group test until this commit.
 required  = [
-  "BATCH_COMPLETE v1 total=37 passed=16 failed=0 skipped=21 category=Rewind scene=FLIGHT",
+  "BATCH_COMPLETE v1 total=38 passed=16 failed=0 skipped=22 category=Rewind scene=FLIGHT",
   "runtests start category=Rewind isolated=true",
   "Using batch baseline slot .* for 6 restore-after-run test\\(s\\)",
 ]

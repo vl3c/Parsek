@@ -156,7 +156,7 @@ Two limits of this table, stated so nobody over-reads it:
 | `ResourceTopBar` | 2 | 0 | 2 | 0 | 0 | 2 | - | B |
 | `RevertFlow` | 1 | 0 | 0 | 0 | 1 | 1 | - | B |
 | `RevertVesselStrip` | 1 | 1 | 0 | 0 | 0 | 1 | - | B |
-| `Rewind` | 37 | 26 | 5 | 0 | 6 | 24 | R7a / R7c | A |
+| `Rewind` | 38 | 26 | 6 | 0 | 6 | 24 | R7a / R7c | A |
 | `RewindSaves` | 1 | 1 | 1 | 1 | 0 | 1 | - | B |
 | `RouteLiveAnchor` | 1 | 1 | 0 | 0 | 0 | 1 | - | B |
 | `RouteRewindTimeline` | 7 | 7 | 7 | 7 | 0 | 1 | H6 | B |
@@ -194,20 +194,21 @@ Two limits of this table, stated so nobody over-reads it:
 
 ## Triage
 
-Totals, re-derived: **104 categories / 589 declarations**. Buckets **A 33 categories
-(229 declarations)**, **B 71 categories (360 declarations)**, **C 0 categories (0
+Totals, re-derived: **104 categories / 590 declarations**. Buckets **A 33 categories
+(230 declarations)**, **B 71 categories (360 declarations)**, **C 0 categories (0
 declarations)**. Driven by a committed spec: **43 of 104 categories**, up from 35
 across six waves - `ReFlyWorldPreservation` via S4.2, `RecordedSignals` via H33,
 `SnapshotBaseline` via H32, and `Logistics` via H34 all landed together in one merge
 (the S1.8 SoiCrossingPlayback wave had taken it to 35 from 34, and 28 and 8 the waves
 before), then `PlaybackFidelity` via H36 and `PartEventFidelity` via H37. Measured
-against declarations rather than categories, that is 406 of 589 inside a driven
+against declarations rather than categories, that is 407 of 590 inside a driven
 category (was 318 before these waves: 324 after S4.2, 327 after H33, 334 after H32,
 381 once `Logistics` counted, 388 with `PlaybackFidelity`, 393 with
 `PartEventFidelity`, and 401 once L3's capture matrix took `StrategyLifecycle` from 3
 declarations to 7, then 403 when this inventory's `LedgerGroundTruth` row caught
-up with L2 - driven and armed since 2026-08-17, the row had lagged the spec - and 406
-when the `rep-debit-capture` wave took `StrategyLifecycle` from 7 to 9, adding the
+up with L2 - driven and armed since 2026-08-17, the row had lagged the spec - then 405
+when the `rewind-recovery-bundle` wave took `Rewind` from 37 to 38, and 407 when the
+`rep-debit-capture` wave took `StrategyLifecycle` from 7 to 9, adding the
 reputation-INPUT converter measurement cell and the high-reputation curve
 corroboration cell to the same L3 pair). `H35-logistics-route-proof` (2026-08-11) moves NEITHER number -
 it is the second spec on a category H34 already counted - which is exactly the
