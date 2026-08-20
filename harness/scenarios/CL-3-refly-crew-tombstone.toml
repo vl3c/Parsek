@@ -459,8 +459,12 @@ D14 = ["kerbin", "career", "scene-flight"]
 #
 #   D9 `head-tip-split` and `terminal-kind-classify`. `head-tip-split` fires only when
 #   the closure-root recording SPANS the rewind UT, and `cl-pod-a` BEGINS at the split
-#   the RewindPoint marks - the same shape argument that moved the cell off S4.1 to
-#   NOBODY. `terminal-kind-classify` is S4.1's.
+#   the RewindPoint marks - the same shape argument that took the cell off S4.1. The
+#   value is no longer uncovered fleet-wide (R7c-rewind-spacecenter claimed it
+#   2026-08-20, off the in-game cell that forges a SPANNING origin and pins the
+#   splitter's own summary line), but that changes nothing here: THIS spec still cannot
+#   reach the splitting branch, so the omission stands on the shape, not on the value
+#   being unowned. `terminal-kind-classify` is S4.1's.
 #
 #   D4 anything. The re-fly hop is atmospheric, but nothing here asserts an environment
 #   classification, and the recording it produces is a means to the merge rather than
