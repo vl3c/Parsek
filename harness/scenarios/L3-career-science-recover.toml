@@ -1,12 +1,13 @@
 schema = 1
 id = "L3-career-science-recover"
-# READING RUN. `operator` for exactly as long as this spec's windows are
-# PREDICTIONS rather than measurements - the L2 B.1 / L3 pattern, and the tier is
-# held for that and nothing else. Nothing operator-shaped is owed: autopilot
-# driver, no RequiresFlight verb, no human judgement in the loop. The promotion
-# off `operator` lands in the SAME commit that pins the measurements this run
-# produces, or the tier becomes an unrecorded standing human call.
-tier = "operator"
+# PROMOTED operator -> nightly 2026-08-20, in the SAME commit that pins the
+# measurements, which is the rule the L2 B.1 / L3 pattern states. The tier was held
+# for exactly two reasons and both are discharged: the windows were PREDICTIONS
+# (they are now measurements off run `2026-08-19_2130`), and the spec could not fly
+# green while the three product findings its own reading runs surfaced were open
+# (they are fixed - see the FLIGHT 4 block below). Nothing operator-shaped was ever
+# owed: autopilot driver, no RequiresFlight verb, no human judgement in the loop.
+tier = "nightly"
 # WHAT THIS IS. The career-ledger lane's POST-FIX CAREER FORGE - Route A of
 # `docs/dev/plans/career-ledger-coverage.md` section 4d, wave 2.
 #
@@ -234,34 +235,98 @@ D14 = ["kerbin", "career", "scene-flight"]
 allowedAnomalies = []
 
 [expectations.recordings]
-# THE ONE REAL GATE ON THIS RUN, and it is the forge's whole point: a flight that
-# recorded nothing produces no subject. The window is B1's, not the smoke spec's
-# {1,1} - the flight leg is byte-for-byte B1's, staging jettisons a spent booster,
-# and B1's own measured window over that craft is 1..6. Re-pinned EXACTLY off this
-# run's measurement in the arming commit.
-count = { min = 1, max = 6 }
+# THE FORGE'S WHOLE POINT: a flight that recorded nothing produces no subject. The
+# window was B1's 1..6 while it was a PREDICTION; it is now PINNED EXACTLY at the
+# measurement, 2 on both MISSION-OK flights of this spec (`2026-08-19_1912` and
+# `2026-08-19_2130`) - the flown main recording plus the post-recovery
+# continuation. Two independent runs of the same shape is what makes an exact pin
+# honest here rather than a one-sample guess.
+count = { min = 2, max = 2 }
 
 [expectations.logContracts]
-# Two tokens, both measured on every prior flight of this craft (B1, CL-1, CL-2) and
-# neither of them a prediction about the career leg. The career-leg tokens (the
-# science subjects, the recovery funds credit, the silent scene-exit auto-commit
-# line CL-2 pins) are deliberately UNPINNED here: this run exists to measure them.
-required  = ["Recording started", "Recording stopped"]
+# FIVE tokens. The first two are the flight-leg pair, measured on every prior flight
+# of this craft (B1, CL-1, CL-2) and never a prediction about the career leg.
+#
+# The last three are the CAREER-LEG tokens this spec was flown to measure, now
+# pinned off run `2026-08-19_2130` - and each one is the live proof of one of the
+# three capture defects the reading runs found:
+#
+#   `Seeded initial science: amount=100`
+#       CAREER-SCIENCE-SEED-LOST-ON-FLIGHT-ROUTE. Read `amount=0` on the reading
+#       run, on a career whose pool was 100. This token is the whole fix: the
+#       deferred seed now waits for all three career singletons instead of any one.
+#
+#   `VesselRecovery funds patched: ... amount=4558`
+#       CAREER-RECOVERY-FUNDS-NOT-LEDGERED. Absent entirely on the reading run -
+#       stock paid the 4558 and the ledger carried no `FundsEarning` row at all.
+#
+#   `Science subject captured: ... reason='VesselRecovery'`
+#       CAREER-TRANSMIT-SCIENCE-EMITS-NO-CORROBORATING-EVENT. On the reading run
+#       this subject reached the ledger with `reason='' directLedger=True`, so the
+#       post-walk reconcile could never match it and dumped at ERROR - which is the
+#       single line that classified that otherwise-green run PARSEK-FAIL. The
+#       forbidden token below is therefore no longer a bet: it is measured clean
+#       (0 occurrences) on a flight that exercises the exact path that used to emit
+#       it.
+#
+# NOT PINNED, deliberately: the auto-commit `OnSave: saving 1 committed tree(s)`
+# line. `recordings.count` above already proves the commit happened, from the SAVE
+# rather than from the log, and two witnesses to one fact is the weaker one going
+# stale first.
+required = [
+  "Recording started",
+  "Recording stopped",
+  "Seeded initial science: amount=100",
+  "VesselRecovery funds patched: vessel='Jumping Flea' amount=4558",
+  "Science subject captured: crewReport@KerbinSrfLandedLaunchPad.*reason='VesselRecovery'",
+]
 forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
 
-# NO [expectations.ledger] BLOCK. The M-B2 oracle has no report-only mode - a hard
-# pool drift classifies PARSEK-FAIL(ledger) outright - and this is the first
-# scenario in the suite whose flight MOVES the science and funds pools by amounts
-# only KSP can author. Declaring a manifest before the run would be the
-# authored-vs-measured mistake in its purest form. The oracle still runs
-# report-only on every driver-valid run, so the reading run gets the numbers
-# without the gate.
+# STILL NO [expectations.ledger] BLOCK, and STILL NO [expectations.unityExceptions]
+# BLOCK - both DEFERRED TO WAVE C ON PURPOSE, not overlooked. The promotion above
+# pins what this spec MEASURED; arming a new gating surface is a separate decision
+# with its own allowlist edits, and bundling the two would hide an arming call
+# inside a promotion commit.
 #
-# NO [expectations.unityExceptions] BLOCK either: the block is ARMED-ONLY
-# (test_hlib pins the armed set as a hardcoded allowlist), and every armed 0 in
-# that table is a measurement off that spec's own flown runs. This spec has none
-# yet. The scan still runs report-only and records the count in
-# `detail.unityExceptions`.
+# The measurements those blocks would be built from are recorded here so wave C
+# starts from data rather than from a fresh flight:
+#
+#   unityExceptions   total=0 on run `2026-08-19_2130`
+#                     (NullReference / MissingReference / IndexOutOfRange /
+#                      ArgumentException: GUILayout all 0). The scan runs
+#                     report-only meanwhile and records the count in
+#                     `detail.unityExceptions`.
+#   ledger pools      funds 500000 -> 536558, science 100 -> 111.6 across three
+#                     subjects (crewReport 3, mysteryGoo 3.6,
+#                     recovery@KerbinFlew 5), rep 0 -> 1.99999881.
+#
+# The original reason for holding the ledger manifest still stands on its own terms:
+# the M-B2 oracle has no report-only mode - a hard pool drift classifies
+# PARSEK-FAIL(ledger) outright - and this flight's science and recovery amounts are
+# authored by KSP alone. What has changed is that they are now MEASURED twice
+# (identically), so the manifest is writable from data whenever wave C wants it.
+#
+# ################ FLIGHT 4 (2026-08-19_2130): GREEN, AND IT IS THE POINT ########
+# PASS on attempt 1, 469 s wall / 341 s mission, every phase reached
+# (PRELAUNCH ASCENT COAST DESCENT LANDED COLLECT TRANSMIT RECOVER RECOVERED),
+# MISSION-OK with all four telemetry assertions met. Every verifier PASS or
+# SKIPPED: analyzer red=0, anomalySweep hits=[], logValidate PASS, expectations
+# mismatches=0, saveParse clean (1 tree, 2 recordings, 527 points,
+# terminalStates {Landed: 1}), and - the headline - ZERO `[Parsek][ERROR]` lines,
+# where the reading run's single one was the whole verdict.
+#
+# THE PRODUCED SAVE IS COMMITTED as `Source/Parsek.Tests/Fixtures/C2CareerPostFix/`,
+# REPLACING the reading run's harvest, and `C2CareerPostFixReplayTests` replays it
+# against KSP's own pools: funds close EXACTLY, science to 2.14e-06, reputation to
+# 2.36e-07. That suite is where the closes-to-zero claim actually lives; this spec
+# is what produces the subject it makes the claim about.
+#
+# `CommitTree` MEASURED AGAIN AND UNCHANGED: `TIMEOUT`, not the `ERROR /
+# no-active-tree` the comment above predicted, and identical to the reading run's.
+# It is non-gating on a MISSION-OK run exactly as `SEAM_VERB_POST_MISSION_ROLE`
+# files it. Two runs agreeing is what promotes that from an observation to the
+# answer, and the step stays verbatim so a future change to the recovery teardown
+# reds here rather than passing silently.
 
 [runtime]
 # 1980 = the mission ceiling (1320) plus room for the LoadGame, the kRPC connect,

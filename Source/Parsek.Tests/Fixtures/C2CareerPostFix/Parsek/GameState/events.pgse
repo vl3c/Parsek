@@ -1,14 +1,14 @@
 version = 1
 GAME_STATE_EVENT
 {
-	ut = 347.53999999997387
+	ut = 347.27999999997411
 	type = 18
 	key = FirstCrewToSurvive
 	detail = funds=800;rep=0;sci=0
 }
 GAME_STATE_EVENT
 {
-	ut = 347.53999999997387
+	ut = 347.27999999997411
 	type = 15
 	key = Progression
 	valBefore = 531200
@@ -16,24 +16,25 @@ GAME_STATE_EVENT
 }
 GAME_STATE_EVENT
 {
-	ut = 347.53999999997387
+	ut = 347.27999999997411
 	type = 16
 	key = VesselRecovery
-	valBefore = 106.59999847412109
+	valBefore = 103
 	valAfter = 111.59999847412109
 }
 GAME_STATE_EVENT
 {
-	ut = 347.53999999997387
+	ut = 347.27999999997411
 	type = 22
 	key = Jebediah Kerman
 	detail = flight=0;entries=0,Land,Kerbin|0,Flight,Kerbin|0,Recover,;trait=Pilot
 }
 GAME_STATE_EVENT
 {
-	ut = 347.53999999997387
+	ut = 347.27999999997411
 	type = 15
 	key = VesselRecovery
+	detail = vessel=Jumping%20Flea;rawVessel=%23autoLOC_501224;pid=2905720181;vesselType=Ship;fundsEarned=(unknown);recoveryFactor=1
 	valBefore = 532000
 	valAfter = 536558
 }

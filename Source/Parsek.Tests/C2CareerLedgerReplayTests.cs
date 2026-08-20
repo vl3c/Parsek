@@ -37,8 +37,9 @@ namespace Parsek.Tests
     /// condition for retiring the science pin below is a re-harvest of c2 ITSELF on
     /// post-fix code, which has not happened. What the sibling contributes is
     /// separation: it exercises the earning, seed, recovery and milestone paths in
-    /// isolation from any strategy, which is what lets the reputation note below name a
-    /// suspect at last.
+    /// isolation from any strategy, which is what let the reputation note below name a
+    /// suspect at last - and, once that suspect was confirmed against the decompile and
+    /// fixed, closed THIS fixture's reputation divergence too (2026-08-20).
     /// </summary>
     [Collection("Sequential")]
     public class C2CareerLedgerReplayTests : IDisposable
@@ -254,21 +255,29 @@ namespace Parsek.Tests
             Assert.True(Math.Abs((reconScience - SaveScience) - 108.84171851920314) < 0.001,
                 "SCIENCE divergence moved off its pinned value. " + report);
 
-            // REPUTATION: small real divergence (-0.00364), above float32 print noise
-            // at this magnitude but far below display precision. Pinned as a window,
-            // not a value.
+            // REPUTATION: CLOSED, AND TIGHTENED ONTO THE CLOSURE 2026-08-20.
             //
-            // THE POST-FIX FIXTURE IS NOW HARVESTED, and it NARROWED this rather than
-            // settling it - so the window stays as it is, deliberately, rather than
-            // being tightened onto a number measured on different data.
-            // `C2CareerPostFixReplayTests` replays a driven flight-earned career with NO
-            // strategy leg, NO contracts, a correct rep seed and exactly two +1 milestone
-            // awards, and reconstructs reputation 0.00148 LOW. That rules out the
-            // strategy exchange and the seed as the cause here and points at the
-            // MILESTONE reputation award path, which this fixture also exercises.
-            // Neither magnitude is chased yet; see
-            // CAREER-MILESTONE-REP-AWARD-RECONSTRUCTS-LOW.
-            Assert.True(Math.Abs(reconRep - SaveReputation) < 0.01, "REPUTATION diverged beyond window. " + report);
+            // This carried a -0.00364 divergence from 2026-08-17, held inside a 0.01
+            // window with the standing note that whether it was "a second small leak or
+            // curve-rounding is unknown". The post-fix sibling isolated the family (no
+            // strategy, no contracts, a correct seed, exactly two +1 milestone awards)
+            // and the cause was then read out of the decompiled
+            // `Reputation.addReputation_granular`: the granular award loop's FINAL
+            // residual step must be sized from the accumulated POST-CURVE actual, and
+            // `ReputationModule.ApplyReputationCurve` sized it from the nominal step
+            // count - identically zero for an integer award.
+            //
+            // THIS IS A RECALC-SIDE FIX, so unlike the capture-side entries it moves
+            // this FROZEN fixture legitimately and without a re-harvest: the committed
+            // `ledger.pgld` rows are unchanged, the arithmetic replaying them is not.
+            // The divergence went to -1.7e-09 - a second, independent corroboration on a
+            // hand-played career that DOES carry a strategy leg, which is a stronger
+            // statement than the isolated fixture could make alone.
+            //
+            // The window is tightened onto that closure rather than left at 0.01,
+            // because 0.01 would now hide a full regression of the residual step.
+            Assert.True(Math.Abs(reconRep - SaveReputation) < 1e-6,
+                "REPUTATION diverged beyond window. " + report);
         }
     }
 }

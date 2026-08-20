@@ -4922,23 +4922,31 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
         "L1-upgrade-facility-career.toml":  "discharged - OPERATOR-VERIFIED; tag dropped 2026-07-31",
         # Found by this cell on its first run, absent from the hand-written list.
         "L1-passive-sandbox.toml":          "discharged - records its own 2026-07-26 drop",
-        # tier=operator by the SAME transient reading-run hold the two NOTEs below
-        # describe - and now, after the 2026-08-19 flights, by three PRODUCT FINDINGS
-        # instead. The FIXTURE blocker this entry used to name is GONE: the sibling
-        # `career-science-pad` landed the same day and flight 3 (run `2026-08-19_1912`)
-        # flew MISSION-OK on it, every phase reached, `transmit_science sent=1`. What
-        # holds the tier now is the verdict on that green mission - `PARSEK-FAIL(expectation)`
-        # on a single forbidden `[Parsek][ERROR]` token, and behind it
-        # CAREER-RECOVERY-FUNDS-NOT-LEDGERED, CAREER-SCIENCE-SEED-LOST-ON-FLIGHT-ROUTE and
-        # CAREER-TRANSMIT-SCIENCE-EMITS-NO-CORROBORATING-EVENT (docs/dev/todo-and-known-bugs.md),
-        # the last of which emits the token. All three are deterministic product findings,
-        # so re-flying cannot green this spec either - which is why the removal condition
-        # was only HALF met and this entry is REWRITTEN rather than deleted. Nothing
-        # operator-shaped is owed even so: the driver is an autopilot with no RequiresFlight
-        # verb and no human judgement in the loop, and `operator` is simply the tier that
-        # keeps a spec off every cadence. The entry is REMOVED by the commit that closes
-        # those three findings and promotes this spec off `operator`.
-        "L3-career-science-recover.toml":   "product-finding-blocked - flew MISSION-OK 2026-08-19 (run _1912) on the sibling fixture, then classified PARSEK-FAIL(expectation) on the three product findings it was built to reach (recovery funds not ledgered, career science seed lost on the FLIGHT route, transmitted science emits no corroborating event); operator tier keeps it off every cadence until those close",
+        # NOTE, no entry owed: `L3-career-science-recover` held `operator` through four
+        # flights and was PROMOTED to `nightly` on 2026-08-20, in the commit that pinned
+        # its measurements - the rule the two NOTEs below state. Its entry here is
+        # REMOVED rather than rewritten, on the same grounds: a nightly spec that never
+        # mentions the token is not a candidate at all.
+        #
+        # This entry is worth a longer epitaph than the other two, because it is the one
+        # case where the tier was held for something REAL rather than transient. The
+        # predecessor entry read `product-finding-blocked`: flight 3 (run
+        # `2026-08-19_1912`) flew MISSION-OK on the sibling `career-science-pad` fixture
+        # and still classified `PARSEK-FAIL(expectation)` on a single forbidden
+        # `[Parsek][ERROR]` line, behind which sat three deterministic product findings
+        # this lane was built to reach - CAREER-RECOVERY-FUNDS-NOT-LEDGERED,
+        # CAREER-SCIENCE-SEED-LOST-ON-FLIGHT-ROUTE and
+        # CAREER-TRANSMIT-SCIENCE-EMITS-NO-CORROBORATING-EVENT. Re-flying could not green
+        # it, which is exactly why the entry stated its own removal condition as "the
+        # commit that closes those three findings and promotes this spec off `operator`"
+        # rather than as a date. All three are fixed (PR #1498), a fourth - the recalc-side
+        # CAREER-MILESTONE-REP-AWARD-RECONSTRUCTS-LOW - landed with the promotion, and
+        # flight 4 (`2026-08-19_2130`) flew PASS on attempt 1 with zero `[Parsek][ERROR]`
+        # lines and every verifier PASS or SKIPPED. The condition is met in full.
+        #
+        # Nothing operator-shaped was ever owed on this spec: autopilot driver, no
+        # RequiresFlight verb, no human judgement in the loop. `operator` was only ever
+        # the tier that keeps a spec off every cadence while it cannot pass.
         # NOTE, no entry owed: `L3-strategy-currency-conversion` held `operator` for
         # the length of ONE reading run - the same transient hold the L2 note below
         # describes - and was promoted to `nightly` in the commit that replaced its

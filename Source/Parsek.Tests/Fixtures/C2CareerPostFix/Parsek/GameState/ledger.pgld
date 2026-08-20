@@ -4,15 +4,22 @@ GAME_ACTION
 {
 	ut = 0
 	type = 20
-	actionId = act_e17f7644ecaa4d9ba8bcf0ef2352ee22
+	actionId = act_8b4400ddc0954b078490498c7c6acd36
 	initialFunds = 500000
+}
+GAME_ACTION
+{
+	ut = 0
+	type = 21
+	actionId = act_7b674a3108414a3294b393f2594f0937
+	initialScience = 100
 }
 GAME_ACTION
 {
 	ut = 10.959999999999855
 	type = 4
-	actionId = act_c088ac350c924d20b1a9db1e1478f31f
-	recordingId = 72c4de6047154f06ae70235cc75ba605
+	actionId = act_458643ab2aa74f7fadaab020b6fbeab2
+	recordingId = 6c1596087fb14a5b8874d2a4948e3172
 	seq = 1
 	milestoneId = RecordsSpeed
 	milestoneFundsAwarded = 14400
@@ -23,8 +30,8 @@ GAME_ACTION
 {
 	ut = 14.399999999999782
 	type = 4
-	actionId = act_b6237f3654d24d91a14ea325b4b8b679
-	recordingId = 72c4de6047154f06ae70235cc75ba605
+	actionId = act_e5719302ba9c4263a49365e25901f2b0
+	recordingId = 6c1596087fb14a5b8874d2a4948e3172
 	seq = 2
 	milestoneId = RecordsAltitude
 	milestoneFundsAwarded = 14400
@@ -35,8 +42,8 @@ GAME_ACTION
 {
 	ut = 15.119999999999767
 	type = 4
-	actionId = act_e27f5acd18ec4b30babdbd26a5b72cbe
-	recordingId = 72c4de6047154f06ae70235cc75ba605
+	actionId = act_c6418c33c95c45bbb2eff7318524d12c
+	recordingId = 6c1596087fb14a5b8874d2a4948e3172
 	seq = 3
 	milestoneId = FirstLaunch
 	milestoneFundsAwarded = 800
@@ -45,10 +52,10 @@ GAME_ACTION
 }
 GAME_ACTION
 {
-	ut = 345.57999999997566
+	ut = 345.23999999997596
 	type = 4
-	actionId = act_cb87ca1243b543d38bfe8e431172f80f
-	recordingId = 72c4de6047154f06ae70235cc75ba605
+	actionId = act_c368bb65c6544b1fb60417ca8c9c3bc7
+	recordingId = 6c1596087fb14a5b8874d2a4948e3172
 	seq = 4
 	milestoneId = Kerbin/Science
 	milestoneFundsAwarded = 1600
@@ -57,66 +64,59 @@ GAME_ACTION
 }
 GAME_ACTION
 {
-	ut = 341.33999999997951
+	ut = 341.15999999997968
 	type = 0
-	actionId = act_54498f4f880a4945b2f610568908d698
-	recordingId = 72c4de6047154f06ae70235cc75ba605
+	actionId = act_e4590db77c7a476aa4b889f55fb81faf
+	recordingId = 6c1596087fb14a5b8874d2a4948e3172
 	seq = 1
 	subjectId = crewReport@KerbinSrfLandedLaunchPad
 	scienceAwarded = 3
-	method = 0
+	method = 1
 	transmitScalar = 0
 	subjectMaxValue = 3
-	startUT = 341.34
-	endUT = 341.34
+	startUT = 341.16
+	endUT = 341.16
 }
 GAME_ACTION
 {
-	ut = 10.099999999999874
+	ut = 10.219999999999871
 	type = 11
-	actionId = act_1ab01ff0baa34a15a9712df3d2ef2636
-	recordingId = 72c4de6047154f06ae70235cc75ba605
+	actionId = act_502e16da52bf4e62ae4134d939de7dfe
+	recordingId = 6c1596087fb14a5b8874d2a4948e3172
 	seq = 1
 	kerbalName = Jebediah Kerman
 	kerbalRole = Pilot
-	startUT = 10.1
-	endUT = 341.34
+	startUT = 10.22
+	endUT = 341.16
 	endState = 2
 	xpGained = 0
 }
 GAME_ACTION
 {
 	ut = 0
-	type = 21
-	actionId = act_cbaad8ef38bd4e4ebd979bba52901200
-	initialScience = 0
-}
-GAME_ACTION
-{
-	ut = 0
 	type = 22
-	actionId = act_ef53e4050c01499596d517eb97300ed7
+	actionId = act_d4e0c63608e04cf0b03d56fce75cc0e0
 	initialReputation = 0
 }
 GAME_ACTION
 {
-	ut = 341.33999999997951
+	ut = 341.15999999997968
 	type = 11
-	actionId = act_cf9e223d593b4161a7004b59ac8b49d3
-	recordingId = 56d9aa5a5dda4490ae4a3eba15a8dddc
+	actionId = act_60bcb4b67b3a4403ad4a32de699053df
+	recordingId = df54db60838c437a8ce953746ebffbab
 	seq = 1
 	kerbalName = Jebediah Kerman
 	kerbalRole = Pilot
-	startUT = 341.34
-	endUT = 347.38
+	startUT = 341.16
+	endUT = 347.12
 	endState = 0
 	xpGained = 0
 }
 GAME_ACTION
 {
-	ut = 347.53999999997387
+	ut = 347.27999999997411
 	type = 4
-	actionId = act_0ca750838eaf43c8bc540f06156545a3
+	actionId = act_09842899d3b348bba69c075c6d3f990f
 	seq = 1
 	milestoneId = FirstCrewToSurvive
 	milestoneFundsAwarded = 800
@@ -125,30 +125,42 @@ GAME_ACTION
 }
 GAME_ACTION
 {
-	ut = 347.53999999997387
+	ut = 347.27999999997411
 	type = 0
-	actionId = act_4ae62b1d69b147da92aa6a79e3684324
+	actionId = act_33aed6ecf812478ab01ab2e8d4de55e4
+	recordingId = df54db60838c437a8ce953746ebffbab
 	seq = 2
 	subjectId = mysteryGoo@KerbinSrfLandedLaunchPad
 	scienceAwarded = 3.60000014
-	method = 0
+	method = 1
 	transmitScalar = 0
 	subjectMaxValue = 3.60000014
-	startUT = 347.54
-	endUT = 347.54
+	startUT = 347.28
+	endUT = 347.28
 }
 GAME_ACTION
 {
-	ut = 347.53999999997387
+	ut = 347.27999999997411
 	type = 0
-	actionId = act_23621dbfd6804340901fa2cea2fd8050
-	recordingId = 56d9aa5a5dda4490ae4a3eba15a8dddc
+	actionId = act_8bad754b5f054921911078d8c53a0fbd
+	recordingId = df54db60838c437a8ce953746ebffbab
 	seq = 3
 	subjectId = recovery@KerbinFlew
 	scienceAwarded = 5
 	method = 1
 	transmitScalar = 0
 	subjectMaxValue = 6
-	startUT = 347.54
-	endUT = 347.54
+	startUT = 347.28
+	endUT = 347.28
+}
+GAME_ACTION
+{
+	ut = 347.27999999997411
+	type = 2
+	actionId = act_9cbf3f0de38c48aeb8e1477b2b188486
+	recordingId = df54db60838c437a8ce953746ebffbab
+	seq = 4
+	fundsAwarded = 4558
+	fundsSource = 2
+	dedupKey = FundsChanged|VesselRecovery|347.27999999997411|532000|536558|
 }
