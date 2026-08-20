@@ -88,22 +88,26 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void ClawGrab_IneligiblePartner_DoesNotInventRouteProof()
+        public void ClawGrab_IneligiblePartner_StampsPartnerWithoutRouteProof()
         {
             // When the asteroid partner fails BOTH route-eligibility disjuncts (no pre-couple
-            // snapshot captured AND no known recording), OnPartCouple passes targetPid 0 and the
-            // merge must still record as a plain Dock branch without inventing route proof.
+            // snapshot captured AND no known recording), OnPartCouple passes routeTargetPid 0
+            // but STILL stamps the couple-event partner pid on the branch point
+            // (design-dock-event-graph.md 6.1): the merge records as a plain Dock branch that
+            // names its partner without inventing route proof. Fails if the stamp decoupling
+            // regresses (partner dropped with eligibility) or leaks into the route surfaces.
             var (bp, mergedChild) = ParsekFlight.BuildMergeBranchData(
                 parentRecordingIds: new List<string> { "transport_rec" },
                 treeId: "tree_claw",
                 mergeUT: 500.0,
                 branchType: BranchPointType.Dock,
                 mergedVesselPid: MergedPid,
-                mergedVesselName: "Grabber + Ast. HSJ-227");
+                mergedVesselName: "Grabber + Ast. HSJ-227",
+                branchPartnerPid: AsteroidPid);
 
             Assert.Equal(BranchPointType.Dock, bp.Type);
             Assert.Equal("DOCK", bp.MergeCause);
-            Assert.Equal(0u, bp.TargetVesselPersistentId);
+            Assert.Equal(AsteroidPid, bp.TargetVesselPersistentId);
             Assert.Equal(0u, mergedChild.TransferTargetVesselPid);
             Assert.Equal(RouteConnectionKind.None, mergedChild.TransferKind);
         }

@@ -306,6 +306,19 @@ namespace Parsek
                     recordedVesselGuid = ResolveLaunchGuidForPid(tree, pid)
                 };
 
+                // Diagnosability for pid-only chains (design-dock-event-graph.md Q3):
+                // a claim whose pid resolves no launch guid in the claiming tree can
+                // never be guid-dropped downstream (#976 gate needs a guid on at least
+                // one side), so a craft-baked pid collision would pool into this chain
+                // silently. Leave evidence once per claim.
+                if (link.recordedVesselGuid == null)
+                    ParsekLog.VerboseOnChange(Tag,
+                        identity: string.Format(ic, "claim-noguid|{0}|{1}|{2}", pid, tree.Id, bp.Id),
+                        stateKey: "noguid",
+                        message: string.Format(ic,
+                            "Claim PID={0} tree={1} bp={2} resolved no launch guid; chain is pid-only",
+                            pid, tree.Id, bp.Id));
+
                 List<ChainLink> list;
                 if (!claimsByPid.TryGetValue(pid, out list))
                 {

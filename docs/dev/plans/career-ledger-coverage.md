@@ -378,6 +378,9 @@ promote. It would still catch a recon-invents-an-identity regression, so the gat
 not inert; the deferral stands because the subject is thin. Two mechanical
 fences hold the deferral: `test_hlib.test_no_committed_spec_arms_the_runtests_strict_arg`
 (lane-wide) and L2's own pinned `strict=False` token (per-spec).
+**SUPERSEDED 2026-08-20 by section 4e** - the deferral is discharged and the lane-wide
+fence is REWRITTEN into the allowlist `RUNTESTS_STRICT_ARMED_SPECS`; this paragraph is
+kept as the evidence trail it was, not as current state.
 
 **A SECOND CANDIDATE SUBJECT EXISTS AS OF 2026-08-19**, and it is exactly the
 "any future career fixture carrying recorded crewed recoveries" this paragraph
@@ -583,6 +586,68 @@ used (reading run, then arming).
   (`strategy-currency-conversion`) owns that proof and is already armed and
   pinned. Adding a strategy to the forge would put two independent claims on one
   flight and make a red ambiguous.
+
+### 4e. Wave C: arming B.4 strict (2026-08-20)
+
+**The brief's part C, and the last open item of the lane.** `StrictPerIdentityForTesting`
+shipped SETTABLE per scenario in B.4 (PR #1481) and ARMED BY NOTHING; wave 3 closed
+every condition the 2026-08-17 deferral named. This section records the arming.
+
+**THE DESIGN QUESTION, SETTLED FIRST AND WITH EVIDENCE.** The in-game
+`LedgerGroundTruth` cell is `Scene = GameScenes.FLIGHT` and carries a
+live/pending-tree guard, and the facet-rich state exists only after the driven
+mission. Three shapes were evaluated; two lose on a guard, not on taste.
+
+| Shape | Verdict | Why |
+| --- | --- | --- |
+| (a) a `RunTests strict=true` step inside `L3-career-science-recover` | **LOSES, twice** | DURING the mission `autoRecordOnLaunch` is true, so `GameStateRecorder.HasLiveRecorder()` is true and the cell Skips - green, measuring nothing. AFTER it the facets exist but the scene does not: stock recovery destroys the vessel and leaves FLIGHT, so every post-mission seam step runs at SPACECENTER (that spec's own header records the settle) and a FLIGHT-scene declaration scene-skips. |
+| (b) a spec booting the flown save directly | **LOSES** | The flown save carries ZERO `VESSEL` nodes - `C2CareerPostFixReplayTests.FixtureSave_CarriesNoVessel_BecauseTheCraftWasRecovered` asserts exactly that - so `LoadGame` routes NoVesselSpaceCenter and the batch scene-skips its only declaration: the vacuity defect B10 and `L1-passive-sandbox` were re-flown to fix. |
+| (c) **the flown career PLUS a spliced PRELAUNCH craft** | **CHOSEN** | It is the only remaining shape, because `LoadGame` is the only seam verb that reaches FLIGHT and it reaches it only through a save that already holds a focusable vessel. It is also a precedent rather than an invention: `build_career_pad_craft.py` exists because `fresh-career` had the identical problem. |
+
+The fixture is `career-earned-pad`, built by
+`harness/tools/build_career_earned_pad.py` from the harvested career
+(`Source/Parsek.Tests/Fixtures/C2CareerPostFix/`) plus `career-science-pad`'s
+vessel, and the spec is `L4-ledger-groundtruth-strict`.
+
+**ONE FIXTURE PROPERTY IS PURE STRICT-MODE PLUMBING, and it was read off the source
+rather than discovered in a flight.** The donor craft IS the craft this career flew and
+RECOVERED, so its committed identity (`pid = f77e4207...`, `persistentId = 2905720181`)
+is byte-identical to both recordings' `recordedVesselGuid` / `vesselPersistentId`.
+`LedgerGroundTruthDiff.CompareRecovery` treats a recovery credit whose vessel is STILL
+PRESENT in the save as a divergence - ALWAYS-HARD when guid-corroborated, report-only
+when pid-only, and **strict promotes the report-only one anyway**. A verbatim splice
+would therefore have red the armed run on a fixture artifact indistinguishable from a
+product defect. Both stamps are re-stamped and the non-collision is gated. The same
+reasoning narrowed the roster edit to a single `state` flip: swapping Jebediah's whole
+row for the donor's (what the base builder does) would delete his `CAREER_LOG`, the SAVE
+side of the `KerbalXp` facet, manufacturing a `PhantomInRecon` that strict also promotes.
+
+**WHAT STRICT ACTUALLY IS, stated once so the reading run is interpretable.**
+`LedgerDivergenceReport.HardFailures(strict)` promotes EVERY report-only divergence -
+per-subject science, facilities, contracts, milestones, roster, tech, kerbal career logs,
+pid-only recovery matches and phantoms alike. It is not a per-facet dial, and `reportOnly`
+on a strict run is 0 BY CONSTRUCTION.
+
+**THE FLIGHTS, and the reading run is the one that earned its keep.**
+
+| Run | What it was | Outcome |
+| --- | --- | --- |
+| `2026-08-20_1508` | READING RUN, strict armed, pre-fix DLL | **PARSEK-FAIL, and the red IS the measurement.** `result: hardFailures=2 reportOnly=0 facetsCompared=10 strict=True` on exactly two `PhantomInRecon` milestones (`FirstLaunch`, `Kerbin/Science`) and nothing else - science 3-vs-3 clean, the recovery credit consistent, roster / tech / contracts / facilities clean. The reconstruction was RIGHT and the save-side PARSE was short. NOT retried. Filed and fixed as CAREER-SAVE-PARSER-UNDERCOUNTS-COMPLETED-MILESTONES. |
+| `2026-08-20_1519` | ARMED RUN, fixed DLL | **PASS attempt 1**, 55 s, every verifier PASS or REPORT. `BATCH_COMPLETE v1 total=2 passed=1 failed=0 skipped=1`, `result: hardFailures=0 reportOnly=0 facetsCompared=10 strict=True`. The fix moved exactly what it should: `ParseMilestones` 5/1 -> 7/3, phantoms 2 -> 0, `facetsCompared` unchanged at 10. |
+| `2026-08-20_1525` / `_1527` | negative controls 1 and 2 | **DID NOT RED, and both are kept as evidence.** Control 1 corrupted a per-subject science value; Parsek's own load-time `PatchPerSubjectScience` healed it (`7->3`) BEFORE the cell's quicksave. Control 2 stripped `FirstLaunch`'s completion key; KSP's `ProgressTracking` re-achieved it on load. Together they establish a property nothing else states: **fixture-side corruption of any facet the load path re-establishes is not injectable into this cell**, because it measures the LIVE career as of its own quicksave. The reading run's phantoms survived precisely because they were a defect in how the save was READ. |
+| `2026-08-20_1545` | armed run RE-MEASURED after code review | **PASS attempt 1**, and a discipline entry rather than a fourth data point. The review narrowed `CompareMilestones`' missing-direction suppression to key on the save's own double emission instead of expanding recon ids - product code in the measured path, so the pins stopped being measurements the moment it changed. Rebuilt, re-provisioned, hash-verified, re-flown: both pinned lines came back byte-identical. A pin carried across a code change on trust is not a pin. |
+| `2026-08-20_1528` | negative control 3 | **RED AS INTENDED.** `PARSEK-FAIL(expectation)` on `logContracts.required not matched: result: ... strict=True`, from flipping the step's `strict = "true"` to `"false"` and nothing else. This is the control an arming needs: every other verifier stayed green (the default diff also reports `hardFailures=0` on a healthy subject), so without the pinned `strict=True` token a silent disarm would have passed unnoticed. Reverted. |
+
+**What proves strict's promotion itself changes the verdict** is the reading run plus
+a unit cell rather than a control flight: `Milestone` is not in
+`LedgerGroundTruthDiff.IsAlwaysHard`'s set, so `_1508`'s two divergences would have
+been `reportOnly=2` and PASSED under the default diff -
+`Diff_MilestoneStrictMode_PromotesReportOnly` asserts exactly that A/B.
+
+**WAVE C IS COMPLETE.** `StrictPerIdentityForTesting` is settable (B.4) AND armed
+(here), on a subject whose per-identity facets are populated and two-sided. The lane's
+`test_no_committed_spec_arms_the_runtests_strict_arg` fence is REWRITTEN, not deleted,
+into `RUNTESTS_STRICT_ARMED_SPECS` - a roster a SECOND arming still reds against.
 
 ### Phase C - Manufacture a career subject (**largely obsolete - c2 exists; see 4d**)
 

@@ -27,6 +27,16 @@ with `TargetVesselPersistentId != 0` matching a recording pid in my tree, guid-g
 `VesselLaunchIdentity.GuidsConclusivelyDiffer` - the same claim rule `GhostChainWalker.
 ScanBranchPointClaims` + `MergeCrossTreeLinks` use. Nothing new needs to be recorded.
 
+Sibling derivation (2026-08-12, dock-event-graph scope): `MissionCrossTreeDock.
+FindSameTreeDockClaims` recovers SAME-tree single-parent Dock/Board claims - the
+cross-session shape where the partner's committed leaf missed BackgroundMap and the dock
+recorded single-parent inside its own tree (the A->D case). It feeds the dock-event graph's
+naming / digest / chapter consumers ONLY: it mints no selection affordance (both sides are
+already selectable members of the same tree), never joins a partner journey, and does not
+change `FindLinks`' other-trees-only scan. See `docs/dev/design-dock-event-graph.md`
+section 6.2 (and section 6.1 for the branch-point partner stamp becoming unconditional,
+which widens what both derivations can see on new recordings).
+
 ## 2. Persistence model (the decision)
 
 **Chosen: single-tree Mission + persisted INCLUDED DOCK-LINK ids.** `Mission` stays
