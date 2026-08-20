@@ -584,6 +584,49 @@ used (reading run, then arming).
   pinned. Adding a strategy to the forge would put two independent claims on one
   flight and make a red ambiguous.
 
+### 4e. Wave C: arming B.4 strict (2026-08-20)
+
+**The brief's part C, and the last open item of the lane.** `StrictPerIdentityForTesting`
+shipped SETTABLE per scenario in B.4 (PR #1481) and ARMED BY NOTHING; wave 3 closed
+every condition the 2026-08-17 deferral named. This section records the arming.
+
+**THE DESIGN QUESTION, SETTLED FIRST AND WITH EVIDENCE.** The in-game
+`LedgerGroundTruth` cell is `Scene = GameScenes.FLIGHT` and carries a
+live/pending-tree guard, and the facet-rich state exists only after the driven
+mission. Three shapes were evaluated; two lose on a guard, not on taste.
+
+| Shape | Verdict | Why |
+| --- | --- | --- |
+| (a) a `RunTests strict=true` step inside `L3-career-science-recover` | **LOSES, twice** | DURING the mission `autoRecordOnLaunch` is true, so `GameStateRecorder.HasLiveRecorder()` is true and the cell Skips - green, measuring nothing. AFTER it the facets exist but the scene does not: stock recovery destroys the vessel and leaves FLIGHT, so every post-mission seam step runs at SPACECENTER (that spec's own header records the settle) and a FLIGHT-scene declaration scene-skips. |
+| (b) a spec booting the flown save directly | **LOSES** | The flown save carries ZERO `VESSEL` nodes - `C2CareerPostFixReplayTests.FixtureSave_CarriesNoVessel_BecauseTheCraftWasRecovered` asserts exactly that - so `LoadGame` routes NoVesselSpaceCenter and the batch scene-skips its only declaration: the vacuity defect B10 and `L1-passive-sandbox` were re-flown to fix. |
+| (c) **the flown career PLUS a spliced PRELAUNCH craft** | **CHOSEN** | It is the only remaining shape, because `LoadGame` is the only seam verb that reaches FLIGHT and it reaches it only through a save that already holds a focusable vessel. It is also a precedent rather than an invention: `build_career_pad_craft.py` exists because `fresh-career` had the identical problem. |
+
+The fixture is `career-earned-pad`, built by
+`harness/tools/build_career_earned_pad.py` from the harvested career
+(`Source/Parsek.Tests/Fixtures/C2CareerPostFix/`) plus `career-science-pad`'s
+vessel, and the spec is `L4-ledger-groundtruth-strict`.
+
+**ONE FIXTURE PROPERTY IS PURE STRICT-MODE PLUMBING, and it was read off the source
+rather than discovered in a flight.** The donor craft IS the craft this career flew and
+RECOVERED, so its committed identity (`pid = f77e4207...`, `persistentId = 2905720181`)
+is byte-identical to both recordings' `recordedVesselGuid` / `vesselPersistentId`.
+`LedgerGroundTruthDiff.CompareRecovery` treats a recovery credit whose vessel is STILL
+PRESENT in the save as a divergence - ALWAYS-HARD when guid-corroborated, report-only
+when pid-only, and **strict promotes the report-only one anyway**. A verbatim splice
+would therefore have red the armed run on a fixture artifact indistinguishable from a
+product defect. Both stamps are re-stamped and the non-collision is gated. The same
+reasoning narrowed the roster edit to a single `state` flip: swapping Jebediah's whole
+row for the donor's (what the base builder does) would delete his `CAREER_LOG`, the SAVE
+side of the `KerbalXp` facet, manufacturing a `PhantomInRecon` that strict also promotes.
+
+**WHAT STRICT ACTUALLY IS, stated once so the reading run is interpretable.**
+`LedgerDivergenceReport.HardFailures(strict)` promotes EVERY report-only divergence -
+per-subject science, facilities, contracts, milestones, roster, tech, kerbal career logs,
+pid-only recovery matches and phantoms alike. It is not a per-facet dial, and `reportOnly`
+on a strict run is 0 BY CONSTRUCTION.
+
+**THE THREE-RUN LEDGER** is kept at the bottom of the spec file, in the L2 form.
+
 ### Phase C - Manufacture a career subject (**largely obsolete - c2 exists; see 4d**)
 
 Rev 2 demoted this phase to "only if B shows it is needed"; c2 (section 2b) now covers

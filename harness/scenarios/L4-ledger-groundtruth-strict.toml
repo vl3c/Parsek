@@ -1,0 +1,209 @@
+schema = 1
+id = "L4-ledger-groundtruth-strict"
+# READING RUN. `operator` for exactly as long as this spec's numbers are
+# PREDICTIONS, which is the tier discipline L2's B.1 established and 4c wrote
+# down: the promotion to `nightly` lands in the SAME commit that pins the
+# measurement, never as a follow-up. What is unmeasured here is the one thing
+# the run exists to measure - how many report-only per-identity divergences
+# this subject carries, i.e. what strict actually promotes.
+tier = "operator"
+# WHAT THIS IS. The career-ledger lane's B.4 STRICT-PER-IDENTITY scenario: L2's
+# ground-truth loop, run against a career that EARNED, with
+# `LedgerGroundTruthDiff.StrictPerIdentityForTesting` armed through the
+# `RunTests strict=` seam.
+#
+# WHAT STRICT DOES, stated exactly, because the whole spec follows from it:
+# `LedgerDivergenceReport.HardFailures(strict)` promotes EVERY report-only
+# divergence to a hard failure - per-subject science, facilities, contracts,
+# milestones, roster, tech, kerbal career logs, pid-only recovery matches and
+# phantoms alike. It is not a per-facet dial. So on any subject the run's verdict
+# is "the reconstruction agrees with KSP's own save on every identity it names",
+# and `reportOnly` on a strict run is 0 BY CONSTRUCTION (the promotion empties
+# it), which is why the token below pins that half as a derivation rather than a
+# measurement.
+#
+# WHY IT NEEDED A NEW FIXTURE, AND WHY NEITHER CHEAPER SHAPE WORKS. The in-game
+# cell (Source/Parsek/InGameTests/LedgerGroundTruthHarness.cs) is
+# `Scene = GameScenes.FLIGHT` and carries a live/pending-tree guard, and the two
+# obvious shapes each die on one of them:
+#
+#   (a) ADD A `RunTests strict=true` STEP TO `L3-career-science-recover`, the
+#       flight that earns the career. Dead twice over. DURING the mission
+#       `autoRecordOnLaunch` is true, so `GameStateRecorder.HasLiveRecorder()` is
+#       true and the cell Skips - a green run measuring nothing. AFTER the
+#       mission the facets exist but the scene does not: stock recovery DESTROYS
+#       the vessel and leaves FLIGHT, so every post-mission seam step runs at
+#       SPACECENTER (that spec's own header records the same settle), and a
+#       FLIGHT-scene declaration scene-skips.
+#   (b) BOOT THE HARVESTED SAVE DIRECTLY. It carries zero `VESSEL` nodes -
+#       `C2CareerPostFixReplayTests.FixtureSave_CarriesNoVessel_BecauseTheCraft`
+#       `WasRecovered` asserts exactly that - so `LoadGame` routes
+#       NoVesselSpaceCenter and the batch scene-skips its only declaration: the
+#       vacuity defect B10 and L1-passive-sandbox were re-flown to fix.
+#
+# So the subject has to be the earned career PLUS a focusable craft, which is
+# what `career-earned-pad` is. There is no third seam route: `LoadGame` is the
+# only verb that reaches FLIGHT, and it reaches it only through a save that
+# already holds a focusable vessel.
+description = "Reading run: drive the LedgerGroundTruth category with strict per-identity mode ARMED against a career that earned flight science and a crewed recovery, and measure what strict promotes."
+instanceProfile = "stock-minimal"
+tags = ["ledger", "L4", "ingame-batch", "ground-truth", "strict", "reading-run"]
+
+[fixture]
+# `career-earned-pad`: the save harness run `2026-08-19_2130_L3-career-science-`
+# `recover` produced (committed as `Source/Parsek.Tests/Fixtures/C2CareerPostFix/`
+# and proven to close to zero by `C2CareerPostFixReplayTests`), with ONE
+# `type = Ship` PRELAUNCH `VESSEL` spliced into its own FLIGHTSTATE. Built BY
+# CONSTRUCTION by `harness/tools/build_career_earned_pad.py`; every post-condition
+# and the byte-identity of a fresh rebuild are gated by
+# `CareerEarnedPadFixtureDriftTests` in `harness/lib/test_career_earned_pad.py`.
+#
+# THE FOUR IN-GAME SKIP GUARDS, satisfied and each for a stated reason:
+#   1. `HighLogic.CurrentGame != null`  - any driven boot.
+#   2. `Mode == Game.Modes.CAREER`      - GAME { Mode = CAREER }, inherited.
+#   3. Funding / RnD / Reputation singletons initialized - all three SCENARIO
+#      nodes are carried, at the EARNED values (536558 / 111.599998 / 1.99999881).
+#   4. no pending tree, no active uncommitted tree, NO LIVE RECORDER - the tree
+#      the fixture carries is COMMITTED (no `isActive` key, asserted by the
+#      builder), the craft sits at PRELAUNCH, and the SetSetting step below keeps
+#      auto-record off. Guard 4 is why that step is mandatory rather than
+#      cosmetic: a live recorder makes the cell Skip instead of run.
+#
+# THE ONE FIXTURE PROPERTY THAT IS PURE STRICT-MODE PLUMBING, recorded here
+# because getting it wrong would have produced a red that reads exactly like a
+# product defect: the spliced vessel's `pid` and `persistentId` are RE-STAMPED off
+# the donor's. The donor craft IS the craft this career flew and RECOVERED, so its
+# committed identity (`f77e4207...` / `2905720181`) is byte-identical to both
+# recordings' `recordedVesselGuid` / `vesselPersistentId`.
+# `LedgerGroundTruthDiff.CompareRecovery` treats a recovery credit whose vessel is
+# STILL PRESENT in the save as a divergence - ALWAYS-HARD when guid-corroborated,
+# report-only when pid-only, and strict promotes the report-only one anyway. A
+# verbatim splice would therefore have red this run on a fixture artifact.
+saveTemplate = "fixtures/saves/career-earned-pad"
+# LOAD-BEARING. The fixture brings its OWN two recordings (the flown main
+# recording plus the post-recovery continuation), which is what the recovery
+# credit resolves through; an injection preset would add synthetic ones and move
+# `recordings.count` off the fixture's own truth.
+injectedRecordings = "none"
+craft = []
+
+[driver]
+kind = "seam"
+# NO `isolated` ARG, on L2's derivation, which transfers verbatim: the
+# LedgerGroundTruth declarations carry `AllowBatchExecution = true`, so the
+# ordinary admission filter already admits the same set the isolated filter
+# would, and adding the arg would trip
+# `CommittedBatchTallySourceSyncTests.test_an_isolated_spec_would_red_if_its_`
+# `isolated_arg_were_dropped`.
+#
+# `strict = "true"` IS THE ARMING, and the spelling is the contract:
+# `TestCommandRunTests.TryParseStrictArg` accepts ONLY the lowercase wire
+# literals, because the value reaches the wire through `run.py::encode_value` ==
+# `str(value)` and a TOML bool would arrive as `strict=True` and be REJECTED. The
+# assignment at the call site is unconditional, so the flag is per-scenario rather
+# than per-process-sticky.
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" },          expect = "OK", budget = 300 },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" },      expect = "OK" },
+  { cmd = "RunTests",   args = { category = "LedgerGroundTruth", strict = "true" },   expect = "OK", budget = 540 },
+  { cmd = "FlushAndQuit",                                                             expect = "OK" },
+]
+
+[dimensionsCovered]
+# CONSERVATIVE ON PURPOSE, exactly as L3's reading run was: a reading run may
+# claim only what its required tokens actually BACK, and this run's own headline
+# number is unmeasured. D8 `ground-truth-harness` is NOT re-claimed here either -
+# L2 already covers that cell, and claiming it twice would say nothing new. The
+# per-identity D8 cells this fixture physically exercises (`science`,
+# `milestones`, `kerbals`) become claimable in the arming commit, alongside the
+# exact `result:` token that would gate them.
+D14 = ["career", "scene-flight"]
+
+[expectations]
+# PLACEMENT IS LOAD-BEARING: run.py reads `expectations.allowedAnomalies`, and a
+# bare key written after an [expectations.<sub>] header is TOML-scoped to that
+# sub-table and silently never read.
+allowedAnomalies = []
+
+[expectations.recordings]
+# TWO, and they are the FIXTURE's, not this run's: auto-record is off, nothing is
+# injected, and the batch writes no recording. Pinned exactly because a different
+# number means either the fixture changed or something recorded that should not
+# have. The B1 REC-001/REC-003 suppression is selected by
+# `hlib.spec_expects_live_recording` (no StartRecording step, no
+# autoRecordOnLaunch=true), NOT by this count, so a non-zero pin costs nothing.
+count = { min = 2, max = 2 }
+
+[expectations.logContracts]
+# ANTI-VACUITY WITHOUT PREDICTING THE OUTCOME, which is the whole authoring
+# problem of a strict reading run and is worth stating plainly.
+#
+# `hlib.batch_contract_vacuity_gap` requires ONE required pattern that rejects the
+# entire vacuous family on its own, and the gate's own error text names the form
+# used here: `passed=[1-9][0-9]*` "when the exact split is not yet measured".
+# `total=2` is a LITERAL and is DERIVED, not guessed - `hlib.derive_batch_tally`
+# over the C# attributes gives total=2, scene-skipped 0, batch-skipped 0,
+# executable 2 for `LedgerGroundTruth` on a FLIGHT-routing fixture.
+#
+# WHAT IS DELIBERATELY LEFT OPEN, and why each:
+#   `passed=` / `failed=` / `skipped=`  BOTH cells carry run-time
+#       `InGameAssert.Skip` guards the runner cannot predict, and one of them is
+#       the very cell under test. Pinning `failed=0` would turn this reading run
+#       into a gate on the number it exists to measure. `passed=[1-9][0-9]*` still
+#       rejects every vacuous tally.
+#   the P9a cell's verdict            `KerbalExperienceReassertTest
+#       .SurvivingCareerLogEntriesAreOnTheLiveRoster` shares this category and
+#       needs an ELS carrying a `GameActionType.KerbalExperience` row. On
+#       `career-pad-craft` L2 measured it SKIPPING for want of a recorded crewed
+#       recovery - and this fixture HAS one, so it may now execute. L2's header
+#       says "if it ever reads passed=2, the fixture changed"; here the fixture
+#       changed on purpose, and this run is what reads the consequence.
+#
+# `strict=True` (capital T - it is `bool.ToString(InvariantCulture)`, not the
+# lowercase wire literal) is the load-bearing token of the whole spec. It is
+# BOTH the arming's own witness and the DLL verification: a batch that ran the
+# default diff cannot emit it, so a run that greens on a stale automation DLL is
+# impossible. `reportOnly=0` is pinned as a DERIVATION rather than a measurement -
+# strict promotes the whole report-only set, so the residue is 0 by construction,
+# and a non-zero one would mean `HardFailures` had stopped promoting.
+# `facetsCompared=[1-9][0-9]*` is the second anti-vacuity half: a diff that
+# compared NOTHING would also report zero of everything.
+required = [
+  "BATCH_COMPLETE v1 total=2 passed=[1-9][0-9]* failed=[0-9]+ skipped=[0-9]+ category=LedgerGroundTruth scene=FLIGHT",
+  "result: hardFailures=[0-9]+ reportOnly=0 facetsCompared=[1-9][0-9]* strict=True",
+]
+# The cell reports every facet at Warn (report.Format()), never at Error, so a
+# Parsek ERROR line here is a genuine defect signal and not the diff talking.
+forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
+
+# NO [expectations.ledger] AND NO [expectations.unityExceptions] BLOCK, both
+# deferred to the arming commit and neither overlooked - the same split L2 used
+# between B.1 and B.2, and L3 between its reading run and its promotion. Arming
+# either costs an edit to a hardcoded allowlist in `harness/lib/test_hlib.py`,
+# and every armed 0 in that table is a measurement off that spec's OWN flown
+# runs. This spec has none yet.
+#
+# The ledger block additionally has a real question behind it here that L2 already
+# answered for its own fixture and this one has not: the cell calls
+# `LedgerOrchestrator.RecalculateAndPatch()`, which WRITES the reconstruction into
+# the live Funding / RnD / Reputation singletons before restoring the pre-test
+# pools in a finally. On `career-pad-craft` B.1 measured that patch-then-restore
+# as a NO-OP, so the produced save came out at the seed. On THIS career the
+# reconstruction closes to float noise rather than exactly (science +2.14e-06,
+# reputation +2.36e-07 - see `C2CareerPostFixReplayTests`), and both are below
+# `FacetTolerances.Default` (science 0.1, rep 0.1) and below the patchers' own
+# 0.01 restore thresholds - but "below the threshold" is a derivation, and whether
+# the produced save comes out bit-identical to the staged one is exactly the kind
+# of thing this reading run should MEASURE before anything gates on it.
+
+[runtime]
+# 720, matching L2's batch-only shape on this instance profile: 300 (LoadGame) +
+# 540 (RunTests) exceeds it on paper, but those are per-step ceilings and the
+# measured wall for a one-category batch on a career template is ~50-60 s.
+budgetSeconds = 720
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

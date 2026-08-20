@@ -1275,20 +1275,52 @@ class SpecValidationRejectTests(unittest.TestCase):
         self.assertTrue(any("args.Strict" in e for e in v.errors),
                         "case-variant strict key not rejected: %s" % list(v.errors))
 
-    def test_no_committed_spec_arms_the_runtests_strict_arg(self):
-        # THE B.4 DEFERRAL, PINNED. `strict` promotes the ground-truth diff's
-        # report-only per-identity divergences to hard failures, and the one committed
-        # spec that drives that diff (L2-ledger-groundtruth-career) measured
-        # `reportOnly=0` on career-pad-craft - nothing to promote, so arming there adds
-        # NO coverage for a value-drift regression. It would still catch a
-        # recon-invents-an-identity regression (a phantom does not need a populated
-        # fixture), so the gate is not inert; the deferral stands because the SUBJECT is
-        # thin. Arming waits on a subject with populated per-identity facets (on current
-        # evidence: c2, or any future career fixture with recorded crewed recoveries).
+    # The armed set for RunTests' `strict` arg, and the SUBJECT each row stands on.
+    # Same shape and same discipline as the saveParse allowlist next door: the
+    # roster lives HERE rather than in a doc, so arming costs a deliberate edit in
+    # the file whose test reds when someone arms without one.
+    #
+    # THE NAME AVOIDS THE SUBSTRING `ARMED_ALLOWLIST` ON PURPOSE, and a future
+    # sibling roster must do the same. `Cl3SpecArmedTests
+    # .test_it_is_on_the_save_structure_armed_allowlist` reads the save-structure
+    # roster OUT OF THIS FILE'S SOURCE with `re.search(r"ARMED_ALLOWLIST\s*=\s*\{
+    # ([^}]*)\}")`, which takes the FIRST match - so a second constant whose name
+    # ended in `ARMED_ALLOWLIST` and sat above it would silently hand CL-3 the wrong
+    # list. It did exactly that on the first draft of this roster.
+    RUNTESTS_STRICT_ARMED_SPECS = {
+        # career-ledger B.4, ARMED 2026-08-20 (wave C). Subject:
+        # `career-earned-pad` - the save harness run
+        # `2026-08-19_2130_L3-career-science-recover` produced (a driven career that
+        # EARNED flight science and RECOVERED a crewed craft), with a PRELAUNCH
+        # vessel spliced in so the FLIGHT-scene cell can run at all. It carries the
+        # populated per-identity facets the 2026-08-17 deferral was waiting for -
+        # three science subjects, a vessel-recovery credit, five milestones and a
+        # kerbal career log - and all three of its pools reproduce to float noise
+        # (`C2CareerPostFixReplayTests`, the closes-to-zero proof).
+        "L4-ledger-groundtruth-strict.toml",
+    }
+
+    def test_only_the_strict_allowlist_arms_the_runtests_strict_arg(self):
+        # THE B.4 DEFERRAL, DISCHARGED AND REPLACED IN PLACE. Its history, kept
+        # because the reasoning is what makes the current row readable:
         #
-        # This cell is what makes that a DECISION rather than a comment: a spec that
-        # starts declaring `strict` reds here, and the fix is to record the subject and
-        # the reading run that justified it, then delete this cell - never to widen it.
+        #   2026-08-17  DEFERRED. `strict` promotes the ground-truth diff's
+        #     report-only per-identity divergences to hard failures, and the one
+        #     committed spec that drove that diff (L2-ledger-groundtruth-career)
+        #     measured `reportOnly=0` on career-pad-craft - nothing to promote, so
+        #     arming THERE added no coverage for a value-drift regression. It would
+        #     still have caught a recon-invents-an-identity regression, so the gate
+        #     was never inert; the SUBJECT was what was thin. The close condition
+        #     this cell named was explicit: "a subject with populated per-identity
+        #     facets ... or any future career fixture with recorded crewed
+        #     recoveries".
+        #   2026-08-20  MET, and armed on the subject named in the allowlist above.
+        #
+        # The cell is REWRITTEN rather than deleted, and that is the change of
+        # posture worth noticing: a bare "nobody arms this" fence retires the moment
+        # anyone does, taking its evidence trail with it. An allowlist keeps the
+        # question open forever - a SECOND spec arming strict still reds here, and
+        # still has to record its own subject before it can go green.
         armed = []
         for name in sorted(n for n in os.listdir(SCENARIOS_DIR) if n.endswith(".toml")):
             with open(os.path.join(SCENARIOS_DIR, name), "rb") as fh:
@@ -1296,9 +1328,30 @@ class SpecValidationRejectTests(unittest.TestCase):
             for step in ((spec.get("driver") or {}).get("steps") or []):
                 if ((step or {}).get("args") or {}).get(hlib.RUNTESTS_STRICT_KEY) is not None:
                     armed.append(name)
-        self.assertEqual([], armed,
+        self.assertEqual(sorted(self.RUNTESTS_STRICT_ARMED_SPECS), sorted(set(armed)),
                          "a committed spec declares RunTests strict= with no recorded "
-                         "subject justifying it (career-ledger B.4)")
+                         "subject justifying it (career-ledger B.4). Add it to "
+                         "RUNTESTS_STRICT_ARMED_SPECS with the subject and the reading run "
+                         "that justified it - never widen the assertion.")
+
+    def test_every_strict_armed_spec_pins_the_strict_true_token(self):
+        # CLAIM-IS-NOT-GATE, for the arming itself. A spec may sit in the allowlist
+        # only if its own log contract pins `strict=True` - the ground-truth cell's
+        # own echo of the flag it ran under. Without that token an armed spec is
+        # indistinguishable from an unarmed one at read time, and a run that greened
+        # on an automation DLL predating the seam would look identical to a real one.
+        for name in sorted(self.RUNTESTS_STRICT_ARMED_SPECS):
+            path = os.path.join(SCENARIOS_DIR, name)
+            self.assertTrue(os.path.isfile(path),
+                            "RUNTESTS_STRICT_ARMED_SPECS names a spec that does not "
+                            "exist: %s" % name)
+            with open(path, "rb") as fh:
+                spec = tomllib.load(fh)
+            required = (((spec.get("expectations") or {})
+                         .get("logContracts") or {}).get("required") or [])
+            self.assertTrue(any("strict=True" in tok for tok in required),
+                            "%s arms strict but pins no strict=True token: %s"
+                            % (name, required))
 
     def test_eva4_chute_verb_is_deferred_and_capped(self):
         # EVA-4: EvaChuteDeploy holds the FIFO head through the kerbal's whole chuted
@@ -5231,6 +5284,7 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
         "V8-eve-player-loop.toml":          "FLOWN GREEN 2026-08-11 through four reading iterations on the new eve-orbit-recorded fixture - the program's first ENGAGED inward transfer and its first span>synodic loop unit (_0802 arm-and-read; _0807 brackets, PASS, and the FIRST-EVER seam-endpoint-outside-soi raise, ratio 4.6216 on the Sun->Eve seam after the tilt gate declined all 27 tof candidates to a faithful window; _0810 and _0814 PARSEK-FAIL(anomaly) on a line-blink detector gap at back-to-back seam-straddling TimeJumps, both filed with artifacts in todo-and-known-bugs.md, spec re-paced with RecordingState spacers rather than any anomaly exemption; _0818 and _0819 both PASS attempt 1 with clean sweeps - two consecutive flights of the final shape, the raise reproducing bit-identically at ratio=4.6216 on every bracketed run). ARMED on both save-structure blocks (armed run 2026-08-11_0828 PASS attempt 1, gating=True mismatches=0; negative control _0830 PARSEK-FAIL(save-structure) on the single inverted window `rewind.supersedeRows 0 < min 1`, reverted). The finding trio (tilt-decline, faithful window, the seam-endpoint raise) plus the D11 cut token are REQUIRED - the GS-3-style regression floor: a change that un-declines Eve's windows or moves the arrival geometry reds this lane and forces a re-read. FIX ERA (2026-08-11, branch reaim-inclined-targets): the tilt-retention fix red the floor BY DESIGN (_1242, exactly the three trio mismatches) and the lane was re-pinned to the healthy state (re-aimed transfer ready devFromRecorded=0s, state=retained, census outsideSoi=0; readings _1244/_1245, control _1246) with the old trio inverted into forbidden. Operator tier is calibration discipline, not debt",
         "V8T-eve-ts-arrival.toml":          "FLOWN GREEN 2026-08-11 (reading _0835 a1 INVALID on the TS-LOADGAME-RECORDING-ACTIVE-RACE, sighting 3, filed; _0836 a2 PASS clean; armed _0843 PASS attempt 1, gating=True mismatches=0; control shared with V8's _0830). First TS observation of a looped inward-transfer arrival: Eve-framed inbound materialized (created 1 ghost vessel(s), body=Eve TS token gates the D14 eve claim), factory reaimed=False (V5's Duna pin inverted - the tilt-declined faithful-window shape), census structural zero told from blindness, and the parity pair V5 omitted carried here. Surfaced + filed TS-FLUSHED-SAVE-DROPS-DEBRIS-TERMINALSTATE (byte-verified). FIX ERA (2026-08-11): the tilt-retention fix flipped the TS chain to genuinely re-aimed (baseline _1247 red on the reaimed=False pin; live reaimed=True phases=11); re-pinned to reaimed=True with fallback tokens forbidden (readings _1252/_1253). Operator tier is calibration discipline, not debt",
         "V8F-eve-loop-faithful.toml":       "FLOWN GREEN 2026-08-11 (iteration 1 PARSEK-FAIL on the author's own unescaped-parens regex, fixed; then two consecutive PASS runs with the five-raise set reproducing (four of five ratios to four decimals, the fifth 1 ulp: 138.2108/138.2109); armed same day, control shared with V8's _0830). The deliberate-faithful A/B half: FORCED FAITHFUL required + ENGAGED forbidden, the forced unit measured SELF-OVERLAPPING (overlapCadence = span/20, where the ENGAGED unit reads overlaps=no), and the hlib promotion blocker (2) population measured and PINNED - the first outsideSoi=[1-9] census pin, four per-instance Sun->Eve arrival raises (52.70-203.20) plus a Kerbin->Mun transit-seam raise (4.80). Calibration fact filed: benign ratios straddle V8's 4.6216 defect reading, so ratio cannot separate the classes. FIX ERA (2026-08-11): confirmed BYTE-IDENTICAL on the tilt-retention-fixed DLL (_1250 PASS - forced faithful bypasses the synth, the knob isolation held). Operator tier is calibration discipline, not debt",
+        "L4-ledger-groundtruth-strict.toml": "NOT YET FLOWN, and operator tier is the READING-RUN posture this lane has used at every arming (L2's B.1, L3's first flight), not a human debt: the spec ships `operator` for exactly as long as its numbers are predictions, and the promotion to `nightly` lands in the SAME commit that pins the measurement. Nothing operator-shaped is owed - seam driver, no RequiresFlight verb, no human judgement in the loop. What is unmeasured is the one thing the run exists to measure: how many report-only per-identity divergences the `career-earned-pad` subject carries, i.e. what `RunTests strict=true` actually promotes. This row retires when the arming commit flips the tier",
     }
 
     def _specs(self):
