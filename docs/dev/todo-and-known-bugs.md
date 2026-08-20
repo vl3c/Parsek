@@ -1770,6 +1770,46 @@ do not, mirroring the truncate no-op. Pinned by `TryAdoptRolloutAction_Bumps...`
 reported symptom - they are the same defect class caught before it cost a
 diagnosis.
 
+## STRATEGY-LIFECYCLE-CELLS-NEED-OPPOSITE-REPUTATIONS: the category's negative control and its exchanger cell cannot both run in one batch [FILED 2026-08-20 off the `fresh-career-rep-seed` lane. NOT A DEFECT - a stock constraint, measured. The TRADE is taken; the COVERAGE debt is what stays open]
+
+Not a bug in Parsek and not fixable by a fixture. Two `StrategyLifecycle`
+declarations have mutually exclusive reputation preconditions:
+
+- `OperationStrategy_RewardMultiplier_IsNotCaptured` needs **rep >= 14.5**.
+  Both stock `CurrencyOperation` strategies (`LeadershipInitiative`,
+  `AgressiveNegotiations`) lerp `initialCostReputation` 10..100 at
+  `factorSliderDefault = 0.05`, and `Strategy.CanBeActivated` compares the
+  CURRENT pool against that 14.5 at activation time.
+- `ExchangerStrategy_OneShot_CapturesBothLegs` needs **rep <= 0**. Both stock
+  `CurrencyExchanger` strategies (`researchIPsellout`, `BailoutGrant`) declare
+  `requiredReputationMin = -1000` / `requiredReputationMax = 0`: they are
+  EMERGENCY strategies and are not offered at positive reputation.
+
+`[14.5, +inf)` and `(-inf, 0]` do not intersect, and the M-A2 seam's `RunTests`
+selects by CATEGORY only, so there is no per-cell split either. One batch, one
+reputation value, one of the two skips. Measured live on run
+`2026-08-20_1817_L3-strategy-currency-conversion` (the seed made the exchanger
+cell's own residue guard fire on purpose) and pinned by
+`StrategyCareerCellExclusivityTests` in
+`harness/lib/test_strategy_career_fixture.py`.
+
+**The trade taken:** `L3-strategy-currency-conversion` stages `strategy-career`
+(rep 25) and runs the NEGATIVE CONTROL, because it is the only declaration whose
+failure detects deletion of `StrategyConversionCapture.EvaluateLegs`'s scoping
+rule - every other cell in the category asserts that a movement IS captured and
+would pass with the rule deleted. The exchanger arm was already driven live and
+measured on `2026-08-18_2140` (take=14.5 science -> 609.46632729616249 funds) and
+is additionally evidenced by the c2 save's `events.pgse`
+StrategyInput/StrategyOutput pair, so what is lost is a standing regression
+floor, not the observation.
+
+**What would close it,** if the exchanger floor is ever wanted back at the same
+time: give the seam's `RunTests` a per-test selector (it has `category` and
+`isolated` only), then split this category across two specs staging
+`fresh-career` and `strategy-career` respectively. That is a seam feature, not a
+fixture change, and is deliberately NOT done here - one batch buying the
+category's only negative control is the better trade until someone needs both.
+
 ## STRATEGY-REPUTATION-DROP-CLAMPS-THE-GUARD: the query door's deliberately-dropped reputation leg diverges the reconstruction, and reputation has no pending adjuster to absorb it [FILED 2026-08-19 off the strategy-test-matrix lane. NOT FIXED - the DROP is correct; the CONSEQUENCE was undocumented]
 
 The drop itself is a settled decision and is not in question.

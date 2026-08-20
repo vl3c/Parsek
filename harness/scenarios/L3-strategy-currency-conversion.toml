@@ -31,25 +31,57 @@ instanceProfile = "stock-minimal"
 tags = ["ledger", "L3", "ingame-batch", "strategies", "reading-run"]
 
 [fixture]
-# fresh-career, and the choice is forced by the SCENE. All SEVEN StrategyLifecycle
-# declarations are Scene = GameScenes.SPACECENTER. fresh-career carries ZERO VESSEL
-# nodes, so TestCommandLoadGame.DecideLoadRoute takes the NoVesselSpaceCenter route
-# and the batch runs where all seven are eligible (the same route B10 and the L1
-# career family measure). career-pad-craft would route to FLIGHT and scene-skip every
-# one of them - the exact vacuity defect B10 was re-flown to fix.
+# strategy-career, which IS `fresh-career` with a reputation seed and nothing else -
+# two lines of the save differ (the `Title` and the `Reputation` SCENARIO's `rep`),
+# and `harness/tools/build_strategy_career.py` derives it with
+# `StrategyCareerFixtureDriftTests` asserting byte-identity against the current base.
+# It shipped `fresh-career` until 2026-08-20; the swap is what lets the category's
+# NEGATIVE CONTROL run, at the measured cost of the exchanger arm (the two cannot
+# coexist at one reputation value - see the tally block), and the paragraphs below are
+# the whole argument.
 #
-# THE FIXTURE'S SEED IS ALSO WHAT LIMITS THE MATRIX. funds=500000 science=100 rep=0:
-# the funds seed affords every funds-costing strategy the cells activate, the science
-# seed does NOT afford the two science-costing setup charges (both cells top science up
-# ledger-visibly), and the ZERO reputation seed is why
-# OperationStrategy_RewardMultiplier_IsNotCaptured self-skips - see the tally block.
+# THE BASE CHOICE IS FORCED BY THE SCENE, and the sibling inherits it. All SEVEN
+# StrategyLifecycle declarations are Scene = GameScenes.SPACECENTER. `fresh-career`
+# carries ZERO VESSEL nodes, so TestCommandLoadGame.DecideLoadRoute takes the
+# NoVesselSpaceCenter route and the batch runs where all seven are eligible (the same
+# route B10 and the L1 career family measure). career-pad-craft would route to FLIGHT
+# and scene-skip every one of them - the exact vacuity defect B10 was re-flown to fix.
 #
-# The fixture also satisfies the new cell's own guards: career mode, Funding /
-# ResearchAndDevelopment / Reputation singletons all present, and - because nothing
-# is injected and auto-record is off below - no live recorder and no pending tree,
-# which the cell requires because the door's recalc defers its KSP patch while one
-# exists.
-saveTemplate = "fixtures/saves/fresh-career"
+# THE SEED IS WHAT USED TO LIMIT THE MATRIX. funds=500000 science=100 rep=25: the
+# funds seed affords every funds-costing strategy the cells activate, the science seed
+# does NOT afford the two science-costing setup charges (both cells top science up
+# ledger-visibly), and the reputation seed - 0 on the base - is what
+# OperationStrategy_RewardMultiplier_IsNotCaptured needs to activate
+# `LeadershipInitiative` at all - MEASURED on run `2026-08-20_1817`, whose activation
+# charged `Added -14.50262 (-14.5) reputation: 'StrategySetup'`. 25 is solved for, not
+# chosen: stock's
+# `initialCostReputation` lerps 10..100 at `factorSliderDefault = 0.05` to 14.5 and
+# `Strategy.CanBeActivated` compares the CURRENT pool against it, while the next stock
+# reputation threshold up is `UnpaidResearchProgramCfg`'s 35.0 - so [14.5, 35.0) is
+# the band that clears the gate while moving the activatable-strategy set (and with it
+# whatever `ProbeActivatableStockStrategy` hands the two probe-driven cells) as little
+# as the requirement allows. 25 is the whole number nearest its centre. The builder's
+# `verify` re-derives both bounds; `StrategyCareerSeedBandTests` re-asserts them.
+#
+# WHY A SIBLING RATHER THAN SEEDING `fresh-career`. Six other committed specs stage
+# `fresh-career` directly and six more stage `career-pad-craft`, which
+# `build_career_pad_craft.py` DERIVES from it. KSP's granular reputation curve is
+# STATE-DEPENDENT, so two of those pin values that are functions of the pool:
+# CL-2-pod-impact-ledger pins the post-curve crew-loss hit
+# `Added -9.999828 (-10) reputation: 'VesselLoss'` as both a logContract regex and a
+# ledger-oracle manifest amount. `oracle.apply_rep_curve` puts that -10 nominal at
+# -9.958 from rep 0 and at -10.254 from rep 25, against a 0.1 rep tolerance - so
+# seeding the base would have re-opened every one of those pins for a gap that belongs
+# to this spec alone. This is the `career-science-pad` precedent applied to the other
+# base fixture.
+#
+# The fixture also satisfies the cells' own guards: career mode, Funding /
+# ResearchAndDevelopment / Reputation singletons all present, an EMPTY `STRATEGIES`
+# node (so every strategy is built fresh from config at `factorSliderDefault`, which
+# is what pins the 14.5), and - because nothing is injected and auto-record is off
+# below - no live recorder and no pending tree, which the cells require because the
+# door's recalc defers its KSP patch while one exists.
+saveTemplate = "fixtures/saves/strategy-career"
 injectedRecordings = "none"
 craft = []
 
@@ -87,8 +119,12 @@ steps = [
 #
 # CLAIM-IS-NOT-GATE: backed by the pinned tally below plus the forbidden GUARDED
 # tokens - and the tally is MEASURED (passed=6 skipped=1), so the claim rests on six
-# cells that all actually ran rather than on a predicted split. The one skip is named
-# and pinned; see the tally block.
+# cells that all actually ran rather than on a predicted split. WHICH six changed on
+# 2026-08-20: the reputation seed swapped the exchanger arm out and the negative
+# control in, because the two cannot coexist at one reputation value. The EXCHANGER
+# half of the D8 `strategies` claim therefore rests on `2026-08-18_2140`s measurement
+# plus the c2 `events.pgse` pair, NOT on this spec's current standing run; see the
+# tally block.
 D8 = ["strategies", "science", "funds", "orchestrator", "ksp-state-patcher"]
 D14 = ["career", "scene-ksc"]
 
@@ -161,18 +197,82 @@ count = { min = 0, max = 0 }
 #     `Cannot afford Setup Cost: Not enough Reputation`: stock charges a lerped
 #     reputation setup cost (10..100) and `fresh-career` seeds reputation at 0. The
 #     negative control - the cell that would fail if the scoping rule were deleted -
-#     therefore does NOT currently run. Both stock CurrencyOperation strategies charge
-#     reputation to activate, so closing this needs a ledger-visible reputation top-up,
-#     which must be re-derived through Parsek's replica of KSP's granular curve (there
-#     is no positive no-recurve action type) against a 0.01 guard epsilon. Deliberately
-#     NOT forced: a named skip is honest, a curve-approximate top-up in a cell whose
-#     subject is unrelated is not. `skipped=1` is pinned so the gap stays visible and a
-#     future run that resolves it reads as a CHANGE.
+#     therefore did NOT run. Both stock CurrencyOperation strategies charge reputation
+#     to activate, so closing it needed a ledger-visible reputation, and the entry then
+#     standing here read that as needing an in-batch TOP-UP re-derived through Parsek's
+#     replica of KSP's granular curve against a 0.01 guard epsilon - correctly refusing
+#     to force it. `skipped=1` was pinned so the gap stayed visible and a run that
+#     resolved it would read as a CHANGE.
+#
+# ############ THE SEED WORKS, AND IT MOVED THE SKIP (2026-08-20) ############
+# THE TOP-UP WAS THE WRONG MECHANISM, AND THAT IS WHY THE ENTRY ABOVE COULD NOT FIND A
+# CLEAN ONE. A top-up is a positive reputation ACTION, and there is no positive
+# no-recurve action type, so it has to survive the curve replica. A fixture SEED is not
+# an action at all: it lands as a `ReputationInitial` row, which
+# `ReputationModule.ProcessReputationInitial` assigns DIRECTLY with no curve applied.
+# The curve problem is not solved, it is sidestepped.
+#
+# THE SEED IS MEASURED CORRECT. Run `2026-08-20_1817` (58 s wall, fully unattended)
+# staged `strategy-career` at rep 25 and the negative control RAN AND PASSED:
+#
+#   PASSED: FlightIntegrationTests.OperationStrategy_RewardMultiplier_IsNotCaptured (195.2ms)
+#
+# with the activation charging exactly the derived cost -
+# `Added -14.50262 (-14.5) reputation: 'StrategySetup'` against the predicted
+# `Mathf.Lerp(10, 100, 0.05)` = 14.5 - and the LEDGER STAYING CLEAN THROUGH IT:
+# ledgerOracle PASS `hardDivergences=0` (the setup charge lands report-only as
+# `facet=reputation id=StrategySetup expected=None parsed=-14.50262 hard=False`),
+# analyzer red=0, ZERO `GUARDED` lines of any kind in the whole KSP.log, zero
+# `[Parsek][ERROR]`, unityExceptions total=0. The seed mechanism is vindicated.
+#
+# AND IT COST A DIFFERENT CELL, WHICH IS A STOCK FACT NOBODY HAD MEASURED:
+#
+#   SKIPPED: ExchangerStrategy_OneShot_CapturesBothLegs - live reputation is 25 (> 0),
+#     and 'researchIPsellout' is an EMERGENCY strategy with requiredReputationMax = 0 -
+#     it does not offer itself at positive reputation.
+#
+# THE TWO CELLS ARE MUTUALLY EXCLUSIVE AT THE FIXTURE LEVEL, and no seed can satisfy
+# both. Both stock `CurrencyOperation` strategies (`LeadershipInitiative`,
+# `AgressiveNegotiations`) lerp a reputation setup cost to 14.5 and so need rep >= 14.5;
+# both stock `CurrencyExchanger` strategies (`researchIPsellout`, `BailoutGrant`) carry
+# `requiredReputationMin = -1000` / `requiredReputationMax = 0` and so are offered only
+# at rep <= 0. `[14.5, +inf)` and `(-inf, 0]` do not intersect. The exchanger cell's own
+# source already states its half (RuntimeTests.cs, "REPUTATION GATE, CHECKED AND LOGGED
+# FIRST"), written as a guard against a residue from the reputation cell; what run
+# `2026-08-20_1817` establishes is that the same gate fires on a DELIBERATE seed, and
+# therefore that this category cannot run all seven declarations in ONE batch at ONE
+# reputation value. The seam's `RunTests` selects by CATEGORY only, so there is no
+# per-cell split available either.
+#
+# SO THE PINNED TALLY IS STILL total=7 passed=6 skipped=1 - the SAME SPLIT, a DIFFERENT
+# NAMED SKIP, and the trade is deliberate: the negative control is the only declaration
+# whose failure detects deletion of the scoping rule (every other cell asserts a
+# movement IS captured and would pass in that broken world), whereas the exchanger arm
+# has been driven live and measured already, on `2026-08-18_2140`, and is additionally
+# evidenced by the c2 save's `events.pgse` StrategyInput/StrategyOutput pair. Trading an
+# ALREADY-MEASURED positive cell for the category's ONLY negative control buys detection
+# the matrix did not have.
+#
+#   BATCH_COMPLETE v1 total=7 passed=6 failed=0 skipped=1 category=StrategyLifecycle scene=SPACECENTER
+#
+# MEASURED on `2026-08-20_1817_L3-strategy-currency-conversion` (which red'd
+# PARSEK-FAIL(expectation) against this spec's then-standing `passed=7 skipped=0`
+# prediction - the prediction was wrong and the run said so) and pinned verbatim below,
+# then RE-FLOWN GREEN on `2026-08-20_1822_L3-strategy-currency-conversion`: PASS attempt
+# 1, 55 s wall, fully unattended, `expectations mismatches=0` and every verifier
+# PASS/SKIPPED (driverValidity, batchComplete `failed=0`, analyzer red=0, logValidate,
+# anomalySweep `hits=[] counts={}`, unityExceptions `total=0`, ledgerOracle
+# `hardDivergences=0 reportOnly=1`, saveParse REPORT clean, recordings 0). GUARDED
+# CENSUS: ZERO on both runs.
+#
+# The skip is NAMED here rather than merely counted, exactly as the old one was, so a
+# future run that resolves it still reads as a CHANGE.
+# ############################################################################
 #
 # `total=7` is a LITERAL re-derived from the [InGameTest] attributes
 # (hlib.derive_batch_tally: scene_skipped=0 batch_skipped=0 executable=7) and is kept in
 # step by CommittedBatchTallySourceSyncTests. `passed` and `skipped` are MEASURED, not
-# floored. A future run that skips anything else is a CHANGE to be read, not a reason to
+# floored. A future run that skips anything is a CHANGE to be read, not a reason to
 # loosen this line back toward a range.
 #
 # THE FIRST READING OF THIS MATRIX (`2026-08-18_2136`, PARSEK-FAIL(results),
@@ -239,10 +339,11 @@ rec3CarveOut = false
 # The raw-Unity-exception scan (hlib.scan_unity_exceptions), ARMED AT ZERO on the
 # eleven-spec zero-armed family that shares this exact boot profile: B10 and the six
 # L1 specs boot the same LoadGame -> SetSetting -> RunTests -> FlushAndQuit shape on
-# the same stock-minimal profile over the SAME `fresh-career` template, and every
-# driver-valid reading of all of them is 0. L2 was armed on precisely that borrowed
-# half plus one reading of its own; this spec has NO reading of its own yet, so the
-# evidence here is thinner still and is stated plainly rather than dressed up.
+# the same stock-minimal profile over `fresh-career`, and every driver-valid reading of
+# all of them is 0. This spec now stages `strategy-career`, which is that same save
+# with a two-line reputation seed, so the borrowed evidence still applies verbatim -
+# and it now has readings of its own on top (2026-08-18_2039 and 2026-08-18_2140 both
+# read 0 on the unseeded template).
 #
 # What this spec adds beyond that family is a hidden Administration canvas
 # (StrategyLifecycle's readiness idiom instantiates one and destroys it), which is a
