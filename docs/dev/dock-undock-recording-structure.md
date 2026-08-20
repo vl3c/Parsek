@@ -93,6 +93,8 @@ Both parent recordings get:
 
 If only one of the two pre-dock vessels was Parsek-tracked (the cross-tree case yesterday's fix handled), the absorbed/foreign side has no recording to close. In that case the branch point has only one `ParentRecordingIds` entry — the active side — and the merged child still proceeds normally. See `Source/Parsek/ParsekFlight.cs:5207-5208`.
 
+The branch point's `targetVesselPid` (`BranchPoint.TargetVesselPersistentId`) carries the couple-event partner identity UNCONDITIONALLY for Dock merges (EVA grabs excepted): since the stamp decoupling (`docs/dev/design-dock-event-graph.md` section 6.1) it is stamped independently of route eligibility via `ResolveBranchPartnerStampPid` -> `pendingDockPartnerPid` -> `BuildMergeBranchData`'s `branchPartnerPid` parameter, so a route-ineligible dock (partner with neither a pre-couple snapshot nor a known recording) still names who it docked with — derivable retroactively once the partner's tree commits. The route surfaces (`TransferTargetVesselPid` / `TransferKind` below, the route window, the phantom-spawn supersede) keep reading the route-eligibility-GATED pid. Board merges are not stamped in v1 (design Q1).
+
 ### 3.2 What the merged child looks like
 
 A new `Recording` is created via `BuildMergeBranchData` (in `ParsekFlight.cs`). It carries:
@@ -390,6 +392,7 @@ When modifying any code in this area, do not violate:
 4. **Route window part-PID sets must be partner-scoped, not merged-scoped.** Endpoint-side resource extraction must use a snapshot that contains only endpoint parts. If the snapshot is the merged vessel and the part-PID set includes transport parts (e.g. from a `CollectPartPersistentIds(mergedSnapshot)` shortcut), the dock-side baseline inflates.
 5. **Structural event snapshots are `TrajectoryPoint`s, not vessel snapshots.** They flag boundaries for the optimizer and ghost playback. Resources/inventory are captured separately by the route window.
 6. **The undock branch dispatches the same `CreateSplitBranch` call regardless of how it was reached.** `OnVesselsUndocking` -> `DeferredUndockBranch` -> `CreateSplitBranch` -> `TryCompleteLatestRouteConnectionWindow`. The downstream tree-shape / snapshot / route-window contracts are identical to any other split branch type.
+7. **The branch-point partner stamp is decoupled from route eligibility.** `BranchPoint.TargetVesselPersistentId` carries the ungated couple-event partner pid (EVA-suppressed); `TransferTargetVesselPid` / `TransferKind` / the route window / the phantom-spawn supersede carry the gated route pid. Never re-couple them: gating the stamp re-creates permanently underivable docks, and feeding the ungated pid to a route surface invents route proof from an ineligible partner. Pinned by `DockStampDecouplingTests`.
 
 ---
 

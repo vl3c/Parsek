@@ -1,0 +1,245 @@
+schema = 1
+id = "V11-moho-player-loop"
+# =====================================================================================
+# V11: THE PLAYER LOOP WORKFLOW ON THE MOHO PROGRAM'S RECORDING.
+#
+# IT BEGAN AS A READING RUN in V9's original posture -- fly it, read what the
+# product's own lines say, and only then decide what is worth gating -- and it is
+# now ARMED on what those readings measured. The arming ledger is at the bottom of
+# this header; the questions below are kept in their original interrogative form
+# because they are what the lane MEASURED, and the answers are pinned rather than
+# predicted.
+#
+# WHAT IT DOES: boots the committed `moho-orbit-recorded` fixture (B20's green
+# flight, harvested --keep-parsek), kills the scene-entry recording stub, turns the
+# three tracers on, marks the committed tree as a LOOP unit, and starts loop
+# playback. That is the whole workflow a player performs when they say "replay my
+# Moho mission"; the flight exists to find out what the loop machinery MAKES of a
+# 2.884M game-second interplanetary unit it has never seen.
+#
+# =====================================================================================
+# WHY THIS UNIT IS INTERESTING, stated as the questions the run answers rather than
+# as predictions, because predictions on a reading run are how lanes get armed on
+# assumptions.
+#
+#   1. MODE. Does the classifier call this ENGAGED (a re-aimed Kerbin->Moho transfer
+#      via the Sun) or fall back to FAITHFUL? The Supported shape wants a parking
+#      orbit, a heliocentric coast and a direct-child arrival; B20's recording has
+#      all three by construction (700 km park -> Sun -> Moho capture). The
+#      transfer-cohesion fix (PR #1458, Design A rule-3) is what keeps the on-rails
+#      Kerbin->Sun handoff from splitting the transfer into two members, and it is
+#      already merged. IF IT DECLINES, THE DECLINE REASON IS THE FINDING -- diagnose
+#      it against docs/dev/plans/optimizer-split-transfer-cohesion.md BEFORE
+#      touching anything, because the pre-fix symptom (`no member yields a re-aim
+#      transfer`) and a genuinely new one look identical from the outside.
+#
+#   2. THE SCHEDULE, AND THIS IS WHERE MOHO DIFFERS MOST FROM DRES. The unit's span
+#      is 2,884,066.6 game s (measured: main recording ut 26.3 -> 2,884,092.9). The
+#      Kerbin->Moho synodic period is ~2.918M s, so THE SPAN IS ~0.99 SYNODIC --
+#      almost exactly one. Dres's unit was 20.393M s against an ~11.4M synodic, i.e.
+#      ~1.79, and V9 measured its cadence landing on EXACTLY 2x synodic.
+#      What a ~0.99-synodic span produces is genuinely unknown: it sits right on the
+#      boundary where the "next window" and "the window after" swap places. DO NOT
+#      PREDICT THE MULTIPLE. Whatever cadence the product prints IS the measurement.
+#
+#      The span is short for a reason worth recording, because it is a property of
+#      THIS FLIGHT rather than of Moho: B20's Kerbin->Moho ejection window fell only
+#      ~398,000 game s after launch (B19's Dres wait was ~8.4M), so almost the whole
+#      span is transfer rather than LKO loiter.
+#
+#   3. LOITER COMPRESSION. Following from (2): the recording's LKO ejection-window
+#      wait is ~398,000 game s, an order of magnitude SHORTER than the ~8.4M s wait
+#      V9 measured the compressor cutting on Dres. Does the compressor find a cut
+#      this small at all, and if so how big? A zero here would not be a defect --
+#      it would be a measurement about the compressor's threshold.
+#
+#   4. THE TILT AT 7 DEGREES is NOT reachable from this lane, and that is
+#      structural rather than an oversight. The synth runs from
+#      ReaimPlaybackResolver during playback OF the re-aimed leg, and this lane
+#      quits ~1 s after StartLoopPlayback, so the tilt gate is never entered. V9
+#      measured exactly zero tilt lines on all four of its runs for the same
+#      reason. V11A is the lane that reaches it.
+#
+#   5. THE SEAM-ENDPOINT CENSUS. evaluated / outsideSoi. V9 measured this appearing
+#      PRE-fix and absent POST-fix, because an ENGAGED unit takes the synthesis path
+#      and the run ends before the render stage the census rides. Reading it here
+#      tells us which side of that Moho lands on.
+#
+# DETERMINISM: this spec was flown TWICE back to back before anything was pinned,
+# the V8/V9 discipline. Numbers that move between two identical runs are not
+# pinnable.
+#
+# ARMING LEDGER.
+#   READING RUNS  2026-08-13 `_0057` and `_0059`, both PASS attempt 1 (wall 48 s).
+#                 Every decision field compared FIELD BY FIELD across the two and
+#                 found byte-identical: the classification triple, synodic, cadence,
+#                 D0, tof, the loiter cut, phaseAnchorUt and relaunchUt.
+#   THE ANSWERS   (1) ENGAGED, `supported=True target=Moho`, 18 segments -- the
+#                 cohesion fix holds on a second body. (2) cadence == synodic
+#                 EXACTLY -- but see the quantization note: that byte-equality
+#                 is by construction, and the MEASURED fact is that the multiple is
+#                 ONE where Dres's was TWO. Span ratio 0.9914 against Dres's ~1.79. (3) the compressor DID cut
+#                 the short wait: `loiterCuts=1 cutSeconds=391267`. (4) the tilt is
+#                 unreachable here, as predicted structurally. (5) the census is
+#                 ABSENT, the same side V9 landed on post-fix.
+#   ARMED         on the classification, schedule and loiter tokens, count {6,6},
+#                 with the two cohesion decline reasons FORBIDDEN.
+# =====================================================================================
+tier = "operator"
+description = "ARMED: the player loop workflow on the Moho program's committed recording -- mark the B20 tree a loop unit and start loop playback, to measure the classify mode, the window schedule against a span that is ~0.99 of the Kerbin->Moho synodic, the loiter compression of a ~398,000 s LKO wait, and the seam-endpoint census -- ARMED on the classification, schedule and loiter tokens those readings measured."
+instanceProfile = "stock-minimal"
+tags = ["V11", "moho", "loop", "playback", "reaim", "engaged", "flown"]
+
+[fixture]
+# B20's green flight, harvested --keep-parsek (see the fixture's provenance block in
+# harness/lib/test_saveparse.py). One committed tree, five recordings, main orbiter
+# terminal Orbiting at Moho.
+saveTemplate       = "fixtures/saves/moho-orbit-recorded"
+injectedRecordings = "none"
+craft              = []
+
+[driver]
+kind = "seam"
+
+# `steps` MUST stay in the [driver] table (there is no missionParams sub-table here,
+# but the placement rule is the same one every spec follows).
+#
+# THE STUB-KILL TRIPLE (steps 2-4) is not optional bookkeeping: the fixture's own
+# parked craft is the active vessel, so entering FLIGHT starts a scene-entry
+# recording. Left alive it becomes a sixth recording and a second tree, which would
+# both pollute the count and give the loop machinery an active tree to argue with.
+# StopRecording + DiscardTree + autoRecordOnLaunch=false is the V8/V9 shape verbatim.
+#
+# The three tracers are what makes this a READING run: ghostRenderTracing and
+# mapRenderTracing emit the per-ghost render truth, verboseLogging opens the
+# classify / schedule / synth / census lines that the whole flight exists to read.
+#
+# The tree id is B20's committed tree, read off the harvested fixture's own
+# RECORDING_TREE node.
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  { cmd = "StopRecording",                                                   expect = "OK" },
+  { cmd = "DiscardTree",                                                     expect = "OK" },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "ghostRenderTracing", value = "true" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "mapRenderTracing",   value = "true" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "verboseLogging",     value = "true" }, expect = "OK" },
+  { cmd = "MissionConfig",     args = { tree = "da917056e4c042658ded6ae13f28437b", loop = "true" }, expect = "OK" },
+  { cmd = "StartLoopPlayback", args = { tree = "da917056e4c042658ded6ae13f28437b" }, expect = "OK", budget = 300 },
+  { cmd = "FlushAndQuit",                                                    expect = "OK" },
+]
+
+# NOTHING CLAIMED. A reading run measures; it does not earn coverage. Cells get
+# claimed once this lane has a pinned contract that BACKS them, which is the
+# post-reading arming call and a separate decision.
+[dimensionsCovered]
+
+[expectations]
+# PLACEMENT IS LOAD-BEARING: allowedAnomalies must precede every
+# [expectations.<sub>] header or TOML scopes it into the sub-table.
+#
+# EMPTY, and that is the reading-run posture: an anomaly raised on this flight is
+# the READING, so exempting one in advance would discard the very evidence the run
+# exists to collect. The V8 precedent: two line-blink reds were filed as a detector
+# gap rather than exempted.
+allowedAnomalies = []
+
+[expectations.recordings]
+# PINNED AT 6, MEASURED on two consecutive runs (2026-08-13 `_0057` / `_0059`,
+# both PASS, byte-identical on every decision field). 6 = the fixture's 5 plus the
+# load-time optimizer's ORDINARY ASCENT SPLIT (Atmospheric -> ExoBallistic), the
+# same mechanism V6M/V8/V9 each measured on their own fixtures; recording is OFF
+# throughout, so the playback cannot author anything.
+# A 7 would mean the transfer-cohesion fix did not hold across the Kerbin->Sun
+# handoff on THIS recording; an 8 a surviving scene-entry promotion. Both findings.
+count = { min = 6, max = 6 }
+
+[expectations.logContracts]
+# ARMED 2026-08-13 on the two-consecutive-runs discipline: every token below was
+# measured BYTE-IDENTICAL on `_0057` and `_0059` (verified field by field, not by
+# eye). The lane keeps its reading-run VALUE -- the numbers are the measurement --
+# and gains a regression floor for the transfer-cohesion fix on a SECOND body.
+#
+#   CLASSIFICATION. `supported=True target=Moho` on an 18-segment member, and the
+#   ENGAGED verdict naming the route. This is the PR #1458 cohesion fix holding on
+#   a recording it was not tuned against: pre-fix, the on-rails Kerbin->Sun handoff
+#   split the transfer and no member held parking + coast + arrival.
+#
+#   THE SCHEDULE, AND THIS IS THE LANE'S HEADLINE, because it is where Moho parts
+#   company with Dres. `cadence == synodic EXACTLY` -- 2,909,172.3997171265 for
+#   both -- i.e. ONE synodic period, where V9 measured Dres landing on exactly TWO
+#   (22,785,806.61 against an 11,392,903.31 synodic). The difference is the span:
+#   this unit spans 2,884,092.9 game s against a 2,909,172.4 s synodic, a ratio of
+#   0.9914, where Dres's spanned ~1.79 synodic. Both are the planner landing on a
+#   whole multiple; WHICH multiple falls out of where the span sits. Pinning the
+#   exact digits means a change in either the synodic derivation or the multiple
+#   selection reds this lane.
+#
+#
+# WHAT "cadence == synodic" DOES AND DOES NOT MEAN -- read this before citing the
+# byte-equality as a measurement, because it is partly an artifact of the code.
+# `ReaimWindowPlanner.PadAlignLaunch` QUANTIZES the synodic to a whole Kerbin
+# sidereal day and then assigns the cadence THE SAME VARIABLE
+# (`r.SynodicPeriodSeconds = quantizedSynodic; r.CadenceSeconds = quantizedSynodic;`,
+# commented "kept identical so window-index<->departure stays 1:1"). So whenever
+# pad-align applies AND the multiple is one, the two tokens are byte-equal BY
+# CONSTRUCTION. Two consequences, both stated rather than buried:
+#   * The pinned 2,909,172.3997171265 is not the physical synodic. It is EXACTLY 135
+#     Kerbin sidereal days (135 x 21,549.4251830898); the Kepler value is 2,918,346.4
+#     s, 9,174 s / 0.314% away. The span ratio against the pinned divisor is 0.9914
+#     and against the physical one 0.9883 -- the conclusion is unchanged either way.
+#   * V9's Dres pin of 11,392,903.31 is the RAW synodic, because pad-align was
+#     SKIPPED there (its cadence is 2x, not 1x). So V9 and V11 pin two different
+#     quantities under one name, and a naive "Dres 11.39M vs Moho 2.91M" comparison
+#     is comparing a raw period with a day-quantized one.
+# THE GENUINELY MEASURED FACT is the MULTIPLE: this unit schedules on ONE window
+# spacing where Dres scheduled on TWO, and pad-align applied here where it did not
+# there. That is what these tokens are armed for.
+#
+#   LOITER. `loiterCuts=1 cutSeconds=391267` -- the compressor finding the ~398,000
+#   game-second LKO ejection-window wait. Worth pinning because it is an ORDER OF
+#   MAGNITUDE smaller than the 8,436,248 s cut V9 measured on Dres, so it exercises
+#   the compressor at a scale nothing else in the suite reaches.
+#
+# STILL NOT ARMED, deliberately: the TILT at 7 deg (structurally unreachable here --
+# the synth runs from ReaimPlaybackResolver during playback OF the re-aimed leg and
+# this lane quits ~1 s after StartLoopPlayback, which is why V9 measured zero tilt
+# lines on all four of ITS runs; V11A is the lane that reaches it), and the
+# seam-endpoint census (absent here exactly as it was absent post-fix on V9, because
+# an ENGAGED unit takes the synthesis path and the run ends before the render stage
+# the census rides -- arming its absence would pin an artifact of this lane's brevity).
+required = [
+  "MissionConfig",
+  "StartLoopPlayback",
+  "Recording stopped",
+  # Classification: the cohesion fix holding on a second body.
+  "member#1 segs=18 startBody=Kerbin supported=True target=Moho",
+  "transferMemberSegs=18 plan.Supported=True",
+  "ENGAGED re-aim Kerbin->Moho via Sun",
+  # Schedule: cadence == ONE synodic, to the digit (Dres landed on two).
+  "synodic=2909172.3997171265",
+  "cadence=2909172.3997171265",
+  # Loiter compression at a scale nothing else in the suite reaches.
+  "loiterCuts=1 cutSeconds=391267",
+]
+# The ERROR floor, PLUS the two decline reasons the cohesion fix removed. Forbidding
+# them is the sharp end of the regression floor: if cohesion ever breaks again on an
+# interplanetary transfer, this lane reds on the product's own words rather than on
+# a count that could drift for other reasons.
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "no member yields a re-aim transfer",
+  "not re-aim \\(no member yields a re-aim transfer\\); faithful",
+]
+
+[runtime]
+# V9's budget for the same seam-driven shape on a comparable fixture. No flight: a
+# LoadGame, eight fast seam verbs and a quit, so the budget is dominated by the KSP
+# boot and the fixture load.
+budgetSeconds = 2400
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

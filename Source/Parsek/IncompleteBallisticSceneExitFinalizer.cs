@@ -1854,8 +1854,25 @@ namespace Parsek
         {
             for (Exception current = ex; current != null; current = current.InnerException)
             {
+                // SecurityException: .NET Framework's spelling of an unresolvable
+                // Unity ECall.
                 if (current is System.Security.SecurityException)
                     return current.GetType().Name;
+
+                // Mono (Linux test runs) spells the same headless condition as
+                // FlightGlobals' static initializer failing on its Quaternion.Euler
+                // ECall: TypeInitializationException("FlightGlobals") wrapping
+                // MissingMethodException. Accept ONLY that exact shape - a bare
+                // MissingMethodException from inside the finalization pass is a
+                // genuine failure (e.g. a version-mismatched KSP install) and must
+                // keep propagating, because this walker guards a try that spans the
+                // whole default finalization and its handler latches finalization
+                // off for the rest of the session.
+                if (current is TypeInitializationException typeInit
+                    && typeInit.TypeName != null
+                    && typeInit.TypeName.EndsWith("FlightGlobals", StringComparison.Ordinal)
+                    && typeInit.InnerException is MissingMethodException)
+                    return "TypeInitializationException(FlightGlobals)";
             }
 
             return null;
@@ -1885,8 +1902,9 @@ namespace Parsek
             {
                 try
                 {
-                    bool hasFetch = FlightGlobals.fetch != null;
-                    bool ready = FlightGlobals.ready;
+                    bool hasFetch;
+                    bool ready;
+                    ProbeFlightGlobalsRuntimeCore(out hasFetch, out ready);
                     runtimeAvailable = hasFetch && ready;
                     cacheResult = runtimeAvailable;
                     diagnostic = $"fetch={hasFetch}, ready={ready}";
@@ -1908,6 +1926,19 @@ namespace Parsek
                     $"({diagnostic}) — skipping default scene-exit extrapolation");
             }
             return runtimeAvailable;
+        }
+
+        // NoInlining keeps the FlightGlobals references out of the caller's JIT
+        // unit: mono initializes FlightGlobals when compiling a method that calls
+        // its statics, and a failed initializer (headless xUnit) would then
+        // surface at the caller of IsFlightGlobalsRuntimeAvailable, outside its
+        // try. Same pattern as RecordingStore.ReadUnityApplicationIsPlayingCore.
+        [System.Runtime.CompilerServices.MethodImpl(
+            System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+        private static void ProbeFlightGlobalsRuntimeCore(out bool hasFetch, out bool ready)
+        {
+            hasFetch = FlightGlobals.fetch != null;
+            ready = FlightGlobals.ready;
         }
 
         private static bool ValidateResult(

@@ -2948,6 +2948,12 @@ namespace Parsek
                 stateRecorder = new GameStateRecorder();
                 stateRecorder.SeedFacilityCacheFromCurrentState();
                 stateRecorder.Subscribe();
+                // Subscribe() seeds the resource baselines from whichever currency singletons
+                // exist right now, and OnLoad runs from the middle of KSP's own scenario-module
+                // load pass - so on some scene loads one or more baselines are left NaN, and an
+                // unseeded baseline eats the first real change of the scene instead of emitting
+                // it. Top them up as soon as the singletons appear.
+                StartCoroutine(SeedRecorderResourceBaselinesWhenReady(stateRecorder));
 
                 loadPhase = "initial-baseline";
                 SubscribeVesselLifecycleEvents();
@@ -4658,6 +4664,8 @@ namespace Parsek
         {
             GameEvents.onVesselRecoveryProcessing.Remove(OnVesselRecoveryProcessing);
             GameEvents.onVesselRecoveryProcessing.Add(OnVesselRecoveryProcessing);
+            GameEvents.onVesselRecoveryProcessingComplete.Remove(OnVesselRecoveryProcessingComplete);
+            GameEvents.onVesselRecoveryProcessingComplete.Add(OnVesselRecoveryProcessingComplete);
             GameEvents.onVesselRecovered.Remove(OnVesselRecovered);
             GameEvents.onVesselRecovered.Add(OnVesselRecovered);
             GameEvents.onVesselTerminated.Remove(OnVesselTerminated);
@@ -5642,14 +5650,34 @@ namespace Parsek
         /// </summary>
         private IEnumerator DeferredSeedAndRecalculate()
         {
-            // Phase 1: wait for singletons to exist (non-null).
-            // In sandbox mode none will ever appear — bail after timeout.
-            int maxWait = 120;
-            while (maxWait-- > 0
-                   && Funding.Instance == null
-                   && ResearchAndDevelopment.Instance == null
-                   && Reputation.Instance == null)
+            // Phase 0 (CAREER-SCIENCE-SEED-LOST-ON-FLIGHT-ROUTE): yield at least one frame
+            // before probing anything.
+            //
+            // StartCoroutine runs a coroutine body SYNCHRONOUSLY up to its first yield, and
+            // this one is started from OnLoad - which KSP itself calls from the middle of
+            // ScenarioRunner.LoadModules, while it is still walking the save's SCENARIO nodes
+            // and constructing the remaining ScenarioModules. Every readiness probe below can
+            // be satisfied by whichever currency singleton happens to have been loaded BEFORE
+            // Parsek's own module, so without this yield the "deferred" seed was not deferred
+            // at all: on the FLIGHT route it ran inside OnLoad with Funding already present
+            // and ResearchAndDevelopment / Reputation still null, seeded funds only, and left
+            // science and reputation permanently unseeded (the later retry correctly refuses
+            // to treat a mid-career pool as initial). One frame is enough - LoadModules is
+            // synchronous, so by the next frame every scenario module for this scene exists.
+            yield return null;
+
+            // Phase 1: wait for the currency singletons to exist (non-null).
+            //
+            // Waits for ALL of them, not just any one: seeding funds from a frame where R&D
+            // has not appeared yet is what dropped the science seed. Career carries all three;
+            // sandbox carries none and science-mode carries a subset, so this is a bounded
+            // wait that falls through on timeout and seeds whatever is actually present.
+            int maxWait = CurrencySingletonWaitMaxFrames;
+            while (maxWait-- > 0 && !AllCurrencySingletonsPresent())
                 yield return null;
+
+            int singletonFramesWaited = (CurrencySingletonWaitMaxFrames - 1) - maxWait;
+            bool allSingletonsPresent = AllCurrencySingletonsPresent();
 
             if (Funding.Instance == null && ResearchAndDevelopment.Instance == null
                 && Reputation.Instance == null)
@@ -5699,7 +5727,8 @@ namespace Parsek
 
             var ic = CultureInfo.InvariantCulture;
             ParsekLog.Verbose("Scenario",
-                $"DeferredSeed: values ready after {framesWaited} frames, " +
+                $"DeferredSeed: singletons all present={allSingletonsPresent} after " +
+                $"{singletonFramesWaited} frames, values ready after {framesWaited} frames, " +
                 $"clock ready={clockReady} after {utFramesWaited} frames (currentUT={currentUT.ToString("R", ic)}) — " +
                 $"Funding={(Funding.Instance != null ? Funding.Instance.Funds.ToString("F0", ic) : "null")}, " +
                 $"Science={(ResearchAndDevelopment.Instance != null ? ResearchAndDevelopment.Instance.Science.ToString("F0", ic) : "null")}, " +
@@ -5720,6 +5749,84 @@ namespace Parsek
             {
                 LedgerOrchestrator.RecalculateAndPatch();
             }
+        }
+
+        /// <summary>
+        /// Tops up any resource baseline <see cref="GameStateRecorder.Subscribe"/> could not
+        /// seed because its currency singleton had not been constructed yet.
+        ///
+        /// <para>
+        /// Zero cost in the common case: when Subscribe seeded all three the coroutine exits
+        /// before its first yield. Otherwise it polls until every baseline is filled or the
+        /// bounded budget runs out (sandbox, where the singletons never appear).
+        /// </para>
+        ///
+        /// <para>
+        /// Bails the moment <paramref name="recorder"/> stops being the live recorder: OnLoad
+        /// replaces the recorder on every scene load, and a coroutine left over from a previous
+        /// load must not write baselines into an instance nothing reads.
+        /// </para>
+        /// </summary>
+        private IEnumerator SeedRecorderResourceBaselinesWhenReady(GameStateRecorder recorder)
+        {
+            if (recorder == null || !recorder.HasUnseededResourceBaselines)
+                yield break;
+
+            int maxWait = CurrencySingletonWaitMaxFrames;
+            while (maxWait-- > 0)
+            {
+                yield return null;
+
+                if (recorder != stateRecorder)
+                {
+                    ParsekLog.Verbose("Scenario",
+                        "SeedRecorderResourceBaselines: recorder replaced by a newer scene load - abandoning top-up");
+                    yield break;
+                }
+
+                if (recorder.SeedResourceState())
+                {
+                    ParsekLog.Verbose("Scenario",
+                        "SeedRecorderResourceBaselines: all resource baselines seeded after " +
+                        ((CurrencySingletonWaitMaxFrames - 1) - maxWait).ToString(CultureInfo.InvariantCulture) +
+                        " frame(s) - first currency change of this scene will be captured");
+                    yield break;
+                }
+            }
+
+            ParsekLog.Verbose("Scenario",
+                "SeedRecorderResourceBaselines: gave up after " +
+                CurrencySingletonWaitMaxFrames.ToString(CultureInfo.InvariantCulture) +
+                " frames with baselines still unseeded (expected in sandbox, where the " +
+                "currency singletons never load)");
+        }
+
+        /// <summary>
+        /// Bounded frame budget for waiting on KSP's currency ScenarioModules to appear
+        /// (~2 seconds at 60fps). Career loads them within a frame or two of Parsek's own
+        /// module; sandbox never loads them at all, so every wait keyed on this constant must
+        /// fall through and proceed with whatever is present rather than requiring the set.
+        /// </summary>
+        private const int CurrencySingletonWaitMaxFrames = 120;
+
+        /// <summary>
+        /// True when all three of KSP's currency singletons exist.
+        ///
+        /// <para>
+        /// The readiness signal is PRESENCE, not a non-zero value: KSP's
+        /// <c>ScenarioRunner.AddModule(ConfigNode)</c> constructs a module and calls its
+        /// <c>Load(node)</c> in one synchronous call, so from a per-frame coroutine's vantage
+        /// a singleton can never be observed existing-but-unloaded. A pool that genuinely sits
+        /// at zero (a fresh career's science, a career that started at reputation 0) is
+        /// therefore indistinguishable from an unloaded one by value, which is exactly why
+        /// presence is the right gate and a non-zero-value gate is not.
+        /// </para>
+        /// </summary>
+        private static bool AllCurrencySingletonsPresent()
+        {
+            return Funding.Instance != null
+                   && ResearchAndDevelopment.Instance != null
+                   && Reputation.Instance != null;
         }
 
         /// <summary>
@@ -7077,6 +7184,63 @@ namespace Parsek
                 $"recoveryFactor={recoveryFactor.ToString("R", CultureInfo.InvariantCulture)}");
         }
 
+        /// <summary>
+        /// Second half of the recovery payout capture: fills in the expectation stock could
+        /// not yet supply at <see cref="OnVesselRecoveryProcessing"/>.
+        ///
+        /// <para>
+        /// Decompile-verified (KSP 1.12.5 <c>VesselRecovery.OnVesselRecovered</c>): this event
+        /// is fired as the method's LAST statement, immediately after <c>totalFunds</c> is
+        /// stamped and the currency-modifier delta is folded into <c>fundsEarned</c>. That is
+        /// the first moment the dialog's funds triple is internally coherent - at the
+        /// processing seam <c>fundsEarned</c> has never been assigned and <c>totalFunds</c> is
+        /// still zero, so the context Remember() built there is deliberately payout-unknown.
+        /// </para>
+        ///
+        /// <para>
+        /// KSP also fires this event with a NULL dialog on its early-out and <c>quick</c>
+        /// recovery paths; those carry no payout at all and correctly leave the context
+        /// unknown, which routes to deferred pairing against the real
+        /// <c>FundsChanged(VesselRecovery)</c> event.
+        /// </para>
+        /// </summary>
+        private void OnVesselRecoveryProcessingComplete(
+            ProtoVessel pv,
+            KSP.UI.Screens.MissionRecoveryDialog recoveryDialog,
+            float recoveryFactor)
+        {
+            if (pv == null) return;
+            if (recoveryDialog == null) return;
+            if (GhostMapPresence.IsGhostMapVessel(pv.persistentId)) return;
+            if (RewindContext.IsRewinding) return;
+            if (string.IsNullOrEmpty(pv.vesselName)) return;
+
+            double now = Planetarium.GetUniversalTime();
+            RecoveredVesselIdentity identity = RecoveredVesselIdentity.FromRawName(pv.vesselName);
+
+            if (!RecoveryPayoutContextStore.TryRefreshPayoutFromCompletion(
+                    pv.persistentId,
+                    identity,
+                    now,
+                    recoveryDialog.fundsEarned,
+                    recoveryDialog.beforeMissionFunds,
+                    recoveryDialog.totalFunds,
+                    out RecoveryPayoutContext refreshed))
+            {
+                return;
+            }
+
+            ParsekLog.Verbose("Scenario",
+                $"Recovery processing completed: {refreshed.Identity.FormatForLog()} " +
+                $"pid={pv.persistentId} vesselType={pv.vesselType} " +
+                $"ut={now.ToString("F1", CultureInfo.InvariantCulture)} " +
+                $"fundsEarned={recoveryDialog.fundsEarned.ToString("F1", CultureInfo.InvariantCulture)} " +
+                $"before={recoveryDialog.beforeMissionFunds.ToString("F1", CultureInfo.InvariantCulture)} " +
+                $"total={recoveryDialog.totalFunds.ToString("F1", CultureInfo.InvariantCulture)} " +
+                $"recoveryFactor={recoveryFactor.ToString("R", CultureInfo.InvariantCulture)} - " +
+                $"payout expectation now known");
+        }
+
         private void OnVesselRecovered(ProtoVessel pv, bool fromTrackingStation)
         {
             if (pv == null) return;
@@ -7411,6 +7575,7 @@ namespace Parsek
         {
             stateRecorder?.Unsubscribe();
             GameEvents.onVesselRecoveryProcessing.Remove(OnVesselRecoveryProcessing);
+            GameEvents.onVesselRecoveryProcessingComplete.Remove(OnVesselRecoveryProcessingComplete);
             GameEvents.onVesselRecovered.Remove(OnVesselRecovered);
             GameEvents.onVesselTerminated.Remove(OnVesselTerminated);
             GameEvents.onVesselSwitching.Remove(OnVesselSwitching);

@@ -265,6 +265,54 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void TryAdoptRolloutAction_BumpsStateVersionSoRecordingScopedCachesCannotGoStale()
+        {
+            // ADOPTION IS A MUTATION OF RECORDING OWNERSHIP, and the consumers that answer
+            // per-recording questions cache against Ledger.StateVersion:
+            // SupersedeCommit's world-action safety cache keys on it
+            // (worldActionSafetyCacheLedgerVersion), and EffectiveState.ComputeELS caches
+            // on it too. Before the bump, an adoption moved a FundsSpending row onto a
+            // recording while every one of those caches went on answering for the ledger
+            // as it stood BEFORE the retag - the same stale-cache defect class as
+            // LEDGER-TRUNCATE-LEAVES-A-STALE-ELS-CACHE, which the L3 reading run
+            // 2026-08-18_2136 measured live in the ELS cache.
+            //
+            // MUTATION NOTE: deleting the Ledger.BumpStateVersion() call in
+            // LedgerRolloutAdoption.TryAdoptRolloutAction reds this cell (verified).
+            RecordRollout(ut: 99.0, cost: 5000.0);
+            var rec = CreateRecording("rec-bump");
+            int versionBeforeAdoption = Ledger.StateVersion;
+
+            var adopted = LedgerOrchestrator.TryAdoptRolloutAction("rec-bump", startUT: 110.0, rec);
+
+            Assert.NotNull(adopted);
+            Assert.Equal("rec-bump", adopted.RecordingId);
+            Assert.NotEqual(versionBeforeAdoption, Ledger.StateVersion);
+            Assert.Contains(logLines, l =>
+                l.Contains("[LedgerOrchestrator]") &&
+                l.Contains("adopted rollout action") &&
+                l.Contains("stateVersion="));
+        }
+
+        [Fact]
+        public void TryAdoptRolloutAction_DoesNotBumpWhenNothingIsAdopted()
+        {
+            // The mirror of the cell above, and the reason the bump sits INSIDE the match
+            // rather than at the end of the method: a scan that claims nothing has changed
+            // nothing, and invalidating every recording-scoped cache on a miss would make
+            // each unmatched recording start pay for a full ELS rebuild.
+            RecordRollout(ut: 100.0, cost: 5000.0);
+            double startUT = 100.0 + LedgerOrchestrator.RolloutAdoptionWindowSeconds + 30.0;
+            var rec = CreateRecording("rec-no-bump");
+            int versionBeforeAdoption = Ledger.StateVersion;
+
+            var adopted = LedgerOrchestrator.TryAdoptRolloutAction("rec-no-bump", startUT, rec);
+
+            Assert.Null(adopted);
+            Assert.Equal(versionBeforeAdoption, Ledger.StateVersion);
+        }
+
+        [Fact]
         public void TryAdoptRolloutAction_OutsideWindow_LeavesActionUnclaimed()
         {
             // A stale rollout from a launch session more than RolloutAdoptionWindowSeconds

@@ -97,6 +97,14 @@ namespace Parsek.Tests
         // resource reconciliation. It IS supersede-tombstone eligible - a different
         // axis - so this false is not "the merge ignores it".
         [InlineData(GameActionType.KerbalExperience,     false)]
+        // StrategyScienceDebit (STRATEGY-SCIENCE-CONVERSION-LEAK): the science INPUT leg
+        // of a stock currency-exchange strategy. ScienceModule debits the pool by Cost,
+        // so it moves a resource exactly like a ScienceSpending - true.
+        [InlineData(GameActionType.StrategyScienceDebit, true)]
+        // StrategyScienceCredit: the science OUTPUT leg of a stock CurrencyConverter
+        // strategy. ScienceModule credits the pool by ScienceAwarded, so it moves a
+        // resource exactly like a ScienceEarning - true.
+        [InlineData(GameActionType.StrategyScienceCredit, true)]
         public void IsResourceImpactingAction_Theory(GameActionType type, bool expected)
         {
             Assert.Equal(expected, LedgerOrchestrator.IsResourceImpactingAction(type));

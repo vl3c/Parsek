@@ -899,6 +899,232 @@ Each: scenario -> expected behavior -> v1 or deferred.
     KILLED; a spec-validation cross-check of `runtime.budgetSeconds >= sum(step
     budgets) + margin` is deferred).
 
+## Amendment A (2026-08-19): the career-earning verbs and `science_bench_recover`
+
+BINDING, and additive to everything above: no contract in this document moves.
+This amendment defines three new mission ACTIONS, six new opt-in telemetry
+channels, and one new mission. It is written here rather than in a plan doc
+because the ACTION grammar and the verdict semantics are this module's public
+surface - a mission author reads them from this file.
+
+### A.1 Why the gap existed
+
+Every career surface the harness could drive before this amendment was a SPEND.
+`KscAction`'s four sub-actions research a tech node, upgrade a facility, hire a
+kerbal and accept a contract; not one of them CREDITS anything. So the two ledger
+row families a real career is mostly made of - `ScienceEarning`, produced only
+from flight science subjects via `GameStateEventConverter.ConvertScienceSubjects`,
+and the funds credit from a recovered vessel - were reachable only from a
+hand-played save. `docs/dev/plans/career-ledger-coverage.md` recorded that as a
+structural ceiling on any forge. These three verbs lift it.
+
+### A.2 The three actions
+
+All three are COMMANDS. None of them is ever its own evidence, and the reason is
+not stylistic: each one succeeds on a craft where the effect does not happen.
+
+| Action | kRPC surface (pinned 0.5.4) | What the runner does | What it is NOT evidence of |
+| --- | --- | --- | --- |
+| `ACTION_RUN_SCIENCE_EXPERIMENTS` | `Parts.Experiments` -> `Experiment.Run()` | runs every module that reads `Available`, not `Inoperable`, not already `HasData`; per-module faults are one Warn each | that any data was stored - `Run()` succeeds on a module whose conditions are not met |
+| `ACTION_TRANSMIT_SCIENCE` | `Experiment.Transmit()` | transmits every module that reads `HasData`; per-module faults are one Warn each and are counted into the sweep's `failed=` | that any science was credited - the call can succeed with no ElectricCharge and no connection. **CORRECTED 2026-08-19 (measured):** it does NOT silently succeed with no antenna. kRPC filters the vessel's transmitters by `IScienceDataTransmitter.CanTransmit()` and RAISES `No transmitters available to transmit the data` when none passes, which the runner catches and reports as a failed module |
+| `ACTION_RECOVER_VESSEL` | `Vessel.Recoverable` then `Vessel.Recover()` | READS `Recoverable` first and declines rather than raising; then recovers; stamps the outcome on `recover_request_result` either way | that the craft was recovered rather than destroyed - a craft that blew up is also gone - and, before the stamp is read back, not even that the verb was issued at all |
+
+Three properties of `ACTION_RECOVER_VESSEL` are load-bearing and bind any future
+machine that emits it:
+
+1. **It is scene-level and terminal.** Stock recovery removes the craft and
+   leaves FLIGHT. A machine MUST emit it exactly once and MUST emit nothing
+   after it: `_fly_loop_body` does not wrap `control.perform`, so an action
+   performed against a vessel that no longer resolves raises out of the fly loop
+   and reports MISSION-ERROR instead of the outcome the machine already had a
+   name for.
+2. **Read before ask, and REPORT THE DECLINE.** kRPC's `Recover()` throws
+   `InvalidOperationException` when `Recoverable` is false. The runner reads it,
+   and the machine reads it independently through
+   `TelemetrySnapshot.vessel_recoverable` before it asks. Two locks, because the
+   throw would convert a named ASSERT-FAIL into an ERROR. The runner's lock can
+   therefore DECLINE - a craft still rolling reads not-recoverable a moment after
+   the machine's debounced YES - and every exit of `_perform_recover_vessel`
+   stamps `TelemetrySnapshot.recover_request_result` with one of
+   `ISSUED` / `DECLINED` / `UNREADABLE` / `FAILED`. **A machine emitting this
+   action MUST latch on the observed ISSUED, never on its own emission.** An
+   emission latch stays true through a decline, which put a craft that exploded
+   afterwards into the success branch; at a 0.0 funds floor with a readable
+   unmoved pool it certified RECOVERED. (Found in review, 2026-08-19, with a
+   replayed negative control: restoring the emission latch turns the
+   settle-flicker-then-explosion run back into RECOVERED.) The machine's response
+   to a decline is a BOUNDED RE-EMIT - at most `SBR_RECOVER_ASK_LIMIT` further
+   asks, `SBR_ACTION_REEMIT_FRAMES` apart, only on a fresh debounced
+   `Recoverable` = YES - on the same reasoning as the COLLECT / TRANSMIT sweeps,
+   since the decline shape is a settle flicker and a declined ask removed no
+   craft. A PERSISTENT decline needs no new terminal: the poll channel keeps
+   being read while nothing is issued, so `vessel-not-recoverable` condemns it by
+   name, and a seam that declines while the poll channel insists YES runs out to
+   `recover-never-completed` (driver territory, which is what a disagreement
+   between two reads of one property is).
+3. **The success evidence is a PAIR, and it must STRADDLE the event.** The craft
+   OBSERVED gone AND a funds credit measured from a pre-recover baseline against
+   a reading taken ON a vessel-gone frame. Either half alone is wrong, and so is
+   a pair that does not span the recovery: because `recoverMinFundsGain` is
+   author-set and legitimately 0.0, comparing the baseline against the merely
+   LATEST reading let `0.0 >= 0.0` hold on the first vessel_lost frame, so a
+   craft that exploded during RECOVER was certified RECOVERED. A break-up filed
+   as SUCCESS is the worst verdict this module can emit and it was unpreventable
+   from a spec, so the guard is structural: `_sbr_recovery_credit` requires a
+   POST-LOSS reading, and a loss BEFORE the recovery was requested is routed to
+   `vessel-lost-before-recovery` rather than reaching the success branch at all.
+   The floor is now a strengthener on a gate that already means something.
+   (Found in review, 2026-08-19, with a replay negative control: under the old
+   predicates both shapes returned RECOVERED.)
+
+### A.3 The channels: six telemetry reads in two families, plus one seam report
+
+Opt-in via `KrpcMissionControl(read_science=True)`. Off, every one stays at its
+fail-closed sentinel and every other mission's snapshot is byte-identical. None
+of the six is in `snapshot_dict` / `MACHINE_STATE_FIELDS` (the
+`seam_command_result` precedent: a key in either moves the status block or the
+machine line of every mission).
+
+- **Vessel-scoped** (`science_experiment_count`, `science_data_count`,
+  `science_available_count`, `vessel_recoverable`; all `-1` = UNREAD). Properties
+  OF THE VESSEL, so they stay UNREAD on a `vessel_lost` snapshot - a recovered
+  craft has none, and fabricating a `0` there would be a lie in the direction
+  that certifies. The **UNREAD-vs-zero split is a contract**: an enumeration that
+  SUCCEEDED and found nothing reads `0` and means "this fixture has no science
+  part" (a non-retryable ASSERT-FAIL); an enumeration that RAISED reads `-1` and
+  means "we could not look" (a retryable FLAKE). Collapsing them files a fixture
+  fault as a channel fault or the reverse. This is
+  `ROSTER_STATUS_NOT_IN_ROSTER` vs `ROSTER_STATUS_UNREAD` applied to a second
+  channel family.
+- **Career-scoped** (`career_funds`, `career_science`; NaN = UNREAD). Properties
+  of the SAVE, read from the SpaceCenter handle, so - exactly like
+  `crew_roster_status`, and for the same stated reason - they ARE populated on a
+  `vessel_lost` snapshot. This is not a convenience. Recovering the active vessel
+  destroys it, so the frame that proves the recovery happened necessarily has no
+  vessel on it; without the carry the recovery terminal is unobservable and every
+  good recovery would be condemned as a break-up. Both properties raise outside
+  CAREER mode, and the NaN that produces is the honest answer, named
+  `career-pool-channel-dark`.
+- **The perform-seam report** (`recover_request_result`; `""` = UNREAD). NOT a
+  telemetry read and NOT gated on `read_science` - it costs no RPC, because it is
+  the runner's own record of what its last recover attempt did, fed back exactly
+  the way `seam_command_result` is, and it stays `""` for every mission that
+  never emits the action. It is STICKY (the last terminal token stands until the
+  next perform), so a machine reads it as a level rather than an edge, and it
+  **is carried on a `vessel_lost` snapshot** on the career pools' argument
+  applied a third time: a successful `Recover()` removes the craft at once, so
+  `ISSUED` and vessel-gone routinely arrive on the SAME snapshot, and dropping it
+  there would leave the issued latch false on the only frame that could set it.
+
+### A.4 The mission: `science_bench_recover`
+
+Fly, collect, transmit, recover. **The flight leg is DELEGATED, not rewritten**:
+`SbrState.flight` holds a real `B1State` and `sbr_decide` hands every pre-landing
+frame to `b1_decide` verbatim, so the pad hop is byte-for-byte B1's live-proven
+one (its chute-arming window cost three flights to get right, and a fork of it
+here would drift the first time either side is touched). The `missionParams` for
+that half are B1's keys, delegated through `b1_params_from_dict` over the same
+dict. On the frame B1 reaches LANDED the machine falls THROUGH into COLLECT.
+
+Every tuning value in the career half is a **FLOOR on an OBSERVED movement**, never
+an expected pool value. Only KSP can author what a subject or a recovery is worth;
+authoring one here would re-make the mistake `harness/fixtures/saves/README.md`
+records (a ledger that agrees with a stale spec proves nothing).
+
+Verdict semantics, and the split is the CL-1 split exactly - a wrong OUTCOME is
+not retryable, a broken CHANNEL is:
+
+| Terminal | Verdict | Why that side of the line |
+| --- | --- | --- |
+| `RECOVERED` | MISSION-OK (assertions decide) | craft OBSERVED gone AND a funds credit measured ACROSS the recovery (pre-recover baseline vs a reading taken on a vessel-gone frame), after the verb was actually issued |
+| `no-experiments-aboard` | MISSION-ASSERT-FAIL | the enumeration READ 0 modules: the fixture is wrong, and re-flying it changes nothing |
+| `collect-produced-no-data` | MISSION-ASSERT-FAIL | modules aboard, none stored data; the reason carries the availability count so "refused" and "conditions never met" are distinguishable |
+| `transmit-credited-no-science` | MISSION-ASSERT-FAIL | no antenna / no EC / no connection |
+| `vessel-not-recoverable` | MISSION-ASSERT-FAIL | named INSTEAD of asking, so kRPC's throw never becomes MISSION-ERROR. It also owns a PERSISTENTLY declined ask: the poll channel goes on being read until a verb is OBSERVED issued, so a genuinely unrecoverable craft trips this by name rather than by timeout |
+| `vessel-lost-without-recovery-credit` | MISSION-ASSERT-FAIL | the shape of a craft that BROKE UP |
+| `vessel-lost-before-recovery` | MISSION-ASSERT-FAIL | the craft this mission exists to recover was destroyed. Covers RECOVER too, up until the verb is actually ISSUED - which is TWO windows, not one: the debounce wait before the first ask, and the window after an ask the perform seam DECLINED. A craft that explodes in either was destroyed, not recovered |
+| `science-channel-dark` | MISSION-FLAKE | the enumeration is broken, not the flight. SCOPED TO COLLECT, which is the only phase that reads that channel: a give-up must name a channel the current phase DEPENDS on, and flaking in TRANSMIT or RECOVER would throw away a flight that had already collected for a reading nothing was waiting on |
+| `career-pool-channel-dark` | MISSION-FLAKE | the pools never read finite, so no gain could be computed at all; a non-CAREER save reads exactly like this. Raised at TWO sites (the transmit budget and the recovery grace), and at the second it is checked BEFORE `vessel-lost-without-recovery-credit`: "the pool did not move" and "the pool was never readable" are indistinguishable from a None gain and sit on opposite sides of the retry line |
+| `recover-never-completed` | MISSION-FLAKE | asked and still there: driver / kRPC territory. Also where a seam that declines every ask while the poll channel insists `Recoverable` = YES ends up - a disagreement between two reads of one property is a driver fault, not a flight outcome |
+| `flight-leg <...>` | carried verbatim from B1 | the pad hop failed, and the tail must neither swallow nor re-name that |
+
+**Mission-vs-Parsek orthogonality holds by construction.** Every terminal above
+is a MISSION verdict, and the existing M-A5 mapping makes both families
+driver-INVALID (subkind `mission`, retry-once). A forge that failed to forge is
+never `PARSEK-FAIL`. No new verdict, no new subkind, no verifier-chain change.
+
+**The `missionOutcome` gate is deliberately not involved.**
+`hlib.post_mission_step_gates` gates post-mission SEAM verbs whose verdict is a
+claim about a kerbal's physical in-world state (the four M-C2 EVA verbs). This
+mission emits none, and its own world outcome is already gated by its four
+assertions. `SEAM_VERB_POST_MISSION_ROLE` is unchanged.
+
+### A.5 The handoff declaration, used on a new axis
+
+`mlib.MISSION_HANDOFF_CONTRACTS` gains a second entry, and it declares a
+DIFFERENT kind of gap from EVA-4's. EVA-4 is a handoff in the original sense: it
+stops mid-flight and the outcome it exists to produce happens later, to a vessel
+no frame it read ever saw. `science_bench_recover` terminates ON its own world
+outcome. Its gap is on the other axis - the mission has no view of Parsek at all,
+so a green MISSION-OK means KSP credited the science and the funds and says
+nothing about whether a `ScienceEarning` row or a recovery credit reached the
+LEDGER, which is the entire reason the flight is worth flying. `verifiedBy` names
+the harness rows that DO own that claim (`CommitTree`, the analyzer, the M-B2
+ledger oracle) rather than seam verbs. Nothing reads the field programmatically;
+it is rendered into the MISSION-OK reason line so a forge run can never be
+misread as "the forge worked".
+
+### A.6 What this amendment does NOT ship
+
+No committed scenario spec, no fixture change, and no flight. A spec is honest
+only once its fixture is pinned and its windows are measured off a reading run;
+that is the next wave. What is proven headlessly here: the pure machine in both
+verdict directions, the runner's reads and verbs (including that the career pools
+survive a `vessel_lost` frame and that the recover verb never raises out of
+`perform`), and a full `run.py` attempt over the fake KSP against a spec naming
+the real mission and validated against its real committed schema.
+
+### A.7 What the FIRST LIVE FLIGHTS measured (2026-08-19), and what they changed
+
+The next wave flew (`L3-career-science-recover`, three attempts across two runs)
+and the amendment survives intact: no verdict, terminal, channel or action
+contract above moves. Two things DID change, and both are recorded here rather
+than left in a run log.
+
+1. **`make_control` needs a SECOND opt-in on a CAREER save:
+   `tolerate_unreadable_nodes=True`.** Flight 1 died at 1.2 s in PRELAUNCH
+   (`flight-leg vessel-lost (unreadable after repeated telemetry failures)`)
+   because kRPC raises `Maneuver node editing is not available` on an un-upgraded
+   Tracking Station and `READ_FAIL_STREAK_LIMIT` consecutive raises escalate to a
+   `vessel_lost` snapshot. CL-3 already carried the identical finding; this lane
+   is the second career flier. The flag stays PER-MISSION (globally it breaks
+   CL-1), and it is safe here because B1's phase progression cannot be walked
+   from the pad and `flightCompletedObserved` gates on the peak apoapsis.
+
+2. **A.2's transmit row was factually wrong, and the correction is above.**
+   `Experiment.Transmit()` does NOT silently succeed on a craft with no
+   science-capable antenna: kRPC filters by `CanTransmit()` and raises. Flight 2
+   flew perfectly - peak apoapsis 19,990 m, landed under canopy, COLLECT ran all
+   three experiments - and then condemned itself `transmit-credited-no-science`
+   with ten identical `No transmitters available to transmit the data` raises
+   across four bounded re-emit sweeps.
+
+**The mission was RIGHT and the fixture is wrong, and this document already says
+which side that lands on.** Decompiling the shipped `Assembly-CSharp`,
+`ModuleDataTransmitter.CanTransmit()` requires `antennaType != INTERNAL` before
+it even consults CommNet - so stock forbids transmitting science over a command
+pod's built-in antenna, which is the ONLY transmitter `career-pad-craft`'s
+Jumping Flea carries. That is a fixture fault of exactly the class
+`no-experiments-aboard` names ("the fixture is wrong, and re-flying it changes
+nothing"), and the terminal that fired says so in its own words ("no antenna").
+The open follow-up is therefore fixture work, not a contract change: see
+`docs/dev/plans/career-ledger-coverage.md` section 4d and the
+CAREER-FORGE-NEEDS-A-DIRECT-ANTENNA entry in `todo-and-known-bugs.md`. One
+observability improvement is worth taking with it when that wave runs: "no
+transmitter aboard" and "transmitted and nothing was credited" are the same side
+of the retry line but different diagnoses, and only the first is a fixture fault
+a re-fly cannot change.
+
 ## What Doesn't Change
 
 - **ZERO Parsek C# changes in v1. Expected NONE.** M-B1 is entirely harness-side

@@ -330,6 +330,14 @@ namespace Parsek
             GameEvents.OnScienceChanged.Add(OnScienceChanged);
             GameEvents.OnReputationChanged.Add(OnReputationChanged);
 
+            // Query-family strategy door (STRATEGY-SCIENCE-CONVERSION-LEAK /
+            // STRATEGY-FUNDS-YIELD-DRIFT). OnCurrencyModified - NOT
+            // OnCurrencyModifierQuery, which stock's 33 display sites fire through
+            // CurrencyModifierQuery.RunQuery without moving any balance. Instance
+            // method, so EventData.Add gets a real target (a static method handed to
+            // EventData.Add throws - see the static-GameEvent-handler NRE trap).
+            GameEvents.Modifiers.OnCurrencyModified.Add(OnCurrencyModified);
+
             // Science subjects (per-experiment tracking for duplication prevention)
             GameEvents.OnScienceRecieved.Add(OnScienceReceived);
 
@@ -386,6 +394,9 @@ namespace Parsek
             GameEvents.OnScienceChanged.Remove(OnScienceChanged);
             GameEvents.OnReputationChanged.Remove(OnReputationChanged);
 
+            // Query-family strategy door (symmetric with the Subscribe side).
+            GameEvents.Modifiers.OnCurrencyModified.Remove(OnCurrencyModified);
+
             // Science subjects
             GameEvents.OnScienceRecieved.Remove(OnScienceReceived);
 
@@ -405,14 +416,88 @@ namespace Parsek
 
         #region Resource Handlers
 
-        private void SeedResourceState()
+        /// <summary>
+        /// True while any resource baseline is still unseeded (NaN).
+        ///
+        /// <para>
+        /// An unseeded baseline is not inert: <see cref="OnScienceChanged"/> /
+        /// <see cref="OnFundsChanged"/> / <see cref="OnReputationChanged"/> all stamp the new
+        /// value and then <c>return</c> on <c>IsNaN(old)</c>, so the FIRST real change of the
+        /// scene is silently consumed as the primer - no event, no log, and (for science) no
+        /// reason capture for the subject that caused it. See
+        /// <see cref="SeedResourceState"/> for why a baseline can start out NaN.
+        /// </para>
+        /// </summary>
+        internal bool HasUnseededResourceBaselines =>
+            double.IsNaN(lastFunds) || double.IsNaN(lastScience) || double.IsNaN(lastReputation);
+
+        /// <summary>
+        /// Seeds any still-unseeded resource baseline from the live currency singletons, and
+        /// reports whether all three are now seeded.
+        ///
+        /// <para>
+        /// <b>Fill-only-NaN, so it is safe to call repeatedly.</b> A baseline that is already
+        /// seeded is left alone; overwriting one would silently swallow whatever changed since
+        /// it was taken.
+        /// </para>
+        ///
+        /// <para>
+        /// <b>Why a baseline can start out NaN</b> (CAREER-TRANSMIT-SCIENCE-EMITS-NO-CORROBORATING-EVENT):
+        /// a fresh recorder is constructed and subscribed from <c>ParsekScenario.OnLoad</c> on
+        /// every scene load, and KSP calls OnLoad from the middle of
+        /// <c>ScenarioRunner.LoadModules</c> - so the currency ScenarioModules that happen to
+        /// sit after Parsek's in the save can still be null here. On the flight that found
+        /// this, <c>ResearchAndDevelopment.Instance</c> was null at the space-centre subscribe,
+        /// <c>lastScience</c> stayed NaN, and the recovered Mystery Goo's +3.6 science credit
+        /// was eaten as the primer: no <c>ScienceChanged(VesselRecovery)</c> event, so the
+        /// subject reached the ledger with an empty reason, fell back to
+        /// <c>method=Transmitted</c>, and the post-walk reconcile could never match it.
+        /// <c>ParsekScenario</c> re-runs this once the singletons appear.
+        /// </para>
+        /// </summary>
+        internal bool SeedResourceState()
         {
-            if (Funding.Instance != null)
-                lastFunds = Funding.Instance.Funds;
-            if (ResearchAndDevelopment.Instance != null)
-                lastScience = ResearchAndDevelopment.Instance.Science;
-            if (Reputation.Instance != null)
-                lastReputation = Reputation.Instance.reputation;
+            lastFunds = SeedBaselineIfUnseeded(
+                lastFunds,
+                Funding.Instance != null,
+                Funding.Instance != null ? Funding.Instance.Funds : 0.0);
+            lastScience = SeedBaselineIfUnseeded(
+                lastScience,
+                ResearchAndDevelopment.Instance != null,
+                ResearchAndDevelopment.Instance != null ? ResearchAndDevelopment.Instance.Science : 0.0);
+            lastReputation = (float)SeedBaselineIfUnseeded(
+                lastReputation,
+                Reputation.Instance != null,
+                Reputation.Instance != null ? Reputation.Instance.reputation : 0.0);
+
+            return !HasUnseededResourceBaselines;
+        }
+
+        /// <summary>
+        /// Pure baseline-seeding decision: take the singleton's value ONLY when the baseline is
+        /// still unseeded (NaN) AND the singleton exists.
+        ///
+        /// <para>
+        /// Both halves matter. Overwriting a seeded baseline would discard the change history
+        /// between the old baseline and now - the very swallow this seeding exists to prevent -
+        /// and a value read from an absent singleton would be a fabricated zero, which for
+        /// funds or science is a large false delta on the next real change.
+        /// </para>
+        ///
+        /// <para>
+        /// A genuinely-zero pool (fresh career science, a career that started at reputation 0)
+        /// seeds to 0 and is then SEEDED, not unseeded: zero is a real baseline, and only NaN
+        /// means "never read".
+        /// </para>
+        /// </summary>
+        internal static double SeedBaselineIfUnseeded(
+            double currentBaseline,
+            bool singletonPresent,
+            double singletonValue)
+        {
+            if (!double.IsNaN(currentBaseline))
+                return currentBaseline;
+            return singletonPresent ? singletonValue : currentBaseline;
         }
 
         private void OnFundsChanged(double newFunds, TransactionReasons reason)
@@ -518,6 +603,28 @@ namespace Parsek
             double delta = newScience - oldScience;
             double ut = Planetarium.GetUniversalTime();
             string reasonKey = reason.ToString();
+
+            // STRATEGY-ECHO-CAPTURE-WIPE: the threshold check runs FIRST, so a
+            // below-threshold ScienceChanged - notably the zero-delta trailing echo a
+            // stock CurrencyConverter strategy produces after it has already taken its
+            // share - leaves latestScienceChangeCapture untouched instead of wiping it.
+            // Before this ordering, every recovery award landing while a query-family
+            // strategy was active lost the VesselRecovery reasonKey the capture carried,
+            // so LedgerOrchestrator.ResolveKscScienceRecordingId fell back to
+            // method=Transmitted and the science kept its credit but lost its recording
+            // attribution. A REAL negative delta still clears the capture below (that
+            // cache is for POSITIVE subject awards and a stale one would mis-attribute).
+            // Accepted corollary of the same ordering: a below-threshold POSITIVE subject
+            // award no longer SETS the capture either. Its magnitude is under the ledger's
+            // own science floor, so there is nothing for the attribution it would carry to
+            // attribute; a sub-milli-point award is not worth a capture.
+            if (IsScienceDeltaBelowThreshold(delta))
+            {
+                ParsekLog.VerboseRateLimited("GameStateRecorder", "science-threshold",
+                    $"Ignored ScienceChanged delta={delta:+0.000;-0.000} below threshold={ScienceThreshold:F3}", 5.0);
+                return;
+            }
+
             if (delta > 0.0 && IsScienceSubjectReasonKey(reasonKey))
             {
                 latestScienceChangeCapture = new RecentScienceChangeCapture
@@ -534,13 +641,6 @@ namespace Parsek
                 latestScienceChangeCapture = default(RecentScienceChangeCapture);
             }
 
-            if (IsScienceDeltaBelowThreshold(delta))
-            {
-                ParsekLog.VerboseRateLimited("GameStateRecorder", "science-threshold",
-                    $"Ignored ScienceChanged delta={delta:+0.000;-0.000} below threshold={ScienceThreshold:F3}", 5.0);
-                return;
-            }
-
             var sciEvt = new GameStateEvent
             {
                 ut = ut,
@@ -551,6 +651,45 @@ namespace Parsek
             };
             Emit(ref sciEvt, "ScienceChanged");
             ParsekLog.Info("GameStateRecorder", $"Game state: ScienceChanged {delta:+0.0;-0.0} ({reason}) → {newScience:F1}");
+
+            // Patents Licensing (stock CurrencyExchanger / CurrencyConverter,
+            // researchIPsellout) subtracts science directly under
+            // TransactionReasons.StrategyInput with no recording owner and no other
+            // capture channel - the strategy's own InitialCostScience setup charge is
+            // separate and rides StrategyActivate. Forward it straight to the ledger so
+            // the recalc preserves the traded-away science instead of refunding it.
+            // ShouldForwardDirectLedgerEvent skips the write when a live recorder owns
+            // the event (it then flows through the commit-time ConvertEvents path).
+            // Third leg of the carve-out pair at OnFundsChanged (StrategyOutput) and
+            // OnReputationChanged (StrategyInput). See
+            // fix-bailout-grant-currency-exchange-capture.md and the
+            // STRATEGY-SCIENCE-CONVERSION-LEAK entry in docs/dev/todo-and-known-bugs.md.
+            //
+            // Ordering invariant: this call MUST follow the Emit(...ScienceChanged) above
+            // so the event is IN GameStateStore before OnKscSpending's downstream reads.
+            // NOT for ReconcileKscAction pairing - ClassifyAction returns Transformed for
+            // StrategyScienceDebit and the reconcile short-circuits before any leg is
+            // matched, so no pairing ever happens. What DOES read the store synchronously
+            // inside this call is OnKscSpending's recalc tail:
+            // ComputePendingUncommittedStrategyScienceDebit (which must see this event to
+            // net it against the row being written) and ComputeEarningsWindowStoreDeltas.
+            //
+            // Two live traps, both intentional: this method early-returns above when
+            // |delta| < ScienceThreshold (0.001), so a sub-milli-point exchange is not
+            // captured at all; and a REAL negative delta still CLEARS
+            // latestScienceChangeCapture. The clear is kept (that cache is for POSITIVE
+            // subject awards and a stale capture would mis-attribute one), but it is
+            // not free: an exchange firing between a recovery's ScienceChanged credit
+            // and its OnScienceReceived callbacks drops the reasonKey the capture
+            // carried, so LedgerOrchestrator.ResolveKscScienceRecordingId no longer
+            // sees VesselRecovery and the recovered science loses its recording
+            // attribution (it stays credited, untagged). Recorded as a residual on the
+            // STRATEGY-SCIENCE-CONVERSION-LEAK entry in docs/dev/todo-and-known-bugs.md.
+            // The far more common ZERO-delta echo no longer does this - see
+            // STRATEGY-ECHO-CAPTURE-WIPE and the reordered block above.
+            if (reason == TransactionReasons.StrategyInput &&
+                ShouldForwardDirectLedgerEvent(sciEvt.recordingId, HasLiveRecorder()))
+                LedgerOrchestrator.OnKscSpending(sciEvt);
         }
 
         private void OnReputationChanged(float newReputation, TransactionReasons reason)
@@ -599,6 +738,78 @@ namespace Parsek
         {
             float absDelta = Math.Abs(delta);
             return absDelta < ReputationThreshold - ReputationThresholdEpsilon;
+        }
+
+        /// <summary>
+        /// The QUERY-FAMILY strategy door (STRATEGY-SCIENCE-CONVERSION-LEAK /
+        /// STRATEGY-FUNDS-YIELD-DRIFT). <c>Strategies.Effects.CurrencyConverter</c>
+        /// (Patents Licensing + 7 siblings) and <c>CurrencyOperation</c> mutate a
+        /// <c>CurrencyModifierQuery</c> in place; <c>AddScience</c>/<c>AddFunds</c> then
+        /// fire their Changed events ALREADY NET, under the ORIGINAL reason, so the
+        /// three reason-keyed doors above cannot see the strategy's share at all.
+        /// This handler reads it from the query itself.
+        ///
+        /// <para>Bound to <c>OnCurrencyModified</c>, which rides an actual <c>Add*</c> -
+        /// NOT <c>OnCurrencyModifierQuery</c>, which stock's 33
+        /// <c>CurrencyModifierQuery.RunQuery</c> display sites fire without moving a
+        /// balance.</para>
+        ///
+        /// <para>Stands down on the same two flags every other recorder door does, so
+        /// timeline replay, the in-game tests' <c>SuppressionGuard.Resources()</c>
+        /// restores, and <c>KspStatePatcher</c>'s own ledger-walk writes cannot feed the
+        /// ledger back into itself.</para>
+        /// </summary>
+        private void OnCurrencyModified(CurrencyModifierQuery qry)
+        {
+            if (qry == null)
+                return;
+
+            string standDownReason;
+            if (StrategyConversionCapture.ShouldStandDown(
+                    SuppressResourceEvents, IsReplayingActions, out standDownReason))
+            {
+                ParsekLog.VerboseRateLimited("GameStateRecorder", "suppress-currency-modified",
+                    $"Suppressed OnCurrencyModified capture ({standDownReason})", 5.0);
+                return;
+            }
+
+            StrategyConversionQuery snapshot;
+            try
+            {
+                snapshot = new StrategyConversionQuery
+                {
+                    InputFunds = qry.GetInput(Currency.Funds),
+                    DeltaFunds = qry.GetEffectDelta(Currency.Funds),
+                    InputScience = qry.GetInput(Currency.Science),
+                    DeltaScience = qry.GetEffectDelta(Currency.Science),
+                    InputReputation = qry.GetInput(Currency.Reputation),
+                    DeltaReputation = qry.GetEffectDelta(Currency.Reputation),
+                    Reason = qry.reason.ToString()
+                };
+            }
+            catch (Exception ex)
+            {
+                // Never let a modded query implementation take down a stock Add* call.
+                ParsekLog.Warn("GameStateRecorder",
+                    $"OnCurrencyModified: reading the query threw, capture skipped: {ex}");
+                return;
+            }
+
+            var legs = StrategyConversionCapture.EvaluateLegs(snapshot);
+            if (legs.Count == 0)
+            {
+                ParsekLog.VerboseRateLimited("GameStateRecorder", "currency-modified-noop",
+                    $"OnCurrencyModified: no capture-worthy leg - " +
+                    $"{StrategyConversionCapture.FormatQuery(snapshot, 0)}", 5.0);
+                return;
+            }
+
+            ParsekLog.Info("GameStateRecorder",
+                $"Game state: strategy currency conversion - " +
+                $"{StrategyConversionCapture.FormatQuery(snapshot, legs.Count)}");
+
+            LedgerOrchestrator.OnStrategyCurrencyConversion(
+                Planetarium.GetUniversalTime(), legs, snapshot.Reason);
         }
 
         internal static bool IsScienceDeltaBelowThreshold(double delta)

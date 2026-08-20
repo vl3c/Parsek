@@ -1,0 +1,45 @@
+version = 0
+recordingSchemaGeneration = 4
+GAME_ACTION
+{
+	ut = 9177480.8980102781
+	type = 4
+	actionId = act_fbbf78c363be4acdb7c00ae88634f493
+	recordingId = 05ceee33806d4079a1d9d125a1359115
+	seq = 1
+	milestoneId = Ike/Flyby
+	milestoneFundsAwarded = 22000
+	milestoneRepAwarded = 1
+	milestoneSciAwarded = 0
+}
+GAME_ACTION
+{
+	ut = 9177480.8980102781
+	type = 4
+	actionId = act_b669762a2eb74e8086a4bc7bc4cef7d2
+	recordingId = 05ceee33806d4079a1d9d125a1359115
+	seq = 2
+	milestoneId = Duna/Escape
+	milestoneFundsAwarded = 15840
+	milestoneRepAwarded = 1
+	milestoneSciAwarded = 0
+}
+GAME_ACTION
+{
+	ut = 9181419.1110997517
+	type = 4
+	actionId = act_83f918e488784fb6b76e1551765a65b0
+	recordingId = 05ceee33806d4079a1d9d125a1359115
+	seq = 3
+	milestoneId = Orbit
+	milestoneFundsAwarded = 21120
+	milestoneRepAwarded = 1
+	milestoneSciAwarded = 0
+}
+GAME_ACTION
+{
+	ut = 0
+	type = 22
+	actionId = act_f30974743a6343c48e5edeb52fe1d537
+	initialReputation = 0
+}

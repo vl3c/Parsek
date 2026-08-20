@@ -1219,6 +1219,14 @@ namespace Parsek.Tests
         [Fact]
         public void SaveRecordingFiles_FailedGhostWrite_RollsBackOnDiskSidecars_AndLaterRewriteHeals()
         {
+            // The failure injection below relies on Windows share locking making
+            // the ghost sidecar's safe-write swap fail. POSIX rename() replaces
+            // the destination regardless of open handles, so there is nothing to
+            // inject on Unix and the rollback path is unreachable.
+            if (Environment.OSVersion.Platform == PlatformID.Unix
+                || Environment.OSVersion.Platform == PlatformID.MacOSX)
+                return;
+
             string dir = Path.Combine(tempDir, "save-heal");
             Directory.CreateDirectory(dir);
 

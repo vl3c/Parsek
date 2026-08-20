@@ -478,6 +478,11 @@ namespace Parsek
             {
                 // Same fallback for some non-Unity execution environments.
             }
+            catch (MissingMethodException)
+            {
+                // Mono (Linux test runs) surfaces Unity's unresolvable Internal_Log
+                // native call as MissingMethodException instead of the above two.
+            }
         }
 
         public static void ScreenMessage(string message, float duration)

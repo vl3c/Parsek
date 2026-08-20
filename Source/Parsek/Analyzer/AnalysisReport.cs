@@ -76,8 +76,16 @@ namespace Parsek.Analyzer
         /// existing counts/findings; existing per-save baselines stay applicable
         /// because createdAtAnalyzerVersion is provenance-only and never gates
         /// baseline matching.
+        /// Bumped "3" -> "4" for the additive careerSave ROSTER export (`hasRoster`
+        /// plus a `roster` array of {name, gender, type, trait, state}), the input the
+        /// harness's world roster sub-facet reads. Same additive terms as the "2" ->
+        /// "3" bump: no finding, count or RED-token semantics change, and existing
+        /// per-save baselines stay applicable. The bump exists because the rule above
+        /// is "bump on ANY .analysis.json schema change" - a reader that finds no
+        /// `hasRoster` key now knows it is reading a pre-roster export rather than a
+        /// save whose ROSTER node was missing.
         /// </summary>
-        public const string CurrentAnalyzerVersion = "3";
+        public const string CurrentAnalyzerVersion = "4";
 
         public string SaveName;
 

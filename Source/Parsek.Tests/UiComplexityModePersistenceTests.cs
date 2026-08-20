@@ -425,6 +425,11 @@ namespace Parsek.Tests
                     // Headless xUnit still lacks Unity GUI teardown; the clamp assertions
                     // above are what this test is about (precedent: ParsekUITests).
                 }
+                catch (MissingMethodException)
+                {
+                    // Headless xUnit still lacks Unity GUI teardown; the clamp assertions
+                    // above are what this test is about (precedent: ParsekUITests).
+                }
             }
         }
 
