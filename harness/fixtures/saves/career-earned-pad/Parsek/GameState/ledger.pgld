@@ -164,3 +164,17 @@ GAME_ACTION
 	fundsSource = 2
 	dedupKey = FundsChanged|VesselRecovery|347.27999999997411|532000|536558|
 }
+GAME_ACTION
+{
+	ut = 360
+	type = 5
+	actionId = act_5c1a7f0b6d3e42a9b8f04e17c92d6a35
+	seq = 2
+	contractId = 19e7ba6c-2ef6-43cf-80d6-8a985ebfde18
+	contractType = PartTest
+	contractTitle = Test LV-T45 "Swivel" Liquid Fuel Engine landed at Kerbin.
+	advanceFunds = 0
+	deadlineUT = 8680754
+	fundsPenalty = 1890
+	repPenalty = 1
+}

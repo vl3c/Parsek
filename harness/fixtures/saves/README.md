@@ -228,7 +228,8 @@ BASE is the xUnit fixture `Source/Parsek.Tests/Fixtures/C2CareerPostFix/`, so a
 re-harvest of that career reds here rather than leaving a strict-armed flight measuring
 a subject nobody meant to ship.
 
-**Four edits** against the harvested career save:
+**Five edits** against the harvested career save, plus one against the copied
+`Parsek/GameState/ledger.pgld`:
 
 1. `career-science-pad`'s single `type = Ship` VESSEL, inserted into the base's OWN
    FLIGHTSTATE. The base's node is KEPT rather than replaced - the one deliberate
@@ -251,6 +252,26 @@ a subject nobody meant to ship.
    `Recover`) - the SAVE side of the diff's `KerbalXp` facet. The reconstruction credits
    those entries off the ledger, so losing them would manufacture a `PhantomInRecon`
    divergence: report-only by default, promoted by strict, and a fixture artifact again.
+5. **One `Offered` `CONTRACT` row is re-stated `Active`, and a matching `type = 5`
+   (`ContractAccept`) `GAME_ACTION` row is appended to the copied ledger.** Added
+   2026-08-20; together they are the D8 `contracts` cell. Before them the career's seven
+   contracts were all `Offered`, which is the worst of the three states for the gate:
+   enough to keep `LedgerGroundTruthDiff.CompareContracts` from taking its
+   "save has no contract facet -> skip" exit, so the facet always counted toward the
+   pinned `facetsCompared=10`, and not enough to make it compare anything - both sides
+   read 0. **It is fixture-carried because a driven accept is unreachable**, not merely
+   expensive: the M-A2 seam's `KscAction` has four kinds and none of them is "accept a
+   contract", and `Contract.Accept()` is a UI-only entry point Parsek itself
+   Harmony-blocks. It is faithful anyway - the hand-played c2 career's own ledger carries
+   a `PartTest` accept whose row has no `recordingId` and originates at KSC, and this row
+   is that one's shape field for field. **Three arithmetic traps** are honored and
+   asserted by `verify_ledger`: `advanceFunds = 0` (a positive advance is credited
+   unconditionally by `FundsModule` and would move the HARD-gated funds pool), an
+   unelapsed `deadlineUT` (`ContractsModule.PrePass` injects a synthetic `ContractFail`
+   at an elapsed deadline, emptying the active set AND applying two penalties), and NO
+   `type = 6` completion row (it would free the slot and re-vacuify the compare). WHICH
+   contract is load-bearing too: `19e7ba6c...` tests `liquidEngine2.v2` at
+   `sit = LANDED`, and the pad craft carries neither, so it cannot resolve mid-batch.
 
 | Facet | Pinned value | Why it matters |
 | --- | --- | --- |
@@ -259,7 +280,8 @@ a subject nobody meant to ship.
 | Vessel | one `type = Ship` Jumping Flea, `sit = PRELAUNCH`, `activeVessel = 0` | the FLIGHT route, and nothing else. It is the key, not the subject |
 | Vessel identity | `pid` / `persistentId` re-stamped, asserted to collide with no recorded identity | see edit 2 - the difference between a real red and a manufactured one |
 | FLIGHTSTATE UT | `408.72`, asserted greater than every `explicitEndUT` | the career's own clock survived the splice |
-| Parsek footprint | 1 committed tree, 2 recordings, `ledger.pgld` with 14 actions | THE PAYLOAD. The tree carries no `isActive` key, so the cell's no-active-uncommitted-tree guard passes |
+| Parsek footprint | 1 committed tree, 2 recordings, `ledger.pgld` with 15 actions | THE PAYLOAD. The tree carries no `isActive` key, so the cell's no-active-uncommitted-tree guard passes. 14 of the 15 rows are the harvest's; the 15th is the appended `ContractAccept` (edit 5) |
+| Contracts | 7 `CONTRACT` nodes, EXACTLY ONE of them `Active` (`19e7ba6c...`), with a matching `type = 5` ledger row | see edit 5. Live-measured `ParseContracts: total=7 active=1` -> `CompareContracts: reconActive=1 saveActive=1 phantoms=0 mismatches=0 missing=0` on run `2026-08-20_1644` |
 | Crew | `Jebediah Kerman`, `state = Assigned`, `CAREER_LOG` intact | see edit 4 |
 | Trajectory mirrors | `.prec.txt` committed, `_vessel.craft.txt` / `_ghost.craft.txt` absent | the harness gates the two mirror families in OPPOSITE directions; carrying exactly one family is what lets this fixture be a plain copy of the base tree |
 

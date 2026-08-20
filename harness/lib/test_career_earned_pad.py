@@ -34,6 +34,7 @@ _REPO = os.path.dirname(_HARNESS)
 
 FIXTURE_DIR = os.path.join(_HARNESS, "fixtures", "saves", "career-earned-pad")
 FIXTURE_SFS = os.path.join(FIXTURE_DIR, "persistent.sfs")
+FIXTURE_LEDGER = os.path.join(FIXTURE_DIR, "Parsek", "GameState", "ledger.pgld")
 DONOR_SFS = os.path.join(_HARNESS, "fixtures", "saves", "career-science-pad",
                          "persistent.sfs")
 SPEC_PATH = os.path.join(_HARNESS, "scenarios", "L4-ledger-groundtruth-strict.toml")
@@ -57,7 +58,122 @@ class CareerEarnedPadFixtureDriftTests(unittest.TestCase):
     def test_the_committed_fixture_satisfies_every_post_condition(self):
         problems = self.builder.verify(
             self.builder.read_lines(FIXTURE_SFS), self.builder.CREW_NAME)
+        problems += self.builder.verify_ledger(
+            self.builder.read_lines(FIXTURE_LEDGER))
         self.assertEqual([], problems)
+
+    def test_the_committed_ledger_is_byte_identical_to_a_fresh_rebuild(self):
+        # THE SECOND HALF OF THE DRIFT GUARD, and it needs its own cell because
+        # the cell below only rebuilds `persistent.sfs`. The ledger is not part of
+        # that text: it is COPIED from the xUnit base and then appended to, so a
+        # re-harvest of `C2CareerPostFix` moves it without moving one byte of the
+        # save the other cell compares.
+        builder = self.builder
+        rebuilt = builder.build_ledger(builder.read_lines(
+            os.path.join(builder.BASE_DIR, "Parsek", "GameState", "ledger.pgld")))
+        produced = "\r\n".join(rebuilt).encode("utf-8")
+        with open(FIXTURE_LEDGER, "rb") as fh:
+            committed = fh.read()
+        self.assertEqual(committed, produced,
+                         "career-earned-pad's ledger.pgld has drifted from what "
+                         "build_career_earned_pad.py produces from the current "
+                         "C2CareerPostFix ledger; re-run the builder and commit")
+
+    def test_the_fixture_carries_exactly_one_active_contract(self):
+        # THE D8 `contracts` CELL, save side. Before this splice the fixture's
+        # seven contracts were all `Offered`, which is the WORST of the three
+        # possible states for the gate: enough to keep
+        # `LedgerGroundTruthDiff.CompareContracts` from taking its
+        # "save has no contract facet -> skip" exit (so the facet counted toward
+        # `facetsCompared=10`), and not enough to make it compare anything - both
+        # sides read 0 and the zero divergences stated nothing.
+        builder = self.builder
+        lines = builder.read_lines(FIXTURE_SFS)
+        self.assertEqual([builder.ACTIVE_CONTRACT_GUID],
+                         builder.active_contract_guids(lines))
+        contract = builder.contract_named(lines, builder.ACTIVE_CONTRACT_GUID)
+        self.assertIsNotNone(contract)
+        self.assertEqual(builder.ACTIVE_CONTRACT_TYPE,
+                         builder.get_value(lines, contract, "type"))
+        self.assertEqual(builder.ACTIVE_CONTRACT_PART,
+                         builder.get_value(lines, contract, "part"))
+
+    def test_the_active_contract_cannot_be_completed_by_the_pad_craft(self):
+        # WHY THIS ONE OF THE SEVEN. The cell measures the LIVE career as of its
+        # own quicksave, so a contract the parked craft could resolve during the
+        # batch would leave `saveActive=0` and red the run on a fixture artifact -
+        # the same class of trap the spec's controls 1 and 2 established from the
+        # other direction. `liquidEngine2.v2` is not among the craft's parts, so
+        # the PartTest parameter can never fire.
+        builder = self.builder
+        lines = builder.read_lines(FIXTURE_SFS)
+        fs = builder.find_node(lines, "FLIGHTSTATE")
+        vessel = builder.child_nodes(lines, fs, "VESSEL")[0]
+        craft_parts = set()
+        for i in range(vessel[0], vessel[1]):
+            s = lines[i].strip()
+            if s.startswith("name = ") and lines[i - 2].strip() == "PART":
+                craft_parts.add(s[len("name = "):].strip())
+        self.assertTrue(craft_parts, "could not read the pad craft's part names")
+        self.assertNotIn(builder.ACTIVE_CONTRACT_PART, craft_parts)
+
+    def test_the_accept_row_honours_the_three_arithmetic_traps(self):
+        # THE D8 `contracts` CELL, ledger side. Each assertion here is the same
+        # statement `verify_ledger` makes, restated as a cell so a reader sees the
+        # three traps by name instead of finding them inside a problems list.
+        builder = self.builder
+        lines = builder.read_lines(FIXTURE_LEDGER)
+        accepts = []
+        completes = []
+        i = 0
+        while True:
+            node = builder.find_node(lines, "GAME_ACTION", i)
+            if node is None:
+                break
+            if builder.contains_line(lines, node, "type = 5"):
+                accepts.append(node)
+            if builder.contains_line(lines, node, "type = 6"):
+                completes.append(node)
+            i = node[1]
+
+        self.assertEqual(1, len(accepts))
+        accept = accepts[0]
+        self.assertEqual(builder.ACTIVE_CONTRACT_GUID,
+                         builder.get_value(lines, accept, "contractId"))
+
+        # TRAP 1: a positive advance moves the HARD-gated funds pool.
+        self.assertEqual(
+            0.0, float(builder.get_value(lines, accept, "advanceFunds")))
+
+        # TRAP 2: an elapsed deadline makes ContractsModule.PrePass inject a
+        # synthetic ContractFail, emptying the active set and applying two
+        # penalties to hard-gated pools.
+        self.assertGreater(
+            float(builder.get_value(lines, accept, "deadlineUT")),
+            float(builder.CONTRACT_ACCEPT_UT))
+
+        # TRAP 3: a completion frees the slot, so reconActive returns to 0 and
+        # the compare is vacuous again.
+        self.assertEqual([], completes)
+
+    def test_the_accept_row_names_the_contract_the_save_holds_active(self):
+        # The two halves must agree or the facet reads a divergence rather than
+        # agreement: a phantom (`recon active, absent from save`) in one
+        # direction, a `MissingInRecon` in the other - and under strict either is
+        # a hard failure.
+        builder = self.builder
+        sfs = builder.read_lines(FIXTURE_SFS)
+        ledger = builder.read_lines(FIXTURE_LEDGER)
+        accepted = []
+        i = 0
+        while True:
+            node = builder.find_node(ledger, "GAME_ACTION", i)
+            if node is None:
+                break
+            if builder.contains_line(ledger, node, "type = 5"):
+                accepted.append(builder.get_value(ledger, node, "contractId"))
+            i = node[1]
+        self.assertEqual(builder.active_contract_guids(sfs), accepted)
 
     def test_the_committed_fixture_is_byte_identical_to_a_fresh_rebuild(self):
         # THE DRIFT GUARD. Raw bytes, not the CRLF-normalized line lists, for the
@@ -230,6 +346,35 @@ class L4SpecFixtureSyncTests(unittest.TestCase):
         fs = self.builder.find_node(self.sfs, "FLIGHTSTATE")
         self.assertEqual(1, len(self.builder.child_nodes(self.sfs, fs, "VESSEL")))
         self.assertEqual("0", self.builder.get_value(self.sfs, fs, "activeVessel"))
+
+    def test_the_spec_pins_the_contract_compare_token_and_claims_the_cell(self):
+        # THE ARMING OF THE D8 `contracts` CELL, and the two halves are pinned
+        # TOGETHER because either alone is a lie. The claim without the token
+        # would rest on `hardFailures=0`, which held for as long as the facet was
+        # vacuous; the token without the claim would gate a reading nothing says
+        # is a coverage cell.
+        required = self.spec["expectations"]["logContracts"]["required"]
+        self.assertTrue(
+            any("CompareContracts: reconActive=1 saveActive=1" in tok
+                for tok in required),
+            "no required token pins a NON-VACUOUS contract compare: %s" % required)
+        self.assertIn("contracts", self.spec["dimensionsCovered"]["D8"])
+
+    def test_the_pinned_contract_token_matches_the_committed_fixture(self):
+        # The pinned `reconActive=1 saveActive=1` is a claim about THIS fixture,
+        # so it must move when the fixture does. `saveActive` is the save's own
+        # Active-contract count; `reconActive` is the count of distinct contract
+        # ids the ledger leaves accepted-and-unresolved, which with one accept and
+        # no terminal row is that same one.
+        builder = self.builder
+        required = self.spec["expectations"]["logContracts"]["required"]
+        token = [t for t in required if t.startswith("CompareContracts:")]
+        self.assertEqual(1, len(token))
+        self.assertEqual(
+            "CompareContracts: reconActive=%d saveActive=%d phantoms=0 "
+            "mismatches=0 missing=0"
+            % (1, len(builder.active_contract_guids(self.sfs))),
+            token[0])
 
     def test_the_spec_pins_the_strict_true_result_token(self):
         # The `strict=True` half of the ground-truth `result:` line is what makes

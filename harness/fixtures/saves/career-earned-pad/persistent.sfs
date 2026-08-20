@@ -1154,13 +1154,13 @@ GAME
 				type = PartTest
 				prestige = 0
 				seed = 992005674
-				state = Offered
-				viewed = Unseen
+				state = Active
+				viewed = Read
 				agent = Jebediah Kerman's Junkyard and Spacecraft Parts Co
 				agentName = Jebediah Kerman's Junkyard and Spacecraft Parts Co
 				deadlineType = Floating
 				expiryType = Floating
-				values = 20377.3568630219,8680754.02364731,1666.66663885117,4374.99972830216,1889.99991416931,1,1.068908,0.9803922,20392.4968630219,0,0,0
+				values = 20377.3568630219,8680754,0,4374.99972830216,1890,1,1.068908,1,20392.4968630219,360,8681114,0
 				part = liquidEngine2.v2
 				haul = False
 				dest = 1
