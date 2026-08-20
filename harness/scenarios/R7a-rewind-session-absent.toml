@@ -166,8 +166,11 @@ count = { min = 0, max = 0 }
 #    A SPACECENTER-scoped addition moves this FLIGHT spec's `total` AND its
 #    `skipped` even though nothing about the FLIGHT slice changed - the token
 #    counts the whole category, and the new cell scene-skips here. Derived, not
-#    guessed: `hlib.derive_batch_tally(decls, "Rewind", "FLIGHT")` returns
-#    total=38 scene_skipped=6 batch_skipped=6 executable=26.
+#    guessed: `hlib.derive_batch_tally(decls, "Rewind", "FLIGHT", isolated=True)`
+#    returns total=38 scene_skipped=6 batch_skipped=0 executable=32. The isolated
+#    argument is REQUIRED to reproduce: this spec drives RunTests with
+#    isolated = "true", and the call WITHOUT it models the ordinary entry point and
+#    returns batch_skipped=6 executable=26, which is not the path R7a flies.
 #  - skipped=22 = 6 ATTRIBUTE-FORCED + 16 RUN-TIME.
 #      The 6 attribute-forced are scene-ineligible at FLIGHT (all SPACECENTER-scoped,
 #      and all six are R7c's payload): ReFlyFromSpannedRecording_PreservesLaunchRow-

@@ -25,10 +25,13 @@ namespace Parsek.InGameTests
     /// <c>endState = 0</c> (Aboard), seq 2/3 ScienceEarning <c>method = 1</c>
     /// (Recovered), seq 4 KerbalExperience
     /// <c>careerEntries = 0,Land,Kerbin|0,Flight,Kerbin|0,Recover,</c>, seq 5
-    /// FundsEarning <c>fundsAwarded = 4558 fundsSource = 2</c>. Every field this
-    /// fixture stamps below is one of those, so a shape divergence cannot read as a
-    /// product defect (the doctrine the R7c spanned-recording cell's RP fixture and
-    /// the RP-quicksave-sidecar rule in .claude/CLAUDE.md both exist for).
+    /// FundsEarning <c>fundsAwarded = 4558 fundsSource = 2</c>. The FOUR BUNDLE ROWS
+    /// stamped below are field-exact copies of those rows, so a shape divergence in
+    /// the subject cannot read as a product defect (the doctrine the R7c
+    /// spanned-recording cell's RP fixture and the RP-quicksave-sidecar rule in
+    /// .claude/CLAUDE.md both exist for). The fifth row - the control science row -
+    /// is NOT a copy: it is a deliberate synthetic addition, because the real fixture
+    /// carries no Transmitted-method science row at all. See the CONTROL paragraph.
     /// </para>
     ///
     /// <para>
@@ -54,12 +57,20 @@ namespace Parsek.InGameTests
     /// </para>
     ///
     /// <para>
-    /// The CONTROL is deliberately the tightest one available: a second
-    /// <see cref="GameActionType.ScienceEarning"/> on the SAME recording with the
-    /// SAME shape, differing ONLY in its UT (pre-rewind). Nothing but the split's UT
-    /// partition and the subtree scope can separate the two, so a tombstone scope that
-    /// over-reached by one recording - or a retag that ignored the UT - reds here
-    /// instead of passing quietly.
+    /// The CONTROL is a second <see cref="GameActionType.ScienceEarning"/> on the SAME
+    /// recording, pre-rewind, and it is a DELIBERATE SYNTHETIC ADDITION rather than a
+    /// copy of a real row: it carries <see cref="ScienceMethod.Transmitted"/>, a shape
+    /// the C2CareerPostFix ledger does not carry at all (that career's only science
+    /// rows are Recovered). It is authored precisely because the real ledger has no
+    /// Transmitted row to copy, and the Method difference is load-bearing - it is what
+    /// the resurrection-classifier assertion below keys on (the
+    /// "must NOT retire the Transmitted-method science row" check). For the MERGE path
+    /// the Method is irrelevant and the UT partition is the whole discriminator:
+    /// <see cref="TombstoneEligibility.IsSupersedeTombstoneEligible"/> and
+    /// <c>SupersedeCommit</c> key on action TYPE plus RecordingId membership, never on
+    /// Method, so post-split only the UT decides which side of HEAD / TIP this row
+    /// lands on. A tombstone scope that over-reached by one recording - or a retag that
+    /// ignored the UT - reds here instead of passing quietly.
     /// </para>
     ///
     /// <para>
@@ -478,6 +489,21 @@ namespace Parsek.InGameTests
                     "The pre-rewind control row must NOT be tombstoned: it stayed on HEAD, " +
                     "and HEAD is the pre-rewind chain-head carve-out, outside the supersede " +
                     "subtree");
+
+                // The write-sets are CLOSED, not just supersets. Both lists were replaced
+                // with fresh empty ones at install, so everything in them is THIS merge's
+                // work. Without these two counts a SupersedeCommit whose subtree scope
+                // widened - tombstoning rows on recordings outside this tree, or writing
+                // supersede rows for branches the merge never touched - still passes every
+                // per-row assertion above, because those only ask "is my row in the set?".
+                InGameAssert.AreEqual(4, scenario.LedgerTombstones.Count,
+                    "Exactly the four bundle rows may be tombstoned; got " +
+                    scenario.LedgerTombstones.Count.ToString(CultureInfo.InvariantCulture) +
+                    " - an extra row means the tombstone scope reached past this merge");
+                InGameAssert.AreEqual(1, scenario.RecordingSupersedes.Count,
+                    "Exactly one supersede row may be written (fork supersedes TIP); got " +
+                    scenario.RecordingSupersedes.Count.ToString(CultureInfo.InvariantCulture) +
+                    " - an extra row means the supersede subtree scope widened past TIP");
 
                 // Retag check: every bundle row moved from origin's id onto TIP, and
                 // the control did not. Same recording pre-merge, so only the UT
