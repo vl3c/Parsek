@@ -570,9 +570,31 @@ namespace Parsek
             }
 
             // Save-completed ids the recon did not credit => missing.
+            //
+            // FORM-AGNOSTIC IN BOTH DIRECTIONS, which the phantom loop above already
+            // was and this one was not. The parser emits BOTH the qualified
+            // ("Kerbin/Science") and the bare ("Science") spelling of every milestone,
+            // so the phantom check's single Contains against AllMilestoneIds matches a
+            // recon id in either form. The reverse loop had no such symmetry: it
+            // demanded the recon credit EVERY spelling the save emitted, so a nested
+            // milestone the recon credits qualified would still be reported "missing"
+            // for its bare twin. That asymmetry was latent only because no career
+            // fixture carried a completed NESTED milestone until 2026-08-20; the
+            // parser fix that made `Kerbin/Science` visible is exactly what would have
+            // surfaced it, as a manufactured divergence strict then promotes to hard.
+            var reconForms = new HashSet<string>(StringComparer.Ordinal);
+            foreach (string id in recon.CreditedMilestoneIds)
+            {
+                if (string.IsNullOrEmpty(id)) continue;
+                reconForms.Add(id);
+                int slash = id.LastIndexOf('/');
+                if (slash >= 0 && slash + 1 < id.Length)
+                    reconForms.Add(id.Substring(slash + 1));
+            }
+
             foreach (string id in save.CompletedMilestoneIds)
             {
-                if (!recon.CreditedMilestoneIds.Contains(id))
+                if (!reconForms.Contains(id))
                 {
                     report.All.Add(new LedgerDivergence
                     {

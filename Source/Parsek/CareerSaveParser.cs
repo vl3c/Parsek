@@ -650,21 +650,38 @@ namespace Parsek
                     continue;
                 }
 
-                // A node is a milestone if it carries `completed` or `reached`,
-                // OR it is a leaf/body container we should descend into. We treat
-                // any node carrying completed/reached as a milestone; nodes
-                // without either are body-subtree containers whose children are
-                // qualified milestones.
-                bool hasCompleted = child.HasValue("completed");
+                // COMPLETION IS WRITTEN UNDER ONE OF THREE KEYS, not one, and the
+                // choice is KSP's rather than ours. Decompiled `ProgressNode.Save`
+                // (KSP 1.12.5):
+                //
+                //     if (complete) {
+                //         if ( IsCompleteManned && !IsCompleteUnmanned) -> "completedManned"
+                //         else if (!IsCompleteManned &&  IsCompleteUnmanned) -> "completedUnmanned"
+                //         else                                          -> "completed"
+                //     } else if (reached)                               -> "reached"
+                //
+                // Reading only `completed` therefore MISSES every milestone a career
+                // reached with exactly one crewing mode, which on a crewed career is
+                // most of them: the 2026-08-20 L4 reading run measured `FirstLaunch`
+                // (`completedManned = 15.12`) and `Kerbin/Science`
+                // (`completedManned = 345.24`) as absent from a save that plainly
+                // records both, and the diff dutifully reported the RECONSTRUCTION as
+                // carrying two phantoms. The recon was right and the parse was short.
+                //
+                // Note the branches are mutually exclusive: a COMPLETE node writes no
+                // `reached`, so completion must never be inferred from its absence.
+                bool hasCompleted = child.HasValue("completed")
+                    || child.HasValue("completedManned")
+                    || child.HasValue("completedUnmanned");
                 bool hasReached = child.HasValue("reached");
                 bool isMilestone = hasCompleted || hasReached;
 
+                string qualified = string.IsNullOrEmpty(pathPrefix)
+                    ? childName
+                    : pathPrefix + "/" + childName;
+
                 if (isMilestone)
                 {
-                    string qualified = string.IsNullOrEmpty(pathPrefix)
-                        ? childName
-                        : pathPrefix + "/" + childName;
-
                     snapshot.AllMilestoneIds.Add(qualified);
                     // Bare child id too, for the safety fallback the recalc uses.
                     snapshot.AllMilestoneIds.Add(childName);
@@ -677,20 +694,20 @@ namespace Parsek
                         completedCount++;
                     }
                 }
-                else
-                {
-                    // Body-subtree container: descend, qualifying children by the
-                    // container's name (e.g. "Mun" -> "Mun/Landing").
-                    // Assumption: a Progress node lacking BOTH `completed` and
-                    // `reached` is a body-subtree container to descend into
-                    // (correct for stock KSP). A modded data-only child without
-                    // those fields would be descended into here, adding at most
-                    // benign report-only noise since milestones are report-only.
-                    string childPrefix = string.IsNullOrEmpty(pathPrefix)
-                        ? childName
-                        : pathPrefix + "/" + childName;
-                    WalkProgress(child, childPrefix, snapshot, ref completedCount, ref allCount);
-                }
+
+                // DESCEND UNCONDITIONALLY. Being a milestone and being a container
+                // are INDEPENDENT in stock KSP, and the previous either/or cost the
+                // whole body subtree: a body node is written `reached` (it is not
+                // itself "complete") AND carries its achievements as children, so
+                // `Kerbin { reached = 345.24; Science { completedManned = 345.24 } }`
+                // is the normal shape, and treating `Kerbin` as a leaf made
+                // `Kerbin/Science` invisible to the parse entirely - not merely
+                // uncompleted, ABSENT, which is what turned it into a recon phantom.
+                //
+                // `crew` / `vessel` payload nodes are filtered above, so the only
+                // thing this can add on a stock save is a real milestone. A modded
+                // data-only child would contribute at most benign report-only noise.
+                WalkProgress(child, qualified, snapshot, ref completedCount, ref allCount);
             }
         }
 

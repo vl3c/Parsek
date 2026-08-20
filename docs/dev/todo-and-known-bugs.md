@@ -14,6 +14,74 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## ~~CAREER-SAVE-PARSER-UNDERCOUNTS-COMPLETED-MILESTONES: the ground-truth parser read only one of KSP's three completion keys and stopped at any node carrying `reached`, so most of a crewed career's milestones were invisible and the RECONSTRUCTION was reported as carrying phantoms~~ [FOUND 2026-08-20 by `L4-ledger-groundtruth-strict`'s reading run (`2026-08-20_1508`), the FIRST run ever to drive the ground-truth diff in strict mode against a career with populated per-identity facets. Root cause PROVEN from the decompiled `ProgressNode.Save`, not inferred. FIXED, unit-covered and LIVE-PROVEN the same day - see the arming ledger in `harness/scenarios/L4-ledger-groundtruth-strict.toml`. CLOSED]
+
+**What it measured.** The reading run came back `PARSEK-FAIL`, `result: hardFailures=2
+reportOnly=0 facetsCompared=10 strict=True`, on exactly two divergences and nothing else:
+
+```
+facet=Milestone kind=PhantomInRecon id=FirstLaunch     detail=milestone credited in recon but absent from save
+facet=Milestone kind=PhantomInRecon id=Kerbin/Science  detail=milestone credited in recon but absent from save
+```
+
+Every other per-identity facet agreed exactly - `CompareSubjectScience: reconSubjects=3
+saveSubjects=3 mismatches=0 phantoms=0`, `CompareRecovery: credits=1 hardViolations=0
+reportOnly=0 consistent=1`, roster / tech / contracts / facilities all clean. **The
+reconstruction was right and the PARSE was short**, which is the direction that matters:
+a facet that silently under-reports is the "stopped comparing" class the anti-vacuity
+pins exist to catch, and here it manufactured phantoms against correct ledger output.
+
+**Root cause, both halves, read off KSP's own writer.** Decompiled `ProgressNode.Save`
+(KSP 1.12.5):
+
+```
+if (complete) {
+    if ( IsCompleteManned && !IsCompleteUnmanned) -> AddValue("completedManned",   AchieveDate)
+    else if (!IsCompleteManned &&  IsCompleteUnmanned) -> AddValue("completedUnmanned", AchieveDate)
+    else                                          -> AddValue("completed",         AchieveDate)
+} else if (reached)                               -> AddValue("reached",           AchieveDate)
+```
+
+1. **Three completion keys, one read.** `CareerSaveParser.WalkProgress` tested
+   `HasValue("completed")` only, so every milestone reached with exactly one crewing
+   mode read as incomplete. On a crewed career that is most of them. The subject save
+   records `FirstLaunch { completedManned = 15.12 }`.
+2. **Milestone and container are INDEPENDENT, and the walk treated them as exclusive.**
+   The branches above are mutually exclusive, so a body node is written `reached` (it is
+   not itself complete) and still carries its achievements as children -
+   `Kerbin { reached = 345.24; Science { completedManned = 345.24 } }`. The walk
+   descended only into nodes carrying NEITHER key, so `Kerbin/Science` was not merely
+   uncompleted, it was **absent from the parse entirely** - which is what made it a
+   phantom rather than a "missing" row. Measured: `ParseMilestones: all=5 completed=1`
+   against a save whose Progress tree holds six milestones, three of them complete.
+
+**A latent asymmetry the fix would otherwise have exposed.** The parser emits BOTH the
+qualified (`Kerbin/Science`) and bare (`Science`) spelling of every milestone. The
+phantom direction was already form-agnostic; the MISSING direction demanded the recon
+credit every spelling the save emitted, so a nested milestone credited qualified would
+have been reported missing for its bare twin - a divergence manufactured by the parser's
+own double emission, which strict then promotes to hard. Latent only because no
+committed fixture carried a completed NESTED milestone until `career-earned-pad`.
+`CompareMilestones` now builds the recon's form set the same way the phantom check
+reads the save's.
+
+**Fix:** `CareerSaveParser.WalkProgress` accepts all three completion keys and descends
+unconditionally (still filtering the `crew` / `vessel` payload nodes);
+`LedgerGroundTruthDiff.CompareMilestones` makes the missing direction form-agnostic.
+Guarded by `Parse_Milestones_CompletedMannedAndUnmannedCountAsCompleted`,
+`Parse_Milestones_ReachedBodyNodeStillYieldsItsChildren`,
+`Diff_MilestoneMissing_IsFormAgnosticLikeThePhantomDirection` and
+`Diff_MilestoneMissing_StillFiresWhenNoFormIsCredited`.
+
+**One consumer outside the harness, and the change is fail-open in the safe direction.**
+`PreParsekBackup.IsBrandNewEmptySave` requires `CompletedMilestoneIds.Count == 0`, so a
+played career whose milestones were all `completedManned` could read as brand-new and
+SKIP its one-time safety backup (it also needed no vessels, no science subjects and no
+active contracts to land there). Seeing more completed milestones can only move that
+gate toward backing up, which is the direction its own doc-comment asks for. Carried in
+CHANGELOG 0.10.4 Fixes.
+
+
 ## WATCH-LOOPED-PARK-TARGET-LOSS-NRE-STORM: watch mode survives a loop RE-ARM with a null camera target and throws stock NREs on EVERY frame from there to scene end - 306 of them in 1.26 s [MEASURED 2026-08-19 by `V15M-gilly-player-loop`'s reading run and REPRODUCED on its armed re-flight the same day (447 then 443 total on byte-identical shapes), the FIRST successful watch entry on a looped arrival park. REPORT-ONLY: `unityExceptions` is report-only and BOTH runs PASSED; NO product change is proposed by this lane]
 
 `V15M-gilly-player-loop` run `2026-08-19_1736` came back **PASS attempt 1** with all
