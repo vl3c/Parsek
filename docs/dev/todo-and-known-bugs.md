@@ -1684,6 +1684,25 @@ creation frame the seam-endpoint lens evaluated the recording's **un-shifted** e
 "the loop shift has not bound yet" reading - which is what turns a rendering
 curiosity into a NAMED family with a candidate mechanism.
 
+**A THIRD LENS AND A NEW TRIGGER SHAPE, measured 2026-08-20 by
+`V17M-laythe-vall-player-loop`'s run-2 reading (`2026-08-20_1859`), on the suite's
+first SELF-OVERLAPPING loop subject** (the moon-to-moon `vall-transfer-recorded`
+tree: 20 concurrent instances, overlapCadence = span/20 = 3,991.03 s). The
+`phase=body-orbit surface=ProtoOrbitLine` census read the HEALTHY per-instance
+elapsed mapping at the -180 arrival brackets - 17x `body=Jool` + 1x `body=Laythe`
+at 28,976,101, exactly the 20-instance model - but at BOTH park epochs
+(28,980,417 / 29,060,238) all 19 live protos printed the recording's CREATION
+frame `body=Laythe` and HELD it through a 40-tick census dwell, where the same
+mapping says 2x Vall + 16x Jool + 1x Laythe. The discriminating fact between the
+two epochs: the park jump CROSSES a self-overlap re-arm (instance-20 relaunch at
+28,976,670.9; instance-40 at 29,056,491.4) and the bracket jumps do not. So the
+trigger here is not the single-large-jump shape - it is a jump crossing a loop
+re-arm, after which every overlap instance's proto reads the creation frame,
+dwell-stable, on a THIRD lens (the orbit-line body itself, not the icon offset or
+the seam-endpoint epoch). Self-correcting by the next distant epoch (the cycle-2
+-180 bracket read the healthy mapping again). REPORT-ONLY, same as the rest of
+the family; NO product change is proposed.
+
 ---
 
 ## SEAM-STARTRECORDING-JOINS-COMMITTED-TREE: a seam `StartRecording` on a vessel that is a committed tree's own launch cannot open a standalone tree - it no-ops onto the recording the committed-restore path re-resumed [MEASURED 2026-08-18 by `B23-ike-orbit` flight 1; WORKAROUND LIVE-PROVEN the same day by flight 2. REPORT-ONLY: a HARNESS/FIXTURE constraint on the automation surface, NOT a proposed product change]
