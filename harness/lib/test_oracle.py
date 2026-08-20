@@ -425,24 +425,123 @@ class ReputationCurveTests(unittest.TestCase):
 
     def test_apply_rep_curve_pins_absolute_value(self):
         # Value-pinned to an ABSOLUTE magnitude (not the port composed against itself):
-        # a single +100 nominal award from rep 0 curves to ~99.6565 (the gain curve
-        # diminishes even the first award slightly). A keyframe transcription typo that
-        # test_reputation_matches_sequential_curve cannot see (it composes the port
-        # against itself, so a shared fault cancels) reds THIS cell. Verified by running
-        # the port: apply_rep_curve(100.0, 0.0)[1] == 99.6565192711913.
+        # a single +100 nominal award from rep 0 curves to ~99.9965 -- 100 unit steps
+        # attenuated by the gain curve, then the residual top-up (nominal - accumulated)
+        # that brings the total back to essentially the nominal. A keyframe transcription
+        # typo that test_reputation_matches_sequential_curve cannot see (it composes the
+        # port against itself, so a shared fault cancels) reds THIS cell. Verified by
+        # running the port: apply_rep_curve(100.0, 0.0)[1] == 99.99652641919174.
+        # RE-PINNED 2026-08-20 with the residual-step fix (the pre-fix value was
+        # 99.6565192711913, short by the curve loss the top-up now recovers).
         delta, new_rep = oracle.apply_rep_curve(100.0, 0.0)
-        self.assertAlmostEqual(new_rep, 99.6565192711913, places=6)
-        self.assertAlmostEqual(delta, 99.6565192711913, places=6)
+        self.assertAlmostEqual(new_rep, 99.99652641919174, places=6)
+        self.assertAlmostEqual(delta, 99.99652641919174, places=6)
 
     def test_apply_rep_curve_pins_chained_two_awards(self):
         # The chained two-awards absolute anchor: a second +100 award at the running
-        # rep (~99.66) curves less (gain diminishes as rep climbs), composing to
-        # ~197.028 total -- NOT 200 (a linear sum). Verified by running the port:
-        # second apply_rep_curve(100.0, 99.6565...)[1] == 197.02809227386504.
+        # rep (~100) curves less (gain diminishes as rep climbs), composing to ~199.868
+        # total -- NOT 200 (a linear sum). Verified by running the port: second
+        # apply_rep_curve(100.0, 99.99652641919174)[1] == 199.86793999630493.
+        # RE-PINNED 2026-08-20 with the residual-step fix (pre-fix: 197.02809227386504).
         _d1, r1 = oracle.apply_rep_curve(100.0, 0.0)
         _d2, r2 = oracle.apply_rep_curve(100.0, r1)
-        self.assertAlmostEqual(r2, 197.02809227386504, places=6)
+        self.assertAlmostEqual(r2, 199.86793999630493, places=6)
         self.assertLess(r2, 200.0)
+
+    def test_apply_rep_curve_pins_live_measured_stock_pair(self):
+        # THE ABSOLUTE IN-GAME ANCHOR the docstring's residual blind spot asks for: a
+        # curve input / pool movement pair MEASURED FROM A LIVE KSP CAREER, not computed
+        # by this port and not composed against it. Run 2026-08-18_2140, the
+        # StrategyLifecycle green run, cell
+        # ConverterStrategy_ReputationLeg_IsObservedAndDropped: an
+        # OpenSourceTechProgram conversion presented a pre-curve reputation leg of
+        # dR=0.33540129661560059 and KSP's own reputation pool then moved
+        # 0.33515101671218872 (the pre-curve / post-curve gap is exactly why that leg is
+        # dropped). Corroborated against the decompiled stock curve. This is the cell
+        # that reds on a keyframe typo shared by BOTH ports.
+        #
+        # |nominal| < 1, so num == 0 and the loop is the residual step alone with
+        # accumulated still 0 -- the pre-fix and post-fix formulas are bit-identical
+        # here. That is deliberate: this cell pins the KEYFRAMES against stock and must
+        # stay formula-agnostic; the formula itself is pinned by
+        # test_apply_rep_curve_residual_step_uses_accumulated below.
+        #
+        # Tolerance is float32 scale: KSP computes in float32, this port in float64, so
+        # the two can only agree to ~magnitude * 2^-23 == 4.0e-8 here. Observed gap
+        # ~4.7e-8 (about 1.2 float32 ulp); 1e-7 is the honest window, and it is still
+        # ~7000x tighter than the 0.00025 pre-curve/post-curve gap this pair measures.
+        actual_delta, new_rep = oracle.apply_rep_curve(0.33540129661560059, 0.0)
+        self.assertAlmostEqual(actual_delta, 0.33515101671218872, delta=1e-7)
+        self.assertAlmostEqual(new_rep, 0.33515101671218872, delta=1e-7)
+
+    def test_apply_rep_curve_residual_step_uses_accumulated(self):
+        # THE ANTI-REGRESSION PIN for the 2026-08-20 port divergence
+        # (ORACLE-REP-CURVE-PORT-DIVERGED). C# commit 817773dcb sized
+        # ReputationModule.ApplyReputationCurve's residual step from the ACCUMULATED
+        # post-curve total; this port kept the pre-fix `nominal - (delta * num)` form,
+        # which is identically ZERO for every integer nominal, so the top-up never fired
+        # and every integer-or-larger award came out short by the curve loss.
+        #
+        # nominal 5.0 at rep 0 is a case where the two formulas DISAGREE:
+        #   pre-fix  (residual = 5.0 - 1.0*5 = 0.0, skipped): 4.9963564181215165
+        #   post-fix (residual = 5.0 - accumulated ~= 0.00364, curved):
+        #                                                     4.999997418898138
+        # Derivation of the post-fix value, executing the C# formula's arithmetic:
+        # num = int(abs(5.0)) = 5, delta = +1. Steps i=0..4 each feed input +1 through
+        # the ADDITION curve at time = rep/1000, accumulating to ~4.99635642 (rep tracks
+        # accumulated from 0). Step i=5 (== num) feeds input = nominal - accumulated =
+        # 5.0 - 4.99635642 = 0.00364358, curved at time ~0.0049964 to ~0.00364100, for a
+        # total of 4.999997418898138 -- essentially the nominal, which is the stock
+        # behavior the fix restores.
+        #
+        # Cross-check against the C# fix's own measured claims, both reproduced by this
+        # port under the new formula and NOT under the old one:
+        #   nominal 2.0 at rep 0 -> 1.999998920659382, against KSP's measured 1.99999881
+        #     (pre-fix: 1.9985167620623079, the CAREER-MILESTONE-REP-AWARD-RECONSTRUCTS-
+        #     LOW symptom, quoted as 1.9985168 in commit 817773dcb).
+        #   nominal 50.0 at rep 500 -> 35.555266643600916, against the commit's 35.56
+        #     (pre-fix: 23.845409518325653, the commit's 23.85).
+        delta, new_rep = oracle.apply_rep_curve(5.0, 0.0)
+        self.assertAlmostEqual(delta, 4.999997418898138, places=9)
+        self.assertAlmostEqual(new_rep, 4.999997418898138, places=9)
+        # The pre-fix value must be excluded, not merely "close".
+        self.assertNotAlmostEqual(delta, 4.9963564181215165, places=5)
+
+        # The C# fix's two measured cases, pinned so the old formula cannot return
+        # through any of the three.
+        d2, _r2 = oracle.apply_rep_curve(2.0, 0.0)
+        self.assertAlmostEqual(d2, 1.999998920659382, places=9)
+        d50, _r50 = oracle.apply_rep_curve(50.0, 500.0)
+        self.assertAlmostEqual(d50, 35.555266643600916, places=9)
+
+    def test_apply_rep_curve_sub_unit_nominal_is_formula_agnostic(self):
+        # The |nominal| < 1 branch: num == 0, so the loop body runs ONCE with
+        # step_input = nominal - accumulated = nominal - 0 = nominal. Both the pre-fix
+        # and post-fix formulas produce that, which is why the live-measured stock
+        # anchor above is a keyframe anchor rather than a formula anchor. Pinned
+        # explicitly so a future residual-step edit that breaks the sub-unit case (e.g.
+        # double-counting the residual) cannot hide behind the integer cells.
+        delta, _rep = oracle.apply_rep_curve(0.5, 0.0)
+        mult = oracle._evaluate_addition_curve(0.0)
+        self.assertAlmostEqual(delta, 0.5 * mult, places=12)
+
+    def test_apply_rep_curve_negative_nominal_uses_subtraction_branch(self):
+        # The negative-nominal path with the fixed residual, and the reason the branch
+        # test is `step_input < 0` rather than `nominal < 0` (the C# fix reads the same
+        # way: `mult = (input < 0f) ? sub : add`). nominal -10 at rep 150: delta = -1,
+        # the ten unit steps route through the SUBTRACTION curve (which AMPLIFIES loss
+        # above rep 0, mult ~1.14) and over-deliver to accumulated == -11.44627974. The
+        # residual is then nominal - accumulated == -10 - (-11.44627974) == +1.44627974,
+        # POSITIVE, so it routes through the ADDITION curve and gives the over-delivered
+        # loss back, landing on -10.030729744365537 -- essentially the nominal, the same
+        # top-up behavior the positive cases show. Pre-fix the residual was
+        # -10 - (-1 * 10) == 0 and skipped, so the award stuck at the overshot
+        # -11.44627973520836. Verified by running the port.
+        delta, new_rep = oracle.apply_rep_curve(-10.0, 150.0)
+        self.assertAlmostEqual(delta, -10.030729744365537, places=9)
+        self.assertAlmostEqual(new_rep, 150.0 + delta, places=9)
+        self.assertLess(delta, 0.0)
+        self.assertNotAlmostEqual(delta, -11.44627973520836, places=5)
 
     def test_applied_rep_mode_not_re_curved(self):
         # An `applied` (post-curve) delta is added directly with no second curve pass

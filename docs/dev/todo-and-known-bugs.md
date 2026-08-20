@@ -14,6 +14,66 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## ~~ORACLE-REP-CURVE-PORT-DIVERGED: the harness ledger oracle's Python reputation curve kept the PRE-fix residual step after the C# side fixed it, so the two ports silently disagreed for every integer-or-larger nominal~~ [FOUND and FIXED 2026-08-20 on `oracle-rep-curve-port`, the same day the divergence opened. NO COMMITTED GATE WAS AFFECTED - see "Blast radius". CLOSED]
+
+**The divergence.** Commit `817773dcb` (2026-08-20,
+CAREER-MILESTONE-REP-AWARD-RECONSTRUCTS-LOW, the entry below) changed
+`ReputationModule.ApplyReputationCurve`'s final residual step to size itself from the
+accumulated POST-CURVE actual:
+
+    float input = (i != num) ? delta : (nominal - accumulated);       // C#, fixed
+
+`harness/lib/oracle.py`'s `apply_rep_curve` - which its own docstring calls a "Port of
+``ReputationModule.ApplyReputationCurve``" - was not updated with it and kept the
+pre-fix form:
+
+    step_input = delta if i != num else (nominal - (delta * num))     # Python, stale
+
+For any integer nominal that residual is identically ZERO, so the top-up never fired
+and the Python oracle under-computed by the curve loss. Measured on the port itself,
+new vs old: nominal +5 at rep 0 lands 4.999997418898138 against 4.9963564181215165;
+nominal +2 at rep 0 lands 1.999998920659382 (KSP's own measured 1.99999881) against
+1.9985167620623079; nominal +50 at rep 500 lands 35.555266643600916 against
+23.845409518325653. For `|nominal| < 1` the loop is the residual step alone with
+`accumulated` still 0, so sub-unit awards were - and remain - bit-identical either way.
+
+**Blast radius: none, and the reason is worth keeping.** The oracle only runs the curve
+for manifest entries in `repMode = "nominal"`. Every nonzero reputation entry in every
+committed scenario spec is `repMode = "applied"` (`CL-2-pod-impact-ledger.toml`'s three
+stock-award rows: -9.999828, +0.9999995, +0.9999995), which bypasses the curve entirely
+because the value is already what stock applied post-curve; the only other declared rep
+value is `L1-dismiss-kerbal-career.toml`'s `reputation = 0.0`, which short-circuits.
+So the stale port never produced a committed expected value and no gated flight was
+measured against a wrong number. Nothing was re-pinned in any spec.
+
+**The fix and the guards.** `apply_rep_curve` now mirrors the C# residual step
+(`nominal - accumulated`), and the `ReputationCurveTests` class in
+`harness/lib/test_oracle.py` grew from 6 cells to 10:
+`test_apply_rep_curve_pins_live_measured_stock_pair` is the ABSOLUTE in-game anchor the
+port's own residual-blind-spot docstring had deferred - the live pair measured on run
+`2026-08-18_2140`'s `ConverterStrategy_ReputationLeg_IsObservedAndDropped` cell (curve
+input 0.33540129661560059, KSP pool movement 0.33515101671218872), asserted to float32
+tolerance because KSP computes in float32 and the port in float64;
+`test_apply_rep_curve_residual_step_uses_accumulated` pins integer nominals where the
+two formulas DISAGREE so the pre-fix formula cannot silently return; and two more pin
+the sub-unit (formula-agnostic) branch and the negative-nominal path, whose residual
+comes out POSITIVE and correctly routes through the ADDITION curve (the branch test is
+on `step_input`, not on `nominal`). The two pre-existing absolute pins (+100 at rep 0,
+and the chained two-award composition) were RE-PINNED onto the fixed arithmetic:
+99.6565192711913 -> 99.99652641919174 and 197.02809227386504 -> 199.86793999630493.
+NEGATIVE CONTROL RUN: with the pre-fix line temporarily restored, 4 of the 10 cells red
+and the live-measured stock anchor stays green, which is exactly the split the two cells
+are designed for - the anchor pins the KEYFRAMES, the disagreement cells pin the FORMULA.
+
+**What this incident proves.** The port docstring already carried a "RESIDUAL BLIND
+SPOT" warning about the two legs being independent only up to a shared-curve error. The
+warning was warranted, and the drift arrived from the direction it did not name: not a
+fault shared by both ports, but a FIXED C# leg against a STALE port. The docstring now
+records the incident. The structural lesson is that a hand-maintained Python port of a
+C# method has no compiler and no cross-language test tying the two together - what holds
+it is the value pins, so a C# change to `ApplyReputationCurve` must be mirrored into
+`harness/lib/oracle.py` in the SAME wave, and the pinned values re-derived.
+
 ## MISSIONS-T2.2-LINEAGE-FAN-NOT-COLLAPSIBLE: the flattened per-vessel rows cannot fold a many-child separation fan [ACCEPTED LIMITATION 2026-08-20, from the Stage-2 review of the missions-UI branch]
 
 The T2.2 flattening (one row per physical vessel, lineage-only depth) renders a vessel's
