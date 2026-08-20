@@ -1086,8 +1086,9 @@ ejection leaves - and the orbit it asks that of has no such radius. That orbit i
 the park (ecc 0.028): PeR sits 0.003 m from the park's SMA and ApR gives e = 0.7279, so
 MechJeb idealised the origin to a circle at the park's mean radius and built a
 SUB-ESCAPE ejection whose apoapsis falls 90,965.88 m (2.443%) short of the SOI. A
-moon-parked origin, whose park radius is ~15% of its SOI, is unhandled here; the eight
-flown interplanetary lanes all depart Kerbin, where the SOI is ~12x the park radius.
+moon-parked origin, whose park radius is 15.4% of its SOI, is unhandled here; the eight
+flown interplanetary lanes all depart Kerbin, where the SOI is ~120x the park radius
+(84,159,286 / ~700,000).
 WHY MechJeb sizes it short was not read and is not claimed. Filed as
 `docs/dev/todo-and-known-bugs.md` -> MECHJEB-INTERPLANETARY-PLANNER-REJECTS-MOON-ORIGIN,
 with two candidate paths forward named and neither chosen (a flag-gated manual-ejection

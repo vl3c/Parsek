@@ -54,8 +54,9 @@ READ THE THREE NUMBERS, because they say more than "it threw".
 
 WHAT IS ESTABLISHED: this code path does not handle an origin whose park radius
 is a large fraction of its SOI. At Laythe the park sits at ~15% of the SOI
-radius; at Kerbin, where all eight flown lanes depart, the SOI is ~12x the park
-radius and the same construction escapes with room to spare. WHAT IS **NOT**
+radius; at Kerbin, where all eight flown lanes depart, the SOI is ~120x the park
+radius (84,159,286 / ~700,000) and the same construction escapes with two orders
+of magnitude to spare. WHAT IS **NOT**
 ESTABLISHED, and must not be recorded as if it were: WHY MechJeb sizes the
 ejection short. That lives inside MechJeb 2.15.1 and was not read. Do not
 propagate a mechanism nobody decompiled.

@@ -600,6 +600,44 @@ class V17SeedTests(unittest.TestCase):
         p_l = 2.0 * math.pi * math.sqrt(A_LAYTHE ** 3 / MU_JOOL)
         self.assertGreater(uts[4] - uts[0], 1.5 * p_l)
 
+    def test_the_printed_cycle_two_seam_matches_the_cadence_it_claims(self):
+        """A 0.572 s CARRY-DOWN SLIP lived in this header: the printed cycle-2
+        arrival seam had been advanced by a rounded 105,962.000 rather than by the
+        synodic 105,961.428 the same block declares two lines above. The rounded
+        jump UTs were unaffected, which is exactly why nobody sees it - the file
+        stays self-consistent everywhere a machine reads it and drifts only where
+        a HUMAN reads it. This cell reads the printed figure back out of the
+        header comment and re-derives it, so the next carry slip reds here."""
+        import re
+        with open(os.path.join(HARNESS_ROOT, "scenarios",
+                               "V17M-laythe-vall-player-loop.toml"),
+                  encoding="utf-8") as fh:
+            body = fh.read()
+
+        def printed(label):
+            m = re.search(r"#\s+" + label + r"[^=]*=\s*([\d,]+\.\d+)", body)
+            self.assertIsNotNone(m, "header line %r not found" % label)
+            return float(m.group(1).replace(",", ""))
+
+        c1_seam = printed("cycle-1 arrival seam")
+        c2_seam = printed("cycle-2 arrival seam")
+        self.assertAlmostEqual(c2_seam - c1_seam, self._synodic(), delta=0.05)
+        # and the printed figure must agree with the jumps derived from it
+        uts = self._jump_uts(self.m)
+        self.assertAlmostEqual(round(c2_seam - 180.0), uts[4], delta=0.5)
+
+    def test_the_ts_only_ghost_forbid_lives_only_on_the_ts_lane(self):
+        """`created 0 ghost vessel(s)` is emitted by `ParsekTrackingStation` and
+        by nothing else, so on V17M - which never leaves FLIGHT - it is
+        STRUCTURALLY INERT and was dropped. An un-fireable forbid is a false
+        assurance, not a cheap one; it reads as a guard in review and can never
+        red. V17T keeps it, where the TS scene makes it live."""
+        tok = "created 0 ghost vessel\\(s\\)"
+        self.assertNotIn(tok, self.m["expectations"]["logContracts"]["forbidden"])
+        self.assertIn(tok, self.t["expectations"]["logContracts"]["forbidden"])
+        # V17M's remaining three are the road-independent set
+        self.assertEqual(3, len(self.m["expectations"]["logContracts"]["forbidden"]))
+
     def test_v17m_jumps_are_strictly_forward(self):
         uts = self._jump_uts(self.m)
         self.assertEqual(sorted(uts), uts)

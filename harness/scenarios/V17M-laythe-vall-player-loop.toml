@@ -187,7 +187,7 @@ id = "V17M-laythe-vall-player-loop"
 #     bracket -180 / -60 / +140              -> 29015257 / 29015377 / 29015577
 #   cycle-1 park    anchor + 95,578.4        -> 29018566
 #   cycle-2 anchor  cycle-1 + cadence        = 29,028,948.856
-#   cycle-2 arrival seam                     = 29,121,399.328
+#   cycle-2 arrival seam                     = 29,121,398.756
 #     bracket -180 / -60 / +140              -> 29121219 / 29121339 / 29121539
 #   cycle-2 park                             -> 29124527
 #
@@ -268,16 +268,20 @@ id = "V17M-laythe-vall-player-loop"
 # road: the arm/warp lifecycle, the product's own jump line, the ghost reaching a
 # Vall-framed map surface, and the two lens PRESENCE forms.
 #
-# `forbidden` is FOUR, not the family's six: the re-aim trio is REMOVED (section
+# `forbidden` is THREE, not the family's six: the re-aim trio is REMOVED (section
 # 2) and what remains is the ERROR floor, the backward-jump self-detection guard -
 # which matters more here than anywhere, given how provisional the seeds are - and
-# the parity over-tolerance pin.
+# the parity over-tolerance pin. A fourth, `created 0 ghost vessel\(s\)`, was
+# dropped as STRUCTURALLY INERT: the only emitter of that line is
+# `ParsekTrackingStation`, and this lane never leaves FLIGHT, so the token could
+# not fire on any outcome. An un-fireable forbid is a false assurance, not a
+# cheap one. V17T keeps it, where the TS scene makes it live.
 #
 # `[expectations.rewind]` is REPORT-ONLY and `[expectations.recordings.structure]`
 # is ABSENT. Author them from run 1's saveParse facets.
 # =====================================================================================
 tier = "operator"
-description = "NOT YET FLYABLE - committed AHEAD of its subject with a ZERO tree id and eight CALIBRATION-SEED jump UTs, tracked by the self-retiring SharedShipsManifestTests.PENDING_FIXTURE_LANES exemption. THE FIRST MOON-TO-MOON LOOP SUBJECT, and the lane that measures a code path the research doc says is live and untested. Every loop subject so far is SAME-PARENT and takes the phase-lock road (measured three times: `constraints=1`, `method=single-orbital`, residual 0). B26's recording is the OTHER class - Vall is not a child of Laythe, so it is CROSS-PARENT and `MissionConfig loop=true` should reach `ApplyReaim` with the JOOL-frame synodic. `docs/dev/research/same-parent-reaim-jool-system.md` section 5.1 walks `TrySynthesizeTransfer` guard by guard for exactly this shape - the parent gate passes (both resolve to Jool), mu is a parameter, r1/r2 are Jool-relative, the tilt gate is a no-op (both moons inc 0), `IsSaneTransferConic` passes on a=35,168,000 e=0.22702 - and concludes it 'already works in a Jool-centric frame for P3 today, unmodified', calling that 'the single most surprising finding in this investigation'. THIS SPEC GATES ON NEITHER OUTCOME. Both hypotheses are written out with the exact discriminating lines (H1 re-aim engages: `[ReaimDiag]`, `ENGAGED re-aim`, `re-aimed transfer ready`, `factory chain ... reaimed=True`; H2 a guard declines - most plausibly the section-5.2 SEAM MAGNITUDE, which is 0.23% of the orbit at Duna but 13.70% at Laythe: `FORCED FAITHFUL`, `reaimed=False`), and the re-aim trio is left BOTH unrequired AND unforbidden - the exact inversion of V14M/V15M/V16M, which forbid it because on a same-parent subject re-aim is structurally unreachable. THE SEEDS ARE WEAKER THAN ANY PRIOR PAIR'S ON PURPOSE: the anchor formula that served V14M/V15M/V16M is a phase-lock artifact and does not apply under H1, so the table is seeded under H1 at a one-synodic (105,961.4 s = 2.0000 Laythe periods) anchor and WILL move under H2. Run 1 is a routing read first and a bracket calibration second; a dwell-nowhere run 1 is an accepted outcome, not a lane failure. Carries V16M's now-PROVEN forty-tick census-pacing block (it measured both cycles 11.502 wall-s apart where V15M's three runs printed one), with the new question of what the lens does with a recording that has TWO cross-body seams rather than one."
+description = "NOT YET FLYABLE - and its SUBJECT'S PRODUCTION IS BLOCKED-PENDING, not merely pending a green B26: `B26-laythe-vall-transfer` flew 2026-08-19 and both attempts refused in PLAN-TRANSFER on a MechJeb limitation (`OperationInterplanetaryTransfer.MakeNodes` throws on a moon-parked origin), so `vall-transfer-recorded` cannot be harvested until a moon-origin ejection capability exists - see docs/dev/todo-and-known-bugs.md -> MECHJEB-INTERPLANETARY-PLANNER-REJECTS-MOON-ORIGIN. Nothing below is touched by that block: it stops the harness PRODUCING the subject and says nothing about the routing question this lane asks. Committed AHEAD of its subject with a ZERO tree id and eight CALIBRATION-SEED jump UTs, tracked by the self-retiring SharedShipsManifestTests.PENDING_FIXTURE_LANES exemption. THE FIRST MOON-TO-MOON LOOP SUBJECT, and the lane that measures a code path the research doc says is live and untested. Every loop subject so far is SAME-PARENT and takes the phase-lock road (measured three times: `constraints=1`, `method=single-orbital`, residual 0). B26's recording is the OTHER class - Vall is not a child of Laythe, so it is CROSS-PARENT and `MissionConfig loop=true` should reach `ApplyReaim` with the JOOL-frame synodic. `docs/dev/research/same-parent-reaim-jool-system.md` section 5.1 walks `TrySynthesizeTransfer` guard by guard for exactly this shape - the parent gate passes (both resolve to Jool), mu is a parameter, r1/r2 are Jool-relative, the tilt gate is a no-op (both moons inc 0), `IsSaneTransferConic` passes on a=35,168,000 e=0.22702 - and concludes it 'already works in a Jool-centric frame for P3 today, unmodified', calling that 'the single most surprising finding in this investigation'. THIS SPEC GATES ON NEITHER OUTCOME. Both hypotheses are written out with the exact discriminating lines (H1 re-aim engages: `[ReaimDiag]`, `ENGAGED re-aim`, `re-aimed transfer ready`, `factory chain ... reaimed=True`; H2 a guard declines - most plausibly the section-5.2 SEAM MAGNITUDE, which is 0.23% of the orbit at Duna but 13.70% at Laythe: `FORCED FAITHFUL`, `reaimed=False`), and the re-aim trio is left BOTH unrequired AND unforbidden - the exact inversion of V14M/V15M/V16M, which forbid it because on a same-parent subject re-aim is structurally unreachable. THE SEEDS ARE WEAKER THAN ANY PRIOR PAIR'S ON PURPOSE: the anchor formula that served V14M/V15M/V16M is a phase-lock artifact and does not apply under H1, so the table is seeded under H1 at a one-synodic (105,961.4 s = 2.0000 Laythe periods) anchor and WILL move under H2. Run 1 is a routing read first and a bracket calibration second; a dwell-nowhere run 1 is an accepted outcome, not a lane failure. Carries V16M's now-PROVEN forty-tick census-pacing block (it measured both cycles 11.502 wall-s apart where V15M's three runs printed one), with the new question of what the lens does with a recording that has TWO cross-body seams rather than one."
 instanceProfile = "stock-minimal"
 tags = ["V17", "player-loop", "watch-mode", "loop-playback", "re-aim", "cross-parent",
         "moon-to-moon", "vall", "laythe", "jool", "jool-moon", "census-pacing"]
@@ -517,7 +521,7 @@ required  = [
   "faithful-parity summary sampled=\\d+ overTolerance=\\d+",
   "seam-endpoint summary evaluated=\\d+ outsideSoi=\\d+",
 ]
-# FOUR, NOT THE FAMILY'S SIX. `[ReaimDiag]`, `ENGAGED re-aim` and `FORCED
+# THREE, NOT THE FAMILY'S SIX. `[ReaimDiag]`, `ENGAGED re-aim` and `FORCED
 # FAITHFUL` are all REMOVED relative to V14M/V15M/V16M - those lanes forbid them
 # because on a same-parent subject re-aim is structurally unreachable and its
 # appearance would falsify the routing claim. HERE RE-AIM IS THE THING THAT MIGHT
@@ -536,9 +540,6 @@ forbidden = [
   # is a rendered-vs-recorded drift, which is a defect in the RENDER rather than a
   # reading about the routing. Road-independent.
   "faithful-parity summary sampled=\\d+ overTolerance=[1-9][0-9]*",
-  # A ghost that never resolves a body would make every arrival reading vacuous.
-  # This is the one anti-vacuity forbid that is cheaper than a required token.
-  "created 0 ghost vessel\\(s\\)",
 ]
 
 [expectations.rewind]

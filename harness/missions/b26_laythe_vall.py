@@ -59,12 +59,29 @@ this file is where a future re-point would happen:
     unconditionally), and `b5_params_from_dict` would raise at spec load because
     Laythe is not in `STOCK_HELIO_ELEMENTS` - a loud failure, but not one worth
     provoking.
-  * **THE ONE THING THE AUDIT COULD NOT ANSWER** is whether MechJeb 2.15.1's own
+  * **THE ONE THING THE AUDIT COULD NOT ANSWER** was whether MechJeb 2.15.1's own
     `OperationInterplanetaryTransfer` accepts a Jool-parented pair. If it refuses
     it throws server-side, the runner logs and swallows, `node_count` stays 0, and
     the bounded re-plan cadence ends in a PLAN-TRANSFER flake. Loud and bounded,
-    never silent - but it is the single likeliest way this lane's first flight
-    fails, and it is a MECHJEB question rather than a Parsek one.
+    never silent - and it was named here as the single likeliest way this lane's
+    first flight fails, a MECHJEB question rather than a Parsek one.
+
+    **IT IS ANSWERED, AND THE ANSWER IS NO.** Flight 1 (2026-08-19, runs
+    `2026-08-19_2214` / `_2215_a2`) measured exactly the predicted shape: both
+    attempts INVALID(autopilot-flake), deterministic, refused in PLAN-TRANSFER six
+    wall-seconds in on `OrbitExtensions.NextTimeOfRadius: given radius of
+    3723645.81113302 is never achieved` out of
+    `KRPC.MechJeb.Maneuver.Operation.MakeNodes`. It is not the Jool PARENTAGE that
+    breaks it but the MOON-PARKED ORIGIN: MechJeb idealises the origin to a circle
+    at the park's mean radius and builds a sub-escape ejection whose apoapsis lands
+    2.443% short of the SOI, then asks for a crossing that does not exist. The lane
+    is BLOCKED-PENDING a harness transfer capability for moon-origin ejections -
+    see `docs/dev/todo-and-known-bugs.md -> MECHJEB-INTERPLANETARY-PLANNER-REJECTS-MOON-ORIGIN`
+    for the diagnosis and the two candidate paths forward (neither chosen), and the
+    spec's own FLIGHT LEDGER block for the full account. Everything this docstring
+    asserts about mlib and the composition was CONFIRMED by that flight: the
+    ORBIT-START door, the fixture, the preamble and target acquisition all behaved,
+    and nothing in this file was implicated.
 
 A FIXTURE PRECONDITION THIS MISSION CANNOT ENFORCE, inherited verbatim from B23
 flight 1 and repeated on every orbit-start lane since: the save this mission is
@@ -118,7 +135,6 @@ import os
 import sys
 from typing import List, Optional
 
-_HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 _MISSIONS = os.path.dirname(os.path.abspath(__file__))
 if _MISSIONS not in sys.path:
     sys.path.insert(0, _MISSIONS)

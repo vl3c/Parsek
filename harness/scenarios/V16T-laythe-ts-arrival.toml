@@ -131,8 +131,11 @@ id = "V16T-laythe-ts-arrival"
 #
 # A non-forward jump answers `REJECTED reason=backward-jump`, which is only a
 # WARN. That token is FORBIDDEN below, so a mis-seeded anchor self-detects as an
-# expectations mismatch instead of greening a run that dwelled nowhere. ON A
-# SEEDED TABLE THAT IS THE LIKELIER FAILURE.
+# expectations mismatch instead of greening a run that dwelled nowhere. THAT WAS
+# THE LIKELIER FAILURE WHILE THE TABLE WAS SEEDED; the jump is now MEASURED (it
+# answered OK on all three runs and did not move at arming), so the forbid is a
+# regression floor rather than a live risk - and it stays, because the failure it
+# guards is silent.
 #
 # ---------------------------------------------------------------------------------
 # THE DWELL IS SHORT, AND V5 MEASURED HOW SHORT. No seam verb passes time in TS
@@ -255,40 +258,48 @@ id = "V16T-laythe-ts-arrival"
 # committed spec may arm one), WITH this run cited, per the S1.4 rule.
 #
 # ---------------------------------------------------------------------------------
-# POSTURE - FIRST-RUN READING
+# POSTURE - ARMED (was FIRST-RUN READING; armed 2026-08-19 off `_2115`)
 # ---------------------------------------------------------------------------------
-# `required` is the TWELVE-token reading set (V15T's pre-flight set with the body
-# swapped): the arm/warp chain, the `Orbital(Laythe) same-parent` classification,
-# the value-free `PhaseLock APPLIED: mission=` prefix, the two R12 route lines,
-# the two TS anti-vacuity gates, `reaimed=False`, and the two lens PRESENCE pins.
-# DELIBERATELY NOT REQUIRED YET: `support=Supported` and the
-# `method=single-orbital ... zeroDrift=no` conjunction - the latter because
-# `method=` is what this pair measures at a k > 1 cadence, and V14M's header
-# records what pre-pinning a predicted method costs.
+# `required` is THIRTEEN tokens. It began as the twelve-token reading set (V15T's
+# pre-flight set with the body swapped) and the arming pass added the two
+# deferrals from its own bytes: `support=Supported` and the full
+# `method=single-orbital ... zeroDrift=no` conjunction, which was deliberately NOT
+# pre-pinned because `method=` is exactly what this pair measures at a k > 1
+# cadence and V14M's header records what pre-pinning a predicted method costs.
+# The routing came back `single-orbital` at a THIRD orbit-rooted subject, so the
+# conjunction is now a MEASURED pin rather than a prediction.
 #
-# `forbidden` IS ALREADY AT V14T/V15T's FULL SIX, for V16M's reason: every one
-# guards a PREMISE rather than deferring a MEASUREMENT.
+# THE ONE TOKEN DELIBERATELY LEFT LOOSE: the seam-endpoint census stays at the
+# PRESENCE form `evaluated=\d+ outsideSoi=\d+` rather than V16M's strict
+# `evaluated=[1-9]\d* outsideSoi=0`. That is not timidity - this lane MEASURED
+# `outsideSoi=1` from the creation-frame instrument artifact below, so the strict
+# form would red on a known non-defect. The census VERDICT for the pair lives on
+# V16M, which reads the stepped epochs where the loop shift has bound.
 #
-# `[expectations.rewind]` is REPORT-ONLY and `[expectations.recordings.structure]`
-# is ABSENT. Arm both from this lane's own bytes - and note V5's rule that a
-# DOUBLE-ENTRY spec owes the tighter pin, because it writes a save mid-run and
+# `forbidden` IS AT V14T/V15T's FULL SIX, unchanged since the reading run, for
+# V16M's reason: every one guards a PREMISE rather than deferring a MEASUREMENT.
+#
+# `[expectations.rewind]` and `[expectations.recordings.structure]` are BOTH
+# `gating = true`, armed from this lane's own bytes (`0/0/0/0` and `1/1/1` with
+# `terminalStates {Orbiting: 1}`), and the count is pinned {1,1} - the tight pin
+# V5's rule says a DOUBLE-ENTRY spec owes, because it writes a save mid-run and
 # reads it back through a SECOND scene load, the shape in which a stray durable
 # write is easiest to miss.
 # =====================================================================================
 tier = "operator"
-description = "LIVE-PROVEN AND ARMED 2026-08-19: reading run `2026-08-19_2115` came back **PARSEK-FAIL(anomaly) attempt 1 with ALL SIXTEEN STEPS GREEN** - the CORRECT catch this spec pre-registered by shipping `allowedAnomalies = []` on purpose. The tracking-station half of the Laythe pair and the suite's first TS loop subject at a GAS-GIANT parent: arm the loop and jump 139.6 s past the cycle-1 Jool->Laythe SOI seam in FLIGHT, SaveGame, then re-enter through `LoadGame scene=trackstation`. MEASURED AND NOW REQUIRED: `Orbital(Laythe) same-parent` + `support=Supported` + `PhaseLock APPLIED ... method=single-orbital ... zeroDrift=no` (the routing prediction held at a THIRD orbit-rooted subject), `reaimed=False`, the R12 trackstation route pair, `created 1 ghost vessel(s)`, and a `body=Laythe scene=TRACKSTATION` proto icon 4.09 Mm from Laythe's centre. **THE RED CARRIES TWO REFINEMENTS OVER V15T'S.** (1) `hitCounts={'icon-off-orbit': 2}` - TWO raises, same frame 6572, same 129.15 deg, TWO different proto pids at different radii: the creation-frame trigger hit two proto instances at once. FIRST RUN EVER WITH count > 1, which retires the per-run-count-1 property four earlier runs had established (it was a measurement, never a ceiling - a ceiling armed today would be maxCount = 2). Third parent, third magnitude (94.05 Ike / 26.49 Gilly / 129.15 Laythe), so the magnitude still correlates with nothing three points can separate. (2) A NEW REPORT-ONLY RAISE ON A SECOND LENS: `surface=ProtoOrbitLine ... reason=seam-endpoint-outside-soi currentUT=29874214.240 effUT=28814456.826 ... clock=raw seed=no-seed`, i.e. the lens evaluated the RECORDED, UN-SHIFTED seam epoch on the proto's creation frame, putting the endpoint at the Jool park 585.8 Mm away (ratio 157.3). Same creation-frame loop-shift binding family as icon-off-orbit, now on a second lens, and k = 20 is why it became visible (a 20-period cadence puts the un-shifted epoch 1.06 Ms off the live clock, where k = 1 subjects skip on body-mismatch instead). Filed as MAPRENDER-SEAM-LENS-EVALUATES-UNSHIFTED-EPOCH-ON-CREATION-FRAME, cross-linked to the icon entry; the harness classified the unknown reason REPORT-ONLY so nothing new gates. **THE ACCOMPANYING `evaluated=2 outsideSoi=1` IS AN INSTRUMENT ARTIFACT, NOT A DRIFT** - V16M's censuses at stepped epochs, where the loop shift has bound, read `outsideSoi=0` at BOTH cycle 1 and cycle 2, so the true k = 20 recurrence is fine. Armed: 13 required, V14T's full six forbidden, count {1,1}, both save-structure blocks gating, and the anomaly tolerated by the BARE token. STILL OWED: one armed re-flight and ONE negative control shared with V16M."
+description = "LIVE-PROVEN AND ARMED 2026-08-19: reading run `2026-08-19_2115` came back **PARSEK-FAIL(anomaly) attempt 1 with ALL SIXTEEN STEPS GREEN** - the CORRECT catch this spec pre-registered by shipping `allowedAnomalies = []` on purpose. The tracking-station half of the Laythe pair and the suite's first TS loop subject at a GAS-GIANT parent: arm the loop and jump 139.6 s past the cycle-1 Jool->Laythe SOI seam in FLIGHT, SaveGame, then re-enter through `LoadGame scene=trackstation`. MEASURED AND NOW REQUIRED: `Orbital(Laythe) same-parent` + `support=Supported` + `PhaseLock APPLIED ... method=single-orbital ... zeroDrift=no` (the routing prediction held at a THIRD orbit-rooted subject), `reaimed=False`, the R12 trackstation route pair, `created 1 ghost vessel(s)`, and a `body=Laythe scene=TRACKSTATION` proto icon 4.09 Mm from Laythe's centre. **THE RED CARRIES TWO REFINEMENTS OVER V15T'S.** (1) `hitCounts={'icon-off-orbit': 2}` - TWO raises, same frame 6572, same 129.15 deg, TWO different proto pids at different radii: the creation-frame trigger hit two proto instances at once. FIRST RUN EVER WITH count > 1, which retires the per-run-count-1 property four earlier runs had established (it was a measurement, never a ceiling - a ceiling armed today would be maxCount = 2). Third parent, third magnitude (94.05 Ike / 26.49 Gilly / 129.15 Laythe), so the magnitude still correlates with nothing three points can separate. (2) A NEW REPORT-ONLY RAISE ON A SECOND LENS: `surface=ProtoOrbitLine ... reason=seam-endpoint-outside-soi currentUT=29874214.240 effUT=28814456.826 ... clock=raw seed=no-seed`, i.e. the lens evaluated the RECORDED, UN-SHIFTED seam epoch on the proto's creation frame, putting the endpoint at the Jool park 585.8 Mm away (ratio 157.3). Same creation-frame loop-shift binding family as icon-off-orbit, now on a second lens, and k = 20 is why it became visible (a 20-period cadence puts the un-shifted epoch 1.06 Ms off the live clock, where k = 1 subjects skip on body-mismatch instead). Filed as MAPRENDER-SEAM-LENS-EVALUATES-UNSHIFTED-EPOCH-ON-CREATION-FRAME, cross-linked to the icon entry; the harness classified the unknown reason REPORT-ONLY so nothing new gates. **THE ACCOMPANYING `evaluated=2 outsideSoi=1` IS AN INSTRUMENT ARTIFACT, NOT A DRIFT** - V16M's censuses at stepped epochs, where the loop shift has bound, read `outsideSoi=0` at BOTH cycle 1 and cycle 2, so the true k = 20 recurrence is fine. Armed: 13 required, V14T's full six forbidden, count {1,1}, both save-structure blocks gating, and the anomaly tolerated by the BARE token. DISCIPLINE COMPLETE 2026-08-19: the armed re-flight `2026-08-19_2212` (PASS attempt 1, 50 s) reproduced BOTH lenses exactly as predicted - `allowed=['icon-off-orbit'] hitCounts={'icon-off-orbit': 2} hits=[] unlistedReasons=['seam-endpoint-outside-soi']` - which upgrades the count-2 reading from one flight to a DETERMINISTIC property of the single-jump shape and is exactly what a bare tolerance is for, while the second lens stayed in the report-only channel where it gates nothing; and the negative control `2026-08-19_2213` shared with V16M red exactly on `rewind.supersedeRows 0 < min 1`, then reverted. NEITHER RECURRENCE IS DRIFT - both are the creation-frame binding family, and V16M's armed run was completely silent."
 instanceProfile = "stock-minimal"
 tags = ["V16", "tracking-station", "loop-arrival", "phase-lock", "single-orbital",
         "laythe", "jool", "same-parent", "moon", "jool-moon", "map-render", "flown"]
 
 [fixture]
-# *** DOES NOT EXIST YET *** - the same B25-laythe-orbit harvest V16M walks, and
-# for the same reasons. Read V16M's [fixture] block, which is not restated here
-# so the pair cannot drift: predicted ONE committed tree, ONE recording, zero
-# durable rows, terminal Orbiting at Laythe, CREWED subject, and a one-recording
-# topology that is a CONTRACT rather than an accident (a 2 or a FIVE would mean
-# docs/dev/todo-and-known-bugs.md -> SEAM-STARTRECORDING-JOINS-COMMITTED-TREE is
-# back).
+# COMMITTED - the same `B25-laythe-orbit` flight-2 harvest V16M walks, and for the
+# same reasons. Read V16M's [fixture] block, which is not restated here so the
+# pair cannot drift: MEASURED ONE committed tree, ONE recording, zero durable
+# rows, terminal Orbiting at Laythe, CREWED subject, and a one-recording topology
+# that is a CONTRACT rather than an accident (a 2 or a FIVE would have meant
+# docs/dev/todo-and-known-bugs.md -> SEAM-STARTRECORDING-JOINS-COMMITTED-TREE was
+# back; it read 1).
 saveTemplate       = "fixtures/saves/laythe-orbit-recorded"
 injectedRecordings = "none"
 craft              = []
@@ -311,17 +322,20 @@ steps = [
   { cmd = "SetSetting", args = { name = "mapRenderTracing", value = "true" }, expect = "OK" },
   { cmd = "SetSetting", args = { name = "verboseLogging",   value = "true" }, expect = "OK" },
   # ARM (FLIGHT-only): the production MissionStore.SetLoopEnabled path.
-  # TREE ID: **ZERO PLACEHOLDER**. Substitute B25's committed tree, read off the
-  # harvested fixture's RECORDING_TREE node.
+  # TREE ID: B25's committed tree, read off the harvested fixture's
+  # RECORDING_TREE node and confirmed on three runs.
   { cmd = "MissionConfig", args = { tree = "0ffee6458331466481f5c7aa0212b515", loop = "true" }, expect = "OK" },
   # WARP TO CYCLE 1's LAUNCH (FLIGHT-only): an instantaneous Planetarium clock set
-  # through the product's FastForwardToEventUT. SEEDED relaunchUt 28,846,936.589.
+  # through the product's FastForwardToEventUT. Calibrated relaunchUt
+  # 28,846,938.309; the product resolved 28,846,938.261, an 0.048 s agreement.
   { cmd = "StartLoopPlayback", args = { tree = "0ffee6458331466481f5c7aa0212b515" }, expect = "OK", budget = 300 },
-  # FORWARD TO ~140 s PAST THE SEEDED CYCLE-1 SOI SEAM (FLIGHT-only): the ghost is
+  # FORWARD TO ~140 s PAST THE CYCLE-1 SOI SEAM (FLIGHT-only): the ghost is
   # now just inside Laythe's SOI. This is V16M's third cycle-1 bracket jump,
   # reused so the two lanes observe the SAME instant from the two scenes.
-  # CALIBRATION SEED; 140.411 s past the seam, which is ~6% into the predicted
-  # ~2,400 s recorded Laythe phase (V15T's equivalent sat 37% into a 381 s one).
+  # 139.584 s past the cycle-1 seam (header section 2's arithmetic), which is 5.4%
+  # into the MEASURED 2,566.191 s recorded Laythe phase - against V15T's
+  # equivalent at 37% into a 381.490 s one. Measured, not seeded: the UT did not
+  # move at arming, and all of this lane's TimeJumps answered OK.
   { cmd = "TimeJump", args = { ut = "29874214" }, expect = "OK", budget = 300 },
   # PERSIST the armed mission state + the jumped clock.
   { cmd = "SaveGame",   args = { name = "persistent" },                      expect = "OK" },
@@ -410,16 +424,16 @@ allowedAnomalies = ["icon-off-orbit"]
 
 [expectations.recordings]
 # THE ARITHMETIC, identical to V16M's - read that spec's block for the full
-# version. In brief: the (not yet harvested) fixture is predicted to ship exactly
-# ONE `.prec` sidecar, this lane starts no recording of its own, and the only way
-# the count moves is a LOAD-TIME optimizer split at the Jool->Laythe seam, which
-# section-3 rule 3 of `IsSplittableEnvOrBodyBoundary` is predicted to keep
-# COHESIVE (V14M MEASURED that rule firing at Duna->Ike and V15M/V15T at
-# Eve->Gilly).
-# => { min = 1, max = 2 }, a derived range. PIN IT AT THE ARMING PASS, and note
-# that this spec owes the tight pin MORE than V16M does, for V5's reason: it
-# enters the scene TWICE and writes a save in between, so a second entry leaving
-# a promotion stub is the measurement a double-entry spec owes.
+# version. In brief: the harvested fixture ships exactly ONE `.prec` sidecar, this
+# lane starts no recording of its own, and the only way the count could move is a
+# LOAD-TIME optimizer split at the Jool->Laythe seam, which section-3 rule 3 of
+# `IsSplittableEnvOrBodyBoundary` was predicted to keep COHESIVE (V14M MEASURED
+# that rule firing at Duna->Ike and V15M/V15T at Eve->Gilly).
+# The pre-flight derivation was the range { min = 1, max = 2 }; the rule held,
+# both runs read 1, and the arming pass PINNED it at {1,1}. This spec owed that
+# tight pin MORE than V16M does, for V5's reason: it enters the scene TWICE and
+# writes a save in between, so a second entry leaving a promotion stub is exactly
+# the measurement a double-entry spec owes - and it left none.
 count = { min = 1, max = 1 }
 
 [expectations.logContracts]
