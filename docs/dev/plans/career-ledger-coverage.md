@@ -692,9 +692,52 @@ synthetically.
 
 | # | Task | Cost |
 | --- | --- | --- |
-| D.1 | Replay the headless recalc over c1; classify each divergence as era artifact, fixture artifact, or live defect. | M |
+| ~~D.1~~ | ~~Replay the headless recalc over c1; classify each divergence as era artifact, fixture artifact, or live defect.~~ **DONE 2026-08-20 (branch `c1-replay-floor`).** Classified, not adjudicated - see the measurement table below. | M |
 | D.2 | Re-test **D9 `head-tip-split`** against c1 using the splitter's own predicate - rev 1 wrongly ruled this out (section 3). Two recordings qualify. | S |
-| D.3 | Decide whether c1 earns a place as a committed **regression floor** (its analyzer baseline matched 30/30 across an analyzerVersion 2->3 bump). | S |
+| ~~D.3~~ | ~~Decide whether c1 earns a place as a committed **regression floor**~~ **DONE 2026-08-20 (branch `c1-replay-floor`).** It does. `Source/Parsek.Tests/Fixtures/C1Career/` (ledger.pgld + persistent.sfs, sha256-verified copies of the 2026-08-09 snapshot) + `C1CareerLedgerReplayTests` (7 cells). | S |
+
+**D.1 / D.3 outcome, 2026-08-20.** The re-measurement on current code, against
+pools KSP itself wrote:
+
+| pool | reconstructed | save | delta | vs 2026-08-09 |
+| --- | --- | --- | --- | --- |
+| FUNDS | 400199.27429199219 | 400199.27429199219 | 0 (exact) | unchanged |
+| SCIENCE | 119.30025362968445 | 29.3002529 | +90.000000729684444 | unchanged |
+| REPUTATION | 45.590347290039063 | 45.5432281 | +0.047119190039062175 | **MOVED** (was 45.54322814941406, delta ~4.9e-08) |
+
+**c1 is a FLOOR, not an ORACLE**, and the test file says so at length. It
+predates the 2026-08 fix wave (PR #1498 capture fixes, PR #1483 strategy
+two-door, the 2026-08-20 milestone-rep residual-step fix), so no green or red
+against it is a statement about current CAPTURE behavior. What it buys is (a) the
+recalc engine's walk over a 323-row real ledger pinned end to end - nothing else
+in the suite exercises the walk at this scale, the next largest committed ledger
+being C2Career's 68 rows - and (b) closure of the D.1 classification.
+
+Three classifications:
+
+- **SCIENCE +90: era artifact, characterized.** Proximate cause re-confirmed on
+  the current walk: exactly ONE `Spending NOT affordable` refusal fires across
+  all 323 rows and it is the `heavyRocketry` node (cost 90, ut=475457.99765590986).
+  Not adjudicated, and deliberately so - the fixture cannot separate an
+  under-recorded 2026-08-09 capture from a walk-side valuation difference, and
+  per the Phase C ceiling no forge can manufacture the shape that would. The
+  MECHANISM is owned synthetically by `ScienceSpendingOrderingTests` (task A.1)
+  and needs nothing from c1.
+- **FUNDS: no divergence.** Bit-exact, delta ZERO (not float noise), across 125
+  FundsSpending / 14 FundsEarning / 40 milestone / 11 ContractComplete rows - the
+  last collapsing to 4 effective completions through the first-tier
+  ContractsModule. Pinned as equality, not as a window.
+- **REPUTATION +0.0471: recalc-side movement, NOTED, not adjudicated.**
+  Attributable to commit 817773dcb (the residual-step fix), which is RECALC-side
+  and so moves frozen fixtures legitimately. It CLOSED the divergence on both C2
+  fixtures (-0.001482 -> +2.4e-07, -0.00364 -> -1.7e-09) and here moved c1 AWAY
+  from the save pool. c1 is the only committed career exercising the curve at a
+  large |rep| (45.5, against ~2 and ~5 on the C2 pair), and the fix's own commit
+  message notes the pre-fix error grew with |rep| - so this is the right place to
+  NOTICE the question and the wrong place to answer it, because c1's rep-bearing
+  rows are themselves pre-fix-wave captures. **Open follow-up:** corroborate on a
+  POST-fix career carrying many milestone awards at non-trivial reputation. Do
+  not open a product finding off c1 alone.
 
 **The parked finding, restated with its status.** A headless walk of c1's ledger
 reproduced **funds bit-exactly** (400199.2742919922 vs 400199.27429199219) and
@@ -704,8 +747,12 @@ reproduced **funds bit-exactly** (400199.2742919922 vs 400199.27429199219) and
 and keeps the balance. One c1 action trips it - `heavyRocketry`, cost 90,
 ut=475457.99765590986, reconstructed balance 85.30028700828552; bypassing the gate
 yields 29.30025291442871, float32-identical to the save.
-**Status: UNCONFIRMED against current code - c1 predates many fixes. Task A.1
-settles the mechanism synthetically without waiting for any of this.**
+**Status, updated 2026-08-20: RE-MEASURED on current code and CHARACTERIZED (see
+the D.1 / D.3 outcome table above). Funds and science reproduce the 2026-08-09
+numbers unchanged; reputation MOVED off its float32 match by a known recalc-side
+fix. Still NOT adjudicated as a defect and still not filable as one from this
+fixture. Task A.1 settles the mechanism synthetically without waiting for any of
+this.**
 
 ### Phase E - Corpus sweeps (optional)
 
