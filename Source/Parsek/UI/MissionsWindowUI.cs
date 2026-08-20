@@ -128,6 +128,17 @@ namespace Parsek
         private readonly Dictionary<string, List<MissionCompositionNode>> compositionCache =
             new Dictionary<string, List<MissionCompositionNode>>();
 
+        // Per-frame cache of the T2.2 flattened per-vessel rows, keyed by TREE id (derived from
+        // the composition roots, so every Mission over one tree shares them). Cleared alongside
+        // missionViewCache on the first lookup of a new frame.
+        private readonly Dictionary<string, List<MissionVesselRow>> vesselRowsCache =
+            new Dictionary<string, List<MissionVesselRow>>();
+
+        // Vessel rows whose interval detail is EXPANDED (default collapsed - the flattened rows
+        // are the reading surface, the intervals are the opt-in authoring detail). Keyed like
+        // collapsedLegs (mission id + head id), session-transient.
+        private readonly HashSet<string> expandedVessels = new HashSet<string>();
+
         // Per-frame cache of the header summary-line facts (T1.1), keyed by TREE id: the facts are
         // derived from the tree's read models only (span, vessel count, crew union, terminal word),
         // never from a Mission's selection, so every Mission over one tree shares them. Cleared
@@ -756,22 +767,23 @@ namespace Parsek
                     GetSummaryFacts(tree));
                 CaptureRevealAnchor(mission);
 
-                // Composition-over-time tree (the vessel rows). Each node is a structural
-                // interval / branch with its own independent include checkbox (interval-level
-                // start/end trim), bound to Mission.ExcludedIntervalKeys - no cascade.
-                // The row derivations (T1.3 delta labels, T1.4 dock-partner naming) read this
-                // tree's own structure / through-line view, so they ride along the recursion.
+                // T2.2: the FLATTENED per-vessel rows - one row per physical vessel / EVA
+                // kerbal, depth = separation lineage only, the event chain inline; each
+                // vessel's structural intervals are an expandable detail (Advanced) with the
+                // same independent include checkboxes bound to Mission.ExcludedIntervalKeys -
+                // no cascade (the per-vessel checkbox expands to the vessel's own explicit
+                // keys). The row derivations (T1.3 delta labels, T1.4 dock-partner naming)
+                // read this tree's own structure / through-line view.
                 var rowCtx = new RowDeriveContext { Structure = structure, View = view };
-                var compRoots = GetCompositionRoots(tree);
-                for (int r = 0; r < compRoots.Count; r++)
+                var vesselRows = GetVesselRows(tree);
+                for (int r = 0; r < vesselRows.Count; r++)
                 {
-                    bool isLast = r == compRoots.Count - 1;
-                    // The launch row (the very first rendered composition row = the first root's
-                    // head node) carries the mission's "Time to launch" countdown under that
-                    // column; every other vessel row leaves it blank.
+                    bool isLast = r == vesselRows.Count - 1;
+                    // The launch row (the mission's first vessel row) carries the mission's
+                    // "Next launch" countdown under that column; every other row leaves it blank.
                     bool isLaunchRoot = r == 0;
-                    rowCount += DrawCompositionNode(compRoots[r], mission, 1, isLast, false,
-                        isLaunchRoot, periodicity, rowCtx, null);
+                    rowCount += DrawVesselRow(vesselRows[r], mission, 1, isLast,
+                        isLaunchRoot, periodicity, rowCtx);
                 }
 
                 // M-MIS-8: cross-tree partner-journey affordance - one row per derived foreign
@@ -827,6 +839,7 @@ namespace Parsek
             {
                 missionViewCache.Clear();
                 compositionCache.Clear();
+                vesselRowsCache.Clear();
                 foreignLinksCache.Clear();
                 journeyLegsCache.Clear();
                 summaryFactsCache.Clear();
@@ -889,6 +902,18 @@ namespace Parsek
                 compositionCache[tree.Id] = roots;
             }
             return roots;
+        }
+
+        // Returns the cached T2.2 flattened per-vessel rows for a tree (built once per frame
+        // from the same composition roots that GetCompositionRoots caches).
+        private List<MissionVesselRow> GetVesselRows(RecordingTree tree)
+        {
+            if (!vesselRowsCache.TryGetValue(tree.Id, out var rows))
+            {
+                rows = MissionVesselRowBuilder.Build(GetCompositionRoots(tree));
+                vesselRowsCache[tree.Id] = rows;
+            }
+            return rows;
         }
 
         // Returns the header summary-line facts for a tree (T1.1), derived at most once per frame
@@ -1023,12 +1048,170 @@ namespace Parsek
             public MissionThroughLineView View;
         }
 
+        // T2.2: one FLATTENED row per physical vessel / EVA kerbal. Depth encodes separation
+        // lineage only (the booster under the ship it left), never time; the event chain renders
+        // inline after the name; the vessel's own structural intervals are an expandable flat
+        // detail (Advanced only - the detail exists to host the per-interval checkboxes Basic
+        // hides), each with its independent include checkbox. The per-vessel checkbox expands to
+        // the vessel's OWN explicit interval keys (never a child's), so the non-cascading
+        // ExcludedIntervalKeys contract is untouched. Returns the number of rows drawn.
+        private int DrawVesselRow(MissionVesselRow row, Mission mission, int depth, bool isLast,
+            bool isLaunchRow, MissionPeriodicityDisplay periodicity, RowDeriveContext ctx)
+        {
+            if (row == null || row.Intervals.Count == 0)
+                return 0;
+
+            bool loopAuthoring = ShowsLoopAuthoringControls(ParsekUI.AppliedUiComplexityMode);
+            MissionVesselInclusion inclusion =
+                MissionVesselRowBuilder.ClassifyInclusion(row, mission.ExcludedIntervalKeys);
+            bool greyed = inclusion == MissionVesselInclusion.None;
+            // A single-interval vessel has no detail to expand; Basic never expands (the detail
+            // is the authoring surface). Expandability never depends on the inclusion state, so
+            // a checkbox click cannot change the control count mid-frame.
+            bool expandable = loopAuthoring && row.Intervals.Count > 1;
+            string expandKey = CollapseKey(mission, row.OwnerHeadId);
+            bool expanded = expandable && expandedVessels.Contains(expandKey);
+
+            GUILayout.BeginHorizontal(GUILayout.MinHeight(CompositionRowMinHeight));
+
+            // Blank enable slot (see DrawCompositionRow): first column totals the recordings
+            // tab's [enable+index] width so vessel names line up with the recordings "Name".
+            GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_Enable));
+
+            // Per-vessel include checkbox (Advanced): writes the vessel's own EXPLICIT interval
+            // keys - include removes them all, exclude adds them all; a Partial vessel shows
+            // checked and one click excludes everything (the next click brings it all back).
+            if (loopAuthoring)
+            {
+                bool shownChecked = inclusion != MissionVesselInclusion.None;
+                bool toggled = GUILayout.Toggle(shownChecked,
+                    new GUIContent("", MissionPresentation.VesselIncludeCheckboxTooltip),
+                    GUILayout.Width(ColW_Index), GUILayout.ExpandHeight(true));
+                if (toggled != shownChecked)
+                {
+                    int changed = MissionVesselRowBuilder.ApplyVesselInclusion(
+                        row, toggled, mission.ExcludedIntervalKeys);
+                    // Same current-numbering stamp as the per-interval toggle (see
+                    // DrawCompositionRow): an interval edit is authored against CURRENT keys.
+                    mission.SelectionSchemaGeneration = Mission.CurrentSelectionSchemaGeneration;
+                    ParsekLog.Info("Mission",
+                        $"Mission '{mission.Name}' vessel '{row.VesselName}' " +
+                        $"(head={row.OwnerHeadId}) included={toggled} keysChanged={changed}");
+                }
+            }
+            else
+            {
+                GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_Index));
+            }
+
+            Color prevColor = GUI.color;
+            if (greyed)
+                GUI.color = DimColor;
+
+            float indent = RecordingsTableUI.SelfConnectorIndent(depth);
+            if (indent > 0f)
+                GUILayout.Space(indent);
+            string connector = depth > 0 ? RecordingsTableUI.TreeConnector(isLast) : "";
+            string caret = expandable ? (expanded ? CaretDown : CaretRight) : "";
+            string partial = inclusion == MissionVesselInclusion.Partial ? " (partial)" : "";
+            string phrase = row.EventPhrase ?? "";
+            string wide = connector + caret + row.VesselName + partial
+                + (phrase.Length > 0 ? "   " + phrase : "");
+            // The event chain can outrun the cell; the full chain rides the tooltip.
+            var wideContent = new GUIContent(wide, phrase.Length > 0 ? phrase : null);
+
+            if (expandable)
+            {
+                if (GUILayout.Button(wideContent, compositionCellLabel, GUILayout.ExpandWidth(true)))
+                {
+                    if (expanded) expandedVessels.Remove(expandKey);
+                    else expandedVessels.Add(expandKey);
+                }
+            }
+            else
+            {
+                GUILayout.Label(wideContent, compositionCellLabel, GUILayout.ExpandWidth(true));
+            }
+
+            // "Next launch" countdown on the mission's launch row only (mission-level value:
+            // never dimmed with an excluded vessel).
+            if (isLaunchRow)
+            {
+                Color prevTm = GUI.color;
+                GUI.color = prevColor;
+                DrawTMinusVesselCell(mission, periodicity);
+                GUI.color = prevTm;
+            }
+            else
+            {
+                GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_TMinus));
+            }
+
+            // The vessel's whole span + bounding events. The start-event cell reuses the T1.4
+            // dock-partner naming (relevant when a vessel's line BEGINS at a dock/board).
+            GUILayout.Label(KSPUtil.PrintDateCompact(row.StartUT, true), compositionCellLabel,
+                GUILayout.Width(ColW_StartTime));
+            DrawStartEventCell(row.Intervals[0], ctx);
+            GUILayout.Label(row.EndEvent ?? "", compositionCellLabel, GUILayout.Width(ColW_EndEvent));
+            GUILayout.Label(KSPUtil.PrintDateCompact(row.EndUT, true), compositionCellLabel,
+                GUILayout.Width(ColW_EndTime));
+
+            GUI.color = prevColor;
+
+            // Re-Fly cell: the vessel's head recording (the only interval key that IS a real
+            // recording id - same resolution the first interval row had in the staircase).
+            if (TryResolveCommittedRecording(row.OwnerHeadId, out int reFlyIdx, out Recording reFlyRec))
+            {
+                parentUI.GetRecordingsTableUI().DrawReFlyColumnCell(
+                    reFlyRec, reFlyIdx, Planetarium.GetUniversalTime());
+            }
+            else
+            {
+                GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_ReFly));
+            }
+
+            // Margin-0 trailing cell (see DrawCompositionRow's Archive-column note).
+            GUILayout.BeginHorizontal(GUILayout.Width(ColW_Archive));
+            GUILayout.FlexibleSpace();
+            GUILayout.EndHorizontal();
+            GUILayout.EndHorizontal();
+            int rows = 1;
+
+            // The expanded interval detail: this vessel's structural intervals as FLAT, equally
+            // indented sub-rows with their independent checkboxes and the four date columns.
+            // Interval j's composition-graph parent is interval j-1 (whose children carry the
+            // peel that ended it), so the T1.3 delta labels ride along.
+            if (expanded)
+            {
+                for (int j = 0; j < row.Intervals.Count; j++)
+                {
+                    MissionCompositionNode interval = row.Intervals[j];
+                    bool selfExcluded = mission.ExcludedIntervalKeys.Contains(interval.HeadLegId);
+                    DrawCompositionRow(interval, mission, depth + 1,
+                        j == row.Intervals.Count - 1 && row.Children.Count == 0,
+                        true, selfExcluded, selfExcluded, false, false, false, periodicity,
+                        ctx, j > 0 ? row.Intervals[j - 1] : null);
+                    rows++;
+                }
+            }
+
+            // Separation lineage: the pieces that left this vessel, one level deeper.
+            for (int c = 0; c < row.Children.Count; c++)
+            {
+                rows += DrawVesselRow(row.Children[c], mission, depth + 1,
+                    c == row.Children.Count - 1, false, periodicity, ctx);
+            }
+            return rows;
+        }
+
         // Renders one composition node (a structural interval, a peeled-off branch, or a roster
         // atom) and recurses into its children. Every selectable node (interval / branch) carries
         // an INDEPENDENT include checkbox bound to Mission.ExcludedIntervalKeys: unchecking it
         // start/end-trims just that segment, with NO cascade (excluding the launch interval keeps
         // the post-decouple survivor checked, which is the whole point). A roster atom carries no
-        // checkbox and greys with its owning interval. Returns the number of rows drawn.
+        // checkbox and greys with its owning interval. Since T2.2 the mission path renders
+        // through DrawVesselRow above; this recursion remains the renderer for the foreign
+        // partner-journey subtrees (DrawForeignJourneyNode) and the interval detail rows.
         private int DrawCompositionNode(MissionCompositionNode node,
             Mission mission, int depth, bool isLast, bool parentExcluded,
             bool isLaunchRow, MissionPeriodicityDisplay periodicity,

@@ -37,6 +37,15 @@ namespace Parsek
             "Include this segment in the mission's loop unit. Does not hide the ghost - " +
             "playback is controlled per recording (Recordings tab).";
 
+        /// <summary>
+        /// The T2.2 per-vessel include checkbox: expands to the vessel's own explicit interval
+        /// keys (loop-unit membership, no cascade onto separated children, no ghost hiding).
+        /// </summary>
+        internal const string VesselIncludeCheckboxTooltip =
+            "Include this vessel's segments in the mission's loop unit (writes each segment's " +
+            "own include key). Expand the row to pick individual segments. Does not hide the " +
+            "ghost - playback is controlled per recording (Recordings tab).";
+
         internal const string LoopToggleTooltip =
             "Loop this mission as one unit. At most one looping mission per recording tree - " +
             "enabling this clears the loop on any mission that shares its recordings.";
