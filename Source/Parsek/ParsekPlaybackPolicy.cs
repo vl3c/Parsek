@@ -57,6 +57,22 @@ namespace Parsek
         /// </summary>
         internal readonly Dictionary<int, HeldGhostInfo> heldGhosts = new Dictionary<int, HeldGhostInfo>();
 
+        /// <summary>Minimum real seconds between two seam-marker ScreenMessages (design 7.3 / Q5).
+        /// The engine's (marker, cycle) dedup is the semantic rule; this is the physical floor that
+        /// keeps a high-warp loop from stacking readable lines faster than they can be read. It
+        /// separates distinct seam MOMENTS only: markers raised in the same frame are joined into
+        /// one message first (<see cref="seamMessages"/>), so a seam that raises two markers at once
+        /// can never have its second line permanently throttled away.</summary>
+        internal const float SeamMessageMinRealSeconds = 3.0f;
+
+        /// <summary>Real time of the last posted seam message; 0 = none yet this session.</summary>
+        private float lastSeamMessageRealTime;
+
+        /// <summary>Joins seam markers raised in the SAME frame into one screen line. Flushed once
+        /// per frame from <see cref="RunSpawnDeathChecks"/> (which runs immediately before the engine
+        /// pass), so a buffered line is posted at most one frame late and never lost.</summary>
+        private readonly SeamMessageAccumulator seamMessages = new SeamMessageAccumulator();
+
         /// <summary>Maximum real-time seconds to hold a ghost before giving up and destroying it.</summary>
         internal const float HeldGhostTimeoutSeconds = 5.0f;
         internal const float HeldGhostRetryIntervalSeconds = 1.0f;
@@ -73,6 +89,7 @@ namespace Parsek
             engine.OnGhostDestroyed += HandleGhostDestroyed;
             engine.OnLoopRestarted += HandleLoopRestarted;
             engine.OnOverlapExpired += HandleOverlapExpired;
+            engine.OnSeamMarker += HandleSeamMarker;
             engine.OnAllGhostsDestroying += HandleAllGhostsDestroying;
 
             // Tell the engine how to check if a ghost is being held
@@ -124,6 +141,11 @@ namespace Parsek
         /// </summary>
         internal void RunSpawnDeathChecks()
         {
+            // Seam messages raised during the PREVIOUS engine pass are joined per frame and posted
+            // here, before this frame's pass adds more. Placed at the very top so every early return
+            // below still flushes (a re-fly / rewind frame must not strand a buffered line).
+            FlushSeamMessages();
+
             var scenario = ParsekScenario.Instance;
             if (!object.ReferenceEquals(null, scenario)
                 && scenario.ActiveReFlySessionMarker != null)
@@ -1377,6 +1399,109 @@ namespace Parsek
                 $"OverlapExpired index={evt.Index} cycle={evt.CycleIndex} explosion={evt.ExplosionFired}");
         }
 
+        /// <summary>
+        /// Renders one loop seam explanation (design-dock-event-graph.md 7.3, Q5): the moment a
+        /// looping mission's ghost grows because a partner mission's half joined it (R2), or ends
+        /// because its line docked into a mission this one does not replay (R3). One
+        /// <see cref="ScreenMessages"/> line per SEAM MOMENT - the engine already deduped to once
+        /// per (marker, loop cycle), and markers raised in the same frame are joined here into one
+        /// line rather than competing for the real-time floor.
+        ///
+        /// <para>The design also asks for a ghost-label badge for the window duration. Parsek's only
+        /// floating-label mechanism (<c>ParsekFlight.DrawGhostLabels</c>) draws over
+        /// <c>activeGhostChains</c> - the chain-ghost system - and unit members are playback-ENGINE
+        /// ghosts, which have no label surface at all. Building one would be new per-frame
+        /// per-ghost UI infrastructure, which is exactly what the design's performance budget
+        /// (section 14) and the visual-design principle rule out for a v1 label. v1 therefore ships
+        /// the ScreenMessages line plus this log line, and the badge stays a follow-up.</para>
+        /// </summary>
+        private void HandleSeamMarker(SeamMarkerEvent evt)
+        {
+            if (evt == null || string.IsNullOrEmpty(evt.Text))
+                return;
+
+            // BUFFER FIRST, throttle later. Several markers can belong to ONE seam instant (a
+            // two-parent merge with the docked stretch excluded raises an R3 per parent at the same
+            // UT) and they all arrive in this one engine pass. Posting them separately would run the
+            // second into the real-time floor and drop it EVERY cycle - permanently invisible rather
+            // than merely delayed. Joining them into one line first makes the floor mean what it
+            // says: it separates distinct seam MOMENTS, never lines of the same moment.
+            string vesselName = evt.Trajectory != null ? evt.Trajectory.VesselName : null;
+            string text = string.IsNullOrEmpty(vesselName)
+                ? evt.Text
+                : vesselName + ": " + evt.Text;
+            string due = seamMessages.Offer(CurrentUnityFrame(), text);
+
+            var ic = CultureInfo.InvariantCulture;
+            ParsekLog.VerboseRateLimited(
+                "SeamMarker",
+                // Bounded by member x cycle x kind (NOT frame count): the engine's dedup already
+                // caps this at one emission per marker per cycle, so the key only guards against a
+                // second marker for the same member in the same cycle spamming the same slot.
+                "emit-" + evt.Index.ToString(ic) + "-" + evt.UnitCycle.ToString(ic) + "-" + evt.Kind,
+                "emit kind=" + (evt.Kind == GhostPlaybackLogic.SeamMarkerKind.MergeAppear ? "R2" : "R3")
+                    + " memberIdx=" + evt.Index.ToString(ic)
+                    + " cycle=" + evt.UnitCycle.ToString(ic)
+                    + " seamUT=" + evt.SeamUT.ToString("R", ic)
+                    + " screen=buffered"
+                    + " text=\"" + evt.Text + "\"",
+                5.0);
+
+            if (due != null)
+                PostSeamMessage(due);
+        }
+
+        /// <summary>
+        /// Posts whatever seam text this frame accumulated, if any. Called once per frame from
+        /// <see cref="RunSpawnDeathChecks"/> - i.e. immediately BEFORE the next engine pass - so a
+        /// line buffered in the previous frame is posted at most one frame late and can never sit
+        /// unposted because no further marker arrived.
+        /// </summary>
+        internal void FlushSeamMessages()
+        {
+            string pending = seamMessages.Flush();
+            if (pending != null)
+                PostSeamMessage(pending);
+        }
+
+        // The real-time floor (design Q5's readability rule): distinct seam MOMENTS no closer than
+        // SeamMessageMinRealSeconds apart. At high warp a whole loop cycle can pass in milliseconds,
+        // so the per-cycle dedup alone would still stack lines faster than they can be read; a
+        // player at 100000x is not studying a seam. Every drop is logged.
+        private void PostSeamMessage(string text)
+        {
+            if (string.IsNullOrEmpty(text))
+                return;
+            float nowReal = CurrentRealTimeOverrideForTesting != null
+                ? CurrentRealTimeOverrideForTesting()
+                : CurrentUnityRealTime();
+            if (lastSeamMessageRealTime > 0f
+                && nowReal - lastSeamMessageRealTime < SeamMessageMinRealSeconds)
+            {
+                ParsekLog.VerboseRateLimited("SeamMarker", "screen-throttled",
+                    "screen=throttled (within " + SeamMessageMinRealSeconds.ToString(
+                        "F1", CultureInfo.InvariantCulture)
+                        + "s of the previous seam message) text=\"" + text + "\"",
+                    5.0);
+                return;
+            }
+            lastSeamMessageRealTime = nowReal;
+            try
+            {
+                ScreenMessages.PostScreenMessage("[Parsek] " + text, 6f, ScreenMessageStyle.UPPER_LEFT);
+            }
+            catch (Exception ex)
+            {
+                // A ScreenMessages failure must never take the per-frame playback dispatch with it.
+                ParsekLog.Warn("SeamMarker",
+                    $"PostScreenMessage threw: {ex.GetType().Name}: {ex.Message}");
+            }
+        }
+
+        // Unity frame counter, wrapped so the seam accumulator (pure) takes it as a parameter and
+        // a headless test of that class needs no Unity at all.
+        private static int CurrentUnityFrame() => Time.frameCount;
+
         private void HandleAllGhostsDestroying()
         {
             ParsekLog.Info("Policy", "AllGhostsDestroying — clearing policy state");
@@ -1399,10 +1524,11 @@ namespace Parsek
             engine.OnGhostDestroyed -= HandleGhostDestroyed;
             engine.OnLoopRestarted -= HandleLoopRestarted;
             engine.OnOverlapExpired -= HandleOverlapExpired;
+            engine.OnSeamMarker -= HandleSeamMarker;
             engine.OnAllGhostsDestroying -= HandleAllGhostsDestroying;
             heldGhosts.Clear();
             GhostMapPresence.ClearFlightMapPresenceState();
-            ParsekLog.Info("Policy", "ParsekPlaybackPolicy disposed and unsubscribed from 7 engine events");
+            ParsekLog.Info("Policy", "ParsekPlaybackPolicy disposed and unsubscribed from 8 engine events");
         }
 
         /// <summary>

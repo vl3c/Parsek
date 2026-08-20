@@ -648,6 +648,12 @@ PHASE_BUDGET_KEYS = {
     # B19 pre-transfer stage jettison (armed by jettisonActivations > 0; the
     # phase is absent from every lane that leaves it at the default 0).
     "JETTISON": "jettisonTimeoutSeconds",
+    # B26 parent-relay escape (armed by parentRelayTransfer; the phase is
+    # unreachable on every lane that leaves the flag off). It budgets PLANNING
+    # only -- the escape BURN is a TRANSFER-BURN and the coast out to the home
+    # SOI is COAST-TO-TARGET -- so a small number here is correct rather than a
+    # mis-mirrored one.
+    "ESCAPE": "escapeTimeoutSeconds",
     # B5 / B6 / B7 / B11 / B12 transfer lane.
     "PLAN-TRANSFER": "planTimeoutSeconds",
     "PLAN-CORRECTION": "planTimeoutSeconds",

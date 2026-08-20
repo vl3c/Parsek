@@ -56,5 +56,29 @@ namespace Parsek.Tests
             Assert.True(vesselStamp >= 0 && vesselStamp - vesselMutation < 800,
                 "per-vessel toggle does not stamp the selection generation in its block");
         }
+
+        [Fact]
+        public void ChapterToggle_StampsSelectionSchemaGeneration()
+        {
+            // Chapter grouping (design-dock-event-graph.md 7.2) adds a SECOND writer of
+            // Mission.ExcludedIntervalKeys: the group header's bulk include/exclude toggle. It is
+            // an interval-selection edit authored against CURRENT key numbering exactly like the
+            // per-interval checkbox above, so it carries the same obligation - a gen-0 mission
+            // that became editable mid-session must not have this fresh selection extended across
+            // its @dock sub-siblings by the next load's legacy reconcile. Same source-text idiom
+            // (the handler is IMGUI, not xUnit drivable).
+            string src = ReadMissionsWindowSource();
+
+            int mutation = src.IndexOf(
+                "mission.ExcludedIntervalKeys.Add(key)", StringComparison.Ordinal);
+            Assert.True(mutation >= 0, "chapter bulk-exclusion mutation site not found");
+
+            int stamp = src.IndexOf(
+                "mission.SelectionSchemaGeneration = Mission.CurrentSelectionSchemaGeneration;",
+                mutation, StringComparison.Ordinal);
+            Assert.True(stamp >= 0, "generation stamp missing after the chapter bulk mutation");
+            Assert.True(stamp - mutation < 800,
+                "generation stamp is not adjacent to the chapter mutation (same toggle block)");
+        }
     }
 }

@@ -127,7 +127,7 @@ Two limits of this table, stated so nobody over-reads it:
 | `MapView` | 4 | 3 | 3 | 4 | 0 | 2 | - | B |
 | `MergeDialog` | 2 | 0 | 0 | 0 | 2 | 2 | - | B |
 | `MissionPhasing` | 2 | 2 | 0 | 0 | 0 | 0 | - | B |
-| `Missions` | 12 | 7 | 5 | 0 | 0 | 9 | M1 | B |
+| `Missions` | 13 | 7 | 6 | 0 | 0 | 9 | M1 | B |
 | `Optimizer` | 2 | 0 | 2 | 0 | 0 | 2 | - | B |
 | `PartEventFX` | 6 | 6 | 0 | 0 | 0 | 6 | - | B |
 | `PartEventFidelity` | 5 | 5 | 0 | 0 | 0 | 5 | H37 | A |
@@ -194,14 +194,14 @@ Two limits of this table, stated so nobody over-reads it:
 
 ## Triage
 
-Totals, re-derived: **104 categories / 587 declarations**. Buckets **A 33 categories
-(227 declarations)**, **B 71 categories (360 declarations)**, **C 0 categories (0
+Totals, re-derived: **104 categories / 588 declarations**. Buckets **A 33 categories
+(227 declarations)**, **B 71 categories (361 declarations)**, **C 0 categories (0
 declarations)**. Driven by a committed spec: **43 of 104 categories**, up from 35
 across six waves - `ReFlyWorldPreservation` via S4.2, `RecordedSignals` via H33,
 `SnapshotBaseline` via H32, and `Logistics` via H34 all landed together in one merge
 (the S1.8 SoiCrossingPlayback wave had taken it to 35 from 34, and 28 and 8 the waves
 before), then `PlaybackFidelity` via H36 and `PartEventFidelity` via H37. Measured
-against declarations rather than categories, that is 403 of 587 inside a driven
+against declarations rather than categories, that is 404 of 588 inside a driven
 category (was 318 before these waves: 324 after S4.2, 327 after H33, 334 after H32,
 381 once `Logistics` counted, 388 with `PlaybackFidelity`, 393 with
 `PartEventFidelity`, and 401 once L3's capture matrix took `StrategyLifecycle` from 3
@@ -340,7 +340,7 @@ entry point that admits them. Only the unattended CALLERS were missing. R5 added
 bucket A and the other five are in bucket B, needing a spec and a launchable fixture
 rather than a C# redesign. C retains only C2, which R5 does not touch.
 
-The 22-declaration gap between 206 and 184 is entirely in the eight PRE-EXISTING
+The 22-declaration gap between 207 and 185 is entirely in the eight PRE-EXISTING
 driven categories - all 78 declarations these groups add execute. Decomposed, because
 the one-line summary "the SPACECENTER categories scene-skip" is wrong on all three
 counts (half the gap is at FLIGHT, one of the three SPACECENTER categories

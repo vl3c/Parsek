@@ -27,7 +27,8 @@ Nothing in this file or its spec asserts a routing outcome.
 
 REUSE, NOT REINVENTION - AND THIS TIME IT IS A COMPOSITION OF TWO PROVEN BLOCKS
 RATHER THAN A COPY OF ONE. This is a THIN ALIAS over `mlib.b5_decide`, exactly as
-b17 / b19 / b25 are. What is new is the PAIRING:
+b17 / b19 / b25 are. What is new is the PAIRING, plus the PARENT-RELAY mode that
+flight 1 turned out to require:
 
     startInOrbit = true            the ORBIT-START entry door (B23's, live-proven
                                    on B23/B24/B25 - but only ever on the MOON
@@ -35,17 +36,34 @@ b17 / b19 / b25 are. What is new is the PAIRING:
     interplanetaryTransfer = true  the INTERPLANETARY path (B7's, live-proven on
                                    eight lanes - but only ever from KERBIN with
                                    the SUN as the transfer frame)
+    parentRelayTransfer = true     THE MODE BUILT AFTER FLIGHT 1: an ESCAPE phase
+                                   whose node mlib computes itself, then MechJeb's
+                                   MOON Hohmann planned from the PARENT'S frame
     homeBodyName = "Laythe"        the SOI the transfer departs from
     targetBodyName = "Vall"        the moon it captures at
-    returnBodyName = "Jool"        the TRANSFER FRAME, one level down from "Sun"
+    returnBodyName = "Jool"        the TRANSFER FRAME, one level down from "Sun",
+                                   and the SOI whose arrival triggers stage 2
     viaBodyNames = ["Jool"]        the SOI the coast legitimately operates in
-    ejectionEccFloor = 1.001       burn-done evidence: a HYPERBOLIC Laythe-frame
-                                   eccentricity
+    ejectionEccFloor = 0           RETIRED on this lane by flight 2. A correct
+                                   patched-conic escape from Laythe is BOUND
+                                   (ecc 0.7586), so the stage-1 evidence is
+                                   `_relay_escape_burn_done` (apoapsis reaches
+                                   the SOI) and this key is not read.
+    transferMinApoapsisMeters      STAGE-2 burn-done evidence: the JOOL-frame
+      = 36,000,000                 apoapsis reaches Vall's orbit. NOT the inert 0
+                                   every other interplanetary lane carries -
+                                   there are two burns here and they make
+                                   different claims.
     captureEnabled = true          the B11/B12 orbit tail
 
-NOTHING IN MLIB WAS TOUCHED, and the audit that establishes it is in the spec
-header (THE JOOL-FRAME AUDIT). Two findings from it belong here as well, because
-this file is where a future re-point would happen:
+MLIB GAINED THE RELAY AND NOTHING ELSE, and the flag-off contract is PAD-ALIGN's
+and ORBIT-START's verbatim: with `parentRelayTransfer` absent the ESCAPE phase is
+unreachable, `relay_stage` never leaves 0, and every other lane's decisions and
+actions are byte-identical. The relay moves exactly three edges in `b5_decide`,
+enumerated in that function's own docstring. The audit that established the
+underlying composition is in the spec header (THE JOOL-FRAME AUDIT) and still
+holds. Two of its findings belong here as well, because this file is where a
+future re-point would happen:
 
   * **THE INTERPLANETARY PATH CARRIES NO SUN-FRAME ASSUMPTION.** The heliocentric
     ephemeris family is real Sun-hardcoding but is quarantined behind
@@ -74,14 +92,43 @@ this file is where a future re-point would happen:
     `KRPC.MechJeb.Maneuver.Operation.MakeNodes`. It is not the Jool PARENTAGE that
     breaks it but the MOON-PARKED ORIGIN: MechJeb idealises the origin to a circle
     at the park's mean radius and builds a sub-escape ejection whose apoapsis lands
-    2.443% short of the SOI, then asks for a crossing that does not exist. The lane
-    is BLOCKED-PENDING a harness transfer capability for moon-origin ejections -
-    see `docs/dev/todo-and-known-bugs.md -> MECHJEB-INTERPLANETARY-PLANNER-REJECTS-MOON-ORIGIN`
-    for the diagnosis and the two candidate paths forward (neither chosen), and the
-    spec's own FLIGHT LEDGER block for the full account. Everything this docstring
-    asserts about mlib and the composition was CONFIRMED by that flight: the
-    ORBIT-START door, the fixture, the preamble and target acquisition all behaved,
-    and nothing in this file was implicated.
+    2.443% short of the SOI, then asks for a crossing that does not exist. See
+    `docs/dev/todo-and-known-bugs.md -> MECHJEB-INTERPLANETARY-PLANNER-REJECTS-MOON-ORIGIN`
+    for the diagnosis, and the spec's own FLIGHT LEDGER for the full account.
+    Everything this docstring asserts about mlib and the composition was CONFIRMED
+    by that flight: the ORBIT-START door, the fixture, the preamble and target
+    acquisition all behaved, and nothing in this file was implicated.
+
+    **AND THE RELAY REMOVES THE QUESTION RATHER THAN ANSWERING IT.**
+    `OperationInterplanetaryTransfer` is no longer called on this lane at all.
+    Stage 1 is a node mlib computes and kRPC's own `add_node` places; stage 2 is
+    `OperationTransfer`, planned from Jool's frame between two bodies that both
+    orbit Jool - the shape B5/B6/B23/B24/B25 have flown a dozen times between
+    them. What replaces the old open question is a NEW one, and it is now the
+    likeliest way flight 2 fails: whether `OperationTransfer` plans a sane
+    targeted intercept from the ECCENTRIC, slightly-inclined Jool orbit an UNAIMED
+    escape delivers. The failure mode is identical in shape (a server-side throw,
+    a logged warn, `node_count` 0, a bounded PLAN-TRANSFER flake), which is why it
+    is an acceptable thing to fly at.
+
+WHAT THE ESCAPE DOES *NOT* DO, stated here because it is the limitation a reader
+will look for and it is deliberate: it does not AIM. The node is pure prograde at
+the park's next periapsis, so the outgoing direction is where the park's own
+orientation sends it, not at Vall. Aiming it would need the vessel's and Laythe's
+state VECTORS in Jool's frame plus an asymptote solve - a new multi-channel
+telemetry surface and an ephemeris solver, which was the explicit stop rule for
+v1. The cost is priced in the spec's delta-v section (stage 2 is bounded by
+2*|v_rel| = 900 m/s whatever direction comes out, and the margin covers it) and
+in its forbidden-token derivation (an unaimed escape's parent apoapsis reaches
+87.18 Mm, past Tylo's shell, so those tokens are a real guard now).
+
+WHAT THE ESCAPE *DOES* AIM AT, and flight 2 is the reason this sentence exists:
+the SOI-BOUNDARY relative speed, NOT a hyperbolic excess at infinity. KSP hands a
+departing vessel to the parent at the boundary, where the home well is not fully
+climbed, so the two differ by `2*mu/r_soi` - at Laythe, by a factor of 3.12. The
+first cut asked for the wrong one, flew a 774.70 m/s escape that delivered
+1,083.69 m/s into Jool's frame, and produced a 126.3 Mm-apoapsis orbit where the
+transfer wanted 43.2. See `mlib.escape_node_plan` and the spec's FLIGHT 2 ledger.
 
 A FIXTURE PRECONDITION THIS MISSION CANNOT ENFORCE, inherited verbatim from B23
 flight 1 and repeated on every orbit-start lane since: the save this mission is
@@ -96,22 +143,33 @@ identically either way and every assertion still passes, so nothing here or in
 `laythe-orbit-recorded` (the `--keep-parsek` B25 harvest it was derived from). See
 docs/dev/todo-and-known-bugs.md -> SEAM-STARTRECORDING-JOINS-COMMITTED-TREE.
 
-WHY THE INTERPLANETARY PATH AND NOT THE MOON PATH, since both endpoints are moons.
-The MOON path (`OperationTransfer`) plans a transfer from a PARKING ORBIT to a
-MOON OF THE BODY BEING ORBITED - Kerbin-park to Mun, Jool-park to Laythe. Here the
-craft is parked at LAYTHE and the target orbits JOOL, so the pair is
+WHY BOTH PATHS, ONE PER STAGE, since both endpoints are moons. The MOON path
+(`OperationTransfer`) plans a transfer from a PARKING ORBIT to a MOON OF THE BODY
+BEING ORBITED - Kerbin-park to Mun, Jool-park to Laythe. At the START of this
+mission the craft is parked at LAYTHE while the target orbits JOOL, so the pair is
 launch-body-and-sibling, which is structurally the Kerbin->Duna case one level
-down: escape the home SOI, coast in the parent frame, capture at the sibling.
-`OperationInterplanetaryTransfer` is the operation that models that, and the
-ejection-eccentricity evidence it brings with it is exactly what a hyperbolic
-Laythe escape needs.
+down: escape the home SOI, coast in the parent frame, capture at the sibling. The
+INTERPLANETARY path is the one that models that shape, and its
+ejection-eccentricity evidence is exactly what a hyperbolic Laythe escape needs -
+which is why `interplanetaryTransfer` stays on. What the relay changes is only
+WHO PLANS: MechJeb's interplanetary planner cannot build the ejection (measured),
+so mlib builds it. And once that ejection has run, the craft is in JOOL's park and
+Vall is a MOON OF THE BODY BEING ORBITED - so stage 2 is the moon path's own
+textbook case, not a workaround.
 
-WHAT THE MACHINE ASSERTS, unchanged from B25:
+WHAT THE MACHINE ASSERTS - B25's set, plus ONE row the relay adds:
 
     reachedOrbit           ORBIT reached -- here, the ENTRY gate passed
     startedInHomeOrbit     the mission began from a BOUND, in-gate park around
                            LAYTHE, so the recording it produces is rooted there.
                            Carried evidence, fails CLOSED on a missing stamp.
+    escapedHomeSoi         RELAY ONLY. The craft actually LEFT Laythe under its
+                           own computed node and reached JOOL's frame - evidenced
+                           by `relay_stage` advancing, which happens on exactly
+                           one frame (the coast frame that first read Jool) and
+                           cannot be satisfied by a node that was merely planned.
+                           Every other row on this list is satisfiable by a flight
+                           that never left home; this is the one that is not.
     reachedTargetSoi       the Vall SOI was actually entered
     flybyPeriapsisFloor    the whole in-SOI stay cleared the terrain floor
     capturedInTargetOrbit  the orbit read at PARK entry is BOUND and in-window

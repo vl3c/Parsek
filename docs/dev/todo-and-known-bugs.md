@@ -90,6 +90,110 @@ whose candidate-row composition also stopped joining with `\n`). Runtime-assembl
 tooltips (recording names, hold reasons, in-game test descriptions) stay outside the
 gate by construction.
 
+## ~~SAME-TREE-DOCK-INVISIBLE-FROM-ABSORBED-SIDE: a cross-session dock inside one tree named nobody and was derivable from neither side~~ [FOUND by the 2026-08-12 dock/loop-coherence analysis (I2-ii); FIXED 2026-08-12/13, branches `same-tree-dock-claims` + `dock-event-graph` (design `docs/dev/design-dock-event-graph.md` 6.2 / 6.3-6.5, PR sequence steps 2-3)]
+
+A same-tree cross-session dock records single-parent (the partner's committed
+leaf fails `IsBackgroundMapEligible`), and `MissionCrossTreeDock.FindLinks`
+deliberately skips own-tree claims, so the A->D shape was structurally
+invisible from the absorbed side. Closed in two steps:
+`FindSameTreeDockClaims` (guid-gated recovery with parent / merged-child /
+pre-dock-start guards) and the `DockEventGraph` (pure, parameter-injected,
+signature-cached via `DockEventGraphCache`; no ERS allowlist entry - the core
+never reads the store) whose `TryDescribePartner` names dock partners in BOTH
+tabs, controller side included. Same-tree recovered links mint no selection
+affordance by design (Q8). Remaining consumers (event digest, chapters, seam
+markers) are PR sequence steps 4-6; the event digest (step 4) shipped on branch
+`mission-event-digest` and chapter grouping (step 5) on branch
+`mission-chapters` (`MissionChapters.cs`: switch-continuation +
+foreign-dock-departure roots, expansion to explicit `ExcludedIntervalKeys`, the
+tri-state header toggle, and the Q6 reconcile observation). Loop seam markers +
+the R5 gap statement (step 6) shipped on branch `loop-seam-markers`
+(`LoopSeamMarkerBuilder.cs` computes R2/R3 at loop-unit build from the graph plus
+the FINAL member windows; `LoopUnit.SeamMarkers` defaults null so every non-flight
+build site is byte-identical; `GhostPlaybackEngine.TryEmitSeamMarker` runs one
+sorted-cursor comparison per member per frame ABOVE the hide/destroy block, so R3
+still fires for a hidden-not-destroyed watched member; the cursor / dedup /
+same-frame-joining rules live in the pure `LoopSeamMarkerRuntime.cs` so they are
+testable without a live host, and reset both on a loop-cycle change AND on a
+marker-list swap - a signature-gated rebuild replaces the list with no cycle
+change, and carrying the old cursor across it silently loses markers, worse still
+after a commit moves the committed-index space; `ParsekPlaybackPolicy` joins the
+markers raised in one frame into ONE ScreenMessage). The double-clock
+verification + the R6 advisory (step 7) shipped on branch
+`double-clock-advisory`. That closes PR sequence steps 1-7.
+
+**I6-DOUBLE-CLOCK verified, Q9 decided: the advisory ships.** The analysis scored
+I6 ("one physical assembly is never concurrently rendered at two different replay
+times by two independent clocks") Violated-but-UNVERIFIED, and design 7.7 gated
+the advisory on confirming it. Verified AUTOMATED (owner's instruction, replacing
+the section-7.8 manual playtest) in `DoubleClockVerificationTests`: both units
+built by the REAL `MissionLoopUnitBuilder` over the AB/CD fixture, then a 1 s
+sweep of the wall clock across two cadences of the longer unit calling the REAL
+`DecideUnitMemberRender` for the merged `AB` member and the partner's own `B0`
+member. Result: 302 of 801 swept UTs render BOTH concurrently (37.7%), every one
+of them with the two span clocks diverged (min 137 s, max 237 s on this fixture;
+the geometric bound for any pair of enable UTs is 50-300 s). Control with the
+second loop off: 0 collisions, `AB` still rendering. `ClearLoopsConflictingWith`
+reports `clearedSameTree=0 clearedCrossTree=0` with the link off, so the pinned
+concurrent-loop behavior provably does not couple the two. Note:
+`docs/dev/research/double-clock-verification-2026-08-13.md`. Shipped:
+`MissionStore.TryDescribeDoubleClockAdvisory` (transitive BFS over
+`DockConnectedTreePairs`; null graph -> null) + one ScreenMessage from the
+Missions-tab loop toggle on ENABLE only (after the enable, so it reads the
+post-clear state) + the `double-clock advisory:` Info audit line. NO hard
+enforcement, by design: widening `ClearLoopsConflictingWith` to graph-connected
+trees would switch off a loop the player just asked for and regress pinned
+behavior #4 for every harmless case. **The open half:** only the STRUCTURAL double
+render is pinned. The VISUAL severity (two ghosts of one vessel on screen
+together, possibly kilometres apart) follows from it but is not measured, and is
+collected opportunistically in ordinary play like the other M-MIS-8 per-scene
+visuals; the advisory's wording ("ghosts may appear twice") is deliberately sized
+to that evidence. The link-include toggle deliberately posts nothing (it calls
+`ClearLoopsConflictingWith`, so the two-loop state cannot survive that path -
+verified by a source-text gate, not assumed).
+
+**Five v1 limits carried by the seam-marker step, all deliberate.** (1) **No
+ghost-label badge** (design Q5 asked for one alongside the ScreenMessages line):
+Parsek's only floating-label surface, `ParsekFlight.DrawGhostLabels`, draws over
+`activeGhostChains` - the chain-ghost system - while unit members are
+playback-ENGINE ghosts with no label surface at all, so a badge means new
+per-frame per-ghost UI infrastructure, which is what design 14 and the
+visual-design principle rule out for a v1 label. Shipped as ScreenMessages + a
+`[SeamMarker] emit` log line; the badge is a follow-up if the message alone reads
+thin in play. (2) **Self-overlap emits nothing** (edge case 20, as designed): the
+overlap branch returns before the marker check. (3) **Marker freshness rides the
+loop-unit signature, not the graph signature** - `MissionLoopUnitBuilder.Build`
+only re-runs when `BuildSignature` moves, so a graph rebuild that changes ONLY a
+partner's name (e.g. a mission rename in another tree) can leave a marker string
+stale until the next unit rebuild. It degrades to an out-of-date name on an
+explanatory line, never to a wrong seam. (4) **Two seams within
+`SeamMessageMinRealSeconds` (3 s) of real time still throttle the second away.**
+Same-frame markers are joined into one line first, so the throttle can no longer
+eat half of ONE seam moment; what it still drops is a genuinely DIFFERENT seam
+arriving within three real seconds - two looping missions crossing docks at once,
+or a high-warp cycle. The drop is logged (`screen=throttled`) rather than silent.
+A queue that replayed them in order would be the fuller fix and is deliberately
+not built for v1. (5) **A marker whose whole 10 s window one frame steps over
+never fires** - unavoidable at >= 1000x warp with a containment test, and a line
+nobody could read is worse than none; the pass is logged
+(`[SeamMarker] skipped-at-warp`), so it is never confused with a marker that was
+never computed.
+
+**Two v1 approximations carried by the chapter step, deliberately, both
+documented at their code sites.** (1) A `SwitchContinuation` chapter takes only
+the intervals that BEGIN at or after the switch: the recorder folds the switch
+segment into the same physical vessel's through-line as the pre-switch legs
+(`ChildRecordingIds[0]` -> `ContinuationSuccessor`), so the interval STRADDLING
+the switch shares one key with the mission's earlier flight and no selection can
+separate them - taking it would make "exclude this chapter" silently drop the
+launch. (2) The Q6 reconcile warning (`chapter '<title>' has new included
+topology`) raises on any chapter that is partially excluded, because the precise
+statement ("the excluded set still holds everything the chapter held WHEN it was
+excluded") needs a persisted per-chapter snapshot and this design adds no
+persistence. It therefore never misses the case it exists for and over-reports a
+deliberate single-interval trim inside a chapter; it is a Warn on a reporting
+path that writes nothing.
+
 ## ~~ORACLE-REP-CURVE-PORT-DIVERGED: the harness ledger oracle's Python reputation curve kept the PRE-fix residual step after the C# side fixed it, so the two ports silently disagreed for every integer-or-larger nominal~~ [FOUND and FIXED 2026-08-20 on `oracle-rep-curve-port`, the same day the divergence opened. NO COMMITTED GATE WAS AFFECTED - see "Blast radius". CLOSED]
 
 **The divergence.** Commit `817773dcb` (2026-08-20,
@@ -277,7 +381,7 @@ scope (the derivation is pinned by synthetic in-game cells); file when docking
 coverage next expands. Also missing per BDOCK-1's own header note: an
 orbital-rendezvous-dock D10 value and a same-craft-twice identity D18 value.
 
-## MECHJEB-INTERPLANETARY-PLANNER-REJECTS-MOON-ORIGIN: MechJeb 2.15.1's `OperationInterplanetaryTransfer.MakeNodes` throws on a MOON-PARKED origin, so the harness cannot currently fly any moon-to-moon transfer [MEASURED 2026-08-19 by `B26-laythe-vall-transfer` flight 1, DETERMINISTIC 2/2 attempts. HARNESS SURFACE, REPORT-ONLY - not a Parsek defect and not a spec defect; it blocks the M-MIS-7 subject's PRODUCTION, not the product question]
+## ~~MECHJEB-INTERPLANETARY-PLANNER-REJECTS-MOON-ORIGIN: MechJeb 2.15.1's `OperationInterplanetaryTransfer.MakeNodes` throws on a MOON-PARKED origin, so the harness could not fly any moon-to-moon transfer~~ [MEASURED 2026-08-19 by `B26-laythe-vall-transfer` flight 1, DETERMINISTIC 2/2 attempts. HARNESS SURFACE, REPORT-ONLY - never a Parsek defect and never a spec defect; it blocked the M-MIS-7 subject's PRODUCTION, not the product question. **ROUTED AROUND AND CLOSED 2026-08-20**: candidate (a)-minimal shipped as mlib's flag-gated PARENT-RELAY mode; flight 2 proved its core and measured two defects in it; **flight 3, run `2026-08-20_1752`, PASS attempt 1, COMPLETED THE HOP** - the full chain through ORBIT-COMMITTED, a Vall park at ecc 0.0035, and the M-MIS-7 subject harvested as `fixtures/saves/vall-transfer-recorded`. THE MECHJEB LIMITATION ITSELF IS UNCHANGED AND UNFIXED - it is ROUTED AROUND, not repaired, and the mode section below is the resolution a future moon-origin lane must reuse]
 
 **THIS IS A HARNESS-CAPABILITY GAP, NOT A PRODUCT FINDING.** Nothing in Parsek ran,
 nothing in Parsek is implicated, and the spec that hit it is correct. Read the
@@ -351,19 +455,220 @@ was honoured.
   operation, then Lambert / course-correct to Vall from Jool orbit.
 
 **(a) is the house-style fit** - pure decision in mlib, thin execution in the
-runner, reusing a proven correction loop instead of adding a mechanism. It is
+runner, reusing a proven correction loop instead of adding a mechanism. It was
 DEFERRED AS ITS OWN PROGRAM, not smuggled into a lane.
 
-WHAT THIS BLOCKS AND WHAT IT DOES NOT. Blocked: the harness's ability to PRODUCE
-the M-MIS-7 subject recording, and with it `B26` (which stays committed,
+WHAT THIS BLOCKED AND WHAT IT DID NOT. Blocked: the harness's ability to PRODUCE
+the M-MIS-7 subject recording, and with it `B26` (which stayed committed,
 flyable-but-blocked, dry-run valid) and the `V17M` / `V17T` reading pair (which
-stay in `PENDING_FIXTURE_LANES` awaiting `vall-transfer-recorded`). NOT blocked
+took the `PENDING_FIXTURE_LANES` exemption while `vall-transfer-recorded` did not
+exist - RETIRED 2026-08-20 when flight 3 produced the fixture, and that map is
+empty again). NOT blocked
 and NOT answered: the PRODUCT question - whether `ApplyReaim` engages on a
 cross-parent moon-to-moon recording, which
 `docs/dev/research/same-parent-reaim-jool-system.md` section 5.1 argues already
-works unmodified. This flight said nothing about it. It remains pre-registered in
+works unmodified. That flight said nothing about it. It remains pre-registered in
 V17M/V17T, which carry both hypotheses with the discriminating log lines and gate
 on neither.
+
+### WHAT WAS BUILT (2026-08-20, branch `moon-to-moon-lane`)
+
+> **READ THE FLIGHT-2 LEDGER BELOW BEFORE REUSING ANYTHING IN THIS SECTION - the
+> sizing contract it describes is the REFUTED v1 one.** This section is kept as
+> written because the entry header points future moon-origin work at it, but two of
+> its statements were corrected by flight 2 and are false as they stand: (1) the
+> escape dv formula is NOT `sqrt(v_inf^2 + 2*mu/r) - ...`, which asks for a
+> hyperbolic excess AT INFINITY and delivers 3.12x it across the boundary - the
+> committed contract is `escapeSoiSpeedMps` with
+> `dv = sqrt(v_soi^2 + 2*mu*(1/r_pe - 1/r_soi)) - v_pe`, sizing the speed KSP's
+> patched conic actually hands to the parent AT THE SOI BOUNDARY; and (2)
+> `ejectionEccFloor` does NOT judge stage 1 on a relay lane - it is RETIRED to 0
+> there, because a correctly-sized patched-conic escape is BOUND, and the evidence
+> is `_relay_escape_burn_done`'s SOI-REACH disjunct instead. Every number below
+> derived from the old formula (774.7 m/s, 71.28 Mm, the 640.0 m/s margin) moved
+> with it; the flight-2 and flight-3 ledgers carry the corrected ones.
+
+**Candidate (a), in its MINIMAL form, with one deliberate simplification against
+the sketch above: the Vall encounter does NOT come out of the correction rounds.**
+It comes out of MechJeb's own MOON-path `OperationTransfer`, planned from JOOL's
+frame once the escape has put the craft there - the operation eight lanes have
+flown, legal there by construction because vessel and target orbit the same body.
+So the correction rounds go back to being what they are everywhere else, a
+refinement of an existing encounter rather than the thing that creates one. That
+is a strictly smaller change than "mlib creates the encounter", and it is the
+reason the mode needed no new burn machinery at all.
+
+TWO STAGES, ONE FLAG (`parentRelayTransfer`), THREE MOVED EDGES in `b5_decide`:
+
+- **STAGE 1 - a new flag-gated `ESCAPE` phase between ORBIT and TRANSFER-BURN.**
+  `mlib.escape_node_plan` computes ONE prograde node at the park's next
+  PERIAPSIS: `dv = sqrt(v_inf^2 + 2*mu/r) - sqrt(mu*(2/r - 1/a))`, vis-viva exact
+  at the radius it is applied at. The runner adds it through kRPC's OWN
+  `Control.add_node(ut, prograde=dv)` - **core kRPC, no MechJeb planner, which is
+  precisely why the refusal above cannot recur** - and the SAME autowarping
+  NodeExecutor, the SAME burn-stagnation watchdog and the SAME hyperbolic
+  `ejectionEccFloor` fly and judge it. The coast out to the home SOI is the
+  existing COAST-TO-TARGET warp-to-the-boundary leg. `ESCAPE` budgets PLANNING
+  only, and its expiry is a give-up NAMING the refused reading.
+- **STAGE 2 is not a phase.** On the first coast frame whose SOI body is the
+  parent, the machine re-enters PLAN-TRANSFER at `relay_stage 1`, where the plan
+  action is `OperationTransfer` and TRANSFER-BURN's evidence is the parent-frame
+  `transferMinApoapsisMeters`. The check sits BEFORE the correction block on
+  purpose: a post-escape parent-SOI frame satisfies every condition of the
+  no-encounter early trigger, so the ordering is what stops a round being spent
+  course-correcting a transfer nobody has planned yet.
+- **Everything after that is the untouched machine** - corrections, approach
+  clamp, TARGET-FLYBY, the whole capture tail.
+
+INERT WITH THE FLAG OFF, the PAD-ALIGN / ORBIT-START contract verbatim: `ESCAPE`
+is unreachable, `relay_stage` never leaves 0, the plan action and the burn-done
+evidence are the ones every flown lane uses, and no assertion row is added.
+Pinned by `ParentRelayInertnessTests`.
+
+**THE v1 LIMITATION, NAMED: the escape is NOT AIMED.** A prograde burn at whatever
+periapsis comes next sends the asymptote where the park's own orientation sends
+it. Aiming it needs the vessel's and the home moon's state VECTORS in the parent
+frame plus an asymptote solve - a new multi-channel telemetry surface and an
+ephemeris solver, which was the explicit stop rule for v1. The cost is priced in
+B26's delta-v section (stage 2 is bounded by `2*v_inf` = 694.5 m/s whatever
+direction comes out; the margin is 640.0 m/s and covers it), and it has ONE
+non-dv consequence worth carrying here: an unaimed escape's parent-frame apoapsis
+reaches **71.28 Mm**, ABOVE Tylo's 68.50 Mm shell, so B26's Tylo/Bop/Pol
+forbidden tokens stopped being a restatement of geometry and became a real guard.
+
+### FLIGHT 2 (2026-08-20, runs `2026-08-20_1646` / `_1701_a2`): THE MODE FLEW, AND MOST OF IT WORKED
+
+Both attempts `INVALID(autopilot-flake)`, mission wall 856 s / 864 s. State the
+working half first, because the normal failure of a new mode's first flight is
+the mode, and this was not that.
+
+**WHAT WORKED, every item a thing nobody had seen work before.** `phasesReached
+['PRELAUNCH','ORBIT','ESCAPE','TRANSFER-BURN','COAST-TO-TARGET','PLAN-TRANSFER',
+'TRANSFER-BURN','COAST-TO-TARGET']` - the whole two-stage flow. `assert
+escapedHomeSoi value=1 met=True`. The node was computed, added and read back
+EXACTLY ONCE (`escape node added ut=28818204.529 prograde=774.70 m/s (read back
+ut=28818204.529 prograde=774.705); nodes=1`), with no `escape node add SKIPPED`,
+so the additive-`add_node` race the runner guards never fired. It was placed AT
+the periapsis (ttPe 1,175.552 on the planning frame; ignition at alt 56,431
+against a 56,240 periapsis). The executor flew it to within 1%: LF 534.869 ->
+351.228 = 0.918 t = **767.4 m/s measured against 774.705 planned**, ending at
+Laythe-frame ecc **1.035** against the predicted 1.03418. And MechJeb's MOON-path
+`OperationTransfer` ACCEPTED the Jool-parented pair and produced a Vall encounter
+- which retires the top pre-registered risk.
+
+**DEFECT A - THE ESCAPE CONTRACT WAS WRONG, NOT THE ESCAPE.** Everything above
+says the node was exactly what it was asked for; what was wrong is what it was
+asked for. **KSP IS A PATCHED-CONIC GAME AND HANDS A DEPARTING VESSEL TO THE
+PARENT AT THE SOI BOUNDARY, NOT AT INFINITY.** Sizing for a hyperbolic excess of
+347.245 m/s therefore delivered `sqrt(v_inf^2 + 2*mu_Laythe/r_soi)` =
+**1,083.69 m/s** of Jool-relative speed - **3.12x** - because 3.72 Mm out
+Laythe's well is still deep, and the energy error goes as the square. MEASURED at
+the stage-2 PLAN-TRANSFER frame: a Jool orbit of pe 19.70 / ap 126.33 Mm
+altitude, i.e. **a = 79.0 Mm, ecc 0.675**, where the transfer wanted 35.2.
+
+  Swept over every departure direction and exit point, the flown contract admits
+  orbits from **a = 14.5 to 8,683 Mm**, a minimum periapsis of **5.51 Mm - BELOW
+  Jool's 6.20 Mm atmosphere top** - and samples that **leave Jool's SOI
+  entirely**. The flown draw was a middling one. The fix removes two lane-ending
+  outcomes, not just some dv.
+
+  **THE FIX IS ONE TERM AND A RENAME.** `escapeSoiSpeedMps` (450 on B26), sized
+  `sqrt(v_soi^2 + 2*mu*(1/r_pe - 1/r_soi))` = **586.69 m/s**, i.e. 188 m/s
+  CHEAPER as well as correct; the delivered band becomes a = 17.2 - 59.0 Mm with
+  no Jool escapes and a 11.01 Mm minimum periapsis. The retired
+  `escapeTargetVInfMps` is REJECTED BY NAME at spec load rather than ignored,
+  because the two differ by 3.12x in what they deliver and a silently-ignored key
+  would fly the wrong burn from a file that reads as if it asked for the right
+  one. Two corrections followed from it: **`ejectionEccFloor` is retired on relay
+  lanes** (a correct patched-conic escape from Laythe is BOUND, ecc 0.7586 -
+  reaching a SOI needs an apoapsis past it, not an escape; demanding hyperbolic
+  would force the 752.10 m/s parabolic burn), replaced by
+  `_relay_escape_burn_done`; and **B26's entry-gate apoapsis ceiling tightened
+  500,000 -> 300,000 m**, because above that a park the gate calls legal has a
+  geometric floor (up to 472.33 m/s) ABOVE the requested 450 and the planner would
+  refuse a fixture the gate had just admitted.
+
+**DEFECT B - COAST-WARP-THRASH IS AN AMBIGUOUS CLOCK.** Verdict: `phase
+COAST-TO-TARGET: coast-warp-thrash (501 native warp_to_ut issues in THIS phase,
+cap 500 ... ut=29041600.577 target=29062180.256 tts=55579.679 ttPe=43021.364
+warp=NONEx1.000)`. **The cap worked exactly as designed** - bounded and named -
+and is not what needed changing.
+
+  The stage-2 Jool ellipse (pe 19.70 Mm) re-crosses **LAYTHE'S OWN 27.184 Mm
+  orbit**, so the patched-conic solver alternated between a Vall encounter and a
+  Laythe one and `time_to_soi` stepped between **145,030.028 s** and
+  **123,077.921 s**. The time-mode trigger branch derives its native warp target
+  as `ut + (tts - 35,000)`, which reproduces the flake line's target exactly
+  (29,041,600.577 + 55,579.679 - 35,000 = 29,062,180.256). A ~22 ks step clears
+  `WARP_RETARGET_THRESHOLD_SECONDS` in BOTH directions, so every flip cancelled a
+  running warp and re-armed it - the log carries the pairs verbatim (`gate
+  warpToCmd 29062180.256->29043726.703`, `native warp cancelled (factors
+  zeroed)`, `native warp_to dispatched target ut=29043726.703`). Each cancel
+  zeroes the factors, which is the 1x<->3x flutter the operator watched live.
+
+  **THE FIX IS AN IDENTITY CHECK, NOT A WIDER THRESHOLD**:
+  `soi_clock_describes_target` / `coast_foreign_soi_clock_hold`. A `time_to_soi`
+  whose `next_body` POSITIVELY names a non-target body is not a refinement of the
+  armed target - it is about a different encounter - so the coast HOLDS instead
+  of cancelling, and the same conjunct stops a Laythe reading firing a Vall
+  correction round. It fails OPEN on an unread `next_body`, which is why it is
+  applied generally rather than behind the relay flag: on every flown lane a
+  finite `time_to_soi` means an encounter exists, so `next_body` is populated,
+  and on a single-candidate coast it IS the target. The warp-target branch is
+  additionally confined to the correction body domain so B15/B16's Kerbin-exit
+  leg - which legitimately transits the Mun while targeting Eve - keeps the
+  native warp-to-boundary flight 7 gave it.
+
+### FLIGHT 3 (2026-08-20, run `2026-08-20_1752`): THE HOP COMPLETED - THIS ENTRY CLOSES
+
+PASS attempt 1, MISSION-OK, mission wall 1,408 s. The full twenty-phase chain
+`PRELAUNCH -> ORBIT -> ESCAPE -> TRANSFER-BURN -> COAST -> PLAN-TRANSFER ->
+TRANSFER-BURN -> COAST -> two correction rounds -> TARGET-FLYBY -> PLAN-CAPTURE
+-> CAPTURE-BURN -> PARK -> ORBIT-COMMIT -> ORBIT-COMMITTED`, all eight assertions
+met, a Vall park of 167,158 x 170,417 m at **ecc 0.0035**, and the tree committed
+at Vall.
+
+**BOTH FLIGHT-2 FIXES PROVEN LIVE, against the targets pre-registered before the
+flight:**
+
+| target | predicted | measured |
+|---|---|---|
+| delivered Jool orbit | inside a = 17.2 - 59.0 Mm | **a = 26.06 Mm, ecc 0.013** (flight 2: 79.0 Mm, outside) |
+| stage-2 coast warp | no thrash | **`phaseWarpIssues` peak 1** for the whole mission (flight 2: 501 in one phase) |
+| escape node | 586.69 m/s | **586.6922 m/s**, leaving a POSITIVE 4,055,749 m apoapsis radius vs the predicted 4,053,149 |
+| stage-2 node | 102.8 / 600.0 / 900.0 band | **415.46 m/s** |
+
+The escape's positive, BOUND post-burn apoapsis is the sharpest confirmation of
+defect A's second-order correction: `_relay_escape_burn_done` fired on its
+SOI-reach disjunct, and an `ejectionEccFloor` above 1 would indeed never have
+tripped on a correctly-sized patched-conic escape.
+
+Rest of the flight, for the record: corrections 63.72 and 11.66 m/s (neither
+discarded at the 100 m/s cap); delivered arrival periapsis **168,783 m** against
+the 250,000 m request, **k = 0.675** at req/SOI 10.39% - the fifth finding-16d
+corpus point and the first at an airless small-mu body; capture 315.07 m/s; total
+spent by propellant mass **1,368.1 m/s** against a 1,530.8 nominal hop, leaving
+1,116.6 m/s.
+
+**THE PRODUCT:** `fixtures/saves/vall-transfer-recorded` - one tree
+`9aa3c87c95a147388e6220bd36796fd9`, one recording
+`625d63e022c449d6a44b5269c8b54a21` (746 points, 13 ORBIT_SEGMENTs, TWO
+body-change seams), zero durable rows, terminal Orbiting at Vall. The optimizer
+kept BOTH boundaries cohesive, so the count came back at 1 - the first data
+anyone has on an ESCAPE boundary.
+
+**WHAT THIS ENTRY DOES AND DOES NOT CLOSE.** CLOSED: the harness can now fly a
+moon-to-moon transfer, and the M-MIS-7 subject exists. NOT closed and never
+touched by any of it: the PRODUCT question - whether `ApplyReaim` engages on a
+cross-parent moon-to-moon recording. That is measured by `V17M`/`V17T`, which
+were re-pinned off these bytes and then FLEW, ARMED and COMPLETED THE THREE-RUN
+DISCIPLINE on 2026-08-20 (V17M `_1915`/`_1934`, V17T `_1933`/`_1939_a2`, one
+shared negative control `_1941`) - see the M-MIS-7 entry and the two V17 spec
+headers for what they measured; both still carry the two hypotheses and gate on
+neither. AND NOT FIXED: MechJeb's own limitation. Nothing
+in MechJeb changed - a moon-parked origin still cannot be planned by
+`OperationInterplanetaryTransfer`, and the PARENT-RELAY mode is the route around
+it that any future moon-origin lane must reuse.
 
 ## MAPRENDER-SEAM-LENS-EVALUATES-UNSHIFTED-EPOCH-ON-CREATION-FRAME: the seam-endpoint lens reads the RECORDED seam UT instead of the replayed one on a ghost proto's creation frame, and raises `seam-endpoint-outside-soi` against an endpoint 157x the SOI away [MEASURED 2026-08-19 by `V16T-laythe-ts-arrival`'s reading run and **RECURRED on its ARMED run `2026-08-19_2212` (PASS attempt 1)**, which makes it DETERMINISTIC for the single-jump shape rather than a one-off. REPORT-ONLY - the harness classified the reason UNLISTED and did not gate on it, and `V16M-laythe-player-loop`'s stepped-epoch censuses prove the underlying recurrence is FINE. Same family as MAPRENDER-ICON-OFF-ORBIT-CREATION-FRAME-AFTER-JUMP; NO product change is proposed]
 
@@ -1740,6 +2045,36 @@ creation frame the seam-endpoint lens evaluated the recording's **un-shifted** e
 `seam-endpoint-outside-soi`. Two different lenses, one frame class, the same
 "the loop shift has not bound yet" reading - which is what turns a rendering
 curiosity into a NAMED family with a candidate mechanism.
+
+**A THIRD LENS AND A NEW TRIGGER SHAPE, measured 2026-08-20 by
+`V17M-laythe-vall-player-loop`'s runs 2-3 (`2026-08-20_1859` / `_1908`,
+deterministic across both), on the suite's first SELF-OVERLAPPING loop subject**
+(the moon-to-moon `vall-transfer-recorded` tree: 20 concurrent instances,
+overlapCadence = span/20 = 3,991.03 s). Baseline first: for this nested-SOI
+recording (2 crossings) the ProtoOrbitLine producer fail-closes to a verbatim
+render in the ROOT frame (`fail-closed-to-faithful ... root=Jool
+bodies=Laythe/Jool/Vall`), so a seeded proto's steady-state census body is JOOL
+regardless of which leg its instance is replaying. Against that baseline: at the
+-180 arrival brackets the census read 17x root-frame `body=Jool` (+ 1x
+creation-frame `body=Laythe`), but at BOTH park epochs (28,980,417 / 29,060,238)
+ALL 19 live protos printed creation-frame `body=Laythe` and HELD it through a
+40-tick census dwell. The discriminating fact between the two epoch classes: the
+park jump CROSSES a self-overlap re-arm (instance-20 relaunch at 28,976,670.9;
+instance-40 at 29,056,491.4) and the bracket jumps do not. So the trigger here is
+not the single-large-jump shape - it is a jump crossing a loop re-arm, after
+which every overlap instance's proto reverts from the root frame to the creation
+frame, dwell-stable, on a THIRD lens (the orbit-line body itself, not the icon
+offset or the seam-endpoint epoch). Self-correcting by the next distant epoch
+(the cycle-2 -180 bracket read root-frame Jool again). REPORT-ONLY, same as the
+rest of the family; NO product change is proposed.
+
+**AND ONE NON-RECURRENCE ON THE SAME SUBJECT** (`V17T-laythe-vall-ts-arrival`
+run 1, `2026-08-20_1917`): the original `icon-off-orbit` raise did NOT fire -
+the first silent single-jump run after six raising ones at three parents,
+despite a step shape IDENTICAL to V14T/V15T/V16T. The subject differs in two
+ways at once (first self-overlapping loop; first nested-SOI recording whose
+ProtoOrbitLine fail-closes to a root-frame verbatim render), so WHICH one breaks
+the trigger is an open reading - no mechanism claimed.
 
 ---
 
@@ -3831,7 +4166,7 @@ section-authoritative recordings in the log. Diagnostic only, no control flow â€
 misleading WARN on exactly the recordings the prune fix now protects was worth closing in
 the same pass. That triple appearing in a fourth place is the smell to watch for.
 
-## KERBAL-XP-UNTAGGED-RECOVERY-HAS-NO-LEDGER-ROW: a tracking-station or KSC recovery records the XP event but no ledger action [OPEN, filed 2026-08-11 with the P9a facet]
+## ~~KERBAL-XP-UNTAGGED-RECOVERY-HAS-NO-LEDGER-ROW: a tracking-station or KSC recovery records the XP event but no ledger action~~ [filed 2026-08-11 with the P9a facet. CAPTURE SIDE FIXED and LIVE-PROVEN 2026-08-20, branch `kerbal-xp-row` - see "The correlation that closed it"]
 
 `GameStateRecorder.OnVesselRecoveryProcessingForExperience` deliberately does NOT forward
 an untagged `ExperienceGained` event to the ledger. The Bail-Out Grant carve-out can
@@ -3863,6 +4198,229 @@ committed harness spec pins `LedgerGroundTruth`, whereas `Rewind` is pinned at
 cell there would move a pinned tally whose `passed=`/`skipped=` split cannot be
 re-derived without flying it. The `autotest-ingame-category-inventory.md` row and the
 566 -> 567 declaration total moved in the same commit.
+
+### The correlation that closed it (2026-08-20, branch `kerbal-xp-row`)
+
+**The scope was wider than the title.** "Tracking-station or KSC recovery" understated
+it: the ORDINARY FLIGHT recovery lands here too, and that is measured rather than
+argued. On run `2026-08-19_2220_L3-career-science-recover` the tree is finalized,
+auto-merged and COMMITTED at the FLIGHT -> SPACECENTER exit, and the stock reward burst
+then fires in SPACECENTER inside the next 250 ms - so by the time the XP seam runs there
+is no live recorder to tag it, and the handler logged `untaggedNoLedgerRow=1` on a
+perfectly ordinary crewed hop. Every driven career recovery was losing its XP row, not
+an exotic minority of them.
+
+**The fix is the correlation, exactly as the "Fix:" line above proposed, and the
+correlator matters more than the plumbing.**
+`LedgerOrchestrator.TryRecordRecoveryKerbalExperience` resolves an owner through
+`PickRecoveryRecordingId` - THE SAME function the recovery funds and science legs already
+use - and stamps it onto the rows before `Ledger.AddActions`. Any other correlator would
+have been quietly wrong: `ResurrectionRetirementEligibility` retires a recovery's
+`FundsEarning(Recovery)`, `ScienceEarning`, `KerbalAssignment` and `KerbalExperience` rows
+as ONE same-`RecordingId` bundle, so scoping the XP row differently would split a bundle
+that is retired as a unit. The same-id agreement is MEASURED on the green run: the
+produced `ledger.pgld` carries the `type = 31` row and the recovery `type = 2` row both
+at `recordingId = 5436a7e8840b4c5885afcbaedc9dc037`.
+
+**The original fail-safe is KEPT, not traded away.** A null pick REFUSES the write
+(`reason=no-recovery-recording`, logged, counted) rather than falling back to the
+null-scoped row this entry was filed about. Nothing writes an untombstoneable XP row; the
+difference is that a correlatable recovery now gets a tombstoneable one.
+
+**Gate ordering.** The forward runs behind `ShouldForwardDirectScienceSubject` - the
+recovery-SCIENCE gate, not the plain `ShouldForwardDirectLedgerEvent` one - so a live
+recorder (the commit-time `ConvertEvents` path will write the row) and an active
+uncommitted tree (a future commit can still claim it) both decline, and only a genuinely
+ownerless recovery is forwarded.
+
+**A landmine found on the way in.** `LedgerOrchestrator.GetActionKey` had no
+`KerbalExperience` case and fell through to the empty-string default. Every crew member's
+XP row shares the recovery's UT exactly - one `ArchiveFlightLog` pass, one
+`Planetarium.GetUniversalTime()` read - so Type + UT + "" matched them against each other
+and a two-kerbal recovery would have deduped down to one row. Keyed by `KerbalName` now,
+mirroring `KerbalHire`, and pinned by a two-crew cell.
+
+**Live proof.** Run `2026-08-20_1925_L3-career-science-recover_run2`, PASS on attempt 1,
+452 s, zero `[Parsek][ERROR]` lines. The negative control is already flown and archived
+rather than owed: run `2026-08-19_2220` on the same spec and the same craft logged
+`untaggedNoLedgerRow=1` with ZERO `type = 31` rows in its produced ledger. Both new lines
+are pinned as `logContracts.required` tokens in the spec:
+
+```
+Recovery kerbal XP recorded: vessel='Jumping Flea' ... rows=1 deduped=0 noAction=0 kerbals='Jebediah Kerman'
+Game state: ExperienceGained crew=1 emitted=1 noEntries=0 ledgerRows=1 untaggedNoLedgerRow=0
+```
+
+Headless cover: `LedgerRecoveryKerbalExperienceTests` (gate, write, correlation-agrees-
+with-the-funds-leg, two-crew dedup, null-pick refusal, no-entries refusal, idempotent
+re-fire, and the produced row's tombstone eligibility).
+
+**THE GROUND-TRUTH HALF LANDED IN THE SAME WAVE.** Both career fixtures were
+re-harvested off the green run (`C2CareerPostFix`, and `career-earned-pad` rebuilt from
+it by its builder), and `L4-ledger-groundtruth-strict`'s `KerbalXp` facet is ARMED on the
+result. The facet had been vacuous in the most literal way - `CompareKerbalCareerLogs`
+early-returns BEFORE its `FacetsCompared++` when the reconstruction credits no career
+entries, so it was not merely comparing zero against zero, it was not being counted at
+all. With the row present it compares and agrees. MEASURED TWICE, byte-identical, on the
+reading run `2026-08-20_1953` (PARSEK-FAIL on the two now-stale pins, which IS the
+reading) and the armed run `2026-08-20_1957` (PASS, `expectations mismatches=0`):
+
+```
+CompareKerbalCareerLogs: kerbals=1 divergent=0
+result: hardFailures=0 reportOnly=0 facetsCompared=11 strict=True
+BATCH_COMPLETE v1 total=2 passed=2 failed=0 skipped=0 category=LedgerGroundTruth scene=FLIGHT
+KerbalExperienceReassert: kerbals=1 entries=3 absent=0 missing=0
+```
+
+The `passed=2` is the second, independent witness: the P9a in-game cell
+(`KerbalExperienceReassertTest`) had SKIPPED for want of exactly this row since it was
+written, and L2's header had predicted a recorded crewed recovery would flip it. It did
+not - because the missing thing was this finding, not fixture thinness - and it does now.
+
+**One residual, filed rather than fixed here:** see
+KERBAL-XP-RECOVERY-PICK-IS-NAME-AND-UT-ONLY below.
+
+## KERBAL-XP-RECOVERY-PICK-IS-NAME-AND-UT-ONLY: the recovery correlator matches by vessel NAME plus a UT tier, and the XP row makes a wrong pick irreversible [OPEN, filed 2026-08-20 with the correlation fix above]
+
+`LedgerOrchestrator.PickRecoveryRecordingId` matches candidate recordings by vessel NAME
+(`RecoveredVesselIdentity.MatchesName`, raw or localized) and then ranks them by a UT
+tier - bracketing, else most-recent-ended, else global-latest. It never consults
+`Vessel.id` / `Recording.RecordedVesselGuid` or `persistentId`. Two launches of the same
+craft name therefore differ only by their UT ordering, and the tier the driven career
+recovery actually lands on is `most-recent-ended` - the weakest of the three.
+
+**This is PRE-EXISTING** - the recovery funds and science legs have always resolved this
+way - and it is NOT introduced by the XP correlation. What the XP row changes is the
+CONSEQUENCE of a wrong pick. Funds and science rows are re-derived idempotently from the
+effective ledger on every recalc, so a mis-scoped one is wrong but revisable. A
+`KerbalExperience` row feeds `KerbalsModule.ReassertCareerLogEntries`, whose facade
+exposes `AppendCareerLogEntries` with NO remove counterpart: once a mis-scoped row's
+entries are appended to a roster, nothing walks them back except a tombstone on the row
+that put them there - and a row scoped to the WRONG recording is tombstoned by the wrong
+merge.
+
+**Fix:** tighten the pick to guid-positive identity where a guid is available -
+`VesselLaunchIdentity.RecordingsShareLaunch` semantics, or the stricter
+`ResurrectionRetirementEligibility.IsPositivelySameLaunch` shape (pid equal AND both guids
+known AND equal) - falling back to the current name+tier walk only when no guid is
+recorded. Not attempted alongside the correlation fix on purpose: changing the correlator
+changes the funds and science legs too, so it is its own change with its own live proof,
+and doing it inside a fix whose whole argument is "use the SAME correlator the funds leg
+uses" would have made both claims unfalsifiable at once.
+
+**Not currently observable in a driven run:** every committed career fixture flies one
+launch of one craft name, so the tiers are never in competition. A repro needs two
+launches of the same craft name with a recovery of the second - which is also the shape
+the eventual fix should be live-proven on.
+
+## ~~KERBAL-XP-FIXTURE-REHARVEST-BLOCKED-ON-FILE-DELETION: the career fixtures still predate the XP row, so L4's KerbalXp facet cannot be armed~~ [filed and CLOSED 2026-08-20, branch `kerbal-xp-row`, once the fixture replacement was approved]
+
+The capture-side fix above is landed and live-proven, but the GROUND-TRUTH half of the
+same wave is not: `L4-ledger-groundtruth-strict`'s `KerbalXp` facet still SKIPS, because
+`LedgerGroundTruthDiff.CompareKerbalCareerLogs` early-returns when the reconstruction
+credits no career entries, and the committed career fixtures were harvested from a run
+that predates the fix and carry zero `GameActionType.KerbalExperience` rows.
+
+**This leaves nothing red.** L4's pinned `facetsCompared=10` and `skipped=1` are correct
+for the subject it currently flies, and its own spec comment already records the decline
+of the D8 `kerbals` claim and why. The gate is honest; it is just thinner than it could
+be.
+
+**What unblocks it is a FILE DELETION, which is why it is filed instead of done.** The
+subject has to be re-harvested from the green run
+`2026-08-20_1925_L3-career-science-recover_run2`, whose produced save carries the
+`type = 31` row. The harvest is NOT name-stable - the run mints fresh recording ids and a
+fresh tail-baseline filename - so an additive copy would leave a fixture whose save names
+two recordings while its sidecar tree holds four, and
+`harness/tools/build_career_earned_pad.py` copies that tree VERBATIM, so
+`career-earned-pad` would inherit the orphans and is likely to go analyzer-RED under the
+harness Forbid fresh-save gate. Filtering the copy to hide the orphans was considered and
+REJECTED: a fixture that hides orphans is a lying fixture.
+
+These committed files under `Source/Parsek.Tests/Fixtures/C2CareerPostFix/` are superseded
+by the re-harvest and must be removed rather than overwritten:
+
+```
+Parsek/GameState/baseline_347.11999999997425.pgsb
+Parsek/Recordings/6c1596087fb14a5b8874d2a4948e3172.pann
+Parsek/Recordings/6c1596087fb14a5b8874d2a4948e3172.prec
+Parsek/Recordings/6c1596087fb14a5b8874d2a4948e3172.prec.txt
+Parsek/Recordings/6c1596087fb14a5b8874d2a4948e3172_ghost.craft
+Parsek/Recordings/6c1596087fb14a5b8874d2a4948e3172_vessel.craft
+Parsek/Recordings/df54db60838c437a8ce953746ebffbab.pann
+Parsek/Recordings/df54db60838c437a8ce953746ebffbab.prec
+Parsek/Recordings/df54db60838c437a8ce953746ebffbab.prec.txt
+Parsek/Recordings/df54db60838c437a8ce953746ebffbab_ghost.craft
+Parsek/Recordings/df54db60838c437a8ce953746ebffbab_vessel.craft
+Parsek/Saves/parsek_rw_4b74d4.sfs
+```
+
+(One stale tail baseline, the two stale recordings' sidecar sets, and the previous
+harvest's rewind-save exhaust. Everything else in the fixture is overwritten in place by
+the new harvest, and `harness/fixtures/saves/career-earned-pad/` needs NO deletion at all
+- its builder rewrites it whole.)
+
+**THE REST OF THE WAVE IS SPECIFIED AND READY**, so the follow-up is execution rather
+than design:
+
+1. Re-harvest the produced save into `Source/Parsek.Tests/Fixtures/C2CareerPostFix/`, then
+   re-run `python harness/tools/build_career_earned_pad.py` and its `--check`.
+   `C2CareerPostFixReplayTests` pins must be RE-DERIVED from measurement (the
+   closes-to-zero claim should still hold; if a pool moved, measure, pin, explain), and
+   `harness/lib/test_career_earned_pad.py`'s byte-identity cells red until the builder is
+   re-run - that is the designed flow, not a failure.
+2. Fly `L4-ledger-groundtruth-strict` as a READING pass and read the `KerbalXp` facet. The
+   single-kerbal subject is expected to compare clean (the untagged `events.pgse`
+   `ExperienceGained` entry set matches Jebediah's `CAREER_LOG` exactly), but arming is
+   conditional on the READING, not on the expectation.
+3. If clean, ARM in the same commit: add the required token
+   `CompareKerbalCareerLogs: kerbals=1 divergent=0`, re-pin `facetsCompared=11`, re-pin
+   the batch tally to `passed=2 skipped=0` (`KerbalExperienceReassertTest` stops skipping
+   once the effective ledger carries an XP row - verify with `hlib.derive_batch_tally` AND
+   the flight), and claim D8 `kerbals` on L4, rewriting that spec's decline comment (the
+   `skipped=1` rationale block) to the closed state.
+4. FIX THE DOC DRIFT in the same edit: that spec's `facetsCompared=10` note claims the
+   count "adds the recovery, milestone and kerbal-career-log facets", but the measured log
+   shows the kerbal-career-log facet SKIPPING. The enumeration is wrong today and would be
+   right only after arming - correct it either way rather than letting the arming quietly
+   launder it.
+5. Re-fly L4 armed and confirm PASS.
+
+**A smaller residual to note when that tally is touched:** a tombstoned `KerbalExperience`
+row currently reports under `Other=` rather than `Kerbal=` in `SupersedeCommit`'s
+tombstone tally. Cosmetic, left as-is.
+
+### CLOSED THE SAME DAY - what actually happened, and the two things worth keeping
+
+The fixture replacement was approved and all five steps above were executed. Two notes
+that were NOT anticipated by the plan and cost a cycle each:
+
+**1. THE CONTRACT RECIPE HAD TO BE RE-DERIVED, because KSP mints fresh contract guids per
+career run.** `build_career_earned_pad.py`'s Active-contract splice pins a specific
+contract by guid, and every literal in that block died with the re-harvest. The builder
+caught it loudly and by name ("the harvest's contract set moved and this recipe must be
+re-derived against the new one") rather than splicing something wrong, which is that
+guard paying for itself. The re-derivation kept the SELECTION RULE and re-read the
+values: the new pick is `07c8e34d...`, `PartTest` on `Decoupler.1` at `sit = ESCAPING` -
+a part the pad craft does not carry, in a situation a craft parked on the pad cannot
+reach, which is a STRICTLY STRONGER second guard than the previous pick's `sit = LANDED`.
+Its title is composed from the shipped dictionary (`#autoLOC_6100005` + `#autoLOC_501784`
++ the TEST-direction escape phrase `#autoLOC_6100020`) rather than invented. ANY future
+re-harvest of this career must expect to redo this.
+
+**2. THE `.craft.txt` MIRRORS ARE FORBIDDEN IN THE BASE, and a verbatim copy of a
+produced save carries them.** The harness gates the two mirror families in OPPOSITE
+directions - `.prec.txt` REQUIRED beside every `.prec`, `_vessel.craft.txt` /
+`_ghost.craft.txt` FORBIDDEN - so the harvest is a copy MINUS exactly those two suffixes.
+`build_career_earned_pad.py` refuses to build when the base carries them, naming them,
+which is how this was caught rather than shipped.
+
+Everything else went as specified: `C2CareerPostFixReplayTests` moved by exactly ONE pin
+(14 -> 15 actions) with all three closure deltas byte-identical, because a
+`KerbalExperience` row carries no currency and cannot move a pool; and
+`test_saveparse.py`'s `career-earned-pad` payload pin needed its two recording ids
+re-stamped, while its 1/1/2 topology did not move - which is the check that the
+re-harvest produced the same SHAPE of subject rather than a different one.
 
 ## ~~REFLY-RESURRECTS-RECOVERED-CRAFT-KEEPS-REWARDS: a Re-Fly puts a recovered vessel back in the world while its recovery funds, science and crew rows stay banked~~ [#15, user-decided 2026-08-11. FIXED 2026-08-11, branch `ledger-facets`]
 
@@ -14524,11 +15082,16 @@ Do NOT re-implement intercept / window math from scratch. The 2026-05-28 prior-a
 - **Requirements:** (1) ~~short design note first~~ DONE - `docs/dev/design-mission-multimoon-alignment.md` (decisions D1-D8; the "2+-moon mini star systems" deferred item, `docs/parsek-missions-design.md` sect. 14.4); (2) ~~REUSE the SolveArrivalWindow wiring + generalize the per-loop hold~~ DONE; (3) ~~failing synthetic multi-moon test BEFORE any knob math~~ DONE (11 fixtures verified failing pre-implementation); (4) intra-SOI re-aim (per-leg Lambert re-solves inside the destination system) is explicitly the SECOND cut, tracked as M-MIS-7 - only justified if this hold-based model proves insufficient in playtest.
 - **BUILT (branch `claude/mmis6-multi-moon-window-7fcpyh`, stacked on `mmis4-solve-arrival-window`; design `docs/dev/design-mission-multimoon-alignment.md`):** `DestinationConstraintExtractor` now EMITS the 2+-moon set (Supported, all MoonConfigs in `Constraints`, constrained-moon landing rotations in the new `MoonRotations` field; the `MaxConstrainedMoons` reject + constant are retired, and station-bearing Jool-class shapes fall to the station+moon reject). `ArrivalHoldPlanner.ComputeMultiMoonConfigHold` owns the shape: participants = moon Orbitals (SOI tolerance, never dropped) + moon/target rotations (mode ladder; Drop removes them; a tidally locked moon's rotation collapses into its orbital period for free), T_config = k*P_anchor via `MissionPeriodicity.TryFindNextScheduleK` with the smallest-duty anchor (`SelectAnchorConstraintIndex` rationale - Vall for stock, k=2, T_config ~= T_Tylo ~= 211,924s), slack-clamped anchor budget (64), engage double-gated on the scan + the hold-aware `SolveArrivalWindow` window-1 pick (the M-MIS-4 wiring, `holdAlignPeriodSeconds = T_config`, `maxWholeHoldPeriods = 0`). The clock is UNCHANGED: the config hold rides the shipped single-period per-loop path via `LoopUnit.ArrivalAlignPeriodSeconds = T_config` (no new LoopUnit/persisted fields). HONEST FINITE HORIZON (the design's correction to the investigation's recurrence claim): the resonance drifts ~0.6s/2.2s per T_config on the Vall-anchored lattice, so alignment holds for ~40 consecutive synodic windows under Loose (a Tylo-anchored lattice would give only ~8 - why the anchor is duty-selected), then leaves tolerance for centuries; the count is computed (`DestinationArrivalSolver.CountAlignedWindowPrefix`, reporting-only) and logged in the `ARRIVAL HOLD kind=config` line (`alignedWindows=`). EVERY decline ambers (never silent - the old silent no-station Jool-class None is gone): non-recurring configs (Bop/Pol, non-locked moon rotations, Jool-landing rotation under Loose/Tight), slack-starved holds, destination-side loiter cuts (L8), degenerate window spacing. `DestinationLoiterTrim` gained the `ConstrainedMoonCount >= 2` exclusion (the rotation-only trim would misalign the configuration). Tests: `MultiMoonAlignmentTests` (stock-value synthetic Jool system; engage + per-loop all-encounters-within-SOI sweep + amber polarity + byte-identity pins) + `Build_ReaimJoolMultiMoonTour_EngagesConfigHold` (builder E2E) + 3 revised pre-M-MIS-6 pins (extractor emission, station+moon reason ownership, never-silent decline).
 - **MERGE GATE - AUTOMATED (2026-07-08):** `JoolConfigHoldInGameTest` (in-game, Category "Missions", SPACECENTER, batch-safe) is the merge gate. It drives the REAL `ArrivalHoldPlanner.ComputeArrivalHold` (through the REAL `DestinationConstraintExtractor` + `DestinationArrivalSolver` + `MissionPeriodicity` chain) against the LIVE Jool body graph via `FlightGlobalsBodyInfo.Instance` - which is exactly what headless could not do (the `MultiMoonAlignmentTests` xUnit fixtures pin the stock periods/SOI/velocities as constants; only an in-game run proves the SHIPPED ephemerides lock 1:2:4 and engage). Test A: the resonant inner three (Laythe/Vall/Tylo, live periods) engages the config hold, T_config is a whole multiple of the live anchor period and lands within one live Tylo period, and the single-period per-loop hold re-aligns every moon encounter within its live SOI tolerance across the horizon. Test B: adding live incommensurate Bop fails the whole set closed to faithful with an amber naming the shape. Skips cleanly on a non-stock pack / rescaled resonance (probes the live 1:2:4 lock first). Runbook: one Ctrl+Shift+T Run All in any stock save.
-- **M-MIS-7 go/no-go:** observational evidence from a real looped Jool tour (encounter seams rendering connected across aligned windows, the amber/faithful outcome on an incommensurate shape) remains wanted; collect it opportunistically from normal play (not a merge blocker).
+- **M-MIS-7 go/no-go:** ~~observational evidence from a real looped Jool tour remains wanted~~ **PARTIALLY IN, 2026-08-20.** A driven lane (`V17M`, run `2026-08-20_1841`) supplied the faithful-outcome half on a MOON-TO-MOON (not multi-moon-tour) subject: the re-aim classifier defers the shape and phase-lock declines cross-parent, so the loop replays faithful on the raw cadence - see the MEASURED block under M-MIS-7 below. What is still wanted from normal play is the OTHER half: a multi-moon tour whose encounter seams render connected across aligned windows. The measured half is evidence for M-MIS-7's *(a)* consumer only, and it declines rather than engages.
 - **Viability:** ~~moderate~~ built - the resonant-inner-three + tidally-locked case maps onto shipped primitives; the general (Bop/Pol, non-resonant packs) case intentionally fails closed with amber (the design records the align-the-resonant-subset alternative as deferred to M-MIS-7 evidence).
 
-### M-MIS-7 - Intra-SOI re-aim and multi-hop targets (Jool-like systems second cut; Ike-class targets) [GATED: on M-MIS-6 playtest evidence]
+### M-MIS-7 - Intra-SOI re-aim and multi-hop targets (Jool-like systems second cut; Ike-class targets) [GATED: on M-MIS-6 playtest evidence. **THE go/no-go OBSERVATION IS IN, MEASURED 2026-08-20 - see MEASURED below**]
 
+- **MEASURED 2026-08-20 (`V17M-laythe-vall-player-loop`, run `2026-08-20_1841`) - THE ANSWER FOR TODAY'S CODE:** **Parsek neither RE-AIMS nor PHASE-LOCKS a moon-to-moon hop; it replays it faithfully on the raw cadence.** This is the first time the question has been asked of a real cross-parent subject (`fixtures/saves/vall-transfer-recorded`, produced by `B26-laythe-vall-transfer` flight 3), and the answer is a THIRD outcome neither pre-registered hypothesis named. The classifier WAS reached - the single-hop guard did NOT fire - and it declined on the PARKING-ORBIT / MID-COURSE structural check, `Source/Parsek/Reaim/ReaimClassifier.cs:270-277`: `[ReaimDiag] member#0 segs=13 startBody=Laythe supported=False reason='transfer departs from a heliocentric parking orbit or mid-course correction (deferred); staying faithful'`. Phase-lock declined too (`PhaseLock SKIPPED ... support=UnsupportedCrossParent`), and the render side agreed (`factory chain ... reaimed=False faithfulFallback=False`).
+  - **THE DECLINE IS THE FLIGHT PROFILE'S, NOT THE MOON PAIR'S.** The only way the harness can fly a moon-to-moon hop today is the parent-relay mode, which is TWO-BURN by construction (escape, coast, then plan the transfer from the parent frame). That middle coast is a real parent-frame orbit sitting immediately before the transfer run on a different orbit, so `sunPredecessor` is true. Note the reason string says "heliocentric" but the code tests `bodyName == commonAncestor` - the check is frame-generic and here the common ancestor is JOOL.
+  - **AND THE RE-ADMITTING EXCEPTION MISSED BY ONE CONJUNCT OF THREE**, which makes this a DURATION result rather than a structural one. `IsHeliocentricParkingDeparture`: near-circular PASSED (ecc 0.0126 <= 0.1), co-orbital with the launch body PASSED (4.15% <= 10%), closed-park FAILED - the coast is 43,183.50 s against a 49,717.82 s period = **0.8686 revolutions**, so `wholeRevs = 0`, `ReaimLoiterCompressor.DetectRuns` emits no run, and the `!found` early return fires. **6,534 s - 15.13% - short of one revolution.**
+  - **WHAT REMAINS UNTESTED, HONESTLY:** the SUPPORTED path needs a DIRECT single-burn ejection that leaves the moon already on the sibling transfer, and **no currently flyable profile produces that shape** - MechJeb's `OperationInterplanetaryTransfer` plans it but refuses a moon-parked origin (MECHJEB-INTERPLANETARY-PLANNER-REJECTS-MOON-ORIGIN above), and the parent-relay mode that can fly the hop is two-burn by construction. So consumer (a) below is measured-declined for the shapes we can produce, and consumer (b) (the single-hop guard) was never even reached. A profile that let the post-escape coast close one full revolution would take the `DepartedFromHeliocentricPark` path instead - a DIFFERENT code path answering a DIFFERENT question, recorded as an observation and not as a plan.
+  - Full derivation: `docs/dev/research/same-parent-reaim-jool-system.md` section 11.3, and `V17M`'s spec header section 0.
 - **What it is:** the recursive "mini star system" model - re-solving transfer legs INSIDE a destination system instead of only the heliocentric leg. Two consumers: (a) **moon-to-moon legs of a multi-moon tour** when the M-MIS-6 hold-based joint-configuration model is insufficient (non-resonant moon packs, Bop/Pol legs, long inter-moon loiters): per-leg Lambert re-solves in the gas giant's frame + per-leg holds at each moon-SOI seam; (b) **multi-hop TARGETS** - a target that is not a direct child of the common ancestor (Ike via Duna; rejected today by the `ReaimClassifier` single-hop guard, ReaimClassifier.cs:124-130): re-aim the heliocentric leg to the parent, then the in-SOI hop to the moon is the same intra-SOI machinery.
 - **Requirements:** REUSE everything - `UvLambert` is body-agnostic (mu is a parameter), so the same `ITransferSolver` seam serves Jool-centric solves; the per-loop hold clock primitives generalize per leg. This is a genuine new subsystem (per-leg seams, recursive window scheduling): budget a full design note + the failing-test-first discipline, and do NOT build it speculatively - M-MIS-6's playtest decides whether it is needed at all.
 - **Viability:** hard; deliberately last among the solver milestones.

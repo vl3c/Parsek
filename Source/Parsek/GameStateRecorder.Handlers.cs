@@ -1535,6 +1535,20 @@ namespace Parsek
             int emitted = 0;
             int skippedNoEntries = 0;
             int untaggedNoLedgerRow = 0;
+
+            // KERBAL-XP-UNTAGGED-RECOVERY-HAS-NO-LEDGER-ROW: the same forward gate the
+            // recovery-SCIENCE direct write uses. Both halves are load-bearing here.
+            // A live recorder means the emitted (tagged) event will be converted at
+            // commit time, so a direct row would double-count; an active uncommitted
+            // tree means a future commit can still claim it. Only when neither holds is
+            // this recovery's XP unreachable by any other channel - which is the state
+            // an ordinary FLIGHT recovery is measurably in, because the reward burst
+            // fires in SPACECENTER a few ms AFTER the scene-exit auto-commit closed the
+            // tree.
+            bool hasLiveRecorder = HasLiveRecorder();
+            bool hasActiveUncommittedTree = HasActiveUncommittedTree();
+            var untaggedEvents = new List<GameStateEvent>(crew.Count);
+
             for (int i = 0; i < crew.Count; i++)
             {
                 var member = crew[i];
@@ -1573,25 +1587,44 @@ namespace Parsek
                 Emit(ref evt, "ExperienceGained");
                 emitted++;
 
-                // DELIBERATELY NO direct-ledger forward. The Bail-Out Grant carve-out can
-                // forward an untagged event because a null-scoped FUNDS row is still correct
-                // in the pools. An XP row is not: tombstones are scoped by RecordingId, so a
-                // null-scoped KerbalExperience row could never be retired by any merge, and
-                // the monotone re-assert would then put that recovery's XP back forever -
-                // exactly the failure the tombstone eligibility exists to prevent. A recovery
-                // with no live recorder (tracking station / KSC) therefore records the EVENT
-                // only. The missing ledger row is a documented v1 gap tracked in
-                // todo-and-known-bugs.md; closing it means correlating the committed
-                // recording the way the recovery-FUNDS path does through
-                // LedgerRecoveryFundsPairing, which is a larger change than this facet.
+                // A TAGGED event needs nothing here: a live recorder owns it and the
+                // commit-time ConvertEvents path will write its row. An UNTAGGED one is
+                // this handler's problem, and the fix is to correlate it rather than to
+                // drop it - see LedgerOrchestrator.TryRecordRecoveryKerbalExperience for
+                // why a null-scoped row was refused and why a picked-scope row is safe.
                 if (string.IsNullOrEmpty(evt.recordingId))
-                    untaggedNoLedgerRow++;
+                {
+                    if (ShouldForwardDirectScienceSubject(
+                            evt.recordingId, hasLiveRecorder, hasActiveUncommittedTree))
+                    {
+                        untaggedEvents.Add(evt);
+                    }
+                    else
+                    {
+                        // Tag drift (empty tag while a recorder is live) or an
+                        // uncommitted tree that can still claim the event. Both keep the
+                        // historical no-row behaviour, and both stay counted so the
+                        // summary line still names the gap when one occurs.
+                        untaggedNoLedgerRow++;
+                    }
+                }
+            }
+
+            int ledgerRows = 0;
+            if (untaggedEvents.Count > 0)
+            {
+                ledgerRows = LedgerOrchestrator.TryRecordRecoveryKerbalExperience(
+                    untaggedEvents,
+                    RecoveredVesselIdentity.FromRawName(pv.vesselName),
+                    ut);
+                untaggedNoLedgerRow += untaggedEvents.Count - ledgerRows;
             }
 
             ParsekLog.Info("GameStateRecorder",
                 $"Game state: ExperienceGained crew={crew.Count.ToString(CultureInfo.InvariantCulture)} " +
                 $"emitted={emitted.ToString(CultureInfo.InvariantCulture)} " +
                 $"noEntries={skippedNoEntries.ToString(CultureInfo.InvariantCulture)} " +
+                $"ledgerRows={ledgerRows.ToString(CultureInfo.InvariantCulture)} " +
                 $"untaggedNoLedgerRow={untaggedNoLedgerRow.ToString(CultureInfo.InvariantCulture)}");
         }
 
