@@ -92,6 +92,18 @@ namespace Parsek
         /// </para>
         ///
         /// <para>
+        /// SCOPE FACT measured on the first production-shaped run (the in-game
+        /// <c>ReFlyRecoveryBundleRuntimeTest</c>, 2026-08-20): a real recovery's
+        /// <see cref="GameActionType.KerbalAssignment"/> row carries
+        /// <c>endState = Aboard</c>, not <see cref="KerbalEndState.Recovered"/>, so the crew
+        /// leg above does not fire on the real recovery shape - the merge path retires that
+        /// row anyway via <c>TombstoneEligibility.IsSupersedeTombstoneEligible</c>, and the
+        /// unit fixture keeping this leg green (<c>ResurrectionRetirementEligibilityTests</c>
+        /// <c>CrewRecovered</c>) stamps a shape the real recovery ledger does not emit. Not a
+        /// defect (the crew are alive in both worlds), a scope fact.
+        /// </para>
+        ///
+        /// <para>
         /// <b>Science is keyed on <see cref="GameAction.Method"/>, and a UT window would be
         /// wrong in BOTH directions.</b> <c>GameStateEventConverter.ConvertScienceSubjects</c>
         /// stamps <c>Method = ResolveScienceMethod(subj.reasonKey)</c> on every
