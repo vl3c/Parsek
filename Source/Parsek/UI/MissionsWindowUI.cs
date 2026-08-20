@@ -904,6 +904,11 @@ namespace Parsek
                 var (structure, view) = GetMissionView(tree);
                 facts = MissionPresentation.ComputeSummaryFacts(
                     structure, view, GetCompositionRoots(tree));
+                // T2.1: the narrative body path, from the MAIN through-line's legs (the first
+                // root vessel - the journey the mission is about). Bodies live on Recordings,
+                // not on the read models, so this is stamped here where the tree is in hand.
+                facts.BodyPath = MissionPresentation.BuildBodyPathText(
+                    CollectMainLineBodySequences(tree, view));
                 summaryFactsCache[tree.Id] = facts;
                 var loggedFacts = facts;
                 ParsekLog.VerboseRateLimited("Mission", "missions-summary-facts",
@@ -913,6 +918,34 @@ namespace Parsek
                     $"terminal='{loggedFacts.TerminalWord ?? ""}'", 5.0);
             }
             return facts;
+        }
+
+        // The per-leg body-transition sequences of the tree's MAIN through-line (the first root),
+        // in leg order, for the T2.1 narrative body path. Each leg's sequence comes from its
+        // committed Recording via RecordingStore.GetBodyTransitionSequence; a leg with no
+        // recording contributes nothing. Returns null when the view has no root (the body-path
+        // builder then yields null and the summary line falls back to span dates).
+        private static List<List<string>> CollectMainLineBodySequences(
+            RecordingTree tree, MissionThroughLineView view)
+        {
+            if (tree == null || tree.Recordings == null || view == null
+                || view.RootHeadIds.Count == 0)
+                return null;
+            if (!view.ByHeadId.TryGetValue(view.RootHeadIds[0], out MissionThroughLine tl)
+                || tl == null)
+                return null;
+
+            var sequences = new List<List<string>>(tl.MemberLegIds.Count);
+            for (int i = 0; i < tl.MemberLegIds.Count; i++)
+            {
+                if (tl.MemberLegIds[i] != null
+                    && tree.Recordings.TryGetValue(tl.MemberLegIds[i], out Recording rec)
+                    && rec != null)
+                {
+                    sequences.Add(RecordingStore.GetBodyTransitionSequence(rec));
+                }
+            }
+            return sequences;
         }
 
         // Returns the REAL Mission LoopUnitSet, built at most once per frame, EXACTLY as the scene
@@ -1657,12 +1690,13 @@ namespace Parsek
             GUILayout.EndVertical();
         }
 
-        // The mission summary line (T1.1): "Y1, D12 3:20 -> Y1, D14 6:41 · 2d 3h · 3 vessels ·
-        // 3 crew · Landed · Next launch T- 2h 14m", drawn as a thin second line inside the header
-        // bubble under the title. It answers "what is this mission, roughly?" without expanding
-        // anything - previously the header carried a name and eight buttons and no span, duration,
-        // count, or outcome at all, and the countdown hid on the first vessel row (so a collapsed
-        // mission showed no schedule). Text-only: no control, so it cannot desync the pass.
+        // The mission summary line, narrative form (T2.1): "Kerbin -> Mun -> Kerbin · 2d 3h ·
+        // Jeb, Bob, Val · Landed · Loops ~6.4d · Next launch T- 2h 14m", drawn as a thin second
+        // line inside the header bubble under the title. It answers "what is this mission?"
+        // without expanding anything: where it went, how long, who flew, how it ended, and the
+        // schedule. The facts the narrative dropped from T1.1 (span dates, vessel count, full
+        // roster) move into the line's tooltip. Text-only: no control, so it cannot desync the
+        // pass.
         private void DrawMissionSummaryLine(Mission mission, MissionPeriodicityDisplay periodicity,
             MissionPresentation.MissionSummaryFacts summary)
         {
@@ -1670,7 +1704,8 @@ namespace Parsek
             // on the countdown: a mid-frame Loop toggle must not change how many layout entries this
             // group emits between the frame's Layout and Repaint passes.
             bool hasSummary = summary.HasSpan || summary.VesselCount > 0 || summary.CrewCount > 0
-                || !string.IsNullOrEmpty(summary.TerminalWord);
+                || !string.IsNullOrEmpty(summary.TerminalWord)
+                || !string.IsNullOrEmpty(summary.BodyPath);
             if (!hasSummary)
                 return;
 
@@ -1693,9 +1728,22 @@ namespace Parsek
                 ? ParsekTimeFormat.FormatDuration(summary.EndUT - summary.StartUT)
                 : "";
 
-            string text = MissionPresentation.BuildSummaryLine(
-                startText, endText, durationText, summary.VesselCount, summary.CrewCount,
-                summary.TerminalWord, nextLaunch);
+            // "Loops ~P" only when the mission is actually looping and the engine solved a real
+            // period. Text-only (the piece appears/disappears with the loop state but never
+            // changes the control count - the whole line is one label either way).
+            string loopText = null;
+            if (mission != null && mission.LoopPlayback && periodicity.Solved
+                && periodicity.Solution.P > 0 && !double.IsNaN(periodicity.Solution.P))
+            {
+                loopText = "Loops ~" + ParsekTimeFormat.FormatDuration(periodicity.Solution.P);
+            }
+
+            string text = MissionPresentation.BuildNarrativeSummaryLine(
+                summary.BodyPath, startText, endText, durationText,
+                MissionPresentation.BuildCrewNamesText(summary.CrewNames), summary.CrewCount,
+                summary.TerminalWord, loopText, nextLaunch);
+            string tooltip = MissionPresentation.BuildSummaryDetailTooltip(
+                startText, endText, summary.VesselCount, summary.CrewNames);
 
             GUILayout.BeginHorizontal();
             // Same leading cells as the title row above, so the summary starts under the title.
@@ -1704,7 +1752,7 @@ namespace Parsek
             GUILayout.Space(BodyCellTextIndent);
             Color prev = GUI.color;
             GUI.color = MissionSummaryColor;
-            GUILayout.Label(new GUIContent(text, MissionPresentation.MissionSummaryTooltip),
+            GUILayout.Label(new GUIContent(text, tooltip),
                 missionSummaryLabel, GUILayout.ExpandWidth(true));
             GUI.color = prev;
             GUILayout.EndHorizontal();

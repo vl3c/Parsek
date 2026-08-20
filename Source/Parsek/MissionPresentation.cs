@@ -95,6 +95,16 @@ namespace Parsek
             public int VesselCount;     // distinct physical vessels (EVA kerbals and atoms excluded)
             public int CrewCount;       // union of named crew across the tree's legs
             public string TerminalWord; // how the primary (first) root ended ("Landed", ...)
+
+            // T2.1: the union roster in first-appearance order (legs walked by StartUT), so the
+            // narrative line can name the crew instead of counting them. Null on a default
+            // (tree-less) facts value; empty when no names were recorded.
+            public List<string> CrewNames;
+
+            // T2.1: the mission's body path ("Kerbin -> Mun -> Kerbin"). NOT computed by
+            // ComputeSummaryFacts (bodies live on Recordings, not on the read models) - the
+            // caller derives it via BuildBodyPathText and stamps it here before caching.
+            public string BodyPath;
         }
 
         /// <summary>
@@ -151,21 +161,32 @@ namespace Parsek
             // Crew: the union of NAMED crew over the tree's legs (a leg's roster is its
             // start-captured crew), plus any EVA kerbal that has its own leg. Names are the only
             // way to union without double-counting a kerbal that rode several legs; when no names
-            // were recorded the count falls back to the largest single-leg crew count.
+            // were recorded the count falls back to the largest single-leg crew count. The names
+            // are kept in FIRST-APPEARANCE order (legs walked by StartUT) so the narrative line
+            // reads them in launch order (T2.1).
+            facts.CrewNames = new List<string>();
             if (structure != null)
             {
+                var legsByStart = new List<MissionLeg>();
+                foreach (var kv in structure.LegsById)
+                    if (kv.Value != null)
+                        legsByStart.Add(kv.Value);
+                legsByStart.Sort((a, b) =>
+                {
+                    int cmp = a.StartUT.CompareTo(b.StartUT);
+                    return cmp != 0 ? cmp : string.CompareOrdinal(a.RecordingId, b.RecordingId);
+                });
+
                 var names = new HashSet<string>(System.StringComparer.Ordinal);
                 int maxUnnamed = 0;
-                foreach (var kv in structure.LegsById)
+                for (int i = 0; i < legsByStart.Count; i++)
                 {
-                    MissionLeg leg = kv.Value;
-                    if (leg == null)
-                        continue;
+                    MissionLeg leg = legsByStart[i];
                     for (int n = 0; n < leg.CrewNames.Count; n++)
-                        if (!string.IsNullOrEmpty(leg.CrewNames[n]))
-                            names.Add(leg.CrewNames[n]);
-                    if (!string.IsNullOrEmpty(leg.EvaCrewName))
-                        names.Add(leg.EvaCrewName);
+                        if (!string.IsNullOrEmpty(leg.CrewNames[n]) && names.Add(leg.CrewNames[n]))
+                            facts.CrewNames.Add(leg.CrewNames[n]);
+                    if (!string.IsNullOrEmpty(leg.EvaCrewName) && names.Add(leg.EvaCrewName))
+                        facts.CrewNames.Add(leg.EvaCrewName);
                     if (leg.CrewCount > maxUnnamed)
                         maxUnnamed = leg.CrewCount;
                 }
@@ -293,6 +314,165 @@ namespace Parsek
             return nextLaunchCellText.StartsWith("T-", System.StringComparison.Ordinal)
                 ? nextLaunchCellText
                 : null;
+        }
+
+        // ===================== T2.1 - the narrative summary line =====================
+
+        // How many crew are NAMED on the narrative line before collapsing to "+N".
+        internal const int NarrativeCrewNameCap = 3;
+
+        /// <summary>
+        /// Merges per-leg body-transition sequences (each already consecutive-dedup'd, in leg
+        /// order along the main through-line) into one body path:
+        /// <c>"Kerbin → Mun → Kerbin"</c>. Consecutive duplicates across leg boundaries
+        /// collapse (the next leg starts on the body the previous one ended on). A single body
+        /// renders as just that body's name; no bodies at all returns null. Pure.
+        /// </summary>
+        internal static string BuildBodyPathText(List<List<string>> orderedLegBodySequences)
+        {
+            if (orderedLegBodySequences == null)
+                return null;
+            var merged = new List<string>();
+            for (int i = 0; i < orderedLegBodySequences.Count; i++)
+            {
+                List<string> seq = orderedLegBodySequences[i];
+                if (seq == null)
+                    continue;
+                for (int j = 0; j < seq.Count; j++)
+                {
+                    string body = seq[j];
+                    if (string.IsNullOrEmpty(body))
+                        continue;
+                    if (merged.Count == 0 || merged[merged.Count - 1] != body)
+                        merged.Add(body);
+                }
+            }
+            if (merged.Count == 0)
+                return null;
+            return string.Join(SummarySpanArrow, merged.ToArray());
+        }
+
+        /// <summary>
+        /// The crew piece of the narrative line: up to <see cref="NarrativeCrewNameCap"/> names
+        /// joined with commas, then <c>"+N"</c> for the rest
+        /// (<c>"Jeb Kerman, Bob Kerman, Val Kerman +2"</c>). Null when there are no names, so the
+        /// caller can fall back to the bare count. Pure.
+        /// </summary>
+        internal static string BuildCrewNamesText(IReadOnlyList<string> crewNames)
+        {
+            if (crewNames == null || crewNames.Count == 0)
+                return null;
+            var sb = new StringBuilder();
+            int shown = crewNames.Count <= NarrativeCrewNameCap ? crewNames.Count : NarrativeCrewNameCap;
+            for (int i = 0; i < shown; i++)
+            {
+                if (i > 0)
+                    sb.Append(", ");
+                sb.Append(crewNames[i]);
+            }
+            int rest = crewNames.Count - shown;
+            if (rest > 0)
+                sb.Append(" +").Append(rest.ToString(CultureInfo.InvariantCulture));
+            return sb.ToString();
+        }
+
+        /// <summary>
+        /// The T2.1 narrative summary line:
+        /// <c>"Kerbin → Mun → Kerbin · 2d 3h · Jeb, Bob, Val · Landed
+        /// · Loops ~6.4d · Next launch T-2d 4h"</c>. The body path leads; when none is
+        /// derivable the span dates stand in (the T1.1 form), so the line never starts with a
+        /// bare duration. Crew renders as names when recorded, else as the bare count. Every
+        /// piece is omitted when it has no value. Pure - the caller supplies the already-
+        /// formatted date / duration / period / countdown strings.
+        /// </summary>
+        internal static string BuildNarrativeSummaryLine(
+            string bodyPathText, string startDateText, string endDateText, string durationText,
+            string crewNamesText, int crewCount, string terminalWord, string loopPeriodText,
+            string nextLaunchText)
+        {
+            var ic = CultureInfo.InvariantCulture;
+            var sb = new StringBuilder();
+
+            if (!string.IsNullOrEmpty(bodyPathText))
+            {
+                Append(sb, bodyPathText);
+            }
+            else
+            {
+                bool hasStart = !string.IsNullOrEmpty(startDateText);
+                bool hasEnd = !string.IsNullOrEmpty(endDateText);
+                if (hasStart && hasEnd)
+                    Append(sb, startDateText + SummarySpanArrow + endDateText);
+                else if (hasStart)
+                    Append(sb, startDateText);
+                else if (hasEnd)
+                    Append(sb, endDateText);
+            }
+
+            if (!string.IsNullOrEmpty(durationText))
+                Append(sb, durationText);
+
+            if (!string.IsNullOrEmpty(crewNamesText))
+                Append(sb, crewNamesText);
+            else if (crewCount > 0)
+                Append(sb, crewCount.ToString(ic) + " crew");
+
+            if (!string.IsNullOrEmpty(terminalWord))
+                Append(sb, terminalWord);
+
+            if (!string.IsNullOrEmpty(loopPeriodText))
+                Append(sb, loopPeriodText);
+
+            if (!string.IsNullOrEmpty(nextLaunchText))
+                Append(sb, "Next launch " + nextLaunchText);
+
+            return sb.ToString();
+        }
+
+        /// <summary>
+        /// The narrative line's tooltip: the facts the line dropped in favor of the narrative -
+        /// full span dates, the vessel count, and the FULL crew roster - so nothing T1.1 showed
+        /// became unreachable. Falls back to the generic summary tooltip when there is no detail
+        /// to show. Pure.
+        /// </summary>
+        internal static string BuildSummaryDetailTooltip(
+            string startDateText, string endDateText, int vesselCount,
+            IReadOnlyList<string> crewNames)
+        {
+            var ic = CultureInfo.InvariantCulture;
+            var sb = new StringBuilder();
+
+            bool hasStart = !string.IsNullOrEmpty(startDateText);
+            bool hasEnd = !string.IsNullOrEmpty(endDateText);
+            if (hasStart && hasEnd)
+                sb.Append(startDateText).Append(SummarySpanArrow).Append(endDateText);
+            else if (hasStart)
+                sb.Append(startDateText);
+            else if (hasEnd)
+                sb.Append(endDateText);
+
+            if (vesselCount > 0)
+            {
+                if (sb.Length > 0)
+                    sb.Append('\n');
+                sb.Append(vesselCount.ToString(ic))
+                  .Append(vesselCount == 1 ? " vessel" : " vessels");
+            }
+
+            if (crewNames != null && crewNames.Count > 0)
+            {
+                if (sb.Length > 0)
+                    sb.Append('\n');
+                sb.Append("Crew: ");
+                for (int i = 0; i < crewNames.Count; i++)
+                {
+                    if (i > 0)
+                        sb.Append(", ");
+                    sb.Append(crewNames[i]);
+                }
+            }
+
+            return sb.Length > 0 ? sb.ToString() : MissionSummaryTooltip;
         }
 
         // ===================== T1.3 - delta-phrased interval labels =====================

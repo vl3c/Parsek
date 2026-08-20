@@ -567,5 +567,154 @@ namespace Parsek.Tests
                 "Loop moved to '(mission)' - one loop per recording tree ('(mission)' unlooped)",
                 MissionPresentation.BuildLoopMovedScreenMessage("", new List<string> { null }));
         }
+
+        // ===================== T2.1 - the narrative summary line =====================
+
+        [Fact]
+        public void BuildBodyPathText_MergesLegSequencesAndCollapsesBoundaryDuplicates()
+        {
+            // Fails if the body the next leg starts on (the one the previous leg ended on) is
+            // repeated across the join, or the arrow changes.
+            string path = MissionPresentation.BuildBodyPathText(new List<List<string>>
+            {
+                new List<string> { "Kerbin" },
+                new List<string> { "Kerbin", "Mun" },
+                new List<string> { "Mun", "Kerbin" },
+            });
+            Assert.Equal(
+                "Kerbin" + MissionPresentation.SummarySpanArrow + "Mun"
+                + MissionPresentation.SummarySpanArrow + "Kerbin",
+                path);
+        }
+
+        [Fact]
+        public void BuildBodyPathText_SingleBodyRendersBare_EmptyRendersNothing()
+        {
+            Assert.Equal("Kerbin", MissionPresentation.BuildBodyPathText(
+                new List<List<string>> { new List<string> { "Kerbin", "Kerbin" } }));
+            Assert.Null(MissionPresentation.BuildBodyPathText(new List<List<string>>()));
+            Assert.Null(MissionPresentation.BuildBodyPathText(null));
+            Assert.Null(MissionPresentation.BuildBodyPathText(
+                new List<List<string>> { null, new List<string> { null, "" } }));
+        }
+
+        [Fact]
+        public void BuildCrewNamesText_CapsAtThreeNamesWithACountForTheRest()
+        {
+            Assert.Equal("Jeb Kerman, Bob Kerman",
+                MissionPresentation.BuildCrewNamesText(
+                    new List<string> { "Jeb Kerman", "Bob Kerman" }));
+            Assert.Equal("Jeb, Bob, Val +2",
+                MissionPresentation.BuildCrewNamesText(
+                    new List<string> { "Jeb", "Bob", "Val", "Bill", "Dun" }));
+            Assert.Null(MissionPresentation.BuildCrewNamesText(new List<string>()));
+            Assert.Null(MissionPresentation.BuildCrewNamesText(null));
+        }
+
+        [Fact]
+        public void BuildNarrativeSummaryLine_BodyPathLeadsAndEveryPieceJoins()
+        {
+            string sep = MissionPresentation.SummarySeparator;
+            string line = MissionPresentation.BuildNarrativeSummaryLine(
+                "Kerbin → Mun", "Y1, D12", "Y1, D14", "2d 3h",
+                "Jeb, Bob", 2, "Landed", "Loops ~6.4d", "T- 2h 14m");
+            Assert.Equal(
+                "Kerbin → Mun" + sep + "2d 3h" + sep + "Jeb, Bob" + sep + "Landed"
+                + sep + "Loops ~6.4d" + sep + "Next launch T- 2h 14m",
+                line);
+            // The span dates are the tooltip's job once a body path leads the line.
+            Assert.DoesNotContain("Y1, D12", line);
+        }
+
+        [Fact]
+        public void BuildNarrativeSummaryLine_FallsBackToSpanDatesWithoutABodyPath()
+        {
+            // Fails if a mission with no derivable body path leads with a bare duration.
+            string line = MissionPresentation.BuildNarrativeSummaryLine(
+                null, "Y1, D12", "Y1, D14", "2d 3h", null, 0, "", null, null);
+            Assert.Equal(
+                "Y1, D12" + MissionPresentation.SummarySpanArrow + "Y1, D14"
+                + MissionPresentation.SummarySeparator + "2d 3h",
+                line);
+        }
+
+        [Fact]
+        public void BuildNarrativeSummaryLine_UnnamedCrewFallsBackToTheCount()
+        {
+            string line = MissionPresentation.BuildNarrativeSummaryLine(
+                "Kerbin", null, null, null, null, 3, null, null, null);
+            Assert.Equal("Kerbin" + MissionPresentation.SummarySeparator + "3 crew", line);
+        }
+
+        [Fact]
+        public void BuildSummaryDetailTooltip_CarriesTheFactsTheNarrativeDropped()
+        {
+            string tip = MissionPresentation.BuildSummaryDetailTooltip(
+                "Y1, D12", "Y1, D14", 3,
+                new List<string> { "Jeb Kerman", "Bob Kerman", "Val Kerman", "Bill Kerman" });
+            Assert.Equal(
+                "Y1, D12" + MissionPresentation.SummarySpanArrow + "Y1, D14"
+                + "\n3 vessels"
+                + "\nCrew: Jeb Kerman, Bob Kerman, Val Kerman, Bill Kerman",
+                tip);
+        }
+
+        [Fact]
+        public void BuildSummaryDetailTooltip_NoDetail_FallsBackToTheGenericTooltip()
+        {
+            Assert.Equal(MissionPresentation.MissionSummaryTooltip,
+                MissionPresentation.BuildSummaryDetailTooltip("", "", 0, null));
+        }
+
+        [Fact]
+        public void ComputeSummaryFacts_CrewNamesInFirstAppearanceOrder()
+        {
+            // The launch leg names Jeb + Bob; the EVA leg adds Val (as an EvaCrewName). Fails if
+            // the roster loses the EVA kerbal, double-counts a rider, or reorders away from
+            // first appearance (legs walked by StartUT).
+            BuildModels(
+                new[]
+                {
+                    Leg("L", "C", 0, 0, 42, pods: 1,
+                        crewNames: new[] { "Bob Kerman", "Jeb Kerman" }),
+                    Leg("cont", "C2", 0, 42, 200, pods: 1,
+                        crewNames: new[] { "Bob Kerman", "Jeb Kerman" },
+                        terminal: TerminalState.Landed),
+                    Leg("eva", "C3", 0, 50, 90, eva: "Val Kerman", vessel: "Val Kerman"),
+                },
+                new[]
+                {
+                    BP("bp1", BranchPointType.JointBreak, new[] { "L" },
+                        new[] { "cont" }, splitCause: "DECOUPLE"),
+                    BP("bp2", BranchPointType.EVA, new[] { "cont" }, new[] { "eva" }),
+                },
+                out MissionStructure structure, out MissionThroughLineView view,
+                out List<MissionCompositionNode> roots);
+
+            MissionPresentation.MissionSummaryFacts facts =
+                MissionPresentation.ComputeSummaryFacts(structure, view, roots);
+
+            Assert.Equal(
+                new List<string> { "Bob Kerman", "Jeb Kerman", "Val Kerman" },
+                facts.CrewNames);
+            Assert.Equal(3, facts.CrewCount);
+        }
+
+        [Fact]
+        public void GetBodyTransitionSequence_WalksPointsAndFallsBackToTheStartBody()
+        {
+            var rec = new Recording { RecordingId = "r1" };
+            rec.Points.Add(new TrajectoryPoint { bodyName = "Kerbin" });
+            rec.Points.Add(new TrajectoryPoint { bodyName = "Kerbin" });
+            rec.Points.Add(new TrajectoryPoint { bodyName = "Mun" });
+            Assert.Equal(new List<string> { "Kerbin", "Mun" },
+                RecordingStore.GetBodyTransitionSequence(rec));
+
+            var bare = new Recording { RecordingId = "r2", StartBodyName = "Eve" };
+            Assert.Equal(new List<string> { "Eve" },
+                RecordingStore.GetBodyTransitionSequence(bare));
+
+            Assert.Empty(RecordingStore.GetBodyTransitionSequence(null));
+        }
     }
 }

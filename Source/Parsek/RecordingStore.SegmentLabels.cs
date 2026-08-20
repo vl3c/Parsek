@@ -75,6 +75,56 @@ namespace Parsek
             return result;
         }
 
+        /// <summary>
+        /// The ordered body-transition sequence of one recording (consecutive duplicates
+        /// collapsed): the same walk the segment body-path label uses (Points first, then
+        /// TrackSection frames / bodyFixedFrames / checkpoints), falling back to the single
+        /// segment / start body when no per-sample bodies exist. Used by the Missions header's
+        /// narrative body path (T2.1), which concatenates these across a through-line's legs.
+        /// Never null; empty when the recording carries no body at all.
+        /// </summary>
+        internal static List<string> GetBodyTransitionSequence(Recording rec)
+        {
+            var bodies = new List<string>();
+            if (rec == null)
+                return bodies;
+
+            if (rec.Points != null)
+                for (int i = 0; i < rec.Points.Count; i++)
+                    AppendBodyTransition(bodies, rec.Points[i].bodyName);
+
+            if (bodies.Count == 0 && rec.TrackSections != null)
+            {
+                for (int i = 0; i < rec.TrackSections.Count; i++)
+                {
+                    TrackSection section = rec.TrackSections[i];
+                    if (section.frames != null && section.frames.Count > 0)
+                    {
+                        AppendBodyTransitions(bodies, section.frames);
+                    }
+                    else if (section.bodyFixedFrames != null && section.bodyFixedFrames.Count > 0)
+                    {
+                        AppendBodyTransitions(bodies, section.bodyFixedFrames);
+                    }
+                    else if (section.checkpoints != null)
+                    {
+                        for (int j = 0; j < section.checkpoints.Count; j++)
+                            AppendBodyTransition(bodies, section.checkpoints[j].bodyName);
+                    }
+                }
+            }
+
+            if (bodies.Count == 0)
+            {
+                string body = rec.SegmentBodyName;
+                if (string.IsNullOrEmpty(body))
+                    body = rec.StartBodyName;
+                AppendBodyTransition(bodies, body);
+            }
+
+            return bodies;
+        }
+
         private static bool TryBuildBodyPathLabel(List<TrajectoryPoint> points, out string label)
         {
             label = null;
