@@ -1385,6 +1385,64 @@ class KrpcMissionControl(MissionControl):
                 _stdout_sink(mlib.format_mission_log_line(
                     "Warn", "Plan",
                     "operation_course_correction.make_nodes failed: %s" % (exc,)))
+        elif kind == mlib.ACTION_ADD_MANEUVER_NODE:
+            # PARENT-RELAY escape node (B5_ESCAPE). The ONE maneuver node this
+            # runner authors WITHOUT MechJeb, and it exists because MechJeb's
+            # own interplanetary planner REFUSES a moon-parked origin (see
+            # mlib.B5_ESCAPE). Surface: kRPC CORE, not KRPC.MechJeb --
+            # SpaceCenter.Control.add_node(ut, prograde=, normal=, radial=),
+            # verified against the pinned 0.5.4 client (Control.AddNode returns
+            # the created Node).
+            #
+            # PROGRADE ONLY. mlib computes a pure prograde dv and does NOT aim
+            # the outgoing asymptote (escape_node_plan's docstring says why and
+            # what it costs); passing a normal/radial component here would imply
+            # an aiming capability that does not exist and would silently
+            # diverge from the number the machine's own evidence rows report.
+            #
+            # SET-then-READ-BACK, the ACTION_MJ_PLAN_PARK_TRIM contract: the UT
+            # and dv are read back off the created node and LOGGED, because a
+            # node that landed somewhere other than where the machine computed
+            # it is the one failure this action can have that node_count alone
+            # cannot see. Same throw/log/swallow discipline as the PLAN_*
+            # actions: a failure leaves node_count at 0 and the ESCAPE phase's
+            # bounded re-plan cadence + its NAMED budget give-up own it.
+            # ONE GUARD THAT THE PLAN_* ACTIONS DO NOT NEED, and it closes a
+            # window unique to this one. The machine re-issues a plan only while
+            # it BELIEVES node_count is 0, which is a reading up to one poll old;
+            # `make_nodes` is safe under that lag because MechJeb replaces its
+            # own plan, but `add_node` is PURELY ADDITIVE - a stale read would
+            # stack a SECOND full escape burn. The existing stray-node cleanup at
+            # the TRANSFER-BURN exit would abort it, but only after the executor
+            # had a chance to fly it. Checking LIVE truth at the moment of the
+            # call removes the window instead of surviving it.
+            try:
+                if len(control.nodes) > 0:
+                    _stdout_sink(mlib.format_mission_log_line(
+                        "Warn", "Escape",
+                        "escape node add SKIPPED: %d node(s) already pending "
+                        "(the machine's node_count read was stale; adding would "
+                        "stack a second escape burn)" % (len(control.nodes),)))
+                    return
+                node_ut = float(action.node_ut)
+                prograde = float(action.value)
+                node = control.add_node(node_ut, prograde=prograde)
+                back_ut, back_dv = float("nan"), float("nan")
+                try:
+                    back_ut, back_dv = float(node.ut), float(node.prograde)
+                except Exception:
+                    pass  # the read-back is observability; the node still stands
+                _stdout_sink(mlib.format_mission_log_line(
+                    "Info", "Escape",
+                    "escape node added ut=%.3f prograde=%.2f m/s "
+                    "(read back ut=%s prograde=%s); nodes=%d"
+                    % (node_ut, prograde, _fmt(back_ut), _fmt(back_dv),
+                       len(control.nodes))))
+            except Exception as exc:
+                _stdout_sink(mlib.format_mission_log_line(
+                    "Warn", "Escape",
+                    "escape node add failed (ut=%s prograde=%s): %s"
+                    % (action.node_ut, action.value, exc)))
         elif kind == mlib.ACTION_MJ_PLAN_CAPTURE:
             # ORBIT missions (B11/B12): plan the CAPTURE burn inside the target
             # SOI -- MechJeb's circularize operation aimed at the next PERIAPSIS.
