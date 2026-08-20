@@ -66,6 +66,17 @@ namespace Parsek.Reaim
     internal static class ReaimClassifier
     {
         /// <summary>
+        /// The missing-heliocentric-leg decline, verbatim. Hoisted to a constant so the
+        /// split-sibling diagnostic (<see cref="ReaimSplitSiblingDiag"/>) can RECOGNIZE this
+        /// decline class without duplicating the literal - the two cannot drift apart. The text
+        /// itself is unchanged and grep-stable (KSP.log readers and the committed harness lanes
+        /// match it); changing it is a log-contract change, not a refactor.
+        /// </summary>
+        internal const string MissingHeliocentricLegReason =
+            "no heliocentric (common-ancestor) leg recorded - never warped through the coast, "
+            + "or background; staying faithful";
+
+        /// <summary>
         /// Classifies a recording's non-predicted OrbitSegments into the re-aim phase model. Pure.
         /// Returns Supported=true only for a cross-parent single-hop mission with a recorded
         /// heliocentric (common-ancestor) leg, a parking orbit, and a direct-child arrival; every
@@ -105,8 +116,7 @@ namespace Parsek.Reaim
                 }
             }
             if (helioIdx < 0)
-                return ReaimMissionPlan.Unsupported(launchBody,
-                    "no heliocentric (common-ancestor) leg recorded - never warped through the coast, or background; staying faithful");
+                return ReaimMissionPlan.Unsupported(launchBody, MissingHeliocentricLegReason);
 
             string commonAncestor = segs[helioIdx].bodyName;
 

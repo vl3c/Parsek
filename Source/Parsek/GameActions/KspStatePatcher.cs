@@ -191,6 +191,9 @@ namespace Parsek
             targetScience = AdjustSciencePatchTargetForPendingRecentScienceEarning(
                 targetScience,
                 currentScience);
+            targetScience = AdjustSciencePatchTargetForPendingStrategyScienceDebit(
+                targetScience,
+                currentScience);
 
             // "Keep what you earned" guard (plan §3.3 / §4.2): clamp keyed on the
             // NON-RESERVED running balance, not the reservation-aware target. A
@@ -200,10 +203,11 @@ namespace Parsek
             //
             // DEVIATION from the literal plan seam (achieving its INTENT, plan §3.3 /
             // §2.6.3): the running-balance discriminator is the pending-adjusted running
-            // balance, not the raw GetRunningScience(). The two pending adjusters above
-            // (AdjustSciencePatchTargetForPendingRecent{ScienceEarning,TechResearch})
-            // exist precisely for the brief window where a stock KSC science credit /
-            // tech-unlock debit has hit the live singleton but the matching ledger action
+            // balance, not the raw GetRunningScience(). The three pending adjusters above
+            // (AdjustSciencePatchTargetForPendingRecent{ScienceEarning,TechResearch} plus
+            // AdjustSciencePatchTargetForPendingStrategyScienceDebit) exist precisely for
+            // the window where a stock KSC science credit / tech-unlock debit / strategy
+            // currency exchange has hit the live singleton but the matching ledger action
             // is still catching up. During that window the raw running balance is
             // transiently below/above live for a KNOWN in-flight reason (not a missing
             // earning channel), so folding the same pending credit/debit into the
@@ -834,9 +838,47 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Keeps a recent stock strategy currency-exchange science debit (Patents
+        /// Licensing) authoritative while the matching
+        /// <see cref="GameActionType.StrategyScienceDebit"/> ledger row is still catching
+        /// up. Same shape and same direction as
+        /// <see cref="AdjustSciencePatchTargetForPendingRecentTechResearch"/>, but the
+        /// race it covers is the LIVE-RECORDER one: KSP debits the pool the moment the
+        /// exchange fires and the ledger row only lands at recording commit, so without
+        /// this the patch would refund the traded-away science on every recalc in between
+        /// (and the drawdown guard would clamp + toast the player each time).
+        /// </summary>
+        internal static double AdjustSciencePatchTargetForPendingStrategyScienceDebit(
+            double targetScience,
+            float currentScience)
+        {
+            if (targetScience <= (double)currentScience)
+                return targetScience;
+
+            double pendingDebit = LedgerOrchestrator.GetPendingUncommittedStrategyScienceDebit();
+            if (pendingDebit <= 0.0)
+                return targetScience;
+
+            double adjustedTarget = targetScience - pendingDebit;
+            if (adjustedTarget < (double)currentScience)
+                adjustedTarget = (double)currentScience;
+
+            if (adjustedTarget < targetScience)
+            {
+                ParsekLog.Verbose(Tag,
+                    $"PatchScience: holding back {pendingDebit.ToString("F1", IC)} pending strategy-exchange science " +
+                    $"(current={currentScience.ToString("F1", IC)}, " +
+                    $"ledgerTarget={targetScience.ToString("F1", IC)}, " +
+                    $"adjustedTarget={adjustedTarget.ToString("F1", IC)})");
+            }
+
+            return adjustedTarget;
+        }
+
+        /// <summary>
         /// The pending-adjusted realized running science balance — the exact value
         /// <see cref="PatchScience"/> uses as its drawdown-guard discriminator (the raw
-        /// <c>GetRunningScience()</c> folded with the two in-flight KSC pending
+        /// <c>GetRunningScience()</c> folded with the three in-flight pending
         /// adjusters). Extracted so the rewind read-back guard reads a byte-identical
         /// value: comparing the recalc target against anything but the same realized
         /// running quantity would diverge by a transient ledger-catch-up credit / debit.
@@ -845,7 +887,8 @@ namespace Parsek
         {
             return science.GetRunningScience()
                 + LedgerOrchestrator.GetPendingRecentKscScienceCredit()
-                - LedgerOrchestrator.GetPendingRecentKscTechResearchScienceDebit();
+                - LedgerOrchestrator.GetPendingRecentKscTechResearchScienceDebit()
+                - LedgerOrchestrator.GetPendingUncommittedStrategyScienceDebit();
         }
 
         /// <summary>

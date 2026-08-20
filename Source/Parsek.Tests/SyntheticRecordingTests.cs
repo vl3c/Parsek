@@ -23,7 +23,15 @@ namespace Parsek.Tests
     {
         private static string ProjectRoot => ResolveProjectRoot();
 
-        private static string ResolveProjectRoot()
+        /// <summary>
+        /// Walks up from the test working directory probing for
+        /// <c>Source/Parsek.sln</c> and returns the repo root. INTERNAL so other test
+        /// files share ONE implementation rather than each hard-coding a `..` count
+        /// (xUnit runs from <c>Source/Parsek.Tests/bin/Debug/net472/</c>, so a
+        /// hard-coded count silently breaks if the output layout moves). Falls back to
+        /// the five-segment relative walk.
+        /// </summary>
+        internal static string ResolveProjectRoot()
         {
             string current = Directory.GetCurrentDirectory();
             for (int i = 0; i < 10; i++)

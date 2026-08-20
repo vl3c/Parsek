@@ -31,7 +31,7 @@ tags = ["periodicity", "reaim", "solver", "M2", "D11"]
 
 [fixture]
 # fresh-sandbox (see M1): vessel-less, so TestCommandLoadGame.DecideLoadRoute settles at
-# SPACECENTER, which is where 10 of the category's 11 tests live. The solver tests need
+# SPACECENTER, which is where 12 of the category's 13 tests live. The solver tests need
 # nothing from the save except a loaded game and a populated FlightGlobals.Bodies.
 # No [expectations.ledger] block: this scenario asserts nothing about the economy, so it
 # never meets the no-pools seed-baseline gate that blocks L1-passive-sandbox.
@@ -106,15 +106,41 @@ count = { min = 0, max = 0 }
 # an InGameAssert.Skip when the pinned scan band contains no retaining departure - which
 # would move passed 8 -> 7 AND skipped 4 -> 5 (InGameTestRunner.RecordSkip sets TestStatus.Skipped; total stays 12). Either way the pinned line mismatches and the gate reds.
 #
+# RE-PINNED 2026-08-15 (+1 total, +1 passed) for the M-MIS-3 BAND WALK cell,
+# Reaim_KerbinToEeloo_BandWalk_AcceptsOutsideTheBaseBand - the closure of the behavioural
+# half of M-MIS-3. It walks every step-0-INFEASIBLE departure in the pinned Kerbin->Eeloo
+# scan through the product's own candidate list and its own accept/reject arbiter
+# (ReaimTransferSynthesizer.TrySynthesizeTransfer), and asserts that at least one accepts
+# OUTSIDE the recorded +-6% base band. MEASURED on the 2026-08-15 flight
+# (logs/2026-08-15_1551_M2-periodicity-solver): 15 of 48 departures are step-0-infeasible,
+# 3 of those accept outside the base band, 10 inside, 2 decline entirely, deepest walk
+# 0.1550 of the recorded tof against a 0.0600 base and a 0.1900 scaled band. The deepest of
+# the three is then driven through the real resolver, which accepts it and says so on its own
+# line: devFromRecorded=5948596.215220049s.
+# skipped stays 4: the cell declares neither Scene = FLIGHT nor AllowBatchExecution =
+# false. Its skip routes are the eTarget guard (stock ecc no longer widening the band) and
+# the fixture guards inherited from BuildPinnedScanOrSkip - either would move passed 9 -> 8
+# AND skipped 4 -> 5, mismatching this line, which is the intended behavior.
+#
+# THE FIRST ATTEMPT AT THIS CELL SKIPPED, and the reason is worth keeping. It pinned five
+# departures a headless tilt-gate model predicted would walk; the live synthesizer accepted
+# step 0 at the first of them, the premise guard fired, and the batch read
+# `total=13 passed=8 skipped=5`. The model was not wrong about the tilt gate - it
+# reproduces the logged candidate inclinations exactly - it was wrong to assume a fired
+# tilt correction then dies at the PatchedConics encounter check. That holds at the M2
+# window-1 geometry and is not a law. The cell now MEASURES the map instead of pinning a
+# prediction, and the three departures it finds (scanIdx 24, 25, 26 at candidates 32, 48,
+# 62) are exactly three of the five the model named - the model's error was additive, not
+# directional.
 # The pre-flight derivation below was written from the [InGameTest] attributes and the
 # live line confirmed it token for token. This category is the one where a naive
 # "total=N passed=N skipped=0" pin would be WRONG, so the derivation is kept as the
 # explanation of WHY each number is what it is:
-#  - total=12: exactly 12 [InGameTest(Category = "Periodicity")] methods exist
-#    (ReaimEndToEndInGameTest 10, CrossParentReaimCanaryInGameTest 1,
+#  - total=13: exactly 13 [InGameTest(Category = "Periodicity")] methods exist
+#    (ReaimEndToEndInGameTest 11, CrossParentReaimCanaryInGameTest 1,
 #    ReaimLandingCoincidenceInGameTest 1 - and that last one is FLIGHT-scene).
 #    Re-derive with `grep -c 'Category = "Periodicity"'` over those three files; the
-#    10 + 1 + 1 must equal the pinned total. BATCH_COMPLETE's total is
+#    11 + 1 + 1 must equal the pinned total. BATCH_COMPLETE's total is
 #    `allTests.Count(Status != NotRun)`, which counts every filtered test too.
 #  - skipped=4, from TWO different filters applied in order by RunCategory:
 #      * FilterSceneEligibleBatchCandidates first drops the 1 Scene = GameScenes.FLIGHT
@@ -122,13 +148,15 @@ count = { min = 0, max = 0 }
 #        real landing site);
 #      * PrepareBatchExecution then drops the 3 that declare AllowBatchExecution = false
 #        (Reaim_KerbinTo{Moho,Eeloo,Duna}_FeasibilitySweep_Diagnostic at
-#        ReaimEndToEndInGameTest.cs:827/836/1015 - measurement artifacts, single-run-only
-#        by design).
+#        ReaimEndToEndInGameTest.cs:1098/1107/1286 - measurement artifacts, single-run-only
+#        by design; re-measured at HEAD 2026-08-15, having been stale by 35 lines since before this
+#        branch and by 271 after its insertion).
 #    Both filters mark the test Skipped, so all 4 land in the skipped tally.
-#  - passed=8: the remaining 8 batch-eligible SPACECENTER tests execute - the other 7 of
-#    ReaimEndToEndInGameTest's 10 (EveryWindowResolvesSaneTransfer, BandEdgeWindows,
+#  - passed=9: the remaining 9 batch-eligible SPACECENTER tests execute - the other 8 of
+#    ReaimEndToEndInGameTest's 11 (EveryWindowResolvesSaneTransfer, BandEdgeWindows,
 #    ObservedEdgeDeparture, KerbinToMoho / KerbinToEeloo StructuralContract,
-#    KerbinToEve UnreachablePlaneRetainsTiltAndStillEncounters, ParkingDeparture) plus
+#    KerbinToEve UnreachablePlaneRetainsTiltAndStillEncounters, ParkingDeparture,
+#    KerbinToEeloo BandWalk_AcceptsOutsideTheBaseBand) plus
 #    the CrossParentReaimCanary. Their
 #    InGameAssert.Skip guards fire only on a non-stock body graph, degenerate live orbit
 #    data, a fixture offset that stock eccentricity drift has pushed outside the
@@ -140,7 +168,52 @@ count = { min = 0, max = 0 }
 # tripping one of those guards now reds here with the exact number to re-derive from.
 # That is the intended behavior. Do NOT relax this back to a bare failed=0 - the whole
 # point of the scenario is that these solvers actually ran.
-required  = ["BATCH_COMPLETE v1 total=12 passed=8 failed=0 skipped=4 category=Periodicity scene=SPACECENTER"]
+required  = [
+  "BATCH_COMPLETE v1 total=13 passed=9 failed=0 skipped=4 category=Periodicity scene=SPACECENTER",
+
+  # ---- M-MIS-3 BEHAVIOURAL CLOSURE, armed 2026-08-15 off logs/2026-08-15_1551_M2-periodicity-solver. ----
+  #
+  # WHY THESE TOKENS ARE NARROW. TrySynthesizeTransfer's PatchedConics tail is NOT reproducible run to
+  # run: two runs of this cell five minutes apart (logs/2026-08-15_1517 and _1521, same DLL, same
+  # fixture) disagreed at scanIdx=36, where the first accepted candidate moved k=+2 -> k=+3. That flip
+  # stayed inside the base band and moved none of the armed numbers, but a flip at a departure near the
+  # 0.06 edge WOULD move `insideBaseBand` / `declined` / `step0Infeasible`. So the cell emits the stable
+  # quantities FIRST, as one contiguous run, and everything volatile after the first `|` - and only the
+  # stable run is armed. The volatile counts stay in the log for a reader; they are not a gate.
+  #
+  # The load-bearing token is `outsideBaseBand=3`: three step-0-infeasible departures accept a candidate
+  # beyond the 0.06 base band, i.e. the eccentricity-widened region is ENTERED AND USED rather than
+  # merely computed. `deepestWalk=0.1550` pins how far - 2.6x the base-band edge, still inside the
+  # 0.1900 scaled band, so invariant (c) is visible in the same token. The three walking departures sit
+  # at candidates 32/48/62, deep in the expansion, and reproduced exactly across all four runs that
+  # carry this line. THE RESIDUAL EXPOSURE, stated rather than argued away: `outsideBaseBand` is still
+  # a count produced by the same non-reproducible arbiter, so what bounds it is the nearest
+  # inside->outside margin, NOT the walkers' depth. Today that is scanIdx=4 at dev=0.0450, three
+  # k-steps below the 0.06 edge, against an observed flip magnitude of ONE k-step - about 3x margin.
+  # If a future re-pin lands a departure within one step of the edge, narrow this token further.
+  "band walk Kerbin->Eeloo: outsideBaseBand=3 deepestWalk=0.1550 baseHalfWidth=0.0600 scaledHalfWidth=0.1900 eTarget=0.2600",
+
+  # The closure is product-visible, not only synthesizer-level: the DEEPEST-walking departure (scanIdx
+  # 26, dev 0.1550) is driven through the real resolver. `map=` / `resolved=` are deliberately NOT armed
+  # - requireAllWindowsResolve is false, so a later window declining cleanly is a legal outcome for an
+  # awkward departure and must not red the closure. Only window 0 is asserted, by the cell itself.
+  "band walk Kerbin->Eeloo resolver end-to-end: scanIdx=26 deepestWalk=0.1550",
+
+  # THE PRIMARY EVIDENCE, and stronger than either line above: this is ReaimPlaybackResolver's OWN
+  # `re-aimed transfer ready:` line, not the cell's re-walk. The resolver itself chose
+  # tof=44326636.313413888 against recorded=38378040.098193839 - devFromRecorded=5948596.215220049s,
+  # which is 0.1550 of the recorded tof. It is the FIRST devFromRecorded outside the base band in the
+  # entire log archive: the prior 79 emissions max out at |k| = 7 (0.035). Split in two so the derived
+  # departure UT is not pinned: identity first, then the payload.
+  #
+  # NOT a collision with the V-lanes that arm this same line shape. They arm their own logs (V12A/V10/
+  # V11A arm `re-aimed transfer ready: departUT=<their UT>`, V8 arms the bare prefix), and a required
+  # token is scoped to the scenario that declares it.
+  "member=reaim-e2e-eeloo-bandwalk-26 window=0 re-aimed transfer ready:",
+  # NOTE: required tokens are applied with re.search, so the literal `(` is escaped - and the
+  # backslash is DOUBLED because TOML consumes one before the regex engine sees it.
+  "tof=44326636.313413888 \\(recorded=38378040.098193839 geom=34266107.23053021 eTarget=0.2600 halfWidthFraction=0.1900 devFromRecorded=5948596.215220049s",
+]
 forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
 
 [runtime]

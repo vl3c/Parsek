@@ -18,6 +18,9 @@ namespace Parsek.TestCommands
         /// <summary>Reject reason for an <c>isolated</c> arg that is not exactly "true"/"false".</summary>
         internal const string IsolatedArgInvalidReason = "isolated-arg-invalid";
 
+        /// <summary>Reject reason for a <c>strict</c> arg that is not exactly "true"/"false".</summary>
+        internal const string StrictArgInvalidReason = "strict-arg-invalid";
+
         /// <summary>Reject reason for a <c>category</c> arg that is present but empty.</summary>
         internal const string CategoryArgEmptyReason = "category-arg-empty";
 
@@ -66,6 +69,48 @@ namespace Parsek.TestCommands
             if (raw == "true")
             {
                 isolated = true;
+                return true;
+            }
+            return false;
+        }
+
+        /// <summary>
+        /// Parses the optional <c>strict</c> arg of the <c>RunTests</c> verb (career-ledger
+        /// B.4). It is the per-scenario seam for
+        /// <c>LedgerGroundTruthDiff.StrictPerIdentityForTesting</c>, which promotes the
+        /// ground-truth diff's REPORT-ONLY per-identity divergences to hard failures.
+        ///
+        /// WHY A VERB ARG AND NOT A WHITELISTED SETTING. Every name in
+        /// <c>SettingWhitelist</c> is a real <c>ParsekSettings</c> field a player can see
+        /// and toggle. Strictness of a diff that only ever runs inside one in-game test
+        /// category is not a player-facing preference, and promoting a test seam to a
+        /// shipped setting is the "temporary scaffold is not a feature" trap. The arg
+        /// keeps the flag exactly where it belongs - on the command that starts the batch
+        /// that reads it - and adds no settings surface, no sidecar key and no UI row.
+        ///
+        /// PARSE CONTRACT IS <see cref="TryParseIsolatedArg"/>'s, VERBATIM: absent is the
+        /// ordinary (non-strict) path, only the exact lowercase wire literals are
+        /// accepted, and an empty or mis-cased value is a REJECTED verdict rather than a
+        /// silent fallback. Same reason - the value reaches the wire through
+        /// <c>run.py::encode_value</c> == <c>str(value)</c>, so a TOML bool would arrive
+        /// as <c>strict=True</c>, and a lenient parse would let a spec that reads as armed
+        /// run un-armed.
+        ///
+        /// ASSIGNMENT IS UNCONDITIONAL AT THE CALL SITE, which is what makes the flag
+        /// per-scenario rather than per-process-sticky: every <c>RunTests</c> writes the
+        /// parsed value (absent = false) into the static, so a second batch in the same
+        /// run cannot inherit strictness from the first.
+        /// </summary>
+        internal static bool TryParseStrictArg(string raw, out bool strict)
+        {
+            strict = false;
+            if (raw == null)
+                return true;
+            if (raw == "false")
+                return true;
+            if (raw == "true")
+            {
+                strict = true;
                 return true;
             }
             return false;
