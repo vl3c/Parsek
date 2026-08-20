@@ -14,6 +14,21 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## MISSIONS-T2.2-LINEAGE-FAN-NOT-COLLAPSIBLE: the flattened per-vessel rows cannot fold a many-child separation fan [ACCEPTED LIMITATION 2026-08-20, from the Stage-2 review of the missions-UI branch]
+
+The T2.2 flattening (one row per physical vessel, lineage-only depth) renders a vessel's
+separated children unconditionally; the vessel-row caret expands/collapses only the interval
+DETAIL (Advanced). The old staircase's caret collapsed the entire child subtree, so an
+asparagus launch with 8 boosters could be folded to one row; the new view always shows the
+~9 vessel rows (still strictly fewer rows than the old EXPANDED default, which added interval
+and roster-atom rows on top). Accepted because a second meaning on the same caret needs a
+three-state affordance; revisit if long missions make the tab scroll-heavy in practice.
+Related deferral: `MissionPresentation.SeparationVerb` / `IsDockEventWord` classify on the
+RENDERED event words rather than `BranchPointType` + cause - re-wording `BranchEventName`
+silently degrades the T1.3/T1.4 phrasing to its fallbacks; the right home is a typed
+classifier beside `BranchEventName` (or a `BranchPointType?` on `MissionCompositionNode`),
+deliberately not done during the review-fix pass.
+
 ## MECHJEB-INTERPLANETARY-PLANNER-REJECTS-MOON-ORIGIN: MechJeb 2.15.1's `OperationInterplanetaryTransfer.MakeNodes` throws on a MOON-PARKED origin, so the harness cannot currently fly any moon-to-moon transfer [MEASURED 2026-08-19 by `B26-laythe-vall-transfer` flight 1, DETERMINISTIC 2/2 attempts. HARNESS SURFACE, REPORT-ONLY - not a Parsek defect and not a spec defect; it blocks the M-MIS-7 subject's PRODUCTION, not the product question]
 
 **THIS IS A HARNESS-CAPABILITY GAP, NOT A PRODUCT FINDING.** Nothing in Parsek ran,
