@@ -28,6 +28,27 @@ namespace Parsek
         public string ForeignVesselName;      // merged-stack vessel name (affordance label)
     }
 
+    /// <summary>
+    /// One recovered SAME-TREE dock claim (design-dock-event-graph.md 6.2): a single-parent
+    /// Dock/Board branch point whose <see cref="BranchPoint.TargetVesselPersistentId"/>
+    /// resolves (guid-gated) to a recording in the SAME tree that is not one of the branch
+    /// point's own parents. This is the cross-session shape (extract 1.5 / the A-&gt;D case):
+    /// the partner's leaf was terminal-stamped at commit, so BackgroundMap missed it and the
+    /// dock recorded single-parent, while FindLinks skips own-tree claims. Consumed by the
+    /// dock-event graph for naming / digest / chapters / seam markers only; same-tree claims
+    /// mint NO selection affordance (design Q8: both sides are already selectable members of
+    /// the same tree) and never join a partner journey.
+    /// </summary>
+    internal sealed class SameTreeDockClaim
+    {
+        public string BranchPointId;          // claiming BranchPoint.Id (stable GUID)
+        public double DockUT;                 // branch point UT (the merge)
+        public BranchPointType ClaimType;     // Dock or Board
+        public uint PartnerPid;               // bp.TargetVesselPersistentId
+        public string ClaimedRecordingId;     // same-tree recording matched by pid (+ guid gate)
+        public string MergedChildRecordingId; // the combined-stack recording (bp child[0])
+    }
+
     internal static class MissionCrossTreeDock
     {
         // Comp-node UTs derive from the same leg UT doubles the journey windows derive from,
@@ -119,6 +140,112 @@ namespace Parsek
                     $"CrossTreeDock: tree={myTree.Id} links={links.Count} " +
                     $"scannedTrees={scannedTrees} guidRejected={guidRejected}");
             return links;
+        }
+
+        /// <summary>
+        /// Recovers SAME-TREE dock claims (design-dock-event-graph.md 6.2): scans
+        /// <paramref name="tree"/>'s OWN Dock/Board branch points with a single parent and a
+        /// non-zero <c>TargetVesselPersistentId</c>, and resolves the claimed recording inside
+        /// the same tree with the <c>FindClaimedRecording</c> rules (non-debris, pid match,
+        /// guid-gated, earliest StartUT wins) plus three guards FindLinks does not need:
+        /// the candidate must not be one of the branch point's own parents (that is the
+        /// recorder's incoming line, not a recovered partner), must not be the merged child,
+        /// and must START before the dock UT (post-dock continuations carry the surviving pid
+        /// when the partner won the pid contest; claiming them would name the stack as its own
+        /// partner). Two-parent merges are skipped: the co-parent is already the partner.
+        /// The guid gate compares against the merged child's launch guid when the merged child
+        /// carries the target pid (the partner survived as the merged vessel, so its Vessel
+        /// object - and launch guid - continued into the merged recording); otherwise the
+        /// expected guid is unknown and the pid-only fallback applies (walker parity).
+        /// Ordered by (DockUT, BranchPointId). Pure.
+        /// </summary>
+        internal static List<SameTreeDockClaim> FindSameTreeDockClaims(RecordingTree tree)
+        {
+            var claims = new List<SameTreeDockClaim>();
+            if (tree?.BranchPoints == null || tree.Recordings == null || tree.Recordings.Count == 0)
+                return claims;
+
+            int guidRejected = 0;
+            for (int b = 0; b < tree.BranchPoints.Count; b++)
+            {
+                BranchPoint bp = tree.BranchPoints[b];
+                if (bp == null
+                    || (bp.Type != BranchPointType.Dock && bp.Type != BranchPointType.Board)
+                    || bp.TargetVesselPersistentId == 0
+                    || string.IsNullOrEmpty(bp.Id)
+                    || bp.ParentRecordingIds == null
+                    || bp.ParentRecordingIds.Count != 1)
+                    continue;
+
+                string mergedChildId = bp.ChildRecordingIds != null && bp.ChildRecordingIds.Count > 0
+                    ? bp.ChildRecordingIds[0]
+                    : null;
+                if (string.IsNullOrEmpty(mergedChildId)
+                    || !tree.Recordings.TryGetValue(mergedChildId, out Recording mergedChild)
+                    || mergedChild == null)
+                    continue;
+
+                // Expected launch guid: only derivable when the partner survived as the
+                // merged vessel (merged child carries the target pid). Null = unknown =
+                // pid-only fallback, exactly like FindLinks when the partner was absorbed.
+                string expectedGuid =
+                    mergedChild.VesselPersistentId == bp.TargetVesselPersistentId
+                        ? mergedChild.RecordedVesselGuid
+                        : null;
+
+                Recording best = null;
+                bool rejectedByGuid = false;
+                foreach (var rec in tree.Recordings.Values)
+                {
+                    if (rec == null || rec.IsDebris
+                        || rec.VesselPersistentId != bp.TargetVesselPersistentId)
+                        continue;
+                    if (rec.RecordingId == mergedChildId
+                        || bp.ParentRecordingIds.Contains(rec.RecordingId))
+                        continue;
+                    // The partner's own line predates the dock; a recording starting at or
+                    // after the dock UT is a post-dock continuation of the merged stack.
+                    if (!(rec.StartUT < bp.UT - WindowEpsilon))
+                        continue;
+                    if (VesselLaunchIdentity.GuidsConclusivelyDiffer(
+                            rec.RecordedVesselGuid, expectedGuid))
+                    {
+                        rejectedByGuid = true;
+                        continue;
+                    }
+                    if (best == null || rec.StartUT < best.StartUT)
+                        best = rec;
+                }
+                if (rejectedByGuid)
+                    guidRejected++;
+                if (best == null)
+                    continue;
+
+                claims.Add(new SameTreeDockClaim
+                {
+                    BranchPointId = bp.Id,
+                    DockUT = bp.UT,
+                    ClaimType = bp.Type,
+                    PartnerPid = bp.TargetVesselPersistentId,
+                    ClaimedRecordingId = best.RecordingId,
+                    MergedChildRecordingId = mergedChildId
+                });
+            }
+
+            claims.Sort((a, b2) =>
+            {
+                int cmp = a.DockUT.CompareTo(b2.DockUT);
+                return cmp != 0 ? cmp : string.CompareOrdinal(a.BranchPointId, b2.BranchPointId);
+            });
+
+            // Same evidence rule as FindLinks: a recovered claim appearing (naming/digest rows
+            // appear) or a guid-gate rejection (a would-be claim silently absent) both leave
+            // one summary line.
+            if (!SuppressLogging && (claims.Count > 0 || guidRejected > 0))
+                ParsekLog.Verbose("Mission",
+                    $"SameTreeDock: tree={tree.Id} claims={claims.Count} " +
+                    $"guidRejected={guidRejected}");
+            return claims;
         }
 
         /// <summary>
