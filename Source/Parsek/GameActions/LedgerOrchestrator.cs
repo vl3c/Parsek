@@ -958,6 +958,20 @@ namespace Parsek
                 case GameActionType.StrategyScienceCredit:
                     return (a.RecordingId ?? "") + ":" +
                            a.ScienceAwarded.ToString("R", CultureInfo.InvariantCulture);
+                // The query-family reputation OUTPUT leg. Same shape and same two honest
+                // limitations as the science rows above: no strategy identity is available
+                // at that seam and the KSC clock is FROZEN, so the pre-curve NominalRep is
+                // the only disambiguator between two conversions at one UT. Non-strategy
+                // reputation earnings keep the historical "" key (they fall through to the
+                // default below), so this narrows nothing that was previously unique -
+                // BuildStrategyConversionAction is the only production site that builds a
+                // ReputationEarning at all, and its rows do not currently reach
+                // DeduplicateAgainstLedger; the key exists so a future re-home path cannot
+                // silently collapse them.
+                case GameActionType.ReputationEarning
+                        when a.RepSource == ReputationSource.Strategy:
+                    return (a.RecordingId ?? "") + ":" +
+                           a.NominalRep.ToString("R", CultureInfo.InvariantCulture);
                 case GameActionType.FundsEarning: return a.RecordingId ?? "";
                 // FundsSpending: RecordingId alone collides when multiple KSC part
                 // purchases share a null/empty RecordingId. DedupKey is the part name
@@ -974,6 +988,15 @@ namespace Parsek
                 case GameActionType.ContractFail:
                 case GameActionType.ContractCancel: return a.ContractId ?? "";
                 case GameActionType.KerbalHire: return a.KerbalName ?? "";
+                // KerbalExperience: the kerbal name, mirroring KerbalHire. Falling through
+                // to the default "" would make one recovery's crew collapse into a single
+                // row - every crew member's XP row shares the recovery's UT exactly (one
+                // ArchiveFlightLog pass, one Planetarium.GetUniversalTime() read), so
+                // Type + UT alone matches every one of them against every other. The name
+                // is the only per-row identity at that seam and it is always populated
+                // (ConvertExperienceGained refuses a nameless event). Pinned by the
+                // two-crew cell in LedgerRecoveryKerbalExperienceTests.
+                case GameActionType.KerbalExperience: return a.KerbalName ?? "";
                 default: return "";
             }
         }
@@ -3174,16 +3197,24 @@ namespace Parsek
         /// tagged debit for exactly this reason; an untagged row is already where that
         /// re-home would put it).</para>
         ///
-        /// <para>REPUTATION legs are logged and DROPPED. The query delta is the
-        /// modifier's PRE-curve contribution, while <c>Reputation.AddReputation</c>
-        /// applies KSP's granular reputation curve on top, so the number available here
-        /// is not the number the pool moved by - and this seam exposes no post-curve
-        /// value to read. The exchanger family's rep leg is captured instead from the
-        /// <c>ReputationChanged</c> event, which IS the post-curve delta
-        /// (<c>ConvertStrategyExchangeReputation</c> ->
-        /// <c>ReputationModule.ProcessRepPenalty</c>'s no-recurve arm). Writing a
-        /// pre-curve magnitude through either the earning or the penalty arm would
-        /// trade a known drift for a wrong one, so this door observes and says so.</para>
+        /// <para>REPUTATION CREDIT legs land as a NOMINAL
+        /// <c>ReputationEarning</c> row (<c>ReputationSource.Strategy</c>). The query
+        /// delta is PRE-curve, and that is exactly why the nominal arm is the right one:
+        /// stock's <c>Reputation.OnCurrenciesModified</c> passes that very expression to
+        /// <c>addReputation_granular</c>, and <c>ReputationModule.ApplyReputationCurve</c>
+        /// mirrors that routine line by line, so the reconstruction re-derives the pool
+        /// movement at its OWN running rep instead of copying a number measured against a
+        /// different one. This is the OPPOSITE contract from the exchanger family, whose
+        /// rep leg is read POST-curve off the <c>ReputationChanged</c> event and therefore
+        /// bypasses the curve (<c>ConvertStrategyExchangeReputation</c> ->
+        /// <c>ReputationModule.ProcessRepPenalty</c>'s no-recurve arm). Do not merge the
+        /// two: each is faithful only through its own arm.</para>
+        ///
+        /// <para>Negative reputation legs are logged and dropped, for the same reason as
+        /// negative funds: every stock reputation-INPUT converter has a nonzero
+        /// <c>GetInput(Currency.Reputation)</c>, which the scoping rule excludes, so a
+        /// negative zero-input reputation delta is an unmodelled mechanism rather than a
+        /// row shape to guess at.</para>
         ///
         /// <para>NEGATIVE funds legs are logged and dropped too: a converter's funds
         /// OUTPUT is positive by construction and a funds INPUT necessarily has a
@@ -3260,8 +3291,11 @@ namespace Parsek
 
         /// <summary>
         /// Pure row-shape mapper for <see cref="OnStrategyCurrencyConversion"/>.
-        /// Returns null for the two deliberately-unwritten cases (reputation of either
-        /// sign, negative funds) after logging why. Internal static for testability.
+        /// Returns null for the two deliberately-unwritten cases (negative funds,
+        /// negative reputation) after logging why - both are shapes the scoping rule in
+        /// <see cref="StrategyConversionCapture.EvaluateLegs"/> already excludes, so
+        /// reaching them means the mechanism did something this door was not built
+        /// against. Internal static for testability.
         /// </summary>
         internal static GameAction BuildStrategyConversionAction(
             double ut,
@@ -3312,13 +3346,62 @@ namespace Parsek
 
                 case StrategyConversionCurrency.Reputation:
                 default:
-                    ParsekLog.VerboseRateLimited(Tag, "strategy-conversion-rep",
-                        $"Strategy conversion: observed reputation delta=" +
+                    // THE CREDIT ARM. The query delta IS the curve's own input argument:
+                    // stock's Reputation.OnCurrenciesModified calls
+                    // addReputation_granular(query.GetEffectDelta(Currency.Reputation)),
+                    // and StrategyConversionQuery.DeltaReputation is read from that exact
+                    // expression on that exact event. So a NOMINAL ReputationEarning row
+                    // is the faithful shape: ReputationModule.ProcessRepEarning re-runs
+                    // ApplyReputationCurve - a line-by-line mirror of
+                    // addReputation_granular - at the RECONSTRUCTION's own running rep,
+                    // reproducing the pool movement rather than approximating it.
+                    // Corroborated by the live pair measured on run 2026-08-18_2140:
+                    // pre-curve 0.33540129661560059 -> pool move 0.33515101671218872,
+                    // which the curve reproduces to ~1e-7.
+                    //
+                    // NO DOUBLE-COUNT. StrategyConversionCapture.EvaluateLegs only emits a
+                    // reputation leg when InputReputation == 0, i.e. when the transaction
+                    // itself put no reputation in and therefore no ordinary channel
+                    // (TransformedRepReward, MilestoneRepAwarded, the reason-keyed
+                    // exchanger door) is watching it. That scoping rule is what makes this
+                    // row safe; do not relax it. Pinned by
+                    // StrategyConversionCaptureTests.NonZeroInputReputation_IsNotCaptured.
+                    //
+                    // UNTAGGED, like its science / funds siblings on this path:
+                    // irreversible global economy, not recording-owned economy.
+                    if (leg.Delta > 0.0)
+                    {
+                        ParsekLog.Info(Tag,
+                            $"Strategy conversion: reputation CREDIT captured pre-curve " +
+                            $"nominal={leg.Delta.ToString("R", CultureInfo.InvariantCulture)} at " +
+                            $"UT={ut.ToString("F1", CultureInfo.InvariantCulture)} " +
+                            $"(reason={reason ?? "(none)"}) - ReputationModule applies KSP's " +
+                            "granular curve to it at the reconstruction's own running rep");
+                        return new GameAction
+                        {
+                            UT = ut,
+                            Type = GameActionType.ReputationEarning,
+                            RecordingId = null,
+                            NominalRep = (float)leg.Delta,
+                            RepSource = ReputationSource.Strategy
+                        };
+                    }
+
+                    // THE DEBIT ARM IS DELIBERATELY NOT BUILT. Every stock rep-INPUT
+                    // converter (FundraisingCampaign, UnpaidResearchProgram) diverts a
+                    // fraction of a reputation transaction, so InputReputation != 0 and the
+                    // scoping rule above excludes it before this method is ever called - a
+                    // negative zero-input reputation leg means the mechanism does something
+                    // this door was not built against. Guessing a row shape for it is worse
+                    // than saying so loudly. Same stance as the negative funds arm.
+                    // See STRATEGY-REP-DEBIT-CONVERTERS-UNCAPTURED in
+                    // docs/dev/todo-and-known-bugs.md.
+                    ParsekLog.Warn(Tag,
+                        $"Strategy conversion: unexpected NEGATIVE zero-input reputation delta=" +
                         $"{leg.Delta.ToString("R", CultureInfo.InvariantCulture)} at " +
                         $"UT={ut.ToString("F1", CultureInfo.InvariantCulture)} " +
-                        $"(reason={reason ?? "(none)"}) - NOT captured; the query delta is " +
-                        "pre-curve while AddReputation applies KSP's curve, so this " +
-                        "magnitude is not the pool movement", 5.0);
+                        $"(reason={reason ?? "(none)"}) - not captured, see " +
+                        "OnStrategyCurrencyConversion's contract");
                     return null;
             }
         }
@@ -3656,6 +3739,122 @@ namespace Parsek
 
             RecalculateAndPatchForLiveTimelineEvent(subject.captureUT, "ksc-science");
             return true;
+        }
+
+        /// <summary>
+        /// KERBAL-XP-UNTAGGED-RECOVERY-HAS-NO-LEDGER-ROW: writes the crew's
+        /// <see cref="GameActionType.KerbalExperience"/> rows for a recovery that reached
+        /// the XP seam with no live recorder to tag it - the KSC / tracking-station
+        /// recovery, and (measured) the ordinary FLIGHT recovery too, whose reward burst
+        /// fires in SPACECENTER milliseconds AFTER the scene-exit auto-commit has already
+        /// closed the tree.
+        ///
+        /// <para>
+        /// <b>The correlation is the whole fix.</b> The carve-out this replaces refused to
+        /// write anything because a null-<c>RecordingId</c> XP row could never be
+        /// tombstoned (<see cref="TombstoneEligibility"/> is scoped by recording), so a
+        /// re-fly could not take the XP back and the monotone career-log re-assert would
+        /// put it on the roster forever. Resolving an owner through
+        /// <see cref="PickRecoveryRecordingId"/> removes that objection: the row is scoped,
+        /// so the merge retires it exactly like the recovery's funds row.
+        /// </para>
+        ///
+        /// <para>
+        /// <b>Why THIS correlator and no other.</b>
+        /// <see cref="ResurrectionRetirementEligibility"/> bundles a recovery's
+        /// <c>FundsEarning(Recovery)</c>, <c>ScienceEarning</c>, <c>KerbalAssignment</c> and
+        /// <c>KerbalExperience</c> rows by SHARED <c>RecordingId</c>. The funds and science
+        /// legs both resolve through <see cref="PickRecoveryRecordingId"/>; picking any
+        /// other way here would scope the XP row to a different recording and split a
+        /// bundle that is retired as a unit.
+        /// </para>
+        ///
+        /// <para>
+        /// <b>A null pick REFUSES the write</b> rather than falling back to an untagged
+        /// row - that is the carve-out's fail-safe kept intact, not a regression. The
+        /// refusal is logged with the kerbal count so an unowned recovery is visible as a
+        /// positive fact rather than as silence.
+        /// </para>
+        /// </summary>
+        /// <returns>
+        /// Number of input events that end the call WITH a ledger row - rows written plus
+        /// rows an earlier pass had already written (dedup). 0 on refusal. Counting the
+        /// deduped ones as covered is deliberate: the caller's summary counter names the
+        /// events left WITHOUT a row, and a suppressed duplicate is not one of those.
+        /// </returns>
+        internal static int TryRecordRecoveryKerbalExperience(
+            IList<GameStateEvent> experienceEvents,
+            RecoveredVesselIdentity identity,
+            double ut)
+        {
+            if (experienceEvents == null || experienceEvents.Count == 0)
+                return 0;
+
+            Initialize();
+
+            string utText = ut.ToString("F1", CultureInfo.InvariantCulture);
+            string countText = experienceEvents.Count.ToString(CultureInfo.InvariantCulture);
+
+            string recordingId = PickRecoveryRecordingId(identity, ut);
+            if (string.IsNullOrEmpty(recordingId))
+            {
+                ParsekLog.Info(Tag,
+                    $"Recovery kerbal XP refused: {identity.FormatForLog()} ut={utText} " +
+                    $"kerbals={countText} reason=no-recovery-recording");
+                return 0;
+            }
+
+            var actions = new List<GameAction>(experienceEvents.Count);
+            int noAction = 0;
+            for (int i = 0; i < experienceEvents.Count; i++)
+            {
+                var action = GameStateEventConverter.ConvertEvent(experienceEvents[i], recordingId);
+                if (action == null)
+                {
+                    noAction++;
+                    continue;
+                }
+                actions.Add(action);
+            }
+
+            if (actions.Count == 0)
+            {
+                ParsekLog.Info(Tag,
+                    $"Recovery kerbal XP refused: {identity.FormatForLog()} ut={utText} " +
+                    $"kerbals={countText} reason=no-convertible-row");
+                return 0;
+            }
+
+            int beforeDedup = actions.Count;
+            actions = DeduplicateAgainstLedger(actions);
+            if (actions.Count == 0)
+            {
+                ParsekLog.Verbose(Tag,
+                    $"Recovery kerbal XP: all {beforeDedup.ToString(CultureInfo.InvariantCulture)} " +
+                    $"row(s) already in the ledger for {identity.FormatForLog()} ut={utText} " +
+                    $"recordingId={recordingId}");
+                return beforeDedup;
+            }
+
+            for (int i = 0; i < actions.Count; i++)
+                actions[i].Sequence = AllocateKscSequence();
+
+            Ledger.AddActions(actions);
+
+            var names = new List<string>(actions.Count);
+            for (int i = 0; i < actions.Count; i++)
+                names.Add(actions[i].KerbalName ?? "");
+
+            ParsekLog.Info(Tag,
+                $"Recovery kerbal XP recorded: {identity.FormatForLog()} ut={utText} " +
+                $"recordingId={recordingId} " +
+                $"rows={actions.Count.ToString(CultureInfo.InvariantCulture)} " +
+                $"deduped={(beforeDedup - actions.Count).ToString(CultureInfo.InvariantCulture)} " +
+                $"noAction={noAction.ToString(CultureInfo.InvariantCulture)} " +
+                $"kerbals='{string.Join(",", names.ToArray())}'");
+
+            RecalculateAndPatchForLiveTimelineEvent(ut, "recovery-kerbal-xp");
+            return beforeDedup;
         }
 
         private static string ResolveKscScienceRecordingId(

@@ -4619,6 +4619,19 @@ _STOCK_UT_RE = re.compile(r"\[Parsek\].*?\but=(?P<ut>-?\d+(?:\.\d+)?)")
 #     `Added <n> (<r>) reputation. Total Rep: <total>` - period, not colon. This one
 #     genuinely carries NO reason key, so it has no identity to correlate on even if
 #     it were matched.
+#   - THE THIRD GAP, and it is a different KIND from the two above: it is not a line
+#     this table declines to match, it is the ABSENCE of a line. A strategy
+#     `CurrencyConverter`'s reputation OUTPUT leg reaches the pool through
+#     `Reputation.OnCurrenciesModified`, which calls `addReputation_granular` DIRECTLY -
+#     bypassing both `AddReputation` and `addReputation_discrete`, the only two routines
+#     that log anything. The pool moves and KSP writes NOTHING. So no pattern, present or
+#     future, can corroborate a converter reputation leg from the log: `captureCrossCheck`
+#     is structurally blind to that whole family, not merely unmeasured on it. Parsek
+#     captures the leg from the query event instead (`StrategyConversionCapture` ->
+#     `LedgerOrchestrator.BuildStrategyConversionAction` -> a nominal `ReputationEarning`
+#     row), and the corroboration that IS available is the seam-declared-vs-save diff plus
+#     the in-game `ConverterStrategy_ReputationLeg_CapturesEarning` cell. Do not add a
+#     pattern for this one waiting for a field measurement; there is no line to measure.
 # An award on either path moves the produced save, so the seam-declared-vs-save diff
 # still catches it; only the leg-A corroboration is blind to it.
 STOCK_AWARD_PATTERNS: Tuple[StockAwardPattern, ...] = (

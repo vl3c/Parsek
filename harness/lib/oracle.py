@@ -708,14 +708,39 @@ def apply_rep_curve(nominal: float, current_rep: float,
     of ``nominal`` -- summing nominal rep deltas linearly is the double-curve
     distortion 15.1 warns of. Returns ``(actual_delta, new_rep)``.
 
+    RESIDUAL STEP: the loop walks integer-sized unit steps and then tops the award up
+    with one final step sized ``nominal - accumulated`` -- where ``accumulated`` is the
+    running POST-CURVE actual, NOT the nominal step count. This mirrors decompiled
+    ``Reputation.addReputation_granular``, whose last step is
+    ``ModifyReputationDelta(value - num2)`` with ``num2`` the accumulated post-curve
+    total, which is why stock's own pool lands on (essentially) the nominal value for
+    small awards. Sizing the residual as ``nominal - (delta * num)`` instead makes it
+    identically ZERO for every integer nominal, so the top-up never fires and the award
+    lands short by the curve loss (~0.075% per unit near rep 0, growing with |rep|).
+    For ``|nominal| < 1`` the loop is the residual step alone and ``accumulated`` is
+    still 0 there, so sub-unit awards are bit-identical either way.
+
     RESIDUAL BLIND SPOT (design ~899): this is a PORT of the same keyframes Parsek's
     C# rep module uses. If BOTH share an identical transcription fault, the oracle's
     expected, the produced save, and a Parsek recalc all agree on the WRONG number
     (expected == save == recalc), so the diff stays green -- the two legs are only
     independent up to a shared-curve error. The value-pinned tests anchor this port to
     ABSOLUTE magnitudes (not the port composed against itself), so a keyframe typo reds
-    a test; the remaining deferred anchor is a check against KNOWN IN-GAME rep
-    transitions before any L1 rep script trusts a non-empty rep manifest.
+    a test.
+
+    THE WARNING WAS WARRANTED - 2026-08-20 DIVERGENCE INCIDENT. The C# side fixed the
+    residual step on 2026-08-20 (commit 817773dcb, "Size the reputation residual step
+    from the accumulated actual", closing CAREER-MILESTONE-REP-AWARD-RECONSTRUCTS-LOW)
+    and this port was NOT updated with it, so the two ports silently disagreed for every
+    integer-or-larger nominal - the exact class of shared-transcription drift this note
+    warns about, arriving from the opposite direction (a fixed C# leg against a stale
+    port). Detected and closed the same day; see ORACLE-REP-CURVE-PORT-DIVERGED in
+    docs/dev/todo-and-known-bugs.md. Two test cells now hold the line:
+    ``test_apply_rep_curve_pins_live_measured_stock_pair`` is the ABSOLUTE in-game
+    anchor (a live-measured stock pair, |nominal| < 1 so it is formula-agnostic and
+    pins the KEYFRAMES), and ``test_apply_rep_curve_residual_step_uses_accumulated``
+    pins an integer nominal where the two formulas DISAGREE, so the pre-fix formula
+    cannot silently return.
     """
     if nominal == 0.0:
         return 0.0, current_rep
@@ -724,7 +749,9 @@ def apply_rep_curve(nominal: float, current_rep: float,
     accumulated = 0.0
     rep = current_rep
     for i in range(num + 1):
-        step_input = delta if i != num else (nominal - (delta * num))
+        # The residual (last) step is sized from the ACCUMULATED POST-CURVE actual,
+        # never from the nominal step count -- see the RESIDUAL STEP note above.
+        step_input = delta if i != num else (nominal - accumulated)
         if step_input == 0.0:
             continue
         time = rep / rep_range

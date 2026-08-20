@@ -1,0 +1,3854 @@
+version = 0
+recordingSchemaGeneration = 4
+GAME_ACTION
+{
+	ut = 0
+	type = 20
+	actionId = act_b1e694d5aac545878dfd8aced1b30c2c
+	initialFunds = 72840
+}
+GAME_ACTION
+{
+	ut = 0
+	type = 21
+	actionId = act_96a60333bb59400ba26103dc7507b2ca
+	initialScience = 123.763962
+}
+GAME_ACTION
+{
+	ut = 0
+	type = 22
+	actionId = act_d986d582d84d4571a0fd88d44aa7d47a
+	initialReputation = 0
+}
+GAME_ACTION
+{
+	ut = 27.6399999999995
+	type = 3
+	actionId = act_8ade4bff199f456f8c27a9d2fc33eb15
+	recordingId = 255973462dd7448a93cdbf8897af7a20
+	seq = 1
+	fundsSpent = 4905
+	fundsSpendingSource = 0
+}
+GAME_ACTION
+{
+	ut = 41.5600000000009
+	type = 4
+	actionId = act_67a9e56b84454f07bddd4c7636a656ec
+	seq = 2
+	milestoneId = Kerbin/Science
+	milestoneFundsAwarded = 1600
+	milestoneRepAwarded = 0
+	milestoneSciAwarded = 0
+}
+GAME_ACTION
+{
+	ut = 41.5600000000009
+	type = 0
+	actionId = act_8e1c7050b77f446a9a147c5929e0dbc0
+	seq = 3
+	subjectId = temperatureScan@KerbinSrfLandedLaunchPad
+	scienceAwarded = 1.2
+	method = 1
+	transmitScalar = 0
+	subjectMaxValue = 1.2
+	startUT = 41.56
+	endUT = 41.56
+}
+GAME_ACTION
+{
+	ut = 47.540000000001832
+	type = 0
+	actionId = act_0d8ac0bb3ccd40f9b039465c11dfe115
+	seq = 4
+	subjectId = mysteryGoo@KerbinSrfLandedLaunchPad
+	scienceAwarded = 1.51200008
+	method = 0
+	transmitScalar = 0
+	subjectMaxValue = 3.60000014
+	startUT = 47.54
+	endUT = 47.54
+}
+GAME_ACTION
+{
+	ut = 55.900000000003139
+	type = 0
+	actionId = act_2317f1ba8f864d6aa35570305b2013e1
+	seq = 5
+	subjectId = telemetryReport@KerbinSrfLandedLaunchPad
+	scienceAwarded = 0.6
+	method = 1
+	transmitScalar = 0
+	subjectMaxValue = 0.6
+	startUT = 55.9
+	endUT = 55.9
+}
+GAME_ACTION
+{
+	ut = 71.160000000002981
+	type = 4
+	actionId = act_ff86a62160724d6fad157fb1eb05d352
+	recordingId = 255973462dd7448a93cdbf8897af7a20
+	seq = 1
+	milestoneId = FirstLaunch
+	milestoneFundsAwarded = 800
+	milestoneRepAwarded = 0
+	milestoneSciAwarded = 0
+}
+GAME_ACTION
+{
+	ut = 72.980000000002619
+	type = 4
+	actionId = act_1c5a43d417214ce4a323c93743b00d49
+	recordingId = 255973462dd7448a93cdbf8897af7a20
+	seq = 2
+	milestoneId = RecordsSpeed
+	milestoneFundsAwarded = 4800
+	milestoneRepAwarded = 0
+	milestoneSciAwarded = 0
+}
+GAME_ACTION
+{
+	ut = 79.420000000001338
+	type = 4
+	actionId = act_4dea4a568e1f483e808876ea77a657bc
+	recordingId = 255973462dd7448a93cdbf8897af7a20
+	seq = 3
+	milestoneId = RecordsSpeed
+	milestoneFundsAwarded = 4800
+	milestoneRepAwarded = 1
+	milestoneSciAwarded = 0
+}
+GAME_ACTION
+{
+	ut = 80.06000000000121
+	type = 4
+	actionId = act_44db25a409784c7e926f3eed9dca85b7
+	recordingId = 255973462dd7448a93cdbf8897af7a20
+	seq = 4
+	milestoneId = RecordsAltitude
+	milestoneFundsAwarded = 4800
+	milestoneRepAwarded = 0
+	milestoneSciAwarded = 0
+}
+GAME_ACTION
+{
+	ut = 92.019999999998831
+	type = 4
+	actionId = act_39a8b53b8c1a48f380d107164b78b7bd
+	recordingId = 255973462dd7448a93cdbf8897af7a20
+	seq = 5
+	milestoneId = RecordsAltitude
+	milestoneFundsAwarded = 4800
+	milestoneRepAwarded = 1
+	milestoneSciAwarded = 0
+}
+GAME_ACTION
+{
+	ut = 109.9190307617171
+	type = 4
+	actionId = act_e4bd10e8555f483e82d93f61f9ec632e
+	recordingId = 255973462dd7448a93cdbf8897af7a20
+	seq = 6
+	milestoneId = RecordsSpeed
+	milestoneFundsAwarded = 4800
+	milestoneRepAwarded = 0
+	milestoneSciAwarded = 0
+}
+GAME_ACTION
+{
+	ut = 115.03903076171699
+	type = 4
+	actionId = act_3ef095230b3941cb917fa0668a46c0b7
+	recordingId = 255973462dd7448a93cdbf8897af7a20
+	seq = 7
+	milestoneId = RecordsAltitude
+	milestoneFundsAwarded = 4800
+	milestoneRepAwarded = 0
+	milestoneSciAwarded = 0
+}
+GAME_ACTION
+{
+	ut = 140.15903076171861
+	type = 4
+	actionId = act_4f868c90755d47fa9602e3540f938bb5
+	recordingId = 255973462dd7448a93cdbf8897af7a20
+	seq = 8
+	milestoneId = RecordsDistance
+	milestoneFundsAwarded = 4800
+	milestoneRepAwarded = 0
+	milestoneSciAwarded = 0
+}
+GAME_ACTION
+{
+	ut = 217.47588989259043
+	type = 0
+	actionId = act_0edefd221ba544cc9dbc271402c2b126
+	recordingId = 255973462dd7448a93cdbf8897af7a20
+	seq = 1
+	subjectId = telemetryReport@KerbinFlyingLow
+	scienceAwarded = 1.4
+	method = 1
+	transmitScalar = 0
+	subjectMaxValue = 1.4
+	startUT = 73.08
+	endUT = 217.475891
+}
+GAME_ACTION
+{
+	ut = 217.47588989259043
+	type = 0
+	actionId = act_d2bde4ace5d0437fb917d455f7f9888a
+	recordingId = 255973462dd7448a93cdbf8897af7a20
+	seq = 2
+	subjectId = temperatureScan@KerbinFlyingLowShores
+	scienceAwarded = 2.8
+	method = 1
+	transmitScalar = 0
+	subjectMaxValue = 2.8
+	startUT = 76.98
+	endUT = 217.475891
+}
+GAME_ACTION
+{
+	ut = 217.47588989259043
+	type = 0
+	actionId = act_9109aba8c8854b8493d22b22b60f2c26
+	recordingId = 255973462dd7448a93cdbf8897af7a20
+	seq = 3
+	subjectId = mysteryGoo@KerbinFlyingLow
+	scienceAwarded = 3.52799988
+	method = 0
+	transmitScalar = 0
+	subjectMaxValue = 8.4
+	startUT = 84.64
+	endUT = 217.475891
+}
+GAME_ACTION
+{
+	ut = 237.21588989260053
+	type = 3
+	actionId = act_201bf4f590524d0fb40b6a5ba1522e6e
+	seq = 6
+	fundsSpent = 4905
+	fundsSpendingSource = 0
+	dedupKey = rollout:237.21588989260053|pid=713738416|site=Runway|vessel=R.0-S.0
+}
+GAME_ACTION
+{
+	ut = 254.83588989260954
+	type = 0
+	actionId = act_036b8a5b6b6447bba6146039305ba89e
+	recordingId = 255973462dd7448a93cdbf8897af7a20
+	seq = 7
+	subjectId = telemetryReport@KerbinSrfLandedRunway
+	scienceAwarded = 0.6
+	method = 1
+	transmitScalar = 0
+	subjectMaxValue = 0.6
+	startUT = 254.835892
+	endUT = 254.835892
+}
+GAME_ACTION
+{
+	ut = 254.83588989260954
+	type = 0
+	actionId = act_27e0f81fd0dd495faf04f1df00d68298
+	recordingId = 255973462dd7448a93cdbf8897af7a20
+	seq = 8
+	subjectId = mysteryGoo@KerbinSrfLandedRunway
+	scienceAwarded = 3.60000014
+	method = 1
+	transmitScalar = 0
+	subjectMaxValue = 3.60000014
+	startUT = 254.835892
+	endUT = 254.835892
+}
+GAME_ACTION
+{
+	ut = 254.83588989260954
+	type = 0
+	actionId = act_eab51ae210a14576896693b73471c366
+	recordingId = 255973462dd7448a93cdbf8897af7a20
+	seq = 9
+	subjectId = temperatureScan@KerbinSrfLandedRunway
+	scienceAwarded = 1.2
+	method = 1
+	transmitScalar = 0
+	subjectMaxValue = 1.2
+	startUT = 254.835892
+	endUT = 254.835892
+}
+GAME_ACTION
+{
+	ut = 254.83588989260954
+	type = 2
+	actionId = act_32a1b28a44ae47828a49591be63d4181
+	recordingId = 255973462dd7448a93cdbf8897af7a20
+	seq = 10
+	fundsAwarded = 4905
+	fundsSource = 2
+	dedupKey = FundsChanged|VesselRecovery|254.83588989260954|51190|56095|
+}
+GAME_ACTION
+{
+	ut = 263.21588989260357
+	type = 3
+	actionId = act_4b3bb84d376845f18cdefd9a9a1450bf
+	seq = 11
+	fundsSpent = 0
+	fundsSpendingSource = 6
+	dedupKey = fuelTankSmallFlat
+}
+GAME_ACTION
+{
+	ut = 263.21588989260357
+	type = 3
+	actionId = act_bc97beec05ac41e9b9475b81dc245021
+	seq = 12
+	fundsSpent = 0
+	fundsSpendingSource = 6
+	dedupKey = Shrimp
+}
+GAME_ACTION
+{
+	ut = 263.21588989260357
+	type = 3
+	actionId = act_095ebea3455649dcb1c5124a2b7c2bac
+	seq = 13
+	fundsSpent = 0
+	fundsSpendingSource = 6
+	dedupKey = solidBooster.v2
+}
+GAME_ACTION
+{
+	ut = 263.21588989260357
+	type = 3
+	actionId = act_8c08d10fc95446e5a71e271626b5ee45
+	seq = 14
+	fundsSpent = 0
+	fundsSpendingSource = 6
+	dedupKey = liquidEngine2.v2
+}
+GAME_ACTION
+{
+	ut = 263.21588989260357
+	type = 3
+	actionId = act_612904ad5ca24f67b7339bdebb0ad71d
+	seq = 15
+	fundsSpent = 0
+	fundsSpendingSource = 6
+	dedupKey = liquidEngine2
+}
+GAME_ACTION
+{
+	ut = 263.21588989260357
+	type = 1
+	actionId = act_35174c4c5f6f413db30c4658aa4dec53
+	seq = 16
+	nodeId = basicRocketry
+	cost = 5
+}
+GAME_ACTION
+{
+	ut = 263.21588989260357
+	type = 3
+	actionId = act_ff6ebf9b235c46c980ea8cd8d97cddb7
+	seq = 17
+	fundsSpent = 0
+	fundsSpendingSource = 6
+	dedupKey = trussPiece1x
+}
+GAME_ACTION
+{
+	ut = 263.21588989260357
+	type = 3
+	actionId = act_869f2277269e4cab9f62ca0790a1a85c
+	seq = 18
+	fundsSpent = 0
+	fundsSpendingSource = 6
+	dedupKey = adapterSmallMiniShort
+}
+GAME_ACTION
+{
+	ut = 263.21588989260357
+	type = 3
+	actionId = act_975758a93da8419fa17b1561661740e7
+	seq = 19
+	fundsSpent = 0
+	fundsSpendingSource = 6
+	dedupKey = Decoupler.1
+}
+GAME_ACTION
+{
+	ut = 263.21588989260357
+	type = 1
+	actionId = act_ff6925bf63714616b49ef685d775bbab
+	seq = 20
+	nodeId = engineering101
+	cost = 5
+}
+GAME_ACTION
+{
+	ut = 268.6758898925986
+	type = 3
+	actionId = act_47d50ec5da4745f7bc76f8a71d0f7c1d
+	recordingId = 90617d32f03f42ab8ae7fe4e8fb04eda
+	seq = 21
+	fundsSpent = 6495.00049
+	fundsSpendingSource = 0
+}
+GAME_ACTION
+{
+	ut = 316.11588989255546
+	type = 4
+	actionId = act_f8face3c0b68454f91247eb31c328bfe
+	recordingId = 90617d32f03f42ab8ae7fe4e8fb04eda
+	seq = 1
+	milestoneId = RecordsSpeed
+	milestoneFundsAwarded = 4800
+	milestoneRepAwarded = 1
+	milestoneSciAwarded = 0
+}
+GAME_ACTION
+{
+	ut = 319.31588989255255
+	type = 4
+	actionId = act_344469cb6a2f4936a9c00c5e0784830d
+	recordingId = 90617d32f03f42ab8ae7fe4e8fb04eda
+	seq = 2
+	milestoneId = RecordsDistance
+	milestoneFundsAwarded = 4800
+	milestoneRepAwarded = 1
+	milestoneSciAwarded = 0
+}
+GAME_ACTION
+{
+	ut = 322.47588989254967
+	type = 4
+	actionId = act_d78f5732430f44a5b205b791aaef5e96
+	recordingId = 90617d32f03f42ab8ae7fe4e8fb04eda
+	seq = 3
+	milestoneId = RecordsAltitude
+	milestoneFundsAwarded = 4800
+	milestoneRepAwarded = 1
+	milestoneSciAwarded = 0
+}
+GAME_ACTION
+{
+	ut = 355.53588989251961
+	type = 4
+	actionId = act_bb3d660a108342b0bc97c988a13ab9fc
+	recordingId = 90617d32f03f42ab8ae7fe4e8fb04eda
+	seq = 4
+	milestoneId = RecordsAltitude
+	milestoneFundsAwarded = 4800
+	milestoneRepAwarded = 1
+	milestoneSciAwarded = 1
+}
+GAME_ACTION
+{
+	ut = 355.53588989251961
+	type = 4
+	actionId = act_6e52e83c4b344016b8db08079a8c8668
+	recordingId = 90617d32f03f42ab8ae7fe4e8fb04eda
+	seq = 5
+	milestoneId = RecordsAltitude
+	milestoneFundsAwarded = 0
+	milestoneRepAwarded = 0
+	milestoneSciAwarded = 0
+}
+GAME_ACTION
+{
+	ut = 355.53588989251961
+	type = 4
+	actionId = act_b468de4c4d57405da4a12b419b0e9834
+	recordingId = 90617d32f03f42ab8ae7fe4e8fb04eda
+	seq = 6
+	milestoneId = ReachedSpace
+	milestoneFundsAwarded = 8000
+	milestoneRepAwarded = 1
+	milestoneSciAwarded = 0
+}
+GAME_ACTION
+{
+	ut = 355.55588989251959
+	type = 0
+	actionId = act_c2c615a251bd4db9aa4e48990010ca30
+	recordingId = 90617d32f03f42ab8ae7fe4e8fb04eda
+	seq = 1
+	subjectId = temperatureScan@KerbinFlyingHigh
+	scienceAwarded = 3.6
+	method = 1
+	transmitScalar = 0
+	subjectMaxValue = 3.6
+	startUT = 325.655884
+	endUT = 355.555878
+}
+GAME_ACTION
+{
+	ut = 355.55588989251959
+	type = 0
+	actionId = act_1262588141f143809c17114d25aa57b3
+	recordingId = 90617d32f03f42ab8ae7fe4e8fb04eda
+	seq = 2
+	subjectId = mysteryGoo@KerbinFlyingHigh
+	scienceAwarded = 4.536
+	method = 0
+	transmitScalar = 0
+	subjectMaxValue = 10.7999992
+	startUT = 335.2359
+	endUT = 355.555878
+}
+GAME_ACTION
+{
+	ut = 355.55588989251959
+	type = 0
+	actionId = act_b549b5b1be9b4f339d5de79c1540accb
+	recordingId = 90617d32f03f42ab8ae7fe4e8fb04eda
+	seq = 3
+	subjectId = telemetryReport@KerbinFlyingHigh
+	scienceAwarded = 1.8
+	method = 1
+	transmitScalar = 0
+	subjectMaxValue = 1.8
+	startUT = 348.0959
+	endUT = 355.555878
+}
+GAME_ACTION
+{
+	ut = 941.78986206042907
+	type = 3
+	actionId = act_ab2d7cef3d394d3198d9c911efe030e1
+	seq = 22
+	fundsSpent = 0
+	fundsSpendingSource = 6
+	dedupKey = parachuteSingle
+}
+GAME_ACTION
+{
+	ut = 941.78986206042907
+	type = 3
+	actionId = act_092a610968d44e589a5d311ca8aacd35
+	seq = 23
+	fundsSpent = 0
+	fundsSpendingSource = 6
+	dedupKey = miniLandingLeg
+}
+GAME_ACTION
+{
+	ut = 941.78986206042907
+	type = 3
+	actionId = act_21e58e36f8ec45759350d1f763341a60
+	seq = 24
+	fundsSpent = 0
+	fundsSpendingSource = 6
+	dedupKey = longAntenna
+}
+GAME_ACTION
+{
+	ut = 941.78986206042907
+	type = 3
+	actionId = act_23180efc38e34c349253406bc47a3925
+	seq = 25
+	fundsSpent = 0
+	fundsSpendingSource = 6
+	dedupKey = radPanelSm
+}
+GAME_ACTION
+{
+	ut = 941.78986206042907
+	type = 3
+	actionId = act_e3bc4d95ebfc49e78c3946d6d25ca95d
+	seq = 26
+	fundsSpent = 0
+	fundsSpendingSource = 6
+	dedupKey = batteryBankMini
+}
+GAME_ACTION
+{
+	ut = 941.78986206042907
+	type = 3
+	actionId = act_8d51c43f08614d04b646c57839247861
+	seq = 27
+	fundsSpent = 0
+	fundsSpendingSource = 6
+	dedupKey = solarPanels5
+}
+GAME_ACTION
+{
+	ut = 941.78986206042907
+	type = 3
+	actionId = act_3bbffc8cee254d37a8a1cf64d1394773
+	seq = 28
+	fundsSpent = 0
+	fundsSpendingSource = 6
+	dedupKey = probeCoreOcto.v2
+}
+GAME_ACTION
+{
+	ut = 941.78986206042907
+	type = 3
+	actionId = act_9a06ae7903224b3c966d87d895a40700
+	seq = 29
+	fundsSpent = 0
+	fundsSpendingSource = 6
+	dedupKey = HeatShield0
+}
+GAME_ACTION
+{
+	ut = 941.78986206042907
+	type = 1
+	actionId = act_b6979ccb6ca9492ca19f3b038f5db8e7
+	seq = 30
+	nodeId = survivability
+	cost = 15
+}
+GAME_ACTION
+{
+	ut = 943.30986206042769
+	type = 3
+	actionId = act_e43c43fe81c14b5c82bc9086d5228970
+	recordingId = 233e1cc5385242cf81c1965f6ed8e53a
+	seq = 31
+	fundsSpent = 7382
+	fundsSpendingSource = 0
+}
+GAME_ACTION
+{
+	ut = 1108.6248181149683
+	type = 4
+	actionId = act_6494fbb87af64e208ba02a06f835b6d7
+	recordingId = 233e1cc5385242cf81c1965f6ed8e53a
+	seq = 1
+	milestoneId = Kerbin/Splashdown
+	milestoneFundsAwarded = 2400
+	milestoneRepAwarded = 0
+	milestoneSciAwarded = 0
+}
+GAME_ACTION
+{
+	ut = 1109.1648181149678
+	type = 0
+	actionId = act_e4344ba9bc0e4132b41f75f890b9307f
+	recordingId = 233e1cc5385242cf81c1965f6ed8e53a
+	seq = 1
+	subjectId = temperatureScan@KerbinFlyingLowWater
+	scienceAwarded = 2.8
+	method = 1
+	transmitScalar = 0
+	subjectMaxValue = 2.8
+	startUT = 1026.88989
+	endUT = 1109.16479
+}
+GAME_ACTION
+{
+	ut = 1131.9248181149471
+	type = 0
+	actionId = act_fb2b9b2bb9144bc090298616ffd1f7b7
+	recordingId = e13e2d609f3848a59e60b7c7b51c2771
+	seq = 32
+	subjectId = mysteryGoo@KerbinFlyingLow
+	scienceAwarded = 8.4
+	method = 1
+	transmitScalar = 0
+	subjectMaxValue = 8.4
+	startUT = 1131.9248
+	endUT = 1131.9248
+}
+GAME_ACTION
+{
+	ut = 1131.9248181149471
+	type = 0
+	actionId = act_e3e80628b26e42bcb7cd9ac3d8acf440
+	recordingId = e13e2d609f3848a59e60b7c7b51c2771
+	seq = 33
+	subjectId = mysteryGoo@KerbinSrfSplashedWater
+	scienceAwarded = 4.8
+	method = 1
+	transmitScalar = 0
+	subjectMaxValue = 4.8
+	startUT = 1131.9248
+	endUT = 1131.9248
+}
+GAME_ACTION
+{
+	ut = 1131.9248181149471
+	type = 0
+	actionId = act_d8632d3a1d3f4961aa85d4da09fdf393
+	recordingId = e13e2d609f3848a59e60b7c7b51c2771
+	seq = 34
+	subjectId = recovery@KerbinFlew
+	scienceAwarded = 5
+	method = 1
+	transmitScalar = 0
+	subjectMaxValue = 6
+	startUT = 1131.9248
+	endUT = 1131.9248
+}
+GAME_ACTION
+{
+	ut = 1131.9248181149471
+	type = 2
+	actionId = act_01710e8386ab43fe8873a518833d0a28
+	recordingId = e13e2d609f3848a59e60b7c7b51c2771
+	seq = 35
+	fundsAwarded = 4127.89648
+	fundsSource = 2
+	dedupKey = FundsChanged|VesselRecovery|1131.9248181149471|71817.99951171875|75945.896230697632|
+}
+GAME_ACTION
+{
+	ut = 1137.9648181149416
+	type = 3
+	actionId = act_ef33d1d5fb4240a78db6e78d15fbb159
+	seq = 36
+	fundsSpent = 0
+	fundsSpendingSource = 6
+	dedupKey = Size1to0ServiceModule
+}
+GAME_ACTION
+{
+	ut = 1137.9648181149416
+	type = 3
+	actionId = act_025ceea8bc5f41b09c68880c89fccb7f
+	seq = 37
+	fundsSpent = 0
+	fundsSpendingSource = 6
+	dedupKey = radialDecoupler
+}
+GAME_ACTION
+{
+	ut = 1137.9648181149416
+	type = 3
+	actionId = act_71afd62e4be74e1487c5099a07da369c
+	seq = 38
+	fundsSpent = 0
+	fundsSpendingSource = 6
+	dedupKey = sensorBarometer
+}
+GAME_ACTION
+{
+	ut = 1137.9648181149416
+	type = 3
+	actionId = act_1ade828c3470477fbac00ecd34362b17
+	seq = 39
+	fundsSpent = 0
+	fundsSpendingSource = 6
+	dedupKey = sasModule
+}
+GAME_ACTION
+{
+	ut = 1137.9648181149416
+	type = 3
+	actionId = act_ad6810e4d50944799d3e237ea89c51df
+	seq = 40
+	fundsSpent = 0
+	fundsSpendingSource = 6
+	dedupKey = winglet
+}
+GAME_ACTION
+{
+	ut = 1137.9648181149416
+	type = 3
+	actionId = act_f91f02460d214995bfa13843dc97efc7
+	seq = 41
+	fundsSpent = 0
+	fundsSpendingSource = 6
+	dedupKey = standardNoseCone
+}
+GAME_ACTION
+{
+	ut = 1137.9648181149416
+	type = 3
+	actionId = act_9f3904a4ca5a4c8d8700ec1b886627bb
+	seq = 42
+	fundsSpent = 0
+	fundsSpendingSource = 6
+	dedupKey = noseCone
+}
+GAME_ACTION
+{
+	ut = 1137.9648181149416
+	type = 1
+	actionId = act_c3f016ba8528470ab41b79d04ceb94ce
+	seq = 43
+	nodeId = stability
+	cost = 18
+}
+GAME_ACTION
+{
+	ut = 1140.1448181149397
+	type = 3
+	actionId = act_12335eb8398e406bb4883d7eb48edfbd
+	recordingId = 1121489e62eb4796b04fcb56c3cada98
+	seq = 44
+	fundsSpent = 8262
+	fundsSpendingSource = 0
+}
+GAME_ACTION
+{
+	ut = 1156.1048181149251
+	type = 0
+	actionId = act_d0529fe5e5bd496ea25f6703977f340a
+	seq = 45
+	subjectId = barometerScan@KerbinSrfLandedLaunchPad
+	scienceAwarded = 1.80000007
+	method = 1
+	transmitScalar = 0
+	subjectMaxValue = 1.80000007
+	startUT = 1156.10486
+	endUT = 1156.10486
+}
+GAME_ACTION
+{
+	ut = 1233.1248181148551
+	type = 4
+	actionId = act_f13c7f48882049839931434422228153
+	recordingId = 1121489e62eb4796b04fcb56c3cada98
+	seq = 1
+	milestoneId = RecordsDistance
+	milestoneFundsAwarded = 4800
+	milestoneRepAwarded = 0
+	milestoneSciAwarded = 0
+}
+GAME_ACTION
+{
+	ut = 1357.4468786616196
+	type = 4
+	actionId = act_34d0cb2203544b96ac7e347ca1835bba
+	recordingId = 1121489e62eb4796b04fcb56c3cada98
+	seq = 2
+	milestoneId = Kerbin/Landing
+	milestoneFundsAwarded = 800
+	milestoneRepAwarded = 0
+	milestoneSciAwarded = 0
+}
+GAME_ACTION
+{
+	ut = 1358.3868786616188
+	type = 0
+	actionId = act_4f7fcd15556e44d2a595a975d404df0e
+	recordingId = 1121489e62eb4796b04fcb56c3cada98
+	seq = 1
+	subjectId = barometerScan@KerbinFlyingLow
+	scienceAwarded = 4.2
+	method = 1
+	transmitScalar = 0
+	subjectMaxValue = 4.2
+	startUT = 1277.90479
+	endUT = 1358.38684
+}
+GAME_ACTION
+{
+	ut = 1358.3868786616188
+	type = 0
+	actionId = act_2a82c7b246494e78aed79f49d3abaedb
+	recordingId = 1121489e62eb4796b04fcb56c3cada98
+	seq = 2
+	subjectId = temperatureScan@KerbinFlyingLowGrasslands
+	scienceAwarded = 2.8
+	method = 1
+	transmitScalar = 0
+	subjectMaxValue = 2.8
+	startUT = 1280.34485
+	endUT = 1358.38684
+}
+GAME_ACTION
+{
+	ut = 1378.9668786616
+	type = 0
+	actionId = act_fa4bed8b837a42b0b2576879c82fc4e0
+	recordingId = 6151aff799e642a49b3fadf2b520ff60
+	seq = 46
+	subjectId = telemetryReport@KerbinSrfLandedGrasslands
+	scienceAwarded = 0.6
+	method = 1
+	transmitScalar = 0
+	subjectMaxValue = 0.6
+	startUT = 1378.96692
+	endUT = 1378.96692
+}
+GAME_ACTION
+{
+	ut = 1378.9668786616
+	type = 0
+	actionId = act_0715fb098bb04b368b0e6a0c8135fb23
+	recordingId = 6151aff799e642a49b3fadf2b520ff60
+	seq = 47
+	subjectId = mysteryGoo@KerbinSrfLandedGrasslands
+	scienceAwarded = 3.60000014
+	method = 1
+	transmitScalar = 0
+	subjectMaxValue = 3.60000014
+	startUT = 1378.96692
+	endUT = 1378.96692
+}
+GAME_ACTION
+{
+	ut = 1378.9668786616
+	type = 0
+	actionId = act_364fbbf432c54d4285285236a124609c
+	recordingId = 6151aff799e642a49b3fadf2b520ff60
+	seq = 48
+	subjectId = temperatureScan@KerbinSrfLandedGrasslands
+	scienceAwarded = 1.2
+	method = 1
+	transmitScalar = 0
+	subjectMaxValue = 1.2
+	startUT = 1378.96692
+	endUT = 1378.96692
+}
+GAME_ACTION
+{
+	ut = 1378.9668786616
+	type = 0
+	actionId = act_257fdb35cee44ced98962c489ae426c6
+	recordingId = 6151aff799e642a49b3fadf2b520ff60
+	seq = 49
+	subjectId = barometerScan@KerbinSrfLandedGrasslands
+	scienceAwarded = 1.80000007
+	method = 1
+	transmitScalar = 0
+	subjectMaxValue = 1.80000007
+	startUT = 1378.96692
+	endUT = 1378.96692
+}
+GAME_ACTION
+{
+	ut = 1378.9668786616
+	type = 0
+	actionId = act_1ad4ac0158a44cbe9acb774d4a60dab8
+	recordingId = 6151aff799e642a49b3fadf2b520ff60
+	seq = 50
+	subjectId = recovery@KerbinFlew
+	scienceAwarded = 5.83333349
+	method = 1
+	transmitScalar = 0
+	subjectMaxValue = 6
+	startUT = 1378.96692
+	endUT = 1378.96692
+}
+GAME_ACTION
+{
+	ut = 1378.9668786616
+	type = 2
+	actionId = act_4647ef28f88c458fb3aade9fafd308ae
+	recordingId = 6151aff799e642a49b3fadf2b520ff60
+	seq = 51
+	fundsAwarded = 4976.122
+	fundsSource = 2
+	dedupKey = FundsChanged|VesselRecovery|1378.9668786616|73283.896230697632|78260.018239974976|
+}
+GAME_ACTION
+{
+	ut = 1414.4268786615678
+	type = 3
+	actionId = act_f69a6df11f924f859abe9f53f53e1a5e
+	recordingId = e859c30ce1684c0badfc17b5106d11cd
+	seq = 52
+	fundsSpent = 8262
+	fundsSpendingSource = 0
+}
+GAME_ACTION
+{
+	ut = 1543.82687866145
+	type = 0
+	actionId = act_098dd4d850954f5f8b894321f2f71f3f
+	recordingId = e859c30ce1684c0badfc17b5106d11cd
+	seq = 1
+	subjectId = barometerScan@KerbinFlyingHigh
+	scienceAwarded = 5.39999962
+	method = 1
+	transmitScalar = 0
+	subjectMaxValue = 5.39999962
+	startUT = 1529.00684
+	endUT = 1543.8269
+}
+GAME_ACTION
+{
+	ut = 2120.859368895492
+	type = 0
+	actionId = act_bfbc8100bb1e4871818bfb4811cde82c
+	recordingId = a5382b7679c04224a490c03fcfba1d1f
+	seq = 53
+	subjectId = mysteryGoo@KerbinFlyingHigh
+	scienceAwarded = 10.7999992
+	method = 1
+	transmitScalar = 0
+	subjectMaxValue = 10.7999992
+	startUT = 2120.85938
+	endUT = 2120.85938
+}
+GAME_ACTION
+{
+	ut = 2120.859368895492
+	type = 0
+	actionId = act_b257365a752d49af895061fe6e4ce53e
+	recordingId = a5382b7679c04224a490c03fcfba1d1f
+	seq = 54
+	subjectId = mysteryGoo@KerbinInSpaceLow
+	scienceAwarded = 12
+	method = 1
+	transmitScalar = 0
+	subjectMaxValue = 12
+	startUT = 2120.85938
+	endUT = 2120.85938
+}
+GAME_ACTION
+{
+	ut = 2120.859368895492
+	type = 0
+	actionId = act_299ad4fe4d0a4c9b903aa4761218e476
+	recordingId = a5382b7679c04224a490c03fcfba1d1f
+	seq = 55
+	subjectId = recovery@KerbinSubOrbited
+	scienceAwarded = 8
+	method = 1
+	transmitScalar = 0
+	subjectMaxValue = 9.6
+	startUT = 2120.85938
+	endUT = 2120.85938
+}
+GAME_ACTION
+{
+	ut = 2120.859368895492
+	type = 2
+	actionId = act_72a41b81fd69442298e961573b9ed999
+	recordingId = a5382b7679c04224a490c03fcfba1d1f
+	seq = 56
+	fundsAwarded = 4979.72168
+	fundsSource = 2
+	dedupKey = FundsChanged|VesselRecovery|2120.859368895492|69998.018239974976|74977.740055084229|
+}
+GAME_ACTION
+{
+	ut = 2129.7993688954839
+	type = 3
+	actionId = act_aca7d9d002fd47948d583d8c8aee4661
+	seq = 57
+	fundsSpent = 0
+	fundsSpendingSource = 6
+	dedupKey = fuelTankSmall
+}
+GAME_ACTION
+{
+	ut = 2129.7993688954839
+	type = 3
+	actionId = act_042164c113a74fdba53384bc05333741
+	seq = 58
+	fundsSpent = 0
+	fundsSpendingSource = 6
+	dedupKey = solidBooster1-1
+}
+GAME_ACTION
+{
+	ut = 2129.7993688954839
+	type = 3
+	actionId = act_25f17b6e150b4044954a289a257ab86c
+	seq = 59
+	fundsSpent = 0
+	fundsSpendingSource = 6
+	dedupKey = liquidEngine.v2
+}
+GAME_ACTION
+{
+	ut = 2129.7993688954839
+	type = 3
+	actionId = act_31130f757f3540d5a289ce8a4719d798
+	seq = 60
+	fundsSpent = 0
+	fundsSpendingSource = 6
+	dedupKey = liquidEngine
+}
+GAME_ACTION
+{
+	ut = 2129.7993688954839
+	type = 3
+	actionId = act_1e0dcbf7936f4553a56fa485180c86a6
+	seq = 61
+	fundsSpent = 0
+	fundsSpendingSource = 6
+	dedupKey = Decoupler.0
+}
+GAME_ACTION
+{
+	ut = 2129.7993688954839
+	type = 1
+	actionId = act_a29b4d75ae0645d2aba5c29c326e1566
+	seq = 62
+	nodeId = generalRocketry
+	cost = 20
+}
+GAME_ACTION
+{
+	ut = 2298.3193688953306
+	type = 3
+	actionId = act_5bdf0c1825c64dde8dac93aabf481985
+	recordingId = 7a49c69673c541a6b90c009364ac7457
+	seq = 64
+	fundsSpent = 9912.001
+	fundsSpendingSource = 0
+}
+GAME_ACTION
+{
+	ut = 2390.299368895247
+	type = 4
+	actionId = act_f5f15a1700fa43f69afb2e59fd37364a
+	recordingId = 7a49c69673c541a6b90c009364ac7457
+	seq = 1
+	milestoneId = RecordsDistance
+	milestoneFundsAwarded = 4800
+	milestoneRepAwarded = 1
+	milestoneSciAwarded = 0
+}
+GAME_ACTION
+{
+	ut = 2464.3625378404931
+	type = 4
+	actionId = act_2e58b87cbf8e4b0aa0c3231a11722ea9
+	recordingId = 7a49c69673c541a6b90c009364ac7457
+	seq = 2
+	milestoneId = RecordsDistance
+	milestoneFundsAwarded = 4800
+	milestoneRepAwarded = 1
+	milestoneSciAwarded = 1
+}
+GAME_ACTION
+{
+	ut = 2464.3625378404931
+	type = 4
+	actionId = act_fc05f9b42a7c4926a270d76059a14a44
+	recordingId = 7a49c69673c541a6b90c009364ac7457
+	seq = 3
+	milestoneId = RecordsDistance
+	milestoneFundsAwarded = 0
+	milestoneRepAwarded = 0
+	milestoneSciAwarded = 0
+}
+GAME_ACTION
+{
+	ut = 2830.1373425276665
+	type = 0
+	actionId = act_fb3d9d1a0b834292860fcea327b9cfbe
+	recordingId = 7a49c69673c541a6b90c009364ac7457
+	seq = 1
+	subjectId = temperatureScan@KerbinFlyingLowHighlands
+	scienceAwarded = 2.8
+	method = 1
+	transmitScalar = 0
+	subjectMaxValue = 2.8
+	startUT = 2669.731
+	endUT = 2830.13745
+}
+GAME_ACTION
+{
+	ut = 2851.2973425276473
+	type = 0
+	actionId = act_15cde49ae5bb42729ad77e9118702d09
+	recordingId = 98e638234426495eac397f4f67996d20
+	seq = 65
+	subjectId = telemetryReport@KerbinSrfLandedHighlands
+	scienceAwarded = 0.6
+	method = 1
+	transmitScalar = 0
+	subjectMaxValue = 0.6
+	startUT = 2851.29736
+	endUT = 2851.29736
+}
+GAME_ACTION
+{
+	ut = 2851.2973425276473
+	type = 0
+	actionId = act_87d78b0f915744669e48987dcdcb8162
+	recordingId = 98e638234426495eac397f4f67996d20
+	seq = 66
+	subjectId = mysteryGoo@KerbinSrfLandedHighlands
+	scienceAwarded = 3.60000014
+	method = 1
+	transmitScalar = 0
+	subjectMaxValue = 3.60000014
+	startUT = 2851.29736
+	endUT = 2851.29736
+}
+GAME_ACTION
+{
+	ut = 2851.2973425276473
+	type = 0
+	actionId = act_3b08f4ea9df94ee5bdfef99be950f137
+	recordingId = 98e638234426495eac397f4f67996d20
+	seq = 67
+	subjectId = temperatureScan@KerbinSrfLandedHighlands
+	scienceAwarded = 1.2
+	method = 1
+	transmitScalar = 0
+	subjectMaxValue = 1.2
+	startUT = 2851.29736
+	endUT = 2851.29736
+}
+GAME_ACTION
+{
+	ut = 2851.2973425276473
+	type = 0
+	actionId = act_2dcae2ff824743df9837b925087662cd
+	recordingId = 98e638234426495eac397f4f67996d20
+	seq = 68
+	subjectId = barometerScan@KerbinSrfLandedHighlands
+	scienceAwarded = 1.80000007
+	method = 1
+	transmitScalar = 0
+	subjectMaxValue = 1.80000007
+	startUT = 2851.29736
+	endUT = 2851.29736
+}
+GAME_ACTION
+{
+	ut = 2851.2973425276473
+	type = 2
+	actionId = act_9914a1d3418d4aca81be5275ca1c0160
+	recordingId = 98e638234426495eac397f4f67996d20
+	seq = 69
+	fundsAwarded = 4554.65625
+	fundsSource = 2
+	dedupKey = FundsChanged|VesselRecovery|2851.2973425276473|74665.73876953125|79220.394952774048|
+}
+GAME_ACTION
+{
+	ut = 2868.0373425276321
+	type = 5
+	actionId = act_eec2875c60934e5a9773a37b791ee97b
+	seq = 70
+	contractId = 7a726c83-8544-4b20-8818-73762962a34b
+	contractType = PartTest
+	contractTitle = Test LV-T45 "Swivel" Liquid Fuel Engine at the Launch Site.
+	advanceFunds = 1666.66663
+	deadlineUT = 8680754
+	fundsPenalty = 1889.99988
+	repPenalty = 0.9803922
+}
+GAME_ACTION
+{
+	ut = 2927.3973425275781
+	type = 3
+	actionId = act_23aee145ffac4218b2c9ec7b696bc8ef
+	recordingId = 4d1c0a6a06754ad29b432e04cfafef60
+	seq = 71
+	fundsSpent = 10512
+	fundsSpendingSource = 0
+}
+GAME_ACTION
+{
+	ut = 2950.7173425275569
+	type = 6
+	actionId = act_b3642b8af40a4a63be03fd033765ada3
+	recordingId = 4d1c0a6a06754ad29b432e04cfafef60
+	seq = 1
+	contractId = 7a726c83-8544-4b20-8818-73762962a34b
+	fundsReward = 4374.99951
+	repReward = 1.068908
+	scienceReward = 1
+}
+GAME_ACTION
+{
+	ut = 3938.7490417457821
+	type = 0
+	actionId = act_6d5304b1ab4f4edbaad4e722082ff48a
+	recordingId = 731a0a82be0247fa94afd9ec46042a17
+	seq = 72
+	subjectId = recovery@KerbinSubOrbited
+	scienceAwarded = 9.333334
+	method = 1
+	transmitScalar = 0
+	subjectMaxValue = 9.6
+	startUT = 3938.749
+	endUT = 3938.749
+}
+GAME_ACTION
+{
+	ut = 3938.7490417457821
+	type = 2
+	actionId = act_d753ec47b2f947ffaa0e24a6a27955ce
+	recordingId = 731a0a82be0247fa94afd9ec46042a17
+	seq = 73
+	fundsAwarded = 3102.973
+	fundsSource = 2
+	dedupKey = FundsChanged|VesselRecovery|3938.7490417457821|74750.061319927379|77853.034125904247|
+}
+GAME_ACTION
+{
+	ut = 3950.5290417457713
+	type = 3
+	actionId = act_c8191b1f0e624f8abdb162d4912865fa
+	recordingId = 2933730390434ca68f8690626134a23a
+	seq = 74
+	fundsSpent = 10747
+	fundsSpendingSource = 0
+}
+GAME_ACTION
+{
+	ut = 16447.752094019666
+	type = 3
+	actionId = act_4867391cf0cd4f1ab2a444adf4e6a43f
+	recordingId = bb53db1ea1c54a60a4c776c0aa978d72
+	seq = 75
+	fundsSpent = 12165.001
+	fundsSpendingSource = 0
+}
+GAME_ACTION
+{
+	ut = 139526.1830706289
+	type = 4
+	actionId = act_2537d0bb64804d96b4e42dd003756eb4
+	seq = 76
+	milestoneId = Kerbin/Escape
+	milestoneFundsAwarded = 13200
+	milestoneRepAwarded = 2
+	milestoneSciAwarded = 1
+}
+GAME_ACTION
+{
+	ut = 139526.1830706289
+	type = 4
+	actionId = act_cd58b14b95e949deb5ed054d54d40add
+	seq = 77
+	milestoneId = Sun/Flyby
+	milestoneFundsAwarded = 19000
+	milestoneRepAwarded = 1
+	milestoneSciAwarded = 0
+}
+GAME_ACTION
+{
+	ut = 160122.76439874247
+	type = 3
+	actionId = act_e196b90440af47e2a0ec98c67d666650
+	seq = 78
+	fundsSpent = 0
+	fundsSpendingSource = 6
+	dedupKey = HighGainAntenna5.v2
+}
+GAME_ACTION
+{
+	ut = 160122.76439874247
+	type = 3
+	actionId = act_5c3f00c0fe7247d2867101a92ee59c10
+	seq = 79
+	fundsSpent = 0
+	fundsSpendingSource = 6
+	dedupKey = HighGainAntenna5
+}
+GAME_ACTION
+{
+	ut = 160122.76439874247
+	type = 3
+	actionId = act_7b326392a0404dd1811c06818d3b0cf2
+	seq = 80
+	fundsSpent = 0
+	fundsSpendingSource = 6
+	dedupKey = radPanelLg
+}
+GAME_ACTION
+{
+	ut = 160122.76439874247
+	type = 3
+	actionId = act_ec5b2be09ee043aba9b4c510e32a7664
+	seq = 81
+	fundsSpent = 0
+	fundsSpendingSource = 6
+	dedupKey = radPanelEdge
+}
+GAME_ACTION
+{
+	ut = 160122.76439874247
+	type = 3
+	actionId = act_d07bf7df6279491089d34faac0eab6b8
+	seq = 82
+	fundsSpent = 0
+	fundsSpendingSource = 6
+	dedupKey = ScienceBox
+}
+GAME_ACTION
+{
+	ut = 160122.76439874247
+	type = 3
+	actionId = act_1da23860f49a431dbb3b531a6f4375be
+	seq = 83
+	fundsSpent = 0
+	fundsSpendingSource = 6
+	dedupKey = science.module
+}
+GAME_ACTION
+{
+	ut = 160122.76439874247
+	type = 3
+	actionId = act_9b4164e3f63c484aaeb196899afa4d64
+	seq = 84
+	fundsSpent = 0
+	fundsSpendingSource = 6
+	dedupKey = probeCoreHex.v2
+}
+GAME_ACTION
+{
+	ut = 160122.76439874247
+	type = 1
+	actionId = act_f029a33f026a49c48f90ddff326925e1
+	seq = 85
+	nodeId = basicScience
+	cost = 45
+}
+GAME_ACTION
+{
+	ut = 160139.20439873385
+	type = 3
+	actionId = act_fe7038e8a9d54a7fa62f193a87040228
+	recordingId = d666230a041544bbb68fdbf375b70dee
+	seq = 86
+	fundsSpent = 13245.001
+	fundsSpendingSource = 0
+}
+GAME_ACTION
+{
+	ut = 160139.44439873373
+	type = 4
+	actionId = act_19f54243c83d4d33abcba55cba12963c
+	seq = 87
+	milestoneId = Orbit
+	milestoneFundsAwarded = 18240
+	milestoneRepAwarded = 1
+	milestoneSciAwarded = 0
+}
+GAME_ACTION
+{
+	ut = 160162.34439872173
+	type = 0
+	actionId = act_0110f49e3a844b158025b77c84a699e8
+	seq = 88
+	subjectId = mobileMaterialsLab@KerbinSrfLandedLaunchPad
+	scienceAwarded = 5.4
+	method = 1
+	transmitScalar = 0
+	subjectMaxValue = 5.4
+	startUT = 160162.344
+	endUT = 160162.344
+}
+GAME_ACTION
+{
+	ut = 160162.34439872173
+	type = 2
+	actionId = act_804602e6dda9459287e9a38166d0be2e
+	seq = 89
+	fundsAwarded = 13245
+	fundsSource = 2
+	dedupKey = FundsChanged|VesselRecovery|160162.34439872173|92136.032104492188|105381.03211212158|
+}
+GAME_ACTION
+{
+	ut = 160286.2843986568
+	type = 0
+	actionId = act_21d989a0d8ab4f448b908c3baec4c136
+	recordingId = d666230a041544bbb68fdbf375b70dee
+	seq = 1
+	subjectId = mobileMaterialsLab@KerbinFlyingLow
+	scienceAwarded = 5.292
+	method = 0
+	transmitScalar = 0
+	subjectMaxValue = 12.5999994
+	startUT = 160199.422
+	endUT = 160286.281
+}
+GAME_ACTION
+{
+	ut = 161822.05889070031
+	type = 3
+	actionId = act_0afa55a29b584164a3c01cdb8357ff52
+	seq = 91
+	fundsSpent = 13245.001
+	fundsSpendingSource = 0
+	dedupKey = rollout:161822.05889070031|pid=364626662|site=Launch%20Pad|vessel=R2-B2-S6
+}
+GAME_ACTION
+{
+	ut = 161822.05889070031
+	type = 0
+	actionId = act_6863262270154b908d2cc749ef2a40d8
+	recordingId = 6bc22bc7-339c-40fd-a4e5-a0868ac8e402
+	seq = 92
+	subjectId = recovery@SunFlewBy
+	scienceAwarded = 24
+	method = 1
+	transmitScalar = 0
+	subjectMaxValue = 28.8000011
+	startUT = 161822.063
+	endUT = 161822.063
+}
+GAME_ACTION
+{
+	ut = 179753.1138515113
+	type = 3
+	actionId = act_2db28a845a6d43a2879b79111c18ecdc
+	seq = 93
+	fundsSpent = 11645.001
+	fundsSpendingSource = 0
+	dedupKey = rollout:179753.1138515113|pid=2084859745|site=Launch%20Pad|vessel=R2-B2-S7
+}
+GAME_ACTION
+{
+	ut = 203295.24947648274
+	type = 2
+	actionId = act_08923fc6ffd849cfb53d03f673b28f7d
+	seq = 94
+	fundsAwarded = 11645
+	fundsSource = 2
+	dedupKey = FundsChanged|VesselRecovery|203295.24947648274|80491.030151367188|92136.030158996582|
+}
+GAME_ACTION
+{
+	ut = 203306.5894764768
+	type = 0
+	actionId = act_f2de5f62a41a438b88ad95b1eec3a738
+	recordingId = 6bc22bc7-339c-40fd-a4e5-a0868ac8e402
+	seq = 96
+	subjectId = recovery@SunFlewBy
+	scienceAwarded = 28
+	method = 1
+	transmitScalar = 0
+	subjectMaxValue = 28.8000011
+	startUT = 203306.6
+	endUT = 203306.6
+}
+GAME_ACTION
+{
+	ut = 203306.32947647694
+	type = 3
+	actionId = act_f5f5bfa2f6934999be6f5774cfd047e5
+	recordingId = d86b1d3b536e436084ad737840f34c8e
+	seq = 97
+	fundsSpent = 11645.001
+	fundsSpendingSource = 0
+}
+GAME_ACTION
+{
+	ut = 203555.06848029103
+	type = 4
+	actionId = act_9f65491a20264689969a2cd502a9c84f
+	recordingId = d86b1d3b536e436084ad737840f34c8e
+	seq = 1
+	milestoneId = RecordsSpeed
+	milestoneFundsAwarded = 4800
+	milestoneRepAwarded = 1
+	milestoneSciAwarded = 1
+}
+GAME_ACTION
+{
+	ut = 203555.06848029103
+	type = 4
+	actionId = act_858fd026f486479a887646437b3479c1
+	recordingId = d86b1d3b536e436084ad737840f34c8e
+	seq = 2
+	milestoneId = RecordsSpeed
+	milestoneFundsAwarded = 0
+	milestoneRepAwarded = 0
+	milestoneSciAwarded = 0
+}
+GAME_ACTION
+{
+	ut = 203677.04848022712
+	type = 3
+	actionId = act_3681250804904407bc37f492c0b3d045
+	seq = 98
+	fundsSpent = 13245.001
+	fundsSpendingSource = 0
+	dedupKey = rollout:203677.04848022712|pid=3258084734|site=Runway|vessel=R2-B2-S6
+}
+GAME_ACTION
+{
+	ut = 203686.808480222
+	type = 0
+	actionId = act_729884026ddc4c2a914326dd31afb6ee
+	recordingId = 7a06b7b0a8b3437eae990c651dba943e
+	seq = 99
+	subjectId = mobileMaterialsLab@KerbinSrfLandedRunway
+	scienceAwarded = 5.4
+	method = 1
+	transmitScalar = 0
+	subjectMaxValue = 5.4
+	startUT = 203686.813
+	endUT = 203686.813
+}
+GAME_ACTION
+{
+	ut = 203686.808480222
+	type = 2
+	actionId = act_507b8a242e554a1c8b309ea539087403
+	recordingId = 7a06b7b0a8b3437eae990c651dba943e
+	seq = 100
+	fundsAwarded = 13245
+	fundsSource = 2
+	dedupKey = FundsChanged|VesselRecovery|203686.808480222|72046.028205871582|85291.028213500977|
+}
+GAME_ACTION
+{
+	ut = 203693.76848021836
+	type = 3
+	actionId = act_db71ae99d3d742d5805074e04df2390a
+	seq = 101
+	fundsSpent = 0
+	fundsSpendingSource = 6
+	dedupKey = Size1p5.Tank.01
+}
+GAME_ACTION
+{
+	ut = 203693.76848021836
+	type = 3
+	actionId = act_78cc888e82eb4ddfb1b77086a475bce0
+	seq = 102
+	fundsSpent = 0
+	fundsSpendingSource = 6
+	dedupKey = Size1p5.Size1.Adapter.02
+}
+GAME_ACTION
+{
+	ut = 203693.76848021836
+	type = 3
+	actionId = act_38f1766b06d94f119a38101680fd4050
+	seq = 103
+	fundsSpent = 0
+	fundsSpendingSource = 6
+	dedupKey = fireworksLauncherSmall
+}
+GAME_ACTION
+{
+	ut = 203693.76848021836
+	type = 3
+	actionId = act_4696721f220f446f991a01bee36917a0
+	seq = 104
+	fundsSpent = 0
+	fundsSpendingSource = 6
+	dedupKey = fireworksLauncherBig
+}
+GAME_ACTION
+{
+	ut = 203693.76848021836
+	type = 3
+	actionId = act_9157605afc324b35a8e0bd43a2251511
+	seq = 105
+	fundsSpent = 0
+	fundsSpendingSource = 6
+	dedupKey = fuelTank
+}
+GAME_ACTION
+{
+	ut = 203693.76848021836
+	type = 3
+	actionId = act_2fda0daef0764b638fe7dfa4525c1e05
+	seq = 106
+	fundsSpent = 0
+	fundsSpendingSource = 6
+	dedupKey = radialLiquidEngine1-2
+}
+GAME_ACTION
+{
+	ut = 203693.76848021836
+	type = 3
+	actionId = act_aa91d1a4fda64431864ea71b418feecc
+	seq = 107
+	fundsSpent = 0
+	fundsSpendingSource = 6
+	dedupKey = liquidEngine3.v2
+}
+GAME_ACTION
+{
+	ut = 203693.76848021836
+	type = 1
+	actionId = act_4e3ff9114d4e4ddbac53222c233c2b43
+	seq = 108
+	nodeId = advRocketry
+	cost = 45
+}
+GAME_ACTION
+{
+	ut = 203695.40848021751
+	type = 3
+	actionId = act_baa335ae84514237a6a1a2f27cb7091c
+	recordingId = 3ec1090f10fe4bfbb67c84db2d513690
+	seq = 109
+	fundsSpent = 12385
+	fundsSpendingSource = 0
+}
+GAME_ACTION
+{
+	ut = 241553.13988595278
+	type = 3
+	actionId = act_00be41137e024b6dbfe82b11fbb3fd74
+	seq = 1
+	fundsSpent = 0
+	fundsSpendingSource = 6
+	dedupKey = EnginePlate5
+}
+GAME_ACTION
+{
+	ut = 241553.13988595278
+	type = 3
+	actionId = act_b84d42c664c04a7db6fa8fda07af10eb
+	seq = 2
+	fundsSpent = 0
+	fundsSpendingSource = 6
+	dedupKey = ServiceBay.125.v2
+}
+GAME_ACTION
+{
+	ut = 241553.13988595278
+	type = 3
+	actionId = act_b35fc5e16cab4700ba6f373c4c394d98
+	seq = 3
+	fundsSpent = 0
+	fundsSpendingSource = 6
+	dedupKey = launchClamp1
+}
+GAME_ACTION
+{
+	ut = 241553.13988595278
+	type = 3
+	actionId = act_a4336a97e864413cbbf2956dd5961410
+	seq = 4
+	fundsSpent = 0
+	fundsSpendingSource = 6
+	dedupKey = flagPartSize1
+}
+GAME_ACTION
+{
+	ut = 241553.13988595278
+	type = 3
+	actionId = act_d5911fad42b24c459ad712df6d343f5f
+	seq = 5
+	fundsSpent = 0
+	fundsSpendingSource = 6
+	dedupKey = Mk1FuselageStructural
+}
+GAME_ACTION
+{
+	ut = 241553.13988595278
+	type = 3
+	actionId = act_534718c1b2ea4c288b5bfe1e3659fef8
+	seq = 6
+	fundsSpent = 0
+	fundsSpendingSource = 6
+	dedupKey = Magnetometer
+}
+GAME_ACTION
+{
+	ut = 241553.13988595278
+	type = 3
+	actionId = act_6612d290b9c9499bb8b217650349f19e
+	seq = 7
+	fundsSpent = 0
+	fundsSpendingSource = 6
+	dedupKey = Separator.1
+}
+GAME_ACTION
+{
+	ut = 241553.13988595278
+	type = 3
+	actionId = act_bc5e88da1c7f4f9c9b2b7100856e34b0
+	seq = 8
+	fundsSpent = 0
+	fundsSpendingSource = 6
+	dedupKey = strutConnector
+}
+GAME_ACTION
+{
+	ut = 241553.13988595278
+	type = 3
+	actionId = act_dce073080dd5470b91de0770f9bd6aba
+	seq = 9
+	fundsSpent = 0
+	fundsSpendingSource = 6
+	dedupKey = fairingSize1
+}
+GAME_ACTION
+{
+	ut = 241553.13988595278
+	type = 3
+	actionId = act_11797b44a72d4a4ba39b9b96da43bc79
+	seq = 10
+	fundsSpent = 0
+	fundsSpendingSource = 6
+	dedupKey = pointyNoseConeB
+}
+GAME_ACTION
+{
+	ut = 241553.13988595278
+	type = 3
+	actionId = act_d2970eac938c4777b19d99da471bd2ce
+	seq = 11
+	fundsSpent = 0
+	fundsSpendingSource = 6
+	dedupKey = pointyNoseConeA
+}
+GAME_ACTION
+{
+	ut = 241553.13988595278
+	type = 1
+	actionId = act_ef5a078c1b9d4ad08ec4abb4fc0cbcd8
+	seq = 12
+	nodeId = generalConstruction
+	cost = 45
+}
+GAME_ACTION
+{
+	ut = 241553.13988595278
+	type = 3
+	actionId = act_152738498d354ed1a6ff3fcaf2f77b54
+	seq = 13
+	fundsSpent = 0
+	fundsSpendingSource = 6
+	dedupKey = RCSLinearSmall
+}
+GAME_ACTION
+{
+	ut = 241553.13988595278
+	type = 3
+	actionId = act_2113d6a79f4148658acd985f3b532761
+	seq = 14
+	fundsSpent = 0
+	fundsSpendingSource = 6
+	dedupKey = linearRcs
+}
+GAME_ACTION
+{
+	ut = 241553.13988595278
+	type = 3
+	actionId = act_e3ede601be4f47ea9eb936f577b6c4d0
+	seq = 15
+	fundsSpent = 0
+	fundsSpendingSource = 6
+	dedupKey = rcsTankMini
+}
+GAME_ACTION
+{
+	ut = 241553.13988595278
+	type = 3
+	actionId = act_c105890d526a4b078c5915fa571e514a
+	seq = 16
+	fundsSpent = 0
+	fundsSpendingSource = 6
+	dedupKey = advSasModule
+}
+GAME_ACTION
+{
+	ut = 241553.13988595278
+	type = 3
+	actionId = act_7814321a034a46ddb871c3f09dbedd62
+	seq = 17
+	fundsSpent = 0
+	fundsSpendingSource = 6
+	dedupKey = winglet3
+}
+GAME_ACTION
+{
+	ut = 241553.13988595278
+	type = 3
+	actionId = act_378008e277b641fdabbe432d7bec4a26
+	seq = 18
+	fundsSpent = 0
+	fundsSpendingSource = 6
+	dedupKey = R8winglet
+}
+GAME_ACTION
+{
+	ut = 241553.13988595278
+	type = 1
+	actionId = act_b807843e73d243ecab1038a3fa100831
+	seq = 19
+	nodeId = flightControl
+	cost = 45
+}
+GAME_ACTION
+{
+	ut = 241665.69988589382
+	type = 2
+	actionId = act_b9ebc49c40404b099a6ab7a721561974
+	seq = 22
+	fundsAwarded = 17810
+	fundsSource = 2
+	dedupKey = FundsChanged|VesselRecovery|241665.69988589382|120746.02819824219|138556.02820587158|
+}
+GAME_ACTION
+{
+	ut = 241665.9198858937
+	type = 3
+	actionId = act_b276779808404929b91767abfea7c407
+	recordingId = 7392a5c8b46d48178121f9322fcb08af
+	seq = 23
+	fundsSpent = 17810
+	fundsSpendingSource = 0
+}
+GAME_ACTION
+{
+	ut = 274216.44204875379
+	type = 4
+	actionId = act_0a49274b230746ee9bf30000f965158f
+	recordingId = 7392a5c8b46d48178121f9322fcb08af
+	seq = 1
+	milestoneId = Mun/Flyby
+	milestoneFundsAwarded = 13000
+	milestoneRepAwarded = 1
+	milestoneSciAwarded = 0
+}
+GAME_ACTION
+{
+	ut = 275252.90800584113
+	type = 4
+	actionId = act_f22ca520c4cd4161a18f6c954f4c3572
+	recordingId = 7392a5c8b46d48178121f9322fcb08af
+	seq = 2
+	milestoneId = Mun/Science
+	milestoneFundsAwarded = 6240
+	milestoneRepAwarded = 1
+	milestoneSciAwarded = 0
+}
+GAME_ACTION
+{
+	ut = 241877.17988578303
+	type = 0
+	actionId = act_87f6cc76423949ce8fd3d55ecaabf39a
+	recordingId = 7392a5c8b46d48178121f9322fcb08af
+	seq = 1
+	subjectId = magnetometer@KerbinInSpaceLow
+	scienceAwarded = 10
+	method = 1
+	transmitScalar = 0
+	subjectMaxValue = 14
+	startUT = 241877.188
+	endUT = 241877.188
+}
+GAME_ACTION
+{
+	ut = 241877.17988578303
+	type = 0
+	actionId = act_faf7540dad6140e98ac3c5eea1d209a2
+	recordingId = 7392a5c8b46d48178121f9322fcb08af
+	seq = 2
+	subjectId = magnetometer@KerbinInSpaceLow
+	scienceAwarded = 10.5714283
+	method = 1
+	transmitScalar = 0
+	subjectMaxValue = 14
+	startUT = 241877.188
+	endUT = 241877.188
+}
+GAME_ACTION
+{
+	ut = 241877.17988578303
+	type = 0
+	actionId = act_55c22f43df434260ac613ad9663d6831
+	recordingId = 7392a5c8b46d48178121f9322fcb08af
+	seq = 3
+	subjectId = magnetometer@KerbinInSpaceLow
+	scienceAwarded = 11.061224
+	method = 1
+	transmitScalar = 0
+	subjectMaxValue = 14
+	startUT = 241877.188
+	endUT = 241877.188
+}
+GAME_ACTION
+{
+	ut = 241877.17988578303
+	type = 0
+	actionId = act_bf4ad394538747b7a62da738d0761e08
+	recordingId = 7392a5c8b46d48178121f9322fcb08af
+	seq = 4
+	subjectId = magnetometer@MunInSpaceHigh
+	scienceAwarded = 20
+	method = 1
+	transmitScalar = 0
+	subjectMaxValue = 28
+	startUT = 241877.188
+	endUT = 241877.188
+}
+GAME_ACTION
+{
+	ut = 241877.17988578303
+	type = 0
+	actionId = act_eb36246aa23844598fc55b45308842cc
+	recordingId = 7392a5c8b46d48178121f9322fcb08af
+	seq = 5
+	subjectId = magnetometer@MunInSpaceHigh
+	scienceAwarded = 21.1428566
+	method = 1
+	transmitScalar = 0
+	subjectMaxValue = 28
+	startUT = 241877.188
+	endUT = 241877.188
+}
+GAME_ACTION
+{
+	ut = 241877.17988578303
+	type = 0
+	actionId = act_00fe6976d35d4047af12143a5606b95a
+	recordingId = 7392a5c8b46d48178121f9322fcb08af
+	seq = 6
+	subjectId = magnetometer@MunInSpaceHigh
+	scienceAwarded = 22.122448
+	method = 1
+	transmitScalar = 0
+	subjectMaxValue = 28
+	startUT = 241877.188
+	endUT = 241877.188
+}
+GAME_ACTION
+{
+	ut = 241877.17988578303
+	type = 0
+	actionId = act_e5f05bf0ef984b97ad06f8140d0d17f5
+	recordingId = 7392a5c8b46d48178121f9322fcb08af
+	seq = 7
+	subjectId = mysteryGoo@MunInSpaceHigh
+	scienceAwarded = 1.67999876
+	method = 0
+	transmitScalar = 0
+	subjectMaxValue = 24
+	startUT = 241877.188
+	endUT = 241877.188
+}
+GAME_ACTION
+{
+	ut = 241877.17988578303
+	type = 0
+	actionId = act_acc678e62ec14b0989af24dddc6307ea
+	recordingId = 7392a5c8b46d48178121f9322fcb08af
+	seq = 8
+	subjectId = mysteryGoo@MunInSpaceHigh
+	scienceAwarded = 3.24239779
+	method = 0
+	transmitScalar = 0
+	subjectMaxValue = 24
+	startUT = 241877.188
+	endUT = 241877.188
+}
+GAME_ACTION
+{
+	ut = 241877.17988578303
+	type = 0
+	actionId = act_fe613b37fe724a359c117e2ff04091d3
+	recordingId = 7392a5c8b46d48178121f9322fcb08af
+	seq = 9
+	subjectId = mysteryGoo@MunInSpaceHigh
+	scienceAwarded = 4.695429
+	method = 0
+	transmitScalar = 0
+	subjectMaxValue = 24
+	startUT = 241877.188
+	endUT = 241877.188
+}
+GAME_ACTION
+{
+	ut = 241877.17988578303
+	type = 0
+	actionId = act_1f8f667a0ab441adaf89c3a6a5b10d32
+	recordingId = 7392a5c8b46d48178121f9322fcb08af
+	seq = 10
+	subjectId = mysteryGoo@MunInSpaceHigh
+	scienceAwarded = 5.20799351
+	method = 0
+	transmitScalar = 0
+	subjectMaxValue = 24
+	startUT = 241877.188
+	endUT = 241877.188
+}
+GAME_ACTION
+{
+	ut = 241877.17988578303
+	type = 0
+	actionId = act_bb10819668f64aa38ec33fb6e8a28f08
+	recordingId = 7392a5c8b46d48178121f9322fcb08af
+	seq = 11
+	subjectId = mysteryGoo@MunInSpaceHigh
+	scienceAwarded = 6.18239355
+	method = 0
+	transmitScalar = 0
+	subjectMaxValue = 24
+	startUT = 241877.188
+	endUT = 241877.188
+}
+GAME_ACTION
+{
+	ut = 241877.17988578303
+	type = 0
+	actionId = act_961953a68d5c4e6496a70accc3fdb2aa
+	recordingId = 7392a5c8b46d48178121f9322fcb08af
+	seq = 12
+	subjectId = magnetometer@MunInSpaceLow
+	scienceAwarded = 30
+	method = 1
+	transmitScalar = 0
+	subjectMaxValue = 42
+	startUT = 241877.188
+	endUT = 241877.188
+}
+GAME_ACTION
+{
+	ut = 241877.17988578303
+	type = 0
+	actionId = act_48c4e51cc73748c89f7eaea1d875691b
+	recordingId = 7392a5c8b46d48178121f9322fcb08af
+	seq = 13
+	subjectId = magnetometer@MunInSpaceLow
+	scienceAwarded = 31.7142868
+	method = 1
+	transmitScalar = 0
+	subjectMaxValue = 42
+	startUT = 241877.188
+	endUT = 241877.188
+}
+GAME_ACTION
+{
+	ut = 241877.17988578303
+	type = 0
+	actionId = act_a8bdbb531ae6442eb800712a6d17a44c
+	recordingId = 7392a5c8b46d48178121f9322fcb08af
+	seq = 14
+	subjectId = magnetometer@MunInSpaceLow
+	scienceAwarded = 33.1836739
+	method = 1
+	transmitScalar = 0
+	subjectMaxValue = 42
+	startUT = 241877.188
+	endUT = 241877.188
+}
+GAME_ACTION
+{
+	ut = 241877.17988578303
+	type = 0
+	actionId = act_f499116c91c34fbbb701075b43993fe2
+	recordingId = 7392a5c8b46d48178121f9322fcb08af
+	seq = 15
+	subjectId = mobileMaterialsLab@MunInSpaceLow
+	scienceAwarded = 12.5999947
+	method = 0
+	transmitScalar = 0
+	subjectMaxValue = 54
+	startUT = 241877.188
+	endUT = 241877.188
+}
+GAME_ACTION
+{
+	ut = 241877.17988578303
+	type = 0
+	actionId = act_f4fae0f463c5413da529262b69b64105
+	recordingId = 7392a5c8b46d48178121f9322fcb08af
+	seq = 16
+	subjectId = mysteryGoo@MunInSpaceHigh
+	scienceAwarded = 9.105596
+	method = 0
+	transmitScalar = 0
+	subjectMaxValue = 24
+	startUT = 241877.188
+	endUT = 241877.188
+}
+GAME_ACTION
+{
+	ut = 286290.35542794858
+	type = 3
+	actionId = act_4bdc7c723641448abbaa6998557df6d3
+	seq = 24
+	fundsSpent = 0
+	fundsSpendingSource = 6
+	dedupKey = parachuteRadial
+}
+GAME_ACTION
+{
+	ut = 286290.35542794858
+	type = 3
+	actionId = act_3a25d021d2104d079693f38626e9f260
+	seq = 25
+	fundsSpent = 0
+	fundsSpendingSource = 6
+	dedupKey = radialDrogue
+}
+GAME_ACTION
+{
+	ut = 286290.35542794858
+	type = 3
+	actionId = act_34914edf2fb24332af6b7cb09c412657
+	seq = 26
+	fundsSpent = 0
+	fundsSpendingSource = 6
+	dedupKey = HeatShield1
+}
+GAME_ACTION
+{
+	ut = 286290.35542794858
+	type = 1
+	actionId = act_c5e02e0e15fa4e01aefea4b287e73782
+	seq = 27
+	nodeId = enhancedSurvivability
+	cost = 45
+}
+GAME_ACTION
+{
+	ut = 286290.35542794858
+	type = 3
+	actionId = act_feb5ddd6d87d4b8187f52d09a585fcc3
+	seq = 28
+	fundsSpent = 0
+	fundsSpendingSource = 6
+	dedupKey = Size1p5.Tank.03
+}
+GAME_ACTION
+{
+	ut = 286290.35542794858
+	type = 3
+	actionId = act_cc5aba5b1a0b4c028f4b899418ddf763
+	seq = 29
+	fundsSpent = 0
+	fundsSpendingSource = 6
+	dedupKey = Size1p5.Tank.02
+}
+GAME_ACTION
+{
+	ut = 286290.35542794858
+	type = 3
+	actionId = act_ee3a3899acc54981bf4f085cf00df8b4
+	seq = 30
+	fundsSpent = 0
+	fundsSpendingSource = 6
+	dedupKey = Size1p5.Size1.Adapter.01
+}
+GAME_ACTION
+{
+	ut = 286290.35542794858
+	type = 3
+	actionId = act_900a811fb11b48dbaa507cc9ddb08b3b
+	seq = 31
+	fundsSpent = 0
+	fundsSpendingSource = 6
+	dedupKey = Size1p5.Size0.Adapter.01
+}
+GAME_ACTION
+{
+	ut = 286290.35542794858
+	type = 3
+	actionId = act_b18ea4478c9f417c8ed3ca64a542885d
+	seq = 32
+	fundsSpent = 0
+	fundsSpendingSource = 6
+	dedupKey = fuelTank.long
+}
+GAME_ACTION
+{
+	ut = 286290.35542794858
+	type = 3
+	actionId = act_03c5021a3628487f9d9a912b418570ed
+	seq = 33
+	fundsSpent = 0
+	fundsSpendingSource = 6
+	dedupKey = RCSFuelTank
+}
+GAME_ACTION
+{
+	ut = 286290.35542794858
+	type = 3
+	actionId = act_cc1d5298efbf41d496e827c9b748dd1a
+	seq = 34
+	fundsSpent = 0
+	fundsSpendingSource = 6
+	dedupKey = ReleaseValve
+}
+GAME_ACTION
+{
+	ut = 286290.35542794858
+	type = 3
+	actionId = act_d8f67f97beb5434fa0ba434b83c2c012
+	seq = 35
+	fundsSpent = 0
+	fundsSpendingSource = 6
+	dedupKey = fuelLine
+}
+GAME_ACTION
+{
+	ut = 286290.35542794858
+	type = 1
+	actionId = act_9405df4ee3084e118538d6a7c8175e2c
+	seq = 36
+	nodeId = fuelSystems
+	cost = 90
+}
+GAME_ACTION
+{
+	ut = 286446.59542809409
+	type = 2
+	actionId = act_cfd2a7e116ec478cbff89b1a5612771c
+	seq = 38
+	fundsAwarded = 17834.62
+	fundsSource = 2
+	dedupKey = FundsChanged|VesselRecovery|286446.59542809409|139986.02819824219|157820.64700317383|
+}
+GAME_ACTION
+{
+	ut = 286446.89542809437
+	type = 3
+	actionId = act_34ce828c34314d1f8b59674168690d13
+	recordingId = dd3dc9658327460fb4a22a0b6a383c26
+	seq = 39
+	fundsSpent = 17845
+	fundsSpendingSource = 0
+}
+GAME_ACTION
+{
+	ut = 286915.22372925014
+	type = 5
+	actionId = act_de74a19899cd43188f1f02a55650947d
+	seq = 40
+	contractId = 8ab54254-3f12-4c47-8e03-e3dfd4eea2e5
+	contractType = CollectScience
+	contractTitle = Science data from space around The Mun.
+	advanceFunds = 15300
+	deadlineUT = 9.2016E+07
+	fundsPenalty = 16064.999
+	repPenalty = 3
+}
+GAME_ACTION
+{
+	ut = 286961.7837292935
+	type = 6
+	actionId = act_34aba65c3e8748a595fe8e158c862908
+	recordingId = d31308d6-7955-4e98-920a-b3dafd16b3fc
+	seq = 1
+	contractId = 8ab54254-3f12-4c47-8e03-e3dfd4eea2e5
+	fundsReward = 39270
+	repReward = 4.761905
+	scienceReward = 3
+}
+GAME_ACTION
+{
+	ut = 286961.7837292935
+	type = 6
+	actionId = act_28650003f33b4738a3366510e584cb59
+	recordingId = d31308d6-7955-4e98-920a-b3dafd16b3fc
+	seq = 2
+	contractId = 8ab54254-3f12-4c47-8e03-e3dfd4eea2e5
+	fundsReward = 39270
+	repReward = 4.761905
+	scienceReward = 3
+}
+GAME_ACTION
+{
+	ut = 286961.7837292935
+	type = 6
+	actionId = act_769cb7e2685c4217b4dc5fa52f22981a
+	recordingId = d31308d6-7955-4e98-920a-b3dafd16b3fc
+	seq = 3
+	contractId = 8ab54254-3f12-4c47-8e03-e3dfd4eea2e5
+	fundsReward = 39270
+	repReward = 4.761905
+	scienceReward = 3
+}
+GAME_ACTION
+{
+	ut = 453543.36246005312
+	type = 4
+	actionId = act_1f027efe9a3040b192d5f1dd0f3b665e
+	recordingId = 6a15ca9e-d734-4c99-9da5-7be92d2974ab
+	seq = 1
+	milestoneId = Minmus/Flyby
+	milestoneFundsAwarded = 14500
+	milestoneRepAwarded = 1
+	milestoneSciAwarded = 0
+}
+GAME_ACTION
+{
+	ut = 455157.0448332532
+	type = 4
+	actionId = act_d5562a60d49848abb63eddf61ef109c4
+	recordingId = 6a15ca9e-d734-4c99-9da5-7be92d2974ab
+	seq = 2
+	milestoneId = Minmus/Science
+	milestoneFundsAwarded = 6960
+	milestoneRepAwarded = 1
+	milestoneSciAwarded = 0
+}
+GAME_ACTION
+{
+	ut = 475263.05765572831
+	type = 0
+	actionId = act_5d4e43ec8eb847ccbb22a7fe02c590b3
+	recordingId = 6a15ca9e-d734-4c99-9da5-7be92d2974ab
+	seq = 1
+	subjectId = barometerScan@MinmusInSpaceHigh
+	scienceAwarded = 15
+	method = 1
+	transmitScalar = 0
+	subjectMaxValue = 15
+	startUT = 455157.031
+	endUT = 475263.063
+}
+GAME_ACTION
+{
+	ut = 475263.05765572831
+	type = 0
+	actionId = act_95b51447e4864a46a8ff36ae1a3830bc
+	recordingId = 6a15ca9e-d734-4c99-9da5-7be92d2974ab
+	seq = 2
+	subjectId = temperatureScan@MinmusInSpaceHigh
+	scienceAwarded = 10
+	method = 1
+	transmitScalar = 0
+	subjectMaxValue = 10
+	startUT = 455162.4
+	endUT = 475263.063
+}
+GAME_ACTION
+{
+	ut = 475263.05765572831
+	type = 0
+	actionId = act_a12015d930fe4bfe9cabc62eecc1348e
+	recordingId = 6a15ca9e-d734-4c99-9da5-7be92d2974ab
+	seq = 3
+	subjectId = magnetometer@MinmusInSpaceHigh
+	scienceAwarded = 35
+	method = 1
+	transmitScalar = 0
+	subjectMaxValue = 35
+	startUT = 455175.3
+	endUT = 475263.063
+}
+GAME_ACTION
+{
+	ut = 475263.05765572831
+	type = 0
+	actionId = act_1c6ddd58751a49c4836ea5046d0ace36
+	recordingId = 6a15ca9e-d734-4c99-9da5-7be92d2974ab
+	seq = 4
+	subjectId = mysteryGoo@MinmusInSpaceHigh
+	scienceAwarded = 2.100001
+	method = 0
+	transmitScalar = 0
+	subjectMaxValue = 30
+	startUT = 455264.344
+	endUT = 475263.063
+}
+GAME_ACTION
+{
+	ut = 475263.05765572831
+	type = 0
+	actionId = act_326eb396efa546cc89db3c6c9b830fa0
+	recordingId = 6a15ca9e-d734-4c99-9da5-7be92d2974ab
+	seq = 5
+	subjectId = mysteryGoo@MinmusInSpaceHigh
+	scienceAwarded = 4.053002
+	method = 0
+	transmitScalar = 0
+	subjectMaxValue = 30
+	startUT = 455360.5
+	endUT = 475263.063
+}
+GAME_ACTION
+{
+	ut = 475263.05765572831
+	type = 0
+	actionId = act_a92976c0927244328e1648780096529c
+	recordingId = 6a15ca9e-d734-4c99-9da5-7be92d2974ab
+	seq = 6
+	subjectId = mysteryGoo@MinmusInSpaceHigh
+	scienceAwarded = 5.86929274
+	method = 0
+	transmitScalar = 0
+	subjectMaxValue = 30
+	startUT = 455419.5
+	endUT = 475263.063
+}
+GAME_ACTION
+{
+	ut = 475263.05765572831
+	type = 0
+	actionId = act_650d0687de0241959e8afd4835ff3b47
+	recordingId = 6a15ca9e-d734-4c99-9da5-7be92d2974ab
+	seq = 7
+	subjectId = mysteryGoo@MinmusInSpaceHigh
+	scienceAwarded = 6.510006
+	method = 0
+	transmitScalar = 0
+	subjectMaxValue = 30
+	startUT = 455477.5
+	endUT = 475263.063
+}
+GAME_ACTION
+{
+	ut = 475263.05765572831
+	type = 0
+	actionId = act_982285f0aeed413fb99cf60e62d47704
+	recordingId = 6a15ca9e-d734-4c99-9da5-7be92d2974ab
+	seq = 8
+	subjectId = telemetryReport@MinmusInSpaceHigh
+	scienceAwarded = 5
+	method = 1
+	transmitScalar = 0
+	subjectMaxValue = 5
+	startUT = 455762.156
+	endUT = 475263.063
+}
+GAME_ACTION
+{
+	ut = 475263.05765572831
+	type = 0
+	actionId = act_4d31e11ba9cc47d6a2eb3b17a34cadef
+	recordingId = 6a15ca9e-d734-4c99-9da5-7be92d2974ab
+	seq = 9
+	subjectId = mobileMaterialsLab@MinmusInSpaceLow
+	scienceAwarded = 30.2400169
+	method = 0
+	transmitScalar = 0
+	subjectMaxValue = 72
+	startUT = 470778.5
+	endUT = 475263.063
+}
+GAME_ACTION
+{
+	ut = 475263.05765572831
+	type = 0
+	actionId = act_b712b6d3cf094eca9e4f194349fcfcbc
+	recordingId = 6a15ca9e-d734-4c99-9da5-7be92d2974ab
+	seq = 10
+	subjectId = temperatureScan@MinmusInSpaceLow
+	scienceAwarded = 16
+	method = 1
+	transmitScalar = 0
+	subjectMaxValue = 16
+	startUT = 470789.781
+	endUT = 475263.063
+}
+GAME_ACTION
+{
+	ut = 475263.05765572831
+	type = 0
+	actionId = act_5f5157d8da8d4cd799a0b264cab90efa
+	recordingId = 6a15ca9e-d734-4c99-9da5-7be92d2974ab
+	seq = 11
+	subjectId = barometerScan@MinmusInSpaceLow
+	scienceAwarded = 24
+	method = 1
+	transmitScalar = 0
+	subjectMaxValue = 24
+	startUT = 470793.875
+	endUT = 475263.063
+}
+GAME_ACTION
+{
+	ut = 475263.05765572831
+	type = 0
+	actionId = act_4a79052d3510455b99ab287972d9710a
+	recordingId = 6a15ca9e-d734-4c99-9da5-7be92d2974ab
+	seq = 12
+	subjectId = magnetometer@MinmusInSpaceLow
+	scienceAwarded = 56
+	method = 1
+	transmitScalar = 0
+	subjectMaxValue = 56
+	startUT = 475218.2
+	endUT = 475263.063
+}
+GAME_ACTION
+{
+	ut = 475263.05765572831
+	type = 0
+	actionId = act_ea6cc86454e14501a49e557354d3449d
+	recordingId = 6a15ca9e-d734-4c99-9da5-7be92d2974ab
+	seq = 13
+	subjectId = mysteryGoo@MinmusInSpaceLow
+	scienceAwarded = 20.1600113
+	method = 0
+	transmitScalar = 0
+	subjectMaxValue = 48
+	startUT = 475226.7
+	endUT = 475263.063
+}
+GAME_ACTION
+{
+	ut = 475263.05765572831
+	type = 0
+	actionId = act_6b539d2f36f54cd6a5e462e235d12a8d
+	recordingId = 6a15ca9e-d734-4c99-9da5-7be92d2974ab
+	seq = 14
+	subjectId = telemetryReport@MinmusInSpaceLow
+	scienceAwarded = 8
+	method = 1
+	transmitScalar = 0
+	subjectMaxValue = 8
+	startUT = 475244.156
+	endUT = 475263.063
+}
+GAME_ACTION
+{
+	ut = 475282.83765574673
+	type = 5
+	actionId = act_bd35e1fc171747e6addeed141be20678
+	seq = 41
+	contractId = 1eb2baf9-afce-48c7-82d6-364dae85f57a
+	contractType = CollectScience
+	contractTitle = Science data from surface of The Mun.
+	advanceFunds = 25875
+	deadlineUT = 9.2016E+07
+	fundsPenalty = 25875
+	repPenalty = 4
+}
+GAME_ACTION
+{
+	ut = 475362.33765582077
+	type = 3
+	actionId = act_02619070e1444c94ac1ce66e329d9999
+	seq = 42
+	fundsSpent = 0
+	fundsSpendingSource = 6
+	dedupKey = kv1Pod
+}
+GAME_ACTION
+{
+	ut = 475362.33765582077
+	type = 3
+	actionId = act_d4dd5beb884944079bf6fc8958772c69
+	seq = 43
+	fundsSpent = 0
+	fundsSpendingSource = 6
+	dedupKey = ladder1
+}
+GAME_ACTION
+{
+	ut = 475362.33765582077
+	type = 3
+	actionId = act_dc6121266e3047f889ca6fc72de04e05
+	seq = 44
+	fundsSpent = 0
+	fundsSpendingSource = 6
+	dedupKey = mk1pod.v2
+}
+GAME_ACTION
+{
+	ut = 475362.33765582077
+	type = 3
+	actionId = act_ba0ebaab90d4436b90726b580a73698c
+	seq = 45
+	fundsSpent = 0
+	fundsSpendingSource = 6
+	dedupKey = evaChute
+}
+GAME_ACTION
+{
+	ut = 475362.33765582077
+	type = 3
+	actionId = act_044549ea300d4aebb4fea3d411fd7c2f
+	seq = 46
+	fundsSpent = 0
+	fundsSpendingSource = 6
+	dedupKey = evaJetpack
+}
+GAME_ACTION
+{
+	ut = 475362.33765582077
+	type = 1
+	actionId = act_0bb692dc3c6745288911a8c17ad6c803
+	seq = 47
+	nodeId = simpleCommandModules
+	cost = 90
+}
+GAME_ACTION
+{
+	ut = 475362.33765582077
+	type = 3
+	actionId = act_2c1b667d32df4611b769e9070c191de7
+	seq = 48
+	fundsSpent = 0
+	fundsSpendingSource = 6
+	dedupKey = monopropMiniSphere
+}
+GAME_ACTION
+{
+	ut = 475362.33765582077
+	type = 3
+	actionId = act_12f464d8924948c194ea6d0f30c1f42d
+	seq = 49
+	fundsSpent = 0
+	fundsSpendingSource = 6
+	dedupKey = miniFuelTank
+}
+GAME_ACTION
+{
+	ut = 475362.33765582077
+	type = 3
+	actionId = act_7410ce68640f4eef8aa2421668934973
+	seq = 50
+	fundsSpent = 0
+	fundsSpendingSource = 6
+	dedupKey = externalTankCapsule
+}
+GAME_ACTION
+{
+	ut = 475362.33765582077
+	type = 3
+	actionId = act_fb4bffdae1dc4f7b9d6028ec8224b4c1
+	seq = 51
+	fundsSpent = 0
+	fundsSpendingSource = 6
+	dedupKey = microEngine.v2
+}
+GAME_ACTION
+{
+	ut = 475362.33765582077
+	type = 3
+	actionId = act_c917f7b893ea4ddc8bde051bdf1457b1
+	seq = 52
+	fundsSpent = 0
+	fundsSpendingSource = 6
+	dedupKey = liquidEngineMini.v2
+}
+GAME_ACTION
+{
+	ut = 475362.33765582077
+	type = 3
+	actionId = act_60064d204a9548aa84ee58b30a58a7b6
+	seq = 53
+	fundsSpent = 0
+	fundsSpendingSource = 6
+	dedupKey = Separator.0
+}
+GAME_ACTION
+{
+	ut = 475362.33765582077
+	type = 1
+	actionId = act_b7033a0cac2a41d69acca3f816acc617
+	seq = 54
+	nodeId = propulsionSystems
+	cost = 90
+}
+GAME_ACTION
+{
+	ut = 475409.57765586476
+	type = 6
+	actionId = act_0f058b18e19a43058a90a5edc0a93b08
+	recordingId = 3ec1090f10fe4bfbb67c84db2d513690
+	seq = 1
+	contractId = 1eb2baf9-afce-48c7-82d6-364dae85f57a
+	fundsReward = 63250
+	repReward = 9
+	scienceReward = 4
+}
+GAME_ACTION
+{
+	ut = 475409.57765586476
+	type = 6
+	actionId = act_c16fa394f14a424ea5d3502fa921ff8f
+	recordingId = 3ec1090f10fe4bfbb67c84db2d513690
+	seq = 2
+	contractId = 1eb2baf9-afce-48c7-82d6-364dae85f57a
+	fundsReward = 63250
+	repReward = 9
+	scienceReward = 4
+}
+GAME_ACTION
+{
+	ut = 475409.57765586476
+	type = 6
+	actionId = act_e3d44362ddaa4c5e9f1a0b6be9c6d619
+	recordingId = 3ec1090f10fe4bfbb67c84db2d513690
+	seq = 3
+	contractId = 1eb2baf9-afce-48c7-82d6-364dae85f57a
+	fundsReward = 63250
+	repReward = 9
+	scienceReward = 4
+}
+GAME_ACTION
+{
+	ut = 475409.57765586476
+	type = 6
+	actionId = act_82b9749af4654ea8860323ff11835391
+	recordingId = 3ec1090f10fe4bfbb67c84db2d513690
+	seq = 4
+	contractId = 1eb2baf9-afce-48c7-82d6-364dae85f57a
+	fundsReward = 63250
+	repReward = 9
+	scienceReward = 4
+}
+GAME_ACTION
+{
+	ut = 475457.99765590986
+	type = 3
+	actionId = act_81673f8198a441e4a3ae74b6183f26b2
+	seq = 1
+	fundsSpent = 0
+	fundsSpendingSource = 6
+	dedupKey = LiquidEngineLV-TX87
+}
+GAME_ACTION
+{
+	ut = 475457.99765590986
+	type = 3
+	actionId = act_586737562da9488197037891019b8622
+	seq = 2
+	fundsSpent = 0
+	fundsSpendingSource = 6
+	dedupKey = Rockomax8BW
+}
+GAME_ACTION
+{
+	ut = 475457.99765590986
+	type = 3
+	actionId = act_fe32689548d844f1a461bcf0561728cc
+	seq = 3
+	fundsSpent = 0
+	fundsSpendingSource = 6
+	dedupKey = MassiveBooster
+}
+GAME_ACTION
+{
+	ut = 475457.99765590986
+	type = 3
+	actionId = act_01367b348af2404ebfbd521cdb1fe004
+	seq = 4
+	fundsSpent = 0
+	fundsSpendingSource = 6
+	dedupKey = engineLargeSkipper.v2
+}
+GAME_ACTION
+{
+	ut = 475457.99765590986
+	type = 3
+	actionId = act_178df5f02b9d49a6aee7dfea53ba04df
+	seq = 5
+	fundsSpent = 0
+	fundsSpendingSource = 6
+	dedupKey = liquidEngine2-2.v2
+}
+GAME_ACTION
+{
+	ut = 475457.99765590986
+	type = 1
+	actionId = act_bc37a01a2a0c4f52a03ac220f562685e
+	seq = 6
+	nodeId = heavyRocketry
+	cost = 90
+}
+GAME_ACTION
+{
+	ut = 475514.1976559622
+	type = 3
+	actionId = act_551c597e329348da8fb54ca249e1f790
+	recordingId = 14c10c43ad45417db38d5d9674fe239d
+	seq = 7
+	fundsSpent = 21345
+	fundsSpendingSource = 0
+}
+GAME_ACTION
+{
+	ut = 511771.44905531831
+	type = 4
+	actionId = act_c57d7c01c8c44df5b560506a3100f465
+	recordingId = 14c10c43ad45417db38d5d9674fe239d
+	seq = 1
+	milestoneId = Sun/Science
+	milestoneFundsAwarded = 9120
+	milestoneRepAwarded = 1
+	milestoneSciAwarded = 0
+}
+GAME_ACTION
+{
+	ut = 475816.74786860612
+	type = 0
+	actionId = act_0eed82ece2534671a1efc74c3e777f1f
+	recordingId = 14c10c43ad45417db38d5d9674fe239d
+	seq = 1
+	subjectId = telemetryReport@SunInSpaceHigh
+	scienceAwarded = 5
+	method = 1
+	transmitScalar = 0
+	subjectMaxValue = 5
+	startUT = 475816.75
+	endUT = 475816.75
+}
+GAME_ACTION
+{
+	ut = 475816.74786860612
+	type = 0
+	actionId = act_2413a60bdf414659be9ee81bab4c9655
+	recordingId = 14c10c43ad45417db38d5d9674fe239d
+	seq = 2
+	subjectId = temperatureScan@SunInSpaceHigh
+	scienceAwarded = 10
+	method = 1
+	transmitScalar = 0
+	subjectMaxValue = 10
+	startUT = 475816.75
+	endUT = 475816.75
+}
+GAME_ACTION
+{
+	ut = 475816.74786860612
+	type = 0
+	actionId = act_c5bafc5d5bfd4cfdbe4901491360e2f1
+	recordingId = 14c10c43ad45417db38d5d9674fe239d
+	seq = 3
+	subjectId = barometerScan@SunInSpaceHigh
+	scienceAwarded = 15
+	method = 1
+	transmitScalar = 0
+	subjectMaxValue = 15
+	startUT = 475816.75
+	endUT = 475816.75
+}
+GAME_ACTION
+{
+	ut = 475816.74786860612
+	type = 0
+	actionId = act_e7e08481ed934dfc8f3fd237be7ee2be
+	recordingId = 14c10c43ad45417db38d5d9674fe239d
+	seq = 4
+	subjectId = mysteryGoo@SunInSpaceHigh
+	scienceAwarded = 12.599967
+	method = 0
+	transmitScalar = 0
+	subjectMaxValue = 30
+	startUT = 475816.75
+	endUT = 475816.75
+}
+GAME_ACTION
+{
+	ut = 475816.74786860612
+	type = 0
+	actionId = act_d7b1ab92584e4a7d9cad3d1d153777aa
+	recordingId = 14c10c43ad45417db38d5d9674fe239d
+	seq = 5
+	subjectId = magnetometer@SunInSpaceHigh
+	scienceAwarded = 35
+	method = 1
+	transmitScalar = 0
+	subjectMaxValue = 35
+	startUT = 475816.75
+	endUT = 475816.75
+}
+GAME_ACTION
+{
+	ut = 1099030.5824099358
+	type = 3
+	actionId = act_2dbb51204ec248a7b784cd297db7c69b
+	recordingId = 6f714a644f8441da85ad03049947e726
+	seq = 9
+	fundsSpent = 15567
+	fundsSpendingSource = 0
+}
+GAME_ACTION
+{
+	ut = 1101852.0887924731
+	type = 4
+	actionId = act_a9bc25236d3644809e638fd4865f475c
+	recordingId = 6f714a644f8441da85ad03049947e726
+	seq = 1
+	milestoneId = Kerbin/ReturnFromOrbit
+	milestoneFundsAwarded = 12000
+	milestoneRepAwarded = 2
+	milestoneSciAwarded = 1
+}
+GAME_ACTION
+{
+	ut = 1101879.5487924987
+	type = 4
+	actionId = act_d22c3eb5e12a437bb7831540bfbc9ede
+	recordingId = 6f714a644f8441da85ad03049947e726
+	seq = 2
+	milestoneId = Kerbin/SurfaceEVA
+	milestoneFundsAwarded = 1600
+	milestoneRepAwarded = 0
+	milestoneSciAwarded = 0
+}
+GAME_ACTION
+{
+	ut = 1099182.0824100769
+	type = 0
+	actionId = act_fcf188d4d4634032b5884b3bc4e46cc3
+	recordingId = 6f714a644f8441da85ad03049947e726
+	seq = 1
+	subjectId = crewReport@KerbinInSpaceLowWater
+	scienceAwarded = 15
+	method = 1
+	transmitScalar = 0
+	subjectMaxValue = 15
+	startUT = 1099182.13
+	endUT = 1099182.13
+}
+GAME_ACTION
+{
+	ut = 1099182.0824100769
+	type = 0
+	actionId = act_6c38cf92ebf8407c9574487555de378a
+	recordingId = 6f714a644f8441da85ad03049947e726
+	seq = 2
+	subjectId = crewReport@KerbinInSpaceLowGrasslands
+	scienceAwarded = 3
+	method = 1
+	transmitScalar = 0
+	subjectMaxValue = 15
+	startUT = 1099182.13
+	endUT = 1099182.13
+}
+GAME_ACTION
+{
+	ut = 1099182.0824100769
+	type = 0
+	actionId = act_8bef348469de4b50bc1536b17a472408
+	recordingId = 6f714a644f8441da85ad03049947e726
+	seq = 3
+	subjectId = crewReport@KerbinInSpaceLowGrasslands
+	scienceAwarded = 5.4
+	method = 1
+	transmitScalar = 0
+	subjectMaxValue = 15
+	startUT = 1099182.13
+	endUT = 1099182.13
+}
+GAME_ACTION
+{
+	ut = 1099182.0824100769
+	type = 0
+	actionId = act_2d10acdb188d433c9066166ce38d381f
+	recordingId = 6f714a644f8441da85ad03049947e726
+	seq = 4
+	subjectId = crewReport@KerbinInSpaceLowGrasslands
+	scienceAwarded = 7.32
+	method = 1
+	transmitScalar = 0
+	subjectMaxValue = 15
+	startUT = 1099182.13
+	endUT = 1099182.13
+}
+GAME_ACTION
+{
+	ut = 1099182.0824100769
+	type = 0
+	actionId = act_9e7dd9652d3b4cfea7d0367f57afe4eb
+	recordingId = 6f714a644f8441da85ad03049947e726
+	seq = 5
+	subjectId = crewReport@KerbinInSpaceLowGrasslands
+	scienceAwarded = 8.856
+	method = 1
+	transmitScalar = 0
+	subjectMaxValue = 15
+	startUT = 1099182.13
+	endUT = 1099182.13
+}
+GAME_ACTION
+{
+	ut = 1099182.0824100769
+	type = 0
+	actionId = act_a39948d940be49cfa2edc269ee7b4323
+	recordingId = 6f714a644f8441da85ad03049947e726
+	seq = 6
+	subjectId = crewReport@KerbinInSpaceLowGrasslands
+	scienceAwarded = 10.0848
+	method = 1
+	transmitScalar = 0
+	subjectMaxValue = 15
+	startUT = 1099182.13
+	endUT = 1099182.13
+}
+GAME_ACTION
+{
+	ut = 1099182.0824100769
+	type = 0
+	actionId = act_0dc8b60f62884780b641452f0d33f0b3
+	recordingId = 6f714a644f8441da85ad03049947e726
+	seq = 7
+	subjectId = crewReport@KerbinInSpaceLowHighlands
+	scienceAwarded = 15
+	method = 1
+	transmitScalar = 0
+	subjectMaxValue = 15
+	startUT = 1099182.13
+	endUT = 1099182.13
+}
+GAME_ACTION
+{
+	ut = 1099182.0824100769
+	type = 0
+	actionId = act_83699f658a9541f5ba428771ddc29fc7
+	recordingId = 6f714a644f8441da85ad03049947e726
+	seq = 8
+	subjectId = crewReport@KerbinInSpaceLowGrasslands
+	scienceAwarded = 15
+	method = 1
+	transmitScalar = 0
+	subjectMaxValue = 15
+	startUT = 1099182.13
+	endUT = 1099182.13
+}
+GAME_ACTION
+{
+	ut = 1099035.5424099404
+	type = 11
+	actionId = act_d87858e92df24294b86fa01396bd86d2
+	recordingId = 6f714a644f8441da85ad03049947e726
+	seq = 1
+	kerbalName = Jebediah Kerman
+	kerbalRole = Pilot
+	startUT = 1099035.5
+	endUT = 1099182.13
+	endState = 2
+	xpGained = 0
+}
+GAME_ACTION
+{
+	ut = 1101879.5887924987
+	type = 11
+	actionId = act_a7e0270e841344b880c41db0f637ebb2
+	recordingId = 04213e8bda97465ba54a64beb7322a7b
+	seq = 1
+	kerbalName = Jebediah Kerman
+	kerbalRole = Pilot
+	startUT = 1101879.63
+	endUT = 1101906.13
+	endState = 0
+	xpGained = 0
+}
+GAME_ACTION
+{
+	ut = 1101906.0687925234
+	type = 11
+	actionId = act_f381b7a987b248389d3190666981a4d7
+	recordingId = b860ba90320c48c09d285598e1f64165
+	seq = 1
+	kerbalName = Jebediah Kerman
+	kerbalRole = Pilot
+	startUT = 1101906.13
+	endUT = 1101913.25
+	endState = 3
+	xpGained = 0
+}
+GAME_ACTION
+{
+	ut = 1101926.088792542
+	type = 4
+	actionId = act_d558a92e08c14b298c1a2d7825d7d380
+	recordingId = 84d4137b542742a9b3308f1243fb5872
+	seq = 1
+	milestoneId = Kerbin/FlagPlant
+	milestoneFundsAwarded = 1600
+	milestoneRepAwarded = 0
+	milestoneSciAwarded = 0
+}
+GAME_ACTION
+{
+	ut = 1101913.28879253
+	type = 11
+	actionId = act_59338fe4df594eb6bf2a73179f97149f
+	recordingId = 84d4137b542742a9b3308f1243fb5872
+	seq = 1
+	kerbalName = Jebediah Kerman
+	kerbalRole = Pilot
+	startUT = 1101913.25
+	endUT = 1101963.63
+	endState = 0
+	xpGained = 0
+}
+GAME_ACTION
+{
+	ut = 1101963.668792577
+	type = 11
+	actionId = act_8bfe812106fc489a9c4fd04a694cf56a
+	recordingId = c7a7fecd30a546728c76745fc88c09f3
+	seq = 1
+	kerbalName = Jebediah Kerman
+	kerbalRole = Pilot
+	startUT = 1101963.63
+	endUT = 1101966.88
+	endState = 0
+	xpGained = 0
+}
+GAME_ACTION
+{
+	ut = 1099182.0824100769
+	type = 11
+	actionId = act_1d58b084315e4fbabb3f9182a0fc26e8
+	recordingId = a71955a9346b452597bcd3d1150b1c53
+	seq = 1
+	kerbalName = Jebediah Kerman
+	kerbalRole = Pilot
+	startUT = 1099182.13
+	endUT = 1101546.25
+	endState = 2
+	xpGained = 0
+}
+GAME_ACTION
+{
+	ut = 1101546.2591193388
+	type = 11
+	actionId = act_9a3341f7216449ff947461b8fdd7c992
+	recordingId = 3b010750772247789da3ac626a534a4b
+	seq = 1
+	kerbalName = Jebediah Kerman
+	kerbalRole = Pilot
+	startUT = 1101546.25
+	endUT = 1101853.5
+	endState = 2
+	xpGained = 0
+}
+GAME_ACTION
+{
+	ut = 1101853.4887924744
+	type = 11
+	actionId = act_0550008493f54039899e208721984f78
+	recordingId = eb95df1e6594404298c918a50e8f3909
+	seq = 1
+	kerbalName = Jebediah Kerman
+	kerbalRole = Pilot
+	startUT = 1101853.5
+	endUT = 1101879.5
+	endState = 3
+	xpGained = 0
+}
+GAME_ACTION
+{
+	ut = 1101967.2287925803
+	type = 4
+	actionId = act_99674ed786ef4031bd89500860c4c82a
+	seq = 10
+	milestoneId = FirstCrewToSurvive
+	milestoneFundsAwarded = 800
+	milestoneRepAwarded = 0
+	milestoneSciAwarded = 0
+}
+GAME_ACTION
+{
+	ut = 1101967.2287925803
+	type = 0
+	actionId = act_42f270281a7248f18fbbf8109a5aba05
+	recordingId = c7a7fecd30a546728c76745fc88c09f3
+	seq = 11
+	subjectId = crewReport@KerbinFlyingHigh
+	scienceAwarded = 8
+	method = 1
+	transmitScalar = 0
+	subjectMaxValue = 8
+	startUT = 1101967.25
+	endUT = 1101967.25
+}
+GAME_ACTION
+{
+	ut = 1101967.2287925803
+	type = 0
+	actionId = act_60b99c7ed4094e59aef78da73fcc41d9
+	recordingId = c7a7fecd30a546728c76745fc88c09f3
+	seq = 12
+	subjectId = evaReport@KerbinSrfLandedMountains
+	scienceAwarded = 11.2
+	method = 1
+	transmitScalar = 0
+	subjectMaxValue = 11.2
+	startUT = 1101967.25
+	endUT = 1101967.25
+}
+GAME_ACTION
+{
+	ut = 1101967.2287925803
+	type = 0
+	actionId = act_d664d6f5c7cb466389450eda0e979c9e
+	recordingId = c7a7fecd30a546728c76745fc88c09f3
+	seq = 13
+	subjectId = recovery@KerbinOrbited
+	scienceAwarded = 10
+	method = 1
+	transmitScalar = 0
+	subjectMaxValue = 12
+	startUT = 1101967.25
+	endUT = 1101967.25
+}
+GAME_ACTION
+{
+	ut = 1101967.2287925803
+	type = 2
+	actionId = act_128667408d424f84adda4557bd30cab1
+	recordingId = c7a7fecd30a546728c76745fc88c09f3
+	seq = 14
+	fundsAwarded = 2064.32837
+	fundsSource = 2
+	dedupKey = FundsChanged|VesselRecovery|1101967.2287925803|293338.64733886719|295402.97572517395|
+}
+GAME_ACTION
+{
+	ut = 1102205.308792802
+	type = 3
+	actionId = act_b9098f3ccfeb456fb4eb6942377d9e4a
+	recordingId = 8908d4a62a964288809b8e26839d6f56
+	seq = 16
+	fundsSpent = 16507
+	fundsSpendingSource = 0
+}
+GAME_ACTION
+{
+	ut = 1200569.5473808644
+	type = 4
+	actionId = act_7bf51b0195144c33bd646eecfbe840d9
+	recordingId = 8908d4a62a964288809b8e26839d6f56
+	seq = 1
+	milestoneId = Mun/Escape
+	milestoneFundsAwarded = 9360
+	milestoneRepAwarded = 1
+	milestoneSciAwarded = 0
+}
+GAME_ACTION
+{
+	ut = 1387899.2276637934
+	type = 4
+	actionId = act_e465fc5389cf42199d2311d150080f34
+	recordingId = 8908d4a62a964288809b8e26839d6f56
+	seq = 2
+	milestoneId = Minmus/Escape
+	milestoneFundsAwarded = 10440
+	milestoneRepAwarded = 1
+	milestoneSciAwarded = 0
+}
+GAME_ACTION
+{
+	ut = 1102388.63104883
+	type = 0
+	actionId = act_4359ebeb77994e2bab997045a9d7b9e0
+	recordingId = 8908d4a62a964288809b8e26839d6f56
+	seq = 1
+	subjectId = crewReport@KerbinInSpaceHigh
+	scienceAwarded = 15
+	method = 1
+	transmitScalar = 0
+	subjectMaxValue = 15
+	startUT = 1102388.63
+	endUT = 1102388.63
+}
+GAME_ACTION
+{
+	ut = 1102388.63104883
+	type = 0
+	actionId = act_20d4acbbab8244c99c93e779b5b545bc
+	recordingId = 8908d4a62a964288809b8e26839d6f56
+	seq = 2
+	subjectId = crewReport@MunInSpaceHigh
+	scienceAwarded = 20
+	method = 1
+	transmitScalar = 0
+	subjectMaxValue = 20
+	startUT = 1102388.63
+	endUT = 1102388.63
+}
+GAME_ACTION
+{
+	ut = 1102388.63104883
+	type = 0
+	actionId = act_7ab922b04572452b80158407e39e0d37
+	recordingId = 8908d4a62a964288809b8e26839d6f56
+	seq = 3
+	subjectId = crewReport@MunInSpaceLowMidlands
+	scienceAwarded = 20
+	method = 1
+	transmitScalar = 0
+	subjectMaxValue = 20
+	startUT = 1102388.63
+	endUT = 1102388.63
+}
+GAME_ACTION
+{
+	ut = 1102388.63104883
+	type = 0
+	actionId = act_9ef5ae67fb4c4a8f9e2468505ce323e9
+	recordingId = 8908d4a62a964288809b8e26839d6f56
+	seq = 4
+	subjectId = crewReport@MinmusInSpaceHigh
+	scienceAwarded = 25
+	method = 1
+	transmitScalar = 0
+	subjectMaxValue = 25
+	startUT = 1102388.63
+	endUT = 1102388.63
+}
+GAME_ACTION
+{
+	ut = 1102388.63104883
+	type = 0
+	actionId = act_e721498367b94427a8c4c29dbff68e69
+	recordingId = 8908d4a62a964288809b8e26839d6f56
+	seq = 5
+	subjectId = crewReport@MinmusInSpaceLowLowlands
+	scienceAwarded = 25
+	method = 1
+	transmitScalar = 0
+	subjectMaxValue = 25
+	startUT = 1102388.63
+	endUT = 1102388.63
+}
+GAME_ACTION
+{
+	ut = 1102388.63104883
+	type = 0
+	actionId = act_6398f92bb2734ceeb84166410450ae02
+	recordingId = 8908d4a62a964288809b8e26839d6f56
+	seq = 6
+	subjectId = crewReport@KerbinFlyingLowWater
+	scienceAwarded = 8
+	method = 1
+	transmitScalar = 0
+	subjectMaxValue = 8
+	startUT = 1102388.63
+	endUT = 1102388.63
+}
+GAME_ACTION
+{
+	ut = 1102214.7887928109
+	type = 11
+	actionId = act_9bc894c6a91e41a0b6fc219a0fac0bed
+	recordingId = 8908d4a62a964288809b8e26839d6f56
+	seq = 1
+	kerbalName = Jebediah Kerman
+	kerbalRole = Pilot
+	startUT = 1102214.75
+	endUT = 1102388.63
+	endState = 2
+	xpGained = 0
+}
+GAME_ACTION
+{
+	ut = 2053358.8966949321
+	type = 11
+	actionId = act_e5ee012b724a4f98be4e82ce6126b133
+	recordingId = aaa1332678ae43d6a31fc8677dcedce4
+	seq = 1
+	kerbalName = Jebediah Kerman
+	kerbalRole = Pilot
+	startUT = 2053358.88
+	endUT = 2053763.63
+	endState = 3
+	xpGained = 0
+}
+GAME_ACTION
+{
+	ut = 1102388.63104883
+	type = 11
+	actionId = act_935b19304fac48c9b64372f6a34436f6
+	recordingId = bceacdb50c2e48029bc7c56265165094
+	seq = 1
+	kerbalName = Jebediah Kerman
+	kerbalRole = Pilot
+	startUT = 1102388.63
+	endUT = 2053358.88
+	endState = 2
+	xpGained = 0
+}
+GAME_ACTION
+{
+	ut = 2053763.7215488171
+	type = 11
+	actionId = act_b3623eb5dca44bbc92718d103d70a9e8
+	recordingId = ff75dff06ba242ff8ba7179467400c6c
+	seq = 1
+	kerbalName = Jebediah Kerman
+	kerbalRole = Pilot
+	startUT = 2053763.75
+	endUT = 2053771.25
+	endState = 0
+	xpGained = 0
+}
+GAME_ACTION
+{
+	ut = 2053789.5007578237
+	type = 4
+	actionId = act_971016d9cf4348619180d2041117e994
+	recordingId = c01a0cc821a942deb05c4ce3085e81fd
+	seq = 1
+	milestoneId = Minmus/ReturnFromFlyBy
+	milestoneFundsAwarded = 14500
+	milestoneRepAwarded = 1
+	milestoneSciAwarded = 0
+}
+GAME_ACTION
+{
+	ut = 2053789.5007578237
+	type = 4
+	actionId = act_d8538f55e3e74db4b5d88dda50e549c8
+	recordingId = c01a0cc821a942deb05c4ce3085e81fd
+	seq = 2
+	milestoneId = Mun/ReturnFromFlyBy
+	milestoneFundsAwarded = 13000
+	milestoneRepAwarded = 1
+	milestoneSciAwarded = 0
+}
+GAME_ACTION
+{
+	ut = 2053789.5007578237
+	type = 4
+	actionId = act_d21fa7afbb9e49579b73c16b70279d4a
+	recordingId = c01a0cc821a942deb05c4ce3085e81fd
+	seq = 3
+	milestoneId = Mun/ReturnFromOrbit
+	milestoneFundsAwarded = 12480
+	milestoneRepAwarded = 1
+	milestoneSciAwarded = 0
+}
+GAME_ACTION
+{
+	ut = 2053771.3815488243
+	type = 11
+	actionId = act_716c4b1609ba48279f026ab18b004a28
+	recordingId = c01a0cc821a942deb05c4ce3085e81fd
+	seq = 1
+	kerbalName = Jebediah Kerman
+	kerbalRole = Pilot
+	startUT = 2053771.38
+	endUT = 2053790.5
+	endState = 2
+	xpGained = 0
+}
+GAME_ACTION
+{
+	ut = 2053796.6407578303
+	type = 11
+	actionId = act_5240964762d1494da12892f8069082fe
+	recordingId = 7350767504694c068f8123636fa1341e
+	seq = 1
+	kerbalName = Jebediah Kerman
+	kerbalRole = Pilot
+	startUT = 2053796.63
+	endUT = 2053805.38
+	endState = 1
+	xpGained = 0
+}
+GAME_ACTION
+{
+	ut = 2053790.5007578246
+	type = 11
+	actionId = act_a06d07ec44984632ae461f30a99cfa40
+	recordingId = 2a5db9085d1142338825647970449e99
+	seq = 1
+	kerbalName = Jebediah Kerman
+	kerbalRole = Pilot
+	startUT = 2053790.5
+	endUT = 2053796.63
+	endState = 3
+	xpGained = 0
+}
+GAME_ACTION
+{
+	ut = 2053808.9407578418
+	type = 0
+	actionId = act_7ab4663968db4e0c8227b5e9e9d73ad7
+	recordingId = d35d675dd4a840e6bfdd5fe2cac85a96
+	seq = 17
+	subjectId = crewReport@KerbinSrfSplashedWater
+	scienceAwarded = 8
+	method = 1
+	transmitScalar = 0
+	subjectMaxValue = 8
+	startUT = 2053809
+	endUT = 2053809
+}
+GAME_ACTION
+{
+	ut = 2053808.9407578418
+	type = 0
+	actionId = act_e4d2a072a5fb4b299e4b0e2c37fc235b
+	recordingId = d35d675dd4a840e6bfdd5fe2cac85a96
+	seq = 18
+	subjectId = evaReport@KerbinSrfSplashedWater
+	scienceAwarded = 11.2
+	method = 1
+	transmitScalar = 0
+	subjectMaxValue = 11.2
+	startUT = 2053809
+	endUT = 2053809
+}
+GAME_ACTION
+{
+	ut = 2053808.9407578418
+	type = 0
+	actionId = act_883700edf2724c8ea7f7d14c1da46c3f
+	recordingId = d35d675dd4a840e6bfdd5fe2cac85a96
+	seq = 19
+	subjectId = recovery@MunOrbited
+	scienceAwarded = 16
+	method = 1
+	transmitScalar = 0
+	subjectMaxValue = 19.2
+	startUT = 2053809
+	endUT = 2053809
+}
+GAME_ACTION
+{
+	ut = 2053808.9407578418
+	type = 2
+	actionId = act_56d24dc1646a47a3a44624cbf9469bfb
+	recordingId = d35d675dd4a840e6bfdd5fe2cac85a96
+	seq = 20
+	fundsAwarded = 2402.92358
+	fundsSource = 2
+	dedupKey = FundsChanged|VesselRecovery|2053808.9407578418|338675.97570800781|341078.89931678772|
+}
+GAME_ACTION
+{
+	ut = 2053840.8407578715
+	type = 2
+	actionId = act_abaf4a5d9d1e4b1099d4a2f87a9a0117
+	recordingId = e13e2d609f3848a59e60b7c7b51c2771
+	seq = 21
+	fundsAwarded = 4128.504
+	fundsSource = 2
+	dedupKey = FundsChanged|VesselRecovery|2053840.8407578715|341878.89931678772|346007.40337562561|
+}
+GAME_ACTION
+{
+	ut = 2054081.2807580954
+	type = 3
+	actionId = act_a6ffa9553d864af190db7b0f020755d8
+	seq = 22
+	fundsSpent = 0
+	fundsSpendingSource = 6
+	dedupKey = DeployedCentralStation
+}
+GAME_ACTION
+{
+	ut = 2054081.2807580954
+	type = 3
+	actionId = act_4d6e000a7e074743a208881e92760f2c
+	seq = 23
+	fundsSpent = 0
+	fundsSpendingSource = 6
+	dedupKey = roverWheel2
+}
+GAME_ACTION
+{
+	ut = 2054081.2807580954
+	type = 3
+	actionId = act_e0faf022651843bb8163f3cec231b8d9
+	seq = 24
+	fundsSpent = 0
+	fundsSpendingSource = 6
+	dedupKey = groundLight2
+}
+GAME_ACTION
+{
+	ut = 2054081.2807580954
+	type = 3
+	actionId = act_9777e20a456d49fa9bfc7af5aef83222
+	seq = 25
+	fundsSpent = 0
+	fundsSpendingSource = 6
+	dedupKey = groundLight1
+}
+GAME_ACTION
+{
+	ut = 2054081.2807580954
+	type = 3
+	actionId = act_18b2dbde450944fb9007282127b8d064
+	seq = 26
+	fundsSpent = 0
+	fundsSpendingSource = 6
+	dedupKey = telescopicLadder
+}
+GAME_ACTION
+{
+	ut = 2054081.2807580954
+	type = 3
+	actionId = act_773935f4f95c40f1b22ad408c692c362
+	seq = 27
+	fundsSpent = 0
+	fundsSpendingSource = 6
+	dedupKey = roverBody.v2
+}
+GAME_ACTION
+{
+	ut = 2054081.2807580954
+	type = 3
+	actionId = act_f8412496cf4c4215985b7ac49f29fafe
+	seq = 28
+	fundsSpent = 0
+	fundsSpendingSource = 6
+	dedupKey = ConformalStorageUnit
+}
+GAME_ACTION
+{
+	ut = 2054081.2807580954
+	type = 3
+	actionId = act_733a7e01c9054e6699b526858eefede2
+	seq = 29
+	fundsSpent = 0
+	fundsSpendingSource = 6
+	dedupKey = evaRepairKit
+}
+GAME_ACTION
+{
+	ut = 2054081.2807580954
+	type = 3
+	actionId = act_6211db232dd64b5f8420ca58600663ff
+	seq = 30
+	fundsSpent = 0
+	fundsSpendingSource = 6
+	dedupKey = smallCargoContainer
+}
+GAME_ACTION
+{
+	ut = 2054081.2807580954
+	type = 1
+	actionId = act_e94ca6eab15642d8bd218f88cee06d90
+	seq = 31
+	nodeId = spaceExploration
+	cost = 90
+}
+GAME_ACTION
+{
+	ut = 2054081.2807580954
+	type = 3
+	actionId = act_a9b49a90bd7547d69675cee32e66f68c
+	seq = 32
+	fundsSpent = 0
+	fundsSpendingSource = 6
+	dedupKey = SmallGearBay
+}
+GAME_ACTION
+{
+	ut = 2054081.2807580954
+	type = 3
+	actionId = act_5dedb71520b447458e3ed8717b61810b
+	seq = 33
+	fundsSpent = 0
+	fundsSpendingSource = 6
+	dedupKey = LaunchEscapeSystem
+}
+GAME_ACTION
+{
+	ut = 2054081.2807580954
+	type = 3
+	actionId = act_7cfa6a2c8f5943619def66916313e877
+	seq = 34
+	fundsSpent = 0
+	fundsSpendingSource = 6
+	dedupKey = landingLeg1
+}
+GAME_ACTION
+{
+	ut = 2054081.2807580954
+	type = 3
+	actionId = act_44be538eb7d64bca9b74d45c9a5d4369
+	seq = 35
+	fundsSpent = 0
+	fundsSpendingSource = 6
+	dedupKey = sensorAccelerometer
+}
+GAME_ACTION
+{
+	ut = 2054081.2807580954
+	type = 1
+	actionId = act_977983fa65f0419f8cfb1a7c4f5305d7
+	seq = 36
+	nodeId = landing
+	cost = 90
+}
+GAME_ACTION
+{
+	ut = 2054081.2807580954
+	type = 3
+	actionId = act_c1662d9b77714a4e8d3677bc069bb991
+	seq = 37
+	fundsSpent = 0
+	fundsSpendingSource = 6
+	dedupKey = monopropMiniSphere
+}
+GAME_ACTION
+{
+	ut = 2054081.2807580954
+	type = 3
+	actionId = act_292f1a986cfc4aeeb7e8ad373bd6d6a4
+	seq = 38
+	fundsSpent = 0
+	fundsSpendingSource = 6
+	dedupKey = RCSblock.01.small
+}
+GAME_ACTION
+{
+	ut = 2054081.2807580954
+	type = 3
+	actionId = act_63511e23596247d5bb6e561083f2199c
+	seq = 39
+	fundsSpent = 0
+	fundsSpendingSource = 6
+	dedupKey = RCSBlock.v2
+}
+GAME_ACTION
+{
+	ut = 2054081.2807580954
+	type = 3
+	actionId = act_0517234343954563aad9f65ce62e00f1
+	seq = 40
+	fundsSpent = 0
+	fundsSpendingSource = 6
+	dedupKey = radialRCSTank
+}
+GAME_ACTION
+{
+	ut = 2054081.2807580954
+	type = 1
+	actionId = act_672d2bdd974948f1a4c0d6f234494d92
+	seq = 41
+	nodeId = advFlightControl
+	cost = 90
+}
+GAME_ACTION
+{
+	ut = 2054353.6807583491
+	type = 5
+	actionId = act_74e4e50dd20643d6b9b8a9dc6a7066f4
+	seq = 42
+	contractId = 4f9f3b0a-e135-4a6d-af88-583490aa9b99
+	contractType = CollectScience
+	contractTitle = Science data from space around Minmus.
+	advanceFunds = 19698.75
+	deadlineUT = 111669912
+	fundsPenalty = 20081.25
+	repPenalty = 3
+}
+GAME_ACTION
+{
+	ut = 2054365.7207583603
+	type = 6
+	actionId = act_16285d7d625f4afbb1fad13d28506352
+	recordingId = 06bb6e70-eb58-4e9e-936b-dc129ba11d45
+	seq = 1
+	contractId = 4f9f3b0a-e135-4a6d-af88-583490aa9b99
+	fundsReward = 50560.12
+	repReward = 4.761905
+	scienceReward = 3
+}
+GAME_ACTION
+{
+	ut = 2054365.7207583603
+	type = 6
+	actionId = act_fe2c655576d546b89b807b763a8cb457
+	recordingId = 06bb6e70-eb58-4e9e-936b-dc129ba11d45
+	seq = 2
+	contractId = 4f9f3b0a-e135-4a6d-af88-583490aa9b99
+	fundsReward = 50560.12
+	repReward = 4.761905
+	scienceReward = 3
+}
+GAME_ACTION
+{
+	ut = 2054365.7207583603
+	type = 6
+	actionId = act_5bc84d188c6a42f9b0a3b43bdada1a22
+	recordingId = 06bb6e70-eb58-4e9e-936b-dc129ba11d45
+	seq = 3
+	contractId = 4f9f3b0a-e135-4a6d-af88-583490aa9b99
+	fundsReward = 50560.12
+	repReward = 4.761905
+	scienceReward = 3
+}
+GAME_ACTION
+{
+	ut = 2054571.1007585516
+	type = 3
+	actionId = act_4d2dfd0bbd0f443ab79427361b34fdb2
+	seq = 1
+	fundsSpent = 15267
+	fundsSpendingSource = 0
+	dedupKey = rollout:2054571.1007585516|pid=2997504863|site=Launch%20Pad|vessel=L5-B4-U1-C1
+}

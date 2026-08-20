@@ -23,15 +23,16 @@ namespace Parsek.Tests
     /// ledger is 3 science / 800 funds, six orders of magnitude above either delta.
     ///
     /// THE FIXTURE. <c>Source/Parsek.Tests/Fixtures/C2CareerPostFix/</c> is the save
-    /// produced by harness run <c>2026-08-19_2130_L3-career-science-recover</c> - flown
-    /// over the harness save fixture `career-science-pad` - hand-copied verbatim. The
-    /// mission flew every phase (PRELAUNCH -> ASCENT -> COAST -> DESCENT -> LANDED ->
+    /// produced by harness run <c>2026-08-20_1925_L3-career-science-recover_run2</c> -
+    /// flown over the harness save fixture `career-science-pad` - hand-copied verbatim.
+    /// The mission flew every phase (PRELAUNCH -> ASCENT -> COAST -> DESCENT -> LANDED ->
     /// COLLECT -> TRANSMIT -> RECOVER -> RECOVERED, MISSION-OK, PASS on attempt 1): a
     /// career pad hop that ran three science experiments, TRANSMITTED them, and RECOVERED
     /// the craft. That makes it the only committed fixture in the repo whose career
-    /// EARNED rather than SPENT - 14 ledger actions carrying three `ScienceEarning` rows,
+    /// EARNED rather than SPENT - 15 ledger actions carrying three `ScienceEarning` rows,
     /// one of them the recovery subject (`recovery@KerbinFlew`), the vessel-recovery
-    /// `FundsEarning` credit, five stock milestones, and all three pool seeds.
+    /// `FundsEarning` credit, the recovered crew's `KerbalExperience` row, five stock
+    /// milestones, and all three pool seeds.
     ///
     /// THIS FIXTURE WAS RE-HARVESTED, REPLACING A WAVE-2 PREDECESSOR, AND THAT IS THE
     /// WHOLE POINT. The 2026-08-19_1912 fixture existed to PIN three divergences as
@@ -68,11 +69,30 @@ namespace Parsek.Tests
     ///   C2Career        a hand-played career with a strategy exchange, PRE-fix capture.
     ///   C2CareerPostFix a driven flight-earned career, POST-fix capture, no strategy.
     ///
+    /// RE-HARVESTED A SECOND TIME, 2026-08-20 (branch `kerbal-xp-row`), FOR ONE ROW.
+    /// KERBAL-XP-UNTAGGED-RECOVERY-HAS-NO-LEDGER-ROW was the last capture-side gap on
+    /// this flight: the recovery's crew-experience note was observed and then filed
+    /// against no flight, so it never became a ledger row at all. It is correlated now,
+    /// and the harvest that proves it is run
+    /// <c>2026-08-20_1925_L3-career-science-recover_run2</c>.
+    ///
+    /// THE CONTROLLED-COMPARISON PROPERTY HELD A SECOND TIME, and it is worth stating
+    /// because it is what makes the delta readable: KSP's pools came out IDENTICAL again
+    /// (536558 / 111.599998 / 1.99999881, same three subjects, same craft recovered), so
+    /// the ONLY difference between this fixture and its predecessor is the ledger, and
+    /// the only difference in the ledger is one row. The action tally moved 14 -> 15 and
+    /// NOTHING ELSE MOVED - all three closure deltas below are byte-for-byte the ones the
+    /// previous harvest measured. That is the expected shape rather than a lucky one: a
+    /// `KerbalExperience` row carries no currency, so it cannot move a pool; it exists to
+    /// be RE-ASSERTED onto a roster and to be RETIRED by a merge.
+    ///
     /// THE CONSEQUENCE FOR STRICT ARMING (career-ledger B.4): this fixture is the subject
     /// that deferral was waiting for - a career carrying recorded crewed recoveries and
     /// populated per-identity facets - and all three of the entries that stood between it
-    /// and arming are now closed. Arming itself is a separate, deliberate step and is NOT
-    /// taken here.
+    /// and arming are now closed. As of this re-harvest it ALSO carries the
+    /// `KerbalExperience` row that the strict gate's `KerbalXp` facet needs in order to
+    /// compare anything at all: without one, `LedgerGroundTruthDiff.CompareKerbalCareerLogs`
+    /// takes its no-entries exit and the facet is not counted.
     ///
     /// Non-circular by construction, exactly as the pre-fix sibling: KSP wrote the save
     /// pools, Parsek's observers wrote the ledger, and this test diffs the two
@@ -178,12 +198,40 @@ namespace Parsek.Tests
         // ================================================================
 
         [Fact]
-        public void FixtureLedger_LoadsAllFourteenActions()
+        public void FixtureLedger_LoadsAllFifteenActions()
         {
             // 13 on the wave-2 fixture; the fourteenth is the vessel-recovery
-            // `FundsEarning` row that capture used to drop.
+            // `FundsEarning` row that capture used to drop, and the fifteenth is the
+            // recovered crew's `KerbalExperience` row that the 2026-08-20 correlation
+            // fix added (KERBAL-XP-UNTAGGED-RECOVERY-HAS-NO-LEDGER-ROW). MEASURED off
+            // the re-harvest, not incremented on faith.
             var actions = LoadFixtureLedger();
-            Assert.Equal(14, actions.Count);
+            Assert.Equal(15, actions.Count);
+        }
+
+        [Fact]
+        public void FixtureLedger_CarriesTheRecoveredCrewsExperienceRowScopedToTheRecovery()
+        {
+            // The row the second re-harvest exists for, and the ONE property that makes
+            // it useful rather than decorative: it shares the recovery `FundsEarning`
+            // row's `RecordingId`. `ResurrectionRetirementEligibility` retires a
+            // recovery's funds / science / crew-assignment / crew-experience rows as one
+            // same-recording bundle, so a differently-scoped XP row would be a row no
+            // re-fly could take back. Asserted here rather than only in the producer's
+            // own suite because THIS is the committed artifact the strict gate flies.
+            var actions = LoadFixtureLedger();
+
+            var xp = actions.Find(a => a.Type == GameActionType.KerbalExperience);
+            Assert.NotNull(xp);
+            Assert.False(string.IsNullOrEmpty(xp.KerbalName));
+            Assert.False(string.IsNullOrEmpty(xp.KerbalCareerEntries));
+            Assert.False(string.IsNullOrEmpty(xp.RecordingId));
+
+            var recoveryFunds = actions.Find(a =>
+                a.Type == GameActionType.FundsEarning &&
+                a.FundsSource == FundsEarningSource.Recovery);
+            Assert.NotNull(recoveryFunds);
+            Assert.Equal(recoveryFunds.RecordingId, xp.RecordingId);
         }
 
         [Fact]
