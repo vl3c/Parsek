@@ -345,10 +345,14 @@ namespace Parsek.Tests
             Assert.True(guard >= 0 && guard - enable < 800,
                 "the advisory must be guarded on the ENABLE branch, right after SetLoopEnabled");
 
+            // The T1.6 cleared-loops announcement (AnnounceClearedLoops) sits between the first
+            // enable guard and the advisory since the issue-1 merge; the bound covers that block
+            // plus the advisory's own comment while still pinning "same enable branch, after the
+            // enable, before anything else runs".
             int post = src.IndexOf("PostDoubleClockAdvisoryIfAny(mission);", guard,
                 StringComparison.Ordinal);
-            Assert.True(post >= 0 && post - guard < 200,
-                "the advisory post call must sit inside that enable guard");
+            Assert.True(post >= 0 && post - guard < 900,
+                "the advisory post call must sit inside the enable branch, after SetLoopEnabled");
 
             // ...and the helper actually routes through the store predicate and ScreenMessages.
             Assert.Contains("MissionStore.TryDescribeDoubleClockAdvisory(", src);
@@ -371,9 +375,12 @@ namespace Parsek.Tests
             int add = src.IndexOf(
                 "mission.IncludedForeignDockLinkIds.Add(link.LinkId);", StringComparison.Ordinal);
             Assert.True(add >= 0, "partner-journey include mutation site not found");
+            // The issue-1 merge grew the block between the include mutation and the clear (the
+            // T1.7 row rename + tooltip and the selection-generation stamping comments); the
+            // bound still pins the clear to THIS handler, not some other call site.
             int clear = src.IndexOf(
                 "MissionStore.ClearLoopsConflictingWith(mission,", add, StringComparison.Ordinal);
-            Assert.True(clear >= 0 && clear - add < 900,
+            Assert.True(clear >= 0 && clear - add < 1800,
                 "the link-include path must still clear conflicting loops");
 
             int advisoryInBlock = src.IndexOf(
