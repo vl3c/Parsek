@@ -480,15 +480,31 @@ forbidden = [
 ]
 
 [expectations.rewind]
-# REPORT-ONLY (the ARMED_ALLOWLIST discipline). The claim being read is that a
-# FLIGHT-arm / SaveGame / TS-re-entry observation authors NOTHING durable, and it
-# is worth more on this shape than on a single-scene dwell, for V5's reason: this
-# spec writes a save mid-run and reads it back through a SECOND scene load, the
-# shape in which a stray durable write is easiest to miss. V5, V6T, V14T, V15T and
-# V16T all measured 0/0/0. Arm it at the arming pass, off this lane's own bytes.
+# ARMED 2026-08-20 off this lane's OWN green reading run `2026-08-20_1933` (PASS
+# attempt 1), whose saveParse REPORT measured rewindPoints=0, supersedeRows=0,
+# tombstones=0, rewindRetirements=0 - every window already met, so the arming
+# re-pinned nothing and moved no verdict. The claim is worth more on this shape
+# than on a single-scene dwell, for V5's reason: this spec writes a save mid-run
+# and reads it back through a SECOND scene load, the shape in which a stray
+# durable write is easiest to miss - and here the second load also drives the
+# dynamic overlap path through a full 20-instance fill-in.
+gating = true
 rewindPoints  = { max = 0 }
 supersedeRows = { max = 0 }
 tombstones    = { max = 0 }
+
+[expectations.recordings.structure]
+# ARMED 2026-08-20, same reading run, which measured trees=1, committedTrees=1,
+# recordings=1, terminalStates {Orbiting: 1}, branchPoints {},
+# duplicateRecordingIds [], points 746/746/746 - byte-identical to V17M's armed
+# payload, which is the determinism statement the pair exists to make. `trees`
+# keeps V2's max = 2 (the duplicate-tree writer hazard), everything else is
+# pinned at the measured value.
+gating = true
+trees          = { min = 1, max = 2 }
+committedTrees = { min = 1, max = 1 }
+recordings     = { min = 1, max = 1 }
+terminalStates = { Orbiting = { min = 1 } }
 
 # [expectations.recordings.structure] is DELIBERATELY ABSENT on a first run: a
 # report-only block of PREDICTED numbers reads like a measurement, and this pair's

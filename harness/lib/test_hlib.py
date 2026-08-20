@@ -5606,9 +5606,15 @@ class SaveStructureVerifierWiringTests(unittest.TestCase):
                        # armed 2026-08-20 off its OWN green reading run
                        # `2026-08-20_1915` (PASS attempt 1, the H3-clock re-pin
                        # round; facets 0/0/0/0 and 1/1/1, points 746/746/746).
-                       # V17T is NOT here yet - it arms only once it has a green
-                       # reading run of its own.
+                       # V17T: the same two blocks, armed 2026-08-20 off ITS own
+                       # green reading run `2026-08-20_1933` (PASS attempt 1, the
+                       # dynamic-overlap-path re-pin round: all 20 cycles
+                       # spawned, 9 Vall-frame TS lines) with a byte-identical
+                       # gating saveParse payload - the pair's determinism
+                       # statement. V5's mid-run-save shape makes the rewind arm
+                       # worth most here.
                        "V17M-laythe-vall-player-loop.toml",
+                       "V17T-laythe-vall-ts-arrival.toml",
                        "GS-1-auto-chute-booster.toml", "GS-2-orbital-probe-deploy.toml",
                        "GS-3-switch-nudge-deployed.toml",
                        # B17: rewind (all max 0 - a clean single-launch flight

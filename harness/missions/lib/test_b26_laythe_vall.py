@@ -1092,22 +1092,21 @@ class V17SeedTests(unittest.TestCase):
         self.assertEqual(120, m_ticks)  # 3 x 40: +140 c1, park c1 (+watch), +140 c2... see spec
         self.assertEqual(40, t_ticks)
 
-    def test_v17m_arms_gating_and_v17t_does_not_yet(self):
-        """Grown from `test_neither_v17_spec_arms_a_gating_block`. V17M armed
-        `rewind` + `recordings.structure` 2026-08-20 off its OWN green reading
-        run `2026-08-20_1915` (PASS attempt 1; facets 0/0/0/0 and 1/1/1
-        {Orbiting: 1}) - the V16M discipline, allowlisted in
-        test_hlib.ARMED_ALLOWLIST. V17T stays REPORT-ONLY until it has a green
-        reading run of its own to arm from."""
-        for block in ("rewind", "recordings"):
-            sub = (self.t.get("expectations") or {}).get(block) or {}
-            self.assertNotIn("gating", sub)
-            for nested in sub.values():
-                if isinstance(nested, dict):
-                    self.assertNotIn("gating", nested)
-        self.assertTrue(self.m["expectations"]["rewind"].get("gating"))
-        self.assertTrue(
-            self.m["expectations"]["recordings"]["structure"].get("gating"))
+    def test_both_v17_lanes_arm_the_same_two_gating_blocks(self):
+        """Grown from `test_neither_v17_spec_arms_a_gating_block` in two steps.
+        V17M armed `rewind` + `recordings.structure` 2026-08-20 off its OWN
+        green reading run `2026-08-20_1915`; V17T armed the SAME two blocks the
+        same day off ITS own green reading run `2026-08-20_1933` - both the V16
+        discipline, both in test_hlib.ARMED_ALLOWLIST, and both reading runs
+        measured byte-identical facets (0/0/0/0; 1/1/1 {Orbiting: 1}; points
+        746/746/746), which is the pair's determinism statement."""
+        for spec in (self.m, self.t):
+            self.assertTrue(spec["expectations"]["rewind"].get("gating"))
+            self.assertTrue(
+                spec["expectations"]["recordings"]["structure"].get("gating"))
+            self.assertEqual(
+                {"min": 1, "max": 1},
+                spec["expectations"]["recordings"]["structure"]["recordings"])
 
     def test_the_anomaly_posture_is_the_established_pair_shape(self):
         """V17M is the stepped-bracket CONTROL and V17T ships untolerated so its
