@@ -382,6 +382,42 @@ B5_ORBIT = "ORBIT"
 # PLAN-TRANSFER so the transfer node is planned against the vehicle that will
 # actually fly it. See B5Params.jettison_* and _b5_jettison_step.
 B5_JETTISON = "JETTISON"
+# PARENT-RELAY ESCAPE (mission b26_laythe_vall; reachable ONLY when
+# ``parentRelayTransfer`` is set, so with the flag off every flown lane's
+# machine is byte-identical -- the PAD-ALIGN / ORBIT-START contract verbatim).
+#
+# WHY IT EXISTS, and it is a MEASURED gap rather than a design preference.
+# MechJeb 2.15.1's OperationInterplanetaryTransfer cannot plan from a
+# MOON-PARKED origin: B26 flight 1 (2026-08-19, both attempts, deterministic)
+# measured `OrbitExtensions.NextTimeOfRadius: given radius of 3723645.81113302
+# is never achieved` out of `KRPC.MechJeb.Maneuver.Operation.MakeNodes` --
+# MechJeb idealised the origin to a circle at the park's mean radius, built a
+# SUB-escape ejection whose apoapsis landed 2.443% short of the SOI, then asked
+# for a crossing that does not exist. See docs/dev/todo-and-known-bugs.md ->
+# MECHJEB-INTERPLANETARY-PLANNER-REJECTS-MOON-ORIGIN.
+#
+# WHAT THIS PHASE DOES INSTEAD: it is a PLAN phase and nothing more. It computes
+# ONE prograde escape node ITSELF (pure, at the park's periapsis -- see
+# ``escape_node_plan``) and hands that node to the SAME autowarping NodeExecutor
+# every other burn in this machine uses, by entering TRANSFER-BURN. No burn
+# supervision, no watchdog and no warp policy is duplicated: the escape burn IS
+# a TRANSFER-BURN, its burn-done evidence IS the hyperbolic home-frame
+# ``ejectionEccFloor``, and the coast out to the home-SOI exit IS the existing
+# COAST-TO-TARGET warp-to-the-boundary leg.
+#
+# STAGE 2 IS NOT A PHASE AT ALL: once the coast observes the PARENT body's SOI
+# the machine re-enters PLAN-TRANSFER with ``relay_stage`` 1, where the plan
+# action is the MOON-path Hohmann (``OperationTransfer``) -- legal there,
+# because the vessel and the target now both orbit the parent. Everything after
+# that (the correction rounds, the approach clamp, the capture tail) is
+# untouched.
+B5_ESCAPE = "ESCAPE"
+# ``B5State.relay_stage`` values. 0 = the ESCAPE stage (out of the home body's
+# SOI); 1 = the PARENT-TRANSFER stage (the Hohmann to the sibling, planned once
+# the coast has observed the parent SOI). Plain ints rather than an enum so the
+# field renders as one token on the machine-state diff line.
+RELAY_STAGE_ESCAPE: int = 0
+RELAY_STAGE_TRANSFER: int = 1
 B5_PLAN_TRANSFER = "PLAN-TRANSFER"
 B5_TRANSFER_BURN = "TRANSFER-BURN"
 B5_PLAN_CORRECTION = "PLAN-CORRECTION"
@@ -430,7 +466,7 @@ B5_LANDED_SETTLE = "LANDED-SETTLE"
 B5_SURFACE_COMMIT = "SURFACE-COMMIT"
 B5_SURFACE_COMMITTED = "SURFACE-COMMITTED"
 B5_PHASES: Tuple[str, ...] = (B5_PRELAUNCH, B5_PAD_ALIGN, B5_MJ_ASCENT, B5_CIRCULARIZE, B5_ORBIT,
-                              B5_JETTISON,
+                              B5_JETTISON, B5_ESCAPE,
                               B5_PLAN_TRANSFER, B5_TRANSFER_BURN, B5_PLAN_CORRECTION,
                               B5_CORRECTION_BURN, B5_COAST_TO_TARGET, B5_TARGET_FLYBY,
                               B5_RETURN, B5_PLAN_CAPTURE, B5_CAPTURE_BURN, B5_PARK,
@@ -763,6 +799,21 @@ ACTION_MJ_PLAN_TRANSFER = "mj_plan_transfer"               # value = None
 # WaitForPhaseAngle). Same PLAN_* try/except contract as ACTION_MJ_PLAN_TRANSFER.
 ACTION_MJ_PLAN_INTERPLANETARY_TRANSFER = "mj_plan_interplanetary_transfer"  # value: None = WaitForPhaseAngle ON (every proven lane); 0.0 = ASAP (pad-align)
 ACTION_MJ_PLAN_COURSE_CORRECT = "mj_plan_course_correct"   # value = periapsis m
+# PARENT-RELAY escape node (B5_ESCAPE). The ONE place this machine authors a
+# maneuver node itself instead of asking MechJeb's ManeuverPlanner for one, and
+# it exists because MechJeb's planner REFUSES the moon-parked origin (see
+# B5_ESCAPE). The runner calls kRPC's own `Control.add_node(ut, prograde=dv)`
+# -- core kRPC, no MechJeb surface involved -- and the resulting node is then
+# flown by the SAME NodeExecutor every other burn uses.
+#   value    = the PROGRADE component (m/s). Normal / radial are deliberately
+#              absent: this mode does not aim the asymptote (see
+#              escape_node_plan), so a prograde-only node is the whole contract
+#              and an unused component would imply an aiming capability that
+#              does not exist.
+#   node_ut  = the ABSOLUTE UT to place it at (the park's next periapsis).
+# Same throw/log/swallow contract as the PLAN_* actions: a failed add leaves
+# node_count at 0 and the ESCAPE phase's bounded re-plan cadence owns it.
+ACTION_ADD_MANEUVER_NODE = "add_maneuver_node"              # value = prograde m/s
 ACTION_MJ_EXECUTE_NODES = "mj_execute_nodes"               # value = None (autowarp)
 ACTION_MJ_ABORT_AND_CLEAR_NODES = "mj_abort_and_clear_nodes"  # value = None
 # B5 DIY correction burner (live finding 8): point kRPC's NATIVE AutoPilot
@@ -1824,6 +1875,30 @@ def max_legal_rails_factor(body: str, altitude_m: float) -> int:
 # longitudeOffsetDeg = LAN + argPe).
 # ---------------------------------------------------------------------------
 STOCK_SUN_GRAV_PARAMETER: float = 1.1723328e18
+# ---------------------------------------------------------------------------
+# PARENT-RELAY escape constants: the HOME body's gravitational parameter and
+# equatorial radius, the only two world constants the pure escape-node math
+# needs (mu to size the burn, R to turn kRPC's ALTITUDE readings into radii).
+#
+# DELIBERATELY MINIMAL, and the discipline is STOCK_HELIO_ELEMENTS' exactly:
+# this table carries only bodies whose values already appear in a COMMITTED,
+# reviewed harness spec, so every number here has an in-repo source rather than
+# a recollection. Laythe's pair is cited by
+# `harness/scenarios/B26-laythe-vall-transfer.toml` ("mu_Laythe 1.962e12,
+# R_Laythe 500,000"), which derived it alongside the ejection arithmetic this
+# mode reproduces. `_body_gravity` RAISES on anything else, and
+# `b5_params_from_dict` runs that check AT SPEC LOAD when the relay flag is on,
+# so an unknown home body is a loud parse failure and never a mis-sized burn.
+#
+# ADDING A BODY: cite the source in the row comment (a committed spec, or the
+# stock config it was read from) before flying it. A typo here is a wrongly
+# sized escape burn, which the `escapeMaxDeltaVMps` sanity cap bounds but does
+# not correct.
+# ---------------------------------------------------------------------------
+STOCK_BODY_GRAVITY: Dict[str, Tuple[float, float]] = {
+    # body -> (mu m^3/s^2, equatorial radius m)
+    "Laythe": (1.962e12, 500_000.0),   # B26-laythe-vall-transfer.toml header
+}
 STOCK_HELIO_ELEMENTS: Dict[str, Tuple[float, float, float, float]] = {
     "Kerbin": (13_599_840_256.0, 0.0, 3.14, 0.0),
     "Duna": (20_726_155_264.0, 0.051, 3.14, 135.5),
@@ -1838,6 +1913,21 @@ _EJECTION_WINDOW_BISECT_ITERS = 60
 # ~2.45e-5 deg/s, so a 50,000 s step moves the phase ~1.23 degrees
 # (Kerbin-Duna ~0.92); the wrap filter only trips at 180, >100x margin.
 _EJECTION_WINDOW_SCAN_STEP = 50_000.0
+
+
+def _body_gravity(body: str) -> Tuple[float, float]:
+    """(mu, equatorial radius) for a body in ``STOCK_BODY_GRAVITY``.
+
+    RAISES on an unknown body rather than guessing. The relay lane's spec load
+    runs this check up front, so the raise lands at spec-parse time (free) and
+    never mid-flight."""
+    row = STOCK_BODY_GRAVITY.get(str(body or ""))
+    if row is None:
+        raise ValueError("no stock gravity constants for body %r; known: %s -- "
+                         "add the body to STOCK_BODY_GRAVITY with a cited "
+                         "source before flying a parent-relay lane from it"
+                         % (body, sorted(STOCK_BODY_GRAVITY)))
+    return row
 
 
 def _helio_elements(body: str) -> Tuple[float, float, float, float]:
@@ -2741,6 +2831,12 @@ class Action:
     # hashable and emitted-action equality in tests keeps working. None for
     # every non-camera action, so no pre-existing Action moves.
     camera_pose: Optional[Tuple[float, float, float]] = None
+    # ACTION_ADD_MANEUVER_NODE payload: the ABSOLUTE UT the node is placed at.
+    # A field of its own rather than a reuse of ``limit`` (which is documented
+    # and read as a dv CAP) so no numeric consumer can ever mistake a UT for a
+    # bound; defaults None, so every pre-existing Action is constructed and
+    # compared exactly as before.
+    node_ut: Optional[float] = None
 
 
 def seam_command_id(reserved_id: str, tag: str) -> str:
@@ -3315,6 +3411,65 @@ class B5Params:
                                            # B7: (20_000_000, 500_000). () = altitude
                                            # mode (B5/B6). Spec key
                                            # correctionTriggerTimeToSoiSeconds.
+    # --- PARENT-RELAY transfer (mission b26_laythe_vall). The THIRD flag-gated
+    # branch in this machine, and it keeps the same contract as PAD-ALIGN and
+    # ORBIT-START: with parent_relay_transfer False the B5_ESCAPE phase is
+    # unreachable, the plan action and the burn-done evidence are the ones every
+    # flown lane uses, and the machine is byte-identical to the LIVE-PROVEN
+    # shape. See the B5_ESCAPE constant for the measured MechJeb refusal this
+    # exists to route around.
+    parent_relay_transfer: bool = False    # True: ORBIT/JETTISON hand to
+                                           # B5_ESCAPE, which authors ONE
+                                           # prograde escape node itself and
+                                           # hands it to the NodeExecutor; the
+                                           # coast's arrival in the PARENT SOI
+                                           # then re-enters PLAN-TRANSFER at
+                                           # relay_stage 1, where the plan is
+                                           # the MOON-path Hohmann to the
+                                           # sibling. REQUIRES
+                                           # interplanetary_transfer (the
+                                           # correction-domain narrowing and the
+                                           # ejection-ecc evidence both read it)
+                                           # and a non-empty return_body (the
+                                           # PARENT frame IS the whole premise).
+                                           # Spec key parentRelayTransfer.
+    escape_target_v_inf: float = 0.0       # m/s. The HYPERBOLIC EXCESS SPEED the
+                                           # escape node is sized for, i.e. the
+                                           # parent-frame departure v_inf of the
+                                           # transfer this relay is aiming at
+                                           # (B26: the Laythe->Vall Hohmann's
+                                           # 347.24 m/s, derived in the spec
+                                           # header). The node dv follows from it
+                                           # and the LIVE park -- see
+                                           # escape_node_plan. Spec key
+                                           # escapeTargetVInfMps.
+    escape_max_dv: float = 0.0             # m/s. SANITY CAP on the computed
+                                           # escape node: a plan above this is
+                                           # REFUSED with a named reason rather
+                                           # than flown. It is the guard against
+                                           # a wrong STOCK_BODY_GRAVITY row or a
+                                           # fixture parked somewhere the spec
+                                           # did not size for -- neither of which
+                                           # any other gate would catch before
+                                           # the burn. 0 = no cap. Spec key
+                                           # escapeMaxDeltaVMps.
+    escape_node_min_lead: float = 300.0    # GAME seconds of lead the escape node
+                                           # must have. The NodeExecutor
+                                           # autowarps to the node and holds a 1x
+                                           # WARPALIGN before ignition, so a node
+                                           # placed a few seconds ahead is a node
+                                           # it cannot fly; when the next
+                                           # periapsis is closer than this, the
+                                           # planner adds ONE park period and
+                                           # takes the following one. Spec key
+                                           # escapeNodeMinLeadSeconds.
+    escape_timeout: float = 600.0          # ESCAPE phase budget (GAME s). It
+                                           # bounds PLANNING only (the burn is
+                                           # TRANSFER-BURN's), so it needs to
+                                           # cover at most a park period of
+                                           # waiting for a usable periapsis plus
+                                           # the bounded re-plan cadence. Spec
+                                           # key escapeTimeoutSeconds.
     pad_align_ejection: bool = False       # True: PRELAUNCH first computes the
                                            # next home->target ejection window
                                            # from the committed stock ephemeris
@@ -3733,6 +3888,46 @@ def b5_params_from_dict(params: Dict) -> B5Params:
             "startInOrbit enters at the ORBIT waypoint and never launches at "
             "all -- a spec asking for both is asking the machine to align a pad "
             "it will not use")
+    if bool(params.get("parentRelayTransfer", False)):
+        # THE FOUR IMPLICATIONS THE RELAY MODE RESTS ON, asserted rather than
+        # documented. Each one is a silent-degradation risk, not a style point:
+        # without (1) the correction domain stops narrowing to the parent SOI
+        # and the stage-1 burn-done evidence falls back to an apoapsis floor an
+        # ESCAPE drives NEGATIVE; without (2) the stage-2 hand-off has no body
+        # to wait for and the machine coasts to its budget inside the parent
+        # SOI; (3) is the pad/no-pad contradiction PAD-ALIGN already rejects
+        # against startInOrbit; and without (4) the node is computed from a
+        # gravity constant that does not exist, mid-flight, on the one frame
+        # that matters.
+        if not bool(params.get("interplanetaryTransfer", False)):
+            raise ValueError(
+                "parentRelayTransfer requires interplanetaryTransfer: the "
+                "relay's stage-1 burn-done evidence is the hyperbolic "
+                "ejectionEccFloor and its correction domain is "
+                "_b5_correction_via_bodies' parent narrowing, and BOTH read "
+                "interplanetary_transfer -- without it the mode degrades "
+                "silently into the moon machine")
+        if not str(params.get("returnBodyName", "")):
+            raise ValueError(
+                "parentRelayTransfer requires a non-empty returnBodyName: the "
+                "PARENT body is the frame the relay escapes INTO and the SOI "
+                "whose arrival triggers stage 2, so with it empty the machine "
+                "has nothing to hand stage 2 off on")
+        if bool(params.get("padAlignEjection", False)):
+            raise ValueError(
+                "parentRelayTransfer and padAlignEjection are mutually "
+                "exclusive: the pad jump aligns a HELIOCENTRIC window before an "
+                "ascent, while the relay departs an existing park around a MOON "
+                "-- a spec asking for both is asking the machine to align a pad "
+                "it will not use for a frame it is not in")
+        relay_home = str(params.get("homeBodyName", "Kerbin"))
+        _body_gravity(relay_home)   # raises, with the add-a-cited-row message
+        if float(params.get("escapeTargetVInfMps", 0.0)) <= 0.0:
+            raise ValueError(
+                "parentRelayTransfer requires a positive escapeTargetVInfMps: "
+                "it is the parent-frame departure v_inf the escape node is "
+                "sized for, and at 0 the node degrades to a bare escape with "
+                "no energy left for the transfer")
     if bool(params.get("padAlignEjection", False)):
         home = str(params.get("homeBodyName", "Kerbin"))
         target = str(params.get("targetBodyName", "Mun"))
@@ -3783,6 +3978,11 @@ def b5_params_from_dict(params: Dict) -> B5Params:
         ejection_ecc_floor=float(params.get("ejectionEccFloor", 0.0)),
         correction_trigger_time_to_soi=tuple(
             float(t) for t in params.get("correctionTriggerTimeToSoiSeconds", ())),
+        parent_relay_transfer=bool(params.get("parentRelayTransfer", False)),
+        escape_target_v_inf=float(params.get("escapeTargetVInfMps", 0.0)),
+        escape_max_dv=float(params.get("escapeMaxDeltaVMps", 0.0)),
+        escape_node_min_lead=float(params.get("escapeNodeMinLeadSeconds", 300.0)),
+        escape_timeout=float(params.get("escapeTimeoutSeconds", 600.0)),
         pad_align_ejection=bool(params.get("padAlignEjection", False)),
         pad_align_margin=float(params.get("padAlignMarginSeconds", 1500.0)),
         pad_align_timeout=float(params.get("padAlignTimeoutSeconds", 300.0)),
@@ -8960,6 +9160,26 @@ class B5State:
     park_trim_execs: int = 0       # of those, how many were handed to the
                                    # executor (execs < attempts is the
                                    # "this attempt still needs burning" edge)
+    # --- PARENT-RELAY bookkeeping (parent_relay_transfer lanes only; every
+    # field keeps its 0 / None / "" default on every other lane, exactly as the
+    # PAD-ALIGN and ORBIT-START fields do, so a flag-off machine is unchanged).
+    #
+    # ``relay_stage`` IS the stage discriminator, and it is an explicit field
+    # rather than an inference from ``phases_reached`` because two different
+    # decisions read it (which plan action PLAN-TRANSFER emits, and which
+    # burn-done evidence TRANSFER-BURN requires) and both must agree. It
+    # advances EXACTLY ONCE, on the coast frame that first observes the parent
+    # SOI, so it can never oscillate.
+    #
+    # ``escape_node_ut`` / ``escape_node_dv`` are the last node the planner
+    # COMPUTED (the escapedHomeSoi row's carried evidence, and the number an
+    # operator compares against the spec's derived figure). ``escape_refusal``
+    # carries the CURRENT named refusal while the node is not computable, so the
+    # give-up says which reading failed instead of only "timed out".
+    relay_stage: int = RELAY_STAGE_ESCAPE
+    escape_node_ut: Optional[float] = None
+    escape_node_dv: Optional[float] = None
+    escape_refusal: str = ""
     # --- PAD-ALIGN bookkeeping. The window/jump fields are set only when
     # pad_align_ejection is on; launch_ut / transfer_node_ut /
     # transfer_handoff_ut are stamped on EVERY lane (launch and ejection-
@@ -9347,6 +9567,30 @@ def _b5_enter_plan_transfer(state: B5State, snapshot: TelemetrySnapshot,
     ]
 
 
+def _b5_enter_transfer_stage(state: B5State, snapshot: TelemetrySnapshot,
+                             peak: float) -> Tuple[B5State, List[Action]]:
+    """The post-ORBIT hand-off, shared by BOTH predecessors (ORBIT directly, or
+    ORBIT -> JETTISON): normally straight into PLAN-TRANSFER, but into the
+    flag-gated B5_ESCAPE first when the parent-relay mode is armed and the
+    escape has not been flown yet.
+
+    It is a separate function from ``_b5_enter_plan_transfer`` on purpose:
+    that one is also the STAGE-2 door (entered from the coast, with relay_stage
+    already advanced), so folding the relay detour into it would make the
+    stage-2 hand-off re-enter ESCAPE forever. Keeping the two apart means each
+    name states exactly what it does."""
+    if (state.params.parent_relay_transfer
+            and state.relay_stage == RELAY_STAGE_ESCAPE):
+        # NO ACTIONS on entry: the node depends on the LIVE park and is computed
+        # on the ESCAPE frames themselves, where a refusal can be named. The
+        # plan bookkeeping is zeroed so the FIRST computable frame emits (the
+        # retry cadence measures from ``last_plan_ut``, and a stale stamp would
+        # idle the node behind a cadence it never earned).
+        entered = _b5_enter(state, B5_ESCAPE, snapshot.ut, peak)
+        return replace(entered, last_plan_ut=0.0, plan_attempts=0), []
+    return _b5_enter_plan_transfer(state, snapshot, peak)
+
+
 def _b5_jettison_step(state: B5State, snapshot: TelemetrySnapshot,
                       peak: float) -> Tuple[B5State, List[Action]]:
     """One JETTISON frame: pop EXACTLY ``jettison_activations`` stages,
@@ -9423,7 +9667,7 @@ def _b5_jettison_step(state: B5State, snapshot: TelemetrySnapshot,
     # done. It is checked BEFORE the pop branch, so a satisfied signature can
     # never be followed by one more pop.
     if split_confirmed and thrust_ok:
-        return _b5_enter_plan_transfer(st, snapshot, peak)
+        return _b5_enter_transfer_stage(st, snapshot, peak)
 
     if st.jettison_activations_done < p.jettison_activations:
         # POP, one at a time. Two gates:
@@ -9487,6 +9731,8 @@ def _b5_phase_budget(params: B5Params, phase: str) -> Optional[float]:
         return params.circularize_timeout
     if phase == B5_JETTISON:
         return params.jettison_timeout
+    if phase == B5_ESCAPE:
+        return params.escape_timeout
     if phase in (B5_PLAN_TRANSFER, B5_PLAN_CORRECTION):
         return params.plan_timeout
     if phase in (B5_TRANSFER_BURN, B5_CORRECTION_BURN):
@@ -9686,6 +9932,129 @@ def _b5_correction_via_bodies(params: B5Params) -> Tuple[str, ...]:
     return params.via_bodies
 
 
+# ---------------------------------------------------------------------------
+# PARENT-RELAY escape node (B5_ESCAPE). Pure.
+# ---------------------------------------------------------------------------
+
+@dataclass(frozen=True)
+class EscapeNodePlan:
+    """One computed parent-relay escape node, or a NAMED refusal.
+
+    ``reason`` is "" exactly when the node is computable; when it is set,
+    ``node_ut`` / ``dv`` are None and the caller must NOT emit anything. Every
+    refusal names the reading that failed, because the alternative -- an escape
+    phase that idles to its budget saying only "timed out" -- is the class of
+    give-up this codebase has repeatedly paid for."""
+    node_ut: Optional[float] = None
+    dv: Optional[float] = None
+    reason: str = ""
+
+
+def escape_node_plan(params: B5Params,
+                     snapshot: TelemetrySnapshot) -> EscapeNodePlan:
+    """Compute the ONE prograde escape node the parent-relay mode flies. Pure.
+
+    THE ARITHMETIC, and it is deliberately the whole of it. The node is placed
+    at the park's NEXT PERIAPSIS, and there:
+
+        r    = R_home + periapsis_altitude                     (exact radius)
+        a    = R_home + (apoapsis_alt + periapsis_alt) / 2     (from the apsides)
+        v    = sqrt(mu * (2/r - 1/a))                          (vis-viva, EXACT)
+        dv   = sqrt(v_inf^2 + 2*mu/r) - v
+
+    WHY PERIAPSIS, three reasons and each is load-bearing. (1) It is the one
+    point on the orbit whose radius the telemetry states EXACTLY, so the burn is
+    sized against the radius it is applied at -- which is precisely the sizing
+    error B15 measured when MechJeb sized at the SEMI-MAJOR AXIS and applied
+    elsewhere (~37 m/s on B26's park). (2) It is the Oberth-optimal point. (3)
+    `time_to_periapsis` is already a read channel on every capture lane, so the
+    node UT costs no new telemetry.
+
+    WHY vis-viva AND NOT v_circ(r). The escape must leave with hyperbolic excess
+    ``escape_target_v_inf``, so the POST-burn speed at r is fixed at
+    sqrt(v_inf^2 + 2*mu/r) whatever the orbit is; the dv is the gap to the speed
+    the craft ACTUALLY has there. Substituting a circular-orbit speed
+    over-burns at periapsis (25.8 m/s on B26's park) and under-burns at
+    apoapsis, for no gain.
+
+    THE NODE IS NOT AIMED, and that is a deliberate v1 limitation rather than an
+    oversight -- read `parentRelayTransfer`'s spec-key comment and the B26 spec
+    header for the cost. A prograde burn at whatever periapsis comes next sends
+    the outgoing asymptote in a direction set by the park's own orientation, so
+    the resulting parent-frame orbit lands anywhere in a band between "already
+    the ideal transfer" (v_inf prograde) and "a slightly lowered ellipse at the
+    home body's own orbital radius" (v_inf retrograde). STAGE 2 RE-PLANS FROM
+    WHEREVER WE ARE, which is what makes the band affordable; aiming it would
+    need the vessel's and the home body's state VECTORS in the parent frame,
+    i.e. a new multi-channel telemetry surface and an asymptote solve, and the
+    stop rule for v1 was to not build an ephemeris solver.
+
+    EVERY READING FAILS CLOSED. A non-finite UT / apsis / periapsis clock, a
+    non-positive apoapsis (already escaping), a degenerate vis-viva term, a
+    non-positive dv (already fast enough) and an over-cap dv each REFUSE the
+    node with their own reason. Refusing costs a bounded re-plan; emitting a
+    node computed from a bad reading costs the flight."""
+    if not params.parent_relay_transfer:
+        return EscapeNodePlan(reason="parent-relay mode is not armed")
+    try:
+        mu, radius = _body_gravity(params.home_body)
+    except ValueError as exc:                      # pragma: no cover - load-gated
+        return EscapeNodePlan(reason=str(exc))
+    if snapshot.body != params.home_body:
+        return EscapeNodePlan(
+            reason="body reads %r, not the home body %r"
+                   % (snapshot.body or "<blank>", params.home_body))
+    if not (_is_finite(snapshot.ut) and _is_finite(snapshot.periapsis)
+            and _is_finite(snapshot.apoapsis)
+            and _is_finite(snapshot.time_to_periapsis)):
+        return EscapeNodePlan(
+            reason=("unreadable orbit: ut=%s pe=%s ap=%s ttPe=%s"
+                    % (_obs_fmt(snapshot.ut), _obs_fmt(snapshot.periapsis),
+                       _obs_fmt(snapshot.apoapsis),
+                       _obs_fmt(snapshot.time_to_periapsis))))
+    if snapshot.apoapsis <= 0.0:
+        # A hyperbolic / escaping reading is NEGATIVE in the body frame, so this
+        # is the "still bound" evidence -- the same discriminator the capture
+        # window and the orbit-start gate use.
+        return EscapeNodePlan(
+            reason="apoapsis %.1f m is not a bound orbit (an escape is already "
+                   "under way, or the reading is wrong)" % (snapshot.apoapsis,))
+    r_p = radius + float(snapshot.periapsis)
+    sma = radius + (float(snapshot.apoapsis) + float(snapshot.periapsis)) / 2.0
+    if r_p <= 0.0 or sma <= 0.0:
+        return EscapeNodePlan(
+            reason="degenerate orbit radii: rPe=%.1f sma=%.1f" % (r_p, sma))
+    vis_viva = 2.0 / r_p - 1.0 / sma
+    if vis_viva <= 0.0:
+        return EscapeNodePlan(
+            reason="degenerate vis-viva term %.6g at rPe=%.1f sma=%.1f"
+                   % (vis_viva, r_p, sma))
+    v_now = math.sqrt(mu * vis_viva)
+    v_needed = math.sqrt(params.escape_target_v_inf ** 2 + 2.0 * mu / r_p)
+    dv = v_needed - v_now
+    if not _is_finite(dv) or dv <= 0.0:
+        return EscapeNodePlan(
+            reason="escape dv %s is not positive (v at periapsis %.1f already "
+                   "meets the required %.1f m/s)"
+                   % (_obs_fmt(dv), v_now, v_needed))
+    if params.escape_max_dv > 0.0 and dv > params.escape_max_dv:
+        return EscapeNodePlan(
+            reason="escape dv %.1f m/s exceeds the escapeMaxDeltaVMps cap %.1f "
+                   "-- the park, the target v_inf or the home body's gravity "
+                   "constants are not what this spec sized for"
+                   % (dv, params.escape_max_dv))
+    lead = float(snapshot.time_to_periapsis)
+    if lead < 0.0:
+        return EscapeNodePlan(
+            reason="time_to_periapsis %.1f is negative" % (lead,))
+    if lead < params.escape_node_min_lead:
+        # Too close for the executor to autowarp + WARPALIGN into: take the
+        # FOLLOWING periapsis. One park period, computed from the same a and mu
+        # the burn is sized with, so no new constant enters here.
+        lead += 2.0 * math.pi * math.sqrt(sma ** 3 / mu)
+    return EscapeNodePlan(node_ut=float(snapshot.ut) + lead, dv=float(dv))
+
+
 def _b5_transfer_plan_action(params: B5Params) -> Action:
     """The transfer plan action: interplanetary (WaitForPhaseAngle) when
     interplanetary_transfer, else the moon Hohmann transfer. In PAD-ALIGN
@@ -9693,7 +10062,22 @@ def _b5_transfer_plan_action(params: B5Params) -> Action:
     with WaitForPhaseAngle OFF (ASAP ejection): the pad jump already did the
     phase alignment, and decompiled 2.15.1 places the ASAP burnUT within one
     park orbit -- the structural no-loiter guarantee. ``value=None`` (every
-    other lane) keeps the LIVE-PROVEN WaitForPhaseAngle=True path."""
+    other lane) keeps the LIVE-PROVEN WaitForPhaseAngle=True path.
+
+    A PARENT-RELAY LANE TAKES THE MOON PATH even though it is flagged
+    interplanetary, and the reason is geometric rather than stylistic: the only
+    place a relay lane ever reaches PLAN-TRANSFER is stage 2, where the craft is
+    in the PARENT'S SOI and the target is a sibling moon of that parent -- which
+    is exactly the parking-orbit-to-moon shape `OperationTransfer` models and
+    B5/B6/B23/B24/B25 have flown. `OperationInterplanetaryTransfer` is the
+    operation that REFUSED the moon-parked origin in the first place, so a relay
+    lane must never emit it, and this branch is written on the FLAG rather than
+    on ``relay_stage`` so that stays true STRUCTURALLY: stage-0 PLAN-TRANSFER is
+    unreachable on a relay lane today (``_b5_enter_transfer_stage`` diverts it to
+    B5_ESCAPE), and if some future edge made it reachable the moon plan is still
+    the strictly better answer rather than a known refusal."""
+    if params.parent_relay_transfer:
+        return Action(ACTION_MJ_PLAN_TRANSFER)
     if params.interplanetary_transfer:
         if params.pad_align_ejection:
             return Action(ACTION_MJ_PLAN_INTERPLANETARY_TRANSFER, 0.0)
@@ -9701,13 +10085,28 @@ def _b5_transfer_plan_action(params: B5Params) -> Action:
     return Action(ACTION_MJ_PLAN_TRANSFER)
 
 
-def _b5_transfer_burn_done(params: B5Params, snapshot: TelemetrySnapshot) -> bool:
+def _b5_transfer_burn_done(params: B5Params, snapshot: TelemetrySnapshot,
+                           relay_stage: int = RELAY_STAGE_ESCAPE) -> bool:
     """TRANSFER-BURN burn-done evidence. B5/B6: the home-frame apoapsis reached
     transfer_min_apoapsis. B7 (ejection_ecc_floor > 0): a HYPERBOLIC home-frame
     eccentricity (>= floor while still in the home SOI) OR the craft ALREADY
     left the home SOI (body is a via body / the target -- the heliocentric
     frame's ecc is < 1 and would falsely fail the first disjunct). NaN ecc
-    fails closed."""
+    fails closed.
+
+    PARENT-RELAY STAGE 2 uses the APOAPSIS FLOOR, in the PARENT frame, and
+    ignores the ejection floor -- because the two stages make different claims
+    and each needs its own evidence. Stage 1's claim is "the orbit is now
+    hyperbolic about the home body", which is the ecc floor. Stage 2's claim is
+    "the transfer reaches the sibling's orbit", which is the apoapsis floor and
+    nothing else: at stage 2 the craft is IN a via body's SOI, so the ecc
+    branch's own early return would fire unconditionally and the exit would
+    reduce to "a node was consumed" with no evidence the burn achieved
+    anything."""
+    if (params.parent_relay_transfer
+            and relay_stage >= RELAY_STAGE_TRANSFER):
+        return (_is_finite(snapshot.apoapsis)
+                and snapshot.apoapsis >= params.transfer_min_apoapsis)
     if params.ejection_ecc_floor > 0.0:
         if snapshot.body in params.via_bodies or snapshot.body == params.target_body:
             return True
@@ -9926,7 +10325,7 @@ def _b5_flameout_stage(state: B5State,
 
 
 def _b5_plan_phase(state: B5State, snapshot: TelemetrySnapshot, peak: Optional[float],
-                   plan_action: Action, burn_phase: str,
+                   plan_action: Optional[Action], burn_phase: str,
                    on_timeout_phase: Optional[str],
                    handoff_action: Action = Action(ACTION_MJ_EXECUTE_NODES)) -> Tuple[B5State, List[Action]]:
     """Shared PLAN-TRANSFER / PLAN-CORRECTION logic: once a maneuver node exists,
@@ -9937,7 +10336,16 @@ def _b5_plan_phase(state: B5State, snapshot: TelemetrySnapshot, peak: Optional[f
     node_count == 0, so a successful plan can never stack a second node).
     ``on_timeout_phase``: PLAN-CORRECTION falls through to the coast on budget
     expiry (the correction is a best-effort refinement, not a mission
-    requirement); PLAN-TRANSFER passes None and flakes (no node = no mission)."""
+    requirement); PLAN-TRANSFER passes None and flakes (no node = no mission).
+
+    ``plan_action`` MAY be None, which means "nothing is plannable from THIS
+    frame's readings" and is reachable only from B5_ESCAPE, whose node is
+    computed from live telemetry that can legitimately be unreadable for a
+    frame. A None action emits nothing AND consumes no plan attempt -- an
+    attempt is a thing the planner refused, not a frame the machine could not
+    read -- so the phase's own game-time budget is what bounds a permanently
+    unreadable orbit, and the ESCAPE branch turns that expiry into a named
+    give-up carrying the refusal."""
     if snapshot.node_count >= 1:
         entered = _b5_enter(state, burn_phase, snapshot.ut, peak)
         entered = replace(
@@ -9974,7 +10382,7 @@ def _b5_plan_phase(state: B5State, snapshot: TelemetrySnapshot, peak: Optional[f
     if _rails_emit_needed(desired, stayed.warp_cmd, snapshot):
         actions.append(Action(ACTION_SET_RAILS_WARP, float(desired)))
         stayed = replace(stayed, warp_cmd=desired)
-    if (_is_finite(snapshot.ut)
+    if (plan_action is not None and _is_finite(snapshot.ut)
             and (snapshot.ut - state.last_plan_ut) >= state.params.plan_retry_seconds):
         # Plan-attempt give-up (live finding 14): PLAN_MAX_ATTEMPTS plans in
         # and still no node -- whether the planner keeps failing server-side
@@ -10022,6 +10430,46 @@ def _b5_enter_plan_correction(state: B5State, snapshot: TelemetrySnapshot,
     return entered, prelude + [Action(ACTION_MJ_PLAN_COURSE_CORRECT,
                                       state.params.course_correct_periapsis,
                                       limit=state.params.max_correction_dv)]
+
+
+def _b5_enter_relay_transfer(state: B5State, snapshot: TelemetrySnapshot,
+                             peak: Optional[float]
+                             ) -> Tuple[B5State, List[Action]]:
+    """COAST-TO-TARGET -> PLAN-TRANSFER, the parent-relay stage-2 hand-off.
+
+    Two things happen and neither may be skipped. (1) ``relay_stage`` advances,
+    which is what makes PLAN-TRANSFER emit the MOON Hohmann and TRANSFER-BURN
+    require the parent-frame apoapsis floor. (2) The COAST'S WARP IS BROUGHT
+    UNDER PLAN CONTROL FIRST -- the coast crosses the SOI boundary still running
+    its native warp toward it (B12 flight 3 measured a capture arrival entering
+    at RAILSx10000 and advancing 3,907 game s on its first poll), and planning
+    against a position that moves thousands of seconds per frame is planning
+    against a position that no longer exists by the time the node lands.
+    Prelude shape is `_b5_enter_plan_correction`'s verbatim: cancel an active
+    NATIVE warp (which also zeroes the rails factors runner-side), else step a
+    held rails factor straight to the PLAN hold -- never 1x, because planning is
+    an RPC.
+
+    The three coast-local debounce streaks are cleared on the way out: they
+    count evidence about the ESCAPE leg's trajectory and none of it describes
+    the transfer that is about to be planned."""
+    plan_hold = min(state.params.plan_warp_factor,
+                    max_legal_rails_factor(snapshot.body, snapshot.altitude))
+    if state.warp_to_cmd is not None or _is_finite(snapshot.warping_to):
+        prelude = [Action(ACTION_CANCEL_WARP)]
+        entered_warp_cmd = 0
+    elif state.warp_cmd != plan_hold:
+        prelude = [Action(ACTION_SET_RAILS_WARP, float(plan_hold))]
+        entered_warp_cmd = plan_hold
+    else:
+        prelude = []
+        entered_warp_cmd = state.warp_cmd
+    staged = replace(state, relay_stage=RELAY_STAGE_TRANSFER,
+                     no_encounter_streak=0, arrival_bad_streak=0,
+                     body_blank_count=0, approach_latched=False,
+                     warp_cmd=entered_warp_cmd, warp_to_cmd=None)
+    entered, actions = _b5_enter_plan_transfer(staged, snapshot, peak)
+    return entered, prelude + actions
 
 
 def _rails_emit_needed(desired: int, warp_cmd: int,
@@ -11110,6 +11558,31 @@ def b5_decide(state: B5State, snapshot: TelemetrySnapshot) -> Tuple[B5State, Lis
         reading is an ASSERT-FAIL (left the target SOI without a committed
         park); "" holds (the blank-body / vessel-lost detectors own it).
 
+    PARENT-RELAY TRANSFER (parentRelayTransfer, mission b26_laythe_vall). With
+    the flag OFF the ESCAPE phase is unreachable, relay_stage never leaves 0,
+    and every decision above is byte-identical. With it ON exactly three edges
+    move and NOTHING else in the machine changes:
+      - ORBIT (or JETTISON) -> ESCAPE instead of -> PLAN-TRANSFER. ESCAPE is a
+        PLAN phase only: it computes ONE prograde escape node from the LIVE park
+        (escape_node_plan, at the next periapsis) and hands it to TRANSFER-BURN,
+        which flies it with the same NodeExecutor, the same stagnation watchdog
+        and the same hyperbolic ejectionEccFloor evidence B7 uses. A node that
+        is not computable this frame emits nothing and consumes no attempt; the
+        ESCAPE budget bounds it with a give-up NAMING the refused reading.
+      - COAST-TO-TARGET, on the first frame whose SOI body IS the parent
+        (returnBodyName), re-enters PLAN-TRANSFER with relay_stage 1 -- checked
+        BEFORE the correction block, which a post-escape frame would otherwise
+        trigger against a transfer that does not exist yet. Warp is brought
+        under plan control on that frame (the coast crosses the boundary under
+        its own native warp).
+      - At relay_stage 1 the plan action is the MOON Hohmann (legal now: vessel
+        and target both orbit the parent) and TRANSFER-BURN's burn-done evidence
+        is the parent-frame apoapsis floor, because the ecc branch's
+        left-the-home-SOI early return would otherwise fire unconditionally.
+    Everything after the second TRANSFER-BURN -- the correction rounds, the
+    approach clamp, TARGET-FLYBY and the whole capture tail -- is the existing
+    machine, untouched.
+
     LANDING-MISSION TAIL (landingEnabled, missions b13_mun_landing /
     b14_minmus_landing). Reachable ONLY from PARK and ONLY with the flag on, so
     with it OFF the machine is byte-identical to the ORBIT shape above.
@@ -11298,10 +11771,61 @@ def b5_decide(state: B5State, snapshot: TelemetrySnapshot) -> Tuple[B5State, Lis
                 # first pop for no reason.
                 jettison_frames_since_pop=DEFAULT_DEBOUNCE_K)
             return entered, [Action(ACTION_CUT_THROTTLE, value=0.0)]
-        return _b5_enter_plan_transfer(state, snapshot, peak)
+        return _b5_enter_transfer_stage(state, snapshot, peak)
 
     if state.phase == B5_JETTISON:
         return _b5_jettison_step(state, snapshot, peak)
+
+    if state.phase == B5_ESCAPE:
+        # PARENT-RELAY STAGE 1. A PLAN phase and nothing else: compute the one
+        # prograde escape node from THIS frame's park, hand it to the shared
+        # plan/hand-off logic, and let TRANSFER-BURN fly it with the same
+        # NodeExecutor, the same stagnation watchdog and the same ejection-ecc
+        # burn-done evidence every other lane uses.
+        plan = escape_node_plan(state.params, snapshot)
+        staged = state
+        if plan.reason != state.escape_refusal:
+            staged = replace(staged, escape_refusal=plan.reason)
+        action: Optional[Action] = None
+        if plan.reason == "":
+            action = Action(ACTION_ADD_MANEUVER_NODE, value=plan.dv,
+                            node_ut=plan.node_ut)
+            staged = replace(staged, escape_node_ut=plan.node_ut,
+                             escape_node_dv=plan.dv)
+        elif (snapshot.node_count == 0
+              and _b5_over_budget(staged, snapshot)):
+            # NAMED, because the generic "phase ESCAPE timed out" would send the
+            # reader at the budget when the actual event is a refused node --
+            # the B15 mis-named-give-up lesson applied to the one phase whose
+            # give-up nobody has seen yet.
+            return _b5_named_flake(
+                staged,
+                "escape-node never computable: %s (home %r, target v_inf "
+                "%.1f m/s, dv cap %s, min lead %.0f s) -- the ESCAPE budget "
+                "expired with the node still refused, so nothing was ever "
+                "handed to the executor"
+                % (plan.reason or "<no reason recorded>", state.params.home_body,
+                   state.params.escape_target_v_inf,
+                   ("%.1f m/s" % state.params.escape_max_dv)
+                   if state.params.escape_max_dv > 0.0 else "none",
+                   state.params.escape_node_min_lead),
+                peak), []
+        handled, actions = _b5_plan_phase(
+            staged, snapshot, peak,
+            plan_action=action,
+            burn_phase=B5_TRANSFER_BURN,
+            on_timeout_phase=None)
+        if handled.phase == B5_TRANSFER_BURN and not handled.done:
+            # The same hand-off stamps PLAN-TRANSFER writes, for the same
+            # observability reason: this IS the ejection hand-off on a relay
+            # lane, and the pad-align rows that read them are flag-gated off.
+            handled = replace(
+                handled,
+                transfer_node_ut=(float(snapshot.node_ut)
+                                  if _is_finite(snapshot.node_ut) else None),
+                transfer_handoff_ut=(float(snapshot.ut)
+                                     if _is_finite(snapshot.ut) else None))
+        return handled, actions
 
     if state.phase == B5_PLAN_TRANSFER:
         # PAD-ALIGN window guard. What it CAN catch: the ASAP selector
@@ -11369,7 +11893,12 @@ def b5_decide(state: B5State, snapshot: TelemetrySnapshot) -> Tuple[B5State, Lis
         # home-frame apoapsis NEGATIVE, so the floor cannot be the evidence).
         # For B7 the under-burn flake below means "the ejection did not make
         # the orbit hyperbolic".
-        floor_met = _b5_transfer_burn_done(state.params, snapshot)
+        # PARENT-RELAY: the evidence is stage-dependent (the escape's hyperbolic
+        # home-frame ecc for stage 1, the parent-frame apoapsis floor for the
+        # sibling transfer at stage 2). Off the relay lanes relay_stage is
+        # always 0 and this is the pre-relay call byte for byte.
+        floor_met = _b5_transfer_burn_done(state.params, snapshot,
+                                           state.relay_stage)
         if (consumed or stuck) and floor_met:
             cleanup = ([Action(ACTION_MJ_ABORT_AND_CLEAR_NODES)]
                        if snapshot.node_count > 0 else [])
@@ -11399,7 +11928,10 @@ def b5_decide(state: B5State, snapshot: TelemetrySnapshot) -> Tuple[B5State, Lis
                 "nodes %d, lf %s"
                 % (("ejection eccentricity floor %.4f not reached"
                     % (state.params.ejection_ecc_floor,))
-                   if state.params.ejection_ecc_floor > 0.0 else
+                   if (state.params.ejection_ecc_floor > 0.0
+                       and not (state.params.parent_relay_transfer
+                                and state.relay_stage >= RELAY_STAGE_TRANSFER))
+                   else
                    ("apoapsis floor %.0f m not reached"
                     % (state.params.transfer_min_apoapsis,)),
                    _obs_fmt(snapshot.apoapsis), _obs_fmt(snapshot.eccentricity),
@@ -11714,6 +12246,22 @@ def b5_decide(state: B5State, snapshot: TelemetrySnapshot) -> Tuple[B5State, Lis
                              "(allowed %r, target %r)"
                              % (snapshot.body, _b5_coast_bodies(state.params),
                                 state.params.target_body))), []
+        if (state.params.parent_relay_transfer
+                and state.relay_stage == RELAY_STAGE_ESCAPE
+                and snapshot.body == _b5_return_body(state.params)):
+            # PARENT-RELAY STAGE 2. The escape has delivered the craft into the
+            # PARENT'S SOI, where the vessel and the target now orbit the same
+            # body -- so the MOON-path Hohmann is legal and is what
+            # PLAN-TRANSFER emits at relay_stage 1.
+            #
+            # CHECKED HERE, BEFORE THE CORRECTION BLOCK, and that ordering is
+            # load-bearing rather than tidy. The very next block is the
+            # NO-ENCOUNTER early trigger, whose conditions a post-escape frame
+            # satisfies EXACTLY (time mode, rounds pending, body == the
+            # correction via body, no node, no encounter on the trajectory) --
+            # it would spend a correction round trying to course-correct a
+            # transfer that has not been planned yet.
+            return _b5_enter_relay_transfer(state, snapshot, peak)
         stayed = _b5_stay_or_flake(state, snapshot, peak)
         if stayed.done:
             return stayed, []
@@ -14965,6 +15513,35 @@ def evaluate_b5_assertions(frames, params: B5Params,
              "lastGateReason": getattr(state, "start_in_orbit_last_reason",
                                        None)})]
 
+    # PARENT-RELAY row (parent_relay_transfer lanes only; every other lane's row
+    # list is unchanged with the flag off, the ORBIT-START / PAD-ALIGN
+    # precedent). The claim is the one thing this mode adds and nothing else in
+    # the row set can express: THE CRAFT ACTUALLY ESCAPED THE HOME BODY under
+    # its own computed node and reached the PARENT'S frame. Every other row is
+    # satisfiable by a flight that never left home -- reachedTargetSoi and the
+    # capture rows all describe the far end, and a machine that somehow arrived
+    # without the relay would have done something this mode does not describe.
+    #
+    # Evidence is ``relay_stage``, which advances EXACTLY ONCE and EXACTLY on
+    # the coast frame that observed the parent SOI, so it cannot be satisfied by
+    # a node that was merely planned. The node's own numbers ride the detail for
+    # the operator comparison against the spec's derived figure; a missing stamp
+    # leaves them None and does not affect ``met`` (the stage IS the claim).
+    relay_rows: List[AssertionOutcome] = []
+    if params.parent_relay_transfer:
+        relay_stage = int(getattr(state, "relay_stage", RELAY_STAGE_ESCAPE) or 0)
+        relay_met = (relay_stage >= RELAY_STAGE_TRANSFER
+                     and B5_ESCAPE in phases)
+        relay_rows = [AssertionOutcome(
+            "escapedHomeSoi", relay_met, (relay_stage if relay_met else None),
+            {"required": B5_ESCAPE, "homeBody": params.home_body,
+             "parentBody": _b5_return_body(params),
+             "relayStage": relay_stage,
+             "escapeNodeUt": getattr(state, "escape_node_ut", None),
+             "escapeNodeDvMps": getattr(state, "escape_node_dv", None),
+             "targetVInfMps": params.escape_target_v_inf,
+             "lastRefusal": (getattr(state, "escape_refusal", "") or None)})]
+
     # PAD-ALIGN row (pad_align_ejection lanes only; every flown lane's row
     # list is unchanged with the flag off). The claim is the recording-
     # cleanliness contract itself: the ejection node the executor flew was
@@ -15111,7 +15688,7 @@ def evaluate_b5_assertions(frames, params: B5Params,
              "terminal": "landed"})
 
         return [orbit, soi, flyby, captured, parked, on_body, settled,
-                committed] + start_rows + pad_rows
+                committed] + start_rows + relay_rows + pad_rows
 
     if params.capture_enabled:
         cap_ap = getattr(state, "capture_apoapsis", None)
@@ -15150,7 +15727,7 @@ def evaluate_b5_assertions(frames, params: B5Params,
             "treeCommitted", commit_met, (commit_result or None),
             {"required": B5_ORBIT_COMMITTED, "body": params.target_body})
 
-        return [orbit, soi, flyby, captured, parked, committed] + start_rows + pad_rows
+        return [orbit, soi, flyby, captured, parked, committed] + start_rows + relay_rows + pad_rows
 
     return_body = _b5_return_body(params)
     ret_met = B5_RETURN in phases
@@ -15161,7 +15738,7 @@ def evaluate_b5_assertions(frames, params: B5Params,
                            (return_body if ret_met else None),
                            {"required": B5_RETURN, "returnBody": return_body})
 
-    return [orbit, soi, flyby, ret] + start_rows + pad_rows
+    return [orbit, soi, flyby, ret] + start_rows + relay_rows + pad_rows
 
 
 def _value_or_nan(v: Optional[float]) -> float:
@@ -16004,6 +16581,34 @@ MACHINE_DIFF_FIELDS: Tuple[Tuple[str, str], ...] = (
     ("launch_ut", "launchUt"),
     ("transfer_node_ut", "transferNodeUt"),
     ("transfer_handoff_ut", "transferHandoffUt"),
+    # PARENT-RELAY carried state. DIFF_FIELDS and deliberately NOT
+    # MACHINE_STATE_FIELDS (the CL-1 precedent): `format_machine_state` renders
+    # every listed field for EVERY mission, so registering these there would
+    # widen the ~5 s machine line of all twenty-odd missions for four tokens
+    # only one lane can ever set. `diff_machine_state` contributes nothing when
+    # a field is absent on both sides, so this is free everywhere else.
+    #
+    # All three are sparse by construction: relay_stage advances exactly once,
+    # and the two node stamps are written once per COMPUTED plan (bounded by
+    # the plan-retry cadence).
+    #
+    # ``escape_refusal`` IS DELIBERATELY ABSENT, and the reason is the
+    # _MACHINE_TOKEN_FIELDS hazard one table down. It is FREE TEXT containing
+    # spaces AND '=' (it quotes the telemetry that failed), `diff_machine_state`
+    # renders through the UNsqueezed `_obs_fmt`, and the fly loop wraps each
+    # change in a kv-shaped gate line -- so listing it here would inject bogus
+    # keys into a parsed line, which is exactly the confident-wrong-reading class
+    # `MachineStateFreeTextTokenTests` exists to prevent. The squeeze is not
+    # available either: that tuple is pinned to be a SUBSET of
+    # MACHINE_STATE_FIELDS, and putting a relay-only field on every mission's
+    # state line is the cost the CL-1 note above declines. The refusal still
+    # reaches an operator by two routes that are already safe -- the ESCAPE
+    # give-up quotes it into `flake_reason` (squeezed on the line, untruncated in
+    # the status file), and the `escapedHomeSoi` assertion row carries it as
+    # `lastRefusal`.
+    ("relay_stage", "relayStage"),
+    ("escape_node_ut", "escapeNodeUt"),
+    ("escape_node_dv", "escapeNodeDv"),
     # B1 canopy: the observed latch is the one gate this whole scenario turns on, and
     # the commanded latch beside it is what a reader must NOT confuse it with, so both
     # get a loud gate line naming which is which.

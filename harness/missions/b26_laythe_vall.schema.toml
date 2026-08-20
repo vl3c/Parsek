@@ -72,6 +72,12 @@
 # is ~3,900 s and B19 flight 4 measured a single unclamped coast frame swallowing
 # 27,596 game s. The declarations are copied from b25's schema verbatim.
 #
+# WHAT IS ADDED THAT NO OTHER SCHEMA DECLARES: the PARENT-RELAY block
+# (`parentRelayTransfer` + its four sizing keys), added after flight 1 measured
+# MechJeb refusing the moon-parked origin. It is declared only here because only
+# this lane arms it; see the block's own header, well below, for the contract and
+# the four load-time implications mlib enforces.
+#
 # NOTE the validator only checks DECLARED keys: an undeclared param in a spec is
 # neither rejected nor read.
 
@@ -406,6 +412,80 @@ required = false
 type = "number"
 min = 0.0
 max = 100.0
+
+# =====================================================================================
+# THE PARENT-RELAY BLOCK. Declared HERE and nowhere else, because b26 is the only
+# lane that arms it; every other mission's schema is untouched and every other
+# lane's machine is byte-identical with the flag absent.
+#
+# WHY THE BLOCK EXISTS AT ALL: MechJeb 2.15.1's OperationInterplanetaryTransfer
+# REFUSES a moon-parked origin. B26 flight 1 measured it, deterministically, in
+# six wall-seconds -- see the spec's FLIGHT LEDGER and
+# docs/dev/todo-and-known-bugs.md -> MECHJEB-INTERPLANETARY-PLANNER-REJECTS-MOON-ORIGIN.
+# The relay routes around it by splitting the hop in two: mlib computes ONE
+# prograde escape node itself (stage 1) and MechJeb's MOON-path Hohmann -- the
+# operation that IS legal once both bodies orbit the same parent -- plans the
+# sibling transfer from the parent's frame (stage 2).
+#
+# FOUR IMPLICATIONS ARE ENFORCED AT SPEC LOAD by mlib.b5_params_from_dict, each
+# raising rather than degrading: parentRelayTransfer requires
+# interplanetaryTransfer, requires a non-empty returnBodyName, is mutually
+# exclusive with padAlignEjection, and requires homeBodyName to have a row in
+# mlib.STOCK_BODY_GRAVITY plus a positive escapeTargetVInfMps.
+# =====================================================================================
+
+# ARMS the mode. Optional; mlib defaults False (the ESCAPE phase is unreachable,
+# relay_stage never leaves 0, and the plan action / burn-done evidence are the
+# ones every flown lane uses). B26: true.
+[params.parentRelayTransfer]
+required = false
+type = "bool"
+
+# The HYPERBOLIC EXCESS SPEED (m/s) the escape node is sized for: the
+# PARENT-FRAME departure v_inf of the transfer the relay is aiming at. mlib
+# derives the node's dv from it and the LIVE park
+# (dv = sqrt(v_inf^2 + 2*mu/r) - v, at the park's next periapsis, vis-viva
+# exact), so this is the ONE number the spec owes the escape and everything else
+# is measured. Required in practice (the load-time check rejects <= 0 when the
+# mode is armed) but declared optional here for the same reason every other
+# flag-gated key is: an unarmed spec must not be forced to state it.
+[params.escapeTargetVInfMps]
+required = false
+type = "number"
+min = 0.0
+max = 20000.0
+
+# SANITY CAP (m/s) on the COMPUTED escape node. A plan above this is REFUSED
+# with a named reason rather than flown; it is the only guard against a wrong
+# STOCK_BODY_GRAVITY row or a fixture parked somewhere the spec did not size
+# for. 0 = no cap (mlib's default), which no armed spec should use.
+[params.escapeMaxDeltaVMps]
+required = false
+type = "number"
+min = 0.0
+max = 20000.0
+
+# GAME seconds of lead the escape node must have. The NodeExecutor autowarps to
+# the node and holds a 1x WARPALIGN before ignition, so a node placed a few
+# seconds ahead is a node it cannot fly; when the next periapsis is closer than
+# this, the planner adds ONE park period and takes the following one. Optional;
+# mlib defaults 300.
+[params.escapeNodeMinLeadSeconds]
+required = false
+type = "number"
+min = 0.0
+max = 100000.0
+
+# ESCAPE phase budget (GAME s). It bounds PLANNING only -- the burn is
+# TRANSFER-BURN's and the coast to the SOI exit is COAST-TO-TARGET's -- so it
+# needs to cover at most one park period of waiting for a usable periapsis plus
+# the bounded re-plan cadence. Expiry is a NAMED give-up carrying the refused
+# reading, never the generic phase timeout. Optional; mlib defaults 600.
+[params.escapeTimeoutSeconds]
+required = false
+type = "number"
+min = 0.0
+max = 1000000.0
 
 # Correction ROUNDS (TIME-TO-SOI mode, B16). A DESCENDING list of time-to-target-
 # SOI thresholds (GAME seconds): COAST-TO-TARGET enters PLAN-CORRECTION once per

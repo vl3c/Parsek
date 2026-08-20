@@ -52,7 +52,7 @@ scope (the derivation is pinned by synthetic in-game cells); file when docking
 coverage next expands. Also missing per BDOCK-1's own header note: an
 orbital-rendezvous-dock D10 value and a same-craft-twice identity D18 value.
 
-## MECHJEB-INTERPLANETARY-PLANNER-REJECTS-MOON-ORIGIN: MechJeb 2.15.1's `OperationInterplanetaryTransfer.MakeNodes` throws on a MOON-PARKED origin, so the harness cannot currently fly any moon-to-moon transfer [MEASURED 2026-08-19 by `B26-laythe-vall-transfer` flight 1, DETERMINISTIC 2/2 attempts. HARNESS SURFACE, REPORT-ONLY - not a Parsek defect and not a spec defect; it blocks the M-MIS-7 subject's PRODUCTION, not the product question]
+## MECHJEB-INTERPLANETARY-PLANNER-REJECTS-MOON-ORIGIN: MechJeb 2.15.1's `OperationInterplanetaryTransfer.MakeNodes` throws on a MOON-PARKED origin, so the harness could not fly any moon-to-moon transfer [MEASURED 2026-08-19 by `B26-laythe-vall-transfer` flight 1, DETERMINISTIC 2/2 attempts. HARNESS SURFACE, REPORT-ONLY - not a Parsek defect and not a spec defect; it blocked the M-MIS-7 subject's PRODUCTION, not the product question. **ROUTED AROUND 2026-08-20: candidate (a)-minimal is AUTHORED on branch `moon-to-moon-lane` as mlib's flag-gated PARENT-RELAY mode. ENTRY STAYS OPEN until B26 flight 2 proves it live** - see WHAT WAS BUILT at the end]
 
 **THIS IS A HARNESS-CAPABILITY GAP, NOT A PRODUCT FINDING.** Nothing in Parsek ran,
 nothing in Parsek is implicated, and the spec that hit it is correct. Read the
@@ -126,19 +126,76 @@ was honoured.
   operation, then Lambert / course-correct to Vall from Jool orbit.
 
 **(a) is the house-style fit** - pure decision in mlib, thin execution in the
-runner, reusing a proven correction loop instead of adding a mechanism. It is
+runner, reusing a proven correction loop instead of adding a mechanism. It was
 DEFERRED AS ITS OWN PROGRAM, not smuggled into a lane.
 
-WHAT THIS BLOCKS AND WHAT IT DOES NOT. Blocked: the harness's ability to PRODUCE
-the M-MIS-7 subject recording, and with it `B26` (which stays committed,
+WHAT THIS BLOCKED AND WHAT IT DID NOT. Blocked: the harness's ability to PRODUCE
+the M-MIS-7 subject recording, and with it `B26` (which stayed committed,
 flyable-but-blocked, dry-run valid) and the `V17M` / `V17T` reading pair (which
 stay in `PENDING_FIXTURE_LANES` awaiting `vall-transfer-recorded`). NOT blocked
 and NOT answered: the PRODUCT question - whether `ApplyReaim` engages on a
 cross-parent moon-to-moon recording, which
 `docs/dev/research/same-parent-reaim-jool-system.md` section 5.1 argues already
-works unmodified. This flight said nothing about it. It remains pre-registered in
+works unmodified. That flight said nothing about it. It remains pre-registered in
 V17M/V17T, which carry both hypotheses with the discriminating log lines and gate
 on neither.
+
+### WHAT WAS BUILT (2026-08-20, branch `moon-to-moon-lane`; NOT YET FLOWN)
+
+**Candidate (a), in its MINIMAL form, with one deliberate simplification against
+the sketch above: the Vall encounter does NOT come out of the correction rounds.**
+It comes out of MechJeb's own MOON-path `OperationTransfer`, planned from JOOL's
+frame once the escape has put the craft there - the operation eight lanes have
+flown, legal there by construction because vessel and target orbit the same body.
+So the correction rounds go back to being what they are everywhere else, a
+refinement of an existing encounter rather than the thing that creates one. That
+is a strictly smaller change than "mlib creates the encounter", and it is the
+reason the mode needed no new burn machinery at all.
+
+TWO STAGES, ONE FLAG (`parentRelayTransfer`), THREE MOVED EDGES in `b5_decide`:
+
+- **STAGE 1 - a new flag-gated `ESCAPE` phase between ORBIT and TRANSFER-BURN.**
+  `mlib.escape_node_plan` computes ONE prograde node at the park's next
+  PERIAPSIS: `dv = sqrt(v_inf^2 + 2*mu/r) - sqrt(mu*(2/r - 1/a))`, vis-viva exact
+  at the radius it is applied at. The runner adds it through kRPC's OWN
+  `Control.add_node(ut, prograde=dv)` - **core kRPC, no MechJeb planner, which is
+  precisely why the refusal above cannot recur** - and the SAME autowarping
+  NodeExecutor, the SAME burn-stagnation watchdog and the SAME hyperbolic
+  `ejectionEccFloor` fly and judge it. The coast out to the home SOI is the
+  existing COAST-TO-TARGET warp-to-the-boundary leg. `ESCAPE` budgets PLANNING
+  only, and its expiry is a give-up NAMING the refused reading.
+- **STAGE 2 is not a phase.** On the first coast frame whose SOI body is the
+  parent, the machine re-enters PLAN-TRANSFER at `relay_stage 1`, where the plan
+  action is `OperationTransfer` and TRANSFER-BURN's evidence is the parent-frame
+  `transferMinApoapsisMeters`. The check sits BEFORE the correction block on
+  purpose: a post-escape parent-SOI frame satisfies every condition of the
+  no-encounter early trigger, so the ordering is what stops a round being spent
+  course-correcting a transfer nobody has planned yet.
+- **Everything after that is the untouched machine** - corrections, approach
+  clamp, TARGET-FLYBY, the whole capture tail.
+
+INERT WITH THE FLAG OFF, the PAD-ALIGN / ORBIT-START contract verbatim: `ESCAPE`
+is unreachable, `relay_stage` never leaves 0, the plan action and the burn-done
+evidence are the ones every flown lane uses, and no assertion row is added.
+Pinned by `ParentRelayInertnessTests`.
+
+**THE v1 LIMITATION, NAMED: the escape is NOT AIMED.** A prograde burn at whatever
+periapsis comes next sends the asymptote where the park's own orientation sends
+it. Aiming it needs the vessel's and the home moon's state VECTORS in the parent
+frame plus an asymptote solve - a new multi-channel telemetry surface and an
+ephemeris solver, which was the explicit stop rule for v1. The cost is priced in
+B26's delta-v section (stage 2 is bounded by `2*v_inf` = 694.5 m/s whatever
+direction comes out; the margin is 640.0 m/s and covers it), and it has ONE
+non-dv consequence worth carrying here: an unaimed escape's parent-frame apoapsis
+reaches **71.28 Mm**, ABOVE Tylo's 68.50 Mm shell, so B26's Tylo/Bop/Pol
+forbidden tokens stopped being a restatement of geometry and became a real guard.
+
+**THIS ENTRY STAYS OPEN.** The capability is authored and unit-tested; it has not
+flown. It closes when B26 flight 2 measures it live. The likeliest way that
+flight fails is now a different MechJeb question from the one above, and it is
+pre-registered in B26's own observation targets: whether `OperationTransfer`
+plans a sane targeted intercept from the eccentric, ~1.7 deg inclined parent
+orbit an unaimed escape delivers.
 
 ## MAPRENDER-SEAM-LENS-EVALUATES-UNSHIFTED-EPOCH-ON-CREATION-FRAME: the seam-endpoint lens reads the RECORDED seam UT instead of the replayed one on a ghost proto's creation frame, and raises `seam-endpoint-outside-soi` against an endpoint 157x the SOI away [MEASURED 2026-08-19 by `V16T-laythe-ts-arrival`'s reading run and **RECURRED on its ARMED run `2026-08-19_2212` (PASS attempt 1)**, which makes it DETERMINISTIC for the single-jump shape rather than a one-off. REPORT-ONLY - the harness classified the reason UNLISTED and did not gate on it, and `V16M-laythe-player-loop`'s stepped-epoch censuses prove the underlying recurrence is FINE. Same family as MAPRENDER-ICON-OFF-ORBIT-CREATION-FRAME-AFTER-JUMP; NO product change is proposed]
 
