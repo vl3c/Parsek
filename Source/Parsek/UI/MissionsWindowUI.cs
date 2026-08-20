@@ -139,6 +139,50 @@ namespace Parsek
         // collapsedLegs (mission id + head id), session-transient.
         private readonly HashSet<string> expandedVessels = new HashSet<string>();
 
+        // Actual rendered width of the expanding name cell, per row depth, captured on Repaint.
+        // IMGUI measures a word-wrapped label's height BEFORE the horizontal group resolves its
+        // width, so an ExpandWidth name cell that wraps gets a rect roughly a line short - and
+        // MiddleLeft centering then crops the text at BOTH ends (first line clipped at the top,
+        // last line at the bottom). Feeding the previous Repaint's width back through CalcHeight
+        // gives the layout the true height; same depth = same fixed columns + indent = same
+        // width, and the cache re-converges one repaint after any window resize.
+        private readonly Dictionary<int, float> wideCellWidthCache = new Dictionary<int, float>();
+
+        // Draws the expanding name cell (label, or caret button when asButton) at the explicit
+        // wrapped height described above. Returns true when the button was clicked.
+        private bool DrawWideRowCell(GUIContent content, int depth, bool asButton)
+        {
+            bool clicked;
+            if (wideCellWidthCache.TryGetValue(depth, out float w) && w > 1f)
+            {
+                float h = Mathf.Max(CompositionRowMinHeight,
+                    compositionCellLabel.CalcHeight(content, w));
+                clicked = asButton
+                    ? GUILayout.Button(content, compositionCellLabel,
+                        GUILayout.ExpandWidth(true), GUILayout.Height(h))
+                    : Label(content, GUILayout.ExpandWidth(true), GUILayout.Height(h));
+            }
+            else
+            {
+                clicked = asButton
+                    ? GUILayout.Button(content, compositionCellLabel, GUILayout.ExpandWidth(true))
+                    : Label(content, GUILayout.ExpandWidth(true));
+            }
+            if (Event.current.type == EventType.Repaint)
+            {
+                Rect r = GUILayoutUtility.GetLastRect();
+                if (r.width > 1f)
+                    wideCellWidthCache[depth] = r.width;
+            }
+            return clicked;
+
+            bool Label(GUIContent c, params GUILayoutOption[] opts)
+            {
+                GUILayout.Label(c, compositionCellLabel, opts);
+                return false;
+            }
+        }
+
         // Constant-payload checkbox contents, allocated once instead of per row per pass.
         private static readonly GUIContent VesselIncludeCheckboxContent =
             new GUIContent("", MissionPresentation.VesselIncludeCheckboxTooltip);
@@ -1186,17 +1230,10 @@ namespace Parsek
             }
             var wideContent = new GUIContent(wide, tooltip);
 
-            if (expandable)
+            if (DrawWideRowCell(wideContent, depth, expandable))
             {
-                if (GUILayout.Button(wideContent, compositionCellLabel, GUILayout.ExpandWidth(true)))
-                {
-                    if (expanded) expandedVessels.Remove(expandKey);
-                    else expandedVessels.Add(expandKey);
-                }
-            }
-            else
-            {
-                GUILayout.Label(wideContent, compositionCellLabel, GUILayout.ExpandWidth(true));
+                if (expanded) expandedVessels.Remove(expandKey);
+                else expandedVessels.Add(expandKey);
             }
 
             // "Next launch" countdown on the mission's launch row only (mission-level value:
@@ -1380,18 +1417,13 @@ namespace Parsek
                 node.StartEvent, peeledSibling);
             string wide = connector + caret + label;
 
-            if (hasChildren)
+            // Wrapped-height-correct wide cell (see DrawWideRowCell): a long T1.3 delta label
+            // wraps, and the naive ExpandWidth label got a rect a line short.
+            if (DrawWideRowCell(new GUIContent(wide), depth, hasChildren))
             {
-                if (GUILayout.Button(wide, compositionCellLabel, GUILayout.ExpandWidth(true)))
-                {
-                    string key = CollapseKey(mission, node.HeadLegId);
-                    if (collapsedLegs.Contains(key)) collapsedLegs.Remove(key);
-                    else collapsedLegs.Add(key);
-                }
-            }
-            else
-            {
-                GUILayout.Label(wide, compositionCellLabel, GUILayout.ExpandWidth(true));
+                string key = CollapseKey(mission, node.HeadLegId);
+                if (collapsedLegs.Contains(key)) collapsedLegs.Remove(key);
+                else collapsedLegs.Add(key);
             }
 
             // Blank "Next launch" slot: since T2.2 the mission's countdown lives on the launch
@@ -1602,13 +1634,14 @@ namespace Parsek
                 if (indent > 0f)
                     GUILayout.Space(indent);
                 // "Docked partner: <vessel>" (T1.7) - the old "Partner journey - X" was designer
-                // vocabulary; the row is the vessel that docked with this mission's ship.
-                GUILayout.Label(
+                // vocabulary; the row is the vessel that docked with this mission's ship. Drawn
+                // through the wrapped-height-correct wide cell (a long partner name wraps).
+                DrawWideRowCell(
                     new GUIContent(
                         RecordingsTableUI.TreeConnector(li == links.Count - 1)
                         + $"Docked partner: {link.ForeignVesselName}",
                         MissionPresentation.PartnerJourneyTooltip),
-                    compositionCellLabel, GUILayout.ExpandWidth(true));
+                    1, false);
                 GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_TMinus));
                 GUILayout.Label(KSPUtil.PrintDateCompact(link.DockUT, true),
                     compositionCellLabel, GUILayout.Width(ColW_StartTime));
