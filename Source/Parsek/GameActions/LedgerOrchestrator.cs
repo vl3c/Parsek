@@ -3302,11 +3302,14 @@ namespace Parsek
 
         /// <summary>
         /// Pure row-shape mapper for <see cref="OnStrategyCurrencyConversion"/>.
-        /// Returns null for the two deliberately-unwritten cases (negative funds,
-        /// negative reputation) after logging why - both are shapes the scoping rule in
-        /// <see cref="StrategyConversionCapture.EvaluateLegs"/> already excludes, so
-        /// reaching them means the mechanism did something this door was not built
-        /// against. Internal static for testability.
+        /// Returns null for the ONE deliberately-unwritten case, a negative funds leg,
+        /// after logging why: a converter's funds OUTPUT is positive by construction and
+        /// a funds INPUT necessarily has a nonzero <c>GetInput</c>, which the funds
+        /// scoping rule in <see cref="StrategyConversionCapture.EvaluateLegs"/> already
+        /// excludes, so reaching it means the mechanism did something this door was not
+        /// built against. Every other leg - science either direction, funds credit,
+        /// reputation either direction - returns a row. Internal static for
+        /// testability.
         /// </summary>
         internal static GameAction BuildStrategyConversionAction(
             double ut,
@@ -3370,13 +3373,21 @@ namespace Parsek
                     // pre-curve 0.33540129661560059 -> pool move 0.33515101671218872,
                     // which the curve reproduces to ~1e-7.
                     //
-                    // NO DOUBLE-COUNT. StrategyConversionCapture.EvaluateLegs only emits a
-                    // reputation leg when InputReputation == 0, i.e. when the transaction
-                    // itself put no reputation in and therefore no ordinary channel
-                    // (TransformedRepReward, MilestoneRepAwarded, the reason-keyed
-                    // exchanger door) is watching it. That scoping rule is what makes this
-                    // row safe; do not relax it. Pinned by
-                    // StrategyConversionCaptureTests.NonZeroInputReputation_IsNotCaptured.
+                    // NO DOUBLE-COUNT, and the reason is the MECHANISM rather than a
+                    // scoping rule. StrategyConversionCapture.EvaluateLegs emits a
+                    // reputation leg for ANY nonzero delta, input or not (it stopped
+                    // gating on InputReputation == 0 when the DEBIT arm was measured -
+                    // that gate excluded every stock reputation-INPUT converter). What
+                    // keeps this row safe is that stock applies the transaction's own
+                    // amount and the effect delta as TWO separate addReputation_granular
+                    // calls, and every ordinary channel (TransformedRepReward,
+                    // MilestoneRepAwarded, the reason-keyed exchanger door) records a
+                    // CONFIGURED NOMINAL - the first call - never an observed pool delta.
+                    // Pinned by StrategyConversionCaptureTests
+                    // .NonZeroInputReputation_IsCaptured_UnlikeFunds, which states the
+                    // reputation-vs-funds asymmetry as one cell. The invariant to
+                    // re-check before adding any reputation channel is that no channel
+                    // starts recording a POST-modifier amount.
                     //
                     // UNTAGGED, like its science / funds siblings on this path:
                     // irreversible global economy, not recording-owned economy.

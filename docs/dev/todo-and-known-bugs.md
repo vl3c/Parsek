@@ -2384,10 +2384,21 @@ reputation <= 0.
 Strategy source must NOT take `ReputationPenaltySource.Strategy`'s no-recurve
 shortcut - that one captures a POST-curve magnitude off a `ReputationChanged`
 event and is a different mechanism), and in `StrategyConversionCaptureTests` the
-inverted row-shape cell plus `NegativeReputationLeg_IsRefusedAndWarned` and the
-dedup-key cell. `NonZeroInputReputation_IsNotCaptured` is untouched and is what
-keeps the row from double-counting against `TransformedRepReward` /
-`MilestoneRepAwarded` / the reason-keyed exchanger door.
+inverted row-shape cell and the dedup-key cell.
+
+**One paragraph of this entry was SUPERSEDED the same day**, and is corrected here
+rather than left to be read as current. It said `NonZeroInputReputation_IsNotCaptured`
+was untouched and was what kept this row from double-counting against
+`TransformedRepReward` / `MilestoneRepAwarded` / the reason-keyed exchanger door. The
+DEBIT lane measured that premise and found it false for reputation: stock applies the
+transaction's own amount and the converter's effect delta as TWO separate
+`addReputation_granular` calls, and every ordinary reputation channel records a
+CONFIGURED NOMINAL - the first call - never an observed pool delta. So the zero-input
+gate was not what made this row safe; the MECHANISM is. That gate is gone (it was
+excluding every stock reputation-INPUT converter), `NegativeReputationLeg_IsRefusedAndWarned`
+became `NegativeReputationLeg_IsANominalStrategyConverterPenalty`, and the asymmetry
+is now stated as `NonZeroInputReputation_IsCaptured_UnlikeFunds`. See
+STRATEGY-REP-DEBIT-CONVERTERS-UNCAPTURED below.
 
 **Residual, filed separately and now CLOSED:** the reputation DEBIT direction was
 also uncaptured - see STRATEGY-REP-DEBIT-CONVERTERS-UNCAPTURED below, fixed the

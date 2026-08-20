@@ -29,7 +29,7 @@ tier = "nightly"
 # `StrategyCareerCellExclusivityTests` in `harness/lib/test_strategy_career_fixture.py`;
 # it is not a Parsek defect and no fixture can dissolve it.
 #
-# SO THE CLOSE IS TWO SPECS. Between this one and its sibling every one of the seven
+# SO THE CLOSE IS TWO SPECS. Between this one and its sibling every one of the NINE
 # declarations is gated nightly, each pinning its own MEASURED split with its own
 # NAMED skips, at the cost of one extra ~55 s nightly flight. This spec is
 # the pre-swap L3 shape restored: it is what puts the exchanger arm back on a standing

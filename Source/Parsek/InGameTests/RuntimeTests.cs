@@ -18367,12 +18367,17 @@ namespace Parsek.InGameTests
             // row here would double-count it).
             //
             // A FUNDS OPERATION, DELIBERATELY - and this is the trap in the family. The
-            // scoping rule is ASYMMETRIC: funds and reputation are captured only at zero
-            // input, but SCIENCE is captured unconditionally, input or not, because Parsek's
-            // science channel is archive-derived and never sees a pool-only move. So a
-            // CurrencyOperation SCIENCE multiplier IS captured by design, and driving one
-            // here would assert the opposite of the contract. Leadership Initiative's funds
-            // arm is the true negative control.
+            // scoping rule is ASYMMETRIC, and FUNDS is now the only currency it gates:
+            // funds is captured only at zero input, while SCIENCE and (since the
+            // reputation-INPUT converter was measured) REPUTATION are both captured
+            // unconditionally, input or not - neither of their channels is derived from an
+            // observed pool delta, so the effect-delta half has no other reporter. So a
+            // CurrencyOperation SCIENCE or REPUTATION multiplier IS captured by design, and
+            // driving one here would assert the opposite of the contract. Leadership
+            // Initiative's funds arm is the true negative control, and it stays one: under a
+            // funds-only transaction its reputation and science Multiply ops see a ZERO
+            // input and contribute exactly zero delta, so the widened reputation rule is a
+            // no-op for this cell (assertion below measures that rather than assuming it).
             //
             // ALL ITS OPERATIONS ARE Multiply (stock `operation = Multiply`), and a Multiply
             // op computes lerp*GetInput - GetInput. Under a funds-only transaction the
@@ -19047,6 +19052,25 @@ namespace Parsek.InGameTests
                 if (strategy.IsActive)
                 {
                     InGameAssert.Skip($"'{TargetConfigName}' is already active - this cell owns its activation");
+                    yield break;
+                }
+
+                // ANY OTHER ACTIVE STRATEGY CONTAMINATES THE MEASUREMENT. The control and
+                // the treatment differ only in the transaction reason, so the difference
+                // between them is this converter's take ONLY while no other effect is
+                // subscribed to either reason. A second strategy touching reputation under
+                // VesselRecovery or ContractReward would land in that difference, and would
+                // also break the exactly-one-row assertions below. The sibling
+                // ReputationCurve_HighRep_* cell carries the same guard for the same
+                // reason. -1 means StrategySystem is unavailable, i.e. no strategy effects
+                // exist at all, which is fine.
+                int activeStrategiesBefore = CountActiveStockStrategies();
+                if (activeStrategiesBefore > 0)
+                {
+                    InGameAssert.Skip(
+                        $"{activeStrategiesBefore.ToString(CultureInfo.InvariantCulture)} stock strategies are " +
+                        "already ACTIVE - another subscribed effect would land in the control-vs-treatment " +
+                        "difference and in this cell's row counts");
                     yield break;
                 }
 

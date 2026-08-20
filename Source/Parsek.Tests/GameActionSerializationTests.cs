@@ -916,6 +916,10 @@ namespace Parsek.Tests
         [InlineData(ReputationPenaltySource.KerbalDeath)]
         [InlineData(ReputationPenaltySource.Strategy)]
         [InlineData(ReputationPenaltySource.Other)]
+        // The query-family reputation DEBIT leg. ALL VALUES means all of them: a member
+        // added without a row here leaves the theory silently incomplete even though its
+        // name promises coverage.
+        [InlineData(ReputationPenaltySource.StrategyConverter)]
         public void ReputationPenaltySource_AllValues_RoundTrip(ReputationPenaltySource source)
         {
             var original = new GameAction
