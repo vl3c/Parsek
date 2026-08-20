@@ -195,10 +195,10 @@ namespace Parsek
         internal static void RecordWarpDate(int year, int day, int hour, int minute)
         {
             try { LoadIfNeeded(); }
-            catch (SecurityException ex)
+            catch (Exception ex) when (ex is SecurityException || ex is MissingMethodException)
             {
                 ParsekLog.Verbose(Tag,
-                    $"RecordWarpDate: LoadIfNeeded threw SecurityException " +
+                    $"RecordWarpDate: LoadIfNeeded threw {ex.GetType().Name} " +
                     $"(likely xUnit / non-Unity context: {ex.Message}) — using in-memory fallback");
             }
             storedWarpYear = year;
@@ -206,10 +206,10 @@ namespace Parsek
             storedWarpHour = hour;
             storedWarpMinute = minute;
             try { Save(); }
-            catch (SecurityException ex)
+            catch (Exception ex) when (ex is SecurityException || ex is MissingMethodException)
             {
                 ParsekLog.Verbose(Tag,
-                    $"RecordWarpDate: Save threw SecurityException " +
+                    $"RecordWarpDate: Save threw {ex.GetType().Name} " +
                     $"(likely xUnit / non-Unity context: {ex.Message}) — store is in-memory only");
             }
         }
@@ -485,18 +485,18 @@ namespace Parsek
         internal static void RecordUiComplexityMode(int value)
         {
             try { LoadIfNeeded(); }
-            catch (SecurityException ex)
+            catch (Exception ex) when (ex is SecurityException || ex is MissingMethodException)
             {
                 ParsekLog.Verbose(Tag,
-                    $"RecordUiComplexityMode: LoadIfNeeded threw SecurityException " +
+                    $"RecordUiComplexityMode: LoadIfNeeded threw {ex.GetType().Name} " +
                     $"(likely xUnit / non-Unity context: {ex.Message}) — using in-memory fallback");
             }
             storedUiComplexityMode = value;
             try { Save(); }
-            catch (SecurityException ex)
+            catch (Exception ex) when (ex is SecurityException || ex is MissingMethodException)
             {
                 ParsekLog.Verbose(Tag,
-                    $"RecordUiComplexityMode: Save threw SecurityException " +
+                    $"RecordUiComplexityMode: Save threw {ex.GetType().Name} " +
                     $"(likely xUnit / non-Unity context: {ex.Message}) — store is in-memory only");
             }
         }
@@ -527,19 +527,19 @@ namespace Parsek
         private static void RecordTracingFlag(ref bool? stored, bool value, string name)
         {
             try { LoadIfNeeded(); }
-            catch (SecurityException ex)
+            catch (Exception ex) when (ex is SecurityException || ex is MissingMethodException)
             {
                 ParsekLog.Verbose(Tag,
-                    $"{name}: LoadIfNeeded threw SecurityException " +
+                    $"{name}: LoadIfNeeded threw {ex.GetType().Name} " +
                     $"(likely xUnit / non-Unity context: {ex.Message}) — using in-memory fallback");
             }
             if (stored.HasValue && stored.Value == value) return;
             stored = value;
             try { Save(); }
-            catch (SecurityException ex)
+            catch (Exception ex) when (ex is SecurityException || ex is MissingMethodException)
             {
                 ParsekLog.Verbose(Tag,
-                    $"{name}: Save threw SecurityException " +
+                    $"{name}: Save threw {ex.GetType().Name} " +
                     $"(likely xUnit / non-Unity context: {ex.Message}) — store is in-memory only");
             }
         }

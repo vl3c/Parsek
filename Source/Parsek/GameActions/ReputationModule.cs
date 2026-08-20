@@ -303,6 +303,21 @@ namespace Parsek
         ///
         /// For positive nominal: uses addition curve (gain diminishes at high rep).
         /// For negative nominal: uses subtraction curve (loss amplified at high rep).
+        ///
+        /// THE FINAL (RESIDUAL) STEP IS FED FROM THE ACCUMULATED ACTUAL, NOT FROM THE
+        /// NOMINAL STEP COUNT. Decompiled `Reputation.addReputation_granular` keeps a
+        /// running post-curve total (`num2`) and sizes its last step as
+        /// `ModifyReputationDelta(value - num2)` - i.e. the residual is whatever the
+        /// curve-attenuated unit steps FAILED to deliver, which is why stock's own pool
+        /// lands on (essentially) the nominal value for small awards. Computing the
+        /// residual as `nominal - (delta * num)` instead makes it identically ZERO for
+        /// every integer nominal, so the top-up is skipped and the award lands short by
+        /// the curve loss (~0.075% per unit near rep 0, growing with |rep|). That was
+        /// CAREER-MILESTONE-REP-AWARD-RECONSTRUCTS-LOW: two +1 milestone awards
+        /// reconstructed to 1.9985168 against KSP's own 1.99999881.
+        ///
+        /// For |nominal| &lt; 1 the loop is the residual step alone and `accumulated` is
+        /// still 0 there, so sub-unit awards are bit-identical either way.
         /// </summary>
         internal static (float actualDelta, float newRep) ApplyReputationCurve(
             float nominal, float currentRep, float repRange = RepRange)
@@ -317,7 +332,7 @@ namespace Parsek
 
             for (int i = 0; i <= num; i++)
             {
-                float input = (i != num) ? delta : (nominal - (delta * num));
+                float input = (i != num) ? delta : (nominal - accumulated);
                 if (input == 0f)
                     continue;
 

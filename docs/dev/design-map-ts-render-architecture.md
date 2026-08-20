@@ -731,6 +731,23 @@ The tracer's tiered model is the contract every new component emits through:
   `rigid-seam-tangent-discontinuity` (G1 descent seam), `parity-drift` (the oracle below),
   `retire-not-held` (a terminal member that held instead of hiding), `anchor-resolve-fail`
   (BodyAnchor / parent-anchor resolution failed → fail-closed), `clock-not-ready` (sampled at UT≤0).
+  `line-blink` carries THREE exemptions, each a POSITIVE fact about a real transition and never a
+  widened window: `bodyChanged` (SOI / segment seam), `offWindowCovered` (the dark window was
+  polyline-painted end to end), and `windowTransitionExempt` (the toggle pair left the recording's
+  rendered body-frame window and came back onto a clock it COVERS —
+  LINE-BLINK-JUMP-STRADDLE-DETECTOR-GAP, closed 2026-08-14). The third reads a three-state
+  `RenderWindowCoverage` stamped by `GhostOrbitLinePatch` at exactly four sites, each one a branch
+  whose condition IS the measurement (`Outside` at `past-body-frame-end` / `before-body-frame-start`
+  and at `parking-conic-loiter-hold`; `Inside` at `director-stockconic-visible` and
+  `visible-body-frame`), and it requires BOTH halves of the pair to be proven — one half is never
+  enough in either direction, because `parking-conic-loiter-hold` can hold the line lit OUTSIDE the
+  window. Deriving coverage generically from whatever bounds a site logs would swallow
+  `stale-segment-awaiting-reseed`, whose "outside bounds" is the applied-segment bounds lagging INSIDE
+  the window; and `Inside` must be positive rather than "not `Outside`", or `terminal-visible` (lit
+  past the recorded window, stamping nothing) would read as covered. Source-gated by enum-value
+  spelling and count, plus a single-writer pin on `RecordLineIntent`, in
+  `LineBlinkWindowExitExemptionTests`; the cannot-mask argument is in
+  `design-map-ts-render-tracer.md` §Tier-C.
 - **New trace surfaces:** extend `RenderSurface` so every owned draw (proto orbit line, forward arc,
   polyline, marker) and every new phase/seam/lifecycle event appears in the appear/disappear EVENT
   logging. **Every per-frame / per-ghost line uses warp-stable rate-limit keys** — never key on a value
