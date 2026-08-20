@@ -1492,6 +1492,82 @@ masking the log contract exists to prevent. Fix the capture; leave the level.
 
 ---
 
+## ~~REP-CURVE-HIGH-REP-UNADJUDICATED: the residual-step fix closed two low-rep fixtures and moved c1 AWAY from KSP's pool, and c1 alone cannot say which is right~~ [FILED and ADJUDICATED 2026-08-20 on `rep-debit-capture`. VERDICT: the SHIPPING formula, bit-exact against KSP's own pool at rep 60-100. The c1 divergence is a capture-era artifact]
+
+Commit `817773dcb` (CAREER-MILESTONE-REP-AWARD-RECONSTRUCTS-LOW, below) closed
+reputation reconstruction on the two C2 career fixtures - |rep| roughly 2 and 5 -
+to ~1e-7 each. On the SAME change the c1 fixture, whose |rep| is 45.5, moved from
+a float32 match (delta ~4.9e-08 on 2026-08-09) to `+0.047119190039062175` ABOVE
+KSP's own saved pool. `C1CareerLedgerReplayTests`' REPUTATION block records that
+plainly and refuses to adjudicate it, correctly: c1's rep-bearing rows (40
+`MilestoneAchievement`, 11 `ContractComplete`) were captured in early 2026-08,
+before the fix wave, so a capture-era defect of that period is FULLY consistent
+with the numbers and is indistinguishable from a curve defect from that fixture
+alone. The fix's own commit message notes the pre-fix error grows with |rep|,
+which is exactly why c1 is the fixture that NOTICES the question.
+
+**The adjudicator does not need a fixture at all.** KSP's own pool is the oracle:
+hand `Reputation.AddReputation` a series of INTEGER awards from a HIGH starting
+reputation, read the pool after each, and run BOTH candidate formulas over the
+same nominals from the same start. Integer nominals are the discriminator - for an
+integer award the pre-fix residual (`nominal - delta * num`) is identically zero
+so the top-up never fires, while the shipping residual (`nominal - accumulated`)
+tops the award back up; the two therefore separate by the whole residual per
+award, which is orders of magnitude above float32 noise. The pool lands on exactly
+one of them, and that is the verdict.
+
+`ReputationCurve_HighRep_AgreesWithStocksGranularPool` (StrategyLifecycle,
+SPACECENTER) is that experiment: ten awards (nine +5 and one -5, so the
+subtraction curve's residual is on the same walk) from reputation 60, both chains
+computed, a grep-stable `RepCurveHighRep VERDICT: agreesWith=<current|pre-fix|neither>`
+line, and an assertion that the walk DISCRIMINATES before it asserts which side
+won. It is ledger-neutral by construction - every KSP call is inside
+`SuppressionGuard.Resources()`, so no door fires, no row is written and no pool
+guard can clamp - and it restores the pool exactly in a `finally`.
+
+**What each verdict means, decided before the run so the reading could not drift.**
+`current` closes the c1 question as a capture-era artifact and this entry with it
+(the c1 pin stays a regression floor, which is what it already says it is).
+`pre-fix` or `neither` would have been a REAL curve defect at high reputation - in
+which case the finding gets filed with the numbers and `ReputationModule` is NOT
+touched on that lane, because such a fix moves armed oracles
+(`harness/lib/oracle.py`'s ported curve, `CL-2-pod-impact-ledger`'s exact-digit
+stock-award pins, both C2 replay suites) and is a separate decision taken with
+those in view.
+
+**THE VERDICT IS `current`, and it is not close.** Run
+`2026-08-20_2052_L3-strategy-currency-conversion`, PASS attempt 1, 65 s wall,
+fully unattended:
+
+    RepCurveHighRep VERDICT: agreesWith=current startRep=60 awards=10
+      kspFinal=99.9952545 currentModelFinal=99.9952545 preFixModelFinal=99.30036
+      errCurrent=0 errPreFix=0.69489288330078125
+      separation=0.69489288330078125 tolerance=0.01
+
+Per step, `errCurrent` was **exactly 0** at eight of the ten awards and
+`7.62939453E-06` - one float32 ulp at that magnitude - at the other two, while the
+pre-fix chain fell behind monotonically (0.0187 after the first +5, 0.127 by the
+fifth, 0.695 by the tenth). KSP's own pool and the shipping
+`ApplyReputationCurve` are the same arithmetic at |rep| 60-100, including across
+the `-5` step, which exercises the subtraction curve's residual.
+
+**So c1 is exonerated as a curve question and re-read as a capture question.** Its
+rep-bearing rows were captured before the 2026-08 fix wave, and the +0.047 it
+reconstructs high is consistent with a capture-era defect of that period. Nothing
+in `ReputationModule` is changed; `C1CareerLedgerReplayTests`' pin stays a
+regression floor on the arithmetic, which is exactly what it already declares
+itself to be, and its REPUTATION comment now cites this run instead of saying the
+corroboration does not exist yet.
+
+The instrument stays in the batch as a standing gate: it re-adjudicates on every
+`StrategyLifecycle` flight, and its assertion (1) re-checks each run that the two
+formulas are still separated by far more than the tolerance, so it cannot decay
+into a vacuous pass. Its agreement tolerance is `1e-4`, MEASURED headroom rather
+than a guess: 13x the largest per-step error observed, and ~7000x below the
+separation it has to resolve.
+
+---
+
 ## ~~CAREER-MILESTONE-REP-AWARD-RECONSTRUCTS-LOW: two +1 milestone reputation awards replay to 1.9985 instead of 2~~ [**FIXED 2026-08-20** on `career-closes-to-zero`. NARROWED 2026-08-19 by the post-fix fixture harvested from `L3-career-science-recover` flight 3 (run `2026-08-19_1912`); CAUSE FOUND 2026-08-19 during the `career-capture-fixes` wave and verified against the decompiled `Reputation.addReputation_granular`; fix deliberately deferred out of that wave so the capture-side re-harvest would read unambiguously - see "Why the fix was deferred"]
 
 ### The fix, and what it measured (2026-08-20)
@@ -2405,53 +2481,208 @@ reputation <= 0.
 Strategy source must NOT take `ReputationPenaltySource.Strategy`'s no-recurve
 shortcut - that one captures a POST-curve magnitude off a `ReputationChanged`
 event and is a different mechanism), and in `StrategyConversionCaptureTests` the
-inverted row-shape cell plus `NegativeReputationLeg_IsRefusedAndWarned` and the
-dedup-key cell. `NonZeroInputReputation_IsNotCaptured` is untouched and is what
-keeps the row from double-counting against `TransformedRepReward` /
-`MilestoneRepAwarded` / the reason-keyed exchanger door.
+inverted row-shape cell and the dedup-key cell.
 
-**Residual, filed separately:** the reputation DEBIT direction is still
-uncaptured - see STRATEGY-REP-DEBIT-CONVERTERS-UNCAPTURED below. Appreciation
+**One paragraph of this entry was SUPERSEDED the same day**, and is corrected here
+rather than left to be read as current. It said `NonZeroInputReputation_IsNotCaptured`
+was untouched and was what kept this row from double-counting against
+`TransformedRepReward` / `MilestoneRepAwarded` / the reason-keyed exchanger door. The
+DEBIT lane measured that premise and found it false for reputation: stock applies the
+transaction's own amount and the converter's effect delta as TWO separate
+`addReputation_granular` calls, and every ordinary reputation channel records a
+CONFIGURED NOMINAL - the first call - never an observed pool delta. So the zero-input
+gate was not what made this row safe; the MECHANISM is. That gate is gone (it was
+excluding every stock reputation-INPUT converter), `NegativeReputationLeg_IsRefusedAndWarned`
+became `NegativeReputationLeg_IsANominalStrategyConverterPenalty`, and the asymmetry
+is now stated as `NonZeroInputReputation_IsCaptured_UnlikeFunds`. See
+STRATEGY-REP-DEBIT-CONVERTERS-UNCAPTURED below.
+
+**Residual, filed separately and now CLOSED:** the reputation DEBIT direction was
+also uncaptured - see STRATEGY-REP-DEBIT-CONVERTERS-UNCAPTURED below, fixed the
+same day on `rep-debit-capture` once the diversion was measured. Appreciation
 Campaign (funds -> reputation) is the larger-magnitude CREDIT sibling and now
 routes through this same arm, though it has not been driven.
 
-## STRATEGY-REP-DEBIT-CONVERTERS-UNCAPTURED: a reputation-INPUT converter's diversion has no capture channel at all, and drifts the reconstruction the other way [FILED 2026-08-20 off the `strategy-rep-leg` lane. UNMEASURED - filed because closing the credit arm made the asymmetry visible]
+## ~~STRATEGY-REP-DEBIT-CONVERTERS-UNCAPTURED: a reputation-INPUT converter's diversion has no capture channel at all, and drifts the reconstruction the other way~~ [FILED 2026-08-20 off the `strategy-rep-leg` lane. MEASURED and FIXED 2026-08-20 on `rep-debit-capture` - the scoping rule's premise was FALSE for reputation, and the decompile says why]
 
-The credit arm above is closed. The DEBIT arm is not, and it is not merely
-unwritten - it is unreachable, which is why it needs its own entry rather than a
-line in that one.
+The credit arm above is closed. The DEBIT arm was not, and the entry as first
+filed got the REASON wrong in a way worth keeping on the record, because the wrong
+reason is what had kept the arm shut.
 
-`StrategyConversionCapture.EvaluateLegs` emits a reputation leg ONLY when
-`InputReputation == 0`. That scoping rule is load-bearing and correct: a nonzero
-input means an ordinary event-driven channel is already watching the transaction
-and reports it NET of the modifier, so capturing there would double-count. But
-every stock reputation-INPUT converter - `FundraisingCampaign` (reputation ->
-funds), `UnpaidResearchProgram` (reputation -> science) - works by diverting a
-fraction of a reputation transaction, so `GetInput(Currency.Reputation) != 0` by
-construction and the rule excludes it before the row-shape mapper is ever called.
-`BuildStrategyConversionAction`'s negative arm therefore refuses loudly (a WARN
-naming an unmodelled mechanism) rather than guessing a debit shape, and that is
-the right behaviour for a leg that should not have arrived.
+**THE MEASUREMENT, MODEL-FREE.**
+`ConverterStrategy_ReputationDebitLeg_CapturesPenalty` (StrategyLifecycle,
+SPACECENTER) activates `FundraisingCampaignCfg` - stock `input = Reputation`,
+`output = Funds`, `minShare 0.0 maxShare 1.0` so `share == Factor == 0.05` at the
+cfg default, and a lerped `initialCostReputation` of 4..70 that comes to 7.3,
+which the `strategy-career` fixture's rep 25 affords (`UnpaidResearchProgramCfg`'s
+30..130 does not, which is why Fundraising is the subject). It then hands KSP the
+SAME 20-point award at the SAME reputation with the SAME strategy active, once
+under `VesselRecovery` - which the cfg's `AffectReasons` deliberately EXCLUDE
+("ignoring reputation from recovery atm") - and once under `ContractReward`, which
+it masks. Run `2026-08-20_2052_L3-strategy-currency-conversion`, PASS attempt 1,
+65 s wall, fully unattended:
 
-What has NO channel is the diversion itself. The exchanger family's rep leg is
-captured post-curve off `ReputationChanged`/`StrategyInput`
-(`ConvertStrategyExchangeReputation` -> `ProcessRepPenalty`'s no-recurve arm), but
-the query family emits no such reason-keyed event, and `GameStateRecorder`'s
-`ReputationThreshold = 1.0f` means the echo it does emit is suppressed for any
-sub-point diversion anyway. So a career running Fundraising Campaign drifts the
-OPPOSITE way from the one this lane just fixed: the reconstruction runs ABOVE
-live, which is the **GUARDED UPLIFT** direction.
+| | pool movement from rep 17.697382 |
+|---|---|
+| control, `VesselRecovery` (excluded) | `19.999963760375977` |
+| treatment, `ContractReward` (masked) | `18.999906539916992` |
+| **diverted** | **`1.0000572204589844`** |
 
-**Unmeasured, deliberately.** No committed spec has driven either strategy, and
-nothing here should be built on an inference. What closing it needs, in order:
-(1) a driven cell activating `FundraisingCampaign` on a reputation-seeded fixture -
-`strategy-career` (rep 25) now exists and both converters need positive reputation
-to have anything to divert; (2) the MEASURED pair (the query's `inR`/`dR` against
-the actual pool movement) to establish whether the ordinary channel really does
-report the transaction net, which is the assumption the scoping rule rests on;
-(3) only then a decision. Do NOT relax the scoping rule to "capture negative
-reputation legs too" - that is the double-count the rule exists to prevent, and
-the measurement above is what would say whether a narrower exception is safe.
+with the door observing `inR=20 dR=-1`, the funds output leg landing correctly as
+one `FundsEarning`/`Strategy` of `1015.0841674804688`, and **zero** reputation
+rows. The diversion is **100x** the reputation guard's 0.01 epsilon, so the drift
+it causes is not a rounding artefact. No curve replica appears anywhere in that
+number - the two readings differ only in the transaction reason.
+
+**THE PREMISE WAS FALSE FOR REPUTATION, AND THE DECOMPILE SAYS SO IN ONE METHOD.**
+The old rule read "a nonzero input means an ordinary event-driven channel is
+already watching the transaction and reports it NET of the modifier". Decompiled
+`Reputation.AddReputation(r, reason)` (KSP 1.12.5) moves the pool TWICE:
+
+    rep += addReputation_granular(r);                       // stage 1, the RAW input
+    // ... OnCurrencyModifierQuery fires; converters mutate the query ...
+    // Reputation.OnCurrenciesModified:
+    rep += addReputation_granular(GetEffectDelta(Reputation));   // stage 2
+
+Two SEPARATE curve applications, the second against the already-moved pool. And
+every Parsek reputation channel records a CONFIGURED NOMINAL, never an observed
+pool delta: `ContractComplete` carries the contract's `ReputationCompletion`
+(`StrategiesModule.TransformContractReward` is a documented identity no-op),
+`MilestoneAchievement` carries the progress node's award, and
+`GameStateEventConverter` converts a `ReputationChanged` event ONLY under
+`TransactionReasons.StrategyInput`. So nothing reported stage 2 - the zero-input
+rule was excluding a whole family of real movements rather than preventing a
+double count. (It remains correct for FUNDS, whose `AddFunds` moves the pool by
+raw amounts and whose event-driven channel does see the transaction net; that
+asymmetry is now stated as one cell,
+`NonZeroInputReputation_IsCaptured_UnlikeFunds`.)
+
+**THE FIX.** `StrategyConversionCapture.EvaluateLegs` captures any nonzero
+reputation delta, input or not - the same unconditional rule the SCIENCE arm has
+always had, and for the same decomposition reason.
+`BuildStrategyConversionAction`'s negative arm now writes a NOMINAL
+`ReputationPenalty` carrying the raw pre-curve magnitude as a positive
+`NominalPenalty`, sourced by a new `ReputationPenaltySource.StrategyConverter`
+member. `ReputationModule.ProcessRepPenalty` needed no change: its equality test
+against `ReputationPenaltySource.Strategy` - the EXCHANGER family's POST-curve
+capture, which takes a no-recurve shortcut - does not match the new member, so the
+debit falls through to the ordinary curve arm and is re-derived at the
+reconstruction's own running rep. Two nominal rows for one transaction is not a
+workaround; it is the shape stock itself applies.
+`GameActionDisplay.FormatRepPenaltySource` labels it, `PostWalkActionReconciler`
+treats it as unpaired (the query family leaves no reason-keyed event), and
+`GetActionKey` gained the same amount-disambiguated key its credit sibling has.
+
+**WHAT ALSO CHANGES, NAMED because it is the un-flown half.** The rule is
+sign-symmetric, so a POSITIVE reputation delta with a nonzero input is now
+captured too - and the residual is WIDER than "one un-flown positive branch", because
+`LeadershipInitiative` carries **TWO** reputation `CurrencyOperation`s, not one:
+
+- **`Progression`, multiplier 1.00..2.50 by Factor.** A milestone rep award scaled
+  UP, so the effect delta is POSITIVE and the new row is a `ReputationEarning`. This
+  is the branch the paragraph originally named.
+- **`ContractAdvance` / `ContractPenalty` / `ContractReward`, multiplier 1.00..0.25
+  by Factor.** Scaled DOWN, so at anything below the top of the Factor slider a
+  POSITIVE input yields a NEGATIVE delta - a `StrategyConverter`-sourced
+  `ReputationPenalty` row produced by a `CurrencyOperation`, NOT by a
+  `CurrencyConverter`. The enum member's name says converter and its doc named only
+  the two converters; the producing family is wider than the name suggests.
+- **And the corner inside that corner:** under `ContractPenalty` the INPUT is
+  negative (a contract failure docking reputation), so scaling it down makes the
+  delta POSITIVE - a newly-captured Strategy **CREDIT arising from a contract
+  FAILURE**. Arithmetically correct (stock really does hand the reconstruction less
+  penalty than the nominal), but it is the row shape most likely to read as a defect
+  in a ledger dump, so it is written down here before anyone finds it live.
+
+None of the four is driven by a committed spec - the negative-control cell
+`OperationStrategy_RewardMultiplier_IsNotCaptured` deliberately fires a FUNDS-only
+transaction, so its reputation and science legs contribute exactly zero delta and it
+is unaffected. All of them ride the identical stock line (stage 2 above) and are
+correct by the same argument, but none has been flown; if a future lane drives ANY
+reputation transaction under Leadership Initiative, this is the paragraph to read
+first.
+
+**Gates.** Live: the cell above, which now leaves the reputation pool MOVED
+through the door's deferred recalc and asserts exactly one
+`StrategyConverter`-sourced penalty carrying the raw `dR`, plus a no-GUARDED-clamp
+scan split by pool - so a regression that stops writing the row, writes it
+post-curve, or routes it through the exchanger's no-recurve source clamps there
+and reds. Headless: `ApplyReputationCurve_StrategyConverterDiversion_ReproducesTheMeasuredPoolMove`
+is the ABSOLUTE stock-agreement anchor, pinning BOTH stages of the measured pair
+above; `ProcessRepPenalty_StrategyConverterSource_AppliesTheCurveLikeAnyNominalPenalty`
+pins that the source does not take the pre-curved shortcut;
+`NegativeReputationLeg_IsANominalStrategyConverterPenalty`,
+`NegativeReputationLeg_DoesNotTakeTheExchangersPreCurvedSource`,
+`StrategyReputationPenaltyRows_DedupKeyDisambiguatesByAmount` and
+`NonZeroInputNegativeReputation_IsCaptured_TheDebitFamily` pin the row shape, the
+mutation guard, the key and the scoping.
+
+## STRATEGY-FUNDS-DEBIT-CONVERTERS-UNCAPTURED: on the three NOMINAL-channel funds reasons the scoping rule's premise is false, so a funds-INPUT converter's diversion has no capture channel either [FILED 2026-08-20 off the #1515 review. UNMEASURED - PREDICTED, not observed. NOT FIXED - measure first]
+
+**PREDICTED BY SYMMETRY WITH THE ENTRY ABOVE, NOT MEASURED.** Everything here is
+derivable from the decompile and from Parsek's own channel shapes; NO live run has
+produced the drift. That is the first thing to do, and the entry says so up front so
+nobody quotes it as a measurement.
+
+**The mechanism is the same double pool-move.** Decompiled `Funding.AddFunds(v,
+reason)` moves the pool TWICE, exactly like `Reputation.AddReputation`:
+`funds += value` first, then - from `OnCurrenciesModified`, after the query has run -
+`funds += GetEffectDelta(Currency.Funds)`. Two stock effects divert funds out of an
+ordinary transaction that way: `AppreciationCampaignCfg` (Funds -> Reputation) and
+`OutsourcedResearchCfg` (Funds -> Science), both with `AffectReasons` covering
+`ContractReward`, `ContractAdvance` and `Progression`.
+
+**AND ON EXACTLY THOSE THREE REASONS PARSEK'S FUNDS CHANNEL RECORDS GROSS.** The
+scoping rule in `StrategyConversionCapture.EvaluateLegs` suppresses a funds leg
+whenever `GetInput(Funds) != 0`, on the stated premise that "the ordinary channel is
+already watching that transaction and reports the value NET of the modifier". That
+premise is REASON-QUALIFIED and nobody had qualified it:
+
+- **TRUE** where the funds channel is EVENT-DERIVED, i.e. derived from the observed
+  pool movement: `VesselRollout`, `RnDPartPurchase`, `StructureRepair`,
+  `StructureConstruction`, `StrategyOutput`. A row here really would double-count.
+- **FALSE** on `ContractReward` / `ContractAdvance` / `Progression`, where the
+  channel records a CONFIGURED GROSS nominal instead: `contract.FundsCompletion`
+  (through `TransformedFundsReward`, whose `StrategiesModule.TransformContractReward`
+  is the documented identity no-op) and the `AwardProgress` arguments. Nothing
+  anywhere reads the observed delta, so the diverted fraction has NO capture channel -
+  the identical hole the reputation entry above measured, in the other currency.
+
+**Predicted symptom.** The reconstruction runs HIGH by the diverted fraction:
+`KspStatePatcher.PatchFunds` issues a GUARDED UPLIFT on every recalc, and the
+post-walk funds mismatch WARN fires at tolerance 1.0. Example scenario, with an
+Appreciation Campaign active at the default Factor and a 100000-funds contract
+completion: the pool moves +95000, the ledger carries 100000, drift 5000 - four
+orders of magnitude above the guard's tolerance, so this would be loud rather than
+subtle if the pair ever occurs.
+
+**Why no existing cell catches it, and it is not an oversight - it is STRUCTURAL
+BLINDNESS.** Both funds-converter cells in the `StrategyLifecycle` category
+compensate their fixture with `WriteLedgerVisibleFundsRow`, and that stand-in writes
+the OBSERVED NET pool movement (`fundsDelta`, read off the pool). So the
+reconstruction tracks the live pool by construction and the cells' no-GUARDED scan
+cannot clamp no matter what the door does - see `RuntimeTests.cs` ~:18243 and ~:18519.
+Contrast the REPUTATION stand-in at ~:19108, which writes a GROSS NOMINAL exactly as
+a real contract would: that asymmetry between the two helpers is why the reputation
+hole was measurable on the first driven attempt and this one is not visible at all.
+A cell that would catch it has to write the funds row GROSS.
+
+**The measurement method transfers verbatim from the rep-debit cell.** Model-free
+control/treatment: the same funds award at the same pool with the same strategy
+active, once under a reason the cfg EXCLUDES and once under a reason it masks. The
+control reason carries over unchanged - `VesselRecovery` is outside both funds
+converters' `AffectReasons` too - so this is a straight port of
+`ConverterStrategy_ReputationDebitLeg_CapturesPenalty`'s shape onto
+`AppreciationCampaignCfg`, with the compensating row written GROSS rather than net.
+
+**Close path.** MEASURE LIVE FIRST; do not ship a fix off this entry's prediction.
+Then mirror the reputation fix, and the design decision between the two options is
+for the fix wave rather than for this entry: (a) unconditional funds legs on the
+NOMINAL-channel reasons ONLY, or (b) reason-qualified gating that keeps the current
+suppression on the event-derived reasons and lifts it on the other three. Either way
+the current gate is RETAINED as-is meanwhile, with its premise now qualified by
+reason in `StrategyConversionCapture.cs` and in the mirrored WHY on
+`NonZeroInputReputation_IsCaptured_UnlikeFunds`.
 
 ## STRATEGY-PREFIX-HOLDBACK-PERMANENT: on a pre-fix save, an exchanger event with no matching row holds back the pending science adjustment forever [FILED 2026-08-19 off the strategy-multi-live session. NOT FIXED - small follow-up]
 
@@ -6821,7 +7052,7 @@ three directions are still dropped, unchanged by this fix:
   reputation INPUT leg IS captured by `ConvertStrategyExchangeReputation`, so the
   reconstruction lands reputation correctly and runs science LOW by exactly the
   granted amount - the mirror image of the c2 defect.
-- A funds-INPUT strategy (Fundraising Campaign: funds in, reputation out) leaks
+- A funds-INPUT strategy (Appreciation Campaign: funds in, reputation out) leaks
   BOTH legs: its funds leg is dropped by `ConvertStrategyExchangeFunds`'s
   `StrategyOutput`-only gate and its reputation OUT leg by
   `ConvertStrategyExchangeReputation`'s `StrategyInput`-only gate.

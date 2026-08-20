@@ -159,28 +159,100 @@ namespace Parsek
         /// science recon high by 0.72000 against a 0.7200818 GUARDED UPLIFT
         /// gap).</para>
         ///
-        /// <para><b>Funds / reputation - capture ONLY when the transaction put
-        /// nothing of that currency in.</b> A nonzero input means the ordinary
-        /// event-driven channel is already watching that transaction and reports the
-        /// value NET of the modifier, so capturing here would double-count. That is
-        /// exactly the <c>CurrencyOperation</c> reward-multiplier case (a contract's
-        /// funds reward scaled by an active strategy): input != 0, so no row. A
-        /// zero-input nonzero delta is a genuine cross-currency YIELD with no
-        /// transaction of its own - measured 60.526316 funds of drift in one session,
-        /// low by exactly the yields, because they arrive under the ORIGINAL reason
-        /// AND below the recorder's 100-funds threshold, a double miss.</para>
+        /// <para><b>Funds - capture ONLY when the transaction put nothing of that
+        /// currency in.</b> A nonzero funds input means the ordinary event-driven
+        /// channel is already watching that transaction and reports the value NET of
+        /// the modifier, so capturing here would double-count. That is exactly the
+        /// <c>CurrencyOperation</c> reward-multiplier case (a contract's funds reward
+        /// scaled by an active strategy): input != 0, so no row. A zero-input nonzero
+        /// delta is a genuine cross-currency YIELD with no transaction of its own -
+        /// measured 60.526316 funds of drift in one session, low by exactly the yields,
+        /// because they arrive under the ORIGINAL reason AND below the recorder's
+        /// 100-funds threshold, a double miss.</para>
         ///
-        /// <para><b>The reputation leg's PRE-curve magnitude is exactly what the ledger
-        /// wants</b>, which is why the zero-input rule is load-bearing for it too.
-        /// Stock's <c>Reputation.OnCurrenciesModified</c> passes
-        /// <c>GetEffectDelta(Currency.Reputation)</c> straight to
-        /// <c>addReputation_granular</c>, so this leg IS the curve's input argument;
-        /// <c>LedgerOrchestrator.BuildStrategyConversionAction</c> writes it as a NOMINAL
-        /// <c>ReputationEarning</c> and <c>ReputationModule.ApplyReputationCurve</c> - a
-        /// line-by-line mirror of that routine - re-derives the pool movement at the
-        /// reconstruction's OWN running rep. The zero-input scoping is what keeps that
-        /// from double-counting against <c>TransformedRepReward</c> /
-        /// <c>MilestoneRepAwarded</c> / the reason-keyed exchanger door.</para>
+        /// <para><b>THAT PREMISE IS REASON-QUALIFIED, and the gate is kept anyway.</b>
+        /// "The ordinary channel reports NET" is TRUE only where Parsek's funds channel
+        /// is EVENT-DERIVED - i.e. derived from the observed pool movement:
+        /// <c>VesselRollout</c>, <c>RnDPartPurchase</c>, <c>StructureRepair</c>,
+        /// <c>StructureConstruction</c> and <c>StrategyOutput</c>. It is FALSE on the
+        /// NOMINAL-channel reasons <c>ContractReward</c>, <c>ContractAdvance</c> and
+        /// <c>Progression</c>, where the channel records a CONFIGURED GROSS amount
+        /// instead - <c>contract.FundsCompletion</c> (via the documented identity no-op
+        /// <c>StrategiesModule.TransformContractReward</c>) and the
+        /// <c>AwardProgress</c> arguments - so a converter diverting funds under one of
+        /// those three reasons (<c>AppreciationCampaignCfg</c> funds -> reputation,
+        /// <c>OutsourcedResearchCfg</c> funds -> science) has NO capture channel and
+        /// the reconstruction is predicted to run HIGH by the diverted fraction. That
+        /// is the exact shape of the reputation finding one paragraph down;
+        /// <c>Funding.AddFunds</c> has the same double pool-move. The gate is RETAINED
+        /// as-is pending a live measurement - it is not yet known whether the fix is
+        /// unconditional funds legs on those three reasons or reason-qualified gating -
+        /// and the gap is filed as STRATEGY-FUNDS-DEBIT-CONVERTERS-UNCAPTURED in
+        /// docs/dev/todo-and-known-bugs.md. Do not read this gate as evidence that the
+        /// funds side is clean.</para>
+        ///
+        /// <para><b>Reputation - capture any nonzero delta, input or not, exactly like
+        /// science, and for a MECHANISM reason rather than by analogy.</b> Decompiled
+        /// <c>Reputation.AddReputation(r, reason)</c> moves the pool TWICE:
+        /// <c>rep += addReputation_granular(r)</c> first, then - from
+        /// <c>Reputation.OnCurrenciesModified</c>, after the query has run -
+        /// <c>rep += addReputation_granular(GetEffectDelta(Currency.Reputation))</c>
+        /// against the already-moved pool. The two halves are SEPARATE curve
+        /// applications, and every Parsek reputation channel records the FIRST one only:
+        /// <c>ContractComplete</c> carries the contract's configured
+        /// <c>ReputationCompletion</c> (<c>StrategiesModule.TransformContractReward</c>
+        /// is a documented identity no-op), <c>MilestoneAchievement</c> carries the
+        /// progress node's configured award, and <c>GameStateEventConverter</c> converts
+        /// a <c>ReputationChanged</c> event ONLY under
+        /// <c>TransactionReasons.StrategyInput</c>. Nothing anywhere is derived from the
+        /// observed pool delta, so "a nonzero input means the ordinary channel already
+        /// reports it net" - true for funds - is FALSE for reputation, and the
+        /// zero-input rule was excluding a whole family of real movements rather than
+        /// preventing a double count.</para>
+        ///
+        /// <para><b>What the old rule excluded, and what it cost.</b> Every stock
+        /// reputation-INPUT converter (<c>FundraisingCampaign</c> reputation -> funds,
+        /// <c>UnpaidResearchProgram</c> reputation -> science) diverts
+        /// <c>GetInput(Reputation) * share</c>, so <c>GetInput != 0</c> by construction
+        /// and the leg never reached the row-shape mapper. MEASURED live on run
+        /// <c>2026-08-20_2052_L3-strategy-currency-conversion</c>, model-free (the same
+        /// 20-point award at the same reputation with Fundraising Campaign active, once
+        /// under the excluded <c>VesselRecovery</c> reason and once under the masked
+        /// <c>ContractReward</c>): the pool moved <c>19.999963760375977</c> against
+        /// <c>18.999906539916992</c>, a diversion of <c>1.0000572204589844</c>
+        /// reputation - 100x the reputation guard's 0.01 epsilon - that no ledger row
+        /// carried. See STRATEGY-REP-DEBIT-CONVERTERS-UNCAPTURED.</para>
+        ///
+        /// <para><b>The leg's PRE-curve magnitude is exactly what the ledger wants</b>,
+        /// in BOTH directions. The delta IS the argument stock hands to
+        /// <c>addReputation_granular</c>, so
+        /// <c>LedgerOrchestrator.BuildStrategyConversionAction</c> writes it NOMINAL -
+        /// a <c>ReputationEarning</c> for a credit, a <c>ReputationPenalty</c> sourced
+        /// <see cref="ReputationPenaltySource.StrategyConverter"/> for a debit - and
+        /// <c>ReputationModule.ApplyReputationCurve</c>, a line-by-line mirror of that
+        /// routine, re-derives the pool movement at the reconstruction's OWN running
+        /// rep. Two rows for one transaction is not a workaround: it is the shape stock
+        /// itself applies.</para>
+        ///
+        /// <para><b>The one thing that would break this</b> is a future channel that
+        /// starts recording a POST-modifier reputation amount - i.e. one derived from an
+        /// observed pool delta rather than from a configured nominal. That would make
+        /// the input half double-counted, and it is the invariant to re-check before
+        /// adding any such channel.</para>
+        ///
+        /// <para><b>THE OTHER DIRECTION, for completeness.</b> The same double count
+        /// arrives from the effect side rather than the channel side if a
+        /// <c>Strategies.Effects</c> effect ever lists
+        /// <c>TransactionReasons.StrategyInput</c> in its <c>AffectReasons</c>: it would
+        /// then divert on the EXCHANGER's own query, and that movement is already
+        /// carried by <c>ConvertStrategyExchangeReputation</c>'s POST-curve observed row
+        /// read off the <c>ReputationChanged</c>/<c>StrategyInput</c> event - so the
+        /// second <c>addReputation_granular</c> call would be counted twice, once there
+        /// and once as the <c>StrategyConverter</c> row this door writes. Unreachable in
+        /// stock: NO stock effect lists <c>StrategyInput</c>. So the invariant is BOTH
+        /// halves - no post-modifier reputation channel AND no
+        /// <c>StrategyInput</c>-targeting effect - and either one appearing is what
+        /// makes the unconditional reputation capture unsafe.</para>
         /// </summary>
         internal static List<StrategyConversionLeg> EvaluateLegs(StrategyConversionQuery q)
         {
@@ -205,8 +277,7 @@ namespace Parsek
                 });
             }
 
-            if (System.Math.Abs(q.InputReputation) < MinCaptureMagnitude &&
-                System.Math.Abs(q.DeltaReputation) >= MinCaptureMagnitude)
+            if (System.Math.Abs(q.DeltaReputation) >= MinCaptureMagnitude)
             {
                 legs.Add(new StrategyConversionLeg
                 {

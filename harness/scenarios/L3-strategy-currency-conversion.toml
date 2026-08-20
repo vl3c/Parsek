@@ -43,7 +43,7 @@ tags = ["ledger", "L3", "ingame-batch", "strategies", "reading-run"]
 # THE BASE CHOICE IS FORCED BY THE SCENE, and the sibling inherits it. All SEVEN
 # StrategyLifecycle declarations are Scene = GameScenes.SPACECENTER. `fresh-career`
 # carries ZERO VESSEL nodes, so TestCommandLoadGame.DecideLoadRoute takes the
-# NoVesselSpaceCenter route and the batch runs where all seven are eligible (the same
+# NoVesselSpaceCenter route and the batch runs where all nine are eligible (the same
 # route B10 and the L1 career family measure). career-pad-craft would route to FLIGHT
 # and scene-skip every one of them - the exact vacuity defect B10 was re-flown to fix.
 #
@@ -96,7 +96,7 @@ kind = "seam"
 # here: a live recorder makes CurrencyConverterStrategy_LedgerMatchesNetCredit Skip
 # rather than run, so auto-record must be off for the batch to have a subject.
 #
-# No `isolated` arg: all seven StrategyLifecycle declarations are batch-allowed, so
+# No `isolated` arg: all nine StrategyLifecycle declarations are batch-allowed, so
 # the isolated filter would admit exactly the same set and
 # CommittedBatchTallySourceSyncTests would (rightly) demand a seam-echo discriminator
 # for a route this spec does not need.
@@ -123,8 +123,9 @@ steps = [
 # measures the drop rather than assuming it.
 #
 # CLAIM-IS-NOT-GATE: backed by the pinned tally below plus the forbidden GUARDED
-# tokens - and the tally is MEASURED (passed=6 skipped=1), so the claim rests on six
-# cells that all actually ran rather than on a predicted split. WHICH six changed on
+# tokens - and the tally is MEASURED (passed=8 skipped=1 as of the rep-debit-capture
+# wave), so the claim rests on cells that all actually ran rather than on a predicted
+# split. WHICH six changed on
 # 2026-08-20: the reputation seed swapped the exchanger arm out and the negative
 # control in, because the two cannot coexist at one reputation value. The EXCHANGER
 # half of the D8 `strategies` claim therefore rests on `2026-08-18_2140`s measurement
@@ -245,11 +246,11 @@ count = { min = 0, max = 0 }
 # source already states its half (RuntimeTests.cs, "REPUTATION GATE, CHECKED AND LOGGED
 # FIRST"), written as a guard against a residue from the reputation cell; what run
 # `2026-08-20_1817` establishes is that the same gate fires on a DELIBERATE seed, and
-# therefore that this category cannot run all seven declarations in ONE batch at ONE
+# therefore that this category cannot run every declaration in ONE batch at ONE
 # reputation value. The seam's `RunTests` selects by CATEGORY only, so there is no
 # per-cell split available either.
 #
-# SO THE PINNED TALLY IS STILL total=7 passed=6 skipped=1 - the SAME SPLIT, a DIFFERENT
+# SO THE PINNED TALLY WAS THEN total=7 passed=6 skipped=1 - the SAME SPLIT, a DIFFERENT
 # NAMED SKIP, and the trade is deliberate: the negative control is the only declaration
 # whose failure detects deletion of the scoping rule (every other cell asserts a
 # movement IS captured and would pass in that broken world), whereas the exchanger arm
@@ -303,7 +304,76 @@ count = { min = 0, max = 0 }
 # door recalculating inside the CurrencyModifierQuery. All three are fixed; see the
 # STRATEGY-SCIENCE-CONVERSION-LEAK entry in docs/dev/todo-and-known-bugs.md.
 # ####################################################
-required  = ["BATCH_COMPLETE v1 total=7 passed=6 failed=0 skipped=1 category=StrategyLifecycle scene=SPACECENTER"]
+#
+# ############ THE READING RUN, MEASURED (2026-08-20, rep-debit-capture) ############
+# TWO DECLARATIONS WERE ADDED to this category and `total` moved 7 -> 9. The total
+# is DERIVED (hlib.derive_batch_tally: scene_skipped=0 batch_skipped=0
+# executable=9) and CommittedBatchTallySourceSyncTests re-derives it. `passed=8
+# skipped=1` was authored as a PREDICTION - the split is not derivable, run-time
+# InGameAssert.Skip decides it, and it cannot be loosened to a wildcard because
+# hlib.batch_contract_vacuity_gap rejects any pattern a `passed=0 skipped=9` batch
+# would satisfy: a spec may not own a batch it cannot gate, not even for one run.
+# The reading run CONFIRMED it (`expectations mismatches=0`), so the literal below
+# is MEASURED. The named skip is unchanged - still
+# ExchangerStrategy_OneShot_CapturesBothLegs, for the reputation-band reason
+# recorded above.
+#
+#   ConverterStrategy_ReputationDebitLeg_CapturesPenalty - the cell that MEASURED
+#     and now GATES STRATEGY-REP-DEBIT-CONVERTERS-UNCAPTURED. Activates
+#     `FundraisingCampaignCfg` (stock input=Reputation output=Funds, lerped
+#     reputation setup cost 4..70 -> 7.3 at the default Factor 0.05) and measures
+#     the diverted pool movement MODEL-FREE: the same award at the same reputation
+#     with the same strategy active, once under `VesselRecovery` (which the cfg's
+#     AffectReasons deliberately EXCLUDE) and once under `ContractReward` (which it
+#     masks). The difference is the converter's take with no curve replica in it.
+#     RUNS on this fixture (rep 25 affords the 7.3 setup charge) and SKIPS on the
+#     `L3-strategy-exchanger-floor` sibling (rep 0 does not).
+#   ReputationCurve_HighRep_AgreesWithStocksGranularPool - the c1 adjudicator.
+#     Walks ten integer awards through stock's own `Reputation.AddReputation` from
+#     rep 60 and reports whether KSP's pool agrees with `ApplyReputationCurve`'s
+#     shipping formula or with its pre-2026-08-20 residual shape. Ledger-neutral
+#     (every KSP call is inside SuppressionGuard.Resources()), so it cannot move
+#     this spec's oracle manifest or raise a pool guard.
+#
+# ############ WHAT RUN `2026-08-20_2052` MEASURED ############
+# PASS attempt 1, 65 s wall, fully unattended, every verifier PASS/REPORT
+# (driverValidity, batchComplete `failed=0`, analyzer red=0, logValidate,
+# anomalySweep `hits=[] counts={}`, unityExceptions `total=0`, expectations
+# `mismatches=0`, ledgerOracle `hardDivergences=0 reportOnly=4`, saveParse REPORT
+# clean, recordings 0). GUARDED CENSUS: ZERO.
+#
+# THE DEBIT CELL, on its PRE-FIX reading - the run that measured the defect: from
+# reputation 17.697382 a 20-point award moved the pool 19.999963760375977 under
+# the EXCLUDED VesselRecovery reason and 18.999906539916992 under the MASKED
+# ContractReward one, a diversion of 1.0000572204589844 reputation - 100x the
+# reputation guard's 0.01 epsilon - that ZERO ledger rows carried. The door had
+# observed it the whole time (`inR=20 dR=-1`) and the funds OUTPUT leg landed
+# correctly as one FundsEarning/Strategy of 1015.0841674804688, so this was a
+# HALF-captured conversion rather than an invisible one. The scoping rule's
+# premise turned out to be FALSE for reputation - decompiled
+# Reputation.AddReputation applies the input and the effect delta as TWO separate
+# addReputation_granular calls, and every Parsek reputation channel records a
+# configured nominal rather than an observed pool delta - so the rule is now
+# unconditional for reputation, the debit lands as a nominal ReputationPenalty
+# sourced StrategyConverter, and the cell asserts the capture with the pool left
+# MOVED through the deferred recalc (its no-clamp scan is therefore a product gate
+# on the debit path, not a statement about the fixture).
+#
+# THE CURVE CELL: `agreesWith=current kspFinal=99.9952545
+# currentModelFinal=99.9952545 preFixModelFinal=99.30036 errCurrent=0
+# errPreFix=0.69489288330078125` - errCurrent EXACTLY 0 at eight of the ten steps
+# and one float32 ulp (7.62939453E-06) at the other two, across the -5 step as
+# well as the +5s. The c1 reputation question closes as a capture-era artifact;
+# see REP-CURVE-HIGH-REP-UNADJUDICATED in docs/dev/todo-and-known-bugs.md.
+#
+# RE-FLOWN GREEN on `2026-08-20_2139` after the branch-review pass added an
+# any-active-strategy guard to the debit cell: PASS attempt 1, 57 s, same tally,
+# same measured numbers (`dR=-1`, `nominalPenalty=1`, diverted
+# 1.0000572204589844), GUARDED census ZERO. The pin is measured against the DLL
+# this branch ships, not against the build that first read it.
+# ###############################################################################
+# #############################################################################
+required  = ["BATCH_COMPLETE v1 total=9 passed=8 failed=0 skipped=1 category=StrategyLifecycle scene=SPACECENTER"]
 # The GUARDED pair is the whole point of the lane. `GUARDED UPLIFT clamped` is the
 # reconstruction running ABOVE live (the science take not captured - measured 0.72000
 # against a 0.7200818 gap) and `GUARDED DRAWDOWN clamped` is it running BELOW (the

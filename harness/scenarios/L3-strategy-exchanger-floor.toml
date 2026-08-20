@@ -7,7 +7,7 @@ tier = "nightly"
 # WHAT THIS IS, AND WHY IT IS A SECOND SPEC RATHER THAN A SECOND ARGUMENT.
 #
 # `L3-strategy-currency-conversion` and this spec drive the SAME in-game category
-# (`StrategyLifecycle`, all seven declarations, one batch) over the SAME base career.
+# (`StrategyLifecycle`, all NINE declarations, one batch) over the SAME base career.
 # The ONLY difference is the reputation the fixture seeds, and that one number decides
 # which of two mutually exclusive cells is allowed to run:
 #
@@ -29,9 +29,9 @@ tier = "nightly"
 # `StrategyCareerCellExclusivityTests` in `harness/lib/test_strategy_career_fixture.py`;
 # it is not a Parsek defect and no fixture can dissolve it.
 #
-# SO THE CLOSE IS TWO SPECS. Between this one and its sibling every one of the seven
-# declarations is gated nightly, each pinning its own MEASURED `passed=6 skipped=1`
-# with its own NAMED skip, at the cost of one extra ~55 s nightly flight. This spec is
+# SO THE CLOSE IS TWO SPECS. Between this one and its sibling every one of the NINE
+# declarations is gated nightly, each pinning its own MEASURED split with its own
+# NAMED skips, at the cost of one extra ~55 s nightly flight. This spec is
 # the pre-swap L3 shape restored: it is what puts the exchanger arm back on a standing
 # regression floor instead of leaving it resting on a run that has since been
 # superseded. See STRATEGY-LIFECYCLE-CELLS-NEED-OPPOSITE-REPUTATIONS in
@@ -43,10 +43,10 @@ tags = ["ledger", "L3", "ingame-batch", "strategies"]
 [fixture]
 # fresh-career, UNSEEDED, and both halves of that matter.
 #
-# THE BASE CHOICE IS FORCED BY THE SCENE. All SEVEN StrategyLifecycle declarations are
+# THE BASE CHOICE IS FORCED BY THE SCENE. All NINE StrategyLifecycle declarations are
 # Scene = GameScenes.SPACECENTER. `fresh-career` carries ZERO VESSEL nodes, so
 # TestCommandLoadGame.DecideLoadRoute takes the NoVesselSpaceCenter route and the batch
-# runs where all seven are eligible (the same route B10 and the L1 career family
+# runs where all nine are eligible (the same route B10 and the L1 career family
 # measure). career-pad-craft would route to FLIGHT and scene-skip every one of them -
 # the exact vacuity defect B10 was re-flown to fix.
 #
@@ -82,7 +82,7 @@ kind = "seam"
 # a live recorder makes CurrencyConverterStrategy_LedgerMatchesNetCredit Skip rather than
 # run, so auto-record must be off for the batch to have a subject.
 #
-# No `isolated` arg: all seven StrategyLifecycle declarations are batch-allowed, so the
+# No `isolated` arg: all nine StrategyLifecycle declarations are batch-allowed, so the
 # isolated filter would admit exactly the same set and CommittedBatchTallySourceSyncTests
 # would (rightly) demand a seam-echo discriminator for a route this spec does not need.
 steps = [
@@ -178,7 +178,47 @@ count = { min = 0, max = 0 }
 # floored. A future run that skips anything else is a CHANGE to be read, not a reason to
 # loosen this line back toward a range.
 # ############################################################################
-required  = ["BATCH_COMPLETE v1 total=7 passed=6 failed=0 skipped=1 category=StrategyLifecycle scene=SPACECENTER"]
+#
+# ############ THE READING RUN, MEASURED (2026-08-20, rep-debit-capture) ############
+# TWO DECLARATIONS WERE ADDED to this category and `total` moved 7 -> 9, exactly as
+# on the sibling. The total is DERIVED (hlib.derive_batch_tally: scene_skipped=0
+# batch_skipped=0 executable=9). `passed=7 skipped=2` was authored as a PREDICTION -
+# the split is not derivable, and it cannot be loosened to a wildcard because
+# hlib.batch_contract_vacuity_gap refuses any pattern a `passed=0 skipped=9` batch
+# would satisfy - and run `2026-08-20_2117_L3-strategy-exchanger-floor` CONFIRMED it
+# (`expectations mismatches=0`), so the literal below is MEASURED.
+#
+# THE SPLIT DIFFERS FROM THE SIBLING'S, for the same fixture reason this spec exists
+# for. `ConverterStrategy_ReputationDebitLeg_CapturesPenalty` activates
+# `FundraisingCampaignCfg`, whose lerped `initialCostReputation` (4..70) is 7.3 at
+# the default Factor 0.05, and `Strategy.CanBeActivated` compares the CURRENT pool
+# against it - so on this rep-0 fixture it self-skips NAMING the requirement, which
+# the run measured verbatim:
+#
+#   SKIPPED: ConverterStrategy_ReputationDebitLeg_CapturesPenalty -
+#     'FundraisingCampaignCfg' cannot be activated on this save: Cannot afford Setup
+#     Cost: Not enough Reputation (stock charges a lerped reputation setup cost,
+#     4..70 by Factor; live reputation is 0)
+#
+# alongside the pre-existing `OperationStrategy_RewardMultiplier_IsNotCaptured` skip.
+# Both are the SIBLING's subjects, gated there at rep 25; between the two specs
+# nothing in this category is ungated. `ReputationCurve_HighRep_*` sets its own
+# reputation and RAN here, reading `agreesWith=current kspFinal=99.9952545
+# currentModelFinal=99.9952545 preFixModelFinal=99.30036 errCurrent=0` - the same
+# verdict the sibling read, which is the point: the cell is fixture-independent.
+#
+# RE-FLOWN GREEN on `2026-08-20_2140` after the branch-review pass (PASS attempt 1,
+# 56 s, same tally, same `agreesWith=current` verdict, GUARDED census ZERO), so the
+# pin is measured against the DLL this branch ships.
+#
+# RUN `2026-08-20_2117`: PASS attempt 1, 54 s wall, fully unattended, every verifier
+# PASS/REPORT (driverValidity, batchComplete `failed=0`, analyzer red=0, logValidate,
+# anomalySweep `hits=[] counts={}`, unityExceptions `gating=True total=0`,
+# expectations `mismatches=0`, ledgerOracle `hardDivergences=0 reportOnly=0`,
+# saveParse REPORT clean, recordings 0). GUARDED CENSUS: ZERO.
+# ###############################################################################
+# #############################################################################
+required  = ["BATCH_COMPLETE v1 total=9 passed=7 failed=0 skipped=2 category=StrategyLifecycle scene=SPACECENTER"]
 # The GUARDED pair is the whole point of the lane. `GUARDED UPLIFT clamped` is the
 # reconstruction running ABOVE live and `GUARDED DRAWDOWN clamped` is it running BELOW.
 # Either one on this run means a capture door did not close. The Parsek ERROR forbid is

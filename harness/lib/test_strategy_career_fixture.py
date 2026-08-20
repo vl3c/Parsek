@@ -269,12 +269,22 @@ class L3SpecStagesTheSeededFixtureTests(unittest.TestCase):
                          self.spec["fixture"]["saveTemplate"])
 
     def test_the_spec_pins_the_measured_tally(self):
-        # MEASURED on run `2026-08-20_1817`, not predicted. Still passed=6
-        # skipped=1, because the seed TRADED which cell skips rather than
-        # eliminating the skip - see StrategyCareerCellExclusivityTests.
+        # The split has been MEASURED at every step of this spec's life, most
+        # recently on run `2026-08-20_1817` (passed=6 skipped=1 at total=7: the
+        # rep-25 seed TRADED which cell skips rather than eliminating the skip -
+        # see StrategyCareerCellExclusivityTests).
+        #
+        # The `rep-debit-capture` wave took the category from 7 declarations to 9
+        # and the split moves with it: the reputation-INPUT converter cell
+        # (`ConverterStrategy_ReputationDebitLeg_*`) activates
+        # `FundraisingCampaignCfg`, whose lerped reputation setup cost is 7.3 at
+        # the default Factor, so THIS fixture's rep-25 seed affords it and the cell
+        # RUNS here while self-skipping on the rep-0 sibling; the high-rep curve
+        # cell sets its own reputation and runs in both. Hence passed=8 skipped=1,
+        # the SAME named skip as before.
         required = self.spec["expectations"]["logContracts"]["required"]
         self.assertIn(
-            "BATCH_COMPLETE v1 total=7 passed=6 failed=0 skipped=1 "
+            "BATCH_COMPLETE v1 total=9 passed=8 failed=0 skipped=1 "
             "category=StrategyLifecycle scene=SPACECENTER",
             required)
 

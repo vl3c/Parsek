@@ -319,8 +319,52 @@ namespace Parsek
         ContractFail    = 0,
         ContractDecline = 1,
         KerbalDeath     = 2,
+        /// <summary>
+        /// The EXCHANGER family's reputation INPUT leg (Bail-Out Grant's
+        /// <c>CurrencyExchanger</c>, <c>TransactionReasons.StrategyInput</c>), captured
+        /// straight from the <c>ReputationChanged</c> event. Its
+        /// <c>NominalPenalty</c> is ALREADY POST-CURVE - it is the magnitude KSP
+        /// measured off its own pool - so <c>ReputationModule.ProcessRepPenalty</c>
+        /// gives this source, and ONLY this source, a no-recurve shortcut.
+        /// </summary>
         Strategy        = 3,
-        Other           = 4
+        Other           = 4,
+        /// <summary>
+        /// The QUERY family's reputation DEBIT leg, captured by the query-family door in
+        /// <c>LedgerOrchestrator.BuildStrategyConversionAction</c>.
+        ///
+        /// <para><b>THE SOURCE COVERS BOTH QUERY-DIVERSION EFFECT KINDS, despite the
+        /// name.</b> (1) <c>Strategies.Effects.CurrencyConverter</c> with
+        /// <c>input = Reputation</c> - <c>FundraisingCampaign</c> reputation -> funds,
+        /// <c>UnpaidResearchProgram</c> reputation -> science - diverting
+        /// <c>GetInput(Reputation) * share</c> out of an ordinary reputation
+        /// transaction. (2) <c>Strategies.Effects.CurrencyOperation</c> on Reputation -
+        /// <c>LeadershipInitiative</c> (multiplier 1.00..0.25 by Factor under
+        /// <c>ContractAdvance</c>/<c>ContractPenalty</c>/<c>ContractReward</c>), and
+        /// <c>AgressiveNegotiations</c> - scaling the reputation DOWN, which is a
+        /// negative effect delta on a positive input and lands here too. The credit
+        /// sibling <see cref="ReputationSource.Strategy"/> covers the same two kinds in
+        /// the other sign (a converter YIELD, and <c>LeadershipInitiative</c>'s
+        /// 1.00..2.50 <c>Progression</c> operation). "Converter" in this member's name
+        /// is the QUERY-FAMILY distinction from <see cref="Strategy"/> above, NOT a
+        /// claim that only <c>CurrencyConverter</c> produces it.</para>
+        ///
+        /// <para>A DIFFERENT MECHANISM FROM <see cref="Strategy"/> ABOVE, and the
+        /// distinction is the whole reason this is a separate member rather than a
+        /// reuse. <c>NominalPenalty</c> here is the query's PRE-curve effect delta -
+        /// the very argument stock's <c>Reputation.OnCurrenciesModified</c> hands to
+        /// <c>addReputation_granular</c> - so it MUST run through
+        /// <c>ApplyReputationCurve</c> like any nominal, at the reconstruction's own
+        /// running rep. Taking <see cref="Strategy"/>'s no-recurve shortcut would apply
+        /// a post-curve magnitude as if it were already effective and land the
+        /// reconstruction on the wrong number. The sibling on the EARNING enum is
+        /// <see cref="ReputationSource.Strategy"/>, which is nominal for the same
+        /// reason.</para>
+        ///
+        /// <para>Magnitude is POSITIVE, like every other member here: the sign lives in
+        /// the action TYPE, not in the field.</para>
+        /// </summary>
+        StrategyConverter = 5
     }
 
     // KerbalEndState enum is in KerbalEndState.cs (Aboard=0, Dead=1, Recovered=2, Unknown=3)
