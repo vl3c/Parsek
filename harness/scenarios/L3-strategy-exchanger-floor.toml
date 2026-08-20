@@ -222,8 +222,23 @@ count = { min = 0, max = 0 }
 # ############ THE FUNDS-DEBIT WAVE, MEASURED (2026-08-21) ############
 # ONE DECLARATION WAS ADDED and `total` moved 9 -> 10 (hlib.derive_batch_tally:
 # scene_skipped=0 batch_skipped=0 executable=10), exactly as on the sibling.
-# `passed=8 skipped=2` was authored as a PREDICTION and MEASURED by the run named
-# below: the NEW cell RUNS HERE, and the two named skips are unchanged.
+# `passed=8 skipped=2` was authored as a PREDICTION and CONFIRMED by run
+# `2026-08-20_2340_L3-strategy-exchanger-floor` (PASS attempt 1, 55 s wall, fully
+# unattended, every verifier PASS/REPORT - driverValidity, batchComplete
+# `failed=0`, analyzer red=0, logValidate, anomalySweep `hits=[] counts={}`,
+# unityExceptions `gating=True total=0`, expectations `mismatches=0`, ledgerOracle
+# `hardDivergences=0 reportOnly=0`, saveParse REPORT clean, recordings 0; GUARDED
+# CENSUS ZERO), so the literal below is MEASURED. The NEW cell RAN HERE and
+# captured its diversion - `divertedPoolMove=5000 ... converterFundsSpendRows=1
+# converterFundsSpent=5000` at rep 0, the same 5000 the sibling measures at rep 25 -
+# and the two named skips are unchanged:
+#   ConverterStrategy_ReputationDebitLeg_CapturesPenalty - "'FundraisingCampaignCfg'
+#     cannot be activated on this save: Cannot afford Setup Cost: Not enough
+#     Reputation ... live reputation is 0"
+#   OperationStrategy_RewardMultiplier_IsCapturedOnNominalReason (renamed from
+#     ..._IsNotCaptured by this wave) - "'LeadershipInitiative' cannot be activated
+#     on this save: Cannot afford Setup Cost: Not enough Reputation"
+# Both are the SIBLING's subjects, gated there at rep 25.
 #
 # WHY THE NEW CELL RUNS ON THE REP-0 FIXTURE WHILE ITS REPUTATION SIBLING DOES NOT.
 # `ConverterStrategy_FundsDebitLeg_CapturesSpending` activates

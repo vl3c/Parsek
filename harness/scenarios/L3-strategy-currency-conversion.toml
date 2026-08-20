@@ -380,7 +380,23 @@ count = { min = 0, max = 0 }
 # CommittedBatchTallySourceSyncTests re-derives it; `passed=9 skipped=1` keeps the
 # same named skip (ExchangerStrategy_OneShot_CapturesBothLegs, for the
 # reputation-band reason recorded above) and was authored as a PREDICTION, then
-# MEASURED by the run named below.
+# CONFIRMED by the GATE RUN `2026-08-20_2329_L3-strategy-currency-conversion`
+# (PASS attempt 1, 59 s wall, fully unattended, every verifier PASS/REPORT -
+# batchComplete `failed=0`, analyzer red=0, anomalySweep `hits=[] counts={}`,
+# unityExceptions `total=0`, expectations `mismatches=0`, ledgerOracle
+# `hardDivergences=0 reportOnly=4`, saveParse REPORT clean, recordings 0; GUARDED
+# CENSUS ZERO), so the literal below is MEASURED.
+#
+# THE DEFECT WAS MEASURED FIRST, on a deliberately PRE-FIX build (the shipped tree
+# with the reason gate forced off): run `2026-08-20_2327` read
+# `total=10 passed=6 failed=3 skipped=1` and carried THREE uncaptured diversions
+# with their guard clamps - `AppreciationCampaignCfg` 5000 funds out of a 100000
+# ContractReward award (`GUARDED UPLIFT clamped ... running=529250 live=524250`),
+# `OutsourcedResearchCfg` 12500 out of 250000 (`running=673900 live=661400`), and
+# `LeadershipInitiative`'s Progression multiplier 7500.0048828125 the OTHER way
+# (`GUARDED DRAWDOWN clamped ... running=563750 live=571250.0048828125`). On the
+# gate run the same three read `funds DEBIT captured nominal=-5000`,
+# `nominal=-12500` and `fundsRows=1 funds=7500.0048828125`.
 #
 #   ConverterStrategy_FundsDebitLeg_CapturesSpending - the cell that MEASURED and
 #     now GATES STRATEGY-FUNDS-DEBIT-CONVERTERS-UNCAPTURED, the funds mirror of the

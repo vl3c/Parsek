@@ -2703,7 +2703,11 @@ attempt 1, 59 s wall, fully unattended, every verifier PASS/REPORT
 **GUARDED CENSUS ZERO** across the whole KSP.log, and
 `BATCH_COMPLETE v1 total=10 passed=9 failed=0 skipped=1`. The three diversions now
 read `funds DEBIT captured nominal=-5000`, `nominal=-12500`, and
-`fundsRows=1 funds=7500.0048828125`.
+`fundsRows=1 funds=7500.0048828125`. The complementary rep-0 spec flew green in the
+same wave - `2026-08-20_2340_L3-strategy-exchanger-floor`, PASS attempt 1, 55 s,
+GUARDED census ZERO, `BATCH_COMPLETE v1 total=10 passed=8 failed=0 skipped=2` - and
+the new cell RAN there too (its subject's setup charge is funds-only), capturing the
+same 5000 at reputation 0 that the sibling captures at 25.
 
 **THE STRUCTURAL BLINDNESS THAT HID IT, and the lesson that transfers.** Both funds
 converter cells compensated their fixture with `WriteLedgerVisibleFundsRow` handed
