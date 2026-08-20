@@ -416,6 +416,8 @@ Stock-first automated cargo delivery from proven player-flown Supply Runs. Shipp
 
 Every supply ship remains a replay of a real mission the player flew, but v0 deliberately keeps the mechanics narrow so the first implementation is reliable and stock-realistic.
 
+**Render-confirmation coverage (testing direction).** The network can run any route the player can fly, but automated confirmation that a looped route RENDERS accurately in map view, the Tracking Station and the KSC scene covers only part of the origin -> destination space. The class taxonomy, gap register and ranked plan to close it live in [`docs/dev/autotest-roadmap.md`](dev/autotest-roadmap.md) -> "The loop-render coverage program".
+
 ### Logistics: milestones to feature-complete (M1-M6, all SHIPPED)
 
 **Status: COMPLETE as of 0.10.3.** M1 through M6 are all shipped, and the claw was lifted in as the second connection producer, so Supply Routes now cover any route the player can fly. The milestone sequence below is retained as the record of how it was built, each item marked with its shipping release.
@@ -430,15 +432,6 @@ The path from the shipped v0 to feature-complete is owned by **section 19 of `do
 - **M6 — Legibility (parallel track). COMPLETE (2026-07-07).** Every non-dispatching route says why, in player language, at row level (live-route hold reasons + escrow-caused shorts naming the reserving route + the Status-cell row-level treatment, all SHIPPED; candidate near-misses already surface reasons); structure list window (SHIPPED 0.10.1 as the mission / route Log window); candidate intent helper (SHIPPED 0.10.3) + the Record Supply Run commit-time prompt (SHIPPED 0.10.3-dev, branch `logistics-m6-closeout`); map-view route lines (SHIPPED 0.10.3); per-cycle flow display (SHIPPED 0.10.3); precise per-run recovery landing CLOSED won't-build by maintainer decision (2026-07-07, per `docs/dev/research/logistics-recovery-clock-memo.md`; the constant deferred recovery credit is the ratified permanent behavior).
 
 Out of scope by doctrine (revisit on demand): non-docking connection producers beyond the claw (stock crossfeed/fuel-line: continuous-flow, no couple event, no window to snapshot), crew delivery, persisting-transport materialization, undocked-start origin proving. Claw/grapple LIFTED and shipped 2026-07-07 (branch `logistics-claw-producer`): claw couples are classified and admitted as the second connection producer, including asteroid (PotatoRoid) grabs; see `docs/dev/design-logistics-claw-producer.md` and the decompile findings at `docs/dev/research/claw-grapple-coupling-internals.md`. Already resolved earlier: "Dispatch now" (subsumed by Send Once), dock-side-baseline edge case (shipped 0.10.1), structure list window (shipped 0.10.1 as the mission / route Log window: pure builders `MissionStructureListBuilder` / `RouteStructureListBuilder` feeding a reusable `StructureListWindowUI`, opened from the "Log" button on each Missions-tab mission header and the "Log (Route)" / "Log (Mission)" buttons in each Logistics route detail panel).
-
-**Render-confirmation coverage (testing direction).** The network can run any
-route the player can fly, but automated confirmation that a looped route
-RENDERS accurately in map view / Tracking Station covers only part of the
-origin -> destination space (outbound, orbit-endpoint classes). The class
-taxonomy, gap register and ranked plan to close it - return legs, moon-to-moon
-breadth, dock/station endpoints, long-horizon cadence - live in
-`docs/dev/autotest-roadmap.md` -> "The loop-render coverage program: supply
-runs from any origin to any destination".
 
 ---
 
