@@ -174,7 +174,7 @@ Two limits of this table, stated so nobody over-reads it:
 | `Spawner` | 2 | 2 | 0 | 0 | 0 | 1 | - | B |
 | `StockUiOverlay` | 6 | 0 | 6 | 0 | 0 | 6 | - | B |
 | `StockWarpLimits` | 1 | 1 | 0 | 0 | 0 | 0 | - | B |
-| `StrategyLifecycle` | 7 | 0 | 7 | 0 | 0 | 7 | L3 | A |
+| `StrategyLifecycle` | 9 | 0 | 9 | 0 | 0 | 9 | L3 | A |
 | `Structure` | 2 | 2 | 2 | 2 | 0 | 2 | - | B |
 | `SwitchIntentPatch` | 3 | 1 | 1 | 1 | 0 | 0 | - | B |
 | `SwitchSegment` | 6 | 6 | 0 | 0 | 0 | 0 | H12 | A |
@@ -194,19 +194,22 @@ Two limits of this table, stated so nobody over-reads it:
 
 ## Triage
 
-Totals, re-derived: **104 categories / 587 declarations**. Buckets **A 33 categories
-(227 declarations)**, **B 71 categories (360 declarations)**, **C 0 categories (0
+Totals, re-derived: **104 categories / 589 declarations**. Buckets **A 33 categories
+(229 declarations)**, **B 71 categories (360 declarations)**, **C 0 categories (0
 declarations)**. Driven by a committed spec: **43 of 104 categories**, up from 35
 across six waves - `ReFlyWorldPreservation` via S4.2, `RecordedSignals` via H33,
 `SnapshotBaseline` via H32, and `Logistics` via H34 all landed together in one merge
 (the S1.8 SoiCrossingPlayback wave had taken it to 35 from 34, and 28 and 8 the waves
 before), then `PlaybackFidelity` via H36 and `PartEventFidelity` via H37. Measured
-against declarations rather than categories, that is 404 of 587 inside a driven
+against declarations rather than categories, that is 406 of 589 inside a driven
 category (was 318 before these waves: 324 after S4.2, 327 after H33, 334 after H32,
 381 once `Logistics` counted, 388 with `PlaybackFidelity`, 393 with
 `PartEventFidelity`, and 401 once L3's capture matrix took `StrategyLifecycle` from 3
 declarations to 7, then 403 when this inventory's `LedgerGroundTruth` row caught
-up with L2 - driven and armed since 2026-08-17, the row had lagged the spec). `H35-logistics-route-proof` (2026-08-11) moves NEITHER number -
+up with L2 - driven and armed since 2026-08-17, the row had lagged the spec - and 406
+when the `rep-debit-capture` wave took `StrategyLifecycle` from 7 to 9, adding the
+reputation-INPUT converter measurement cell and the high-reputation curve
+corroboration cell to the same L3 pair). `H35-logistics-route-proof` (2026-08-11) moves NEITHER number -
 it is the second spec on a category H34 already counted - which is exactly the
 distortion the paragraph after next is about.
 

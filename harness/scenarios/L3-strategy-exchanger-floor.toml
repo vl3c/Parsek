@@ -178,7 +178,27 @@ count = { min = 0, max = 0 }
 # floored. A future run that skips anything else is a CHANGE to be read, not a reason to
 # loosen this line back toward a range.
 # ############################################################################
-required  = ["BATCH_COMPLETE v1 total=7 passed=6 failed=0 skipped=1 category=StrategyLifecycle scene=SPACECENTER"]
+#
+# ############ THE READING RUN (2026-08-20, rep-debit-capture) ############
+# TWO DECLARATIONS WERE ADDED to this category and `total` moves 7 -> 9, exactly as
+# on the sibling. The total is DERIVED (hlib.derive_batch_tally: scene_skipped=0
+# batch_skipped=0 executable=9); `passed=7 skipped=2` is a PREDICTION on this
+# commit, pinned as a literal because hlib.batch_contract_vacuity_gap refuses a
+# wildcard split, and replaced by the MEASURED split in the same PR.
+#
+# THE SPLIT IS EXPECTED TO DIFFER FROM THE SIBLING'S, and for the same fixture
+# reason this spec exists for: `ConverterStrategy_ReputationDebitLeg_*` activates
+# `FundraisingCampaignCfg`, whose lerped `initialCostReputation` (4..70) is 7.3 at
+# the default Factor 0.05, and `Strategy.CanBeActivated` compares the CURRENT pool
+# against it. This spec's fixture seeds reputation at 0, so that cell is expected to
+# self-skip NAMING the requirement - the same shape as
+# `OperationStrategy_RewardMultiplier_IsNotCaptured`'s skip here, and gated on the
+# sibling at rep 25 instead. `ReputationCurve_HighRep_*` sets its own reputation and
+# should run in both batches.
+#
+# The measured literals replace this hold in the same PR.
+# #############################################################################
+required  = ["BATCH_COMPLETE v1 total=9 passed=7 failed=0 skipped=2 category=StrategyLifecycle scene=SPACECENTER"]
 # The GUARDED pair is the whole point of the lane. `GUARDED UPLIFT clamped` is the
 # reconstruction running ABOVE live and `GUARDED DRAWDOWN clamped` is it running BELOW.
 # Either one on this run means a capture door did not close. The Parsek ERROR forbid is

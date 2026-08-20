@@ -1194,6 +1194,50 @@ masking the log contract exists to prevent. Fix the capture; leave the level.
 
 ---
 
+## REP-CURVE-HIGH-REP-UNADJUDICATED: the residual-step fix closed two low-rep fixtures and moved c1 AWAY from KSP's pool, and c1 alone cannot say which is right [FILED 2026-08-20 off the `rep-debit-capture` lane. MEASUREMENT INSTRUMENT SHIPPED, VERDICT PENDING ITS FIRST FLIGHT]
+
+Commit `817773dcb` (CAREER-MILESTONE-REP-AWARD-RECONSTRUCTS-LOW, below) closed
+reputation reconstruction on the two C2 career fixtures - |rep| roughly 2 and 5 -
+to ~1e-7 each. On the SAME change the c1 fixture, whose |rep| is 45.5, moved from
+a float32 match (delta ~4.9e-08 on 2026-08-09) to `+0.047119190039062175` ABOVE
+KSP's own saved pool. `C1CareerLedgerReplayTests`' REPUTATION block records that
+plainly and refuses to adjudicate it, correctly: c1's rep-bearing rows (40
+`MilestoneAchievement`, 11 `ContractComplete`) were captured in early 2026-08,
+before the fix wave, so a capture-era defect of that period is FULLY consistent
+with the numbers and is indistinguishable from a curve defect from that fixture
+alone. The fix's own commit message notes the pre-fix error grows with |rep|,
+which is exactly why c1 is the fixture that NOTICES the question.
+
+**The adjudicator does not need a fixture at all.** KSP's own pool is the oracle:
+hand `Reputation.AddReputation` a series of INTEGER awards from a HIGH starting
+reputation, read the pool after each, and run BOTH candidate formulas over the
+same nominals from the same start. Integer nominals are the discriminator - for an
+integer award the pre-fix residual (`nominal - delta * num`) is identically zero
+so the top-up never fires, while the shipping residual (`nominal - accumulated`)
+tops the award back up; the two therefore separate by the whole residual per
+award, which is orders of magnitude above float32 noise. The pool lands on exactly
+one of them, and that is the verdict.
+
+`ReputationCurve_HighRep_AgreesWithStocksGranularPool` (StrategyLifecycle,
+SPACECENTER) is that experiment: ten awards (nine +5 and one -5, so the
+subtraction curve's residual is on the same walk) from reputation 60, both chains
+computed, a grep-stable `RepCurveHighRep VERDICT: agreesWith=<current|pre-fix|neither>`
+line, and an assertion that the walk DISCRIMINATES before it asserts which side
+won. It is ledger-neutral by construction - every KSP call is inside
+`SuppressionGuard.Resources()`, so no door fires, no row is written and no pool
+guard can clamp - and it restores the pool exactly in a `finally`.
+
+**What each verdict means, decided before the run so the reading cannot drift.**
+`current` closes the c1 question as a capture-era artifact and this entry with it
+(the c1 pin stays a regression floor, which is what it already says it is).
+`pre-fix` or `neither` is a REAL curve defect at high reputation - in which case
+the finding is filed with the numbers and `ReputationModule` is NOT touched on
+this lane: that fix would move armed oracles (`harness/lib/oracle.py`'s ported
+curve, `CL-2-pod-impact-ledger`'s exact-digit stock-award pins, both C2 replay
+suites) and is a separate decision taken with those in view.
+
+---
+
 ## ~~CAREER-MILESTONE-REP-AWARD-RECONSTRUCTS-LOW: two +1 milestone reputation awards replay to 1.9985 instead of 2~~ [**FIXED 2026-08-20** on `career-closes-to-zero`. NARROWED 2026-08-19 by the post-fix fixture harvested from `L3-career-science-recover` flight 3 (run `2026-08-19_1912`); CAUSE FOUND 2026-08-19 during the `career-capture-fixes` wave and verified against the decompiled `Reputation.addReputation_granular`; fix deliberately deferred out of that wave so the capture-side re-harvest would read unambiguously - see "Why the fix was deferred"]
 
 ### The fix, and what it measured (2026-08-20)
@@ -2092,6 +2136,20 @@ routes through this same arm, though it has not been driven.
 The credit arm above is closed. The DEBIT arm is not, and it is not merely
 unwritten - it is unreachable, which is why it needs its own entry rather than a
 line in that one.
+
+**THE MEASUREMENT INSTRUMENT EXISTS AS OF 2026-08-20 (`rep-debit-capture`), and it
+is model-free.** `ConverterStrategy_ReputationDebitLeg_IsObservedAndUncaptured`
+(StrategyLifecycle, SPACECENTER) activates `FundraisingCampaignCfg` - stock
+`input = Reputation`, `output = Funds`, `minShare 0.0 maxShare 1.0`, so
+`share == Factor == 0.05` at the cfg default, and a lerped `initialCostReputation`
+of 4..70 that comes to 7.3, which the `strategy-career` fixture's rep 25 affords
+(`UnpaidResearchProgramCfg`'s 30..130 does NOT afford at rep 25, which is why
+Fundraising is the subject). It then hands KSP the SAME award twice at the SAME
+reputation with the SAME strategy active, once under `VesselRecovery` - which the
+cfg's `AffectReasons` deliberately EXCLUDE ("ignoring reputation from recovery
+atm") - and once under `ContractReward`, which it masks. The difference between the
+two pool movements is the diversion, with no curve replica anywhere in the number.
+The measured magnitude replaces this paragraph's UNMEASURED tag.
 
 `StrategyConversionCapture.EvaluateLegs` emits a reputation leg ONLY when
 `InputReputation == 0`. That scoping rule is load-bearing and correct: a nonzero

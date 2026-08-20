@@ -17708,6 +17708,45 @@ namespace Parsek.InGameTests
         }
 
         /// <summary>
+        /// Writes the ledger row that stands in for the ORDINARY channel's record of a
+        /// reputation transaction - the row a real contract completion
+        /// (<c>ContractComplete.TransformedRepReward</c>) or progress milestone
+        /// (<c>MilestoneAchievement.MilestoneRepAwarded</c>) would carry.
+        ///
+        /// <para>WHY A STAND-IN IS FAITHFUL HERE. Both of those channels record the
+        /// transaction's NOMINAL reputation - the contract's configured
+        /// <c>ReputationCompletion</c>, the progress node's configured award - and
+        /// <c>ReputationModule</c> puts each through the SAME
+        /// <c>ApplyReputationCurve</c> call that <c>ProcessRepEarning</c> applies to
+        /// <c>NominalRep</c>. The arithmetic the reconstruction performs is therefore
+        /// identical; what a forged contract would add is contract bookkeeping, not
+        /// reputation bookkeeping.</para>
+        ///
+        /// <para><c>ReputationSource.Other</c> because it is the one source
+        /// <c>PostWalkActionReconciler</c> treats as synthetic and does not try to pair
+        /// against a reason-keyed event - the same reason
+        /// <see cref="WriteLedgerVisibleFundsRow"/> picks <c>FundsEarningSource.Strategy</c>.
+        /// One second in the past, for the same reason its two siblings are.</para>
+        /// </summary>
+        private static void WriteLedgerVisibleReputationRow(float nominalRep, string why)
+        {
+            LedgerOrchestrator.Initialize();
+            Ledger.AddAction(new GameAction
+            {
+                UT = Planetarium.GetUniversalTime() - 1.0,
+                Type = GameActionType.ReputationEarning,
+                RecordingId = null,
+                NominalRep = nominalRep,
+                RepSource = ReputationSource.Other
+            });
+            ParsekLog.Info("TestRunner",
+                $"StrategyLifecycle: ledger-visible reputation row nominal=" +
+                $"{nominalRep.ToString("R", CultureInfo.InvariantCulture)} written as a " +
+                $"ReputationEarning/Other so the reconstruction carries the transaction's own " +
+                $"nominal exactly as a contract or milestone channel would ({why})");
+        }
+
+        /// <summary>
         /// Writes the ledger row that makes a test's own SCIENCE top-up visible to the
         /// reconstruction. <c>StrategyScienceCredit</c> is the only action type that
         /// credits a SUBJECT-LESS science movement unconditionally (<c>ScienceEarning</c>
@@ -18878,6 +18917,600 @@ namespace Parsek.InGameTests
             {
                 DestroyHiddenAdministrationCanvasForTest(selection, "converter-reputation-leg-teardown");
             }
+        }
+
+        /// <summary>
+        /// The reputation award the debit-leg cell hands to KSP, on both the control and
+        /// the treatment pass. 20 is sized against the reputation guard rather than
+        /// chosen: at <c>FundraisingCampaignCfg</c>'s default Factor 0.05 the converter
+        /// diverts <c>share * input</c> = 1.0 reputation, which is 100x
+        /// <c>KspStatePatcher.ResolveReputationPatch</c>'s 0.01 epsilon - so a drift of
+        /// that size is unambiguously a capture gap and not rounding.
+        /// </summary>
+        private const float ReputationDebitLegAward = 20f;
+
+        [InGameTest(Category = "StrategyLifecycle", Scene = GameScenes.SPACECENTER,
+            Description = "MEASURE: a stock reputation-INPUT CurrencyConverter (Fundraising Campaign) diverts a share of a reputation transaction; measure the diverted pool movement model-free against a same-reputation control and report whether the ledger captured it.")]
+        public IEnumerator ConverterStrategy_ReputationDebitLeg_IsObservedAndUncaptured()
+        {
+            // THE MECHANISM, FROM THE DECOMPILE (KSP 1.12.5, Reputation.AddReputation).
+            // One AddReputation call moves the pool TWICE:
+            //
+            //   rep += addReputation_granular(r)                     // stage 1, the RAW input
+            //   ... OnCurrencyModifierQuery fires, converters mutate the query ...
+            //   rep += addReputation_granular(GetEffectDelta(Rep))   // stage 2, via
+            //                                                        // Reputation.OnCurrenciesModified
+            //
+            // The two stages are SEPARATE granular calls, the second one evaluated against
+            // the already-moved pool. That matters more than it looks: it means the
+            // transaction's own nominal and the converter's diversion are independent
+            // curve applications, which is exactly the shape a two-row ledger reproduces.
+            //
+            // WHY A GAP EXISTS. Every Parsek reputation channel records the NOMINAL input
+            // half - ContractComplete carries the contract's ReputationCompletion,
+            // MilestoneAchievement carries the progress node's configured award, and
+            // StrategiesModule.TransformContractReward is a documented identity no-op. The
+            // effect-delta half has no channel at all: the query family emits no
+            // reason-keyed event, GameStateEventConverter converts ReputationChanged ONLY
+            // under TransactionReasons.StrategyInput, and
+            // StrategyConversionCapture.EvaluateLegs' zero-input scoping rule excludes a
+            // reputation-INPUT converter before the row-shape mapper is ever called. So a
+            // career running Fundraising Campaign reconstructs ABOVE live by the diversion.
+            // See STRATEGY-REP-DEBIT-CONVERTERS-UNCAPTURED in docs/dev/todo-and-known-bugs.md.
+            //
+            // THE CONTROL IS THE POINT OF THE CELL, and it is model-free. Fundraising's
+            // stock AffectReasons are ContractReward / ScienceTransmission / Progression -
+            // VesselRecovery is deliberately EXCLUDED by the cfg ("ignoring reputation from
+            // recovery atm"). So the same award, at the same reputation, with the same
+            // strategy active, diverts under ContractReward and does NOT divert under
+            // VesselRecovery. The difference between the two pool movements is the
+            // diversion itself, measured rather than modelled - no curve replica is
+            // involved in producing the number this cell reports.
+            if (HighLogic.CurrentGame == null)
+            {
+                InGameAssert.Skip("HighLogic.CurrentGame is null");
+                yield break;
+            }
+            if (HighLogic.CurrentGame.Mode != Game.Modes.CAREER)
+            {
+                InGameAssert.Skip($"StrategySystem is career-only (mode={HighLogic.CurrentGame.Mode})");
+                yield break;
+            }
+            if (Funding.Instance == null || ResearchAndDevelopment.Instance == null
+                || Reputation.Instance == null)
+            {
+                InGameAssert.Skip("Funding / ResearchAndDevelopment / Reputation singletons not initialized");
+                yield break;
+            }
+            if (RecordingStore.HasPendingTree
+                || GameStateRecorder.HasActiveUncommittedTree()
+                || GameStateRecorder.HasLiveRecorder())
+            {
+                InGameAssert.Skip("a live/pending tree or live recorder would defer the patch");
+                yield break;
+            }
+
+            var selection = new StrategySelectionResult();
+            yield return WaitForStableActivatableStockStrategy(selection);
+
+            try
+            {
+                if (KSP.UI.Screens.Administration.Instance == null)
+                {
+                    InGameAssert.Skip(
+                        $"Administration never hydrated - {selection.Diagnostic ?? "(no diagnostic)"}");
+                    yield break;
+                }
+
+                const string TargetConfigName = "FundraisingCampaignCfg";
+                var strategy = FindStockStrategyByConfigName(TargetConfigName);
+                if (strategy == null)
+                {
+                    InGameAssert.Skip($"stock strategy '{TargetConfigName}' is not present on this install");
+                    yield break;
+                }
+                if (strategy.IsActive)
+                {
+                    InGameAssert.Skip($"'{TargetConfigName}' is already active - this cell owns its activation");
+                    yield break;
+                }
+
+                var (fundsBefore, sciBefore, repBefore) = SnapshotFinancials();
+                int eventCountBefore = GameStateStore.EventCount;
+                int ledgerCountBefore = Ledger.Actions.Count;
+
+                var captured = new List<string>();
+                var priorObserver = ParsekLog.TestObserverForTesting;
+                ParsekLog.TestObserverForTesting = line => { captured.Add(line); priorObserver?.Invoke(line); };
+
+                try
+                {
+                    // STOCK CHARGES A LERPED REPUTATION SETUP COST (initialCostReputation
+                    // 4..70 at Factor, so 7.3 at the cfg default 0.05) and
+                    // Strategy.CanBeActivated compares the CURRENT pool against it. A
+                    // fixture seeded at reputation 0 cannot afford it, which is a SKIP
+                    // naming the requirement rather than an assertion against a fixture
+                    // this cell does not own.
+                    string cannotReason;
+                    if (!strategy.CanBeActivated(out cannotReason))
+                    {
+                        InGameAssert.Skip(
+                            $"'{TargetConfigName}' cannot be activated on this save: {cannotReason ?? "(no reason)"} " +
+                            $"(stock charges a lerped reputation setup cost, 4..70 by Factor; live reputation is " +
+                            $"{Reputation.Instance.reputation.ToString("R", CultureInfo.InvariantCulture)})");
+                        yield break;
+                    }
+
+                    bool activated = strategy.Activate();
+                    InGameAssert.IsTrue(activated, $"Strategy.Activate returned false for '{TargetConfigName}'");
+
+                    for (int i = 0; i < StrategyLifecycleActivateSettleFrames; i++)
+                        yield return null;
+
+                    float repPre = Reputation.Instance.reputation;
+
+                    // (A) THE CONTROL. Same award, same reputation, same active strategy,
+                    // under the ONE reason the cfg excludes. Suppressed, so no door fires
+                    // and no row is written; restored exactly afterwards so the treatment
+                    // starts from the identical pool.
+                    float controlAfter;
+                    using (SuppressionGuard.Resources())
+                    {
+                        Reputation.Instance.AddReputation(
+                            ReputationDebitLegAward, TransactionReasons.VesselRecovery);
+                        controlAfter = Reputation.Instance.reputation;
+                        Reputation.Instance.SetReputation(repPre, TransactionReasons.None);
+                    }
+                    double controlDelta = (double)controlAfter - repPre;
+
+                    double fundsPreAward = Funding.Instance.Funds;
+                    int capturedCountPreAward = captured.Count;
+
+                    StrategyLedgerTally beforeTally;
+                    if (!TryTallyStrategyLedgerRows(out beforeTally))
+                    {
+                        InGameAssert.Skip("ComputeELS returned null before the award");
+                        yield break;
+                    }
+
+                    // (B) THE TREATMENT. The same award under ContractReward - the reason a
+                    // real contract completion uses (Contracts.Contract awards reputation
+                    // with exactly this call) and one of the three the converter masks.
+                    Reputation.Instance.AddReputation(
+                        ReputationDebitLegAward, TransactionReasons.ContractReward);
+
+                    double treatDelta = (double)Reputation.Instance.reputation - repPre;
+                    double fundsDelta = Funding.Instance.Funds - fundsPreAward;
+                    double divertedPoolMove = controlDelta - treatDelta;
+
+                    // RESTORE BEFORE THE DEFERRED RECALC. The ledger carries no row for
+                    // this award (nothing wrote the transaction's own nominal, and the
+                    // diversion is the gap under measurement), so leaving the pool moved
+                    // would diverge the reconstruction out of a gap this cell is measuring
+                    // rather than out of a regression - and the guard would clamp. The
+                    // MEASUREMENT is already taken by this point; what is restored is the
+                    // fixture, not the observation.
+                    using (SuppressionGuard.Resources())
+                        Reputation.Instance.SetReputation(repPre, TransactionReasons.None);
+
+                    for (int i = 0; i < StrategyLifecycleActivateSettleFrames + 2; i++)
+                        yield return null;
+
+                    StrategyLedgerTally afterTally;
+                    if (!TryTallyStrategyLedgerRows(out afterTally))
+                    {
+                        InGameAssert.Fail("ComputeELS returned null after the award");
+                        yield break;
+                    }
+
+                    string doorLine = null;
+                    for (int i = capturedCountPreAward; i < captured.Count; i++)
+                    {
+                        string l = captured[i];
+                        if (l != null
+                            && l.IndexOf("[GameStateRecorder]", System.StringComparison.Ordinal) >= 0
+                            && l.IndexOf("strategy currency conversion", System.StringComparison.Ordinal) >= 0)
+                        {
+                            doorLine = l;
+                            break;
+                        }
+                    }
+
+                    ParsekLog.Info("TestRunner",
+                        $"ConverterReputationDebit: award={ReputationDebitLegAward.ToString("R", CultureInfo.InvariantCulture)} " +
+                        $"repPre={repPre.ToString("R", CultureInfo.InvariantCulture)} " +
+                        $"controlDelta={controlDelta.ToString("R", CultureInfo.InvariantCulture)} " +
+                        $"treatDelta={treatDelta.ToString("R", CultureInfo.InvariantCulture)} " +
+                        $"divertedPoolMove={divertedPoolMove.ToString("R", CultureInfo.InvariantCulture)} " +
+                        $"fundsDelta={fundsDelta.ToString("R", CultureInfo.InvariantCulture)} " +
+                        $"factor={strategy.Factor.ToString("R", CultureInfo.InvariantCulture)} " +
+                        $"ledger: {FormatStrategyLedgerDelta(beforeTally, afterTally)}");
+
+                    if (System.Math.Abs(divertedPoolMove) <= 0.01)
+                    {
+                        InGameAssert.Skip(
+                            $"'{TargetConfigName}' diverted nothing measurable under ContractReward at " +
+                            $"Factor={strategy.Factor.ToString("R", CultureInfo.InvariantCulture)} " +
+                            $"(divertedPoolMove={divertedPoolMove.ToString("R", CultureInfo.InvariantCulture)}) - " +
+                            "no subject for this cell");
+                        yield break;
+                    }
+
+                    InGameAssert.IsNotNull(doorLine,
+                        "expected the [GameStateRecorder] strategy currency conversion INFO line - " +
+                        "the funds OUTPUT leg of this conversion has zero input and a positive delta, " +
+                        "so the door must at least have evaluated the query");
+
+                    // (1) THE DIVERSION IS REAL AND ITS MAGNITUDE IS MEASURED. The control
+                    // and the treatment differ only in the transaction reason, so the whole
+                    // difference is the converter's take - no curve replica in the number.
+                    InGameAssert.IsGreaterThan(divertedPoolMove, 0.0,
+                        "a reputation-INPUT converter must move the pool LESS than the same award " +
+                        "under an excluded reason - a non-positive difference means the converter " +
+                        "did not fire and the cell has no subject");
+                    const double ReputationGuardEpsilon = 0.01;
+                    InGameAssert.IsGreaterThan(divertedPoolMove, ReputationGuardEpsilon * 10.0,
+                        "the diverted pool movement must be an order of magnitude clear of the " +
+                        "reputation guard's epsilon, or the drift it causes is not distinguishable " +
+                        "from rounding");
+
+                    // (2) THE QUERY SAW IT, AND ON THE INPUT SIDE. inR is the transaction's
+                    // own reputation and dR is the converter's take, negative.
+                    double loggedInputRep, loggedRepDelta;
+                    bool readInR = TryReadStrategyQueryLogField(doorLine, "inR", out loggedInputRep);
+                    bool readDR = TryReadStrategyQueryLogField(doorLine, "dR", out loggedRepDelta);
+                    InGameAssert.IsTrue(readInR && readDR,
+                        $"the door's summary line must carry parseable inR and dR fields: {doorLine}");
+                    InGameAssert.ApproxEqual((double)ReputationDebitLegAward, loggedInputRep,
+                        System.Math.Max(1e-4, ReputationDebitLegAward * 0.001),
+                        "inR must be the transaction's own reputation - this is the NONZERO-INPUT case " +
+                        "the scoping rule excludes, and if inR were zero the cell would be measuring " +
+                        "the credit arm instead");
+                    InGameAssert.IsLessThan(loggedRepDelta, 0.0 - StrategyConversionCapture.MinCaptureMagnitude,
+                        "dR must be NEGATIVE - a reputation-INPUT converter takes from the pool");
+
+                    // (3) THE FUNDS OUTPUT LEG IS ALREADY CAPTURED, which is what makes the
+                    // reputation gap a HALF-captured conversion rather than an invisible
+                    // one: the funds side has zero input and a positive delta, so the
+                    // existing rule admits it.
+                    InGameAssert.AreEqual(1, afterTally.StrategyFundsRows - beforeTally.StrategyFundsRows,
+                        "the funds OUTPUT leg must land as exactly one FundsEarning/Strategy row - " +
+                        "without it the door did not run at all and (4) proves nothing");
+                    InGameAssert.IsGreaterThan(fundsDelta, 0.0,
+                        "a reputation -> funds converter must credit funds");
+
+                    // (4) AND THE REPUTATION LEG IS NOT CAPTURED. THIS IS THE FINDING. The
+                    // scoping rule excludes it on the nonzero input, so the ledger gains no
+                    // reputation row for a pool movement of divertedPoolMove - which is
+                    // exactly how much a reconstruction carrying the transaction's own
+                    // nominal would run ABOVE live.
+                    InGameAssert.AreEqual(0, afterTally.ReputationRows - beforeTally.ReputationRows,
+                        "MEASUREMENT MODE: the reputation-INPUT diversion has no capture channel, so " +
+                        "the ledger must gain no reputation row here. When the debit arm ships this " +
+                        "assertion inverts to exactly one StrategyConverter-sourced penalty row");
+
+                    ParsekLog.Info("TestRunner",
+                        $"ConverterReputationDebit UNCAPTURED: the pool moved " +
+                        $"{divertedPoolMove.ToString("R", CultureInfo.InvariantCulture)} reputation that no " +
+                        $"ledger row carries (door observed inR=" +
+                        $"{loggedInputRep.ToString("R", CultureInfo.InvariantCulture)} dR=" +
+                        $"{loggedRepDelta.ToString("R", CultureInfo.InvariantCulture)}); a reconstruction " +
+                        $"carrying the transaction's own nominal therefore runs ABOVE live by that much, " +
+                        $"against a reputation guard epsilon of " +
+                        $"{ReputationGuardEpsilon.ToString("R", CultureInfo.InvariantCulture)}");
+
+                    // (5) NO CLAMP ON ANY POOL. The reputation pool was restored before the
+                    // deferred recalc precisely so this stays a statement about the funds
+                    // and science doors: a clamp here means one of THEM missed a leg of the
+                    // same conversion.
+                    string clamp = FirstGuardedClampLine(captured);
+                    InGameAssert.IsNull(clamp,
+                        $"the reputation pool is restored before the deferred recalc, so no pool may " +
+                        $"clamp on this conversion - a clamp means the funds or science leg was missed: {clamp}");
+                }
+                finally
+                {
+                    if (strategy.IsActive)
+                    {
+                        try { strategy.Deactivate(); }
+                        catch (System.Exception ex)
+                        {
+                            ParsekLog.Warn("TestRunner",
+                                $"ConverterReputationDebit teardown Deactivate threw: {ex}");
+                        }
+                    }
+                    ParsekLog.TestObserverForTesting = priorObserver;
+
+                    // EXACT REPUTATION RESTORE, no deadband - the same discipline the credit
+                    // cell keeps, and for the same reason: the exchanger cell in this
+                    // category needs reputation <= 0 and a residue is a skip it pays for.
+                    if (Reputation.Instance != null
+                        && Reputation.Instance.reputation != repBefore)
+                    {
+                        float repStrandedAt = Reputation.Instance.reputation;
+                        using (SuppressionGuard.Resources())
+                            Reputation.Instance.SetReputation(repBefore, TransactionReasons.None);
+                        ParsekLog.Info("TestRunner",
+                            $"ConverterReputationDebit teardown: exact reputation restore " +
+                            $"{repStrandedAt.ToString("R", CultureInfo.InvariantCulture)} -> " +
+                            $"{repBefore.ToString("R", CultureInfo.InvariantCulture)}");
+                    }
+
+                    RestoreFinancials(fundsBefore, sciBefore, repBefore);
+                    GameStateStore.TruncateEventsForTesting(eventCountBefore);
+                    TruncateLedgerForTeardown(
+                        ledgerCountBefore, "ConverterStrategy_ReputationDebitLeg_IsObservedAndUncaptured");
+                    ParsekLog.Verbose("TestRunner",
+                        $"ConverterReputationDebit teardown: " +
+                        $"eventsBack={eventCountBefore.ToString(CultureInfo.InvariantCulture)}, " +
+                        $"ledgerBack={ledgerCountBefore.ToString(CultureInfo.InvariantCulture)}");
+                }
+            }
+            finally
+            {
+                DestroyHiddenAdministrationCanvasForTest(selection, "converter-reputation-debit-teardown");
+            }
+        }
+
+        // ================================================================
+        // HIGH-REP CURVE CORROBORATION (the c1 adjudicator)
+        // ================================================================
+
+        /// <summary>
+        /// The PRE-FIX shape of <see cref="ReputationModule.ApplyReputationCurve"/>, kept
+        /// here and ONLY here so the live cell below can DISCRIMINATE rather than merely
+        /// agree. One line differs from the shipping routine - the residual step is sized
+        /// from the NOMINAL step count (<c>nominal - delta * num</c>) instead of from the
+        /// accumulated post-curve actual - which makes it identically zero for every
+        /// integer nominal, so the top-up never fires and an integer award lands short by
+        /// the curve loss. That was the pre-2026-08-20 behaviour (commit 817773dcb).
+        ///
+        /// <para>THIS IS A MEASUREMENT INSTRUMENT, NOT DEAD CODE. Asserting only that
+        /// KSP's pool agrees with the shipping formula cannot tell "the formula is right"
+        /// apart from "the tolerance is loose": both formulas agree to ~1e-3 per unit near
+        /// rep 0, which is why the defect survived for months. Running BOTH chains over
+        /// the same measured nominals and reporting which one the pool actually landed on
+        /// is what turns the cell into a verdict. Do NOT refactor this into
+        /// ReputationModule - a second copy of the curve in the product would be a second
+        /// thing to keep in step.</para>
+        /// </summary>
+        internal static (float actualDelta, float newRep) ApplyPreFixReputationCurveForCorroboration(
+            float nominal, float currentRep, float repRange = 1000f)
+        {
+            if (nominal == 0f)
+                return (0f, currentRep);
+
+            int num = (int)System.Math.Abs(nominal);
+            float delta = System.Math.Sign(nominal);
+            float accumulated = 0f;
+            float rep = currentRep;
+
+            for (int i = 0; i <= num; i++)
+            {
+                // THE ONE DIFFERENCE: the residual is sized from the nominal step count.
+                float input = (i != num) ? delta : (nominal - (delta * num));
+                if (input == 0f)
+                    continue;
+
+                float time = rep / repRange;
+                float mult = (input < 0f)
+                    ? ReputationModule.EvaluateSubtractionCurve(time)
+                    : ReputationModule.EvaluateAdditionCurve(time);
+                float step = input * mult;
+                rep += step;
+                accumulated += step;
+            }
+
+            return (accumulated, rep);
+        }
+
+        /// <summary>
+        /// The nominal awards the high-rep corroboration cell hands to KSP, in order.
+        /// INTEGER by design: for an integer nominal the two candidate formulas differ by
+        /// the WHOLE residual top-up, which is the largest separation the experiment can
+        /// buy. The negative in the middle exercises the subtraction curve's residual on
+        /// the same walk, because the residual is signed and a fix that only worked on the
+        /// gain side would otherwise pass.
+        /// </summary>
+        internal static readonly float[] HighRepCorroborationNominals =
+            { 5f, 5f, 5f, 5f, 5f, -5f, 5f, 5f, 5f, 5f };
+
+        /// <summary>
+        /// Where the corroboration walk starts. 60 is chosen so the whole walk lives in
+        /// the 60..100 band the c1 question is about (|rep| 45.5) and well above the ~2
+        /// and ~5 the two C2 fixtures exercise - the pre-fix error grows with |rep|, so a
+        /// low-rep walk would not separate the two formulas.
+        /// </summary>
+        internal const float HighRepCorroborationStartRep = 60f;
+
+        /// <summary>
+        /// How close the model chain has to land to KSP's own pool to count as agreeing.
+        /// This is a FLOAT32 ACCUMULATION BOUND, not a fudge factor: the walk carries a
+        /// pool of order 100, where one float32 ulp is ~7.6e-6, through ten awards of six
+        /// curve evaluations each, so a five-figure margin over that is the honest
+        /// headroom for evaluation-order differences between the two implementations.
+        ///
+        /// <para>It is safe against the ONE thing it must not swallow: the two candidate
+        /// formulas separate by the whole residual top-up per integer award (order 0.3
+        /// each at this reputation, so several units over the walk), which assertion (1)
+        /// re-checks against this number every run rather than assuming it.</para>
+        /// </summary>
+        internal const double HighRepCorroborationAgreementTolerance = 0.01;
+
+        [InGameTest(Category = "StrategyLifecycle", Scene = GameScenes.SPACECENTER,
+            Description = "MEASURE: award a series of integer reputation chunks through stock's own Reputation.AddReputation from a HIGH starting pool, and report whether KSP's pool agrees with ReputationModule.ApplyReputationCurve's shipping formula or with its pre-2026-08-20 residual shape.")]
+        public void ReputationCurve_HighRep_AgreesWithStocksGranularPool()
+        {
+            // WHY THIS CELL EXISTS. The 2026-08-20 residual-step fix (commit 817773dcb)
+            // closed reputation reconstruction on two LOW-rep career fixtures (|rep| ~2
+            // and ~5) to ~1e-7, and simultaneously moved the c1 fixture (|rep| 45.5) from
+            // a float32 match to +0.047 AWAY from KSP's own pool. c1 cannot adjudicate
+            // that on its own: its rep-bearing rows were captured in 2026-08, before the
+            // fix wave, so a capture-era defect and a curve defect are indistinguishable
+            // FROM THAT FIXTURE. See C1CareerLedgerReplayTests' REPUTATION block.
+            //
+            // The adjudicator is a LIVE experiment: hand KSP a series of awards at high
+            // reputation, read its own pool after each, and run BOTH candidate formulas
+            // over the same nominals from the same start. The pool agrees with exactly one
+            // of them, and that is the verdict - no fixture, no capture era, no ledger.
+            //
+            // LEDGER-NEUTRAL BY CONSTRUCTION. Every KSP call is inside
+            // SuppressionGuard.Resources(), so no recorder door fires, no row is written,
+            // no recalc runs and no pool guard can clamp. This cell measures KSP's
+            // arithmetic, not Parsek's capture path, and it deliberately shares nothing
+            // with the conversion cells above.
+            if (HighLogic.CurrentGame == null)
+            {
+                InGameAssert.Skip("HighLogic.CurrentGame is null");
+                return;
+            }
+            if (HighLogic.CurrentGame.Mode != Game.Modes.CAREER)
+            {
+                InGameAssert.Skip($"Reputation is career-only (mode={HighLogic.CurrentGame.Mode})");
+                return;
+            }
+            if (Reputation.Instance == null)
+            {
+                InGameAssert.Skip("Reputation singleton is not initialized");
+                return;
+            }
+
+            // AN ACTIVE STRATEGY WOULD DIVERT THE AWARDS. A live CurrencyConverter
+            // subscribing OnCurrencyModifierQuery mutates the reputation delta in place,
+            // so the pool would move by something other than the nominal handed in and the
+            // measurement would be of the strategy rather than of the curve. -1 means
+            // StrategySystem is unavailable, i.e. there are no strategy effects at all,
+            // which is fine.
+            int activeStrategies = CountActiveStockStrategies();
+            if (activeStrategies > 0)
+            {
+                InGameAssert.Skip(
+                    $"{activeStrategies.ToString(CultureInfo.InvariantCulture)} stock strategies are " +
+                    "ACTIVE - a CurrencyConverter would divert these awards and the walk would " +
+                    "measure the strategy rather than the curve");
+                return;
+            }
+
+            float repBefore = Reputation.Instance.reputation;
+            int eventCountBefore = GameStateStore.EventCount;
+            int ledgerCountBefore = Ledger.Actions.Count;
+
+            var measured = new List<float>();
+            float startRep;
+
+            try
+            {
+                using (SuppressionGuard.Resources())
+                {
+                    // Absolute SetReputation, exactly as KspStatePatcher.PatchReputation
+                    // does: AddReputation would put the SETUP through the very curve under
+                    // test and the walk would start from an unpredictable place.
+                    Reputation.Instance.SetReputation(HighRepCorroborationStartRep, TransactionReasons.None);
+                    startRep = Reputation.Instance.reputation;
+
+                    for (int i = 0; i < HighRepCorroborationNominals.Length; i++)
+                    {
+                        // TransactionReasons.None on purpose: no stock strategy effect
+                        // subscribes to it, so even a strategy that slipped past the guard
+                        // above cannot mutate this query.
+                        Reputation.Instance.AddReputation(HighRepCorroborationNominals[i], TransactionReasons.None);
+                        measured.Add(Reputation.Instance.reputation);
+                    }
+                }
+            }
+            finally
+            {
+                // EXACT restore, no deadband, inside the same suppression contract - the
+                // exchanger cell in this category needs reputation <= 0 and a residue here
+                // is a skip it pays for (the same reason the converter cell restores
+                // exactly rather than through RestoreFinancials' 0.01 deadband).
+                if (Reputation.Instance != null
+                    && Reputation.Instance.reputation != repBefore)
+                {
+                    using (SuppressionGuard.Resources())
+                        Reputation.Instance.SetReputation(repBefore, TransactionReasons.None);
+                }
+                GameStateStore.TruncateEventsForTesting(eventCountBefore);
+                TruncateLedgerForTeardown(
+                    ledgerCountBefore, "ReputationCurve_HighRep_AgreesWithStocksGranularPool");
+            }
+
+            if (measured.Count != HighRepCorroborationNominals.Length)
+            {
+                InGameAssert.Fail(
+                    $"expected {HighRepCorroborationNominals.Length.ToString(CultureInfo.InvariantCulture)} " +
+                    $"measured pool readings, got {measured.Count.ToString(CultureInfo.InvariantCulture)}");
+                return;
+            }
+
+            // BOTH CHAINS, over the SAME nominals, from the SAME measured start.
+            float runningCurrent = startRep;
+            float runningPreFix = startRep;
+            for (int i = 0; i < HighRepCorroborationNominals.Length; i++)
+            {
+                float nominal = HighRepCorroborationNominals[i];
+                runningCurrent = ReputationModule.ApplyReputationCurve(nominal, runningCurrent).newRep;
+                runningPreFix = ApplyPreFixReputationCurveForCorroboration(nominal, runningPreFix).newRep;
+
+                ParsekLog.Info("TestRunner",
+                    $"RepCurveHighRep step={i.ToString(CultureInfo.InvariantCulture)} " +
+                    $"nominal={nominal.ToString("R", CultureInfo.InvariantCulture)} " +
+                    $"kspPool={measured[i].ToString("R", CultureInfo.InvariantCulture)} " +
+                    $"currentModel={runningCurrent.ToString("R", CultureInfo.InvariantCulture)} " +
+                    $"preFixModel={runningPreFix.ToString("R", CultureInfo.InvariantCulture)} " +
+                    $"errCurrent={System.Math.Abs(measured[i] - runningCurrent).ToString("R", CultureInfo.InvariantCulture)} " +
+                    $"errPreFix={System.Math.Abs(measured[i] - runningPreFix).ToString("R", CultureInfo.InvariantCulture)}");
+            }
+
+            float kspFinal = measured[measured.Count - 1];
+            double errCurrent = System.Math.Abs(kspFinal - runningCurrent);
+            double errPreFix = System.Math.Abs(kspFinal - runningPreFix);
+            double separation = System.Math.Abs(runningCurrent - runningPreFix);
+
+            string verdict =
+                (errCurrent < HighRepCorroborationAgreementTolerance
+                    && errCurrent < errPreFix) ? "current"
+                : (errPreFix < HighRepCorroborationAgreementTolerance
+                    && errPreFix < errCurrent) ? "pre-fix"
+                : "neither";
+
+            ParsekLog.Info("TestRunner",
+                $"RepCurveHighRep VERDICT: agreesWith={verdict} " +
+                $"startRep={startRep.ToString("R", CultureInfo.InvariantCulture)} " +
+                $"awards={HighRepCorroborationNominals.Length.ToString(CultureInfo.InvariantCulture)} " +
+                $"kspFinal={kspFinal.ToString("R", CultureInfo.InvariantCulture)} " +
+                $"currentModelFinal={runningCurrent.ToString("R", CultureInfo.InvariantCulture)} " +
+                $"preFixModelFinal={runningPreFix.ToString("R", CultureInfo.InvariantCulture)} " +
+                $"errCurrent={errCurrent.ToString("R", CultureInfo.InvariantCulture)} " +
+                $"errPreFix={errPreFix.ToString("R", CultureInfo.InvariantCulture)} " +
+                $"separation={separation.ToString("R", CultureInfo.InvariantCulture)} " +
+                $"tolerance={HighRepCorroborationAgreementTolerance.ToString("R", CultureInfo.InvariantCulture)}");
+
+            // (1) THE EXPERIMENT DISCRIMINATES. Without this the cell could "pass" in a
+            // world where both formulas produce the same number, which would make its
+            // verdict meaningless. Asserted BEFORE the verdict so a degenerate walk fails
+            // as a design fault rather than as a curve finding.
+            InGameAssert.IsGreaterThan(separation,
+                HighRepCorroborationAgreementTolerance * 10.0,
+                "the two candidate formulas must be separated by far more than the agreement " +
+                "tolerance, or the walk cannot adjudicate between them - re-size the nominals " +
+                "or the starting reputation");
+
+            // (2) THE VERDICT. KSP's own pool is the oracle here: the shipping formula is
+            // a line-by-line mirror of Reputation.addReputation_granular, so a walk that
+            // lands on the PRE-FIX chain (or on neither) at high reputation is a REAL
+            // curve defect and the c1 divergence stops being a capture-era artifact.
+            InGameAssert.AreEqual("current", verdict,
+                $"KSP's own reputation pool after {HighRepCorroborationNominals.Length.ToString(CultureInfo.InvariantCulture)} " +
+                $"integer awards from rep {startRep.ToString("R", CultureInfo.InvariantCulture)} " +
+                $"landed on {kspFinal.ToString("R", CultureInfo.InvariantCulture)}; the shipping curve " +
+                $"predicts {runningCurrent.ToString("R", CultureInfo.InvariantCulture)} " +
+                $"(err {errCurrent.ToString("R", CultureInfo.InvariantCulture)}) and the pre-fix shape " +
+                $"predicts {runningPreFix.ToString("R", CultureInfo.InvariantCulture)} " +
+                $"(err {errPreFix.ToString("R", CultureInfo.InvariantCulture)}) - a verdict other than " +
+                "'current' means ReputationModule.ApplyReputationCurve does not reproduce stock at " +
+                "high reputation, which is a product finding and NOT something to fix by widening " +
+                "this tolerance");
         }
 
         #endregion
