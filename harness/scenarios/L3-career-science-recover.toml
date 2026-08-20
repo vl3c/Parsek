@@ -1,0 +1,342 @@
+schema = 1
+id = "L3-career-science-recover"
+# PROMOTED operator -> nightly 2026-08-20, in the SAME commit that pins the
+# measurements, which is the rule the L2 B.1 / L3 pattern states. The tier was held
+# for exactly two reasons and both are discharged: the windows were PREDICTIONS
+# (they are now measurements off run `2026-08-19_2130`), and the spec could not fly
+# green while the three product findings its own reading runs surfaced were open
+# (they are fixed - see the FLIGHT 4 block below). Nothing operator-shaped was ever
+# owed: autopilot driver, no RequiresFlight verb, no human judgement in the loop.
+tier = "nightly"
+# WHAT THIS IS. The career-ledger lane's POST-FIX CAREER FORGE - Route A of
+# `docs/dev/plans/career-ledger-coverage.md` section 4d, wave 2.
+#
+# It is the first committed spec in the suite that makes a career EARN. Every
+# career surface the harness could drive before the 2026-08-19 capability wave was
+# a SPEND (`KscAction`'s four sub-actions research / upgrade / hire / accept), so
+# the two ledger row families a real career is mostly made of - `ScienceEarning`,
+# produced only from flight science subjects, and the funds credit from a
+# recovered vessel - were reachable only from a hand-played save. This spec drives
+# both: launch the committed career pad craft, hop, land, run the science
+# experiments aboard, transmit them, and recover the craft.
+#
+# WHY IT EXISTS AT ALL: the produced save is the SUBJECT. Wave 3 harvests it as a
+# committed test fixture and replays its ledger headlessly against KSP's own
+# pools; the career-ledger B.4 strict-per-identity gate has been deferred since
+# 2026-08-17 for want of exactly this - "a career fixture carrying recorded crewed
+# recoveries", i.e. populated per-identity facets. `career-pad-craft` itself is not
+# that subject and cannot become one by being re-flown; a FLOWN one is.
+#
+# THE STRATEGY LEG IS DELIBERATELY ABSENT. `L3-strategy-currency-conversion` owns
+# that proof and is already armed and pinned. Two independent claims on one flight
+# would make a red ambiguous.
+#
+# ################ HISTORY: WHY THIS SPEC FLIES ITS OWN FIXTURE ################
+# THIS SPEC COULD NOT PASS ON `career-pad-craft` AND THE REASON IS SETTLED. Three
+# attempts across two runs on 2026-08-19; the second run flew a textbook mission
+# and still condemned itself, which is the machine working, not failing. The fix
+# was a SIBLING FIXTURE, and the diagnosis is kept here because it is the whole
+# argument for why that fixture exists.
+#
+#   `2026-08-19_1817` + retry `_1818_..._a2`  INVALID(mission), 89 s total.
+#       Died at 1.2 s in PRELAUNCH: `flight-leg vessel-lost (unreadable after
+#       repeated telemetry failures)`. CAUSE: kRPC raises `Maneuver node editing
+#       is not available` on a CAREER save's un-upgraded Tracking Station and
+#       three consecutive raises escalate to a `vessel_lost` snapshot. FIXED by
+#       `science_bench_recover.make_control` opting into
+#       `tolerate_unreadable_nodes=True`, the per-mission flag CL-3 already used
+#       for the identical finding.
+#
+#   `2026-08-19_1823` + retry `_1831_..._a2`  INVALID(mission), 1010 s total,
+#       461 s of real flight per attempt, both IDENTICAL.
+#       WHAT WENT RIGHT, and it is most of the forge: peak apoapsis 19,990 m
+#       (inside this spec's 6,000-30,000 window), chute armed at the apoapsis
+#       crossing, `LANDED`, and COLLECT ran every experiment aboard
+#       (`run_science_experiments ran=3 skipped=0 failed=0`, `experimentsAboard=3
+#       experimentsAvailable=3 dataMax=3`). The career funds pool moved on its own
+#       (500000 -> 530400, the stock launch milestones) and all three
+#       career-scoped channels read cleanly on every frame.
+#       WHAT BLOCKS IT: TRANSMIT ran its full 120 s budget over four bounded
+#       re-emit sweeps and credited nothing - ten identical
+#       `No transmitters available to transmit the data` raises out of kRPC -
+#       terminal `transmit-credited-no-science`, `scienceBaseline=100.000
+#       scienceNow=100.000`.
+#       ROOT CAUSE, DECOMPILED RATHER THAN GUESSED: kRPC filters transmitters by
+#       `IScienceDataTransmitter.CanTransmit()`, and the shipped
+#       `ModuleDataTransmitter.CanTransmit()` requires `antennaType != INTERNAL`
+#       BEFORE it consults CommNet at all. `AntennaType.INTERNAL` is enum 0, and
+#       the Jumping Flea's only transmitter is `mk1pod.v2`'s built-in INTERNAL
+#       antenna - so stock forbids transmitting science from this craft, full
+#       stop. Nothing about CommNet, ElectricCharge (50 units, unspent) or the
+#       ground stations is involved.
+#
+# THE MISSION IS RIGHT AND THE FIXTURE IS WRONG, which is the side
+# `design-autotest-mission-library.md` Amendment A already puts this on: the
+# terminal that fired names "no antenna" first, and its class is the one the
+# amendment describes as "the fixture is wrong, and re-flying it changes nothing".
+#
+# THE FIX LANDED AS `career-science-pad`, a SIBLING fixture built by construction
+# (`harness/tools/build_career_science_pad.py`), and this spec now flies it. The
+# blocked runs above are kept because they are the entire argument for why that
+# fixture exists; nothing else in this spec changed with the swap - the mission,
+# every `missionParams` value, the step list and the flight leg are the ones
+# those two flights already measured as correct.
+# #########################################################################
+description = "Reading run: fly the committed career pad craft, collect and transmit its science, recover the craft, and let the scene-exit auto-commit produce a career save that EARNED - the post-fix career forge subject."
+instanceProfile = "stock-minimal"
+tags = ["ledger", "L3", "career-forge", "science", "recovery", "reading-run"]
+
+[fixture]
+# `career-science-pad`: `career-pad-craft` with a DIRECT antenna and the
+# ElectricCharge to spend on it, built BY CONSTRUCTION by
+# `harness/tools/build_career_science_pad.py`. THREE additive `PART` nodes -
+# `SurfAntenna` plus two `batteryPack`s - surface-attached to the pod and
+# appended after the existing eight, so no existing part index moves and the
+# eight parts the base flies stay BYTE-IDENTICAL. The base fixture is NOT
+# touched: six committed specs fly it (CL-1, CL-2, CL-3, H26, L2, R7a), two of
+# them pinning measurements taken on that exact craft.
+#
+# WHAT EACH SPLICED PART BUYS. The antenna is the blocker above: `SurfAntenna`
+# declares `antennaType = DIRECT`, which is what stock's
+# `ModuleDataTransmitter.CanTransmit()` requires and what the pod's INTERNAL one
+# is not. The batteries are not padding - stock charges `packetResourceCost` per
+# `packetSize` Mits, and through this antenna (2 Mits / 12 EC) the three
+# experiments aboard cost 156 EC to transmit against the pod's own 50. The
+# arithmetic is in the builder's module docstring and gated by
+# `CareerSciencePadFixtureDriftTests`.
+#
+# WHAT DID NOT CHANGE, and this is why the flight-leg params below stand: the
+# craft is still B1's Jumping Flea, still `sit = PRELAUNCH` on the LaunchPad,
+# still `stg = 2` with the booster at `istg = 1` and the chute at `istg = 0`.
+# Every spliced part is UNSTAGED (`istg = -1`), so the staging sequence the
+# chute-arming logic was measured against is untouched.
+#
+# THE APOAPSIS WINDOW SURVIVES, AND THE COST IS BIGGER THAN THE MASS SUGGESTS.
+# MEASURED: run `2026-08-19_1912` peaked at 15,599.8 m against flight 2's
+# 19,990 m on the bare craft - a 22% loss for a 0.94% mass increase, so it is
+# DRAG (three surface protrusions on a small craft doing ~500 m/s low in the
+# atmosphere), not weight. Both numbers sit inside the 6,000-30,000 m window and
+# the new one still clears the floor by 2.6x, so the window is left alone - but
+# anyone TIGHTENING it must size against 15,600, not against B1's 19,990.
+#
+# The pairing (career, one vessel, antenna aboard, inert ParsekScenario node) is
+# gated by `CareerSciencePadSpecFixtureSyncTests` in
+# `harness/missions/lib/test_science_bench_recover.py`.
+saveTemplate = "fixtures/saves/career-science-pad"
+# LOAD-BEARING. The store must start empty: `recordings.count` below asserts that
+# the ONE recording in the produced save is the one this flight made.
+injectedRecordings = "none"
+craft = []
+
+[driver]
+kind    = "autopilot"
+mission = "science_bench_recover"
+# PROMOTED from `ScienceBenchRecoverAdmissionTests._make_science_bench_spec`
+# (harness/lib/test_run_smoke.py), which section 4d says to promote rather than
+# re-invent. Every `missionParams` value is that spec's verbatim. The STEP LIST
+# carries two deliberate changes off it, both stated here rather than left to be
+# rediscovered, and both derived from committed source + an already-measured flight
+# rather than predicted:
+#
+# (1) `SetSetting autoMerge=true` is ADDED, and it is mandatory rather than
+#     cosmetic. Stock recovery DESTROYS the active vessel, so
+#     `ParsekFlight.OnVesselWillDestroy` classifies `DestructionMode
+#     .TreeAllLeavesCheck`, finalizes the tree and STASHES it as pending with
+#     `activeTree` nulled (`ShowPostDestructionTreeMergeDialog`). At the following
+#     FLIGHT -> SPACECENTER change `SceneExitInterceptor
+#     .ShouldShowDialogBeforeSceneChangeForPendingTree` returns `RegularMerge`
+#     whenever autoMerge is OFF - i.e. an approval DIALOG, in an unattended run,
+#     which no seam verb would ever answer. With autoMerge ON the same call returns
+#     `None` and the exit takes the silent full-fidelity auto-commit. This is
+#     CL-2's measured path (`CL-2-pod-impact-ledger`, two green flights on THIS
+#     fixture), and CL-2's own header records that without the setting
+#     `DecideExitGate` refuses the merge variant outright.
+#
+# (2) `CommitTree` is KEPT VERBATIM even though it is EXPECTED TO FAIL, because
+#     section 4d names "whether `CommitTree` is still the right verb after the
+#     scene has already changed" as a wave-2 READING-RUN QUESTION, and keeping the
+#     step is what MEASURES the answer instead of asserting it.
+#     `ParsekTestCommandAddon` returns `ERROR / no-active-tree` when
+#     `ParsekFlight.Instance` is null or `HasActiveTree` is false, and the recovery
+#     above guarantees both. CL-1 flight 1 measured exactly this shape on a
+#     DESTROYED craft (`committree no-active-tree`, then `saving 0 committed
+#     tree(s)`), which is the same teardown path a recovery takes.
+#     KEEPING IT IS SAFE, and that is a fact of the classifier rather than a hope:
+#     `run.py`'s autopilot carve-out gates driver validity on the steps UP TO AND
+#     INCLUDING the mission handoff only, and `hlib.SEAM_VERB_POST_MISSION_ROLE`
+#     files `CommitTree` as `recording`, so a post-mission miss is RECORDED and
+#     NON-GATING on a MISSION-OK run. The commit therefore has to come from the
+#     auto-merge path in (1), and `recordings.count` below is what proves it did.
+#     If a future flight measures `committree committed=true` here, the recovery
+#     teardown changed and this comment is the diff that shows it.
+#
+# `RecordingState` is added after it as a read-only probe (`TAIL_ROLE_INERT`), for
+# the same reason CL-2 carries one: it puts the post-exit tree state in the
+# response stream where the reading run can read it, and it asserts nothing.
+steps = [
+  { cmd = "LoadGame",       args = { save = "${runSave}", name = "persistent" },    expect = "OK", budget = 300 },
+  { cmd = "SetSetting",     args = { name = "autoRecordOnLaunch", value = "true" }, expect = "OK" },
+  { cmd = "SetSetting",     args = { name = "autoMerge",          value = "true" }, expect = "OK" },
+  { phase = "mission",                                                              expect = "MISSION-OK", budget = 1320 },
+  { cmd = "CommitTree",                                                             expect = "OK" },
+  { cmd = "RecordingState",                                                         expect = "OK" },
+  { cmd = "FlushAndQuit",                                                           expect = "OK" },
+]
+
+[driver.missionParams]
+# --- the flight leg, DELEGATED to b1_decide verbatim (mlib: SbrState.flight holds
+# a real B1State). These eight keys are B1-pad-hop's, on the same craft, and the
+# chute-arming window in particular cost three flights to get right - a fork of it
+# here would drift the first time either side is touched.
+throttle                 = 1.0
+apoapsisWindowMeters     = { min = 6000, max = 30000 }
+chuteArmMaxRateMps       = 30
+chuteFullDeployAltMeters = 2500
+landedSituations         = ["LANDED", "SPLASHED"]
+ascentTimeoutSeconds     = 90
+coastTimeoutSeconds      = 180
+descentTimeoutSeconds    = 360
+# --- the career leg. EVERY VALUE IS A FLOOR ON AN OBSERVED MOVEMENT, never an
+# expected pool value: only KSP authors what a subject or a recovery is worth, and
+# authoring one here would re-make the mistake harness/fixtures/saves/README.md
+# records (a ledger that agrees with a stale spec proves nothing).
+collectMinExperiments = 1
+collectTimeoutSeconds = 120
+# Sized against the NET pool rise, which is what stock's repeat-subject diminishing
+# returns actually leave behind. The schema's own comment carries the argument.
+transmitMinScienceGain = 0.5
+transmitTimeoutSeconds = 120
+# A SMALL POSITIVE FLOOR, deliberately, even though the schema legally allows 0.0.
+# At 0.0 the recovery terminal certifies "the funds pool was READABLE across the
+# recovery" and nothing about the pool having MOVED, which is weaker than a career
+# forge wants from the row it exists to produce. 1.0 is defense in depth on top of
+# the structural guards (craft observed gone, credit measured ACROSS the event from
+# a pre-recover baseline to a post-loss reading), not a prediction: any real
+# recovery refunds orders of magnitude more, so it cannot false-fail a good flight,
+# and it does catch a recovery that credited literally nothing.
+recoverMinFundsGain = 1.0
+recoverTimeoutSeconds = 180
+
+[dimensionsCovered]
+# CONSERVATIVE ON PURPOSE - a reading run pins nothing, so it may claim only what
+# its two required tokens and its recordings pin actually BACK. The D8 values this
+# flight physically exercises (`science`, `funds`, `milestones`) are NOT claimed:
+# with no `[expectations.ledger]` manifest they would be claims without gates,
+# which is exactly the fail-open shape `DebrisPopulationGateTests` was written
+# against. They become claimable in the arming commit, alongside the manifest that
+# gates them.
+D1  = ["auto-record-launch"]
+D14 = ["kerbin", "career", "scene-flight"]
+
+[expectations]
+# PLACEMENT IS LOAD-BEARING: run.py reads `expectations.allowedAnomalies`, and a
+# bare key written after an [expectations.<sub>] header is TOML-scoped to that
+# sub-table and silently never read. hlib.validate_spec rejects the misplaced form.
+allowedAnomalies = []
+
+[expectations.recordings]
+# THE FORGE'S WHOLE POINT: a flight that recorded nothing produces no subject. The
+# window was B1's 1..6 while it was a PREDICTION; it is now PINNED EXACTLY at the
+# measurement, 2 on both MISSION-OK flights of this spec (`2026-08-19_1912` and
+# `2026-08-19_2130`) - the flown main recording plus the post-recovery
+# continuation. Two independent runs of the same shape is what makes an exact pin
+# honest here rather than a one-sample guess.
+count = { min = 2, max = 2 }
+
+[expectations.logContracts]
+# FIVE tokens. The first two are the flight-leg pair, measured on every prior flight
+# of this craft (B1, CL-1, CL-2) and never a prediction about the career leg.
+#
+# The last three are the CAREER-LEG tokens this spec was flown to measure, now
+# pinned off run `2026-08-19_2130` - and each one is the live proof of one of the
+# three capture defects the reading runs found:
+#
+#   `Seeded initial science: amount=100`
+#       CAREER-SCIENCE-SEED-LOST-ON-FLIGHT-ROUTE. Read `amount=0` on the reading
+#       run, on a career whose pool was 100. This token is the whole fix: the
+#       deferred seed now waits for all three career singletons instead of any one.
+#
+#   `VesselRecovery funds patched: ... amount=4558`
+#       CAREER-RECOVERY-FUNDS-NOT-LEDGERED. Absent entirely on the reading run -
+#       stock paid the 4558 and the ledger carried no `FundsEarning` row at all.
+#
+#   `Science subject captured: ... reason='VesselRecovery'`
+#       CAREER-TRANSMIT-SCIENCE-EMITS-NO-CORROBORATING-EVENT. On the reading run
+#       this subject reached the ledger with `reason='' directLedger=True`, so the
+#       post-walk reconcile could never match it and dumped at ERROR - which is the
+#       single line that classified that otherwise-green run PARSEK-FAIL. The
+#       forbidden token below is therefore no longer a bet: it is measured clean
+#       (0 occurrences) on a flight that exercises the exact path that used to emit
+#       it.
+#
+# NOT PINNED, deliberately: the auto-commit `OnSave: saving 1 committed tree(s)`
+# line. `recordings.count` above already proves the commit happened, from the SAVE
+# rather than from the log, and two witnesses to one fact is the weaker one going
+# stale first.
+required = [
+  "Recording started",
+  "Recording stopped",
+  "Seeded initial science: amount=100",
+  "VesselRecovery funds patched: vessel='Jumping Flea' amount=4558",
+  "Science subject captured: crewReport@KerbinSrfLandedLaunchPad.*reason='VesselRecovery'",
+]
+forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
+
+# STILL NO [expectations.ledger] BLOCK, and STILL NO [expectations.unityExceptions]
+# BLOCK - both DEFERRED TO WAVE C ON PURPOSE, not overlooked. The promotion above
+# pins what this spec MEASURED; arming a new gating surface is a separate decision
+# with its own allowlist edits, and bundling the two would hide an arming call
+# inside a promotion commit.
+#
+# The measurements those blocks would be built from are recorded here so wave C
+# starts from data rather than from a fresh flight:
+#
+#   unityExceptions   total=0 on run `2026-08-19_2130`
+#                     (NullReference / MissingReference / IndexOutOfRange /
+#                      ArgumentException: GUILayout all 0). The scan runs
+#                     report-only meanwhile and records the count in
+#                     `detail.unityExceptions`.
+#   ledger pools      funds 500000 -> 536558, science 100 -> 111.6 across three
+#                     subjects (crewReport 3, mysteryGoo 3.6,
+#                     recovery@KerbinFlew 5), rep 0 -> 1.99999881.
+#
+# The original reason for holding the ledger manifest still stands on its own terms:
+# the M-B2 oracle has no report-only mode - a hard pool drift classifies
+# PARSEK-FAIL(ledger) outright - and this flight's science and recovery amounts are
+# authored by KSP alone. What has changed is that they are now MEASURED twice
+# (identically), so the manifest is writable from data whenever wave C wants it.
+#
+# ################ FLIGHT 4 (2026-08-19_2130): GREEN, AND IT IS THE POINT ########
+# PASS on attempt 1, 469 s wall / 341 s mission, every phase reached
+# (PRELAUNCH ASCENT COAST DESCENT LANDED COLLECT TRANSMIT RECOVER RECOVERED),
+# MISSION-OK with all four telemetry assertions met. Every verifier PASS or
+# SKIPPED: analyzer red=0, anomalySweep hits=[], logValidate PASS, expectations
+# mismatches=0, saveParse clean (1 tree, 2 recordings, 527 points,
+# terminalStates {Landed: 1}), and - the headline - ZERO `[Parsek][ERROR]` lines,
+# where the reading run's single one was the whole verdict.
+#
+# THE PRODUCED SAVE IS COMMITTED as `Source/Parsek.Tests/Fixtures/C2CareerPostFix/`,
+# REPLACING the reading run's harvest, and `C2CareerPostFixReplayTests` replays it
+# against KSP's own pools: funds close EXACTLY, science to 2.14e-06, reputation to
+# 2.36e-07. That suite is where the closes-to-zero claim actually lives; this spec
+# is what produces the subject it makes the claim about.
+#
+# `CommitTree` MEASURED AGAIN AND UNCHANGED: `TIMEOUT`, not the `ERROR /
+# no-active-tree` the comment above predicted, and identical to the reading run's.
+# It is non-gating on a MISSION-OK run exactly as `SEAM_VERB_POST_MISSION_ROLE`
+# files it. Two runs agreeing is what promotes that from an observation to the
+# answer, and the step stays verbatim so a future change to the recovery teardown
+# reds here rather than passing silently.
+
+[runtime]
+# 1980 = the mission ceiling (1320) plus room for the LoadGame, the kRPC connect,
+# the pad dwell and the FLIGHT -> SPACECENTER settle the recovery drives. B1's
+# same flight leg budgets 900/1320; the career leg adds three phases whose own
+# timeouts sum to 420 s.
+budgetSeconds = 1980
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

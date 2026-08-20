@@ -126,7 +126,7 @@ namespace Parsek.Tests.Analyzer
             string golden = string.Join("\n", new[]
             {
                 "{",
-                "  \"analyzerVersion\": \"3\",",
+                "  \"analyzerVersion\": \"4\",",
                 "  \"saveName\": \"testsave\",",
                 "  \"subjectSchemaGeneration\": 4,",
                 "  \"counts\": {",
@@ -365,6 +365,24 @@ namespace Parsek.Tests.Analyzer
                     ["LiquidFuel"] = 90.0,
                 },
             });
+            // Roster inserted in reverse-sorted order, like every other collection here.
+            cs.HasRoster = true;
+            cs.Roster.Add(new SaveKerbal
+            {
+                Name = "Bob Kerman",
+                Gender = "Male",
+                Type = "Crew",
+                Trait = "Scientist",
+                State = "Available",
+            });
+            cs.Roster.Add(new SaveKerbal
+            {
+                Name = "Bill Kerman",
+                Gender = "Male",
+                Type = "Crew",
+                Trait = "Engineer",
+                State = "Assigned",
+            });
             return cs;
         }
 
@@ -379,7 +397,7 @@ namespace Parsek.Tests.Analyzer
             string golden = string.Join("\n", new[]
             {
                 "{",
-                "  \"analyzerVersion\": \"3\",",
+                "  \"analyzerVersion\": \"4\",",
                 "  \"saveName\": \"testsave\",",
                 "  \"subjectSchemaGeneration\": 4,",
                 "  \"counts\": {",
@@ -424,6 +442,23 @@ namespace Parsek.Tests.Analyzer
                 "          \"LiquidFuel\": 90,",
                 "          \"Oxidizer\": 110",
                 "        }",
+                "      }",
+                "    ],",
+                "    \"hasRoster\": true,",
+                "    \"roster\": [",
+                "      {",
+                "        \"name\": \"Bill Kerman\",",
+                "        \"gender\": \"Male\",",
+                "        \"type\": \"Crew\",",
+                "        \"trait\": \"Engineer\",",
+                "        \"state\": \"Assigned\"",
+                "      },",
+                "      {",
+                "        \"name\": \"Bob Kerman\",",
+                "        \"gender\": \"Male\",",
+                "        \"type\": \"Crew\",",
+                "        \"trait\": \"Scientist\",",
+                "        \"state\": \"Available\"",
                 "      }",
                 "    ]",
                 "  }",
@@ -503,6 +538,33 @@ namespace Parsek.Tests.Analyzer
             Assert.Contains("\"activeContractGuids\": []", json);
             Assert.Contains("\"completedMilestoneIds\": []", json);
             Assert.Contains("\"vessels\": []", json);
+            Assert.Contains("\"hasRoster\": false", json);
+            Assert.Contains("\"roster\": []", json);
+        }
+
+        // Guards (the world-block roster sub-facet): "the save carried no ROSTER node"
+        // and "the ROSTER node is empty" must be DISTINGUISHABLE. Both emit an empty
+        // roster array, so only the hasRoster flag separates them - the Python
+        // verifier reads facet-absence from the flag, and collapsing the two would let
+        // an unparsed roster read as an emptied one.
+        [Fact]
+        public void BuildJson_EmptyRosterNode_IsDistinguishableFromNoRosterNode()
+        {
+            var present = new CareerSaveSnapshot
+            {
+                Parsed = true, HasFunds = true, Funds = 1000.0, HasRoster = true,
+            };
+            string presentJson = ReportWriter.BuildJson(ReportWith(present, null));
+            Assert.Contains("\"hasRoster\": true", presentJson);
+            Assert.Contains("\"roster\": []", presentJson);
+
+            var absent = new CareerSaveSnapshot
+            {
+                Parsed = true, HasFunds = true, Funds = 1000.0, HasRoster = false,
+            };
+            string absentJson = ReportWriter.BuildJson(ReportWith(absent, null));
+            Assert.Contains("\"hasRoster\": false", absentJson);
+            Assert.Contains("\"roster\": []", absentJson);
         }
 
         // Guards (review SF2): a NON-FINITE (NaN / Inf) pool value must export as JSON

@@ -153,5 +153,80 @@ namespace Parsek.Tests
             // wire contract, not an internal string.
             Assert.Equal("isolated-arg-invalid", TestCommandRunTests.IsolatedArgInvalidReason);
         }
+
+        // --- career-ledger B.4: the `strict` arg ---
+
+        // ABSENT is the default (non-strict) path, and this is the whole
+        // back-compatibility claim: every committed RunTests step omits the arg and
+        // must keep running the ground-truth diff at its shipped strictness. A flipped
+        // default would silently promote every report-only per-identity divergence to a
+        // hard failure in every batch that touches LedgerGroundTruth or Inv8Ledger.
+        [Fact]
+        public void TryParseStrictArg_Absent_IsTheDefaultNonStrictPath()
+        {
+            bool strict;
+            Assert.True(TestCommandRunTests.TryParseStrictArg(null, out strict));
+            Assert.False(strict);
+        }
+
+        [Theory]
+        [InlineData("true", true)]
+        [InlineData("false", false)]
+        public void TryParseStrictArg_AcceptsTheTwoWireLiterals(string raw, bool expected)
+        {
+            bool strict;
+            Assert.True(TestCommandRunTests.TryParseStrictArg(raw, out strict));
+            Assert.Equal(expected, strict);
+        }
+
+        // FAIL-CLOSED and case-sensitive, for the same reason as `isolated`: a spec
+        // author writing the TOML bool `strict = true` puts the token `strict=True` on
+        // the wire (run.py::encode_value is str(value)), and a lenient parse would run
+        // an un-armed batch that the spec reads as armed. Loud REJECTED instead.
+        [Theory]
+        [InlineData("True")]
+        [InlineData("False")]
+        [InlineData("TRUE")]
+        [InlineData("1")]
+        [InlineData("0")]
+        [InlineData("yes")]
+        [InlineData(" true")]
+        [InlineData("true ")]
+        [InlineData("")]
+        public void TryParseStrictArg_RejectsEverythingElse(string raw)
+        {
+            bool strict;
+            Assert.False(TestCommandRunTests.TryParseStrictArg(raw, out strict));
+            // Fails toward the LOOSER diff on a reject, never toward the stricter one:
+            // a caller that ignored the return value must not hard-fail a run on a typo.
+            Assert.False(strict);
+        }
+
+        [Fact]
+        public void StrictArgInvalidReason_IsTheDocumentedConstant()
+        {
+            Assert.Equal("strict-arg-invalid", TestCommandRunTests.StrictArgInvalidReason);
+        }
+
+        [Fact]
+        public void BothClosedArgsOfThisVerbShareOneParseContract()
+        {
+            // The two args of this verb must not drift apart the way `category` and
+            // `isolated` once did. Same accepted set, same absent-is-default, same
+            // empty-is-a-typo - checked as one statement rather than trusted to
+            // copy-paste.
+            bool a, b;
+            foreach (var raw in new[] { null, "true", "false" })
+            {
+                Assert.Equal(TestCommandRunTests.TryParseIsolatedArg(raw, out a),
+                             TestCommandRunTests.TryParseStrictArg(raw, out b));
+                Assert.Equal(a, b);
+            }
+            foreach (var raw in new[] { "", "True", "1" })
+            {
+                Assert.False(TestCommandRunTests.TryParseIsolatedArg(raw, out a));
+                Assert.False(TestCommandRunTests.TryParseStrictArg(raw, out b));
+            }
+        }
     }
 }

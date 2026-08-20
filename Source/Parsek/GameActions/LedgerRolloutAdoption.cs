@@ -549,11 +549,26 @@ namespace Parsek
                 string oldDedup = a.DedupKey;
                 a.RecordingId = recordingId;
                 a.DedupKey = null;
+
+                // MUST bump, for the same reason the duplicate-swap above does and for
+                // the same reason RecordingTreeSplitter's Step9 retag bumps explicitly.
+                // Adoption changes which RECORDING an existing row belongs to, and the
+                // consumers that answer per-recording questions cache against
+                // Ledger.StateVersion: SupersedeCommit's world-action safety cache keys
+                // on it (worldActionSafetyCacheLedgerVersion), so an unbumped adoption
+                // leaves the safety gate answering "no world action" for a recording
+                // that has just acquired one; EffectiveState.ComputeELS caches on the
+                // same version. Same stale-cache class as
+                // LEDGER-TRUNCATE-LEAVES-A-STALE-ELS-CACHE, which the L3 reading run
+                // 2026-08-18_2136 measured live.
+                Ledger.BumpStateVersion();
+
                 ParsekLog.Info(Tag,
                     $"TryAdoptRolloutAction: recording '{recordingId}' adopted rollout action " +
                     $"(UT={a.UT:F1}, cost={a.FundsSpent:F0}, oldDedupKey={oldDedup}, " +
                     $"startUT={startUT:F1}, lag={startUT - a.UT:F1}s, " +
-                    $"context={FormatRolloutAdoptionContext(recordingContext)})");
+                    $"context={FormatRolloutAdoptionContext(recordingContext)}, " +
+                    $"stateVersion={Ledger.StateVersion.ToString(CultureInfo.InvariantCulture)})");
                 return a;
             }
 

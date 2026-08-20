@@ -4480,6 +4480,7 @@ namespace Parsek
             try { return ReadUnityApplicationIsPlayingCore(); }
             catch (System.Security.SecurityException) { return false; }
             catch (System.TypeInitializationException) { return false; }
+            catch (MissingMethodException) { return false; }
         }
 
         /// <summary>

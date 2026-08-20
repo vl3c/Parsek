@@ -1,0 +1,1262 @@
+schema = 1
+id = "B25-laythe-orbit"
+# =====================================================================================
+# B25: THE FIRST JOOL-MOON LANE, and the first INWARD transfer the suite has ever
+# flown. The crewed Duna Rocket starts ALREADY PARKED in a 584,321 x 584,330 km
+# Jool orbit - B22's own terminal park - transfers DOWN to LAYTHE, captures into
+# a Laythe park and commits the tree there. THE RECORDING IS THE PRODUCT.
+#
+# WHY THIS LANE EXISTS, and it is NOT "a fifth moon". Two reasons, one about the
+# research programme and one about the machine.
+#
+#   (1) IT STARTS POPULATING THE J-TABLE.
+#       `docs/dev/research/same-parent-reaim-jool-system.md` section 3.1 carries a
+#       committed six-row table of the Jool moons, and every conclusion in
+#       sections 3.3 / 3.4 / 6 about the Jool lattice is arithmetic over rows
+#       NOBODY HAS FLOWN. Section 9 measured the arithmetic at GILLY (an Eve moon
+#       carried in that table as the "calibration case for the Bop/Pol rows"), and
+#       section 9.5 leaves the Jool rows themselves untouched-but-unmeasured.
+#       LAYTHE IS THE FIRST OF THEM. Its row reads:
+#
+#         SMA 27,184,000 m   ecc 0   P 52,980.879 s   v_orb 3,223.8 m/s
+#         SOI 3,723,645.8 m  tol = SOI/v = 1,155.0 s  duty = tol/P = 0.021801
+#
+#       and every one of those is checked rather than quoted in
+#       `missions/lib/test_b25_laythe_orbit.py::LaytheConstantsTests`. Laythe is
+#       the LOOSEST-tolerance subject in the table (duty 2.18e-2, against Gilly's
+#       6.37e-4 - 34x looser), which is exactly why it is the right FIRST Jool
+#       moon: the routing question is asked where a residual cannot hide, and the
+#       tolerance question was already asked at Gilly where it could not hide.
+#
+#       AND THE CONTRIBUTION IS CONCRETE RATHER THAN THEMATIC. That document's
+#       section 7 carries a J1-J5 open-items table which is "the standing request,
+#       not a pending result". This program measures EXACTLY ONE THIRD OF J1 and
+#       nothing else, and it is worth saying which:
+#         J1 (live `P_Laythe`)   MEASURED - V16M/V16T's `Orbital(Laythe)
+#             same-parent P=...` line prints the period the GAME resolves, against
+#             the 52,980.879454 s this header derives from the stock elements. The
+#             Vall and Tylo thirds are untouched.
+#         J2 (live moon SOI radii)  NOT measured. Nothing in this lane prints an
+#             SOI radius, and the 3,723,645.8 m used throughout is the table's
+#             WIKI figure, which J2 itself flags for re-reading (Jool's own
+#             asset-vs-wiki gap was ~14.6 m). Every bound derived from it here
+#             carries tens of percent of margin, so a metres-scale correction
+#             moves nothing - but this lane does not discharge J2 and must not be
+#             read as doing so.
+#         J3 / J4 / J5  UNREACHABLE from a single-moon subject: they are all
+#             properties of a MULTI-moon constraint set, and a park-rooted
+#             single-moon recording emits exactly one constraint by construction.
+#
+#   (2) IT IS THE FIRST INWARD TRANSFER, and that is a MACHINE fact, not a
+#       rocketry one. Every b5 moon-path flight so far (Kerbin->Mun, Kerbin->
+#       Minmus, Duna->Ike, Eve->Gilly) parks LOW and transfers UP to a moon at a
+#       HIGHER radius. This park sits at 590,325,784.59 m, which is 3.28x Pol's
+#       179,890,000 m orbit - OUTSIDE the entire Jool moon system - so every moon
+#       transfer from it is a RETROGRADE ejection onto a transfer whose PERIAPSIS
+#       is the intercept and whose APOAPSIS never moves. Two mlib sites encode
+#       "outward" and are audited in their own block below (THE INWARD-TRANSFER
+#       AUDIT). Both are handled with VALUES; nothing in `mlib` was touched.
+#
+# PHASE-0 DOOR: existing fixture, NO FORGE FLIGHT -- via a PARSEK-STRIPPED
+# DERIVED COPY, `jool-park-nerv`, the THIRD of its kind after `duna-park-probe`
+# (B23) and `eve-park-kerbalx` (B24). See [fixture] for how it was made and why
+# the strip is the lane's precondition rather than tidiness.
+#
+# NO MACHINE CHANGE. `startInOrbit` is body-generic and was live-proven on B23
+# flight 2; `ejectionEccFloor` is the B7/B15/B16/B17/B19/B20/B21/B22 branch and
+# is not gated on `interplanetaryTransfer` anywhere. `b25_laythe_orbit.py` is a
+# thin alias and its schema is B24's param set plus the one OPTIONAL key
+# (`ejectionEccFloor`) those eight lanes already declare. Every Laythe-specific
+# decision below is a VALUE.
+#
+# =====================================================================================
+# THE DELTA-V, DERIVED END TO END. Every input is MEASURED off the fixture's own
+# bytes or read from the stock part cfgs in the dev install. Nothing is scaled
+# from another lane (the interplanetary-dv-sizing rule: never ratio-scale dv
+# between targets).
+#
+# WHAT THE CRAFT HAS. Part masses are read from the PART nodes' OWN `mass` +
+# `modMass` fields in `jool-park-nerv/persistent.sfs` (unchanged by the strip)
+# and cross-checked against `Kerbal Space Program/GameData/Squad/Parts/**`:
+#   mk1pod.v2 0.80 + HeatShield1 0.10 + Decoupler.1 0.04 + 6x MK1Fuselage 1.50
+#   + nuclearEngine 3.00 + 4x radialDecoupler 0.10 + 8x noseCone 0.24
+#   + 8x strutConnector 0.40 + 4x fuelLine 0.20 + 2x solarPanels2 0.05
+#   + 2x radialDrogue 0.15 + commDish 0.10 + parachuteSingle 0.10
+#   => 6.780 t structural
+#   + Ablator 200 x 0.001 = 0.200 + MonoPropellant 10 x 0.004 = 0.040
+#   + ElectricCharge 50 x 0 = 0 + 1 crew ~0.16 (Valentina, kerbal 0.09375 +
+#     stock inventory; B24's convention)
+#   => DRY / BURNOUT 7.180 t
+#   PROPELLANT: LiquidFuel 945.082 / 2400 at 0.005 t/unit = 4.725 t, and ALL of
+#   it is usable - the NERV is LF-ONLY and all six MK1Fuselage tanks are LF-only,
+#   so there is no stranded oxidizer to discount (the B24 9:11-balance check does
+#   not arise here).
+#   => WET 11.905 t
+#   nuclearEngine (NERV): Isp 800 s vac, 60 kN, 3.0 t (cfg-verified).
+#   => dv = 800 * 9.80665 * ln(11.905 / 7.180) = 3,967.3 m/s
+#      (4,033.5 / 3,903.3 across a +-0.15 t dry-mass band)
+#
+# WHAT THE HOP COSTS. Stock constants mu_Jool = 2.82528e14, R_Jool = 6,000,000,
+# r_park = 590,325,784.59 (MEASURED SMA), a_Laythe = 27,184,000, mu_Laythe =
+# 1.962e12, R_Laythe = 500,000, atmosphere top 50,000, SOI 3,723,645.8.
+#
+#   INWARD Hohmann: a_t = (590,325,784.6 + 27,184,000) / 2 = 308,754,892.3 m,
+#   ecc_t = 0.911956. The burn is at the PARK, which is the transfer's APOAPSIS.
+#     v_park (circular)                        691.81 m/s
+#     v at transfer apoapsis                   205.27 m/s
+#     => DEPART, coplanar, RETROGRADE          486.53 m/s
+#   PLANE. The park reads INC 3.005060548898792 deg and Laythe's inclination is
+#   ZERO, so the relative inclination is EXACTLY the park's own 3.005 deg and is
+#   LAN-independent (a plane's angle to the equator does not depend on where it
+#   crosses it). Two placements, and the table below carries the pessimistic one:
+#     folded into the departure at a NODE   486.93   (+0.40 over coplanar - the
+#       rotation is applied to the 205.3 m/s outgoing leg, so it is nearly free)
+#     as a SEPARATE pure plane change at the park, off-node
+#                                            +36.28  => 522.81 TOTAL
+#   ARRIVAL: v at the transfer's periapsis 4,457.72 against Laythe's 3,223.84
+#     => v_inf 1,233.88 m/s
+#   CAPTURE = sqrt(v_inf^2 + 2*mu/r_p) - sqrt(mu/r_p):
+#     pe alt   60 km  -> 1,048.8 m/s     pe alt  250 km  ->   981.5 m/s
+#     pe alt  900 km  ->   895.9 m/s     pe alt   55 km  -> 1,051.1 m/s
+#
+# THE VERDICT, and it is the most comfortable of any capture lane in the suite:
+#   available            3,967.3 m/s
+#   WORST hop            1,573.9 m/s  (522.81 pessimistic departure + 1,051.1
+#                                      capture at the lowest admissible periapsis)
+#   => MARGIN 2,393.4 m/s, i.e. 152% over the worst hop and 60% of the tank.
+# The NERV is what buys it: 800 s of Isp against the Poodle's 350 turns 4.7 t of
+# fuel on a 11.9 t stack into nearly 4 km/s. That margin is why this lane can
+# afford a 200 m/s correction cap where B24 could afford only 50 (see
+# `maxCorrectionDvMps`), and it is the ONE thing about this profile that is not
+# tight.
+#
+# =====================================================================================
+# THE ORBITS, DERIVED. All from the stock constants above.
+#   park period    2*pi*sqrt(r^3/mu)  = 5,361,505.4 game s
+#   Laythe period  2*pi*sqrt(a^3/mu)  =    52,980.879454 game s
+#   SYNODIC        1/|1/T1 - 1/T2|    =    53,509.6 game s
+#   transfer coast pi*sqrt(a_t^3/mu)  = 1,014,004.5 game s (46.9 Kerbin days)
+#
+# NOTE HOW THE PERIOD ORDERING INVERTS, because every budget in the suite was
+# sized under the opposite one. On Kerbin->Mun / Duna->Ike / Eve->Gilly the park
+# period is the SHORT one and the synodic is roughly one park orbit, so "the
+# window wait is about one park orbit" is the sizing rule. HERE the park period
+# (5,361,505 s) is 101x the moon's, so the synodic is 53,509.6 s = 1.0099x
+# LAYTHE's period and only 0.998% of a PARK orbit: THE WINDOW WAIT IS TRIVIAL and
+# the transfer coast is 19.0x the synodic rather than a fraction of it. Every
+# budget below is sized on that inversion, not on the inherited rule.
+#
+# =====================================================================================
+# THE APPROACH REGIME IS **MIXED**, and it is the third distinct answer in three
+# lanes - which is why it has to be solved rather than copied.
+#
+#   2 * mu_Laythe / r_soi = 2 * 1.962e12 / 3,723,645.8 = 1.0538e6 m^2/s^2
+#   v_inf^2               = 1,233.88^2                 = 1.5225e6 m^2/s^2
+#   ratio v_inf^2 / (2*mu/r_soi)                       = 1.445
+#
+#   Ike   0.24    gravity DOMINATES  (B23 had to solve the hyperbola)
+#   Gilly 11,600  gravity NEGLIGIBLE (B24's straight-line chord was legitimate)
+#   LAYTHE 1.445  BOTH TERMS MATTER  - neither approximation is honest here
+#
+# SO SOLVE THE APPROACH HYPERBOLA (B23's method, arithmetic re-run in
+# `test_b25_laythe_orbit.py`). a = -mu/v_inf^2 = -1,288,708 m; e = 1 + r_p/|a|;
+# SOI entry at r = 3,723,645.8; time from entry to periapsis by hyperbolic
+# Kepler, `M = e sinh H - H`, `t = M sqrt(|a|^3/mu)`:
+#
+#   pe alt   60 km  e = 1.4345   2,047.7 game s   <- the FLOOR of the band
+#   pe alt  250 km  e = 1.5820   2,093.7 game s      (the requested arrival)
+#   pe alt  900 km  e = 2.0864   2,138.7 game s      (the park ceiling)
+#
+# SIZE AGAINST 2,000 GAME SECONDS. The band is remarkably FLAT (a 4.4% spread
+# over a 15x periapsis range) because at this v_inf the trajectory is nearly a
+# straight line through most of the SOI and only bends near periapsis - which is
+# itself the mixed regime showing up as a shape rather than as a number.
+#
+# THE THREE-RULE WARP CONTRACT (B21's header, applied here):
+#   RULE 1  soiLeadSeconds >= 2x the worst single-frame game-time advance at
+#           coastWarpFactor.
+#   RULE 2  approachWindowSeconds >= 2x soiLeadSeconds, so the ceiling is ALREADY
+#           in force when the native warp hands off.
+#   RULE 3  RAILS_WARP_RATES[approachMaxWarpFactor] <= 1/5 of the SOI-entry ->
+#           periapsis coast.
+# The poll-frame unit rules 1 and 3 are measured in: mlib's own
+# `_WARP_SAFETY_SECONDS = 1.0` ("two ~0.5 s polls"), with B19 flight 4's MEASURED
+# 3.16 s frame (27,596 game s at x8,738) as the pessimistic 4 s reading.
+#
+#   RULE 3 -> approachMaxWarpFactor 3 (x50). Budget = 2,000/5 = 400 game s/frame.
+#       factor 5 = x1,000  FAILS   (1,000 > 400)
+#       factor 4 = x100    passes  (100 <= 400) at 4.0x margin
+#       factor 3 = x50     PASSES  (50 <= 400) at 8.0x margin
+#     x100 IS REJECTED DELIBERATELY, and the reason is the PESSIMISTIC frame
+#     rather than the rule: a 4 s frame at x100 advances 400 game s, which is
+#     19.6% of the 2,047 s coast, so FIVE such frames swallow it end to end -
+#     uncomfortably close to B19 flight 4's exact failure on a lane that has
+#     never been flown in this direction before. At x50 the same frame is 9.8%
+#     and it takes ten. THE PRICE, stated rather than buried: the clamped stretch
+#     is approachWindowSeconds/50 = 200 wall s against 100 at x100, i.e. 100 wall
+#     s on a 5,400 s mission budget.
+#   RULE 1 -> coastWarpFactor 5 (x1,000), soiLeadSeconds 3,000 (B23's value). One
+#     NOMINAL 0.5 s poll at x1,000 advances 500 game s, so the lead is 6.0x it.
+#     WHY NOT x10,000, which the 1,014,005 s coast might seem to argue for: rule
+#     1 would then demand a lead >= 10,000 and rule 2 a window >= 80,000 game s,
+#     which at the x50 approach ceiling costs 1,600 WALL SECONDS ON EVERY FLIGHT.
+#     x1,000's cost is the rails FALLBACK only - if `time_to_soi` ever goes blind
+#     for the whole coast, 1,014,005/1,000 = 1,014 wall s - and that fallback is
+#     not the primary path: while `time_to_soi` reads finite the coast flies a
+#     precise native `warp_to(ut + tts - lead)`, which is NOT bounded by this
+#     factor. Paying a certain 1,600 to avoid a contingent 1,014 is the wrong
+#     trade.
+#   RULE 2 -> approachWindowSeconds 10,000: 3.3x the lead, and >= 2x ONE
+#     PESSIMISTIC 4 s coast frame at x1,000 (4,000 game s), which is the binding
+#     form. A frame entering from `tts` just above the window lands at
+#     `tts ~ 6,000` - still inside, where `approach_warp_clamp` holds the x50
+#     ceiling and re-targets the native warp at the lead.
+#   IN-SOI PAIR: flybyWarpFactor 2 (x10) / flybyMaxWarpFactor 3 (x50), both at or
+#     under the approach ceiling. One nominal frame at x50 is 25 game s = 1.2% of
+#     the 2,047 s in-SOI coast. B23 used 3/4 on a 4,328 s coast and B24 1/2 on a
+#     300 s one; 2/3 is this coast's place in that ordering, derived not copied.
+#   ALTITUDE LEGALITY, checked because Laythe has an atmosphere and the stock
+#     table is per-body: `mlib.STOCK_WARP_ALTITUDE_LIMITS["Laythe"]` is
+#     (0, 30k, 30k, 60k, 120k, 240k, 480k, 600k), so factor 3's floor is 60,000 m
+#     - EXACTLY the park floor below - and every commanded factor is
+#     pre-clamped to it anyway.
+#
+# =====================================================================================
+# THE INWARD-TRANSFER AUDIT. Read this before changing any correction or
+# burn-evidence value; it is the only part of this spec that is about the MACHINE
+# rather than about Laythe.
+#
+# The whole b5 moon path was walked end to end against the question "what here
+# assumes the transfer goes OUTWARD?". FIVE of seven areas are direction-agnostic
+# by construction and are named here so the claim is checkable rather than
+# asserted:
+#
+#   * THE PLAN CALL. `_b5_transfer_plan_action` (mlib) emits
+#     `ACTION_MJ_PLAN_TRANSFER` when `interplanetaryTransfer` is false, and the
+#     runner's handler sets `operation_transfer.rendezvous = True` and calls
+#     `make_nodes()`. No argument encodes a direction or a "raise"; MechJeb's
+#     targeted Hohmann is a general two-orbit solve.
+#   * THE COAST. Every gate in COAST-TO-TARGET is body- or time-based:
+#     `snapshot.body == target_body` for arrival, `body not in _b5_coast_bodies`
+#     for the ejection guard, `ut + time_to_soi - soi_lead` for the native warp,
+#     and `approach_latch_state` / `approach_warp_clamp` read only `time_to_soi`
+#     and `next_body`. There is no apoapsis or altitude-increasing gate anywhere
+#     in it, and the one place `vertical_speed` is read takes its absolute value.
+#   * THE WINDOW LOGIC. mlib's only window solver is the PAD-ALIGN heliocentric
+#     family, and `b5_params_from_dict` hard-rejects `padAlignEjection` without
+#     `interplanetaryTransfer`, so it is unreachable here. On the moon path the
+#     window is entirely MechJeb's, and nothing in mlib compares the park period
+#     to the target's - which matters, because THIS lane is the first where the
+#     park period is the LONGER one.
+#   * TARGET-FLYBY AND CAPTURE. The capture arm gate, the in-SOI warp target
+#     (`ut + time_to_periapsis - lead`), the capture-done window
+#     (`0 < ap <= park_max_apoapsis`, `pe >= park_min_periapsis`,
+#     `ecc <= park_max_ecc`) and `_b5_left_target_soi` are all read in the TARGET
+#     body's own frame and say nothing about which side the craft arrived from.
+#     The capture plan is MechJeb circularize-at-periapsis - no direction input.
+#   * THE BURN-STAGNATION WATCHDOG. `_b5_track_burn_stagnation` compares BOTH
+#     apsides against their burn-entry values, so an inward burn that moves only
+#     periapsis still registers `burned`.
+#
+# TWO SITES DO ENCODE "OUTWARD", and both are in the same family - EVIDENCE KEYED
+# TO AN APSIS RISING. Both are handled with values; neither needs an mlib change.
+#
+#   (A) TRANSFER-BURN's BURN-DONE EVIDENCE IS VACUOUS HERE.
+#       `_b5_transfer_burn_done`'s default branch is
+#       `apoapsis >= transfer_min_apoapsis`. The retrograde burn happens AT the
+#       park, which BECOMES the transfer's apoapsis, so the home-frame apoapsis
+#       does not move: any floor above the park's 584,330,474 m is unreachable
+#       forever, and any floor below it is already satisfied on the frame BEFORE
+#       the burn - which would leave `consumed` (an empty node list) as the sole
+#       exit evidence and disarm the phase's whole purpose.
+#       THE FIX IS THE EXISTING `ejectionEccFloor` BRANCH, which is
+#       direction-agnostic: it reads the HOME-frame eccentricity, and this
+#       transfer takes it from the park's 7.944e-06 to 0.911956. It is NOT gated
+#       on `interplanetaryTransfer` anywhere in `b5_params_from_dict`, so this is
+#       a values-only use of an eight-lane-proven branch.
+#       AND NOTE ITS FIRST DISJUNCT: the branch returns True immediately when
+#       `snapshot.body in via_bodies or snapshot.body == target_body`. Naming the
+#       HOME body in `viaBodyNames` would therefore make the ecc floor vacuous in
+#       a different way, which is why `viaBodyNames` is left EMPTY below.
+#
+#   (B) THE ALTITUDE CORRECTION TRIGGER CANNOT SPACE ROUNDS ON A DESCENT.
+#       `_b5_correction_round_ready`'s altitude mode is a bare LEVEL test -
+#       `body == home and altitude >= trigger[idx]` - not a rising-edge crossing.
+#       On this lane altitude DECREASES from 584,330,474 m, so a trigger above
+#       the park never fires at all and a trigger below it fires on the FIRST
+#       coast frame; there is no value that places a second round mid-coast. (The
+#       failure is not silent-and-harmless either: a `[0, X]` list would fire both
+#       rounds back to back at transfer start, which is precisely the shape the
+#       mid-coast round was added to prevent.)
+#       THE TIME-MODE ALTERNATIVE IS DIRECTION-AGNOSTIC BUT COLLIDES WITH (A).
+#       `correctionTriggerTimeToSoiSeconds` reads `time_to_soi <= threshold`,
+#       which descends monotonically whichever way the craft is going - but its
+#       body domain is `_b5_correction_via_bodies`, which on the moon path
+#       returns `via_bodies` VERBATIM, so it would need `viaBodyNames = ["Jool"]`
+#       - the exact key (A) requires to stay empty. THE TWO WORKAROUNDS ARE
+#       MUTUALLY EXCLUSIVE WITHOUT A MACHINE CHANGE, and this lane takes (A),
+#       because burn evidence is a correctness question and round spacing is a
+#       quality one.
+#       THE DISPOSITION, stated plainly rather than papered over: this lane
+#       declares exactly ONE scheduled correction round (`[0]`, immediately
+#       post-burn) and delegates the LATE refinement to mlib's own
+#       direction-agnostic ARRIVAL-QUALITY extras
+#       (`MAX_ARRIVAL_EXTRA_ROUNDS = 2`, granted when the PREDICTED Laythe
+#       periapsis is below `targetPeriapsisFloorMeters` while `time_to_soi` sits
+#       in (600, 3600) s). THAT IS A SAFETY NET, NOT A GENERAL REFINEMENT: it
+#       fires only when the arrival is heading BELOW the floor, so a merely
+#       mediocre arrival gets no second look. This is a KNOWN, ACCEPTED
+#       degradation of the mid-coast round on this lane, and if flight 1 shows
+#       the arrival drifting the honest fix is a periapsis-side burn-done
+#       predicate in mlib (a `transferMaxPeriapsisMeters`, which does not exist
+#       today), NOT a widened `viaBodyNames`.
+#
+#   AND ONE HAZARD THAT IS GEOMETRY RATHER THAN DIRECTION, but arises only here:
+#   the descent from 590.3 Mm to 27.2 Mm crosses the orbital SHELLS of Pol
+#   (179.89 Mm), Bop (128.5 Mm), Tylo (68.5 Mm) and Vall (43.152 Mm). MechJeb's
+#   transfer solver targets Laythe and does not avoid moons. Machine-side this
+#   fails LOUDLY and correctly - `_b5_coast_bodies` is `("", home) + via_bodies`,
+#   so any other body's SOI is an immediate ASSERT-FAIL "left home SOI without
+#   reaching the target" - but the RECORDING would still carry the crossing, and
+#   the recording is the product. Hence the four named-poison forbidden token
+#   pairs below (the B17 pattern).
+#
+# =====================================================================================
+# COMMIT ACCOUNTING. There is EXACTLY ONE commit: the MID-MISSION one the machine
+# fires from ORBIT-COMMIT via the route-1 seam bridge. There is deliberately NO
+# post-mission CommitTree step -- the seam's CommitTreeImpl answers ERROR
+# `no-active-tree` when no tree is live, which after the mid-mission commit is the
+# expected state, and the step would make every green flight driver-INVALID (the
+# B11/B17/B23/B24 accounting rule verbatim).
+#
+# THE RECORDING IS CREWED (Valentina Kerman, Pilot, in the mk1pod.v2), which puts
+# it in the same class as B24's product rather than B23's. V8's
+# `eve-orbit-recorded` and B24's `gilly-orbit-recorded` are the standing
+# precedents that a crewed loop subject works end to end; nothing here gates it.
+#
+# =====================================================================================
+# FLIGHT LEDGER. TWO FLIGHTS, AND THE FIRST ONE IS WHY THE SECOND IS TRUSTWORTHY.
+#
+# FLIGHT 2, run `2026-08-19_2039`: **PASS attempt 1**, mission wall 741.6 s, the
+# FULL phase chain through ORBIT-COMMITTED. Every assertion met:
+#   startedInHomeOrbit     ecc 7.944062689356231e-06 in the Jool entry gate, on a
+#                          584,321,095.004 / 584,330,474.174 park
+#   reachedTargetSoi       Laythe
+#   flybyPeriapsisFloor    71,625.224 m   (against the 60,000 m floor - 1.19x)
+#   capturedInTargetOrbit  87,931.336 x 56,240.289 m at ecc 0.0277
+#   parkedStable           held through the 180 s dwell
+#   treeCommitted          OK, body Laythe
+# All five required tokens present in the collected KSP.log and ALL NINE forbidden
+# absent - the ERROR floor plus every one of the eight Vall / Tylo / Bop / Pol
+# named-poison forms, on a descent that crosses all four of their orbital shells.
+# `Atmospheric` occurs ZERO times, which is the product-quality reading the 52 km
+# floor exists for. `startrecording ... already=false` again, minting the fresh
+# standalone Jool-rooted tree `0ffee6458331466481f5c7aa0212b515`; `rounds=2
+# extraRounds=1` again, so the arrival-quality delegation fired on this flight too.
+#
+# **THE 52,000 m FLOOR IS VINDICATED, AND THE MARGIN IS MEASURED RATHER THAN
+# ARGUED.** Across the three deliveries this profile has now produced -
+# 55,089.447 (f1 a2), 56,240.289 (f2) and 56,667 (f1 a1) - the tightest sits
+# 3,089 m above the floor and the loosest 4,667 m, i.e. the floor holds with 2.0x
+# to 3.0x of the 1,578 m inter-delivery spread underneath it, and every one of the
+# three clears Laythe's 50 km atmosphere by 5.1-6.7 km. The OLD 60,000 floor would
+# have refused ALL THREE.
+#
+# **AND THE FINITE-BURN WEDGE REPRODUCED A THIRD TIME.** Flight 2's arrival
+# minimum was 71,625.224 m and its park periapsis 56,240.289 m: a **15,384.9 m**
+# drop, against 15,382 m and 15,415 m on flight 1's two attempts. THREE FLIGHTS,
+# A 33 m SPREAD. The diagnosis below is not a story fitted to one reading.
+#
+# The produced save is harvested `--keep-parsek` into the committed
+# `laythe-orbit-recorded` fixture (payload pinned in
+# `test_saveparse.py::CommittedFixtureSweepTests.RECORDED_FIXTURES`), which is
+# what V16M/V16T consume and what their jump tables are calibrated off.
+#
+# ONE MORE MEASUREMENT WORTH CARRYING: flight 2's arrival CONIC read
+# `ap -5,286,554.250 pe 71,808.554 ecc 1.271` and MechJeb priced the capture at
+# 939.321 m/s - within 0.5 m/s of flight 1's 939.785 on a conic identical to three
+# decimal places in eccentricity. The under-delivery ratio is now n = 3 at
+# req/SOI = 6.71%: **k = 0.289 / 0.283 / 0.287**, a 2% spread. See
+# `courseCorrectPeriapsisMeters` for what that does to the finding-16d corpus.
+#
+# FLIGHT 1, runs `2026-08-19_1948` (attempt 1) and `2026-08-19_2001` (attempt 2):
+# **INVALID(driver-flake) BOTH ATTEMPTS, AND THE FLAKE WAS THE WINDOW, NOT THE
+# FLIGHT.** It is kept in full below rather than summarised, because everything
+# flight 2 relies on - the resized floor, the finite-burn diagnosis, the absence
+# of a periapsis-raising trim - was measured HERE. Read the verdict line
+# carefully before concluding anything:
+#
+#   phase CAPTURE-BURN: capture under-burn (burn progress stalled with nodes=0;
+#   ap=86843 pe=55089 ecc=0.028 is not a bound orbit inside
+#   [pe>=60000, ap<=900000, ecc<=0.25])
+#
+# An 86,843 x 55,089 m orbit at ecc 0.028 IS a healthy, near-circular, stable
+# Laythe park. The capture and the circularization BOTH WORKED. What failed is
+# this spec's own declared floor: the delivered periapsis sat 4,911 m below a
+# `parkMinPeriapsisMeters` of 60,000, so the PARK gate never opened, and mlib's
+# under-burn classifier - which fires when burn progress stalls with `nodes=0` and
+# the orbit is outside the capture window - named a healthy park an under-burn.
+# THE CLASSIFIER IS NOT WRONG EITHER: from inside CAPTURE-BURN, "the window is not
+# satisfied and nothing is still burning" is exactly what an under-burn looks like.
+# It is the WINDOW that was wrong, and it has been resized to the measurement.
+#
+# WHAT THE MACHINE ACTUALLY DID, phase by phase, because this is the evidence that
+# the INWARD-TRANSFER AUDIT's three workarounds all held:
+#   phasesReached = PRELAUNCH, ORBIT, PLAN-TRANSFER, TRANSFER-BURN,
+#     COAST-TO-TARGET, PLAN-CORRECTION, CORRECTION-BURN, COAST-TO-TARGET,
+#     PLAN-CORRECTION, CORRECTION-BURN, COAST-TO-TARGET, TARGET-FLYBY,
+#     PLAN-CAPTURE, CAPTURE-BURN
+#   * AUDIT ITEM (A), THE ECC BURN-DONE FLOOR: PROVEN. `startedInHomeOrbit` met
+#     (`value=7.944061403402496e-06`, the fixture's own park read back through the
+#     gate to nine figures), then TRANSFER-BURN EXITED - which under
+#     `ejectionEccFloor` it can only do on a home-frame eccentricity at or above
+#     0.55. The corrected transfer's last Jool-framed frame reads `ecc=0.954`
+#     (ap 1,188,686,003 / pe 21,966,029), so the floor was cleared by 0.40 and the
+#     apoapsis floor this replaced would have been satisfied at the park, before
+#     the burn. `transferNodeUt=27815187.750` against `launchUt=27787322.260` puts
+#     the window wait at **27,865.5 s = 0.521 synodic**, dead on the half-synodic
+#     the runtime block assumed.
+#   * AUDIT ITEM (B), THE SINGLE ROUND PLUS ARRIVAL-QUALITY EXTRAS: PROVEN, AND THE
+#     DELEGATION FIRED. The machine reports `rounds=2 extraRounds=1`: the ONE
+#     scheduled round plus ONE direction-agnostic arrival-quality extra, which is
+#     the fallback this spec argued for in the abstract and has now been observed
+#     doing its job on a descending coast.
+#   * THE NAMED-POISON GUARD: CLEAN. The collected KSP.log carries EXACTLY ONE
+#     `SOI change boundary suppressed in tree mode: Jool to Laythe` (line 11725)
+#     and **ZERO** occurrences of all eight Vall / Tylo / Bop / Pol tokens. The
+#     descent crossed four moon shells and touched none of their SOIs.
+#   * THE FIXTURE STRIP: PROVEN. `startrecording
+#     recordingId=9097fdc11ba0463ca958c6968b68f072 already=false` - `already=FALSE`,
+#     minting the fresh STANDALONE Jool-rooted tree `9ea95d44de8d4df5836915043b30a2bd`,
+#     which is the whole reason `jool-park-nerv` exists.
+#   * ZERO `[Parsek][ERROR]` and ZERO `Atmospheric` occurrences in the whole log.
+#
+# THE CAPTURE, DIAGNOSED FROM THE BYTES, because "under-burn" is exactly what it
+# was not:
+#   arrival conic at PLAN-CAPTURE   ap -5,288,742.279  pe 70,687.916  ecc 1.271
+#     => a = r_p/(1-e) = -2,105,860 m, v_inf = sqrt(mu/|a|) = **965.24 m/s**
+#     (the header derived 1,233.88 for a pure Hohmann; the corrections reshaped the
+#     transfer to ap 1,188,686,003 / ecc 0.954 and the arrival came in 21.8%
+#     SLOWER, which is cheaper, not worse)
+#   ideal circularize-at-periapsis at that r_p = **940.035 m/s**
+#   MechJeb planned                                **939.785 m/s**, node UT
+#     28,816,737.965 - which IS the periapsis UT (ttPe 2,235.877 at ut
+#     28,814,502.088 lands exactly there). So PLAN-CAPTURE planned the textbook
+#     node at the right apsis, to 0.25 m/s.
+#   the vessel BURNED (LF 784.885 -> 534.786, i.e. 11.104 -> 9.854 t)
+#                                                  **937.3 m/s** - a 2.5 m/s
+#     (0.27%) shortfall. The burn was essentially complete.
+#   SO WHY DID THE PERIAPSIS FALL 15.4 km? FINITE BURN. 937 m/s at 60 kN on an
+#     11.1 t stack is a=5.40 m/s^2 and a **163.5 s** burn, straddling a periapsis
+#     the craft crosses at 2,794 m/s. The impulsive idealisation keeps periapsis
+#     and drops apoapsis onto it; a burn that long sweeps a large true-anomaly arc,
+#     so half the retrograde dv lands while the craft is still inbound and the apse
+#     line rotates. The signature is SYSTEMATIC, not random: 15,382 m on attempt 1
+#     and 15,415 m on attempt 2. This is the direct consequence of the sizing note
+#     already in the housekeeping block - the NERV makes this the
+#     slowest-accelerating capture burn any lane has flown.
+#   AND THE PARK IS STABLE. 55,089 m is 5,089 m (1.10x) above Laythe's 50,000 m
+#     atmosphere top; KSP applies no drag above `atmosphereDepth`, so an on-rails
+#     park there does not decay at all. Apoapsis 86,843 m = 586,843 m of radius =
+#     **15.8% of the SOI radius**. The orbit is fine; only the window was wrong.
+#   THERE IS NO PERIAPSIS-RAISING TRIM TO REACH FOR. mlib's only round-out step
+#     (`_b5_park_trim_step`, a circularize-at-APOAPSIS plan armed by
+#     `parkTrimEccMax`) is called from `B5_CIRCULARIZE` ONLY - the ASCENT
+#     circularization phase. `startInOrbit = true` hands PRELAUNCH straight to
+#     ORBIT and never enters MJ-ASCENT or CIRCULARIZE, so the trim is
+#     STRUCTURALLY UNREACHABLE here (`parkTrimPlans=0 parkTrimBurns=0` on both
+#     attempts, and no value can change that). The delivered periapsis is what the
+#     park window must accept.
+#
+# THE FIX, AND WHAT WAS DELIBERATELY *NOT* DONE. `parkMinPeriapsisMeters` 60,000
+# -> 52,000 and NOTHING ELSE (see that key's block for the two hard bounds it is
+# squeezed between). The other lever - raise `courseCorrectPeriapsisMeters` so the
+# delivered arrival lands high enough that arrival-minus-15.4 km clears 60,000 - is
+# REJECTED, with its arithmetic written out so a future flight can revisit it:
+#   MEASURED UNDER-DELIVERY: a 250,000 m request delivered arrival periapsides of
+#     72,233 m and 70,688 m, i.e. **k = 0.289 and 0.283 at req/SOI = 6.71%**.
+#     THIS IS A REAL FINDING FOR THE finding-16d CORPUS AND IT REFUTES THIS SPEC'S
+#     OWN PRE-FLIGHT REASONING: the request was chosen to sit near the Eve row
+#     (5.875%, k = 0.997) and it came in at k ~ 0.286, BELOW even the Mun row's
+#     0.545. The "k inverts to ~1 above 4%" reading does not survive a fourth
+#     point. Recorded, not generalised - and NOT used to re-aim, because:
+#   TO CLEAR 60,000 AT THE CENTRAL RATIO needs only ~264,000 m, which is a
+#     one-point extrapolation of a ratio the corpus says carries a ~3x spread.
+#   TO CLEAR IT AT THE CORPUS'S 3x-SHORT END needs request >= 790,900 m, whose
+#     3x-LONG end delivers a ~663 km park (period 6,269 s against the ~1,880 s
+#     this profile just flew). That is a different product, it would move every
+#     V16M/V16T destination-phase seed, and it is sized against a 3x spread THIS
+#     BODY HAS NOT EXHIBITED - the two attempts agreed to 1.1%.
+#   So the aim stays at 250,000 and the WINDOW moved. B17's precedent verbatim:
+#   nothing relaxed, an entry window resized to a measured delivery.
+#
+# WHAT ELSE THE FLIGHT CONFIRMED, all of it strengthening rather than moving a
+# parameter:
+#   * THE APPROACH COAST IS *LONGER* THAN DERIVED, so every warp bound gained
+#     margin. On the measured conic (e 1.271, |a| 2,105,860) the hyperbolic-Kepler
+#     SOI-entry -> periapsis time is **2,280.1 s**, against the 2,048-2,139 s band
+#     derived at the faster Hohmann v_inf and the 2,000 s floor everything was
+#     sized on. Rule 3's margin is therefore 9.1x rather than the argued 8.0x.
+#     No warp value moves.
+#   * THE SPAN AND THE SEAM, which V16M/V16T's brackets are anchored on, are now
+#     MEASURED rather than estimated - see V16M header section 3, which has been
+#     re-derived from this timeline. The headline: `span/P = 19.435`, so
+#     **k = 20 is now BOUNDED rather than seeded** (k = 21 would need a span above
+#     20P = 1,059,617.589 s, and even a FULL-synodic window wait tops out at
+#     1,055,344 s - 4,273.5 s of slack).
+#   * dV was never stressed: 534.786 LF remained of 945.082, i.e. 2.674 t of the
+#     4.725 t still aboard at the moment of capture.
+#
+# WHAT FLIGHT 1 LEFT UNPROVEN AND FLIGHT 2 CLOSED: the PARK dwell, the
+# ORBIT-COMMIT, the `terminalOrbitBody=Laythe` token and the recordings count -
+# all four green on flight 2, all four downstream of the gate that moved.
+#
+# ONE THING NEITHER FLIGHT SETTLED, and it is not this lane's to settle: whether
+# the optimizer keeps the Jool->Laythe boundary COHESIVE. The load-time pass that
+# emits `Split summary: ... exoCoastBodyChangeKept=` has no occasion to run inside
+# either run's life - both commit and flush without re-loading - so the crossing's
+# first real evaluation is V16M/V16T's LoadGame, exactly as at Duna->Ike and
+# Eve->Gilly. Read it there.
+#
+# =====================================================================================
+# POSTURE: LIVE-PROVEN, NOTHING ARMED. Flight 2 is green and the recordings window
+# MEASURED 1, but nothing here is pinned or gated: no `gating = true` block
+# anywhere, the count stays the DERIVED {1,2} range, and
+# `[expectations.recordings.structure]` / `[expectations.recordings] points` stay
+# ABSENT. That is the B24 disposition verbatim and for its reason - THE LANE'S
+# PRODUCT IS A FIXTURE, and the fixture's structure is pinned where it is CONSUMED
+# (`CommittedFixtureSweepTests.RECORDED_FIXTURES` pins trees / committedTrees /
+# recordings = 1/1/1 and the recording id byte-for-byte, and V16M/V16T carry their
+# own windows), so a third pin here would add a re-pin obligation without adding a
+# guard. `tier = "operator"` on the calibration discipline
+# (V1/V2/B18/B19/B20/B21/B23/B24 precedent).
+# =====================================================================================
+tier = "operator"
+description = "LIVE-PROVEN 2026-08-19 ON FLIGHT 2 (run `2026-08-19_2039`, PASS attempt 1, mission wall 741.6 s, the full phase chain through ORBIT-COMMITTED): 87,931 x 56,240 m Laythe park at ecc 0.0277, `flybyPeriapsisFloor` 71,625.2, terminal Orbiting/Laythe, all five required tokens present and ALL NINE forbidden absent - the ERROR floor plus every one of the eight Vall/Tylo/Bop/Pol named-poison forms, on a descent that crosses all four of their orbital shells - with ZERO `Atmospheric` occurrences and `startrecording ... already=false` minting the standalone Jool-rooted tree. Its produced save is the committed `laythe-orbit-recorded` fixture V16M/V16T consume. THE FIRST JOOL-MOON SUBJECT and the suite's FIRST INWARD TRANSFER; all three inward-transfer workarounds held on both flights. **FLIGHT 1 (`_1948` / `_2001`) IS WHY FLIGHT 2 IS TRUSTWORTHY** - INVALID(driver-flake) on both attempts, AND THE FLAKE WAS THE WINDOW, NOT THE FLIGHT. The machine flew Jool->Laythe INWARD clean through capture: `startrecording ... already=false` minting a fresh standalone Jool-rooted tree, TRANSFER-BURN exiting on the `ejectionEccFloor` evidence at ecc 0.954 after a 27,865.5 s (0.521 synodic) window wait, one scheduled correction plus one direction-agnostic arrival-quality extra (`rounds=2 extraRounds=1`), exactly one `SOI change boundary suppressed in tree mode: Jool to Laythe` with ZERO occurrences of all eight Vall/Tylo/Bop/Pol named-poison tokens, zero `[Parsek][ERROR]`, zero `Atmospheric` - so all three inward-transfer workarounds held. PLAN-CAPTURE then planned a 939.785 m/s circularize node AT the arrival periapsis (ideal 940.035) and the vessel burned 937.3 of it (0.27% short), delivering an 86,843 x 55,089 m Laythe park at ecc 0.028 - a healthy, stable, near-circular orbit 5,089 m above Laythe's 50 km atmosphere on rails, where KSP applies no drag. It red because the DECLARED FLOOR was 60,000: the park gate never opened and mlib's under-burn classifier (which fires on stalled progress with `nodes=0` outside the capture window) named a good park an under-burn. DIAGNOSED FROM THE BYTES: the ~15.4 km periapsis drop from the 70.5 km arrival is FINITE BURN - 937 m/s at 60 kN on 11.1 t is a=5.40 m/s^2 and a 163.5 s burn straddling a periapsis crossed at 2,794 m/s - and it is SYSTEMATIC (15,382 m on attempt 1, 15,415 m on attempt 2). There is no periapsis-raising trim to reach for: mlib's only round-out step is called from B5_CIRCULARIZE, which `startInOrbit` never enters. FIXED by resizing `parkMinPeriapsisMeters` 60,000 -> 52,000 and NOTHING else (the B17 precedent: nothing relaxed, an entry window resized to a measured delivery); the ceiling and ecc cap were confirmed comfortable at 10.2x and 8.9x. THE FIX IS VINDICATED AND THE WEDGE REPRODUCED: across the three deliveries this profile has produced (55,089 / 56,240 / 56,667 m) the tightest sits 3,089 m above the floor and all three clear Laythe's atmosphere by 5.1-6.7 km, while the finite-burn drop reads 15,382 / 15,385 / 15,415 m - a 33 m spread over three flights, so the diagnosis is not a story fitted to one reading. The OLD floor would have refused all three. ALSO MEASURED, now n = 3: k = delivered/requested = 0.289 / 0.283 / 0.287 at req/SOI = 6.71%, which REFUTES this spec's own pre-flight reasoning that the request would sit near the Eve row's k = 0.997 - and which clusters to 2%, against a corpus whose stated within-body spread is ~3x. And the harvested recording's span/P = 19.435357 CONFIRMS V16M's k = 20 cadence off measured bytes, the suite's first loop cadence that is not one moon period. ORIGINAL AUTHORING RATIONALE FOLLOWS. THE FIRST JOOL-MOON SUBJECT and the suite's FIRST INWARD TRANSFER: the crewed Duna Rocket begins ORBITING Jool at 584,321 x 584,330 km (B22's own terminal park, 3.28x Pol's orbit and therefore OUTSIDE the whole moon system), transfers DOWN to LAYTHE on a retrograde ejection, captures + circularizes into a Laythe park and mid-mission commits the tree there through the LIVE-PROVEN startInOrbit door. Its produced save is intended as the `laythe-orbit-recorded` fixture V16M/V16T consume, which is why it points at the Parsek-stripped `jool-park-nerv` copy (the third such strip, after duna-park-probe and eve-park-kerbalx) rather than at `jool-orbit-recorded`'s five committed recordings. THE POINT is that Laythe is the first row of the Jool table in docs/dev/research/same-parent-reaim-jool-system.md section 3.1 that anyone has flown - P 52,980.879 s, SOI 3,723,645.8 m, tol = SOI/v_orb = 1,155.0 s, duty 2.18e-2, the LOOSEST-tolerance same-parent subject yet and the deliberate complement to Gilly's tightest. TWO THINGS THE INWARD DIRECTION FORCED, both VALUES: the burn-done evidence moves off the apoapsis floor (which cannot move on a transfer whose burn is at its own apoapsis) onto `ejectionEccFloor = 0.55` - the eccentricity of a transfer whose periapsis has fallen inside Pol's orbit - and the correction schedule drops to ONE round, because the altitude trigger is a level test on a DESCENDING altitude and no value can place a second round mid-coast; the late refinement is delegated to mlib's own direction-agnostic arrival-quality extras. Delta-v is derived rather than scaled: 3,967 m/s available (NERV, Isp 800) against a 1,574 m/s worst hop, a 152% margin - by far the most comfortable capture lane in the suite. The approach regime is the third distinct answer in three lanes: v_inf^2 / (2*mu/r_soi) = 1.445, i.e. MIXED, so the SOI-entry -> periapsis coast is solved on the hyperbola and comes out a remarkably flat 2,048-2,139 game s."
+instanceProfile = "stock-minimal"
+tags = ["B25", "laythe", "jool", "same-parent", "moon", "jool-moon", "inward-transfer",
+        "orbit", "mechjeb", "cross-soi", "capture", "commit-in-foreign-soi",
+        "orbit-start", "crewed", "flown"]
+
+[fixture]
+# `jool-park-nerv`: a DERIVED, PARSEK-STRIPPED copy of B22's
+# `jool-orbit-recorded` (itself the run 2026-08-17_1959 --keep-parsek harvest
+# that V13/V13A consume). NO FORGE FLIGHT was spent on it - it is a transform of
+# committed bytes, which is why the Phase-0 door above still reads "existing
+# fixture".
+#
+# THE WORLD, unchanged from the source and MEASURED off this save's own bytes:
+# at UT 27,787,319.41951086 the Duna Rocket sits parked ORBITING Jool (REF = 8) -
+#   SMA 590,325,784.58972526   ECC 7.9440625486254423e-06
+#   INC 3.005060548898792 deg  LAN 14.077238272783291  LPE 221.96942927144315
+#   periapsis alt 584,321,095.005 m   apoapsis alt 584,330,474.175 m
+#   type Ship, CREWED (Valentina Kerman, Pilot, in the mk1pod.v2), NERV upper
+#   stage, LiquidFuel 945.082/2400 = 4.725 t usable, ~3,967 m/s dv
+# `activeVessel = 1` IS that stage, so the seam's LoadGame lands in FLIGHT with
+# the right craft focused and no switch is needed. RIDE-ALONG AND INERT: the
+# stock asteroid Ast. VPA-167 (heliocentric SpaceObject) and two `Duna Rocket
+# Debris` vessels ORBITING KERBIN - B18-B22's own ascent leftovers, carried
+# through unchanged, exactly as B23's and B24's fixtures carry theirs.
+#
+# HOW IT WAS MADE, and it is TWO steps, because the first alone is not enough:
+#   (1) harvest_bdock_station.py --save-dir fixtures/saves/jool-orbit-recorded
+#       --target-name jool-park-nerv --expect-situation ORBITING
+#       WITHOUT --keep-parsek, so the `Parsek/` sidecar directory is pruned.
+#   (2) A MANUAL, BRACE-BALANCED EXCISION of the residual ParsekScenario CHILDREN
+#       from persistent.sfs. The harvest tool prunes the SIDECARS but leaves the
+#       scenario node, and the RECORDING_TREE's `activeRecordingId` is EXACTLY
+#       what drove B23 flight 1's re-resume. Step (1) without step (2) reproduces
+#       that finding.
+#   EIGHT CHILD NODES OF FIVE TYPES WERE REMOVED - the same five
+#   `eve-park-kerbalx` needed, because this subject is CREWED too:
+#   `RECORDING_TREE` (1), `GROUP_HIERARCHY` (1), `MILESTONE_STATE` (4),
+#   `KERBAL_SLOTS` (1) and `CREW_REPLACEMENTS` (1). The last two are Parsek's
+#   crew-reservation bookkeeping (Valentina reserved, `Debmal Kerman` allocated
+#   as the stand-in) and they POINT AT THE RECORDINGS THAT WERE JUST REMOVED, so
+#   leaving them would be residue by any reading. What survives is Debmal as an
+#   ordinary Available pilot and Valentina Assigned aboard the pod exactly as
+#   before - the WORLD is untouched, INCLUDING the inherited oddity that
+#   Jebediah reads `Missing` in this save (a B18-B22 chain leftover carried
+#   through unchanged, NOT a strip artefact; worth knowing before someone reads
+#   it as one).
+#   The node now carries only name / scene / missionHideArchived /
+#   gameStateEventCount, byte-for-byte the shape `duna-park-probe` and
+#   `eve-park-kerbalx` end at. There are ZERO `.prec` sidecars and ZERO committed
+#   trees; `saveparse` reads trees=0 committedTrees=0 recordings=0.
+#
+# The source `jool-orbit-recorded` has no `Ships/VAB` at all, so the harvest
+# dropped nothing: this mission never launches anything, it needs NO
+# `fixtures/shared-ships.toml` row, and it gets none - the same disposition
+# `duna-park-probe`, `eve-park-kerbalx`, `ike-orbit-recorded` and
+# `eve-orbit-recorded` all have.
+#
+# WHY A DERIVED COPY RATHER THAN THE SOURCE. `jool-orbit-recorded` carries a
+# COMMITTED TREE (5 recordings) for this very vessel, and a seam StartRecording
+# cannot open a standalone tree on a committed tree's own launch - it no-ops onto
+# the recording the committed-restore path re-resumes (MEASURED, B23 flight 1;
+# docs/dev/todo-and-known-bugs.md -> SEAM-STARTRECORDING-JOINS-COMMITTED-TREE).
+# Stripping Parsek's state leaves nothing to resume. It also DECOUPLES this lane
+# from the V13 family: `jool-orbit-recorded` is a SHARED subject (V13 and V13A
+# both reference it) and a change to it moves several specs at once, whereas this
+# copy is read by B25 alone. Nothing in this lane touches `jool-orbit-recorded`
+# or any V13 pin.
+#
+# The entry gate below still states the park it expects in NUMBERS rather than
+# trusting the fixture name - a derived copy is one more place a silent
+# divergence could enter.
+saveTemplate       = "fixtures/saves/jool-park-nerv"
+injectedRecordings = "none"
+craft              = []
+
+[driver]
+kind    = "autopilot"
+mission = "b25_laythe_orbit"
+
+# `steps` MUST stay in the [driver] table, ABOVE the [driver.missionParams]
+# header (a key after the sub-table header would be TOML-scoped into it and the
+# spec would validate as having zero steps).
+#
+# THE SCENE-ENTRY PREAMBLE IS LOAD-BEARING AND ITS ORDER IS PART OF THE CONTRACT.
+# This is the B23 / B24 / V6M / V8 / V13 shape verbatim, and it exists because
+# loading a save whose OWN parked craft is active makes Parsek's committed-tree
+# restore path resume a PROMOTION-STUB recording about a second into the scene,
+# BEFORE any step can run (measured on V2 flight 4 / V5 run 1, structural rather
+# than fixture-specific).
+#
+# READ THIS BEFORE TRUSTING THE PAIR TO DO MORE THAN IT DOES. B23 flight 1
+# MEASURED that the kill pair does NOT prevent a committed-restore RE-ARM: it
+# killed the first stub and 11 ms later the committed-restore path re-resumed the
+# committed recording, BEFORE StartRecording could run, which then answered
+# `already=true`. The pair kills ONE stub; it is not a latch, and no re-ordering
+# closes the window. What closes it is the FIXTURE: `jool-park-nerv` carries no
+# committed tree, so there is nothing for the restore path to resume. The pair
+# STAYS as belt-and-braces for the ordinary fresh-rollout promotion stub, and
+# because both verbs are idempotent-OK on an entry state that has neither.
+#
+#   StopRecording   kills the stub. Idempotent-OK.
+#   DiscardTree     tears the stub's tree down. Answers OK with
+#                   nothing-discarded when no plain tree is live.
+#   autoRecordOnLaunch=false   stops a LATER one from re-arming.
+#   verboseLogging=true        the standing pin for a reading run (the V1
+#                   lesson: a token that turns out to be at Verbose is invisible
+#                   without it).
+#   StartRecording  starts the FRESH tree, with the craft parked at Jool. This is
+#                   the frame the product recording's launch body is read from,
+#                   which is why it is a seam verb here and not an
+#                   autoRecordOnLaunch pin - there is no launch.
+#
+# ONE commit, MID-MISSION (ORBIT-COMMIT), and NO post-mission CommitTree - see
+# COMMIT ACCOUNTING in the header.
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" },   expect = "OK", budget = 300 },
+  { cmd = "StopRecording",                                                     expect = "OK" },
+  { cmd = "DiscardTree",                                                       expect = "OK" },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "verboseLogging",     value = "true" }, expect = "OK" },
+  { cmd = "StartRecording",                                                    expect = "OK" },
+  { phase = "mission",  expect = "MISSION-OK", budget = 5400 },
+  { cmd = "FlushAndQuit",                                                      expect = "OK" },
+]
+
+# Every value below is a tolerance / threshold / budget, never a golden
+# trajectory (validated against b25_laythe_orbit.schema.toml). Phase budgets are
+# GAME seconds unless a comment says otherwise.
+[driver.missionParams]
+# --- ORBIT-START: the entry door and its gate --------------------------------
+# The four ASCENT keys and the two ascent budgets are DELIBERATELY ABSENT: this
+# lane never enters MJ-ASCENT or CIRCULARIZE, and declaring an ascent target for
+# an ascent that will not be flown would put a golden-looking number in the spec
+# that no code reads. The schema demotes all six to optional for that reason.
+startInOrbit                    = true
+# THE GATE, stated against the fixture's MEASURED park (periapsis alt
+# 584,321,095.0 m, apoapsis alt 584,330,474.2 m, ecc 7.944e-06) with margin on
+# every side, because these are ENTRY sanity bounds and not the fixture's
+# fingerprint:
+#   periapsis floor 250,000 km - AND IT IS THIS LANE'S MOST LOAD-BEARING ENTRY
+#     CONJUNCT, for a reason no prior lane's floor had. Everywhere else the floor
+#     means "not decaying into the parent's atmosphere"; here Jool's atmosphere
+#     tops out at 200 km and the park sits 2,900x above it, so that reading would
+#     make the conjunct decorative. What it actually encodes is THE PRECONDITION
+#     OF THE WHOLE LANE: the transfer is INWARD only while the park is OUTSIDE
+#     the moon system. 250,000 km is 1.22x above Pol's apoapsis ALTITUDE
+#     (210,624,206.5 m radius - 6,000,000 = 204,624,206.5 m; B22's own measured
+#     figure) and 2.34x BELOW the measured periapsis, so a park that had somehow
+#     drifted down into the moons' shells is refused before it can turn the
+#     transfer geometry into something this spec's arithmetic does not describe.
+#   apoapsis ceiling 800,000 km - 1.37x the measured ~584,330 km, and 806,000 km
+#     of RADIUS = 32.8% of Jool's 2,455,985,185 m SOI radius (the ASSET-derived
+#     figure B22 computed and V13A pinned as a literal against a live run, NOT
+#     the wiki's 2,455,985,200, which is ~14.6 m high), so a park that had
+#     drifted out toward the SOI edge (where the Sun starts to matter and the
+#     Hohmann arithmetic above stops being a two-body problem) is refused. A
+#     STRICTLY POSITIVE apoapsis is required regardless of this key (a hyperbolic
+#     reading is negative), which is the actual "still bound" evidence.
+#   eccentricity ceiling 0.05 - ~6,300x the measured 7.944e-06, and the conjunct
+#     that matters most to the transfer: the Hohmann planner sizes its burn at
+#     the semi-major axis and applies it at whatever radius its geometry picks,
+#     so an eccentric start park is the B15 ejection shortfall waiting to happen,
+#     and this lane has no CIRCULARIZE in which to round it out.
+startInOrbitMinPeriapsisMeters  = 250000000
+startInOrbitMaxApoapsisMeters   = 800000000
+startInOrbitMaxEccentricity     = 0.05
+startInOrbitSituations          = ["ORBITING"]
+startInOrbitDebounceFrames      = 3
+# 120 game s at 1x is ~120 wall s of polling - far more than a post-LoadGame
+# settle needs, and small enough that a genuinely wrong fixture is NAMED in two
+# minutes instead of riding the mission budget to a generic timeout.
+startInOrbitSettleSeconds       = 120
+
+# --- Transfer: the MOON Hohmann path, flown INWARD (see the header) ----------
+homeBodyName               = "Jool"
+targetBodyName             = "Laythe"
+interplanetaryTransfer     = false
+# The exit SOI if the machine ever left the target - unreachable in capture mode
+# (leaving Laythe is an ASSERT-FAIL, not a return), but it is also the body set
+# the TARGET-FLYBY multi-hop assert accepts alongside the target, so it must name
+# Jool. Setting it explicitly rather than leaning on the home-body default makes
+# that accepted set readable: {Laythe, Jool} and nothing else.
+returnBodyName             = "Jool"
+# `viaBodyNames` IS DELIBERATELY UNSET (mlib default: empty). Two independent
+# reasons, both in the INWARD-TRANSFER AUDIT above:
+#   (1) `_b5_transfer_burn_done`'s ecc branch returns True the moment
+#       `snapshot.body in via_bodies`, so naming the HOME body there would make
+#       `ejectionEccFloor` vacuous;
+#   (2) `_b5_coast_bodies` is `("", home) + via_bodies`, so an empty list is what
+#       makes a stray Pol / Bop / Tylo / Vall SOI entry an immediate, LOUD
+#       ASSERT-FAIL instead of a legalised transit. On a descent that crosses all
+#       four shells that is the behaviour to keep.
+# --- BURN-DONE EVIDENCE: the ecc branch, not the apoapsis floor --------------
+# `transferMinApoapsisMeters` is a schema-REQUIRED key that this lane's evidence
+# does not use, so it is kept present at 0 - the B15 disposition verbatim
+# ("Kept present (schema required key) at 0"). It is INERT whenever
+# `ejectionEccFloor > 0`.
+transferMinApoapsisMeters  = 0
+# THE ACTUAL BURN-DONE EVIDENCE, and the single most important value in this
+# spec. `_b5_transfer_burn_done` reads the HOME-frame eccentricity while the
+# craft is still in Jool's SOI. The park reads 7.944e-06; the completed transfer
+# reads 0.911956. 0.55 sits between them with a GEOMETRIC meaning rather than an
+# arbitrary one:
+#
+#   an ellipse with apoapsis at the park radius and ecc 0.5329 has its periapsis
+#   at Pol's 179,890,000 m orbit exactly
+#
+# so `ecc >= 0.55` certifies "the periapsis has fallen to 171.4 Mm - INSIDE the
+# moon system - i.e. a real inward transfer burn happened", and it costs 219.0
+# m/s of the 486.5 m/s departure to get there, so a burn that stopped at 45% is
+# still caught. The reference points, for anyone re-sizing it:
+#   periapsis at Pol    179.89 Mm -> ecc 0.5329 (dv 219.0)
+#   periapsis at Bop    128.50 Mm -> ecc 0.6425 (dv 278.2)
+#   periapsis at Tylo    68.50 Mm -> ecc 0.7921 (dv 376.3)
+#   periapsis at Vall    43.152 Mm -> ecc 0.8638 (dv 436.5)
+#   periapsis at LAYTHE  27.184 Mm -> ecc 0.9120 (dv 486.5)  <- the real target
+# DO NOT raise it toward 0.91: an under-burn that a correction round would fix
+# would then fail the phase outright, and the give-up is an ASSERT-FAIL rather
+# than a retry. DO NOT lower it under ~0.3: below that the "burn happened" claim
+# stops distinguishing a real ejection from a large correction.
+ejectionEccFloor           = 0.55
+# Requested Laythe periapsis ALTITUDE for the course correction.
+#
+# THE CORPUS (docs/dev/todo-and-known-bugs.md ->
+# FINDING-16D-MISCITED-DIRECTION-AND-DENOMINATOR) sorts k = delivered/requested
+# by `req/SOI` and shows the "arrives higher" bias INVERTING above ~4%: Eeloo
+# (0.252%) k = 35.4, Mun (10.29%) k = 0.545, Eve (5.875%) k = 0.997, Jool
+# (24.43%) k = 0.974. Against Laythe's 3,723,645.8 m SOI:
+#   250,000 / 3,723,645.8 = 6.71%
+# which sits between the Eve row (5.875%, k = 0.997) and the Mun row (10.29%,
+# k = 0.545) - i.e. squarely in the k ~ 1 regime, and closest of all to the ONE
+# row whose k is essentially unity.
+#
+# AND IT IS SIZED AGAINST THE CORPUS'S OWN HONESTY LIMIT (a ~3x within-body
+# spread, n = 3 in this regime), which is what picks 250 km over 200 or 300:
+#   3x SHORT -> 83.3 km altitude: 1.67x Laythe's 50 km ATMOSPHERE top and 1.39x
+#              the 60 km assertion floor below. Survivable. (A 200 km request
+#              would put this at 66.7 km, only 1.11x the floor - too close, and
+#              the failure mode is not a red but an AEROBRAKE.)
+#   3x LONG  -> 750 km altitude = 1,250,000 m radius = 33.6% of the SOI radius.
+#              Still an encounter, still a park this spec's window admits.
+# NOTE WHAT THE CAPTURE TAIL DOES WITH IT: b5's PLAN-CAPTURE asks MechJeb to
+# CIRCULARIZE AT PERIAPSIS, whatever periapsis the arrival actually has. The
+# request therefore does NOT set the park - it sets the arrival, and the park
+# inherits it. That is why `targetPeriapsisFloorMeters` is written LOW (it guards
+# the atmosphere, not the plan) and why the park window below is wide.
+#
+# ---------------------------------------------------------------------------
+# MEASURED OVER THREE FLIGHTS, AND IT REFUTES THE PARAGRAPHS ABOVE. The 250,000 m
+# request delivered arrival CONIC periapsides of **72,233 m and 70,688 m (flight 1,
+# attempts 1 and 2) and 71,809 m (flight 2)**, i.e. **k = 0.289 / 0.283 / 0.287** -
+# not the ~1 the Eve row predicted, and BELOW even the Mun row's 0.545. The
+# corpus's "the bias inverts to k ~ 1 above req/SOI = 4%" reading does not survive
+# these points in that regime.
+#
+# AND THE REPEATABILITY IS THE OTHER HALF OF THE FINDING: a 2% spread across three
+# arrivals, where the corpus's own honesty limit warns of a ~3x WITHIN-BODY spread
+# (Duna spans 230.9-718.2 km on an identical 300 km request). Laythe is the
+# tightest-clustered body in that corpus by a wide margin. THAT DOES NOT LICENSE
+# SIZING ON THE POINT ESTIMATE - three flights of ONE profile is not a body
+# characterisation, and the corpus's spread comes from flights that differ in more
+# than these three do - but it is why the aim below stays put rather than being
+# re-derived against a 3x band this lane has never seen.
+#
+# THE VALUE STAYS AT 250,000, and the FLIGHT LEDGER carries the full rejection
+# arithmetic for re-aiming instead. In one line: clearing the OLD 60 km floor at
+# the measured central ratio needs only ~264,000 m (an extrapolation of a ratio
+# measured on one profile), and clearing it at the corpus's 3x-short end needs
+# >= 790,900 m, whose 3x-long end is a ~663 km park - a different product. The
+# WINDOW moved instead, and flight 2 green'd on it.
+# ---------------------------------------------------------------------------
+courseCorrectPeriapsisMeters = 250000
+# ONE SCHEDULED ROUND, and the reason is the machine rather than the geometry -
+# see (B) in THE INWARD-TRANSFER AUDIT. `_b5_correction_round_ready`'s altitude
+# mode is a bare `altitude >= trigger` level test, and on this lane altitude
+# DESCENDS from 584,330,474 m: a trigger above the park never fires, one below it
+# fires on the first coast frame, and a two-element list would simply spend both
+# rounds back to back at transfer start. `[0]` declares the honest thing - the
+# one round that genuinely fires post-burn - and the LATE refinement is delegated
+# to mlib's own ARRIVAL-QUALITY extras (`MAX_ARRIVAL_EXTRA_ROUNDS = 2`, granted
+# when the PREDICTED Laythe periapsis is below `targetPeriapsisFloorMeters` with
+# `time_to_soi` in (600, 3600) s). Those are direction-agnostic and unaffected by
+# any of this - but they are a SAFETY NET, not a refinement: a merely mediocre
+# arrival gets no second look. Read the audit block before "fixing" this with a
+# second altitude value; there isn't one that works.
+correctionTriggerAltsMeters = [0]
+planTimeoutSeconds         = 300
+planRetrySeconds           = 10
+planWarpFactor             = 2
+# TRANSFER-BURN budget (GAME s). The NodeExecutor autowarps to the node, which on
+# this geometry is at most one synodic period ahead - and the synodic here is
+# 53,509.6 s, i.e. 1.0099x LAYTHE's period rather than ~1 park orbit (the period
+# ordering inverts; see THE ORBITS). 300,000 is ~5.6 synodics - a SLOW bound; the
+# stagnation / no-start / under-burn watchdogs bound BROKEN.
+transferBurnTimeoutSeconds = 300000
+# COAST-TO-TARGET budget (GAME s) against a 1,014,004.5 s transfer coast. Unlike
+# B24's this is a NUMBER rather than a band: both endpoints are circular, so the
+# Hohmann half-period has no free variable. 4,000,000 is ~3.9x it, which is sized
+# to cover a MISSED FIRST INTERCEPT rather than a longer coast: a re-plan costs
+# one synodic (53,510 s) plus another full 1,014,005 s coast, so this admits
+# roughly three attempts before the budget calls it.
+coastTimeoutSeconds        = 4000000
+# TARGET-FLYBY budget (GAME s) against the 2,048-2,139 s SOI-entry -> periapsis
+# coast derived in the header: ~28x the longest. Deliberately generous in
+# ABSOLUTE terms because the quantity it bounds is small; the NAMED
+# capture-never-armed give-up is what bounds BROKEN.
+flybyTimeoutSeconds        = 60000
+# THE WARP BLOCK - full three-rule derivation in the header. In one line: the
+# approach clamp is x50 because a pessimistic 4 s frame at x100 would be 19.6% of
+# the 2,047 s SOI-entry -> periapsis coast, and the coast rate stays at x1,000
+# because raising it to x10,000 would force an 80,000 game-s approach window that
+# costs 1,600 wall s on EVERY flight to avoid a 1,014 wall-s contingency.
+coastWarpFactor            = 5
+soiLeadSeconds             = 3000
+approachWindowSeconds      = 10000
+approachMaxWarpFactor      = 3
+flybyWarpFactor            = 2
+flybyMaxWarpFactor         = 3
+nodeArrivalMarginSeconds   = 15
+flipPhysicsWarpFactor      = 1
+# Min-altitude floor across the WHOLE in-SOI stay (arrival AND park), and on this
+# lane it guards an ATMOSPHERE rather than terrain - the B17 Duna pattern.
+# Laythe's atmosphere tops out at 50,000 m; 60,000 clears it by 1.20x. An
+# atmospheric graze is not merely a red here, it is a POLLUTED PRODUCT: it would
+# put an Atmospheric TrackSection into the recording (changing what the optimizer
+# does at the boundary, which is exactly what V16M reads) and perturb the orbit
+# the park is supposed to hold.
+#
+# THIS KEY AND `parkMinPeriapsisMeters` ARE NO LONGER EQUAL, AND THE B19 / B20 /
+# B21 / B22 / B24 CONVENTION THAT THEY SHOULD BE IS **BROKEN HERE ON PURPOSE**,
+# with a measured reason. That convention is a CONSEQUENCE, not an axiom: it holds
+# on every lane where the capture burn is impulsive enough that the post-capture
+# periapsis is essentially the arrival periapsis, so the two keys are measuring the
+# same metre. ON THIS LANE THEY MEASURABLY ARE NOT. Flight 1's ~164 s capture burn
+# at 5.40 m/s^2 straddles a periapsis the craft crosses at 2,794 m/s, and the
+# finite-burn arc drops the resulting orbit's periapsis by a systematic **15.4 km**
+# (attempt 1: 72,049 -> 56,667, a 15,382 m drop; attempt 2: 70,504 -> 55,089, a
+# 15,415 m drop - a 33 m spread across two flights). So:
+#
+#   THIS key    = the min ALTITUDE SAMPLED across the in-SOI stay   (60,000)
+#   parkMin...  = the post-capture ORBIT's periapsis ELEMENT        (52,000)
+#
+# and a measured 15.4 km wedge sits between them. THE DIRECTION OF THE INEQUALITY
+# IS THE LOAD-BEARING PART: 52,000 < 60,000 < 52,000 + 15,382 = 67,382. Because
+# this floor sits BELOW the wedge-implied 67,415, it can never ASSERT-FAIL an
+# arrival whose park the window would have accepted - it stays a FLOOR and never
+# becomes a certification. Pushing it up to 67,415 to make the two "consistent"
+# would invert that and is the thing not to do.
+#
+# THE FLOOR IS THEREFORE STILL WRITTEN LOW RELATIVE TO THE INTENDED PARK,
+# deliberately, for B23's reason: its job is to catch a trajectory heading INTO the
+# air, not to certify the park this lane hopes for. B23 wrote its floor at 20 km
+# against a hoped-for 40 km park and flight 1 vindicated it (measured minimum
+# 32,210 m, where a floor near the intended park would have ASSERT-FAILed a healthy
+# flight). 60,000 against a 250,000 request is the same posture.
+targetPeriapsisFloorMeters = 60000
+
+# --- Capture + Laythe park + commit (the B11/B12 tail) -----------------------
+captureEnabled             = true
+capturePlanTimeoutSeconds  = 300
+# CAPTURE-BURN budget (GAME s): the executor autowarps the SOI-entry -> periapsis
+# coast (2,048-2,139 s derived) and MechJeb's own 1x pre-ignition WARPALIGN hold
+# is ~600 game s of it. 60,000 is ~22x that ~2,700 s total - a SLOW bound. The
+# no-start / under-burn watchdogs bound BROKEN.
+captureBurnTimeoutSeconds  = 60000
+# THE CAPTURE WINDOW (also the PARK gate). Laythe's SOI is 3,723,645.8 m from the
+# CENTRE and its radius is 500,000 m, so the shell is 3,223,645.8 m of ALTITUDE -
+# roomy, unlike Gilly's. THE FLOOR WAS RESIZED TO A MEASURED DELIVERY AFTER
+# FLIGHT 1 (60,000 -> 52,000); read the FLIGHT LEDGER before touching any of it.
+#   parkMinPeriapsisMeters  52,000 m - RESIZED 2026-08-19 off flight 1's two
+#     attempts, which delivered post-capture periapsides of 56,667 m and
+#     55,089 m. THE B17 PRECEDENT VERBATIM: nothing is relaxed, an entry window is
+#     resized to a MEASURED delivery. The number is squeezed between two hard
+#     facts with only 5,089 m between them:
+#       ABOVE  Laythe's atmosphere top, 50,000 m, by 2,000 m (1.04x). The park is
+#              on rails and KSP applies no drag above `atmosphereDepth`, so this
+#              is NOT a decay margin - the orbit does not decay at all. It is the
+#              line below which the PRODUCT would start carrying an Atmospheric
+#              TrackSection, which is exactly what V16M/V16T read.
+#       BELOW  the lower of the two measured deliveries by 3,089 m, which is 2.0x
+#              the 1,578 m spread between the two attempts.
+#     DO NOT PIN IT AT THE MEASUREMENT: 55,089 is a draw, not a floor, and would
+#     red the next flight that delivers a kilometre lower.
+#     AND IT IS DELIBERATELY **NOT** EQUAL TO `targetPeriapsisFloorMeters` ANY
+#     MORE - see that key's own block for why the B19/B20/B21/B22/B24 convention
+#     breaks here.
+#   parkMaxApoapsisMeters   900,000 m - UNCHANGED, and CONFIRMED COMFORTABLE by
+#     flight 1 (measured 86,843 / 88,352 m: 10.2x of headroom). LOAD-BEARING
+#     TWICE. (1) A hyperbolic (uncaptured) approach reads a NEGATIVE apoapsis in
+#     the Laythe frame, so "0 < ap <= 900,000" is the actually-captured evidence
+#     and cannot be faked by flying past. (2) It must ADMIT the corrected-arrival
+#     spread derived at `courseCorrectPeriapsisMeters`: a 3x-long delivery lands
+#     at ~750 km, so a ceiling under that would red a perfectly good flight.
+#     900,000 m altitude = 1,400,000 m radius = 37.6% of the SOI radius, so a park
+#     that passes is durably INSIDE the shell rather than grazing its edge.
+#     NOTE THE ASYMMETRY THIS LEAVES, which is a physical fact and not sloppy
+#     sizing: the delivered park sits at the very BOTTOM of its own window (1.06x
+#     above the floor, 10.2x below the ceiling), because Laythe's air is at 50 km
+#     and the finite-burn wedge eats 15.4 km of the only ~20 km that separates it
+#     from the arrival periapsis.
+#   parkMaxEccentricity     0.25     - UNCHANGED, and CONFIRMED COMFORTABLE by
+#     flight 1 (measured 0.028 on BOTH attempts: 8.9x of headroom). B11's value.
+parkMinPeriapsisMeters     = 52000
+parkMaxApoapsisMeters      = 900000
+parkMaxEccentricity        = 0.25
+# B11's value, and it needs no re-derivation for this stack: it is a rad/s
+# ceiling (0.05 = 2.9 deg/s) on a stage held under SAS stability-assist with RCS,
+# which reads ~0 regardless of mass.
+parkMaxAngularVelocityRadPerSec = 0.05
+parkSituations             = ["ORBITING"]
+# GAME seconds the stable park is HELD before the commit, at 1x, so this dwell IS
+# the recorded in-Laythe-SOI coverage and also ~180 wall s of the flight's cost.
+# B11/B23/B24's value. CONTEXT: a 250 km circular Laythe park has a period of
+# ~2,914 s, so 180 s is ~6.2% of one orbit - 7x the fraction B24 got at Gilly,
+# because Laythe's mu is 237x larger and its parks are correspondingly quick.
+# Together with the ~2,050 s arrival coast that makes the recorded destination
+# phase ~2,850 s, which is what V16M/V16T's park epoch has to fit inside.
+parkDwellSeconds           = 180
+parkDebounceFrames         = 3
+parkTimeoutSeconds         = 600
+commitTimeoutSeconds       = 300
+
+# --- Shared machine housekeeping ---------------------------------------------
+# SIZING NOTE, because this stack is the SLOWEST-accelerating one any capture
+# lane has flown and that is the one place the proven defaults deserve a check:
+# the NERV is 60 kN on a ~11.9 t stack, i.e. ~5.0 m/s^2 (against B24's Poodle at
+# ~25-29). The two burns are ~487 and ~1,049 m/s, so they take ~97 s and ~245 s
+# rather than B24's "under twenty seconds".
+#   burnStagnantSeconds 120 is the "orbit CHANGED then went static at 1x" clock,
+#     which only starts counting AFTER the apsides stop moving, so a long burn
+#     does not consume it. Unchanged.
+#   burnNoStartSeconds 600 is the "orbit UNCHANGED since burn entry" clock and
+#     must exceed the worst-case pre-burn attitude flip (~340 s). A 245 s burn
+#     does not touch it either, because the orbit changes as soon as it starts.
+#     Unchanged.
+# B20 had to WIDEN burnStagnantSeconds for a ~700 s capture; 245 s is a third of
+# that, so the proven defaults stand. If flight 1 shows a burn watchdog firing on
+# a burn that was still running, THIS is the block to re-derive.
+burnStagnantSeconds        = 120
+burnNoStartSeconds         = 600
+correctionThrottle         = 0.25
+correctionCutDvMps         = 2.0
+correctionSettleSeconds    = 10
+maxAttitudeErrorDeg        = 30
+frozenTelemetrySamples     = 10
+# dv cap (m/s) an acceptable course-correction plan must fit under.
+#
+# SIZED UP FROM B23's 80 AND B24's 50, DELIBERATELY, and the reason is B20 rather
+# than generosity: that lane's own derived `maxCorrectionDvMps` DISCARDED the
+# encounter-creating correction and cost two INVALID(autopilot-flake) attempts
+# before the value was raised. The cap exists to reject a "correction" that is
+# really a re-plan (the B15 rule), not to ration a lane that has fuel.
+#   THE B15 RULE: 200 is 2.4x below the 486.5 m/s departure burn it corrects.
+#   THE MARGIN RULE: at most THREE rounds can fire here (the ONE this spec
+#     schedules plus mlib's two `MAX_ARRIVAL_EXTRA_ROUNDS` arrival-quality
+#     extras), so the worst correction spend is 3 x 200 = 600 m/s against the
+#     header's 2,393.4 m/s of margin - 25% of it, leaving ~1,793 m/s.
+# Note the round COUNT is itself lower than every prior lane's because of the
+# inward-transfer audit's item (B), which is part of why a larger per-round cap
+# is affordable.
+maxCorrectionDvMps         = 200
+
+# CLAIM-IS-NOT-GATE. Every value below is backed by a gate in THIS spec's own
+# contract, and the list is SHORT on purpose for a lane whose contract is not yet
+# demonstrated.
+#   D1 commit-in-foreign-soi   gated by the terminalOrbitBody=Laythe commit
+#       token: the tree closes while the vessel is parked in LAYTHE's SOI, which
+#       is a foreign SOI for a recording rooted at Jool.
+#   D14 jool / laythe          both gated by the SOI-traverse token
+#       `Jool to Laythe` plus, for laythe, the commit terminal-body token.
+#   D14 warp-rails             the machine cannot complete without it: the
+#       1,014,005 s coast at 1x is ~11.7 wall DAYS against a 5,400 s mission
+#       budget.
+#   D14 scene-flight           the whole mission is the flight scene.
+#   D14 sandbox                the fixture's own difficulty (`gameMode = SANDBOX`
+#       in its persistent.sfs), inherited from B18-B22's chain and carried
+#       through the Parsek strip unchanged.
+#
+# NOT claimed, deliberately:
+#   D1 auto-record-launch  - there is no launch. The recording is started by the
+#       StartRecording seam step, a DIFFERENT trigger.
+#   D14 vall / tylo / bop / pol - the transfer CROSSES their orbital shells but
+#       enters none of their SOIs, and this spec FORBIDS the tokens that would
+#       say otherwise. Claiming a body you are asserting the absence of would be
+#       the claim-is-not-gate rule inverted.
+#   D14 warp-high          - this lane's own ceiling is x1,000 on the coast and
+#       x50 on the approach; the MechJeb executor autowarps go higher, but
+#       nothing in this contract gates that, so it is not ours to claim.
+#   D14 soi-count          - nothing here gates a count beyond the one required
+#       transition.
+#   D3 / D4                - nothing in this spec's contract gates a reference
+#       frame or a TrackSection class. Note `atmospheric` would additionally be
+#       FALSE BY DESIGN: the whole point of the 60 km floor is that the craft
+#       never touches Laythe's air.
+[dimensionsCovered]
+D1  = ["commit-in-foreign-soi"]
+D14 = ["jool", "laythe", "warp-rails", "scene-flight", "sandbox"]
+
+[expectations]
+# PLACEMENT IS LOAD-BEARING: allowedAnomalies must precede every
+# [expectations.<sub>] header or TOML scopes it into the sub-table
+# (hlib.validate_spec rejects the misplaced form).
+allowedAnomalies = []
+
+[expectations.recordings]
+# THE ARITHMETIC, over the PARSEK-STRIPPED fixture. `run.py count_recordings`
+# counts `.prec` SIDECARS in the produced save's `Parsek/Recordings` dir.
+#   +0  the fixture. `jool-park-nerv` has no `Parsek/` directory at all, so it
+#       ships ZERO `.prec` and ZERO committed trees by construction. (The SOURCE
+#       `jool-orbit-recorded` ships FIVE - B22's Kerbal X plus its shed stages -
+#       and every one of them is gone. 5 is therefore the specific number to
+#       watch for in the produced save: it would mean the strip was undone.)
+#   +1  THIS lane's product: the stack flies the whole hop as ONE piece. There is
+#       no staging event anywhere in this profile - the radial boosters, the
+#       heat-shielded lower stages and everything else were shed on B18-B22's
+#       Kerbin ascent and interplanetary legs, and what remains is a single
+#       NERV-powered vehicle whose decoupler, heat shield and chutes are all
+#       carried, never fired.
+#   = 1 EXPECTED, and it is the honest expected value rather than a floor.
+#   +1  HEADROOM, admitted rather than predicted, for ONE class: an optimizer
+#       split of the new recording at the Jool->Laythe boundary. THE PREDICTION
+#       IS NO SPLIT, and this is the THIRD body pair the prediction is made for.
+#       `RecordingOptimizer.IsSplittableEnvOrBodyBoundary` rule 3 keeps a
+#       same-class Exo body change COHESIVE for transfer coasts, explicitly
+#       including the `OrbitalCheckpoint`-framed on-rails variant, and this
+#       crossing IS that variant (the transfer is a rails coast throughout - the
+#       whole approach runs under the warp clamp, never under physics). V14M
+#       MEASURED that rule firing at Duna->Ike (`Split summary: ...
+#       exoCoastBodyChangeKept=1`) and V15M/V15T measured it again at Eve->Gilly;
+#       Jool->Laythe is the third pair and the first at a GAS GIANT parent. The 2
+#       is admitted because the load-time pass has no occasion to run within THIS
+#       run's own life (this run commits and flushes; it never re-loads), so the
+#       split's first real chance is V16M/V16T's LoadGame - and because the
+#       optimizer also has commit-time entry points.
+# => { min = 1, max = 2 }, a DERIVED RANGE and NOT A PIN.
+#
+# AND THE COUNT IS COMMIT-BLIND (the B11/B16/B17/B23/B24 note verbatim): sidecars
+# are written for the active uncommitted tree too, so this window guards
+# recording TOPOLOGY only and is NOT evidence that the commit ran. The commit is
+# guarded by the logContract tokens below. It is ALSO not evidence that the
+# recording is ROOTED where this lane needs it: B23 flight 1 counted a perfectly
+# healthy-looking number while its hop sat inside another tree. Nothing in the
+# expectations vocabulary can express "launch body = Jool"; that is read off the
+# produced save by hand until it is worth a saveParse facet.
+count = { min = 1, max = 2 }
+
+[expectations.logContracts]
+# Every token sourced from its ACTUAL emitting call site.
+#   "Recording started" / "Recording stopped" - the lifecycle pair every flown
+#       scenario asserts. READ THIS BEFORE TREATING `started` AS THE SEAM'S
+#       EVIDENCE: B23 flight 1 MEASURED all five of its `Recording started` lines
+#       coming from the committed-restore PROMOTION path while the seam verb
+#       answered `already=true` and started nothing. So this token proves a
+#       recording exists, NOT that this lane opened one. It is kept as the
+#       standing lifecycle floor; the thing it does not cover - that the
+#       recording is a fresh standalone tree rooted at Jool - is covered by the
+#       FIXTURE (nothing to resume) and read off the produced save by hand.
+#   "SOI change boundary suppressed in tree mode: Jool to Laythe" -
+#       ParsekFlight.HandleSoiChangeSplit, the tree-mode PRODUCTION branch
+#       (`ShouldSuppressBoundarySplit` returns `activeTree != null`, and
+#       always-tree mode gives every recording a tree). THE Jool -> Laythe
+#       crossing for the ACTIVE vessel, and the single token that proves the
+#       transfer actually happened rather than the craft sitting in its start
+#       park. The FORMAT is verified against real flight logs carrying the same
+#       emitter with other body pairs (`Duna to Ike` in B23's flight-2 log,
+#       `Eve to Gilly` in B24's); the BODY NAMES are this lane's own and are the
+#       two the machine's `homeBodyName` / `targetBodyName` name.
+#   "CommitTreeFlight: starting tree commit at UT=" - ParsekFlight, logged when
+#       the commit path is entered. Proves the path ran.
+#   "CommitTreeFlight terminal: rec=\\w+ terminalState=Orbiting
+#       terminalOrbitBody=Laythe" - ParsekFlight.LogCommitTerminalVerdicts, one
+#       line per committed recording. THIS is the headline claim's only real
+#       evidence: "starting tree commit at UT=" is logged unconditionally the
+#       moment the path is entered, so before this token a tree that ended around
+#       JOOL would produce byte-identical evidence to one that ended around
+#       LAYTHE.
+#
+# `committree committed=true` is NOT required, following B17/B23/B24 rather than
+# B11. It proves the SEAM call returned OK, which the terminal token above
+# already implies for the only commit this lane fires, and a first-flight reading
+# run does not add a token it has not seen emitted on this profile.
+#
+# FORBIDDEN IS THE ERROR FLOOR **PLUS EIGHT NAMED-POISON TOKENS**, and that
+# addition is this lane's own - no prior B-lane forbids a body pair. THE B17
+# NAMED-POISON PATTERN: the product of this lane is a FIXTURE, and a stray moon
+# encounter does not merely fail a flight, it poisons the subject V16M/V16T are
+# built to read (a second SOI seam would change the constraint extraction, the
+# phase-lock road, the optimizer's boundary evaluation and the bracket
+# arithmetic, all at once and silently).
+#
+# WHY ALL FOUR MOONS AND NOT A SUBSET: the descent from a 590.33 Mm park to
+# Laythe's 27.18 Mm passes through EVERY intervening orbital shell - Pol
+# 179.89 Mm, Bop 128.50 Mm, Tylo 68.50 Mm, Vall 43.152 Mm - and MechJeb's
+# transfer solver targets Laythe without avoiding anything. Tylo's SOI is
+# 10,856,518 m, the largest in the system and 2.9x Laythe's own, so it is the
+# likeliest of the four; but "likeliest" is not "the only one", and a forbid list
+# that named three of four would be a list chosen by intuition. Each moon gets
+# BOTH directions (`X to Moon` and `Moon to X`) because a transit emits two
+# boundary lines and only one of them may land inside a given run's log tail.
+#
+# NOTE WHAT IS **NOT** FORBIDDEN, deliberately: the machine-side consequence of
+# such a transit is already an ASSERT-FAIL (`_b5_coast_bodies` makes any
+# undeclared body an ejection), so these tokens are NOT the primary guard - they
+# are the guard against the case where the transit happens and the mission still
+# somehow completes. Everything else stays OBSERVABLE rather than fatal, because
+# this is a READING run: what the optimizer does with the Jool->Laythe handoff,
+# what the loop lanes then read off it, and how a same-parent transfer to a
+# GAS-GIANT moon looks must all be readable in the log.
+#
+# THE PHASE-1 OBSERVATION TARGETS, written down before the flight so they are
+# scoreable afterwards:
+#   (1) COHESION at Jool->Laythe. Predicted COHESIVE (rule 3). The LOAD-TIME pass
+#       that emits `Split summary: ... exoCoastBodyChangeKept=` has no occasion
+#       to run inside this run's life, so the first real evaluation is
+#       V16M/V16T's LoadGame. Read it there, as V14M/V15M did.
+#   (2) THE DELIVERED ARRIVAL PERIAPSIS against the 250,000 m request, i.e.
+#       another k = delivered/requested point at req/SOI = 6.71%. The corpus has
+#       n = 3 above 4%; this would be the fourth, and the first at a moon of a
+#       gas giant.
+#   (3) THE RECORDING SPAN AND THE DESTINATION PHASE, which are what V16M's
+#       cadence quantization turns on: the span is predicted ~1.07e6 s (so
+#       `QuantizeCadenceToMultipleOfP` should take k ~ 21, the suite's FIRST
+#       cadence that is not one moon period) and the destination phase ~2,850 s.
+#       Both are seeds in V16M's header awaiting exactly this measurement.
+required  = [
+  "Recording started",
+  "Recording stopped",
+  "SOI change boundary suppressed in tree mode: Jool to Laythe",
+  "CommitTreeFlight: starting tree commit at UT=",
+  "CommitTreeFlight terminal: rec=\\w+ terminalState=Orbiting terminalOrbitBody=Laythe",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  # THE FOUR NAMED-POISON PAIRS (see the block above). Each is a boundary line
+  # from ParsekFlight.HandleSoiChangeSplit naming a moon this transfer must cross
+  # the SHELL of and never enter the SOI of.
+  "SOI change boundary suppressed in tree mode: \\w+ to Vall",
+  "SOI change boundary suppressed in tree mode: Vall to \\w+",
+  "SOI change boundary suppressed in tree mode: \\w+ to Tylo",
+  "SOI change boundary suppressed in tree mode: Tylo to \\w+",
+  "SOI change boundary suppressed in tree mode: \\w+ to Bop",
+  "SOI change boundary suppressed in tree mode: Bop to \\w+",
+  "SOI change boundary suppressed in tree mode: \\w+ to Pol",
+  "SOI change boundary suppressed in tree mode: Pol to \\w+",
+]
+
+[expectations.rewind]
+# REPORT-ONLY (no `gating` key - the ARMED_ALLOWLIST discipline: arming happens
+# later, off real bytes, through the reading / armed / negative-control
+# sequence). The three windows ARE the reading: a clean single-craft flight with
+# no separation event and no re-fly must author no RewindPoint, no supersede row
+# and no tombstone. B17's produced save, B23's two flights and B24's flight 1 all
+# measured exactly 0/0/0. If this flight disagrees, that is a finding about what
+# the orbit-start entry or an INWARD transfer does to the durable surfaces, and
+# the honest response is to read it, not to have red'd on it.
+rewindPoints  = { max = 0 }
+supersedeRows = { max = 0 }
+tombstones    = { max = 0 }
+
+# [expectations.recordings.structure] IS DELIBERATELY ABSENT. The predicted shape
+# is simple - ONE tree, committed, ONE recording, terminal Orbiting - and simple
+# is exactly what makes it tempting to declare. It stays absent anyway, because
+# that shape is PREDICTED and not MEASURED, and a report-only block of invented
+# numbers is worse than no block: it reads like a measurement. Author it from
+# FLIGHT 1's saveParse facets.
+#
+# [expectations.recordings.points] is absent for the same reason, plus the
+# standing saveparse caveat that a WARPING scenario's per-run point totals swing
+# with warp timing far more than structure does.
+
+[runtime]
+# WALL arithmetic (the mission budget is WALL; the missionParams budgets above
+# are GAME seconds):
+#   LoadGame                      300  declared
+#   preamble seam verbs           ~10  five dispatches, all fast
+#   PRELAUNCH orbit-start gate     ~5  three in-gate frames at 1x
+#   PLAN-TRANSFER                 ~30  300 game s at the x10 plan hold
+#   TRANSFER-BURN                ~700  the autowarped window wait (<= 53,510 game
+#                                      s) is seconds on rails; ~600 of this is
+#                                      MechJeb's OWN 1x pre-ignition WARPALIGN
+#                                      hold (B11 MEASURED that hold and it is
+#                                      body-independent), plus ~97 s of actual
+#                                      burn at the NERV's 5.0 m/s^2
+#   COAST-TO-TARGET              ~350  the bulk is a precise native warp_to and
+#                                      costs seconds; the priced part is the
+#                                      10,000 game-s clamped approach window at
+#                                      x50 = 200 wall s, plus polling
+#   one correction round         ~500  plan + a ~340 s attitude flip at 2x
+#                                      physics + aim-warp + burn
+#   TARGET-FLYBY                  ~50  2,048-2,139 game s at the x10/x50 stair
+#   PLAN-CAPTURE                  ~30
+#   CAPTURE-BURN                 ~850  ~600 of it the 1x pre-ignition hold, plus
+#                                      ~245 s of actual burn (1,049 m/s at
+#                                      5.0 m/s^2 - the slowest capture burn any
+#                                      lane has flown, and the reason this line
+#                                      is not B24's ~620)
+#   PARK                         ~180  parkDwellSeconds of GAME time at 1x
+#   ORBIT-COMMIT                 <120  the runner's seam-commit poll bound
+#   => ~3,125 nominal. THE WORST CASE is dominated by TWO named contingencies
+#      rather than by slop: the x1,000 rails FALLBACK if `time_to_soi` goes blind
+#      for the whole coast (+1,014 wall s) and up to two arrival-quality extra
+#      correction rounds (+1,000), plus one bounded stale-node re-plan (+90 s of
+#      window grace and a second ~600 s pre-ignition hold) => ~5,300.
+# missionBudget 5,400 is ~1.7x nominal and just over that worst case, which is
+# deliberate: both contingencies are NAMED and bounded, so a run that needs more
+# than this is not slow, it is broken.
+# runtime 6,000 >= 300 LoadGame + ~10 preamble + 5,400 mission + ~60 FlushAndQuit
+# + ~230 margin: the tail verbs must survive a FULL-budget mission (SF-5).
+budgetSeconds = 6000
+
+[retry]
+# The transient risks here are kRPC / MechJeb flakes (a plan that throws
+# server-side, an executor that does not engage), not a geometry lottery: this
+# lane WANTS the Laythe encounter and the transfer window recurs every ~53,510
+# game s. One retry prices the flake class without spending a second full flight
+# on it. It does NOT absorb a systematic failure - a correction discarded at the
+# cap, a burn-done floor that never trips, or a stray Tylo encounter reproduces
+# on attempt 2 and names itself, which is what a first flight is for.
+#
+# AND NOTE WHAT ONE RETRY COSTS HERE, because this is the longest-budget B-lane
+# in the suite: two full attempts is up to 12,000 wall s. That is priced, not
+# overlooked - the alternative (no retry) would spend a whole operator run on a
+# single kRPC hiccup on a lane whose flight is expensive to schedule.
+policy = "once"
+
+[expectedFail]
+bugId = ""

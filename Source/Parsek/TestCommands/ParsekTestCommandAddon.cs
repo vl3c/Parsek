@@ -1637,6 +1637,7 @@ namespace Parsek.TestCommands
         {
             string category = ArgOrNull(cmd, "category");
             string isolatedRaw = ArgOrNull(cmd, "isolated");
+            string strictRaw = ArgOrNull(cmd, "strict");
 
             // A WRITTEN-but-empty `category=` is a typo, not an omission. Absent stays
             // RunAll; empty is rejected, matching this verb's `isolated` convention and
@@ -1661,13 +1662,36 @@ namespace Parsek.TestCommands
                 return;
             }
 
+            bool strict;
+            if (!TestCommandRunTests.TryParseStrictArg(strictRaw, out strict))
+            {
+                ParsekLog.Warn(Tag,
+                    $"runtests rejected category={category ?? "all"} "
+                    + $"reason={TestCommandRunTests.StrictArgInvalidReason} raw={strictRaw}");
+                SetExecResult("REJECTED", null,
+                    $"{TestCommandRunTests.StrictArgInvalidReason} raw={strictRaw ?? string.Empty}");
+                return;
+            }
+
+            // Career-ledger B.4. UNCONDITIONAL assignment, including the absent-arg
+            // `false`: that is what makes the flag per-scenario instead of sticky for the
+            // rest of the process. This is the ONLY writer of `true` in the product; the
+            // three AUTORUN dispatches in TestRunnerShortcut reset the static to `false`
+            // immediately before their own RunBatchSelector call, so a strict batch here
+            // cannot latch it for a later autorun batch. The batch reads
+            // it inside LedgerGroundTruthHarness / Inv8Ledger via
+            // LedgerDivergenceReport.HardFailures(strict). Set BEFORE RunBatchSelector so
+            // the very first cell of the batch already sees it.
+            LedgerGroundTruthDiff.StrictPerIdentityForTesting = strict;
+
             if (ownedRunner == null)
                 ownedRunner = new InGameTestRunner(this);
 
             ownedRunner.RunBatchSelector(category, isolated);
 
             ParsekLog.Info(Tag,
-                $"runtests start category={category ?? "all"} isolated={Bool(isolated)}");
+                $"runtests start category={category ?? "all"} isolated={Bool(isolated)} "
+                + $"strict={Bool(strict)}");
             SetExecResult(PendingVerdict, null, null);
         }
 

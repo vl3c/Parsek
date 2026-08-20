@@ -150,6 +150,44 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void Reconcile_StrategyExchangeInsideCommitWindow_NoMissingChannelWarn()
+        {
+            // STRATEGY-SCIENCE-CONVERSION-LEAK. ComputeEarningsWindowStoreDeltas sums
+            // every in-window ScienceChanged delta that passes its recording-scope filter
+            // regardless of the reason key, so an exchange landing inside a flight commit
+            // window shows up on the STORE side. Without the matching emitted-side arm
+            // (ComputeEarningsWindowEmittedDeltas' StrategyScienceDebit case) it looks
+            // like a missing earning channel and WARNs on a perfectly captured exchange.
+            //
+            // Mutation check: deleting that case reds this cell.
+            var events = new List<GameStateEvent>
+            {
+                new GameStateEvent
+                {
+                    ut = 150,
+                    eventType = GameStateEventType.ScienceChanged,
+                    key = GameStateEventConverter.StrategyInputReasonKey,
+                    valueBefore = 750.0,
+                    valueAfter = 641.15828148
+                }
+            };
+            var newActions = new List<GameAction>
+            {
+                new GameAction
+                {
+                    UT = 150,
+                    Type = GameActionType.StrategyScienceDebit,
+                    Cost = 108.84171851920314f
+                }
+            };
+
+            LedgerOrchestrator.ReconcileEarningsWindow(events, newActions,
+                startUT: 100, endUT: 200);
+
+            Assert.DoesNotContain(logLines, l => l.Contains("Earnings reconciliation (sci)"));
+        }
+
+        [Fact]
         public void Reconcile_AllTrackersUnavailable_SkipsWarns_AndLogsOnce()
         {
             LedgerOrchestrator.SetResourceTrackingAvailabilityForTesting(false, false, false);
@@ -743,7 +781,20 @@ namespace Parsek.Tests
             var sortedFirst = (GameAction)matchType.GetField("Action").GetValue(matches[0]);
             var sortedSecond = (GameAction)matchType.GetField("Action").GetValue(matches[1]);
 
-            Assert.True(Math.Abs(forwardExpected - reverseExpected) > 0.1);
+            // THRESHOLD LOWERED 0.1 -> 0.001 ON 2026-08-20, and the reason is the fix
+            // rather than a weakened cell. This guard exists to prove the order of the
+            // two legs is OBSERVABLE - that `Assert.Equal(forwardExpected, actual, 3)`
+            // below is a real discriminator and not comparing a number against itself.
+            // Restoring the granular loop's residual step
+            // (CAREER-MILESTONE-REP-AWARD-RECONSTRUCTS-LOW) makes every award land much
+            // closer to its nominal value, which SHRINKS the order dependence between
+            // +15.5-then--5.25 and the reverse: it measures 0.00299, where it used to be
+            // ~0.5. That is still six times the 0.0005 rounding tolerance of the
+            // three-decimal comparison below, so the discriminator holds - with a stated
+            // margin instead of an accidental one.
+            Assert.True(Math.Abs(forwardExpected - reverseExpected) > 0.001,
+                $"the two orderings must stay distinguishable at the precision this cell " +
+                $"compares at; measured {Math.Abs(forwardExpected - reverseExpected):R}");
             Assert.Equal(1, sortedFirst.Sequence);
             Assert.Equal(2, sortedSecond.Sequence);
             Assert.Equal(forwardExpected, actual, 3);
@@ -1504,17 +1555,34 @@ namespace Parsek.Tests
         // against the Spike A decompile of KSP's addReputation_granular.
         // ================================================================
 
-        // Pre-captured reference values from the Spike A KSP decompile of
-        // addReputation_granular + the reputationAddition / reputationSubtraction
-        // AnimationCurve keyframes (see docs/dev/done/game-actions/
-        // game-actions-spike-findings.md). If these change, the curve has drifted.
+        // Reference values for the Spike A KSP decompile of addReputation_granular +
+        // the reputationAddition / reputationSubtraction AnimationCurve keyframes (see
+        // docs/dev/done/game-actions/game-actions-spike-findings.md). If these change,
+        // the curve has drifted.
         //
-        // Values computed offline against the exact keyframes and algorithm in
-        // ReputationModule.cs.
-        private const float KspRefDelta_Nominal25_Rep0   = 24.980690f;
-        private const float KspRefDelta_Nominal10_Rep200 =  9.471328f;
-        private const float KspRefDelta_NegNom5_Rep150   = -5.737427f;
-        private const float KspRefDelta_Nominal50_Rep500 = 23.845410f;
+        // RE-MEASURED 2026-08-20, and the provenance caveat matters. These were never an
+        // independent capture of KSP's OUTPUT: the original note said in its own second
+        // sentence that they were "computed offline against the exact keyframes AND
+        // ALGORITHM in ReputationModule.cs". So they encoded whatever that algorithm did,
+        // including its defect - which is precisely why this gate-zero cell did not catch
+        // CAREER-MILESTONE-REP-AWARD-RECONSTRUCTS-LOW, where the granular loop's final
+        // residual step was sized from the nominal step count instead of the accumulated
+        // POST-CURVE actual and therefore never fired for an integer award.
+        //
+        // The corrected values below are recomputed the same way against the FIXED
+        // algorithm, so this cell keeps exactly the drift-detector role it always had and
+        // claims no more than it ever did. What DOES independently corroborate the fixed
+        // algorithm against KSP's own numbers is the pair of career-replay suites, which
+        // diff a reconstruction against pools KSP itself wrote to disk: two +1 milestone
+        // awards now land on the save's own 1.99999881 (C2CareerPostFix), and C2Career's
+        // long-standing -0.00364 reputation divergence closed to -1.7e-09.
+        //
+        // The largest movement is the +50-at-rep-500 row (23.845410 -> 35.555260): the
+        // residual there is a full 26 points of curve loss that the top-up now delivers.
+        private const float KspRefDelta_Nominal25_Rep0   = 24.999980f;
+        private const float KspRefDelta_Nominal10_Rep200 =  9.970324f;
+        private const float KspRefDelta_NegNom5_Rep150   = -5.017197f;
+        private const float KspRefDelta_Nominal50_Rep500 = 35.555260f;
 
         [Fact]
         public void PostWalk_ReputationCurveMatchesKsp()

@@ -145,9 +145,61 @@ namespace Parsek.Tests.Analyzer
             AppendStringArray(sb, "completedMilestoneIds", cs.CompletedMilestoneIds);
             sb.Append(",").Append(Nl);
             AppendVessels(sb, cs.Vessels);
+            sb.Append(",").Append(Nl);
+            // Roster export: the world-block roster sub-facet's ONLY input (the Python
+            // oracle's diff_world_roster). `hasRoster` distinguishes "the save carried
+            // no ROSTER node" from "the roster is empty" - the verifier must read
+            // facet-absence from the flag, never from an empty array.
+            sb.Append("    \"hasRoster\": ").Append(cs.HasRoster ? "true" : "false").Append(",").Append(Nl);
+            AppendRoster(sb, cs.Roster);
             sb.Append(Nl);
 
             sb.Append("  }").Append(Nl);
+        }
+
+        /// <summary>
+        /// Emits the <c>"roster": [ ... ]</c> array, sorted by (name, type, trait)
+        /// ordinal so the output is byte-deterministic regardless of file order. No
+        /// trailing newline (the caller appends the field separator).
+        ///
+        /// Deliberately roster-only: the tech / part-purchase / strategy facets the
+        /// parser also reads have no Python consumer, and an exported field nobody
+        /// parses is surface to keep in step for nothing. They export when a scenario
+        /// declares them.
+        /// </summary>
+        private static void AppendRoster(StringBuilder sb, List<Parsek.SaveKerbal> roster)
+        {
+            var items = roster == null
+                ? new List<Parsek.SaveKerbal>()
+                : new List<Parsek.SaveKerbal>(roster);
+            items.Sort((a, b) =>
+            {
+                int c = System.StringComparer.Ordinal.Compare(a.Name ?? "", b.Name ?? "");
+                if (c != 0) return c;
+                c = System.StringComparer.Ordinal.Compare(a.Type ?? "", b.Type ?? "");
+                if (c != 0) return c;
+                return System.StringComparer.Ordinal.Compare(a.Trait ?? "", b.Trait ?? "");
+            });
+
+            sb.Append("    \"roster\": [");
+            if (items.Count == 0)
+            {
+                sb.Append("]");
+                return;
+            }
+            sb.Append(Nl);
+            for (int i = 0; i < items.Count; i++)
+            {
+                Parsek.SaveKerbal k = items[i];
+                sb.Append("      {").Append(Nl);
+                sb.Append("        \"name\": ").Append(JsonString(k.Name)).Append(",").Append(Nl);
+                sb.Append("        \"gender\": ").Append(JsonString(k.Gender)).Append(",").Append(Nl);
+                sb.Append("        \"type\": ").Append(JsonString(k.Type)).Append(",").Append(Nl);
+                sb.Append("        \"trait\": ").Append(JsonString(k.Trait)).Append(",").Append(Nl);
+                sb.Append("        \"state\": ").Append(JsonString(k.State)).Append(Nl);
+                sb.Append("      }").Append(i == items.Count - 1 ? "" : ",").Append(Nl);
+            }
+            sb.Append("    ]");
         }
 
         /// <summary>

@@ -194,18 +194,121 @@ namespace Parsek.Tests
             var result = ReputationModule.ApplyReputationCurve(-50f, -900f);
 
             Assert.True(result.actualDelta < 0f, "Still negative");
-            Assert.True(result.actualDelta > -10f,
+
+            // BOUND WIDENED FROM -10 TO -20 WHEN THE RESIDUAL STEP WAS FIXED
+            // (CAREER-MILESTONE-REP-AWARD-RECONSTRUCTS-LOW). The -10 was calibrated
+            // against a formula whose residual step never fired for an integer nominal;
+            // with the top-up restored this measures -13.02. The cell's INTENT is
+            // unchanged and still fully carried: a nominal -50 penalty at deeply
+            // negative rep lands at a small fraction of its nominal magnitude. What
+            // moved is the arithmetic under it, deliberately, and toward stock.
+            Assert.True(result.actualDelta > -20f,
                 $"Loss at rep=-900 should be diminished, was {result.actualDelta:F2}");
         }
 
         [Fact]
         public void ApplyReputationCurve_FractionalNominal()
         {
-            // Nominal 0.5 — no integer steps, just one fractional step
+            // Nominal 0.5 - no integer steps, just one fractional step
             var result = ReputationModule.ApplyReputationCurve(0.5f, 0f);
 
             Assert.True(result.actualDelta > 0f);
             Assert.InRange(result.actualDelta, 0.3f, 0.7f);
+        }
+
+        // ================================================================
+        // The residual step (CAREER-MILESTONE-REP-AWARD-RECONSTRUCTS-LOW)
+        //
+        // Stock's `Reputation.addReputation_granular` sizes its FINAL step from the
+        // accumulated POST-CURVE actual (`ModifyReputationDelta(value - num2)`), so the
+        // curve loss on the unit steps is topped back up and an integer award lands on
+        // (essentially) its nominal value. Parsek sized that residual from the nominal
+        // step count instead - identically ZERO for any integer nominal, so the top-up
+        // never fired and every integer award landed short by the curve loss.
+        //
+        // These cells assert against KSP'S OWN POOL VALUES rather than against pins of
+        // our own arithmetic, so they cannot drift into agreeing with a wrong model.
+        // ================================================================
+
+        [Fact]
+        public void ApplyReputationCurve_IntegerAward_ReproducesStocksPool()
+        {
+            // The exact shape of the two milestone awards in the C2CareerPostFix career:
+            // +1 at rep 0, then +1 again on the result. KSP's own save recorded
+            // 1.99999881 (float32 2.0). Pre-fix this chain landed at 1.9985168.
+            var first = ReputationModule.ApplyReputationCurve(1f, 0f);
+            var second = ReputationModule.ApplyReputationCurve(1f, first.newRep);
+
+            Assert.True(Math.Abs(first.newRep - 1f) < 1e-5f,
+                $"a single +1 award should land on stock's ~0.99999944; was {first.newRep:R}");
+            Assert.True(Math.Abs(second.newRep - 1.99999881f) < 1e-5f,
+                $"two +1 awards should reproduce KSP's own 1.99999881; was {second.newRep:R}");
+        }
+
+        [Fact]
+        public void ApplyReputationCurve_IntegerAward_AppliesAResidualStep_MutationGuard()
+        {
+            // MUTATION VERIFY. Reverting the residual to `nominal - (delta * num)` makes
+            // it identically zero for an integer nominal, the `input == 0f` guard skips
+            // the step, and the award collapses to the bare unit-step value asserted
+            // against here. This cell reds the moment that happens - it is the
+            // fixture-independent statement of the defect.
+            float bareUnitStep = 1f * ReputationModule.EvaluateAdditionCurve(0f);
+            var result = ReputationModule.ApplyReputationCurve(1f, 0f);
+
+            Assert.True(result.actualDelta > bareUnitStep,
+                $"the residual top-up did not fire: actualDelta {result.actualDelta:R} is " +
+                $"the bare unit step {bareUnitStep:R}, i.e. the residual computed to zero");
+        }
+
+        [Fact]
+        public void ApplyReputationCurve_NegativeIntegerAward_ReproducesStocksPool()
+        {
+            // The residual is signed, so the same top-up has to work on the loss side:
+            // -1 at rep 0 lands on ~-1, not on the bare -0.999 unit step.
+            var result = ReputationModule.ApplyReputationCurve(-1f, 0f);
+
+            Assert.True(Math.Abs(result.newRep + 1f) < 1e-5f,
+                $"a -1 penalty should land on ~-1; was {result.newRep:R}");
+        }
+
+        [Fact]
+        public void ApplyReputationCurve_SubUnitNominal_IsBitIdenticalToThePreFixFormula()
+        {
+            // WHY NON-INTEGER AWARDS BELOW 1 ARE UNCHANGED, stated so the fix's blast
+            // radius is on the record. For |nominal| < 1 the step count is 0, the loop
+            // body runs exactly once as the residual step, and `accumulated` is still 0
+            // at that point - so `nominal - accumulated` and `nominal - (delta * num)`
+            // are the same number. Nothing about sub-unit awards moved.
+            var result = ReputationModule.ApplyReputationCurve(0.5f, 0f);
+
+            float preFixFormula = 0.5f * ReputationModule.EvaluateAdditionCurve(0f);
+            Assert.Equal(preFixFormula, result.actualDelta);
+        }
+
+        [Fact]
+        public void ApplyReputationCurve_NonIntegerAboveOne_SizesTheResidualFromTheActual()
+        {
+            // Above 1 a non-integer award DOES move, and toward stock: its residual is
+            // now `1.5 - accumulated` rather than the flat `1.5 - 1`.
+            //
+            // It does NOT land exactly on 1.5, and that is correct rather than a
+            // shortfall: the residual is itself passed through the curve, so a LARGE
+            // remainder keeps a visible fraction of its own curve loss. Only for an
+            // integer nominal is the residual small enough that its second attenuation
+            // is negligible - which is exactly why the defect showed up on +1 milestone
+            // awards and nowhere else. Stock has the identical property.
+            var result = ReputationModule.ApplyReputationCurve(1.5f, 0f);
+
+            float preFixFormula =
+                1f * ReputationModule.EvaluateAdditionCurve(0f)
+                + 0.5f * ReputationModule.EvaluateAdditionCurve(
+                    ReputationModule.EvaluateAdditionCurve(0f) / 1000f);
+
+            Assert.True(result.actualDelta > preFixFormula,
+                $"the residual should now be sized from the accumulated actual, landing " +
+                $"ABOVE the pre-fix {preFixFormula:R}; was {result.actualDelta:R}");
+            Assert.InRange(result.newRep, 1.4990f, 1.5f);
         }
 
         [Fact]

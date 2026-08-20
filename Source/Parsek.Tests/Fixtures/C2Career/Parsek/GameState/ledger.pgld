@@ -1,0 +1,743 @@
+version = 0
+recordingSchemaGeneration = 4
+GAME_ACTION
+{
+	ut = 0
+	type = 20
+	actionId = act_caa1556738844f5abe4ffef773684ef0
+	initialFunds = 33000
+}
+GAME_ACTION
+{
+	ut = 0
+	type = 21
+	actionId = act_cf1975aef3b84b1ea9f936e61b4eed3d
+	initialScience = 750
+}
+GAME_ACTION
+{
+	ut = 0
+	type = 22
+	actionId = act_697dc3bd39f640c383d0ee56e6bbfedb
+	initialReputation = 0
+}
+GAME_ACTION
+{
+	ut = 120.73999999999312
+	type = 3
+	actionId = act_c39286002e514f3aa84109e043a64327
+	recordingId = 3aff21d1f21549a485bfaf8ca507256b
+	seq = 1
+	fundsSpent = 4620
+	fundsSpendingSource = 0
+}
+GAME_ACTION
+{
+	ut = 137.35999999999646
+	type = 4
+	actionId = act_a1b19acfa4c0434da63e357717176cf6
+	seq = 2
+	milestoneId = Kerbin/Science
+	milestoneFundsAwarded = 1600
+	milestoneRepAwarded = 0
+	milestoneSciAwarded = 0
+}
+GAME_ACTION
+{
+	ut = 137.35999999999646
+	type = 0
+	actionId = act_4fe7d49efa784fe4b40471138d9b5196
+	seq = 3
+	subjectId = mysteryGoo@KerbinSrfLandedLaunchPad
+	scienceAwarded = 4.03200054
+	method = 0
+	transmitScalar = 0
+	subjectMaxValue = 9.6
+	startUT = 137.36
+	endUT = 137.36
+}
+GAME_ACTION
+{
+	ut = 155.68000000000583
+	type = 0
+	actionId = act_9c2538231ef44ef09b9b871c226c69d7
+	seq = 4
+	subjectId = telemetryReport@KerbinSrfLandedLaunchPad
+	scienceAwarded = 1.6
+	method = 1
+	transmitScalar = 0
+	subjectMaxValue = 1.6
+	startUT = 155.68
+	endUT = 155.68
+}
+GAME_ACTION
+{
+	ut = 159.78000000000793
+	type = 4
+	actionId = act_b09c1a89ef7e42fdac286270c690277b
+	recordingId = 3aff21d1f21549a485bfaf8ca507256b
+	seq = 1
+	milestoneId = RecordsSpeed
+	milestoneFundsAwarded = 14400
+	milestoneRepAwarded = 1
+	milestoneSciAwarded = 0
+}
+GAME_ACTION
+{
+	ut = 160.52000000000831
+	type = 4
+	actionId = act_e9238d57dc4d42a48e348fcc0a19fac9
+	recordingId = 3aff21d1f21549a485bfaf8ca507256b
+	seq = 2
+	milestoneId = FirstLaunch
+	milestoneFundsAwarded = 800
+	milestoneRepAwarded = 0
+	milestoneSciAwarded = 0
+}
+GAME_ACTION
+{
+	ut = 162.60000000000937
+	type = 4
+	actionId = act_af1dc168177b475f9f77275fa8ba98e9
+	recordingId = 3aff21d1f21549a485bfaf8ca507256b
+	seq = 3
+	milestoneId = RecordsAltitude
+	milestoneFundsAwarded = 9600
+	milestoneRepAwarded = 1
+	milestoneSciAwarded = 0
+}
+GAME_ACTION
+{
+	ut = 236.47648193362053
+	type = 0
+	actionId = act_63306f64a5954ca7980259ef093ce775
+	recordingId = 3aff21d1f21549a485bfaf8ca507256b
+	seq = 1
+	subjectId = temperatureScan@KerbinFlyingLowShores
+	scienceAwarded = 3.2
+	method = 1
+	transmitScalar = 0
+	subjectMaxValue = 3.2
+	startUT = 162.34
+	endUT = 236.476486
+}
+GAME_ACTION
+{
+	ut = 236.47648193362053
+	type = 0
+	actionId = act_e2b93a278e524fdbab431a976eb5ddec
+	recordingId = 3aff21d1f21549a485bfaf8ca507256b
+	seq = 2
+	subjectId = telemetryReport@KerbinFlyingLow
+	scienceAwarded = 1.6
+	method = 1
+	transmitScalar = 0
+	subjectMaxValue = 1.6
+	startUT = 167.66
+	endUT = 236.476486
+}
+GAME_ACTION
+{
+	ut = 236.47648193362053
+	type = 0
+	actionId = act_988952e86b5b41e186f18c2bf7d28213
+	recordingId = 3aff21d1f21549a485bfaf8ca507256b
+	seq = 3
+	subjectId = mysteryGoo@KerbinFlyingLow
+	scienceAwarded = 4.03200054
+	method = 0
+	transmitScalar = 0
+	subjectMaxValue = 9.6
+	startUT = 174.72
+	endUT = 236.476486
+}
+GAME_ACTION
+{
+	ut = 241.8764819336233
+	type = 3
+	actionId = act_284b4b9157ef474a8ef8608ec990a0b0
+	seq = 5
+	fundsSpent = 0
+	fundsSpendingSource = 6
+	dedupKey = fuelTankSmallFlat
+}
+GAME_ACTION
+{
+	ut = 241.8764819336233
+	type = 3
+	actionId = act_abdbade92fe44f308df8095b5be5a07f
+	seq = 6
+	fundsSpent = 0
+	fundsSpendingSource = 6
+	dedupKey = miniFuelTank
+}
+GAME_ACTION
+{
+	ut = 241.8764819336233
+	type = 3
+	actionId = act_ec608318a8e149beb7be97c67f52ae45
+	seq = 7
+	fundsSpent = 0
+	fundsSpendingSource = 6
+	dedupKey = Shrimp
+}
+GAME_ACTION
+{
+	ut = 241.8764819336233
+	type = 3
+	actionId = act_3dee8852b32f47439fae8632381b0360
+	seq = 8
+	fundsSpent = 0
+	fundsSpendingSource = 6
+	dedupKey = solidBooster.v2
+}
+GAME_ACTION
+{
+	ut = 241.8764819336233
+	type = 3
+	actionId = act_5fdedefe564c4a9a97815bd3bac46d48
+	seq = 9
+	fundsSpent = 0
+	fundsSpendingSource = 6
+	dedupKey = liquidEngine2.v2
+}
+GAME_ACTION
+{
+	ut = 241.8764819336233
+	type = 3
+	actionId = act_af6195db1e1b4174a54ecb7e77056011
+	seq = 10
+	fundsSpent = 0
+	fundsSpendingSource = 6
+	dedupKey = liquidEngine2
+}
+GAME_ACTION
+{
+	ut = 241.8764819336233
+	type = 3
+	actionId = act_ef0f1d96a9ca4f4985126e519ce08159
+	seq = 11
+	fundsSpent = 0
+	fundsSpendingSource = 6
+	dedupKey = restock-fuel-tank-0625-5
+}
+GAME_ACTION
+{
+	ut = 241.8764819336233
+	type = 3
+	actionId = act_4f9f87ced008474599383d3b7c1772ec
+	seq = 12
+	fundsSpent = 0
+	fundsSpendingSource = 6
+	dedupKey = restock-fuel-tank-0625-3
+}
+GAME_ACTION
+{
+	ut = 241.8764819336233
+	type = 3
+	actionId = act_34e7b26eeecb47408f79b8fdf7e87baf
+	seq = 13
+	fundsSpent = 0
+	fundsSpendingSource = 6
+	dedupKey = restock-fueltank-sphere-0625-1
+}
+GAME_ACTION
+{
+	ut = 241.8764819336233
+	type = 3
+	actionId = act_84046d8f62c341e9a8bf0e2a0c6b0a1c
+	seq = 14
+	fundsSpent = 0
+	fundsSpendingSource = 6
+	dedupKey = restock-engine-125-valiant
+}
+GAME_ACTION
+{
+	ut = 241.8764819336233
+	type = 3
+	actionId = act_1f66132b5bb54410b968cd4cd32837d4
+	seq = 15
+	fundsSpent = 0
+	fundsSpendingSource = 6
+	dedupKey = restock-engine-torch
+}
+GAME_ACTION
+{
+	ut = 241.8764819336233
+	type = 1
+	actionId = act_e4dfbfd53ace4a388f01b168baa05b0a
+	seq = 16
+	nodeId = basicRocketry
+	cost = 5
+}
+GAME_ACTION
+{
+	ut = 241.8764819336233
+	type = 3
+	actionId = act_54342c5ae15b4146a09caf9b2a491ff2
+	seq = 17
+	fundsSpent = 0
+	fundsSpendingSource = 6
+	dedupKey = Size1to0ServiceModule
+}
+GAME_ACTION
+{
+	ut = 241.8764819336233
+	type = 3
+	actionId = act_89131dbb26a644758841fc95dadc8ec0
+	seq = 18
+	fundsSpent = 0
+	fundsSpendingSource = 6
+	dedupKey = radialDecoupler
+}
+GAME_ACTION
+{
+	ut = 241.8764819336233
+	type = 3
+	actionId = act_fd1e15aee5764c26b4324a3b76a2c558
+	seq = 19
+	fundsSpent = 0
+	fundsSpendingSource = 6
+	dedupKey = adapterSmallMiniTall
+}
+GAME_ACTION
+{
+	ut = 241.8764819336233
+	type = 3
+	actionId = act_830f187f28bd48318c7a8a814fbeca0f
+	seq = 20
+	fundsSpent = 0
+	fundsSpendingSource = 6
+	dedupKey = sensorBarometer
+}
+GAME_ACTION
+{
+	ut = 241.8764819336233
+	type = 3
+	actionId = act_a19d01b7bed34d67a6f700ef34ce4a39
+	seq = 21
+	fundsSpent = 0
+	fundsSpendingSource = 6
+	dedupKey = sasModule
+}
+GAME_ACTION
+{
+	ut = 241.8764819336233
+	type = 3
+	actionId = act_b99921823769405ea7a575730f6fdc5d
+	seq = 22
+	fundsSpent = 0
+	fundsSpendingSource = 6
+	dedupKey = winglet
+}
+GAME_ACTION
+{
+	ut = 241.8764819336233
+	type = 3
+	actionId = act_d2d3960ed2734644a38574db868c8467
+	seq = 23
+	fundsSpent = 0
+	fundsSpendingSource = 6
+	dedupKey = standardNoseCone
+}
+GAME_ACTION
+{
+	ut = 241.8764819336233
+	type = 3
+	actionId = act_8fe20471a4224217892ef4de7bda6fbf
+	seq = 24
+	fundsSpent = 0
+	fundsSpendingSource = 6
+	dedupKey = noseCone
+}
+GAME_ACTION
+{
+	ut = 241.8764819336233
+	type = 3
+	actionId = act_3d19f9454429477d9463a7c2c781e633
+	seq = 25
+	fundsSpent = 0
+	fundsSpendingSource = 6
+	dedupKey = restock-service-module-125-625-1
+}
+GAME_ACTION
+{
+	ut = 241.8764819336233
+	type = 3
+	actionId = act_1687238b20a1412da3c64f403017f0d4
+	seq = 26
+	fundsSpent = 0
+	fundsSpendingSource = 6
+	dedupKey = restock-decoupler-radial-tiny-1
+}
+GAME_ACTION
+{
+	ut = 241.8764819336233
+	type = 3
+	actionId = act_c27393504b7c4aac9e6645df8e14032b
+	seq = 27
+	fundsSpent = 0
+	fundsSpendingSource = 6
+	dedupKey = restock-nosecone-0625-1
+}
+GAME_ACTION
+{
+	ut = 241.8764819336233
+	type = 1
+	actionId = act_50b70ac60137464d9abd3e87153311cb
+	seq = 28
+	nodeId = stability
+	cost = 18
+}
+GAME_ACTION
+{
+	ut = 241.8764819336233
+	type = 3
+	actionId = act_47275b9d8b9c4376b7a815a8716201ad
+	seq = 29
+	fundsSpent = 0
+	fundsSpendingSource = 6
+	dedupKey = trussPiece1x
+}
+GAME_ACTION
+{
+	ut = 241.8764819336233
+	type = 3
+	actionId = act_3736a42f199647ed8efbdf90b7881750
+	seq = 30
+	fundsSpent = 0
+	fundsSpendingSource = 6
+	dedupKey = adapterSmallMiniShort
+}
+GAME_ACTION
+{
+	ut = 241.8764819336233
+	type = 3
+	actionId = act_4df878305a04454089fb8bcf7d89c75f
+	seq = 31
+	fundsSpent = 0
+	fundsSpendingSource = 6
+	dedupKey = Decoupler.1
+}
+GAME_ACTION
+{
+	ut = 241.8764819336233
+	type = 1
+	actionId = act_f008a378c4924f9eb061a7ebd4372eb3
+	seq = 32
+	nodeId = engineering101
+	cost = 5
+}
+GAME_ACTION
+{
+	ut = 241.8764819336233
+	type = 3
+	actionId = act_41e2673cd26c4c1c82fa2a8d4730c045
+	seq = 33
+	fundsSpent = 0
+	fundsSpendingSource = 6
+	dedupKey = parachuteSingle
+}
+GAME_ACTION
+{
+	ut = 241.8764819336233
+	type = 3
+	actionId = act_d74d169adf5f463d88dced1df8489038
+	seq = 34
+	fundsSpent = 0
+	fundsSpendingSource = 6
+	dedupKey = miniLandingLeg
+}
+GAME_ACTION
+{
+	ut = 241.8764819336233
+	type = 3
+	actionId = act_a1fc803b29d1447cb804fca2e105e221
+	seq = 35
+	fundsSpent = 0
+	fundsSpendingSource = 6
+	dedupKey = longAntenna
+}
+GAME_ACTION
+{
+	ut = 241.8764819336233
+	type = 3
+	actionId = act_1de1d476029e4041af6775bd768609ba
+	seq = 36
+	fundsSpent = 0
+	fundsSpendingSource = 6
+	dedupKey = radPanelSm
+}
+GAME_ACTION
+{
+	ut = 241.8764819336233
+	type = 3
+	actionId = act_6420468dd2b74f4fb755d009b4547e26
+	seq = 37
+	fundsSpent = 0
+	fundsSpendingSource = 6
+	dedupKey = batteryBankMini
+}
+GAME_ACTION
+{
+	ut = 241.8764819336233
+	type = 3
+	actionId = act_69accab6f28340f2bd13f80bb3b5f545
+	seq = 38
+	fundsSpent = 0
+	fundsSpendingSource = 6
+	dedupKey = solarPanels5
+}
+GAME_ACTION
+{
+	ut = 241.8764819336233
+	type = 3
+	actionId = act_5389d0a264924c959888cf06fd3f2fd6
+	seq = 39
+	fundsSpent = 0
+	fundsSpendingSource = 6
+	dedupKey = probeCoreOcto.v2
+}
+GAME_ACTION
+{
+	ut = 241.8764819336233
+	type = 3
+	actionId = act_65a6e0480d3f4388820b3c1146421d3d
+	seq = 40
+	fundsSpent = 0
+	fundsSpendingSource = 6
+	dedupKey = HeatShield0
+}
+GAME_ACTION
+{
+	ut = 241.8764819336233
+	type = 1
+	actionId = act_ed661458fe7f4403a849f4da534e69c1
+	seq = 41
+	nodeId = survivability
+	cost = 15
+}
+GAME_ACTION
+{
+	ut = 244.07648193362442
+	type = 3
+	actionId = act_15dbda64f9e149f6869b59191fa7b79e
+	seq = 42
+	fundsSpent = 4620
+	fundsSpendingSource = 0
+	dedupKey = rollout:244.07648193362442|pid=4022130854|site=Launch%20Pad|vessel=r1
+}
+GAME_ACTION
+{
+	ut = 8366.01955017133
+	type = 0
+	actionId = act_2aee79923e754f9293d9e6c3690ff896
+	recordingId = 3aff21d1f21549a485bfaf8ca507256b
+	seq = 43
+	subjectId = temperatureScan@KerbinSrfLandedLaunchPad
+	scienceAwarded = 3.2
+	method = 1
+	transmitScalar = 0
+	subjectMaxValue = 3.2
+	startUT = 8366.02
+	endUT = 8366.02
+}
+GAME_ACTION
+{
+	ut = 8373.9395501715026
+	type = 0
+	actionId = act_f63504e1e28d49329b2d998378e19084
+	recordingId = 3aff21d1f21549a485bfaf8ca507256b
+	seq = 44
+	subjectId = mysteryGoo@KerbinSrfLandedLaunchPad
+	scienceAwarded = 9.6
+	method = 1
+	transmitScalar = 0
+	subjectMaxValue = 9.6
+	startUT = 8373.939
+	endUT = 8373.939
+}
+GAME_ACTION
+{
+	ut = 8373.9395501715026
+	type = 2
+	actionId = act_5ed35f0eca8d421aaa61775b723e19db
+	recordingId = 3aff21d1f21549a485bfaf8ca507256b
+	seq = 45
+	fundsAwarded = 4620
+	fundsSource = 2
+	dedupKey = FundsChanged|VesselRecovery|8373.9395501715026|50160|54780|
+}
+GAME_ACTION
+{
+	ut = 8381.0195501716571
+	type = 5
+	actionId = act_d9cc6c3b8a3f4abcb2a7e7dd85f8127e
+	seq = 46
+	contractId = d45c8b23-b4c6-4626-8d63-eded40f90214
+	contractType = PartTest
+	contractTitle = Test Mk-1H 'Torch' Liquid Fuel Engine landed at Kerbin.
+	advanceFunds = 1871.8269
+	deadlineUT = 8228571.5
+	fundsPenalty = 1946.69983
+	repPenalty = 1
+}
+GAME_ACTION
+{
+	ut = 8382.2595501716842
+	type = 3
+	actionId = act_8a8c5c27a1614f4f9afbae3a7ef9c673
+	recordingId = d0fe54da741844378e1e4ae6e6c6e3b8
+	seq = 47
+	fundsSpent = 5340
+	fundsSpendingSource = 0
+}
+GAME_ACTION
+{
+	ut = 8386.2595501717715
+	type = 6
+	actionId = act_178f4fc5cb654fe781dc8386bd11305b
+	seq = 48
+	contractId = d45c8b23-b4c6-4626-8d63-eded40f90214
+	fundsReward = 4913.54541
+	repReward = 1.024133
+	scienceReward = 1
+}
+GAME_ACTION
+{
+	ut = 8400.5795501720841
+	type = 4
+	actionId = act_7612e04b02e64d0e91a4a52595c84119
+	recordingId = d0fe54da741844378e1e4ae6e6c6e3b8
+	seq = 1
+	milestoneId = RecordsSpeed
+	milestoneFundsAwarded = 9600
+	milestoneRepAwarded = 1
+	milestoneSciAwarded = 0
+}
+GAME_ACTION
+{
+	ut = 8408.21955017225
+	type = 4
+	actionId = act_2787069543684d009c5ff17f499b4f37
+	recordingId = d0fe54da741844378e1e4ae6e6c6e3b8
+	seq = 2
+	milestoneId = RecordsAltitude
+	milestoneFundsAwarded = 9600
+	milestoneRepAwarded = 1
+	milestoneSciAwarded = 0
+}
+GAME_ACTION
+{
+	ut = 8488.71550598326
+	type = 4
+	actionId = act_df1f2d38fe934ab0bb15745df6d057bf
+	recordingId = d0fe54da741844378e1e4ae6e6c6e3b8
+	seq = 3
+	milestoneId = Kerbin/Landing
+	milestoneFundsAwarded = 800
+	milestoneRepAwarded = 0
+	milestoneSciAwarded = 0
+}
+GAME_ACTION
+{
+	ut = 8583.4955059831846
+	type = 0
+	actionId = act_c11e58305ae94779bd6e5d207e4958f9
+	recordingId = d0fe54da741844378e1e4ae6e6c6e3b8
+	seq = 49
+	subjectId = telemetryReport@KerbinSrfLandedShores
+	scienceAwarded = 1.6
+	method = 1
+	transmitScalar = 0
+	subjectMaxValue = 1.6
+	startUT = 8583.495
+	endUT = 8583.495
+}
+GAME_ACTION
+{
+	ut = 8583.4955059831846
+	type = 0
+	actionId = act_023498466e244c3eaf9f4c24efac5780
+	recordingId = d0fe54da741844378e1e4ae6e6c6e3b8
+	seq = 50
+	subjectId = mysteryGoo@KerbinSrfLandedShores
+	scienceAwarded = 9.6
+	method = 1
+	transmitScalar = 0
+	subjectMaxValue = 9.6
+	startUT = 8583.495
+	endUT = 8583.495
+}
+GAME_ACTION
+{
+	ut = 8583.4955059831846
+	type = 0
+	actionId = act_6a3af700fd624ace85ac29d6f6c67a73
+	recordingId = d0fe54da741844378e1e4ae6e6c6e3b8
+	seq = 51
+	subjectId = temperatureScan@KerbinSrfLandedShores
+	scienceAwarded = 3.2
+	method = 1
+	transmitScalar = 0
+	subjectMaxValue = 3.2
+	startUT = 8583.495
+	endUT = 8583.495
+}
+GAME_ACTION
+{
+	ut = 8583.4955059831846
+	type = 0
+	actionId = act_9020fb10a79f4be59df912e594c317a3
+	recordingId = d0fe54da741844378e1e4ae6e6c6e3b8
+	seq = 52
+	subjectId = recovery@KerbinFlew
+	scienceAwarded = 5
+	method = 1
+	transmitScalar = 0
+	subjectMaxValue = 6
+	startUT = 8583.495
+	endUT = 8583.495
+}
+GAME_ACTION
+{
+	ut = 8583.4955059831846
+	type = 2
+	actionId = act_a0193c3ee96b4d228ad5ddb67d65dce0
+	recordingId = d0fe54da741844378e1e4ae6e6c6e3b8
+	seq = 53
+	fundsAwarded = 4366.09473
+	fundsSource = 2
+	dedupKey = FundsChanged|VesselRecovery|8583.4955059831846|76225.372102879628|80591.466684483632|
+}
+GAME_ACTION
+{
+	ut = 8599.8755059835421
+	type = 2
+	actionId = act_6ddf3f51b3174f2faea536921d35619d
+	seq = 54
+	fundsAwarded = 4574.84863
+	fundsSource = 6
+}
+GAME_ACTION
+{
+	ut = 8599.8755059835421
+	type = 18
+	actionId = act_5a531aca173a4fbe86f18cc5bb73de4b
+	seq = 55
+	strategyId = researchIPsellout
+	sourceResource = 0
+	targetResource = 0
+	commitment = 0.05
+	setupCost = 0
+	setupSci = 0
+	setupRep = 0
+}
+GAME_ACTION
+{
+	ut = 8599.8755059835421
+	type = 19
+	actionId = act_19fe380fd03a4ec8b4fbf5e08ef0eb98
+	seq = 56
+	strategyId = researchIPsellout
+}

@@ -504,5 +504,47 @@ namespace Parsek.Tests
             Assert.True(Parsek.MapRenderProbe.IsRecordedSeamInstantUsable(
                 Parsek.MapRenderProbe.SeamSeedKindReaimed, 1000.0, double.NaN));
         }
+        // ---------------------------------------------------------------------------------
+        // Pass-summary RATE-LIMIT KEY: the census must be readable at the seam on a short lane
+        // ---------------------------------------------------------------------------------
+
+        [Fact]
+        public void AMeasuringPassAndASkipOnlyPassRideDIFFERENTRateLimitKeys()
+        {
+            // THE FIX for V12A-eeloo-loop-arrival's measured blocker. Jump 1 of that lane emitted
+            // `evaluated=0 outsideSoi=0 skip.no-usable-ratio=1` at currentUT=53970043.597 and, on the
+            // old SINGLE shared key, primed the 5.0 s limiter for the whole remaining ~55 s lane -
+            // arrival bracket included. Two classes, two budgets: a pass that measured NOTHING can no
+            // longer shadow the first pass that measured something.
+            string skipOnly = SeamEndpointOracle.ResolvePassSummaryRateKey(0);
+            string measured = SeamEndpointOracle.ResolvePassSummaryRateKey(1);
+            Assert.NotEqual(skipOnly, measured);
+            Assert.Equal(SeamEndpointOracle.PassSummaryRateKeySkipOnly, skipOnly);
+            Assert.Equal(SeamEndpointOracle.PassSummaryRateKeyMeasured, measured);
+        }
+
+        [Theory]
+        [InlineData(1)]
+        [InlineData(2)]
+        [InlineData(37)]
+        public void EveryMeasuringPassSharesTheOneMeasuredKey(int evaluated)
+        {
+            // The split is by CLASS, not per-pass: within a class the 5.0 s limiter is untouched, so
+            // the change cannot raise steady-state log volume beyond one extra line per 5 s.
+            Assert.Equal(
+                SeamEndpointOracle.PassSummaryRateKeyMeasured,
+                SeamEndpointOracle.ResolvePassSummaryRateKey(evaluated));
+        }
+
+        [Fact]
+        public void TheGhostlessFrameGuardIsUNCHANGEDByTheKeySplit()
+        {
+            // The key split is additive: ShouldEmitPassSummary still refuses a pass that never reached
+            // the lens, so neither key can be primed at scene entry (the probe-frame-summary failure
+            // mode the guard was written for).
+            Assert.False(SeamEndpointOracle.ShouldEmitPassSummary(0, 0));
+            Assert.True(SeamEndpointOracle.ShouldEmitPassSummary(0, 1));
+            Assert.True(SeamEndpointOracle.ShouldEmitPassSummary(1, 0));
+        }
     }
 }

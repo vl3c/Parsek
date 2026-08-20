@@ -574,6 +574,33 @@ namespace Parsek
         }
 
         /// <summary>
+        /// True when the tab draws its manual-loop AUTHORING controls: the per-mission
+        /// "Loop" toggle, the loop-period cell beside it, and the include checkboxes that
+        /// pick which intervals / partner journeys the loop replays (design
+        /// `docs/dev/design-ui-basic-advanced.md` section 4.5).
+        /// <para>Basic returns false. Manually looping a mission is a presentation choice
+        /// with no career consequence, and its three controls are the tab's densest
+        /// cluster; a Basic player reaches the same flights through Watch, the Log, the
+        /// Timeline and Logistics without them.</para>
+        /// <para>Scope, stated positively so a later reader does not widen it by accident:
+        /// this hides AUTHORING only. The "Looped by route" status label, the TTL column,
+        /// "Warp to..." and Watch all stay - a mission looped in Advanced keeps looping
+        /// after the switch (philosophy 1: visibility only, never behavior), and those four
+        /// are how a Basic player sees and reaches that loop. Nothing here writes
+        /// <c>Mission.LoopPlayback</c> or the selection sets either: state authored in
+        /// Advanced survives the switch untouched and returns intact (philosophy 2).</para>
+        /// <para>Derived from <see cref="UiSurfaceVisibility.IsVisible"/> so this rule has
+        /// the same single decision point as every other gated surface, and takes the mode
+        /// as a PARAMETER so it is unit-testable; every draw site passes the frame-latched
+        /// <see cref="ParsekUI.AppliedUiComplexityMode"/> (design 7.1), never the raw
+        /// setting.</para>
+        /// </summary>
+        internal static bool ShowsLoopAuthoringControls(UiComplexityMode mode)
+        {
+            return UiSurfaceVisibility.IsVisible(UiSurface.MissionsLoopControls, mode);
+        }
+
+        /// <summary>
         /// Draws the Missions tab's body inside the host Recordings window. The host
         /// (<see cref="RecordingsTableUI"/>) supplies the window chrome (title, tab bar,
         /// breathing-room space, bottom Close button, resize handle, drag, and input lock);
@@ -597,7 +624,36 @@ namespace Parsek
             // Click outside an active loop-period field -> commit (mirrors RecordingsTableUI's
             // window-level loop-period commit). Uses the field rect captured last frame; runs
             // before the cells are drawn so the in-progress buffer is committed on click-away.
-            if (Event.current.type == EventType.MouseDown && loopPeriodFocusedMissionId != null
+            //
+            // Basic draws no period field at all, so there is nothing to click away FROM and
+            // loopPeriodEditRect is a rect from whichever frame Advanced last drew one: an
+            // edit left open across the switch is DROPPED here rather than committed against
+            // a stale rect. Dropping an uncommitted buffer is the Escape path, not data loss
+            // (mission.LoopIntervalSeconds is untouched), and dropping it HERE is what keeps
+            // the mode visibility-only: leave the focus id armed and the click-away branch
+            // below would commit that stale buffer to Mission.LoopIntervalSeconds on the next
+            // MouseDown anywhere in the window - a loop write performed in Basic.
+            //
+            // Every other site that ends an edit (the click-away commit below, Enter, the unit
+            // button, loop-off, and the auto / phase-locked branches of the cell) needs the
+            // mission's own period cell to draw, which is exactly what Basic does not do, so
+            // this is the only teardown that can still run. It ends the edit through
+            // CommitMissionLoopPeriodEdit(null) - the documented "just ends the edit" path -
+            // so the text buffer and the now-undrawn field's keyboard focus are released the
+            // same way they are on every other exit, minus the commit. Runs on every event
+            // type: it writes private fields only, never a control.
+            bool loopAuthoring = ShowsLoopAuthoringControls(ParsekUI.AppliedUiComplexityMode);
+            if (!loopAuthoring)
+            {
+                if (loopPeriodFocusedMissionId != null)
+                {
+                    ParsekLog.Verbose("Mission",
+                        $"Loop period edit on mission id={loopPeriodFocusedMissionId} dropped " +
+                        "uncommitted: Basic UI mode draws no loop controls");
+                    CommitMissionLoopPeriodEdit(null);
+                }
+            }
+            else if (Event.current.type == EventType.MouseDown && loopPeriodFocusedMissionId != null
                 && !loopPeriodEditRect.Contains(Event.current.mousePosition))
             {
                 CommitMissionLoopPeriodEdit(FindMissionById(loopPeriodFocusedMissionId));
@@ -1134,8 +1190,12 @@ namespace Parsek
             GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_Enable));
 
             // Include checkbox on every interval / branch (no cascade - unchecking drops just this
-            // segment); a blank cell on roster atoms.
-            if (selectable)
+            // segment); a blank cell on roster atoms - and on every row in Basic, which hides the
+            // loop-authoring controls (ShowsLoopAuthoringControls). The else branch is the SAME
+            // single blank cell either way, so the "#" column keeps its width and the rows stay
+            // aligned with the header. An exclusion authored in Advanced is untouched: the row
+            // still renders greyed, it just cannot be re-picked until the player returns.
+            if (selectable && ShowsLoopAuthoringControls(ParsekUI.AppliedUiComplexityMode))
             {
                 bool shownChecked = !selfExcluded;
                 // ExpandHeight so the checkbox fills the row height and the toggle style centers it
@@ -1481,6 +1541,13 @@ namespace Parsek
             if (links.Count == 0)
                 return 0;
 
+            // The partner-journey toggle picks which foreign journey the loop replays, so it is
+            // part of the same authoring set as the per-interval checkboxes and goes with them in
+            // Basic. The ROW itself stays in both modes: it reports that this vessel docked with
+            // another tree's, which is mission history, not loop composition. A link included in
+            // Advanced keeps rendering its expanded child rows here.
+            bool loopAuthoring = ShowsLoopAuthoringControls(ParsekUI.AppliedUiComplexityMode);
+
             int rows = 0;
             for (int li = 0; li < links.Count; li++)
             {
@@ -1489,24 +1556,32 @@ namespace Parsek
 
                 GUILayout.BeginHorizontal(GUILayout.MinHeight(CompositionRowMinHeight));
                 GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_Enable));
-                bool toggled = GUILayout.Toggle(included, "",
-                    GUILayout.Width(ColW_Index), GUILayout.ExpandHeight(true));
-                if (toggled != included)
+                if (!loopAuthoring)
                 {
-                    if (toggled) mission.IncludedForeignDockLinkIds.Add(link.LinkId);
-                    else mission.IncludedForeignDockLinkIds.Remove(link.LinkId);
-                    ParsekLog.Info("Mission",
-                        $"Mission '{mission.Name}' partner journey link={link.LinkId} " +
-                        $"(foreign tree={link.ForeignTreeId}, vessel='{link.ForeignVesselName}') " +
-                        $"included={toggled}");
-                    // Including a link on an ALREADY-LOOPING mission widens its spanned tree
-                    // set, which can newly conflict with a loop on the foreign tree; clear the
-                    // conflict now (SetLoopEnabled only runs this on loop-enable).
-                    if (toggled && mission.LoopPlayback)
-                        MissionStore.ClearLoopsConflictingWith(mission,
-                            RecordingStore.CommittedTrees, out int _, out int _,
-                            "PartnerJourneyInclude");
-                    included = toggled;
+                    // Same single blank cell the roster-atom rows draw, so the column stays aligned.
+                    GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_Index));
+                }
+                else
+                {
+                    bool toggled = GUILayout.Toggle(included, "",
+                        GUILayout.Width(ColW_Index), GUILayout.ExpandHeight(true));
+                    if (toggled != included)
+                    {
+                        if (toggled) mission.IncludedForeignDockLinkIds.Add(link.LinkId);
+                        else mission.IncludedForeignDockLinkIds.Remove(link.LinkId);
+                        ParsekLog.Info("Mission",
+                            $"Mission '{mission.Name}' partner journey link={link.LinkId} " +
+                            $"(foreign tree={link.ForeignTreeId}, vessel='{link.ForeignVesselName}') " +
+                            $"included={toggled}");
+                        // Including a link on an ALREADY-LOOPING mission widens its spanned tree
+                        // set, which can newly conflict with a loop on the foreign tree; clear the
+                        // conflict now (SetLoopEnabled only runs this on loop-enable).
+                        if (toggled && mission.LoopPlayback)
+                            MissionStore.ClearLoopsConflictingWith(mission,
+                                RecordingStore.CommittedTrees, out int _, out int _,
+                                "PartnerJourneyInclude");
+                        included = toggled;
+                    }
                 }
 
                 Color prevColor = GUI.color;
@@ -1886,13 +1961,24 @@ namespace Parsek
             // GUI.enabled wrap renders it disabled; the belt-and-suspenders commit guard below blocks
             // any turn-ON from reaching MissionStore.SetLoopEnabled even if a future layout refactor
             // drops the wrap.
+            //
+            // Basic omits the label + toggle entirely (ShowsLoopAuthoringControls). The route
+            // binding is still resolved either way: the "Looped by route" status label below is
+            // NOT part of the authoring gate, so a Basic player still reads why this mission's
+            // flights repeat. Dropping controls only frees slack for the FlexibleSpace further
+            // down, so Watch / Rewind / Archive stay pinned at the same x as in Advanced.
             bool missionRouteBound = RouteTreeGuard.RouteBindingFor(mission.TreeId, out Route bindingRoute);
-            bool prevGuiEnabled = GUI.enabled;
-            if (missionRouteBound)
-                GUI.enabled = false;
-            GUILayout.Label("Loop", missionHeaderInlineLabel);
-            bool loopNow = GUILayout.Toggle(mission.LoopPlayback, "");
-            GUI.enabled = prevGuiEnabled;
+            bool loopAuthoring = ShowsLoopAuthoringControls(ParsekUI.AppliedUiComplexityMode);
+            if (loopAuthoring)
+            {
+                bool prevGuiEnabled = GUI.enabled;
+                if (missionRouteBound)
+                    GUI.enabled = false;
+                GUILayout.Label("Loop", missionHeaderInlineLabel);
+                bool loopNow = GUILayout.Toggle(mission.LoopPlayback, "");
+                GUI.enabled = prevGuiEnabled;
+                CommitMissionLoopToggle(mission, loopNow, missionRouteBound, bindingRoute);
+            }
             if (missionRouteBound)
             {
                 // Inline "Looped by route: <name>" affordance (ASCII only; this distinctive
@@ -1903,35 +1989,20 @@ namespace Parsek
                     new GUIContent("Looped by route", $"Looped by route: {routeName}"),
                     missionHeaderInlineLabel);
             }
-            if (loopNow != mission.LoopPlayback)
-            {
-                if (missionRouteBound)
-                {
-                    // Commit guard: a route owns this tree's loop; never let a manual turn-ON reach
-                    // MissionStore.SetLoopEnabled.
-                    ParsekLog.Info("RouteGuard",
-                        $"Missions-tab Loop toggle blocked for tree={mission.TreeId} " +
-                        $"(bound by route {(bindingRoute != null ? bindingRoute.Id : "<none>")}); manual loop " +
-                        $"request={loopNow} ignored");
-                }
-                else
-                {
-                    // Trees passed so a cross-tree-linked mission also clears looping missions
-                    // on its linked foreign tree(s) (M-MIS-8 spanned-set rule).
-                    MissionStore.SetLoopEnabled(mission, loopNow, Planetarium.GetUniversalTime(),
-                        RecordingStore.CommittedTrees);
-                    // Turning loop off disables the period field; end any in-progress edit on it.
-                    if (!loopNow && loopPeriodFocusedMissionId == mission.Id)
-                        loopPeriodFocusedMissionId = null;
-                }
-            }
 
             // Periodicity (the Phase-1 / Tier-1 solution) is computed once per mission by the draw
             // loop and passed in; the period cell shows the faithful period P + basis label when
             // phase-locked. The live "Time to launch" countdown that used to sit here moved onto the
             // mission's launch (first) vessel row, under the "Time to launch" column, so the loop
             // period + its basis label have room to render on a single line here.
-            DrawMissionLoopPeriodCell(mission, view, periodicity);
+            //
+            // The cell goes with the toggle in Basic: it is a period EDITOR (a value field plus a
+            // unit-cycling button; only the phase-locked / re-aim states render read-only), so
+            // keeping it beside a hidden toggle would leave the tab's most cryptic control as the
+            // only surviving loop control. The TTL column on the launch row is what still answers
+            // "when does this fly next?" for a mission that is looping.
+            if (loopAuthoring)
+                DrawMissionLoopPeriodCell(mission, view, periodicity);
 
             // Right-pin Watch / Rewind against the Archive checkbox: this FlexibleSpace takes all the
             // slack between the (content-sized) period cell and the buttons, so the period label gets
@@ -1972,6 +2043,37 @@ namespace Parsek
             GUILayout.EndHorizontal();
 
             GUILayout.EndHorizontal();
+        }
+
+        // Commits a Loop-toggle click from the mission header. Extracted so the draw site stays a
+        // single gated block (Basic never draws the toggle, so this never runs there) and so the
+        // route commit guard is one named thing rather than a tail of the header method.
+        //
+        // Mutual exclusion (design §0.6): a route owns its tree's loop, so a manual turn-ON on a
+        // route-bound tree is logged and dropped - belt and suspenders behind the GUI.enabled wrap
+        // at the draw site, which already renders the toggle disabled.
+        private void CommitMissionLoopToggle(Mission mission, bool loopNow,
+            bool missionRouteBound, Route bindingRoute)
+        {
+            if (loopNow == mission.LoopPlayback)
+                return;
+
+            if (missionRouteBound)
+            {
+                ParsekLog.Info("RouteGuard",
+                    $"Missions-tab Loop toggle blocked for tree={mission.TreeId} " +
+                    $"(bound by route {(bindingRoute != null ? bindingRoute.Id : "<none>")}); manual loop " +
+                    $"request={loopNow} ignored");
+                return;
+            }
+
+            // Trees passed so a cross-tree-linked mission also clears looping missions
+            // on its linked foreign tree(s) (M-MIS-8 spanned-set rule).
+            MissionStore.SetLoopEnabled(mission, loopNow, Planetarium.GetUniversalTime(),
+                RecordingStore.CommittedTrees);
+            // Turning loop off disables the period field; end any in-progress edit on it.
+            if (!loopNow && loopPeriodFocusedMissionId == mission.Id)
+                loopPeriodFocusedMissionId = null;
         }
 
         // The mission title cell: a label that enters inline-edit on double-click (mirrors the

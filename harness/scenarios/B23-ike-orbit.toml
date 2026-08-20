@@ -1,0 +1,688 @@
+schema = 1
+id = "B23-ike-orbit"
+# =====================================================================================
+# B23: the suite's FIRST recording rooted at a world other than Kerbin. The DD1
+# starts ALREADY PARKED in Duna orbit, Hohmann-transfers to IKE, captures into an
+# Ike park and commits the tree there. THE RECORDING IS THE PRODUCT.
+#
+# WHY THIS MISSION EXISTS. Every committed recording in the suite launches from
+# the Kerbin pad, so every tree's LAUNCH BODY is Kerbin. The loop lanes read that
+# launch body off the recording's own first frames, which means a SAME-PARENT
+# moon transfer (a hop between a parking orbit and a moon of the SAME primary,
+# with no heliocentric leg) has never been available to them as a subject. This
+# lane produces one: a recording that STARTS in Duna orbit and ENDS in Ike orbit,
+# so the loop lanes read it as a Duna-rooted same-parent transfer.
+#
+# PHASE-0 DOOR. STILL "existing fixture, no forge flight" - but via a
+# PARSEK-STRIPPED DERIVED COPY, `duna-park-probe`, rather than B17's
+# `duna-direct-recorded` itself. The world is identical: the same DD1 in the same
+# Duna park (718 km, ecc 0.0013, inc 1.97 deg, ~1180 m/s dV remaining vs ~250 m/s
+# needed for the hop - 123 depart + 128 capture/circ + ~20 plane), at the same UT,
+# with the same `activeVessel`. What is REMOVED is Parsek's own state: the
+# `Parsek/` sidecar directory and the ParsekScenario node's children.
+#
+# THE STRIP IS NOT TIDINESS, IT IS THE LANE'S PRECONDITION, and flight 1 is what
+# proved it (the ledger below has the log lines). Starting a NEW recording here is
+# what makes the Duna->Ike hop its OWN tree - the loopable segment IS the whole
+# recording - and a seam StartRecording CANNOT do that on a vessel that is a
+# COMMITTED tree's own launch: the committed-restore path re-resumes that tree's
+# recording and StartRecording no-ops onto it. With the committed tree gone from
+# the save there is nothing to resume, so StartRecording opens the standalone
+# Duna-rooted tree this lane exists to produce.
+#
+# THE MACHINE CHANGE, and it is exactly one flag. The shared B5 machine had ONE
+# door: PRELAUNCH -> MJ-ASCENT. `startInOrbit` opens a second: PRELAUNCH verifies
+# the active vessel is ALREADY parked around `homeBodyName` inside a declared
+# entry gate, then enters the ORBIT waypoint directly - no ascent, no
+# circularization, no ascent kickoff actions. With the flag absent/false the
+# PRELAUNCH branch is byte-identical to the LIVE-PROVEN launch shape (the
+# padAlignEjection precedent verbatim, and the two flags are mutually exclusive -
+# mlib.b5_params_from_dict raises on a spec asking for both). Everything after
+# the ORBIT waypoint is the B11/B12 path unchanged.
+#
+# THE GATE IS THE POINT, not paperwork. A wrong fixture (suborbital, wrong body,
+# an eccentric or decaying park) would otherwise surface tens of thousands of
+# game-seconds later as an unplannable transfer or a coast-budget flake. The gate
+# reads the exact quantities the transfer half depends on and NAMES the mismatch
+# on frame one, split two ways on expiry: a gate that was MEASURABLE and never
+# met is a deterministic fixture fault (ASSERT-FAIL - a retry re-reads the same
+# numbers), while telemetry that never became readable is a transient (FLAKE).
+# It matters more here than the ordinary park check: this lane never flies
+# CIRCULARIZE, so `parkTrimEccMax`'s round-out cannot rescue an eccentric start
+# park, and the B15 ejection-mis-sizing lesson has no second line of defence.
+#
+# THE MOON PATH, NOT THE INTERPLANETARY ONE (`interplanetaryTransfer = false`).
+# Duna -> Ike is structurally the Kerbin -> Mun case B5/B11 have flown dozens of
+# times: `OperationTransfer` plans the next transfer window and the NodeExecutor
+# autowarps to it. DERIVED, mu_Duna = 3.0136321e11, r_park = 1,038,215 m
+# (SMA read off the fixture), a_Ike = 3,200,000 m:
+#   park period    2*pi*sqrt(r^3/mu)     = 12,110 game s
+#   Ike period     2*pi*sqrt(a^3/mu)     = 65,520 game s
+#   SYNODIC        1/|1/T1 - 1/T2|       = 14,850 game s  (~1.2 park orbits)
+#   transfer coast pi*sqrt(a_t^3/mu),
+#                  a_t = 2,119,108       = 17,650 game s
+# So the window wait is at most ~1.2 park orbits - the same "the wait IS roughly
+# one park orbit" regime B11's transfer budget was sized against, and warp-legal
+# on rails throughout (Duna's stock limit table admits factor 6 at the 718 km
+# park; Ike's admits factor 6 at a 100 km park).
+#
+# THE DELTA-V, derived the same way and against ~1,180 m/s remaining:
+#   depart   v_park 538.8 -> v_peri 662.1                  = 123.3 m/s
+#   capture  v_inf 92.1; at a 150 km Ike periapsis 375.6 -> 257.6 = 118 m/s
+#            at a 20 km Ike periapsis 506.0 -> 351.8       = 154 m/s
+#   plane    park inc 1.97 deg vs Ike's ~0.2 deg, corrected at
+#            transfer apoapsis (214.8 m/s): 2*v*sin(0.9 deg) = ~7 m/s
+#   => ~250-285 m/s nominal. Worst case adds FOUR capped correction rounds
+#      (the two this spec schedules plus up to two arrival-quality extras the
+#      machine grants on its own MAX_ARRIVAL_EXTRA_ROUNDS counter) at the 80 m/s
+#      cap = 320, for ~600 m/s against ~1,180 available. Comfortable, and the cap
+#      is deliberately BELOW the transfer's own cost so a "correction" bigger
+#      than the whole hop is refused as the wrong plan rather than flown.
+#
+# THE ONE THING IKE FORCES, and it is B19's approach clamp. Ike's SOI-entry ->
+# periapsis coast is SHORT, and unlike Moho it is short for the OPPOSITE reason:
+# 2*mu/r_soi = 35,381 m^2/s^2 against v_inf^2 = 8,482, so Ike's gravity DOMINATES
+# the approach and the straight-line estimate B20 used is invalid here. Solved
+# properly on the approach hyperbola (a = -mu/v_inf^2 = -2,189,065 m; H from
+# cosh H = (r/|a| + 1)/e; t = (e sinh H - H)/n with n = sqrt(mu/|a|^3) =
+# 4.2073e-5 rad/s) the coast is 4,328 game s to a 100 km periapsis and 4,446 to a
+# 150 km one. Sizing against a PESSIMISTIC 3,000 s floor (a hotter arrival
+# shortens it), B19's rule - one poll frame must advance well under a fifth of
+# that coast - gives a 600 game-s per-frame budget, and RAILS_WARP_RATES says:
+#   factor 5 = x1,000  FAILS (1,000 > 600)
+#   factor 4 = x100    PASSES (100 <= 600, 6x margin)
+# => approachMaxWarpFactor 4, the same ceiling Moho needed for a different reason.
+#
+# AND THE COAST RATE COMES DOWN WITH IT, which is what makes this lane different
+# from every interplanetary sibling. B19/B20/B21 keep coastWarpFactor 7 and buy
+# safety with a 100,000 s lead, because their coasts are millions of game seconds
+# and one x100,000 poll (~50,000 s) still fits inside. HERE the whole transfer
+# coast is 17,650 s - only ~4x the in-SOI approach coast - so there is no regime
+# in which a high coast rate is safe: a single x1,000 poll (~4,000 game s, the
+# conservative read of B19 flight 4's measured 27,596 s at x8,738) would eat any
+# lead this coast can afford. So the coast runs at factor 4 as well, the lead is
+# 3,000 s (7.5x one 400 game-s coast frame) and the window is 6,000 (2x the lead,
+# B20's ratio). THE COST, stated rather than buried: 17,650 / 100 = ~177 wall s
+# for the whole coast if the native SOI warp never engages. That is the entire
+# price, and it is the right trade for a first flight - wall is cheap, an
+# INVALID(capture-never-armed) is not.
+#
+# COMMIT ACCOUNTING. There is EXACTLY ONE commit: the MID-MISSION one the machine
+# fires from ORBIT-COMMIT via the route-1 seam bridge. There is deliberately NO
+# post-mission CommitTree step - the seam's CommitTreeImpl answers ERROR
+# `no-active-tree` when no tree is live, which after the mid-mission commit is
+# the expected state, and the step would make every green flight driver-INVALID
+# (the B11/B17 accounting rule verbatim).
+#
+# FLIGHT LEDGER.
+#
+# FLIGHT 1, run 2026-08-18_2242 against `duna-direct-recorded`: PASS attempt 1,
+# mission wall 369 s, EVERY assertion met - startedInHomeOrbit (ecc 0.001),
+# reachedTargetSoi = Ike, flybyPeriapsisFloor 32,210 m, capture ecc 0.000, park
+# 40.0 x 39.9 km, treeCommitted OK. The MACHINE half of this lane is therefore
+# live-proven: the ORBIT-START door, the moon-Hohmann transfer out of a Duna park,
+# the approach clamp derived above, the Ike capture and the commit-in-foreign-SOI
+# all worked on the first attempt, and NOT ONE PARAMETER moved because of that
+# flight.
+#
+# AND THE PRODUCED SUBJECT WAS STRUCTURALLY WRONG, which is the whole reason this
+# spec changed. A green verdict is not the contract; the contract is a recording
+# whose LAUNCH BODY is Duna, and flight 1 did not produce one. Measured, from the
+# collected KSP.log (results/2026-08-18_2242_B23-ike-orbit_shots/KSP.log):
+#
+#   line 11509  AT LOADGAME the load-time optimizer SPLIT B17's main recording
+#               311d98e3 at UT=4,653,681.9 ("first: 147 pts/2 sections, second:
+#               363 pts/40 sections"), minting 17c32d96 for the tail. 311d98e3 is
+#               left as the FIRST half: a 177-second KERBIN pad-ascent fragment
+#               (bounds stamped startUT=4,653,504.30 endUT=4,653,681.90, line
+#               11507).
+#   line 12026  `stoprecording stopped=true idle=false` - the preamble killed the
+#   line 12097  first promotion stub, and `discardtree discarded=true` tore its
+#               tree down. Both worked exactly as designed.
+#   line 12167  ...AND THEN, 11 ms later, `[#8][CommittedSpawnedRestore:post]
+#               mode=tree tree=ccb5e4af rec=311d98e3 pid=2200110044` - the
+#               committed-restore path RE-RESUMED the committed recording,
+#               BETWEEN DiscardTree (01:43:23.119) and the seam StartRecording
+#               (01:43:23.863). The single kill pair does not prevent the re-arm.
+#   line 12210  `startrecording recordingId=311d98e32547491e8dd37aec2526d25d
+#               already=true` - StartRecording NO-OPPED onto that re-resumed
+#               COMMITTED recording instead of opening a tree.
+#
+# The whole Duna->Ike hop was therefore APPENDED to B17's Kerbin-rooted ascent
+# fragment: at commit, `startUT=4653504.3, endUT=9181612.7` on 311d98e3 (line
+# 14308) - one recording carrying a ~4.5-million-second gap - and the commit
+# terminals read 311d98e3 = Orbiting/Ike, 3397c2e5 = Destroyed/Kerbin, 17c32d96 =
+# Orbiting/Duna, all three still inside B17's tree ccb5e4af (lines 13995-13997).
+# The loop lanes reading that would see launch body = KERBIN and a deep multi-hop
+# chain, decline in the re-aim classifier and fall through to FAITHFUL - the exact
+# opposite of the same-parent phase-lock route this lane exists to produce.
+#
+# THE FIX IS THE FIXTURE, NOT THE MACHINE: `duna-park-probe`, the Parsek-stripped
+# derived copy described in [fixture] below. No product change is proposed by this
+# lane; the finding is recorded report-only in docs/dev/todo-and-known-bugs.md.
+#
+# FLIGHT 2, run 2026-08-18_2308 against `duna-park-probe`: PASS attempt 1, mission
+# wall 370.5 s, zero Unity exceptions - AND THE SUBJECT IS RIGHT THIS TIME, which is
+# the thing flight 1 could not deliver. The seam answered
+# `startrecording recordingId=05ceee33806d4079a1d9d125a1359115 already=false`
+# (KSP.log 10509) - `already=FALSE`, the exact inversion of flight 1's line - minting
+# the fresh STANDALONE tree `f55918afd70b45e284006e01729d9e9a`, crossing the boundary
+# exactly once (`SOI change boundary suppressed in tree mode: Duna to Ike`, 11176) and
+# committing with `CommitTreeFlight terminal: rec=05ceee33... terminalState=Orbiting
+# terminalOrbitBody=Ike` (11863). Park 40.5 x 40.4 km at Ike; saveParse ONE recording,
+# 200 points, rewind / supersede / tombstone rows all 0.
+#
+# THE PRODUCED SAVE IS NOW A COMMITTED FIXTURE: harvested `--keep-parsek` into
+# `harness/fixtures/saves/ike-orbit-recorded`, payload pinned byte-for-byte in
+# `harness/lib/test_saveparse.py::CommittedFixtureSweepTests.RECORDED_FIXTURES`. It is
+# the suite's first recording whose LAUNCH BODY is not Kerbin, and it is what
+# `V14M-ike-player-loop` / `V14T-ike-ts-arrival` consume - both of which are themselves
+# live-proven and armed as of 2026-08-19.
+#
+# NOTHING IS ARMED ON THIS LANE, deliberately, and that is now a standing posture
+# rather than a pending step: no `gating = true` block anywhere, and the recordings
+# window stays the derived {1,2} range rather than being pinned to the measured 1. The
+# lane's product is a FIXTURE, and the fixture's structure is pinned where it is
+# consumed (the saveParse sweep above, plus V14M/V14T's own gated
+# `recordings = {1,1}`), so pinning it a third time here would add a re-pin obligation
+# without adding a guard. The lane stays `tier = "operator"` on the calibration
+# discipline (V1/V2/B18/B19/B20 precedent).
+# =====================================================================================
+tier = "operator"
+description = "LIVE-PROVEN 2026-08-18 ON FLIGHT 2. Same-parent moon transfer flown from an ALREADY-PARKED start: the DD1 begins ORBITING Duna at 718 km, Hohmann-transfers to Ike, captures + circularizes into an Ike park and mid-mission commits the tree there. Meant to produce the suite's first recording whose LAUNCH BODY is not Kerbin - what makes it readable by the loop lanes as a same-parent transfer. Flight 1 (2026-08-18_2242) was PASS attempt 1 with every assertion met, so the machine half (the new startInOrbit entry door, the transfer, the Ike capture, the foreign-SOI commit) is live-proven - but the seam StartRecording no-opped onto B17's re-resumed COMMITTED recording (`already=true`) and the hop was appended to a Kerbin-rooted tree, so the SUBJECT was wrong. Re-pointed at the Parsek-stripped `duna-park-probe` fixture, and flight 2 (2026-08-18_2308, PASS attempt 1) delivered the real thing: `already=false`, a fresh standalone Duna-rooted tree, one Duna->Ike boundary, terminal Orbiting/Ike, a 40.5 x 40.4 km Ike park. Its produced save is the committed `ike-orbit-recorded` fixture that the V14M/V14T loop lanes consume."
+instanceProfile = "stock-minimal"
+tags = ["B23", "ike", "duna", "same-parent", "moon", "orbit", "mechjeb", "cross-soi", "capture", "commit-in-foreign-soi", "orbit-start"]
+
+[fixture]
+# `duna-park-probe`: a DERIVED, PARSEK-STRIPPED copy of B17's
+# `duna-direct-recorded` (itself the run 2026-08-06_1527 --keep-parsek harvest).
+# NO FORGE FLIGHT was spent on it - it is a transform of committed bytes, which is
+# why the Phase-0 door above still reads "existing fixture".
+#
+# THE WORLD, unchanged from the source and MEASURED off this save's own bytes:
+# at UT 9,160,396.76 the DD1 sits parked ORBITING Duna -
+#   SMA 1,038,214.95 m   ECC 0.0012696   INC 1.9669 deg   alt 718,363 m
+#   type Relay, UNCREWED, probeCoreOcto2 root, Terrier upper stage,
+#   LF 56.2/360 + Ox 68.7/440 = ~625 kg usable propellant, ~1,180 m/s dV
+# `activeVessel = 1` IS the DD1, so the seam's LoadGame lands in FLIGHT with the
+# right craft focused and no switch is needed. The other vessel is the same stock
+# asteroid (Ast. VPA-167) on a heliocentric orbit; it is inert here.
+#
+# HOW IT WAS MADE, and it is TWO steps, because the first alone is not enough:
+#   (1) harvest_bdock_station.py --save-dir fixtures/saves/duna-direct-recorded
+#       --target-name duna-park-probe --expect-situation ORBITING
+#       WITHOUT --keep-parsek, so the `Parsek/` sidecar directory is pruned.
+#   (2) A MANUAL EXCISION of the residual ParsekScenario CHILDREN from
+#       persistent.sfs - RECORDING_TREE, GROUP_HIERARCHY, MILESTONE_STATE. The
+#       harvest tool prunes the SIDECARS but leaves the scenario node, and the
+#       RECORDING_TREE's `activeRecordingId` is EXACTLY what drove flight 1's
+#       re-resume. Step (1) without step (2) reproduces the finding.
+#   The node now carries only name / scene / missionHideArchived /
+#   gameStateEventCount. There are ZERO `.prec` sidecars and ZERO committed trees.
+#
+# The harvest also drops Ships/VAB, which is harmless HERE and would not be on a
+# pad lane: this mission never launches anything.
+#
+# WHY A DERIVED COPY RATHER THAN THE SOURCE. `duna-direct-recorded` carries a
+# COMMITTED TREE for this very vessel, and a seam StartRecording cannot open a
+# standalone tree on a committed tree's own launch - it no-ops onto the recording
+# the committed-restore path re-resumes (flight 1, log lines quoted in the FLIGHT
+# LEDGER above). Stripping Parsek's state leaves nothing to resume. It also
+# DECOUPLES this lane from the V-lanes: `duna-direct-recorded` is a shared subject
+# and a change to it moves several specs at once, whereas this copy is read by
+# B23 alone. It needs NO shared-ships row (no craft, no launch).
+#
+# The entry gate below still states the park it expects in NUMBERS rather than
+# trusting the fixture name - a derived copy is one more place a silent divergence
+# could enter, and `SpecArithmeticTests` re-checks the gate against those numbers.
+saveTemplate       = "fixtures/saves/duna-park-probe"
+injectedRecordings = "none"
+craft              = []
+
+[driver]
+kind    = "autopilot"
+mission = "b23_ike_orbit"
+
+# `steps` MUST stay in the [driver] table, ABOVE the [driver.missionParams]
+# header (a key after the sub-table header would be TOML-scoped into it and the
+# spec would validate as having zero steps).
+#
+# THE SCENE-ENTRY PREAMBLE IS LOAD-BEARING AND ITS ORDER IS PART OF THE CONTRACT.
+# This is the V6M/V8/V13 shape, and it exists because loading a save whose OWN
+# parked craft is active makes Parsek's committed-tree restore path resume a
+# PROMOTION-STUB recording about a second into the scene, BEFORE any step can
+# run (measured on V2 flight 4 / V5 run 1, structural rather than
+# fixture-specific). Left alone, this lane's product would be that stub rather
+# than a tree it started deliberately.
+#
+# READ THIS BEFORE TRUSTING THE PAIR TO DO MORE THAN IT DOES. Flight 1 MEASURED
+# that the kill pair does NOT prevent a committed-restore RE-ARM: it killed the
+# first stub (`stoprecording stopped=true`, `discardtree discarded=true`, log
+# lines 12026 / 12097) and 11 ms later `[#8][CommittedSpawnedRestore:post]`
+# re-resumed the committed recording (line 12167) - BEFORE StartRecording could
+# run at all, which then answered `already=true` (line 12210). The pair kills ONE
+# stub; it is not a latch, and no re-ordering of these steps closes the window.
+# What closes it is the FIXTURE: `duna-park-probe` carries no committed tree, so
+# there is nothing for the restore path to resume. The pair STAYS, as
+# belt-and-braces for the ordinary fresh-rollout promotion stub that any parked
+# save can still produce, and because both verbs are idempotent-OK on an entry
+# state that has neither.
+#
+#   StopRecording   kills the stub. Idempotent-OK, so it is safe on an entry
+#                   state that has no live recording.
+#   DiscardTree     tears the stub's tree down. Answers OK with
+#                   nothing-discarded when no plain tree is live.
+#   autoRecordOnLaunch=false   stops a LATER one from re-arming.
+#   verboseLogging=true        the standing pin for a reading run: the machine's
+#                   own decisions and Parsek's Verbose lines are the whole point
+#                   of a first flight, and a token that turns out to be at
+#                   Verbose is invisible without it (the V1 lesson).
+#   StartRecording  starts the FRESH tree, with the craft parked at Duna. This
+#                   is the frame the product recording's launch body is read
+#                   from, which is why it is a seam verb here and not an
+#                   autoRecordOnLaunch pin - there is no launch.
+#
+# ONE commit, MID-MISSION (ORBIT-COMMIT), and NO post-mission CommitTree - see
+# COMMIT ACCOUNTING in the header.
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" },   expect = "OK", budget = 300 },
+  { cmd = "StopRecording",                                                     expect = "OK" },
+  { cmd = "DiscardTree",                                                       expect = "OK" },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "verboseLogging",     value = "true" }, expect = "OK" },
+  { cmd = "StartRecording",                                                    expect = "OK" },
+  { phase = "mission",  expect = "MISSION-OK", budget = 3600 },
+  { cmd = "FlushAndQuit",                                                      expect = "OK" },
+]
+
+# Every value below is a tolerance / threshold / budget, never a golden
+# trajectory (validated against b23_ike_orbit.schema.toml). Phase budgets are
+# GAME seconds unless a comment says otherwise.
+[driver.missionParams]
+# --- ORBIT-START: the entry door and its gate --------------------------------
+# The four ASCENT keys B11 requires (targetApoapsisMeters / targetPeriapsisMeters
+# / apoErrorMeters / periErrorMeters) and the two ascent budgets are DELIBERATELY
+# ABSENT: this lane never enters MJ-ASCENT or CIRCULARIZE, and declaring an
+# ascent target for an ascent that will not be flown would put a golden-looking
+# number in the spec that no code reads. The schema demotes all six to optional
+# for exactly that reason.
+startInOrbit                    = true
+# THE GATE, stated against the fixture's MEASURED park (718,363 m altitude, ecc
+# 0.0012696) with margin on every side, because these are ENTRY sanity bounds and
+# not the fixture's fingerprint:
+#   periapsis floor 300 km - an order above Duna's 50 km atmosphere top, so a
+#     start park that had decayed anywhere near drag is refused. The measured
+#     periapsis sits at ~717 km, 2.4x the floor.
+#   apoapsis ceiling 1,500 km - comfortably above the measured ~719 km and
+#     comfortably below the ~2,880 km altitude of Ike's own orbit, so a park that
+#     had drifted up into the moon's shell is refused before it can turn into an
+#     unplanned encounter. A STRICTLY POSITIVE apoapsis is required regardless of
+#     this key (a hyperbolic reading is negative), which is the actual
+#     "still bound" evidence.
+#   eccentricity ceiling 0.05 - ~39x the measured 0.0012696, and the conjunct
+#     that matters most: the Hohmann planner sizes its burn at the semi-major
+#     axis and applies it at whatever radius its geometry picks, so an eccentric
+#     start park is the B15 ejection shortfall waiting to happen, and this lane
+#     has no CIRCULARIZE in which to round it out.
+startInOrbitMinPeriapsisMeters  = 300000
+startInOrbitMaxApoapsisMeters   = 1500000
+startInOrbitMaxEccentricity     = 0.05
+startInOrbitSituations          = ["ORBITING"]
+startInOrbitDebounceFrames      = 3
+# 120 game s at 1x is ~120 wall s of polling - far more than a post-LoadGame
+# settle needs, and small enough that a genuinely wrong fixture is NAMED in two
+# minutes instead of riding the mission budget to a generic timeout.
+startInOrbitSettleSeconds       = 120
+
+# --- Transfer: the MOON Hohmann path (see the header derivation) -------------
+homeBodyName               = "Duna"
+targetBodyName             = "Ike"
+interplanetaryTransfer     = false
+# The exit SOI if the machine ever left the target - unreachable in capture mode
+# (leaving Ike is an ASSERT-FAIL, not a return), but it is also the body set the
+# TARGET-FLYBY multi-hop assert accepts alongside the target, so it must name
+# Duna. Setting it explicitly rather than leaning on the home-body default makes
+# that accepted set readable: {Ike, Duna} and nothing else.
+returnBodyName             = "Duna"
+# TRANSFER-BURN burn-done evidence on the moon path is the HOME-frame apoapsis
+# floor. Ike orbits at 3,200,000 m from Duna's centre = 2,880,000 m altitude, and
+# the start park's apoapsis is ~719,000 m, so 2,000,000 m is unreachable without
+# a real transfer burn and is still ~31% below the target apoapsis - it certifies
+# "the burn happened and aimed outward" without pinning the geometry.
+transferMinApoapsisMeters  = 2000000
+# Requested Ike periapsis for the course corrections. Deliberately HIGHER than
+# the park this lane wants (~100 km), because MechJeb's OperationCourseCorrection
+# systematically UNDER-delivers toward low periapsis targets (finding 16d: five
+# Mun points against a 250 km request arrived at 136-141 km).
+#
+# MEASURED ONCE at Ike, flight 1: this 150 km request delivered a sampled in-SOI
+# minimum of 32,210 m (the `flybyPeriapsisFloor` row's value). That is ~118 km
+# short - strikingly close to the ~110 km shortfall the five Mun points show, i.e.
+# the under-delivery looks like an ABSOLUTE offset rather than a fraction of the
+# request. ONE point is not a law and the trajectory half of flight 1 is
+# independent of the recording-identity defect that invalidated its subject, so
+# the reading stands and the value is KEPT UNCHANGED: 150 km is what put the
+# arrival at 32 km rather than into the ground, and a second point is worth more
+# than a re-tune. The park window below stays wide for the same reason.
+courseCorrectPeriapsisMeters = 150000
+# BELOW the transfer's own 123 m/s cost, on purpose: a "correction" priced above
+# the whole hop is the wrong plan (B15 flight 3 watched MechJeb price one at
+# 1,464 m/s against a 200 m/s cap), and the cap makes the machine discard it and
+# coast on the raw intercept instead. The cap is PER ROUND and up to four rounds
+# can fire, so the worst spend is 320 m/s - inside the ~930 m/s of margin.
+maxCorrectionDvMps         = 80
+# ALTITUDE-mode triggers (the moon-transfer shape; the time-to-SOI list is the
+# interplanetary one and stays empty). Round 0 fires on the first coast frame
+# right after the transfer burn; round 1 at 1,500,000 m altitude is ~52% of the
+# way up the 2,880,000 m climb to Ike's shell - the same fraction B11's 6,000 km
+# trigger sits at on its 11,400 km climb to the Mun.
+correctionTriggerAltsMeters = [0, 1500000]
+planTimeoutSeconds         = 300
+planRetrySeconds           = 10
+planWarpFactor             = 2
+# TRANSFER-BURN budget (GAME s). The NodeExecutor autowarps to the node, which on
+# this geometry is at most one synodic period (14,850 s) ahead, then burns it.
+# 40,000 is ~2.7 synodics - a SLOW bound; the stagnation / no-start / under-burn
+# watchdogs bound BROKEN.
+transferBurnTimeoutSeconds = 40000
+# COAST-TO-TARGET budget (GAME s) against a 17,650 s transfer coast: ~6.8x, which
+# leaves room for a missed first intercept plus the correction rounds that
+# re-create it without letting a genuinely lost transfer sail forever.
+coastTimeoutSeconds        = 120000
+# TARGET-FLYBY budget (GAME s) against the 4,328-4,446 s SOI-entry -> periapsis
+# coast derived in the header: ~13x.
+flybyTimeoutSeconds        = 60000
+# THE WARP BLOCK IKE FORCES DOWN - full derivation in the header. In one line:
+# this lane's transfer coast is only ~4x its in-SOI approach coast, so unlike
+# every interplanetary sibling there is no rate at which a single coast poll is
+# both fast and safe. Everything runs at x100.
+coastWarpFactor            = 4
+soiLeadSeconds             = 3000
+approachWindowSeconds      = 6000
+approachMaxWarpFactor      = 4
+# The in-SOI floor/ceiling pair, at the current house values (B19/B20/B21). In
+# capture mode the flyby warp is periapsis-clock bounded native warp anyway, so
+# these are the fallback stair rather than the primary policy.
+flybyWarpFactor            = 3
+flybyMaxWarpFactor         = 4
+nodeArrivalMarginSeconds   = 15
+flipPhysicsWarpFactor      = 1
+# Min-altitude floor across the WHOLE in-SOI stay (arrival AND park). Ike has no
+# atmosphere and its terrain reaches ~12.7 km; 20 km clears the highest ground by
+# ~1.6x. Deliberately LOW rather than comfortable, because the finding-16d
+# under-delivery above meant the arrival periapsis this lane actually gets was
+# unmeasured - a floor set at the periapsis this lane HOPES for would red a
+# perfectly safe flight, while this one still catches a trajectory heading into
+# the ground.
+#
+# VINDICATED BY FLIGHT 1, and this is the single most load-bearing consequence of
+# writing it low: the measured sampled minimum was 32,210 m. A floor set anywhere
+# near the ~100 km park this lane aims for would have ASSERT-FAILED a flight whose
+# trajectory was entirely healthy. 32,210 against 20,000 is only 1.6x, so do NOT
+# raise this on the strength of one reading - the margin it has is the margin it
+# needs.
+targetPeriapsisFloorMeters = 20000
+
+# --- Capture + Ike park + commit (the B11/B12 tail) --------------------------
+captureEnabled             = true
+capturePlanTimeoutSeconds  = 300
+# CAPTURE-BURN budget (GAME s): the executor autowarps the SOI-entry -> periapsis
+# coast (4,328-4,446 s derived) and MechJeb's own 1x pre-ignition WARPALIGN hold
+# is ~600 game s of it. 60,000 is ~13x - a SLOW bound, B11's value.
+captureBurnTimeoutSeconds  = 60000
+# THE CAPTURE WINDOW (also the PARK gate), and it is DELIBERATELY WIDE on the B11
+# reasoning: the arrival periapsis is MechJeb's business, so anything from 20 km
+# to 500 km altitude is a legitimate captured Ike orbit. The apoapsis CEILING is
+# the load-bearing conjunct - a hyperbolic (uncaptured) approach reads a NEGATIVE
+# apoapsis, so "0 < ap <= 500 km" is the actually-captured evidence; the ceiling
+# also keeps the park comfortably inside Ike's ~919.6 km SOI edge (measured from
+# the surface: SOI 1,049,599 m minus the 130 km radius) instead of grazing it.
+#
+# MEASURED ONCE, flight 1: the delivered park was 40.0 x 39.9 km at ecc 0.000 -
+# comfortably inside both bounds, and notably at the LOW end, ~2.5x above the
+# 20 km floor and ~12x under the 500 km ceiling. The width is therefore KEPT: one
+# point cannot tell a tight distribution from a lucky sample, and the cost of the
+# width is nothing (the row certifies BOUNDNESS, and the ecc conjunct is what
+# certifies "circularized"). Re-pin from a second green park, not from this one.
+parkMinPeriapsisMeters     = 20000
+parkMaxApoapsisMeters      = 500000
+# B11's value. A circularize-at-periapsis burn should land well under this; 0.25
+# leaves room for the executor's own 0.1 tolerance and a partial burn that is
+# still a perfectly stable parked orbit.
+parkMaxEccentricity        = 0.25
+parkMaxAngularVelocityRadPerSec = 0.05
+parkSituations             = ["ORBITING"]
+# GAME seconds the stable park is HELD before the commit, at 1x, so this dwell IS
+# the recorded in-Ike-SOI coverage and also ~180 wall s of the flight's cost.
+# B11's value; raise it only if a flight shows the committed recording carrying
+# too little Ike coverage to be a useful loop / playback subject. Flight 1 could
+# not answer that - its committed recording was the wrong subject entirely - so
+# the question is still open for flight 2.
+parkDwellSeconds           = 180
+parkDebounceFrames         = 3
+parkTimeoutSeconds         = 600
+commitTimeoutSeconds       = 300
+
+# --- Shared machine housekeeping (B11's values; the burns here are SHORT) -----
+# Sizing note, so the next reader does not copy B20's widened numbers by reflex:
+# the DD1's transfer and capture burns are ~123 and ~118-154 m/s on a ~2.1 t
+# stack behind a 60 kN Terrier, i.e. ~28 m/s^2 and BURNS OF UNDER TEN SECONDS.
+# B20 had to widen burnStagnantSeconds for a ~700 s capture; nothing here comes
+# within two orders of magnitude of that, so the proven defaults stand.
+burnStagnantSeconds        = 120
+burnNoStartSeconds         = 600
+correctionThrottle         = 0.25
+correctionCutDvMps         = 2.0
+correctionSettleSeconds    = 10
+maxAttitudeErrorDeg        = 30
+frozenTelemetrySamples     = 10
+
+# CLAIM-IS-NOT-GATE. Every value below is backed by a gate in THIS spec's own
+# contract, and the list is SHORT on purpose for a lane whose contract is not yet
+# demonstrated.
+#   D1 commit-in-foreign-soi   gated by the terminalOrbitBody=Ike commit token:
+#       the tree closes while the vessel is parked in IKE's SOI, which is a
+#       foreign SOI for a recording rooted at Duna.
+#   D14 duna / ike             both gated by the SOI-traverse token
+#       `Duna to Ike` plus, for Ike, the commit terminal-body token.
+#   D14 warp-rails             the machine cannot complete without it: the
+#       17,650 s coast at 1x is ~4.9 wall HOURS against a 3,600 s mission budget.
+#   D14 scene-flight           the whole mission is the flight scene.
+#   D14 sandbox                the fixture's own difficulty, carried through the
+#       Parsek strip unchanged (B17 claims it on the SOURCE save, which inherited
+#       it from the b17-duna-pad forge base; only Parsek's own state was removed).
+#
+# NOT claimed, deliberately:
+#   D1 auto-record-launch  - there is no launch. The recording is started by the
+#       StartRecording seam step, which is a DIFFERENT trigger and has its own
+#       registry value nowhere near this one.
+#   D14 warp-high          - this lane's ceiling is x100 everywhere (the approach
+#       clamp derivation); the MechJeb executor autowarps go higher, but nothing
+#       in this contract gates that, so it is not ours to claim.
+#   D14 soi-count          - nothing here gates a count beyond the one required
+#       transition.
+#   D3 / D4                - B11 and B17 claim reference-frame and TrackSection
+#       classes, but nothing in EITHER spec's contract gates them and this lane
+#       will not repeat that. `atmospheric` would additionally be FALSE here:
+#       the craft never touches an atmosphere at any point in the flight.
+[dimensionsCovered]
+D1  = ["commit-in-foreign-soi"]
+D14 = ["duna", "ike", "warp-rails", "scene-flight", "sandbox"]
+
+[expectations]
+# PLACEMENT IS LOAD-BEARING: allowedAnomalies must precede every
+# [expectations.<sub>] header or TOML scopes it into the sub-table
+# (hlib.validate_spec rejects the misplaced form).
+allowedAnomalies = []
+
+[expectations.recordings]
+# THE ARITHMETIC, RE-DERIVED FOR THE PARSEK-STRIPPED FIXTURE. `run.py
+# count_recordings` counts `.prec` SIDECARS in the produced save's
+# `Parsek/Recordings` dir. The old window ({3,4}) was arithmetic over
+# `duna-direct-recorded`, which shipped TWO carried-in sidecars (311d98e3... and
+# 3397c2e5..., B17's DD1 + its booster); `duna-park-probe` ships NONE - it has no
+# `Parsek/` directory at all - so that whole term is gone. So:
+#   +0  the fixture. Zero `.prec`, zero committed trees, by construction.
+#   +1  THIS lane's product: the DD1 flies the whole hop as ONE piece (the booster
+#       was shed on the Kerbin ascent two missions ago and there is no staging
+#       event anywhere in this profile), so the new tree is a single recording.
+#   = 1 EXPECTED, and it is the honest expected value rather than a floor.
+#   +1  HEADROOM, admitted rather than predicted, for ONE class: an optimizer
+#       split of the new recording at the Duna->Ike boundary. Note WHY that is
+#       headroom and not a prediction - the count is measured on the save THIS run
+#       writes, and the load-time split that fired on flight 1 (line 11509) is a
+#       LOAD-time pass over an already-committed recording. This run commits and
+#       then flushes; it never re-loads afterwards, so the split has no occasion
+#       to run on the new recording within this run's own life. It is admitted
+#       because the optimizer also has commit-time entry points and the Duna->Ike
+#       boundary's cohesion behaviour is an explicit Phase-1 observation target
+#       (see the logContracts note) - if it DOES split, that is a finding worth
+#       reading rather than a red.
+# => { min = 1, max = 2 }, a DERIVED RANGE and NOT A PIN. Re-pin it exactly from
+# flight 2's `verifiers.expectations.observed.recordings.count`; the expected
+# reading is 1.
+#
+# AND THE COUNT IS COMMIT-BLIND (the B11/B16/B17 note verbatim): sidecars are
+# written for the active uncommitted tree too, so this window guards recording
+# TOPOLOGY only and is NOT evidence that the commit ran. The commit is guarded by
+# the logContract tokens below. It is ALSO not evidence that the recording is
+# ROOTED where this lane needs it: flight 1 would have counted a perfectly
+# healthy-looking number while the hop sat inside B17's Kerbin tree. Nothing in
+# the expectations vocabulary can express "launch body = Duna"; that is read off
+# the produced save by hand until it is worth a saveParse facet.
+count = { min = 1, max = 2 }
+
+[expectations.logContracts]
+# Every token sourced from its ACTUAL emitting call site.
+#   "Recording started" / "Recording stopped" - the lifecycle pair every flown
+#       scenario asserts. READ THE NEXT SENTENCE BEFORE TREATING `started` AS THE
+#       SEAM'S EVIDENCE, because an earlier draft of this comment did and was
+#       WRONG: it claimed that "with autoRecordOnLaunch pinned false and no launch
+#       in the profile, nothing else in this run can emit it". Flight 1 falsified
+#       that outright - all FIVE of its `Recording started` lines came from the
+#       committed-restore PROMOTION path and say so on their face
+#       (`..., promotion, treeRec=rec[311d98e3|...]`, log lines 11833 / 12159 /
+#       14655), while the seam verb answered `already=true` and started nothing.
+#       So this token proves a recording exists, NOT that this lane opened one,
+#       and it CANNOT distinguish the healthy shape from flight 1's. It is kept as
+#       the standing lifecycle floor; the thing it does not cover - that the
+#       recording is a fresh standalone tree rooted at Duna - is covered by the
+#       FIXTURE (nothing to resume) and read off the produced save by hand.
+#   "SOI change boundary suppressed in tree mode: Duna to Ike" -
+#       ParsekFlight.HandleSoiChangeSplit, the tree-mode PRODUCTION branch
+#       (`ShouldSuppressBoundarySplit` returns `activeTree != null`, and
+#       always-tree mode gives every recording a tree). THE Duna -> Ike crossing
+#       for the ACTIVE vessel, and the single token that proves the transfer
+#       actually happened rather than the craft sitting in its start park. The
+#       format is VERIFIED against a real flight log:
+#       logs/2026-07-25_1216_B7-duna-flyby/KSP.log carries `Duna to Ike`
+#       verbatim - the crossing B17 forbids as poison is precisely the one this
+#       lane requires.
+#   "CommitTreeFlight: starting tree commit at UT=" - ParsekFlight, logged when
+#       the commit path is entered. Proves the path ran.
+#   "CommitTreeFlight terminal: rec=\\w+ terminalState=Orbiting
+#       terminalOrbitBody=Ike" - ParsekFlight.LogCommitTerminalVerdicts, one line
+#       per committed recording. THIS is the headline claim's only real evidence:
+#       "starting tree commit at UT=" is logged unconditionally the moment the
+#       path is entered, so before this token a tree that ended around DUNA
+#       produced byte-identical evidence to one that ended around IKE.
+#
+# `committree committed=true` is NOT required, following B17 rather than B11.
+# It proves the SEAM call returned OK, which the terminal token above already
+# implies for the only commit this lane fires, and a first-flight reading run
+# does not add a token it has not seen emitted on this profile.
+#
+# FORBIDDEN is the ERROR floor and NOTHING ELSE, deliberately. This is a READING
+# run: the interesting behaviour - what the optimizer does with the Duna->Ike
+# handoff at load, what the loop lanes then read off the produced recording, how
+# the parent-anchored surfaces look for a same-parent transfer - must be
+# OBSERVABLE in the log rather than fatal. In particular:
+#
+# PHASE-1 OBSERVATION TARGET, recorded here so the first reader knows to look.
+# `RecordingOptimizer.IsSplittableEnvOrBodyBoundary` keeps a same-class Exo body
+# change COHESIVE for transfer coasts (rule 3 of the section-3 ordering), which
+# is the `cohesive-cross-body-coast` behaviour the Dres program's split-cohesion
+# fix established at SUN transfers. Duna -> Ike is the FIRST same-parent moon
+# crossing to reach that predicate from a recording ROOTED at the parent, and
+# whether the boundary comes back cohesive or split is unmeasured. It is not
+# gated in either direction; read it off the produced save's TrackSections and
+# the analyzer output, then decide.
+required  = [
+  "Recording started",
+  "Recording stopped",
+  "SOI change boundary suppressed in tree mode: Duna to Ike",
+  "CommitTreeFlight: starting tree commit at UT=",
+  "CommitTreeFlight terminal: rec=\\w+ terminalState=Orbiting terminalOrbitBody=Ike",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+]
+
+[expectations.rewind]
+# REPORT-ONLY (no `gating` key - the ARMED_ALLOWLIST discipline: arming happens
+# later, off real bytes, through the reading / armed / negative-control
+# sequence). The three windows ARE the reading: a clean single-craft flight with
+# no separation event and no re-fly must author no RewindPoint, no supersede row
+# and no tombstone. Two readings back that: B17's produced save - the ancestor of
+# this fixture - measured exactly 0/0/0, and so did B23 flight 1. If flight 2
+# disagrees, that is a finding about what the orbit-start entry or the same-parent
+# transfer does to the durable surfaces, and the honest response is to read it,
+# not to have red'd on it.
+rewindPoints  = { max = 0 }
+supersedeRows = { max = 0 }
+tombstones    = { max = 0 }
+
+# [expectations.recordings.structure] IS DELIBERATELY ABSENT, and the reason
+# CHANGED with the fixture. It used to be that the produced save would carry the
+# fixture's committed tree AND this lane's new one, and that pair's topology had
+# never been observed. `duna-park-probe` carries no tree at all, so the predicted
+# shape is now simple - ONE tree, committed, ONE recording, terminal Orbiting -
+# and simple is exactly what makes it tempting to declare. It stays absent anyway,
+# because that shape is still PREDICTED and not MEASURED: flight 1 measured a
+# three-recording, tree-ccb5e4af topology that this spec no longer expects, so the
+# suite has no reading of the shape this spec now describes. A report-only block
+# of invented numbers is worse than no block - it reads like a measurement.
+# Author it from FLIGHT 2's saveParse facets.
+
+# [expectations.recordings.points] is absent for the same reason, plus the
+# standing saveparse caveat that a WARPING scenario's per-run point totals swing
+# with warp timing far more than structure does.
+
+[runtime]
+# WALL arithmetic (the mission budget is WALL; the missionParams budgets above are
+# GAME seconds):
+#   LoadGame                      300  declared
+#   preamble seam verbs           ~10  five dispatches, all fast
+#   PRELAUNCH orbit-start gate     ~5  three in-gate frames at 1x
+#   PLAN-TRANSFER                 ~30  300 game s at the x10 plan hold
+#   TRANSFER-BURN                ~650  the autowarped window wait is seconds on
+#                                      rails; ~600 of this is MechJeb's OWN 1x
+#                                      pre-ignition WARPALIGN hold (B11 MEASURED
+#                                      that hold and it is body-independent)
+#   COAST-TO-TARGET              ~180  17,650 game s at the x100 ceiling, the
+#                                      whole price of the approach-clamp
+#                                      derivation
+#   two correction rounds        ~500  each: plan + a ~340 s attitude flip at 2x
+#                                      physics + aim-warp + a sub-10 s burn
+#   TARGET-FLYBY                  ~60  native warp to periapsis minus the lead
+#   PLAN-CAPTURE                  ~30
+#   CAPTURE-BURN                 ~620  again ~600 of it the 1x pre-ignition hold
+#   PARK                         ~180  parkDwellSeconds of GAME time at 1x
+#   ORBIT-COMMIT                 <120  the runner's seam-commit poll bound
+#   => ~2,400 nominal. WORST case adds one bounded stale-node re-plan (+90 s of
+#      window grace, a re-planned coast, and a SECOND ~600 s pre-ignition hold)
+#      => ~3,100. missionBudget 3,600 is ~1.5x nominal and ~1.16x that worst case.
+# runtime 4,200 >= 300 LoadGame + ~10 preamble + 3,600 mission + ~60 FlushAndQuit
+# + ~230 margin: the tail verbs must survive a FULL-budget mission (SF-5).
+budgetSeconds = 4200
+
+[retry]
+# The transient risks here are kRPC / MechJeb flakes (a plan that throws
+# server-side, an executor that does not engage), not a geometry lottery: unlike
+# B17, where an Ike shell transit was a coin flip to be avoided, THIS lane WANTS
+# the Ike encounter and the transfer window recurs every ~14,850 game s. One
+# retry prices the flake class without spending a second full flight on it.
+policy = "once"
+
+[expectedFail]
+bugId = ""

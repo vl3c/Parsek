@@ -82,6 +82,14 @@ namespace Parsek.Tests
         /// </summary>
         private static bool SharingIsEnforced(string lockedPath)
         {
+            // POSIX rename() replaces the destination regardless of open handles,
+            // so a "locked" destination never blocks the swap step there. Mono's
+            // in-process share emulation DOES reject the second open below, which
+            // would fool the probe into claiming enforcement the swap never sees.
+            if (Environment.OSVersion.Platform == PlatformID.Unix
+                || Environment.OSVersion.Platform == PlatformID.MacOSX)
+                return false;
+
             try
             {
                 using (new FileStream(lockedPath, FileMode.Open, FileAccess.ReadWrite, FileShare.None))

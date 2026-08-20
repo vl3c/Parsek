@@ -642,6 +642,90 @@ class WorldVesselDiffTests(unittest.TestCase):
         self.assertEqual(oracle.diff_world_vessels(declared, parsed), [])
 
 
+class WorldRosterDiffTests(unittest.TestCase):
+    """Guards the roster sub-facet M-B2 deferred and the career-ledger lane landed:
+    correlation BY NAME, present/absent claims only, both HARD, and an armed
+    assertion that can never green on a save carrying no roster facet."""
+
+    @staticmethod
+    def _career(roster, has_roster=True):
+        return {"parsed": True, "hasRoster": has_roster, "roster": list(roster)}
+
+    @staticmethod
+    def _kerbal(name, ktype="Crew", state="Available"):
+        return {"name": name, "gender": "Male", "type": ktype,
+                "trait": "Pilot", "state": state}
+
+    def test_undeclared_block_diffs_nothing(self):
+        # Every spec that declares no roster must be byte-unaffected.
+        career = self._career([self._kerbal("Bill Kerman")])
+        self.assertEqual(oracle.diff_world_roster(None, career), [])
+        self.assertEqual(oracle.diff_world_roster({}, career), [])
+        self.assertEqual(oracle.diff_world_roster({"present": [], "absent": []}, career), [])
+
+    def test_dismissed_kerbal_still_present_is_hard_phantom(self):
+        # The L1 claim: the dismissal must actually have removed the kerbal.
+        career = self._career([self._kerbal("Bill Kerman", state="Available")])
+        diffs = oracle.diff_world_roster({"absent": ["Bill Kerman"]}, career)
+        self.assertEqual(len(diffs), 1)
+        self.assertEqual((diffs[0].facet, diffs[0].kind), ("roster", "phantom"))
+        self.assertTrue(oracle.has_hard_drift(diffs))
+        self.assertIn("Bill Kerman", diffs[0].identity)
+
+    def test_bystander_removed_is_hard_missing(self):
+        # The other half: the action must not have touched anyone else.
+        career = self._career([self._kerbal("Jebediah Kerman")])
+        diffs = oracle.diff_world_roster(
+            {"present": ["Jebediah Kerman", "Bob Kerman"]}, career)
+        self.assertEqual(len(diffs), 1)
+        self.assertEqual((diffs[0].identity, diffs[0].kind), ("Bob Kerman", "missing"))
+        self.assertTrue(diffs[0].hard)
+
+    def test_satisfied_claims_diff_nothing(self):
+        career = self._career([
+            self._kerbal("Jebediah Kerman"),
+            self._kerbal("Bob Kerman"),
+            self._kerbal("Valentina Kerman"),
+        ])
+        diffs = oracle.diff_world_roster(
+            {"absent": ["Bill Kerman"],
+             "present": ["Jebediah Kerman", "Bob Kerman", "Valentina Kerman"]}, career)
+        self.assertEqual(diffs, [])
+
+    def test_no_roster_facet_reds_rather_than_greens(self):
+        # hasRoster false = an unparsed / pre-export analyzer. An armed assertion must
+        # never pass on a missing input (the pools' missing-facet rule). This is the
+        # DEFENSIVE guard: run.py intercepts the same condition one level up and
+        # classifies it INVALID(tooling) instead (see run._run_ledger_oracle), so a
+        # production run never reaches this branch.
+        career = self._career([], has_roster=False)
+        diffs = oracle.diff_world_roster({"absent": ["Bill Kerman"]}, career)
+        self.assertEqual(len(diffs), 1)
+        self.assertEqual(diffs[0].kind, "missing")
+        self.assertTrue(diffs[0].hard)
+        self.assertIn("hasRoster=false", diffs[0].detail)
+        # ...and an ABSENT careerSave block behaves the same way.
+        self.assertTrue(oracle.diff_world_roster({"absent": ["Bill Kerman"]}, None)[0].hard)
+
+    def test_empty_but_present_roster_is_diffed_normally(self):
+        # An emptied roster is a REAL state, distinct from an unparsed one: the absent
+        # claim is satisfied, the present claim reds.
+        career = self._career([], has_roster=True)
+        self.assertEqual(oracle.diff_world_roster({"absent": ["Bill Kerman"]}, career), [])
+        diffs = oracle.diff_world_roster({"present": ["Bill Kerman"]}, career)
+        self.assertEqual(diffs[0].kind, "missing")
+
+    def test_divergences_are_name_sorted_and_serializable(self):
+        career = self._career([])
+        diffs = oracle.diff_world_roster({"present": ["Zed Kerman", "Al Kerman"]}, career)
+        self.assertEqual([d.identity for d in diffs], ["Al Kerman", "Zed Kerman"])
+        # The result row must classify like any other facet.
+        result = oracle.build_oracle_result(diffs)
+        self.assertEqual(result["hardDivergences"], 2)
+        self.assertEqual(result["status"], oracle.ORACLE_STATUS_FAIL)
+        self.assertEqual(oracle.divergence_to_dict(diffs[0])["facet"], "roster")
+
+
 # ---------------------------------------------------------------------------
 # Verifier-row result serialization (design ~478).
 # ---------------------------------------------------------------------------
