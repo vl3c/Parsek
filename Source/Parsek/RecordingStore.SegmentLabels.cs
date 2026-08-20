@@ -75,26 +75,87 @@ namespace Parsek
             return result;
         }
 
-        private static bool TryBuildBodyPathLabel(List<TrajectoryPoint> points, out string label)
+        /// <summary>
+        /// The ordered body-transition sequence of one recording (consecutive duplicates
+        /// collapsed), mirroring the segment body-path label's source-preference ladder
+        /// EXACTLY: Points when they carry a real transition (2+ bodies), else the TrackSection
+        /// walk when it does, else ONE body from the same
+        /// SegmentBodyName → lastPointBodyName → StartBodyName fallback the label uses - so the
+        /// Missions header's narrative body path (T2.1) can never disagree with the Recordings
+        /// tab's label about the same recording. Cached per Recording behind the same content
+        /// signature as the display-label cache (the walk is O(Points) and this is reached from
+        /// a per-frame UI rebuild); treat the returned list as READ-ONLY. Never null; empty
+        /// when the recording carries no body at all.
+        /// </summary>
+        internal static List<string> GetBodyTransitionSequence(Recording rec)
         {
-            label = null;
-            if (points == null || points.Count == 0)
-                return false;
+            if (rec == null)
+                return new List<string>();
 
-            var bodies = new List<string>();
-            for (int i = 0; i < points.Count; i++)
-                AppendBodyTransition(bodies, points[i].bodyName);
+            int pointCount = rec.Points != null ? rec.Points.Count : 0;
+            int trackSectionCount = rec.TrackSections != null ? rec.TrackSections.Count : 0;
+            string lastPointBodyName = pointCount > 0 ? rec.Points[pointCount - 1].bodyName : null;
+            if (rec.BodyTransitionSequenceCache != null
+                && rec.BodyTransitionSequenceCachePointCount == pointCount
+                && rec.BodyTransitionSequenceCacheTrackSectionCount == trackSectionCount
+                && rec.BodyTransitionSequenceCacheSegmentBodyName == rec.SegmentBodyName
+                && rec.BodyTransitionSequenceCacheStartBodyName == rec.StartBodyName
+                && rec.BodyTransitionSequenceCacheLastPointBodyName == lastPointBodyName)
+            {
+                return rec.BodyTransitionSequenceCache;
+            }
 
-            return TryFormatBodyPathLabel(bodies, out label);
+            List<string> bodies = CollectBodyTransitions(rec.Points);
+            if (bodies.Count < 2)
+            {
+                // Same fallthrough as GetSegmentBodyDisplayLabel: a Points walk yielding fewer
+                // than 2 distinct bodies does NOT block the TrackSection walk (optimized Points
+                // can sit on one body while the sections still carry the SOI crossing).
+                List<string> fromSections = CollectBodyTransitions(rec.TrackSections);
+                if (fromSections.Count >= 2)
+                {
+                    bodies = fromSections;
+                }
+                else
+                {
+                    bodies.Clear();
+                    string body = rec.SegmentBodyName;
+                    if (string.IsNullOrEmpty(body))
+                        body = lastPointBodyName;
+                    if (string.IsNullOrEmpty(body))
+                        body = rec.StartBodyName;
+                    AppendBodyTransition(bodies, body);
+                }
+            }
+
+            rec.BodyTransitionSequenceCache = bodies;
+            rec.BodyTransitionSequenceCachePointCount = pointCount;
+            rec.BodyTransitionSequenceCacheTrackSectionCount = trackSectionCount;
+            rec.BodyTransitionSequenceCacheSegmentBodyName = rec.SegmentBodyName;
+            rec.BodyTransitionSequenceCacheStartBodyName = rec.StartBodyName;
+            rec.BodyTransitionSequenceCacheLastPointBodyName = lastPointBodyName;
+            return bodies;
         }
 
-        private static bool TryBuildBodyPathLabel(List<TrackSection> sections, out string label)
+        // The single shared body walk over trajectory points (consecutive dedup). Both the
+        // label path and the T2.1 sequence path go through here, so the two surfaces cannot
+        // drift apart.
+        private static List<string> CollectBodyTransitions(List<TrajectoryPoint> points)
         {
-            label = null;
-            if (sections == null || sections.Count == 0)
-                return false;
-
             var bodies = new List<string>();
+            if (points != null)
+                for (int i = 0; i < points.Count; i++)
+                    AppendBodyTransition(bodies, points[i].bodyName);
+            return bodies;
+        }
+
+        // The single shared body walk over TrackSections (per-section surface preference:
+        // frames, else bodyFixedFrames, else checkpoints).
+        private static List<string> CollectBodyTransitions(List<TrackSection> sections)
+        {
+            var bodies = new List<string>();
+            if (sections == null)
+                return bodies;
             for (int i = 0; i < sections.Count; i++)
             {
                 TrackSection section = sections[i];
@@ -112,8 +173,17 @@ namespace Parsek
                         AppendBodyTransition(bodies, section.checkpoints[j].bodyName);
                 }
             }
+            return bodies;
+        }
 
-            return TryFormatBodyPathLabel(bodies, out label);
+        private static bool TryBuildBodyPathLabel(List<TrajectoryPoint> points, out string label)
+        {
+            return TryFormatBodyPathLabel(CollectBodyTransitions(points), out label);
+        }
+
+        private static bool TryBuildBodyPathLabel(List<TrackSection> sections, out string label)
+        {
+            return TryFormatBodyPathLabel(CollectBodyTransitions(sections), out label);
         }
 
         private static void AppendBodyTransitions(List<string> bodies, List<TrajectoryPoint> points)

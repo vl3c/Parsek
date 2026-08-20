@@ -28,17 +28,33 @@ namespace Parsek.Tests
         {
             string src = ReadMissionsWindowSource();
 
+            // Both selection-writing toggles route their stamp through the shared
+            // StampSelectionEdit helper (which performs the actual assignment), so the
+            // mutation-stamp pairing is mechanical rather than copy-paste.
+            int helper = src.IndexOf(
+                "mission.SelectionSchemaGeneration = Mission.CurrentSelectionSchemaGeneration;",
+                StringComparison.Ordinal);
+            Assert.True(helper >= 0, "StampSelectionEdit no longer assigns the generation stamp");
+
             int mutation = src.IndexOf(
                 "mission.ExcludedIntervalKeys.Add(node.HeadLegId);", StringComparison.Ordinal);
             Assert.True(mutation >= 0, "interval-exclusion mutation site not found");
 
-            int stamp = src.IndexOf(
-                "mission.SelectionSchemaGeneration = Mission.CurrentSelectionSchemaGeneration;",
-                mutation, StringComparison.Ordinal);
+            int stamp = src.IndexOf("StampSelectionEdit(mission);", mutation,
+                StringComparison.Ordinal);
             Assert.True(stamp >= 0, "generation stamp missing after the exclusion mutation");
-            // Same handler block, not some far-away coincidental assignment.
+            // Same handler block, not some far-away coincidental call.
             Assert.True(stamp - mutation < 800,
                 "generation stamp is not adjacent to the exclusion mutation (same toggle block)");
+
+            // The T2.2 per-vessel toggle pairs its key-set write with the same stamp.
+            int vesselMutation = src.IndexOf(
+                "MissionVesselRowBuilder.ApplyVesselInclusion(", StringComparison.Ordinal);
+            Assert.True(vesselMutation >= 0, "per-vessel inclusion write site not found");
+            int vesselStamp = src.IndexOf("StampSelectionEdit(mission);", vesselMutation,
+                StringComparison.Ordinal);
+            Assert.True(vesselStamp >= 0 && vesselStamp - vesselMutation < 800,
+                "per-vessel toggle does not stamp the selection generation in its block");
         }
 
         [Fact]
