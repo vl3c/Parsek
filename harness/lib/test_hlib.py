@@ -4976,6 +4976,16 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
         # todo entry, not a debt this tag can carry. (Flown as
         # `H33-logistics-route-proof`; renamed H35 for the same collision.)
         "H35-logistics-route-proof.toml":   "FLOWN 3x 2026-08-11 (reading + two confirms, all PASS attempt 1) and PINNED WHOLE; operator tier is an open PROMOTION call, not debt",
+        # tier=operator by the CALIBRATION DISCIPLINE, the whole B18-B26 family's
+        # tier, and NOT a debt: a first-flight B lane is operator because its
+        # windows are derived rather than measured and the first run is a
+        # calibration reading, exactly the disposition B23/B24/B25/B26 carry.
+        # There is no outstanding HUMAN call here - the lane is committed, its
+        # row in autotest-status.md says NOT YET FLOWN, and what it owes is a
+        # flight rather than a decision. Re-classify when it flies: a green run
+        # turns this into the ordinary operator -> nightly promotion call, which
+        # is the shape H34/H35 above already record.
+        "B28-laythe-jool-return.toml":      "tier=operator by the calibration discipline (the B18-B26 family's tier), NOT debt; committed 2026-08-21 and NOT YET FLOWN - it owes a first flight, not a human decision",
         "H5-invariants-corpus.toml":        "discharged - 'resolving the former PENDING-OPERATOR check'",
         "H6-route-rewind-timeline.toml":    "discharged - 'The former PENDING-OPERATOR ...'",
         "M1-mission-loop-unit.toml":        "discharged - 'CLOSED by the 2026-07-26 flights'",
