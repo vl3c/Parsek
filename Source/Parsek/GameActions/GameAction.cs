@@ -152,7 +152,98 @@ namespace Parsek
         /// append-only. Not resource-impacting: XP is derived from the career log, not paid
         /// out of any pool, so it never enters a funds/science/reputation reconciliation.
         /// </summary>
-        KerbalExperience = 31
+        KerbalExperience = 31,
+
+        /// <summary>
+        /// The SCIENCE INPUT leg of a stock <c>CurrencyExchanger</c> /
+        /// <c>CurrencyConverter</c> strategy exchange (Patents Licensing,
+        /// <c>researchIPsellout</c>): the strategy moved science OUT of the pool and
+        /// credited another currency. Captured straight from the
+        /// <c>ScienceChanged</c> event keyed <c>TransactionReasons.StrategyInput</c>
+        /// (the mirror of the funds OUTPUT leg's
+        /// <see cref="FundsEarningSource.Strategy"/> and the reputation INPUT leg's
+        /// <see cref="ReputationPenaltySource.Strategy"/>), because no other channel
+        /// captures it and the strategy's own <c>InitialCostScience</c> setup charge is
+        /// separate (that one rides <see cref="StrategyActivate"/>).
+        ///
+        /// <para><see cref="GameAction.Cost"/> carries the POSITIVE magnitude KSP has
+        /// already removed from the pool, so <see cref="ScienceModule"/> replays it as an
+        /// UNCONDITIONAL debit and never re-derives or re-caps it. It is NOT a tech-node
+        /// spending: it carries no <see cref="GameAction.NodeId"/>, and every
+        /// tech-node-domain reader (<c>KspStatePatcher</c>'s unlock set,
+        /// <c>LedgerGroundTruth</c>'s researched-node derivation,
+        /// <c>SupersedeCommit</c>'s tech exclusion) stays
+        /// <see cref="ScienceSpending"/>-only by construction.</para>
+        ///
+        /// <para>No strategy id is carried: the <c>ScienceChanged</c> event's key is the
+        /// transaction reason and no strategy identity is available at that seam (the
+        /// funds leg has the same limitation).</para>
+        ///
+        /// <para>TWO producers write this type, told apart by
+        /// <see cref="GameAction.ConversionSource"/>:
+        /// <see cref="StrategyConversionSource.Exchanger"/> for the reason-keyed
+        /// door above, and <see cref="StrategyConversionSource.Converter"/> for the
+        /// query-family door (<c>StrategyConversionCapture</c>), which observes
+        /// <c>GameEvents.Modifiers.OnCurrencyModified</c> because that family leaves no
+        /// StrategyInput event at all. The discriminator is load-bearing, not cosmetic:
+        /// <c>LedgerOrchestrator.ComputePendingUncommittedStrategyScienceDebit</c>
+        /// nets an OBSERVED population (stored StrategyInput events) against a
+        /// COMMITTED one, and a converter row has no observed counterpart, so counting
+        /// it would silently shrink a genuine pending exchanger adjustment.</para>
+        /// </summary>
+        StrategyScienceDebit = 32,
+
+        /// <summary>
+        /// The science OUTPUT leg of a stock <c>Strategies.Effects.CurrencyConverter</c>
+        /// (Open-Source Tech Program and siblings): the strategy YIELDED science into
+        /// the pool out of another currency. <see cref="GameAction.ScienceAwarded"/>
+        /// carries the positive magnitude KSP has already added.
+        ///
+        /// <para>A SIBLING TYPE rather than a negative-<c>Cost</c>
+        /// <see cref="StrategyScienceDebit"/>, and rather than a subject-less
+        /// <see cref="ScienceEarning"/>. <see cref="ScienceEarning"/> genuinely cannot
+        /// express it: <c>ScienceModule.ProcessEarning</c> computes
+        /// <c>headroom = SubjectMaxValue - creditedTotal</c> and credits
+        /// <c>min(awarded, headroom)</c>, so a row with no subject (max 0) is zeroed
+        /// to nothing. A negative <c>Cost</c> would serialize and DISPLAY dishonestly
+        /// (the field is named Cost, the row renders as "Strategy exchange --5 sci")
+        /// and would flow as a negative into
+        /// <c>ScienceModule.ComputeTotalSpendings</c>, silently RAISING spendable
+        /// science through the reservation math. A distinct type keeps the sign in the
+        /// type and the magnitude positive everywhere.</para>
+        ///
+        /// <para>Converter-only by construction, so it carries no
+        /// <see cref="GameAction.ConversionSource"/> discriminator: the exchanger
+        /// family's science leg is always a debit (its output currency is funds or
+        /// reputation).</para>
+        /// </summary>
+        StrategyScienceCredit = 33
+    }
+
+    /// <summary>
+    /// Which stock strategy mechanism produced a strategy currency-conversion row.
+    /// Default <see cref="Exchanger"/> so rows written before the query-family door
+    /// existed - and every row whose producer does not set the field - keep the
+    /// original meaning on load.
+    /// </summary>
+    public enum StrategyConversionSource
+    {
+        /// <summary>
+        /// <c>Strategies.CurrencyExchanger</c> (Bail-Out Grant,
+        /// <c>researchIPsellout</c>): a one-shot direct <c>Add*</c> under
+        /// <c>TransactionReasons.StrategyInput</c>/<c>StrategyOutput</c>, captured from
+        /// the resulting reason-keyed GameStateEvent.
+        /// </summary>
+        Exchanger = 0,
+
+        /// <summary>
+        /// <c>Strategies.Effects.CurrencyConverter</c> /
+        /// <c>Strategies.Effects.CurrencyOperation</c>: an in-place mutation of a
+        /// <c>CurrencyModifierQuery</c>, captured from
+        /// <c>GameEvents.Modifiers.OnCurrencyModified</c>. Leaves NO StrategyInput /
+        /// StrategyOutput event behind, so no stored event corroborates the row.
+        /// </summary>
+        Converter = 1
     }
 
     /// <summary>How science was collected — transmitted from orbit or recovered on the ground.</summary>
@@ -305,6 +396,15 @@ namespace Parsek
 
         /// <summary>Cost in science points or funds (context-dependent on action type).</summary>
         public float Cost;
+
+        /// <summary>
+        /// Which stock strategy mechanism produced a
+        /// <see cref="GameActionType.StrategyScienceDebit"/> row. Meaningless (and left
+        /// at its <see cref="StrategyConversionSource.Exchanger"/> default) on every
+        /// other action type. See the enum's doc for why the distinction is
+        /// load-bearing.
+        /// </summary>
+        public StrategyConversionSource ConversionSource;
 
         // ---- Funds fields ----
 
@@ -727,6 +827,12 @@ namespace Parsek
                 case GameActionType.ScienceSpending:
                     SerializeScienceSpending(node);
                     break;
+                case GameActionType.StrategyScienceDebit:
+                    SerializeStrategyScienceDebit(node);
+                    break;
+                case GameActionType.StrategyScienceCredit:
+                    SerializeStrategyScienceCredit(node);
+                    break;
                 case GameActionType.FundsEarning:
                     SerializeFundsEarning(node);
                     break;
@@ -873,6 +979,12 @@ namespace Parsek
                 case GameActionType.ScienceSpending:
                     DeserializeScienceSpending(node, a);
                     break;
+                case GameActionType.StrategyScienceDebit:
+                    DeserializeStrategyScienceDebit(node, a);
+                    break;
+                case GameActionType.StrategyScienceCredit:
+                    DeserializeStrategyScienceCredit(node, a);
+                    break;
                 case GameActionType.FundsEarning:
                     DeserializeFundsEarning(node, a);
                     break;
@@ -1014,6 +1126,37 @@ namespace Parsek
         {
             a.NodeId = n.GetValue("nodeId");
             TryParseFloat(n, "cost", out a.Cost);
+        }
+
+        // StrategyScienceDebit reuses the Cost field (positive magnitude) and
+        // deliberately carries NO nodeId - it is not a tech-node spending.
+        // conversionSource tells the two producers apart (reason-keyed exchanger door
+        // vs query-family converter door); absent on rows written before that door
+        // existed, which TryParseEnum leaves at Exchanger = 0, the original meaning.
+        private void SerializeStrategyScienceDebit(ConfigNode n)
+        {
+            n.AddValue("cost", Cost.ToString("R", IC));
+            n.AddValue("conversionSource", ((int)ConversionSource).ToString(IC));
+        }
+
+        private static void DeserializeStrategyScienceDebit(ConfigNode n, GameAction a)
+        {
+            TryParseFloat(n, "cost", out a.Cost);
+            TryParseEnum(n, "conversionSource", out a.ConversionSource);
+        }
+
+        // StrategyScienceCredit carries the positive magnitude in scienceAwarded (NOT
+        // cost - it is a credit) and no subjectId / subjectMaxValue: it is a pool-only
+        // movement with no science subject behind it, which is precisely why a
+        // ScienceEarning row cannot represent it.
+        private void SerializeStrategyScienceCredit(ConfigNode n)
+        {
+            n.AddValue("scienceAwarded", ScienceAwarded.ToString("R", IC));
+        }
+
+        private static void DeserializeStrategyScienceCredit(ConfigNode n, GameAction a)
+        {
+            TryParseFloat(n, "scienceAwarded", out a.ScienceAwarded);
         }
 
         private void SerializeFundsEarning(ConfigNode n)

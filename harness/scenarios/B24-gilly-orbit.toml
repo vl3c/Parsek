@@ -1,0 +1,838 @@
+schema = 1
+id = "B24-gilly-orbit"
+# =====================================================================================
+# B24: the ECCENTRIC-MOON sibling of B23. The crewed Kerbal X upper stage starts
+# ALREADY PARKED in Eve orbit, Hohmann-transfers to GILLY, captures into a Gilly
+# park and commits the tree there. THE RECORDING IS THE PRODUCT.
+#
+# WHY THIS MISSION EXISTS, and it is NOT "a fourth moon". B23 produced the
+# suite's first recording rooted at a body other than Kerbin (Duna -> Ike) and
+# the V14 pair MEASURED what phase-lock does with it: `constraints=1`,
+# `method=single-orbital`, cadence exactly one moon period, residual literally 0.
+# That measurement was taken on a moon that is very nearly CIRCULAR (e = 0.03,
+# i = 0.2 deg) and whose SOI is 1,049,599 m -- 32.80% of its own orbital radius.
+# All three proven same-parent subjects (Mun, Minmus, Ike) share that shape.
+#
+# GILLY BREAKS IT ON EVERY AXIS AT ONCE, and the numbers are the reason to fly
+# this lane rather than a fourth circular moon:
+#
+#   ecc                   0.55       (Mun 0.0, Minmus 0.0, Ike 0.03)
+#   inc                   12 deg     (Mun 0.0, Minmus 6.0, Ike 0.2)
+#   SOI                   126,123.27 m -- the SMALLEST of any stock moon
+#   SOI / SMA             0.40%      (Ike 32.80%, Mun 20.25%, and the tightest
+#                                     Jool moon in the research doc's own table,
+#                                     Pol, is 0.58%)
+#   tol = SOI / v_orb     247.6 s at the circular v_orb 509.3 m/s
+#                                    (Ike ~3,420 s, Mun ~4,479 s, Bop 823.5,
+#                                     Pol 831.6)
+#   duty = tol / period   6.37e-4    -- tighter than Pol's 9.22e-4, i.e. the
+#                                     tightest duty cycle in the stock system
+#
+# AND THE ECCENTRICITY MOVES THE TOLERANCE ITSELF, which is the half a circular
+# moon cannot express: Gilly's true orbital speed swings from 945.3 m/s at
+# periapsis to 274.4 m/s at apoapsis, so `tol` swings 133 s -> 460 s depending on
+# WHERE in Gilly's orbit the encounter lands. That is the exact caveat
+# `docs/dev/research/same-parent-reaim-jool-system.md` attaches to every Bop/Pol
+# conclusion ("`v_orb` is the circular `sqrt(mu/a)` ... for an e = 0.235 orbit the
+# true speed swings +-24%, so Bop's and Pol's tolerances carry that
+# uncertainty"), at e = 0.55 rather than 0.235. This lane is the MINIATURE,
+# flyable version of that question, and its product is what V15M/V15T read.
+#
+# PHASE-0 DOOR: existing fixture, NO FORGE FLIGHT -- via a PARSEK-STRIPPED
+# DERIVED COPY, `eve-park-kerbalx`, exactly as B23 uses `duna-park-probe`. See
+# [fixture] for how it was made and why the strip is the lane's precondition
+# rather than tidiness.
+#
+# NO MACHINE CHANGE. `startInOrbit` is body-generic and was LIVE-PROVEN on B23
+# flight 2 (2026-08-18_2308, PASS attempt 1). Nothing in `mlib` was touched for
+# this lane; `b24_gilly_orbit.py` is a thin alias and its schema is B23's param
+# set verbatim. Every Gilly-specific decision below is a VALUE.
+#
+# =====================================================================================
+# THE DELTA-V, DERIVED END TO END. Every input is MEASURED off the fixture's own
+# bytes or read from the stock part cfgs in the dev install. Nothing is scaled
+# from another lane (the interplanetary-dv-sizing rule: never ratio-scale dv
+# between targets).
+#
+# WHAT THE CRAFT HAS. Parts read from `eve-orbit-recorded/persistent.sfs`
+# (unchanged by the strip), masses from
+# `Kerbal Space Program/GameData/Squad/Parts/**`:
+#   mk1-3pod 2.6 + 30 MonoPropellant 0.12 + 1 crew ~0.16 (Jebediah, kerbal
+#   0.09375 + stock inventory) + parachuteLarge 0.3 + HeatShield2 0.5 +
+#   399.786 Ablator 0.400 + Decoupler.2 0.16 + Rockomax16.BW dry 1.0 +
+#   2x ksp.r.largeBatteryPack 0.04 + 2x solarPanels5 0.01 + 3x landingLeg1-2 0.3
+#   + 2x ladder1 0.01 + telescopicLadderBay 0.005 + mediumDishAntenna 0.05 +
+#   liquidEngine2-2.v2 (Poodle) 1.75
+#   => DRY 7.405 t
+#   PROPELLANT: LF 231.461 + Ox 282.897 at 0.005 t/unit = 2.572 t, and the two
+#   are EXACTLY 9:11 balanced (231.461 * 11/9 = 282.897), so all of it is usable.
+#   Poodle: Isp 350 s vac, 250 kN (cfg-verified).
+#   => dv = 350 * 9.80665 * ln(9.977 / 7.405) = 1,023.2 m/s
+#      (1,041.5 / 1,005.6 across a +-0.15 t dry-mass band)
+#
+# WHAT THE HOP COSTS, and it is a BAND rather than a number because Gilly is
+# eccentric: the intercept RADIUS is a free variable between Gilly's periapsis
+# (14,175 km) and apoapsis (48,825 km). Stock constants mu_Eve = 8.1717302e12,
+# R_Eve = 700,000, r_park = 5,685,808.54 (MEASURED SMA), mu_Gilly = 8,289,449.8,
+# R_Gilly = 13,000. Departure is the FULL 3-D burn (the relative inclination
+# folded in vectorially at the park, the PESSIMISTIC placement); capture is
+# `sqrt(v_inf^2 + 2*mu/r_p) - sqrt(mu/r_p)` at a 10 km Gilly periapsis:
+#
+#   r_i (Mm)   depart   v_inf   capture   TOTAL   transfer coast   SOI->pe coast
+#     14.175    307.2   370.8     352.7   659.9      34,391 s          334 s
+#     17.000    336.3   411.2     393.1   729.4      ~45,000           302 s
+#     20.000    360.3   410.8     392.7   753.0      ~54,000           302 s
+#     25.000    390.3   377.3     359.3   749.6      ~70,000           329 s
+#     31.500    417.2   314.8     297.0   714.2      88,108 s          394 s
+#     40.000    440.7   221.2     203.9   644.6     ~124,000           561 s
+#     48.825    ~447     87.6      72.6   ~520      156,377 s        1,416 s
+#
+#   RELATIVE INCLINATION, derived from the fixture's own park (i 5.337 deg,
+#   LAN 38.709) against Gilly's stock elements (i 12, LAN 80):
+#     cos(i_rel) = cos i1 cos i2 + sin i1 sin i2 cos(dLAN) => i_rel = 8.721 deg
+#   Taken as a separate burn at the transfer apoapsis it costs 42.8 m/s; taken at
+#   the park it costs 182.3 m/s as a PURE plane change -- but folded into the
+#   departure burn VECTORIALLY (which is what a single ejection node does) it
+#   costs only ~56 m/s over the coplanar 361.6, which is the 417.2 in the table.
+#   The table therefore already carries the pessimistic placement.
+#
+# THE VERDICT, and it is NOT the comfortable one B23 had:
+#   available        1,023.2 m/s
+#   worst-geometry hop  753.0 m/s  (intercept near r = 20 Mm)
+#   => MARGIN 270 m/s, i.e. 36% over the worst hop and 26% of the tank.
+# That clears the 15% line, but it clears it with the FOUR-ROUND correction
+# budget still to pay, and that is what sets `maxCorrectionDvMps` (see its own
+# block): 4 x 50 = 200 m/s of worst-case corrections leaves ~70 m/s. B23 had
+# ~930 m/s of slack and could afford an 80 m/s cap; this lane has 270 and cannot.
+# SAY IT PLAINLY: this is a lane where a correction round that lands on the cap
+# twice, on the worst intercept geometry, ends with under 10% of the tank. The
+# CAP is the guard, and the CAPTURE-BURN under-burn watchdog names the failure
+# directly (achieved orbit in the reason string; `lf=` is in every telemetry
+# line) if it ever happens.
+#
+# =====================================================================================
+# THE ORBITS, DERIVED. All from the stock constants above.
+#   park period    2*pi*sqrt(r^3/mu)  = 29,799.7 game s
+#   Gilly period   2*pi*sqrt(a^3/mu)
+#                  a^3 = 3.1255875e22, /mu = 3.824971e9, sqrt = 61,846.35
+#                                     = 388,587.378 game s
+#   SYNODIC        1/|1/T1 - 1/T2|    = 32,274.7 game s  (1.083 park orbits)
+#   transfer coast pi*sqrt(a_t^3/mu)  = 34,391 s (Gilly periapsis intercept)
+#                                       88,108 s (SMA-radius intercept)
+#                                      156,377 s (apoapsis intercept)
+# So the window wait is at most ~1.08 park orbits -- the same regime B11/B23 were
+# sized against -- and the coast is a 4.5x band rather than a number.
+#
+# =====================================================================================
+# THE APPROACH REGIME IS THE EXACT OPPOSITE OF IKE'S, AND THAT IS THE HEADLINE
+# WARP FACT. At Ike, `2*mu/r_soi = 35,381 m^2/s^2` against `v_inf^2 = 8,482`, so
+# Ike's gravity DOMINATES the approach and B20's straight-line estimate is
+# invalid there (B23 had to solve the approach hyperbola). At GILLY:
+#
+#   2 * mu_Gilly / r_soi = 2 * 8,289,449.8 / 126,123.27 = 131.45 m^2/s^2
+#   v_inf^2              = 7,700 (apoapsis intercept) to 169,000 (r_i ~ 20 Mm)
+#
+# i.e. gravity is 60x to 1,300x NEGLIGIBLE. THE STRAIGHT-LINE ESTIMATE IS VALID
+# HERE, and it is the honest one: with a 10 km periapsis the impact parameter is
+# ~23 km against a 126.1 km SOI, so the entry -> periapsis path is the half-chord
+# `sqrt(126,123^2 - 23,000^2) = 124.0 km`, flown at v_inf:
+#
+#   v_inf 411 m/s (the fastest arrival in the band) ->  302 game s   <- THE FLOOR
+#   v_inf 315                                       ->  394 game s
+#   v_inf  88 (apoapsis intercept)                  -> 1,416 game s
+#
+# SIZE AGAINST 300 GAME SECONDS. That is 14x shorter than Ike's 4,328 s and it is
+# what every warp number below is derived from.
+#
+# THE THREE-RULE WARP CONTRACT (B21's header, applied here):
+#   RULE 1  soiLeadSeconds >= 2x the worst single-frame game-time advance at
+#           coastWarpFactor.
+#   RULE 2  approachWindowSeconds >= 2x soiLeadSeconds, so the ceiling is ALREADY
+#           in force when the native warp hands off.
+#   RULE 3  RAILS_WARP_RATES[approachMaxWarpFactor] <= 1/5 of the SOI-entry ->
+#           periapsis coast.
+# The poll-frame unit both rules 1 and 3 are measured in: mlib's own
+# `_WARP_SAFETY_SECONDS = 1.0` ("two ~0.5 s polls"), with B19 flight 4's MEASURED
+# 3.16 s frame (27,596 game s at x8,738) as the pessimistic 4 s reading.
+#
+#   RULE 3 -> approachMaxWarpFactor 2. Budget = 300/5 = 60 game s per frame.
+#       factor 4 = x100   FAILS   (100 > 60)
+#       factor 3 = x50    passes  (50 <= 60) but at 1.2x margin
+#       factor 2 = x10    PASSES  (10 <= 60), 6x margin
+#     x50 is REJECTED DELIBERATELY. B23 took the factor with 6x margin and this
+#     lane has less room, not more: Gilly's SOI is the smallest in the game, a
+#     single overshoot frame puts periapsis behind the machine before TARGET-FLYBY
+#     runs (B19 flight 4's exact failure), and an overshoot costs a WHOLE FLIGHT.
+#     THE PRICE, stated rather than buried: the clamped stretch is
+#     soiLeadSeconds/10 = 120 wall s, ~96 wall s more than x50 would cost. Against
+#     a 3,600 s mission budget that is not a trade worth taking risk for.
+#   RULE 1 -> coastWarpFactor 5 (x1,000), soiLeadSeconds 1,200. One NOMINAL 0.5 s
+#     poll at x1,000 advances 500 game s, so the lead is 2.4x it. UNLIKE B23 this
+#     lane does NOT have to drop the coast rate: B23's transfer coast was only ~4x
+#     its in-SOI approach coast, so no rate was both fast and safe; HERE the coast
+#     (88,108 s nominal) is ~294x the 300 s approach, which is the INTERPLANETARY
+#     ratio, and the whole coast at x100 would cost 881 wall s against 88 at
+#     x1,000. The rails cap is in any case the FALLBACK: while `time_to_soi` reads
+#     finite the coast flies a precise native `warp_to(ut + tts - lead)`.
+#   RULE 2 -> approachWindowSeconds 8,000, which is 6.7x the lead rather than the
+#     bare 2x, and the extra is bought for a stated reason: 8,000 = 2x ONE
+#     PESSIMISTIC 4 s coast frame at x1,000 (4,000 game s). A frame entering from
+#     `tts` just above the window lands at `tts ~ 4,000` -- still inside the
+#     window, where `approach_warp_clamp` holds the x10 ceiling and re-targets the
+#     native warp at the lead. Sizing the window at 2x the lead (2,400) instead
+#     would let exactly that frame skip the window entirely.
+#   IN-SOI PAIR: flybyWarpFactor 1 (x5) / flybyMaxWarpFactor 2 (x10), both DOWN
+#     from the 3/4 every other capture lane carries. The whole in-SOI stay is
+#     300-1,416 game s; at x10 one frame is 1/30 of the shortest stay and at x5
+#     1/60. In capture mode the flyby warp is periapsis-clock-bounded native warp
+#     anyway, so this pair is the fallback stair rather than the primary policy.
+#
+# =====================================================================================
+# COMMIT ACCOUNTING. There is EXACTLY ONE commit: the MID-MISSION one the machine
+# fires from ORBIT-COMMIT via the route-1 seam bridge. There is deliberately NO
+# post-mission CommitTree step -- the seam's CommitTreeImpl answers ERROR
+# `no-active-tree` when no tree is live, which after the mid-mission commit is the
+# expected state, and the step would make every green flight driver-INVALID (the
+# B11/B17/B23 accounting rule verbatim).
+#
+# THE RECORDING IS CREWED, and this lane is the first same-parent loop SUBJECT
+# that is. Jebediah Kerman rides the mk1-3pod through the whole hop, so the
+# committed tree carries crew surfaces (controller kind CrewedPod, crew end
+# states) that B23's uncrewed DD1 recording does not. That is not a new claim and
+# nothing here gates it -- V8's `eve-orbit-recorded` fixture is the standing
+# precedent that a crewed loop subject works end to end -- but it is the one
+# structural difference between this product and B23's, and a first reader
+# comparing the two saves should know it is expected.
+#
+# =====================================================================================
+# FLIGHT LEDGER.
+#
+# FLIGHT 1, run 2026-08-19_1655: **PASS attempt 1**, mission wall 1,075 s, and NOT ONE
+# PARAMETER MOVED because of it. Every assertion met on the first try:
+#   startedInHomeOrbit      ecc 0.000 in the Eve entry gate
+#   reachedTargetSoi        Gilly
+#   flybyPeriapsisFloor     22,245.6 m   (against the 8,000 m floor - 2.8x)
+#   capturedInTargetOrbit   ecc 0.009
+#   parkedStable            27,024 x 26,321 m Gilly park
+#   treeCommitted           OK
+# The four log cites, from `results/2026-08-19_1655_B24-gilly-orbit_shots/KSP.log`:
+#   11910  `startrecording recordingId=77f724bb1d4844c3b132a1ccc00a7df3 already=false`
+#          - `already=FALSE`, the inversion of B23 flight 1's line: the seam opened a
+#          FRESH STANDALONE tree (355840bc81bf45f8868b7d2508ca6de4) instead of no-opping
+#          onto a re-resumed committed recording. THE FIXTURE STRIP IS WHAT BOUGHT THAT,
+#          and it is the one thing no verifier in the chain could have caught.
+#   13503  `SOI change boundary suppressed in tree mode: Eve to Gilly` - exactly one.
+#   14175  `CommitTreeFlight terminal: rec=77f724bb... terminalState=Orbiting
+#          terminalOrbitBody=Gilly`.
+#   saveParse: 1 recording, 520 points, rewind / supersede / tombstone rows all 0.
+# Report-only: 2 NullReferenceExceptions, the same census B23 carried; not new.
+#
+# WHAT THE FLIGHT MEASURED THAT THE HEADER COULD ONLY DERIVE, in the order it matters:
+#   * THE INTERCEPT LANDED AT r = 24,903,858 m (the transfer's own apoapsis, from the
+#     committed `.prec.txt` segments `sma = 15,385,793.566 ecc = 0.618627`), i.e. 34% of
+#     the way up Gilly's 14,175,000 -> 48,825,000 m band. The transfer coast was
+#     106,638.025 s (segment 1, 15,769,979.845 -> 15,876,617.870), against the 88,108 s
+#     the header derived at the SMA-radius intercept and inside its 34,391 -> 156,377 s
+#     band. The `coastTimeoutSeconds = 800,000` sized on the expensive end was 7.5x it.
+#   * THE ARRIVAL PERIAPSIS CAME IN AT 22,245.6 m against a 30,000 m request, i.e.
+#     k = delivered/requested = 0.74 at req/SOI = 23.8%. That sits between the corpus's
+#     Mun row (10.29%, k 0.545) and Jool row (24.43%, k 0.974) and is consistent with
+#     the k-inverts-above-4% ordering the request was chosen on. ONE POINT IS NOT A LAW;
+#     it is recorded, not generalised.
+#   * THREE PLAN-CORRECTION rounds fired but only ONE CORRECTION-BURN - two plans came
+#     in under the cut threshold and were not flown. So the four-round worst case the
+#     50 m/s cap was sized against never arrived, and the delta-v margin was not
+#     stressed on this flight. The cap stays where it is: one comfortable flight does
+#     not retire an arithmetic bound.
+#   * THE RECORDED DESTINATION PHASE IS 381.490 s (explicitEndUT 15,879,393.931458754
+#     minus the Eve->Gilly seam 15,879,012.441954412) out of a 115,360.886 s span - 92%
+#     of the recording is the one transfer coast. That is a PROPERTY OF GILLY'S SOI, not
+#     of the flight, and it is what bounds where V15M/V15T can place a park epoch. If a
+#     future reading wants more Gilly coverage, `parkDwellSeconds` is the lever.
+#
+# NOTHING IS ARMED, deliberately, and that is now a standing posture rather than a
+# pending step: no `gating = true` block anywhere, and the recordings window stays the
+# derived {1,2} range rather than being pinned to the measured 1. The lane's product is
+# a FIXTURE, and the fixture's structure is pinned where it is CONSUMED (the saveParse
+# sweep's `gilly-orbit-recorded` entry, plus V15M/V15T's own windows), so pinning it a
+# third time here would add a re-pin obligation without adding a guard. The lane stays
+# `tier = "operator"` on the calibration discipline (V1/V2/B18/B19/B20/B21/B23
+# precedent).
+# =====================================================================================
+tier = "operator"
+description = "LIVE-PROVEN 2026-08-19 ON ITS FIRST FLIGHT (run 2026-08-19_1655, PASS attempt 1, mission wall 1,075 s, every assertion met with NOT ONE PARAMETER MOVED). The ECCENTRIC-MOON sibling of B23: the crewed Kerbal X upper stage begins ORBITING Eve at ~4,986 km, Hohmann-transfers to GILLY, captures + circularizes into a 27,024 x 26,321 m Gilly park (ecc 0.009) and mid-mission commits the tree there through the LIVE-PROVEN startInOrbit door. The seam answered `already=false`, minting the fresh standalone Eve-rooted tree the Parsek-stripped `eve-park-kerbalx` fixture exists to make possible; one `Eve to Gilly` boundary; terminal Orbiting/Gilly; saveParse 1 recording / 520 points / all rewind facets 0. Its produced save is the committed `gilly-orbit-recorded` fixture that V15M/V15T consume. THE POINT is that Gilly breaks the shape all three proven same-parent moons share: e = 0.55, i = 12 deg, and a 126,123 m SOI that is only 0.40% of its own orbital radius - the tightest duty cycle in the stock system, tighter than Pol's. The flight put the intercept at a 24,903,858 m radius where Gilly moves at 630.0 m/s, giving tol = SOI/v_orb = 200.2 s against Ike's ~3,420 s. Everything Gilly forced was a VALUE, not a machine change: the approach clamp DOWN to x10 (2*mu/r_soi = 131.45 m^2/s^2 against v_inf^2 up to 169,000, so gravity is negligible and the SOI-entry -> periapsis coast floors at ~300 game s) and the coast rate UP to x1,000 (the measured transfer coast was 106,638 s, ~350x the approach coast). Delta-v was derived rather than scaled - 1,023 m/s available against a 753 m/s worst-geometry hop - and the flight never stressed it: three PLAN-CORRECTION rounds fired but only one CORRECTION-BURN."
+instanceProfile = "stock-minimal"
+tags = ["B24", "gilly", "eve", "same-parent", "moon", "eccentric-moon", "orbit", "mechjeb",
+        "cross-soi", "capture", "commit-in-foreign-soi", "orbit-start", "crewed", "flown"]
+
+[fixture]
+# `eve-park-kerbalx`: a DERIVED, PARSEK-STRIPPED copy of B16's
+# `eve-orbit-recorded` (itself the run 2026-08-11_0718 --keep-parsek harvest that
+# V8/V8F/V8T consume). NO FORGE FLIGHT was spent on it - it is a transform of
+# committed bytes, which is why the Phase-0 door above still reads "existing
+# fixture".
+#
+# THE WORLD, unchanged from the source and MEASURED off this save's own bytes:
+# at UT 15,764,031.825 the Kerbal X upper stage sits parked ORBITING Eve -
+#   SMA 5,685,808.536   ECC 6.3639e-05   INC 5.3374 deg
+#   periapsis alt 4,985,446.7 m   apoapsis alt 4,986,170.4 m
+#   type Ship, CREWED (Jebediah Kerman, Pilot, in the mk1-3pod), Poodle upper
+#   stage, LF 231.461/720 + Ox 282.897/880 = 2.572 t usable, ~1,023 m/s dv
+# `activeVessel = 1` IS that stage, so the seam's LoadGame lands in FLIGHT with
+# the right craft focused and no switch is needed. RIDE-ALONG AND INERT: the
+# stock asteroid Ast. MII-526 and five `Kerbal X Debris` vessels (four LANDED on
+# Kerbin, one in Kerbin orbit) - B16's own ascent leftovers, carried through
+# unchanged, exactly as B23's fixture carries its asteroid.
+#
+# HOW IT WAS MADE, and it is TWO steps, because the first alone is not enough:
+#   (1) harvest_bdock_station.py --save-dir fixtures/saves/eve-orbit-recorded
+#       --target-name eve-park-kerbalx --expect-situation ORBITING
+#       WITHOUT --keep-parsek, so the `Parsek/` sidecar directory is pruned.
+#   (2) A MANUAL, BRACE-BALANCED EXCISION of the residual ParsekScenario CHILDREN
+#       from persistent.sfs. The harvest tool prunes the SIDECARS but leaves the
+#       scenario node, and the RECORDING_TREE's `activeRecordingId` is EXACTLY
+#       what drove B23 flight 1's re-resume. Step (1) without step (2) reproduces
+#       that finding.
+#   FIVE CHILD NODE TYPES WERE REMOVED, not B23's three, and the two extra are
+#   THIS fixture's alone: `RECORDING_TREE` (1), `GROUP_HIERARCHY` (1),
+#   `MILESTONE_STATE` (4) - the B23 recipe - PLUS `KERBAL_SLOTS` (1) and
+#   `CREW_REPLACEMENTS` (1), which exist here only because the source recording
+#   is CREWED. They are Parsek's crew-reservation bookkeeping (Jebediah reserved,
+#   `Suster Kerman` allocated as the stand-in) and they POINT AT THE RECORDING
+#   THAT WAS JUST REMOVED, so leaving them would be residue by any reading. What
+#   survives is Suster as an ordinary Available pilot in the roster, and Jebediah
+#   Assigned aboard the pod exactly as before - the WORLD is untouched.
+#   The node now carries only name / scene / missionHideArchived /
+#   gameStateEventCount, byte-for-byte the shape `duna-park-probe` ends at. There
+#   are ZERO `.prec` sidecars and ZERO committed trees; `saveparse` reads
+#   trees=0 committedTrees=0 recordings=0.
+#
+# The harvest also drops Ships/VAB, which is harmless HERE and would not be on a
+# pad lane: this mission never launches anything. It therefore needs NO
+# `fixtures/shared-ships.toml` row, and gets none - the same disposition
+# `duna-park-probe`, `ike-orbit-recorded` and `eve-orbit-recorded` all have.
+#
+# WHY A DERIVED COPY RATHER THAN THE SOURCE. `eve-orbit-recorded` carries a
+# COMMITTED TREE (16af6b5e..., 8 recordings) for this very vessel, and a seam
+# StartRecording cannot open a standalone tree on a committed tree's own launch -
+# it no-ops onto the recording the committed-restore path re-resumes (MEASURED,
+# B23 flight 1; docs/dev/todo-and-known-bugs.md ->
+# SEAM-STARTRECORDING-JOINS-COMMITTED-TREE). Stripping Parsek's state leaves
+# nothing to resume. It also DECOUPLES this lane from the V8 family:
+# `eve-orbit-recorded` is a SHARED subject (V8, V8F, V8T and B19 all reference
+# it) and a change to it moves several specs at once, whereas this copy is read
+# by B24 alone. Nothing in this lane touches `eve-orbit-recorded`, its tree id
+# `16af6b5e546a4bef86fcd8cde1ddc924`, or any V8 pin.
+#
+# The entry gate below still states the park it expects in NUMBERS rather than
+# trusting the fixture name - a derived copy is one more place a silent
+# divergence could enter.
+saveTemplate       = "fixtures/saves/eve-park-kerbalx"
+injectedRecordings = "none"
+craft              = []
+
+[driver]
+kind    = "autopilot"
+mission = "b24_gilly_orbit"
+
+# `steps` MUST stay in the [driver] table, ABOVE the [driver.missionParams]
+# header (a key after the sub-table header would be TOML-scoped into it and the
+# spec would validate as having zero steps).
+#
+# THE SCENE-ENTRY PREAMBLE IS LOAD-BEARING AND ITS ORDER IS PART OF THE CONTRACT.
+# This is the B23 / V6M / V8 / V13 shape verbatim, and it exists because loading a
+# save whose OWN parked craft is active makes Parsek's committed-tree restore path
+# resume a PROMOTION-STUB recording about a second into the scene, BEFORE any step
+# can run (measured on V2 flight 4 / V5 run 1, structural rather than
+# fixture-specific).
+#
+# READ THIS BEFORE TRUSTING THE PAIR TO DO MORE THAN IT DOES. B23 flight 1
+# MEASURED that the kill pair does NOT prevent a committed-restore RE-ARM: it
+# killed the first stub and 11 ms later the committed-restore path re-resumed the
+# committed recording, BEFORE StartRecording could run, which then answered
+# `already=true`. The pair kills ONE stub; it is not a latch, and no re-ordering
+# closes the window. What closes it is the FIXTURE: `eve-park-kerbalx` carries no
+# committed tree, so there is nothing for the restore path to resume. The pair
+# STAYS as belt-and-braces for the ordinary fresh-rollout promotion stub, and
+# because both verbs are idempotent-OK on an entry state that has neither.
+#
+#   StopRecording   kills the stub. Idempotent-OK.
+#   DiscardTree     tears the stub's tree down. Answers OK with
+#                   nothing-discarded when no plain tree is live.
+#   autoRecordOnLaunch=false   stops a LATER one from re-arming.
+#   verboseLogging=true        the standing pin for a reading run (the V1
+#                   lesson: a token that turns out to be at Verbose is invisible
+#                   without it).
+#   StartRecording  starts the FRESH tree, with the craft parked at Eve. This is
+#                   the frame the product recording's launch body is read from,
+#                   which is why it is a seam verb here and not an
+#                   autoRecordOnLaunch pin - there is no launch.
+#
+# ONE commit, MID-MISSION (ORBIT-COMMIT), and NO post-mission CommitTree - see
+# COMMIT ACCOUNTING in the header.
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" },   expect = "OK", budget = 300 },
+  { cmd = "StopRecording",                                                     expect = "OK" },
+  { cmd = "DiscardTree",                                                       expect = "OK" },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "verboseLogging",     value = "true" }, expect = "OK" },
+  { cmd = "StartRecording",                                                    expect = "OK" },
+  { phase = "mission",  expect = "MISSION-OK", budget = 3600 },
+  { cmd = "FlushAndQuit",                                                      expect = "OK" },
+]
+
+# Every value below is a tolerance / threshold / budget, never a golden
+# trajectory (validated against b24_gilly_orbit.schema.toml). Phase budgets are
+# GAME seconds unless a comment says otherwise.
+[driver.missionParams]
+# --- ORBIT-START: the entry door and its gate --------------------------------
+# The four ASCENT keys and the two ascent budgets are DELIBERATELY ABSENT: this
+# lane never enters MJ-ASCENT or CIRCULARIZE, and declaring an ascent target for
+# an ascent that will not be flown would put a golden-looking number in the spec
+# that no code reads. The schema demotes all six to optional for that reason.
+startInOrbit                    = true
+# THE GATE, stated against the fixture's MEASURED park (periapsis alt
+# 4,985,446.7 m, apoapsis alt 4,986,170.4 m, ecc 6.3639e-05) with margin on every
+# side, because these are ENTRY sanity bounds and not the fixture's fingerprint:
+#   periapsis floor 1,000 km - 11.1x Eve's 90 km atmosphere top, so a start park
+#     that had decayed anywhere near Eve's (very thick) air is refused. The
+#     measured periapsis sits at ~4,985 km, 5.0x the floor. Eve's atmosphere is
+#     the reason this floor is an order of magnitude above B23's Duna one.
+#   apoapsis ceiling 10,000 km - 2.0x the measured ~4,986 km and 1.35x BELOW
+#     Gilly's own periapsis ALTITUDE (14,175 km radius = 13,475 km altitude), so
+#     a park that had drifted up into the moon's shell is refused before it can
+#     turn into an unplanned encounter. This is B16's Gilly-exclusion arithmetic
+#     re-used as an entry gate. A STRICTLY POSITIVE apoapsis is required
+#     regardless of this key (a hyperbolic reading is negative), which is the
+#     actual "still bound" evidence.
+#   eccentricity ceiling 0.05 - ~786x the measured 6.3639e-05, and the conjunct
+#     that matters most: the Hohmann planner sizes its burn at the semi-major
+#     axis and applies it at whatever radius its geometry picks, so an eccentric
+#     start park is the B15 ejection shortfall waiting to happen, and this lane
+#     has no CIRCULARIZE in which to round it out.
+startInOrbitMinPeriapsisMeters  = 1000000
+startInOrbitMaxApoapsisMeters   = 10000000
+startInOrbitMaxEccentricity     = 0.05
+startInOrbitSituations          = ["ORBITING"]
+startInOrbitDebounceFrames      = 3
+# 120 game s at 1x is ~120 wall s of polling - far more than a post-LoadGame
+# settle needs, and small enough that a genuinely wrong fixture is NAMED in two
+# minutes instead of riding the mission budget to a generic timeout.
+startInOrbitSettleSeconds       = 120
+
+# --- Transfer: the MOON Hohmann path (see the header derivation) -------------
+homeBodyName               = "Eve"
+targetBodyName             = "Gilly"
+interplanetaryTransfer     = false
+# The exit SOI if the machine ever left the target - unreachable in capture mode
+# (leaving Gilly is an ASSERT-FAIL, not a return), but it is also the body set the
+# TARGET-FLYBY multi-hop assert accepts alongside the target, so it must name Eve.
+# Setting it explicitly rather than leaning on the home-body default makes that
+# accepted set readable: {Gilly, Eve} and nothing else.
+returnBodyName             = "Eve"
+# TRANSFER-BURN burn-done evidence on the moon path is the HOME-frame apoapsis
+# floor, and the ECCENTRIC target is what sizes it. The intercept radius is a free
+# variable, so the transfer's apoapsis can legitimately end anywhere from Gilly's
+# periapsis altitude (13,475 km) to its apoapsis altitude (48,125 km). 9,000 km is
+# 1.8x the start park's ~4,986 km apoapsis (so it is unreachable without a real
+# transfer burn) and 33% BELOW the LOWEST possible intercept altitude (so it
+# cannot red a legitimate low-side intercept). Anything sized off Gilly's SMA
+# would fail a perfectly good periapsis-side transfer.
+transferMinApoapsisMeters  = 9000000
+# Requested Gilly periapsis ALTITUDE for the course corrections, and the single
+# hardest number in this spec.
+#
+# WHY IT IS HARD. The finding-16d corpus (docs/dev/todo-and-known-bugs.md ->
+# FINDING-16D-MISCITED-DIRECTION-AND-DENOMINATOR) measured a ~110-118 km ABSOLUTE
+# under-delivery at Mun/Ike scale (B5 flight 26: a 250 km request delivered
+# 138.9 km; B23 flight 1: a 150 km Ike request delivered 32.2 km). AT GILLY A
+# 110 km MISS IS LARGER THAN THE ENTIRE SOI (126.1 km from the centre, 113.1 km
+# of altitude), so an absolute-offset model would predict that no correction can
+# ever hit this moon at all.
+#
+# WHAT THE CORPUS ACTUALLY SAYS, and it is the reason this lane is flyable: the
+# bias is a `req/SOI < 1%` phenomenon and it INVERTS above ~4%. The corpus table,
+# sorted by req/SOI, collapses k = delivered/requested from 35.36 (Eeloo,
+# req/SOI 0.252%) to 0.545 (Mun, 10.29%) to 0.974 (Jool, 24.43%). A 30 km request
+# here is req/SOI = 30,000/126,123 = 23.79% - essentially the Jool row, where the
+# delivered periapsis tracked the request to within 3%.
+#
+# SO 30 km IS CHOSEN TO SIT IN THE k ~ 1 REGIME, not to leave overshoot room, and
+# it is sized against the corpus's own honesty limit (a ~3x within-body spread,
+# n = 3 in this regime):
+#   3x SHORT  -> ~10 km altitude: 1.6x Gilly's 6.4 km highest terrain, and above
+#               the 8 km assertion floor below. Survivable.
+#   3x LONG   -> ~90 km altitude: still inside the 113.1 km SOI shell, so the
+#               encounter still exists. Survivable.
+# A larger request would push the 3x-long case OUT OF THE SOI (a periapsis above
+# 113 km is not an encounter), and a smaller one pushes the 3x-short case into the
+# ground. 30 km is the middle of the only window that survives both.
+#
+# AND NOTE WHAT THE CAPTURE TAIL DOES WITH IT: b5's PLAN-CAPTURE asks MechJeb to
+# CIRCULARIZE AT PERIAPSIS, whatever periapsis the arrival actually has. The
+# request above therefore does NOT set the park - it sets the arrival, and the
+# park inherits it. That is why `targetPeriapsisFloorMeters` is written LOW (it
+# guards the ground, not the plan) and why the park window below is wide.
+courseCorrectPeriapsisMeters = 30000
+# WELL BELOW the transfer's own 307-441 m/s cost (the B15 rule: a "correction"
+# priced above the whole hop is the wrong plan, and the cap is what makes the
+# machine discard it and coast on the raw intercept instead).
+#
+# BUT THE BINDING CONSTRAINT HERE IS THE MARGIN, NOT THE B15 RULE. The cap is PER
+# ROUND and up to FOUR rounds can fire (the two this spec schedules plus up to two
+# arrival-quality extras on mlib's own MAX_ARRIVAL_EXTRA_ROUNDS counter), so the
+# worst correction spend is 4 x 50 = 200 m/s. Against the header's 270 m/s of
+# margin over the worst-geometry hop that leaves ~70 m/s. B23 could afford 80 m/s
+# a round because it had ~930 m/s of slack; this lane has 270 and cannot.
+# DO NOT RAISE THIS WITHOUT RE-DERIVING THE MARGIN. Raising it to B23's 80 would
+# make the worst four-round spend 320 and leave ~-50: the lane would no longer
+# close on the worst intercept geometry. If flight 1 shows corrections being
+# DISCARDED at this cap and the encounter lost as a result, the honest fixes are a
+# cheaper intercept or a bigger tank, not a bigger cap.
+maxCorrectionDvMps         = 50
+# ALTITUDE-mode triggers (the moon-transfer shape; the time-to-SOI list is the
+# interplanetary one and stays empty). Round 0 fires on the first coast frame
+# right after the transfer burn.
+#
+# ROUND 1 IS PLACED BY THE ECCENTRICITY, and this is the one trigger that would
+# be wrong if copied from a circular-moon lane. B11/B23 put their second trigger
+# at ~50% of the climb to the moon's shell, which works because that shell is at a
+# FIXED altitude. Gilly's is not: the intercept altitude is anywhere in
+# 13,475-48,125 km. A trigger at 50% of the SMA-radius climb (~17,900 km) would
+# SILENTLY NEVER FIRE on a periapsis-side intercept, losing the round with no
+# error anywhere. 10,000 km is chosen to be unconditionally crossed: it is 2.0x
+# above the start park's ~4,986 km apoapsis and 26% BELOW the LOWEST possible
+# intercept altitude, so every geometry in the band passes through it.
+correctionTriggerAltsMeters = [0, 10000000]
+planTimeoutSeconds         = 300
+planRetrySeconds           = 10
+planWarpFactor             = 2
+# TRANSFER-BURN budget (GAME s). The NodeExecutor autowarps to the node, which on
+# this geometry is at most one synodic period (32,275 s) ahead, then burns it.
+# 100,000 is ~3.1 synodics - a SLOW bound; the stagnation / no-start / under-burn
+# watchdogs bound BROKEN.
+transferBurnTimeoutSeconds = 100000
+# COAST-TO-TARGET budget (GAME s) against a transfer coast that is a BAND:
+# 34,391 s (Gilly periapsis intercept) to 156,377 s (apoapsis intercept), 88,108
+# nominal. 800,000 is ~5.1x the WORST case and ~9.1x the nominal, which leaves
+# room for a missed first intercept plus the correction rounds that re-create it
+# without letting a genuinely lost transfer sail forever. Sized on the WORST end
+# deliberately - the B21 lesson about budgeting an eccentric geometry at its
+# expensive extreme rather than its median.
+coastTimeoutSeconds        = 800000
+# TARGET-FLYBY budget (GAME s) against the 302-1,416 s SOI-entry -> periapsis
+# coast derived in the header: ~21x the longest. Deliberately generous in
+# ABSOLUTE terms because the quantity it bounds is tiny; the NAMED
+# capture-never-armed give-up is what bounds BROKEN.
+flybyTimeoutSeconds        = 30000
+# THE WARP BLOCK - full three-rule derivation in the header. In one line: the
+# approach clamp comes DOWN to x10 because Gilly's SOI-entry -> periapsis coast
+# floors at ~300 game s, while the coast rate goes UP to x1,000 because the
+# transfer coast is ~294x that (B23's was 4x, which is why its numbers do not
+# transfer).
+coastWarpFactor            = 5
+soiLeadSeconds             = 1200
+approachWindowSeconds      = 8000
+approachMaxWarpFactor      = 2
+# The in-SOI floor/ceiling pair, DOWN from the 3/4 every other capture lane
+# carries (header, IN-SOI PAIR). In capture mode the flyby warp is
+# periapsis-clock bounded native warp anyway, so these are the fallback stair
+# rather than the primary policy.
+flybyWarpFactor            = 1
+flybyMaxWarpFactor         = 2
+nodeArrivalMarginSeconds   = 15
+flipPhysicsWarpFactor      = 1
+# Min-altitude floor across the WHOLE in-SOI stay (arrival AND park). Gilly has no
+# atmosphere and its highest terrain reaches ~6,400 m; 8,000 clears it by 1.25x.
+#
+# THIS IS THE TIGHTEST FLOOR/TERRAIN RATIO IN THE SUITE AND IT IS DELIBERATE.
+# B23 could write 20 km against Ike's 12.7 km peaks because Ike's SOI gives it
+# 919 km of altitude to play with; Gilly's gives 113 km, so a 20 km floor would be
+# 18% of the entire shell and would red the low half of the corrected-arrival
+# spread derived at `courseCorrectPeriapsisMeters` above. The floor's job is to
+# catch a trajectory heading INTO THE GROUND, not to certify the park this lane
+# hopes for - B23 wrote its floor low for exactly that reason and flight 1
+# vindicated it (measured minimum 32,210 m against a 20,000 floor, where a floor
+# near the intended park would have ASSERT-FAILed a healthy flight).
+targetPeriapsisFloorMeters = 8000
+
+# --- Capture + Gilly park + commit (the B11/B12 tail) ------------------------
+captureEnabled             = true
+capturePlanTimeoutSeconds  = 300
+# CAPTURE-BURN budget (GAME s): the executor autowarps the SOI-entry -> periapsis
+# coast (302-1,416 s derived) and MechJeb's own 1x pre-ignition WARPALIGN hold is
+# ~600 game s of it. 30,000 is ~15x that ~2,000 s total - a SLOW bound, and much
+# smaller in absolute terms than B23's 60,000 because the coast it covers is 3-14x
+# shorter. The no-start / under-burn watchdogs bound BROKEN.
+captureBurnTimeoutSeconds  = 30000
+# THE CAPTURE WINDOW (also the PARK gate). Gilly's SOI is 126,123.27 m from the
+# CENTRE and its radius is 13,000 m, so the whole shell is 113,123 m of ALTITUDE -
+# there is no room here for B11-style width, and every bound is shell arithmetic:
+#   parkMinPeriapsisMeters  8,000 m  - pinned EQUAL to targetPeriapsisFloorMeters
+#     (the B19/B20/B21/B22 convention). 1.25x Gilly's highest terrain; 21,000 m of
+#     radius, 16.7% of the SOI radius.
+#   parkMaxApoapsisMeters   60,000 m - LOAD-BEARING TWICE. (1) A hyperbolic
+#     (uncaptured) approach reads a NEGATIVE apoapsis in the Gilly frame, so
+#     "0 < ap <= 60,000" is the actually-captured evidence and cannot be faked by
+#     flying past. (2) 60,000 m altitude = 73,000 m radius = 57.9% of the SOI
+#     radius, so a park that passes this gate is durably INSIDE the shell rather
+#     than grazing an edge where the parent dominates. A 3x-long corrected arrival
+#     (~90 km altitude, 103 km radius = 82% of the SOI radius) would FAIL this,
+#     and that is the correct verdict: at 82% of an SOI the orbit is not a park.
+#   parkMaxEccentricity     0.25     - B11's value. A circularize-at-periapsis
+#     burn should land well under it; it leaves room for the executor's own 0.1
+#     tolerance and for a partial burn that is still a perfectly stable park.
+parkMinPeriapsisMeters     = 8000
+parkMaxApoapsisMeters      = 60000
+parkMaxEccentricity        = 0.25
+# B11's value, and CHECKED rather than copied for the heavier crewed stack: this
+# is a rad/s ceiling (0.05 = 2.9 deg/s) on a stage held under SAS stability-assist
+# with RCS, which reads ~0 regardless of mass, and a ~10 t stack has MORE inertia
+# against a residual torque than B23's ~2.1 t probe, not less. No re-derivation is
+# owed.
+parkMaxAngularVelocityRadPerSec = 0.05
+parkSituations             = ["ORBITING"]
+# GAME seconds the stable park is HELD before the commit, at 1x, so this dwell IS
+# the recorded in-Gilly-SOI coverage and also ~180 wall s of the flight's cost.
+# B11/B23's value. CONTEXT FOR A FUTURE RAISE: a 30 km circular Gilly park has a
+# period of ~19,459 s, so 180 s is only ~0.9% of one orbit - by far the smallest
+# fraction of a park orbit any capture lane records. Raise it only if a flight
+# shows the committed recording carrying too little Gilly coverage to be a useful
+# loop / playback subject, which is exactly the question V15M/V15T will answer.
+parkDwellSeconds           = 180
+parkDebounceFrames         = 3
+parkTimeoutSeconds         = 600
+commitTimeoutSeconds       = 300
+
+# --- Shared machine housekeeping (B11/B23's values; the burns here are SHORT) -
+# Sizing note, so the next reader does not copy B20's widened numbers by reflex:
+# this stack's transfer and capture burns are ~307-441 and ~73-393 m/s on a
+# ~10.0 t / ~8.7 t vehicle behind a 250 kN Poodle, i.e. ~25-29 m/s^2 and BURNS OF
+# UNDER TWENTY SECONDS. B20 had to widen burnStagnantSeconds for a ~700 s capture;
+# nothing here comes within an order of magnitude of that, so the proven defaults
+# stand.
+burnStagnantSeconds        = 120
+burnNoStartSeconds         = 600
+correctionThrottle         = 0.25
+correctionCutDvMps         = 2.0
+correctionSettleSeconds    = 10
+maxAttitudeErrorDeg        = 30
+frozenTelemetrySamples     = 10
+
+# CLAIM-IS-NOT-GATE. Every value below is backed by a gate in THIS spec's own
+# contract, and the list is SHORT on purpose for a lane whose contract is not yet
+# demonstrated.
+#   D1 commit-in-foreign-soi   gated by the terminalOrbitBody=Gilly commit token:
+#       the tree closes while the vessel is parked in GILLY's SOI, which is a
+#       foreign SOI for a recording rooted at Eve.
+#   D14 eve / gilly            both gated by the SOI-traverse token
+#       `Eve to Gilly` plus, for gilly, the commit terminal-body token.
+#   D14 warp-rails             the machine cannot complete without it: the
+#       88,108 s nominal coast at 1x is ~24 wall HOURS against a 3,600 s mission
+#       budget.
+#   D14 scene-flight           the whole mission is the flight scene.
+#   D14 sandbox                the fixture's own difficulty (`gameMode = SANDBOX`
+#       in its persistent.sfs), inherited from B16's `b2-lko-craft` base and
+#       carried through the Parsek strip unchanged.
+#
+# NOT claimed, deliberately:
+#   D1 auto-record-launch  - there is no launch. The recording is started by the
+#       StartRecording seam step, a DIFFERENT trigger.
+#   D14 warp-high          - this lane's own ceiling is x1,000 on the coast and
+#       x10 on the approach; the MechJeb executor autowarps go higher, but nothing
+#       in this contract gates that, so it is not ours to claim.
+#   D14 soi-count          - nothing here gates a count beyond the one required
+#       transition.
+#   D3 / D4                - nothing in this spec's contract gates a reference
+#       frame or a TrackSection class, and `atmospheric` would additionally be
+#       FALSE: the craft never touches an atmosphere at any point in the flight.
+[dimensionsCovered]
+D1  = ["commit-in-foreign-soi"]
+D14 = ["eve", "gilly", "warp-rails", "scene-flight", "sandbox"]
+
+[expectations]
+# PLACEMENT IS LOAD-BEARING: allowedAnomalies must precede every
+# [expectations.<sub>] header or TOML scopes it into the sub-table
+# (hlib.validate_spec rejects the misplaced form).
+allowedAnomalies = []
+
+[expectations.recordings]
+# THE ARITHMETIC, over the PARSEK-STRIPPED fixture. `run.py count_recordings`
+# counts `.prec` SIDECARS in the produced save's `Parsek/Recordings` dir.
+#   +0  the fixture. `eve-park-kerbalx` has no `Parsek/` directory at all, so it
+#       ships ZERO `.prec` and ZERO committed trees by construction. (The SOURCE
+#       `eve-orbit-recorded` ships EIGHT - B16's Kerbal X plus its six radial
+#       boosters and the flameout-staged core - and every one of them is gone.)
+#   +1  THIS lane's product: the upper stage flies the whole hop as ONE piece
+#       (the boosters and the core were shed on B16's Kerbin ascent, and there is
+#       no staging event anywhere in this profile), so the new tree is a single
+#       recording.
+#   = 1 EXPECTED, and it is the honest expected value rather than a floor.
+#   +1  HEADROOM, admitted rather than predicted, for ONE class: an optimizer
+#       split of the new recording at the Eve->Gilly boundary. THE PREDICTION IS
+#       NO SPLIT: `RecordingOptimizer.IsSplittableEnvOrBodyBoundary` rule 3 keeps
+#       a same-class Exo body change COHESIVE for transfer coasts, explicitly
+#       including the `OrbitalCheckpoint`-framed on-rails variant, and this
+#       crossing IS that variant (the transfer is a rails coast throughout - the
+#       whole approach runs under the warp clamp, never under physics). V14M
+#       MEASURED that rule firing on the equivalent Duna->Ike crossing
+#       (`Split summary: ... exoCoastBodyChangeKept=1`), which is the nearest
+#       evidence there is. The 2 is admitted because the load-time pass has no
+#       occasion to run within THIS run's own life (this run commits and flushes;
+#       it never re-loads), so the split's first real chance is V15M/V15T's
+#       LoadGame - and because the optimizer also has commit-time entry points.
+# => { min = 1, max = 2 }, a DERIVED RANGE and NOT A PIN.
+#
+# MEASURED 1 on flight 1 (run 2026-08-19_1655; saveParse independently read 1 recording
+# / 520 points). THE WINDOW IS DELIBERATELY LEFT AS THE RANGE rather than pinned to the
+# measurement, for the reason given in the FLIGHT LEDGER: the produced save is a
+# FIXTURE, and its structure is pinned where it is CONSUMED
+# (`CommittedFixtureSweepTests.RECORDED_FIXTURES` pins trees/committedTrees/recordings
+# = 1/1/1 byte-for-byte, and V15M/V15T carry their own windows). A third pin here would
+# be a third re-pin obligation with no extra guard.
+#
+# AND THE COUNT IS COMMIT-BLIND (the B11/B16/B17/B23 note verbatim): sidecars are
+# written for the active uncommitted tree too, so this window guards recording
+# TOPOLOGY only and is NOT evidence that the commit ran. The commit is guarded by
+# the logContract tokens below. It is ALSO not evidence that the recording is
+# ROOTED where this lane needs it: B23 flight 1 counted a perfectly healthy-looking
+# number while its hop sat inside another tree. Nothing in the expectations
+# vocabulary can express "launch body = Eve"; that is read off the produced save
+# by hand until it is worth a saveParse facet.
+count = { min = 1, max = 2 }
+
+[expectations.logContracts]
+# Every token sourced from its ACTUAL emitting call site.
+#   "Recording started" / "Recording stopped" - the lifecycle pair every flown
+#       scenario asserts. READ THIS BEFORE TREATING `started` AS THE SEAM'S
+#       EVIDENCE: B23 flight 1 MEASURED all five of its `Recording started` lines
+#       coming from the committed-restore PROMOTION path while the seam verb
+#       answered `already=true` and started nothing. So this token proves a
+#       recording exists, NOT that this lane opened one, and it CANNOT distinguish
+#       the healthy shape from that one. It is kept as the standing lifecycle
+#       floor; the thing it does not cover - that the recording is a fresh
+#       standalone tree rooted at Eve - is covered by the FIXTURE (nothing to
+#       resume) and read off the produced save by hand.
+#   "SOI change boundary suppressed in tree mode: Eve to Gilly" -
+#       ParsekFlight.HandleSoiChangeSplit, the tree-mode PRODUCTION branch
+#       (`ShouldSuppressBoundarySplit` returns `activeTree != null`, and
+#       always-tree mode gives every recording a tree). THE Eve -> Gilly crossing
+#       for the ACTIVE vessel, and the single token that proves the transfer
+#       actually happened rather than the craft sitting in its start park. The
+#       FORMAT is verified against real flight logs carrying the same emitter with
+#       other body pairs (`Duna to Ike` in the B23 flight-2 log, `Sun to Eve` in
+#       B16's); the BODY NAMES are this lane's own and are the two the machine's
+#       `homeBodyName` / `targetBodyName` name.
+#   "CommitTreeFlight: starting tree commit at UT=" - ParsekFlight, logged when
+#       the commit path is entered. Proves the path ran.
+#   "CommitTreeFlight terminal: rec=\\w+ terminalState=Orbiting
+#       terminalOrbitBody=Gilly" - ParsekFlight.LogCommitTerminalVerdicts, one
+#       line per committed recording. THIS is the headline claim's only real
+#       evidence: "starting tree commit at UT=" is logged unconditionally the
+#       moment the path is entered, so before this token a tree that ended around
+#       EVE would produce byte-identical evidence to one that ended around GILLY.
+#
+# `committree committed=true` is NOT required, following B17/B23 rather than B11.
+# It proves the SEAM call returned OK, which the terminal token above already
+# implies for the only commit this lane fires, and a first-flight reading run does
+# not add a token it has not seen emitted on this profile.
+#
+# FORBIDDEN is the ERROR floor and NOTHING ELSE, deliberately. This is a READING
+# run: the interesting behaviour - what the optimizer does with the Eve->Gilly
+# handoff, what the loop lanes then read off the produced recording, how a
+# parent-anchored surface looks for a same-parent transfer to an ECCENTRIC moon -
+# must be OBSERVABLE in the log rather than fatal.
+#
+# THE TWO PHASE-1 OBSERVATION TARGETS, AND WHERE THEY STAND AFTER FLIGHT 1.
+#   (1) COHESION - STILL OPEN, AND IT MOVED HOUSE. The produced save carries ONE
+#       recording, so nothing split at COMMIT time; but the LOAD-TIME pass (the one
+#       that emits `Split summary: ... exoCoastBodyChangeKept=`) has no occasion to run
+#       inside this run's life - it commits and flushes without re-loading. The
+#       Eve->Gilly boundary's first real load-time evaluation is V15M/V15T's LoadGame,
+#       which is where V14M answered the equivalent Duna->Ike question. Read it there.
+#   (2) THE INTERCEPT RADIUS - ANSWERED. The transfer's own segments read
+#       `sma = 15,385,793.566 ecc = 0.618627`, i.e. an apoapsis / intercept radius of
+#       24,903,858 m, 31.0% of the way up Gilly's band, where Gilly moves at 630.0 m/s.
+#       That fixes the loop pair's tolerance at tol = SOI/v_orb = 200.2 s - TIGHTER
+#       than the 247.6 s circular figure, i.e. the encounter landed on the fast and
+#       more sensitive half of an e = 0.55 orbit. Propagated to V15M header section 1.
+required  = [
+  "Recording started",
+  "Recording stopped",
+  "SOI change boundary suppressed in tree mode: Eve to Gilly",
+  "CommitTreeFlight: starting tree commit at UT=",
+  "CommitTreeFlight terminal: rec=\\w+ terminalState=Orbiting terminalOrbitBody=Gilly",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+]
+
+[expectations.rewind]
+# REPORT-ONLY (no `gating` key - the ARMED_ALLOWLIST discipline: arming happens
+# later, off real bytes, through the reading / armed / negative-control sequence).
+# The three windows ARE the reading: a clean single-craft flight with no
+# separation event and no re-fly must author no RewindPoint, no supersede row and
+# no tombstone. B17's produced save, B23 flight 1 and B23 flight 2 all measured
+# exactly 0/0/0. If this flight disagrees, that is a finding about what the
+# orbit-start entry or an eccentric-moon transfer does to the durable surfaces,
+# and the honest response is to read it, not to have red'd on it.
+rewindPoints  = { max = 0 }
+supersedeRows = { max = 0 }
+tombstones    = { max = 0 }
+
+# [expectations.recordings.structure] IS DELIBERATELY ABSENT. The predicted shape
+# is simple - ONE tree, committed, ONE recording, terminal Orbiting - and simple
+# is exactly what makes it tempting to declare. It stays absent anyway, because
+# that shape is PREDICTED and not MEASURED, and a report-only block of invented
+# numbers is worse than no block: it reads like a measurement. Author it from
+# FLIGHT 1's saveParse facets.
+#
+# [expectations.recordings.points] is absent for the same reason, plus the
+# standing saveparse caveat that a WARPING scenario's per-run point totals swing
+# with warp timing far more than structure does.
+
+[runtime]
+# WALL arithmetic (the mission budget is WALL; the missionParams budgets above are
+# GAME seconds):
+#   LoadGame                      300  declared
+#   preamble seam verbs           ~10  five dispatches, all fast
+#   PRELAUNCH orbit-start gate     ~5  three in-gate frames at 1x
+#   PLAN-TRANSFER                 ~30  300 game s at the x10 plan hold
+#   TRANSFER-BURN                ~650  the autowarped window wait (<= 32,275 game
+#                                      s) is seconds on rails; ~600 of this is
+#                                      MechJeb's OWN 1x pre-ignition WARPALIGN
+#                                      hold (B11 MEASURED that hold and it is
+#                                      body-independent)
+#   COAST-TO-TARGET              ~250  the bulk is a precise native warp_to and
+#                                      costs seconds; the priced parts are the
+#                                      1,200 game-s clamped lead at x10 = 120 wall
+#                                      s, plus up to 88 wall s if `time_to_soi`
+#                                      goes blind and the whole 88,108 s coast
+#                                      falls back to the x1,000 rails cap
+#   two correction rounds        ~500  each: plan + a ~340 s attitude flip at 2x
+#                                      physics + aim-warp + a sub-20 s burn
+#   TARGET-FLYBY                  ~40  302-1,416 game s at the x5/x10 stair
+#   PLAN-CAPTURE                  ~30
+#   CAPTURE-BURN                 ~620  again ~600 of it the 1x pre-ignition hold
+#   PARK                         ~180  parkDwellSeconds of GAME time at 1x
+#   ORBIT-COMMIT                 <120  the runner's seam-commit poll bound
+#   => ~2,435 nominal. WORST case adds one bounded stale-node re-plan (+90 s of
+#      window grace, a re-planned coast, and a SECOND ~600 s pre-ignition hold)
+#      and the apoapsis-side intercept's longer everything => ~3,200.
+# missionBudget 3,600 is ~1.5x nominal and ~1.13x that worst case.
+# runtime 4,200 >= 300 LoadGame + ~10 preamble + 3,600 mission + ~60 FlushAndQuit
+# + ~230 margin: the tail verbs must survive a FULL-budget mission (SF-5).
+budgetSeconds = 4200
+
+[retry]
+# The transient risks here are kRPC / MechJeb flakes (a plan that throws
+# server-side, an executor that does not engage), not a geometry lottery: this
+# lane WANTS the Gilly encounter and the transfer window recurs every ~32,275
+# game s. One retry prices the flake class without spending a second full flight
+# on it. It does NOT absorb a systematic failure - a correction discarded at the
+# cap, or an arrival that misses a 126 km SOI, reproduces on attempt 2 and names
+# itself, which is what a first flight is for.
+policy = "once"
+
+[expectedFail]
+bugId = ""

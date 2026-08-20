@@ -1,0 +1,34 @@
+version = 1
+MILESTONE
+{
+	id = 720edfbcf5b1478ca745d502a08d9d7b
+	startUT = 0
+	endUT = 9181531.6510972362
+	recordingId = 
+	committed = True
+	lastReplayedIdx = 2
+	GAME_STATE_EVENT
+	{
+		ut = 9177480.8980102781
+		type = 18
+		key = Ike/Flyby
+		detail = funds=22000;rep=1;sci=0
+		recordingId = 05ceee33806d4079a1d9d125a1359115
+	}
+	GAME_STATE_EVENT
+	{
+		ut = 9177480.8980102781
+		type = 18
+		key = Duna/Escape
+		detail = funds=15840;rep=1;sci=0
+		recordingId = 05ceee33806d4079a1d9d125a1359115
+	}
+	GAME_STATE_EVENT
+	{
+		ut = 9181419.1110997517
+		type = 18
+		key = Orbit
+		detail = funds=21120;rep=1;sci=0
+		recordingId = 05ceee33806d4079a1d9d125a1359115
+	}
+}

@@ -507,10 +507,14 @@ namespace Parsek.Tests.Rendering
             var rec = MakeRecording("rec-fail",
                 MakeSection(SegmentEnvironment.ExoBallistic, ReferenceFrame.Absolute, frameCount: 8));
 
-            // Non-existent drive letter forces File.WriteAllBytes to throw
-            // DirectoryNotFoundException — exactly the disk-full / disk-
-            // unavailable IO failure HR-9 has to absorb.
-            string pannPath = @"Z:\parsek-nonexistent-drive\rec-fail.pann";
+            // A directory component that is actually an existing FILE forces
+            // File.WriteAllBytes to throw DirectoryNotFoundException on Windows
+            // and Unix alike — exactly the disk-full / disk-unavailable IO
+            // failure HR-9 has to absorb. (A Z:\ non-existent-drive path only
+            // fails on Windows; on Unix it is a writable relative filename.)
+            string blockerFile = Path.Combine(tempDir, "pann-blocker.file");
+            File.WriteAllText(blockerFile, "not a directory");
+            string pannPath = Path.Combine(blockerFile, "sub", "rec-fail.pann");
 
             Exception caught = Record.Exception(() =>
                 SmoothingPipeline.PersistAfterCommit(rec, pannPath));

@@ -70,8 +70,9 @@ forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
 # the unmatched_captured_awards-empty leg IS trusted here (a dismiss fires NO economic
 # award, so the captured set is empty and the any-captured-award-reds signal is sound for
 # any seq_key -- the B10 empty-manifest case scoped to a roster mutation). The ROSTER-changed
-# assertion is DEFERRED with the M-B2 world roster sub-facet (CareerSaveSnapshot has no
-# roster parse); the POOL-neutrality assertion is drivable today.
+# assertion is NO LONGER DEFERRED: CareerSaveParser gained the ROSTER parse and the analyzer
+# exports `careerSave.roster`, so `[expectations.world.roster]` below asserts the dismissal
+# directly against the produced save. The POOL-neutrality assertion is unchanged.
 [expectations.ledger]
 seedFrom     = "template"
 tolerances   = "default"
@@ -87,6 +88,30 @@ rec3CarveOut = false
   science    = 0.0
   reputation = 0.0
   provenance = "seam-declared"
+
+# The ROSTER assertion this spec deferred from the day it was written. It states the
+# dismissal in the produced save's own terms: the dismissed kerbal's NAME is GONE from the
+# roster and the three other stock crew NAMES are STILL LISTED. Correlated by name (a
+# kerbal's name is its roster identity) and HARD - unlike the all-zero pool manifest,
+# "Bill Kerman is absent" is NOT equally true of an action that never ran, so this is the
+# assertion the spec's own header says the log-contract pair was standing in for.
+#
+# WHAT `present` DOES AND DOES NOT CLAIM: NAME PRESENCE ONLY. It proves the three
+# bystanders were not removed from the roster; it does NOT check their rosterStatus, their
+# type, or anything else about them, so "untouched" would overclaim it. Per-kerbal STATUS
+# claims are a separate, undeclared surface (see design-autotest-ledger-oracle.md).
+#
+# Names come from the STAGED TEMPLATE, not from a run: fixtures/saves/fresh-career carries
+# exactly five kerbals (Jebediah / Bill / Bob / Valentina, Crew; Verhat, Applicant), pinned
+# by CareerSaveParserFixtureTests.FreshCareerFixture_Roster_CarriesTheFiveTemplateKerbals.
+#
+# Verhat (the Applicant) is deliberately NOT declared present, and no roster COUNT is
+# declared: applicant slots are stock's to regenerate, and neither is a claim this scenario
+# makes. Declaring them would gate the run on churn that has nothing to do with dismissing
+# a kerbal.
+[expectations.world.roster]
+absent  = ["Bill Kerman"]
+present = ["Jebediah Kerman", "Bob Kerman", "Valentina Kerman"]
 
 # The raw-Unity-exception scan (hlib.scan_unity_exceptions), ARMED AT ZERO. Every
 # driver-valid reading measured 0: the collected log in the failure population,

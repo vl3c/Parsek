@@ -1,5 +1,7 @@
 # Parsek
 
+[![tests](https://github.com/vl3c/Parsek/actions/workflows/tests.yml/badge.svg?branch=main&event=push)](https://github.com/vl3c/Parsek/actions/workflows/tests.yml)
+
 ![Parsek](img/ksp-parsek-stylized.jpg)
 
 *Record, rewind, merge and loop your parallel-sekuential adventures in a single player main timeline.*

@@ -340,6 +340,12 @@ Agent(subagent_type=general-purpose):
 5. **Diagnostic logging coverage** - does every decision point, state transition, and edge case in the new code produce a log line? Compare against the design doc's Diagnostic Logging section. Silent branches are review failures. Check that log lines include enough context to reconstruct what happened (relevant IDs, old→new values, the "why" not just the "what").
 6. **Test quality** - does every new test have a concrete "what makes it fail" justification? Are there log assertion tests that verify diagnostic output via the test sink? Are edge cases from the design doc covered by dedicated tests? Reject vacuous tests that can't fail for any realistic bug.
 
+### Program-Wide Claims Need a Program-Wide Grep
+
+A recurring failure shape in spec headers, findings, and doc prose: **a true statement about one lane written as a statement about the program.** The Jool program (2026-08-17/18) surfaced five instances of it in one line of work — the repo's own finding-16d mis-citation, two wrong drafts of its correction, a "retention branch is unexercised" claim refuted by two lanes that ARM `state=retained`, and a "monotone" trend claim over 3 of 5 measured points where the omitted two falsify it. In three of the five, the contradicting evidence was a committed armed literal at the time the claim was written.
+
+The rule: **before writing that something holds program-wide ("no lane does X", "every arrival reads Y", "the trend is Z"), grep the other lanes' specs for the armed literal or measured value that would contradict it, and cite what the grep returned.** A claim about N lanes needs N data points, not the 2-3 nearest ones; if a subset is all that exists, scope the sentence to the subset by name (V12's two-point Dres-vs-Eeloo comparison is the model — it survived; its promotion to "the program's reading" did not). Reviewers: treat an unscoped program-wide claim with no grep citation as a review failure, same as a silent branch.
+
 ### 4e. Fix (Implementation Agent - clean context, if issues found)
 
 If the review found issues, a new implementation agent gets the review feedback and fixes them. **Not the same agent** - a fresh one, so it reads the code without the original author's assumptions.

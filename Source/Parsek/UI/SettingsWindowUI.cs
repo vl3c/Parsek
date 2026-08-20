@@ -18,6 +18,15 @@ namespace Parsek
         private Rect lastSettingsWindowRect;
         private bool settingsWindowHeightRemeasurePending;
         private bool tooltipShownLastDraw;
+        // Armed on the pass that releases the height, cleared when the fitted height lands
+        // (or when the wait below runs out). Only drives logging - never layout.
+        private SettingsWindowPresentation.HeightFitLogState heightFitLog;
+        /// <summary>
+        /// Draw passes to wait for a released height to come back before reporting the fit
+        /// as a no-change. GUILayout applies it within the same frame, so this is generous;
+        /// it exists so a fit that genuinely changes nothing still logs exactly once.
+        /// </summary>
+        private const int HeightFitLogPassBudget = 12;
 
         // Auto-loop editing
         private string settingsAutoLoopText = "";
@@ -45,6 +54,10 @@ namespace Parsek
             if (!showSettingsWindow)
             {
                 ReleaseInputLock();
+                // A pending fit REPORT cannot outlive the window: no pass runs while closed,
+                // so reopening later would otherwise announce a fit for a long-dead switch.
+                // The fit REQUEST deliberately survives (see RequestHeightRemeasure).
+                heightFitLog = default(SettingsWindowPresentation.HeightFitLogState);
                 return;
             }
 
@@ -56,6 +69,17 @@ namespace Parsek
                     280, 600);
                 var ic = System.Globalization.CultureInfo.InvariantCulture;
                 ParsekLog.Verbose("UI", $"Settings window initial position: x={settingsWindowRect.x.ToString("F0", ic)} y={settingsWindowRect.y.ToString("F0", ic)}");
+                // The 600 above is a guess, not a measurement, and GUILayout only fixes it
+                // in one direction: a window resolves to Max(passedHeight, contentMin), so
+                // content TALLER than 600 auto-grows, while content SHORTER leaves dead
+                // space at the bottom - which is exactly Basic since it hides the Looping
+                // section (fit ~534; Advanced ~948 masked this for both modes until then).
+                // Request the same height fit a mode switch gets, so the first open lands
+                // on the measured height in either mode. Requesting here is equivalent to
+                // the Update-latch path: this branch runs once, at the top of the first
+                // event pass (a Layout - Unity sends Layout first), so the fit is consumed
+                // exactly as if it had been requested before the frame.
+                RequestHeightRemeasure();
             }
 
             var opaqueWindowStyle = parentUI.GetOpaqueWindowStyle();
@@ -65,12 +89,15 @@ namespace Parsek
             // opaqueWindowStyle padding renders identically (the previous height=10
             // reset + Width-only call caused the title-bar spacing to look off).
             //
-            // The ONE exception is a pending re-measure (see RequestHeightRemeasure): for
-            // that single Layout pass the Height option is dropped so GUILayout sizes the
-            // window to whatever content the current UI mode draws, and the measured height
-            // comes straight back in the returned rect. The passed rect keeps its old
-            // height, so the window chrome is never drawn at a stale size - that, not the
-            // Width-only call itself, was what made the old every-frame auto-size look off.
+            // The ONE exception is a pending re-measure (see RequestHeightRemeasure), which
+            // both DROPS the Height option and hands GUILayout a zero-height RECT for that
+            // single Layout pass. The rect is the load-bearing half: a GUILayout window
+            // resolves to Max(passedHeight, contentMin), so dropping the Height option on its
+            // own leaves an over-tall window exactly as tall as it was - grow-only, and true
+            // of every GUILayout window rather than of this one's content (the full chain is
+            // on SettingsWindowPresentation.BuildHeightFitLayoutRect). That is exactly the
+            // reported bug: Advanced -> Basic kept the taller Advanced height, while
+            // Basic -> Advanced only appeared to work because it is the direction that grows.
             //
             // Held back while the bottom tooltip box is showing: the mode toggle is the
             // control the mouse rests on right after the click, and measuring then would
@@ -78,6 +105,9 @@ namespace Parsek
             // moves - dead space again, just less of it. The request survives, so the fit
             // lands on the first tooltip-free frame.
             bool remeasuring = settingsWindowHeightRemeasurePending && !tooltipShownLastDraw;
+            // Only the Layout pass computes a size; releasing the height on any other event
+            // would hand the chrome a collapsed rect for nothing.
+            bool heightFitPass = remeasuring && Event.current.type == EventType.Layout;
             GUILayoutOption[] sizeOptions = remeasuring
                 ? new[] { GUILayout.Width(settingsWindowRect.width) }
                 : new[]
@@ -85,12 +115,15 @@ namespace Parsek
                     GUILayout.Width(settingsWindowRect.width),
                     GUILayout.Height(settingsWindowRect.height)
                 };
+            Rect requestedRect = SettingsWindowPresentation.BuildHeightFitLayoutRect(
+                settingsWindowRect, heightFitPass);
             ParsekUI.ResetWindowGuiColors(out Color prevColor, out Color prevBackgroundColor, out Color prevContentColor);
+            Rect drawnRect;
             try
             {
-                settingsWindowRect = ClickThruBlocker.GUILayoutWindow(
+                drawnRect = ClickThruBlocker.GUILayoutWindow(
                     "ParsekSettings".GetHashCode(),
-                    settingsWindowRect,
+                    requestedRect,
                     DrawSettingsWindow,
                     "Parsek - Settings",
                     opaqueWindowStyle,
@@ -102,16 +135,49 @@ namespace Parsek
                 ParsekUI.RestoreWindowGuiColors(prevColor, prevBackgroundColor, prevContentColor);
             }
 
+            // A fit pass returns the zero-height rect it was given (GUILayout applies the
+            // fitted size after the call), so keep the current height rather than storing a
+            // collapsed one - the fitted height arrives on a later pass's return.
+            settingsWindowRect = SettingsWindowPresentation.KeepStoredHeightAcrossFitPass(
+                drawnRect, settingsWindowRect.height, heightFitPass);
+
             // Consume on the LAYOUT pass only: layout options are ignored on every other
             // event type, so clearing the flag on (say) a Repaint would eat the request
             // without ever re-measuring. Unity sends Layout first each frame, and the mode
             // latch runs in Update, so the request is always honoured on the next frame.
-            if (remeasuring && Event.current.type == EventType.Layout)
-            {
+            var ric = System.Globalization.CultureInfo.InvariantCulture;
+            if (heightFitPass)
                 settingsWindowHeightRemeasurePending = false;
-                var ric = System.Globalization.CultureInfo.InvariantCulture;
+
+            // Report the fit where it actually lands, never on the pass that asked for it.
+            SettingsWindowPresentation.HeightFitLogStep fitStep =
+                SettingsWindowPresentation.AdvanceHeightFitLog(
+                    heightFitLog, heightFitPass, settingsWindowRect.height, HeightFitLogPassBudget);
+            heightFitLog = fitStep.State;
+
+            if (heightFitPass)
+            {
                 ParsekLog.Verbose("UI",
-                    $"Settings window height re-measured: h={settingsWindowRect.height.ToString("F0", ric)}");
+                    $"Settings window height released for content fit: " +
+                    $"h={heightFitLog.HeightAtFitPass.ToString("F0", ric)} " +
+                    $"mode={ParsekUI.AppliedUiComplexityMode}");
+            }
+
+            switch (fitStep.Outcome)
+            {
+                case SettingsWindowPresentation.HeightFitLogOutcome.Applied:
+                    ParsekLog.Verbose("UI",
+                        $"Settings window height fit applied: " +
+                        $"h={settingsWindowRect.height.ToString("F0", ric)} " +
+                        $"was={heightFitLog.HeightAtFitPass.ToString("F0", ric)} " +
+                        $"mode={ParsekUI.AppliedUiComplexityMode}");
+                    break;
+                case SettingsWindowPresentation.HeightFitLogOutcome.NoChange:
+                    ParsekLog.Verbose("UI",
+                        $"Settings window height fit left the height unchanged: " +
+                        $"h={settingsWindowRect.height.ToString("F0", ric)} " +
+                        $"mode={ParsekUI.AppliedUiComplexityMode}");
+                    break;
             }
 
             parentUI.LogWindowPosition("Settings", ref lastSettingsWindowRect, settingsWindowRect);
@@ -140,8 +206,11 @@ namespace Parsek
         ///
         /// <para>Only the HEIGHT is re-derived; x / y / width are untouched, so the window
         /// does not jump. Safe to call while the window is closed - the request simply waits
-        /// for the next draw. Runs from the deferred mode latch (Update), never mid-OnGUI, so
-        /// it cannot change an IMGUI control count inside a frame.</para>
+        /// for the next draw. Two callers: the deferred mode latch (Update, outside OnGUI)
+        /// and the first-open rect init in <see cref="DrawIfOpen"/> - the latter runs once at
+        /// the top of the window's first Layout pass, before any size option is built, so
+        /// both are consumed with identical frame semantics and neither can change an IMGUI
+        /// control count inside a frame (the fit alters window size options only).</para>
         /// </summary>
         internal void RequestHeightRemeasure()
         {
@@ -160,6 +229,15 @@ namespace Parsek
         {
             get { return settingsWindowHeightRemeasurePending; }
             set { settingsWindowHeightRemeasurePending = value; }
+        }
+
+        /// <summary>
+        /// Test seam for the live window rect. The in-game height-fit gate reads its
+        /// height across a mode switch - the only place the real GUILayout clamp runs.
+        /// </summary>
+        internal Rect WindowRectForTesting
+        {
+            get { return settingsWindowRect; }
         }
 
         internal void ReleaseInputLock()
@@ -202,6 +280,17 @@ namespace Parsek
                     $"Auto-launch period edit rejected: invalid or negative input '{settingsAutoLoopText}' " +
                     $"for unit {ParsekUI.UnitLabel(s.AutoLoopDisplayUnit)}");
             }
+            EndAutoLoopEdit();
+        }
+
+        /// <summary>
+        /// Ends the auto-launch-period inline edit WITHOUT committing: clears the buffer's
+        /// focus flag, forgets the field rect the click-away test reads, and releases the
+        /// keyboard focus that field held. <see cref="CommitAutoLoopEdit"/> is this plus the
+        /// commit, so both exits leave identical state.
+        /// </summary>
+        private void EndAutoLoopEdit()
+        {
             settingsAutoLoopEditing = false;
             settingsAutoLoopEditRect = default;
             GUIUtility.keyboardControl = 0;
@@ -222,31 +311,67 @@ namespace Parsek
                 return;
             }
 
-            // Click outside active settings edit field → commit
-            if (Event.current.type == EventType.MouseDown)
+            // Basic / Advanced gating (design 7.1). Read the FRAME-LATCHED mode ONCE per
+            // draw pass, never the settings field: the Interface section below hosts the
+            // mode toggle itself and draws BEFORE the gated sections, so a raw read would
+            // change the control count between this frame's Layout and Repaint passes
+            // (`ArgumentException: Getting control N's position in a group with only M
+            // controls`). Read here rather than at the first gated section because the
+            // auto-loop edit-state check below needs it too.
+            UiComplexityMode complexity = ParsekUI.AppliedUiComplexityMode;
+
+            // Click outside active settings edit field → commit.
+            //
+            // Basic draws no Looping section, so the auto-launch field is not on screen and
+            // settingsAutoLoopEditRect is one Advanced last drew: an edit left open across the
+            // switch is DROPPED rather than committed against that stale rect. Dropping it here
+            // is what keeps the mode visibility-only (design section 4.5 / philosophy 1): leave
+            // the edit armed and the click-away branch below stays live with no field to click
+            // away FROM, so the next MouseDown anywhere in this window would commit the stale
+            // buffer to autoLoopIntervalSeconds - a loop-setting write performed in Basic. Every
+            // other exit (this click-away, Enter, the unit button, Defaults) needs the section
+            // to draw, so this is the only teardown that can still run. Mirrors the loop-period
+            // drop in MissionsWindowUI.DrawMissionsTabContent. Runs on every event type: it
+            // writes private fields only, never a control.
+            if (!UiSurfaceVisibility.IsVisible(UiSurface.SettingsSectionLooping, complexity))
+            {
+                if (settingsAutoLoopEditing)
+                {
+                    ParsekLog.Verbose("UI",
+                        "Auto-launch period edit dropped uncommitted: " +
+                        "Basic UI mode draws no Looping section");
+                    EndAutoLoopEdit();
+                }
+            }
+            else if (Event.current.type == EventType.MouseDown)
             {
                 if (settingsAutoLoopEditing && settingsAutoLoopEditRect.width > 0
                     && !settingsAutoLoopEditRect.Contains(Event.current.mousePosition))
                     CommitAutoLoopEdit(s);
             }
 
-            // Basic / Advanced gating (design 7.1). Read the FRAME-LATCHED mode ONCE per
-            // draw pass, never the settings field: the Interface section below hosts the
-            // mode toggle itself and draws BEFORE the gated sections, so a raw read would
-            // change the control count between this frame's Layout and Repaint passes
-            // (`ArgumentException: Getting control N's position in a group with only M
-            // controls`). Each hidden section's trailing GUILayout.Space separator lives
-            // INSIDE its gate, or Basic shows a double gap where the section used to be.
-            // Interface / Recording / Looping / Ghosts / Stock UI / Data Management are
-            // visible in both modes and stay unwrapped.
-            UiComplexityMode complexity = ParsekUI.AppliedUiComplexityMode;
-
+            // Each hidden section's trailing GUILayout.Space separator lives INSIDE its gate,
+            // or Basic shows a double gap where the section used to be. Interface / Recording
+            // / Ghosts / Stock UI / Data Management are visible in both modes and stay
+            // unwrapped. (`complexity` is latched above, before the edit-state check.)
             DrawInterfaceSettings(s);
             GUILayout.Space(SpacingSmall);
             DrawRecordingSettings(s);
             GUILayout.Space(SpacingSmall);
-            DrawLoopingSettings(s);
-            GUILayout.Space(SpacingSmall);
+
+            // Manual-loop authoring, global half (design section 4.5): the auto-launch period
+            // that IS the period of any Auto-unit mission, plus the landing-body alignment and
+            // force-faithful A/B knobs. Hidden with the Missions tab's per-mission loop
+            // controls - one decision, so it does not straddle two windows. Route DELIVERY is
+            // unaffected (a route-backing mission carries its own Sec-unit DispatchInterval,
+            // authored in Logistics, which Basic keeps) and both A/B knobs ship on the defaults
+            // a route wants.
+            if (UiSurfaceVisibility.IsVisible(UiSurface.SettingsSectionLooping, complexity))
+            {
+                DrawLoopingSettings(s);
+                GUILayout.Space(SpacingSmall);
+            }
+
             DrawGhostSettings(s);
             GUILayout.Space(SpacingSmall);
             DrawStockUiSettings(s);
@@ -311,7 +436,10 @@ namespace Parsek
                 if (s.showCommittedFutureOverlays != priorShowCommittedFutureOverlays)
                     StockUiOverlayController.RefreshOpenScreensAfterSettingsChanged();
                 RecordingStore.ReconcileReadableSidecarMirrorsForKnownRecordings();
-                settingsAutoLoopEditing = false;
+                // Defaults rewrites autoLoopIntervalSeconds, so any in-progress edit of it is
+                // stale: end it through the shared teardown (rect + keyboard focus too), not by
+                // clearing the flag alone.
+                EndAutoLoopEdit();
                 ParsekLog.Info("UI", "Settings reset to defaults");
             }
             if (GUILayout.Button("Close"))

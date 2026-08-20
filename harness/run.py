@@ -1928,7 +1928,41 @@ def _run_ledger_oracle(ledger_block: Optional[Dict], world_block: Optional[Dict]
             logger.info("Verify", "world-vessel corr=%s kind=%s expected=%s parsed=%s hard=%s detail=%s"
                         % (d.identity, d.kind, d.expected, d.parsed, d.hard, d.detail))
         divergences += world_divs
-        logger.verbose("Verify", "world: roster sub-facet deferred (no CareerSaveSnapshot roster)")
+
+        # Roster sub-facet: DEFERRED at M-B2 ("no CareerSaveSnapshot roster") and
+        # un-deferred by the career-ledger lane once CareerSaveParser gained the
+        # ROSTER parse and the analyzer exported `careerSave.roster`. Correlated by
+        # name, present/absent claims only, and HARD - the claim IS the scenario's
+        # action. A block declaring nothing returns nothing, so every spec that does
+        # not declare a roster is byte-unaffected.
+        roster_block = (world_block or {}).get("roster") or {}
+        # A DECLARED roster claim against a produced save that carries no roster facet
+        # (`hasRoster` missing/false with parsed=true) is a TOOLING condition, not a
+        # Parsek defect: the analyzer never exported the surface the claim reads, so
+        # there is nothing to diff. Same precedent as the parsed=false route above
+        # (edge 13 / edge 15) - INVALID(tooling), never a false PARSEK-FAIL(ledger).
+        # Fail-closed is preserved: the run still reds, it just reds in the bucket that
+        # names the actual fault. `diff_world_roster` keeps its own defensive guard for
+        # any caller that reaches it without this pre-check.
+        roster_declared = bool((roster_block.get("present") or ())
+                               or (roster_block.get("absent") or ()))
+        if roster_declared and not bool(career_block.get("hasRoster", False)):
+            reason = ("roster assertions declared but the produced careerSave carries no "
+                      "roster facet (hasRoster=false; analyzer did not export it)")
+            logger.warn("Verify", "verify ledgerOracle status=INVALID subkind=tooling: %s" % reason)
+            return ({"status": oracle.ORACLE_STATUS_INVALID, "subkind": "tooling",
+                     "reason": reason, "hardDivergences": 0, "reportOnly": 0,
+                     "utWindow": [None, None]}, False, True)
+        roster_divs = oracle.diff_world_roster(roster_block, career_block)
+        for d in roster_divs:
+            logger.info("Verify", "world-roster name=%s kind=%s hard=%s detail=%s"
+                        % (d.identity or "(facet)", d.kind, d.hard, d.detail))
+        divergences += roster_divs
+        logger.verbose("Verify", "world: roster sub-facet declared=%s present=%d absent=%d divergences=%d"
+                       % (bool(roster_block),
+                          len(roster_block.get("present") or ()),
+                          len(roster_block.get("absent") or ()),
+                          len(roster_divs)))
 
     for d in divergences:
         if d.hard:

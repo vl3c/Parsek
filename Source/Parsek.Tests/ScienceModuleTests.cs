@@ -1077,5 +1077,118 @@ namespace Parsek.Tests
 
             RecalculationEngine.ClearModules();
         }
+
+        // ================================================================
+        // StrategyScienceDebit - the science INPUT leg of a stock currency
+        // exchange (STRATEGY-SCIENCE-CONVERSION-LEAK)
+        // ================================================================
+
+        private static GameAction MakeStrategyScienceDebit(double ut, float cost)
+        {
+            return new GameAction
+            {
+                UT = ut,
+                Type = GameActionType.StrategyScienceDebit,
+                Cost = cost
+            };
+        }
+
+        [Fact]
+        public void ProcessStrategyScienceDebit_DeductsEvenWhenUnaffordable()
+        {
+            // CONTRAST with ProcessSpending, which REFUSES to deduct an unaffordable
+            // tech-node cost and only warns. KSP has ALREADY removed this science from
+            // the pool, so refusing would diverge the reconstruction the other way.
+            module.ProcessAction(new GameAction
+            {
+                UT = 0.0,
+                Type = GameActionType.ScienceInitial,
+                InitialScience = 10f
+            });
+
+            var debit = MakeStrategyScienceDebit(8599.875, 108.84f);
+            module.ProcessAction(debit);
+
+            Assert.Equal(-98.84, module.GetRunningScience(), 2);
+            // The unaffordable case is a rate-limited VERBOSE, not a Warn: on a
+            // legitimate ledger a commit-stamped earning lands at its recording's END UT
+            // while the exchange debit carries the exchange's TRUE UT, so the walk
+            // routinely dips negative here and a Warn would fire as routine noise.
+            Assert.Contains(logLines, l =>
+                l.Contains("[VERBOSE]") &&
+                l.Contains("[ScienceModule]") &&
+                l.Contains("StrategyScienceDebit ahead of its earnings"));
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("[WARN]") && l.Contains("StrategyScienceDebit"));
+            // Affordable is the tech-node contract KspStatePatcher reads; this row is
+            // not a tech node and must never claim it.
+            Assert.False(debit.Affordable);
+        }
+
+        [Fact]
+        public void ProcessStrategyScienceDebit_AffordableCase_DeductsAndLogsVerbose()
+        {
+            module.ProcessAction(new GameAction
+            {
+                UT = 0.0,
+                Type = GameActionType.ScienceInitial,
+                InitialScience = 750f
+            });
+
+            module.ProcessAction(MakeStrategyScienceDebit(8599.875, 108.84171852f));
+
+            Assert.Equal(641.15828, module.GetRunningScience(), 4);
+            Assert.Contains(logLines, l =>
+                l.Contains("[ScienceModule]") &&
+                l.Contains("StrategyScienceDebit: cost="));
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("StrategyScienceDebit ahead of its earnings"));
+        }
+
+        [Fact]
+        public void ProcessStrategyScienceDebit_NonPositiveCost_IsNoOp()
+        {
+            module.ProcessAction(new GameAction
+            {
+                UT = 0.0,
+                Type = GameActionType.ScienceInitial,
+                InitialScience = 50f
+            });
+
+            module.ProcessAction(MakeStrategyScienceDebit(100.0, 0f));
+            module.ProcessAction(MakeStrategyScienceDebit(200.0, -5f));
+
+            Assert.Equal(50.0, module.GetRunningScience(), 4);
+            Assert.Contains(logLines, l =>
+                l.Contains("[ScienceModule]") &&
+                l.Contains("StrategyScienceDebit: non-positive cost="));
+        }
+
+        [Fact]
+        public void ComputeTotalSpendings_IncludesStrategyScienceDebit()
+        {
+            var actions = new List<GameAction>
+            {
+                MakeSpending(500.0, "node1", 15f),
+                MakeStrategyScienceDebit(8599.875, 108.84f)
+            };
+
+            module.ComputeTotalSpendings(actions);
+
+            // A committed exchange reserves science exactly like a tech cost.
+            Assert.Equal(123.84, module.GetTotalCommittedSpendings(), 2);
+            Assert.Contains(logLines, l =>
+                l.Contains("[ScienceModule]") &&
+                l.Contains("strategyExchangeCount=1"));
+        }
+
+        [Fact]
+        public void TryGetProjectionDelta_StrategyScienceDebit_ReturnsNegativeCost()
+        {
+            double delta;
+            Assert.True(module.TryGetProjectionDelta(
+                MakeStrategyScienceDebit(8599.875, 108.84f), out delta));
+            Assert.Equal(-108.84, delta, 2);
+        }
     }
 }

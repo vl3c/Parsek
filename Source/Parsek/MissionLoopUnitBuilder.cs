@@ -501,6 +501,19 @@ namespace Parsek
         }
 
         /// <summary>
+        /// One loop-unit member's re-aim classify verdict, held between the classify pass and the
+        /// log pass in <see cref="ApplyReaim"/>. <c>Ordinal</c> is the <c>member#N</c> the log
+        /// lines use (members with no orbit segments are skipped and keep their ordinal gap).
+        /// </summary>
+        private sealed class ReaimMemberVerdict
+        {
+            public int Ordinal;
+            public Recording Recording;
+            public List<OrbitSegment> Segments;
+            public ReaimMissionPlan Plan;
+        }
+
+        /// <summary>
         /// Re-aim (cross-parent interplanetary) — phase extract of the
         /// <c>if (!phaseLocked)</c> body in <see cref="TryBuildMissionUnit"/>. The faithful path
         /// reports cross-parent targets UnsupportedCrossParent (their faithful celestial geometry
@@ -575,6 +588,17 @@ namespace Parsek
             List<OrbitSegment> transferSegments = null;
             int supportedMemberIndex = -1;
             int gatheredCount = 0;
+            // The per-member verdicts, held until every member is classified. The LOG lines are
+            // emitted in a second pass (same order, same gate, same text) because the split-sibling
+            // annotation below is a statement about the member's SIBLINGS - it cannot be written
+            // while the siblings are still unclassified. Nothing else about pass 1 changed.
+            //
+            // The gate is read ONCE and the list stays null when logging is off, so a suppressed
+            // build allocates nothing here and pins no member's segment list alive past its own
+            // iteration - the diagnostic really is skipped entirely, not merely unprinted.
+            bool diagEnabled = !SuppressLogging;
+            List<ReaimMemberVerdict> memberVerdicts =
+                diagEnabled ? new List<ReaimMemberVerdict>() : null;
             for (int mi = 0; mi < memberIndices.Count; mi++)
             {
                 int midx = memberIndices[mi];
@@ -587,19 +611,14 @@ namespace Parsek
                 var msegs = new List<OrbitSegment>(mrec.OrbitSegments);
                 msegs.Sort((a, b) => a.startUT.CompareTo(b.startUT));
                 ReaimMissionPlan mp = ReaimClassifier.Classify(msegs, bodyInfo);
-                // Per-member classify verdict: the classifier returns a per-member reason but the
-                // gather kept only the chosen-supported member's details, so a "why
-                // transferMemberSegs=0" diagnosis had to be reverse-engineered from the recording.
-                // Log each member's verdict (member count is bounded) so the decline reason is
-                // visible in KSP.log directly.
-                if (!SuppressLogging)
-                    ParsekLog.Verbose("ReaimDiag",
-                        $"mission='{mission.Name}' member#{mi} segs={msegs.Count} " +
-                        $"startBody={(msegs.Count > 0 ? msegs[0].bodyName : "none")} " +
-                        $"supported={mp.Supported}" +
-                        (mp.Supported
-                            ? $" target={mp.TargetBody} parking={mp.DepartedFromHeliocentricPark}"
-                            : $" reason='{mp.Reason}'"));
+                if (diagEnabled)
+                    memberVerdicts.Add(new ReaimMemberVerdict
+                    {
+                        Ordinal = mi,
+                        Recording = mrec,
+                        Segments = msegs,
+                        Plan = mp
+                    });
                 if (mp.Supported && transferSegments == null)
                 {
                     plan = mp;
@@ -611,6 +630,49 @@ namespace Parsek
                     // (review finding, flight-arrival lane).
                     supportedMemberIndex = midx;
                     // keep scanning only to finish the gatheredCount tally for the diagnostic
+                }
+            }
+
+            // REAIM-CLASSIFIER-FRAGILE-TO-MEMBER-SPLITS, cheap interim: a load-time split spreads
+            // one transfer across two chain-group siblings, and then every member declines with the
+            // missing-heliocentric-leg reason - indistinguishable from a mission that never recorded
+            // a transfer. Annotate the decline when the chain group (the CopySplitIdentityFields
+            // marker: same ChainId + launch guid) classifies Supported as a WHOLE while no single
+            // member does. DIAGNOSTIC ONLY: `plan` is not touched and the union plan the diagnostic
+            // computes is discarded inside it, so no classification outcome moves. Skipped entirely
+            // when logging is off - the clauses have no consumer but the log lines.
+            ReaimSplitSiblingDiag.Diagnosis splitDiag = null;
+            if (diagEnabled)
+            {
+                var facts = new List<ReaimSplitSiblingDiag.MemberFacts>(memberVerdicts.Count);
+                for (int i = 0; i < memberVerdicts.Count; i++)
+                {
+                    ReaimMemberVerdict v = memberVerdicts[i];
+                    facts.Add(ReaimSplitSiblingDiag.BuildFacts(
+                        v.Ordinal, v.Recording.ChainId, v.Recording.RecordedVesselGuid,
+                        v.Segments, v.Plan));
+                }
+                splitDiag = ReaimSplitSiblingDiag.Diagnose(facts, bodyInfo);
+
+                // Pass 2: per-member classify verdict. The classifier returns a per-member reason
+                // but the gather kept only the chosen-supported member's details, so a "why
+                // transferMemberSegs=0" diagnosis had to be reverse-engineered from the recording.
+                // Log each member's verdict (member count is bounded) so the decline reason is
+                // visible in KSP.log directly. The split-sibling clause is appended OUTSIDE the
+                // quoted reason: the classifier did not say it, this builder did.
+                for (int i = 0; i < memberVerdicts.Count; i++)
+                {
+                    ReaimMemberVerdict v = memberVerdicts[i];
+                    ReaimMissionPlan mp = v.Plan;
+                    List<OrbitSegment> msegs = v.Segments;
+                    ParsekLog.Verbose("ReaimDiag",
+                        $"mission='{mission.Name}' member#{v.Ordinal} segs={msegs.Count} " +
+                        $"startBody={(msegs.Count > 0 ? msegs[0].bodyName : "none")} " +
+                        $"supported={mp.Supported}" +
+                        (mp.Supported
+                            ? $" target={mp.TargetBody} parking={mp.DepartedFromHeliocentricPark}"
+                            : $" reason='{mp.Reason}'") +
+                        (splitDiag.ClauseFor(i) ?? string.Empty));
                 }
             }
 
@@ -1214,8 +1276,14 @@ namespace Parsek
             }
             else if (!SuppressLogging)
             {
+                // The split-sibling clause is APPENDED AFTER "faithful", never spliced into the
+                // reason parentheses: three committed harness lanes (V9, V11, V12) forbid the
+                // exact substring `not re-aim (no member yields a re-aim transfer); faithful` as
+                // their ENGAGED regression floor, and those patterns are applied with re.search.
+                // A suffix keeps every one of them matching; a rewrite would silently disarm them.
                 ParsekLog.Verbose("Reaim",
-                    $"MissionLoopUnit: mission='{mission.Name}' not re-aim ({plan.Reason}); faithful");
+                    $"MissionLoopUnit: mission='{mission.Name}' not re-aim ({plan.Reason}); faithful"
+                    + (splitDiag?.AggregateClause ?? string.Empty));
             }
         }
 

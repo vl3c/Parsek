@@ -233,6 +233,77 @@ namespace Parsek.Tests
                 && d.Kind == DivergenceKind.UpliftClampedExpected);
         }
 
+        // ================================================================
+        // career-ledger B.4: the RunTests `strict` arg is the per-scenario seam
+        // ================================================================
+
+        [Theory]
+        [InlineData(null, false)]
+        [InlineData("false", false)]
+        [InlineData("true", true)]
+        public void StrictSeam_RunTestsArgDrivesTheStaticAndThenTheHardSet(
+            string strictRaw, bool expectedHard)
+        {
+            // THE WHOLE PLUMBING, END TO END, HEADLESSLY: the wire token the harness
+            // sends -> TestCommandRunTests.TryParseStrictArg -> the static the addon
+            // assigns unconditionally -> the `strict` argument
+            // LedgerGroundTruthHarness/Inv8Ledger pass to HardFailures. The middle link
+            // is what B.4 added; the two ends already existed and are what make the
+            // addition observable without Unity.
+            //
+            // The ABSENT row is the one that matters most: it is every committed spec,
+            // and it must land on the same hard set as an explicit "false".
+            bool strict;
+            Assert.True(Parsek.TestCommands.TestCommandRunTests.TryParseStrictArg(
+                strictRaw, out strict));
+            LedgerGroundTruthDiff.StrictPerIdentityForTesting = strict;
+
+            var save = HealthySave();
+            var recon = HealthyRecon();
+            recon.SubjectScience["phantom@Duna"] = 3.0; // report-only by default
+
+            var report = LedgerGroundTruthDiff.Compare(
+                save, recon, FacetTolerances.Default, NoMaxLevels());
+
+            // The divergence exists on every row; only its SEVERITY moves.
+            Assert.Contains(report.All, d =>
+                d.Facet == DivergenceFacet.SubjectScience
+                && d.Kind == DivergenceKind.PhantomInRecon);
+
+            var hard = report.HardFailures(
+                LedgerGroundTruthDiff.StrictPerIdentityForTesting);
+            Assert.Equal(expectedHard,
+                hard.Exists(d => d.Facet == DivergenceFacet.SubjectScience));
+        }
+
+        [Fact]
+        public void StrictSeam_UnarmedBatchStillGreensOnAReportOnlyDivergence()
+        {
+            // WHAT AN UNARMED RUN ACTUALLY ASSERTS, stated as behaviour rather than as a
+            // field value: with no `strict` arg the in-game cell's
+            // InGameAssert.IsTrue(hard == 0) must still pass over a report carrying
+            // report-only divergences. No committed harness spec arms `strict`
+            // (career-ledger B.4 deferred arming for want of a subject with populated
+            // per-identity facets), so this is the state every unattended run of the
+            // ground-truth category is in today - and a default flip would red here
+            // rather than on a nightly.
+            bool strict;
+            Assert.True(Parsek.TestCommands.TestCommandRunTests.TryParseStrictArg(
+                null, out strict));
+            LedgerGroundTruthDiff.StrictPerIdentityForTesting = strict;
+
+            var save = HealthySave();
+            var recon = HealthyRecon();
+            recon.SubjectScience["phantom@Duna"] = 3.0;
+
+            var report = LedgerGroundTruthDiff.Compare(
+                save, recon, FacetTolerances.Default, NoMaxLevels());
+
+            Assert.NotEmpty(report.All);
+            Assert.Empty(report.HardFailures(
+                LedgerGroundTruthDiff.StrictPerIdentityForTesting));
+        }
+
         [Fact]
         public void Diff_PhantomSubject_PhantomInRecon()
         {
@@ -626,6 +697,354 @@ namespace Parsek.Tests
                 d.Facet == DivergenceFacet.Milestone
                 && d.Kind == DivergenceKind.MissingInRecon
                 && d.Identity == "Mun/Landing");
+        }
+
+        // ================================================================
+        // A.5 - roster / tech / part-purchase / strategy facets (REPORT-ONLY)
+        // ================================================================
+
+        /// <summary>A save carrying one roster kerbal in the given state.</summary>
+        private static CareerSaveSnapshot SaveWithRoster(params SaveKerbal[] kerbals)
+        {
+            var save = HealthySave();
+            save.HasRoster = true;
+            foreach (var k in kerbals)
+                save.Roster.Add(k);
+            return save;
+        }
+
+        private static SaveKerbal Kerbal(string name, string state, string type = "Crew")
+        {
+            return new SaveKerbal
+            {
+                Name = name,
+                Gender = "Male",
+                Type = type,
+                Trait = "Pilot",
+                State = state
+            };
+        }
+
+        [Fact]
+        public void Diff_RosterWithoutReconSurface_IsUncomparedNotDiffed()
+        {
+            // Guards: inventing a reconstruction. With no roster surface the facet
+            // must emit NO divergence and must NOT count as a compared facet - the
+            // save-side census goes to the log only.
+            var save = SaveWithRoster(Kerbal("Bill Kerman", "Available"));
+            var recon = HealthyRecon(); // HasRosterSurface stays false
+
+            var baseline = LedgerGroundTruthDiff.Compare(
+                HealthySave(), HealthyRecon(), FacetTolerances.Default, NoMaxLevels());
+            var report = LedgerGroundTruthDiff.Compare(
+                save, recon, FacetTolerances.Default, NoMaxLevels());
+
+            Assert.DoesNotContain(report.All, d => d.Facet == DivergenceFacet.Roster);
+            Assert.Equal(baseline.FacetsCompared, report.FacetsCompared);
+            Assert.Contains(logLines, l => l.Contains("CompareRoster")
+                && l.Contains("no reconstruction roster surface") && l.Contains("uncompared"));
+        }
+
+        [Fact]
+        public void Diff_LedgerCreatedKerbalAbsentFromSaveRoster_PhantomReportOnly()
+        {
+            // Guards: a kerbal the ledger believes it created that the save roster
+            // does not carry (the meaningful roster direction).
+            var save = SaveWithRoster(Kerbal("Bill Kerman", "Available"));
+            var recon = HealthyRecon();
+            recon.HasRosterSurface = true;
+            recon.LedgerCreatedKerbals.Add("Phantomly Kerman");
+
+            var report = LedgerGroundTruthDiff.Compare(
+                save, recon, FacetTolerances.Default, NoMaxLevels());
+
+            Assert.Contains(report.All, d =>
+                d.Facet == DivergenceFacet.Roster
+                && d.Kind == DivergenceKind.PhantomInRecon
+                && d.Identity == "Phantomly Kerman");
+            Assert.Empty(report.HardFailures(strict: false));
+            Assert.Contains(report.HardFailures(strict: true), d => d.Facet == DivergenceFacet.Roster);
+        }
+
+        [Fact]
+        public void Diff_PermanentlyGoneKerbalRespawnedToAvailable_IsNotADivergence()
+        {
+            // Guards a FALSE POSITIVE. A permanently-reserved kerbal listed
+            // "Available" is the DOCUMENTED intended production state, not drift:
+            // KerbalsModule.ApplyToRoster leaves reserved kerbals at their natural
+            // rosterStatus and does NO rosterStatus manipulation when stock's MIA
+            // respawn flips a Dead kerbal back to Available (the reservation persists;
+            // the crew-dialog filter keeps them hidden). This cell previously asserted
+            // the divergence - it was pinning the false positive.
+            var save = SaveWithRoster(Kerbal("Bill Kerman", "Available"));
+            var recon = HealthyRecon();
+            recon.HasRosterSurface = true;
+            recon.PermanentlyGoneKerbals.Add("Bill Kerman");
+
+            var report = LedgerGroundTruthDiff.Compare(
+                save, recon, FacetTolerances.Default, NoMaxLevels());
+
+            Assert.DoesNotContain(report.All, d => d.Facet == DivergenceFacet.Roster);
+            // The signal stays OBSERVABLE as a census count, just not as a divergence.
+            Assert.Contains(logLines, l => l.Contains("CompareRoster")
+                && l.Contains("respawnedButReserved=1"));
+        }
+
+        [Fact]
+        public void Diff_PermanentlyGoneKerbalInAnUnexplainableState_ConsistencyReportOnly()
+        {
+            // The carve-out is exactly Available: a state the reservation cannot
+            // explain (Assigned - flying a mission) is still a Consistency entry.
+            // Report-only even though it is a Consistency kind: only a
+            // GUID-CORROBORATED Vessel consistency entry is always-hard, and a roster
+            // name is not a launch guid.
+            var save = SaveWithRoster(Kerbal("Bill Kerman", "Assigned"));
+            var recon = HealthyRecon();
+            recon.HasRosterSurface = true;
+            recon.PermanentlyGoneKerbals.Add("Bill Kerman");
+
+            var report = LedgerGroundTruthDiff.Compare(
+                save, recon, FacetTolerances.Default, NoMaxLevels());
+
+            Assert.Contains(report.All, d =>
+                d.Facet == DivergenceFacet.Roster
+                && d.Kind == DivergenceKind.Consistency
+                && d.Identity == "Bill Kerman"
+                && d.Detail.Contains("state='Assigned'"));
+            Assert.Empty(report.HardFailures(strict: false));
+        }
+
+        [Fact]
+        public void Diff_EmptyButExportedRoster_StillComparesAndRaisesPhantoms()
+        {
+            // Guards the facet gate: it is the HasRoster FLAG ALONE. An EMPTY parsed
+            // roster is a real state (a wiped facet), and a recon claiming it created
+            // a kerbal must raise a phantom against it. An "|| Count == 0" gate
+            // silently greened exactly this case.
+            var save = HealthySave();
+            save.HasRoster = true;              // exported, and EMPTY
+            var recon = HealthyRecon();
+            recon.HasRosterSurface = true;
+            recon.LedgerCreatedKerbals.Add("Phantomly Kerman");
+
+            var baseline = LedgerGroundTruthDiff.Compare(
+                HealthySave(), HealthyRecon(), FacetTolerances.Default, NoMaxLevels());
+            var report = LedgerGroundTruthDiff.Compare(
+                save, recon, FacetTolerances.Default, NoMaxLevels());
+
+            Assert.Contains(report.All, d =>
+                d.Facet == DivergenceFacet.Roster
+                && d.Kind == DivergenceKind.PhantomInRecon
+                && d.Identity == "Phantomly Kerman");
+            Assert.Equal(baseline.FacetsCompared + 1, report.FacetsCompared);
+        }
+
+        [Fact]
+        public void Diff_EmptyButExportedTechTree_StillComparesAndRaisesPhantoms()
+        {
+            // Same gate on the tech facet: HasTechTree alone decides.
+            var save = HealthySave();
+            save.HasTechTree = true;            // exported, and EMPTY
+            var recon = HealthyRecon();
+            recon.HasTechSurface = true;
+            recon.ResearchedTechIds.Add("heavyRocketry");
+
+            var baseline = LedgerGroundTruthDiff.Compare(
+                HealthySave(), HealthyRecon(), FacetTolerances.Default, NoMaxLevels());
+            var report = LedgerGroundTruthDiff.Compare(
+                save, recon, FacetTolerances.Default, NoMaxLevels());
+
+            Assert.Contains(report.All, d =>
+                d.Facet == DivergenceFacet.TechNode
+                && d.Kind == DivergenceKind.PhantomInRecon
+                && d.Identity == "heavyRocketry");
+            Assert.Equal(baseline.FacetsCompared + 1, report.FacetsCompared);
+        }
+
+        [Fact]
+        public void Diff_PermanentlyGoneKerbalDeadOrAbsent_NoDivergence()
+        {
+            // Guards: false-positives on the two states that AGREE with the ledger -
+            // dead in the roster, or absent from it entirely (which is exactly what
+            // "gone" means after a dismissal).
+            var save = SaveWithRoster(
+                Kerbal("Bill Kerman", "Dead"),
+                Kerbal("Bob Kerman", "Missing"));
+            var recon = HealthyRecon();
+            recon.HasRosterSurface = true;
+            recon.PermanentlyGoneKerbals.Add("Bill Kerman");
+            recon.PermanentlyGoneKerbals.Add("Bob Kerman");
+            recon.PermanentlyGoneKerbals.Add("Gone Kerman"); // not in the roster at all
+
+            var report = LedgerGroundTruthDiff.Compare(
+                save, recon, FacetTolerances.Default, NoMaxLevels());
+
+            Assert.DoesNotContain(report.All, d => d.Facet == DivergenceFacet.Roster);
+        }
+
+        [Fact]
+        public void Diff_SaveKerbalsTheLedgerNeverMentions_AreNotDivergences()
+        {
+            // Guards: turning the delta-only ledger into a full-roster claim. The
+            // stock four are legitimately unmentioned by the ledger.
+            var save = SaveWithRoster(
+                Kerbal("Jebediah Kerman", "Available"),
+                Kerbal("Bill Kerman", "Available"),
+                Kerbal("Bob Kerman", "Available"),
+                Kerbal("Valentina Kerman", "Available"));
+            var recon = HealthyRecon();
+            recon.HasRosterSurface = true;
+
+            var report = LedgerGroundTruthDiff.Compare(
+                save, recon, FacetTolerances.Default, NoMaxLevels());
+
+            Assert.DoesNotContain(report.All, d => d.Facet == DivergenceFacet.Roster);
+        }
+
+        [Fact]
+        public void Diff_TechNodeClaimedByReconButNotUnlockedInSave_PhantomReportOnly()
+        {
+            var save = HealthySave();
+            save.HasTechTree = true;
+            save.UnlockedTechIds.Add("start");
+            var recon = HealthyRecon();
+            recon.HasTechSurface = true;
+            recon.ResearchedTechIds.Add("start");
+            recon.ResearchedTechIds.Add("heavyRocketry"); // claimed, never unlocked
+
+            var report = LedgerGroundTruthDiff.Compare(
+                save, recon, FacetTolerances.Default, NoMaxLevels());
+
+            Assert.Contains(report.All, d =>
+                d.Facet == DivergenceFacet.TechNode
+                && d.Kind == DivergenceKind.PhantomInRecon
+                && d.Identity == "heavyRocketry");
+            Assert.Empty(report.HardFailures(strict: false));
+            Assert.Contains(report.HardFailures(strict: true), d => d.Facet == DivergenceFacet.TechNode);
+        }
+
+        [Fact]
+        public void Diff_TechNodeUnlockedInSaveButNotClaimed_IsCountedNotEmitted()
+        {
+            // Guards: emitting the delta-vs-absolute direction. The ledger's tech
+            // surface is delta-only, so a pre-Parsek unlock is EXPECTED and must be
+            // logged as a count, never as one divergence per node.
+            var save = HealthySave();
+            save.HasTechTree = true;
+            save.UnlockedTechIds.Add("start");
+            save.UnlockedTechIds.Add("basicRocketry");
+            save.UnlockedTechIds.Add("stability");
+            var recon = HealthyRecon();
+            recon.HasTechSurface = true;
+            recon.ResearchedTechIds.Add("stability");
+
+            var report = LedgerGroundTruthDiff.Compare(
+                save, recon, FacetTolerances.Default, NoMaxLevels());
+
+            Assert.DoesNotContain(report.All, d => d.Facet == DivergenceFacet.TechNode);
+            Assert.Contains(logLines, l => l.Contains("CompareTechNodes")
+                && l.Contains("unlockedNotClaimedByRecon=2"));
+        }
+
+        [Fact]
+        public void Diff_TechWithoutReconSurface_IsUncompared()
+        {
+            var save = HealthySave();
+            save.HasTechTree = true;
+            save.UnlockedTechIds.Add("start");
+            var recon = HealthyRecon(); // HasTechSurface stays false
+
+            var baseline = LedgerGroundTruthDiff.Compare(
+                HealthySave(), HealthyRecon(), FacetTolerances.Default, NoMaxLevels());
+            var report = LedgerGroundTruthDiff.Compare(
+                save, recon, FacetTolerances.Default, NoMaxLevels());
+
+            Assert.DoesNotContain(report.All, d => d.Facet == DivergenceFacet.TechNode);
+            Assert.Equal(baseline.FacetsCompared, report.FacetsCompared);
+            Assert.Contains(logLines, l => l.Contains("CompareTechNodes")
+                && l.Contains("no reconstruction tech surface"));
+        }
+
+        [Fact]
+        public void Diff_PartPurchases_SaveSideCensusOnly()
+        {
+            // The facet is CENSUS ONLY - nothing on the reconstruction side produces a
+            // purchased-part set, so there is no compare half to exercise. What is
+            // guarded is that the census still emits and no divergence is invented.
+            var save = HealthySave();
+            save.HasTechTree = true;
+            save.UnlockedTechIds.Add("start");
+            save.PurchasedPartNames.Add("mk1pod.v2");
+            save.TechNodePartCounts["start"] = 1;
+            var recon = HealthyRecon();
+
+            var baseline = LedgerGroundTruthDiff.Compare(
+                HealthySave(), HealthyRecon(), FacetTolerances.Default, NoMaxLevels());
+            var report = LedgerGroundTruthDiff.Compare(
+                save, recon, FacetTolerances.Default, NoMaxLevels());
+
+            Assert.Equal(baseline.FacetsCompared, report.FacetsCompared);
+            Assert.Contains(logLines, l => l.Contains("ComparePartPurchases")
+                && l.Contains("no reconstruction part-purchase surface exists")
+                && l.Contains("saveParts=1"));
+        }
+
+        [Fact]
+        public void Diff_Strategies_SaveSideCensusOnly()
+        {
+            // The SHAPE-ONLY contract: StrategiesModule exposes no active set, so the
+            // facet is census only and has no compare half.
+            var save = HealthySave();
+            save.HasStrategySystem = true;
+            save.Strategies.Add(new SaveStrategy
+            {
+                Name = "PatentsLicensingCfg",
+                IsActive = true,
+                ActivatedUT = 17022.76,
+                Factor = 0.05
+            });
+            save.ActiveStrategyIds.Add("PatentsLicensingCfg");
+            var recon = HealthyRecon();
+
+            var baseline = LedgerGroundTruthDiff.Compare(
+                HealthySave(), HealthyRecon(), FacetTolerances.Default, NoMaxLevels());
+            var report = LedgerGroundTruthDiff.Compare(
+                save, recon, FacetTolerances.Default, NoMaxLevels());
+
+            Assert.Equal(baseline.FacetsCompared, report.FacetsCompared);
+            Assert.Contains(logLines, l => l.Contains("CompareStrategies")
+                && l.Contains("no reconstruction strategy surface exists")
+                && l.Contains("saveActive=1"));
+        }
+
+        [Fact]
+        public void Diff_NewFacets_NeverPromoteToAlwaysHard()
+        {
+            // Guards: a new facet accidentally joining the always-hard set. Only the
+            // seeded pools and guid-corroborated vessel consistency may be hard
+            // regardless of strictness.
+            foreach (DivergenceFacet facet in new[]
+            {
+                DivergenceFacet.Roster, DivergenceFacet.TechNode
+            })
+            {
+                foreach (DivergenceKind kind in new[]
+                {
+                    DivergenceKind.ValueMismatch, DivergenceKind.PhantomInRecon,
+                    DivergenceKind.MissingInRecon, DivergenceKind.Consistency
+                })
+                {
+                    var d = new LedgerDivergence
+                    {
+                        Facet = facet,
+                        Kind = kind,
+                        Identity = "x",
+                        Detail = "guidCorroborated=true" // even this must not promote
+                    };
+                    Assert.False(LedgerDivergenceReport.IsAlwaysHard(d),
+                        $"facet={facet} kind={kind} must be report-only");
+                }
+            }
         }
 
         [Fact]

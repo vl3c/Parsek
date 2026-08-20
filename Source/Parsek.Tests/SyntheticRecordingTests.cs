@@ -23,7 +23,15 @@ namespace Parsek.Tests
     {
         private static string ProjectRoot => ResolveProjectRoot();
 
-        private static string ResolveProjectRoot()
+        /// <summary>
+        /// Walks up from the test working directory probing for
+        /// <c>Source/Parsek.sln</c> and returns the repo root. INTERNAL so other test
+        /// files share ONE implementation rather than each hard-coding a `..` count
+        /// (xUnit runs from <c>Source/Parsek.Tests/bin/Debug/net472/</c>, so a
+        /// hard-coded count silently breaks if the output layout moves). Falls back to
+        /// the five-segment relative walk.
+        /// </summary>
+        internal static string ResolveProjectRoot()
         {
             string current = Directory.GetCurrentDirectory();
             for (int i = 0; i < 10; i++)
@@ -6880,9 +6888,6 @@ namespace Parsek.Tests
             // source-debit firing path can be eyeballed in-game.
             writer.AddTree(MultiOriginConsolidationRouteTree(baseUT));
 
-            // Add real recordings from the default career (if available)
-            var realRecordingNodes = AddRealCareerRecordings(writer, kspRoot);
-
             foreach (string file in targets)
             {
                 string savePath = Path.Combine(saveDir, file);
@@ -6893,18 +6898,6 @@ namespace Parsek.Tests
                 try
                 {
                     writer.InjectIntoSaveFile(savePath, tempPath);
-
-                    // Copy real recording sidecar files from frozen fixture.
-                    // Unreachable since the DefaultCareer fixture was deleted
-                    // (realRecordingNodes is always empty), but the live-career
-                    // fallback is removed here too so this can never read a
-                    // machine-local save if the guard above is ever relaxed.
-                    if (realRecordingNodes.Length > 0)
-                    {
-                        string fixtureDir = ResolveDefaultCareerFixtureDir();
-                        if (fixtureDir != null)
-                            CopyRealRecordingFiles(fixtureDir, saveDir, realRecordingNodes);
-                    }
 
                     string content = File.ReadAllText(tempPath);
                     Assert.Contains("name = ParsekScenario", content);
@@ -7143,21 +7136,13 @@ namespace Parsek.Tests
                     Assert.Contains("vesselName = Mun Two-Base Supply Run Docked A", content);
                     Assert.Contains("vesselName = Mun Two-Base Supply Run Docked B", content);
 
-                    // The frozen real-career fixture is injected only after it has
-                    // been rebaked to the current reset schema. Until then, the
-                    // stale v3/text corpus is deliberately excluded so runtime
-                    // smoke coverage does not silently exercise unloadable data.
-                    if (realRecordingNodes.Length > 0)
-                    {
-                        Assert.Contains("vesselName = Learstar A1", content);
-                        Assert.Contains("vesselName = Learstar A1 Debris", content);
-                        Assert.Contains("treeName = Learstar A1", content);
-                    }
-                    else
-                    {
-                        Assert.DoesNotContain("vesselName = Learstar A1", content);
-                        Assert.DoesNotContain("treeName = Learstar A1", content);
-                    }
+                    // No real-career recordings are ever injected: the DefaultCareer
+                    // fixture and its live-career fallback are both gone, so the
+                    // corpus is always empty. This pins the absence that has held on
+                    // every run since the 2026-05-11 schema reset made that corpus
+                    // unloadable.
+                    Assert.DoesNotContain("vesselName = Learstar A1", content);
+                    Assert.DoesNotContain("treeName = Learstar A1", content);
 
                     Assert.Contains("FLIGHTSTATE", content);
 
@@ -7194,20 +7179,19 @@ namespace Parsek.Tests
                 Assert.True(Directory.Exists(recordingsDir),
                     $"Expected Parsek/Recordings directory at {recordingsDir}");
 
-                // Expect exactly the synthetic recordings plus any current-schema
-                // real career recordings whose sidecars CopyRealRecordingFiles
-                // forwards — no orphan .prec files from previous inject runs.
+                // Expect exactly the synthetic recordings — no orphan .prec files
+                // from previous inject runs.
                 // Each recording has one .prec, and vessel/ghost snapshots
                 // produce at least one _vessel.craft OR _ghost.craft file.
                 string[] precFiles = Directory.GetFiles(recordingsDir, "*.prec");
                 string[] vesselFiles = Directory.GetFiles(recordingsDir, "*_vessel.craft");
                 string[] ghostFiles = Directory.GetFiles(recordingsDir, "*_ghost.craft");
-                int expected = writer.V3BuilderCount + realRecordingNodes.Length;
+                int expected = writer.V3BuilderCount;
                 Assert.True(precFiles.Length == expected,
-                    $"Expected exactly {expected} .prec files ({writer.V3BuilderCount} synthetic + {realRecordingNodes.Length} real), found {precFiles.Length}. " +
+                    $"Expected exactly {expected} synthetic .prec files, found {precFiles.Length}. " +
                     "Extra files indicate orphan sidecars from a previous inject run — PurgeRecordingSidecars should have removed them.");
                 Assert.True(vesselFiles.Length + ghostFiles.Length >= expected,
-                    $"Expected at least {expected} vessel/ghost snapshot files ({writer.V3BuilderCount} synthetic + {realRecordingNodes.Length} real), " +
+                    $"Expected at least {expected} synthetic vessel/ghost snapshot files, " +
                     $"found {vesselFiles.Length} _vessel.craft + {ghostFiles.Length} _ghost.craft.");
 
                 // Verify game state sidecar files
@@ -7365,275 +7349,6 @@ namespace Parsek.Tests
             writer.AddGameStateEvent(fundsEarned);
             writer.AddGameStateEvent(scienceSpent);
             writer.AddGameStateEvent(repGained);
-        }
-
-        #endregion
-
-        #region Real Career Recordings
-
-        /// <summary>
-        /// Parses real recordings from the default career's persistent.sfs and adds them
-        /// to the writer. Returns the array of RECORDING ConfigNodes that were added
-        /// (empty array if the default career is absent).
-        /// </summary>
-        /// <summary>
-        /// Returns the path to the frozen default career fixture directory
-        /// (Source/Parsek.Tests/Fixtures/DefaultCareer).
-        /// </summary>
-        private static string ResolveDefaultCareerFixtureDir()
-        {
-            // Test working dir is bin/Debug/net472/ — walk up to project root
-            string dir = Directory.GetCurrentDirectory();
-            for (int i = 0; i < 6; i++)
-            {
-                string candidate = Path.Combine(dir, "Source", "Parsek.Tests", "Fixtures", "DefaultCareer");
-                if (Directory.Exists(candidate))
-                    return candidate;
-                dir = Path.GetDirectoryName(dir);
-                if (dir == null) break;
-            }
-            return null;
-        }
-
-        private static ConfigNode[] AddRealCareerRecordings(ScenarioWriter writer, string kspRoot)
-        {
-            // The DefaultCareer fixture is GONE (deleted 2026-08-12: 41 files,
-            // 73,945 lines by wc -l / 73,113 as git counts them, 15 of the 41
-            // being binary to git -- that this method had not been able to load since the
-            // 2026-05-11 v0 schema reset -- it carried recordingFormatVersion 0/3
-            // with no recordingSchemaGeneration at all, so the corpus-currency gate
-            // below rejected it on the first recording and returned empty every
-            // run). Everything downstream of here is consequently DEAD. It is left
-            // in place rather than excised because the excision spans ~230 lines
-            // across this file and could not be compiled in the environment that
-            // made the deletion; see FIXTURE-DEFAULTCAREER-DEAD-CODE in
-            // docs/dev/todo-and-known-bugs.md for the mapped removal.
-            //
-            // WHAT IS NOT LEFT ALONE: this used to fall back to the LIVE career at
-            // <kspRoot>/saves/default when the fixture was absent. With the fixture
-            // deleted that fallback becomes the normal path, and a dev instance
-            // whose default save carries current-schema recordings would silently
-            // inject uncommitted, machine-local, non-reproducible data into the test
-            // -- flipping the Assert.DoesNotContain branch on a machine-specific
-            // condition. A missing fixture now yields an empty corpus, which is what
-            // every run has effectively produced since the reset anyway.
-            string fixtureDir = ResolveDefaultCareerFixtureDir();
-            if (fixtureDir == null)
-                return new ConfigNode[0];
-            string sourceCareerDir = fixtureDir;
-            string defaultPersistent = Path.Combine(sourceCareerDir, "persistent.sfs");
-            if (!File.Exists(defaultPersistent))
-                return new ConfigNode[0];
-
-            var root = ConfigNode.Load(defaultPersistent);
-            if (root == null)
-                return new ConfigNode[0];
-
-            // persistent.sfs has GAME as the root node wrapping everything
-            var gameNode = root.HasNode("GAME") ? root.GetNode("GAME") : root;
-
-            // Find ParsekScenario
-            ConfigNode scenarioNode = null;
-            foreach (ConfigNode sn in gameNode.GetNodes("SCENARIO"))
-            {
-                if (sn.GetValue("name") == "ParsekScenario")
-                {
-                    scenarioNode = sn;
-                    break;
-                }
-            }
-
-            if (scenarioNode == null)
-                return new ConfigNode[0];
-
-            // Standalone RECORDING nodes are no longer loaded after T56 — they are
-            // collected only so CopyRealRecordingFiles can copy their sidecar files.
-            // RECORDING_TREE nodes, however, ARE injected into the target save via
-            // ScenarioWriter.AddTree so tree-inner recordings appear live in the
-            // injected test career (#384 Learstar A1 is the first such tree).
-            var recNodes = scenarioNode.GetNodes("RECORDING");
-            var treeNodes = scenarioNode.GetNodes("RECORDING_TREE");
-
-            var allRecordings = new List<ConfigNode>(recNodes);
-            for (int i = 0; i < treeNodes.Length; i++)
-                allRecordings.AddRange(treeNodes[i].GetNodes("RECORDING"));
-
-            if (!TryValidateRealCareerRecordingCorpusCurrent(
-                    sourceCareerDir, allRecordings, out string staleReason))
-            {
-                ParsekLog.Warn("SyntheticInjector",
-                    $"Skipped real career recording fixture '{sourceCareerDir}' because it is not current-schema: {staleReason}");
-                return new ConfigNode[0];
-            }
-
-            for (int i = 0; i < treeNodes.Length; i++)
-            {
-                writer.AddTree(treeNodes[i]);
-            }
-
-            // Forward group hierarchy entries from the real career (e.g.,
-            // "Learstar A1 / Debris" nested under "Learstar A1" — #384).
-            var hierarchyNodes = scenarioNode.GetNodes("GROUP_HIERARCHY");
-            for (int i = 0; i < hierarchyNodes.Length; i++)
-            {
-                var entries = hierarchyNodes[i].GetNodes("ENTRY");
-                for (int j = 0; j < entries.Length; j++)
-                {
-                    string child = entries[j].GetValue("child");
-                    string parent = entries[j].GetValue("parent");
-                    writer.AddGroupHierarchyEntry(child, parent);
-                }
-            }
-
-            // Add milestone states from the real career
-            var milestoneStates = scenarioNode.GetNodes("MILESTONE_STATE");
-            for (int i = 0; i < milestoneStates.Length; i++)
-                writer.AddRawMilestoneState(milestoneStates[i]);
-
-            // Propagate milestone epoch (take the max of existing and parsed)
-            string epochStr = scenarioNode.GetValue("milestoneEpoch");
-            if (epochStr != null)
-            {
-                uint epoch;
-                if (uint.TryParse(epochStr, System.Globalization.NumberStyles.Integer,
-                    System.Globalization.CultureInfo.InvariantCulture, out epoch))
-                {
-                    writer.WithMilestoneEpoch(epoch);
-                }
-            }
-
-            return allRecordings.ToArray();
-        }
-
-        private static bool TryValidateRealCareerRecordingCorpusCurrent(
-            string sourceCareerDir,
-            List<ConfigNode> recordings,
-            out string reason)
-        {
-            reason = null;
-            if (recordings == null || recordings.Count == 0)
-                return true;
-
-            string sourceRecordingDir = Path.Combine(sourceCareerDir, "Parsek", "Recordings");
-            for (int i = 0; i < recordings.Count; i++)
-            {
-                ConfigNode recording = recordings[i];
-                string recordingId = recording.GetValue("recordingId");
-                if (string.IsNullOrEmpty(recordingId))
-                {
-                    reason = $"recording index {i} has no recordingId";
-                    return false;
-                }
-
-                if (!HasExpectedIntValue(
-                        recording,
-                        "recordingFormatVersion",
-                        RecordingStore.CurrentRecordingFormatVersion,
-                        out string formatActual))
-                {
-                    reason =
-                        $"recording '{recordingId}' recordingFormatVersion='{formatActual}' " +
-                        $"expected={RecordingStore.CurrentRecordingFormatVersion.ToString(CultureInfo.InvariantCulture)}";
-                    return false;
-                }
-
-                if (!HasExpectedIntValue(
-                        recording,
-                        "recordingSchemaGeneration",
-                        RecordingStore.CurrentRecordingSchemaGeneration,
-                        out string generationActual))
-                {
-                    reason =
-                        $"recording '{recordingId}' recordingSchemaGeneration='{generationActual}' " +
-                        $"expected={RecordingStore.CurrentRecordingSchemaGeneration.ToString(CultureInfo.InvariantCulture)}";
-                    return false;
-                }
-
-                string trajectoryPath = Path.Combine(sourceRecordingDir, recordingId + ".prec");
-                TrajectorySidecarProbe probe;
-                if (!RecordingStore.TryProbeTrajectorySidecar(trajectoryPath, out probe))
-                {
-                    reason =
-                        $"recording '{recordingId}' sidecar probe failed: {probe.FailureReason ?? "(no reason)"}";
-                    return false;
-                }
-
-                if (!probe.Supported)
-                {
-                    reason =
-                        $"recording '{recordingId}' sidecar unsupported: encoding={probe.Encoding} " +
-                        $"format={probe.FormatVersion.ToString(CultureInfo.InvariantCulture)} " +
-                        $"generation={probe.SchemaGeneration.ToString(CultureInfo.InvariantCulture)} " +
-                        $"reason={probe.FailureReason ?? "(no reason)"}";
-                    return false;
-                }
-            }
-
-            return true;
-        }
-
-        private static bool HasExpectedIntValue(
-            ConfigNode node,
-            string key,
-            int expected,
-            out string actual)
-        {
-            actual = node.GetValue(key) ?? "(missing)";
-            int parsed;
-            return int.TryParse(actual, NumberStyles.Integer, CultureInfo.InvariantCulture, out parsed)
-                && parsed == expected;
-        }
-
-        /// <summary>
-        /// Copies recording sidecar files (authoritative + readable mirrors) and rewind
-        /// save files from the default career to the target save directory.
-        /// </summary>
-        private static void CopyRealRecordingFiles(
-            string sourceCareerDir, string targetSaveDir, ConfigNode[] recordings)
-        {
-            // Copy recording sidecar files
-            string srcRecDir = Path.Combine(sourceCareerDir, "Parsek", "Recordings");
-            string dstRecDir = Path.Combine(targetSaveDir, "Parsek", "Recordings");
-            if (Directory.Exists(srcRecDir))
-            {
-                if (!Directory.Exists(dstRecDir))
-                    Directory.CreateDirectory(dstRecDir);
-
-                for (int i = 0; i < recordings.Length; i++)
-                {
-                    string id = recordings[i].GetValue("recordingId");
-                    if (string.IsNullOrEmpty(id)) continue;
-
-                    string[] suffixes = { ".prec", "_vessel.craft", "_ghost.craft", ".prec.txt", "_vessel.craft.txt", "_ghost.craft.txt" };
-                    for (int s = 0; s < suffixes.Length; s++)
-                    {
-                        string fileName = id + suffixes[s];
-                        string src = Path.Combine(srcRecDir, fileName);
-                        if (File.Exists(src))
-                            File.Copy(src, Path.Combine(dstRecDir, fileName), true);
-                    }
-                }
-            }
-
-            // Copy rewind save files
-            string srcSavesDir = Path.Combine(sourceCareerDir, "Parsek", "Saves");
-            string dstSavesDir = Path.Combine(targetSaveDir, "Parsek", "Saves");
-            if (Directory.Exists(srcSavesDir))
-            {
-                for (int i = 0; i < recordings.Length; i++)
-                {
-                    string rewindSave = recordings[i].GetValue("rewindSave");
-                    if (string.IsNullOrEmpty(rewindSave)) continue;
-
-                    string src = Path.Combine(srcSavesDir, rewindSave + ".sfs");
-                    if (File.Exists(src))
-                    {
-                        if (!Directory.Exists(dstSavesDir))
-                            Directory.CreateDirectory(dstSavesDir);
-                        File.Copy(src, Path.Combine(dstSavesDir, rewindSave + ".sfs"), true);
-                    }
-                }
-            }
         }
 
         #endregion
