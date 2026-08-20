@@ -85,192 +85,340 @@ CHANGELOG 0.10.4 Fixes.
 
 
 ## WATCH-LOOPED-PARK-TARGET-LOSS-NRE-STORM: watch mode survives a loop RE-ARM with a null camera target and throws stock NREs on EVERY frame from there to scene end - 306 of them in 1.26 s [MEASURED 2026-08-19 by `V15M-gilly-player-loop`'s reading run and REPRODUCED on its armed re-flight the same day (447 then 443 total on byte-identical shapes), the FIRST successful watch entry on a looped arrival park. REPORT-ONLY: `unityExceptions` is report-only and BOTH runs PASSED; NO product change is proposed by this lane]
+## ~~DOCK-PARTNER-STAMP-GATED-ON-ROUTE-ELIGIBILITY: a route-ineligible dock discarded the partner identity forever~~ [FOUND by the 2026-08-12 dock/loop-coherence analysis (I2-iii); FIXED 2026-08-12, branch `dock-partner-stamp` (design `docs/dev/design-dock-event-graph.md` 6.1, PR sequence step 1)]
 
-`V15M-gilly-player-loop` run `2026-08-19_1736` came back **PASS attempt 1** with all
-21 steps met and `anomalySweep hits=[]`. It also read `unityExceptions total=447`,
-`status=REPORT` - by far the largest NRE population any loop lane has produced, against
-the 1 and 5 of the nearest sibling. The verdict is unaffected (that verifier does not
-gate), which is exactly why this needs writing down rather than leaving in a log.
+`BranchPoint.TargetVesselPersistentId` was fed by the route-eligibility-GATED
+partner pid (`ParsekFlight.cs` OnPartCouple eligibility gate ->
+`pendingDockRouteTargetPid`), so a dock whose partner had neither a pre-couple
+snapshot nor a known recording stamped 0 and every downstream derivation
+(`MissionCrossTreeDock.FindLinks`, `GhostChainWalker` claims) was permanently
+blind to it. Fix: a second ungated pending field (`pendingDockPartnerPid`, from
+the pure `ResolveBranchPartnerStampPid`: self/zero filtered, EVA-suppressed)
+threads to `BuildMergeBranchData`'s new `branchPartnerPid` parameter and feeds
+ONLY the branch-point stamp; route surfaces keep the gated pid. Old recordings
+keep their zeros and degrade to prior behavior. Pinned by
+`DockStampDecouplingTests`; contract added as invariant 7 in
+`docs/dev/dock-undock-recording-structure.md` section 9.
 
-### Why this run and not the eleven before it
+## PHANTOM-SUPERSEDE-RIDES-GATED-PID: absorbed-vessel spawn suppression skips route-ineligible docks
 
-**IT IS THE FIRST RUN THAT ACTUALLY WATCHES A LOOPED ARRIVAL PARK.** Every prior
-loop-lane watch attempt was REJECTED on separation - V6M, V6T, V7T, V14M and V14T all
-pin `expect = "REJECTED"` and measured it - and V7M, the one lane that DID enter,
-entered on a Minmus park and quit shortly after. `V15M` is the first to enter (a 27,024
-x 26,321 m Gilly park puts the co-orbiting observer and ghost 775 m apart, 1.51x inside
-the 120 km render-zone boundary; see WATCH-ENTRY-REFUSED-INSIDE-QUOTED-RANGE for what
-that boundary is and is not) **and then keep flying**: a second `StartLoopPlayback` and
-four more `TimeJump`s run with watch mode still active.
+Noted during the stamp decoupling (design 6.1 step 3):
+`MarkTerminalSpawnSupersededByDockMerge` is called with the route-eligibility-
+gated pid (`ParsekFlight.cs` CreateMergeBranch, `routeTargetVesselPid != 0`
+gate), so a dock that absorbs a vessel Parsek recorded earlier but that fails
+route eligibility does not mark the absorbed leaf's terminal spawn superseded
+(possible phantom re-materialisation). The suppression is semantically a
+partner-identity concern, not a route concern; rewiring it to the ungated
+`branchPartnerPid` is a deliberate behavior change deferred out of the stamp PR.
+Decide after the dock-event-graph work soaks.
 
-THE CONTROL IS IN THE SAME PROGRAM: `V15T-gilly-ts-arrival` (run `2026-08-19_1739`)
-walks the same fixture with the same tracers and has NO watch steps. It counted **zero**
-NullReferenceExceptions. So the watched stretch is the source, not the fixture, not the
-tracers and not the Gilly conic.
+## BDOCK-2-SAME-TREE-DOCK-COVERAGE: no harness scenario flies a same-tree cross-session dock
 
-### The measurement, and the boundary is sharp on both sides
+`BDOCK-1-station-interceptor` covers the cross-tree dock recording pipeline; the
+same-tree cross-session shape (fly A, commit, switch-fly the offshoot D, dock
+A->D: records single-parent with a same-tree target, model extract section 1.5)
+is flown by no spec. Candidate `BDOCK-2`: fly, commit, switch-fly, dock, assert
+the recovered same-tree link derives. Not a merge gate for the dock-event-graph
+scope (the derivation is pinned by synthetic in-game cells); file when docking
+coverage next expands. Also missing per BDOCK-1's own header note: an
+orbital-rendezvous-dock D10 value and a same-craft-twice identity D18 value.
 
-All line numbers are
-`harness/results/2026-08-19_1736_V15M-gilly-player-loop_shots/KSP.log`.
+## MECHJEB-INTERPLANETARY-PLANNER-REJECTS-MOON-ORIGIN: MechJeb 2.15.1's `OperationInterplanetaryTransfer.MakeNodes` throws on a MOON-PARKED origin, so the harness cannot currently fly any moon-to-moon transfer [MEASURED 2026-08-19 by `B26-laythe-vall-transfer` flight 1, DETERMINISTIC 2/2 attempts. HARNESS SURFACE, REPORT-ONLY - not a Parsek defect and not a spec defect; it blocks the M-MIS-7 subject's PRODUCTION, not the product question]
 
-| moment | line | wall clock | NREs so far |
-|---|---|---|---|
-| `enterwatchmode complete: index=0 recId=77f724bb...` | 11308 | 20:37:42.974 | 0 |
-| `Watch focus (enter): ... targetMatches=True` | 11290 | 20:37:42.932 | 0 |
-| cycle-2 `startloopplayback initiated: ... relaunchUt=16541207.758711128` | 11348 | 20:37:43.164 | **still 0** |
-| FIRST NRE | 11529 | 20:37:43.431 | 1 |
-| `Watched cycle lost - falling back to primary cycle=1` | 11534 | **20:37:43.431** | - |
-| `Watch focus (cycle-fallback): ... actualTarget=null targetMatches=False` | 11535 | 20:37:43.431 | - |
-| LAST in-flight NRE | ~14190 | 20:37:44.694 | **306** |
+**THIS IS A HARNESS-CAPABILITY GAP, NOT A PRODUCT FINDING.** Nothing in Parsek ran,
+nothing in Parsek is implicated, and the spec that hit it is correct. Read the
+verdict that way; the temptation to file a moon-to-moon failure as a Parsek
+finding is exactly what this paragraph exists to stop.
 
-**ZERO NREs BETWEEN THE WATCH ENTRY AND THE LOOP RE-ARM** (lines 11308-11348, ~190 ms
-of watched frames with a valid target), and the first NRE shares a TIMESTAMP with the
-`Watched cycle lost` fallback. From that frame to the end of the flight scene, 306 NREs
-land across ~86 distinct frame timestamps - i.e. **every frame, 3-4 throws per frame**,
-for 1.26 wall-seconds. It is not a burst and not a leak; it is a steady per-frame rate
-that starts at a nameable event and never stops.
+THE SHAPE: a vessel parked around a MOON (`B26`: the crewed Duna Rocket in the
+87,931 x 56,240 m Laythe orbit `B25` delivered) transferring to a SIBLING MOON
+(Vall) through mlib's `interplanetaryTransfer` path with JOOL as the transfer
+frame. Every one of the eight flown interplanetary lanes departs KERBIN; this was
+the first attempt from a moon.
 
-The two production lines that bracket it, verbatim:
+THE EXCEPTION, verbatim from `results/2026-08-19_2215_B26-laythe-vall-transfer_a2_mission.stdout.log`
+(three occurrences per attempt; run `2026-08-19_2214` identical to six decimals):
 
-    11290  [Parsek][INFO][CameraFollow] Watch focus (enter): watch=active rec=#0
-           id=77f724bb1d4844c3b132a1ccc00a7df3 vessel="Kerbal X" source=primary cycle=0
-           mode=HorizonLocked expectedTarget=horizonProxy actualTarget=hori...
-    11534  [Parsek][INFO][CameraFollow] Watched cycle lost - falling back to primary cycle=1
-    11535  [Parsek][INFO][CameraFollow] Watch focus (cycle-fallback): watch=active rec=#0
-           id=77f724bb1d4844c3b132a1ccc00a7df3 vessel="Kerbal X" source=primary cycle=1
-           mode=HorizonLocked expectedTarget=horizonProxy actualTarget=null
-           targetMatches=False zone=Physics dist=56159.0km alt=13717082m ghostBody=Eve
-           activeVessel="#autoLOC_501232" activeBody=Gilly
+```
+[Mission][Warn][Plan] operation_interplanetary_transfer.make_nodes failed:
+OrbitExtensions.NextTimeOfRadius: given radius of 3723645.81113302 is never
+achieved: o.PeR = 572085.800578244 and o.ApR = 3632679.92883477
+Server stack trace:
+  at KRPC.MechJeb.Maneuver.Operation.MakeNodes () [0x00101] in <...>:0
+```
 
-Read `cycle=0 -> cycle=1`, `targetMatches=True -> False` and
-`actualTarget=hori... -> null`. The fallback fires ONCE and the null target is never
-re-resolved; the log carries exactly one `Watched cycle lost` and exactly one
-`actualTarget=null` line, so this is a persistent state rather than a repeating event.
-Note also `dist=56159.0km ghostBody=Eve` on that line while the ACTIVE vessel is at
-Gilly: at the moment of the re-arm the ghost is back at the start of its replay, an Eve
-parking orbit 56,159 km away, and the camera is asked to follow it from a Gilly park.
+READ THE THREE NUMBERS, because they say more than "it threw".
 
-### What is throwing, and it is all stock
+- **3,723,645.81113302 m is LAYTHE'S SOI RADIUS.** `MakeNodes` asks when the
+  vessel's orbit next reaches the origin body's SOI, i.e. when the ejection
+  leaves. That is the call that has no answer.
+- **The orbit it asks that of is NOT the park orbit.** The park is ecc 0.028;
+  this one has e = (ApR-PeR)/(ApR+PeR) = **0.7279**. Its PeR 572,085.800578244
+  sits **0.003 m** from the fixture park's SMA 572,085.80370560708 - so MechJeb
+  idealised the origin to a circle at the park's MEAN radius and built an
+  ejection from there.
+- **That ejection is SUB-ESCAPE.** ApR 3,632,679.93 falls **90,965.88 m, i.e.
+  2.443%, SHORT** of the SOI. The crossing it then asks for does not exist, and
+  `NextTimeOfRadius` throws rather than returning a sentinel.
 
-Four distinct Unity/KSP call sites repeat, in a fixed rotation (counts over the whole
-run):
+WHAT IS ESTABLISHED: this code path does not handle an origin whose park radius
+is a large fraction of its SOI. At Laythe the park sits at ~15% of the SOI
+radius; at Kerbin, where all eight flown lanes depart, the SOI is ~120x the park
+radius (84,159,286 / ~700,000) and the same construction escapes with two orders
+of magnitude to spare. WHAT IS **NOT**
+ESTABLISHED, and must not be recorded as if it were: WHY MechJeb sizes the
+ejection short. That lives inside MechJeb 2.15.1 and was not read. Do not
+propagate a mechanism nobody decompiled.
 
-| thrower | count |
-|---|---|
-| `CrewHatchController.LateUpdate ()` | 77 |
-| `Sun.Sun.LateUpdate_Patch1(Sun)` (wrapper dynamic-method) | 77 |
-| `UIPartActionController.UpdateFlight ()` | 76 |
-| `Vessel.Update ()` | 76 |
-| `UnityEngine.Component.GetComponent[T] ()` (the teardown one, see below) | 1 |
+WHAT WORKED, which is most of it. Admission, the venv gate, the derived
+`laythe-park-nerv` fixture, the ORBIT-START door and the whole preamble are
+clean: `assert reachedOrbit value=PLAN-TRANSFER met=True`, `assert
+startedInHomeOrbit value=0.028 met=True`, `phasesReached ['PRELAUNCH', 'ORBIT',
+'PLAN-TRANSFER']`. **Target acquisition worked** - `action set_target_body
+value=none text=Vall` ran and `tgtD` snapped from 584,660 m (no target) to
+59,303,828 m, Vall's actual separation. The refusal is one call deep.
 
-plus 140 `[ERR] [FlightGlobals]: threw during UpdateInformation, fixed=True. Exception:
-System.NullReferenceException` lines, which is how the total reaches the runner's 447
-(`unityExceptions` counts every line mentioning the type, not only `[EXC]` headers -
-307 `[EXC]` + 140 `[ERR]`).
+AND IT WAS CHEAP: mission wall **5.955 s / 5.976 s** to refusal, ~33 game
+seconds, 46 s per attempt end to end, `INVALID(autopilot-flake)` both times. A
+planner that refuses in six seconds is the good failure mode.
 
-**NO PARSEK FRAME APPEARS IN ANY OF THE 306 IN-FLIGHT STACKS.** That is the single most
-important thing on this page and it is what keeps the entry report-only: what is
-measured is stock code dereferencing something the camera state has left null, not a
-Parsek method throwing. Which of `actualTarget`, the horizon proxy or the retired ghost
-is the null is UNDIAGNOSED here.
+TWO CANDIDATE PATHS FORWARD, **NEITHER CHOSEN**. Inventing a transfer mechanism
+was explicitly out of scope for the night that measured this, and the stop rule
+was honoured.
 
-### The nearest sibling, cross-linked and NOT claimed to be the same thing
+- **(a) A flag-gated MANUAL-EJECTION mode.** mlib computes the ejection node
+  itself; MechJeb only executes it. The precedent is PAD-ALIGN, whose window math
+  is already frame-generic - the only Sun-hardcoded piece is the
+  `STOCK_HELIO_ELEMENTS` TABLE, extendable with Jool-system elements or replaced
+  by live kRPC elements. Crucially the Vall encounter does NOT have to come out
+  of the ejection: the EXISTING Jool-frame correction rounds create it, which is
+  the B17 round-0-creates-the-encounter pattern and is already live-proven.
+- **(b) A different MechJeb operation set.** Escape Laythe with a plain ejection
+  operation, then Lambert / course-correct to Vall from Jool orbit.
 
-`MOON-LOOP-FINDINGS` -> **(2) Teardown NRE when a run ends inside watch mode** is the
-closest filed relative: V7M is the only other lane that ends inside watch mode, and its
-two green flights read `total=1` and `total=5`, the second being one Parsek line
-(`WatchModeController.RestoreCameraAfterWatchExit` -> `GetActiveVesselSafe` ->
-`FlightGlobals.get_ActiveVessel`) plus four stock teardown knock-ons.
+**(a) is the house-style fit** - pure decision in mlib, thin execution in the
+runner, reusing a proven correction loop instead of adding a mechanism. It is
+DEFERRED AS ITS OWN PROGRAM, not smuggled into a lane.
 
-**THIS RUN HAS THAT ONE TOO, AND IT IS SEPARABLE.** The 307th `[EXC]`, at 20:37:45.596
-(line 14204), is a `CrewHatchController.OnDestroy -> DespawnUIs -> HideTooltip ->
-get_CrewHatchTooltip -> DialogCanvasUtil.get_DialogCanvasRect` throw during scene
-teardown - V7M's class, ~0.9 s after the last in-flight one and after
-`KbApp.OnDestroy` / `[UIApp] OnDestroy`. So the run contains **1 teardown NRE (the known
-finding) + 306 in-flight ones (this finding)**, and they should not be pooled.
+WHAT THIS BLOCKS AND WHAT IT DOES NOT. Blocked: the harness's ability to PRODUCE
+the M-MIS-7 subject recording, and with it `B26` (which stays committed,
+flyable-but-blocked, dry-run valid) and the `V17M` / `V17T` reading pair (which
+stay in `PENDING_FIXTURE_LANES` awaiting `vall-transfer-recorded`). NOT blocked
+and NOT answered: the PRODUCT question - whether `ApplyReaim` engages on a
+cross-parent moon-to-moon recording, which
+`docs/dev/research/same-parent-reaim-jool-system.md` section 5.1 argues already
+works unmodified. This flight said nothing about it. It remains pre-registered in
+V17M/V17T, which carry both hypotheses with the discriminating log lines and gate
+on neither.
 
-**THE TWO ARE NOT SHOWN TO SHARE A MECHANISM.** V7M's is a shutdown-ordering NRE with a
-Parsek frame in it; this one is a per-gameplay-frame storm with no Parsek frame, bounded
-by a camera-state transition rather than by `OnDestroy`. Treat the cross-link as "look
-here too", not as a diagnosis.
+## MAPRENDER-SEAM-LENS-EVALUATES-UNSHIFTED-EPOCH-ON-CREATION-FRAME: the seam-endpoint lens reads the RECORDED seam UT instead of the replayed one on a ghost proto's creation frame, and raises `seam-endpoint-outside-soi` against an endpoint 157x the SOI away [MEASURED 2026-08-19 by `V16T-laythe-ts-arrival`'s reading run and **RECURRED on its ARMED run `2026-08-19_2212` (PASS attempt 1)**, which makes it DETERMINISTIC for the single-jump shape rather than a one-off. REPORT-ONLY - the harness classified the reason UNLISTED and did not gate on it, and `V16M-laythe-player-loop`'s stepped-epoch censuses prove the underlying recurrence is FINE. Same family as MAPRENDER-ICON-OFF-ORBIT-CREATION-FRAME-AFTER-JUMP; NO product change is proposed]
 
-### What makes this subject unusual, stated as the plausible trigger
+**READ THE VERDICT BEFORE THE MECHANISM, because this raise names the one thing the
+whole Jool research programme is watching for and it is NOT that thing.** The
+accompanying census line reads `evaluated=2 outsideSoi=1`, i.e. "one replayed
+SOI-entry endpoint fell outside the destination SOI" - which is precisely the
+eccentric-moon phase-lock drift
+`docs/dev/research/same-parent-reaim-jool-system.md` predicts for Bop and Pol.
+**IT IS NOT DRIFT.** `V16M-laythe-player-loop`, same fixture, same recording, same
+arrival, taking its readings at STEPPED bracket epochs where the loop shift has
+bound, measured `evaluated=2 outsideSoi=0` at cycle 1 AND at cycle 2 - i.e. after a
+full 20-period cadence the replayed entries really do still sit inside Laythe's SOI.
+The `outsideSoi=1` below is the instrument evaluating the wrong epoch on one frame.
+Do not let a future ledger cite it as an observed recurrence failure.
 
-The watched ghost's replay is PHASE-LOCKED with a cadence of exactly one Gilly period
-(388,587.377 s), and the second `StartLoopPlayback` re-resolves the unit onto the NEXT
-cycle. So between the two watch steps the ghost's replay **retires and relaunches**: the
-cycle the camera was following ceases to exist, which is precisely what `Watched cycle
-lost - falling back to primary` reports. The fallback then hands the camera a target it
-cannot resolve, and the storm runs from there.
+### The measurement, verbatim
 
-**THAT TRANSITION IS UNMEASURED ANYWHERE ELSE IN THE SUITE.** No other lane both enters
-watch mode and crosses a loop-cycle boundary while watching: V7M enters and quits inside
-the same cycle; every other watcher was refused entry. So the trigger is not "watch
-mode" and not "loop playback" - it is the INTERSECTION, and this is the only run that
-has ever reached it.
+`harness/results/2026-08-19_2115_V16T-laythe-ts-arrival_shots/KSP.log` line 11866:
 
-### REPRODUCED - and the pacing hypothesis survives its first test (2026-08-19)
+    phase=Anomaly surface=ProtoOrbitLine pid=3145128013
+      recId=370d38246d6e42848f140884081428af frame=6626
+      currentUT=29874214.240 effUT=28814456.826 reason=seam-endpoint-outside-soi
+      fromBody=Jool toBody=Laythe seamUT=28814456.8
+      endpointDist=585846592m soi=3723646m ratio=157.3314 tol=1.0050
+      recordedSeamUT=28814456.8 clock=raw seed=no-seed loopShift=2066254.3
 
-The ARMED re-flight of the identical shape, run `2026-08-19_1808`, **PASS attempt 1**,
-read `unityExceptions total=443` against the reading run's 447 - a 0.9 % spread on two
-runs whose flown shape is byte-identical (arming moved only expectations, never a step,
-a jump UT or a budget). Its `Watched cycle lost - falling back to primary cycle=1` fires
-at KSP.log line 12846, the same position in the same sequence.
+and the census two lines later (11875): `seam-endpoint summary evaluated=2 outsideSoi=1`.
 
-**443-vs-447 IS THE INTERESTING NUMBER, not the 447.** A one-off would not have landed
-within four counts; a leak would not have stopped growing. What a ~1 % spread across two
-runs looks like is a per-frame rate multiplied by a frame count that differs slightly
-between runs - which is open question 1's hypothesis, now with a datum on both sides
-rather than a single reading. It also settles open question 4 (does it reproduce): yes,
-deterministically.
+### What the fields say, in the order that matters
 
-AND IT DOUBLES AS THE ARGUMENT AGAINST A CEILING. `maxTotal` would have to be set above
-447 to admit both, which is a bound on nothing; set at 447 it would red the armed run.
-The quantity is run PACING, and a verifier ceiling cannot distinguish a slow frame from
-a product regression at that resolution.
+1. **`effUT` IS THE RECORDED SEAM EPOCH.** `effUT=28814456.826` equals
+   `recordedSeamUT=28814456.8` equals the committed recording's own Jool->Laythe
+   ORBIT_SEGMENT body change. The live clock at that frame is
+   `currentUT=29874214.240`. The lens evaluated the endpoint **1,059,757 s in the
+   past** - about one full loop cadence.
+2. **`clock=raw seed=no-seed`** - the effective-UT resolution had no seed to work
+   from, so it fell back to the raw recorded epoch rather than the replayed one.
+   `loopShift=2066254.3` is present on the line but was evidently not applied to the
+   value the lens tested.
+3. **The distance follows mechanically.** At the recorded seam epoch the recording's
+   subject is still in its JOOL PARK, so the endpoint lands 585,846,592 m from
+   Laythe against a 3,723,646 m SOI - `ratio=157.33`. The raise is arithmetically
+   correct about the wrong point.
+4. **It is a CREATION frame.** Frame 6626 also carries
+   `phase=GhostCreated surface=ProtoIcon pid=3145128013 ... body=Jool
+   scene=TRACKSTATION` at a Jool-scale `worldPos`, i.e. the proto is being brought
+   into existence on this frame - the same frame class as the icon entry's.
 
-### Open questions
+### Why it surfaced HERE and not on any earlier lane: k scales the gap
 
-1. **Is the NRE count simply proportional to watched-frames-with-a-null-target?** The
-   evidence says probably yes and now bounds it from two runs: 0 throws over ~190 ms of
-   valid-target watching, then 3-4 per frame over ~86 frames with a null target, with no
-   decay - and 447 vs 443 across two byte-identical shapes. If that holds, the
-   population is a pure function of how long a run keeps flying after the fallback,
-   which makes any `maxTotal` ceiling a measure of run PACING rather than of product
-   health. NOT YET CONFIRMED DIRECTLY: nobody has counted the null-target frames in the
-   443 run and divided.
-2. **Does exiting watch mode before the relaunch avoid it?** i.e. would a variant with
-   `ExitWatchMode` before the second `StartLoopPlayback` read zero? That is the cheap
-   discriminating experiment and the seam verb for it already exists. **DO NOT add it to
-   `V15M`**: the S4.1 rule is that arming must not change the flown shape, and V15M's
-   shape is what produced every measurement in its header. A variant lane is the place.
-3. **Which reference is null**, and whether the camera should be dropping watch entirely
-   on a lost cycle rather than falling back to a target it cannot resolve. Nothing here
-   settles it; the stacks are stock-only.
-4. **~~Does it reproduce?~~ ANSWERED 2026-08-19: yes.** The armed re-flight
-   `2026-08-19_1808` read 443 against the reading run's 447 (section above). What is
-   still open is whether it reproduces on a DIFFERENT subject - every reading so far is
-   the same fixture, the same park and the same two-cycle shape, because no other lane
-   in the suite reaches watch-across-a-loop-boundary at all.
+Every prior loop subject had a cadence of exactly ONE moon period, so the un-shifted
+epoch sits under one period away from the live clock and the lens skips on
+`body-mismatch` (V15M and V15T both read exactly that skip form). **This lane is the
+suite's first k > 1 cadence** - 20 Laythe periods, 1,059,617.581 s - so the same
+binding gap displaces the evaluated epoch by 1.06 Ms, far enough that the ghost's
+recorded position at that epoch is in a DIFFERENT BODY'S SOI and the lens has
+something to fail on. The defect is not new; the k = 20 cadence is what made it
+observable.
+
+### The family claim, and its limit
+
+This and MAPRENDER-ICON-OFF-ORBIT-CREATION-FRAME-AFTER-JUMP are one family: two
+different lenses (`ProtoIcon` phase, `ProtoOrbitLine` seam endpoint) raising on the
+same frame class (ghost-proto creation) with the same underlying reading - the loop
+shift has not bound at the moment the surface is first evaluated. The icon entry's
+lines carry `loopShift=0.0`; this one carries a nonzero `loopShift` that the tested
+value did not use. **THAT DIFFERENCE IS NOT EXPLAINED HERE** and it is the reason
+this is filed as a sibling rather than merged into the icon entry: "the shift is
+zero" and "the shift exists but was not applied" are not obviously the same bug, and
+one observation of each is not enough to say.
+
+A third possible member is noted and explicitly NOT claimed:
+`V16M-laythe-player-loop`'s two `EnterWatchMode` steps were refused
+`reason=no-watchable-ghost` with the adjacent engine line reading
+`retired=F zone=Beyond rdist=616131735m` - a ghost that exists but sits at
+Jool-park distance from a Laythe-parked observer, the same magnitude as the endpoint
+above. Same order, different surface, different code path (a watch auto-select, not
+a render lens), and one coincidence of magnitude is not a mechanism.
 
 ### Nothing gates it
 
-`unityExceptions` is REPORT-ONLY on this lane (`status=REPORT`, `gating=false`,
-`maxTotal=null`) and the run is a PASS. No `[expectations.unityExceptions] maxTotal` is
-armed, and the reason is V7M's, restated: that lane's own row declines a ceiling because
-two green flights of ONE spec spread 1-vs-5, and a single reading cannot size a bound.
-Here the spread is now MEASURED at 447-vs-443 across two green flights of one spec - a
-tighter spread than V7M's, and still a bound on nothing, because open question 1 says the
-quantity tracks run pacing. `V15M-gilly-player-loop.toml`'s header section 5 records the
-population inline so a future reader meets it where the watch steps are.
+The harness classified the reason as UNLISTED and therefore REPORT-ONLY - the result
+JSON carries `unlistedReasons: ["seam-endpoint-outside-soi"]` - so this raise did not
+contribute to that run's PARSEK-FAIL (the `icon-off-orbit` pair did). `V16T` does NOT
+tolerate it in `allowedAnomalies`, deliberately: adding a tolerance for something
+that is not currently a gate is the wrong direction. If the sweep's classification
+ever changes, revisit WITH the run that shows it.
 
-**NO PRODUCT CHANGE IS PROPOSED BY THIS LANE.** What is recorded is the measurement, the
-zero-NRE control (V15T), the sharp before/after boundary at the cycle fallback, the
-separation from V7M's teardown NRE, and the named experiment that would move it.
+**THE DISCRIMINATING EXPERIMENT**, if anyone wants one: a lane whose cadence is k > 1
+but whose observation epoch is reached through a STEPPED bracket rather than a single
+jump. V16M is exactly that and raised nothing, which is suggestive but not decisive,
+because V16M also never enters the tracking station. A TS lane with a stepped bracket
+would separate "creation frame" from "single jump" for both members of the family at
+once.
+
+## B5-INWARD-TRANSFER-EVIDENCE-AND-TRIGGERS-ASSUME-OUTWARD: the moon-transfer machine keys BOTH its burn-done evidence and its correction-round spacing to an apsis RISING, and the two available workarounds are MUTUALLY EXCLUSIVE [FOUND BY AUDIT 2026-08-19 while authoring `B25-laythe-orbit`, the suite's first INWARD moon transfer, and BOTH WORKAROUNDS LIVE-PROVEN THE SAME DAY on that lane's flight 1 (runs `_1948` / `_2001`). REPORT-ONLY: a HARNESS constraint on `harness/missions/lib/mlib.py`, NOT a proposed product change; B25 flies with values only and accepts one named degradation]
+
+Every b5 moon-path flight to date (Kerbin->Mun, Kerbin->Minmus, Duna->Ike,
+Eve->Gilly) parks LOW and transfers UP to a moon at a HIGHER orbital radius.
+`B25-laythe-orbit` is the first to go the other way: its park sits at
+590,325,784.59 m, 3.28x Pol's orbit and outside the whole Jool moon system, so the
+ejection is RETROGRADE, the intercept is the transfer's PERIAPSIS, and the
+home-frame APOAPSIS never moves.
+
+**FIVE OF SEVEN AREAS ARE DIRECTION-AGNOSTIC BY CONSTRUCTION**, and they are
+listed so the finding is bounded rather than alarming: the MechJeb plan call
+(`_b5_transfer_plan_action` -> `operation_transfer` with `rendezvous = True`, a
+general two-orbit solve with no direction argument); the whole COAST phase (every
+gate is body- or time-based - `snapshot.body == target_body`,
+`body not in _b5_coast_bodies`, `ut + time_to_soi - soi_lead`,
+`approach_latch_state` / `approach_warp_clamp` - with no apoapsis or
+altitude-increasing test anywhere, and the one `vertical_speed` read taking its
+absolute value); the WINDOW logic (mlib's only window solver is the PAD-ALIGN
+heliocentric family, which `b5_params_from_dict` hard-rejects without
+`interplanetaryTransfer`); TARGET-FLYBY and CAPTURE (the arm gate, the
+`ut + time_to_periapsis - lead` warp target, the `0 < ap <= park_max_apoapsis`
+capture window and `_b5_left_target_soi` are all read in the TARGET body's own
+frame); and the burn-stagnation watchdog (`_b5_track_burn_stagnation` compares
+BOTH apsides against their burn-entry values, so an inward burn that moves only
+periapsis still registers `burned`).
+
+**TWO SITES ENCODE "OUTWARD", and both are the same mistake: evidence keyed to an
+apsis RISING.**
+
+1. **`_b5_transfer_burn_done`'s apoapsis floor is VACUOUS on an inward transfer.**
+   The default branch is `apoapsis >= transfer_min_apoapsis`. The retrograde burn
+   happens AT the park, which BECOMES the transfer's apoapsis, so the home-frame
+   apoapsis does not move: any floor above the park is unreachable forever, and
+   any floor below it is already satisfied on the frame BEFORE the burn - which
+   leaves `consumed` (an empty node list) as the sole exit evidence and disarms
+   the phase's whole purpose. There is NO periapsis-side key: `grep` for
+   `transfer_min_periapsis` / `transferMaxPeriapsis` returns nothing anywhere in
+   `mlib`.
+2. **The ALTITUDE correction trigger cannot space rounds on a descent.**
+   `_b5_correction_round_ready`'s altitude mode is a bare
+   `body == home and altitude >= trigger[idx]` LEVEL test, not a rising-edge
+   crossing. On a descending coast a trigger above the park never fires at all and
+   one below it fires on the FIRST coast frame, so a `[0, X]` list spends both
+   rounds back to back at transfer start - precisely the shape the mid-coast round
+   was added to prevent (the fourth B5 flight's corrected +60 km flyby periapsis
+   drifting to -29 km). No altitude value places a second round mid-coast.
+
+**AND THE TWO WORKAROUNDS COLLIDE, which is the part worth writing down.**
+
+- For (1), `ejectionEccFloor` is a working, direction-agnostic substitute
+  requiring NO mlib change: it reads the HOME-frame ECCENTRICITY, which on B25's
+  hop moves from 7.944e-06 to 0.911956, and `b5_params_from_dict` does not gate it
+  on `interplanetaryTransfer`. (Eight interplanetary lanes already set it, all
+  just above 1 for a hyperbolic ejection; B25 is the first sub-1 use, and the
+  schema's `min = 0.0` already admits that.)
+- For (2), `correctionTriggerTimeToSoiSeconds` is direction-agnostic (`time_to_soi`
+  descends whichever way the craft is going), but its body domain is
+  `_b5_correction_via_bodies`, which on the moon path returns `via_bodies`
+  VERBATIM - so it needs `viaBodyNames = ["Jool"]`.
+- **THAT SETTING IS EXACTLY WHAT BREAKS (1):** the ecc branch's FIRST disjunct is
+  `snapshot.body in params.via_bodies or snapshot.body == params.target_body`,
+  which returns True at the park and makes the eccentricity floor vacuous. Naming
+  the home body in `viaBodyNames` also does nothing useful for coast legality
+  (home is already legal), and naming any OTHER body would LEGALISE a moon transit
+  that `_b5_coast_bodies` should be failing loudly - the B15-flight-5 hazard, and a
+  live one on a descent that crosses Pol's, Bop's, Tylo's and Vall's shells.
+
+**WHAT B25 DOES, and it is values only.** It takes (1) - burn evidence is a
+correctness question and round spacing is a quality one - setting
+`ejectionEccFloor = 0.55` (the eccentricity at which the transfer's periapsis has
+fallen inside Pol's orbit, so the floor certifies a genuine inward burn rather
+than an arbitrary threshold) and keeping `transferMinApoapsisMeters` declared at 0
+(the B15 disposition for a schema-required key the evidence does not use). It then
+declares exactly ONE scheduled correction round, `[0]`, and delegates the LATE
+refinement to `MAX_ARRIVAL_EXTRA_ROUNDS = 2` arrival-quality extras, which are
+direction-agnostic but are a SAFETY NET rather than a refinement: they fire only
+when the PREDICTED target periapsis is already BELOW
+`targetPeriapsisFloorMeters`, with `time_to_soi` inside (600, 3600) s. **A merely
+mediocre arrival gets no second look, and that is an accepted degradation on this
+lane rather than a fix.**
+
+**BOTH WORKAROUNDS ARE NOW LIVE-PROVEN, on `B25-laythe-orbit` flight 1** (both
+attempts INVALID(driver-flake) on that lane's park WINDOW, which is a different
+question - the flight itself reached CAPTURE-BURN and delivered a healthy park):
+
+- **The ecc burn-done evidence WORKED.** `startedInHomeOrbit` met on the fixture's
+  own park (`value=7.944061403402496e-06`), and then TRANSFER-BURN EXITED - which
+  under `ejectionEccFloor` it can only do on a home-frame eccentricity at or above
+  0.55. The corrected transfer's last home-framed telemetry reads `ecc=0.954`. The
+  apoapsis floor this replaced would have been satisfied AT THE PARK, before the
+  burn, which is the vacuity the substitution exists to avoid.
+- **The delegation to the arrival-quality extras FIRED.** The machine reports
+  `rounds=2 extraRounds=1`: the one scheduled round plus one direction-agnostic
+  extra, on a DESCENDING coast. So the degradation is real but bounded, and the
+  fallback is not theoretical.
+- **And the empty `viaBodyNames` did its second job**: the descent crossed Pol's,
+  Bop's, Tylo's and Vall's orbital shells and the collected KSP.log carries ZERO
+  occurrences of any of their SOI-boundary tokens, with exactly one `Jool to
+  Laythe`.
+
+**THE HONEST FIX, if a future inward lane needs the mid-coast round back**, is a
+periapsis-side burn-done predicate in `mlib` - a `transferMaxPeriapsisMeters`
+("the burn LOWERED periapsis to at/below this"), which would free `viaBodyNames`
+for the time-mode triggers. That is a real machine change and must be argued
+rather than patched in; it is NOT proposed here, because one lane is not a
+population and B25 has not flown. Pinned meanwhile by
+`harness/missions/lib/test_b25_laythe_orbit.py::InwardTransferAuditTests`, which
+runs `_b5_transfer_burn_done` against a park-shaped frame and a post-burn-shaped
+frame and asserts False-then-True, and which reds if `viaBodyNames` ever appears
+in that spec.
 
 ---
 
-## MAPRENDER-ICON-OFF-ORBIT-CREATION-FRAME-AFTER-JUMP: a ghost's proto ICON sits tens of degrees around its own orbit line on the CREATION frame, after a single large TimeJump onto an epoch just inside a foreign moon's SOI [MEASURED 2026-08-18 by `V14T-ike-ts-arrival`'s reading run, REPRODUCED on its armed run 2026-08-19, and shown PARENT-INDEPENDENT the same day by `V15T-gilly-ts-arrival` at a second parent and moon (Eve/Gilly, 26.49 deg vs Ike's 94.05). REPORT-ONLY: one self-correcting frame per run, DETERMINISTIC for the single-jump shape at both bodies, tolerated by name in both specs; NO product change is proposed]
 ## ~~HARNESS-CANNOT-EARN-CAREER-CURRENCY~~ - no driven run could collect science, transmit it, or recover a vessel, so `ScienceEarning` rows and vessel-recovery credits were reachable only from a hand-played save [CAPABILITY SHIPPED 2026-08-19, branch `c2-postfix-forge`; FLOWN MISSION-OK 2026-08-19 on run 2026-08-19_1912 (career-science-pad); one residual survives and is NOT closed]
 
 Filed and closed in the same entry because the gap was never a defect - it was a
@@ -998,7 +1146,193 @@ nothing in this suite by itself - the committed rows are frozen at the era they
 were recorded in. If the magnitude moves WITHOUT a re-harvest, a RECALC-side change
 has occurred and must be investigated rather than re-pinned.
 
-## MAPRENDER-ICON-OFF-ORBIT-CREATION-FRAME-AFTER-JUMP: a ghost's proto ICON sits ~94 deg around its own orbit line on the CREATION frame, after a single large TimeJump onto an epoch just inside a foreign moon's SOI [MEASURED 2026-08-18 by `V14T-ike-ts-arrival`'s reading run and REPRODUCED on its armed run 2026-08-19. REPORT-ONLY: one self-correcting frame per run, DETERMINISTIC for the single-jump shape, tolerated by name in that spec; NO product change is proposed]
+## WATCH-LOOPED-PARK-TARGET-LOSS-NRE-STORM: watch mode survives a loop RE-ARM with a null camera target and throws stock NREs on EVERY frame from there to scene end - 306 of them in 1.26 s [MEASURED 2026-08-19 by `V15M-gilly-player-loop`'s reading run and REPRODUCED on its armed re-flight the same day (447 then 443 total on byte-identical shapes), the FIRST successful watch entry on a looped arrival park. REPORT-ONLY: `unityExceptions` is report-only and BOTH runs PASSED; NO product change is proposed by this lane]
+
+`V15M-gilly-player-loop` run `2026-08-19_1736` came back **PASS attempt 1** with all
+21 steps met and `anomalySweep hits=[]`. It also read `unityExceptions total=447`,
+`status=REPORT` - by far the largest NRE population any loop lane has produced, against
+the 1 and 5 of the nearest sibling. The verdict is unaffected (that verifier does not
+gate), which is exactly why this needs writing down rather than leaving in a log.
+
+### Why this run and not the eleven before it
+
+**IT IS THE FIRST RUN THAT ACTUALLY WATCHES A LOOPED ARRIVAL PARK.** Every prior
+loop-lane watch attempt was REJECTED on separation - V6M, V6T, V7T, V14M and V14T all
+pin `expect = "REJECTED"` and measured it - and V7M, the one lane that DID enter,
+entered on a Minmus park and quit shortly after. `V15M` is the first to enter (a 27,024
+x 26,321 m Gilly park puts the co-orbiting observer and ghost 775 m apart, 1.51x inside
+the 120 km render-zone boundary; see WATCH-ENTRY-REFUSED-INSIDE-QUOTED-RANGE for what
+that boundary is and is not) **and then keep flying**: a second `StartLoopPlayback` and
+four more `TimeJump`s run with watch mode still active.
+
+THE CONTROL IS IN THE SAME PROGRAM: `V15T-gilly-ts-arrival` (run `2026-08-19_1739`)
+walks the same fixture with the same tracers and has NO watch steps. It counted **zero**
+NullReferenceExceptions. So the watched stretch is the source, not the fixture, not the
+tracers and not the Gilly conic.
+
+### The measurement, and the boundary is sharp on both sides
+
+All line numbers are
+`harness/results/2026-08-19_1736_V15M-gilly-player-loop_shots/KSP.log`.
+
+| moment | line | wall clock | NREs so far |
+|---|---|---|---|
+| `enterwatchmode complete: index=0 recId=77f724bb...` | 11308 | 20:37:42.974 | 0 |
+| `Watch focus (enter): ... targetMatches=True` | 11290 | 20:37:42.932 | 0 |
+| cycle-2 `startloopplayback initiated: ... relaunchUt=16541207.758711128` | 11348 | 20:37:43.164 | **still 0** |
+| FIRST NRE | 11529 | 20:37:43.431 | 1 |
+| `Watched cycle lost - falling back to primary cycle=1` | 11534 | **20:37:43.431** | - |
+| `Watch focus (cycle-fallback): ... actualTarget=null targetMatches=False` | 11535 | 20:37:43.431 | - |
+| LAST in-flight NRE | ~14190 | 20:37:44.694 | **306** |
+
+**ZERO NREs BETWEEN THE WATCH ENTRY AND THE LOOP RE-ARM** (lines 11308-11348, ~190 ms
+of watched frames with a valid target), and the first NRE shares a TIMESTAMP with the
+`Watched cycle lost` fallback. From that frame to the end of the flight scene, 306 NREs
+land across ~86 distinct frame timestamps - i.e. **every frame, 3-4 throws per frame**,
+for 1.26 wall-seconds. It is not a burst and not a leak; it is a steady per-frame rate
+that starts at a nameable event and never stops.
+
+The two production lines that bracket it, verbatim:
+
+    11290  [Parsek][INFO][CameraFollow] Watch focus (enter): watch=active rec=#0
+           id=77f724bb1d4844c3b132a1ccc00a7df3 vessel="Kerbal X" source=primary cycle=0
+           mode=HorizonLocked expectedTarget=horizonProxy actualTarget=hori...
+    11534  [Parsek][INFO][CameraFollow] Watched cycle lost - falling back to primary cycle=1
+    11535  [Parsek][INFO][CameraFollow] Watch focus (cycle-fallback): watch=active rec=#0
+           id=77f724bb1d4844c3b132a1ccc00a7df3 vessel="Kerbal X" source=primary cycle=1
+           mode=HorizonLocked expectedTarget=horizonProxy actualTarget=null
+           targetMatches=False zone=Physics dist=56159.0km alt=13717082m ghostBody=Eve
+           activeVessel="#autoLOC_501232" activeBody=Gilly
+
+Read `cycle=0 -> cycle=1`, `targetMatches=True -> False` and
+`actualTarget=hori... -> null`. The fallback fires ONCE and the null target is never
+re-resolved; the log carries exactly one `Watched cycle lost` and exactly one
+`actualTarget=null` line, so this is a persistent state rather than a repeating event.
+Note also `dist=56159.0km ghostBody=Eve` on that line while the ACTIVE vessel is at
+Gilly: at the moment of the re-arm the ghost is back at the start of its replay, an Eve
+parking orbit 56,159 km away, and the camera is asked to follow it from a Gilly park.
+
+### What is throwing, and it is all stock
+
+Four distinct Unity/KSP call sites repeat, in a fixed rotation (counts over the whole
+run):
+
+| thrower | count |
+|---|---|
+| `CrewHatchController.LateUpdate ()` | 77 |
+| `Sun.Sun.LateUpdate_Patch1(Sun)` (wrapper dynamic-method) | 77 |
+| `UIPartActionController.UpdateFlight ()` | 76 |
+| `Vessel.Update ()` | 76 |
+| `UnityEngine.Component.GetComponent[T] ()` (the teardown one, see below) | 1 |
+
+plus 140 `[ERR] [FlightGlobals]: threw during UpdateInformation, fixed=True. Exception:
+System.NullReferenceException` lines, which is how the total reaches the runner's 447
+(`unityExceptions` counts every line mentioning the type, not only `[EXC]` headers -
+307 `[EXC]` + 140 `[ERR]`).
+
+**NO PARSEK FRAME APPEARS IN ANY OF THE 306 IN-FLIGHT STACKS.** That is the single most
+important thing on this page and it is what keeps the entry report-only: what is
+measured is stock code dereferencing something the camera state has left null, not a
+Parsek method throwing. Which of `actualTarget`, the horizon proxy or the retired ghost
+is the null is UNDIAGNOSED here.
+
+### The nearest sibling, cross-linked and NOT claimed to be the same thing
+
+`MOON-LOOP-FINDINGS` -> **(2) Teardown NRE when a run ends inside watch mode** is the
+closest filed relative: V7M is the only other lane that ends inside watch mode, and its
+two green flights read `total=1` and `total=5`, the second being one Parsek line
+(`WatchModeController.RestoreCameraAfterWatchExit` -> `GetActiveVesselSafe` ->
+`FlightGlobals.get_ActiveVessel`) plus four stock teardown knock-ons.
+
+**THIS RUN HAS THAT ONE TOO, AND IT IS SEPARABLE.** The 307th `[EXC]`, at 20:37:45.596
+(line 14204), is a `CrewHatchController.OnDestroy -> DespawnUIs -> HideTooltip ->
+get_CrewHatchTooltip -> DialogCanvasUtil.get_DialogCanvasRect` throw during scene
+teardown - V7M's class, ~0.9 s after the last in-flight one and after
+`KbApp.OnDestroy` / `[UIApp] OnDestroy`. So the run contains **1 teardown NRE (the known
+finding) + 306 in-flight ones (this finding)**, and they should not be pooled.
+
+**THE TWO ARE NOT SHOWN TO SHARE A MECHANISM.** V7M's is a shutdown-ordering NRE with a
+Parsek frame in it; this one is a per-gameplay-frame storm with no Parsek frame, bounded
+by a camera-state transition rather than by `OnDestroy`. Treat the cross-link as "look
+here too", not as a diagnosis.
+
+### What makes this subject unusual, stated as the plausible trigger
+
+The watched ghost's replay is PHASE-LOCKED with a cadence of exactly one Gilly period
+(388,587.377 s), and the second `StartLoopPlayback` re-resolves the unit onto the NEXT
+cycle. So between the two watch steps the ghost's replay **retires and relaunches**: the
+cycle the camera was following ceases to exist, which is precisely what `Watched cycle
+lost - falling back to primary` reports. The fallback then hands the camera a target it
+cannot resolve, and the storm runs from there.
+
+**THAT TRANSITION IS UNMEASURED ANYWHERE ELSE IN THE SUITE.** No other lane both enters
+watch mode and crosses a loop-cycle boundary while watching: V7M enters and quits inside
+the same cycle; every other watcher was refused entry. So the trigger is not "watch
+mode" and not "loop playback" - it is the INTERSECTION, and this is the only run that
+has ever reached it.
+
+### REPRODUCED - and the pacing hypothesis survives its first test (2026-08-19)
+
+The ARMED re-flight of the identical shape, run `2026-08-19_1808`, **PASS attempt 1**,
+read `unityExceptions total=443` against the reading run's 447 - a 0.9 % spread on two
+runs whose flown shape is byte-identical (arming moved only expectations, never a step,
+a jump UT or a budget). Its `Watched cycle lost - falling back to primary cycle=1` fires
+at KSP.log line 12846, the same position in the same sequence.
+
+**443-vs-447 IS THE INTERESTING NUMBER, not the 447.** A one-off would not have landed
+within four counts; a leak would not have stopped growing. What a ~1 % spread across two
+runs looks like is a per-frame rate multiplied by a frame count that differs slightly
+between runs - which is open question 1's hypothesis, now with a datum on both sides
+rather than a single reading. It also settles open question 4 (does it reproduce): yes,
+deterministically.
+
+AND IT DOUBLES AS THE ARGUMENT AGAINST A CEILING. `maxTotal` would have to be set above
+447 to admit both, which is a bound on nothing; set at 447 it would red the armed run.
+The quantity is run PACING, and a verifier ceiling cannot distinguish a slow frame from
+a product regression at that resolution.
+
+### Open questions
+
+1. **Is the NRE count simply proportional to watched-frames-with-a-null-target?** The
+   evidence says probably yes and now bounds it from two runs: 0 throws over ~190 ms of
+   valid-target watching, then 3-4 per frame over ~86 frames with a null target, with no
+   decay - and 447 vs 443 across two byte-identical shapes. If that holds, the
+   population is a pure function of how long a run keeps flying after the fallback,
+   which makes any `maxTotal` ceiling a measure of run PACING rather than of product
+   health. NOT YET CONFIRMED DIRECTLY: nobody has counted the null-target frames in the
+   443 run and divided.
+2. **Does exiting watch mode before the relaunch avoid it?** i.e. would a variant with
+   `ExitWatchMode` before the second `StartLoopPlayback` read zero? That is the cheap
+   discriminating experiment and the seam verb for it already exists. **DO NOT add it to
+   `V15M`**: the S4.1 rule is that arming must not change the flown shape, and V15M's
+   shape is what produced every measurement in its header. A variant lane is the place.
+3. **Which reference is null**, and whether the camera should be dropping watch entirely
+   on a lost cycle rather than falling back to a target it cannot resolve. Nothing here
+   settles it; the stacks are stock-only.
+4. **~~Does it reproduce?~~ ANSWERED 2026-08-19: yes.** The armed re-flight
+   `2026-08-19_1808` read 443 against the reading run's 447 (section above). What is
+   still open is whether it reproduces on a DIFFERENT subject - every reading so far is
+   the same fixture, the same park and the same two-cycle shape, because no other lane
+   in the suite reaches watch-across-a-loop-boundary at all.
+
+### Nothing gates it
+
+`unityExceptions` is REPORT-ONLY on this lane (`status=REPORT`, `gating=false`,
+`maxTotal=null`) and the run is a PASS. No `[expectations.unityExceptions] maxTotal` is
+armed, and the reason is V7M's, restated: that lane's own row declines a ceiling because
+two green flights of ONE spec spread 1-vs-5, and a single reading cannot size a bound.
+Here the spread is now MEASURED at 447-vs-443 across two green flights of one spec - a
+tighter spread than V7M's, and still a bound on nothing, because open question 1 says the
+quantity tracks run pacing. `V15M-gilly-player-loop.toml`'s header section 5 records the
+population inline so a future reader meets it where the watch steps are.
+
+**NO PRODUCT CHANGE IS PROPOSED BY THIS LANE.** What is recorded is the measurement, the
+zero-NRE control (V15T), the sharp before/after boundary at the cycle fallback, the
+separation from V7M's teardown NRE, and the named experiment that would move it.
+
+---
+
+## MAPRENDER-ICON-OFF-ORBIT-CREATION-FRAME-AFTER-JUMP: a ghost's proto ICON sits tens of degrees around its own orbit line on the CREATION frame, after a single large TimeJump onto an epoch just inside a foreign moon's SOI [MEASURED 2026-08-18 by `V14T-ike-ts-arrival`, REPRODUCED on its armed run, shown PARENT-INDEPENDENT by `V15T-gilly-ts-arrival`, and measured at a THIRD parent 2026-08-19 by `V16T-laythe-ts-arrival` (Jool/Laythe, 129.15 deg) - which also produced the FIRST count > 1 reading (TWO raises, one frame, two proto pids) and a SECOND LENS showing the same creation-frame binding gap. **RECURRED AT COUNT 2 ON V16T's ARMED RUN `2026-08-19_2212` (PASS attempt 1, the tolerance doing its job)**, alongside the second lens - both deterministic on the armed run. REPORT-ONLY: self-correcting, DETERMINISTIC for the single-jump shape at all three bodies, tolerated by name in all three specs; NO product change is proposed]
 
 `V14T-ike-ts-arrival` run `2026-08-18_2337` came back PARSEK-FAIL(anomaly) on
 attempt 1 with **all sixteen steps green** - every tracking-station route line
@@ -1196,6 +1530,49 @@ phase error that self-corrects is a rendering transient, not a recorded-data
 defect; nothing in the recording, the loop unit or the committed save is affected.
 What is recorded here is the measurement, the control that isolates the jump
 shape, and the discriminating experiment.
+
+### A THIRD PARENT, AND TWO PROPERTIES RETIRED (2026-08-19, `V16T-laythe-ts-arrival`)
+
+`V16T-laythe-ts-arrival` run `2026-08-19_2115` came back PARSEK-FAIL(anomaly) on
+attempt 1 with **all sixteen steps green**, exactly as the two earlier readings did.
+Its measurement adds a third body pair and changes two things this entry had
+previously stated as settled.
+
+**(1) THE PER-RUN COUNT IS NOT 1.** `anomalySweep hits=['icon-off-orbit']
+hitCounts={'icon-off-orbit': 2}` - **TWO raises**, on the SAME frame (6572), at the
+SAME angle (129.15 deg), on TWO DIFFERENT proto pids
+(`3930042019` at `iconR=985172270` and `3249379867` at `iconR=933939331`; KSP.log
+lines 10835 and 10843). The creation-frame trigger hit two proto instances at once.
+Four earlier runs (V14T `_2337` / `_0002`, V15T `_1739` / `_1809`) each measured
+exactly one, and this entry described that as "one self-correcting frame per run".
+**That was a measurement over four runs at two bodies, never a ceiling** - and it is
+now falsified. THE PRACTICAL CONSEQUENCE is for the deferred
+`{ token = "icon-off-orbit", maxCount = N }` arming that all three specs discuss:
+**N would have to be 2, not 1**, and whoever takes that edit must re-read all three
+lanes together rather than copying V14T's number.
+
+**(2) THE MAGNITUDE STILL CORRELATES WITH NOTHING THREE POINTS CAN SEPARATE.**
+`angleIconVsOrbitEff` now reads 94.05 (Ike) / 26.49 (Gilly) / **129.15** (Laythe)
+across SOI radii of 1,049,599 / 126,123 / 3,723,646 m. It is not monotonic in SOI
+scale, in parent mu, or in the arrival conic's eccentricity (1.1385 / 1996.24 /
+1.2713). Three points, no ordering. Recorded, not modelled.
+
+**EVERYTHING ELSE IS IDENTICAL AGAIN:** ghost-proto CREATION frame, FLIGHT scene,
+after ONE large TimeJump onto an epoch just inside a foreign moon's SOI,
+`iconR == orbitEffR` on both pids, `lonOrbitEff == lonOrbitLive` with
+`angleEffVsLive=0.00` and `loopShift=0.0`. And the control travelled with it:
+`V16M-laythe-player-loop` (run `2026-08-19_2114`, PASS) reaches the SAME arrival UT
+29,874,214 through a stepped bracket and swept `hits=[] hitCounts={}` - the third
+control in three programs.
+
+**AND THE SAME RUN SHOWED THE GAP ON A SECOND LENS**, which is the most useful thing
+it produced. See
+MAPRENDER-SEAM-LENS-EVALUATES-UNSHIFTED-EPOCH-ON-CREATION-FRAME: on that lane's
+creation frame the seam-endpoint lens evaluated the recording's **un-shifted** epoch
+(`effUT` = the recorded seam UT, `clock=raw seed=no-seed`) and raised
+`seam-endpoint-outside-soi`. Two different lenses, one frame class, the same
+"the loop shift has not bound yet" reading - which is what turns a rendering
+curiosity into a NAMED family with a candidate mechanism.
 
 ---
 
@@ -14433,6 +14810,44 @@ was restored anyway, as the live regression floor for the detector exemption - s
 below). `evaluated=1 outsideSoi=0` is now an ARMED required token on all three lanes,
 each with two byte-identical readings, an armed PASS, a negative control that correctly
 red `PARSEK-FAIL(expectation)` naming the inverted token, and a reverted PASS.
+
+### THE SECOND CASE IS NOW **CLOSED BY PACING**, and the recourse is proven (2026-08-19, `V16M-laythe-player-loop`)
+
+The V15M case above recorded that a fast-stepped MULTI-CYCLE lane cannot read a
+per-class census twice, listed three recourses, and named recourse 1 (wall-space the
+brackets with `RecordingState` spacers) as the cheapest. **RECOURSE 1 HAS NOW BEEN
+BUILT AND FLOWN, AND IT WORKS.**
+
+`V16M-laythe-player-loop` carries a **forty-tick `RecordingState` dwell block** between
+its cycle-1 park epoch and its cycle-2 re-arm, sized against `run.py`'s
+`POLL_INTERVAL_SECONDS = 0.25` hard floor rather than V5's measured 0.54 s/tick - so it
+buys >= 10.0 wall s even in the worst case. Reading run `2026-08-19_2114` (PASS attempt
+1) emitted the measuring line at BOTH arrivals:
+
+```
+10860  00:14:39.433  seam-endpoint summary evaluated=2 outsideSoi=0
+13199  00:14:50.935  seam-endpoint summary evaluated=2 outsideSoi=0 | suppressed=25
+```
+
+**11.502 wall-seconds apart**, against V15M's 1.4 s and its three runs that never
+printed a cycle-2 measuring pass. The `suppressed=25` counter on the second line is the
+limiter still working on the frames in between, which is exactly the shape wanted: the
+rate limit is untouched, only the PACING moved.
+
+**WHAT THAT BUYS BEYOND THIS LANE:** it is the suite's first k > 1 recurrence
+measurement. V16M's cadence is 20 Laythe periods, so the cycle-2 census is a reading at
++20 moon periods rather than +1, and `outsideSoi=0` there is the first evidence anyone
+has that the phase lock survives a multi-period re-anchor. Every phase-lock statement
+this programme could previously make was a k = 1 statement.
+
+**NO PRODUCT CHANGE, AGAIN.** The limiter is doing its job; the fix was in the SPEC's
+step list. Two limits stay: the block costs ~10-22 wall s and ~22 GAME seconds of 1x
+playback, so a lane whose destination tail is short cannot afford it (V15M's Gilly tail
+is 381 s and would have had 112 s of margin; V16M's Laythe tail gave 104.5 s of
+clearance at the park epoch, which is 4.8x the block at its most expensive measured
+per-tick cost) - and N = 2 is still N = 2, so this measures a bound, not a drift rate.
+**THE CAVEAT ABOVE THEREFORE STANDS UNCHANGED FOR EVERY LANE WITHOUT THE BLOCK**; what
+is retired is only the claim that it could not be done.
 
 ## ~~LINE-BLINK-JUMP-STRADDLE-DETECTOR-GAP~~ - back-to-back seam TimeJumps raise the gated `line-blink` on legitimate window transitions (measured 2026-08-11, branch `eve-loop-lanes`; two PARSEK-FAIL artifacts; lane re-paced, detector NOT modified) [RE-MEASURED across the whole 13-raise archive and FIXED 2026-08-14, branch `line-blink-census`, with a WINDOW-EXIT exemption - see the resolution at the end of this entry]
 

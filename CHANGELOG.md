@@ -51,6 +51,8 @@ All notable changes to Parsek are documented here.
 
 ### Features
 
+- Every dock now permanently records WHO you docked with, even when Parsek knew nothing about the other vessel at the time. Until now the partner's identity was only written down when the dock qualified for logistics bookkeeping — dock with a vessel that had no recording yet, and the fact of who joined you was observed and then thrown away, unrecoverable forever. Now the partner's identity is stamped on the dock event itself, unconditionally, so if you later fly and record that other vessel, Parsek can retroactively connect the two stories ("Partner journey" rows can appear for docks that predate the partner's own recording). Nothing else about the dock changes: logistics route detection, resource-transfer proof, and the safeguard against absorbed vessels re-materialising all keep their existing, stricter rules, and recordings made before this change behave exactly as they always did. This is the recording-side foundation for the upcoming dock-narrative features (named dock partners, mission event history). A kerbal on EVA grabbing a ladder is deliberately not counted as a dock partner.
+
 - The Basic interface no longer offers to loop a mission by hand. In Basic, the Missions
   window drops the per-mission `Loop` checkbox, the period box next to it (the one with the
   Sec / Min / Hour / Auto button), and the row checkboxes that pick which parts of a mission
