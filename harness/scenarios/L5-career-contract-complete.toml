@@ -1,0 +1,311 @@
+schema = 1
+id = "L5-career-contract-complete"
+tier = "nightly"
+# WHAT THIS IS. The first committed spec that drives Parsek's contract state
+# machine past ACCEPT.
+#
+# `ContractsModule` has four transitions - accept, complete, fail, cancel - plus
+# `PrePass`'s synthetic-fail injection, and until this spec exactly ONE of them
+# had ever been exercised by a committed scenario.
+# `L4-ledger-groundtruth-strict` carries a fixture-spliced `type = 5` accept row
+# and gates the accepted-and-unresolved state; its own builder's TRAP 3 explains
+# at length why that fixture must NOT also carry a terminal row. So the accept
+# cell is real, and it is also a ceiling: nothing downstream of `ProcessAccept`
+# had a gate at all.
+#
+# THIS SPEC CLOSES THE FAIL SIDE - `PrePass`'s injection, `CheckDeadlines`'s
+# retirement and `ProcessFail`'s penalty application - and it closes it WITHOUT
+# CARRYING THE ANSWER. The fixture authors two ACCEPT rows and no terminal row
+# whatsoever. One of them (B) carries a deadline sized to sit BETWEEN the
+# cold-load walk's clock and the commit-time walk's, so B loads ACTIVE and is
+# then retired by the code, not by the file. Six of the nine required tokens
+# below are one line from each stage of that chain - the two accepts, the
+# injection, the retirement, the penalty and where the penalty STOPS - so a break
+# anywhere reds with the stage named rather than as a missing total.
+#
+# ############### WHY THE COMPLETE SIDE IS NOT HERE - MEASURED ###############
+# The first build of this lane spliced a `state = Active` `PartTest` CONTRACT
+# into the save so the mission's launch staging would complete it LIVE, and the
+# whole chain was derived from the decompiled `Assembly-CSharp` before flying:
+# `ModuleTestSubject.OnActive()` fires `onTestRun` on staging with no situation
+# filter of its own, `solidBooster.sm.v2` declares `useStaging = True` and
+# `situationMask = 60` (which includes PRELAUNCH), and
+# `science_bench_recover` stages exactly once, on its first decision frame, from
+# PRELAUNCH.
+#
+# RUN `2026-08-20_2217_L5-career-contract-complete` FLEW IT AND THE COMPLETION
+# NEVER FIRED. The flight itself was textbook - MISSION-OK, all nine phases,
+# analyzer red=0, zero `[Parsek][ERROR]`, zero Unity exceptions, 2 recordings -
+# and the only two unmet tokens were the completion pair. The contract was gone
+# from `ContractSystem` before the mission's first frame (`KSP has 0 current
+# contracts, 0 finished contracts`), and stock re-OFFERED a fresh contract with
+# the identical subject 8 s later.
+#
+# THE CAUSE IS MEASURED, NOT GUESSED, and it is upstream of contracts entirely:
+# the `Progress { FirstLaunch { completedManned = 4 } }` node the builder had
+# spliced DID NOT RESTORE. `KSPAchievements.FirstLaunch.TestFlight` guards its
+# award with `if (!base.IsComplete)`, and `ProgressNode.Complete()` calls
+# `Reach()` only when `!reached`, while `ProgressNode.Load` sets `reached = true`
+# on its FIRST line - so the run's `[Progress Node Reached]: FirstLaunch` plus
+# `[Progress Node Complete]: FirstLaunch` prove both flags were false at launch.
+# `Contracts.Templates.PartTest.MeetRequirements()` reads
+# `ProgressTracking.NodeComplete("FirstLaunch")` and `Contract.Update()`
+# re-checks it on EVERY tick of an ACTIVE contract, retiring it to
+# `OfferExpired` - which is removed outright rather than kept in
+# `ContractsFinished`, exactly matching the observed counts.
+#
+# It is NOT a blanket "authored ScenarioModule children are lost": the same
+# run's produced save grew `ResearchAndDevelopment`'s `Tech` node from 13
+# `part =` lines to 23. Filed as SAVE-AUTHORED-PROGRESS-NODE-DOES-NOT-RESTORE in
+# `docs/dev/todo-and-known-bugs.md` with the full evidence. Until it is
+# explained, a save-authored Active `PartTest` cannot be made to survive in this
+# lineage, and re-flying a second guessed shape would spend a flight on a
+# hypothesis. THE FAIL GATE BELOW NEEDS NO HYPOTHESIS: `PrePass` is arithmetic
+# over rows the fixture authors, and the same run already measured the sidecar
+# loading and `Accept:` reading for the spliced guid.
+# ###########################################################################
+#
+# WHY A SIBLING FIXTURE. `career-science-pad` is flown by
+# `L3-career-science-recover` AND is the donor `build_career_earned_pad.py`
+# splices into `career-earned-pad`, the strict-armed subject of
+# `L4-ledger-groundtruth-strict`; two byte-identity drift cells read it. Adding
+# a ledger to it would re-open both lanes to prove something neither claims.
+# `career-contract-pad` is that save with its `Title` restamped and ONE new
+# sidecar - the save diff is a single line, asserted so.
+#
+# THE MISSION IS `L3`'s, VERBATIM, AND THAT IS THE POINT. Same craft, same eight
+# flight-leg params, same career leg, same step list. The flight is not the
+# subject here - it is the CLOCK: it writes ledger rows out to ~348 s, which is
+# what carries the walk's `nowUT` past B's deadline.
+description = "Fly the career pad craft against a ledger carrying two accepted contracts, one of whose deadlines lapses during the flight: PrePass has to synthesize the ContractFail, CheckDeadlines has to retire it and ProcessFail has to spend the penalties - the first live gate on any contract transition past accept."
+instanceProfile = "stock-minimal"
+tags = ["ledger", "L5", "contracts", "career-forge", "science", "recovery"]
+
+[fixture]
+# `career-contract-pad`: `career-science-pad` with its `Title` restamped and ONE
+# new sidecar, `Parsek/GameState/ledger.pgld`, carrying exactly TWO `type = 5`
+# rows and nothing else. Built BY CONSTRUCTION by
+# `harness/tools/build_career_contract_pad.py`, whose module docstring carries
+# the full argument.
+#
+#   A  `5f2c1b84-...`, `deadlineUT = 9201600`. Four orders of magnitude past this
+#      flight's ~350 s span, so A stays ACTIVE from load to commit. A is the
+#      CONTROL: its `Accept:` token is what says the sidecar loaded at all, and
+#      it was already measured reading on run `2026-08-20_2217`.
+#   B  `c47d0a91-...`, `deadlineUT = 100`. Sized to sit BETWEEN the two clocks
+#      this fixture is walked against. `ContractsModule.PrePass` takes `nowUT`
+#      from the LAST SURVIVING ACTION's UT: on the COLD-LOAD walk that is B's own
+#      6, so 100 has not elapsed and B loads ACTIVE alongside A
+#      (`activeSlots=2/2`); by the COMMIT-time walk the flight has written
+#      milestone, science and recovery rows out to ~348, so `nowUT` passes 100
+#      and the injection fires. A deadline BELOW the load clock would have
+#      retired B before it was ever active and measured nothing.
+#
+# BOTH ROWS HONOUR TRAP 1 (`advanceFunds = 0`): `FundsModule
+# .ProcessContractAccept` credits an advance unconditionally, so a nonzero one
+# would move the funds pool off 500000 before the flight starts.
+#
+# THE FIXTURE AUTHORS NO STOCK CONTRACT AND MAKES NO CLAIM ABOUT KSP-SIDE
+# CONTRACT STATE. `CONTRACTS` stays empty, and `verify` asserts that. The
+# consequence is visible and inert: with no `events.pgse` there is no
+# `CONTRACT_SNAPSHOT` for either guid, so `KspStatePatcher.PatchContracts` logs
+# `no snapshot for contractId=... - skipping` and restores nothing.
+saveTemplate = "fixtures/saves/career-contract-pad"
+# LOAD-BEARING, same as L3's: the store must start empty so `recordings.count`
+# below asserts that the recordings in the produced save are this flight's own.
+injectedRecordings = "none"
+craft = []
+
+[driver]
+kind    = "autopilot"
+mission = "science_bench_recover"
+# THE STEP LIST IS `L3-career-science-recover`'s, VERBATIM, including the two
+# deliberate shapes that spec's header argues for at length and which are just as
+# load-bearing here:
+#
+# (1) `SetSetting autoMerge=true` is MANDATORY. Stock recovery destroys the
+#     active vessel, so the tree is stashed as pending and the FLIGHT ->
+#     SPACECENTER exit would otherwise raise an approval DIALOG no seam verb can
+#     answer. With autoMerge on the exit takes the silent auto-commit - and on
+#     THIS spec the commit is also what runs the recalc whose `nowUT` has finally
+#     passed B's deadline. Without the setting there is no injecting walk.
+#
+# (2) `CommitTree` is KEPT VERBATIM though it is EXPECTED TO FAIL. L3 measured
+#     `TIMEOUT` here on both of its green flights (the recovery has already
+#     destroyed the vessel, so there is no active tree to commit), run
+#     `2026-08-20_2217` measured it a third time on this fixture, and
+#     `hlib.SEAM_VERB_POST_MISSION_ROLE` files the verb as `recording`, which is
+#     NON-GATING on a MISSION-OK run. Keeping it means a future change to the
+#     recovery teardown reds here rather than passing silently.
+steps = [
+  { cmd = "LoadGame",       args = { save = "${runSave}", name = "persistent" },    expect = "OK", budget = 300 },
+  { cmd = "SetSetting",     args = { name = "autoRecordOnLaunch", value = "true" }, expect = "OK" },
+  { cmd = "SetSetting",     args = { name = "autoMerge",          value = "true" }, expect = "OK" },
+  { phase = "mission",                                                              expect = "MISSION-OK", budget = 1320 },
+  { cmd = "CommitTree",                                                             expect = "OK" },
+  { cmd = "RecordingState",                                                         expect = "OK" },
+  { cmd = "FlushAndQuit",                                                           expect = "OK" },
+]
+
+[driver.missionParams]
+# EVERY VALUE IS `L3-career-science-recover`'s, unchanged, and that is deliberate
+# rather than lazy: the craft is byte-identical to L3's, so a fork of these would
+# drift the first time either side is touched. The chute-arming window in
+# particular cost three flights to get right. Run `2026-08-20_2217` flew this
+# exact set on this exact fixture MISSION-OK, all nine phases.
+throttle                 = 1.0
+apoapsisWindowMeters     = { min = 6000, max = 30000 }
+chuteArmMaxRateMps       = 30
+chuteFullDeployAltMeters = 2500
+landedSituations         = ["LANDED", "SPLASHED"]
+ascentTimeoutSeconds     = 90
+coastTimeoutSeconds      = 180
+descentTimeoutSeconds    = 360
+collectMinExperiments = 1
+collectTimeoutSeconds = 120
+transmitMinScienceGain = 0.5
+transmitTimeoutSeconds = 120
+recoverMinFundsGain = 1.0
+recoverTimeoutSeconds = 180
+
+[dimensionsCovered]
+# D8 `contracts` IS CLAIMED, and it is claimed because it is GATED: three of the
+# required tokens below name B's guid across the injection, the retirement and
+# the penalty application, and two more name A across the accept and the slot
+# reservation. The claim cannot outlive the gate. That is the same
+# claim-vs-gate coupling `test_career_earned_pad.py` asserts for the accept
+# half; the cell is now covered on both sides of the terminal boundary.
+#
+# The other D8 values this flight physically exercises (`science`, `funds`,
+# `milestones`) stay UNCLAIMED for L3's stated reason: with no
+# `[expectations.ledger]` manifest they would be claims without gates.
+D1  = ["auto-record-launch"]
+D8  = ["contracts"]
+D14 = ["kerbin", "career", "scene-flight"]
+
+[expectations]
+# PLACEMENT IS LOAD-BEARING: a bare key written after an [expectations.<sub>]
+# header is TOML-scoped to that sub-table and silently never read.
+allowedAnomalies = []
+
+[expectations.recordings]
+# PINNED EXACTLY at the measurement. Run `2026-08-20_2217` produced 2 on this
+# fixture - the flown main recording plus the post-recovery continuation - which
+# is the same pair `L3-career-science-recover` pins for the same craft and the
+# same mission on its own two MISSION-OK flights. Three independent runs of one
+# shape is what makes an exact pin honest rather than a one-sample guess.
+count = { min = 2, max = 2 }
+
+[expectations.logContracts]
+# NINE tokens. The first three are inherited context, the last six are the
+# point.
+#
+# CONTEXT (measured on run `2026-08-20_2217` on this exact fixture):
+#   `Recording started` / `Recording stopped` - the flight-leg pair, measured on
+#       every prior flight of this craft (B1, CL-1, CL-2, L3).
+#   `Seeded initial science: amount=100` - L3's seed token, kept because this
+#       fixture is the FIRST to ship a pre-existing `ledger.pgld` into a career
+#       whose seeds have not been written yet. `Ledger.SeedInitialScience`
+#       searches for an existing `ScienceInitial` row rather than for an empty
+#       ledger, so the seed still lands - and this is the line that would go
+#       missing if that ever changed.
+#
+# THE CONTRACT CHAIN, one line per stage, in walk order:
+#
+#   `Accept: contractId='5f2c1b84-...' ... activeSlots=1/2`
+#   `Accept: contractId='c47d0a91-...' ... activeSlots=2/2`
+#       The two fixture-carried accepts, seen by the walk. `activeSlots` is
+#       pinned WHOLE because it is a fixture constant on a level-1 Mission
+#       Control: A reserves the first slot at UT 5, B the second at UT 6. This
+#       is also the proof that both rows survived `Ledger.Reconcile` - which
+#       prunes a contract-lifecycle row whose UT exceeds the save clock, the
+#       reason both UTs sit below this fixture's 9.06.
+#
+#   `PrePass: injected synthetic ContractFail for contractId='c47d0a91-...' at
+#    deadlineUT=100 fundsPenalty=9000 repPenalty=1`
+#       THE INJECTION - the branch this spec exists for. It says the walk's
+#       `nowUT` passed B's deadline and `ContractsModule` MANUFACTURED a terminal
+#       row the fixture does not carry. The three numbers are B's own row, so a
+#       synthetic fail built from the wrong accept reds here rather than passing.
+#       The trailing `(nowUT=... source=...)` is deliberately NOT pinned: `nowUT`
+#       is the flight's last action UT and moves per run.
+#
+#   `DeadlineExpired: contractId='c47d0a91-...' deadline passed at currentUT=`
+#       THE RETIREMENT. `CheckDeadlines` runs at the top of EVERY `ProcessAction`
+#       and is a SEPARATE path from the injection - PrePass scans the whole walk
+#       up front, this fires inside it - so both are pinned. The `currentUT`
+#       VALUE is not pinned (it is a raw double); the key is, because the line
+#       without it would match nothing.
+#
+#   `Fail: contractId='c47d0a91-...' fundsPenalty=9000 repPenalty=1`
+#       THE PENALTY, applied to the RECONSTRUCTION. `ProcessFail` spends the
+#       pack unconditionally. `wasActive` is NOT pinned - by the time the
+#       synthetic row is processed `CheckDeadlines` has already freed the slot,
+#       so it reads False, and pinning a False that is an artifact of two paths
+#       agreeing would be pinning the wrong thing.
+#
+#   `PatchFunds: GUARDED DRAWDOWN clamped resource=Funds`
+#       WHERE THE DEBIT STOPS, and it is pinned because the first flight of this
+#       shape MEASURED something this spec had predicted wrongly. The
+#       reconstruction really does spend the penalty - run `2026-08-20_2240`
+#       logged `running=527558 live=536558 wouldBeTarget=527558` for funds and
+#       `running=0.99999749 live=1.9999988` for reputation, i.e. exactly the
+#       9000 and the 1 - but `KspStatePatcher`'s guarded-drawdown protection
+#       REFUSES to write either back, because a pool going DOWN with no
+#       time-travel context is the signature it exists to catch ("earned value
+#       preserved; ledger may be missing an earning channel"). So the live
+#       career keeps 536558 / 1.9999988 and the synthetic fail is a
+#       reconstruction-only debit. That is a real property of the fail path with
+#       no committed statement anywhere else, so it is gated here; it is filed
+#       as SYNTHETIC-CONTRACT-FAIL-PENALTY-CLAMPED-BY-DRAWDOWN-GUARD in
+#       `docs/dev/todo-and-known-bugs.md`, REPORT-ONLY, with no product change
+#       proposed by this lane.
+#       THE NUMBERS ARE DELIBERATELY NOT IN THE TOKEN. `running=` moves during
+#       the recalc burst (the same run logged an earlier clamp at
+#       `running=522200 live=531200`, before the recovery credit landed), and
+#       `live=` is this flight's total earnings, which `L3-career-science-recover`
+#       owns and this spec has no business re-pinning. What is gated is that the
+#       clamp HAPPENS - so a change that lets the debit through reds here and
+#       forces the decision to be taken deliberately.
+#
+# NOT PINNED, deliberately: `PatchContracts: no snapshot for contractId=...`.
+# It is expected on this fixture (no `events.pgse`, so no CONTRACT_SNAPSHOT) and
+# it says nothing about the transitions - it is a fact about what the fixture
+# declines to carry.
+required = [
+  "Recording started",
+  "Recording stopped",
+  "Seeded initial science: amount=100",
+  "Accept: contractId='5f2c1b84-93ae-4d07-b6c1-0e8a4d51f3b9' type='PartTest'.*activeSlots=1/2",
+  "Accept: contractId='c47d0a91-6b25-4e83-9f1a-2d60be3c7845' type='PartTest'.*activeSlots=2/2",
+  "PrePass: injected synthetic ContractFail for contractId='c47d0a91-6b25-4e83-9f1a-2d60be3c7845' at deadlineUT=100 fundsPenalty=9000 repPenalty=1",
+  "DeadlineExpired: contractId='c47d0a91-6b25-4e83-9f1a-2d60be3c7845' deadline passed at currentUT=",
+  "Fail: contractId='c47d0a91-6b25-4e83-9f1a-2d60be3c7845' fundsPenalty=9000 repPenalty=1",
+  "PatchFunds: GUARDED DRAWDOWN clamped resource=Funds",
+]
+forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
+
+# NO [expectations.ledger] BLOCK, and the reason is the same one L3 records
+# rather than a different one: the M-B2 oracle has no report-only mode, so an
+# armed manifest must account for EVERY pool movement of the flight - the launch
+# milestones, three science subjects, the recovery credit - and those amounts are
+# authored by KSP alone. L3 deferred that manifest with its totals measured
+# twice; this spec adds a fifth movement (B's 9000-funds / 1-reputation debit) on
+# top of it. Arming the manifest is a separate decision with its own
+# measurements, and bundling it into the commit that opens the contract cell
+# would hide one behind the other. What this spec DOES gate is the ROW: the
+# injection line and the fail line both carry the penalty pack, so a fail that
+# spent a different amount reds here.
+
+[runtime]
+# L3's budget, unchanged, and measured on this fixture: run `2026-08-20_2217`
+# completed in 463 s wall / 342 s mission against the 1980 s ceiling. The
+# contract chain adds no
+# time to the profile - it happens inside the commit-time recalc.
+budgetSeconds = 1980
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

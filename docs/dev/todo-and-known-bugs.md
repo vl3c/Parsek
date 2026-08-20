@@ -14,6 +14,145 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## SYNTHETIC-CONTRACT-FAIL-PENALTY-CLAMPED-BY-DRAWDOWN-GUARD: `PrePass` synthesizes the expired-deadline `ContractFail` and the reconstruction spends its penalties correctly, but `KspStatePatcher`'s guarded-drawdown protection refuses to write either pool back, so the debit never reaches the live career [MEASURED 2026-08-20 by `L5-career-contract-complete`'s green flight (run `2026-08-20_2240`), the FIRST run ever to drive `ContractsModule.PrePass`'s injection under a gate. REPORT-ONLY and GATED AS MEASURED: no product change is proposed by this lane, and the clamp is pinned so a change of behaviour has to be taken deliberately]
+
+**What fires, and it all fires correctly.** `career-contract-pad` carries two
+fixture-authored `type = 5` rows and no terminal row; B's `deadlineUT = 100` sits
+between the cold-load walk's clock (B's own accept UT, 6) and the commit-time walk's
+(the flight's rows out to ~348). The commit-time recalc produced, in one burst:
+
+```
+PrePass: injected synthetic ContractFail for contractId='c47d0a91-...' at deadlineUT=100 fundsPenalty=9000 repPenalty=1 (nowUT=345.59999999997564 source=lastActionUT)
+DeadlineExpired: contractId='c47d0a91-...' deadline passed at currentUT=100, slot freed, activeSlots=1/2
+Fail: contractId='c47d0a91-...' fundsPenalty=9000 repPenalty=1 wasActive=False activeSlots=1/2
+```
+
+and the RECONSTRUCTION really did spend the pack - `running=527558` against
+`live=536558` for funds, `running=0.99999749660491943` against `live=1.9999988079071045`
+for reputation, i.e. exactly the 9000 and the 1.
+
+**Where it stops.** Neither reaches KSP:
+
+```
+PatchFunds: GUARDED DRAWDOWN clamped resource=Funds running=527558 live=536558 wouldBeTarget=527558 clampedTo=536558 (no time-travel context) - earned value preserved; ledger may be missing an earning channel
+PatchReputation: GUARDED DRAWDOWN clamped resource=Reputation running=0.99999749660491943 live=1.9999988079071045 wouldBeTarget=0.99999749660491943 clampedTo=1.9999988079071045 (no time-travel context) - earned value preserved; ledger may be missing an earning channel
+```
+
+The guard is doing exactly what it was built for: a pool going DOWN with no
+time-travel context is the signature of a ledger that is missing an earning channel,
+and the guard's whole job is to preserve earned value rather than trust an
+incomplete reconstruction. It cannot distinguish that case from a legitimate
+contract penalty, because the only evidence it has is the direction of travel.
+
+**Why this is filed rather than fixed.** Deciding what SHOULD happen is a policy
+question about the drawdown guard, not a small obvious fix, and it has a real
+argument on each side. A contract failure is a genuine debit a player would expect
+to feel; equally, a guard that lets any recalc reduce a career's funds is exactly the
+protection PR #1097 exists to provide. The honest interim state is: the ledger
+reconstruction is CORRECT and the live career is UNCHANGED, and both halves are now
+measured rather than assumed. `L5-career-contract-complete` pins
+`PatchFunds: GUARDED DRAWDOWN clamped resource=Funds` as a required token precisely
+so a change in either direction reds and forces the decision to be taken on purpose.
+The numbers are deliberately NOT in the token: `running=` moves during the recalc
+burst (the same run logged an earlier clamp at `running=522200 live=531200`, before
+the recovery credit landed) and `live=` is the flight's own earnings, which
+`L3-career-science-recover` owns.
+
+**Note for whoever takes it.** The same run measured that the synthetic row is
+WALK-LOCAL: the produced `ledger.pgld` carries the two accepts and NO `type = 7`
+row, so the injection re-derives on every walk rather than being persisted once.
+That is what makes the token stable across runs, and it also means any fix has to
+keep working on a re-derived row rather than on a stored one. Evidence:
+`logs/2026-08-21_0124_L5-career-contract-complete/` (flight 1) and the
+`2026-08-20_2240` result JSON.
+
+## SAVE-AUTHORED-PROGRESS-NODE-DOES-NOT-RESTORE: a `Progress { FirstLaunch }` node written into a file-constructed career save is not read back, and it silently kills any save-authored Active `PartTest` [MEASURED 2026-08-20 by `L5-career-contract-complete`'s first flight (run `2026-08-20_2217`). HARNESS-FIXTURE FINDING, REPORT-ONLY: no product change is proposed, and nothing gates it. It is filed because it BLOCKS a specific class of fixture and because the next author to try one will otherwise spend the same flight]
+
+**What was tried.** `career-contract-pad` v1 spliced two nodes into
+`career-science-pad`'s save so the `science_bench_recover` flight would COMPLETE a
+real stock contract live: a `state = Active` `PartTest` on `solidBooster.sm.v2` at
+`sit = PRELAUNCH`, and `Progress { FirstLaunch { completedManned = 4 } }`. The
+completion mechanism was derived from the decompiled KSP 1.12.5
+`Assembly-CSharp.dll` before flying, and every link still holds:
+`ModuleTestSubject.OnActive()` fires `onTestRun` on a staging activation with no
+situation filter of its own; `solidBoosterRT-5_v2.cfg` declares `useStaging = True`
+and `situationMask = 60`, which includes `PRELAUNCH`; the mission emits its single
+`ACTION_ACTIVATE_STAGE` on the first decision frame, from PRELAUNCH; and
+`Contracts.Parameters.PartTest.OnPartRunTest` completes when the part name matches
+and `AllChildParametersComplete()`.
+
+**What happened.** The flight was textbook - MISSION-OK, all nine phases, analyzer
+`red=0`, zero `[Parsek][ERROR]`, zero Unity exceptions, 2 recordings, 463 s wall -
+and the completion never fired. The contract was gone from `ContractSystem` before
+the mission's first frame, and stock re-OFFERED a fresh contract with the identical
+subject 8 s later:
+
+```
+01:17:50.992 PatchContracts: ledger has 1 active contracts, ... KSP has 0 current contracts, 0 finished contracts
+01:17:57.243 Game state: ContractOffered 'Test RT-5 "Flea" Solid Fuel Booster at the Launch Site.' (diagnostic, not stored)
+```
+
+**The cause, read off two stock log lines rather than inferred.** The same run
+logged BOTH of these at 01:17:57, i.e. DURING the flight:
+
+```
+[Progress Node Reached]: FirstLaunch
+[Progress Node Complete]: FirstLaunch
+```
+
+`KSPAchievements.FirstLaunch.TestFlight` guards its award with
+`if (!base.IsComplete) { Complete(); ... }`, and `ProgressNode.Complete()` calls
+`Reach()` only when `!reached`. `ProgressNode.Load` sets `reached = true` on its
+FIRST line and `complete = true` in its `completedManned` branch. Both lines
+appearing therefore proves both flags were false at launch: **the spliced
+`FirstLaunch` node was never `Load`ed.** From there the contract's fate is
+mechanical - `Contracts.Templates.PartTest.MeetRequirements()` is
+`if (!ProgressTracking.Instance.NodeComplete("FirstLaunch")) return false;`, and
+`Contract.Update()` re-checks `MeetRequirements()` on EVERY tick of an ACTIVE
+contract, retiring it to `OfferExpired`, which is removed outright rather than kept
+in `ContractsFinished` - matching the observed `0 current, 0 finished`.
+
+**It is NOT "authored ScenarioModule children are lost".** The same run's produced
+save grew `ResearchAndDevelopment`'s `Tech` node from 13 `part =` lines to 23, so
+that module's child node loaded and was written back. It is also not a shape
+problem: the spliced `Progress` and `CONTRACT` blocks are byte-identical in
+structure and indentation to the ones `Source/Parsek.Tests/Fixtures/C2CareerPostFix/`
+carries, the save's brace balance is clean, there are no duplicate `ProgressTracking`
+or `ContractSystem` SCENARIO nodes, and the two saves carry the SAME 22 scenario
+modules with the same `scene` lists. Nor is it a staging failure: `career-earned-pad`
+- derived from a REAL KSP-written save - splices an Active `PartTest` the same way,
+and `L4-ledger-groundtruth-strict` measures all 9 of its contracts loading and
+surviving (`KSP has 9 current contracts`), which is itself proof that
+`MeetRequirements()` reads TRUE there and therefore that ProgressTracking DID restore
+in that lineage.
+
+**What is not known** is why the same node restores from one save and not from the
+other. `ProgressTracking.OnLoad` is `if (!node.HasNode("Progress")) return;` then
+`achievementTree.Load(node.GetNode("Progress"))`, `ProgressTree.Load` matches by
+`progressNode.Id`, and `OnAwake` populates the tree before either - so on the code
+alone it should work. The difference that remains unexamined is LINEAGE:
+`career-contract-pad` descends from the file-constructed `fresh-career`,
+`career-earned-pad` from a save KSP itself wrote.
+
+**Consequence, and why the lane routed around it rather than through it.** Until
+this is explained, a save-authored Active `PartTest` cannot be made to survive into a
+flight in the `fresh-career` lineage, so the LIVE `ContractComplete` gate this wave
+set out to build is not reachable from a file-constructed fixture. Re-flying a second
+guessed node shape would spend a flight on a hypothesis. `career-contract-pad` was
+therefore rebuilt with every claim in the LEDGER instead - two `type = 5` rows, one
+with a deadline sized to lapse mid-flight - and `L5-career-contract-complete` now
+gates `ContractsModule.PrePass`'s synthetic-fail injection, `CheckDeadlines`'s
+retirement and `ProcessFail`'s penalty application, none of which had a committed gate
+either. `ContractComplete` and `ContractCancel` remain ungated.
+
+**Where to start if someone picks this up.** The cheapest next experiment is a
+fixture derived from a KSP-WRITTEN career (the `career-earned-pad` lineage) carrying
+an Active `PartTest` whose part is on ITS craft and whose `sit` is the situation that
+craft is in when it stages - which would separate "lineage" from "authored node" in
+one flight. `harness/tools/build_career_contract_pad.py`'s module docstring carries
+the full derivation, and the collected evidence is
+`logs/2026-08-21_0124_L5-career-contract-complete/`.
+
 ## ~~SAME-TREE-DOCK-INVISIBLE-FROM-ABSORBED-SIDE: a cross-session dock inside one tree named nobody and was derivable from neither side~~ [FOUND by the 2026-08-12 dock/loop-coherence analysis (I2-ii); FIXED 2026-08-12/13, branches `same-tree-dock-claims` + `dock-event-graph` (design `docs/dev/design-dock-event-graph.md` 6.2 / 6.3-6.5, PR sequence steps 2-3)]
 
 A same-tree cross-session dock records single-parent (the partner's committed
