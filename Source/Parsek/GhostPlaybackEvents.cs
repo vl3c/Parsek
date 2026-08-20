@@ -287,6 +287,32 @@ namespace Parsek
     }
 
     /// <summary>
+    /// Fired once per (seam marker, unit cycle) when a looping mission's shared span clock enters a
+    /// precomputed seam window (design-dock-event-graph.md 7.3): the moment a ghost grows because a
+    /// partner mission's half joined it (R2), or ends because its line docked into a mission this
+    /// one does not replay (R3).
+    ///
+    /// <para>The engine stays Recording-free: <see cref="Text"/> is FULLY FORMATTED at loop-unit
+    /// build time and passed through opaquely. Clock-driven, not render-driven - it fires for a
+    /// hidden-not-destroyed watched member too (edge case 17), and never during the inter-cycle
+    /// tail or an unresolved span clock (edge case 19).</para>
+    /// </summary>
+    internal class SeamMarkerEvent : GhostLifecycleEvent
+    {
+        /// <summary>Which silent moment this explains (R2 / R3).</summary>
+        public GhostPlaybackLogic.SeamMarkerKind Kind;
+
+        /// <summary>Player-facing explanation, built by <c>LoopSeamMarkerBuilder</c>.</summary>
+        public string Text;
+
+        /// <summary>The seam's recorded UT (the dock UT), for logs and correlation.</summary>
+        public double SeamUT;
+
+        /// <summary>The loop cycle this fired on; a marker fires once per cycle.</summary>
+        public long UnitCycle;
+    }
+
+    /// <summary>
     /// Fired when an overlap ghost expires (negative-interval loop).
     /// </summary>
     internal class OverlapExpiredEvent : GhostLifecycleEvent

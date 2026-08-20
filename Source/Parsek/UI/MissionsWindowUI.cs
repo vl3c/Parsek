@@ -128,6 +128,70 @@ namespace Parsek
         private readonly Dictionary<string, List<MissionCompositionNode>> compositionCache =
             new Dictionary<string, List<MissionCompositionNode>>();
 
+        // Dock-event graph (design-dock-event-graph.md 6.5) held per FRAME, so the composition
+        // rows can name a dock partner without walking the graph host once per row per OnGUI
+        // pass. DockEventGraphCache itself is signature-gated (it rebuilds only when the
+        // committed topology moves) but recomputing that signature per row would still allocate;
+        // this reference memo makes a naming lookup a pure dictionary hit. The description memo
+        // is keyed by (tree id, interval key) - the whole row identity - and clears with the
+        // other per-frame caches in GetMissionView.
+        private DockEventGraph dockEventGraphCache;
+        private int dockEventGraphCacheFrame = -1;
+        private readonly Dictionary<string, string> dockPartnerTextCache =
+            new Dictionary<string, string>();
+
+        // Mission event digest (design-dock-event-graph.md 7.1). NOT a per-frame cache: the rows
+        // are keyed on the GRAPH INSTANCE (which the host cache only replaces when the committed
+        // topology signature moves) plus a fingerprint of the mission's included foreign dock
+        // links (the one selection input, via the R5 gap rows), so an expanded foldout costs one
+        // dictionary hit + one fingerprint fold per frame instead of a rebuild. Cleared only by
+        // those two inputs changing, so it survives across frames like the graph it mirrors.
+        private struct DigestCacheEntry
+        {
+            public DockEventGraph Graph;
+            public int LinkFingerprint;
+            public List<MissionEventRow> Rows;
+        }
+        private readonly Dictionary<string, DigestCacheEntry> digestCache =
+            new Dictionary<string, DigestCacheEntry>();
+
+        // Per-mission foldout expansion, keyed by Mission.Id. UI-SESSION ONLY: deliberately not
+        // persisted (a reading aid, not a selection), so it resets with the window like
+        // collapsedLegs does.
+        private readonly Dictionary<string, bool> digestExpanded = new Dictionary<string, bool>();
+
+        // Chapter grouping (design-dock-event-graph.md 7.2). Same memo shape and the same
+        // rationale as digestCache above: chapters and their key expansions derive from the TREE
+        // alone (never from the selection - the selection only decides the checkbox state), and
+        // any tree change moves the dock-event graph's topology signature, so the graph INSTANCE
+        // is a sufficient staleness key. Cached across frames like the graph it mirrors, so an
+        // open Missions window costs one dictionary hit per mission per frame instead of a
+        // structure + through-line + composition walk per chapter per frame.
+        private sealed class MissionChapterEntry
+        {
+            public ChapterRoot Root;
+            public HashSet<string> IntervalKeys;
+            /// <summary>The chapter's earliest interval key: the row its header sits above.</summary>
+            public string AnchorKey;
+        }
+        private struct ChapterCacheEntry
+        {
+            public DockEventGraph Graph;
+            public List<MissionChapterEntry> Chapters;
+            /// <summary>anchor interval key -> index into <see cref="Chapters"/>, so the row
+            /// walker's per-node lookup is one dictionary hit.</summary>
+            public Dictionary<string, int> AnchorToIndex;
+        }
+        private readonly Dictionary<string, ChapterCacheEntry> chapterCache =
+            new Dictionary<string, ChapterCacheEntry>();
+
+        // The chapters of the mission whose OWN composition rows are currently being drawn, set
+        // for the duration of that mission's compRoots loop and cleared straight after. Scoping
+        // it to that loop is deliberate: the foreign partner-journey rows drawn afterwards go
+        // through the same row walker, and a chapter is a statement about THIS mission's tree.
+        private List<MissionChapterEntry> currentChapters;
+        private Dictionary<string, int> currentChapterAnchors;
+
         // Per-frame cache of the T2.2 flattened per-vessel rows, keyed by TREE id (derived from
         // the composition roots, so every Mission over one tree shares them). Cleared alongside
         // missionViewCache on the first lookup of a new frame.
@@ -138,6 +202,50 @@ namespace Parsek
         // are the reading surface, the intervals are the opt-in authoring detail). Keyed like
         // collapsedLegs (mission id + head id), session-transient.
         private readonly HashSet<string> expandedVessels = new HashSet<string>();
+
+        // Actual rendered width of the expanding name cell, per row depth, captured on Repaint.
+        // IMGUI measures a word-wrapped label's height BEFORE the horizontal group resolves its
+        // width, so an ExpandWidth name cell that wraps gets a rect roughly a line short - and
+        // MiddleLeft centering then crops the text at BOTH ends (first line clipped at the top,
+        // last line at the bottom). Feeding the previous Repaint's width back through CalcHeight
+        // gives the layout the true height; same depth = same fixed columns + indent = same
+        // width, and the cache re-converges one repaint after any window resize.
+        private readonly Dictionary<int, float> wideCellWidthCache = new Dictionary<int, float>();
+
+        // Draws the expanding name cell (label, or caret button when asButton) at the explicit
+        // wrapped height described above. Returns true when the button was clicked.
+        private bool DrawWideRowCell(GUIContent content, int depth, bool asButton)
+        {
+            bool clicked;
+            if (wideCellWidthCache.TryGetValue(depth, out float w) && w > 1f)
+            {
+                float h = Mathf.Max(CompositionRowMinHeight,
+                    compositionCellLabel.CalcHeight(content, w));
+                clicked = asButton
+                    ? GUILayout.Button(content, compositionCellLabel,
+                        GUILayout.ExpandWidth(true), GUILayout.Height(h))
+                    : Label(content, GUILayout.ExpandWidth(true), GUILayout.Height(h));
+            }
+            else
+            {
+                clicked = asButton
+                    ? GUILayout.Button(content, compositionCellLabel, GUILayout.ExpandWidth(true))
+                    : Label(content, GUILayout.ExpandWidth(true));
+            }
+            if (Event.current.type == EventType.Repaint)
+            {
+                Rect r = GUILayoutUtility.GetLastRect();
+                if (r.width > 1f)
+                    wideCellWidthCache[depth] = r.width;
+            }
+            return clicked;
+
+            bool Label(GUIContent c, params GUILayoutOption[] opts)
+            {
+                GUILayout.Label(c, compositionCellLabel, opts);
+                return false;
+            }
+        }
 
         // Constant-payload checkbox contents, allocated once instead of per row per pass.
         private static readonly GUIContent VesselIncludeCheckboxContent =
@@ -359,18 +467,27 @@ namespace Parsek
 
             // Composition-row cell: same padding, but vertically centered + stretched to the row
             // height so the text sits centered in the MinHeight'd row (not floating at the top).
+            // The 5 px BOTTOM padding exists for the WRAPPED case: when a long cell (the T2.2
+            // vessel event chain, typically) wraps, IMGUI's computed height comes up a few px
+            // short and the last line's descenders clip (owner playtest 2026-08-20). Padding
+            // grows the computed height only past what the row's MinHeight already grants, so
+            // single-line rows render exactly as before (label ~16+5 px < the 22 px row floor).
             compositionCellLabel = new GUIStyle(bodyCellLabel)
             {
                 alignment = TextAnchor.MiddleLeft,
-                stretchHeight = true
+                stretchHeight = true,
+                padding = new RectOffset(BodyCellTextIndent, 0, 0, 5)
             };
 
             // Non-wrapping variant for the dock-partner "Start event" cell (T1.4): a long partner
             // name clips instead of wrapping the row taller (the full phrase is the tooltip).
+            // Keeps the ORIGINAL padding - it is single-line by construction, and the wrapped-crop
+            // bottom padding above would push its centered text off-baseline.
             compositionCellLabelNoWrap = new GUIStyle(compositionCellLabel)
             {
                 wordWrap = false,
-                clipping = TextClipping.Clip
+                clipping = TextClipping.Clip,
+                padding = cellLabelPadding
             };
 
             tableBodyBoxStyle = new GUIStyle(GUI.skin.box)
@@ -793,22 +910,42 @@ namespace Parsek
                 // no cascade (the per-vessel checkbox expands to the vessel's own explicit
                 // keys). The row derivations (T1.3 delta labels, T1.4 dock-partner naming)
                 // read this tree's own structure / through-line view.
-                var rowCtx = new RowDeriveContext { Structure = structure, View = view };
+                var rowCtx = new RowDeriveContext { Structure = structure, View = view, Mission = mission };
                 var vesselRows = GetVesselRows(tree);
-                for (int r = 0; r < vesselRows.Count; r++)
+                // Chapter grouping (design 7.2): armed only for this mission's own rows, so a
+                // header appears above the vessel row that carries a chapter's first interval.
+                // Cleared in finally so a mid-draw exception cannot leak one mission's chapters
+                // onto the next. Under the T2.2 flattened layout the header anchors to the
+                // VESSEL row containing the chapter's anchor interval (a SwitchContinuation
+                // chapter's first interval can sit mid-line, folded into the pre-switch
+                // through-line, so the row - not an interval sub-row - is the anchor surface).
+                ArmChapters(mission, tree);
+                try
                 {
-                    bool isLast = r == vesselRows.Count - 1;
-                    // The launch row (the mission's first vessel row) carries the mission's
-                    // "Next launch" countdown under that column; every other row leaves it blank.
-                    bool isLaunchRoot = r == 0;
-                    rowCount += DrawVesselRow(vesselRows[r], mission, 1, isLast,
-                        isLaunchRoot, periodicity, rowCtx);
+                    for (int r = 0; r < vesselRows.Count; r++)
+                    {
+                        bool isLast = r == vesselRows.Count - 1;
+                        // The launch row (the mission's first vessel row) carries the mission's
+                        // "Next launch" countdown under that column; every other row leaves it blank.
+                        bool isLaunchRoot = r == 0;
+                        rowCount += TryDrawChapterHeaderRowForVesselRow(mission, vesselRows[r]);
+                        rowCount += DrawVesselRow(vesselRows[r], mission, 1, isLast,
+                            isLaunchRoot, periodicity, rowCtx);
+                    }
+                }
+                finally
+                {
+                    DisarmChapters();
                 }
 
                 // M-MIS-8: cross-tree partner-journey affordance - one row per derived foreign
                 // dock link on this tree's vessel(s), with the journey's intervals as child rows
                 // when the link is included (explicit player action; default off).
                 rowCount += DrawForeignDockLinkRows(mission, tree, trees);
+
+                // The mission's chronological story (design 7.1 / issue-1 T2.3), collapsed by
+                // default so it costs one row until the player asks for it.
+                rowCount += DrawEventDigestRows(mission, tree);
             }
 
             GUILayout.EndVertical();
@@ -861,6 +998,8 @@ namespace Parsek
                 vesselRowsCache.Clear();
                 foreignLinksCache.Clear();
                 journeyLegsCache.Clear();
+                dockPartnerTextCache.Clear();
+
                 summaryFactsCache.Clear();
                 missionViewCacheFrame = frame;
             }
@@ -922,6 +1061,172 @@ namespace Parsek
             }
             return roots;
         }
+
+        // R6 double-clock advisory (design-dock-event-graph.md 7.7, gated on the section-7.8
+        // verification, which CONFIRMED the collision - see
+        // docs/dev/research/double-clock-verification-2026-08-13.md). Called on loop-ENABLE only:
+        // when the freshly-looping mission's tree is dock-connected (transitively) to a tree whose
+        // own mission is ALSO looping, the two loops run independent clocks over recordings that
+        // share physical matter, so one vessel can be on screen twice at two recorded times. ONE
+        // ScreenMessage, no enforcement.
+        //
+        // The link-include toggle does NOT need this: including a partner-journey link calls
+        // MissionStore.ClearLoopsConflictingWith, which turns the foreign tree's own loop OFF, so
+        // the two-concurrent-loops state the advisory describes cannot survive that path.
+        private void PostDoubleClockAdvisoryIfAny(Mission mission)
+        {
+            string advisory = MissionStore.TryDescribeDoubleClockAdvisory(
+                mission, MissionStore.Missions, GetDockEventGraph());
+            if (string.IsNullOrEmpty(advisory))
+                return;
+            try
+            {
+                ScreenMessages.PostScreenMessage(
+                    "[Parsek] " + advisory, 8f, ScreenMessageStyle.UPPER_LEFT);
+            }
+            catch (System.Exception ex)
+            {
+                // A ScreenMessages failure must never take the Missions-window draw pass with it.
+                ParsekLog.Warn("Mission",
+                    $"double-clock advisory PostScreenMessage threw: {ex.GetType().Name}: {ex.Message}");
+            }
+        }
+
+        // ---- dock-partner naming (design-dock-event-graph.md 6.5 / 7.6) ----
+
+        // The global dock-event graph, fetched at most once per frame. NOT log-suppressed: the
+        // host cache only rebuilds on a committed-topology signature change, and that rebuild is
+        // exactly the event the one [DockGraph] summary line exists for.
+        private DockEventGraph GetDockEventGraph()
+        {
+            int frame = Time.frameCount;
+            if (frame != dockEventGraphCacheFrame || dockEventGraphCache == null)
+            {
+                dockEventGraphCache = DockEventGraphCache.GetOrBuild();
+                dockEventGraphCacheFrame = frame;
+            }
+            return dockEventGraphCache;
+        }
+
+        // (treeId, recordingId) -> mission name, the resolver DockEventGraph.TryDescribePartner
+        // takes so the pure core stays free of Mission / MissionStore references. The recording
+        // id is unused today: a tree's narrative custody is its original mission (clones are
+        // player-made views of the same tree, and naming one of those as "the partner's mission"
+        // would be arbitrary).
+        internal static string ResolvePartnerMissionName(string treeId, string recordingId)
+        {
+            Mission m = MissionStore.FindOriginalMission(treeId);
+            return m != null ? m.Name : null;
+        }
+
+        /// <summary>
+        /// The dock partner named by a composition interval whose START is a Dock / Board merge:
+        /// "with CD (mission 'CD Freighter')", or null when there is nothing to name (design 6.4
+        /// keeps the tables silent exactly where they are silent today). Cached per frame.
+        /// </summary>
+        private string GetIntervalDockPartnerText(Mission mission, MissionCompositionNode node)
+        {
+            if (mission == null || node == null || node.IsAtom
+                || string.IsNullOrEmpty(mission.TreeId)
+                || !IsMergeStartEvent(node.StartEvent))
+                return null;
+
+            string key = mission.TreeId + KeySeparator + (node.HeadLegId ?? "");
+            if (dockPartnerTextCache.TryGetValue(key, out string cached))
+                return cached;
+
+            string text = BuildIntervalDockPartnerText(mission, node);
+            dockPartnerTextCache[key] = text;
+            return text;
+        }
+
+        // The composition layer labels a merge-started interval through MergeEventName ->
+        // BranchEventName, so the words are taken FROM that function rather than duplicated here
+        // (a relabel there must not silently switch this naming off). Gating on the label keeps
+        // the graph lookup off the hot path for the ~99% of rows that start at a launch /
+        // decouple / EVA edge. Null cause: a Dock/Board branch point's MergeCause ("DOCK",
+        // "BOARD", "CLAW", "CONSTRUCT") never matches BranchEventName's cause switch, so the
+        // type arm is what both a real row and this probe resolve through.
+        private static readonly string DockedEventLabel =
+            MissionCompositionBuilder.BranchEventName(BranchPointType.Dock, null);
+        private static readonly string BoardedEventLabel =
+            MissionCompositionBuilder.BranchEventName(BranchPointType.Board, null);
+
+        private static bool IsMergeStartEvent(string startEvent)
+            => string.Equals(startEvent, DockedEventLabel, System.StringComparison.Ordinal)
+               || string.Equals(startEvent, BoardedEventLabel, System.StringComparison.Ordinal);
+
+        private string BuildIntervalDockPartnerText(Mission mission, MissionCompositionNode node)
+        {
+            DockEventGraph graph = GetDockEventGraph();
+            if (graph == null)
+                return null;
+
+            // Map interval -> branch point by UT, restricted to branch points this tree OWNS.
+            // Composition interval edges are cut FROM the merge legs' UTs (the same doubles the
+            // branch points carry), so the epsilon only absorbs representation noise. Restricting
+            // to owned nodes removes the only ambiguity the UT match could have: a foreign node
+            // resolved INTO this tree shares no interval edge with it.
+            DockEventNode merge = null;
+            List<DockEventNode> candidates = graph.NodesForTree(mission.TreeId);
+            for (int i = 0; i < candidates.Count; i++)
+            {
+                DockEventNode n = candidates[i];
+                if (n.IsMerge && !n.VisibilityFlagged
+                    && string.Equals(n.TreeId, mission.TreeId, System.StringComparison.Ordinal)
+                    && System.Math.Abs(n.UT - node.StartUT) <= DockPartnerUTEpsilon)
+                {
+                    merge = n;
+                    break;
+                }
+            }
+            if (merge == null)
+                return null;
+
+            // Viewer = this row's own line, so the description names the OTHER vessel. The
+            // through-line head is the mission's side of the merge in the ordinary shape; when it
+            // is not one of the branch point's parents, a single-parent merge can still answer
+            // from the parent (the partner is the claimed recording either way), while a
+            // TWO-parent merge must stay silent rather than guess which parent the row is on -
+            // guessing is exactly how a row ends up naming its own vessel as its partner.
+            if (!DockEventGraph.TryDescribePartner(
+                    graph, merge.BranchPointId, node.OwnerHeadId,
+                    ResolvePartnerMissionName, out DockPartnerDescription d))
+            {
+                if (merge.Partner.Status == DockPartnerStatus.TwoParentSameTree
+                    || merge.ParentRecordingIds.Count == 0
+                    || !DockEventGraph.TryDescribePartner(
+                        graph, merge.BranchPointId, merge.ParentRecordingIds[0],
+                        ResolvePartnerMissionName, out d))
+                    return null;
+            }
+            return FormatDockPartner(d);
+        }
+
+        // (The Mission-parameter DrawStartEventCell overload this branch carried merged into the
+        // RowDeriveContext cell above: the T1.4 two-parent walk answers first, the dock-event
+        // graph answers what it cannot - cross-tree and recovered same-tree partners, with the
+        // partner's mission name.)
+
+        /// <summary>"with CD (mission 'CD Freighter')", or "with CD" when no mission names it.</summary>
+        internal static string FormatDockPartner(DockPartnerDescription d)
+        {
+            if (string.IsNullOrEmpty(d.PartnerVesselName))
+                return null;
+            return string.IsNullOrEmpty(d.PartnerMissionName)
+                ? "with " + d.PartnerVesselName
+                : "with " + d.PartnerVesselName + " (mission '" + d.PartnerMissionName + "')";
+        }
+
+        // Merge-leg UTs and interval edges are the same doubles; this only absorbs
+        // representation noise (mirrors MissionCrossTreeDock.WindowEpsilon).
+        private const double DockPartnerUTEpsilon = 1e-3;
+
+        // Memo-key separator: a character no tree id or interval key can contain, written as an
+        // escape so it stays visible in a diff (a literal control character reads as a MISSING
+        // separator). Interval keys append "/segN" / "@dockM" to a recording id, so a printable
+        // separator would not be provably collision-free.
+        private const string KeySeparator = "";
 
         // Returns the cached T2.2 flattened per-vessel rows for a tree (built once per frame
         // from the same composition roots that GetCompositionRoots caches). The dock-partner
@@ -1090,6 +1395,11 @@ namespace Parsek
         {
             public MissionStructure Structure;
             public MissionThroughLineView View;
+            // The mission whose window is rendering, for the dock-event-graph naming
+            // fallback (design-dock-event-graph.md 6.5): the graph lookup keys on the
+            // mission's OWN tree, so on a foreign partner-journey subtree it resolves
+            // nothing and the bare event word stands, exactly as before.
+            public Mission Mission;
         }
 
         // T2.2: one FLATTENED row per physical vessel / EVA kerbal. Depth encodes separation
@@ -1177,17 +1487,10 @@ namespace Parsek
             }
             var wideContent = new GUIContent(wide, tooltip);
 
-            if (expandable)
+            if (DrawWideRowCell(wideContent, depth, expandable))
             {
-                if (GUILayout.Button(wideContent, compositionCellLabel, GUILayout.ExpandWidth(true)))
-                {
-                    if (expanded) expandedVessels.Remove(expandKey);
-                    else expandedVessels.Add(expandKey);
-                }
-            }
-            else
-            {
-                GUILayout.Label(wideContent, compositionCellLabel, GUILayout.ExpandWidth(true));
+                if (expanded) expandedVessels.Remove(expandKey);
+                else expandedVessels.Add(expandKey);
             }
 
             // "Next launch" countdown on the mission's launch row only (mission-level value:
@@ -1371,18 +1674,13 @@ namespace Parsek
                 node.StartEvent, peeledSibling);
             string wide = connector + caret + label;
 
-            if (hasChildren)
+            // Wrapped-height-correct wide cell (see DrawWideRowCell): a long T1.3 delta label
+            // wraps, and the naive ExpandWidth label got a rect a line short.
+            if (DrawWideRowCell(new GUIContent(wide), depth, hasChildren))
             {
-                if (GUILayout.Button(wide, compositionCellLabel, GUILayout.ExpandWidth(true)))
-                {
-                    string key = CollapseKey(mission, node.HeadLegId);
-                    if (collapsedLegs.Contains(key)) collapsedLegs.Remove(key);
-                    else collapsedLegs.Add(key);
-                }
-            }
-            else
-            {
-                GUILayout.Label(wide, compositionCellLabel, GUILayout.ExpandWidth(true));
+                string key = CollapseKey(mission, node.HeadLegId);
+                if (collapsedLegs.Contains(key)) collapsedLegs.Remove(key);
+                else collapsedLegs.Add(key);
             }
 
             // Blank "Next launch" slot: since T2.2 the mission's countdown lives on the launch
@@ -1441,6 +1739,190 @@ namespace Parsek
             GUILayout.EndHorizontal();
         }
 
+        // ---- chapter grouping (design-dock-event-graph.md 7.2) ----
+        //
+        // Own draw region by the design's section-8 file-ownership seam: the chapter header is an
+        // ADDITIONAL row, so nothing in the interval staircase above moves and issue-1's row
+        // refactor has no textual overlap with this block.
+
+        // Builds (or reuses) this mission's chapters and arms them for the composition walk.
+        private void ArmChapters(Mission mission, RecordingTree tree)
+        {
+            ChapterCacheEntry entry = GetChapters(mission, tree);
+            currentChapters = entry.Chapters;
+            currentChapterAnchors = entry.AnchorToIndex;
+        }
+
+        private void DisarmChapters()
+        {
+            currentChapters = null;
+            currentChapterAnchors = null;
+        }
+
+        // Chapters for a mission, rebuilt only when the dock-event graph INSTANCE changes (a
+        // committed-topology move). Chapters derive from the tree alone, and every tree change
+        // moves the graph signature, so that reference is the whole staleness key - the same
+        // argument (and the same residual: an edit that leaves both per-tree counts equal) as the
+        // digest cache above.
+        private ChapterCacheEntry GetChapters(Mission mission, RecordingTree tree)
+        {
+            if (mission == null || string.IsNullOrEmpty(mission.Id) || tree == null)
+                return default;
+
+            DockEventGraph graph = GetDockEventGraph();
+            if (chapterCache.TryGetValue(mission.Id, out ChapterCacheEntry cached)
+                && ReferenceEquals(cached.Graph, graph))
+                return cached;
+
+            var (structure, _) = GetMissionView(tree);
+            List<MissionCompositionNode> compRoots = GetCompositionRoots(tree);
+            List<ChapterRoot> roots = MissionChapters.CollectChapterRoots(
+                graph, tree, ResolvePartnerMissionName);
+
+            var chapters = new List<MissionChapterEntry>();
+            var anchors = new Dictionary<string, int>(System.StringComparer.Ordinal);
+            for (int i = 0; i < roots.Count; i++)
+            {
+                HashSet<string> keys = MissionChapters.ExpandChapterToIntervalKeys(
+                    roots[i], structure, compRoots);
+                string anchor = MissionChapters.ResolveChapterAnchorKey(keys, compRoots);
+                // A chapter that owns no selectable key has nothing to head and nothing to
+                // toggle (a debris-only or fully-collapsed sub-story); drawing an inert header
+                // would be a row that does nothing. Two chapters landing on the SAME anchor row
+                // is likewise a header we cannot place - only one row can carry one - so the
+                // later one is dropped. Both outcomes are logged: a chapter that silently fails
+                // to render is exactly the thing that is undiagnosable from a screenshot.
+                if (string.IsNullOrEmpty(anchor) || anchors.ContainsKey(anchor))
+                {
+                    ParsekLog.Verbose("Mission",
+                        $"Chapters: no header for '{roots[i].Title}' (root={roots[i].RootRecordingId}) " +
+                        $"- {(string.IsNullOrEmpty(anchor) ? "owns no selectable interval key" : "anchor '" + anchor + "' already headed by another chapter")}");
+                    continue;
+                }
+                anchors[anchor] = chapters.Count;
+                chapters.Add(new MissionChapterEntry
+                {
+                    Root = roots[i],
+                    IntervalKeys = keys,
+                    AnchorKey = anchor,
+                });
+            }
+
+            var entry = new ChapterCacheEntry
+            {
+                Graph = graph,
+                Chapters = chapters,
+                AnchorToIndex = anchors,
+            };
+            chapterCache[mission.Id] = entry;
+            return entry;
+        }
+
+        /// <summary>
+        /// T2.2 adaptation: draws the chapter group header above the FLATTENED vessel row that
+        /// carries a chapter's anchor interval. Scans the row's own intervals because a
+        /// SwitchContinuation chapter's first interval folds into the pre-switch through-line
+        /// (per-line UT floor), so it is not necessarily the row's first interval. At most one
+        /// header per row (a row cannot own two chapter anchors: anchors are distinct interval
+        /// keys of distinct sub-stories, and a line re-entering a second chapter is not a shape
+        /// CollectChapterRoots can produce). Returns rows drawn (0 or 1).
+        /// </summary>
+        private int TryDrawChapterHeaderRowForVesselRow(Mission mission, MissionVesselRow row)
+        {
+            if (row == null || row.Intervals == null)
+                return 0;
+            for (int i = 0; i < row.Intervals.Count; i++)
+            {
+                int drawn = TryDrawChapterHeaderRow(mission, row.Intervals[i], 1);
+                if (drawn > 0)
+                    return drawn;
+            }
+            return 0;
+        }
+
+        /// <summary>
+        /// Draws the chapter group header when <paramref name="node"/> is a chapter's first row.
+        /// Returns the number of rows drawn (0 or 1).
+        /// </summary>
+        private int TryDrawChapterHeaderRow(Mission mission, MissionCompositionNode node, int depth)
+        {
+            // IsSelectable is load-bearing, not a shortcut: a roster ATOM carries its owning
+            // interval's HeadLegId verbatim (MissionCompositionBuilder.AddAtoms /
+            // AddCrewAtom), so keying the anchor lookup on the id alone would redraw the
+            // header above every pod / probe / crew leaf of the chapter's first interval.
+            if (currentChapterAnchors == null || currentChapters == null
+                || node == null || !node.IsSelectable || string.IsNullOrEmpty(node.HeadLegId)
+                || !currentChapterAnchors.TryGetValue(node.HeadLegId, out int idx)
+                || idx < 0 || idx >= currentChapters.Count)
+                return 0;
+            DrawChapterHeaderRow(mission, currentChapters[idx], depth);
+            return 1;
+        }
+
+        private void DrawChapterHeaderRow(Mission mission, MissionChapterEntry chapter, int depth)
+        {
+            // Read the tri-state ONCE, before the toggle: the click handler mutates the excluded
+            // set mid-frame, and a state re-read afterwards could change which CONTROL this row
+            // draws between the Layout and Repaint passes of the same frame (IMGUI's
+            // "Getting control N's position in a group with only M controls"). The control set is
+            // therefore fixed regardless of state - see the mixed-marker note below.
+            ChapterSelectionState state = MissionChapters.ClassifyChapterState(
+                chapter.IntervalKeys, mission.ExcludedIntervalKeys);
+
+            GUILayout.BeginHorizontal(GUILayout.MinHeight(CompositionRowMinHeight));
+            GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_Enable));
+
+            // Tri-state as ONE always-drawn Toggle plus a text marker, rather than swapping in a
+            // different control for Mixed: swapping would change the control count mid-frame the
+            // moment the click lands (the same hazard the digest foldout defers around), and
+            // there is no existing mixed-state toggle style in this codebase to borrow. Checked
+            // means "some of this chapter is included", so one click drops the whole chapter and
+            // the next brings all of it back.
+            bool shownChecked = state != ChapterSelectionState.AllExcluded;
+            bool toggled = GUILayout.Toggle(shownChecked, "",
+                GUILayout.Width(ColW_Index), GUILayout.ExpandHeight(true));
+            if (toggled != shownChecked)
+            {
+                int changed = 0;
+                foreach (string key in chapter.IntervalKeys)
+                {
+                    if (toggled)
+                    {
+                        if (mission.ExcludedIntervalKeys.Remove(key)) changed++;
+                    }
+                    else if (mission.ExcludedIntervalKeys.Add(key))
+                    {
+                        changed++;
+                    }
+                }
+                // Same reason as the per-interval checkbox: this edit is authored against CURRENT
+                // key numbering, so a gen-0 mission that became editable mid-session must not be
+                // extended across its @dock sub-siblings by the next load's legacy reconcile.
+                mission.SelectionSchemaGeneration = Mission.CurrentSelectionSchemaGeneration;
+                ParsekLog.Info("Mission",
+                    $"chapter '{chapter.Root.Title}' {(toggled ? "include" : "exclude")} " +
+                    $"keys={changed.ToString(System.Globalization.CultureInfo.InvariantCulture)} " +
+                    $"mission='{mission.Name}'");
+            }
+
+            Color prevColor = GUI.color;
+            if (state == ChapterSelectionState.AllExcluded)
+                GUI.color = DimColor;
+            float indent = RecordingsTableUI.SelfConnectorIndent(depth);
+            if (indent > 0f)
+                GUILayout.Space(indent);
+            // The header is a group label, not a leg: it deliberately carries no tree connector
+            // (the row under it owns that) and no span columns - a chapter's span is exactly the
+            // union of the rows below, which are already showing it.
+            string marker = state == ChapterSelectionState.Mixed ? "[~] " : "";
+            GUILayout.Label(marker + (chapter.Root.Title ?? ""),
+                compositionCellLabel, GUILayout.ExpandWidth(true));
+            GUI.color = prevColor;
+
+            DrawBlankDigestCells();
+            GUILayout.EndHorizontal();
+        }
+
         // The "Start event" cell. A same-tree Dock / Board boundary names the OTHER vessel that
         // joined ("Docked with Munport Station", T1.4) - the rendezvous is the most narratively
         // important moment in a station mission and the row used to present it as an unexplained
@@ -1462,12 +1944,29 @@ namespace Parsek
                 ctx.Structure, ctx.View, node.OwnerHeadId, node.StartUT);
             if (string.IsNullOrEmpty(partner))
             {
-                // Fallback (a foreign / single-parent dock, or a merge leg the through-line walk
-                // does not carry): the bare word, exactly as before. Lazy overload: this runs
-                // per row per pass, so the string must not be built while suppressed.
+                // Dock-event-graph fallback (design-dock-event-graph.md 6.5): the two-parent
+                // walk above cannot name a CROSS-TREE partner or a RECOVERED same-tree
+                // single-parent dock (the A->D shape); the graph resolves both, with the
+                // partner's mission name. Tooltip-first, inline when it measures inside the
+                // cell (the visible-label rework of this column stays issue-1's concern).
+                string graphText = GetIntervalDockPartnerText(ctx.Mission, node);
+                if (!string.IsNullOrEmpty(graphText))
+                {
+                    string full = eventWord + " " + graphText;
+                    var graphContent = new GUIContent(eventWord, full);
+                    if (compositionCellLabel.CalcSize(new GUIContent(full)).x <= ColW_StartEvent)
+                        graphContent.text = full;
+                    GUILayout.Label(graphContent, compositionCellLabelNoWrap,
+                        GUILayout.Width(ColW_StartEvent));
+                    return;
+                }
+                // Fallback (a merge neither resolver can name): the bare word, exactly as
+                // before. Lazy overload: this runs per row per pass, so the string must not be
+                // built while suppressed.
                 ParsekLog.VerboseRateLimited("Mission", "missions-dock-partner-unresolved",
                     () => $"Missions row: dock boundary '{eventWord}' at interval '{node.HeadLegId}' " +
-                    "named no same-tree partner; showing the bare event word", 30.0);
+                    "named no partner (two-parent walk and dock graph both silent); " +
+                    "showing the bare event word", 30.0);
                 GUILayout.Label(eventWord, compositionCellLabel, GUILayout.Width(ColW_StartEvent));
                 return;
             }
@@ -1593,13 +2092,17 @@ namespace Parsek
                 if (indent > 0f)
                     GUILayout.Space(indent);
                 // "Docked partner: <vessel>" (T1.7) - the old "Partner journey - X" was designer
-                // vocabulary; the row is the vessel that docked with this mission's ship.
-                GUILayout.Label(
+                // vocabulary; the row is the vessel that docked with this mission's ship. Drawn
+                // through the wrapped-height-correct wide cell (a long partner name wraps).
+                DrawWideRowCell(
                     new GUIContent(
                         RecordingsTableUI.TreeConnector(li == links.Count - 1)
-                        + $"Docked partner: {link.ForeignVesselName}",
+                        + $"Docked partner: {link.ForeignVesselName}"
+                        // R5 (design-dock-event-graph.md 7.4): the loiter between the
+                        // partner's recorded end and the dock is stated, never implied.
+                        + FormatLinkLoiterGap(tree, link),
                         MissionPresentation.PartnerJourneyTooltip),
-                    compositionCellLabel, GUILayout.ExpandWidth(true));
+                    1, false);
                 GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_TMinus));
                 GUILayout.Label(KSPUtil.PrintDateCompact(link.DockUT, true),
                     compositionCellLabel, GUILayout.Width(ColW_StartTime));
@@ -1632,6 +2135,7 @@ namespace Parsek
                 {
                     Structure = foreignStructure,
                     View = foreignView,
+                    Mission = mission,
                 };
                 for (int r = 0; r < foreignRoots.Count; r++)
                     rows += DrawMaximalJourneyNodes(foreignRoots[r], mission, journeyWindows, 2,
@@ -1640,6 +2144,33 @@ namespace Parsek
                 // ComputeJourneyWindowsByOwner emits no diagnostics.)
             }
             return rows;
+        }
+
+        /// <summary>
+        /// R5 gap statement (design-dock-event-graph.md 7.4): our vessel's OWN recording stops well
+        /// before the dock the partner journey begins at, so the journey the player is about to
+        /// switch on starts with time nobody recorded. State the gap, never interpolate over it.
+        ///
+        /// <para>Returns "" (the overwhelmingly common case) when the recording runs right up to the
+        /// dock, when it is missing, or when the shortfall is under the threshold. Threshold and
+        /// wording are SHARED with the digest's own gap row
+        /// (<see cref="MissionEventDigest.GapThresholdSeconds"/> /
+        /// <see cref="MissionEventDigest.FormatRowText"/> phrasing) so the two surfaces can never
+        /// state the same gap differently. Duration goes through the house formatter
+        /// (InvariantCulture).</para>
+        /// </summary>
+        internal static string FormatLinkLoiterGap(RecordingTree tree, ForeignDockLink link)
+        {
+            if (tree?.Recordings == null || link == null
+                || string.IsNullOrEmpty(link.ClaimedRecordingId))
+                return "";
+            if (!tree.Recordings.TryGetValue(link.ClaimedRecordingId, out Recording claimed)
+                || claimed == null)
+                return "";
+            double gap = link.DockUT - claimed.EndUT;
+            if (double.IsNaN(gap) || gap <= MissionEventDigest.GapThresholdSeconds)
+                return "";
+            return " (loiter, " + ParsekTimeFormat.FormatDuration(gap) + " - not recorded)";
         }
 
         // Walks a foreign composition tree and draws every MAXIMAL partner-journey node (a
@@ -1708,6 +2239,175 @@ namespace Parsek
             return rows;
         }
 
+        // ---- mission event digest (design-dock-event-graph.md 7.1; issue-1's T2.3) ----
+
+        /// <summary>
+        /// The mission's chronological story: one collapsed-by-default "Events (N)" foldout row,
+        /// and while expanded one line per <see cref="MissionEventRow"/> ("&lt;date&gt; - &lt;subject
+        /// verb partner&gt;"), with a "Go to" button on the rows whose other side lives in another
+        /// mission. Returns the number of rows drawn.
+        /// <para>Minimal by design: the row CONTRACT is this PR's deliverable (issue-1 owns the
+        /// eventual styling, design section 8), so this renders through the tab's existing row
+        /// idioms and adds no new columns.</para>
+        /// </summary>
+        private int DrawEventDigestRows(Mission mission, RecordingTree tree)
+        {
+            List<MissionEventRow> rows = GetEventDigest(mission, tree);
+            if (rows == null || rows.Count == 0)
+                return 0;
+
+            bool expanded = mission.Id != null
+                && digestExpanded.TryGetValue(mission.Id, out bool e) && e;
+
+            GUILayout.BeginHorizontal(GUILayout.MinHeight(CompositionRowMinHeight));
+            GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_Enable));
+            GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_Index));
+            float headerIndent = RecordingsTableUI.SelfConnectorIndent(1);
+            if (headerIndent > 0f)
+                GUILayout.Space(headerIndent);
+            string caret = expanded ? CaretDown : CaretRight;
+            if (GUILayout.Button(
+                    caret + "Events (" +
+                    rows.Count.ToString(System.Globalization.CultureInfo.InvariantCulture) + ")",
+                    compositionCellLabel, GUILayout.ExpandWidth(true)))
+            {
+                // Written to the dictionary ONLY: `expanded` decides how many rows this pass
+                // draws, and flipping it mid-frame would make a Repaint disagree with its own
+                // Layout pass ("Getting control N's position in a group with only M controls").
+                // The flip takes effect next frame, exactly like the composition-row collapse.
+                bool next = !expanded;
+                if (!string.IsNullOrEmpty(mission.Id))
+                    digestExpanded[mission.Id] = next;
+                ParsekLog.Verbose("UI",
+                    $"Mission '{mission.Name}' event digest expanded={next} rows={rows.Count}");
+            }
+            DrawBlankDigestCells();
+            GUILayout.EndHorizontal();
+            int drawn = 1;
+
+            if (!expanded)
+                return drawn;
+
+            for (int i = 0; i < rows.Count; i++)
+            {
+                MissionEventRow row = rows[i];
+                GUILayout.BeginHorizontal(GUILayout.MinHeight(CompositionRowMinHeight));
+                GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_Enable));
+                GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_Index));
+                float indent = RecordingsTableUI.SelfConnectorIndent(2);
+                if (indent > 0f)
+                    GUILayout.Space(indent);
+                GUILayout.Label(
+                    RecordingsTableUI.TreeConnector(i == rows.Count - 1)
+                    + KSPUtil.PrintDateCompact(row.UT, true) + " - "
+                    + MissionEventDigest.FormatRowText(row),
+                    compositionCellLabel, GUILayout.ExpandWidth(true));
+                GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_TMinus));
+                GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_StartTime));
+                GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_StartEvent));
+                GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_EndEvent));
+                GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_EndTime));
+
+                // The cross-navigation, in the Re-Fly column's slot so the Archive column stays
+                // aligned. Same call contract as the Timeline's GoTo button: the Recordings window
+                // owns opening itself on the Missions tab and delegates the scroll to
+                // RevealMissionForRecording (which is built to be called from a mid-frame click
+                // handler - it only QUEUES the archive-filter clear).
+                if (!string.IsNullOrEmpty(row.GoToRecordingId))
+                {
+                    if (GUILayout.Button(
+                            new GUIContent("Go to", BuildDigestGoToTooltip(row)),
+                            GUILayout.Width(ColW_ReFly)))
+                    {
+                        ParsekLog.Info("UI",
+                            $"Mission event digest GoTo: mission='{mission.Name}' " +
+                            $"recording={row.GoToRecordingId} " +
+                            $"targetMission={row.GoToMissionId ?? "<unresolved>"} " +
+                            $"verb='{row.Verb}' bp={row.SourceBranchPointId ?? "<none>"}");
+                        parentUI.GetRecordingsTableUI().ShowMissionForRecording(row.GoToRecordingId);
+                    }
+                }
+                else
+                {
+                    GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_ReFly));
+                }
+
+                GUILayout.BeginHorizontal(GUILayout.Width(ColW_Archive));
+                GUILayout.FlexibleSpace();
+                GUILayout.EndHorizontal();
+                GUILayout.EndHorizontal();
+                drawn++;
+            }
+            return drawn;
+        }
+
+        // The data columns a digest row leaves blank (the story text lives in the name column),
+        // plus the trailing margin-0 Archive spacer every row in this tab ends with.
+        private void DrawBlankDigestCells()
+        {
+            GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_TMinus));
+            GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_StartTime));
+            GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_StartEvent));
+            GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_EndEvent));
+            GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_EndTime));
+            GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_ReFly));
+            GUILayout.BeginHorizontal(GUILayout.Width(ColW_Archive));
+            GUILayout.FlexibleSpace();
+            GUILayout.EndHorizontal();
+        }
+
+        private static string BuildDigestGoToTooltip(MissionEventRow row)
+            => "Go to the other side of this event"
+               + (string.IsNullOrEmpty(row.PartnerText) ? "" : ": " + row.PartnerText);
+
+        // Digest rows for a mission, rebuilt only when the dock-event graph instance changes (a
+        // committed-topology move) or the mission's included-link set does (the R5 gap rows'
+        // only selection input). Everything else about the digest derives from the tree, whose
+        // changes move the graph signature too.
+        private List<MissionEventRow> GetEventDigest(Mission mission, RecordingTree tree)
+        {
+            if (mission == null || string.IsNullOrEmpty(mission.Id) || tree == null)
+                return null;
+
+            DockEventGraph graph = GetDockEventGraph();
+            int fingerprint = ForeignLinkFingerprint(mission);
+            if (digestCache.TryGetValue(mission.Id, out DigestCacheEntry entry)
+                && ReferenceEquals(entry.Graph, graph)
+                && entry.LinkFingerprint == fingerprint)
+                return entry.Rows;
+
+            List<MissionEventRow> rows = MissionEventDigest.Build(
+                graph, tree, mission, ResolvePartnerMissionName, ResolvePartnerMissionId);
+            digestCache[mission.Id] = new DigestCacheEntry
+            {
+                Graph = graph,
+                LinkFingerprint = fingerprint,
+                Rows = rows,
+            };
+            return rows;
+        }
+
+        // Order-independent, allocation-free fold over the mission's included foreign dock links
+        // (typically zero of them). Only used to decide whether a cached digest is stale, so an
+        // XOR fold is enough: a change that collides would have to swap one link id for another
+        // with an identical hash in the same frame.
+        private static int ForeignLinkFingerprint(Mission mission)
+        {
+            int hash = mission.IncludedForeignDockLinkIds.Count;
+            foreach (string id in mission.IncludedForeignDockLinkIds)
+                hash ^= id != null ? id.GetHashCode() : 0;
+            return hash;
+        }
+
+        // treeId -> mission id, the GoTo half of the digest's resolvers (the NAME half is
+        // ResolvePartnerMissionName above). Same pick as the name resolver and as
+        // RevealMissionForRecording: a tree's narrative custody is its ORIGINAL mission.
+        internal static string ResolvePartnerMissionId(string treeId)
+        {
+            Mission m = MissionStore.FindOriginalMission(treeId);
+            return m != null ? m.Id : null;
+        }
+
         // Linear lookup of a committed recording by id (the Missions tab maps a composition row to
         // its recording for the Re-Fly cell). Returns false when the id is empty or not committed.
         // [ERS-exempt] reason: Re-Fly is keyed on the RAW committed index, same as the watch /
@@ -1757,12 +2457,12 @@ namespace Parsek
             // [enable+index] width so the title lines up with the recordings "Name" column.
             GUILayout.Label("", missionHeaderTextStyle, GUILayout.Width(ColW_Enable));
             // Index cell: the per-tree number, non-modifiable. Shared by clones. Bold transparent
-            // text on the row bubble (no box of its own). In Basic the number itself is hidden
-            // (T1.7): it is a per-tree support/debug ordinal with no meaning to the player, and its
-            // slot is shared with the include checkbox on the rows below. The cell is kept (blank)
-            // so every column stays aligned with the header above.
+            // text on the row bubble (no box of its own). Shown in BOTH modes: T1.7 originally
+            // hid it in Basic as a support ordinal, but a numberless first column read as a
+            // rendering gap (owner playtest 2026-08-20), and with the # header sortable in both
+            // modes the number is what the sort is BY.
             GUILayout.Label(
-                !basicUiMode && index > 0
+                index > 0
                     ? index.ToString(System.Globalization.CultureInfo.InvariantCulture)
                     : "",
                 missionHeaderTextStyle, GUILayout.Width(ColW_Index));
@@ -1792,7 +2492,16 @@ namespace Parsek
             // Clone / Delete next. Delete is disabled when this is the tree's last mission. Log,
             // Clone, Delete, Warp to, Watch, and Rewind/Forward all share ColW_HeaderButton so they
             // read as one group.
-            if (GUILayout.Button(new GUIContent("Clone", MissionPresentation.CloneButtonTooltip),
+            //
+            // Clone is loop AUTHORING (a clone exists to carry a second include set / loop period
+            // over the same recordings - all controls Basic hides), so it goes with the section-4.5
+            // authoring set: hidden in Basic, its width absorbed by the FlexibleSpace like the Loop
+            // controls' (owner decision 2026-08-20). Delete STAYS in Basic: it is cleanup of a
+            // clone made in Advanced, and CanDelete keeps the tree's last mission safe, so a Basic
+            // player can remove a stray duplicate but never the mission itself.
+            bool loopAuthoring = ShowsLoopAuthoringControls(ParsekUI.AppliedUiComplexityMode);
+            if (loopAuthoring
+                && GUILayout.Button(new GUIContent("Clone", MissionPresentation.CloneButtonTooltip),
                     GUILayout.Width(ColW_HeaderButton)))
                 MissionStore.Clone(mission);
             GUI.enabled = MissionStore.CanDelete(mission);
@@ -1826,7 +2535,7 @@ namespace Parsek
             // flights repeat. Dropping controls only frees slack for the FlexibleSpace further
             // down, so Watch / Rewind / Archive stay pinned at the same x as in Advanced.
             bool missionRouteBound = RouteTreeGuard.RouteBindingFor(mission.TreeId, out Route bindingRoute);
-            bool loopAuthoring = ShowsLoopAuthoringControls(ParsekUI.AppliedUiComplexityMode);
+            // loopAuthoring latched once above (at the Clone button, the first gated control).
             if (loopAuthoring)
             {
                 bool prevGuiEnabled = GUI.enabled;
@@ -2055,8 +2764,16 @@ namespace Parsek
             // on its linked foreign tree(s) (M-MIS-8 spanned-set rule).
             MissionStore.SetLoopEnabled(mission, loopNow, Planetarium.GetUniversalTime(),
                 RecordingStore.CommittedTrees);
+
             if (loopNow)
                 AnnounceClearedLoops(mission, wereLooping);
+            // R6 double-clock advisory (design 7.7), on ENABLE only and only AFTER the
+            // enable succeeded - the enable itself clears every mission the hard rule
+            // considers conflicting (announced just above), so what is left looping is
+            // exactly the population the advisory is about. Advisory only: nothing is
+            // switched off here.
+            if (loopNow)
+                PostDoubleClockAdvisoryIfAny(mission);
             // Turning loop off disables the period field; end any in-progress edit on it.
             if (!loopNow && loopPeriodFocusedMissionId == mission.Id)
                 loopPeriodFocusedMissionId = null;
@@ -3467,16 +4184,9 @@ namespace Parsek
             GUILayout.BeginHorizontal(colHdrCellContainerStyle,
                 GUILayout.Width(ColW_Enable + ColW_Index + 8f), GUILayout.Height(ColHeaderHeight));
             GUILayout.Label("", GUILayout.Width(ColW_Enable));
-            if (basicUiMode)
-            {
-                // Basic (T1.7): the "#" header labels TWO unrelated things - a per-tree support
-                // ordinal on mission rows and the include checkbox on vessel rows - so the label
-                // (and the sort it offers) is dropped and the slot stays blank. Same width, so the
-                // name column below still lines up. The mode is latched for the whole pass, so this
-                // branch cannot change the control count between Layout and Repaint.
-                GUILayout.Label("", boldHeaderInnerLabel, GUILayout.Width(ColW_Index));
-            }
-            else
+            // Sortable "#" in BOTH modes: the per-tree index number now shows on mission rows in
+            // Basic too (the T1.7 hide read as a rendering gap - owner playtest 2026-08-20), so
+            // the header that sorts by it comes back with it.
             {
                 string hashArrow = (sortColumn == MissionSortColumn.Index)
                     ? (sortAscending ? " \u25b2" : " \u25bc") : "";

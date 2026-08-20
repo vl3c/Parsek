@@ -1621,8 +1621,15 @@ class CommittedFixtureSweepTests(unittest.TestCase):
             # per-trajectory) but excluded from this floor by the `.txt` filter
             # above, which is the point of that filter.
             "minAuthoritativeSidecars": 8,
-            "recordingIds": ["6c1596087fb14a5b8874d2a4948e3172",
-                             "df54db60838c437a8ce953746ebffbab"],
+            # RE-PINNED 2026-08-20 (branch `kerbal-xp-row`): KSP mints fresh
+            # recording ids per run, so the second harvest of `C2CareerPostFix`
+            # (run `2026-08-20_1925_L3-career-science-recover_run2`, flown to add
+            # the recovery's `KerbalExperience` ledger row) moved both of these.
+            # The 1/1/2 topology above did NOT move, which is the check that the
+            # re-harvest produced the same SHAPE of subject and not a different
+            # one.
+            "recordingIds": ["1d611e7533a64508ae6f3b305a51615e",
+                             "5436a7e8840b4c5885afcbaedc9dc037"],
             "schemaGeneration": 4,
         },
     }

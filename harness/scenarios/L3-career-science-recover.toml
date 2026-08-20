@@ -273,12 +273,53 @@ count = { min = 2, max = 2 }
 # line. `recordings.count` above already proves the commit happened, from the SAVE
 # rather than from the log, and two witnesses to one fact is the weaker one going
 # stale first.
+#
+# ############ TWO MORE TOKENS, ADDED 2026-08-20 WITH THE KERBAL-XP FIX ##########
+# Read TOKEN FOR TOKEN out of the collected KSP.log of run
+# `2026-08-20_1925_..._run2` (PASS attempt 1, 452 s). They are the live proof of
+# KERBAL-XP-UNTAGGED-RECOVERY-HAS-NO-LEDGER-ROW, and the NEGATIVE CONTROL is
+# already flown and archived rather than owed: run `2026-08-19_2220` on the same
+# spec and the same craft logged `untaggedNoLedgerRow=1` with ZERO `type = 31`
+# rows in the produced ledger. Same mission, same crew, one code change between
+# them - so these two lines are the difference the fix makes, measured on both
+# sides.
+#
+#   `Recovery kerbal XP recorded: ...`
+#       The WRITE. `rows=1 deduped=0 noAction=0` says a row was authored rather
+#       than suppressed, and `kerbals='Jebediah Kerman'` names whose. `ut=` and
+#       `recordingId=` are deliberately NOT pinned - both move per run - and the
+#       `.*` between the vessel name and the counters is what skips them.
+#       That is also why the CORRELATION is not asserted from this line: the id
+#       it prints is only checkable against another line's id, which a
+#       whole-log `re.search` cannot do. The correlation is gated instead by
+#       `LedgerRecoveryKerbalExperienceTests` headlessly, and MEASURED on this
+#       run - the XP row and the recovery `FundsEarning` row in the produced
+#       `ledger.pgld` both carry `recordingId = 5436a7e8840b4c5885afcbaedc9dc037`,
+#       which is what keeps `ResurrectionRetirementEligibility`'s same-recording
+#       bundle whole.
+#
+#   `Game state: ExperienceGained crew=1 emitted=1 noEntries=0 ledgerRows=1
+#    untaggedNoLedgerRow=0`
+#       The COUNTER, pinned whole because every token in it is a fixture
+#       constant on this craft: one crew member, one archived entry set, one
+#       ledger row, and - the half that used to read 1 - nothing left untagged.
+#       This is the line that reds if the forward gate ever declines again.
+#
+# THE PRODUCED SAVE OF THAT RUN IS COMMITTED, replacing the flight-4 harvest, as
+# `Source/Parsek.Tests/Fixtures/C2CareerPostFix/` - and `career-earned-pad`, the
+# fixture `L4-ledger-groundtruth-strict` flies, is rebuilt from it. So this spec
+# is not only gated on the two lines above; the ROW they describe is the subject
+# L4's now-armed `KerbalXp` facet compares. If this flight ever stops producing
+# it, L4 reds too, one re-harvest later.
+# #######################################################################
 required = [
   "Recording started",
   "Recording stopped",
   "Seeded initial science: amount=100",
   "VesselRecovery funds patched: vessel='Jumping Flea' amount=4558",
   "Science subject captured: crewReport@KerbinSrfLandedLaunchPad.*reason='VesselRecovery'",
+  "Recovery kerbal XP recorded: vessel='Jumping Flea'.*rows=1 deduped=0 noAction=0 kerbals='Jebediah Kerman'",
+  "Game state: ExperienceGained crew=1 emitted=1 noEntries=0 ledgerRows=1 untaggedNoLedgerRow=0",
 ]
 forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
 
