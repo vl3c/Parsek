@@ -204,8 +204,8 @@ count = { min = 2, max = 2 }
 # and both came back byte-identical on `_1545` and again on the two contracts-cell
 # runs `2026-08-20_1644` and `_1726`. The reading run `2026-08-20_1508` measured a DIFFERENT
 # `result:` line, and the difference is the whole story of this arming - see the
-# ledger at the bottom. The THIRD line was added by `_1735`; its own note sits
-# beside it. The two runs also re-measured the FACET count: `facetsCompared` did
+# ledger at the bottom. The THIRD line was added 2026-08-20 with the contracts
+# splice and first flew on `_1644`; its own note sits beside it. The two runs also re-measured the FACET count: `facetsCompared` did
 # NOT move when the contract facet stopped being vacuous, which is the measurement
 # proving it was always counted.
 #
