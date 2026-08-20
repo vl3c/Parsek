@@ -18,15 +18,17 @@ id = "B26-laythe-vall-transfer"
 #       re-pointed at it: `interplanetaryTransfer` STAYS ON -- the relay reads it
 #       for its stage-1 evidence and its correction domain -- and the relay flag
 #       joins it.
-#   (3) MODE FLOWN, TWO DEFECTS FIXED, FLIGHT 3 PENDING. Flight 2 (2026-08-20)
-#       flew the relay. **ITS CORE WORKED** - the ESCAPE phase planned and flew a
-#       node, the craft left Laythe under it, stage 2 planned and burned in
-#       Jool's frame, and `escapedHomeSoi met=True`. It then hit TWO defects,
-#       both now fixed and both re-derived below: (A) the escape was sized for a
-#       hyperbolic excess AT INFINITY when KSP hands over AT THE SOI, delivering
-#       3.12x the intended departure speed; (B) the coast's warp target was
-#       derived from an ambiguous `time_to_soi` and the policy spent the phase
-#       cancelling its own warp. See the FLIGHT 2 ledger.
+#   (3) MODE FLOWN, TWO DEFECTS FIXED, AND **FLIGHT 3 COMPLETED THE HOP**.
+#       Flight 2 (2026-08-20) flew the relay: its core worked and it measured two
+#       defects - (A) an escape sized for a hyperbolic excess AT INFINITY when
+#       KSP hands over AT THE SOI, 3.12x over; (B) a coast-warp thrash on an
+#       ambiguous `time_to_soi`. Both were fixed at their roots.
+#   (4) **LIVE-PROVEN 2026-08-20, run `2026-08-20_1752`, PASS attempt 1, mission
+#       wall 1,408 s.** The full phase chain through ORBIT-COMMITTED, every
+#       assertion met, both fixes proven live, and a Vall park at ecc 0.0035.
+#       THIS LANE'S PRODUCT NOW EXISTS: `fixtures/saves/vall-transfer-recorded`,
+#       the M-MIS-7 subject, which V17M/V17T are re-pinned against. See the
+#       FLIGHT 3 ledger.
 #
 # WHY THIS LANE EXISTS, and it is NOT "a sixth moon". It is the M-MIS-7 SUBJECT -
 # the recording that lets someone finally measure a code path the research doc
@@ -234,6 +236,73 @@ id = "B26-laythe-vall-transfer"
 #
 # DISPOSITION: both defects fixed at their roots, values and predicates re-derived
 # throughout this file, NOT YET RE-FLOWN. Flight 3 is the next reading run.
+#
+# FLIGHT 3 (2026-08-20, run `2026-08-20_1752`): **PASS attempt 1, MISSION-OK,
+# mission wall 1,408 s. THE FIRST COMPLETED MOON-TO-MOON TRANSFER IN THE SUITE.**
+#
+# THE FULL CHAIN, twenty phases: `['PRELAUNCH','ORBIT','ESCAPE','TRANSFER-BURN',
+# 'COAST-TO-TARGET','PLAN-TRANSFER','TRANSFER-BURN','COAST-TO-TARGET',
+# 'PLAN-CORRECTION','CORRECTION-BURN','COAST-TO-TARGET','PLAN-CORRECTION',
+# 'CORRECTION-BURN','COAST-TO-TARGET','TARGET-FLYBY','PLAN-CAPTURE',
+# 'CAPTURE-BURN','PARK','ORBIT-COMMIT','ORBIT-COMMITTED']`. All EIGHT assertions
+# met, including `escapedHomeSoi` and `treeCommitted value=OK` at Vall.
+#
+# **THE FOUR PRE-REGISTERED OBSERVATION TARGETS, MEASURED.** They were written
+# down before the flight precisely so this paragraph could not be written
+# after-the-fact, and all four came back where the fixes predicted:
+#
+#   (1) THE DELIVERED JOOL ORBIT vs the a = 17.2 - 59.0 Mm band. At the stage-2
+#       PLAN-TRANSFER frame (`ut=28823389.230 alt=19804640.636`): ap 20,383,459 /
+#       pe 19,728,651 ALTITUDE, ecc **0.013**, inc 1.974 deg, i.e.
+#       **a = 26.06 Mm - INSIDE THE BAND**, and near-circular. Flight 2's
+#       equivalent read a = 79.0 Mm, far outside it. This is defect A's pass/fail
+#       and it passed. (The near-circular result says the departure direction came
+#       out roughly PERPENDICULAR to Laythe's velocity - the isotropic middle of
+#       the band, not a lucky prograde draw.)
+#   (2) THE STAGE-2 COAST WARP vs defect B. **`phaseWarpIssues` peaked at 1** for
+#       the whole mission, against flight 2's 501 in one phase; 5 native
+#       `warp_to` dispatches and 2 cancels across all twenty phases, and 10
+#       `gate warpToCmd` flips total. The thrash is gone, not merely bounded.
+#   (3) THE ESCAPE NODE vs 586.69 m/s. Logged
+#       `escape node added ut=28818204.529 prograde=586.69 m/s (read back
+#       ut=28818204.529 prograde=586.692); nodes=1`, and the assertion row
+#       carries `escapeNodeDvMps 586.6922211372255` - **the derivation to four
+#       decimals**. Its post-burn Laythe orbit read ap 3,555,749 m ALTITUDE =
+#       4,055,749 m radius against the predicted 4,053,149 (0.06% high) and
+#       POSITIVE, i.e. the BOUND escape the corrected contract intends - so
+#       `_relay_escape_burn_done` fired on its SOI-reach disjunct, exactly as
+#       designed, and an `ejectionEccFloor` above 1 would indeed never have
+#       tripped.
+#   (4) THE STAGE-2 NODE vs the 102.8 / 600.0 / 900.0 band: **415.46 m/s**,
+#       between the best and typical cases. Measured by mass across that burn
+#       (LF 394.558 -> 301.791) the executor delivered ~407.9 m/s, 1.8% under the
+#       node, which is the ordinary executor cut.
+#
+# THE REST OF THE FLIGHT, for the record:
+#   escape coast periapsis -> Laythe SOI  5,120 game s (predicted 5,181)
+#   correction round 0  63.72 m/s   round 1  11.66 m/s  (cap 100, neither
+#     discarded - the B20 worry did not materialise)
+#   delivered arrival periapsis  **168,783 m** against the 250,000 m request,
+#     i.e. **k = 0.675** at req/SOI 10.39% - the FIFTH point for the finding-16d
+#     corpus and the first at a body with no atmosphere and a small mu. It sits
+#     ABOVE the 0.545-0.563 Mun row the corpus predicted and well above B25's
+#     0.283-0.289.
+#   capture node 315.07 m/s; park **167,158 x 170,417 m, ecc 0.0035**; min in-SOI
+#     altitude 163,848 m against the 30,000 m floor (5.5x clear)
+#   TOTAL SPENT, by propellant mass: LF 534.869 -> 219.600 = 1.576 t =
+#     **1,368.1 m/s**, against the 1,530.8 NOMINAL and 1,861.4 WORST hop this
+#     file predicts. **1,116.6 m/s of dv remained** - the flight came in under
+#     its own nominal, and the margin held with room to spare.
+#
+# THE PRODUCT: harvested `--keep-parsek` as
+# `fixtures/saves/vall-transfer-recorded` - ONE tree
+# `9aa3c87c95a147388e6220bd36796fd9`, ONE recording
+# `625d63e022c449d6a44b5269c8b54a21` (746 points, 13 ORBIT_SEGMENTs, Laythe 0-3 /
+# Jool 4-9 / Vall 10-12), zero durable rows, terminal Orbiting at Vall. **THE
+# COUNT WINDOW'S PREDICTION CAME BACK AT 1**, the bottom of the {1,4} range: the
+# optimizer kept BOTH body-change boundaries cohesive, so neither the escape
+# under thrust nor the mid-coast stage-2 burn split the recording. That is a
+# READING, and it is the first data anyone has on an ESCAPE boundary.
 #
 # =====================================================================================
 # THE MODE, AS BUILT. Two stages, one flag, and NO new burn machinery -- the whole
@@ -584,13 +653,14 @@ id = "B26-laythe-vall-transfer"
 # THE RECORDING IS CREWED (Valentina Kerman in the mk1pod.v2), like B24's and
 # B25's products.
 #
-# POSTURE: FIRST FLIGHT OF THE RELAY, READING RUN. Nothing armed - no
-# `gating = true` block, the recordings window is the DERIVED {1,4} range, and
+# POSTURE: LIVE-PROVEN, STILL A READING LANE. Nothing armed - no
+# `gating = true` block, the recordings window is the DERIVED {1,4} range (which
+# flight 3 measured at 1, its bottom), and
 # `[expectations.recordings.structure]` / points are ABSENT. `tier = "operator"`
 # on the calibration discipline.
 # =====================================================================================
 tier = "operator"
-description = "MODE FLOWN, TWO DEFECTS FIXED, FLIGHT 3 PENDING. THE FIRST MOON-TO-MOON TRANSFER: the crewed Duna Rocket starts already parked in the 87,931 x 56,240 m Laythe orbit B25 delivered, escapes Laythe into JOOL's frame, transfers to VALL and commits the tree in a Vall park. ITS PRODUCT IS THE M-MIS-7 SUBJECT. Every same-parent lane so far (Duna->Ike, Eve->Gilly, Jool->Laythe) produces a recording `IsSameParentTarget` classifies SAME-PARENT, which routes to phase-lock and has now measured `method=single-orbital` three times. A moon-to-moon recording is the OTHER class: Vall is not a child of Laythe, so it is CROSS-PARENT and should reach `ApplyReaim` with the JOOL-frame synodic - a code path `docs/dev/research/same-parent-reaim-jool-system.md` section 5.1 walks guard by guard, concludes already works unmodified, and calls 'the single most surprising finding in this investigation: Parsek may already be re-aiming moon-to-moon hops. It is untested, unmeasured, and unrepresented in any harness lane.' THIS SPEC ASSERTS NOTHING ABOUT THAT - V17M/V17T carry both hypotheses and gate on neither. FLIGHT 1 (runs 2026-08-19_2214 and _2215_a2) BOTH ATTEMPTS INVALID(autopilot-flake), deterministic, refused in PLAN-TRANSFER on a MECHJEB limitation: `operation_interplanetary_transfer.make_nodes failed: OrbitExtensions.NextTimeOfRadius: given radius of 3723645.81113302 is never achieved`. 3,723,645.8 m is LAYTHE'S SOI RADIUS; MechJeb idealised the moon-parked origin to a circle at the park's mean radius and built a sub-escape ejection falling 2.443% short of the SOI. See docs/dev/todo-and-known-bugs.md -> MECHJEB-INTERPLANETARY-PLANNER-REJECTS-MOON-ORIGIN. THE CAPABILITY THAT BLOCKER DEFERRED WAS BUILT AND THIS SPEC RE-POINTED AT IT: the flag-gated PARENT-RELAY mode (`parentRelayTransfer`), candidate (a)-minimal. TWO STAGES, ONE FLAG, NO NEW BURN MACHINERY. Stage 1 is a flag-gated ESCAPE phase where mlib computes ONE prograde node itself at the park's next PERIAPSIS and kRPC's OWN `Control.add_node` places it (core kRPC, no MechJeb planner, which is why the refusal cannot recur), flown by the SAME NodeExecutor and SAME stagnation watchdog. Stage 2 is not a phase: the first coast frame whose SOI body reads JOOL re-enters PLAN-TRANSFER at relay_stage 1, where the plan is MechJeb's MOON-path `OperationTransfer` - legal there by construction - and the evidence is the parent-frame apoapsis floor (`transferMinApoapsisMeters`, real here for the first time at 36,000,000 m). FLIGHT 2 (runs 2026-08-20_1646 and _1701_a2) FLEW THE MODE. Both attempts INVALID(autopilot-flake), mission wall 856/864 s - AND MOST OF IT WORKED, which is the headline: phasesReached covered the whole two-stage flow, `escapedHomeSoi met=True`, the node was computed/added/read-back exactly once with no stacking, placed AT the periapsis, and the executor flew it to within 1% (LF 534.869 -> 351.228 = 767.4 m/s measured vs 774.705 planned, ending at Laythe ecc 1.035 against the predicted 1.03418). MechJeb's moon-path OperationTransfer ALSO accepted the Jool-frame pair and produced a Vall encounter, retiring the lane's top pre-flight risk. TWO DEFECTS, BOTH NOW FIXED AT THEIR ROOTS AND NOT YET RE-FLOWN. DEFECT A - the escape CONTRACT was wrong, not the escape: KSP is PATCHED-CONIC and hands a departing vessel to the parent AT THE SOI BOUNDARY, so asking for a hyperbolic excess of 347.245 m/s delivered sqrt(v_inf^2 + 2*mu/r_soi) = 1,083.69 m/s of Jool-relative speed, 3.12x, producing a Jool orbit of a = 79.0 Mm (pe 19.70 / ap 126.33 Mm altitude, ecc 0.675) where the transfer wanted 35.2. Swept over all directions the flown contract admits orbits from a = 14.5 to 8,683 Mm, a minimum periapsis of 5.51 Mm (BELOW Jool's 6.20 Mm atmosphere top) and samples that escape Jool entirely. Fixed by one term and a rename: `escapeSoiSpeedMps` = 450, sized sqrt(v_soi^2 + 2*mu*(1/r_pe - 1/r_soi)) = 586.69 m/s (188 m/s cheaper AND correct), with the retired key REJECTED by name at spec load. It forced a second correction: `ejectionEccFloor` is retired here (0) because a correct patched-conic escape from Laythe is BOUND (ecc 0.7586) - reaching a SOI needs an apoapsis past it, not an escape - so stage-1 evidence is now `_relay_escape_burn_done`. And a third: `startInOrbitMaxApoapsisMeters` tightened 500,000 -> 300,000, because above that a legal park's geometric floor exceeds the requested 450 and the planner would refuse a fixture the gate had declared legal. DEFECT B - coast-warp-thrash, 501 native warp issues against a 500 cap: the stage-2 Jool ellipse re-crosses LAYTHE'S OWN orbit, so `nextBody` flapped Vall<->Laythe and `time_to_soi` stepped 145,030 <-> 123,078 s; the time-mode trigger derives its warp target from that clock, a ~22 ks step blows through the retarget threshold in both directions, and the policy spent the phase cancelling and re-arming its own warp (each cancel zeroing the factors - the 1x<->3x flutter the operator watched). Fixed by an IDENTITY check rather than a wider threshold: `soi_clock_describes_target` / `coast_foreign_soi_clock_hold` HOLD an armed warp when `next_body` POSITIVELY names a non-target body, and the same conjunct stops a Laythe reading firing a Vall correction round; it fails OPEN on an unread next_body, so no flown lane moves. Re-derived delta-v: 2,483.9 available against a 1,530.8 nominal and 1,861.4 WORST hop = 622.5 m/s margin, cross-checked by propellant mass to 0.2 m/s. The unaimed escape's parent apoapsis reaches 87.18 Mm, above Tylo's 68.50 Mm shell, so the six Tylo/Bop/Pol poison tokens are a real guard rather than a restatement of geometry. The Laythe-Vall synodic is 105,961.4 s = 2.0000 Laythe periods, the 1:2:4 resonance in the transfer window, which is why this pair is the right FIRST moon-to-moon subject. FLIGHT 3 IS THE NEXT READING RUN, nothing armed. The PRODUCT question is untouched and still open: whether ApplyReaim engages on a cross-parent moon-to-moon recording stays pre-registered in V17M/V17T, which gate on neither hypothesis."
+description = "LIVE-PROVEN 2026-08-20 ON FLIGHT 3 - THE FIRST COMPLETED MOON-TO-MOON TRANSFER. THE FIRST MOON-TO-MOON TRANSFER: the crewed Duna Rocket starts already parked in the 87,931 x 56,240 m Laythe orbit B25 delivered, escapes Laythe into JOOL's frame, transfers to VALL and commits the tree in a Vall park. ITS PRODUCT IS THE M-MIS-7 SUBJECT. Every same-parent lane so far (Duna->Ike, Eve->Gilly, Jool->Laythe) produces a recording `IsSameParentTarget` classifies SAME-PARENT, which routes to phase-lock and has now measured `method=single-orbital` three times. A moon-to-moon recording is the OTHER class: Vall is not a child of Laythe, so it is CROSS-PARENT and should reach `ApplyReaim` with the JOOL-frame synodic - a code path `docs/dev/research/same-parent-reaim-jool-system.md` section 5.1 walks guard by guard, concludes already works unmodified, and calls 'the single most surprising finding in this investigation: Parsek may already be re-aiming moon-to-moon hops. It is untested, unmeasured, and unrepresented in any harness lane.' THIS SPEC ASSERTS NOTHING ABOUT THAT - V17M/V17T carry both hypotheses and gate on neither. FLIGHT 1 (runs 2026-08-19_2214 and _2215_a2) BOTH ATTEMPTS INVALID(autopilot-flake), deterministic, refused in PLAN-TRANSFER on a MECHJEB limitation: `operation_interplanetary_transfer.make_nodes failed: OrbitExtensions.NextTimeOfRadius: given radius of 3723645.81113302 is never achieved`. 3,723,645.8 m is LAYTHE'S SOI RADIUS; MechJeb idealised the moon-parked origin to a circle at the park's mean radius and built a sub-escape ejection falling 2.443% short of the SOI. See docs/dev/todo-and-known-bugs.md -> MECHJEB-INTERPLANETARY-PLANNER-REJECTS-MOON-ORIGIN. THE CAPABILITY THAT BLOCKER DEFERRED WAS BUILT AND THIS SPEC RE-POINTED AT IT: the flag-gated PARENT-RELAY mode (`parentRelayTransfer`), candidate (a)-minimal. TWO STAGES, ONE FLAG, NO NEW BURN MACHINERY. Stage 1 is a flag-gated ESCAPE phase where mlib computes ONE prograde node itself at the park's next PERIAPSIS and kRPC's OWN `Control.add_node` places it (core kRPC, no MechJeb planner, which is why the refusal cannot recur), flown by the SAME NodeExecutor and SAME stagnation watchdog. Stage 2 is not a phase: the first coast frame whose SOI body reads JOOL re-enters PLAN-TRANSFER at relay_stage 1, where the plan is MechJeb's MOON-path `OperationTransfer` - legal there by construction - and the evidence is the parent-frame apoapsis floor (`transferMinApoapsisMeters`, real here for the first time at 36,000,000 m). FLIGHT 2 (runs 2026-08-20_1646 and _1701_a2) flew the mode. Both attempts INVALID(autopilot-flake) - AND MOST OF IT WORKED: the whole two-stage phase flow, `escapedHomeSoi met=True`, the node computed/added/read-back exactly once and executed to within 1%, and MechJeb's moon-path OperationTransfer accepting the Jool-parented pair. It measured TWO defects. DEFECT A - the escape CONTRACT was wrong, not the escape: KSP is PATCHED-CONIC and hands a departing vessel to the parent AT THE SOI BOUNDARY, so asking for a hyperbolic excess of 347.245 m/s delivered sqrt(v_inf^2 + 2*mu/r_soi) = 1,083.69 m/s, 3.12x, producing a Jool orbit of a = 79.0 Mm where the transfer wanted 35.2; swept over all directions that contract also admitted a 5.51 Mm periapsis (below Jool's atmosphere) and orbits leaving Jool entirely. Fixed by one term and a rename - `escapeSoiSpeedMps` = 450, sized sqrt(v_soi^2 + 2*mu*(1/r_pe - 1/r_soi)) = 586.69 m/s, 188 m/s cheaper AND correct - with the retired key REJECTED by name at spec load, `ejectionEccFloor` retired to 0 (a correct patched-conic escape from Laythe is BOUND at ecc 0.7586, so stage-1 evidence is `_relay_escape_burn_done`) and the entry-gate apoapsis ceiling tightened 500,000 -> 300,000 m. DEFECT B - coast-warp-thrash, 501 native warp issues against a 500 cap: the stage-2 Jool ellipse re-crosses LAYTHE'S OWN orbit, so `nextBody` flapped Vall<->Laythe and `time_to_soi` stepped 145,030 <-> 123,078 s, blowing through the retarget threshold in both directions so the policy cancelled and re-armed its own warp every flip. Fixed by an IDENTITY check rather than a wider threshold (`soi_clock_describes_target` / `coast_foreign_soi_clock_hold`), failing OPEN on an unread next_body so no flown lane moves. FLIGHT 3 (run 2026-08-20_1752): PASS attempt 1, MISSION-OK, mission wall 1,408 s, the FULL twenty-phase chain through ORBIT-COMMITTED and all eight assertions met. ALL FOUR PRE-REGISTERED OBSERVATION TARGETS CAME BACK WHERE THE FIXES PREDICTED: (1) the delivered Jool orbit read a = 26.06 Mm ecc 0.013 - INSIDE the 17.2-59.0 Mm band the corrected contract predicts, against flight 2's 79.0 Mm outside it; (2) `phaseWarpIssues` peaked at 1 for the whole mission against flight 2's 501 in one phase (5 native warp dispatches, 2 cancels, 10 gate flips in twenty phases) - the thrash is gone, not merely bounded; (3) the escape node read 586.6922 m/s against the derived 586.69, leaving a POSITIVE 4,055,749 m apoapsis radius against the predicted 4,053,149 - the BOUND escape the corrected contract intends, so `_relay_escape_burn_done` fired on its SOI-reach disjunct exactly as designed; (4) the stage-2 node read 415.46 m/s, between the best and typical cases of the 102.8/600.0/900.0 band. The rest: corrections 63.72 and 11.66 m/s (neither discarded at the 100 cap), delivered arrival periapsis 168,783 m against the 250,000 request = k 0.675 at req/SOI 10.39%, the FIFTH finding-16d corpus point and the first at an airless small-mu body; capture 315.07 m/s; Vall park 167,158 x 170,417 m at ecc 0.0035; total spent by propellant mass 1,368.1 m/s against a 1,530.8 nominal and 1,861.4 worst hop, leaving 1,116.6 m/s. THE PRODUCT EXISTS: harvested as `fixtures/saves/vall-transfer-recorded` - one tree, one recording, 746 points, 13 ORBIT_SEGMENTs, two body-change seams, zero durable rows, terminal Orbiting at Vall. The count window measured 1, the BOTTOM of its {1,4} range: the optimizer kept BOTH body-change boundaries cohesive, which is the first data anyone has on an ESCAPE boundary. The PRODUCT question is untouched and still open: whether ApplyReaim engages on a cross-parent moon-to-moon recording stays pre-registered in V17M/V17T, which gate on neither hypothesis."
 instanceProfile = "stock-minimal"
 tags = ["B26", "vall", "laythe", "jool", "moon-to-moon", "cross-parent", "jool-moon",
         "orbit", "mechjeb", "cross-soi", "capture", "commit-in-foreign-soi",

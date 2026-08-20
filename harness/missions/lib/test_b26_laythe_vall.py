@@ -704,15 +704,47 @@ class SpecArithmeticTests(unittest.TestCase):
 
 
 class V17SeedTests(unittest.TestCase):
-    """The V17 pair ships with the WEAKEST seeds of the family - the routing is
-    the measurement, so the anchor comes from a planner nobody has picked yet -
-    and what can be checked is the internal consistency of the shape."""
+    """**RE-PINNED 2026-08-20 OFF THE REAL FIXTURE.** The V17 pair shipped with
+    the weakest seeds of the family because its subject's ROUTING is the
+    measurement and the two candidate roads anchor from different planners. B26
+    flight 3 produced `vall-transfer-recorded`, and the calibration turned the
+    pre-flight worry around: at THIS pair the 1:2:4 resonance puts P_Vall and the
+    Laythe-Vall synodic **0.6615 s** apart, so H1's and H2's jump tables are
+    IDENTICAL on cycle 1 and 1 s apart on cycle 2. The cells below drive the
+    committed H1 table AND the H2 re-pin table from the fixture's own bytes."""
 
-    PLACEHOLDER_TREE = "0" * 32
-    UT0 = 28_817_026.0
-    SPAN = 96_874.9
-    DEST_PHASE = 4_425.0
+    TREE = "9aa3c87c95a147388e6220bd36796fd9"
+    RECORDING = "625d63e022c449d6a44b5269c8b54a21"
+    # ALL FOUR READ FROM `fixtures/saves/vall-transfer-recorded`.
+    UT0 = 28_817_026.617051531          # explicitStartUT (NOT segment 0's startUT)
+    END_UT = 28_896_846.042240269       # explicitEndUT
+    SAVE_UT = 28_896_848.582240213      # the FLIGHTSTATE clock
+    SEAM_ESCAPE = 28_823_386.230090793  # Laythe -> Jool
+    SEAM_ARRIVAL = 28_892_466.219888370  # Jool  -> Vall
+    LAST_SEG_END = 28_896_012.542259    # last ORBIT_SEGMENT endUT
+    SEG0_START = 28_817_029.317051470   # the WRONG anchor, pinned as such
     PARK_FRACTION = 0.707
+
+    @property
+    def SPAN(self):
+        return self.END_UT - self.UT0
+
+    @property
+    def SEAM_OFF(self):
+        return self.SEAM_ARRIVAL - self.UT0
+
+    @property
+    def DEST_PHASE(self):
+        return self.END_UT - self.SEAM_ARRIVAL
+
+    @property
+    def PARK_OFF(self):
+        inbound = self.LAST_SEG_END - self.SEAM_ARRIVAL
+        tail = self.END_UT - self.LAST_SEG_END
+        return self.SEAM_OFF + inbound + self.PARK_FRACTION * tail
+
+    def _p_vall(self):
+        return 2.0 * math.pi * math.sqrt(A_VALL ** 3 / MU_JOOL)
 
     @classmethod
     def setUpClass(cls):
@@ -728,25 +760,143 @@ class V17SeedTests(unittest.TestCase):
         p_v = 2.0 * math.pi * math.sqrt(A_VALL ** 3 / MU_JOOL)
         return 1.0 / abs(1.0 / p_l - 1.0 / p_v)
 
-    def test_both_specs_carry_the_placeholder_tree_id(self):
+    def test_both_specs_carry_the_harvested_tree_id(self):
+        """The placeholder is GONE. A zero tree id surviving the calibration
+        would make every seam step a silent no-op."""
         for spec in (self.m, self.t):
             trees = [s["args"]["tree"] for s in spec["driver"]["steps"]
                      if s.get("cmd") in ("MissionConfig", "StartLoopPlayback")]
             self.assertTrue(trees)
             for tree in trees:
-                self.assertEqual(self.PLACEHOLDER_TREE, tree)
+                self.assertEqual(self.TREE, tree)
+                self.assertNotEqual("0" * 32, tree)
 
-    def test_the_jump_table_is_seeded_from_the_stated_inputs(self):
+    def test_the_pinned_bytes_are_the_fixture_s_own(self):
+        """THE CELL THAT COUPLES THE SEEDS TO THE PAYLOAD. Every UT above is read
+        from the harvested save; if a re-harvest moves any of them, the jump
+        table is stale and this reds before a run is spent."""
+        save = os.path.join(HARNESS_ROOT, "fixtures", "saves",
+                            "vall-transfer-recorded", "persistent.sfs")
+        self.assertTrue(os.path.isfile(save), save)
+        with open(save, encoding="utf-8", errors="replace") as fh:
+            sfs = fh.read()
+        import re as _re
+
+        def _val(key):
+            m = _re.search(r"\b%s = ([0-9.]+)" % key, sfs)
+            self.assertIsNotNone(m, key)
+            return float(m.group(1))
+
+        self.assertAlmostEqual(self.UT0, _val("explicitStartUT"), delta=1e-6)
+        self.assertAlmostEqual(self.END_UT, _val("explicitEndUT"), delta=1e-6)
+        self.assertIn("id = %s" % self.TREE, sfs)
+        self.assertIn("recordingId = %s" % self.RECORDING, sfs)
+        prec = os.path.join(HARNESS_ROOT, "fixtures", "saves",
+                            "vall-transfer-recorded", "Parsek", "Recordings",
+                            self.RECORDING + ".prec.txt")
+        with open(prec, encoding="utf-8", errors="replace") as fh:
+            body = fh.read()
+        # Parse the segment chain rather than string-matching UTs: Parsek writes
+        # floats round-trip ("R"), so a padded %.9f rendering does not appear.
+        segs = []
+        seg_re = _re.compile(r"ORBIT_SEGMENT\s*{(.*?)\n\t\}", _re.S)
+        for m in seg_re.finditer(body):
+            b = m.group(1)
+            def _g(key):
+                return _re.search(r"\b%s = ([-0-9.]+)" % key, b).group(1)
+            segs.append((float(_g("startUT")), float(_g("endUT")),
+                         _re.search(r"\bbody = (\w+)", b).group(1)))
+        self.assertEqual(13, len(segs),
+                         "the segment count moved; the seams need re-reading")
+        self.assertEqual(["Laythe"] * 4 + ["Jool"] * 6 + ["Vall"] * 3,
+                         [s[2] for s in segs])
+        self.assertAlmostEqual(self.SEG0_START, segs[0][0], delta=1e-6)
+        self.assertAlmostEqual(self.SEAM_ESCAPE, segs[4][0], delta=1e-6)
+        self.assertAlmostEqual(self.SEAM_ARRIVAL, segs[10][0], delta=1e-6)
+        self.assertAlmostEqual(self.LAST_SEG_END, segs[12][1], delta=1e-3)
+        # BOTH seams are adjacent endUT == startUT body-change pairs.
+        self.assertAlmostEqual(segs[3][1], segs[4][0], delta=1e-6)
+        self.assertAlmostEqual(segs[9][1], segs[10][0], delta=1e-6)
+
+    def test_the_v6m_convention_is_used_and_it_matters(self):
+        """UT0 is the recording's EXPLICIT start, not segment 0's startUT. The
+        gap is small and load-bearing: anchoring on the wrong one shifts every
+        bracket by it."""
+        gap = self.SEG0_START - self.UT0
+        self.assertAlmostEqual(gap, 2.700, delta=0.01)
+        self.assertGreater(gap, 0.0)
+
+    def test_the_jump_table_is_derived_from_the_harvested_bytes_under_H1(self):
         anchor = self.UT0 + self._synodic()
-        seam_off = self.SPAN - self.DEST_PHASE
         uts = self._jump_uts(self.m)
-        for got, want in zip(uts[:3], (seam_off - 180.0, seam_off - 60.0,
-                                       seam_off + 140.0)):
+        for got, want in zip(uts[:3], (self.SEAM_OFF - 180.0,
+                                       self.SEAM_OFF - 60.0,
+                                       self.SEAM_OFF + 140.0)):
             self.assertAlmostEqual(got, round(anchor + want), delta=0.5)
-        park_off = seam_off + self.PARK_FRACTION * self.DEST_PHASE
-        self.assertAlmostEqual(uts[3], round(anchor + park_off), delta=0.5)
+        self.assertAlmostEqual(uts[3], round(anchor + self.PARK_OFF), delta=0.5)
 
-    def test_the_cycle_two_bracket_is_one_SYNODIC_past_cycle_one(self):
+    def test_the_H2_table_differs_by_at_most_one_second(self):
+        """**THE FINDING THE CALIBRATION PRODUCED, and it inverts this pair's
+        own pre-flight text.** The spec used to say no seed set could be right
+        for both roads. At Laythe->Vall the 1:2:4 resonance puts P_Vall and the
+        synodic 0.6615 s apart, so H2's anchor is 0.662 s later than H1's, cycle
+        2 is 1.323 s later, and the whole table moves by at most ONE SECOND -
+        two orders inside the -180/-60/+140 bracket. Both roads land."""
+        p_vall = self._p_vall()
+        self.assertAlmostEqual(p_vall - self._synodic(), 0.6615, delta=0.01)
+        h1 = self.UT0 + self._synodic()
+        ref = max(self.SAVE_UT, self.END_UT)
+        k = math.ceil((ref - self.UT0) / p_vall - 1e-9)
+        self.assertEqual(1, k, "the NextWindow snap moved off k=1")
+        h2 = self.UT0 + k * p_vall
+        self.assertAlmostEqual(h2 - h1, 0.6615, delta=0.01)
+        committed = self._jump_uts(self.m)
+        deltas = []
+        for cycle in (0, 1):
+            a1 = h1 + cycle * self._synodic()
+            a2 = h2 + cycle * p_vall
+            for off in (self.SEAM_OFF - 180.0, self.SEAM_OFF - 60.0,
+                        self.SEAM_OFF + 140.0, self.PARK_OFF):
+                deltas.append(round(a2 + off) - round(a1 + off))
+        self.assertEqual(8, len(committed))
+        self.assertTrue(all(0 <= d <= 1 for d in deltas), deltas)
+        # cycle 1 is IDENTICAL; only the cycle-2 half and the cycle-1 park move.
+        self.assertEqual([0, 0, 0], deltas[:3])
+
+    def test_the_park_epoch_sits_in_the_segment_less_parked_tail(self):
+        """**THE PRE-FLIGHT PREDICTION THAT CAME BACK WRONG, and the fixture is
+        why the fraction moved.** The spec predicted B26's short capture burn
+        would NOT leave a segment-less tail. It did: the three Vall segments are
+        all the approach hyperbola and the captured park carries none of its own,
+        so V14M's 70.7% applied to the whole destination phase would land on the
+        INBOUND leg. Re-based on the tail, V16M's rule."""
+        inbound = self.LAST_SEG_END - self.SEAM_ARRIVAL
+        tail = self.END_UT - self.LAST_SEG_END
+        self.assertAlmostEqual(inbound, 3546.322, delta=0.01)
+        self.assertAlmostEqual(tail, 833.500, delta=0.01)
+        self.assertGreater(inbound, tail, "the inbound leg dominates the phase, "
+                                          "which is why the fraction moved")
+        # the epoch must land INSIDE the tail, not on the hyperbola
+        self.assertGreater(self.PARK_OFF, self.SEAM_OFF + inbound)
+        self.assertLess(self.PARK_OFF, self.SPAN)
+        naive = self.SEAM_OFF + self.PARK_FRACTION * self.DEST_PHASE
+        self.assertLess(naive, self.SEAM_OFF + inbound,
+                        "the naive whole-phase fraction must land on the "
+                        "inbound leg - that is the trap this cell records")
+
+    def test_the_relay_removed_the_transfer_window_wait(self):
+        """WHY THE SPAN CAME IN AT THE LOW END OF ITS DECLARED BAND. The
+        pre-flight seed was 96,874.9 s with a 43,874.9 -> 149,836.3 band built
+        around a transfer-window wait of 0 -> one synodic. The parent-relay mode
+        places its OWN escape node at the next park periapsis, so that wait never
+        opened - the escape seam is 6,359.6 s in, not the seeded 53,470."""
+        self.assertGreater(self.SPAN, 43_874.9)
+        self.assertLess(self.SPAN, 96_874.9)
+        escape_off = self.SEAM_ESCAPE - self.UT0
+        self.assertAlmostEqual(escape_off, 6359.613, delta=0.01)
+        self.assertLess(escape_off, 0.2 * 53_470.0)
+
+    def test_the_cycle_two_bracket_is_one_CADENCE_past_cycle_one(self):
         """Under H1 the cadence is the moon-moon synodic, NOT a moon period - the
         thing that most distinguishes this pair's arithmetic from V14/V15/V16's.
         The cell pins the shape so a well-meaning edit cannot quietly re-base it
@@ -760,6 +910,8 @@ class V17SeedTests(unittest.TestCase):
         self.assertGreater(uts[4] - uts[0], 1.5 * p_l)
 
     def test_the_printed_cycle_two_seam_matches_the_cadence_it_claims(self):
+        # Retained verbatim from the seed era: the header still prints both
+        # cycle seams and the carry-down slip it guards is still possible.
         """A 0.572 s CARRY-DOWN SLIP lived in this header: the printed cycle-2
         arrival seam had been advanced by a rounded 105,962.000 rather than by the
         synodic 105,961.428 the same block declares two lines above. The rounded
@@ -807,13 +959,14 @@ class V17SeedTests(unittest.TestCase):
         self.assertEqual(1, len(t_jumps))
         self.assertEqual(self._jump_uts(self.m)[2], t_jumps[0])
 
-    def test_both_specs_point_at_the_same_pending_fixture(self):
+    def test_both_specs_point_at_the_same_fixture_and_it_now_EXISTS(self):
+        """The inversion of this cell's own seed-era assertion: it used to
+        require the fixture to be ABSENT. B26 flight 3 produced it."""
         self.assertEqual(self.m["fixture"]["saveTemplate"],
                          self.t["fixture"]["saveTemplate"])
         self.assertEqual("fixtures/saves/vall-transfer-recorded",
                          self.m["fixture"]["saveTemplate"])
-        # It must NOT exist yet; the PENDING_FIXTURE_LANES cell reds when it does.
-        self.assertFalse(os.path.isdir(os.path.join(
+        self.assertTrue(os.path.isdir(os.path.join(
             HARNESS_ROOT, "fixtures", "saves", "vall-transfer-recorded")))
 
     def test_the_reaim_trio_is_neither_required_nor_forbidden_on_either_lane(self):
@@ -942,7 +1095,13 @@ class Flight1BlockerTests(unittest.TestCase):
         dropped the blocker would leave the next reader with a mode whose
         justification lives nowhere."""
         desc = self.spec["description"]
-        self.assertIn("MODE FLOWN, TWO DEFECTS FIXED, FLIGHT 3 PENDING", desc)
+        self.assertIn("LIVE-PROVEN 2026-08-20 ON FLIGHT 3", desc)
+        # ALL THREE FLIGHTS must stay named. The green one is the least likely
+        # to be dropped; the two that failed are the ones a tidying pass would
+        # cut, and they are the reason the mode exists and the reason its two
+        # values are what they are.
+        for beat in ("FLIGHT 1 (runs", "FLIGHT 2 (runs", "FLIGHT 3 (run"):
+            self.assertIn(beat, desc, beat)
         self.assertIn("MECHJEB-INTERPLANETARY-PLANNER-REJECTS-MOON-ORIGIN", desc)
         self.assertIn("NextTimeOfRadius", desc,
                       "the measured exception is the blocker's evidence and must "

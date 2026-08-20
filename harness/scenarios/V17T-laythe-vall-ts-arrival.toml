@@ -1,17 +1,22 @@
 schema = 1
 id = "V17T-laythe-vall-ts-arrival"
 # =====================================================================================
-# *** NOT FLYABLE YET. *** Committed AHEAD OF ITS SUBJECT, exactly as V17M is:
-# `saveTemplate` names `fixtures/saves/vall-transfer-recorded`, which does not
-# exist until `B26-laythe-vall-transfer` flies green and its produced save is
-# harvested. The tree id is a ZERO PLACEHOLDER and the single TimeJump UT is a
-# CALIBRATION SEED (V17M's third cycle-1 bracket jump, reused verbatim so the two
-# lanes observe the SAME instant from the two scenes). Tracked by the
-# self-retiring `SharedShipsManifestTests.PENDING_FIXTURE_LANES` exemption.
+# *** RE-PINNED 2026-08-20 AND FLYABLE. *** This lane was committed AHEAD OF ITS
+# SUBJECT, exactly as V17M was. **THE SUBJECT NOW EXISTS**:
+# `B26-laythe-vall-transfer` flight 3 (run 2026-08-20_1752, PASS attempt 1) flew
+# the suite's first completed moon-to-moon transfer and its produced save is
+# harvested as `fixtures/saves/vall-transfer-recorded`. The tree id and the
+# single TimeJump UT are now DERIVED from that fixture's bytes (the UT is still
+# V17M's third cycle-1 bracket jump, reused verbatim so the two lanes observe the
+# SAME instant from the two scenes). The self-retiring
+# `SharedShipsManifestTests.PENDING_FIXTURE_LANES` exemption is deleted.
 #
 # THE DERIVATION LIVES IN V17M'S HEADER SECTION 3 and is deliberately not
-# duplicated here. **READ ITS WARNING**: the seeds are weaker than any prior
-# pair's, because the anchor formula that served V14/V15/V16 is a PHASE-LOCK
+# duplicated here. **READ ITS FINDING**: the pre-flight warning that no seed set
+# could serve both roads is REFUTED at this pair - the 1:2:4 resonance puts
+# P_Vall and the Laythe-Vall synodic 0.6615 s apart, so the two candidate tables
+# are identical on cycle 1. The warning it replaced said: the anchor formula that
+# served V14/V15/V16 is a PHASE-LOCK
 # artifact and this subject may not take that road. The table is seeded under the
 # RE-AIM hypothesis and will move under the other one.
 # =====================================================================================
@@ -163,7 +168,7 @@ id = "V17T-laythe-vall-ts-arrival"
 # reads it back through a SECOND scene load.
 # =====================================================================================
 tier = "operator"
-description = "NOT YET FLYABLE - PENDING A GREEN B26, WHICH IS NOW POSSIBLE AGAIN. B26 flew 2026-08-19 and refused in PLAN-TRANSFER on a MechJeb moon-origin limitation, which blocked this subject's production outright - see docs/dev/todo-and-known-bugs.md -> MECHJEB-INTERPLANETARY-PLANNER-REJECTS-MOON-ORIGIN. THE CAPABILITY THAT BLOCK WAITED FOR NOW EXISTS: mlib's flag-gated PARENT-RELAY mode (`parentRelayTransfer`), and B26 is re-pointed at it. B26 flight 2 FLEW on 2026-08-20 and the mode's core worked (the whole two-stage phase flow, `escapedHomeSoi met=True`), but it hit two defects of its own - an escape sized for a hyperbolic excess at infinity where KSP hands over at the SOI, and a coast-warp thrash on an ambiguous `time_to_soi` - both now fixed and NOT re-flown, so `vall-transfer-recorded` still does not exist and this lane is still not flyable. None of it touches the routing question this lane asks, which stays unanswered and gated on neither hypothesis. Committed AHEAD of its subject with a ZERO tree id and ONE calibration-seed jump UT (V17M's third cycle-1 bracket jump, reused so the two lanes observe the same instant from the two scenes), tracked by the self-retiring SharedShipsManifestTests.PENDING_FIXTURE_LANES exemption. The tracking-station half of the Laythe->Vall pair and THE FIRST TS LOOP SUBJECT WHOSE RECORDING IS CROSS-PARENT. V5 put a looped RE-AIMED interplanetary member in the tracking station and pinned `reaimed=True`; V6T, V14T, V15T and V16T each asked the same question of a SAME-PARENT subject and got the exact inversion four times over, at four parents. This is the first TS subject since V5 that might legitimately go either way - Vall is not a child of Laythe, so `IsSameParentTarget` is false and the unit should reach `ApplyReaim`, and whether the TS render then assembles a re-aimed chain or falls back to the faithful one IS the measurement. `factory chain rec=... reaimed=True|False` is the single sharpest discriminator and is deliberately left UNREQUIRED and UNFORBIDDEN, as is the whole re-aim trio - the exact inversion of V14T/V15T/V16T, which forbid it because on a same-parent subject re-aim is structurally unreachable. THE CONIC IS WRITTEN OUT AS ARITHMETIC AND NOT PINNED, for a reason specific to this lane: a re-aimed chain does not render the RECORDED conic at all, so the conic a reader sees is itself a routing signal and predicting 'the recorded hyperbola' would assume the answer. IT SHIPS WITH allowedAnomalies = [] ON PURPOSE and is EXPECTED TO RED on `icon-off-orbit` - the V15T/V16T pattern, now a deterministic property of the single-jump shape across six runs at three parents (94.05 / 26.49 / 129.15 deg) with the stepped-bracket controls silent on all six of theirs; a fourth pair tests whether V16T's first-ever count > 1 reading is the new normal or was specific to its k = 20 cadence. A SECOND, SHARPER PREDICTION IS PRE-REGISTERED AND EXPECTED TO COME BACK NEGATIVE: V16T's `seam-endpoint-outside-soi` raise came from a creation-frame binding gap whose displacement SCALES WITH THE CADENCE MULTIPLE, and this lane's cadence is a synodic rather than 20 moon periods, so the raise should NOT recur - if it does anyway that is a finding about the mechanism rather than about the lane."
+description = "FLYABLE AT LAST - THE SUBJECT EXISTS AND THIS LANE IS RE-PINNED OFF ITS REAL BYTES, first reading run pending. B26 took three flights to produce it: flight 1 (2026-08-19) refused on a MechJeb moon-origin limitation (docs/dev/todo-and-known-bugs.md -> MECHJEB-INTERPLANETARY-PLANNER-REJECTS-MOON-ORIGIN), flight 2 (2026-08-20) proved the PARENT-RELAY mode's core and measured two defects in it, and flight 3 (run 2026-08-20_1752, PASS attempt 1) flew both fixes green through ORBIT-COMMITTED - the suite's first completed moon-to-moon transfer. The `PENDING_FIXTURE_LANES` exemption is retired. This lane's ONE jump UT is V17M's third cycle-1 bracket, re-derived from the harvested bytes so the pair still observes the SAME instant from the two scenes; it lands 140 s past the recording's Jool->Vall seam at 28,892,466.219888370. None of it touches the routing question this lane asks, which stays unanswered and gated on neither hypothesis. Committed AHEAD of its subject with a ZERO tree id and ONE calibration-seed jump UT (V17M's third cycle-1 bracket jump, reused so the two lanes observe the same instant from the two scenes), tracked by the self-retiring SharedShipsManifestTests.PENDING_FIXTURE_LANES exemption. The tracking-station half of the Laythe->Vall pair and THE FIRST TS LOOP SUBJECT WHOSE RECORDING IS CROSS-PARENT. V5 put a looped RE-AIMED interplanetary member in the tracking station and pinned `reaimed=True`; V6T, V14T, V15T and V16T each asked the same question of a SAME-PARENT subject and got the exact inversion four times over, at four parents. This is the first TS subject since V5 that might legitimately go either way - Vall is not a child of Laythe, so `IsSameParentTarget` is false and the unit should reach `ApplyReaim`, and whether the TS render then assembles a re-aimed chain or falls back to the faithful one IS the measurement. `factory chain rec=... reaimed=True|False` is the single sharpest discriminator and is deliberately left UNREQUIRED and UNFORBIDDEN, as is the whole re-aim trio - the exact inversion of V14T/V15T/V16T, which forbid it because on a same-parent subject re-aim is structurally unreachable. THE CONIC IS WRITTEN OUT AS ARITHMETIC AND NOT PINNED, for a reason specific to this lane: a re-aimed chain does not render the RECORDED conic at all, so the conic a reader sees is itself a routing signal and predicting 'the recorded hyperbola' would assume the answer. IT SHIPS WITH allowedAnomalies = [] ON PURPOSE and is EXPECTED TO RED on `icon-off-orbit` - the V15T/V16T pattern, now a deterministic property of the single-jump shape across six runs at three parents (94.05 / 26.49 / 129.15 deg) with the stepped-bracket controls silent on all six of theirs; a fourth pair tests whether V16T's first-ever count > 1 reading is the new normal or was specific to its k = 20 cadence. A SECOND, SHARPER PREDICTION IS PRE-REGISTERED AND EXPECTED TO COME BACK NEGATIVE: V16T's `seam-endpoint-outside-soi` raise came from a creation-frame binding gap whose displacement SCALES WITH THE CADENCE MULTIPLE, and this lane's cadence is a synodic rather than 20 moon periods, so the raise should NOT recur - if it does anyway that is a finding about the mechanism rather than about the lane."
 instanceProfile = "stock-minimal"
 tags = ["V17", "tracking-station", "loop-arrival", "re-aim", "cross-parent",
         "moon-to-moon", "vall", "laythe", "jool", "jool-moon", "map-render"]
@@ -199,14 +204,14 @@ steps = [
   { cmd = "SetSetting", args = { name = "verboseLogging",   value = "true" }, expect = "OK" },
   # ARM (FLIGHT-only): the production MissionStore.SetLoopEnabled path. THIS is
   # where a CROSS-PARENT tree either reaches ApplyReaim or does not.
-  # TREE ID: **ZERO PLACEHOLDER**. Substitute B26's committed tree.
-  { cmd = "MissionConfig", args = { tree = "00000000000000000000000000000000", loop = "true" }, expect = "OK" },
+  # TREE ID: B26 flight 3's committed tree, read from the harvested fixture.
+  { cmd = "MissionConfig", args = { tree = "9aa3c87c95a147388e6220bd36796fd9", loop = "true" }, expect = "OK" },
   # WARP TO CYCLE 1's LAUNCH (FLIGHT-only): an instantaneous Planetarium clock set.
   # Its `relaunchUt=` echo is the number the whole seed table hangs off.
-  { cmd = "StartLoopPlayback", args = { tree = "00000000000000000000000000000000" }, expect = "OK", budget = 300 },
+  { cmd = "StartLoopPlayback", args = { tree = "9aa3c87c95a147388e6220bd36796fd9" }, expect = "OK", budget = 300 },
   # FORWARD TO ~140 s PAST THE SEEDED CYCLE-1 Jool->Vall SEAM (FLIGHT-only).
   # V17M's third cycle-1 bracket jump, reused verbatim. CALIBRATION SEED under H1.
-  { cmd = "TimeJump", args = { ut = "29015577" }, expect = "OK", budget = 300 },
+  { cmd = "TimeJump", args = { ut = "28998568" }, expect = "OK", budget = 300 },
   # PERSIST the armed mission state + the jumped clock.
   { cmd = "SaveGame",   args = { name = "persistent" },                      expect = "OK" },
   # RE-KILL THE RECORDER immediately before the load the guard rejects (V5's

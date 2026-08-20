@@ -52,7 +52,7 @@ scope (the derivation is pinned by synthetic in-game cells); file when docking
 coverage next expands. Also missing per BDOCK-1's own header note: an
 orbital-rendezvous-dock D10 value and a same-craft-twice identity D18 value.
 
-## MECHJEB-INTERPLANETARY-PLANNER-REJECTS-MOON-ORIGIN: MechJeb 2.15.1's `OperationInterplanetaryTransfer.MakeNodes` throws on a MOON-PARKED origin, so the harness could not fly any moon-to-moon transfer [MEASURED 2026-08-19 by `B26-laythe-vall-transfer` flight 1, DETERMINISTIC 2/2 attempts. HARNESS SURFACE, REPORT-ONLY - not a Parsek defect and not a spec defect; it blocked the M-MIS-7 subject's PRODUCTION, not the product question. **ROUTED AROUND 2026-08-20: candidate (a)-minimal shipped as mlib's flag-gated PARENT-RELAY mode, and B26 FLIGHT 2 FLEW IT - the escape phase worked and `escapedHomeSoi met=True`. Two defects of its own were measured and fixed (see WHAT WAS BUILT). ENTRY STAYS OPEN until a flight completes the hop**]
+## ~~MECHJEB-INTERPLANETARY-PLANNER-REJECTS-MOON-ORIGIN: MechJeb 2.15.1's `OperationInterplanetaryTransfer.MakeNodes` throws on a MOON-PARKED origin, so the harness could not fly any moon-to-moon transfer~~ [MEASURED 2026-08-19 by `B26-laythe-vall-transfer` flight 1, DETERMINISTIC 2/2 attempts. HARNESS SURFACE, REPORT-ONLY - never a Parsek defect and never a spec defect; it blocked the M-MIS-7 subject's PRODUCTION, not the product question. **ROUTED AROUND AND CLOSED 2026-08-20**: candidate (a)-minimal shipped as mlib's flag-gated PARENT-RELAY mode; flight 2 proved its core and measured two defects in it; **flight 3, run `2026-08-20_1752`, PASS attempt 1, COMPLETED THE HOP** - the full chain through ORBIT-COMMITTED, a Vall park at ecc 0.0035, and the M-MIS-7 subject harvested as `fixtures/saves/vall-transfer-recorded`. THE MECHJEB LIMITATION ITSELF IS UNCHANGED AND UNFIXED - it is ROUTED AROUND, not repaired, and the mode section below is the resolution a future moon-origin lane must reuse]
 
 **THIS IS A HARNESS-CAPABILITY GAP, NOT A PRODUCT FINDING.** Nothing in Parsek ran,
 nothing in Parsek is implicated, and the spec that hit it is correct. Read the
@@ -273,9 +273,53 @@ and is not what needed changing.
   leg - which legitimately transits the Mun while targeting Eve - keeps the
   native warp-to-boundary flight 7 gave it.
 
-**THIS ENTRY STAYS OPEN.** Both defects are fixed at their roots with the
-arithmetic re-run in `Flight2DefectATests` / `Flight2DefectBTests`, and NOTHING
-HAS BEEN RE-FLOWN. It closes when a flight completes the hop.
+### FLIGHT 3 (2026-08-20, run `2026-08-20_1752`): THE HOP COMPLETED - THIS ENTRY CLOSES
+
+PASS attempt 1, MISSION-OK, mission wall 1,408 s. The full twenty-phase chain
+`PRELAUNCH -> ORBIT -> ESCAPE -> TRANSFER-BURN -> COAST -> PLAN-TRANSFER ->
+TRANSFER-BURN -> COAST -> two correction rounds -> TARGET-FLYBY -> PLAN-CAPTURE
+-> CAPTURE-BURN -> PARK -> ORBIT-COMMIT -> ORBIT-COMMITTED`, all eight assertions
+met, a Vall park of 167,158 x 170,417 m at **ecc 0.0035**, and the tree committed
+at Vall.
+
+**BOTH FLIGHT-2 FIXES PROVEN LIVE, against the targets pre-registered before the
+flight:**
+
+| target | predicted | measured |
+|---|---|---|
+| delivered Jool orbit | inside a = 17.2 - 59.0 Mm | **a = 26.06 Mm, ecc 0.013** (flight 2: 79.0 Mm, outside) |
+| stage-2 coast warp | no thrash | **`phaseWarpIssues` peak 1** for the whole mission (flight 2: 501 in one phase) |
+| escape node | 586.69 m/s | **586.6922 m/s**, leaving a POSITIVE 4,055,749 m apoapsis radius vs the predicted 4,053,149 |
+| stage-2 node | 102.8 / 600.0 / 900.0 band | **415.46 m/s** |
+
+The escape's positive, BOUND post-burn apoapsis is the sharpest confirmation of
+defect A's second-order correction: `_relay_escape_burn_done` fired on its
+SOI-reach disjunct, and an `ejectionEccFloor` above 1 would indeed never have
+tripped on a correctly-sized patched-conic escape.
+
+Rest of the flight, for the record: corrections 63.72 and 11.66 m/s (neither
+discarded at the 100 m/s cap); delivered arrival periapsis **168,783 m** against
+the 250,000 m request, **k = 0.675** at req/SOI 10.39% - the fifth finding-16d
+corpus point and the first at an airless small-mu body; capture 315.07 m/s; total
+spent by propellant mass **1,368.1 m/s** against a 1,530.8 nominal hop, leaving
+1,116.6 m/s.
+
+**THE PRODUCT:** `fixtures/saves/vall-transfer-recorded` - one tree
+`9aa3c87c95a147388e6220bd36796fd9`, one recording
+`625d63e022c449d6a44b5269c8b54a21` (746 points, 13 ORBIT_SEGMENTs, TWO
+body-change seams), zero durable rows, terminal Orbiting at Vall. The optimizer
+kept BOTH boundaries cohesive, so the count came back at 1 - the first data
+anyone has on an ESCAPE boundary.
+
+**WHAT THIS ENTRY DOES AND DOES NOT CLOSE.** CLOSED: the harness can now fly a
+moon-to-moon transfer, and the M-MIS-7 subject exists. NOT closed and never
+touched by any of it: the PRODUCT question - whether `ApplyReaim` engages on a
+cross-parent moon-to-moon recording. That is measured by `V17M`/`V17T`, now
+re-pinned off these bytes and awaiting their first reading runs; they carry both
+hypotheses and gate on neither. AND NOT FIXED: MechJeb's own limitation. Nothing
+in MechJeb changed - a moon-parked origin still cannot be planned by
+`OperationInterplanetaryTransfer`, and the PARENT-RELAY mode is the route around
+it that any future moon-origin lane must reuse.
 
 ## MAPRENDER-SEAM-LENS-EVALUATES-UNSHIFTED-EPOCH-ON-CREATION-FRAME: the seam-endpoint lens reads the RECORDED seam UT instead of the replayed one on a ghost proto's creation frame, and raises `seam-endpoint-outside-soi` against an endpoint 157x the SOI away [MEASURED 2026-08-19 by `V16T-laythe-ts-arrival`'s reading run and **RECURRED on its ARMED run `2026-08-19_2212` (PASS attempt 1)**, which makes it DETERMINISTIC for the single-jump shape rather than a one-off. REPORT-ONLY - the harness classified the reason UNLISTED and did not gate on it, and `V16M-laythe-player-loop`'s stepped-epoch censuses prove the underlying recurrence is FINE. Same family as MAPRENDER-ICON-OFF-ORBIT-CREATION-FRAME-AFTER-JUMP; NO product change is proposed]
 
