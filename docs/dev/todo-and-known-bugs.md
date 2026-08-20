@@ -14,6 +14,183 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## SYNTHETIC-CONTRACT-FAIL-PENALTY-CLAMPED-BY-DRAWDOWN-GUARD: `PrePass` synthesizes the expired-deadline `ContractFail` and the reconstruction spends its penalties correctly, but `KspStatePatcher`'s guarded-drawdown protection refuses to write either pool back, so the debit never reaches the live career [MEASURED 2026-08-20 by `L5-career-contract-complete`'s green flight (run `2026-08-20_2240`), the FIRST run ever to drive `ContractsModule.PrePass`'s injection under a gate. REPORT-ONLY and GATED AS MEASURED: no product change is proposed by this lane, and the clamp is pinned so a change of behaviour has to be taken deliberately]
+
+**What fires, and it all fires correctly.** `career-contract-pad` carries two
+fixture-authored `type = 5` rows and no terminal row; B's `deadlineUT = 100` sits
+between the cold-load walk's clock (B's own accept UT, 6) and the commit-time walk's
+(the flight's rows out to ~348). The commit-time recalc produced, in one burst:
+
+```
+PrePass: injected synthetic ContractFail for contractId='c47d0a91-...' at deadlineUT=100 fundsPenalty=9000 repPenalty=1 (nowUT=345.59999999997564 source=lastActionUT)
+DeadlineExpired: contractId='c47d0a91-...' deadline passed at currentUT=100, slot freed, activeSlots=1/2
+Fail: contractId='c47d0a91-...' fundsPenalty=9000 repPenalty=1 wasActive=False activeSlots=1/2
+```
+
+and the RECONSTRUCTION really did spend the pack - `running=527558` against
+`live=536558` for funds, `running=0.99999749660491943` against `live=1.9999988079071045`
+for reputation, i.e. exactly the 9000 and the 1.
+
+**Where it stops.** Neither reaches KSP:
+
+```
+PatchFunds: GUARDED DRAWDOWN clamped resource=Funds running=527558 live=536558 wouldBeTarget=527558 clampedTo=536558 (no time-travel context) - earned value preserved; ledger may be missing an earning channel
+PatchReputation: GUARDED DRAWDOWN clamped resource=Reputation running=0.99999749660491943 live=1.9999988079071045 wouldBeTarget=0.99999749660491943 clampedTo=1.9999988079071045 (no time-travel context) - earned value preserved; ledger may be missing an earning channel
+```
+
+**Why the guard clamps HERE, and why that does not generalise.** In THIS fixture the
+save's stock `CONTRACTS` node is EMPTY BY CONSTRUCTION - `career-contract-pad` splices
+nothing into `ContractSystem`, and both contracts exist only as fixture-authored
+`type = 5` rows in `Parsek/GameState/ledger.pgld`. Stock therefore never debited the
+live pools for B's failure, because stock never knew B existed. The reconstruction
+spends the penalty pack and the live pool does not follow, so the recalc arrives at
+the patcher as a bare drawdown with no time-travel context - which is exactly the
+missing-earning-channel signature the guard exists to refuse. The drawdown direction
+here is an artifact of the fixture's shape, guaranteed by construction, and not
+evidence about how the guard treats contract penalties in general.
+
+**A REAL stock contract fail is a different shape, and it is UNTESTED rather than
+measured to clamp.** When stock fails a live contract it applies the penalty to the
+live pool ITSELF at fail time, and Parsek captures the terminal `ContractFail` row
+through `GameStateEventConverter.ConvertContractFailed`
+(`Source/Parsek/GameActions/GameStateEventConverter.cs` ~:811-828) into `FundsModule`
+and the reputation module. Both sides then move together: the reconstruction's running
+value and the live pool step down by the same pack, so the patcher sees no unexplained
+drawdown and there is nothing to clamp. No committed run has ever flown that shape, so
+the real-stock-fail signature is an OPEN question, not a demonstrated clamp. **Do NOT
+relax the PR #1097 earned-value guard on this entry's evidence** - this entry measures
+a synthetic fixture in which the guard is behaving correctly.
+
+**The policy question, and why it is parked.** IF a real-stock-fail scenario is ever
+flown and IT measures a clamp, then there is a genuine policy decision to take about
+the drawdown guard, with a real argument on each side: a contract failure is a debit a
+player would expect to feel; equally, a guard that lets any recalc reduce a career's
+funds is exactly the protection PR #1097 exists to provide. Until such a run exists
+that question is not live, and nothing in this lane proposes a product change. The
+honest interim state is: on this synthetic fixture the ledger reconstruction is
+CORRECT and the live career is UNCHANGED, and both halves are now measured rather than
+assumed. `L5-career-contract-complete` pins
+`PatchFunds: GUARDED DRAWDOWN clamped resource=Funds` as a required token precisely
+so a change in either direction reds and forces the decision to be taken on purpose.
+The numbers are deliberately NOT in the token: `running=` moves during the recalc
+burst (the same run logged an earlier clamp at `running=522200 live=531200`, before
+the recovery credit landed) and `live=` is the flight's own earnings, which
+`L3-career-science-recover` owns.
+
+**Note for whoever takes it: the synthetic row is WALK-LOCAL, and that property is
+OBSERVED but UNGATED.** The same run measured that the produced `ledger.pgld` carries
+the two accepts and NO `type = 7` row, so the injection re-derives on every walk
+rather than being persisted once. That is what makes the token stable across runs, and
+it also means any fix has to keep working on a re-derived row rather than on a stored
+one. It is structurally true today - `RecalculationEngine.SortActions` returns a NEW
+list ("the input is not modified"), and `PrePassAllModules` hands the modules that
+copy (`Source/Parsek/GameActions/RecalculationEngine.cs` ~:709), so an injected row
+lives and dies inside one walk. But NOTHING GATES IT. Residual risk, one line: a
+refactor that passed the LIVE action list to `PrePass` instead of the copy would
+persist the synthetic row and this spec would still be green, because every run
+re-copies the committed fixture over the previous run's save.
+
+**Evidence, and it is quoted rather than pointed at.** The durable record is what is
+already reproduced VERBATIM above: the three measured lines (`PrePass: injected
+synthetic ContractFail ...` / `DeadlineExpired: ...` / `Fail: ...`), the two
+`GUARDED DRAWDOWN clamped` lines, and the pool comparisons `running=527558` against
+`live=536558` for funds and `running=0.99999749660491943` against
+`live=1.9999988079071045` for reputation. They are quoted in full BECAUSE the green
+run's artifacts (`2026-08-20_2240_L5-career-contract-complete.*` under
+`harness/results/`) are generated and gitignored - nothing outside this entry preserves
+them. Do NOT cite `logs/2026-08-21_0124_L5-career-contract-complete/` for THIS finding:
+that folder is flight 1, whose ledger loaded `actions=1` and which logged ZERO
+injection lines, so it contradicts rather than supports this entry. It is the correct
+pointer for the Progress-node finding below, and only there.
+
+## SAVE-AUTHORED-PROGRESS-NODE-DOES-NOT-RESTORE: a `Progress { FirstLaunch }` node written into a file-constructed career save is not read back, and it silently kills any save-authored Active `PartTest` [MEASURED 2026-08-20 by `L5-career-contract-complete`'s first flight (run `2026-08-20_2217`). HARNESS-FIXTURE FINDING, REPORT-ONLY: no product change is proposed, and nothing gates it. It is filed because it BLOCKS a specific class of fixture and because the next author to try one will otherwise spend the same flight]
+
+**What was tried.** `career-contract-pad` v1 spliced two nodes into
+`career-science-pad`'s save so the `science_bench_recover` flight would COMPLETE a
+real stock contract live: a `state = Active` `PartTest` on `solidBooster.sm.v2` at
+`sit = PRELAUNCH`, and `Progress { FirstLaunch { completedManned = 4 } }`. The
+completion mechanism was derived from the decompiled KSP 1.12.5
+`Assembly-CSharp.dll` before flying, and every link still holds:
+`ModuleTestSubject.OnActive()` fires `onTestRun` on a staging activation with no
+situation filter of its own; `solidBoosterRT-5_v2.cfg` declares `useStaging = True`
+and `situationMask = 60`, which includes `PRELAUNCH`; the mission emits its single
+`ACTION_ACTIVATE_STAGE` on the first decision frame, from PRELAUNCH; and
+`Contracts.Parameters.PartTest.OnPartRunTest` completes when the part name matches
+and `AllChildParametersComplete()`.
+
+**What happened.** The flight was textbook - MISSION-OK, all nine phases, analyzer
+`red=0`, zero `[Parsek][ERROR]`, zero Unity exceptions, 2 recordings, 463 s wall -
+and the completion never fired. The contract was gone from `ContractSystem` before
+the mission's first frame, and stock re-OFFERED a fresh contract with the identical
+subject 8 s later:
+
+```
+01:17:50.992 PatchContracts: ledger has 1 active contracts, ... KSP has 0 current contracts, 0 finished contracts
+01:17:57.243 Game state: ContractOffered 'Test RT-5 "Flea" Solid Fuel Booster at the Launch Site.' (diagnostic, not stored)
+```
+
+**The cause, read off two stock log lines rather than inferred.** The same run
+logged BOTH of these at 01:17:57, i.e. DURING the flight:
+
+```
+[Progress Node Reached]: FirstLaunch
+[Progress Node Complete]: FirstLaunch
+```
+
+`KSPAchievements.FirstLaunch.TestFlight` guards its award with
+`if (!base.IsComplete) { Complete(); ... }`, and `ProgressNode.Complete()` calls
+`Reach()` only when `!reached`. `ProgressNode.Load` sets `reached = true` on its
+FIRST line and `complete = true` in its `completedManned` branch. Both lines
+appearing therefore proves both flags were false at launch: **the spliced
+`FirstLaunch` node was never `Load`ed.** From there the contract's fate is
+mechanical - `Contracts.Templates.PartTest.MeetRequirements()` is
+`if (!ProgressTracking.Instance.NodeComplete("FirstLaunch")) return false;`, and
+`Contract.Update()` re-checks `MeetRequirements()` on EVERY tick of an ACTIVE
+contract, retiring it to `OfferExpired`, which is removed outright rather than kept
+in `ContractsFinished` - matching the observed `0 current, 0 finished`.
+
+**It is NOT "authored ScenarioModule children are lost".** The same run's produced
+save grew `ResearchAndDevelopment`'s `Tech` node from 13 `part =` lines to 23, so
+that module's child node loaded and was written back. It is also not a shape
+problem: the spliced `Progress` and `CONTRACT` blocks are byte-identical in
+structure and indentation to the ones `Source/Parsek.Tests/Fixtures/C2CareerPostFix/`
+carries, the save's brace balance is clean, there are no duplicate `ProgressTracking`
+or `ContractSystem` SCENARIO nodes, and the two saves carry the SAME 22 scenario
+modules with the same `scene` lists. Nor is it a staging failure: `career-earned-pad`
+- derived from a REAL KSP-written save - splices an Active `PartTest` the same way,
+and `L4-ledger-groundtruth-strict` measures all 9 of its contracts loading and
+surviving (`KSP has 9 current contracts`), which is itself proof that
+`MeetRequirements()` reads TRUE there and therefore that ProgressTracking DID restore
+in that lineage.
+
+**What is not known** is why the same node restores from one save and not from the
+other. `ProgressTracking.OnLoad` is `if (!node.HasNode("Progress")) return;` then
+`achievementTree.Load(node.GetNode("Progress"))`, `ProgressTree.Load` matches by
+`progressNode.Id`, and `OnAwake` populates the tree before either - so on the code
+alone it should work. The difference that remains unexamined is LINEAGE:
+`career-contract-pad` descends from the file-constructed `fresh-career`,
+`career-earned-pad` from a save KSP itself wrote.
+
+**Consequence, and why the lane routed around it rather than through it.** Until
+this is explained, a save-authored Active `PartTest` cannot be made to survive into a
+flight in the `fresh-career` lineage, so the LIVE `ContractComplete` gate this wave
+set out to build is not reachable from a file-constructed fixture. Re-flying a second
+guessed node shape would spend a flight on a hypothesis. `career-contract-pad` was
+therefore rebuilt with every claim in the LEDGER instead - two `type = 5` rows, one
+with a deadline sized to lapse mid-flight - and `L5-career-contract-complete` now
+gates `ContractsModule.PrePass`'s synthetic-fail injection, `CheckDeadlines`'s
+retirement and `ProcessFail`'s penalty application, none of which had a committed gate
+either. `ContractComplete` and `ContractCancel` remain ungated.
+
+**Where to start if someone picks this up.** The cheapest next experiment is a
+fixture derived from a KSP-WRITTEN career (the `career-earned-pad` lineage) carrying
+an Active `PartTest` whose part is on ITS craft and whose `sit` is the situation that
+craft is in when it stages - which would separate "lineage" from "authored node" in
+one flight. `harness/tools/build_career_contract_pad.py`'s module docstring carries
+the full derivation, and the collected evidence is
+`logs/2026-08-21_0124_L5-career-contract-complete/`.
+
+
 ## ~~TOOLTIP-ECHO-SIZES-FROM-LAST-FRAMES-TEXT: every window's bottom hover-help strip was measured during Layout from the PREVIOUS text and painted during Repaint with the NEW one, and Real Spawn Control's variant also changed its control COUNT between the two passes~~ [FOUND 2026-08-20 from an in-game observation of a one-frame dark sliver at the window bottom; FIXED the same day on branch `tooltip-echo-sizing`]
 
 IMGUI sizes a control during the Layout event and reuses that cached rect during

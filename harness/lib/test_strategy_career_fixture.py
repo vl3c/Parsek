@@ -223,7 +223,7 @@ class FreshCareerStaysUnseededTests(unittest.TestCase):
 
     Seeding `fresh-career` itself would have propagated through
     `build_career_pad_craft.py` into `career-pad-craft` and on into
-    `career-science-pad`, re-opening thirteen committed specs. CL-2 pins KSP's
+    `career-science-pad`, re-opening fourteen committed specs. CL-2 pins KSP's
     own post-curve digits as an EXACT-DIGIT logContract regex, and KSP's granular
     reputation curve is STATE-DEPENDENT: `oracle.apply_rep_curve` - post PR
     #1508's residual-step port, which reproduces CL-2's `+1` Progression pin to
