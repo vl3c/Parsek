@@ -170,15 +170,17 @@ namespace Parsek
         /// low by exactly the yields, because they arrive under the ORIGINAL reason
         /// AND below the recorder's 100-funds threshold, a double miss.</para>
         ///
-        /// <para><b>Reputation is evaluated and returned but deliberately not turned
-        /// into a ledger row by the live door</b> - see
-        /// <c>LedgerOrchestrator.OnStrategyCurrencyConversion</c>, which logs it and
-        /// explains why (the query delta is PRE-curve while
-        /// <c>Reputation.AddReputation</c> applies KSP's granular curve on top, so the
-        /// magnitude here is not the magnitude the pool moved by, and this seam
-        /// exposes no post-curve value to read). Keeping the leg in the pure result
-        /// keeps the observation testable and the asymmetry explicit rather than
-        /// hidden behind a missing branch.</para>
+        /// <para><b>The reputation leg's PRE-curve magnitude is exactly what the ledger
+        /// wants</b>, which is why the zero-input rule is load-bearing for it too.
+        /// Stock's <c>Reputation.OnCurrenciesModified</c> passes
+        /// <c>GetEffectDelta(Currency.Reputation)</c> straight to
+        /// <c>addReputation_granular</c>, so this leg IS the curve's input argument;
+        /// <c>LedgerOrchestrator.BuildStrategyConversionAction</c> writes it as a NOMINAL
+        /// <c>ReputationEarning</c> and <c>ReputationModule.ApplyReputationCurve</c> - a
+        /// line-by-line mirror of that routine - re-derives the pool movement at the
+        /// reconstruction's OWN running rep. The zero-input scoping is what keeps that
+        /// from double-counting against <c>TransformedRepReward</c> /
+        /// <c>MilestoneRepAwarded</c> / the reason-keyed exchanger door.</para>
         /// </summary>
         internal static List<StrategyConversionLeg> EvaluateLegs(StrategyConversionQuery q)
         {

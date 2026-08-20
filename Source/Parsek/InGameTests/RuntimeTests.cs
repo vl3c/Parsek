@@ -17454,6 +17454,12 @@ namespace Parsek.InGameTests
             public int StrategyFundsRows;
             public double StrategyFunds;
             public int ReputationRows;
+            // The query-family reputation OUTPUT leg specifically: rows sourced
+            // ReputationSource.Strategy, and the sum of their RAW pre-curve NominalRep.
+            // Split out from ReputationRows so a cell can tell "a reputation row exists"
+            // apart from "the STRATEGY reputation row exists carrying the right magnitude".
+            public int StrategyRepRows;
+            public double StrategyRepNominal;
         }
 
         private static bool TryTallyStrategyLedgerRows(out StrategyLedgerTally tally)
@@ -17492,6 +17498,13 @@ namespace Parsek.InGameTests
                         }
                         break;
                     case GameActionType.ReputationEarning:
+                        tally.ReputationRows++;
+                        if (a.RepSource == ReputationSource.Strategy)
+                        {
+                            tally.StrategyRepRows++;
+                            tally.StrategyRepNominal += a.NominalRep;
+                        }
+                        break;
                     case GameActionType.ReputationPenalty:
                         tally.ReputationRows++;
                         break;
@@ -17505,7 +17518,8 @@ namespace Parsek.InGameTests
         {
             return string.Format(CultureInfo.InvariantCulture,
                 "convDebitRows={0} convDebit={1} exchDebitRows={2} exchDebit={3} " +
-                "sciCreditRows={4} sciCredit={5} fundsRows={6} funds={7} repRows={8}",
+                "sciCreditRows={4} sciCredit={5} fundsRows={6} funds={7} repRows={8} " +
+                "strategyRepRows={9} strategyRepNominal={10}",
                 after.ConverterDebitRows - before.ConverterDebitRows,
                 (after.ConverterDebit - before.ConverterDebit).ToString("R", CultureInfo.InvariantCulture),
                 after.ExchangerDebitRows - before.ExchangerDebitRows,
@@ -17514,7 +17528,10 @@ namespace Parsek.InGameTests
                 (after.ScienceCredit - before.ScienceCredit).ToString("R", CultureInfo.InvariantCulture),
                 after.StrategyFundsRows - before.StrategyFundsRows,
                 (after.StrategyFunds - before.StrategyFunds).ToString("R", CultureInfo.InvariantCulture),
-                after.ReputationRows - before.ReputationRows);
+                after.ReputationRows - before.ReputationRows,
+                after.StrategyRepRows - before.StrategyRepRows,
+                (after.StrategyRepNominal - before.StrategyRepNominal)
+                    .ToString("R", CultureInfo.InvariantCulture));
         }
 
         /// <summary>
@@ -17825,7 +17842,7 @@ namespace Parsek.InGameTests
                     // on both stock exchangers: they are EMERGENCY strategies and only
                     // offer themselves at non-positive reputation. That makes this cell
                     // ORDER-COUPLED to every cell that runs before it in the category -
-                    // ConverterStrategy_ReputationLeg_IsObservedAndDropped deliberately
+                    // ConverterStrategy_ReputationLeg_CapturesEarning deliberately
                     // moves reputation, and a residue it failed to restore would land here
                     // as an opaque "Cannot be activated". Read the pool and say so plainly:
                     // an honest skip naming the coupling beats a red whose cause is in
@@ -18510,19 +18527,18 @@ namespace Parsek.InGameTests
         }
 
         [InGameTest(Category = "StrategyLifecycle", Scene = GameScenes.SPACECENTER,
-            Description = "Documents the DELIBERATE reputation drop live: a stock CurrencyConverter's reputation OUTPUT leg is observed by the query door (dR nonzero on its summary line) and then written to NO ledger row, because the query delta is pre-curve while the pool moves post-curve.")]
-        public IEnumerator ConverterStrategy_ReputationLeg_IsObservedAndDropped()
+            Description = "A stock CurrencyConverter's reputation OUTPUT leg is observed by the query door (dR nonzero on its summary line) and lands as exactly one ReputationEarning row carrying the raw PRE-curve delta, with the reputation pool left MOVED and no GUARDED clamp on any pool.")]
+        public IEnumerator ConverterStrategy_ReputationLeg_CapturesEarning()
         {
-            // THE DECISION THIS CELL DOCUMENTS. StrategyConversionCapture.EvaluateLegs
-            // RETURNS a reputation leg, and LedgerOrchestrator.BuildStrategyConversionAction
-            // then returns null for it - logged, never written. The reason is in that
-            // method's contract: the query delta is the modifier's PRE-curve contribution
-            // while Reputation applies KSP's granular curve on top, so the number available
-            // at this seam is not the number the pool moved by, and writing it through
-            // either the earning or the penalty arm would trade a known drift for a wrong
-            // one. Keeping the leg in the pure result keeps the asymmetry explicit rather
-            // than hidden behind a missing branch - and this cell keeps it OBSERVED rather
-            // than merely commented.
+            // THE MECHANISM THIS CELL PROVES. StrategyConversionCapture.EvaluateLegs
+            // returns a reputation leg and LedgerOrchestrator.BuildStrategyConversionAction
+            // writes it as a NOMINAL ReputationEarning (ReputationSource.Strategy). The
+            // pre-curve magnitude is not a defect to work around, it is the RIGHT number:
+            // stock's Reputation.OnCurrenciesModified hands
+            // query.GetEffectDelta(Currency.Reputation) straight to addReputation_granular,
+            // and ReputationModule.ApplyReputationCurve mirrors that routine line by line -
+            // so the reconstruction re-derives the pool movement at its OWN running rep
+            // instead of copying a number measured against a different one.
             //
             // OPEN-SOURCE TECH PROGRAM: stock input=Science output=Reputation. Its setup
             // charge is science-only (ledger-modelled, no curve), and its trigger is an
@@ -18531,18 +18547,17 @@ namespace Parsek.InGameTests
             // green on it. Every other risk is held constant so the reputation leg is the
             // only thing under observation.
             //
-            // THE HONEST CONSEQUENCE, STATED. The dropped leg means live reputation moves
-            // and the reconstruction does not. Reputation is GUARDED (KspStatePatcher
-            // .ResolveReputationPatch, epsilon 0.01) and, unlike science, has NO pending
-            // adjuster - so a divergence above 0.01 left standing WOULD raise
-            // "GUARDED DRAWDOWN clamped resource=Reputation" on the next recalc. That is a
-            // real property of the accepted drift, and this cell MEASURES it and logs the
-            // magnitude every run. It then restores the reputation leg before the door's
-            // deferred recalc, so the FIXTURE does not manufacture a clamp out of a
-            // documented product decision - exactly the discipline the 2026-08-18_2019
-            // reading run bought for the science pool. The no-clamp assertion below is
-            // therefore an assertion about the SCIENCE and FUNDS pools staying in step; the
-            // reputation drift is reported as a measured number, not asserted away.
+            // THE POOL IS LEFT MOVED, AND THAT IS THE WHOLE POINT. The earlier shape of
+            // this cell RESTORED the reputation before the door's deferred recalc, because
+            // the leg was dropped and an unrestored drift would have raised
+            // "GUARDED DRAWDOWN clamped resource=Reputation" out of a documented product
+            // decision. With the row written there is nothing to protect the fixture from:
+            // the reconstruction tracks the pool, so leaving reputation moved through the
+            // deferred recalc turns assertion (5)'s no-clamp scan into a REAL product gate
+            // on the credit path. Reputation is GUARDED (KspStatePatcher
+            // .ResolveReputationPatch, epsilon 0.01) with NO pending adjuster to absorb a
+            // miss, so a regression that stops writing the row - or writes it post-curve,
+            // or double-applies the curve - clamps here and reds this cell.
             if (HighLogic.CurrentGame == null)
             {
                 InGameAssert.Skip("HighLogic.CurrentGame is null");
@@ -18682,16 +18697,12 @@ namespace Parsek.InGameTests
                         }
                     }
 
-                    // RESTORE THE REPUTATION LEG NOW, before the door's one-frame deferred
-                    // recalc reads the pool. Suppressed so the restore itself cannot re-enter
-                    // any recorder door, and absolute (SetReputation) so KSP's curve is not
-                    // applied a second time. Everything asserted below was measured above.
-                    if (System.Math.Abs(repDelta) > 0.0)
-                    {
-                        using (SuppressionGuard.Resources())
-                            Reputation.Instance.SetReputation(repPreAward, TransactionReasons.None);
-                    }
-
+                    // NO IN-BODY RESTORE. The reputation movement is deliberately left
+                    // standing through the door's one-frame deferred recalc: the ledger now
+                    // carries a row for it, so the reconstruction must land on the moved
+                    // pool and assertion (5) below is a real gate rather than a statement
+                    // about a fixture. The finally block still restores exactly, so the
+                    // exchanger cell's reputation <= 0 requirement is unaffected.
                     for (int i = 0; i < StrategyLifecycleActivateSettleFrames; i++)
                         yield return null;
 
@@ -18736,12 +18747,26 @@ namespace Parsek.InGameTests
                             "this converter's input is SCIENCE, so the query must carry a positive inS");
                     }
 
-                    // (2) THE LEG WAS DROPPED. No reputation row of either arm - not an
-                    // earning, not a penalty.
-                    InGameAssert.AreEqual(0, afterTally.ReputationRows - beforeTally.ReputationRows,
-                        "the reputation leg is DELIBERATELY not written: the query delta is pre-curve " +
-                        "while the pool moves post-curve, so neither the earning nor the penalty arm " +
-                        "can carry it faithfully");
+                    // (2) THE LEG WAS CAPTURED. Exactly one reputation row - and it must be
+                    // the EARNING arm carrying the RAW pre-curve delta, because
+                    // ReputationModule.ProcessRepEarning is what applies the curve during
+                    // the walk. A row carrying the post-curve magnitude would double-apply
+                    // it; a penalty-arm row would bypass the curve entirely.
+                    InGameAssert.AreEqual(1, afterTally.ReputationRows - beforeTally.ReputationRows,
+                        "the reputation leg must land as exactly one ledger row - the query delta IS " +
+                        "the argument stock hands to addReputation_granular, so a nominal " +
+                        "ReputationEarning reproduces the pool movement through the walk's own curve");
+                    InGameAssert.AreEqual(1,
+                        afterTally.StrategyRepRows - beforeTally.StrategyRepRows,
+                        "the row must be a ReputationEarning sourced ReputationSource.Strategy - " +
+                        "any other source would be reconciled against a reason-keyed event that the " +
+                        "query family never emits");
+                    double nominalRepRow =
+                        afterTally.StrategyRepNominal - beforeTally.StrategyRepNominal;
+                    InGameAssert.ApproxEqual(loggedRepDelta, nominalRepRow,
+                        System.Math.Max(1e-4, System.Math.Abs(loggedRepDelta) * 0.001),
+                        "the row's NominalRep must be the RAW dR the door observed, not a " +
+                        "curve-applied magnitude");
 
                     // (3) AND THE DOOR DID RUN. The science INPUT leg of the same query lands
                     // as a converter-sourced debit, so a regression to "no capture at all"
@@ -18753,10 +18778,13 @@ namespace Parsek.InGameTests
                     InGameAssert.ApproxEqual(take, convDebit, System.Math.Max(0.05, take * 0.02),
                         "the ledger's science debit must equal the science KSP actually removed");
 
-                    // (4) THE ACCEPTED DRIFT, MEASURED. Reported every run so the size of the
-                    // documented reputation divergence is a number in the log rather than a
-                    // claim in a comment. Above the guard's epsilon it WOULD clamp if left
-                    // standing - which is why the restore above exists.
+                    // (4) THE PRE-CURVE / POST-CURVE PAIR, MEASURED. Both numbers in one
+                    // line every run: what the door observed (the curve's INPUT, which is
+                    // what the row stores) and what the pool actually moved (the curve's
+                    // OUTPUT, which is what the walk must re-derive). The gap between them
+                    // is the curve, and it is the reason the row is written NOMINAL. It is
+                    // also the number a future regression would move, so it is logged as a
+                    // measurement rather than argued in a comment.
                     // NOTE ON WORDING, and it is load-bearing rather than stylistic: this
                     // line must NOT contain the literal guard tokens. FirstGuardedClampLine
                     // below scans the SAME captured buffer for them, and the L3 spec
@@ -18764,30 +18792,32 @@ namespace Parsek.InGameTests
                     // clamp it is explaining would fail its own cell and red the spec.
                     // Measured the hard way on reading run 2026-08-18_2136.
                     const double ReputationGuardEpsilon = 0.01;
-                    string aboveEpsilon = System.Math.Abs(repDelta) > ReputationGuardEpsilon
-                        ? "YES - unrestored this would raise the reputation drawdown guard on the next recalc"
-                        : "no";
                     ParsekLog.Info("TestRunner",
-                        $"ConverterReputationLeg ACCEPTED DRIFT: the dropped reputation leg moved the live " +
-                        $"pool by {repDelta.ToString("R", CultureInfo.InvariantCulture)} with no ledger row " +
-                        $"(door observed dR={loggedRepDelta.ToString("R", CultureInfo.InvariantCulture)}); " +
-                        $"reputation guard epsilon={ReputationGuardEpsilon.ToString("R", CultureInfo.InvariantCulture)}, " +
-                        $"aboveEpsilon={aboveEpsilon}; " +
-                        $"this cell restored it before the deferred recalc so the fixture cannot manufacture a clamp");
+                        $"ConverterReputationLeg CAPTURED: door observed pre-curve " +
+                        $"dR={loggedRepDelta.ToString("R", CultureInfo.InvariantCulture)}, " +
+                        $"ledger row nominalRep={nominalRepRow.ToString("R", CultureInfo.InvariantCulture)}, " +
+                        $"live pool moved {repDelta.ToString("R", CultureInfo.InvariantCulture)} " +
+                        $"(the curve's own output); " +
+                        $"reputation guard epsilon={ReputationGuardEpsilon.ToString("R", CultureInfo.InvariantCulture)}; " +
+                        $"the pool is left MOVED through the deferred recalc, so the scan below is a " +
+                        $"product gate on the reconstruction rather than a statement about this fixture");
 
-                    // (5) NO CLAMP - and SPLIT BY POOL, because the two ways this can fail
-                    // are two different bugs and a single verdict would report whichever
-                    // line happened to come first. A REPUTATION clamp means the restore
-                    // above did not take (a fixture fault in this cell); any OTHER clamp
-                    // means a capture door genuinely missed a leg (a product fault). The
-                    // discriminator is the `resource=` token the guard writes, read through
+                    // (5) NO CLAMP ON ANY POOL - and this is now a REAL product gate on the
+                    // reputation credit path, because nothing restored the pool before the
+                    // deferred recalc. A REPUTATION clamp means the reconstruction did not
+                    // land on the moved pool: the row was not written, or was written with
+                    // the wrong magnitude, or the curve was applied twice. Any OTHER clamp
+                    // means a capture door missed a science or funds leg. Split by pool
+                    // because those are two different bugs and a single verdict would
+                    // report whichever line happened to come first; the discriminator is
+                    // the `resource=` token the guard writes, read through
                     // IsGuardedClampLineFor rather than by eye.
                     const string ReputationResource = "Reputation";
                     string repClamp = FirstGuardedClampLineFor(captured, ReputationResource);
                     InGameAssert.IsNull(repClamp,
-                        $"a Reputation clamp means the restore of the deliberately-dropped reputation " +
-                        $"leg did not take before the deferred recalc - this cell's own fixture, not a " +
-                        $"missed capture: {repClamp}");
+                        $"a Reputation clamp means the reconstruction did not track the pool across this " +
+                        $"conversion - the ReputationEarning row is missing, carries the wrong magnitude, " +
+                        $"or had the curve applied to it twice: {repClamp}");
                     string otherClamp = FirstGuardedClampLineOtherThan(captured, ReputationResource);
                     InGameAssert.IsNull(otherClamp,
                         $"a clamp on any pool other than Reputation means a capture door missed a leg - " +
@@ -18807,10 +18837,11 @@ namespace Parsek.InGameTests
                     }
                     ParsekLog.TestObserverForTesting = priorObserver;
 
-                    // EXACT REPUTATION RESTORE, IN THE FINALLY. This cell is the one that
-                    // deliberately moves reputation, and the in-body restore above runs
-                    // only on the happy path - an assertion failure or a late Skip between
-                    // the award and it would leave the dropped leg standing. The generic
+                    // EXACT REPUTATION RESTORE, IN THE FINALLY - and it is now the ONLY
+                    // restore. This cell deliberately leaves the reputation movement
+                    // standing through the door's deferred recalc (that is what makes the
+                    // no-clamp scan a product gate), so every exit path - pass, assertion
+                    // failure, late Skip - lands here with the pool moved. The generic
                     // RestoreFinancials below cannot close that: its reputation arm carries
                     // a 0.01 deadband (right for its own purpose, since SetReputation on a
                     // sub-epsilon difference is noise) and would leave a residue exactly
@@ -18836,7 +18867,7 @@ namespace Parsek.InGameTests
 
                     RestoreFinancials(fundsBefore, sciBefore, repBefore);
                     GameStateStore.TruncateEventsForTesting(eventCountBefore);
-                    TruncateLedgerForTeardown(ledgerCountBefore, "ConverterStrategy_ReputationLeg_IsObservedAndDropped");
+                    TruncateLedgerForTeardown(ledgerCountBefore, "ConverterStrategy_ReputationLeg_CapturesEarning");
                     ParsekLog.Verbose("TestRunner",
                         $"ConverterReputationLeg teardown: " +
                         $"eventsBack={eventCountBefore.ToString(CultureInfo.InvariantCulture)}, " +
