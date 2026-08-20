@@ -14,6 +14,103 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## ~~TOOLTIP-ECHO-SIZES-FROM-LAST-FRAMES-TEXT: every window's bottom hover-help strip was measured during Layout from the PREVIOUS text and painted during Repaint with the NEW one, and Real Spawn Control's variant also changed its control COUNT between the two passes~~ [FOUND 2026-08-20 from an in-game observation of a one-frame dark sliver at the window bottom; FIXED the same day on branch `tooltip-echo-sizing`]
+
+IMGUI sizes a control during the Layout event and reuses that cached rect during
+Repaint (`GUILayoutUtility.DoGetRect`), while `GUI.tooltip` is populated by the hovered
+control DURING Repaint. All six windows that echo the hovered control's tooltip
+(Settings, Recordings, Logistics, Real Spawn Control, and both test runners) read
+`GUI.tooltip` live, so on the frame a hover started - or the tooltip string changed -
+Layout had sized the label for the OLD value (zero height at hover start) while Repaint
+painted the NEW one: a one-frame dark sliver of `GUI.skin.box` background, re-triggered
+on every crossing onto a tooltipped control, and the mirror image (empty label in a tall
+rect) at hover end. The same divergence clipped a wrapped tooltip in a narrowed window,
+because the wrapped height was computed from a different string than the one painted.
+Real Spawn Control carried the older, worse shape: 1 control when unhovered, 2 when
+hovered, so hovering "Warp to Next Spawn" overran the layout group every Repaint
+(`ArgumentException: Getting control N's position in a group with only N controls`),
+aborting the rest of that window's draw including the resize handle and `GUI.DragWindow`.
+The two test-runner strips had been papered over in `882b30417` by swapping their box
+style for a plain label, which hid the sliver rather than fixing it.
+
+Fix: one shared per-window-instance helper, `Source/Parsek/UI/TooltipEchoBox.cs`,
+rendering a FIXED-HEIGHT, ALWAYS-VISIBLE strip. The first attempt kept the strip
+variable and made both passes render from a `cachedText` field written only at the end
+of a Repaint pass; that closed the sliver and the wrap-clipping, but a playtest found
+the variable strip is itself the wrong shape: the window changed height whenever the
+strip appeared, disappeared or wrapped, and the Close button sat above the strip in some
+windows and below it in others. The shipped design pins the size instead. The strip is
+permanently present at exactly two text lines (`CalcHeight` of a two-line probe string
+at a width nothing can wrap at, measured once per style build and rebuilt in
+`ResetStyles`), empty when nothing is hovered, `wordWrap` still on so line 1 wraps into
+line 2 and anything past that CLIPS (`TextClipping.Clip` set explicitly). Because the reserved rect no
+longer depends on the text at all, the Repaint cache and its one frame of latency are
+gone: the text is read LIVE each pass (`ResolveCapturedText` - manual override, else
+`GUI.tooltip`), and Layout reading stale or empty text is harmless. The emitted shape
+stays invariant: always exactly one `GUILayout.Space` plus one `GUILayout.Label` with a
+constant height option.
+
+All six windows were also unified to ONE bottom-of-window order - window content, then
+the strip, then the Close button row, then the resize handle and `GUI.DragWindow` - so
+Close is always the last row and never swaps places with the strip. That moved the strip
+above the button row in Settings, Real Spawn Control and both test runners, and out of
+its post-`DragWindow` position in the Recordings/Missions window into both tab bottom
+bars; Logistics already had it. Two consequences worth naming. Real Spawn Control's
+"Warp to Next Spawn" is the only tooltipped control in that window and now sits BELOW
+the strip, where `GUI.tooltip` cannot reach it in time, so its text is handed in through
+the manual-override channel using the button's captured rect against the live pointer.
+And the Settings window's height re-measure gate no longer excludes tooltip frames
+(`tooltipEcho.ShownLastDraw` and the property itself are gone): a constant-height strip
+contributes the same pixels to every measurement, so there is nothing to hold the fit
+back for - `SettingsWindowHeightFitInGameTests`' two "the pointer holds the fit back"
+skip branches were re-pointed at the only remaining cause, a window that was never laid
+out.
+
+Pure core (`ResolveCapturedText`, all that is left) unit-covered in
+`TooltipEchoBoxTests`; the live IMGUI properties are pinned in-game by
+`LogisticsTooltipEchoImguiTest` (invariant control count AND an identical reserved rect
+height between an empty frame and one showing a long tooltip) and
+`TooltipEchoWrapSizingImguiTest` (both states equal the helper's own fixed two-line
+height at a 220px width, and that constant is taller than a single line).
+
+A fixed two-line strip makes the TEXT the remaining variable, so every help string that
+can reach one was audited against its own window's width and the over-long ones were
+rewritten. How much fits is a property of the WINDOW, not the control: Settings opens at
+280px (about 71 chars over two wrapped lines at a pessimistic 7px/char), while Logistics
+opens at 1556px (about 436), so eighteen Settings tooltips were four-line paragraphs
+clipping mid-sentence while the same length is unremarkable in Logistics. Two hard `\n`s
+went too - one spends a line whatever its length, and the Recordings Period header spent
+all four. The budget is now mechanical: `TooltipEchoBudgetTests` scans the
+strip-hosting files for literal `new GUIContent(label, tooltip)` calls and fails any
+tooltip over its file's pinned budget or carrying a `\n`, with each file pinning a
+minimum match count so a scanner regression cannot make the gate vacuous, plus direct
+asserts on the two pure builders whose output the scan cannot see
+(`ParsekSettings.DensityTooltip`, `LogisticsCostPresentation.FormatDetailTooltip` -
+whose candidate-row composition also stopped joining with `\n`). Runtime-assembled
+tooltips (recording names, hold reasons, in-game test descriptions) stay outside the
+gate by construction.
+
+Coverage extension (same branch): the strip is no longer a six-window feature. It was
+added to the main launcher window (`ParsekUI.DrawWindow`, 250px - the narrowest host in
+the mod at about 62 chars, and the mod's entry point), the Gloops Flight Recorder
+(280px), Kerbals (410px), Career State (820px) and Timeline (820px), each at the same
+bottom-of-window position. Timeline was the strongest case: it already authored ~10
+tooltips that rendered NOWHERE (one of them a three-line `\n` paragraph), because KSP
+draws no tooltip layer of its own. Windows deliberately skipped: the Structure/Log
+window (read-only step list whose only control is Close) and the group picker (transient
+280x300 overlay where a permanent two-line box costs more list rows than it explains).
+Missions needs no strip of its own - `MissionsWindowUI.DrawMissionsTabContent` draws
+inside the Recordings window and already echoes there. The same pass added first-time-user
+tooltips to the controls that carried none (every main-window launcher, the Gloops
+buttons, both Kerbals tabs and their fold/cross-link rows, all four Career tabs plus the
+pending-section toggles and the UT / Status / Flow / Rewards column headers, and the
+Timeline tier, source, archive and time-range filters). `TooltipEchoBudgetTests` grew a
+row per new file, plus a floor-0 row for `MissionsWindowUI` (whose tooltips all come from
+`MissionPresentation`, so the scan finds none today) - twelve scanned files in total.
+None of the new adopters needs `ResetStyles`: `ParsekUI` and every sub-window it owns is
+constructed per scene by `ParsekFlight` / `ParsekKSC`, so a skin-scoped style never
+outlives its scene (only the DDOL `TestRunnerShortcut` has that problem).
+
 ## ~~SAME-TREE-DOCK-INVISIBLE-FROM-ABSORBED-SIDE: a cross-session dock inside one tree named nobody and was derivable from neither side~~ [FOUND by the 2026-08-12 dock/loop-coherence analysis (I2-ii); FIXED 2026-08-12/13, branches `same-tree-dock-claims` + `dock-event-graph` (design `docs/dev/design-dock-event-graph.md` 6.2 / 6.3-6.5, PR sequence steps 2-3)]
 
 A same-tree cross-session dock records single-parent (the partner's committed

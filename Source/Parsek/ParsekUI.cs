@@ -183,6 +183,15 @@ namespace Parsek
         private const float SpacingSmall = 3f;
         private const float SpacingLarge = 10f;
 
+        // Bottom "hovered control help text" strip. See TooltipEchoBox for why it is a
+        // permanently visible box of constant height. The main window is the mod's entry
+        // point and every launcher below is a bare noun ("Timeline", "Gloops Flight
+        // Recorder"), so this is the first surface a new player can read by hovering.
+        // One instance per ParsekUI, and ParsekUI is constructed per scene by
+        // ParsekFlight / ParsekKSC, so the skin-scoped style never outlives its scene and
+        // no ResetStyles call is needed (unlike the DDOL TestRunnerShortcut).
+        private readonly TooltipEchoBox tooltipEcho = new TooltipEchoBox(SpacingSmall);
+
         internal static string GetKerbalsMainButtonLabel() => "Kerbals";
 
         internal static string GetCareerMainButtonLabel() => "Career";
@@ -667,9 +676,11 @@ namespace Parsek
             {
                 int spawnCount = flight.NearbySpawnCandidates.Count;
                 GUI.enabled = spawnCount > 0;
-                if (GUILayout.Button(string.Format(
-                    System.Globalization.CultureInfo.InvariantCulture,
-                    "Real Spawn Control ({0})", spawnCount)))
+                if (GUILayout.Button(new GUIContent(
+                    string.Format(
+                        System.Globalization.CultureInfo.InvariantCulture,
+                        "Real Spawn Control ({0})", spawnCount),
+                    "Turn a recorded craft passing nearby into a real vessel.")))
                 {
                     spawnControlUI.IsOpen = !spawnControlUI.IsOpen;
                     ParsekLog.Verbose("UI",
@@ -681,7 +692,9 @@ namespace Parsek
                 GUILayout.Space(SpacingLarge);
             }
 
-            if (GUILayout.Button("Timeline"))
+            if (GUILayout.Button(new GUIContent(
+                "Timeline",
+                "Every recorded flight and career event on one clock.")))
             {
                 timelineUI.IsOpen = !timelineUI.IsOpen;
                 ParsekLog.Verbose("UI", $"Timeline window toggled: {(timelineUI.IsOpen ? "open" : "closed")}");
@@ -691,7 +704,9 @@ namespace Parsek
             // window; the launch-surface label stays short. Missions is the primary
             // identity of this window; the raw Recordings table is its second tab
             // (no separate button). The label is constant in both UI modes.
-            if (GUILayout.Button("Missions"))
+            if (GUILayout.Button(new GUIContent(
+                "Missions",
+                "Your missions, and the recordings they are built from.")))
                 ToggleRecordingsWindow();
 
             // --- M6 Record-Supply-Run helper banner ---
@@ -724,7 +739,9 @@ namespace Parsek
                             $"RouteRunPrompt banner: Open Logistics clicked tree={RouteRunPrompt.PendingPromptTreeId}");
                         RouteRunPrompt.ClearPendingPrompt("opened-logistics");
                     }
-                    if (GUILayout.Button("Dismiss"))
+                    if (GUILayout.Button(new GUIContent(
+                        "Dismiss",
+                        "Drops the suggestion; undo it in Logistics > Dismissed.")))
                     {
                         // Dismiss here also dismisses the candidate (the tree
                         // leaves the Logistics Candidates section; reversible
@@ -766,7 +783,9 @@ namespace Parsek
                 GUI.color = new Color(0.45f, 0.85f, 0.95f);
             try
             {
-                if (GUILayout.Button("Logistics"))
+                if (GUILayout.Button(new GUIContent(
+                    "Logistics",
+                    "Supply routes that repeat a delivery you already flew.")))
                 {
                     logisticsUI.IsOpen = !logisticsUI.IsOpen;
                     ParsekLog.Verbose("UI",
@@ -793,7 +812,9 @@ namespace Parsek
             // Keep top-level launch-surface labels short; detailed counts stay inside the window.
             if (showKerbalsButton)
             {
-                if (GUILayout.Button(GetKerbalsMainButtonLabel()))
+                if (GUILayout.Button(new GUIContent(
+                    GetKerbalsMainButtonLabel(),
+                    "Who is reserved, flying or retired in your timeline.")))
                 {
                     kerbalsUI.IsOpen = !kerbalsUI.IsOpen;
                     ParsekLog.Verbose("UI", $"Kerbals window toggled: {(kerbalsUI.IsOpen ? "open" : "closed")}");
@@ -802,7 +823,9 @@ namespace Parsek
 
             if (showCareerButton)
             {
-                if (GUILayout.Button(GetCareerMainButtonLabel()))
+                if (GUILayout.Button(new GUIContent(
+                    GetCareerMainButtonLabel(),
+                    "Contracts, strategies and buildings along the timeline.")))
                 {
                     careerStateUI.IsOpen = !careerStateUI.IsOpen;
                     ParsekLog.Verbose("UI", $"Career window toggled: {(careerStateUI.IsOpen ? "open" : "closed")}");
@@ -814,7 +837,9 @@ namespace Parsek
             // --- Gloops Flight Recorder (InFlight-only; trailing separator before Settings) ---
             if (InFlight && UiSurfaceVisibility.IsVisible(UiSurface.MainButtonGloops, complexity))
             {
-                if (GUILayout.Button("Gloops Flight Recorder"))
+                if (GUILayout.Button(new GUIContent(
+                    "Gloops Flight Recorder",
+                    "Record a ghost-only flight that your career ignores.")))
                 {
                     gloopsUI.IsOpen = !gloopsUI.IsOpen;
                     ParsekLog.Verbose("UI",
@@ -824,7 +849,9 @@ namespace Parsek
             }
 
             // --- Settings ---
-            if (GUILayout.Button("Settings"))
+            if (GUILayout.Button(new GUIContent(
+                "Settings",
+                "Recording, looping, ghost and diagnostic options.")))
                 ToggleSettingsWindow();
 
             // --- Version footer (version on the left, Close button fills the rest) ---
@@ -839,6 +866,13 @@ namespace Parsek
                     contentOffset = new Vector2(0f, 3f)
                 };
             }
+            // Bottom "hovered control help text" strip (shared house helper). Fixed
+            // two-line height, always present, drawn directly above the footer row that
+            // carries Close - the house ordering every Parsek window uses, so Close stays
+            // the window's last content row and never swaps places with the box. Nothing
+            // below carries a tooltip, so the live GUI.tooltip read misses nothing.
+            tooltipEcho.Draw();
+
             GUILayout.BeginHorizontal();
             GUILayout.Label(VersionLabel, versionStyle, GUILayout.ExpandWidth(false));
             GUILayout.Space(10f);
@@ -909,7 +943,9 @@ namespace Parsek
 
             if (parts.Count > 0)
             {
-                GUILayout.Label("Reserved:");
+                GUILayout.Label(new GUIContent(
+                    "Reserved:",
+                    "Held back for recorded flights that have not happened yet."));
                 for (int i = 0; i < parts.Count; i++)
                     GUILayout.Label("  \u2022 " + parts[i]);
             }

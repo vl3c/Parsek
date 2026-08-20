@@ -47,6 +47,11 @@ namespace Parsek
         private GUIStyle grayStyle;
         private GUIStyle bannerStyle;
 
+        // Bottom "hovered control help text" strip. See TooltipEchoBox for why it is a
+        // permanently visible box of constant height. Default spacing (3f) matches every
+        // other window's SpacingSmall.
+        private readonly TooltipEchoBox tooltipEcho = new TooltipEchoBox();
+
         internal const float DefaultWindowWidth = 820f;
         private const float DefaultWindowHeight = 400f;
         internal const float MinWindowWidth = 520f;
@@ -87,9 +92,20 @@ namespace Parsek
         internal const string GroupKey_ContractsPending = "Contracts.Pending";
         internal const string GroupKey_StrategiesPending = "Strategies.Pending";
 
-        private static readonly string[] TabLabels = new[]
+        // GUIContent (not bare strings) so each tab explains itself in the bottom help
+        // strip on hover. Every tab shows the same two-part shape - what is true now, and
+        // what the recorded timeline still has to deliver - and nothing in a one-word tab
+        // label says so.
+        private static readonly GUIContent[] TabLabels = new[]
         {
-            "Contracts", "Strategies", "Facilities", "Milestones"
+            new GUIContent("Contracts",
+                "Contracts you hold now, and the ones your recorded flights still complete."),
+            new GUIContent("Strategies",
+                "Strategies running now, and the ones the recorded timeline activates later."),
+            new GUIContent("Facilities",
+                "KSC building levels now, and the levels the recorded timeline ends on."),
+            new GUIContent("Milestones",
+                "First-time achievements your recorded flights claim, and what each one paid.")
         };
 
         /// <summary>
@@ -1345,6 +1361,12 @@ namespace Parsek
 
             GUILayout.EndScrollView();
 
+            // Bottom "hovered control help text" strip (shared house helper), drawn after
+            // the tab body (so the live GUI.tooltip read sees a hovered column header or
+            // row) and directly above the Close button - the house ordering every Parsek
+            // window uses. Fixed two-line height, always present.
+            tooltipEcho.Draw();
+
             if (GUILayout.Button("Close"))
             {
                 IsOpen = false;
@@ -1432,7 +1454,10 @@ namespace Parsek
 
                 bool expanded = !foldedGroups.Contains(GroupKey_ContractsPending);
                 string headerText = $"Pending in timeline ({pendingCount.ToString(ic)})";
-                bool newExpanded = GUILayout.Toggle(expanded, headerText, toggleButtonStyle,
+                bool newExpanded = GUILayout.Toggle(expanded,
+                    new GUIContent(headerText,
+                        "Rows your recorded flights still have to deliver; click to fold."),
+                    toggleButtonStyle,
                     GUILayout.ExpandWidth(true));
                 if (newExpanded != expanded)
                 {
@@ -1461,9 +1486,18 @@ namespace Parsek
         {
             GUILayout.BeginHorizontal();
             GUILayout.Label("Contract", columnHeaderStyle, GUILayout.Width(ColW_ContractTitle));
-            GUILayout.Label("Accepted UT", columnHeaderStyle, GUILayout.Width(ColW_AcceptUT));
-            GUILayout.Label("Deadline UT", columnHeaderStyle, GUILayout.Width(ColW_DeadlineUT));
-            GUILayout.Label("Status", columnHeaderStyle, GUILayout.Width(ColW_PendingTag));
+            GUILayout.Label(
+                new GUIContent("Accepted UT",
+                    "When the contract was taken on, in Universal Time (the game's own clock)."),
+                columnHeaderStyle, GUILayout.Width(ColW_AcceptUT));
+            GUILayout.Label(
+                new GUIContent("Deadline UT",
+                    "When the contract expires, in Universal Time (the game's own clock)."),
+                columnHeaderStyle, GUILayout.Width(ColW_DeadlineUT));
+            GUILayout.Label(
+                new GUIContent("Status",
+                    "Whether this row is true now or still waiting on a recorded flight."),
+                columnHeaderStyle, GUILayout.Width(ColW_PendingTag));
             GUILayout.EndHorizontal();
         }
 
@@ -1525,7 +1559,10 @@ namespace Parsek
 
                 bool expanded = !foldedGroups.Contains(GroupKey_StrategiesPending);
                 string headerText = $"Pending in timeline ({pendingCount.ToString(ic)})";
-                bool newExpanded = GUILayout.Toggle(expanded, headerText, toggleButtonStyle,
+                bool newExpanded = GUILayout.Toggle(expanded,
+                    new GUIContent(headerText,
+                        "Rows your recorded flights still have to deliver; click to fold."),
+                    toggleButtonStyle,
                     GUILayout.ExpandWidth(true));
                 if (newExpanded != expanded)
                 {
@@ -1554,9 +1591,18 @@ namespace Parsek
         {
             GUILayout.BeginHorizontal();
             GUILayout.Label("Strategy", columnHeaderStyle, GUILayout.Width(ColW_StrategyTitle));
-            GUILayout.Label("Activated UT", columnHeaderStyle, GUILayout.Width(ColW_ActivateUT));
-            GUILayout.Label("Flow", columnHeaderStyle, GUILayout.Width(ColW_Flow));
-            GUILayout.Label("Status", columnHeaderStyle, GUILayout.Width(ColW_PendingTag));
+            GUILayout.Label(
+                new GUIContent("Activated UT",
+                    "When the strategy was switched on, in Universal Time (the game's own clock)."),
+                columnHeaderStyle, GUILayout.Width(ColW_ActivateUT));
+            GUILayout.Label(
+                new GUIContent("Flow",
+                    "What the strategy converts into what, and at what commitment."),
+                columnHeaderStyle, GUILayout.Width(ColW_Flow));
+            GUILayout.Label(
+                new GUIContent("Status",
+                    "Whether this row is true now or still waiting on a recorded flight."),
+                columnHeaderStyle, GUILayout.Width(ColW_PendingTag));
             GUILayout.EndHorizontal();
         }
 
@@ -1601,8 +1647,14 @@ namespace Parsek
         {
             GUILayout.BeginHorizontal();
             GUILayout.Label("Facility", columnHeaderStyle, GUILayout.Width(ColW_FacilityTitle));
-            GUILayout.Label("Level", columnHeaderStyle, GUILayout.Width(ColW_Level));
-            GUILayout.Label("Status", columnHeaderStyle, GUILayout.Width(ColW_Status));
+            GUILayout.Label(
+                new GUIContent("Level",
+                    "Upgrade level now, and the level the recorded timeline ends on."),
+                columnHeaderStyle, GUILayout.Width(ColW_Level));
+            GUILayout.Label(
+                new GUIContent("Status",
+                    "Whether this row is true now or still waiting on a recorded flight."),
+                columnHeaderStyle, GUILayout.Width(ColW_Status));
             GUILayout.EndHorizontal();
         }
 
@@ -1648,10 +1700,19 @@ namespace Parsek
         private void DrawMilestonesColumnHeader()
         {
             GUILayout.BeginHorizontal();
-            GUILayout.Label("Credited UT", columnHeaderStyle, GUILayout.Width(ColW_MilestoneUT));
+            GUILayout.Label(
+                new GUIContent("Credited UT",
+                    "When the milestone was reached, in Universal Time (the game's own clock)."),
+                columnHeaderStyle, GUILayout.Width(ColW_MilestoneUT));
             GUILayout.Label("Milestone", columnHeaderStyle, GUILayout.Width(ColW_MilestoneTitle));
-            GUILayout.Label("Rewards", columnHeaderStyle, GUILayout.Width(ColW_Rewards));
-            GUILayout.Label("Status", columnHeaderStyle, GUILayout.Width(ColW_PendingTag));
+            GUILayout.Label(
+                new GUIContent("Rewards",
+                    "Funds, science and reputation this first-time achievement paid out."),
+                columnHeaderStyle, GUILayout.Width(ColW_Rewards));
+            GUILayout.Label(
+                new GUIContent("Status",
+                    "Whether this row is true now or still waiting on a recorded flight."),
+                columnHeaderStyle, GUILayout.Width(ColW_PendingTag));
             GUILayout.EndHorizontal();
         }
 

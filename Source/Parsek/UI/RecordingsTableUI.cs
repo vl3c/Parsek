@@ -273,8 +273,13 @@ namespace Parsek
         // Tooltip state
         private GUIStyle tooltipLabelStyle;
         private Rect scrollViewRect;
-        private GUIStyle zeroHeightLabelStyle;
-        private GUIStyle wrappedTooltipStyle;
+        // Bottom "hovered control help text" strip. See TooltipEchoBox for why it is a
+        // permanently visible box of constant height.
+        private readonly TooltipEchoBox tooltipEcho = new TooltipEchoBox(SpacingSmall);
+        // Window-computed hover text that outranks GUI.tooltip for the strip (the
+        // clamped loop-period cell resolves its own string from a rect hit test).
+        // Cleared at the top of every pass; set during the row draw, i.e. BEFORE
+        // DrawRecordingsWindowTooltip runs.
         private string recordingsWindowTooltipText = "";
 
         // Expanded stats columns
@@ -1211,7 +1216,7 @@ namespace Parsek
             }
 
             GUILayout.Label(new GUIContent("Period",
-                "Launch-to-launch period: how often the ghost relaunches.\nWhen shorter than the recording duration, successive launches overlap.\nClick unit to cycle: sec \u2192 min \u2192 hr \u2192 auto.\n\"auto\" inherits from Settings > Looping."),
+                "Launch-to-launch period: how often the ghost relaunches. Shorter than the recording duration means launches overlap. Click the unit to cycle sec / min / hr / auto; 'auto' inherits from Settings > Looping."),
                 colHdr, GUILayout.Width(ColW_Period), GUILayout.Height(ColHeaderHeight));
             if (alignmentDebugArmed && !alignmentDebugHeaderCaptured) AlignDebugLogLastRect(alignmentDebugHeaderLog, "hdrPeriod");
 
@@ -1261,6 +1266,11 @@ namespace Parsek
         {
             // Bottom button bar — pinned to window bottom
             GUILayout.FlexibleSpace();
+
+            // Help strip first, Close row last - the house ordering (see
+            // DrawRecordingsWindowTooltip).
+            DrawRecordingsWindowTooltip();
+
             GUILayout.BeginHorizontal();
 
             if (committed.Count > 0)
@@ -1308,6 +1318,11 @@ namespace Parsek
         private void DrawMissionsTabBottomBar()
         {
             GUILayout.FlexibleSpace();
+
+            // Help strip first, Close row last - the house ordering (see
+            // DrawRecordingsWindowTooltip).
+            DrawRecordingsWindowTooltip();
+
             GUILayout.BeginHorizontal();
             if (GUILayout.Button("Close"))
             {
@@ -1408,14 +1423,14 @@ namespace Parsek
                 // The Missions tab sets GUIContent tooltips (include checkbox, Loop, period cell,
                 // Next launch, Clone / Archive / Warp to, partner journey) but had no renderer for
                 // them, so they were set and never shown. Mirror the recordings tab: clear the
-                // sticky text this window uses for its own hover strings, draw the tab, then draw
-                // the same wrapped tooltip strip. DrawRecordingsWindowTooltip always emits exactly
-                // one label (a zero-height one when there is no tooltip), so the control count is
-                // the same whether or not the cursor is over a tooltipped control.
+                // sticky text this window uses for its own hover strings, draw the tab, then let
+                // the bottom bar draw the same help strip above its Close button.
+                // DrawRecordingsWindowTooltip always emits exactly one label at one fixed
+                // height, so neither the control count nor the window height depends on whether
+                // the cursor is over a tooltipped control.
                 recordingsWindowTooltipText = string.Empty;
                 parentUI.GetMissionsUI().DrawMissionsTabContent();
                 DrawMissionsTabBottomBar();
-                DrawRecordingsWindowTooltip();
                 return;
             }
 
@@ -1648,7 +1663,6 @@ namespace Parsek
             }
 
             DrawRecordingsBottomBar(committed);
-            DrawRecordingsWindowTooltip();
         }
 
         /// <summary>
@@ -5807,42 +5821,19 @@ namespace Parsek
             tooltipLabelStyle.fontSize = 11;
         }
 
-        private void EnsureWindowTooltipStyles()
-        {
-            if (zeroHeightLabelStyle == null)
-            {
-                zeroHeightLabelStyle = new GUIStyle(GUI.skin.label)
-                {
-                    fixedHeight = 0f,
-                    stretchHeight = false,
-                    wordWrap = false
-                };
-                zeroHeightLabelStyle.margin = new RectOffset(0, 0, 0, 0);
-                zeroHeightLabelStyle.padding = new RectOffset(0, 0, 0, 0);
-            }
-
-            if (wrappedTooltipStyle == null)
-            {
-                wrappedTooltipStyle = new GUIStyle(GUI.skin.box)
-                {
-                    wordWrap = true,
-                    alignment = TextAnchor.UpperLeft
-                };
-            }
-        }
-
+        /// <summary>
+        /// Bottom "hovered control help text" strip (shared house helper). Called from
+        /// the bottom bar of each tab, AFTER every row has drawn and directly above the
+        /// Close button - the house ordering, and the ordering the manual side-channel
+        /// needs: <see cref="recordingsWindowTooltipText"/> is cleared at the top of
+        /// every pass and re-set during Repaint by whichever row resolved its own hover
+        /// string (the clamped loop-period cell, via GetLastRect), so the override is
+        /// already final by the time the strip reads it. Nothing below the strip carries
+        /// a tooltip, so the live GUI.tooltip read misses nothing.
+        /// </summary>
         private void DrawRecordingsWindowTooltip()
         {
-            EnsureWindowTooltipStyles();
-
-            string tooltip = !string.IsNullOrEmpty(recordingsWindowTooltipText)
-                ? recordingsWindowTooltipText
-                : (GUI.tooltip ?? string.Empty);
-            GUILayout.Space(tooltip.Length > 0 ? SpacingSmall : 0f);
-            GUILayout.Label(
-                tooltip.Length > 0 ? tooltip : string.Empty,
-                tooltip.Length > 0 ? wrappedTooltipStyle : zeroHeightLabelStyle,
-                tooltip.Length > 0 ? GUILayout.ExpandWidth(true) : GUILayout.Height(0f));
+            tooltipEcho.Draw(recordingsWindowTooltipText);
         }
 
         private void EnsureStatusStyles()

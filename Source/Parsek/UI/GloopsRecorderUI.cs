@@ -21,6 +21,18 @@ namespace Parsek
 
         private Rect lastWindowRect;
 
+        // Bottom "hovered control help text" strip. See TooltipEchoBox for why it is a
+        // permanently visible box of constant height. Ghost-only recording is the least
+        // self-evident thing this window does, and its three buttons are bare verbs.
+        // Default spacing (3f) matches every other window's SpacingSmall.
+        private readonly TooltipEchoBox tooltipEcho = new TooltipEchoBox();
+
+        // First-open size. The height carries the two-line help strip on top of the
+        // button column and the status ladder; this window has no resize handle, so the
+        // seed height is the only place that reservation can come from.
+        private const float DefaultWindowWidth = 280f;
+        private const float DefaultWindowHeight = 230f;
+
         public bool IsOpen
         {
             get { return showWindow; }
@@ -50,7 +62,8 @@ namespace Parsek
             if (windowRect.width < 1f)
             {
                 float x = mainWindowRect.x + mainWindowRect.width + 10;
-                windowRect = new Rect(x, mainWindowRect.y, 280, 180);
+                windowRect = new Rect(x, mainWindowRect.y,
+                    DefaultWindowWidth, DefaultWindowHeight);
                 var ic = System.Globalization.CultureInfo.InvariantCulture;
                 ParsekLog.Verbose("UI",
                     $"Gloops Recorder window initial position: " +
@@ -203,7 +216,9 @@ namespace Parsek
                 ? "Stop Recording"
                 : (status.HasLastRecording ? "Start New Recording" : "Start Recording");
 
-            if (GUILayout.Button(primaryLabel))
+            if (GUILayout.Button(new GUIContent(
+                primaryLabel,
+                "Records a ghost-only flight; your career never sees it.")))
             {
                 ParsekLog.Verbose("UI", "Gloops " + primaryLabel + " clicked");
                 buttonFired = true;
@@ -222,7 +237,9 @@ namespace Parsek
             bool previewEnabled = status.HasLastRecording && !status.IsRecording;
             string previewLabel = status.IsPreviewing ? "Stop Preview" : "Preview";
             GUI.enabled = previewEnabled;
-            if (GUILayout.Button(previewLabel))
+            if (GUILayout.Button(new GUIContent(
+                previewLabel,
+                "Replays the last Gloops take as a ghost so you can check it.")))
             {
                 ParsekLog.Verbose("UI", "Gloops " + previewLabel + " clicked");
                 buttonFired = true;
@@ -241,7 +258,9 @@ namespace Parsek
 
             bool discardEnabled = status.IsRecording || status.HasLastRecording;
             GUI.enabled = discardEnabled;
-            if (GUILayout.Button("Discard Recording"))
+            if (GUILayout.Button(new GUIContent(
+                "Discard Recording",
+                "Throws the current or last Gloops take away for good.")))
             {
                 ParsekLog.Verbose("UI", "Gloops Discard Recording clicked");
                 buttonFired = true;
@@ -301,6 +320,12 @@ namespace Parsek
             }
 
             GUILayout.FlexibleSpace();
+
+            // Bottom "hovered control help text" strip (shared house helper). Fixed
+            // two-line height, always present, drawn directly above the Close button -
+            // the house ordering every Parsek window uses. Every tooltipped control in
+            // this window draws above it, so the live GUI.tooltip read misses nothing.
+            tooltipEcho.Draw();
 
             if (GUILayout.Button("Close"))
             {

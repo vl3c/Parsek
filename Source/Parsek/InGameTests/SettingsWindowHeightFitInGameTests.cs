@@ -27,8 +27,8 @@ namespace Parsek.InGameTests
         private const int MaxFramesToWaitForApply = 10;
 
         // Bounded wait for a released height to be measured and carried back into the
-        // stored rect. GUILayout applies it within the same frame; the slack is for a
-        // tooltip-gated pass or two (the fit is held while the bottom tooltip box is up).
+        // stored rect. GUILayout applies it within the same frame; the slack is for the
+        // draw passes either side of it.
         private const int MaxFramesToWaitForFit = 30;
 
         // Shrink must be unmistakable, not float noise: Basic drops two whole sections.
@@ -98,13 +98,15 @@ namespace Parsek.InGameTests
 
                 if (settings.HeightRemeasurePendingForTesting)
                 {
-                    // The fit is held while the bottom tooltip box is showing. That is the
-                    // designed behaviour, not a defect - but it means no measurement ran,
-                    // so there is nothing to assert against.
+                    // A fit is consumed by a LAYOUT pass of the window, so an unconsumed
+                    // request means the window never got one within the budget - no
+                    // measurement ran, so there is nothing to assert against. (Nothing
+                    // holds the fit back any more: the bottom help strip is a constant
+                    // height, so hovering no longer defers it.)
                     InGameAssert.Skip(
-                        "The baseline height fit never ran - the pointer is resting on a "
-                        + "Settings control whose tooltip holds the fit back; move it off "
-                        + "the window and re-run");
+                        "The baseline height fit never ran - the Settings window was not "
+                        + "laid out within " + MaxFramesToWaitForFit + " frames; re-run with "
+                        + "the Parsek UI visible");
                     yield break;
                 }
 
@@ -115,9 +117,9 @@ namespace Parsek.InGameTests
                 if (settings.HeightRemeasurePendingForTesting)
                 {
                     InGameAssert.Skip(
-                        "The Basic height fit never ran - the pointer is resting on a "
-                        + "Settings control whose tooltip holds the fit back; move it off "
-                        + "the window and re-run");
+                        "The Basic height fit never ran - the Settings window was not laid "
+                        + "out within " + MaxFramesToWaitForFit + " frames; re-run with the "
+                        + "Parsek UI visible");
                     yield break;
                 }
 
