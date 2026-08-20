@@ -9,6 +9,11 @@ Written 2026-07-27 on branch `autotest-roadmap`. Every number below was measured
 this worktree at HEAD `1591aa59f` by the command named beside it. Nothing here was
 run against a real KSP instance: no `run.py`, no `provision.py`, no launch.
 
+SCOPE OF THAT LAST SENTENCE: it describes the 2026-07 source analyses that built
+this file. It does NOT describe "The loop-render coverage program" (added
+2026-08-20), which cites FLOWN run ids as evidence for its taxonomy and its gap
+ranking; `autotest-status.md` still owns every verdict those runs produced.
+
 
 > **RECONCILED 2026-07-27 after #1358 merged.** This document was written against
 > `main` at 38 scenarios / 8 driven categories and flagged, in the tracking table
@@ -1114,6 +1119,382 @@ Clusters, in the design doc's phase order:
   for career; the dead `[fixture].craft` spec key needs fixing or deleting);
   Duna landing; rendezvous-without-docking; perf/soak scenarios (ghost-count
   frame-cost budgets, long-recording round-trip budgets).
+- **Loop-render coverage** (operator-tier calibration flights, NOT nightly
+  growth): the class taxonomy, gap register G1-G9 and ranked sequencing for
+  "any origin, any destination" supply-run rendering live in "The loop-render
+  coverage program" below. Pointer only; it reorders nothing above it.
+
+---
+
+## The loop-render coverage program
+
+The objective is the supply run: a looped transfer recording between any
+origin and any destination, rendering accurately for as long as the loop runs.
+
+Added 2026-08-20, after the moon-to-moon program (PR #1513) measured the
+moon-to-moon routing - the H3 answer: Parsek neither re-aims nor phase-locks a
+moon-to-moon hop, it replays faithfully on the raw cadence - on the first
+subject of that shape ever flown. M-MIS-7 PROPER is not answered: that is
+intra-SOI per-leg re-aim (Jool-centric Lambert re-solves, per-leg holds at each
+moon-SOI seam), gated in `design-mission-multimoon-alignment.md` section 8 on
+an in-game looped Jool tour playtest that has not run.
+
+This section is the DIRECTION document for the V-lane family: what "rendering
+is confirmed" means, what is confirmed today, which classes are missing, and
+the ranked order to close them. Status of individual lanes stays in
+`autotest-status.md`; this section owns only the taxonomy, the gap register,
+the confirmation criteria and the sequencing.
+
+Sequencing, reconciled with this doc's standing verdict that the nightly flight
+lane should NOT grow until the basics are gated: these are OPERATOR-tier
+calibration flights - the V14-V17 pattern - and they rank inside that budget,
+not inside the nightly one. The verdict stands unamended.
+
+### The objective, stated as a product claim
+
+Logistics is FEATURE-COMPLETE in the product: M1-M6 all shipped by 0.10.3, the
+claw joined docking as the second connection producer, and station phase-lock
+shipped in v0.10.1. The detail is owned elsewhere - see `docs/roadmap.md`
+Phase 13 and `docs/parsek-logistics-supply-routes-design.md` section 19 - and
+is deliberately not re-derived here.
+
+Product reach is scoped by doctrine, which also scopes what this program owes
+coverage for: a route moves cargo between DOCK- OR CLAW-CONNECTED pairs, so
+stock crossfeed and crew delivery are out of scope by doctrine and are not
+classes owed a render lane. Within that scope every origin -> destination pair
+is PRODUCT-REACHABLE today, while render confirmation covers only the classes
+below. The product claim that needs confirmation is:
+
+> A looped transfer recording between ANY origin and ANY destination renders
+> accurately in map view, the Tracking Station, and the KSC scene wherever its
+> Kerbin gate makes that host non-vacuous - correct icons, correct lines,
+> correct body frames, correct cadence - for as long as the loop runs.
+
+Nobody can visually check every pair. The confirmation instrument is the V-lane
+discipline, already proven across the committed lane pairs: fly the transfer
+once (B-lane), harvest the produced save as a fixture, loop it, TimeJump to
+epochs DERIVED from the measured loop clock, hold census dwells there, and gate
+on the rendered-truth log lines (the `MapRenderTrace` / `MapRender` / `GhostMap`
+censuses, faithful-parity, seam-endpoint, anomaly sweep) through the three-run
+reading -> armed -> negative-control sequence.
+
+### The coverage unit is the equivalence class, not the pair
+
+The Kerbol system has 16 flyable bodies (7 planets + 9 moons), ~240 ordered
+pairs before counting endpoint types. Flying them all is neither possible nor
+necessary: the playback and render code paths are selected by CLASS, not by
+pair. The dimensions that actually change code paths:
+
+1. **Routing road** - which loop planner owns trajectory and timing. FOUR
+   values: `phase-lock` (same-parent target: cadence quantized to
+   target-period multiples, no trajectory synthesis); `station phase-lock`
+   (registry D11 `station-phase-lock`, shipped v0.10.1: a rendezvous mission
+   relaunched against the station's live orbit); `re-aim`
+   (classifier-admitted transfers: synthesized ancestor-frame conic, synodic
+   window spacing); and `faithful fixed-cadence` (everything the classifier
+   declines: verbatim replay, frame-relative arrival rendering,
+   self-overlapping when the span exceeds the overlap cadence).
+2. **Recording shape** - properties of the subject bytes that flip render
+   policies. The fail-closed policy's trigger is NESTED SOI, not a seam count:
+   `FailClosedClassifier.Classify` builds `NestedSoiSubtree.FindNestedRoot`
+   and fail-closes when two VISITED bodies are siblings under a shared
+   NON-ROOT parent - two moons of one planet. A single-level cross-SOI chain
+   (Kerbin -> Mun -> Sun -> Duna) is explicitly NOT auto-failed
+   (`FailClosedClassifier.cs:128-135`, with the sibling test at
+   `NestedSoiSubtree.cs:207-218`), so "two or more seams" is not the
+   predicate. Terminology, because the two get swapped: the PRODUCER token is
+   `nested-soi` (`FailClosedClassifier.ReasonToken`, emitted as
+   `producer=nested-soi ... action=render-recorded-verbatim`), while
+   `ProtoOrbitLine` is the render SURFACE the fail-closed member then draws
+   on. The other shape properties that flip policy: segment-less tails (kill
+   the TS init walk's orbit source), self-overlap (spawn throttle and re-arm
+   creation-frame behavior), eccentric / inclined targets, and a cadence that
+   is a PERIOD MULTIPLE rather than one period (V16's cadence = 20*P subject).
+   "k" is reserved below for cycles observed, never for the period multiple.
+3. **Render host** - THREE, not two. The flight map and the Tracking Station
+   render through different hosts (`ParsekUI.DrawMapMarkers` vs
+   `ParsekTrackingStation`; the TS additionally splits into the one-shot init
+   walk and the dynamic overlap path), and the KSC scene is a third:
+   `ParsekKSC` owns its own ghost dictionary, its own overlap-ghost model and
+   its own route push seam, and is HARD-GATED to Kerbin-frame points (skip
+   reason `non-kerbin`, `ParsekKSC.Playback.cs:288-297` and `:362-372`, both
+   ahead of every other branch). That gate makes the KSC host VACUOUS for
+   outbound interplanetary lanes and non-vacuous exactly for return legs
+   arriving at Kerbin. Registry D14 already carries `scene-ksc`.
+4. **Endpoint type** - orbit, moving vessel/dock, or surface. Every committed
+   loop lane ends at an ORBIT; supply routes end at docks and surface bases.
+5. **Render surface** - which drawing surface carries the truth, because a
+   class can render correctly on one and wrongly on another. Three: the ghost
+   proto icon plus proto orbit line; the ghost trajectory polyline / Director
+   TracedPath shadow; and the ROUTE OVERVIEW LINE
+   (`Display/RouteTrajectoryLineRenderer.cs`, the M6 map-view route lines -
+   default-on `showRouteLines`, drawn on the flight map AND the Tracking
+   Station, skipping any recording the polyline Driver already published
+   through `GhostTrajectoryPolylineRenderer.IsRenderingNonOrbitalLeg`, and, on
+   an inter-body route, keeping the ENDPOINT-BODY legs only with the recorded
+   transfer frame DELIBERATELY dropped because M5 re-aim replaces that
+   geometry per window). Registry cell D10 `route-map-lines` has ZERO
+   declarers: no committed spec exercises that surface at all.
+
+Three further axes are deliberately NOT dimensions here. Ghost count and
+co-residency - N routes rendering at once, where both the boundary-overlap
+secondary and the overlap soft caps are count-dependent - is folded into the
+long-horizon gap G8 rather than tracked on its own. Career-vs-sandbox becomes
+load-bearing only for route-driven lanes, and narrowly: `RouteDispatchEvaluator`
+runs a KSC-origin funds check under `IsCareer && IsKscOrigin`, so career gates
+the FUNDS lane of a KSC-origin route rather than dispatch as such. Loop
+watch-mode is OUT of scope entirely - it is a flight-camera state machine, not
+a map render surface, and three lanes have already measured its refusals.
+
+### The bridging assumption, stated so it can be attacked
+
+Every committed V-lane drives a MISSION loop. A real supply route's ghost
+enters through a DIFFERENT front door.
+`RouteGhostDriverSelector.SelectGhostDrivingBackingMissions` materializes a
+backing Mission per route through `RouteBackingMission.BuildMission` - a
+Mission that is never inserted into `MissionStore` - and each host unions that
+list into `MissionLoopUnitBuilder` inside its own `DriveMissionLoopUnits`
+(three byte-identical seams: `ParsekFlight`, `ParsekKSC`,
+`ParsekTrackingStation`). The selector gates on
+`RouteStatusPolicy.GhostDriving`, so `Paused`, `EndpointLost`,
+`MissingSourceRecording` and `SourceChanged` SUPPRESS the ghost - a
+render-visible outcome no lane has ever observed. And the loop then runs on a
+ROUTE-OWNED clock: `RouteLoopClock`, with `DispatchInterval` derived as N x the
+run's span, `Route.LoopAnchorUT` seeded from the recorded span start on a
+create-Active route or from the live UT on a Paused -> Activate and then
+FLOORED to `spanEndUT` by `MissionLoopUnitBuilder` (so the route's own anchor
+is diagnostic-only - a subtlety three source files pin and no lane has
+exercised), plus the M5 N-residual modulo (`ResolveResidualCadence`) on
+re-aimed windows.
+
+Nothing measured so far touches any of that. The mission-loop lanes are a
+PROXY: they exercise the shared render machinery BELOW the front door and say
+nothing about the door itself, the status gate, or the route clock. That is an
+assumption this program rests on, not a finding it has made. Closing it is G1.
+
+### What is confirmed today (class matrix)
+
+Representatives are bare lane ids - per-lane verdicts, run ids, roads and
+arming state live in `autotest-status.md`'s test-case tables, and this table
+must never carry them.
+
+| Class | Road | Representatives | Confirmed? |
+|---|---|---|---|
+| Planet -> its own moon | phase-lock | V6M/V6T, V7M/V7T, V14M/V14T, V15M/V15T, V16M/V16T | YES |
+| Kerbin -> planet, transfer admitted | re-aim | V5, V8/V8T, V9, V10, V11/V11A, V12/V12A, V13/V13A | YES |
+| Kerbin -> planet, classifier-declined profile | faithful | none | NO (see note) |
+| Moon -> sibling moon | faithful | V17M/V17T | PARTIAL - G4 |
+
+Four scoping notes the table cannot carry without becoming a status doc:
+
+- The phase-lock row's scene coverage is its ARMED halves - V6M/V6T, V14T,
+  V15T, V16T. It does NOT include V7T, which is RED BY FINDING and
+  deliberately ungated until that finding is explained.
+- The re-aim row's Tracking-Station coverage is V5 and V8T only. V10-V13's
+  A-suffix lanes are SECOND SAME-SCENE lanes, not TS halves, and reading them
+  as scene coverage would overstate the row.
+- V9 sits on the re-aim row because after the `dres-split-cohesion` fix it
+  classifies ENGAGED re-aim and is the armed regression floor for that fix.
+  Its pre-fix FAITHFUL runs are history, not a class representative.
+- The classifier-declined faithful row has NO subject. V3F and V8F are
+  KNOB-FORCED (`forceFaithfulLoopPlayback`) A/B controls, not classifier
+  declines. The only flown decline at this class was the
+  OPTIMIZER-SPLIT-DEFEATS-REAIM-CLASSIFIER defect V9 measured on runs
+  `2026-08-12_0150` / `_0153`, and that defect is fixed - so the class is
+  currently believed unreachable by any flyable Kerbin -> planet profile - a
+  belief resting on a fixed defect rather than on a measurement. Same posture as
+  G7: a product question, not a scheduled lane, and excluded from the
+  definition of done for that reason.
+
+### Confirmation criteria
+
+"Confirmed" for a class means: a representative lane has a green ARMED run
+whose required tokens pin the destination-frame render, plus a negative control
+that reds on demand. Three sharpenings, each bought by a flight rather than
+argued:
+
+**(a) Pin the destination frame on the lens that carries it FOR THIS SUBJECT'S
+SHAPE.** A nested-SOI subject fail-closes its proto orbit line to the ROOT
+frame, so a `surface=ProtoOrbitLine ... body=<destination>` pin on such a
+subject is STRUCTURALLY UNSATISFIABLE - not a red, an unsatisfiable pin. V17M
+spent four reading runs learning this (`2026-08-20_1841`, `_1859`, `_1908`,
+`_1915`); the anti-vacuity pins were re-targeted onto the fail-closed
+DECLARATION LINE plus the Director TracedPath SHADOW drive of the destination
+approach segment, which is the lens that actually carries the destination
+frame. Simple (non-nested) subjects keep the proto-line lens. A spec must name
+which of the two lenses it pins, and why that is the right one for its shape.
+
+**(b) The negative control must invert a REQUIRED RENDER TOKEN**, or the spec
+must state why a render-token inversion is structurally impossible for that
+lane. The standing shared inversion - a temporary `rewind.supersedeRows`
+minimum - proves the `saveParse` EVALUATOR can red; it proves nothing about
+whether the render pins can. Every V pair to date shares that one inversion.
+
+**(c) A documented-limitation escape under clause (b) of the definition of done
+must CITE A FLOWN RUN ID.** Limitations of this system are discovered by
+flights, not by inspection - the fail-closed root-frame policy itself was
+(V17M `_1908`). An escape argued from reading the code is a prediction wearing
+a limitation's clothes.
+
+### The gap register, ranked
+
+Ranked by supply-run value per flight-hour. Each entry names the class, why it
+matters, the cheapest representative, the expected-but-unmeasured routing, and
+what counts as confirmation. Scenario ids B27-B30 and V18-V21 are RESERVED HERE
+- this section is their only home - so sibling PRs do not collide; check open
+PRs before authoring and renumber only if one already claims an id.
+
+**G1 - Route-driven rendering.** One committed SAME-BODY supply route over the
+BDOCK station fixture, driving a real looped ghost (`B27-station-route`, lanes
+V18M/V18T). It ranks first because one lane measures five unmeasured things at
+once: the route front door (`SelectGhostDrivingBackingMissions` ->
+`BuildMission` -> the host union), the `RouteStatusPolicy.GhostDriving`
+suppression gate, the route-owned cadence (`RouteLoopClock`,
+`DispatchInterval`, the floored anchor), the ROUTE OVERVIEW LINE (registry D10
+`route-map-lines`, zero declarers today), and the dock/station endpoint.
+Career-vs-sandbox also becomes load-bearing here for the first time, through
+the `IsCareer && IsKscOrigin` funds check. WHAT THE ARRIVAL TRUTH ACTUALLY IS,
+because it is easy to over-claim: `MovingTargetStationApproach` is DEFINE-ONLY
+and fail-closed-to-faithful in v1 - its own header says the type "is never
+handed to the live draw spine in v1" - and `FailClosedClassifier` routes a
+live-vessel arrival anchor to `moving-target-station` / `FaithfulFallback`
+(documented and log-pinned by `WarpThroughInteriorGapSpineInGameTest`, which
+RECORDS `HoldPhase-producer=VACUOUS-under-flag-ON` rather than asserting it, so
+the pin is a grep-checkable claim rather than a gate). So this lane's arrival
+truth is THE FAITHFUL FALLBACK AT A STATION ENDPOINT - a deliberate policy
+worth pinning as such - and NOT "the ghost renders at the station's current
+position". The catalog's Tier-4 intent S4.4 (station rendezvous phase-locked
+loop) is this lane; track it here, not under both ids.
+
+**G2 - Return legs (moon -> its parent; planet -> Kerbin).** A supply run is a
+round trip and every committed loop subject is outbound. The return direction
+also delivers "Kerbin as a destination" - a body-frame arrival at the one body
+every route network touches - and it is the ONLY thing that activates the KSC
+render host, whose Kerbin gate makes it vacuous on every outbound lane.
+Cheapest representatives, both reusing committed fixtures:
+`B28-laythe-jool-return` (depart `laythe-park-nerv`, park in Jool orbit - a
+one-burn escape, no transfer planner involved) and `B29-duna-kerbin-return`
+(depart a Duna-orbit fixture, return to LKO). Routing is genuinely open: nobody
+has measured whether the same-parent classification and the re-aim classifier
+treat the INVERTED direction symmetrically, and the mirror-direction lesson
+(PRs #1474/#1475) says walk the mirror rather than assume it. Lanes:
+V19M/V19T over B28's recording, V20M/V20T over B29's. Confirmation:
+destination-frame render tokens at derived epochs on the flight map, the TS,
+and the KSC host; armed, with a control that inverts a render token.
+
+**G3 - Surface endpoints.** A landed-arrival loop, plus the endpoint resolution
+path nobody has render-tested: `RouteEndpointResolver` prefers the recorded
+PID and falls back to ONE nearest compatible stock vessel within
+`RouteOrchestrator.SurfaceProximityRadiusMeters` = 500 m. That fallback is
+headlessly unit-tested (`RouteEndpointResolverTests`) and reached transitively
+by a delivery test, but no loop, map or render lane has ever exercised it - so
+"the ghost renders at the substituted endpoint" is untested at the surface.
+No scenario ids reserved yet; author against whichever landed fixture is
+cheapest when the lane is scheduled.
+
+**G4 - Second moon-to-moon point: Mun -> Minmus** (`B30-mun-minmus-transfer`,
+lanes V21M/V21T). Confirms H3 is a property of the CLASS rather than of the
+Jool system, at a fraction of V17's cost (minutes-scale transfers, existing
+craft, and the Parsek-stripped derived-fixture recipe - see the B23 and B24
+rows in `autotest-status.md` for the recipe and the failure it was built to
+prevent). Mun and Minmus ARE sibling moons under Kerbin, so the subject also
+replicates the FAIL-CLOSED NESTED-SOI policy at a second parent - the trigger
+is the sibling relation, not the seam count. Expected routing: identical to
+V17 - the relay coast will again miss the whole-revolution conjunct unless
+deliberately flown to close a revolution, and that variant is G7, not this
+lane.
+
+**G5 - Moon -> foreign body (Laythe -> Kerbin, or Mun -> Duna).** NOT a
+fail-closed measurement: a single-level cross-SOI chain is explicitly
+SUPPORTED, so more seams do not buy a policy reading here. Its value is
+different and still real - it is the realistic "export from a moon base" route
+shape, and it would be the first SUPPORTED chain of three or more cross-body
+seams anyone has flown, a length the render path has never been measured at.
+Expensive (a full interplanetary flight from a moon origin); schedule after
+G1-G4.
+
+**G6 - Planet -> planet not from Kerbin (e.g. Duna -> Jool).** Same
+heliocentric-parking class as the Kerbin lanes by inspection of the classifier;
+one representative flight would convert the inspection into a measurement. Low
+expected information; DEFER until a real route wants it, and EXCLUDED from the
+definition-of-done set for that reason.
+
+**G7 - The re-aim road for moon-to-moon.** Currently UNREACHABLE by any flyable
+profile (MechJeb refuses moon-parked direct ejections; the parent-relay mode is
+two-burn by construction). The cheap unlock recorded in V17M's header - let the
+post-escape parent-frame coast close ONE full revolution before stage 2 - is
+real but the gate behind it is DEEPER than "one missed conjunct":
+`IsHeliocentricParkingDeparture` carries SIX explicit decline branches plus a
+tail tolerance comparison, and one of them is a `DefaultKeepRevs` multi-rev cap
+scanning EVERY common-ancestor run, not just the transfer's predecessor - so a
+LONGER coast can newly trip a decline it does not trip today. The admissible
+band is narrow: exactly one whole revolution on every solar run. Measuring it
+would exercise a DIFFERENT code path (does the parking-departure exception work
+in a moon frame), which is the path inter-moon supply routes would ride if the
+product ever wants them re-aimed rather than faithful. This is a PRODUCT
+DECISION, not a scheduled follow-up - faithful is a valid answer - and V17M's
+posture on it stands.
+
+**G8 - Long-horizon recurrence (cycle 50, not cycle 2), and co-residency.**
+Every drift measurement so far is k <= 2 cycles (the census rate-limit work
+bought exactly two). A supply route runs for a career's lifetime. Needs
+instrument work before lanes: either wall-spaced multi-cycle brackets (cost
+linear in cycles) or a sampled far-cycle jump - which crosses many loop
+re-arms, and the V17 creation-frame finding says a re-arm-crossing jump is
+itself a render state worth measuring, so the instrument and the measurement
+compose. THE DONE BAR IS THREE ROADS, not two: one self-overlapping subject,
+one phase-locked subject, and one RE-AIMED subject - re-aim recomputes window
+spacing per cycle and is what M5 inter-body routes dispatch on, so a
+long-horizon reading that skips it skips the road the product actually uses
+between bodies. Ghost count / co-residency (N routes rendering simultaneously,
+where the boundary-overlap secondary and the overlap soft caps are both
+count-dependent) folds in here, since a long-horizon lane already has to hold
+many instances alive.
+
+**G9 - Remaining-bodies breadth.** The untouched bodies: Tylo / Bop / Pol (Bop
+adds the inclined-and-eccentric MOON target the way Moho did for planets), plus
+deep-space return shapes. Breadth work; schedule opportunistically behind
+G1-G5.
+
+### The induction caveat (why classes must be flown, not argued)
+
+The moon-to-moon program is the standing exhibit: THREE render behaviors nobody
+predicted surfaced on the first subject of a new shape - the nested-SOI
+fail-closed root-frame proto line (which made the lane's original anti-vacuity
+pin structurally unsatisfiable), the TS overlap spawn throttle (newest-cycle
+first within the per-frame spawn budget, so the arrival-leg instance spawns
+LAST; the figure and its call sites are in the V17T header and are not restated
+here), and the re-arm creation-frame reversion - which, stated precisely, is a
+new VARIANT of an already-ledgered family
+(`MAPRENDER-ICON-OFF-ORBIT-CREATION-FRAME-AFTER-JUMP`), not a new family. None
+of the three is a defect; all three would have silently distorted a coverage
+claim made by class-induction alone. Corollaries:
+
+- A class is confirmed by a FLOWN representative, never by inspection of the
+  routing code. Inspection ranks the queue; it does not close it.
+- Extend ONE shape dimension per new lane where possible. V17T changed two at
+  once (self-overlap AND nested-SOI), and the icon-off-orbit non-recurrence it
+  measured is consequently unattributable - an open reading instead of a
+  mechanism.
+- A new lane's reading run is EXPECTED to red at least once on an instrument or
+  pin miscalibration; that is the discipline working, and the reds are ledgered
+  in the spec headers as calibration evidence.
+
+### Definition of done
+
+The objective above is MET when the phase-lock, re-aim and moon-to-moon rows of
+the class matrix, plus G1-G5, G8 and G9, each either (a) have a live-proven,
+ARMED representative pair on the flight map and the Tracking Station - plus the
+KSC host wherever the Kerbin gate makes it non-vacuous - meeting the
+confirmation criteria above, or (b) carry a documented product limitation in
+`todo-and-known-bugs.md` stating what does not render and why, CITING THE FLOWN
+RUN THAT MEASURED IT (the fail-closed root-frame policy is the model: a
+deliberate, tested product behavior, not a gap). Three things are excluded and
+each says why in its own entry: G6 is a defer, G7 is a product decision, and
+the classifier-declined faithful row has no reachable subject. G8's own done
+bar is stated in G8 rather than restated here. At that point "supply runs
+render accurately for any origin and destination" is a checkable roster
+statement rather than a feeling.
 
 ---
 
