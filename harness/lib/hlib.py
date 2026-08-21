@@ -2694,15 +2694,40 @@ def _registry_values(registry: Dict, dimension: str) -> Optional[List[str]]:
 _MISSION_RE = re.compile(r"^[A-Za-z0-9_][A-Za-z0-9_-]*$")
 
 
+# The CLOSED set of `type` spellings a mission schema's `[params.<name>]` table may
+# declare -- exactly the ones `_check_param_type`'s dispatch below understands. Named
+# here rather than left implicit in the chain's literals for two reasons:
+#
+#   1. It is LOAD-BEARING. A schema that declares anything else (the real case:
+#      `type = "boolean"`, which shipped in three committed schemas) used to fall
+#      through the whole if/elif chain and return no errors -- a declaration that
+#      validates ANY value, which is worse than no declaration because it LOOKS
+#      checked. `_check_param_type` now gates on this set FIRST, so an unknown
+#      spelling rejects loudly instead of silently checking nothing.
+#   2. It is the SINGLE source the guard sweep reads. `test_hlib`'s
+#      MissionSchemaDeclaredTypeTests walks every harness/missions/*.schema.toml and
+#      asserts each declared type is in HERE, rather than carrying a second copy of
+#      the list that could drift; a companion cell pins this tuple against the
+#      dispatch chain's own literals so neither half can gain a spelling alone.
+MISSION_PARAM_TYPES = ("float", "int", "number", "window", "list", "string", "bool")
+
+
 def _check_param_type(name: str, value, decl: Dict) -> List[str]:
     """Type/range check one declared missionParam value against its schema entry
     (pure). ``decl`` is the mission schema's per-param table
     ``{"type": "<t>", "min": <num?>, "max": <num?>}``; only the declared facets are
     enforced. bool is rejected where a number is declared (Python ``bool`` is an
     ``int`` subclass, so an unguarded numeric check would silently accept True/False
-    as 1/0)."""
+    as 1/0). The declared ``type`` must be one of ``MISSION_PARAM_TYPES``; an unknown
+    spelling rejects the DECLARATION rather than falling through unchecked."""
     errs: List[str] = []
     ptype = decl.get("type")
+    if ptype not in MISSION_PARAM_TYPES:
+        # Reject the declaration, not the value: a spelling the dispatch below does
+        # not understand checks NOTHING, and silently checking nothing is exactly the
+        # failure this guards. Names the accepted set so the fix is the error message.
+        return ["missionParams.%s: schema declares unknown type %r (accepted: %s)"
+                % (name, ptype, ", ".join(MISSION_PARAM_TYPES))]
     lo, hi = decl.get("min"), decl.get("max")
     if ptype in ("float", "int", "number"):
         if isinstance(value, bool) or not isinstance(value, (int, float)):

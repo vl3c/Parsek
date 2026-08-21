@@ -9,14 +9,18 @@ REAL on-disk registry + sample specs where a placement/parse bug could only be
 caught against a real file (mirroring test_provlib.py's RealProfileFileTests).
 """
 
+import ast
 import contextlib
 import copy
+import glob
+import inspect
 import io
 import os
 import re
 import shutil
 import sys
 import tempfile
+import textwrap
 import tomllib
 import unittest
 
@@ -29,6 +33,7 @@ HARNESS_ROOT = os.path.dirname(HERE)
 REPO_ROOT = os.path.dirname(HARNESS_ROOT)
 REGISTRY_PATH = os.path.join(HARNESS_ROOT, "coverage", "registry.toml")
 SCENARIOS_DIR = os.path.join(HARNESS_ROOT, "scenarios")
+MISSIONS_DIR = os.path.join(HARNESS_ROOT, "missions")
 # The mod assembly the in-game test runner reflects over. DiscoverTests scans the
 # WHOLE executing assembly, so the sweep walks the whole project rather than just
 # InGameTests/ -- an [InGameTest] method that lands elsewhere in Parsek.dll counts
@@ -7411,6 +7416,210 @@ class AutopilotSpecValidationTests(unittest.TestCase):
         spec = load_spec("B10-career-passive-safety.toml")
         v = hlib.validate_spec(spec, reg)
         self.assertTrue(v.ok, "seam spec must be unaffected by the autopilot addition; errors=%s" % (v.errors,))
+
+
+class MissionSchemaDeclaredTypeTests(unittest.TestCase):
+    """Guard: every ``type`` a committed harness/missions/*.schema.toml declares must
+    be one hlib actually understands.
+
+    The regression this names is SILENT, not a load error. Three committed schemas
+    shipped ``type = "boolean"`` (b17_duna_direct, b26_laythe_vall,
+    m3_loop_arrival_dwell), which is not one of ``_check_param_type``'s spellings, so
+    the declaration fell through the whole if/elif chain, returned no errors, and
+    validated ANY value -- a string, a list, 7. A param that LOOKS type-checked and is
+    checked by nothing is worse than an undeclared one, and nothing red'd when it
+    happened; it was caught by eye while a fourth schema was being authored.
+
+    The accepted set is READ FROM ``hlib.MISSION_PARAM_TYPES`` rather than re-listed
+    here, so this class cannot drift from the validator it guards. The later cells
+    walk the SAME silent-hole class in its other directions, because the bug shape is
+    "a declaration nobody reads", not the ``type`` key specifically:
+
+      - a misspelled FACET (``minimum`` for ``min``, ``require`` for ``required``);
+      - a whole block under a misspelled TOP-LEVEL key (``[parameters.x]``), where a
+        ``required = true`` param is silently never required;
+      - bounds on a type whose branch never consults them (``min`` on a ``string``).
+
+    All three are zero-instance today; the guards exist so they stay zero.
+
+    DERIVATION DISCIPLINE: the sets are read out of hlib's own AST, never its source
+    TEXT. A regex over ``inspect.getsource`` also sees comments and docstrings, and
+    that breaks in BOTH directions -- a commented-out ``elif`` branch keeps its
+    literal, so the pin stays GREEN while that type falls through unchecked again
+    (this file's own ``_dry_run_exit_code`` docstring records a getsource cell being
+    defeated exactly that way, twice); and a prose comment merely MENTIONING a
+    spelling reds the pin with a message whose obvious fix -- add it to the constant
+    -- is the one move that reopens the hole. ``test_every_accepted_type_has_a_live_branch``
+    is the behavioural backstop for dispatch refactors the AST walk cannot follow."""
+
+    # ---- derivations: hlib's AST is the single source; nothing is re-listed here ----
+
+    @staticmethod
+    def _ptype_literals():
+        """The type spellings ``_check_param_type``'s dispatch actually BRANCHES on."""
+        tree = ast.parse(textwrap.dedent(inspect.getsource(hlib._check_param_type)))
+        found = set()
+        for node in ast.walk(tree):
+            if not (isinstance(node, ast.Compare)
+                    and isinstance(node.left, ast.Name) and node.left.id == "ptype"):
+                continue
+            for op, comparator in zip(node.ops, node.comparators):
+                if isinstance(op, ast.NotIn):
+                    continue  # the gate itself (`ptype not in MISSION_PARAM_TYPES`)
+                for sub in ast.walk(comparator):
+                    if isinstance(sub, ast.Constant) and isinstance(sub.value, str):
+                        found.add(sub.value)
+        return found
+
+    @staticmethod
+    def _decl_facet_reads():
+        """The per-param facet keys hlib actually READS (``decl.get("...")``)."""
+        found = set()
+        for fn in (hlib._check_param_type, hlib._validate_mission_params):
+            tree = ast.parse(textwrap.dedent(inspect.getsource(fn)))
+            for node in ast.walk(tree):
+                if (isinstance(node, ast.Call)
+                        and isinstance(node.func, ast.Attribute)
+                        and node.func.attr == "get"
+                        and isinstance(node.func.value, ast.Name)
+                        and node.func.value.id == "decl"
+                        and node.args
+                        and isinstance(node.args[0], ast.Constant)
+                        and isinstance(node.args[0].value, str)):
+                    found.add(node.args[0].value)
+        return found
+
+    def _declared_rows(self):
+        """(schema filename, param name, decl table) for every committed declaration.
+
+        Anti-vacuity lives HERE so every sweep below shares one non-empty population:
+        an empty missions dir, or schemas with no ``[params.*]`` tables, reds instead
+        of passing a guard that scanned nothing."""
+        rows = []
+        paths = sorted(glob.glob(os.path.join(MISSIONS_DIR, "*.schema.toml")))
+        self.assertTrue(paths, "no mission schemas found under %s" % MISSIONS_DIR)
+        for path in paths:
+            with open(path, "rb") as fh:
+                schema = tomllib.load(fh)
+            for pname, decl in (schema.get("params") or {}).items():
+                rows.append((os.path.basename(path), pname, decl or {}))
+        self.assertTrue(rows, "no [params.*] declarations found to check")
+        return rows
+
+    # ---- the guards ----
+
+    def test_every_declared_type_is_one_hlib_accepts(self):
+        bad = [(f, p, d.get("type")) for (f, p, d) in self._declared_rows()
+               if d.get("type") not in hlib.MISSION_PARAM_TYPES]
+        self.assertEqual(
+            [], bad,
+            "mission schema declares a type hlib does not accept (accepted: %s). "
+            "Such a declaration checks NOTHING -- it validates any value while "
+            "looking checked: %s" % (", ".join(hlib.MISSION_PARAM_TYPES), bad))
+
+    def test_accepted_set_matches_the_dispatch_chains_own_literals(self):
+        """The constant and the if/elif chain must not gain a spelling separately: one
+        in the CHAIN but not the constant is a live branch the gate made dead, and one
+        in the CONSTANT but not the chain falls through unchecked -- the exact hole
+        this class closes.
+
+        READ A FAILURE THIS WAY: if a spelling is missing from the constant, the fix
+        is to add its BRANCH, or to delete it from the chain. Adding it to the
+        constant to make this cell green is the one move that reopens the hole."""
+        self.assertEqual(
+            set(hlib.MISSION_PARAM_TYPES), self._ptype_literals(),
+            "hlib.MISSION_PARAM_TYPES and _check_param_type's dispatch disagree. A "
+            "spelling in the constant with no branch validates ANYTHING: give it a "
+            "branch or drop it -- do NOT reconcile by widening the constant")
+
+    def test_every_accepted_type_has_a_live_branch(self):
+        """Behavioural backstop to the AST pin above, which can only see a dispatch it
+        recognises: a sentinel no branch can accept must be REJECTED under every
+        accepted spelling, and that holds only while each spelling's branch is live.
+        Catches a branch commented out, deleted, or refactored into a shape the walk
+        above reads as absent -- each of which puts that type back to checking
+        nothing while the two named sets still agree on paper."""
+        sentinel = object()
+        dead = [t for t in hlib.MISSION_PARAM_TYPES
+                if not hlib._check_param_type("p", sentinel, {"type": t})]
+        self.assertEqual([], dead,
+                         "accepted type(s) whose branch checks NOTHING: %s" % (dead,))
+
+    def test_an_unknown_spelling_rejects_instead_of_passing_anything(self):
+        """The gate is live, not documentation. Before it, ``"boolean"`` returned []
+        for every value; now it names the declaration as the fault."""
+        errs = hlib._check_param_type("padAlignEjection", "not-a-bool", {"type": "boolean"})
+        self.assertTrue(errs, "an unknown declared type must not validate silently")
+        self.assertTrue(any("unknown type" in e for e in errs), errs)
+        # Even a value that WOULD have been fine is rejected: the declaration is the
+        # fault, and a schema author must see it rather than have it pass by luck.
+        self.assertTrue(hlib._check_param_type("padAlignEjection", True, {"type": "boolean"}))
+        # A decl with NO type at all is the same fault, deliberately: a presence-only
+        # declaration type-checks nothing. Zero committed declarations omit it, and
+        # the sweep above keeps it that way -- this pins the choice rather than
+        # leaving it an accident of the gate's `not in` test.
+        self.assertTrue(hlib._check_param_type("padAlignEjection", True, {"required": True}))
+        # ... while the corrected spelling checks the value for real, both ways.
+        self.assertEqual([], hlib._check_param_type("padAlignEjection", True,
+                                                    {"type": "bool"}))
+        self.assertTrue(hlib._check_param_type("padAlignEjection", "true",
+                                               {"type": "bool"}))
+
+    def test_every_declared_facet_key_is_one_hlib_actually_reads(self):
+        """Mirror of the type hole: hlib reads a fixed set of per-param facet keys and
+        IGNORES every other, so ``minimum = 0.0`` (for ``min``) or ``require = true``
+        (for ``required``) silently drops a bound / makes a param optional with
+        nothing red. The subset assert is the derivation's own sanity check -- it reds
+        if the AST walk stops finding the reads, rather than letting an empty set flag
+        every declaration as stray, and it reds if hlib DROPS one of the four."""
+        read_facets = self._decl_facet_reads()
+        self.assertLessEqual({"required", "type", "min", "max"}, read_facets,
+                             "hlib no longer reads a facet this guard derives from; "
+                             "derived set was %s" % (sorted(read_facets),))
+        stray = [(f, p, facet) for (f, p, d) in self._declared_rows()
+                 for facet in d if facet not in read_facets]
+        self.assertEqual([], stray,
+                         "mission schema declares a facet hlib never reads (read: %s); "
+                         "it is silently ignored, not applied: %s"
+                         % (sorted(read_facets), stray))
+
+    def test_no_declaration_is_parked_under_a_top_level_key_hlib_never_reads(self):
+        """Third mirror, one level up: ``_validate_mission_params`` reads
+        ``schema["params"]`` and NOTHING else, so an entire block under
+        ``[parameters.x]`` / ``[param.x]`` is read by nobody -- and a ``required =
+        true`` param declared there is silently never required (measured: the
+        validator returns [] for a spec that omits it). Same fat-finger class as
+        ``boolean``, except it hides a whole table rather than one key."""
+        self.assertTrue(self._declared_rows())  # shared non-empty population
+        stray = []
+        for path in sorted(glob.glob(os.path.join(MISSIONS_DIR, "*.schema.toml"))):
+            with open(path, "rb") as fh:
+                schema = tomllib.load(fh)
+            stray += [(os.path.basename(path), key) for key in schema if key != "params"]
+        self.assertEqual([], stray,
+                         "top-level table hlib never reads (it reads `params` only), "
+                         "so every declaration under it is inert: %s" % (stray,))
+
+    def test_bounds_are_only_declared_on_types_that_consult_them(self):
+        """Fourth mirror: ``min``/``max`` are read ONLY inside the numeric branch, so a
+        bound on a string / bool / list / window declaration reads as checked and
+        checks nothing -- the same silent-nothing shape, spelled with keys that ARE
+        legitimately read facets elsewhere, which is exactly why the facet sweep above
+        cannot see it. The bound-consulting set is MEASURED (declare a bound, offer a
+        value that violates it) rather than re-listed, so it tracks the dispatch."""
+        consults_bounds = {t for t in hlib.MISSION_PARAM_TYPES
+                           if hlib._check_param_type("p", 7, {"type": t, "min": 5}) == []
+                           and hlib._check_param_type("p", 1, {"type": t, "min": 5}) != []}
+        self.assertTrue(consults_bounds,
+                        "no accepted type was observed to consult a declared bound; "
+                        "the measurement below would be vacuous")
+        bad = [(f, p, d.get("type"), sorted(k for k in ("min", "max") if k in d))
+               for (f, p, d) in self._declared_rows()
+               if ("min" in d or "max" in d) and d.get("type") not in consults_bounds]
+        self.assertEqual([], bad,
+                         "bound declared on a type whose branch never reads it "
+                         "(bounds are consulted only for %s): %s"
+                         % (sorted(consults_bounds), bad))
 
 
 class ClassifyMissionStepTests(unittest.TestCase):
