@@ -82,15 +82,115 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void CurrencyOperationFundsMultiplier_IsNotCaptured()
+        public void CurrencyOperationFundsMultiplier_IsCaptured_OnANominalChannelReason()
         {
-            // A reward multiplier on a funds transaction: input != 0, so the net
-            // event-driven channel already sees the modified value. Capturing here
-            // would double-count it.
+            // A reward multiplier on a funds transaction under ContractReward: input != 0,
+            // and this cell used to assert Empty on the premise that "the event-driven
+            // channel already sees the modified value". It does NOT under this reason -
+            // ContractComplete carries the contract's configured FundsCompletion through
+            // TransformedFundsReward, which RecalculationEngine assigns straight from
+            // FundsReward - so the uplift had no reporter and the reconstruction ran LOW.
+            // Stock's Leadership Initiative scales milestone funds gains 1.00..2.50 under
+            // Progression and contract gains 1.00..0.25 under the Contract* trio, so both
+            // signs of this shape occur.
             var legs = StrategyConversionCapture.EvaluateLegs(
                 Query(inF: 10000.0, dF: 2000.0, reason: "ContractReward"));
 
-            Assert.Empty(legs);
+            var funds = legs.Single(l => l.Currency == StrategyConversionCurrency.Funds);
+            Assert.Equal(2000.0, funds.Delta, 6);
+        }
+
+        [Theory]
+        [InlineData("ContractReward")]
+        [InlineData("ContractAdvance")]
+        [InlineData("Progression")]
+        public void NonZeroInputFunds_UnderANominalChannelReason_IsCaptured(string reason)
+        {
+            // THE THREE REASONS WHERE PARSEK'S FUNDS CHANNEL RECORDS A CONFIGURED GROSS
+            // NOMINAL rather than an observed pool movement:
+            //   ContractReward  -> ContractComplete.TransformedFundsReward (= FundsReward,
+            //                      the contract's own FundsCompletion)
+            //   ContractAdvance -> the FundsEarning built from contract.FundsAdvance
+            //   Progression     -> MilestoneAchievement.MilestoneFundsAwarded, captured by
+            //                      ProgressRewardPatch from the AwardProgress ARGUMENTS
+            // Under those, a converter's diversion (Appreciation Campaign funds ->
+            // reputation, Outsourced R&D funds -> science) has no other reporter, so it
+            // must be captured in BOTH directions.
+            var debit = StrategyConversionCapture.EvaluateLegs(
+                Query(inF: 100000.0, dF: -5000.0, reason: reason));
+            Assert.Equal(-5000.0,
+                debit.Single(l => l.Currency == StrategyConversionCurrency.Funds).Delta, 6);
+
+            var credit = StrategyConversionCapture.EvaluateLegs(
+                Query(inF: 100000.0, dF: 7500.0, reason: reason));
+            Assert.Equal(7500.0,
+                credit.Single(l => l.Currency == StrategyConversionCurrency.Funds).Delta, 6);
+        }
+
+        [Theory]
+        [InlineData("VesselRollout")]
+        [InlineData("RnDPartPurchase")]
+        [InlineData("StructureRepair")]
+        [InlineData("StructureConstruction")]
+        [InlineData("StrategyOutput")]
+        public void NonZeroInputFunds_UnderAnEventDerivedReason_IsNotCaptured(string reason)
+        {
+            // THE OTHER HALF OF THE QUALIFICATION, AND THE ONE THAT MUST NOT MOVE. Under
+            // these five reasons Parsek's funds channel is EVENT-DERIVED: it records the
+            // OBSERVED FundsChanged delta, which is already net of the modifier. A row here
+            // would be counted twice - once inside the observed amount and once as this
+            // door's leg - which is exactly what stock's AgressiveNegotiations launch /
+            // purchase discount (a CurrencyOperation on Funds under VesselRollout +
+            // RnDPartPurchase) would produce. This is the suppression the in-game negative
+            // control used to carry before its own reason turned out to be a nominal one.
+            Assert.Empty(StrategyConversionCapture.EvaluateLegs(
+                Query(inF: -50000.0, dF: 5000.0, reason: reason)));
+            Assert.Empty(StrategyConversionCapture.EvaluateLegs(
+                Query(inF: 50000.0, dF: -5000.0, reason: reason)));
+        }
+
+        [Theory]
+        [InlineData("VesselRecovery")]
+        [InlineData("ScienceTransmission")]
+        [InlineData("ContractPenalty")]
+        [InlineData("None")]
+        [InlineData("")]
+        [InlineData(null)]
+        [InlineData("contractreward")]
+        [InlineData("ContractReward, Progression")]
+        public void NonZeroInputFunds_UnderAnUnrecognisedReason_KeepsTheZeroInputRule(string reason)
+        {
+            // THE DEFAULT IS SUPPRESSION, and deliberately so: the reason set is an
+            // ALLOWLIST of channels whose gross-nominal shape has been read, not a
+            // denylist of known-bad ones. A reason nobody has classified - including a
+            // case-shifted or comma-combined spelling that could only come from a
+            // TransactionReasons rendering this door has never seen - keeps the historical
+            // behaviour rather than guessing that some unexamined channel records gross.
+            Assert.Empty(StrategyConversionCapture.EvaluateLegs(
+                Query(inF: 100000.0, dF: -5000.0, reason: reason)));
+
+            // ... and the ZERO-input arm is untouched by all of this: a cross-currency
+            // yield with no funds transaction of its own is still captured everywhere.
+            var yieldLegs = StrategyConversionCapture.EvaluateLegs(
+                Query(inS: 5.0, dS: -1.0, dF: 60.526316, reason: reason));
+            Assert.Equal(60.526316,
+                yieldLegs.Single(l => l.Currency == StrategyConversionCurrency.Funds).Delta, 6);
+        }
+
+        [Fact]
+        public void IsNominalChannelFundsReason_MatchesExactlyTheThreeNames()
+        {
+            Assert.True(StrategyConversionCapture.IsNominalChannelFundsReason("ContractReward"));
+            Assert.True(StrategyConversionCapture.IsNominalChannelFundsReason("ContractAdvance"));
+            Assert.True(StrategyConversionCapture.IsNominalChannelFundsReason("Progression"));
+
+            Assert.False(StrategyConversionCapture.IsNominalChannelFundsReason(null));
+            Assert.False(StrategyConversionCapture.IsNominalChannelFundsReason(""));
+            Assert.False(StrategyConversionCapture.IsNominalChannelFundsReason("VesselRollout"));
+            // Case-sensitive and whole-string: TransactionReasons.ToString() renders the
+            // exact member name, so anything else is a spelling this door has not read.
+            Assert.False(StrategyConversionCapture.IsNominalChannelFundsReason("progression"));
+            Assert.False(StrategyConversionCapture.IsNominalChannelFundsReason("ContractRewardX"));
         }
 
         [Fact]
@@ -151,18 +251,17 @@ namespace Parsek.Tests
             //   Reputation.AddReputation -> rep += granular(v);
             //                               then rep += granular(GetEffectDelta(Rep))
             //
-            // For FUNDS the ordinary event-driven channel watches the transaction and sees
-            // the value net of the modifier, so a row here would double-count. THAT HALF IS
-            // REASON-QUALIFIED, and the qualification is not yet reflected in the gate: it
-            // holds where the funds channel is EVENT-DERIVED (VesselRollout, RnDPartPurchase,
-            // StructureRepair, StructureConstruction, StrategyOutput) and is FALSE under
-            // ContractReward / ContractAdvance / Progression, where the channel records a
-            // CONFIGURED GROSS nominal (contract.FundsCompletion, the AwardProgress
-            // arguments) exactly like the reputation channels below - so a funds diversion
-            // under those three reasons has no capture channel either. UNMEASURED, filed as
-            // STRATEGY-FUNDS-DEBIT-CONVERTERS-UNCAPTURED; the gate below is kept as-is
-            // pending that measurement, so this cell pins CURRENT behavior, not a proof that
-            // the funds side is clean. For
+            // For FUNDS the ordinary channel watches the transaction and sees the value net
+            // of the modifier ONLY where it is EVENT-DERIVED - VesselRollout,
+            // RnDPartPurchase, StructureRepair, StructureConstruction, StrategyOutput - and
+            // there a row would double-count. That is what the funds half below drives: the
+            // default reason on Query() is ScienceTransmission, which is not a nominal-
+            // channel funds reason, so the zero-input rule still applies to it. Under
+            // ContractReward / ContractAdvance / Progression the funds channel records a
+            // CONFIGURED GROSS nominal and IS captured now
+            // (NonZeroInputFunds_UnderANominalChannelReason_IsCaptured); the remaining
+            // asymmetry is that reputation needs no reason gate at all, because NO
+            // reputation channel anywhere is observed-derived. For
             // REPUTATION every Parsek channel records a CONFIGURED NOMINAL - the contract's
             // ReputationCompletion, the progress node's award - and nothing anywhere is
             // derived from the observed pool delta, so the second granular call has no
@@ -289,20 +388,112 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void NegativeFundsLeg_IsRefusedAndWarned()
+        public void NegativeFundsLeg_BuildsANominalStrategyConverterSpending()
         {
+            // THE DEBIT ARM, which used to return null and WARN. It is reached only for a
+            // leg EvaluateLegs admitted - a zero funds input, or one of the three
+            // nominal-channel reasons - so by the time the mapper sees it the "no other
+            // channel carries this" question is already answered. FundsSpent carries the
+            // POSITIVE magnitude; the sign is in the action type.
             var action = LedgerOrchestrator.BuildStrategyConversionAction(
                 123.0,
                 new StrategyConversionLeg
                 {
                     Currency = StrategyConversionCurrency.Funds,
-                    Delta = -50.0
+                    Delta = -5000.0
                 },
-                "ScienceTransmission");
+                "ContractReward");
 
-            Assert.Null(action);
+            Assert.NotNull(action);
+            Assert.Equal(GameActionType.FundsSpending, action.Type);
+            Assert.Equal(FundsSpendingSource.StrategyConverter, action.FundsSpendingSource);
+            Assert.Equal(5000.0, (double)action.FundsSpent, 3);
+            Assert.Null(action.RecordingId);
             Assert.Contains(logLines, l =>
-                l.Contains("[WARN]") && l.Contains("NEGATIVE zero-input funds delta"));
+                l.Contains("[INFO]") && l.Contains("funds DEBIT captured"));
+        }
+
+        [Fact]
+        public void NegativeFundsLeg_DoesNotTakeTheExchangersReasonKeyedSource()
+        {
+            // FundsSpendingSource.Strategy is the EXCHANGER family's input leg, captured
+            // from a real FundsChanged(StrategyInput) event; KscActionExpectationClassifier
+            // skips it under a different stated reason (Phase E1.5) and a future capture of
+            // that family would pair against that event. The query family has no event of
+            // its own, so the two must stay distinguishable at the row.
+            var action = LedgerOrchestrator.BuildStrategyConversionAction(
+                123.0,
+                new StrategyConversionLeg
+                {
+                    Currency = StrategyConversionCurrency.Funds,
+                    Delta = -5000.0
+                },
+                "Progression");
+
+            Assert.NotEqual(FundsSpendingSource.Strategy, action.FundsSpendingSource);
+        }
+
+        [Fact]
+        public void StrategyConverterFundsSpendingRows_DedupKeyDisambiguatesByAmount()
+        {
+            // The general FundsSpending key is RecordingId + DedupKey, and this door
+            // populates NEITHER - every converter debit would collapse onto ":" and onto
+            // the exchanger's own StrategyInput spending, which carries the same two nulls.
+            // Same two honest limitations as the science and reputation siblings: equal
+            // amounts at one FROZEN KSC UT still collapse, and no strategy identity exists
+            // at this seam to invent an ordinal from.
+            var first = LedgerOrchestrator.BuildStrategyConversionAction(
+                123.0,
+                new StrategyConversionLeg
+                {
+                    Currency = StrategyConversionCurrency.Funds,
+                    Delta = -5000.0
+                },
+                "ContractReward");
+            var second = LedgerOrchestrator.BuildStrategyConversionAction(
+                123.0,
+                new StrategyConversionLeg
+                {
+                    Currency = StrategyConversionCurrency.Funds,
+                    Delta = -2500.0
+                },
+                "ContractReward");
+
+            Assert.NotEqual(
+                LedgerOrchestrator.GetActionKey(first),
+                LedgerOrchestrator.GetActionKey(second));
+
+            // Every other spending row keeps the historical RecordingId + DedupKey key, so
+            // this narrows nothing that was previously unique.
+            var partPurchase = new GameAction
+            {
+                UT = 123.0,
+                Type = GameActionType.FundsSpending,
+                FundsSpent = 5000f,
+                DedupKey = "mk1pod",
+                FundsSpendingSource = FundsSpendingSource.Other
+            };
+            Assert.Equal(":mk1pod", LedgerOrchestrator.GetActionKey(partPurchase));
+        }
+
+        [Fact]
+        public void StrategyConverterFundsSpending_RoundTrips()
+        {
+            var original = new GameAction
+            {
+                UT = 42.5,
+                Type = GameActionType.FundsSpending,
+                FundsSpent = 5000.25f,
+                FundsSpendingSource = FundsSpendingSource.StrategyConverter
+            };
+
+            var parent = new ConfigNode("ACTIONS");
+            original.SerializeInto(parent);
+            var loaded = GameAction.DeserializeFrom(parent.GetNode("GAME_ACTION"));
+
+            Assert.Equal(GameActionType.FundsSpending, loaded.Type);
+            Assert.Equal(5000.25, (double)loaded.FundsSpent, 3);
+            Assert.Equal(FundsSpendingSource.StrategyConverter, loaded.FundsSpendingSource);
         }
 
         [Fact]
@@ -899,11 +1090,17 @@ namespace Parsek.Tests
             Assert.Contains("ConverterStrategy_ScienceYield_CapturesCredit", src);
             Assert.Contains("OutsourcedResearchCfg", src);
 
-            Assert.Contains("OperationStrategy_RewardMultiplier_IsNotCaptured", src);
+            Assert.Contains("OperationStrategy_RewardMultiplier_IsCapturedOnNominalReason", src);
             Assert.Contains("LeadershipInitiative", src);
 
             Assert.Contains("ConverterStrategy_ReputationLeg_CapturesEarning", src);
             Assert.Contains("OpenSourceTechProgramCfg", src);
+
+            Assert.Contains("ConverterStrategy_ReputationDebitLeg_CapturesPenalty", src);
+            Assert.Contains("FundraisingCampaignCfg", src);
+
+            Assert.Contains("ConverterStrategy_FundsDebitLeg_CapturesSpending", src);
+            Assert.Contains("AppreciationCampaignCfg", src);
         }
 
         [Fact]
@@ -925,6 +1122,26 @@ namespace Parsek.Tests
             Assert.Equal(1, repYieldAwards);
             Assert.Equal(1, contractRewardAwards);
             Assert.Equal(1, progressionAwards);
+
+            // THE MEASUREMENT CELLS FIRE TWICE BY DESIGN, and the pair is what makes them
+            // model-free: the SAME award under a reason the strategy's AffectReasons
+            // EXCLUDE (the control, suppressed and restored) and under one it masks (the
+            // treatment). Counted with their own award constants so a third firing of
+            // either - which would double the diversion and break the exactly-one-row
+            // assertions - reds here.
+            int fundsDebitTreatment = Regex.Matches(
+                src, @"AddFunds\(\s*FundsDebitLegAward, TransactionReasons\.ContractReward\)").Count;
+            int fundsDebitControl = Regex.Matches(
+                src, @"AddFunds\(\s*FundsDebitLegAward, TransactionReasons\.VesselRecovery\)").Count;
+            Assert.Equal(1, fundsDebitTreatment);
+            Assert.Equal(1, fundsDebitControl);
+
+            int repDebitTreatment = Regex.Matches(
+                src, @"AddReputation\(\s*ReputationDebitLegAward, TransactionReasons\.ContractReward\)").Count;
+            int repDebitControl = Regex.Matches(
+                src, @"AddReputation\(\s*ReputationDebitLegAward, TransactionReasons\.VesselRecovery\)").Count;
+            Assert.Equal(1, repDebitTreatment);
+            Assert.Equal(1, repDebitControl);
         }
 
         [Fact]

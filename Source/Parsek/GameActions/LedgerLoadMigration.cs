@@ -529,6 +529,17 @@ namespace Parsek
                         break;
                     case GameActionType.FundsSpending:
                         // Part purchase: evt.key is the part name, stored on DedupKey.
+                        //
+                        // NULL MATCHES NULL HERE, DELIBERATELY LEFT ALONE. A keyless
+                        // event would match any DedupKey-less spending row inside the
+                        // 0.1 s window - a VesselBuild rollout, or the query family's
+                        // untagged StrategyConverter debit - and suppress the synthesis.
+                        // That is the SAFE side for a migration whose output is a money
+                        // movement: skipping a recovery leaves the ledger short by a
+                        // charge the guard then shows, while synthesizing against a
+                        // keyless event risks charging twice. Both directions are
+                        // theoretical (ConvertPartPurchased always stores a name), and
+                        // the conservative one is the one already here.
                         if (a.DedupKey == evt.key) return true;
                         break;
                     default:

@@ -363,11 +363,10 @@ the structural counts by `CommittedFixtureSweepTests.RECORDED_FIXTURES` in
 `L3-strategy-currency-conversion`, and it exists to close that spec's one pinned
 coverage gap.
 
-**WHY IT EXISTS.** `OperationStrategy_RewardMultiplier_IsNotCaptured` is the
-`StrategyLifecycle` category's NEGATIVE CONTROL - the only declaration that fails if
-`StrategyConversionCapture.EvaluateLegs`'s scoping rule is deleted and the query-family
-door starts capturing everything. Every other cell asserts a movement IS captured and
-would pass in that broken world. On `fresh-career` it self-skipped every run with
+**WHY IT EXISTS.** `OperationStrategy_RewardMultiplier_IsCapturedOnNominalReason`
+(named `..._IsNotCaptured` until 2026-08-21, when the funds gate was reason-qualified
+and its Progression uplift turned out to be capture-worthy) drives stock
+`LeadershipInitiative`, and on `fresh-career` it self-skipped every run with
 `'LeadershipInitiative' cannot be activated on this save: Cannot afford Setup Cost: Not
 enough Reputation`, so the matrix's only real hole was its own negative control.
 

@@ -285,8 +285,43 @@ namespace Parsek
         FacilityRepair   = 2,
         KerbalHire       = 3,
         ContractPenalty  = 4,
+        /// <summary>
+        /// The EXCHANGER family's funds INPUT leg (a <c>Strategies.CurrencyExchanger</c>
+        /// spending funds under <c>TransactionReasons.StrategyInput</c>). Reason-keyed
+        /// and captured directly from the <c>FundsChanged</c> event, so
+        /// <c>KscActionExpectationClassifier</c> skips it rather than pairing it.
+        /// </summary>
         Strategy         = 5,
-        Other            = 6
+        Other            = 6,
+        /// <summary>
+        /// The QUERY family's funds DEBIT leg, captured by the query-family door in
+        /// <c>LedgerOrchestrator.BuildStrategyConversionAction</c>: a
+        /// <c>Strategies.Effects.CurrencyConverter</c> with <c>input = Funds</c>
+        /// (<c>AppreciationCampaignCfg</c> funds -> reputation,
+        /// <c>OutsourcedResearchCfg</c> funds -> science) or a
+        /// <c>Strategies.Effects.CurrencyOperation</c> scaling funds DOWN
+        /// (<c>LeadershipInitiative</c>'s 1.00..0.25 multiplier on contract gains),
+        /// diverting part of an ordinary transaction by mutating its
+        /// <c>CurrencyModifierQuery</c> in place.
+        ///
+        /// <para><b>ONLY EVER WRITTEN UNDER A NOMINAL-CHANNEL REASON</b>
+        /// (<c>ContractReward</c> / <c>ContractAdvance</c> / <c>Progression</c> - see
+        /// <c>StrategyConversionCapture.IsNominalChannelFundsReason</c>), where the
+        /// ordinary funds channel recorded the CONFIGURED GROSS amount and this row is
+        /// the missing second half. Under the event-derived reasons the channel already
+        /// reports the value net and no leg is emitted at all.</para>
+        ///
+        /// <para>Distinct from <see cref="Strategy"/> because the two are different
+        /// mechanisms with different reconcile standings: that one has a reason-keyed
+        /// <c>StrategyInput</c> event behind it, this one has NO event of its own - the
+        /// <c>FundsChanged</c> that follows carries the ORIGINAL reason. So
+        /// <c>KscActionExpectationClassifier</c> skips it with that reason stated at its
+        /// own arm rather than inheriting the exchanger's, and
+        /// <c>PostWalkActionReconciler</c> never sees it at all - it has no
+        /// <c>FundsSpending</c> case, so every spending row falls to its
+        /// <c>Reconcile = false</c> default by TYPE rather than by source.</para>
+        /// </summary>
+        StrategyConverter = 7
     }
 
     /// <summary>Where reputation earnings came from.</summary>
@@ -1932,7 +1967,22 @@ namespace Parsek
             if (val == null) return false;
             int intVal;
             if (!int.TryParse(val, NumberStyles.Integer, IC, out intVal)) return false;
-            if (!Enum.IsDefined(typeof(T), intVal)) return false;
+            if (!Enum.IsDefined(typeof(T), intVal))
+            {
+                // A value this build's enum does not define - almost always a save
+                // written by a NEWER build (every enum here is extended by appending).
+                // The field keeps default(T), which for a source enum is member 0, so the
+                // row silently changes meaning: a rolled-back reader would read a
+                // FundsSpendingSource.StrategyConverter debit as an untagged VesselBuild
+                // one. Say so once per occurrence rather than letting the downgrade be
+                // invisible - it is the only signal that distinguishes "this build is
+                // older than the save" from a genuine data defect.
+                ParsekLog.Warn("GameAction",
+                    $"Enum value {intVal.ToString(IC)} is not defined on {typeof(T).Name} " +
+                    $"(key '{key}') - keeping the default; this save was probably written " +
+                    "by a newer build");
+                return false;
+            }
             result = (T)(object)intVal;
             return true;
         }

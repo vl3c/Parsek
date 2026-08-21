@@ -87,6 +87,25 @@ namespace Parsek
                             SkipReason = "strategy spending not yet KSC-captured (Phase E1.5)"
                         };
                     }
+                    if (action.FundsSpendingSource == FundsSpendingSource.StrategyConverter)
+                    {
+                        // The QUERY family's funds debit (Appreciation Campaign,
+                        // Outsourced R&D, Leadership Initiative's contract multiplier).
+                        // The converter mutates a CurrencyModifierQuery IN PLACE and the
+                        // FundsChanged that follows carries the ORIGINAL transaction
+                        // reason and the NET amount - so there is no reason-keyed event to
+                        // pair against, and the default RnDPartPurchase expectation below
+                        // would WARN on every row. Same standing as the query-family
+                        // science credit and reputation legs, stated here rather than
+                        // inherited from the Strategy arm above: that one HAS a
+                        // StrategyInput event and skips for a different reason.
+                        return new KscActionExpectation
+                        {
+                            Class = KscReconcileClass.Transformed,
+                            SkipReason = "strategy currency-converter funds debit -- no " +
+                                         "reason-keyed event exists for the query family"
+                        };
+                    }
                     if (action.FundsSpendingSource == FundsSpendingSource.VesselBuild)
                     {
                         return new KscActionExpectation
