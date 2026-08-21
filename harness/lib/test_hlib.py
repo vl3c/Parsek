@@ -4980,22 +4980,25 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
         # tier, and NOT a debt: a first-flight B lane is operator because its
         # windows are derived rather than measured and the first run is a
         # calibration reading, exactly the disposition B23/B24/B25/B26 carry.
-        # There is no outstanding HUMAN call here - the lane is committed, its
-        # row in autotest-status.md says NOT YET FLOWN, and what it owes is a
-        # flight rather than a decision. Re-classify when it flies: a green run
-        # turns this into the ordinary operator -> nightly promotion call, which
-        # is the shape H34/H35 above already record.
+        # IT HAS NOW FLOWN: run 2026-08-20_2330, PASS attempt 1, and its row in
+        # autotest-status.md says LIVE-PROVEN. So the re-classification an earlier
+        # draft of this comment asked a future reader to make is DONE, and what
+        # remains open is the ordinary operator -> nightly PROMOTION call, which
+        # is the shape H34/H35 above already record. Nothing technical is owed.
         "B28-laythe-jool-return.toml":      "tier=operator by the calibration discipline (the B18-B26 family's tier), NOT debt; FLOWN 2026-08-20_2330 PASS attempt 1 (the full chain through ORBIT-COMMITTED, all eight assertions met, every verifier green) - what is open is the ordinary operator -> nightly PROMOTION call, the H34/H35 shape",
         # The V19 pair, tier=operator by the same calibration discipline and for
-        # the same reason as every V lane before them: their windows are DERIVED
-        # from B28's harvested bytes and the first run is a calibration reading.
-        # NOT debt and no human call is owed - what they owe is the three-run
-        # reading -> armed -> negative-control sequence, which is a flight
-        # schedule rather than a decision. Re-classify when the discipline
-        # completes: at that point this becomes the ordinary operator -> nightly
-        # promotion call, the shape H34/H35 above record.
-        "V19M-laythe-jool-player-loop.toml": "tier=operator by the calibration discipline (derived windows, first run is a calibration reading), NOT debt; committed 2026-08-21 and NOT YET FLOWN - it owes the three-run discipline, not a human decision",
-        "V19T-laythe-jool-ts-arrival.toml":  "tier=operator by the calibration discipline (derived windows, first run is a calibration reading), NOT debt; committed 2026-08-21 and NOT YET FLOWN - it owes the three-run discipline, not a human decision",
+        # the same reason as every V lane before them: their windows were DERIVED
+        # from B28's harvested bytes and the first run was a calibration reading.
+        # NOT debt and no human call is owed - what they owe is the remainder of
+        # the three-run reading -> armed -> negative-control sequence, which is a
+        # flight schedule rather than a decision. BOTH READING RUNS ARE NOW FLOWN
+        # AND GREEN and both lanes are ARMED off their own bytes (see
+        # ARMED_ALLOWLIST in this file); what is still outstanding is the armed
+        # re-flights plus one shared negative control. Re-classify when the
+        # discipline completes: at that point this becomes the ordinary
+        # operator -> nightly promotion call, the shape H34/H35 above record.
+        "V19M-laythe-jool-player-loop.toml": "tier=operator by the calibration discipline (derived windows, first run is a calibration reading), NOT debt; committed 2026-08-21, READING RUN FLOWN `2026-08-21_0746` PASS attempt 1 and ARMED off its own bytes the same day - what remains is the armed re-flight plus the pair's shared negative control, a flight schedule rather than a human decision",
+        "V19T-laythe-jool-ts-arrival.toml":  "tier=operator by the calibration discipline (derived windows, first run is a calibration reading), NOT debt; committed 2026-08-21, READING RUN FLOWN `2026-08-21_0750` PASS attempt 1 and ARMED off its own bytes the same day - what remains is the armed re-flight plus the pair's shared negative control, a flight schedule rather than a human decision",
         "H5-invariants-corpus.toml":        "discharged - 'resolving the former PENDING-OPERATOR check'",
         "H6-route-rewind-timeline.toml":    "discharged - 'The former PENDING-OPERATOR ...'",
         "M1-mission-loop-unit.toml":        "discharged - 'CLOSED by the 2026-07-26 flights'",
@@ -5708,6 +5711,42 @@ class SaveStructureVerifierWiringTests(unittest.TestCase):
                        # nowhere else, then reverted).
                        "V17M-laythe-vall-player-loop.toml",
                        "V17T-laythe-vall-ts-arrival.toml",
+                       # V19M / V19T, the first RETURN-DIRECTION loop pair (G2),
+                       # armed 2026-08-21 EACH OFF ITS OWN green reading run:
+                       # `2026-08-21_0746` (V19M, PASS attempt 1, wall 98 s) and
+                       # `2026-08-21_0750` (V19T, PASS attempt 1, wall 60 s).
+                       # Both blocks on both lanes: `rewind` (all max 0 - the
+                       # family's replay-observation claim, now on the inverted
+                       # same-parent direction, and worth most on V19T for V5's
+                       # reason since that lane writes a save mid-run and reads it
+                       # back through a SECOND scene load) + `structure` (trees
+                       # {1,2} for V2's duplicate-writer hazard, everything else
+                       # pinned at the measured 1/1 with terminalStates
+                       # {Orbiting: 1}; `recordings` {1,1} is the sharp form of the
+                       # reading-era {1,2} count window, whose admitted load-time
+                       # optimizer split at the ONE body-change seam did not
+                       # materialize - both runs printed
+                       # `exoCoastBodyChangeKept=1 splittableButRejected=0`).
+                       # BOTH lanes measured 0/0/0/0 and 1/1/1 {Orbiting: 1} with
+                       # points 201/201/201 BEFORE arming, so the arming re-pinned
+                       # NOTHING and moved NO verdict on either lane, and the two
+                       # gating saveParse payloads are byte-identical - the pair's
+                       # determinism statement, the V17M/V17T shape.
+                       # Two additive gates landed in the same pass and are NOT
+                       # part of the saveParse arming: V19M promotes the measured
+                       # `Split summary: .*exoCoastBodyChangeKept=1
+                       # splittableButRejected=0` into `required` (the V14M
+                       # precedent, so the optimizer-cohesion answer regresses
+                       # loudly rather than silently), and V19T adds the
+                       # `created 0 ghost vessel\(s\)` forbid now that its own run
+                       # measured `created 1` with `noOrbit=0` (the S1.4 rule;
+                       # V17T had retired that forbid because init-ZERO was the
+                       # correct product outcome on ITS segment-less-tail subject,
+                       # and this subject's jump lands inside a SEGMENTED coast).
+                       # NOT YET DISCHARGED: the armed re-flights and the shared
+                       # negative control are the next runs, not this edit.
+                       "V19M-laythe-jool-player-loop.toml",
+                       "V19T-laythe-jool-ts-arrival.toml",
                        "GS-1-auto-chute-booster.toml", "GS-2-orbital-probe-deploy.toml",
                        "GS-3-switch-nudge-deployed.toml",
                        # B17: rewind (all max 0 - a clean single-launch flight

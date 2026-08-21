@@ -1341,6 +1341,9 @@ a limitation's clothes.
 Ranked by supply-run value per flight-hour. Each entry names the class, why it
 matters, the cheapest representative, the expected-but-unmeasured routing, and
 what counts as confirmation. Scenario ids B27-B30 and V18-V21 are RESERVED HERE
+(V18-V21 across all their suffixes: the established `M` player/flight-map and
+`T` tracking-station lanes, plus `K` for a KSC-host lane, which G2's correction
+below reserves as `V20K` - there is no committed `K` lane yet)
 - this section is their only home - so sibling PRs do not collide; check open
 PRs before authoring and renumber only if one already claims an id.
 
@@ -1378,9 +1381,33 @@ one-burn escape, no transfer planner involved) and `B29-duna-kerbin-return`
 has measured whether the same-parent classification and the re-aim classifier
 treat the INVERTED direction symmetrically, and the mirror-direction lesson
 (PRs #1474/#1475) says walk the mirror rather than assume it. Lanes:
-V19M/V19T over B28's recording, V20M/V20T over B29's. Confirmation:
+V19M/V19T over B28's recording, V20M/V20T over B29's, plus **V20K** - the KSC
+host lane, reserved here by the correction below. Confirmation:
 destination-frame render tokens at derived epochs on the flight map, the TS,
 and the KSC host; armed, with a control that inverts a render token.
+
+**CORRECTION TO THIS ENTRY'S KSC PREMISE (2026-08-21) - AN INSPECTION, NOT A
+MEASUREMENT.** The sentence above claims the return direction "is the ONLY thing
+that activates the KSC render host". That does not survive a read of the code.
+Dimension 3 of this section cites the per-point Kerbin gate in
+`ParsekKSC.Playback.cs`, but there is a STRICTER gate one level up:
+`ParsekKSC.IsKscStructurallyEligible` (`Source/Parsek/ParsekKSC.cs:1483-1490`)
+rejects a recording outright on `rec.Points[0].bodyName != "Kerbin"` - the
+recording's FIRST point, not its arrival body - and the Update loop
+(`ParsekKSC.cs:326`) continues past an ineligible recording, logging nothing
+unless it has a leftover ghost to destroy. **BOTH cheapest representatives named
+above are rooted at a foreign body**: B28's harvested recording starts at Laythe
+(its `.prec` string table carries Laythe and Jool and ZERO occurrences of
+Kerbin), and B29 would start at Duna. So a return leg that ARRIVES at Kerbin may
+still be excluded from the KSC host whole, and this entry's KSC payoff is
+UNPROVEN rather than delivered. Two consequences to carry forward. (1) The
+V19M/V19T pair discharges the flight-map and Tracking-Station thirds of the
+confirmation bar above and NOT the KSC third; do not book G2 closed on two green
+V19 runs. (2) **This is a code reading and no KSC lane has flown**, so under
+confirmation criterion (c) it may NOT be written up as a documented limitation
+anywhere - not here, not in a spec, not in a status row. `V20K` (over B29's
+Kerbin-arrival recording) is where it gets MEASURED, and only that run can
+convert this paragraph into either a closed payoff or a cited limitation.
 
 **G3 - Surface endpoints.** A landed-arrival loop, plus the endpoint resolution
 path nobody has render-tested: `RouteEndpointResolver` prefers the recorded

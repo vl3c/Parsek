@@ -1386,6 +1386,26 @@
         "2026-08-20T19:40:03Z": 60.0
       }
     },
+    "V19M-laythe-jool-player-loop": {
+      "last": 98.0,
+      "lastVsP50": 1.0,
+      "n": 1,
+      "p50": 98.0,
+      "p95": 98.0,
+      "samples": {
+        "2026-08-21T07:48:14Z": 98.0
+      }
+    },
+    "V19T-laythe-jool-ts-arrival": {
+      "last": 60.0,
+      "lastVsP50": 1.0,
+      "n": 1,
+      "p50": 60.0,
+      "p95": 60.0,
+      "samples": {
+        "2026-08-21T07:51:06Z": 60.0
+      }
+    },
     "V2-loop-arrival-dwell": {
       "last": 955.0,
       "lastVsP50": 1.0,

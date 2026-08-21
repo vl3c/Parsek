@@ -527,11 +527,14 @@ max = 100.0
 # operation that IS legal once both bodies orbit the same parent -- plans the
 # sibling transfer from the parent's frame (stage 2).
 #
-# FOUR IMPLICATIONS ARE ENFORCED AT SPEC LOAD by mlib.b5_params_from_dict, each
+# FIVE IMPLICATIONS ARE ENFORCED AT SPEC LOAD by mlib.b5_params_from_dict, each
 # raising rather than degrading: parentRelayTransfer requires
-# interplanetaryTransfer, requires a non-empty returnBodyName, is mutually
-# exclusive with padAlignEjection, and requires homeBodyName to have a row in
-# mlib.STOCK_BODY_GRAVITY. TWO POSITIVE-VALUE GATES ride alongside them, one per
+# interplanetaryTransfer, requires a non-empty returnBodyName, requires BOTH
+# targetBodyName and returnBodyName to differ from homeBodyName (both arms of the
+# escapedHomeSoi row are proofs by OBSERVED SOI BODY, so with either equal to home
+# a coast frame that never left the home SOI certifies the one row whose whole
+# purpose is to prove departure), is mutually exclusive with padAlignEjection, and
+# requires homeBodyName to have a row in mlib.STOCK_BODY_GRAVITY. TWO POSITIVE-VALUE GATES ride alongside them, one per
 # stage: a positive escapeSoiSpeedMps -- the relative speed the escape carries
 # ACROSS THE HOME SOI BOUNDARY, which is where the patched conic hands the vessel
 # over and is therefore what sizes the stage-1 node (NOT a hyperbolic excess at

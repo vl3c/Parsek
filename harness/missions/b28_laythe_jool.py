@@ -2,6 +2,21 @@
 escape burn out of Laythe's SOI, coast UP into JOOL's frame, circularize at the
 Jool-frame periapsis and COMMIT the tree there.
 
+**FLOWN 2026-08-20, run `2026-08-20_2330`, PASS ATTEMPT 1.** The eleven-phase
+chain PRELAUNCH -> ORBIT -> ESCAPE -> TRANSFER-BURN -> COAST-TO-TARGET ->
+TARGET-FLYBY -> PLAN-CAPTURE -> CAPTURE-BURN -> PARK -> ORBIT-COMMIT ->
+ORBIT-COMMITTED, with NO PLAN-TRANSFER and NO second TRANSFER-BURN -- the
+no-stage-2 claim below read off the flown phase list rather than argued -- all
+eight assertions met, `escapedHomeSoi` carried by the park-at-parent disjunct
+(`provenBy=parkAtParentTargetSoiReached`, `relayStage 0`), harvested as
+`fixtures/saves/jool-return-recorded`. The routing pair reserved below WAS
+authored 2026-08-21 and HAS flown its unarmed READING runs, both PASS attempt 1
+(`2026-08-21_0746` V19M, `2026-08-21_0750` V19T); neither is armed yet. Every
+per-flight number, and the disposition of each pre-registration, lives in the
+spec's flight ledger (`scenarios/B28-laythe-jool-return.toml`), which is their
+single authority -- this docstring states only what the mission IS, so the two
+cannot drift into two versions of the same measurement.
+
 WHAT IT FLIES. The crewed Duna Rocket starts ALREADY PARKED around LAYTHE -- the
 committed Parsek-stripped `laythe-park-nerv` fixture, an 87,931.3 x 56,240.3 m park
 at eccentricity 0.0277, the orbit B25 delivered and B26 departs -- fires ONE
@@ -14,28 +29,40 @@ THE POINT (the Parsek surface, not the rocketry). Every committed loop subject i
 the suite is OUTBOUND: B23 Duna->Ike, B24 Eve->Gilly, B25 Jool->Laythe, B26
 Laythe->Vall, and every interplanetary lane before them departs Kerbin. A supply
 run is a round trip, so half of the render surface the loop machinery will
-actually be asked to draw has never been produced at all.
+actually be asked to draw HAD never been produced at all -- until this lane flew
+on 2026-08-20 and `fixtures/saves/jool-return-recorded` became the first
+return-direction subject in the suite. THE SUBJECT EXISTING IS NOT THE GAP
+CLOSED: producing a return-direction recording is this mission's whole job, and
+what the render hosts DO with one is the V19 pair's measurement, under the
+confirmation bar the roadmap states for G2 (armed runs plus a control that
+inverts a render token). Nothing here books that.
 
 **THIS IS THE FIRST RETURN-DIRECTION SUBJECT.** A Laythe-rooted recording whose
 target is JOOL is the INVERTED same-parent direction: the target is the origin's
 PARENT rather than the origin's child, which is the mirror of B25's Jool->Laythe
 and nothing like B26's Laythe->Vall sibling hop. Whether the classifiers treat
-that inversion SYMMETRICALLY has never been measured on a real recording.
+that inversion SYMMETRICALLY had never been measured on a real recording, for the
+plain reason that no such recording existed to measure.
 `IsSameParentTarget(target, launch)` asks exactly ONE question -- is the target a
 direct CHILD of the launch body -- so the relation is DIRECTIONAL BY CONSTRUCTION
 and a target that IS the parent is simply not the shape it was written against.
 What the REST of the routing stack then does with that reading -- the re-aim
 classifier's admission, the phase-lock solver's constraint count, the window
-spacing -- is what nobody knows. The mirror-direction lesson (PRs #1474/#1475) is
-exactly "walk the mirror rather than assume it", which is why this lane exists
-rather than an argument that it need not.
+spacing -- is what nobody knew. The V19 reading runs named at the top of this
+docstring are where it got measured, and the reading belongs in THEIR headers
+rather than in a second copy here: a second copy of a measurement is a second
+thing to leave stale. The mirror-direction lesson (PRs #1474/#1475) is exactly
+"walk the mirror rather than assume it", which is why this lane exists rather
+than an argument that it need not.
 
 **AND THIS FILE ASSERTS NOTHING ABOUT ANY OF THAT.** What B28 does is fly the hop
 and commit the recording. V19M and V19T -- the loop pair reserved for this
-subject, not yet authored -- are the lanes that read the routing OFF the produced
-recording, and they will gate on NEITHER outcome: same-parent-phase-lock and
-cross-parent-re-aim are both admissible readings of a return leg, and the point of
-flying it is to find out which one the product gets. Nothing in this file or in its
+subject, authored 2026-08-21 off its harvested bytes and flown as unarmed READING
+runs (both PASS attempt 1), not yet armed -- are the lanes that read the routing
+OFF the produced recording, and they gate on NEITHER outcome:
+same-parent-phase-lock and cross-parent-re-aim are both admissible readings of a
+return leg, and the point of flying it is to find out which one the product gets.
+Nothing in this file or in its
 spec encodes a prediction. See `docs/dev/autotest-roadmap.md` -> the gap register
 -> **G2 - Return legs**, which reserves the B28 / V19 ids and states the
 confirmation criteria (destination-frame render tokens at derived epochs on the
@@ -182,12 +209,26 @@ inherited.
   body the machine can only reach through the target branch, and would silently
   legalise a Jool reading in a phase that should never see one.
 
-MLIB GAINED `relayParkAtParent` AND NOTHING ELSE, and the flag-off contract is
-PAD-ALIGN's, ORBIT-START's and PARENT-RELAY's verbatim: with `relayParkAtParent`
-absent the stage-2 hand-off is reachable exactly as B26 leaves it, the
-`transferMinApoapsisMeters` load-time gate keeps its B26 "must be positive"
-meaning, and every other lane's decisions and actions are byte-identical. The flag
-carries two load-time implications of its own, each raising rather than degrading:
+MLIB GAINED `relayParkAtParent` AND ONE GATE ON THE MODE IT MODIFIES, and the
+flag-off contract is PAD-ALIGN's, ORBIT-START's and PARENT-RELAY's verbatim: with
+`relayParkAtParent` absent the stage-2 hand-off is reachable exactly as B26
+leaves it, the `transferMinApoapsisMeters` load-time gate keeps its B26 "must be
+positive" meaning, and every other lane's decisions, actions and assertion rows
+are byte-identical (pinned by `RelayParkAtParentInertnessTests`, which asserts
+the flag-off `escapedHomeSoi` detail dict against the frozen pre-modifier shape
+rather than against the keys the modifier added).
+
+THE ONE GATE, and it is on `parentRelayTransfer` rather than on the modifier
+because BOTH arms of the mode have the hole: a relay spec whose `targetBodyName`
+or `returnBodyName` IS the `homeBodyName` is REJECTED at spec load. Both arms of
+`escapedHomeSoi` are proofs by OBSERVED SOI BODY, and an observation proves
+DEPARTURE only while the body observed is not the body departed from. With them
+equal a single coast frame reading the home body certifies the row -- through the
+target hop on a park-at-parent lane, through the stage advance on a two-stage
+one. Neither committed relay spec is affected (B26: Laythe/Vall/Jool; B28:
+Laythe/Jool/Sun), which is what makes it a trap for the NEXT author rather than a
+bug in either. The flag itself carries two load-time implications of its own,
+each raising rather than degrading:
 it REQUIRES `parentRelayTransfer` (it modifies that mode and nothing else) and it
 REQUIRES `captureEnabled` (without the orbit tail there is no park to hold and no
 tree to commit, and the mission would terminate at a phase that is not its
@@ -243,12 +284,27 @@ re-points:
                            place -- the coast frame that observed
                            `snapshot.body == target_body` -- so on a lane whose
                            target IS the parent that pair is a MEASURED reading of
-                           the craft inside Jool's SOI, unreachable without leaving
-                           home. The row's `provenBy` detail names which disjunct
-                           fired (`parkAtParentTargetSoiReached` here,
-                           `relayStageAdvanced` on B26), so an operator never has to
-                           re-derive it. B26 is judged by the stage and nothing
-                           else: the disjunct is gated on the flag.
+                           the craft inside Jool's SOI. WHICH HALF OF THE PAIR IS
+                           LOAD-BEARING, since the two-part reading over-sells it:
+                           on a park-at-parent lane the ESCAPE conjunct cannot be
+                           False whenever TARGET-FLYBY was reached, because the
+                           post-ORBIT hand-off diverts into ESCAPE while the stage
+                           is 0 (forever, here) and PLAN-TRANSFER is unreachable, so
+                           EVERY route into the coast runs through ESCAPE -- the
+                           flown phase list is the proof. The live evidence is the
+                           TARGET-FLYBY observation; ESCAPE is a fail-CLOSED belt
+                           against a phase list this machine could not produce. AND
+                           THAT OBSERVATION PROVES DEPARTURE ONLY BECAUSE THE TARGET
+                           IS NOT THE HOME BODY -- a property of the SPEC, not of
+                           any frame -- so `mlib` REJECTS a relay spec whose target
+                           or return body is the home body, at spec load, by name.
+                           Without that gate the row greens on a craft that never
+                           left: the reader who found it drove exactly that. The
+                           row's `provenBy` detail names which disjunct fired
+                           (`parkAtParentTargetSoiReached` here; it rides the row
+                           only on a park-at-parent lane, so B26's row keeps its
+                           pre-modifier shape byte for byte). B26 is judged by the
+                           stage and nothing else: the disjunct is gated on the flag.
     reachedTargetSoi       the Jool SOI was actually entered
     flybyPeriapsisFloor    the whole in-SOI stay cleared the floor -- which on THIS
                            lane guards Jool's ATMOSPHERE, the deepest in the stock

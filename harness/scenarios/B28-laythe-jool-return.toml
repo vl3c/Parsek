@@ -11,11 +11,15 @@ id = "B28-laythe-jool-return"
 # EIGHT assertions met, every verifier green, and THE PRODUCT NOW EXISTS: harvested
 # `--keep-parsek` as `fixtures/saves/jool-return-recorded`, the subject V19M/V19T read
 # the routing off. READ THE FLIGHT LEDGER BEFORE TRUSTING ANY DERIVED NUMBER BELOW.
-# Four pre-registrations held exactly. ONE DID NOT, and it is the interesting reading:
-# the delivered-orbit BAND in the delta-v section is an OUTER ENVELOPE, not a prediction
-# of this delivery -- the flight circularized for **20.39 m/s** against a band whose
-# stated MINIMUM was 178.08 and whose worst case was 844.15. The band is not wrong; it
-# was never a delivery predictor, and the section below now says so where it stands.
+# **THREE PRE-REGISTRATIONS HELD, TWO DID NOT** (the tally was written as four/one in the
+# harvest commit and is corrected here; the two that missed are the interesting readings).
+# (a) THE DELIVERED-ORBIT BAND in the delta-v section is an OUTER ENVELOPE, not a
+# prediction of this delivery -- the flight circularized for **20.39 m/s** against a band
+# whose stated MINIMUM was 178.08 and whose worst case was 844.15. The band is not wrong;
+# it was never a delivery predictor. (b) THE FINAL PARK IS NOT DECOUPLED FROM LAYTHE.
+# It does sit inside Laythe's orbit, as predicted, but 25.728648 Mm of radius is INSIDE
+# Laythe's 23.460-30.908 Mm SOI band, and the flight's own PARK frames carry KSP's
+# prediction of the re-entry. Both are corrected where they stand, below.
 #
 # WHY THIS LANE EXISTS, and it is NOT "a seventh moon". Every committed loop subject in
 # the suite is OUTBOUND: Kerbin->Mun, Kerbin->Minmus, Duna->Ike, Eve->Gilly, Jool->Laythe,
@@ -87,7 +91,8 @@ id = "B28-laythe-jool-return"
 # venv gate refused before KSP was launched.)
 #
 # ---------------------------------------------------------------------------------
-# WHAT HELD, and all four were written down before the flight
+# WHAT HELD: (1), (3) AND (4). All five were written down before the flight; (2) and
+# (5) are in the two sections after this one.
 # ---------------------------------------------------------------------------------
 #
 # (1) THE ESCAPE NODE. The delta-v section derives 586.692 m/s from mlib's own
@@ -97,13 +102,6 @@ id = "B28-laythe-jool-return"
 #     independent flights agree to **2.9e-6 m/s**, which is the strongest form the claim
 #     could take: not "the derivation is right" but "the derivation, the planner and two
 #     separate missions all produce the same number off the same bytes".
-#
-# (2) THE FINAL PARK SITS INSIDE LAYTHE'S ORBIT AND IS DECOUPLED FROM IT. The header
-#     predicted exactly that as the bound on a Laythe re-entry. Measured: 19,728,666.573
-#     x 19,728,628.891 m ALTITUDE = a **25.728648 Mm-radius circular Jool orbit at ecc
-#     7.32e-07**, sitting **1.455 Mm inside** Laythe's 27.184 Mm shell. The delivered
-#     arrival apoapsis before circularization was 26.383 Mm radius, so the craft never
-#     reached Laythe's shell at any point after the escape either.
 #
 # (3) THE SHAPE OF THE RECORDING. ONE tree, ONE recording, ONE body-change seam, terminal
 #     Orbiting at JOOL, crewed. saveParse: `trees 1 committedTrees 1 recordings 1
@@ -126,10 +124,60 @@ id = "B28-laythe-jool-return"
 #     `RelayParkAtParentInertnessTests`.
 #
 # ---------------------------------------------------------------------------------
-# WHAT DID NOT HOLD: THE DELIVERED-ORBIT BAND IS AN OUTER ENVELOPE, NOT A PREDICTION
+# WHAT DID NOT HOLD (1 of 2): PRE-REGISTRATION (2) IS HALF RIGHT. THE PARK IS INSIDE
+# LAYTHE'S ORBIT -- AND IT IS NOT DECOUPLED FROM LAYTHE.
 # ---------------------------------------------------------------------------------
 #
-# THE PRE-REGISTRATION, kept verbatim below in the delta-v section: at
+# (2) THE PRE-REGISTRATION, kept verbatim: "THE FINAL PARK SITS INSIDE LAYTHE'S ORBIT
+#     AND IS DECOUPLED FROM IT", offered in the moon-shell audit as the bound on a
+#     Laythe re-entry.
+#
+#     THE HALF THAT HELD, and it held exactly. Measured 19,728,666.573 x
+#     19,728,628.891 m ALTITUDE = a **25.728648 Mm-radius circular Jool orbit at ecc
+#     7.32e-07**, sitting **1.455 Mm inside** Laythe's 27.184 Mm shell. The delivered
+#     arrival apoapsis before circularization was 26.383 Mm radius, so the craft never
+#     reached Laythe's shell at any point after the escape either.
+#
+#     THE HALF THAT DID NOT. **INSIDE LAYTHE'S ORBIT IS NOT DECOUPLED FROM LAYTHE.**
+#     Laythe's SOI radius is 3,723,645.8 m -- the same constant this spec's own escape
+#     derivation uses -- so Laythe's SOI sweeps the Jool-radius band **23.460 to
+#     30.908 Mm**, and the delivered park at 25.728648 Mm sits **2.268 Mm inside its
+#     inner edge**. The 1.455 Mm of shell clearance is real and is not SOI clearance.
+#
+#     AND THE FLIGHT MEASURED THE CONSEQUENCE RATHER THAN LEAVING IT TO GEOMETRY. Of
+#     PARK's 172 telemetry lines, **86 read `nextBody=Laythe nextPe=-27700.07`** with
+#     `tts` counting down from 585,240.25 to **585,063.03** game s: KSP's own patched
+#     conics predict the parked orbit re-enters Laythe's SOI about **585 ks** later, on
+#     a periapsis 27.7 km BELOW Laythe's surface. (The other 86 read `nextBody=?`; the
+#     solver does not resolve the encounter on every frame, which is why the reading is
+#     stated as 86 of 172 and not as "every line". Across the whole mission 119 lines
+#     carry `nextBody=Laythe`: 86 PARK, 31 CAPTURE-BURN, 1 PLAN-CAPTURE, 1 ORBIT-COMMIT.)
+#
+#     INDEPENDENT CORROBORATION, because a 585 ks prediction deserves one that shares no
+#     input with the solver: the park's period is 48,783.68 s and Laythe's is 52,980.88 s,
+#     so their SYNODIC period is **615,792 s** and the predicted encounter falls at
+#     **0.950 of one synodic cycle** -- i.e. it is the FIRST conjunction, exactly where
+#     the drift of two circular orbits 1.455 Mm apart puts one. This is ordinary orbital
+#     mechanics, not a solver artifact.
+#
+#     THE COMMITTED FIXTURE INHERITS IT: `jool-return-recorded`'s persistent.sfs carries
+#     `SMA = 25728647.731996365 / ECC = 7.323029338778891E-07 / REF = 8`.
+#
+#     **SCOPE, AND THE V19 LANES ARE UNAFFECTED.** The V19 jump table's farthest jump is
+#     UT 28,853,511 = **24,491.5 s** past the save's 28,829,019.474, and the predicted
+#     encounter is 585,063 s past the last PARK frame -- **23.9x further out than
+#     anything either lane looks at**. Nothing in the V19 readings touches it.
+#     **WHAT ANYONE ELSE MUST KNOW:** the park is NOT long-term stable. A lane re-pointed
+#     at `jool-return-recorded` that runs past ~585 ks of game time, or any further
+#     fixture derived from these bytes, inherits a predicted sub-surface Laythe encounter.
+#     Size against that rather than against the word "decoupled".
+#
+# ---------------------------------------------------------------------------------
+# WHAT DID NOT HOLD (2 of 2): THE DELIVERED-ORBIT BAND IS AN OUTER ENVELOPE, NOT A
+# PREDICTION
+# ---------------------------------------------------------------------------------
+#
+# (5) THE PRE-REGISTRATION, kept verbatim below in the delta-v section: at
 # `escapeSoiSpeedMps = 450` the delivered Jool orbit was swept to a = 17.24 - 59.05 Mm,
 # periapsis 11.01 - 30.91 Mm, apoapsis 23.46 - 87.18 Mm, with a WORST circularization of
 # 844.15 m/s, a MEDIAN of 354.97 and a stated BEST of **178.08**.
@@ -162,17 +210,46 @@ id = "B28-laythe-jool-return"
 #     for deg in range(0, 181):
 #         for r in (A_LAYTHE - SOI_LAYTHE, A_LAYTHE, A_LAYTHE + SOI_LAYTHE):
 #             vt = v_moon + v_rel * cos(th);  vr = v_rel * sin(th)
-# `v_moon` is HOISTED OUT of the radius loop. At the two off-A radii it therefore pairs a
-# position with a speed that does not belong to it: the local circular speed at
-# A - SOI is 3,470.27 m/s and at A + SOI is 3,023.42 m/s, against v_moon = 3,223.84 --
-# **246.43 m/s too slow at the inner corner and 200.43 m/s too fast at the outer one**.
-# MEASURE WHAT THAT ALONE COSTS: set `v_rel = 0` (a craft leaving with NO relative speed
-# at all) and the on-A case reads e = 0 to eight decimals (a 0.8 m apsis spread, pure
-# float noise), while BOTH off-A cases read **e = 0.13698** -- semi-major axes of 20.63 Mm
-# at the inner radius and 35.81 Mm at the outer, manufactured out of the pairing before
-# any departure direction is applied. The 181 directions are then swept INDEPENDENTLY of
-# the exit radius, so the product admits combinations (maximum radial offset one way,
-# v_rel the other) that no single departure produces.
+# **FIRST, WHAT IS NOT WRONG WITH IT, because the harvest commit and the first draft of
+# this ledger both got this backwards and a maintainer acting on that wording would have
+# broken a correct test.** `v_moon` is HOISTED OUT of the radius loop, and that is RIGHT.
+# A craft that has just left Laythe's SOI carries **LAYTHE'S** velocity, whose magnitude
+# is `sqrt(MU_JOOL / A_LAYTHE)` = 3,223.84 m/s at every point on the SOI sphere; it does
+# not carry the local circular speed at its own radius. Comparing v_moon against the
+# 3,470.27 m/s local circular speed at A - SOI and the 3,023.42 at A + SOI (246.43 too
+# slow, 200.43 too fast) measures a real difference against a quantity the craft has no
+# reason to have. Nor is the `v_rel = 0` reading manufactured: at r = A(1 +/- SOI/A) with
+# a purely tangential v_moon the eccentricity is **exactly SOI/A = 0.136979319**, which
+# is where the 0.13698 comes from, and a craft leaving the sub-Jool or anti-Jool point of
+# the SOI sphere with no relative speed really does get that orbit. **DO NOT "FIX" THE
+# HOIST.** Replacing v_moon with sqrt(mu/r) inside the radius loop models a craft nothing
+# in this scenario puts there.
+#
+# **WHAT IS ACTUALLY WRONG IS THE DECOMPOSITION FRAME, AND IT BITES EXACTLY ONE OF THE
+# THREE ROWS.** The sweep resolves v_moon as purely TANGENTIAL at the craft's own exit
+# radius. On the SOI sphere the exit radius and the exit point's ANGULAR OFFSET from
+# Laythe are linked, and the offset is what decides whether that decomposition is exact:
+#   r = A - SOI  offset **0 deg**       (the sub-Jool point)   -- decomposition EXACT
+#   r = A + SOI  offset **0 deg**       (the anti-Jool point)  -- decomposition EXACT
+#   r = A        offset **7.8545 deg**                         -- drops **440.56 m/s**
+# At the two radially-aligned points Laythe's velocity really is perpendicular to the
+# craft's own radius vector, so the tangential form is right. At |P| = A it is not: those
+# SOI-sphere points sit 7.8545 deg off the Jool-Laythe line, where Laythe's velocity
+# carries a 440.56 m/s RADIAL component the sweep discards -- comparable to v_rel = 450
+# itself. Over the whole sphere the maximum offset is `asin(SOI/A)` = **7.8731 deg** and
+# the largest dropped radial term is `v_moon * SOI/A` = **441.60 m/s**.
+# WHAT THAT COSTS, ROW BY ROW (minimum eccentricity, sweep against exact geometry at the
+# same exit point with the v_rel direction free):
+#   r = A - SOI   sweep 0.102496   exact 0.102491   (a 1-deg grid difference, nothing more)
+#   r = A         sweep 0.139139   exact **0.002610**
+#   r = A + SOI   sweep 0.124787   exact 0.124776
+# So the sweep's own floor of 0.102496 is set by a row where its decomposition is EXACT,
+# and correcting the frame on the single off-axis row it samples would drop the achievable
+# minimum to 0.002610 on its own.
+# AND THE THIRD AXIS PROBLEM IS THE SAMPLING, not the independence of direction: exit
+# radius and angular offset are ONE degree of freedom on the sphere, not two, so a
+# three-radius / 181-direction product never visits the offsets BETWEEN its three points
+# -- which is precisely where the near-circular deliveries live.
 #
 # THE CONSEQUENCE, MEASURED RATHER THAN ASSERTED. Re-running the sweep at 450 reproduces
 # the delta-v section's table to the digits it prints (543 bound samples: a 17.2364 -
@@ -184,15 +261,31 @@ id = "B28-laythe-jool-return"
 # eccentricity range entirely, which is the sharpest available statement that these are
 # not the same quantity.
 #
-# **THE SWEEP'S CORRECT STANDING IS A SAFETY ENVELOPE, AND IT IS SOUND AS ONE.** Read
-# what `test_the_flown_contract_admitted_two_lane_ending_outcomes` actually asserts: at
-# 450 ZERO of the 543 samples reach energy >= 0 (nothing leaves Jool) and the worst
-# periapsis is 11.0124 Mm, clearing Jool's 6.2 Mm atmosphere top by 4.81 Mm. Those two
-# claims are exactly what B26 built the sweep for, and the hoisted `v_moon` makes them
-# CONSERVATIVE rather than wrong: too slow at the inner radius drives periapsis DOWN, too
-# fast at the outer radius drives energy UP, so the envelope over-states the spread in
-# both of the directions the two safety claims care about. What it cannot do -- and never
-# claimed to do -- is predict where inside the envelope a given departure lands.
+# **THE EXACT REACHABLE SET, BUILT AS A CHECK RATHER THAN ARGUED.** Exit point anywhere
+# on the SOI sphere centred on Laythe, velocity = Laythe's velocity plus 450 m/s in any
+# direction -- the honest geometry, with no decomposition and no independent axes:
+#   IN-PLANE MINIMUM ECCENTRICITY **0.0016229**, and the reason it is not 0 is worth one
+#     line: an exactly circular in-plane delivery needs |v_circ(P) - v_Laythe| = 450, and
+#     that quantity PEAKS at **444.76 m/s** near the tangent offset -- 5.24 m/s short.
+#     With out-of-plane freedom (this park is inclined 16.372 deg about Laythe, so it is
+#     entirely physical) exactly circular deliveries ARE reachable.
+#   THE FLIGHT'S DELIVERED **0.01256524 LIES INSIDE THAT SET**. The sweep's does not
+#     contain it. That is the whole miss, stated as a containment rather than a ratio.
+#
+# **AND THE SWEEP'S OUTER BOUNDS ARE EXACT, NOT CONSERVATIVE -- SO NOTHING ABOUT THE
+# COMMITTED SWEEP NEEDS CHANGING.** The same exact reachable set returns:
+#   the SAME worst periapsis to NINE DIGITS -- **11,012,446.8431456 m** either way;
+#   the SAME zero-escape verdict (maximum specific energy **-2.392e6**, nothing reaches 0);
+#   the SAME three printed ranges -- a 17.2364-59.0452, pe 11.0124-30.9076,
+#     ap 23.4604-87.1827 Mm.
+# The extremes are attained AT THE RADIALLY-ALIGNED EXIT POINTS, which are the two rows
+# the sweep treats exactly, which is why the frame error never reaches the envelope.
+# So read what `test_the_flown_contract_admitted_two_lane_ending_outcomes` asserts -- at
+# 450 ZERO of the 543 samples reach energy >= 0, and the worst periapsis 11.0124 Mm
+# clears Jool's 6.2 Mm atmosphere top by 4.81 Mm -- and note that both are **EXACT**
+# rather than conservative-because-of-a-parametrization. Those two claims are exactly
+# what B26 built the sweep for and it makes them correctly. What it cannot do -- and
+# never claimed to do -- is predict where inside the envelope a given departure lands.
 #
 # WHAT ACTUALLY DETERMINED THE OUTCOME, and it is a determinism reading rather than a
 # lucky draw. B28's delivered Jool orbit at SOI entry was **a 26,056,049.851 m ecc
@@ -236,9 +329,14 @@ id = "B28-laythe-jool-return"
 #     block sized for full thrust; capture 28,828,826.734 -> 28,828,838.834 = **12.1 s**
 #     against 26.8-122.0 s sized for the band (20.39 m/s at 6.565 m/s^2 is 3.11 s of full
 #     thrust, so the window is mostly spool and settle).
-#   COAST-TO-TARGET (the Laythe-SOI escape leg) **5,101.8 game s** against the 5,181.4
-#     predicted from the post-burn ellipse -- 1.5% under, and B26 flight 3 measured 5,120
-#     on the same leg.
+#   COAST-TO-TARGET (the Laythe-SOI escape leg), and the three numbers are LABELLED
+#     because this header used to give two of them without saying they measure different
+#     things: **phase span 5,126.8 game s** (the `warpUtilisation` row, and the figure the
+#     phase-budget list below repeats), telemetry-sampled window 5,101.8 (first to last
+#     in-phase sample), burn-end-to-SOI-crossing 5,116.3 (28,818,269.937 ->
+#     28,823,386.198, which is the leg this sentence names). Against the 5,181.4 predicted
+#     from the post-burn ellipse that is **1.05% / 1.54% / 1.26%** under respectively;
+#     quote the phase span. B26 flight 3 measured 5,120 on the same leg.
 #   CAPTURE-BURN spanned **5,414.1 game s** -- the SOI-entry -> periapsis coast the
 #     NodeExecutor autowarps INSIDE the phase. That lands between the sweep's p5 (1,414.9)
 #     and p50 (18,064) quantiles, and used **0.9% of the 600,000 s budget** this lane
@@ -264,7 +362,14 @@ id = "B28-laythe-jool-return"
 # tree `91be0ffd2b5f42358d218d3f028224bc`, ONE recording
 # `28f5cc0158c8461eb995ea1e505aa67e`, 201 points, EIGHT ORBIT_SEGMENTs all
 # `isPredicted=False` (Laythe 0-3, Jool 4-7, so ONE body-change seam at
-# 28,823,386.197673805), THIRTEEN TRACK_SECTIONs all `ref=0` (Absolute), zero durable
+# 28,823,386.197673805), **TWENTY-ONE TRACK_SECTIONs -- 13 at `ref=0` (Absolute,
+# point-carrying) and 8 at `ref=2` (OrbitalCheckpoint, exactly one per ORBIT_SEGMENT),
+# and ZERO at `ref=1`**, so there is no Relative-frame resolution anywhere in this
+# subject (`ReferenceFrame` is Absolute=0 / Relative=1 / OrbitalCheckpoint=2,
+# `Source/Parsek/TrackSection.cs`). [The harvest commit wrote this as "THIRTEEN
+# TRACK_SECTIONs all ref=0"; that counted only the point-carrying half and then denied
+# the eight sections that hold the orbit sources. Re-counted off the committed
+# `.prec.txt`.] Zero durable
 # rows, terminal Orbiting at Jool, save UT 28,829,019.473923255. The payload is pinned in
 # `test_saveparse.py::CommittedFixtureSweepTests.RECORDED_FIXTURES`. The post-escape
 # Laythe ellipse is BOUND (sma 2,305,977.594 / ecc 0.75879776), which is B26 flight 2's
@@ -370,10 +475,20 @@ id = "B28-laythe-jool-return"
 # 450 sits 21.6% above the committed park's floor and 4.2% above the gate's. Anything that
 # would meaningfully narrow the delivered band (200-300 m/s) is REFUSED by name at the node
 # computation, and the refusal costs a whole ESCAPE budget. Lowering to 400 was priced and
-# rejected: it buys ~80 m/s out of a 1,053 m/s margin and COSTS THE GATE, forcing the
-# apoapsis ceiling down to 106,542 m -- 1.21x the fixture's own measured 87,931.3 m, which
-# is a fingerprint rather than a sanity bound (B25's stated rule). The band is a property
-# of an unaimed escape, not a knob.
+# rejected: it buys ~80 m/s out of a 1,053 m/s margin and COSTS THE GATE. **THE CLEARANCE
+# QUALIFIER IS LOAD-BEARING AND THIS SENTENCE USED TO DROP IT**, so both numbers are given:
+# the BARE geometric ceiling 400 m/s supports is **166,569 m** (1.894x the fixture's
+# measured 87,931.3 m), which would NOT be a fingerprint; holding B26's clearance -- the
+# 450/431.70 = 4.24% the committed value carries over the gate's worst corner -- requires
+# that corner to need 383.73 m/s and drops the ceiling to about **104,830 m, 1.192x** the
+# fixture, which IS a fingerprint rather than a sanity bound (B25's stated rule). Holding
+# the ABSOLUTE 18.30 m/s margin instead gives 97,412 m (1.108x), so the conclusion is
+# robust across both readings of "clearance" and fails only on the unqualified ceiling.
+# [The figure written here in the authoring commit was 106,542 m / 1.21x. It is not
+# reproducible under either clearance definition above: it corresponds to a corner needing
+# exactly 384.20 m/s, a 4.11% clearance whose definition I could not reconstruct. Kept
+# visible rather than quietly replaced; the argument is unchanged either way.]
+# The band is a property of an unaimed escape, not a knob.
 #
 # WHAT THE JOOL ORBIT COMES OUT AS. The escape is NOT AIMED -- a prograde burn at whatever
 # periapsis comes next sends the outgoing asymptote wherever the park's orientation points
@@ -385,12 +500,18 @@ id = "B28-laythe-jool-return"
 # DELIVERY. THE TABLE BELOW IS KEPT VERBATIM AS THE PRE-REGISTRATION IT WAS.]** The flight
 # delivered a 26.056 Mm / ecc 0.01257 and circularized for 20.39 m/s -- INSIDE the a-band
 # but a factor of 8.7 BELOW its own 178.08 m/s floor, and 8x more circular than the
-# sweep's minimum eccentricity of 0.102496. The sweep hoists `v_moon = sqrt(mu/a_Laythe)`
-# out of its radius loop, so at the off-A radii it pairs a position with a speed 246.43 /
-# 200.43 m/s away from that radius's own circular speed and manufactures e = 0.13698
-# before any direction is applied; it also sweeps direction and exit radius as INDEPENDENT
-# axes. That makes it CONSERVATIVE for the two claims it exists to make (nothing escapes
-# Jool; the worst periapsis clears the atmosphere) and useless as a delivery predictor.
+# sweep's minimum eccentricity of 0.102496. THE CAUSE IS THE SWEEP'S DECOMPOSITION FRAME,
+# NOT ITS HOISTED `v_moon` (which is correct -- a departing craft carries LAYTHE'S speed,
+# not the local circular speed at its own radius). The sweep resolves v_moon as purely
+# TANGENTIAL at the craft's exit radius; that is exact at the two radially-aligned exit
+# points (r = A -/+ SOI) and drops a **440.56 m/s radial component** on the r = A row,
+# whose SOI-sphere points sit 7.8545 deg off the Jool-Laythe line. It also samples three
+# radii where the sphere has ONE linked degree of freedom, so it never visits the offsets
+# in between -- where the near-circular deliveries live. **ITS OUTER BOUNDS ARE STILL
+# EXACT:** an exact-geometry reachable set returns the same worst periapsis to nine digits
+# and the same zero-escape verdict, so the two claims it exists to make (nothing escapes
+# Jool; the worst periapsis clears the atmosphere) are EXACT rather than conservative, and
+# NOTHING ABOUT THE COMMITTED SWEEP NEEDS CHANGING. It is simply not a delivery predictor.
 # What determines the delivery on THIS lane is the fixture's fixed park orientation --
 # B26 flight 3 measured a = 26,056,055 m off the same bytes at the same key, 5 m away.
 # FULL DERIVATION, WITH THE MEASURED NUMBERS, IN THE FLIGHT LEDGER.
@@ -448,10 +569,17 @@ id = "B28-laythe-jool-return"
 #   Laythe  27.184  -- the departure body; a RE-ENTRY is an ASSERT-FAIL by construction
 #                      (`viaBodyNames = ["Sun"]` makes Laythe an illegal coast body, and
 #                      TARGET-FLYBY's off-course guard names anything that is neither the
-#                      target nor the return body). The window is bounded: the craft leaves
-#                      Laythe's SOI drifting away at ~450 m/s and circularizes at the FIRST
-#                      periapsis, which puts the final park INSIDE Laythe's orbit and
-#                      decoupled from it.
+#                      target nor the return body). The window is bounded BY THE MISSION'S
+#                      OWN LENGTH: the craft leaves Laythe's SOI drifting away at ~450 m/s
+#                      and circularizes at the FIRST periapsis, which puts the final park
+#                      INSIDE Laythe's orbit. **[FLOWN 2026-08-20: "and decoupled from it"
+#                      is REFUTED and is withdrawn as the stated bound -- the park at
+#                      25.729 Mm sits inside Laythe's 23.460-30.908 Mm SOI band and the
+#                      flight's own PARK frames predict a re-entry ~585 ks later. See
+#                      "WHAT DID NOT HOLD (1 of 2)". The forbid-token conclusion is
+#                      UNCHANGED, on the two bounds that actually hold: the ASSERT-FAIL is
+#                      structural, and the mission ENDS about 585 ks before the predicted
+#                      encounter.]**
 #   Vall    43.152  -- **CROSSED**, by **25.4%** of the swept cases (their periapsis-to-
 #                      apoapsis annulus contains Vall's shell). Its poison tokens are LIVE.
 #   Tylo    68.500  -- **CROSSED**, by **8.8%** of the swept cases. LIVE.
@@ -519,7 +647,7 @@ id = "B28-laythe-jool-return"
 # `tier = "operator"` on the calibration discipline (the whole B18-B26 family's tier).
 # =====================================================================================
 tier = "operator"
-description = "**LIVE-PROVEN 2026-08-20 ON ITS FIRST FLIGHT (run `2026-08-20_2330`, PASS attempt 1, mission wall 474.597 s, run wall 527 s of a 6,000 s budget): THE SUITE'S FIRST RETURN-DIRECTION RECORDING NOW EXISTS.** The full ELEVEN-phase chain PRELAUNCH -> ORBIT -> ESCAPE -> TRANSFER-BURN -> COAST-TO-TARGET -> TARGET-FLYBY -> PLAN-CAPTURE -> CAPTURE-BURN -> PARK -> ORBIT-COMMIT -> ORBIT-COMMITTED, with NO PLAN-TRANSFER, NO PLAN-CORRECTION and NO second TRANSFER-BURN - `relayParkAtParent`'s structural claim read off the phase list rather than argued from branch ordering. All eight assertions met (`escapedHomeSoi` value 0 with `relayStage 0` and `provenBy=parkAtParentTargetSoiReached`; `startedInHomeOrbit` ecc 0.027697736 on the 87,931.282 x 56,240.319 m entry park; `flybyPeriapsisFloor` 19,728,649.321 against a 1,003,000 m floor, 19.67x clear; `capturedInTargetOrbit` ecc 7.323012361087722e-07 on 19,728,666.573 x 19,728,628.891 m; `treeCommitted` OK at Jool), every verifier green (analyzer `red=0`, anomalySweep `hits=[]`, expectations `mismatches=[]` so all five required tokens matched and all nine forbidden were absent, unityExceptions `total=0`, saveParse every rewind facet 0), ZERO occurrences of the string `Warn` in the mission stdout, `frozenCount=0 captureReplans=0 rounds=0 extraRounds=0`, and `phaseWarpIssues` PEAKING AT 1 across all eleven phases - B26 defect B's identity-check fix holding on a second lane with a different coast geometry. FOUR PRE-REGISTRATIONS HELD. (1) THE ESCAPE NODE: derived 586.692 m/s, B26 flight 3 logged `escapeNodeDvMps 586.6922211372255` on this exact fixture at this exact `escapeSoiSpeedMps`, and B28 measured 586.6922240394342 - 2.9e-6 m/s apart across two independent missions. (2) THE FINAL PARK SITS INSIDE LAYTHE'S ORBIT AND DECOUPLED FROM IT: a 25.728648 Mm-radius circular Jool orbit at ecc 7.32e-07, 1.455 Mm inside Laythe's 27.184 Mm shell, and the pre-circularization apoapsis (26.383 Mm radius) never reached the shell either. (3) ONE tree, ONE recording, ONE body-change seam, terminal Orbiting at Jool - the count window came back at 1, the BOTTOM of its {1,2}, so the ESCAPE boundary stayed cohesive (the second data point anyone has on that boundary, after B26 flight 3 read the bottom of its own {1,4}), and the harvested `.prec`'s own string table carries exactly one `Laythe`, one `Jool` and ZERO occurrences of `Vall`, `Tylo`, `Bop` or `Pol` - the shape proven in the product, not only in the log. (4) THE `escapedHomeSoi` ROW WAS CARRIED BY THE NEW PARK-AT-PARENT DISJUNCT - `provenBy=parkAtParentTargetSoiReached` with `relay_stage` provably never leaving RELAY_STAGE_ESCAPE, so the stage-2-only evidence really would have read met=False forever - which makes this the FIRST LIVE EXERCISE of that code path. ONE DID NOT HOLD, AND IT IS THE READING WORTH HAVING: **THE DELIVERED-ORBIT BAND IS AN OUTER ENVELOPE, NOT A PREDICTION OF THIS DELIVERY.** Split by propellant across the two burns the flight spent 599.82 m/s total - escape 579.43 (a 1.24% executor cut on the 586.6922 node) plus circularization 20.39 - leaving 1,884.2 m/s, against a band whose stated MINIMUM circularization was 178.08 and whose worst case was 844.15. That is a factor of 8.7 BELOW the band's own floor. (Independent check on the 20.39, sharing no input with it: the ideal impulsive circularization of the delivered arrival orbit at its own periapsis is 20.754 m/s, so the burn came in at 98.2% of the geometric ideal.) WHY, read off the committed sweep's own parametrization in `harness/missions/lib/test_b26_laythe_vall.py` (`Flight2DefectATests._band` at :2441-2455 and `test_the_flown_contract_admitted_two_lane_ending_outcomes` at :2456-2482, with a third copy at :277-291): all three HOIST `v_moon = sqrt(MU_JOOL / A_LAYTHE)` out of the radius loop and then vary the exit radius over A-SOI / A / A+SOI, so at the two off-A radii they pair a position with a speed that does not belong to it - 246.43 m/s too slow at the inner corner and 200.43 m/s too fast at the outer, against those radii's own circular speeds of 3,470.27 and 3,023.42 - which ALONE manufactures e = 0.13698 at `v_rel = 0`, before any departure direction is applied; and they sweep direction and exit radius as INDEPENDENT axes, admitting combinations no single departure produces. Re-running the sweep at 450 reproduces every figure in the header's table (543 bound samples: a 17.2364-59.0452 Mm, pe 11.0124-30.9076, ap 23.4604-87.1827, circ dv 178.08 / 355.01 median / 844.15 - the header's 354.97 median is a 0.04 m/s grid difference and nothing else), and its MINIMUM ECCENTRICITY OVER ALL 543 SAMPLES IS 0.102496 where the flight delivered 0.01256524: eight times more circular than anything the sweep contains, i.e. outside its eccentricity range entirely rather than merely under its dv floor. **THE SWEEP'S CORRECT STANDING IS A SAFETY ENVELOPE, AND IT IS SOUND AS ONE.** What `test_the_flown_contract_admitted_two_lane_ending_outcomes` actually asserts is that ZERO of the 543 samples reach energy >= 0 and that the worst periapsis 11.0124 Mm clears Jool's 6.2 Mm atmosphere top by 4.81 Mm; the hoisted `v_moon` makes both CONSERVATIVE (too slow at the inner radius drives periapsis DOWN, too fast at the outer drives energy UP), which is exactly what B26 built the sweep for. It was never a delivery predictor. WHAT ACTUALLY DETERMINES THE DELIVERY HERE IS THE FIXTURE'S FIXED PARK ORIENTATION: B28's arrival orbit read a 26,056,049.851 m ecc 0.01256524 and B26 FLIGHT 3 measured a = 26,056,055 m ecc 0.0126 off the SAME bytes at the SAME `escapeSoiSpeedMps`, on a mission that then went on to Vall - AGREEMENT TO ABOUT 5 m IN SMA out of 26.06 Mm. Change the entry fixture and the delivery moves anywhere in the envelope; keep it and the delivery repeats to metres. AND THE NAMED-POISON FORBIDS WERE SATISFIED TRIVIALLY, which nothing here may over-read: the delivered apoapsis was 26.383 Mm of radius, missing Vall's 43.152 Mm shell by 16.77 Mm and Tylo's 68.500 Mm by 42.12 Mm, so ALL EIGHT tokens - including the four the header labels LIVE gates - were as un-fireable on this flight as Bop's and Pol's. The 25.4% / 8.8% crossing figures are re-measured and exact, but they describe the SPEC'S ADMISSIBLE DIRECTION SPACE rather than this run, and the labels stay as written because a forbid must be sized against the space rather than against one draw. FOR THE RECORD: the FINITE-BURN WEDGE measured 20.430 m (min in-SOI periapsis 19,728,649.321 against a park periapsis of 19,728,628.891, on B25's definition) against the 6,007 m figure DERIVED for a worst capture corner this delivery came nowhere near - so it confirms the mechanism's direction and refutes nothing; the escape leg's coast ran 5,101.8 game s against 5,181.4 predicted (B26 flight 3 measured 5,120); CAPTURE-BURN spanned 5,414.1 game s and used 0.9% of the 600,000 s budget, which therefore stays UNTESTED at its p100 sizing and must not be trimmed to one delivery; and `2026-08-20_2328` in the same results directory is NOT attempt 1 but an INVALID(tooling-venv) refusal at wall 0 s with `artifacts.ran=false`, KSP never launched. THE PRODUCT: harvested `--keep-parsek` as `fixtures/saves/jool-return-recorded` - one tree `91be0ffd2b5f42358d218d3f028224bc`, one recording `28f5cc0158c8461eb995ea1e505aa67e`, 201 points, EIGHT ORBIT_SEGMENTs all `isPredicted=False` (Laythe 0-3, Jool 4-7, so the one seam at UT 28,823,386.198), THIRTEEN TRACK_SECTIONs all Absolute, zero durable rows, span 11,990.437 s, terminal Orbiting at Jool, and a SEGMENT-LESS parked tail after 28,828,820.894 - the B25/V16M shape the consuming lanes must size against. The post-escape Laythe ellipse is BOUND (sma 2,305,977.594 / ecc 0.75879776), B26 flight 2's corrected patched-conic escape contract live for a second time. THE ROUTING QUESTION IS UNTOUCHED AND STILL OPEN: whether the rest of the routing stack treats the inversion symmetrically stays pre-registered in V19M/V19T, which gate on none of their roads. HISTORICAL TEXT FOLLOWS, KEPT AS WRITTEN (the pre-flight generation; the current status is everything above this marker): **THE FIRST RETURN-DIRECTION SUBJECT IN THE SUITE, and the routing inversion is the point.** The crewed Duna Rocket starts already parked in the 87,931 x 56,240 m Laythe orbit B25 delivered, fires ONE prograde escape node out of Laythe's SOI and circularizes into a JOOL park - its own PARENT - committing the tree there. Every committed loop subject to date is OUTBOUND; a supply run is a round trip and nobody has produced a recording that goes the other way. `IsSameParentTarget(target, launch)` asks exactly one question - is the target a direct CHILD of the launch body - so the relation is DIRECTIONAL by construction, and whether the rest of the routing stack treats the inversion symmetrically has never been measured on a real recording (the mirror-direction lesson, PRs #1474/#1475). THIS SPEC ASSERTS NOTHING ABOUT THAT: V19M/V19T carry the pre-registered roads with their discriminating lines and gate on none of them. PHASE-0 DOOR: existing fixture, no forge flight - `laythe-park-nerv`, the Parsek-stripped copy B26 already departs, here taking its second consumer (a read-only saveTemplate with no committed tree couples nothing). THE MACHINE CHANGE IS ONE INERT-BY-DEFAULT FLAG, `relayParkAtParent`, a sub-shape of B26's parent-relay mode with NO new phase, NO new phase graph, NO new burn machinery and NO new runner seam: it makes the no-stage-2 claim STRUCTURAL (the stage-2 hand-off carries `and not relay_park_at_parent`, so relay_stage provably never leaves RELAY_STAGE_ESCAPE) rather than a property of two adjacent branches' ordering; it INVERTS the `transferMinApoapsisMeters` requirement from must-be-positive to must-be-zero, so a spec cannot carry a stage-2 burn-done floor that can never be read; and it gives the `escapedHomeSoi` row a second POSITIVE disjunct (ESCAPE ran AND TARGET-FLYBY was reached, i.e. `snapshot.body == target_body` was observed and on this lane the target IS the parent) instead of the stage-2-only `relay_stage >= RELAY_STAGE_TRANSFER`, which would otherwise read met=False forever and turn a clean flight into MISSION-ASSERT-FAIL. Flag-off is byte-identical, pinned by `RelayParkAtParentInertnessTests`. `returnBodyName` IS \"Sun\" AND NOT \"Jool\", AND THAT IS NOT A STYLE CALL: TARGET-FLYBY's FIRST test is `capture_enabled and snapshot.body == return_body` -> ASSERT-FAIL 'left the target SOI without capturing', with the capture-ARMING test on `target_body` the next branch DOWN, so naming the parent in both keys makes those two strings equal and the machine ASSERT-FAILs on the very frame the craft ARRIVES in Jool's SOI - deterministically, every attempt, before the capture can arm. Two independent derivations of this param block disagreed on the key and the branch is what settled it. \"Sun\" additionally keeps that ASSERT-FAIL semantically correct (leaving Jool really does read Sun), is B22-jool-orbit's live-proven pairing for a Jool target with the same capture tail, and satisfies the pinned return-body-in-via-bodies precondition. THE DELTA-V IS DERIVED, NOT SCALED: 2,483.9 m/s available on the NERV (Isp 800, LF 534.8686/2400); the escape node is 586.692 m/s by mlib's own formula and B26 flight 3 LOGGED `escapeNodeDvMps 586.6922211372255` on this exact fixture at this exact escapeSoiSpeedMps, so the escape leg is a burn that has already been planned, flown and measured. 450 is not a preference: `escape_node_plan`'s geometric reachability floor v_floor = sqrt(2*mu*soi/(r_p*(soi+r_p))) = 2,477.430 m/s at r_p makes anything below ~370.1 m/s a NAMED REFUSAL, so the 200-300 m/s values that would tame the delivered band are unreachable and the band is a property of an unaimed escape rather than a knob. Swept over every departure direction and every SOI-exit radius at 450: a 17.24-59.05 Mm, periapsis 11.01-30.91 Mm, apoapsis 23.46-87.18 Mm, worst circularize-at-periapsis 844.1 m/s, ZERO samples escaping Jool and the worst periapsis clearing Jool's 6.2 Mm atmosphere top by 4.81 Mm. Worst-case total 1,430.84 m/s leaving 1,053.06 m/s unspent = a 73.6% margin against the worst hop (median hop 941.66, best 764.77), cheaper and shorter than B26's flown 1,368.1 m/s hop because there is no stage-2 burn, no correction rounds and no approach. THE BINDING LEG IS SOI-ENTRY -> FIRST PERIAPSIS AND IT IS A FULL PERIOD RATHER THAN HALF OF ONE - solving the true anomaly at the exit radius with the SIGN of the radial velocity gives 55.7 s (p0) / 1,414.9 (p5) / 18,064 (p50) / 117,939 (p95) / 169,600 (p100), the worst being a whole period of the largest delivered orbit because a near-tangential PROGRADE departure leaves Laythe's SOI AT its own Jool-frame periapsis and must go all the way round. Every flyby/capture budget is sized against THAT (and `captureBurnTimeoutSeconds` additionally clears the 339,200 s missed-first-periapsis-plus-one-replan bound), not against half of it and not against B26's Vall values. THE MOON-SHELL AUDIT DECIDES THE FORBIDDEN LIST: the apoapsis band reaches 87.18 Mm, so Vall (43.152) and Tylo (68.500) ARE crossed and their poison tokens are LIVE gates, while Bop (128.500, +47.4%) and Pol (179.890, +106.3%) are not crossed and are labelled OUTER INSURANCE against my own arithmetic - all eight are forbidden but the comment says which four can fire, because an un-fireable forbid presented as assurance is a false one. A Laythe RE-ENTRY is an ASSERT-FAIL by construction (`viaBodyNames = [\"Sun\"]` makes it an illegal coast body) and the window is bounded: the craft drifts away at ~450 m/s and circularizes at the FIRST periapsis, which puts the final park INSIDE Laythe's orbit and decoupled from it. NOTHING ARMED: count window {1,2}, `[expectations.rewind]` report-only and no save-structure block, because this lane's product is a FIXTURE whose structure is pinned where it is CONSUMED (the B24/B25 disposition verbatim)."
+description = "**LIVE-PROVEN 2026-08-20 ON ITS FIRST FLIGHT (run `2026-08-20_2330`, PASS attempt 1, mission wall 474.597 s, run wall 527 s of a 6,000 s budget): THE SUITE'S FIRST RETURN-DIRECTION RECORDING NOW EXISTS.** The full ELEVEN-phase chain PRELAUNCH -> ORBIT -> ESCAPE -> TRANSFER-BURN -> COAST-TO-TARGET -> TARGET-FLYBY -> PLAN-CAPTURE -> CAPTURE-BURN -> PARK -> ORBIT-COMMIT -> ORBIT-COMMITTED, with NO PLAN-TRANSFER, NO PLAN-CORRECTION and NO second TRANSFER-BURN - `relayParkAtParent`'s structural claim read off the phase list rather than argued from branch ordering. All eight assertions met (`escapedHomeSoi` value 0 with `relayStage 0` and `provenBy=parkAtParentTargetSoiReached`; `startedInHomeOrbit` ecc 0.027697736 on the 87,931.282 x 56,240.319 m entry park; `flybyPeriapsisFloor` 19,728,649.321 against a 1,003,000 m floor, 19.67x clear; `capturedInTargetOrbit` ecc 7.323012361087722e-07 on 19,728,666.573 x 19,728,628.891 m; `treeCommitted` OK at Jool), every verifier green (analyzer `red=0`, anomalySweep `hits=[]`, expectations `mismatches=[]` so all five required tokens matched and all nine forbidden were absent, unityExceptions `total=0`, saveParse every rewind facet 0), ZERO occurrences of the string `Warn` in the mission stdout, `frozenCount=0 captureReplans=0 rounds=0 extraRounds=0`, and `phaseWarpIssues` PEAKING AT 1 across all eleven phases - B26 defect B's identity-check fix holding on a second lane with a different coast geometry. THREE PRE-REGISTRATIONS HELD AND TWO DID NOT (the harvest commit tallied this four/one; corrected here). (1) THE ESCAPE NODE: derived 586.692 m/s, B26 flight 3 logged `escapeNodeDvMps 586.6922211372255` on this exact fixture at this exact `escapeSoiSpeedMps`, and B28 measured 586.6922240394342 - 2.9e-6 m/s apart across two independent missions. (3) ONE tree, ONE recording, ONE body-change seam, terminal Orbiting at Jool - the count window came back at 1, the BOTTOM of its {1,2}, so the ESCAPE boundary stayed cohesive (the second data point anyone has on that boundary, after B26 flight 3 read the bottom of its own {1,4}), and the harvested `.prec`'s own string table carries exactly one `Laythe`, one `Jool` and ZERO occurrences of `Vall`, `Tylo`, `Bop` or `Pol` - the shape proven in the product, not only in the log. (4) THE `escapedHomeSoi` ROW WAS CARRIED BY THE NEW PARK-AT-PARENT DISJUNCT - `provenBy=parkAtParentTargetSoiReached` with `relay_stage` provably never leaving RELAY_STAGE_ESCAPE, so the stage-2-only evidence really would have read met=False forever - which makes this the FIRST LIVE EXERCISE of that code path. TWO DID NOT HOLD, AND THEY ARE THE READINGS WORTH HAVING. **(2) THE FINAL PARK IS INSIDE LAYTHE'S ORBIT BUT IT IS NOT DECOUPLED FROM LAYTHE.** The measured half held exactly: a 25.728648 Mm-radius circular Jool orbit at ecc 7.32e-07, 1.455 Mm inside Laythe's 27.184 Mm shell, with the pre-circularization apoapsis (26.383 Mm radius) never reaching the shell either. The `decoupled` half is REFUTED BY THE FLIGHT'S OWN TELEMETRY: Laythe's SOI radius is 3,723,645.8 m - the constant this spec's escape derivation already uses - so Laythe's SOI sweeps the Jool-radius band 23.460 to 30.908 Mm and the park sits 2.268 Mm INSIDE its inner edge; 86 of PARK's 172 telemetry lines read `nextBody=Laythe nextPe=-27700.07` with `tts` counting down to 585,063.03, i.e. KSP's own patched conics predict a re-entry into Laythe's SOI about 585 ks later on a periapsis 27.7 km BELOW Laythe's surface (the other 86 read `nextBody=?`; the solver does not resolve the encounter every frame; 119 lines carry it across the whole mission). INDEPENDENT CORROBORATION sharing no input with the solver: the park's 48,783.68 s period against Laythe's 52,980.88 s gives a 615,792 s synodic period, and the predicted encounter falls at 0.950 of one synodic cycle - the FIRST conjunction, exactly where the drift of two circular orbits 1.455 Mm apart puts one. The committed fixture inherits it (`SMA = 25728647.731996365 / REF = 8`). THE V19 LANES ARE UNAFFECTED - their farthest jump is UT 28,853,511, only 24,491.5 s past the save, 23.9x short of the encounter - but anyone deriving a further fixture from `jool-return-recorded`, or running a lane on it past ~585 ks of game time, must know THE PARK IS NOT LONG-TERM STABLE. The moon-shell audit's Laythe row no longer offers `decoupled` as its bound; the bounds that hold are the structural ASSERT-FAIL and the fact that the mission ends ~585 ks before the encounter. **(5) THE DELIVERED-ORBIT BAND IS AN OUTER ENVELOPE, NOT A PREDICTION OF THIS DELIVERY.** Split by propellant across the two burns the flight spent 599.82 m/s total - escape 579.43 (a 1.24% executor cut on the 586.6922 node) plus circularization 20.39 - leaving 1,884.2 m/s, against a band whose stated MINIMUM circularization was 178.08 and whose worst case was 844.15. That is a factor of 8.7 BELOW the band's own floor. (Independent check on the 20.39, sharing no input with it: the ideal impulsive circularization of the delivered arrival orbit at its own periapsis is 20.754 m/s, so the burn came in at 98.2% of the geometric ideal.) WHY, read off the committed sweep's own parametrization in `harness/missions/lib/test_b26_laythe_vall.py` (`Flight2DefectATests._band` at :2441-2455 and `test_the_flown_contract_admitted_two_lane_ending_outcomes` at :2456-2482, with a third copy at :277-291): all three HOIST `v_moon = sqrt(MU_JOOL / A_LAYTHE)` out of the radius loop and then vary the exit radius over A-SOI / A / A+SOI. **THE HOIST IS NOT THE DEFECT AND MUST NOT BE CORRECTED AWAY - the harvest commit said it was the cause, and a maintainer acting on that wording would have broken a test that is currently exact.** A craft that has just left Laythe's SOI carries LAYTHE'S velocity, magnitude sqrt(MU_JOOL/A_LAYTHE) = 3,223.84 m/s at every point on the SOI sphere; it does not carry the local circular speed at its own radius, so measuring v_moon against the 3,470.27 and 3,023.42 m/s local circular speeds (246.43 too slow, 200.43 too fast) compares it to a quantity the craft has no reason to have, and the `v_rel = 0` reading of e = 0.13698 is not manufactured either - it is EXACTLY SOI/A = 0.136979319, which is the orbit a craft leaving the sub-Jool or anti-Jool point with no relative speed genuinely gets. THE ACTUAL DEFECT IS THE DECOMPOSITION FRAME, and it bites exactly ONE of the three rows: the sweep resolves v_moon as purely TANGENTIAL at the craft's exit radius, which is EXACT at the two radially-aligned exit points (r = A-SOI is the sub-Jool point and r = A+SOI the anti-Jool point, both 0 deg off the Jool-Laythe line) and WRONG on the r = A row, whose SOI-sphere points sit 7.8545 deg off that line and carry a 440.56 m/s RADIAL component the tangential form discards - comparable to v_rel = 450 itself, and up to v_moon*SOI/A = 441.60 m/s at the sphere's 7.8731 deg maximum offset. Row by row, minimum eccentricity, sweep against exact geometry at the same exit point: r = A-SOI 0.102496 vs 0.102491, r = A 0.139139 vs **0.002610**, r = A+SOI 0.124787 vs 0.124776 - so the sweep's own floor is set by a row where its decomposition is EXACT, and correcting the frame on the one off-axis row it samples would drop the achievable minimum to 0.002610 by itself. The third problem is SAMPLING rather than independence: exit radius and angular offset are ONE linked degree of freedom on the sphere, not two, so three radii never visit the offsets in between - which is where the near-circular deliveries live. Re-running the sweep at 450 reproduces every figure in the header's table (543 bound samples: a 17.2364-59.0452 Mm, pe 11.0124-30.9076, ap 23.4604-87.1827, circ dv 178.08 / 355.01 median / 844.15 - the header's 354.97 median is a 0.04 m/s grid difference and nothing else), and its MINIMUM ECCENTRICITY OVER ALL 543 SAMPLES IS 0.102496 where the flight delivered 0.01256524: eight times more circular than anything the sweep contains, i.e. outside its eccentricity range entirely rather than merely under its dv floor. **THE SWEEP'S CORRECT STANDING IS A SAFETY ENVELOPE, AND ITS OUTER BOUNDS ARE EXACT RATHER THAN CONSERVATIVE - SO NOTHING ABOUT THE COMMITTED SWEEP NEEDS CHANGING.** An exact-geometry reachable set (exit point anywhere on the SOI sphere centred on Laythe, velocity = Laythe's velocity plus 450 m/s in any direction) returns the SAME worst periapsis to NINE DIGITS - 11,012,446.8431456 m either way - the SAME zero-escape verdict (maximum specific energy -2.392e6, nothing reaches 0), and the SAME three printed ranges, because the extremes are attained at the radially-aligned exit points, i.e. the two rows the sweep treats exactly. So what `test_the_flown_contract_admitted_two_lane_ending_outcomes` asserts - ZERO of the 543 samples reach energy >= 0, and the worst periapsis 11.0124 Mm clears Jool's 6.2 Mm atmosphere top by 4.81 Mm - is EXACTLY right, which is what B26 built the sweep for. The same exact set has an in-plane minimum eccentricity of 0.0016229 (an exactly circular in-plane delivery needs |v_circ - v_Laythe| = 450 and that quantity peaks at 444.76 m/s, 5.24 m/s short; out-of-plane, which this 16.372 deg-inclined park makes physical, it is reachable) and it CONTAINS the flight's delivered 0.01256524, which the sweep does not. It was never a delivery predictor. WHAT ACTUALLY DETERMINES THE DELIVERY HERE IS THE FIXTURE'S FIXED PARK ORIENTATION: B28's arrival orbit read a 26,056,049.851 m ecc 0.01256524 and B26 FLIGHT 3 measured a = 26,056,055 m ecc 0.0126 off the SAME bytes at the SAME `escapeSoiSpeedMps`, on a mission that then went on to Vall - AGREEMENT TO ABOUT 5 m IN SMA out of 26.06 Mm. Change the entry fixture and the delivery moves anywhere in the envelope; keep it and the delivery repeats to metres. AND THE NAMED-POISON FORBIDS WERE SATISFIED TRIVIALLY, which nothing here may over-read: the delivered apoapsis was 26.383 Mm of radius, missing Vall's 43.152 Mm shell by 16.77 Mm and Tylo's 68.500 Mm by 42.12 Mm, so ALL EIGHT tokens - including the four the header labels LIVE gates - were as un-fireable on this flight as Bop's and Pol's. The 25.4% / 8.8% crossing figures are re-measured and exact, but they describe the SPEC'S ADMISSIBLE DIRECTION SPACE rather than this run, and the labels stay as written because a forbid must be sized against the space rather than against one draw. FOR THE RECORD: the FINITE-BURN WEDGE measured 20.430 m (min in-SOI periapsis 19,728,649.321 against a park periapsis of 19,728,628.891, on B25's definition) against the 6,007 m figure DERIVED for a worst capture corner this delivery came nowhere near - so it confirms the mechanism's direction and refutes nothing; the escape leg's coast measured 5,126.8 game s of PHASE SPAN against 5,181.4 predicted, 1.05% under (the same leg reads 5,101.8 as a telemetry-sampled window and 5,116.3 burn-end to SOI crossing; the three are labelled in the header because two of them used to sit side by side unlabelled, and B26 flight 3 measured 5,120); CAPTURE-BURN spanned 5,414.1 game s and used 0.9% of the 600,000 s budget, which therefore stays UNTESTED at its p100 sizing and must not be trimmed to one delivery; and `2026-08-20_2328` in the same results directory is NOT attempt 1 but an INVALID(tooling-venv) refusal at wall 0 s with `artifacts.ran=false`, KSP never launched. THE PRODUCT: harvested `--keep-parsek` as `fixtures/saves/jool-return-recorded` - one tree `91be0ffd2b5f42358d218d3f028224bc`, one recording `28f5cc0158c8461eb995ea1e505aa67e`, 201 points, EIGHT ORBIT_SEGMENTs all `isPredicted=False` (Laythe 0-3, Jool 4-7, so the one seam at UT 28,823,386.198), TWENTY-ONE TRACK_SECTIONs - 13 at `ref=0` (Absolute, point-carrying) and 8 at `ref=2` (OrbitalCheckpoint, one per ORBIT_SEGMENT), with ZERO at `ref=1` so there is no Relative-frame resolution anywhere in the subject (the harvest commit wrote this as thirteen-all-Absolute, which counted only the point-carrying half and denied the eight sections holding the orbit sources), zero durable rows, span 11,990.437 s, terminal Orbiting at Jool, and a SEGMENT-LESS parked tail after 28,828,820.894 - the B25/V16M shape the consuming lanes must size against. The post-escape Laythe ellipse is BOUND (sma 2,305,977.594 / ecc 0.75879776), B26 flight 2's corrected patched-conic escape contract live for a second time. THE ROUTING QUESTION IS UNTOUCHED AND STILL OPEN: whether the rest of the routing stack treats the inversion symmetrically stays pre-registered in V19M/V19T, which gate on none of their roads. HISTORICAL TEXT FOLLOWS, KEPT AS WRITTEN (the pre-flight generation; the current status is everything above this marker): **THE FIRST RETURN-DIRECTION SUBJECT IN THE SUITE, and the routing inversion is the point.** The crewed Duna Rocket starts already parked in the 87,931 x 56,240 m Laythe orbit B25 delivered, fires ONE prograde escape node out of Laythe's SOI and circularizes into a JOOL park - its own PARENT - committing the tree there. Every committed loop subject to date is OUTBOUND; a supply run is a round trip and nobody has produced a recording that goes the other way. `IsSameParentTarget(target, launch)` asks exactly one question - is the target a direct CHILD of the launch body - so the relation is DIRECTIONAL by construction, and whether the rest of the routing stack treats the inversion symmetrically has never been measured on a real recording (the mirror-direction lesson, PRs #1474/#1475). THIS SPEC ASSERTS NOTHING ABOUT THAT: V19M/V19T carry the pre-registered roads with their discriminating lines and gate on none of them. PHASE-0 DOOR: existing fixture, no forge flight - `laythe-park-nerv`, the Parsek-stripped copy B26 already departs, here taking its second consumer (a read-only saveTemplate with no committed tree couples nothing). THE MACHINE CHANGE IS ONE INERT-BY-DEFAULT FLAG, `relayParkAtParent`, a sub-shape of B26's parent-relay mode with NO new phase, NO new phase graph, NO new burn machinery and NO new runner seam: it makes the no-stage-2 claim STRUCTURAL (the stage-2 hand-off carries `and not relay_park_at_parent`, so relay_stage provably never leaves RELAY_STAGE_ESCAPE) rather than a property of two adjacent branches' ordering; it INVERTS the `transferMinApoapsisMeters` requirement from must-be-positive to must-be-zero, so a spec cannot carry a stage-2 burn-done floor that can never be read; and it gives the `escapedHomeSoi` row a second POSITIVE disjunct (ESCAPE ran AND TARGET-FLYBY was reached, i.e. `snapshot.body == target_body` was observed and on this lane the target IS the parent) instead of the stage-2-only `relay_stage >= RELAY_STAGE_TRANSFER`, which would otherwise read met=False forever and turn a clean flight into MISSION-ASSERT-FAIL. Flag-off is byte-identical, pinned by `RelayParkAtParentInertnessTests`. `returnBodyName` IS \"Sun\" AND NOT \"Jool\", AND THAT IS NOT A STYLE CALL: TARGET-FLYBY's FIRST test is `capture_enabled and snapshot.body == return_body` -> ASSERT-FAIL 'left the target SOI without capturing', with the capture-ARMING test on `target_body` the next branch DOWN, so naming the parent in both keys makes those two strings equal and the machine ASSERT-FAILs on the very frame the craft ARRIVES in Jool's SOI - deterministically, every attempt, before the capture can arm. Two independent derivations of this param block disagreed on the key and the branch is what settled it. \"Sun\" additionally keeps that ASSERT-FAIL semantically correct (leaving Jool really does read Sun), is B22-jool-orbit's live-proven pairing for a Jool target with the same capture tail, and satisfies the pinned return-body-in-via-bodies precondition. THE DELTA-V IS DERIVED, NOT SCALED: 2,483.9 m/s available on the NERV (Isp 800, LF 534.8686/2400); the escape node is 586.692 m/s by mlib's own formula and B26 flight 3 LOGGED `escapeNodeDvMps 586.6922211372255` on this exact fixture at this exact escapeSoiSpeedMps, so the escape leg is a burn that has already been planned, flown and measured. 450 is not a preference: `escape_node_plan`'s geometric reachability floor v_floor = sqrt(2*mu*soi/(r_p*(soi+r_p))) = 2,477.430 m/s at r_p makes anything below ~370.1 m/s a NAMED REFUSAL, so the 200-300 m/s values that would tame the delivered band are unreachable and the band is a property of an unaimed escape rather than a knob. Swept over every departure direction and every SOI-exit radius at 450: a 17.24-59.05 Mm, periapsis 11.01-30.91 Mm, apoapsis 23.46-87.18 Mm, worst circularize-at-periapsis 844.1 m/s, ZERO samples escaping Jool and the worst periapsis clearing Jool's 6.2 Mm atmosphere top by 4.81 Mm. Worst-case total 1,430.84 m/s leaving 1,053.06 m/s unspent = a 73.6% margin against the worst hop (median hop 941.66, best 764.77), cheaper and shorter than B26's flown 1,368.1 m/s hop because there is no stage-2 burn, no correction rounds and no approach. THE BINDING LEG IS SOI-ENTRY -> FIRST PERIAPSIS AND IT IS A FULL PERIOD RATHER THAN HALF OF ONE - solving the true anomaly at the exit radius with the SIGN of the radial velocity gives 55.7 s (p0) / 1,414.9 (p5) / 18,064 (p50) / 117,939 (p95) / 169,600 (p100), the worst being a whole period of the largest delivered orbit because a near-tangential PROGRADE departure leaves Laythe's SOI AT its own Jool-frame periapsis and must go all the way round. Every flyby/capture budget is sized against THAT (and `captureBurnTimeoutSeconds` additionally clears the 339,200 s missed-first-periapsis-plus-one-replan bound), not against half of it and not against B26's Vall values. THE MOON-SHELL AUDIT DECIDES THE FORBIDDEN LIST: the apoapsis band reaches 87.18 Mm, so Vall (43.152) and Tylo (68.500) ARE crossed and their poison tokens are LIVE gates, while Bop (128.500, +47.4%) and Pol (179.890, +106.3%) are not crossed and are labelled OUTER INSURANCE against my own arithmetic - all eight are forbidden but the comment says which four can fire, because an un-fireable forbid presented as assurance is a false one. A Laythe RE-ENTRY is an ASSERT-FAIL by construction (`viaBodyNames = [\"Sun\"]` makes it an illegal coast body) and the window is bounded: the craft drifts away at ~450 m/s and circularizes at the FIRST periapsis, which puts the final park INSIDE Laythe's orbit and decoupled from it. NOTHING ARMED: count window {1,2}, `[expectations.rewind]` report-only and no save-structure block, because this lane's product is a FIXTURE whose structure is pinned where it is CONSUMED (the B24/B25 disposition verbatim)."
 instanceProfile = "stock-minimal"
 tags = ["B28", "laythe", "jool", "jool-moon", "return-leg", "inverted-direction",
         "parent-relay", "relay-park-at-parent", "orbit", "mechjeb", "cross-soi",
@@ -657,9 +785,14 @@ relayParkAtParent          = true
 # 87.183 Mm; worst circularization 772.75 against 844.15 m/s; worst coast 151,898
 # against 169,600 s) and the node costs 578.15 instead of 586.69. It buys ~80 m/s
 # out of a 1,053 m/s margin - 3.2 percentage points, which buys nothing. AND IT
-# COSTS THE GATE: 400 with B26's clearance forces the apoapsis ceiling from
-# 300,000 down to 106,542 m, i.e. 1.21x the fixture's own measured 87,931.3 m,
-# which is a fingerprint rather than a sanity bound (B25's stated rule). 450 also
+# COSTS THE GATE: 400 with B26's 4.24% clearance (the corner must then need
+# 383.73 m/s) forces the apoapsis ceiling from 300,000 down to about 104,830 m,
+# i.e. 1.192x the fixture's own measured 87,931.3 m, which is a fingerprint
+# rather than a sanity bound (B25's stated rule). THE QUALIFIER IS LOAD-BEARING:
+# the BARE geometric ceiling at 400 is 166,569 m (1.894x), which would not be a
+# fingerprint at all. (This read 106,542 m / 1.21x in the authoring commit; that
+# value is not reproducible under B26's clearance and is re-derived here. Full
+# note in the delta-v section.) 450 also
 # leaves Laythe 12.5% faster (3,723,646 m of separation in 8,275 s against
 # 9,309 s), which is the one quantity where more is unambiguously better.
 escapeSoiSpeedMps          = 450
@@ -936,8 +1069,17 @@ maxCorrectionDvMps         = 100
 # cells are gated by the seam and terminal tokens rather than by the flight happening.
 # NOT CLAIMED: nothing on D11. This lane PRODUCES the subject whose routing V19M/V19T
 # measure; claiming a routing cell here would be claiming the answer before the reading.
-# **[FLOWN 2026-08-20: both gating tokens matched, so every cell here is now MEASURED.
-# D11 stays unclaimed and the routing stays unread by this lane, exactly as written.]**
+# THE OTHER THREE D14 CELLS ARE AXIS CLAIMS, NOT TOKEN-GATED ONES, and B26's block says
+# so per cell rather than in aggregate: D14 `warp-rails` - the machine cannot complete
+# without it; D14 `scene-flight` / `sandbox` - the environment axes the lane runs in.
+# No required token touches any of the three, and none is claimed as though one did.
+# **[FLOWN 2026-08-20: both gating tokens matched, so the three TOKEN-GATED cells are now
+# MEASURED -- D1 `commit-in-foreign-soi` and D14 `jool` by `terminalOrbitBody=Jool`, D14
+# `laythe` by the seam token. That is what the two tokens measured and it is not "every
+# cell here": `warp-rails`, `scene-flight` and `sandbox` remain axis claims, exactly as
+# above. (The harvest commit wrote "every cell here is now MEASURED" on the strength of
+# those two tokens; corrected, because claim-is-not-gate cuts both ways.) D11 stays
+# unclaimed and the routing stays unread by this lane, exactly as written.]**
 [dimensionsCovered]
 D1  = ["commit-in-foreign-soi"]
 D14 = ["laythe", "jool", "warp-rails", "scene-flight", "sandbox"]
