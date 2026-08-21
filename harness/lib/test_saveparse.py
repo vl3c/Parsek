@@ -1049,6 +1049,40 @@ class CommittedFixtureSweepTests(unittest.TestCase):
             "recordingIds": ["625d63e022c449d6a44b5269c8b54a21"],
             "schemaGeneration": 4,
         },
+        # --- THE FIRST RETURN-DIRECTION SUBJECT --------------------------
+        # PROVENANCE: jool-return-recorded <- B28-laythe-jool-return, run
+        # 2026-08-20_2330, PASS attempt 1 (mission wall 474.6 s, the full chain
+        # through ORBIT-COMMITTED with all eight assertions met), --keep-parsek.
+        # The crewed Duna Rocket departs the Parsek-stripped `laythe-park-nerv`
+        # park, fires ONE prograde escape node out of Laythe's SOI and
+        # circularizes into a 19,728,666 x 19,728,629 m JOOL park at ecc 7.3e-7 -
+        # its own PARENT.
+        #
+        # WHY IT EXISTS ALONGSIDE the five orbit-rooted subjects above, all of
+        # which are OUTBOUND: this is the only recording in the corpus whose
+        # target is an ANCESTOR of its launch body. That shape is what makes the
+        # V19 pair's routing reading possible at all - `IsSameParentTarget` asks
+        # only whether the target is a direct CHILD, so the relation is
+        # DIRECTIONAL and no committed subject had ever exercised the inversion.
+        #
+        # STRUCTURALLY it is the B25/V16M shape: EIGHT ORBIT_SEGMENTs (Laythe
+        # 0-3, Jool 4-7) across ONE body-change seam at 28,823,386.197673805,
+        # and a SEGMENT-LESS parked tail from 28,828,820.894 to the recording's
+        # end at 28,829,017.014 (the capture burn plus the 180 s park dwell). The
+        # segment-less tail is load-bearing for V19T, whose TS init walk can skip
+        # a loop-armed base recording `noOrbit=1` at an epoch inside it - the
+        # measured V17T outcome on the same shape - so a re-harvest that changed
+        # the tail would move that lane's posture, not just its numbers.
+        "jool-return-recorded": {
+            "trees": 1, "committedTrees": 1, "recordings": 1,
+            "supersedes": 0, "tombstones": 0, "rewind_points": 0,
+            "rewind_retirements": 0,
+            "terminalStates": {"Orbiting": 1},
+            "branchPoints": {},
+            "minAuthoritativeSidecars": 4,
+            "recordingIds": ["28f5cc0158c8461eb995ea1e505aa67e"],
+            "schemaGeneration": 4,
+        },
         # --- THE MOON LOOP-VALIDATION PAIR -------------------------------
         # PROVENANCE: mun-orbit-recorded  <- B11-mun-orbit, run
         # 2026-08-08_1458, PASS attempt 1, wall 1321 s (harvested

@@ -1,0 +1,42 @@
+version = 1
+MILESTONE
+{
+	id = 197a9ced63324028bfec728819850f1e
+	startUT = 0
+	endUT = 28817026.557051532
+	recordingId = 
+	committed = True
+	lastReplayedIdx = 0
+	GAME_STATE_EVENT
+	{
+		ut = 28817025.877051547
+		type = 18
+		key = Orbit
+		detail = funds=12000;rep=2;sci=1
+	}
+}
+MILESTONE
+{
+	id = ef164f1abb40487086333f00c475ca67
+	startUT = 28817026.557051532
+	endUT = 28828844.133927174
+	recordingId = 
+	committed = True
+	lastReplayedIdx = 1
+	GAME_STATE_EVENT
+	{
+		ut = 28823386.197673805
+		type = 18
+		key = Laythe/Escape
+		detail = funds=22320;rep=1;sci=0
+		recordingId = 28f5cc0158c8461eb995ea1e505aa67e
+	}
+	GAME_STATE_EVENT
+	{
+		ut = 28823386.197673805
+		type = 18
+		key = Jool/Flyby
+		detail = funds=25000;rep=1;sci=0
+		recordingId = 28f5cc0158c8461eb995ea1e505aa67e
+	}
+}

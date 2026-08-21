@@ -4985,7 +4985,17 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
         # flight rather than a decision. Re-classify when it flies: a green run
         # turns this into the ordinary operator -> nightly promotion call, which
         # is the shape H34/H35 above already record.
-        "B28-laythe-jool-return.toml":      "tier=operator by the calibration discipline (the B18-B26 family's tier), NOT debt; committed 2026-08-21 and NOT YET FLOWN - it owes a first flight, not a human decision",
+        "B28-laythe-jool-return.toml":      "tier=operator by the calibration discipline (the B18-B26 family's tier), NOT debt; FLOWN 2026-08-20_2330 PASS attempt 1 (the full chain through ORBIT-COMMITTED, all eight assertions met, every verifier green) - what is open is the ordinary operator -> nightly PROMOTION call, the H34/H35 shape",
+        # The V19 pair, tier=operator by the same calibration discipline and for
+        # the same reason as every V lane before them: their windows are DERIVED
+        # from B28's harvested bytes and the first run is a calibration reading.
+        # NOT debt and no human call is owed - what they owe is the three-run
+        # reading -> armed -> negative-control sequence, which is a flight
+        # schedule rather than a decision. Re-classify when the discipline
+        # completes: at that point this becomes the ordinary operator -> nightly
+        # promotion call, the shape H34/H35 above record.
+        "V19M-laythe-jool-player-loop.toml": "tier=operator by the calibration discipline (derived windows, first run is a calibration reading), NOT debt; committed 2026-08-21 and NOT YET FLOWN - it owes the three-run discipline, not a human decision",
+        "V19T-laythe-jool-ts-arrival.toml":  "tier=operator by the calibration discipline (derived windows, first run is a calibration reading), NOT debt; committed 2026-08-21 and NOT YET FLOWN - it owes the three-run discipline, not a human decision",
         "H5-invariants-corpus.toml":        "discharged - 'resolving the former PENDING-OPERATOR check'",
         "H6-route-rewind-timeline.toml":    "discharged - 'The former PENDING-OPERATOR ...'",
         "M1-mission-loop-unit.toml":        "discharged - 'CLOSED by the 2026-07-26 flights'",
