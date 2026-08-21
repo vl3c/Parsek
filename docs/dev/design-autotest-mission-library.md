@@ -305,8 +305,12 @@ seam-kind rules are unchanged and still apply to the seam steps):
   waste time launching KSP for a mission that cannot run).
 - `driver.missionParams` validates against the mission's declared param schema
   `harness/missions/<mission>.schema.toml` (required keys present, types /
-  ranges, windows well-formed with `min <= max`). A missing required param or a
-  window with `min > max` -> reject.
+  ranges, windows well-formed with `min <= max`). A missing required param, a
+  window with `min > max`, or a declared `type` outside `hlib.MISSION_PARAM_TYPES`
+  -> reject. That last one closes a hole rather than adding a rule: the accepted
+  spellings are a CLOSED set, and a schema declaring anything else used to fall
+  through the whole dispatch unchecked, so the param validated any value while
+  looking checked.
 - EXACTLY ONE `mission`-kind step in `steps`; its `expect` is `MISSION-OK`; its
   optional `budget` bounds the mission subprocess wall-clock and is `> 0`.
 - The mission step is PRECEDED by a `LoadGame` step (the FLIGHT handoff owner):

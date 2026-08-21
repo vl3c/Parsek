@@ -43,11 +43,12 @@ required = false
 type = "number"
 min = 0.0
 
-# TYPE SPELLING: `bool`, NOT `boolean`. The accepted `type` spellings are
-# hlib.MISSION_PARAM_TYPES / `_check_param_type`'s dispatch, and the list is CLOSED:
-# float, int, number, window, list, string, bool. `boolean` fell through the entire
-# if/elif chain and returned no errors, so the declaration validated ANY value -- a
-# string, a list, 7. That is worse than no declaration, because it LOOKS checked.
+# TYPE SPELLING: `bool`, NOT `boolean`. The accepted spellings are exactly
+# `hlib.MISSION_PARAM_TYPES`, and that list is CLOSED -- it is deliberately NOT
+# restated here, so there is nothing to leave stale when it changes. `boolean` fell
+# through the entire if/elif chain and returned no errors, so the declaration
+# validated ANY value -- a string, a list, 7. That is worse than no declaration,
+# because it LOOKS checked. Guarded by test_hlib.MissionSchemaDeclaredTypeTests.
 # V3F and V3R set `mapCamera = false` and V2 omits it (mlib defaults it True), so
 # every committed value is a real bool and the check is live.
 [params.mapCamera]

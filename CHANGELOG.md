@@ -18,13 +18,23 @@ All notable changes to Parsek are documented here.
   there or leaves the parameter out, but a parameter that looks type-checked and is
   checked by nothing is worse than one that was never declared. The three are
   corrected; an unrecognised type name now rejects loudly instead of passing
-  everything; and a new guard sweeps all 1,169 parameter declarations across every
-  committed mission on each test run, reading the list of accepted names out of the
-  validator itself rather than keeping a second copy that could drift, so another
-  misspelling cannot slip in unnoticed. The same sweep covers the mirror of that
-  hole: a misspelled facet name (`minimum` where the validator reads `min`) would
-  likewise be read by nobody, silently dropping a range bound. Test-tooling only;
-  no gameplay change.
+  whatever a scenario hands it; and a new guard in the harness's own test suite
+  sweeps all 1,169 parameter declarations across every committed mission - reaching
+  even the ones no scenario ever sets, which validation alone never inspects -
+  reading the list of accepted names out of the validator itself rather than
+  keeping a second copy that could drift, so another misspelling cannot slip in
+  unnoticed. Sibling guards close the same hole in its other directions, since the
+  bug shape is a declaration nobody reads rather than that one key: a misspelled
+  facet name (`minimum` where the validator reads `min`) would silently drop a
+  range bound; a whole block parked under a misspelled heading would leave a
+  *required* parameter silently never required; and a bound attached to a kind of
+  parameter that never consults one reads as checked and is not. All three are at
+  zero today, and the guards are what keep them there. Those guards read their
+  reference lists out of the validator's own syntax tree rather than its source
+  text, which matters more than it sounds: a text search also reads comments, so a
+  branch that had merely been commented out would still look present, and the check
+  would pass while that type quietly went back to accepting anything. Test-tooling
+  only; no gameplay change.
 
 - GitHub Actions CI: every PR and every push to `main` now builds the mod and runs
   the xUnit suite on `ubuntu-latest` via `scripts/cloud-test.sh`
