@@ -398,6 +398,11 @@ count = { min = 0, max = 0 }
 # gate run the same three read `funds DEBIT captured nominal=-5000`,
 # `nominal=-12500` and `fundsRows=1 funds=7500.0048828125`.
 #
+# RE-FLOWN GREEN on `2026-08-21_0001_L3-strategy-currency-conversion` after the
+# branch-review pass (PASS attempt 1, 57 s, same tally, `expectations mismatches=0`,
+# GUARDED census ZERO), so the pin is measured against the DLL this branch ships
+# rather than against the build that first read it.
+#
 #   ConverterStrategy_FundsDebitLeg_CapturesSpending - the cell that MEASURED and
 #     now GATES STRATEGY-FUNDS-DEBIT-CONVERTERS-UNCAPTURED, the funds mirror of the
 #     reputation-debit cell one entry up. Activates `AppreciationCampaignCfg` (stock

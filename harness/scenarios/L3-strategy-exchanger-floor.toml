@@ -241,6 +241,11 @@ count = { min = 0, max = 0 }
 #     on this save: Cannot afford Setup Cost: Not enough Reputation"
 # Both are the SIBLING's subjects, gated there at rep 25.
 #
+# RE-FLOWN GREEN on `2026-08-21_0002_L3-strategy-exchanger-floor` after the
+# branch-review pass (PASS attempt 1, 55 s, same tally, `expectations mismatches=0`,
+# GUARDED census ZERO, `ConverterFundsDebit CAPTURED ... fundsSpent=5000`), so the
+# pin is measured against the DLL this branch ships.
+#
 # WHY THE NEW CELL RUNS ON THE REP-0 FIXTURE WHILE ITS REPUTATION SIBLING DOES NOT.
 # `ConverterStrategy_FundsDebitLeg_CapturesSpending` activates
 # `AppreciationCampaignCfg`, whose stock setup charge is FUNDS-ONLY - initialCostFunds

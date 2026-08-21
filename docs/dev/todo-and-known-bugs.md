@@ -2884,7 +2884,9 @@ read `funds DEBIT captured nominal=-5000`, `nominal=-12500`, and
 same wave - `2026-08-20_2340_L3-strategy-exchanger-floor`, PASS attempt 1, 55 s,
 GUARDED census ZERO, `BATCH_COMPLETE v1 total=10 passed=8 failed=0 skipped=2` - and
 the new cell RAN there too (its subject's setup charge is funds-only), capturing the
-same 5000 at reputation 0 that the sibling captures at 25.
+same 5000 at reputation 0 that the sibling captures at 25. BOTH were RE-FLOWN GREEN
+after the branch-review pass - `2026-08-21_0001` and `2026-08-21_0002`, same tallies,
+GUARDED census ZERO on both - so the pins are measured against the shipping DLL.
 
 **THE STRUCTURAL BLINDNESS THAT HID IT, and the lesson that transfers.** Both funds
 converter cells compensated their fixture with `WriteLedgerVisibleFundsRow` handed
