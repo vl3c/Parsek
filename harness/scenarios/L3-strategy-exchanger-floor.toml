@@ -43,10 +43,10 @@ tags = ["ledger", "L3", "ingame-batch", "strategies"]
 [fixture]
 # fresh-career, UNSEEDED, and both halves of that matter.
 #
-# THE BASE CHOICE IS FORCED BY THE SCENE. All NINE StrategyLifecycle declarations are
+# THE BASE CHOICE IS FORCED BY THE SCENE. All TEN StrategyLifecycle declarations are
 # Scene = GameScenes.SPACECENTER. `fresh-career` carries ZERO VESSEL nodes, so
 # TestCommandLoadGame.DecideLoadRoute takes the NoVesselSpaceCenter route and the batch
-# runs where all nine are eligible (the same route B10 and the L1 career family
+# runs where all ten are eligible (the same route B10 and the L1 career family
 # measure). career-pad-craft would route to FLIGHT and scene-skip every one of them -
 # the exact vacuity defect B10 was re-flown to fix.
 #
@@ -55,8 +55,9 @@ tags = ["ledger", "L3", "ingame-batch", "strategies"]
 # science seed does NOT afford the two science-costing setup charges (both cells top
 # science up ledger-visibly), and the ZERO reputation seed is what keeps
 # `researchIPsellout` OFFERED (requiredReputationMax = 0) - and, by the same token, what
-# makes `OperationStrategy_RewardMultiplier_IsNotCaptured` self-skip. That skip is the
-# sibling's subject, not a gap here; see the tally block.
+# makes `OperationStrategy_RewardMultiplier_IsCapturedOnNominalReason` self-skip (named
+# `..._IsNotCaptured` until the 2026-08-21 funds wave). That skip is the sibling's
+# subject, not a gap here; see the tally block.
 #
 # NOTHING IS SEEDED ONTO THIS FIXTURE. `fresh-career` is staged by seven committed specs
 # directly and by six more through `build_career_pad_craft.py`, and
@@ -82,7 +83,7 @@ kind = "seam"
 # a live recorder makes CurrencyConverterStrategy_LedgerMatchesNetCredit Skip rather than
 # run, so auto-record must be off for the batch to have a subject.
 #
-# No `isolated` arg: all nine StrategyLifecycle declarations are batch-allowed, so the
+# No `isolated` arg: all ten StrategyLifecycle declarations are batch-allowed, so the
 # isolated filter would admit exactly the same set and CommittedBatchTallySourceSyncTests
 # would (rightly) demand a seam-echo discriminator for a route this spec does not need.
 steps = [

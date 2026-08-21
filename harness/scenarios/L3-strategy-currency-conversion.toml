@@ -43,7 +43,7 @@ tags = ["ledger", "L3", "ingame-batch", "strategies", "reading-run"]
 # THE BASE CHOICE IS FORCED BY THE SCENE, and the sibling inherits it. All SEVEN
 # StrategyLifecycle declarations are Scene = GameScenes.SPACECENTER. `fresh-career`
 # carries ZERO VESSEL nodes, so TestCommandLoadGame.DecideLoadRoute takes the
-# NoVesselSpaceCenter route and the batch runs where all nine are eligible (the same
+# NoVesselSpaceCenter route and the batch runs where all ten are eligible (the same
 # route B10 and the L1 career family measure). career-pad-craft would route to FLIGHT
 # and scene-skip every one of them - the exact vacuity defect B10 was re-flown to fix.
 #
@@ -96,7 +96,7 @@ kind = "seam"
 # here: a live recorder makes CurrencyConverterStrategy_LedgerMatchesNetCredit Skip
 # rather than run, so auto-record must be off for the batch to have a subject.
 #
-# No `isolated` arg: all nine StrategyLifecycle declarations are batch-allowed, so
+# No `isolated` arg: all ten StrategyLifecycle declarations are batch-allowed, so
 # the isolated filter would admit exactly the same set and
 # CommittedBatchTallySourceSyncTests would (rightly) demand a seam-echo discriminator
 # for a route this spec does not need.

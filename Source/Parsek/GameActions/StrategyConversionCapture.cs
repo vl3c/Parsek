@@ -290,7 +290,7 @@ namespace Parsek
         /// A row there would be counted twice - once inside the observed amount and once
         /// as this door's leg - and that is exactly what stock's
         /// <c>AgressiveNegotiations</c> launch/purchase discount would produce. Pinned by
-        /// <c>StrategyConversionCaptureTests.NonZeroInputFunds_UnderEventDerivedReason_IsNotCaptured</c>.</para>
+        /// <c>StrategyConversionCaptureTests.NonZeroInputFunds_UnderAnEventDerivedReason_IsNotCaptured</c>.</para>
         /// </summary>
         internal static bool IsNominalChannelFundsReason(string reason)
         {

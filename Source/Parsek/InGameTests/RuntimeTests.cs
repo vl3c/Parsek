@@ -18444,8 +18444,9 @@ namespace Parsek.InGameTests
             // funds input under an EVENT-DERIVED reason (VesselRollout, RnDPartPurchase,
             // StructureRepair, StructureConstruction, StrategyOutput), where the channel
             // really does record the observed net - is pinned headlessly by
-            // StrategyConversionCaptureTests.NonZeroInputFunds_UnderEventDerivedReason_
-            // IsNotCaptured. NO in-game cell can carry it cheaply: Leadership Initiative
+            // StrategyConversionCaptureTests
+            // .NonZeroInputFunds_UnderAnEventDerivedReason_IsNotCaptured. NO in-game cell
+            // can carry it cheaply: Leadership Initiative
             // has no funds op on those reasons at all (its two funds arms are Progression
             // and the Contract* trio), so an in-game control would need a SECOND strategy
             // (AgressiveNegotiations) and a spend-shaped transaction, which is a cell of
@@ -18683,7 +18684,7 @@ namespace Parsek.InGameTests
                     ParsekLog.TestObserverForTesting = priorObserver;
                     RestoreFinancials(fundsBefore, sciBefore, repBefore);
                     GameStateStore.TruncateEventsForTesting(eventCountBefore);
-                    TruncateLedgerForTeardown(ledgerCountBefore, "OperationStrategy_RewardMultiplier_IsNotCaptured");
+                    TruncateLedgerForTeardown(ledgerCountBefore, "OperationStrategy_RewardMultiplier_IsCapturedOnNominalReason");
                     ParsekLog.Verbose("TestRunner",
                         $"OperationMultiplier teardown: " +
                         $"eventsBack={eventCountBefore.ToString(CultureInfo.InvariantCulture)}, " +

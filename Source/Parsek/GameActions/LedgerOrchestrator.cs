@@ -367,6 +367,21 @@ namespace Parsek
         /// every contract. The Effective-gated cases (ContractComplete, MilestoneAchievement,
         /// ScienceEarning, FundsEarning) mirror the module-side skip on duplicates.
         /// </para>
+        /// <para><b>SECOND KNOWN FALSE-POSITIVE, the query-family one.</b> The strategy door
+        /// writes its rows straight through <c>Ledger.AddAction</c> from
+        /// <see cref="OnStrategyCurrencyConversion"/>, so they are never in
+        /// <c>newActions</c>. When a MODIFIED transaction falls inside a commit window - a
+        /// contract reward diverted by Appreciation Campaign, a milestone scaled by
+        /// Leadership Initiative - the store side sums the observed NET
+        /// <c>FundsChanged</c>/<c>ReputationChanged</c> event while the emitted side carries
+        /// the CONFIGURED GROSS row, and this walk WARNs "missing earning channel?" by
+        /// exactly the diverted magnitude. The ledger is CORRECT in that state (the
+        /// diverted half is a separate row this walk cannot see); the WARN is the
+        /// comparison's blind spot, and it predates the capture - before it, the row was
+        /// missing outright and the same WARN fired for the same amount. Closing it means
+        /// folding untagged in-window <c>StrategyConverter</c>-sourced rows into the
+        /// emitted tally, which is the same "account for pre-existing in-window actions"
+        /// problem the recovery false-positive above is parked on.</para>
         /// </summary>
         internal static void ReconcileEarningsWindow(
             IReadOnlyList<GameStateEvent> events,
