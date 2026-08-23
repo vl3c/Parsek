@@ -775,12 +775,21 @@ tombstones    = { max = 0 }
 #   TRANSFER-BURN (stage 1)      ~620  the executor autowarps <= 5,171 game s to the
 #                                      node (seconds on rails), ~600 of this is the
 #                                      1x pre-ignition hold, plus ~8 s of burn
-#   COAST to the Mun SOI exit     ~40  13,759 game s of elliptic coast. **UNLIKE B26
-#                                      THIS LEG NATIVE-WARPS**: its `soiLeadSeconds`
-#                                      (3,000) was LONGER than its whole 2,783 s
-#                                      escape coast, so that leg took the rails
-#                                      fallback; ours is 4.6x the lead, so
-#                                      `time_to_soi > soi_lead` holds for most of it
+#   COAST to the Mun SOI exit     ~40  13,759 game s of elliptic coast, i.e. 4.6x
+#                                      `soiLeadSeconds`, so `time_to_soi >
+#                                      soi_lead` holds over most of the leg and it
+#                                      NATIVE-WARPS rather than riding the rails
+#                                      stair. (B26's header claims its own escape
+#                                      leg could not - "soiLeadSeconds is LONGER
+#                                      than the whole escape coast" - but that
+#                                      sentence is left over from the PRE-FIX
+#                                      hyperbola's 2,783 s; the corrected BOUND
+#                                      escape it actually flew coasted 5,120 game s
+#                                      against the same 3,000 s lead, so B26's leg
+#                                      native-warped too. Noted rather than
+#                                      inherited: this lane's arithmetic does not
+#                                      depend on the contrast, only on its own
+#                                      4.6x ratio.)
 #   PLAN-TRANSFER (stage 2)       ~30  300 game s at the x10 plan hold
 #   TRANSFER-BURN (stage 2)      ~610  the autowarped window wait (<= 159,571 game s)
 #                                      is seconds on rails; ~600 the 1x hold, plus

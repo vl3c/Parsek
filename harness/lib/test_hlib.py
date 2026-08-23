@@ -5025,6 +5025,19 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
         # header precisely so the post-flight paragraph cannot be written after
         # the fact.
         "B30-mun-minmus-transfer.toml":     "tier=operator by the calibration discipline (derived windows, first run is a calibration reading), NOT debt; AUTHORED 2026-08-23 and NOT YET FLOWN - the G4 replication of B26's moon-to-moon hop at a second parent (Mun -> Minmus under Kerbin), with five observation targets pre-registered in the header; what is open is the FLIGHT itself, not a human review call",
+        # The V21 pair, tier=operator by the same calibration discipline and for
+        # the same reason as every V lane before them: their windows are DERIVED
+        # and the first run is a calibration reading. NOT debt.
+        # NEITHER HAS FLOWN, and neither CAN from a cloud session. What is open
+        # is the flight, not a human review call - and on this pair run 1 is
+        # expected to be a CLOCK READ rather than a green: the seed weakness has
+        # MOVED relative to V17's (whose routing was unknown), because the
+        # routing shape is now predicted and what is unknown is B30's FLIGHT
+        # DURATION - dominated by a stage-2 transfer-window wait uniform on
+        # [0, 159,570.7 s] and seeded at its midpoint. A dwell-nowhere run 1 is
+        # the accepted pre-registered outcome, exactly as V17M's was.
+        "V21M-mun-minmus-player-loop.toml": "tier=operator by the calibration discipline (derived windows, first run is a calibration reading), NOT debt; AUTHORED 2026-08-23 ahead of its subject with a ZERO placeholder tree id and eight calibration-seed jump UTs, tracked by the self-retiring PENDING_FIXTURE_LANES exemption in this file; what is open is B30's FLIGHT, not a human review call",
+        "V21T-mun-minmus-ts-arrival.toml":  "tier=operator by the calibration discipline (derived windows, first run is a calibration reading), NOT debt; AUTHORED 2026-08-23 ahead of its subject with a ZERO placeholder tree id and ONE calibration-seed jump UT (V21M's third cycle-1 bracket, reused so the pair observes the same instant from two scenes), tracked by the self-retiring PENDING_FIXTURE_LANES exemption in this file; what is open is B30's FLIGHT, not a human review call",
         "H5-invariants-corpus.toml":        "discharged - 'resolving the former PENDING-OPERATOR check'",
         "H6-route-rewind-timeline.toml":    "discharged - 'The former PENDING-OPERATOR ...'",
         "M1-mission-loop-unit.toml":        "discharged - 'CLOSED by the 2026-07-26 flights'",
@@ -11623,7 +11636,19 @@ class SharedShipsManifestTests(unittest.TestCase):
     # `vall-transfer-recorded` EXISTS and V17M/V17T are re-pinned off its bytes,
     # so the two entries were deleted in the same commit - which is exactly the
     # discipline the cell below enforces, and it DID fire red first.
-    PENDING_FIXTURE_LANES = {}
+    # RE-ARMED 2026-08-23 by the G4 pair, which is exactly the case this
+    # mechanism exists for: `V21M`/`V21T` are the DOWNSTREAM half of a two-stage
+    # program whose UPSTREAM lane (`B30-mun-minmus-transfer`) is authored but
+    # NOT FLOWN, so the fixture they name cannot exist yet - and their whole
+    # value is that their predictions are written DOWN BEFORE the flight. Both
+    # carry a NOT FLYABLE banner, the ZERO placeholder tree id, and calibration
+    # -seed jump UTs derived from a stated hypothesis (V21M header section 3).
+    # DELETE BOTH in the same commit that re-pins the pair off the harvested
+    # bytes; the cell below reds until then, in both directions.
+    PENDING_FIXTURE_LANES = {
+        "V21M-mun-minmus-player-loop.toml": "mun-minmus-recorded",
+        "V21T-mun-minmus-ts-arrival.toml": "mun-minmus-recorded",
+    }
 
     def test_the_pending_fixture_exemption_retires_itself(self):
         """The exemption's own guard, in BOTH directions. If the awaited fixture
