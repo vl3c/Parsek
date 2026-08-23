@@ -714,7 +714,14 @@ allowedAnomalies = []
 #       staging event anywhere in the profile.
 #   = 1 EXPECTED.
 #   +1  HEADROOM for an optimizer split at EITHER of the recording's TWO body-change
-#       seams (Mun->Kerbin under thrust, Kerbin->Minmus on rails). B26 flight 3
+#       seams. **NEITHER IS "UNDER THRUST", AND THAT MATTERS FOR THE COHESION
+#       ARGUMENT.** The escape burn happens at Mun periapsis and the Mun->Kerbin
+#       crossing is 13,759 s of coast LATER - a leg long enough to exceed
+#       `soiLeadSeconds` and native-warp, so it is on rails by the time the body
+#       changes; the Kerbin->Minmus arrival is a rails coast too. That is the
+#       condition rule 3's cohesion is written FOR (its exception is a PHYSICS-frame
+#       burn ACROSS the crossing), so cohesion is the expected reading rather than
+#       the exception. B26 flight 3
 #       measured BOTH of its kept cohesive and B28 measured its single escape boundary
 #       kept cohesive, so the expectation is 1 - but two data points on an escape
 #       boundary is not a rule, and a count of 2 or 3 here is a READING, not a defect.

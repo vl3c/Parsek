@@ -93,8 +93,11 @@ id = "V21T-mun-minmus-ts-arrival"
 # `SetExecResult("REJECTED", null, "backward-jump")`, so a refused jump makes the
 # STEP go unmet and the run driver-INVALID, and the forbid is a redundant
 # grep-stable echo. **ON THIS LANE IT IS NEARLY INERT**, because the seeded UT sits
-# ~767 ks past the fixture's own save epoch - a span error leaves the jump forward
-# and nothing refuses. The case that catches a forward jump at the WRONG epoch is
+# ~767 ks past **ut0** (21,746 - where the RECORDING starts) and **~383 ks past the
+# SAVE EPOCH the LoadGame actually lands on** (A = 405,560). The first cut described
+# the 767 ks figure as the distance past the save epoch, which is the wrong baseline
+# by the whole 383 ks of the recording's own span; the CONCLUSION is unaffected, since
+# a span error leaves the jump forward against either baseline and nothing refuses. The case that catches a forward jump at the WRONG epoch is
 # the section-5 anti-vacuity pin `... body=Minmus scene=TRACKSTATION`, and that is
 # why it earns its place here more than on any predecessor.
 #
@@ -145,9 +148,29 @@ id = "V21T-mun-minmus-ts-arrival"
 #       (section 3).
 #
 # **AND `created 0 ghost vessel(s)` IS DELIBERATELY *NOT* FORBIDDEN, WHICH IS A
-# MEASURED DECISION RATHER THAN A CAUTIOUS ONE.** The family carried that forbid
-# through V14T/V15T/V16T; **V17T RETIRED IT AT ITS RUN-1 RE-PIN BECAUSE INIT-ZERO
-# IS THE CORRECT PRODUCT OUTCOME ON THIS CLASS OF SUBJECT**: with the loop armed,
+# MEASURED DECISION RATHER THAN A CAUTIOUS ONE.**
+#
+# **FIRST, A MECHANICAL CORRECTION THAT MATTERS BEFORE ANYONE RE-ARMS IT: THE `ghost
+# vessel(s)` SHAPE HAS TWO EMITTERS, NOT ONE.** Both halves of this pair used to say
+# its only emitter is `ParsekTrackingStation`; that was false, and V21M is corrected in
+# the same pass. `ParsekTrackingStation.cs:229` emits
+# `ParsekTrackingStation initialized: created {created} ghost vessel(s), ...` - the
+# init walk this token is aimed at - and `Patches/GhostTrackingStationPatch.cs:615`
+# emits `Pre-created {created} ghost vessel(s) before SpaceTracking.Awake` from the
+# `SpaceTracking.Awake` Prefix. **A BARE, UNANCHORED REGEX MATCHES THE SECOND AS A
+# SUBSTRING OF THE FIRST'S TEXT** ("created 0 ghost vessel(s)" is a suffix of
+# "Pre-created 0 ghost vessel(s)"), so re-arming this forbid without a leading anchor
+# would forbid two different product decisions at once - the init walk's skip AND the
+# Awake-time pre-create. The overlap is LATENT rather than live today, because the
+# Prefix wraps its log in `if (created > 0)` and so cannot currently print the zero
+# form; that guard is exactly the kind of thing that changes without anyone re-reading
+# a spec, which is why it is written down here rather than rediscovered at arming.
+# Both emitters are TRACKSTATION-only, so V21M's conclusion that the token is
+# structurally inert in a FLIGHT-only lane survives the correction intact.
+#
+# **SECOND, THE DECISION ITSELF.** The family carried that forbid through
+# V14T/V15T/V16T; **V17T RETIRED IT AT ITS RUN-1 RE-PIN BECAUSE INIT-ZERO IS THE
+# CORRECT PRODUCT OUTCOME ON THIS CLASS OF SUBJECT**: with the loop armed,
 # the init walk evaluates the base recording at the entry epoch and skips it
 # `noOrbit=1` when the tail is SEGMENT-LESS (no visibleSegment / terminalOrbit /
 # endpointTail / stateVector source resolves), and every real ghost comes from the
@@ -304,7 +327,7 @@ id = "V21T-mun-minmus-ts-arrival"
 # `tier = "operator"` on the calibration discipline.
 # =====================================================================================
 tier = "operator"
-description = "**AUTHORED 2026-08-23, NOT FLYABLE YET.** The tracking-station half of the SECOND moon-to-moon loop pair, at a SECOND parent, and it is a REPLICATION - roadmap gap G4. Committed AHEAD of its subject exactly as V17T was: `saveTemplate` names `fixtures/saves/mun-minmus-recorded`, which does not exist until `B30-mun-minmus-transfer` flies green and is harvested with `--keep-parsek`; the tree id is the ZERO PLACEHOLDER `00000000000000000000000000000000` and the SINGLE TimeJump UT is a CALIBRATION SEED - V21M's third cycle-1 bracket jump, reused verbatim so the two lanes observe the SAME instant from the two scenes. The pair OWES `harness/lib/test_hlib.py` two `PENDING_FIXTURE_LANES` entries, and until they land `test_every_spec_saveTemplate_names_a_real_fixture` reds on both lanes - that is the guard working. THE DERIVATION LIVES IN V21M's HEADER SECTION 3 and is deliberately not duplicated, so the pair cannot drift: the seed hypothesis S1, the eight-UT table, the four-number re-pin recipe, and V19M's **SPAN-END TRAP** (the unit's span is the TRACK_SECTION ENVELOPE, not the first/last POINT - V17M measured 0.020 s / 1.060 s, V19M 0.020 s / 1.360 s). The one thing worth repeating: V17M's seeds were weak because the ROUTING was unknown, and V21's are weak because the FLIGHT DURATION is - the dominant error term is the stage-2 transfer-window wait, uniform on [0, 159,570.7 s] and seeded at its midpoint - so RUN 1 IS A CLOCK READ FIRST and a dwell-nowhere run 1 is the accepted pre-registered outcome. **WHAT THIS LANE ADDS OVER V21M** is the other scene: the FLIGHT-scene proto orbit line FAIL-CLOSES to the ROOT frame on a nested-SOI subject, while the TS overlap-instance protos are a DIFFERENT LENS built PER SEGMENT (`orbitSource=overlap-instance-segment`) rather than through the nested-SOI walk - which is why V17T's logs printed a destination-framed line where V17M's structurally could not. The re-aim trio stays BOTH unrequired and unforbidden and NO D11 cell is claimed: this is a replication lane, and a lane that required the measured answer could not report a NON-replication. **THE FORTY-TICK TS DWELL IS SPAWN-THROTTLE HEADROOM, NOT CENSUS PACING**, carried from V17T where it was grown from two ticks on a measured mechanism: with the loop armed the init walk may skip the base recording (`noOrbit=1` on a segment-less tail) and every real ghost comes from the DYNAMIC overlap path, whose creation runs **NEWEST-CYCLE-FIRST at `MaxSpawnsPerFrame = 2` per lifecycle tick** - so cycle 1, the one instance in its MINMUS leg at this epoch and the one both anti-vacuity pins need, is the LAST of 20 to spawn (~10 ticks in). V17T run 1's two-tick TS phase gave ~0.65 s = 3 ticks = 6 ghosts and FlushAndQuit cut cycle 1 off; forty ticks (>= 10 wall s at run.py's 0.25 s poll floor) give the fill-in loop ~4x the headroom, and V17T run 2 then measured all 20 cycles spawned in-scene. No count is pinned. **THE TWO ANTI-VACUITY GATES ARE V17T's FINAL PAIR WITH MINMUS SUBSTITUTED**, both targeting the dynamic path: `GhostMap] Created ghost vessel ... orbitSource=overlap-instance-segment ... scene=TRACKSTATION` (an empty TS cannot green) and `phase=GhostCreated surface=ProtoIcon pid=\\d+ ... body=Minmus scene=TRACKSTATION` (V6T's `body=Mun` pin with the body swapped, which turns the D14 `minmus` claim from an EPOCH claim into a RENDERED-FRAME one, and which is the ONLY thing here that catches a mis-seeded FORWARD jump - the backward-jump forbid is near-inert on a seed sitting ~767 ks past the save epoch). **`created 0 ghost vessel(s)` IS DELIBERATELY NOT FORBIDDEN, AND THAT IS A MEASURED DECISION**: V17T retired that forbid at its run-1 re-pin because init-zero is the CORRECT product outcome on a loop-armed subject whose tail is segment-less, and B30 commits at Minmus after a capture + circularization, so this subject is the same B25/V16M/V17M shape. The contrast with V19T - which RE-ADDED the forbid after its own run measured `created 1` with `noOrbit=0 visibleSegment=1` inside a segmented coast - is drawn explicitly, because it shows the rule is evidence-driven: no such run exists here, and the forbid can be added at arming if run 1 measures init-nonzero. **THE `icon-off-orbit` OPEN READING IS THIS LANE'S SHARPEST CONTRIBUTION AND BOTH OUTCOMES ARE PRE-REGISTERED.** The ledger: V14T/V15T/V16T raised it on 6 of 6 runs at three parents on an IDENTICAL step shape, with the stepped-bracket M-lane controls silent on all six of theirs; V17T was SILENT, the first silent single-jump run, but its subject differed in TWO ways at once (first self-overlapping loop AND first nested-SOI fail-closed subject) so WHICH one breaks the trigger was left an OPEN READING with no mechanism claimed; V19T was then silent with self-overlapping YES and nested-SOI NO, which EXCLUDED nested-SOI and left SELF-OVERLAP as the surviving candidate. **V21T is a second self-overlapping AND nested-SOI subject at a new parent, so it tests the SURVIVING candidate rather than re-confirming the excluded one.** SILENT strengthens the self-overlap reading to 3-silent/6-raising; a RAISE would BREAK it outright, since self-overlap is present here - and that is the more informative outcome, which is exactly why `allowedAnomalies` is EMPTY. A raise is DATA, reported as PARSEK-FAIL(anomaly) with every step green; pre-tolerating the token would swallow the discriminating measurement. NO MECHANISM IS CLAIMED IN EITHER DIRECTION and a fourth unnamed variable would defeat both readings. A second, sharper prediction is pre-registered and expected NEGATIVE: V16T's `seam-endpoint-outside-soi` raise came from a creation-frame binding gap whose displacement SCALES WITH THE CADENCE MULTIPLE, and this lane's cadence is ONE SPAN (k = 1, the H3 shape) rather than 20 moon periods, so it should not recur - V17T's identically-argued negative held. **THE TS CONIC IS ARITHMETIC AND NOT A PIN** (V14T's standing rule about six-figure floats): v_inf 99.287 m/s against mu_Minmus 1.7658e9 gives a = -179,127 m and e ~ 1.45-3.57 across the admissible park window - and the CONTRAST is the interesting part, because V17T's Vall arithmetic gave e ~ 1.15-1.28, a NEARLY PARABOLIC approach, while Minmus's is STRONGLY hyperbolic: Minmus's well is 117x shallower than Vall's while the arrival v_inf is only 3.1x smaller, so the rendered conic should look qualitatively unlike its predecessor's even though the flight profile replicates. **THE NEGATIVE CONTROL OWED BY CRITERION (b) IS OWED AND NOT YET FLOWN, AND THIS PAIR OWES TWO, NOT ONE SHARED** - a sharper reason than V19's, whose halves pinned different LENSES: this pair's halves pin different lenses AND different PRODUCERS AND different SCENES (the nested-SOI fail-closed declaration plus the FLIGHT-scene Director TracedPath drive on V21M, the Tracking Station's dynamic overlap-path proto ICON here), so one shared inversion would prove one of four things at most. The design is pre-registered - invert one character-run inside the required array only, `body=Minmus` -> `body=Vall`, a body this recording never visits - but is deliberately CUT AT ARMING off the reading bytes rather than now, because inverting a token whose measured text does not yet exist would be inverting a guess; and a control that PASSES is a FAILED control (V19T's `_0857` passed on a mis-escaped regex that made no edit at all, and had to be re-cut). NOTHING IS ARMED: `[expectations.rewind]` is REPORT-ONLY, `[expectations.recordings.structure]` is ABSENT, and the recordings count window {1,4} is a DERIVED RANGE matching B30's and V21M's - the load-time optimizer walk fires for the first time on this pair's LoadGame, so a split at either body-change seam or at the stage-2 propulsive sandwich would show there. V5's rule that a DOUBLE-ENTRY spec owes the tighter pin applies at the arming pass: this lane writes a save mid-run and reads it back through a SECOND scene load."
+description = "**AUTHORED 2026-08-23, NOT FLYABLE YET.** The tracking-station half of the SECOND moon-to-moon loop pair, at a SECOND parent, and it is a REPLICATION - roadmap gap G4. Committed AHEAD of its subject exactly as V17T was: `saveTemplate` names `fixtures/saves/mun-minmus-recorded`, which does not exist until `B30-mun-minmus-transfer` flies green and is harvested with `--keep-parsek`; the tree id is the ZERO PLACEHOLDER `00000000000000000000000000000000` and the SINGLE TimeJump UT is a CALIBRATION SEED - V21M's third cycle-1 bracket jump, reused verbatim so the two lanes observe the SAME instant from the two scenes. The pair OWES `harness/lib/test_hlib.py` two `PENDING_FIXTURE_LANES` entries, and until they land `test_every_spec_saveTemplate_names_a_real_fixture` reds on both lanes - that is the guard working. THE DERIVATION LIVES IN V21M's HEADER SECTION 3 and is deliberately not duplicated, so the pair cannot drift: the seed hypothesis S1, the eight-UT table, the four-number re-pin recipe, and V19M's **SPAN-END TRAP** (the unit's span is the TRACK_SECTION ENVELOPE, not the first/last POINT - V17M measured 0.020 s / 1.060 s, V19M 0.020 s / 1.360 s). The one thing worth repeating: V17M's seeds were weak because the ROUTING was unknown, and V21's are weak because the FLIGHT DURATION is - the dominant error term is the stage-2 transfer-window wait, uniform on [0, 159,570.7 s] and seeded at its midpoint - so RUN 1 IS A CLOCK READ FIRST and a dwell-nowhere run 1 is the accepted pre-registered outcome. **WHAT THIS LANE ADDS OVER V21M** is the other scene: the FLIGHT-scene proto orbit line FAIL-CLOSES to the ROOT frame on a nested-SOI subject, while the TS overlap-instance protos are a DIFFERENT LENS built PER SEGMENT (`orbitSource=overlap-instance-segment`) rather than through the nested-SOI walk - which is why V17T's logs printed a destination-framed line where V17M's did not. **THAT ASYMMETRY IS A MEASUREMENT, NOT A DERIVATION**, and it is the disproof of the causal story V21M's first cut told: a property of the recording's body set cannot be true in one scene and false in the other, so the flight-scene silence is a property of that lens rather than of the nested-SOI classification - whose emit site both `PhaseFactory.cs:122-127` and `MapRenderTrace.cs:99-111` document as DEFINE-ONLY and GEOMETRY-NEUTRAL, and which does not execute at all with tracing off. The re-aim trio stays BOTH unrequired and unforbidden and NO D11 cell is claimed: this is a replication lane, and a lane that required the measured answer could not report a NON-replication. **THE FORTY-TICK TS DWELL IS SPAWN-THROTTLE HEADROOM, NOT CENSUS PACING**, carried from V17T where it was grown from two ticks on a measured mechanism: with the loop armed the init walk may skip the base recording (`noOrbit=1` on a segment-less tail) and every real ghost comes from the DYNAMIC overlap path, whose creation runs **NEWEST-CYCLE-FIRST at `MaxSpawnsPerFrame = 2` per lifecycle tick** - so cycle 1, the one instance in its MINMUS leg at this epoch and the one both anti-vacuity pins need, is the LAST of 20 to spawn (~10 ticks in). V17T run 1's two-tick TS phase gave ~0.65 s = 3 ticks = 6 ghosts and FlushAndQuit cut cycle 1 off; forty ticks (>= 10 wall s at run.py's 0.25 s poll floor) give the fill-in loop ~4x the headroom, and V17T run 2 then measured all 20 cycles spawned in-scene. No count is pinned. **THE TWO ANTI-VACUITY GATES ARE V17T's FINAL PAIR WITH MINMUS SUBSTITUTED**, both targeting the dynamic path: `GhostMap] Created ghost vessel ... orbitSource=overlap-instance-segment ... scene=TRACKSTATION` (an empty TS cannot green) and `phase=GhostCreated surface=ProtoIcon pid=\\d+ ... body=Minmus scene=TRACKSTATION` (V6T's `body=Mun` pin with the body swapped, which turns the D14 `minmus` claim from an EPOCH claim into a RENDERED-FRAME one, and which is the ONLY thing here that catches a mis-seeded FORWARD jump - the backward-jump forbid is near-inert on a seed sitting ~767 ks past **ut0** and ~383 ks past the **save epoch** the LoadGame lands on, the 767 ks figure having been mis-attributed to the save epoch in the first cut without changing the conclusion that the jump stays forward). **`created 0 ghost vessel(s)` IS DELIBERATELY NOT FORBIDDEN, AND THAT IS A MEASURED DECISION** - with one mechanical correction recorded before anyone re-arms it: **the `ghost vessel(s)` shape has TWO emitters, not one.** `ParsekTrackingStation.cs:229` emits the init-walk line the token is aimed at, and `Patches/GhostTrackingStationPatch.cs:615` emits `Pre-created {n} ghost vessel(s) before SpaceTracking.Awake`, which an unanchored regex would match as a SUBSTRING - so the pair's original claim that `ParsekTrackingStation` is its only emitter was false (V21M is corrected in the same pass), though the conclusion (both emitters are TRACKSTATION-only, so the token is structurally inert in a FLIGHT-only lane) survives. The overlap is latent today only because the Prefix wraps its log in `if (created > 0)`. As for the decision: V17T retired that forbid at its run-1 re-pin because init-zero is the CORRECT product outcome on a loop-armed subject whose tail is segment-less, and B30 commits at Minmus after a capture + circularization, so this subject is the same B25/V16M/V17M shape. The contrast with V19T - which RE-ADDED the forbid after its own run measured `created 1` with `noOrbit=0 visibleSegment=1` inside a segmented coast - is drawn explicitly, because it shows the rule is evidence-driven: no such run exists here, and the forbid can be added at arming if run 1 measures init-nonzero. **THE `icon-off-orbit` OPEN READING IS THIS LANE'S SHARPEST CONTRIBUTION AND BOTH OUTCOMES ARE PRE-REGISTERED.** The ledger: V14T/V15T/V16T raised it on 6 of 6 runs at three parents on an IDENTICAL step shape, with the stepped-bracket M-lane controls silent on all six of theirs; V17T was SILENT, the first silent single-jump run, but its subject differed in TWO ways at once (first self-overlapping loop AND first nested-SOI fail-closed subject) so WHICH one breaks the trigger was left an OPEN READING with no mechanism claimed; V19T was then silent with self-overlapping YES and nested-SOI NO, which EXCLUDED nested-SOI and left SELF-OVERLAP as the surviving candidate. **V21T is a second self-overlapping AND nested-SOI subject at a new parent, so it tests the SURVIVING candidate rather than re-confirming the excluded one.** SILENT strengthens the self-overlap reading to 3-silent/6-raising; a RAISE would BREAK it outright, since self-overlap is present here - and that is the more informative outcome, which is exactly why `allowedAnomalies` is EMPTY. A raise is DATA, reported as PARSEK-FAIL(anomaly) with every step green; pre-tolerating the token would swallow the discriminating measurement. NO MECHANISM IS CLAIMED IN EITHER DIRECTION and a fourth unnamed variable would defeat both readings. A second, sharper prediction is pre-registered and expected NEGATIVE: V16T's `seam-endpoint-outside-soi` raise came from a creation-frame binding gap whose displacement SCALES WITH THE CADENCE MULTIPLE, and this lane's cadence is ONE SPAN (k = 1, the H3 shape) rather than 20 moon periods, so it should not recur - V17T's identically-argued negative held. **THE TS CONIC IS ARITHMETIC AND NOT A PIN** (V14T's standing rule about six-figure floats): v_inf 99.287 m/s against mu_Minmus 1.7658e9 gives a = -179,127 m and e ~ 1.45-3.57 across the admissible park window - and the CONTRAST is the interesting part, because V17T's Vall arithmetic gave e ~ 1.15-1.28, a NEARLY PARABOLIC approach, while Minmus's is STRONGLY hyperbolic: Minmus's well is 117x shallower than Vall's while the arrival v_inf is only 3.1x smaller, so the rendered conic should look qualitatively unlike its predecessor's even though the flight profile replicates. **THE NEGATIVE CONTROL OWED BY CRITERION (b) IS OWED AND NOT YET FLOWN, AND THIS PAIR OWES TWO, NOT ONE SHARED** - a sharper reason than V19's, whose halves pinned different LENSES: this pair's halves pin different lenses AND different PRODUCERS AND different SCENES (the nested-SOI fail-closed declaration plus the FLIGHT-scene Director TracedPath drive on V21M, the Tracking Station's dynamic overlap-path proto ICON here), so one shared inversion would prove one of four things at most. The design is pre-registered - invert one character-run inside the required array only, `body=Minmus` -> `body=Vall`, a body this recording never visits - but is deliberately CUT AT ARMING off the reading bytes rather than now, because inverting a token whose measured text does not yet exist would be inverting a guess; and a control that PASSES is a FAILED control (V19T's `_0857` passed on a mis-escaped regex that made no edit at all, and had to be re-cut). NOTHING IS ARMED: `[expectations.rewind]` is REPORT-ONLY, `[expectations.recordings.structure]` is ABSENT, and the recordings count window {1,4} is a DERIVED RANGE matching B30's and V21M's - the load-time optimizer walk fires for the first time on this pair's LoadGame, so a split at either body-change seam or at the stage-2 propulsive sandwich would show there. **THE WINDOW'S COST IS STATED RATHER THAN SILENT:** a split at either seam leaves each resulting recording seeing ONE body, `NestedSoiSubtree` returns null on `distinct.Count < 2`, and V21M's `bodies=Mun/Kerbin/Minmus` form and `segIdx=\\d+` shadow pin both go unsatisfiable - so a green count with a red render pin on the pair's flight half IS the reading (the optimizer split a subject the family has twice measured it keeping cohesive), and neither the window nor the pins should be widened to absorb it. Both body-change seams are ON RAILS, which is the case `IsSplittableEnvOrBodyBoundary` rule 3 keeps cohesive: the Mun->Kerbin crossing sits 13,759 s of coast past the periapsis escape burn, beyond `soiLeadSeconds` and into native warp, and the Kerbin->Minmus arrival is a rails coast - the 'under thrust' both halves of the pair carried for the escape seam asserted rule 3's PHYSICS-frame-burn exception exactly where the profile says the rule applies. V5's rule that a DOUBLE-ENTRY spec owes the tighter pin applies at the arming pass: this lane writes a save mid-run and reads it back through a SECOND scene load."
 instanceProfile = "stock-minimal"
 tags = ["V21", "tracking-station", "loop-arrival", "re-aim", "cross-parent",
         "moon-to-moon", "minmus", "mun", "kerbin", "kerbin-moon", "nested-soi",
@@ -314,10 +337,17 @@ tags = ["V21", "tracking-station", "loop-arrival", "re-aim", "cross-parent",
 # *** IT DOES NOT EXIST YET. *** The same PLANNED `B30-mun-minmus-transfer` harvest
 # V21M walks. **READ V21M's `[fixture]` BLOCK**, which is not restated here so the
 # pair cannot drift: ONE tree, ONE committed recording, zero durable rows, terminal
-# Orbiting at MINMUS, TWO body-change seams (Mun->Kerbin under thrust, Kerbin->Minmus
-# on rails), ~13 ORBIT_SEGMENTs seeded off B26's measured count, CREWED (Jebediah
-# Kerman in the mk1-3pod). **EVERY ONE OF THOSE IS A PREDICTION**, written down so
-# the harvest can falsify it rather than be described after the fact.
+# Orbiting at MINMUS, TWO body-change seams - **BOTH ON RAILS** (the Mun->Kerbin
+# escape crossing sits 13,759 s of coast past the periapsis burn, beyond
+# `soiLeadSeconds` and into native warp, so the vessel is packed when the body
+# changes; the Kerbin->Minmus arrival is a rails coast) - ~13 ORBIT_SEGMENTs seeded
+# off B26's measured count, CREWED (Jebediah Kerman in the mk1-3pod). The
+# "under thrust" both halves of the pair used to carry for the escape seam is
+# corrected in both: `IsSplittableEnvOrBodyBoundary` rule 3 keeps a same-class Exo
+# body change cohesive EXCEPT when a PHYSICS-frame burn crosses it, so writing the
+# seam as thrust-bearing asserted the exception where the profile says the rule
+# applies. **EVERY ONE OF THOSE IS A PREDICTION**, written down so the harvest can
+# falsify it rather than be described after the fact.
 #
 # THE ONE THING THIS LANE CARES ABOUT THAT V21M DOES NOT: **THE PARKED TAIL IS
 # PREDICTED TO BE SEGMENT-LESS.** B30 commits after a capture burn and a
@@ -467,10 +497,22 @@ allowedAnomalies = []
 # restated here so the pair cannot drift. In brief: the (not yet harvested) fixture
 # is PREDICTED to ship ONE `.prec` sidecar, this lane starts no recording of its
 # own, and the count can move only through a LOAD-TIME optimizer split at either of
-# the recording's TWO body-change seams (Mun->Kerbin under thrust, Kerbin->Minmus on
-# rails) or at B30's third candidate, the stage-2 ExoBallistic -> ExoPropulsive ->
-# ExoBallistic sandwich. The load-time walk fires for the FIRST time on this pair's
-# LoadGame, so a split B30's own count never saw can show up here.
+# the recording's TWO body-change seams - **BOTH ON RAILS**, which is the case rule 3
+# keeps cohesive (the Mun->Kerbin escape crossing is 13,759 s of coast past the
+# periapsis burn, so no PHYSICS-frame burn crosses it; the Kerbin->Minmus arrival is a
+# rails coast) - or at B30's third candidate, the stage-2 ExoBallistic ->
+# ExoPropulsive -> ExoBallistic sandwich. The load-time walk fires for the FIRST time
+# on this pair's LoadGame, so a split B30's own count never saw can show up here.
+# **AND THE WINDOW'S COST IS NOT SILENT.** A split at either body-change seam leaves
+# each resulting recording seeing ONE body; `NestedSoiSubtree` then returns null on its
+# `distinct.Count < 2` guard, so the nested-SOI render policy this pair's FLIGHT half
+# reads no longer applies to either piece, and V21M's `bodies=Mun/Kerbin/Minmus` form
+# and its `segIdx=\\d+` shadow pin both go unsatisfiable. This lane's own two TS gates
+# survive a split - they ask only that the dynamic overlap path materialize an instance
+# in a Minmus frame - so the PAIR would report the split as a red on V21M and a green
+# here, which is the diagnostic shape rather than a contradiction. **A GREEN COUNT WITH
+# A RED RENDER PIN IS ITSELF THE READING** (the optimizer split a subject the family has
+# twice measured it keeping cohesive); do not widen the window or the pins to absorb it.
 # => { min = 1, max = 4 }, matching V21M's and B30's. A DERIVED RANGE, not a pin.
 count = { min = 1, max = 4 }
 
@@ -540,7 +582,10 @@ required  = [
 #     SWEEP's surface, not logContracts', and it is handled - by being deliberately
 #     untolerated - in `allowedAnomalies` above.
 #   * **`created 0 ghost vessel(s)` IS NOT CARRIED**, and that is a MEASURED
-#     decision rather than a cautious one (header section 5). V17T RETIRED this
+#     decision rather than a cautious one (header section 5, which also corrects the
+#     claim that `ParsekTrackingStation` is its only emitter - `GhostTrackingStationPatch`'s
+#     `Pre-created {n} ghost vessel(s)` line would be matched as a SUBSTRING by an
+#     unanchored regex, so read that before re-arming this). V17T RETIRED this
 #     forbid at its run-1 re-pin because init-zero is the CORRECT product outcome on
 #     a loop-armed subject whose tail is SEGMENT-LESS: the init walk evaluates the
 #     base recording at the entry epoch, no visibleSegment / terminalOrbit /
@@ -561,9 +606,11 @@ forbidden = [
   # `SetExecResult("REJECTED", null, "backward-jump")`, so a refused jump makes the
   # STEP go unmet and the run driver-INVALID; this token is a redundant grep-stable
   # echo. **AND ON THIS LANE IT IS NEARLY INERT**, because the seeded UT sits ~767 ks
-  # past the fixture's own save epoch - a span error leaves the jump forward and
-  # nothing refuses. What catches a forward jump at the WRONG epoch is the
-  # `body=Minmus scene=TRACKSTATION` pin above (header section 3).
+  # past **ut0** and ~383 ks past the **SAVE EPOCH** the LoadGame lands on (A =
+  # 405,560) - the first cut attributed the 767 ks figure to the save epoch, which is
+  # the wrong baseline by the recording's whole span. A span error leaves the jump
+  # forward against either baseline and nothing refuses. What catches a forward jump at
+  # the WRONG epoch is the `body=Minmus scene=TRACKSTATION` pin above (header 3).
   "timejump refused reason=backward-jump",
   # The S1.6/S1.7 parity pin verbatim: any faithful-parity sample OVER tolerance is a
   # rendered-vs-recorded drift, which is a RENDER defect rather than a reading about
@@ -592,8 +639,17 @@ tombstones    = { max = 0 }
 [runtime]
 # 300 LoadGame + 300 StartLoopPlayback + 300 TimeJump + 300 LoadGame(TS) + 40
 # RecordingState ticks (~10-22 wall s) + the fast non-deferred verbs + KSP boot +
-# collect. The jump is instantaneous, so the ~767 ks of game time it traverses costs
-# no wall clock; V17T's identical 55-step shape measured well inside this budget.
+# collect. TWO ATTRIBUTIONS CORRECTED HERE:
+#   * **V17T IS 54 STEPS, NOT 55** - and so is this lane, so "identical shape" is
+#     right while the count that qualified it was not. V17T's shape measured well
+#     inside this budget.
+#   * **THE GAME TIME TRAVERSED IS ~383 ks, NOT ~767 ks.** The run starts at the
+#     produced save's own UT (A = 405,560) and the single jump lands at 789,023, so
+#     the traversal is 383,463 s. The 767 ks figure is the distance from **ut0**
+#     (21,746), i.e. from where the RECORDING starts rather than from where the
+#     LoadGame lands.
+# The point survives both: the jump is an instantaneous clock set, so whichever
+# baseline is used the traversed game time costs no wall clock.
 budgetSeconds = 2400
 
 [retry]
