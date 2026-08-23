@@ -577,24 +577,50 @@ class SpecArithmeticTests(unittest.TestCase):
         self.spec = _spec()
         self.mp = self.spec["driver"]["missionParams"]
 
-    def test_the_approach_ceiling_is_altitude_legal_at_minmus(self):
-        """Re-run against MINMUS's own table, not Vall's. Note the reading is
-        the OPPOSITE of B26's: at Minmus x100 is legal from 12 km, so the x50
-        clamp is a poll-control choice rather than a legality one - which is
-        what the spec comment says."""
-        limits = mlib.STOCK_WARP_ALTITUDE_LIMITS["Minmus"]
-        self.assertEqual((0.0, 3000.0, 3000.0, 6000.0, 12000.0, 24000.0,
-                          48000.0, 60000.0), limits)
-        approach_cap = self.mp["approachMaxWarpFactor"]
-        flyby_cap = self.mp["flybyMaxWarpFactor"]
-        arrival_floor = self.mp["targetPeriapsisFloorMeters"]
-        self.assertGreaterEqual(arrival_floor, limits[approach_cap])
-        self.assertGreaterEqual(arrival_floor, limits[flyby_cap])
-        # The flyby ceiling was RAISED above B26's, and legality is why it could
-        # be: x100 needs 12 km at Minmus against 40 km at Vall.
-        self.assertEqual(4, flyby_cap)
-        self.assertGreater(limits[4], 0.0)
-        self.assertLess(limits[4], arrival_floor)
+    def test_the_approach_clamp_is_governed_by_KERBINS_table_not_minmuss(self):
+        """**WHICH BODY IS UNDER THE CRAFT WHEN THE CLAMP APPLIES.** An earlier
+        draft of this cell asserted the approach ceiling against MINMUS's table.
+        That is the wrong table: `approach_warp_clamp` is applied in
+        COAST-TO-TARGET while the craft is still in KERBIN's SOI (the latch arms
+        on `next_body == target_body` and arrival RELEASES it), so Kerbin's
+        limits govern and every factor is legal at coast altitude. The
+        conclusion the spec draws - that x50 is a poll-control choice rather
+        than a legality one - survives; its reason did not."""
+        kerbin = mlib.STOCK_WARP_ALTITUDE_LIMITS["Kerbin"]
+        cap = self.mp["approachMaxWarpFactor"]
+        # The coast runs between Mun's and Minmus's orbital radii, i.e. tens of
+        # Mm of Kerbin altitude - far above the top of Kerbin's own table, so
+        # every rails factor is legal and the clamp binds nothing by legality.
+        coast_altitude = A_MUN - R_KERBIN
+        self.assertGreater(coast_altitude, kerbin[-1])
+        self.assertEqual(len(mlib.RAILS_WARP_RATES) - 1,
+                         mlib.max_legal_rails_factor("Kerbin", coast_altitude))
+        self.assertGreater(mlib.RAILS_WARP_RATES[cap], 1.0)
+
+    def test_the_flyby_ceiling_is_INERT_on_a_capture_enabled_lane(self):
+        """`flyby_max_warp_factor` has exactly ONE reader - the rails-stair
+        fallback in the final `else` of the TARGET-FLYBY warp chain - and that
+        chain tests `capture_enabled` FIRST. This lane enables capture, so the
+        stair is unreachable and the whole in-SOI leg is flown by a native warp
+        toward the periapsis clock. The value is kept at B26's 3 rather than
+        raised, because a raise here would be an unearned claim about a path the
+        phase never takes."""
+        self.assertTrue(self.mp["captureEnabled"])
+        self.assertEqual(3, self.mp["flybyMaxWarpFactor"])
+        # `capture_flyby_warp_target` IS the in-SOI policy: it returns a target
+        # bounded by the periapsis clock, and refuses once that clock is past.
+        target = mlib.capture_flyby_warp_target(5000.0, 1000.0)
+        self.assertIsNotNone(target)
+        self.assertLess(target, 1000.0 + 5000.0)
+        self.assertIsNone(mlib.capture_flyby_warp_target(float("nan"), 1000.0))
+
+    def test_the_flyby_floor_is_live_even_though_the_ceiling_is_not(self):
+        """The asymmetry is worth pinning so a future reader does not delete the
+        floor alongside the dead ceiling: `flybyWarpFactor` is consumed as the
+        rails-stair FLOOR in COAST-TO-TARGET, which this lane does reach."""
+        self.assertEqual(2, self.mp["flybyWarpFactor"])
+        self.assertLessEqual(self.mp["flybyWarpFactor"],
+                             self.mp["flybyMaxWarpFactor"])
 
     def test_the_in_soi_stair_is_ordered(self):
         self.assertLessEqual(self.mp["flybyWarpFactor"],
