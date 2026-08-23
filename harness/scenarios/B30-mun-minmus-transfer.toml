@@ -1,0 +1,818 @@
+schema = 1
+id = "B30-mun-minmus-transfer"
+# =====================================================================================
+# B30: MUN -> MINMUS. THE SECOND MOON-TO-MOON TRANSFER, AND IT IS A REPLICATION.
+#
+# The crewed Kerbal X upper stage starts ALREADY PARKED in the 139,612 x 139,526 m
+# Mun orbit B11 delivered, escapes Mun into KERBIN's frame, transfers to MINMUS,
+# captures into a Minmus park and commits the tree there. THE RECORDING IS THE
+# PRODUCT.
+#
+# WHY THIS LANE EXISTS, and it is NOT "a seventh moon". `B26-laythe-vall-transfer`
+# flew the suite's first moon-to-moon hop and `V17M`/`V17T` read its routing: Parsek
+# NEITHER re-aims NOR phase-locks a moon-to-moon recording - it replays it faithfully
+# on the raw cadence (H3). That answer was measured ONCE, at ONE parent, on ONE pair
+# of moons. `docs/dev/research/same-parent-reaim-jool-system.md` section 11.3 states
+# the mechanism as a property of the FLIGHT PROFILE rather than of the pair - "THE
+# MECHANISM IS THE FLIGHT PROFILE'S, NOT THE PAIR'S" - but THAT IS A PREDICTION.
+# Roadmap gap G4 exists to convert it into a measurement at a second parent, and this
+# is that lane's subject.
+#
+# Mun and Minmus ARE sibling moons of Kerbin, so `IsSameParentTarget` classifies a
+# Mun-rooted recording targeting Minmus CROSS-PARENT exactly as it classified
+# Laythe/Vall. The subject therefore also replicates the FAIL-CLOSED NESTED-SOI
+# render policy at a second parent - the trigger is the SIBLING RELATION, not the
+# seam count (`FailClosedClassifier` / `NestedSoiSubtree.FindNestedRoot`).
+#
+# **THIS SPEC ASSERTS NOTHING ABOUT THE ROUTING.** B30 produces the subject; `V21M`
+# and `V21T` read it, carry the hypotheses, and gate on none of them. A DIFFERENT
+# outcome at this parent would be the finding of the lane, and pre-judging it here
+# would destroy that.
+#
+# STATUS: **AUTHORED, NOT YET FLOWN.** Every number below is DERIVED - from the
+# fixture's own bytes, from cited stock constants, and from `mlib`'s own formulas -
+# and nothing is copied from B26. The pre-registered observation targets are written
+# down BEFORE the flight precisely so the post-flight paragraph cannot be written
+# after the fact.
+#
+# =====================================================================================
+# WHAT IS NEW HERE, named so the readings are ATTRIBUTED rather than pooled with B26's
+# =====================================================================================
+#
+# (a) A DIFFERENT PARENT. That is the replication's whole purpose and needs no
+#     further defence. Everything B26 measured at Jool is re-measured at Kerbin.
+#
+# (b) **MINMUS IS INCLINED ~6 deg**, where Laythe and Vall are BOTH coplanar with
+#     Jool's equator (the research doc's section 5.1 walk notes the tilt gate is "a
+#     no-op here ... this is the EASIEST pair in the system for that gate"). So the
+#     stage-2 plan and the capture carry a plane-change cost B26 never paid:
+#         2*v*sin(3 deg) at Mun's orbital radius (12 Mm)   =  71.67 m/s
+#         2*v*sin(3 deg) at the transfer apoapsis (47 Mm)  =  18.30 m/s
+#         2*v*sin(3 deg) to match Minmus's circular speed  =  28.69 m/s
+#     MechJeb's `OperationTransfer` plans a COMBINED manoeuvre, so the term is priced
+#     INSIDE the stage-2 node rather than added beside it, and the derived stage-2
+#     band below already contains it (taken at the cheap end, the apoapsis).
+#     **THE ONE-DIMENSION-AT-A-TIME RULE IS UNAVOIDABLY BENT BY THIS LANE.** It
+#     changes the parent AND adds an inclined target in one step. The honest
+#     consequence, stated before the flight rather than discovered after it: a
+#     stage-2 node materially ABOVE the derived band cannot be attributed to the
+#     parent change alone. It is bent because the alternative - a coplanar sibling
+#     pair under a second parent - DOES NOT EXIST in the stock system; Kerbin has
+#     exactly two moons and one of them is inclined.
+#
+# (c) **THE PARENT ENVELOPE IS 12.9x TIGHTER, AND IT INVERTS THE ESCAPE'S BINDING
+#     CONSTRAINT.** This is the structural difference that makes the lane more than
+#     a parameter swap:
+#         Kerbin SOI / Mun SMA     =  7.01x       Jool SOI / Laythe SMA = 90.35x
+#         Minmus SMA / Kerbin SOI  = 55.8%        Vall SMA / Jool SOI   =  1.8%
+#     The DESTINATION sits over HALF WAY to the parent's SOI edge. So the unaimed
+#     escape's high-energy tail does not merely overshoot the target the way B26's
+#     did - **IT LEAVES THE PARENT SYSTEM**, which is a lane-ending outcome B26 never
+#     had to size against. See THE ESCAPE, below: B26 had to OVER-size its escape
+#     (450 against a 347.245 ideal) to clear a reachability floor; this lane
+#     deliberately UNDER-sizes its escape (110 against a 142.257 ideal) to hold the
+#     Kerbin-escape tail at 0.1% of the unaimed band. Same mode, opposite binding
+#     constraint.
+#
+# (d) TWO CONSEQUENCES OF (c) THAT ARE WORTH WRITING DOWN SEPARATELY, because they
+#     change what the numbers below are sized against rather than merely their values:
+#     * THE SEAM MAGNITUDE IS **WORSE** HERE, not better. The research doc's section
+#       5.2 SOI/SMA table already carries Mun at **20.25%** against Laythe's 13.70%;
+#       Minmus adds 2,247,428.4 / 47,000,000 = **4.78%** against Vall's 5.58%. The
+#       two seam gaps are 2.4296 Mm + 2.2474 Mm = 4.677 Mm. Nothing in THIS spec
+#       gates on that - it is the V21 lanes' problem - but it is why the fail-closed
+#       policy replication is worth having at this pair specifically.
+#     * **MUN AND MINMUS ARE NOT RESONANT.** B26's pair sits in Jool's 1:2:4 chain,
+#       which put P_Vall and the Laythe-Vall synodic 0.6615 s apart and made V17's
+#       two candidate jump tables IDENTICAL on cycle 1. P_Minmus / P_Mun = 7.7513
+#       and synodic / P_Minmus = 0.1481, so THAT CONVENIENCE DOES NOT EXIST HERE and
+#       V21M/V21T's seed calibration is genuinely harder than V17's was. Flagged for
+#       those lanes, not for this one.
+#
+# =====================================================================================
+# THE MODE, INHERITED VERBATIM. No new machinery, and that is the claim.
+# =====================================================================================
+# This lane flies B26's flag-gated PARENT-RELAY mode (`parentRelayTransfer`) exactly
+# as built and live-proven on B26 flight 3 and again on B28. It adds NO code. The
+# ONLY thing `mlib` needed for this lane is one CITED row in `STOCK_BODY_GRAVITY` -
+# Mun's (mu, equatorial radius, SOI radius) triple - and that is the whole diff.
+#
+#   STAGE 1, "ESCAPE": mlib computes ONE PROGRADE node itself, at the park's NEXT
+#   PERIAPSIS, sized so the departure carries `escapeSoiSpeedMps` of relative speed
+#   ACROSS MUN'S SOI BOUNDARY:
+#       r  = R_Mun + periapsis_altitude                (the EXACT burn radius)
+#       a  = R_Mun + (ap_alt + pe_alt) / 2
+#       v  = sqrt(mu * (2/r - 1/a))                    (vis-viva, exact)
+#       dv = sqrt(v_soi^2 + 2*mu*(1/r - 1/r_soi)) - v
+#   kRPC's OWN `Control.add_node` places it - core kRPC, no MechJeb planner - which
+#   is why B26 flight 1's moon-origin refusal cannot recur. The SAME autowarping
+#   NodeExecutor flies it under the SAME watchdogs, and the coast out to Mun's SOI is
+#   the SAME COAST-TO-TARGET leg.
+#
+#   STAGE 2 IS NOT A PHASE. On the first coast frame whose SOI body reads KERBIN, the
+#   machine re-enters PLAN-TRANSFER at `relay_stage 1`, where the plan action is
+#   MechJeb's MOON-path `OperationTransfer` - legal there BY CONSTRUCTION, because
+#   vessel and target then orbit the same body.
+#
+# THE `- 1/r_soi` TERM IS B26 FLIGHT 2's DEFECT-A FIX AND IT IS A PROPERTY OF THE
+# GAME, NOT OF LAYTHE. KSP is a PATCHED-CONIC game: it hands a departing vessel to
+# the parent AT THE SOI BOUNDARY, never at infinity. AT MUN the two references differ
+# by a factor of **2.33** - a 110 m/s ASYMPTOTIC request would deliver
+# `sqrt(110^2 + 2*mu_Mun/r_soi)` = **256.36 m/s** at the boundary - against 3.12x at
+# Laythe. Smaller, because Mun's well is shallower relative to its SOI, but the same
+# defect and the same fix. The sharpest statement of it at this pair: the CORRECTLY
+# sized escape here has a specific energy of **-20,760.8 m^2/s^2**, i.e. it is BOUND
+# and has NO asymptotic excess at all, so the quantity the pre-fix formula aimed at
+# DOES NOT EXIST for this orbit.
+#
+# =====================================================================================
+# THE ESCAPE, AND WHY 110 - the one derivation this lane could not inherit
+# =====================================================================================
+# THE GEOMETRIC FLOOR still exists and still binds from below. `escape_node_plan`
+# REFUSES a request under it BY NAME rather than clamping, so the value must be
+# checked against the WHOLE ENTRY GATE and not just against the fixture:
+#     smallest deliverable SOI speed = sqrt(2*mu*r_p / (r_soi*(r_soi + r_p)))
+#     at the FIXTURE's park (r_p = 339,526.064)          =  81.08 m/s
+#     at the ENTRY GATE's worst corner (round park on the
+#       250,000 m apoapsis ceiling)                      =  91.54 m/s
+# 110 clears the fixture's floor by **35.7%** and the gate's worst corner by
+# **20.2%**, so every park the gate declares legal is actually deliverable. (That
+# coupling is exactly what B26 flight 2's defect-A fix forced it to discover: the
+# floor RISES with the park, so a too-generous ceiling admits parks whose floor sits
+# ABOVE the requested speed and the lane dies in ESCAPE with a correct-but-baffling
+# give-up.)
+#
+# THE CEILING IS NEW, AND IT IS THE PARENT'S SOI. Swept over every v_rel direction
+# and every exit point on Mun's 2.4296 Mm SOI shell (B26's `_band()` method, 28,224
+# samples: 24 exit azimuths x 7 tilts, squared), the delivered KERBIN-frame orbit:
+#
+#   escapeSoiSpeedMps | a_min  | ap_max   | pe_min | ESCAPES KERBIN | sub-atmosphere
+#   ------------------|--------|----------|--------|----------------|---------------
+#      100            | 6.51Mm |  77.66Mm | 3.456Mm|    0  (0.0%)   |   0
+#   ** 110 COMMITTED**| 6.41Mm |  96.37Mm | 3.249Mm|   29  (0.1%)   |   0
+#      120            | 6.31Mm | 125.17Mm | 3.053Mm|  217  (0.8%)   |   0
+#      142.26 (IDEAL) | 6.11Mm | 328.26Mm | 2.653Mm| 1135  (4.0%)   |   0
+#      150            | 6.05Mm | 695.66Mm | 2.525Mm| 1457  (5.2%)   |   0
+#      200            | 5.69Mm | 4011.6Mm | 1.809Mm| 4127 (14.6%)   |   0
+#
+# READ TWO THINGS OFF IT. (1) The SUB-ATMOSPHERE hazard B26's FLOWN (broken) contract
+# had - 5.51 Mm periapsides below Jool's atmosphere top - **DOES NOT EXIST HERE at
+# any tested speed**: the worst periapsis at 110 is 3.249 Mm, 4.85x Kerbin's 670 km
+# atmosphere top. (2) The KERBIN-ESCAPE hazard DOES exist and it is what sets the
+# number. The IDEAL Hohmann excess (142.257) would put 4.0% of the unaimed band OUT
+# OF KERBIN'S SOI ENTIRELY - into the Sun's - which `_b5_coast_bodies` = ("", "Mun",
+# "Kerbin") makes an immediate ASSERT-FAIL. 110 holds it at 0.1% (29 of 28,224) while
+# still clearing the geometric floor by 35.7%.
+#
+# **SO THIS LANE DELIBERATELY UNDER-SIZES ITS ESCAPE RELATIVE TO THE IDEAL, WHICH IS
+# THE EXACT INVERSE OF B26.** B26 could not ask for its ideal 347.245 because the
+# geometry could not deliver below 370.08 and it had to go UP to 450; B30 could ask
+# for its ideal 142.257 and goes DOWN to 110 because the parent's SOI is close. Same
+# mode, opposite binding constraint - and the reason is (c) above.
+#
+# WHAT UNDER-SIZING COSTS, priced rather than waved at: a smaller escape leaves the
+# craft on a Kerbin orbit nearer Mun's own radius, so STAGE 2 pays more of the
+# transfer. Swept over the same 28,224 deliveries (burn at the delivered periapsis to
+# raise apoapsis to Minmus's radius, plus the 6 deg plane change at the transfer
+# apoapsis), the stage-2 node is:
+#     best 18.8 | p25 81.9 | MEDIAN 129.2 | p75 150.8 | worst 186.6 m/s
+# which is CHEAPER than B26's measured 415.46 anyway, because the whole transfer is
+# smaller. The under-sizing is free at this pair.
+#
+# THE ESCAPE IS NOT AIMED, and that is B26's stated v1 limitation inherited verbatim,
+# not an oversight. Aiming it would need the vessel's and Mun's state VECTORS in
+# Kerbin's frame plus an asymptote solve. STAGE 2 RE-PLANS FROM WHEREVER WE ARE.
+#
+# =====================================================================================
+# THE FIVE PRE-REGISTERED OBSERVATION TARGETS, ranked by how likely each is to be
+# what ends the run. Written down BEFORE the flight. Nothing below gates on them.
+# =====================================================================================
+#   (1) **WHAT `OperationTransfer` DOES FROM A KERBIN ORBIT NEAR MUN'S RADIUS.** The
+#       likeliest failure, and the same one B26 flight 2 ranked first. The moon-path
+#       Hohmann has only ever been asked to plan from a ROUND, UNINCLINED park; here
+#       it is asked from an orbit that can be eccentric (a from 6.41 to ~30 Mm across
+#       the band) toward a target inclined 6 deg. If it refuses, `node_count` stays 0,
+#       the plan warning lands in the mission stdout and the lane flakes in
+#       PLAN-TRANSFER - loud and bounded, exactly as B26 flight 1's refusal was.
+#   (2) **THE STAGE-2 NODE DV against the 18.8 / 129.2 / 186.6 band**, and read it
+#       BEFORE reacting to anything else. It is the number that says what the unaimed
+#       escape cost AND it carries the inclination term, so a reading materially above
+#       the band is the (b) attribution problem made concrete rather than a surprise.
+#   (3) **THE ESCAPE NODE ITSELF: it should read 146.93 m/s.** The machine logs
+#       `escape node added ut=... prograde=...` with a read-back and its evidence rides
+#       the `escapedHomeSoi` assertion row. A materially different number means the
+#       fixture's park is not the one this spec sized against. Its post-burn Mun orbit
+#       should read a = 1,568,784 m, **ecc 0.7836** - BOUND, as at Laythe (0.7586) -
+#       with an apoapsis radius of 2,798,042 m, i.e. **15.2% past the SOI**.
+#   (4) **THE DELIVERED KERBIN ORBIT at the stage-2 PLAN-TRANSFER frame**, against the
+#       band's a = 6.41 to ~30 Mm. This is the pass/fail on the escape sizing, and the
+#       one number that would reveal a wrong `STOCK_BODY_GRAVITY` row. **AND CHECK IT
+#       IS STILL BOUND TO KERBIN**: a hyperbolic Kerbin reading is the 0.1% tail, and
+#       it ends the lane by ASSERT-FAIL rather than silently.
+#   (5) **THE OPTIMIZER'S ANSWER AT TWO BODY-CHANGE BOUNDARIES** (Mun->Kerbin under
+#       thrust, Kerbin->Minmus on rails). B26 flight 3 measured BOTH kept cohesive
+#       (count 1, the bottom of its {1,4}) and B28 measured its single escape boundary
+#       kept cohesive too. This is the THIRD data point on an ESCAPE boundary and the
+#       SECOND on a two-seam recording. The load-time pass runs on V21's LoadGame.
+#   (5b) THE DELIVERED ARRIVAL PERIAPSIS against the 250,000 m request - a SIXTH
+#       finding-16d corpus point, at req/SOI 11.12%, essentially the Mun row's 10.29%
+#       and Vall's 10.39%. Expected k ~ 0.5-0.7 -> 125-175 km delivered.
+#
+# =====================================================================================
+# PHASE-0 DOOR: existing fixture, NO FORGE FLIGHT -- via a PARSEK-STRIPPED DERIVED
+# COPY, `mun-park-kerbalx`, the FIFTH of its kind after `duna-park-probe` (B23),
+# `eve-park-kerbalx` (B24), `jool-park-nerv` (B25) and `laythe-park-nerv` (B26/B28).
+# See [fixture].
+#
+# POSTURE: A FIRST-FLIGHT READING LANE. Nothing armed - no `gating = true` block, the
+# recordings window is a DERIVED range, and `[expectations.recordings.structure]` /
+# points are ABSENT (a report-only block of PREDICTED numbers reads like a
+# measurement). `tier = "operator"` on the calibration discipline.
+# =====================================================================================
+tier = "operator"
+description = "**AUTHORED 2026-08-23, NOT YET FLOWN.** THE SECOND MOON-TO-MOON TRANSFER, AND IT IS A REPLICATION: the crewed Kerbal X upper stage starts already parked in the 139,612 x 139,526 m Mun orbit B11 delivered, escapes Mun into KERBIN's frame, transfers to MINMUS, captures into a Minmus park and commits the tree there. Roadmap gap G4. `B26-laythe-vall-transfer` + `V17M`/`V17T` measured the moon-to-moon routing ONCE, at ONE parent: Parsek neither re-aims nor phase-locks a moon-to-moon hop, it replays it faithfully on the raw cadence (H3). The research doc states the mechanism as a property of the FLIGHT PROFILE rather than of the pair ('THE MECHANISM IS THE FLIGHT PROFILE'S, NOT THE PAIR'S', section 11.3) - but that is a PREDICTION, and this lane's subject is what converts it into a measurement at a second parent. Mun and Minmus ARE sibling moons of Kerbin, so `IsSameParentTarget` classifies the recording CROSS-PARENT exactly as it classified Laythe/Vall, AND the subject replicates the FAIL-CLOSED NESTED-SOI render policy at a second parent - the trigger is the SIBLING RELATION, not the seam count. THIS SPEC ASSERTS NOTHING ABOUT THE ROUTING: V21M/V21T read it and gate on nothing. THE MODE IS INHERITED VERBATIM - B26's flag-gated PARENT-RELAY (`parentRelayTransfer`), live-proven on B26 flight 3 and again on B28 - and the ONLY code this lane needed is one CITED row in `mlib.STOCK_BODY_GRAVITY` for Mun. **THREE THINGS ARE GENUINELY NEW AND ARE NAMED SO THE READINGS ARE ATTRIBUTED.** (a) A different parent, which is the replication's purpose. (b) **MINMUS IS INCLINED ~6 deg** where Laythe and Vall are both coplanar with Jool's equator, so the stage-2 plan and the capture carry a plane-change cost B26 never paid - 71.67 m/s if taken at Mun's orbital radius, 18.30 at the transfer apoapsis, 28.69 to match Minmus's circular speed - priced INSIDE the stage-2 node because MechJeb plans a combined manoeuvre. THE ONE-DIMENSION-AT-A-TIME RULE IS UNAVOIDABLY BENT: this lane changes the parent AND adds an inclined target in one step, so a stage-2 node materially above the derived band cannot be attributed to the parent change alone. It is bent because a coplanar sibling pair under a second parent DOES NOT EXIST in the stock system - Kerbin has exactly two moons and one is inclined. (c) **THE PARENT ENVELOPE IS 12.9x TIGHTER AND IT INVERTS THE ESCAPE'S BINDING CONSTRAINT**: Kerbin's SOI is 7.01x Mun's orbital radius where Jool's is 90.35x Laythe's, and Minmus sits at 55.8% of Kerbin's SOI where Vall sits at 1.8% of Jool's - the destination is over half way to the parent's SOI edge, so the unaimed escape's high-energy tail does not merely overshoot, IT LEAVES THE PARENT SYSTEM. B26 had to OVER-size its escape (450 against a 347.245 ideal) to clear a geometric reachability floor; B30 deliberately UNDER-sizes (110 against a 142.257 ideal) to hold the Kerbin-escape tail at 0.1% of the unaimed band. Same mode, opposite binding constraint. EVERY NUMBER IS DERIVED AND NOTHING IS COPIED FROM B26. The escape: geometric floor 81.08 m/s at the fixture's park and 91.54 at the entry gate's worst corner (a round park on the 250,000 m apoapsis ceiling), so 110 clears the fixture by 35.7% and the whole gate by 20.2%; the node comes out at 146.93 m/s leaving a BOUND Mun orbit at ecc 0.7836 whose apoapsis radius sits 15.2% past the SOI, which is why `ejectionEccFloor` stays retired at 0 exactly as at Laythe. The sweep over 28,224 unaimed deliveries (24 exit azimuths x 7 tilts, squared) puts 0.1% outside Kerbin's SOI at 110 against 4.0% at the ideal 142.257 and 14.6% at 200, and finds ZERO sub-atmosphere periapsides at any tested speed - the hazard B26's flown contract had does not exist here, and the one that does is the parent-escape. Stage 2 is then cheaper than B26's anyway (best 18.8 / median 129.2 / worst 186.6 m/s against B26's measured 415.46) because the whole transfer is smaller. THE TIMING NUMBERS ALL MOVED and were re-derived rather than copied: the Mun-Minmus synodic is 159,570.7 s against Laythe-Vall's 105,961.4, the transfer leg is 267,853 s against 38,980 (6.9x), and Minmus's SOI-entry -> periapsis coast is 19,077 s against Vall's ~3,900 (4.6x) - which is what sets correctionTriggerTimeToSoiSeconds = [240000, 30000], flybyTimeoutSeconds, captureBurnTimeoutSeconds and the approach clamp. TWO FURTHER CONSEQUENCES worth carrying to the V21 lanes: the SEAM MAGNITUDE is WORSE at this pair, not better (Mun is 20.25% of its orbit against Laythe's 13.70%, Minmus 4.78% against Vall's 5.58%), and MUN AND MINMUS ARE NOT RESONANT - B26's pair sits in Jool's 1:2:4 chain, which put P_Vall and its synodic 0.6615 s apart and made V17's two candidate jump tables identical on cycle 1, whereas P_Minmus/P_Mun = 7.7513, so V21's seed calibration is genuinely harder. dv LEDGER against the fixture's own bytes: usable propellant 1,317.565 units = 6.5878 t measured off the save, ~1,970-2,280 m/s available at the Poodle's 350 s vacuum Isp over a 7.0-8.5 t dry stack; nominal hop 357.6 m/s (escape 146.93 + stage-2 median 129.2 + capture 81.5) and worst 720.3 m/s with all four correction rounds at the 75 m/s cap - a 2.7-3.2x margin, so the donor covers escape + plane change + capture comfortably and no better donor is needed. FIVE OBSERVATION TARGETS ARE PRE-REGISTERED and ranked, written down before the flight so the post-flight paragraph cannot be written after the fact: (1) what MechJeb's moon-path OperationTransfer does from a Kerbin orbit near Mun's radius toward a 6 deg-inclined target - the likeliest failure and B26 flight 2's own top rank; (2) the stage-2 node against the band, read BEFORE anything else because it carries the inclination term; (3) the escape node against 146.93 m/s and its BOUND ecc 0.7836; (4) the delivered Kerbin orbit against a = 6.41-30 Mm AND whether it is still bound to Kerbin at all; (5) the optimizer's answer at TWO body-change boundaries, the third data point on an ESCAPE boundary after B26 flight 3 and B28 both measured theirs kept cohesive. PHASE-0 DOOR: existing fixture, NO forge flight - `mun-park-kerbalx`, a PARSEK-STRIPPED derived copy of `mun-orbit-recorded` (V6M/V6T's subject, B11's product) and the FIFTH of its kind. The strip removed SEVEN child nodes of FIVE types (RECORDING_TREE, GROUP_HIERARCHY, MILESTONE_STATE x3, KERBAL_SLOTS, CREW_REPLACEMENTS), which is one MORE type than `laythe-park-nerv` needed - the recipe is 'excise every child, whatever they are', and this fixture is the second one to show why that distinction matters. NOTHING ARMED: the count window is a DERIVED range, `[expectations.rewind]` is report-only and no save-structure block exists, because this lane's product is a FIXTURE whose structure is pinned where it is CONSUMED (the B24/B25/B28 disposition verbatim)."
+instanceProfile = "stock-minimal"
+tags = ["B30", "mun", "minmus", "kerbin", "moon-to-moon", "cross-parent", "kerbin-moon",
+        "parent-relay", "replication", "inclined-target", "orbit", "mechjeb", "cross-soi",
+        "capture", "commit-in-foreign-soi", "orbit-start", "interplanetary-path", "crewed"]
+
+[fixture]
+# `mun-park-kerbalx`: a DERIVED, PARSEK-STRIPPED copy of `mun-orbit-recorded` (B11's
+# produced save, and V6M/V6T's subject). NO FORGE FLIGHT was spent on it - it is a
+# transform of committed bytes, the FIFTH of its kind after `duna-park-probe` (B23),
+# `eve-park-kerbalx` (B24), `jool-park-nerv` (B25) and `laythe-park-nerv` (B26/B28).
+#
+# THE WORLD, unchanged from the source and MEASURED off this save's own bytes: at
+# UT 21,745.960307940506 the Kerbal X upper stage sits parked ORBITING Mun (REF = 2) -
+#   SMA 339,568.96811189735   ECC 0.00012634901315221596
+#   INC 0.76518295858058083 deg   LAN 58.882069515979879
+#   periapsis alt 139,526.064 m   apoapsis alt 139,611.872 m   period 4,871.395 s
+#   type Ship, CREWED (Jebediah Kerman, Pilot, in the mk1-3pod), Poodle stage
+#   (liquidEngine2-2.v2 on a Rockomax16.BW), LiquidFuel 592.90425646695473/720 +
+#   Oxidizer 724.66075042198247/880 = 1,317.565 units = 2.674 t + 3.913 t = 6.5878 t
+#   usable (the 9:11 mix is exact here, so both tanks empty together), ~1,970-2,280
+#   m/s of dv, Ablator still 400/800
+# `activeVessel = 1` IS that stage. RIDE-ALONG AND INERT: the stock asteroid
+# Ast. MII-526 in Kerbin orbit and SIX `Kerbal X Debris` vessels (five LANDED on
+# Kerbin, one SUB_ORBITAL), all carried unchanged from B11's ascent.
+#
+# HOW IT WAS MADE, the now-standard two steps:
+#   (1) harvest_bdock_station.py --save-dir fixtures/saves/mun-orbit-recorded
+#       --target-name mun-park-kerbalx --expect-situation ORBITING
+#       WITHOUT --keep-parsek, so the `Parsek/` sidecar directory is pruned.
+#   (2) A MANUAL, BRACE-BALANCED EXCISION of the residual ParsekScenario CHILDREN.
+#   SEVEN CHILD NODES OF **FIVE** TYPES WERE REMOVED - `RECORDING_TREE` (1),
+#   `GROUP_HIERARCHY` (1), `MILESTONE_STATE` (3), `KERBAL_SLOTS` (1) and
+#   `CREW_REPLACEMENTS` (1). NOTE THE DIFFERENCE FROM `laythe-park-nerv`, which
+#   removed FIVE nodes of FOUR types and had NO `GROUP_HIERARCHY` at all: B25's tree
+#   was a single standalone recording with no debris subgroup to nest, whereas B11's
+#   ascent shed SEVEN debris recordings into a `Kerbal X / Debris` subgroup, so the
+#   hierarchy node exists here and there are THREE milestone rows rather than two.
+#   **THE RECIPE IS "EXCISE EVERY CHILD, WHATEVER THEY ARE" - not "excise these five
+#   names" - and this is the SECOND fixture to demonstrate why that distinction
+#   matters** (laythe-park-nerv was the first, in the other direction).
+#   The node now carries only name / scene / missionHideArchived /
+#   gameStateEventCount. ZERO `.prec` sidecars, ZERO committed trees; `saveparse`
+#   reads `parsed=True scenario_found=True trees=() supersedes=() tombstones=()
+#   rewind_retirements=() rewind_points=()`. Brace balance verified (1,887 / 1,887).
+#
+# The source has no `Ships/VAB`, so the harvest dropped nothing: this mission never
+# launches anything, needs NO `fixtures/shared-ships.toml` row, and gets none.
+#
+# WHY A DERIVED COPY RATHER THAN THE SOURCE. `mun-orbit-recorded` carries a COMMITTED
+# TREE for this very vessel, and a seam StartRecording cannot open a standalone tree
+# on a committed tree's own launch - it no-ops onto the recording the
+# committed-restore path re-resumes (MEASURED, B23 flight 1;
+# docs/dev/todo-and-known-bugs.md -> SEAM-STARTRECORDING-JOINS-COMMITTED-TREE). It
+# also DECOUPLES this lane from V6M/V6T, which read `mun-orbit-recorded` and whose
+# jump UTs are calibrated off its exact bytes: nothing here touches that fixture, its
+# tree id `d18969d6121444c1a30e4a55ae87a442`, or any V6 pin.
+saveTemplate       = "fixtures/saves/mun-park-kerbalx"
+injectedRecordings = "none"
+craft              = []
+
+[driver]
+kind    = "autopilot"
+mission = "b30_mun_minmus"
+
+# `steps` MUST stay in the [driver] table, ABOVE the [driver.missionParams] header.
+# The scene-entry preamble is the B23/B24/B25/B26 shape verbatim; read B25's header
+# for why the StopRecording/DiscardTree pair is not a latch and why the FIXTURE is
+# what actually closes the committed-restore window.
+#
+# ONE commit, MID-MISSION (ORBIT-COMMIT), and NO post-mission CommitTree.
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" },   expect = "OK", budget = 300 },
+  { cmd = "StopRecording",                                                     expect = "OK" },
+  { cmd = "DiscardTree",                                                       expect = "OK" },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "verboseLogging",     value = "true" }, expect = "OK" },
+  { cmd = "StartRecording",                                                    expect = "OK" },
+  { phase = "mission",  expect = "MISSION-OK", budget = 7200 },
+  { cmd = "FlushAndQuit",                                                      expect = "OK" },
+]
+
+# Every value below is a tolerance / threshold / budget, never a golden trajectory
+# (validated against b30_mun_minmus.schema.toml). Phase budgets are GAME seconds
+# unless a comment says otherwise.
+[driver.missionParams]
+# --- ORBIT-START: the entry door and its gate --------------------------------
+# The four ASCENT keys and the two ascent budgets are DELIBERATELY ABSENT (the schema
+# demotes all six to optional for this lane): PRELAUNCH hands straight to the ORBIT
+# waypoint and no ascent is ever flown.
+startInOrbit                    = true
+# THE GATE, stated against the fixture's MEASURED Mun park (periapsis alt 139,526.1 m,
+# apoapsis alt 139,611.9 m, ecc 0.000126):
+#   periapsis floor 100,000 m - Mun has NO ATMOSPHERE, so unlike B25/B26 this floor is
+#     not an air-clearance line; its job is to say "the fixture is the one this spec
+#     sized against". It sits 39,526 m below the measured periapsis and is 14x Mun's
+#     ~7,061 m highest terrain.
+#   apoapsis ceiling 250,000 m - AND IT IS THE CORNER THAT SETS THE ESCAPE FLOOR, which
+#     is why it is a derived number rather than a round one. The smallest deliverable
+#     SOI speed RISES with the park; swept over this gate, its worst corner (a CIRCULAR
+#     park sitting on the ceiling) needs **91.54 m/s**, which the committed
+#     `escapeSoiSpeedMps` of 110 clears by 20.2%. THE BREAK-EVEN IS A ROUND PARK ON A
+#     **~508,000 m** CEILING, where the floor reaches exactly 110.00; above that
+#     `escape_node_plan` would REFUSE a park this gate declared legal and the lane
+#     would die in ESCAPE with a correct-but-baffling give-up. So 250,000 is NOT the
+#     last safe value - it is a deliberate 2x margin on the one coupling that cost B26
+#     a flight, applied BEFORE a flight instead of after one. (For the record on the
+#     way up: 300,000 needs 95.67, 400,000 needs 103.05 and 500,000 needs 109.52 - all
+#     still deliverable, which is the honest shape of the curve rather than a cliff at
+#     the committed value.) 250,000 is still
+#     1.79x the measured ~139.6 km, and 450,000 m of RADIUS = 18.5% of Mun's
+#     2,429,559.1 m SOI radius, so a park that had drifted out toward the shell is
+#     still refused. A STRICTLY POSITIVE apoapsis is required regardless (a hyperbolic
+#     reading is negative), which is the actual still-bound evidence.
+#   eccentricity ceiling 0.05 - the B23/B24/B25 family value, NOT B26's widened 0.10.
+#     B26 widened because ITS park was the delivered product of a finite capture burn
+#     and read 0.0277, which 0.05 would have admitted at only 1.8x. THIS park is a
+#     MechJeb circularization product and reads 0.000126, so 0.05 admits it 396x over.
+#     The sma-vs-radius sizing error the wider ceiling was arguing about is retired on
+#     a relay lane anyway - the escape node is sized by vis-viva AT THE PERIAPSIS
+#     RADIUS IT IS APPLIED AT - so the ceiling's only remaining job is to say the
+#     fixture is the one this spec sized, and the family value does that.
+startInOrbitMinPeriapsisMeters  = 100000
+startInOrbitMaxApoapsisMeters   = 250000
+startInOrbitMaxEccentricity     = 0.05
+startInOrbitSituations          = ["ORBITING"]
+startInOrbitDebounceFrames      = 3
+startInOrbitSettleSeconds       = 120
+
+# --- Transfer: the PARENT-RELAY, over the interplanetary path ----------------
+homeBodyName               = "Mun"
+targetBodyName             = "Minmus"
+# STAYS ON, AND IT IS NOT VESTIGIAL. The relay does not replace this flag; it rides
+# it. Two live decisions read `interplanetary_transfer` on this lane and both are
+# still wanted: `_b5_correction_via_bodies` narrows the correction domain to
+# `("Kerbin",)` only when it is set, and the stage-1 burn-done branch is the
+# interplanetary evidence path. `mlib.b5_params_from_dict` REJECTS a spec that arms
+# the relay without it.
+interplanetaryTransfer     = true
+
+# THE PARENT-RELAY BLOCK. Read THE ESCAPE in the header before changing any value.
+parentRelayTransfer        = true
+# The relative speed the escape carries ACROSS MUN'S SOI BOUNDARY - which is where
+# KSP's patched conic hands the vessel to Kerbin, and therefore the only departure
+# quantity this mode can aim at. NOT an asymptotic excess: at Mun a 110 m/s asymptotic
+# request would deliver 256.36 m/s at the boundary (2.33x), and mlib REJECTS the
+# retired `escapeTargetVInfMps` key by name.
+#
+# WHY 110 AND NOT THE IDEAL 142.257 - and this is the ONE derivation this lane could
+# not inherit from B26, because the binding constraint is INVERTED. Full sweep in the
+# header. In one line: the geometric floor binds from below at 81.08 m/s (fixture) /
+# 91.54 (the gate's worst corner), and KERBIN'S OWN SOI binds from above, because
+# Minmus sits at 55.8% of it. At 110 the unaimed band puts 0.1% of its deliveries
+# outside Kerbin's SOI; at the ideal 142.257 it is 4.0%, and `_b5_coast_bodies` makes
+# a Sun-SOI entry an immediate ASSERT-FAIL. 110 clears the whole entry gate by 20.2%
+# and costs nothing, because stage 2 is cheap at this pair anyway (median 129.2 m/s
+# against B26's measured 415.46). The node comes out at **146.93 m/s**.
+escapeSoiSpeedMps          = 110
+# SANITY CAP on the COMPUTED node, and the ONLY guard against a wrong
+# `STOCK_BODY_GRAVITY` row or a fixture parked somewhere this spec did not size for.
+# The node comes out at **146.93 m/s** against the fixture's measured park. IT IS
+# SIZED AGAINST THE WHOLE ENTRY GATE, not against the fixture alone: swept over the
+# gate's admissible window (pe >= 100,000 m, 0 < ap <= 250,000 m, ecc <= 0.05) the
+# node's maximum is **160.72 m/s**, at the CIRCULAR park sitting on the periapsis
+# floor - an eccentric park is faster at periapsis and therefore cheaper to escape
+# from, so the expensive corner is the round low one. 185 is 15.1% above that corner
+# and 25.9% above the fixture, narrow enough that a 10x error or a wrong-body mu is
+# REFUSED with a named reason instead of flown.
+escapeMaxDeltaVMps         = 185
+# The NodeExecutor autowarps to the node and holds a 1x WARPALIGN before ignition, so
+# a node a few seconds ahead is a node it cannot fly. 300 game s is 6.2% of the park's
+# own 4,871.4 s period, so at most one extra orbit of waiting is ever bought (the
+# planner adds ONE period when the next periapsis is closer than this), and it is half
+# of MechJeb's own ~600 s pre-ignition hold.
+escapeNodeMinLeadSeconds   = 300
+# ESCAPE budget (GAME s). It bounds PLANNING ONLY - the burn is TRANSFER-BURN's and
+# the coast to the SOI exit is COAST-TO-TARGET's - so the quantity to cover is "one
+# park period of unreadable telemetry plus the bounded re-plan cadence". 6,000 is 1.23
+# park periods (B26's 2,400 was 1.24 of its shorter 1,941 s period) and 600 wall s at
+# the 10x plan hold. Expiry is a give-up NAMING the refused reading (`escape-node
+# never computable: ...`), not the generic phase timeout.
+escapeTimeoutSeconds       = 6000
+# THE TRANSFER FRAME. B26's was "Jool"; this is the same relation one system in. It is
+# read in three places and each matters: the TARGET-FLYBY multi-hop assert's accepted
+# body set ({Minmus, Kerbin} and nothing else), the RETURN terminal, and
+# `_b5_correction_via_bodies`, which narrows the correction domain to exactly
+# `("Kerbin",)`.
+returnBodyName             = "Kerbin"
+# The SOI the coast legitimately operates in. `_b5_coast_bodies` is
+# `("", home) + via` = `("", "Mun", "Kerbin")`, so a SUN entry - the 0.1% tail of the
+# unaimed escape band - is an immediate ASSERT-FAIL, which is the behaviour to keep
+# and is the machine-side mirror of the forbidden tokens below. It must contain
+# `returnBodyName` for `_b5_correction_via_bodies`' documented subset precondition to
+# hold; here the two are the same body, so the narrowing is an identity.
+viaBodyNames               = ["Kerbin"]
+# **RETIRED ON THIS LANE FOR THE SAME ARITHMETIC REASON AS AT LAYTHE.** Reaching a SOI
+# boundary does not require ESCAPING - it requires an APOAPSIS at or past it. The
+# committed `escapeSoiSpeedMps` of 110 produces a Mun orbit of ecc **0.7836** whose
+# apoapsis radius is 2,798,042 m, **15.2% past** the 2,429,559.1 m SOI. Demanding
+# ecc > 1 would force the PARABOLIC burn instead and dump far more than 110 m/s
+# across the boundary, which is most of the way back to the Kerbin-escape tail this
+# spec's whole escape derivation exists to avoid.
+#
+# SO THE STAGE-1 EVIDENCE IS `_relay_escape_burn_done`: already left the home SOI, OR
+# a negative (genuinely hyperbolic) home-frame apoapsis, OR a home-frame apoapsis
+# RADIUS at/past the SOI. It needs no spec value - the machine reads the SOI radius
+# from `STOCK_BODY_GRAVITY`. This key is kept present at 0 for schema symmetry (B15's
+# disposition) and is NOT READ on a relay lane. DO NOT set it back to 1.001.
+ejectionEccFloor           = 0
+# STAGE-2 burn-done evidence, read in KERBIN's frame. THE VALUE IS DERIVED, NOT
+# CHOSEN. Minmus's orbit is 47,000,000 m from Kerbin's centre; kRPC reports apoapsis
+# as an ALTITUDE above Kerbin's 600,000 m surface, so an orbit that reaches Minmus
+# reads **46,400,000 m** or more - and it must, because apoapsis is by definition at
+# least the radius of any point the orbit passes through. 45,000,000 sits 1,400,000 m
+# (3.02%) under that, which is slack for reading noise and for a transfer whose
+# intercept MechJeb places a hair inside, and **33.6 Mm ABOVE** the 11,400,000 m
+# altitude an un-escaped orbit at Mun's own radius reads - so it discriminates cleanly
+# in both directions.
+#
+# Without it stage 2 would have no evidence at all: at stage 2 the craft is inside a
+# via body's SOI, so the ecc branch's left-the-home-SOI early return fires
+# unconditionally and the exit would collapse to "a node was consumed".
+transferMinApoapsisMeters  = 45000000
+# Requested Minmus periapsis ALTITUDE for the course corrections.
+#
+# THE CORPUS (docs/dev/todo-and-known-bugs.md ->
+# FINDING-16D-MISCITED-DIRECTION-AND-DENOMINATOR) sorts k = delivered/requested by
+# `req/SOI` and shows the bias inverting above ~4%. Against Minmus's 2,247,428.4 m
+# SOI, 250,000 m is **11.12%** - essentially the Mun row (10.29%, k = 0.545-0.563) and
+# B26's Vall point (10.39%, k = 0.675 measured). Applying that band here:
+#   k 0.55 -> 137.5 km delivered      k 0.675 -> 168.8 km delivered
+# both comfortably above the 20,000 m assertion floor and inside the park window.
+#   3x SHORT of the low end -> ~46 km: still 2.3x ABOVE the 20 km floor (Minmus's
+#     terrain reaches ~5.7 km, so even that is 8x clear of the ground).
+#   3x LONG of the high end -> ~506 km = 566 km radius = 25.2% of the SOI radius.
+#     Still an encounter, still inside the park window below.
+# NOTE B12/B6's Minmus point is NOT a counter-example: it requested 20,000 m
+# (req/SOI 0.89%, an order of magnitude lower) and delivered 512 km, which is the
+# corpus's low-req/SOI regime where k >> 1. Different regime, same body.
+courseCorrectPeriapsisMeters = 250000
+# TIME-TO-SOI mode, RE-SIZED FOR A 267,853 s LEG rather than copied. B26's list is
+# [35,000; 8,000], sized against a 38,980 s leg; ours is 6.9x longer, so a copied list
+# would fire BOTH rounds in the last 13% of the coast with nothing left for
+# mid-course - the B15-flight-5 failure SHAPE reached by a different route.
+#   240,000  round 0, which fires shortly after the STAGE-2 BURN (the leg is 267,853 s
+#            at the Hohmann geometry, so tts is ~268,000 when the transfer node is
+#            consumed): fix the transfer error while there is still coast to fix it in.
+#            **THE RELAY MAKES THIS SAFER, NOT RISKIER, AND THE ORDERING IS WHY.** The
+#            stage-2 hand-off is checked in COAST-TO-TARGET *before* the correction
+#            block, so the Kerbin-SOI frames that precede it - which satisfy every
+#            condition of the no-encounter early trigger, having no node and no
+#            encounter by construction - can never spend a round course-correcting a
+#            transfer that has not been planned yet.
+#   30,000   round 1, ~8.3 game hours before arrival. Chosen to sit ABOVE both the
+#            **19,077 s** SOI-entry -> periapsis coast (4.6x Vall's, because Minmus's
+#            mu is tiny and its SOI is large) and the hardcoded
+#            `ARRIVAL_RECORRECT_MAX_TTS_SECONDS = 3,600`, so the scheduled round and
+#            the arrival-quality extras cannot collide. It clears the coast by 57%.
+# The ALTITUDE list stays empty: a non-empty time list SELECTS time mode and
+# supersedes it.
+correctionTriggerTimeToSoiSeconds = [240000, 30000]
+correctionTriggerAltsMeters       = []
+planTimeoutSeconds         = 300
+planRetrySeconds           = 10
+planWarpFactor             = 2
+# TRANSFER-BURN budget (GAME s), covering TWO passes through the same phase:
+#   STAGE 1  the escape node sits at most one park period + the min lead ahead
+#            (4,871 + 300 = 5,171 game s), then ~8 s of burn.
+#   STAGE 2  MechJeb's targeted intercept can wait for its window, at most one
+#            synodic (159,570.7 s) ahead.
+# 1,000,000 is 6.3 synodics - a SLOW bound; the stagnation / no-start / under-burn
+# watchdogs bound BROKEN, and the budget re-anchors on each phase entry so the two
+# passes do not share it.
+transferBurnTimeoutSeconds = 1000000
+# COAST-TO-TARGET budget (GAME s) against a 267,853.4 s Hohmann leg. 3,000,000 is
+# ~11x it, sized to cover a missed first intercept plus the synodic wait for the next
+# window (159,571 + 267,853 = 427,424 per attempt, so this admits ~7).
+coastTimeoutSeconds        = 3000000
+# TARGET-FLYBY budget (GAME s) against the 19,077 s SOI-entry -> periapsis coast:
+# ~15.7x it. B26's was 60,000 against a 4,149 s coast (14x); the RATIO is what carried
+# over, not the number.
+flybyTimeoutSeconds        = 300000
+# THE WARP BLOCK - full derivation in the header. Every value re-derived against
+# Minmus's own altitude table (`mlib.STOCK_WARP_ALTITUDE_LIMITS["Minmus"]` =
+# (0, 3000, 3000, 6000, 12000, 24000, 48000, 60000)) rather than Vall's.
+coastWarpFactor            = 5
+soiLeadSeconds             = 3000
+# 2x B26's window for a 6.9x longer leg. At the x50 cap this costs 400 wall s.
+approachWindowSeconds      = 20000
+# x50. **AND NOTE THIS IS A POLL-CONTROL CHOICE HERE, NOT A LEGALITY ONE** - which is
+# the opposite of B26, whose comment could lean on Vall's table making x100 illegal
+# below 40 km. Minmus's table makes x100 legal above 12,000 m, and the whole approach
+# runs far above that, so nothing but the machine's own poll cadence argues for the
+# clamp. Kept at x50 anyway on a first flight: the in-SOI coast that follows is
+# 19,077 s and the cost of being wrong about it is a swallowed periapsis.
+approachMaxWarpFactor      = 3
+flybyWarpFactor            = 2
+# x100 - **RAISED FROM B26's x50**, and the reason is arithmetic. The in-SOI coast is
+# 19,077 s against Vall's ~4,000, so at B26's ceiling this leg would cost 382 wall s
+# instead of 80; at x100 it costs 191. Minmus's altitude table permits x100 above
+# 12,000 m and the approach descends from a 2,187,428 m SOI shell to a ~140 km
+# periapsis, so the ceiling is legal throughout. `capture_flyby_warp_target` still
+# bounds the warp by the periapsis clock, which is what actually protects the arrival.
+flybyMaxWarpFactor         = 4
+nodeArrivalMarginSeconds   = 15
+flipPhysicsWarpFactor      = 1
+# Min-altitude floor across the WHOLE in-SOI stay. Minmus has NO ATMOSPHERE and its
+# terrain reaches ~5,700 m (B12's measured value); 20,000 clears it by 3.5x. Its job
+# is to catch a trajectory heading INTO THE GROUND, not to certify the park (B23's
+# rule, and B25's flight 1 is the standing demonstration of what happens when a floor
+# is written near the hoped-for park).
+#
+# AND IT IS DELIBERATELY **NOT** EQUAL TO `parkMinPeriapsisMeters` - the B25/B26
+# convention. B25 measured a systematic finite-burn wedge between the arrival
+# periapsis and the delivered park periapsis. THE WEDGE HERE SHOULD BE VERY SMALL -
+# the Minmus capture is ~82 m/s on a ~8 t stack at the Poodle's 250 kN, i.e. a **~3 s**
+# burn against a park period of hours - but "very small" is a prediction, not a
+# measurement, so the park floor sits 10 km below this one rather than equal to it.
+targetPeriapsisFloorMeters = 20000
+
+# --- Capture + Minmus park + commit (the B11/B12 tail) ----------------------
+captureEnabled             = true
+capturePlanTimeoutSeconds  = 300
+# CAPTURE-BURN budget (GAME s): the executor autowarps the SOI-entry -> periapsis
+# coast (19,077 s) and MechJeb's own 1x pre-ignition WARPALIGN hold is ~600 game s of
+# it. 250,000 is ~12.7x that ~19,700 s total. (B12 used 200,000 for the same body
+# reached from Kerbin; the coast is the same order and the ratio is the same.)
+captureBurnTimeoutSeconds  = 250000
+# THE CAPTURE WINDOW (also the PARK gate). Minmus's SOI is 2,247,428.4 m from the
+# CENTRE and its radius is 60,000 m, so the shell is 2,187,428.4 m of ALTITUDE.
+#   parkMinPeriapsisMeters  10,000 m - B12's LIVE-PROVEN Minmus value, 1.75x Minmus's
+#     ~5.7 km terrain, and 10,000 m below the arrival floor to absorb the (predicted
+#     very small) finite-burn wedge without redding a healthy park.
+#   parkMaxApoapsisMeters   800,000 m - LOAD-BEARING TWICE. (1) A hyperbolic
+#     (uncaptured) approach reads a NEGATIVE apoapsis in the Minmus frame, so
+#     "0 < ap <= 800,000" is the actually-captured evidence. (2) It must ADMIT the
+#     corrected-arrival spread: a 3x-long draw off the high end of the k band lands
+#     near 506 km, so a tighter ceiling would red a good flight. 800,000 m altitude =
+#     860,000 m radius = 38.3% of the SOI radius, durably inside. (B12's 1,500,000
+#     was sized for a Kerbin-origin arrival that delivered 512 km at a 20 km request;
+#     this lane requests 250 km in the k < 1 regime, so the ceiling can be tighter.)
+#   parkMaxEccentricity     0.25     - B11's value.
+parkMinPeriapsisMeters     = 10000
+parkMaxApoapsisMeters      = 800000
+parkMaxEccentricity        = 0.25
+parkMaxAngularVelocityRadPerSec = 0.05
+parkSituations             = ["ORBITING"]
+parkDwellSeconds           = 180
+parkDebounceFrames         = 3
+parkTimeoutSeconds         = 600
+commitTimeoutSeconds       = 300
+
+# --- Shared machine housekeeping ---------------------------------------------
+# SIZING NOTE, AND IT IS THE ONE PLACE THIS LANE IS QUALITATIVELY UNLIKE B26: the
+# Poodle is 250 kN on a ~14.0 t stack falling to ~7.4 t, i.e. 17.9 -> 33.8 m/s^2.
+# THREE burns, ALL SHORT:
+#   escape     146.9 m/s at 17.9 m/s^2   ~8 s
+#   stage 2   18.8-186.6 m/s at ~20      ~1-9 s
+#   capture     81.5 m/s at ~31          ~3 s
+# B26's were 96 / 51-103 / 54 s. All three are comfortably inside the proven watchdog
+# defaults, since `burnStagnantSeconds` only starts counting after the apsides STOP
+# moving and `burnNoStartSeconds` only while the orbit is UNCHANGED - but note the
+# consequence for OBSERVATION rather than for the watchdogs: a ~3 s capture burn
+# cannot be confirmed by watching apsides move, which is exactly why
+# `read_node_executor` is a hard requirement on this lane (see the mission shell).
+burnStagnantSeconds        = 120
+burnNoStartSeconds         = 600
+correctionThrottle         = 0.25
+correctionCutDvMps         = 2.0
+correctionSettleSeconds    = 10
+maxAttitudeErrorDeg        = 30
+frozenTelemetrySamples     = 10
+# dv cap (m/s) an acceptable course-correction plan must fit under.
+#   THE MARGIN RULE: up to FOUR rounds can fire (the two this spec schedules plus
+#     mlib's two `MAX_ARRIVAL_EXTRA_ROUNDS` arrival-quality extras). At 75 the worst
+#     correction spend is 300, and the worst hop becomes 146.93 + 186.6 + 300 + 86.75
+#     = **720.3 m/s** against ~1,970-2,280 available - a 2.7-3.2x margin. B26 had to squeeze here
+#     (622.5 m/s of margin forced its cap down to 100); this lane does not.
+#   THE B15 RULE: 75 is 2.5x below the worst-case stage-2 transfer it refines (186.6)
+#     and 1.7x below the median (129.2). Thinner in RATIO than B26's 9x, but that is
+#     a property of a small transfer rather than a loose cap - the absolute number is
+#     25% smaller than B26's.
+#   THE B20 LESSON pulls the other way (an under-sized cap DISCARDED the
+#     encounter-creating correction and cost two INVALID attempts), and it is why this
+#     is 75 rather than B24's 50. It bites LESS here than on B20: under the relay the
+#     encounter is created by MechJeb's own targeted `OperationTransfer` at stage 2,
+#     so a correction round is a refinement of an existing encounter rather than the
+#     thing that makes one.
+#   IF FLIGHT 1 SHOWS A CORRECTION DISCARDED AT THIS CAP AND THE ENCOUNTER LOST, read
+#     the stage-2 node dv FIRST: a correction that big means the escape's asymptote
+#     came out badly aimed, and the answer is either aiming it (the v1 limitation) or
+#     admitting a larger hop - not raising the cap blind.
+maxCorrectionDvMps         = 75
+
+# CLAIM-IS-NOT-GATE.
+#   D1 commit-in-foreign-soi   gated by the terminalOrbitBody=Minmus commit token.
+#   D14 mun / minmus           `mun` by the `Mun to Kerbin` escape token, `minmus` by
+#       `Kerbin to Minmus` plus the commit terminal-body token.
+#   D14 kerbin                 gated by BOTH SOI tokens naming it - this lane spends
+#       its whole coast in Kerbin's SOI as a TRANSFER FRAME, which no prior lane's
+#       contract has claimed (every other Kerbin claim is a launch or a return).
+#   D14 warp-rails             the machine cannot complete without it.
+#   D14 scene-flight / sandbox the environment axes.
+#
+# NOT claimed, deliberately:
+#   D1 auto-record-launch  - there is no launch.
+#   D11 anything           - THE ROUTING IS NOT THIS LANE'S CLAIM. B30 produces the
+#       subject; V21M/V21T read it and claim (or decline) the cells.
+#   D14 soi-count, warp-high - nothing here gates either.
+[dimensionsCovered]
+D1  = ["commit-in-foreign-soi"]
+D14 = ["mun", "minmus", "kerbin", "warp-rails", "scene-flight", "sandbox"]
+
+[expectations]
+# PLACEMENT IS LOAD-BEARING: allowedAnomalies must precede every
+# [expectations.<sub>] header.
+allowedAnomalies = []
+
+[expectations.recordings]
+# THE ARITHMETIC, over the PARSEK-STRIPPED fixture.
+#   +0  the fixture. `mun-park-kerbalx` has no `Parsek/` directory at all, so it ships
+#       ZERO `.prec` and ZERO committed trees by construction. (The SOURCE
+#       `mun-orbit-recorded` ships EIGHT - one main plus seven debris - so a failed
+#       strip would be loud here, unlike on B26 where the source shipped one.)
+#   +1  THIS lane's product: the stack flies the whole hop as one piece; there is no
+#       staging event anywhere in the profile.
+#   = 1 EXPECTED.
+#   +1  HEADROOM for an optimizer split at EITHER of the recording's TWO body-change
+#       seams (Mun->Kerbin under thrust, Kerbin->Minmus on rails). B26 flight 3
+#       measured BOTH of its kept cohesive and B28 measured its single escape boundary
+#       kept cohesive, so the expectation is 1 - but two data points on an escape
+#       boundary is not a rule, and a count of 2 or 3 here is a READING, not a defect.
+#   +1  A THIRD BOUNDARY CANDIDATE THE RELAY ADDS: the stage-2 transfer burn is a
+#       PROPULSIVE run in the MIDDLE of the Kerbin coast, i.e. an ExoBallistic ->
+#       ExoPropulsive -> ExoBallistic sandwich with no body change - which section 3's
+#       rule 6 would split on, and which rule 7's graze collapse should then SUPPRESS,
+#       because the run is **1-9 s** long against `BriefSectionMaxSeconds = 120`.
+#       **THAT SUPPRESSION IS FAR SAFER HERE THAN ON B26**, whose two propulsive runs
+#       (127 s escape, 51-103 s stage 2) sat on OPPOSITE sides of the 120 s line. All
+#       three of this lane's burns are under 10 s, so all three should collapse. The
+#       window admits the alternative reading rather than redding it.
+# => { min = 1, max = 4 }, a DERIVED RANGE and NOT A PIN, matching B26's own window.
+#
+# THE COUNT IS COMMIT-BLIND (the standing note): sidecars are written for the active
+# uncommitted tree too, so this window guards recording TOPOLOGY only and is NOT
+# evidence that the commit ran. The commit is guarded by the tokens below.
+count = { min = 1, max = 4 }
+
+[expectations.logContracts]
+#   "Recording started" / "Recording stopped" - the standing lifecycle floor. It
+#       proves a recording exists, NOT that this lane opened one (B23 flight 1
+#       measured all five of its `Recording started` lines coming from the
+#       committed-restore promotion path while the seam answered `already=true`).
+#       What it does not cover is covered by the FIXTURE.
+#   "SOI change boundary suppressed in tree mode: Mun to Kerbin" - the ESCAPE. This is
+#       the token that proves the ejection actually happened rather than the craft
+#       sitting in its start park.
+#   "SOI change boundary suppressed in tree mode: Kerbin to Minmus" - the ARRIVAL.
+#       Together the two are the only evidence that the coast really ran in Kerbin's
+#       frame as a TRANSFER frame; a lane that somehow reached Minmus without the
+#       first token would have done something this spec does not describe.
+#   "CommitTreeFlight: starting tree commit at UT=" - the commit path was entered.
+#   "CommitTreeFlight terminal: rec=\\w+ terminalState=Orbiting
+#       terminalOrbitBody=Minmus" - the headline claim's only real evidence:
+#       "starting tree commit at UT=" is logged unconditionally, so before this token
+#       a tree that ended around MUN or KERBIN would produce byte-identical evidence
+#       to one that ended around MINMUS.
+#
+# FORBIDDEN is the ERROR floor PLUS **THE ONE POISON PAIR THIS PAIR ADMITS, AND IT IS
+# A GENUINELY DIFFERENT GUARD FROM B26'S.**
+#
+# B26 forbade six tokens for the three Jool moons ABOVE its transfer (Tylo, Bop, Pol).
+# **MINMUS IS KERBIN'S OUTERMOST MOON, so that derivation has NO ANALOGUE here** -
+# there is no sibling shell above the transfer to cross, and a spec that copied B26's
+# list would be forbidding six tokens that cannot fire.
+#
+# WHAT REPLACES IT IS SHARPER, because it guards a REAL and MEASURED tail rather than
+# an unlikely one. Swept over every v_rel direction and every exit point on Mun's SOI
+# shell at the committed 110 m/s, **29 of 28,224 deliveries (0.1%) leave KERBIN'S SOI
+# ENTIRELY** - Kerbin's SOI is only 7.01x Mun's orbital radius, where Jool's is 90.35x
+# Laythe's. A craft in the Sun's SOI is not on a Mun->Minmus transfer by any reading,
+# so both directions are forbidden. This MIRRORS a machine-side guard that already
+# exists (`_b5_coast_bodies` = ("", "Mun", "Kerbin"), so a Sun entry is an immediate
+# ASSERT-FAIL) and it is the reason `escapeSoiSpeedMps` is 110 rather than the ideal
+# 142.257, where the tail would be 4.0%.
+#
+# WHAT IS DELIBERATELY **NOT** FORBIDDEN: a `Kerbin to Mun` RE-ENTRY. The transfer's
+# periapsis is at Mun's own orbital radius BY CONSTRUCTION (this is an inner->outer
+# sibling hop, the same geometry that produced B26's defect B), so the coast can
+# legitimately re-cross Mun's shell and `Mun` is a legal coast body. If a re-entry
+# happens it is a READING about the unaimed escape's phase, not a contract violation,
+# and `soi_clock_describes_target` / `coast_foreign_soi_clock_hold` already keep the
+# resulting ambiguous `time_to_soi` from thrashing the warp - the parent-frame-scoped
+# fix B26 flight 2 forced, which this lane exercises at a second parent.
+#
+# **NOTHING RE-AIM IS FORBIDDEN OR REQUIRED ANYWHERE IN THIS FILE**, and that is
+# deliberate. B30 produces the subject; the routing question belongs to V21M/V21T,
+# which leave `[ReaimDiag]` / `ENGAGED re-aim` / `FORCED FAITHFUL` unrequired AND
+# unforbidden so their reading runs can MEASURE which road a cross-parent recording
+# takes at a second parent. Adding any of them here would pre-judge that.
+required  = [
+  "Recording started",
+  "Recording stopped",
+  "SOI change boundary suppressed in tree mode: Mun to Kerbin",
+  "SOI change boundary suppressed in tree mode: Kerbin to Minmus",
+  "CommitTreeFlight: starting tree commit at UT=",
+  "CommitTreeFlight terminal: rec=\\w+ terminalState=Orbiting terminalOrbitBody=Minmus",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  # THE ONE POISON PAIR, and it is a LIVE gate rather than outer insurance: 0.1% of
+  # the unaimed escape band at the committed 110 m/s leaves Kerbin's SOI entirely.
+  # See the derivation above.
+  "SOI change boundary suppressed in tree mode: \\w+ to Sun",
+  "SOI change boundary suppressed in tree mode: Sun to \\w+",
+]
+
+[expectations.rewind]
+# REPORT-ONLY (the ARMED_ALLOWLIST discipline). A clean single-craft flight with no
+# separation event and no re-fly must author no RewindPoint, no supersede row and no
+# tombstone; B17, B23, B24, B25, B26 and B28 all measured 0/0/0. If this flight
+# disagrees that is a finding about what a moon-to-moon transfer does to the durable
+# surfaces, and the honest response is to read it.
+rewindPoints  = { max = 0 }
+supersedeRows = { max = 0 }
+tombstones    = { max = 0 }
+
+# [expectations.recordings.structure] and the points facets are DELIBERATELY ABSENT:
+# the shape is PREDICTED, not measured, and a report-only block of invented numbers
+# reads like a measurement. Author them from flight 1's saveParse facets.
+
+[runtime]
+# WALL arithmetic (the mission budget is WALL; the missionParams budgets are GAME
+# seconds). Re-derived against THIS lane's legs, not scaled from B26's:
+#   LoadGame                      300  declared
+#   preamble seam verbs           ~10
+#   PRELAUNCH orbit-start gate     ~5
+#   ESCAPE                        ~15  the node is computed and added on the first
+#                                      readable frame; a wait for a usable periapsis
+#                                      is at most 5,171 game s at the x10 plan hold =
+#                                      ~517 s, and only when the entry frame lands
+#                                      inside the min lead
+#   TRANSFER-BURN (stage 1)      ~620  the executor autowarps <= 5,171 game s to the
+#                                      node (seconds on rails), ~600 of this is the
+#                                      1x pre-ignition hold, plus ~8 s of burn
+#   COAST to the Mun SOI exit     ~40  13,759 game s of elliptic coast. **UNLIKE B26
+#                                      THIS LEG NATIVE-WARPS**: its `soiLeadSeconds`
+#                                      (3,000) was LONGER than its whole 2,783 s
+#                                      escape coast, so that leg took the rails
+#                                      fallback; ours is 4.6x the lead, so
+#                                      `time_to_soi > soi_lead` holds for most of it
+#   PLAN-TRANSFER (stage 2)       ~30  300 game s at the x10 plan hold
+#   TRANSFER-BURN (stage 2)      ~610  the autowarped window wait (<= 159,571 game s)
+#                                      is seconds on rails; ~600 the 1x hold, plus
+#                                      ~1-9 s of transfer burn
+#   COAST-TO-TARGET              ~670  the leg is 267,853 game s, so the x1,000 rails
+#                                      fallback is 268 wall s; the priced part is the
+#                                      20,000 game-s clamped approach window at x50 =
+#                                      400 wall s
+#   two correction rounds       ~1000  each: plan + a ~340 s attitude flip at 2x
+#                                      physics + aim-warp + a short burn
+#   TARGET-FLYBY                 ~300  19,077 game s at the x10/x100 stair
+#   PLAN-CAPTURE                  ~30
+#   CAPTURE-BURN                 ~610  ~600 of it the 1x pre-ignition hold, plus ~3 s
+#   PARK                         ~180  parkDwellSeconds of GAME time at 1x
+#   ORBIT-COMMIT                 <120
+#   => ~4,550 nominal. WORST adds up to two arrival-quality extra rounds (+1,000), one
+#      bounded stale-node re-plan (+90 s of grace and a second ~600 s pre-ignition
+#      hold), a missed first intercept costing one synodic of autowarp (cheap on
+#      rails), and one extra park orbit before the escape node (+487) => ~6,730.
+# missionBudget 7,200 is ~1.58x nominal and just over that worst case.
+# runtime 7,900 >= 300 + ~10 + 7,200 + ~60 FlushAndQuit + ~330 margin (SF-5).
+budgetSeconds = 7900
+
+[retry]
+# The transient risks are kRPC / MechJeb flakes. One retry prices the flake class. It
+# does NOT absorb a systematic failure - a MechJeb refusal of the stage-2 plan from an
+# eccentric post-escape orbit toward an inclined target, an escape node that is never
+# computable, or a correction discarded at the cap all reproduce on attempt 2 and name
+# themselves, which is what a first flight is for (B26 flight 1 is the standing proof:
+# its refusal was identical to six decimals across both attempts). AND NOTE WHAT ONE
+# RETRY COSTS: two full attempts is up to 15,800 wall s.
+policy = "once"
+
+[expectedFail]
+bugId = ""

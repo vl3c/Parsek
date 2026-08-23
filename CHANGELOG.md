@@ -8,6 +8,38 @@ All notable changes to Parsek are documented here.
 
 ### Dev
 
+- The automated-testing suite gained a second moon-to-moon subject, so a result
+  measured once can be checked at a different planet. Last time, a crewed ship
+  hopped between two of Jool's moons and the suite learned something specific:
+  Parsek does not re-plan or re-time a hop between sibling moons - it replays the
+  recording exactly as flown. That was measured at one planet, on one pair of
+  moons, and the internal write-up said the reason ought to hold anywhere. Ought
+  to is not the same as does. So a new automated mission flies the same shape in
+  our own back yard: a crewed ship already parked around the Mun escapes into
+  Kerbin's sphere of influence, transfers to Minmus, and parks there. Its produced
+  save becomes the subject two new test cases will read back, one watching the
+  flight map and one watching the Tracking Station.
+  Writing it turned up three things that are genuinely different about Kerbin's
+  moons, and none of them is a smaller version of the Jool case. Minmus is tilted
+  about six degrees where Jool's inner moons are flat, so the transfer has to pay
+  for a plane change that the earlier flight never did. Mun and Minmus are not in
+  the neat orbital rhythm Jool's moons are, which removes a coincidence the earlier
+  test cases were able to lean on and makes their timing harder to predict. And
+  Kerbin's sphere of influence is small relative to the Mun's orbit - about seven
+  times, where Jool's is ninety - which means Minmus sits more than half way out to
+  the edge, and a departure burn that is slightly too strong does not merely
+  overshoot Minmus, it leaves Kerbin altogether. That last one flips the design
+  around: the earlier flight had to burn HARDER than the textbook ideal to get out
+  at all, and this one deliberately burns SOFTER than the ideal to stay in. Every
+  number in the new mission is derived from the ship's own saved fuel and orbit
+  rather than copied across, and the departure size was chosen from a sweep of
+  every direction the burn could point.
+  Also here: a new starting save, made by taking a committed Mun-orbit flight and
+  stripping Parsek's own bookkeeping out of it so the new mission records a clean
+  flight of its own rather than appending to an old one. Test-tooling only; no
+  gameplay change. The mission is authored and its checks pass, but it has not
+  been flown yet.
+
 - The automated-testing suite can now check that a recorded flight still draws
   correctly when it is played back in the RETURN direction - a spacecraft coming
   home rather than setting out. Every looped recording the suite had was outbound,

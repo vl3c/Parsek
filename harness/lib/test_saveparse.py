@@ -776,6 +776,35 @@ class CommittedFixtureSweepTests(unittest.TestCase):
         # 1). It ALSO decouples B26 from V16M/V16T, whose eight jump UTs are
         # calibrated off `laythe-orbit-recorded`'s exact bytes.
         "laythe-park-nerv": True,
+        # THE FIFTH PARSEK-STRIPPED DERIVED FIXTURE, and it is `laythe-park-nerv`'s
+        # mirror image: where that one proved the strip recipe must not be a fixed
+        # list because a node it expected was ABSENT, this one proves it from the
+        # other side, because a node the Laythe recipe never saw is PRESENT.
+        # `mun-park-kerbalx` is `mun-orbit-recorded` (B11's produced save, and
+        # V6M/V6T's subject) with Parsek's own state removed: the `Parsek/` sidecar
+        # directory pruned by a harvest WITHOUT --keep-parsek, plus a manual
+        # brace-balanced excision of the residual ParsekScenario CHILDREN.
+        #
+        # THE NODE IS STILL PRESENT (True) AND THAT IS DELIBERATE: only the children
+        # were excised. A flyable template must carry the node or the FLIGHT route
+        # records nothing.
+        #
+        # SEVEN CHILD NODES OF **FIVE** TYPES WERE REMOVED, the largest strip of the
+        # five: `RECORDING_TREE` (1), `GROUP_HIERARCHY` (1), `MILESTONE_STATE` (3),
+        # `KERBAL_SLOTS` (1) and `CREW_REPLACEMENTS` (1). The source carries EIGHT
+        # recordings - B11's Kerbal X sheds six radial boosters plus an upper-stage
+        # decoupling, `branchPoints {"JointBreak": 5}` - so unlike B25's single
+        # standalone recording there IS a `Kerbal X / Debris` subgroup to nest and
+        # the `GROUP_HIERARCHY` node exists. A strip written as `laythe-park-nerv`'s
+        # measured four names would have silently left it behind.
+        #
+        # WHY THE STRIP IS LOAD-BEARING: `B30-mun-minmus-transfer` starts its
+        # recording through the seam on a vessel that `mun-orbit-recorded` holds a
+        # COMMITTED TREE for, and a seam StartRecording cannot open a standalone tree
+        # on a committed tree's own launch (measured, B23 flight 1). It ALSO
+        # decouples B30 from V6M/V6T, whose jump UTs are calibrated off
+        # `mun-orbit-recorded`'s exact bytes.
+        "mun-park-kerbalx": True,
         "eva2-lko-crewed": True,
         "eva3-pad-3crew": True,
         "fresh-career": False,

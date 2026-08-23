@@ -5011,6 +5011,20 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
         # shape H34/H35 above record.
         "V19M-laythe-jool-player-loop.toml": "tier=operator by the calibration discipline (derived windows, first run is a calibration reading), NOT debt; committed 2026-08-21 and DISCIPLINE-COMPLETE the same day - reading `2026-08-21_0746` PASS attempt 1 (wall 98 s), ARMED off its own bytes, armed re-flight `_0852` PASS with saveParse gating and 0 mismatches, and its OWN negative control `_0855` PARSEK-FAIL(expectation) on 1 mismatch (`surface=ProtoOrbitLine .*body=Vall`) with saveParse still PASS, then reverted; what is open is the ordinary operator -> nightly PROMOTION call, the H34/H35 shape",
         "V19T-laythe-jool-ts-arrival.toml":  "tier=operator by the calibration discipline (derived windows, first run is a calibration reading), NOT debt; committed 2026-08-21 and DISCIPLINE-COMPLETE the same day - reading `2026-08-21_0750` PASS attempt 1 (wall 60 s), ARMED off its own bytes, armed re-flight `_0854` PASS, its OWN negative control `_0858` PARSEK-FAIL(expectation) on 1 mismatch (`surface=ProtoIcon ... body=Vall scene=TRACKSTATION`) with saveParse still PASS, and revert confirmation `_0859` PASS; `_0857` was an ATTEMPTED control that PASSED because a mis-escaped regex made no edit, so it is an extra armed confirmation and NOT a control; what is open is the ordinary operator -> nightly PROMOTION call, the H34/H35 shape",
+        # THE G4 REPLICATION LANE, tier=operator by the same calibration
+        # discipline the whole B18-B28 family carries: its windows are DERIVED
+        # (from the fixture's own bytes, from cited stock constants and from
+        # mlib's own formulas) rather than measured, and the first run is a
+        # calibration reading. NOT debt.
+        # IT HAS NOT FLOWN. That is the honest state and it is not a
+        # classification problem: what is open is the FLIGHT, which a cloud
+        # session cannot run, not a human review call. The lane exists to convert
+        # the research doc's PREDICTION - that H3 is a property of the flight
+        # profile rather than of the Jool system - into a measurement at a second
+        # parent, and its five observation targets are pre-registered in the spec
+        # header precisely so the post-flight paragraph cannot be written after
+        # the fact.
+        "B30-mun-minmus-transfer.toml":     "tier=operator by the calibration discipline (derived windows, first run is a calibration reading), NOT debt; AUTHORED 2026-08-23 and NOT YET FLOWN - the G4 replication of B26's moon-to-moon hop at a second parent (Mun -> Minmus under Kerbin), with five observation targets pre-registered in the header; what is open is the FLIGHT itself, not a human review call",
         "H5-invariants-corpus.toml":        "discharged - 'resolving the former PENDING-OPERATOR check'",
         "H6-route-rewind-timeline.toml":    "discharged - 'The former PENDING-OPERATOR ...'",
         "M1-mission-loop-unit.toml":        "discharged - 'CLOSED by the 2026-07-26 flights'",

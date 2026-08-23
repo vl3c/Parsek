@@ -1499,6 +1499,45 @@ V17 - the relay coast will again miss the whole-revolution conjunct unless
 deliberately flown to close a revolution, and that variant is G7, not this
 lane.
 
+**STATUS 2026-08-23: AUTHORED, NOT FLOWN.** `B30-mun-minmus-transfer`,
+`b30_mun_minmus` (+ schema + unit cells), the Parsek-stripped
+`fixtures/saves/mun-park-kerbalx` and the `V21M`/`V21T` pair are committed; the
+only `mlib` change the lane needed is one cited `STOCK_BODY_GRAVITY` row for
+Mun. **NOTHING IS MEASURED YET** - a cloud session cannot fly, so B30's five
+pre-registered observation targets and the V21 pair's routing read are both
+outstanding, and this gap stays OPEN. The class-matrix row above stays
+`PARTIAL - G4` until both parents confirm.
+
+**WHAT AUTHORING IT ALREADY ESTABLISHED, because it is not what this entry
+assumed.** This entry priced G4 as a cheap replication ("at a fraction of V17's
+cost ... existing craft"), and the craft and fixture halves of that held. The
+PHYSICS half did not: three properties of Kerbin's moons make the lane a
+different measurement rather than a re-scaled one. All three are DERIVED rather
+than flown, so they are predictions this entry now owns.
+(1) **The parent envelope is 12.9x tighter and it INVERTS the escape's binding
+constraint.** Kerbin's SOI is 7.01x Mun's orbital radius where Jool's is 90.35x
+Laythe's, and Minmus sits at 55.8% of Kerbin's SOI where Vall sits at 1.8% of
+Jool's. B26 had to OVER-size its escape (450 m/s against a 347.245 ideal) to
+clear a geometric reachability floor; B30 has to UNDER-size its escape (110
+against a 142.257 ideal), because an unaimed departure at the ideal puts 4.0% of
+its delivered band OUTSIDE KERBIN'S SOI entirely - a lane-ending outcome B26
+never had to size against. Same mode, opposite constraint.
+(2) **Minmus is inclined ~6 deg** where Laythe and Vall are coplanar, so this
+lane unavoidably BENDS the induction caveat's one-dimension-at-a-time rule: it
+changes the parent AND adds an inclined target in one step. That is stated in
+the spec rather than discovered later, and the consequence is named - a stage-2
+node above the derived band cannot be attributed to the parent change alone. It
+is unavoidable because a coplanar sibling pair under a second parent DOES NOT
+EXIST in the stock system; Kerbin has exactly two moons and one is inclined.
+(3) **The pair is NOT resonant**, where B26's sits in Jool's 1:2:4 chain. That
+chain put P_Vall and the Laythe-Vall synodic 0.6615 s apart and made V17's two
+candidate jump tables identical on cycle 1; P_Minmus/P_Mun = 7.7513, so V21's
+seed calibration is genuinely harder than V17's was and a dwell-nowhere first
+reading run is the expected outcome rather than an edge case.
+A fourth, owed to the V21 lanes rather than to B30: the SEAM MAGNITUDE is WORSE
+at this pair, not better - section 5.2's table already carries Mun at 20.25% of
+its orbit against Laythe's 13.70%.
+
 **G5 - Moon -> foreign body (Laythe -> Kerbin, or Mun -> Duna).** NOT a
 fail-closed measurement: a single-level cross-SOI chain is explicitly
 SUPPORTED, so more seams do not buy a policy reading here. Its value is
