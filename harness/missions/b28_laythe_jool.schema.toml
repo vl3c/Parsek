@@ -1,49 +1,51 @@
-# Declared param schema for mission b26_laythe_vall -- the MOON-TO-MOON lane, and
-# the first spec to compose two live-proven blocks that have never met:
+# Declared param schema for mission b28_laythe_jool -- the RETURN-DIRECTION lane,
+# and the first spec whose target body is its origin's PARENT.
 #
-#   b17_duna_direct.schema.toml   the INTERPLANETARY transfer set (ejectionEccFloor,
-#                                 viaBodyNames, returnBodyName, the TIME-mode
-#                                 correction triggers), flown by B7/B15/B16/B17/
-#                                 B19/B20/B21/B22 -- always with KERBIN as the home
-#                                 body and the SUN as the transfer frame.
-#   b25_laythe_orbit.schema.toml  the ORBIT-START block (startInOrbit + its six
-#                                 entry-gate keys), flown by B23/B24/B25 -- always
-#                                 on the MOON path.
+# It is `b26_laythe_vall.schema.toml` PLUS EXACTLY ONE KEY (`relayParkAtParent`),
+# with exactly two inherited BOUNDS/TYPES re-argued (listed at the bottom of this
+# header). Nothing is dropped and nothing else is re-valued, which is the whole
+# claim this file makes: a return leg out of the same fixture is B26's parent-relay
+# mode with stage 2 deleted, not a new machine. If a future change to this lane
+# needs a param B26 does not declare, that is evidence the claim has stopped being
+# true and it must be re-argued rather than quietly patched (the B16 rule,
+# verbatim).
 #
-# B26 uses the interplanetary path ONE LEVEL DOWN, with JOOL playing the structural
-# role the Sun plays on every flown lane: homeBodyName = "Laythe",
-# targetBodyName = "Vall", returnBodyName = "Jool", viaBodyNames = ["Jool"]. And it
-# enters through the orbit-start door, because the craft is already parked at
-# Laythe when B25 finishes.
+# WHAT THE LANE IS: the crewed Duna Rocket starts ALREADY PARKED around LAYTHE (the
+# committed Parsek-stripped `laythe-park-nerv` fixture -- B26's own subject, an
+# 87,931.3 x 56,240.3 m park at eccentricity 0.0277), flies ONE prograde escape
+# burn out of Laythe's SOI, coasts UP into JOOL's frame, circularizes at the
+# Jool-frame periapsis and commits the tree there. See `b28_laythe_jool.py`'s
+# header for the Parsek surface the lane exists to produce, and
+# `docs/dev/autotest-roadmap.md` -> the gap register -> **G2 - Return legs** for
+# why it outranks the other unmeasured classes.
 #
-# THE COMPOSITION WAS AUDITED BEFORE THIS FILE WAS WRITTEN, and the audit is the
-# reason the file is a composition rather than a new machine. Read
-# `B26-laythe-vall-transfer.toml` -> THE JOOL-FRAME AUDIT for the full account; the
-# two load-bearing findings are:
-#   * ZERO Sun-frame assumptions on the b5 interplanetary path. The heliocentric
-#     ephemeris family (`STOCK_HELIO_ELEMENTS`, `interplanetary_phase_angle_deg`,
-#     `next_ejection_window_ut`) has exactly three live call sites and all three sit
-#     inside `if params.pad_align_ejection:`. The phase angle on the ordinary path
-#     is computed ENTIRELY by MechJeb; mlib contributes no angle, no synodic and no
-#     window UT. `STOCK_WARP_ALTITUDE_LIMITS` already carries Jool, Laythe and Vall.
-#   * `startInOrbit` composes with `interplanetaryTransfer` with no coupling:
-#     PRELAUNCH's orbit-start branch is checked FIRST and returns unconditionally,
-#     PAD-ALIGN is structurally unreachable, and the ORBIT waypoint hands to the
-#     SINGLE shared `_b5_enter_plan_transfer` seam that reads
-#     `interplanetary_transfer`. `b5_params_from_dict` does not reject the pair.
+# THE THREE VALUES A READER WILL WANT TO ARGUE WITH, all argued at their own keys
+# below and summarised here because they are what make this file different from the
+# file it was copied from:
 #
-# NOTHING IS NEW HERE. Every key below is declared by b17's schema, b25's schema, or
-# both; this file is their union. If a future change to this lane needs a param
-# neither of them declares, that is evidence the "moon-to-moon is a composition"
-# claim has stopped being true and it must be re-argued rather than quietly patched
-# (the B16 rule, verbatim).
+#   relayParkAtParent = true       THIS RELAY LANE HAS NO STAGE 2. The escape IS
+#                                  the whole transfer, because the parent frame it
+#                                  delivers into is the destination.
+#   transferMinApoapsisMeters = 0  ASSERTED ZERO, and the flag INVERTS the load-time
+#                                  gate to enforce it. On B26 a positive floor is
+#                                  stage 2's only burn-done evidence; here no frame
+#                                  can ever be judged against it.
+#   returnBodyName = "Sun"         NOT "Jool". Setting it to the target body makes
+#                                  `b5_decide`'s TARGET-FLYBY branch ASSERT-FAIL on
+#                                  the arrival frame, because the leave-the-target-
+#                                  SOI guard is tested BEFORE the capture-arming
+#                                  branch and the two strings would be equal.
 #
-# WHAT IS NEWLY *REQUIRED* RELATIVE TO b25: nothing. What is newly RELEVANT is the
-# three interplanetary keys b25 left undeclared or inert -- `viaBodyNames`,
-# `returnBodyName` and `correctionTriggerTimeToSoiSeconds` -- each of which changes
-# meaning one level down and is argued in the spec's own comments rather than here.
+# WHAT IS *NOT* DEMOTED OR DROPPED RELATIVE TO B26, and why nothing is: B26 already
+# demoted the six ASCENT keys to optional (this lane never enters MJ-ASCENT or
+# CIRCULARIZE either -- the fixture is already parked and PRELAUNCH hands straight
+# to the ORBIT waypoint), and the four PAD-ALIGN keys are already optional and
+# structurally unreachable here. Dropping any of them would buy nothing and would
+# make this file stop being B26's KEY SET plus one, which is the property that makes
+# the two comparable at a glance (the two re-argued items below move a bound and a
+# type spelling; they add and remove no keys).
 #
-# WHY A SEPARATE FILE AT ALL, given it is a union of two existing ones: run.py
+# WHY A SEPARATE FILE AT ALL, given it is one key away from an existing one: run.py
 # builds its { mission-name -> schema-dict } registry by globbing
 # `harness/missions/<mission>.schema.toml`, so a mission with no schema file
 # validates NOTHING. The duplication is the registry's price.
@@ -57,26 +59,25 @@
 # Every value here is a tolerance / threshold / budget, never a golden trajectory
 # (design "Determinism guardrails").
 #
-# WHAT IS DEMOTED, and why: b17 declares the four ASCENT tolerances and the two
-# ASCENT budgets `required = true`, because a pad lane cannot fly without them.
-# THIS lane never enters MJ-ASCENT or CIRCULARIZE - the fixture is already parked
-# at Laythe and PRELAUNCH hands straight to the ORBIT waypoint - so all six are
-# INERT here and are demoted to optional, exactly as b23/b24/b25 demote them.
-# Forcing a spec to declare `targetApoapsisMeters` for an ascent it will never fly
-# would put a golden-looking number in the spec that no code reads and no reviewer
-# could check.
+# EXACTLY ONE INHERITED DECLARATION IS NOT B26's VERBATIM, argued at its own key
+# below and named here so a diff of the two files has no unexplained lines:
 #
-# WHAT IS ADDED that b17 does not declare: the B19 approach-warp PAIR
-# (`approachWindowSeconds` / `approachMaxWarpFactor`). b17 predates it; every lane
-# since B19 carries it, and this one needs it - Vall's SOI-entry -> periapsis coast
-# is ~3,900 s and B19 flight 4 measured a single unclamped coast frame swallowing
-# 27,596 game s. The declarations are copied from b25's schema verbatim.
+#   soiLeadSeconds    max 3,600 -> 1,000,000. B21/B22's bound, adopted because this
+#                     lane's arrival is at JOOL, the distant-arrival family that
+#                     bound was raised for. Moved HERE with its own comment rather
+#                     than by pushing a spec value past it.
 #
-# WHAT IS ADDED THAT NO OTHER SCHEMA DECLARES: the PARENT-RELAY block
-# (`parentRelayTransfer` + its four sizing keys), added after flight 1 measured
-# MechJeb refusing the moon-parked origin. It is declared only here because only
-# this lane arms it; see the block's own header, well below, for the contract and
-# the four load-time implications mlib enforces.
+# IT WAS TWO WHEN THIS LANE WAS AUTHORED. The second was padAlignEjection, declared
+# `bool` here against B26's `boolean` -- a spelling hlib._check_param_type did not
+# know, so on B26 it fell through the whole if/elif chain and was checked by
+# NOTHING: a misspelled type is not a load error, it is a declaration that silently
+# validates everything, which is worse than no declaration because it LOOKS checked.
+# origin/main commit a79060a41 corrected B26 (and b17_duna_direct and
+# m3_loop_arrival_dwell) to `bool`, closed the accepted spellings behind
+# hlib.MISSION_PARAM_TYPES so an unknown one now rejects loudly instead of checking
+# nothing, and added an AST-derived sweep over every declaration in
+# harness/missions/*.schema.toml. That key is B26's verbatim again and the hazard it
+# documented cannot recur unnoticed.
 #
 # NOTE the validator only checks DECLARED keys: an undeclared param in a spec is
 # neither rejected nor read.
@@ -147,6 +148,34 @@ type = "string"
 # for schema symmetry with the shared block; B16 sets it to 0. ON A RELAY LANE it
 # must be POSITIVE (load-time raise): stage 2 is judged by this floor and nothing
 # else, so a 0 would reduce the TRANSFER-BURN exit to "a node was consumed".
+#
+# **ON A relayParkAtParent LANE THE GATE IS INVERTED, AND THIS SPEC MUST SET
+# EXACTLY 0.** The paragraph above is B26's contract, and it is right for B26; here
+# it would be a floor no frame can ever be judged against. Stage 2 is structurally
+# unreachable: `b5_decide`'s COAST-TO-TARGET branch tests
+# `snapshot.body == target_body` FIRST and hops into TARGET-FLYBY unconditionally,
+# while the relay's stage-2 hand-off sits two branches further down guarded on
+# `snapshot.body == _b5_return_body(params)`. With targetBodyName = "Jool" the frame
+# that first reads Jool takes the target hop, `relay_stage` never leaves
+# RELAY_STAGE_ESCAPE, and `_b5_transfer_burn_done`'s apoapsis arm is dead code.
+# `relayParkAtParent` therefore INVERTS this key's load-time check to "must be
+# exactly 0" rather than merely relaxing it -- a positive value here would be an
+# author believing the transfer is evidenced when it is not, which is the precise
+# silent degradation the B26 gate was written to prevent. The evidence this lane
+# actually flies is stage 1's: `_relay_escape_burn_done`'s SOI-REACH disjunct, i.e.
+# a Laythe-frame apoapsis ALTITUDE of 3,223,645.8 m (Laythe's 3,723,645.81 m SOI
+# radius less its 500,000 m body radius) or a hyperbolic orbit.
+#
+# **AND IT MUST BE WRITTEN OUT, BECAUSE ABSENT IS NOT 0.** The inverted gate reads
+# the key's PRESENCE in the params dict rather than `params.get(key, 0.0)`: an
+# absent key parses to `b5_params_from_dict`'s own positive default (10,000,000 m),
+# so a spec that simply said nothing would carry a live-looking floor into the
+# machine -- the exact silent shape the gate closes. `required = true` below is what
+# makes the schema enforce the same thing one layer earlier.
+#
+# The `min = 0.0` below stays as it is: the floor-vs-inversion choice is a MODE
+# question the schema cannot see (it depends on another key's value), so it is
+# owned by mlib's load-time check and this declaration only rejects a negative.
 [params.transferMinApoapsisMeters]
 required = true
 type = "number"
@@ -270,11 +299,31 @@ max = 7
 
 # Native-warp SOI lead (GAME seconds): coast/flyby legs warp to the SOI
 # change minus this lead. Optional; mlib defaults 30.
+#
+# MAX RAISED 3,600 -> 1,000,000, ADOPTING B21/B22's BOUND VERBATIM. This is the
+# ONE inherited bound this lane moves, and it is moved HERE with its own comment
+# rather than by pushing a spec value past it -- the rule B21's own header states
+# ("If a flight ever proves a bound too tight, raise it HERE with its own comment
+# ... never push a value past a bound and never quietly relax one").
+#
+# WHY B26's 3,600 IS THE WRONG BOUND FOR THIS LANE, and why it was never a
+# physical limit anywhere. A lead has to be expressible in units of WARP FRAMES,
+# not seconds of real approach, or it cannot bound what it exists to bound: 3,600
+# game seconds is ~4% of ONE full-rate x100,000 poll frame, so on any lane that
+# coasts at a high rails factor the bound forbade every value large enough to do
+# the job. B19 flight 4 MEASURED a single frame advancing 27,596 game s straight
+# through a boundary with the lead at its default 30. B26 kept 3,600 because its
+# hop is a short intra-Jool moon transfer; B28's arrival is at JOOL ITSELF, whose
+# SOI radius is 2,455,985,200 m, which is exactly the distant-arrival family B21
+# raised the bound for and B22 -- the same target body, the same capture tail --
+# flew at 100,000.
+#
+# The lower bound and the type are unchanged, and no other lane's value moves.
 [params.soiLeadSeconds]
 required = false
 type = "number"
 min = 5.0
-max = 3600.0
+max = 1000000.0
 
 # CORRECTION-BURN pre-burn attitude-flip physics warp factor INDEX (0-3;
 # 1 = 2x). Optional; mlib defaults 1.
@@ -293,6 +342,14 @@ max = 3
 # reads "the pass stayed in VACUUM", which is both the stronger claim and the
 # survivable one. The machine tracks the min finite altitude inside the target
 # SOI; the assertion requires it at/above this floor.
+#
+# ON JOOL THE SAME READING APPLIES AND IS SHARPER STILL. Jool has no surface to
+# clear at all -- the "terrain" is a 200 km atmosphere over a gas giant, the
+# deepest in the stock system, and anything that dips into it is not a red-flagged
+# pass but a destroyed vehicle. So this floor is a VACUUM assertion here too, and
+# B22-jool-orbit's committed 1,000,000 m is the flown precedent for the same target
+# body with the same capture tail. Size this spec's value against that rather than
+# against a moon-lane terrain number.
 [params.targetPeriapsisFloorMeters]
 required = true
 type = "number"
@@ -384,6 +441,34 @@ type = "bool"
 # terminal; a via body is exempted (the craft is expected to pass through it)
 # AND is a legal rails-warp body for the coast. Optional; mlib defaults ()
 # (B5/B6: no intermediate -- Kerbin directly to the Mun/Minmus). B16: ["Sun"].
+#
+# **THIS LANE SETS ["Sun"] FOR A REASON THAT IS NOT ABOUT THE COAST AT ALL**, and
+# it is worth saying because the value looks copied from B22 and is not. B28's
+# coast never enters the Sun's SOI: the escape leaves Laythe, the next foreign body
+# it reads is Jool, and Jool is the TARGET, caught by COAST-TO-TARGET's target hop
+# before the coast-domain test is ever reached. So `_b5_coast_bodies` here is
+# ("", "Laythe", "Sun") and the "Sun" entry is inert as a coast permission.
+#
+# What it is NOT inert for is `_b5_correction_via_bodies`, which narrows the
+# no-encounter correction domain to `(return_body,)` on an interplanetary lane and
+# whose own docstring states the safety argument ("a strict subset, so it can only
+# ever REMOVE a firing opportunity") holds ONLY while `return_body` is a member of
+# `via_bodies` -- a PRECONDITION the function does not enforce. With
+# returnBodyName = "Sun" this list must contain "Sun" or the narrowing would ADD a
+# firing opportunity in an SOI the coast never declared legal, inverting the whole
+# argument. Pinned by
+# `test_the_return_body_is_a_member_of_the_via_bodies_on_every_lane`
+# (missions/lib/test_shells.py:2869) and re-proved over this committed spec by
+# missions/lib/test_b28_laythe_jool.py.
+#
+# HONEST SCOPE: this lane sets courseCorrectPeriapsisMeters = 0, so both correction
+# phases are disabled and the narrowed domain never fires today. The precondition is
+# a FORWARD guard for whoever turns corrections on later, satisfied because it costs
+# nothing and because violating it would leave a trap with no symptom.
+#
+# DO NOT add "Jool" here. It would be a coast permission for a body the machine can
+# only ever reach through the target branch, and it would legalise a Jool reading
+# in a phase that should never see one.
 [params.viaBodyNames]
 required = false
 type = "list"
@@ -398,6 +483,20 @@ type = "list"
 # through the generic ejected-off-course branch with a less apt message --
 # so this is a diagnosis-quality choice, never a pass/fail one.
 # Optional; mlib defaults "" (-> homeBodyName).
+#
+# **ON THIS LANE IT IS A PASS/FAIL ONE, AND THE ANSWER IS "Sun".** B16's paragraph
+# assumes the return body and the target body are different strings. Here the
+# target IS the parent, so setting returnBodyName = "Jool" would make them EQUAL --
+# and the TARGET-FLYBY branch tests `capture_enabled and body == return_body`
+# BEFORE it tests `body == target_body`, so the machine would ASSERT-FAIL on the
+# very frame it arrived, deterministically, every attempt, with a message
+# describing something that did not happen. "Sun" keeps the leave-the-target-SOI
+# guard armed on exactly the event it names (leaving Jool's SOI DOES read Sun), it
+# is B22-jool-orbit's LIVE-PROVEN pairing for the same target body and the same
+# capture tail, and it satisfies the `_b5_correction_via_bodies` precondition
+# together with viaBodyNames = ["Sun"] (see that key). Left EMPTY it would default
+# to homeBodyName = "Laythe", which is worse than either: the relay's own load-time
+# check rejects an empty value, and a Laythe reading is not the exit event.
 [params.returnBodyName]
 required = false
 type = "string"
@@ -416,9 +515,10 @@ min = 0.0
 max = 100.0
 
 # =====================================================================================
-# THE PARENT-RELAY BLOCK. Declared HERE and nowhere else, because b26 is the only
-# lane that arms it; every other mission's schema is untouched and every other
-# lane's machine is byte-identical with the flag absent.
+# THE PARENT-RELAY BLOCK. Declared by b26 and by this file, the only two lanes that
+# arm it; every other mission's schema is untouched and every other lane's machine
+# is byte-identical with the flag absent. B28 arms the SAME mode B26 does and adds
+# exactly one modifier to it (`relayParkAtParent`, at the end of this block).
 #
 # WHY THE BLOCK EXISTS AT ALL: MechJeb 2.15.1's OperationInterplanetaryTransfer
 # REFUSES a moon-parked origin. B26 flight 1 measured it, deterministically, in
@@ -443,12 +543,67 @@ max = 100.0
 # infinity; the retired escapeTargetVInfMps is rejected by name) -- and a positive
 # transferMinApoapsisMeters, which is the stage-2 sibling transfer's only
 # burn-done evidence.
+#
+# THE SECOND OF THOSE TWO GATES IS THE ONE relayParkAtParent INVERTS, and it is
+# the reason the modifier exists as a declared flag rather than as a spec
+# convention: on a park-at-parent lane there is no stage 2 to evidence, so the
+# gate's B26 direction ("must be positive") would force a number no frame can be
+# judged against. See transferMinApoapsisMeters above and the flag's own block.
 # =====================================================================================
 
 # ARMS the mode. Optional; mlib defaults False (the ESCAPE phase is unreachable,
 # relay_stage never leaves 0, and the plan action / burn-done evidence are the
-# ones every flown lane uses). B26: true.
+# ones every flown lane uses). B26: true. B28: true.
 [params.parentRelayTransfer]
+required = false
+type = "bool"
+
+# THE ONE KEY THIS FILE DECLARES THAT NO OTHER SCHEMA DOES. It says THIS RELAY LANE
+# HAS NO STAGE 2: targetBodyName IS the parent, so the coast's arrival in the
+# PARENT SOI is the ARRIVAL. It takes COAST-TO-TARGET's target-body hop into
+# TARGET-FLYBY and then the ordinary capture tail (PLAN-CAPTURE's circularize at
+# the next periapsis -> CAPTURE-BURN -> PARK -> ORBIT-COMMIT), and the stage-2
+# hand-off is suppressed STRUCTURALLY rather than left resting on the order of two
+# adjacent branches in `b5_decide`.
+#
+# WHY IT IS A FLAG AND NOT AN EMERGENT PROPERTY OF targetBodyName == the parent.
+# It very nearly is one: with target "Jool" the target hop already fires first and
+# `relay_stage` already never leaves RELAY_STAGE_ESCAPE, so a lane could be flown
+# today with no new flag at all -- until the load-time gate demanded a positive
+# transferMinApoapsisMeters for a stage that cannot run, at which point the author
+# would invent a plausible number and the spec would carry a threshold nothing
+# reads. That is exactly the class of defect the B26 gate was written to prevent,
+# so the answer is a DECLARED mode with its own inverted gate, not a silent
+# exception. It also buys the suppression a home in the CODE: the stage-2 hand-off
+# in COAST-TO-TARGET carries an explicit `not relay_park_at_parent` conjunct, so a
+# future edit that reorders or inserts between those two adjacent branches breaks a
+# named contract instead of quietly re-enabling a dead leg and flying a sibling
+# Hohmann nobody asked for out of a park it was supposed to keep.
+#
+# THREE LOAD-TIME IMPLICATIONS, each raising rather than degrading:
+#   * REQUIRES parentRelayTransfer. It modifies that mode and nothing else -- all
+#     it does is suppress the stage-2 hand-off, which only the relay mode has -- so
+#     alone it is INERT and the spec would fly the ordinary transfer machine while
+#     reading as if it had asked to park at a parent.
+#   * REQUIRES captureEnabled. The capture tail is the only door to a parked,
+#     COMMITTED recording. With capture off the arrival in the parent SOI takes
+#     TARGET-FLYBY's not-capture_enabled exit straight to RETURN (terminal, verdict
+#     None, no tree-commit seam anywhere on the path), so the craft would coast back
+#     out having committed nothing while every flyby assertion row still read met.
+#   * INVERTS the transferMinApoapsisMeters gate to "EXACTLY 0, stated explicitly".
+#
+# IT ALSO RE-POINTS THE `escapedHomeSoi` ASSERTION ROW, which is worth knowing when
+# reading a result JSON from this lane. `relay_stage` can never advance here, so the
+# stage evidence would read met=False forever; the flag adds a SECOND POSITIVE
+# disjunct -- ESCAPE ran AND TARGET-FLYBY was reached -- and the row's `provenBy`
+# detail names which one fired (`parkAtParentTargetSoiReached` here,
+# `relayStageAdvanced` on B26).
+#
+# Optional; mlib defaults False, and with it absent this whole file is B26's schema
+# and this lane's machine is byte-identical to the LIVE-PROVEN parent-relay shape
+# -- the PAD-ALIGN / ORBIT-START / PARENT-RELAY flag-off contract, verbatim.
+# B28: true.
+[params.relayParkAtParent]
 required = false
 type = "bool"
 
@@ -547,6 +702,17 @@ min = 30.0
 # ~931 m/s, onto B16's 5,700 km park periapsis radius; ~79,700 at the
 # ideal-Hohmann v_inf 846). Sized as a SLOW bound; the
 # no-start / window-missed / not-enabled / under-burn watchdogs bound BROKEN.
+#
+# ON JOOL IT IS THE LARGEST SUCH COAST IN THE SUITE OUTSIDE THE HELIOCENTRIC
+# LANES, and it is the single most flight-costing number in this spec. Jool's SOI
+# radius is 2,455,985,200 m -- 29x Eve's ~85.1 Mm and three orders of magnitude
+# past the Mun's -- so the boundary-to-periapsis fall is long even though this
+# lane's arrival is SLOW (an escape that just clears Laythe's SOI carries very
+# little Jool-relative excess, which shortens the burn and lengthens the coast).
+# B22-jool-orbit's committed 3,000,000 s is the flown precedent for a Jool
+# capture; derive this lane's own value from ITS arrival speed rather than copying
+# B22's, and remember the SLOW/BROKEN split -- an over-generous value here costs
+# wall time on a failure, an under-generous one flakes a mission that was working.
 [params.captureBurnTimeoutSeconds]
 required = true
 type = "number"
@@ -621,17 +787,22 @@ max = 3600.0
 
 # --- PAD-ALIGN group (the duna-direct no-loiter contract; all optional so
 # the schema stays a superset of B16's -- the B17 spec sets all four).
-
-# TYPE SPELLING: `bool`, NOT `boolean`. The accepted spellings are exactly
-# `hlib.MISSION_PARAM_TYPES`, and that list is CLOSED -- it is deliberately NOT
-# restated here, so there is nothing to leave stale when it changes. `boolean` fell
-# through the entire if/elif chain and returned no errors, so the declaration
-# validated ANY value -- a string, a list, 7. That is worse than no declaration,
-# because it LOOKS checked. Guarded by test_hlib.MissionSchemaDeclaredTypeTests.
-# Inert on the committed B26 spec, which keeps this key ABSENT by mandate (an
-# optional param that is never set is never type-checked) -- but a flag whose whole
-# job is to be rejected in combination with three others is the last one that should
-# be unchecked if a later spec does set it.
+#
+# STRUCTURALLY UNREACHABLE ON THIS LANE, twice over: padAlignEjection is mutually
+# exclusive with BOTH startInOrbit and parentRelayTransfer, and mlib raises at spec
+# load on either pairing. Declared anyway, for the same reason the six ascent keys
+# are -- so this file stays a superset of B16's and a reader diffing it against
+# b26's finds one added key and nothing removed.
+#
+# TYPE SPELLING `bool`, which is B26's VERBATIM. It was NOT when this lane was
+# authored: B26 then declared `type = "boolean"`, which is not one of
+# hlib._check_param_type's spellings, so it fell through the whole if/elif chain and
+# validated ANY value -- a string, a list, 7. That was inert on B26 (the spec never
+# sets the key) but precisely backwards, a flag whose entire job is to be rejected
+# in combination with three others being the last one that should be type-unchecked.
+# origin/main commit a79060a41 corrected B26 to `bool`, closed the accepted set
+# behind hlib.MISSION_PARAM_TYPES so an unknown spelling rejects loudly instead of
+# checking nothing, and swept every declaration in harness/missions/*.schema.toml.
 [params.padAlignEjection]
 required = false
 type = "bool"
@@ -675,6 +846,15 @@ min = 0.0
 # approachWindowSeconds of the target SOI all the way to the boundary. Size it so
 # ONE poll advances well under the target's SOI-entry -> periapsis coast.
 # 0 / omitted = no ceiling.
+#
+# THIS LANE'S CLAMP IS THE LEAST DEMANDING IN THE SUITE and the pair should not be
+# copied down from B26's tight moon-arrival values without saying so: Jool's
+# SOI-entry -> periapsis coast is enormous (see captureBurnTimeoutSeconds), so the
+# B19 overshoot mode -- one poll swallowing the whole in-SOI coast -- needs a far
+# bigger single frame to reproduce here than it did at Dres or Vall. The pair stays
+# ARMED regardless, because "the failure is hard to reach" has never been a reason
+# to disarm a guard, and because the ARRIVAL side of a return leg is exactly the
+# geometry nobody has flown yet.
 [params.approachMaxWarpFactor]
 required = false
 type = "int"

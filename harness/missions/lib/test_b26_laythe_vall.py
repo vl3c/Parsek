@@ -1241,6 +1241,17 @@ def relay_params(**overrides):
     return base
 
 
+def _escape_row(rows):
+    """The `escapedHomeSoi` row out of an evaluated row list, or a NAMED
+    failure: an absent row and an unmet one are different defects, and a cell
+    that read `None.met` would report the wrong one."""
+    for row in rows:
+        if row.name == "escapedHomeSoi":
+            return row
+    raise AssertionError("no escapedHomeSoi row in %r"
+                         % ([r.name for r in rows],))
+
+
 def relay_snap(**overrides):
     """A frame reading the committed fixture's park, with the periapsis clock the
     escape planner needs (the capture lanes' `read_periapsis` channel)."""
@@ -1250,7 +1261,7 @@ def relay_snap(**overrides):
 
 
 class ParentRelayLoadTimeTests(unittest.TestCase):
-    """THE FOUR IMPLICATIONS THE MODE RESTS ON, each asserted rather than
+    """THE FIVE IMPLICATIONS THE MODE RESTS ON, each asserted rather than
     documented. Every one is a SILENT-DEGRADATION risk: with the flag armed and
     the implication broken the machine does not crash, it flies something else."""
 
@@ -1276,6 +1287,76 @@ class ParentRelayLoadTimeTests(unittest.TestCase):
         # returnBodyName IS the SOI whose arrival triggers stage 2.
         with self.assertRaises(ValueError):
             mlib.b5_params_from_dict(relay_params(returnBodyName=""))
+
+    def test_the_relay_refuses_a_target_that_IS_the_home_body(self):
+        """THE THIRD IMPLICATION, ARM ONE (review, and DRIVEN before it was
+        written). `escapedHomeSoi` is the ONE row this mode adds and the one no
+        other row can express -- every other row is satisfiable by a flight that
+        never left home -- and BOTH of its disjuncts are proofs by OBSERVED SOI
+        BODY. An observation only proves DEPARTURE while the body observed is
+        not the body departed from, and nothing downstream re-checks that.
+
+        The trap this closes, driven before the gate was written: with target ==
+        home a single COAST-TO-TARGET frame reading the HOME body takes the
+        target hop into TARGET-FLYBY at relay_stage 0, and on a park-at-parent
+        lane the row then reports met=True
+        provenBy=parkAtParentTargetSoiReached for a craft that never left. Two
+        comparisons at spec load close it; the evaluator-side belt under them is
+        driven in `test_the_row_cannot_certify_a_craft_that_never_left_home`."""
+        with self.assertRaises(ValueError) as ctx:
+            mlib.b5_params_from_dict(relay_params(targetBodyName="Laythe"))
+        self.assertIn("targetBodyName != homeBodyName", str(ctx.exception))
+        # ... on the park-at-parent arm too, which is where it greens a row.
+        with self.assertRaises(ValueError) as ctx:
+            mlib.b5_params_from_dict(
+                park_at_parent_params(targetBodyName="Laythe",
+                                      returnBodyName="Jool"))
+        self.assertIn("targetBodyName != homeBodyName", str(ctx.exception))
+        # AN ABSENT targetBodyName IS NOT EXEMPT: it parses to the "Mun"
+        # default, so a relay lane departing Mun and naming no target is the
+        # same defect arriving through the default rather than through a value.
+        bare = relay_params(homeBodyName="Mun", returnBodyName="Kerbin",
+                            viaBodyNames=["Kerbin"])
+        del bare["targetBodyName"]
+        with self.assertRaises(ValueError) as ctx:
+            mlib.b5_params_from_dict(bare)
+        self.assertIn("targetBodyName != homeBodyName", str(ctx.exception))
+        # ... and the two COMMITTED relay specs are untouched by all of it.
+        for name in ("B26-laythe-vall-transfer.toml",
+                     "B28-laythe-jool-return.toml"):
+            p = mlib.b5_params_from_dict(
+                _spec(name)["driver"]["missionParams"])
+            self.assertNotEqual(p.home_body, p.target_body, name)
+
+    def test_the_relay_refuses_a_return_body_that_IS_the_home_body(self):
+        """THE THIRD IMPLICATION, ARM TWO -- the PRE-EXISTING hole, and the one
+        the two-stage lanes are actually judged by. `returnBodyName` is the SOI
+        whose arrival advances `relay_stage`, so with it equal to home the
+        stage-2 hand-off fires on a coast frame still INSIDE the home SOI and
+        `escapedHomeSoi`'s STAGE evidence reads met on a craft that never left.
+        The pre-existing non-emptiness check constrains the value and nothing
+        else, which is why this needed its own gate rather than a wider one."""
+        with self.assertRaises(ValueError) as ctx:
+            mlib.b5_params_from_dict(relay_params(returnBodyName="Laythe",
+                                                  viaBodyNames=["Laythe"]))
+        self.assertIn("returnBodyName != homeBodyName", str(ctx.exception))
+        # ... and the two COMMITTED relay specs are untouched.
+        for name in ("B26-laythe-vall-transfer.toml",
+                     "B28-laythe-jool-return.toml"):
+            p = mlib.b5_params_from_dict(
+                _spec(name)["driver"]["missionParams"])
+            self.assertNotEqual(p.home_body, p.return_body, name)
+
+    def test_neither_body_gate_touches_a_non_relay_lane(self):
+        """THE INERTNESS HALF, and it is not decorative: `targetBodyName`
+        defaults to "Mun" and `homeBodyName` to "Kerbin", so a careless gate
+        written outside the relay block would start rejecting ordinary specs.
+        A same-body NON-relay lane is nonsense the relay mode does not own."""
+        mlib.b5_params_from_dict({"homeBodyName": "Kerbin",
+                                  "targetBodyName": "Kerbin"})
+        mlib.b5_params_from_dict(relay_params(parentRelayTransfer=False,
+                                              targetBodyName="Laythe",
+                                              transferMinApoapsisMeters=0))
 
     def test_the_relay_and_pad_align_are_mutually_exclusive(self):
         with self.assertRaises(ValueError):
@@ -1956,6 +2037,425 @@ class ParentRelayInertnessTests(unittest.TestCase):
         self.assertEqual(mlib.Action(mlib.ACTION_MJ_EXECUTE_NODES),
                          mlib.Action(mlib.ACTION_MJ_EXECUTE_NODES))
         self.assertIsNone(mlib.Action(mlib.ACTION_MJ_EXECUTE_NODES).node_ut)
+
+
+def park_at_parent_params(**overrides):
+    """`relay_params` plus the PARK-AT-PARENT modifier and the two load-time
+    facts it forces: capture ON, and the stage-2 apoapsis floor at EXACTLY 0.
+    Deliberately NOT a committed spec's, for `relay_params`' own reason: these
+    cells must be able to break one invariant at a time.
+
+    NOTE THE TARGET: it is still Vall, NOT the parent, and that is on purpose
+    for the suppression cells below -- a lane whose target IS the parent is
+    ALSO caught by the target-body hop one branch earlier, so it cannot tell a
+    working conjunct apart from a lucky branch order. The one cell that wants
+    the real lane's shape overrides it explicitly."""
+    base = relay_params(relayParkAtParent=True, captureEnabled=True,
+                        transferMinApoapsisMeters=0)
+    base.update(overrides)
+    return base
+
+
+class RelayParkAtParentInertnessTests(unittest.TestCase):
+    """THE PARK-AT-PARENT MODIFIER (lane b28_laythe_jool), and its
+    contract is the mirror image of the one `ParentRelayInertnessTests` carries
+    for the mode it modifies: that class proves the relay ADDS nothing with its
+    flag off, this one proves the modifier SUBTRACTS nothing with its own flag
+    off. The modifier says exactly one structural thing -- THIS RELAY LANE HAS
+    NO STAGE 2 -- so B26, the only relay lane flown, must decide every frame and
+    author every assertion row exactly as it does today."""
+
+    # A frame in JOOL'S SOI on the relay coast: the PARENT arrival, which is the
+    # single edge this modifier moves. Numbers are the stage-2 hand-off frame of
+    # `ParentRelayMachineFlowTests` verbatim, so both judge the same shape.
+    JOOL_ARRIVAL = dict(body="Jool", altitude=2.1e7, apoapsis=2.2e7,
+                        periapsis=2.0e7, eccentricity=0.05,
+                        time_to_soi=float("nan"),
+                        time_to_periapsis=float("nan"))
+
+    def _b28_shape(self, **overrides):
+        """The COMMITTED B28 body shape, read off
+        `scenarios/B28-laythe-jool-return.toml`: home Laythe, target the PARENT
+        Jool, exit SOI the SUN. `returnBodyName` is "Sun" rather than "Jool"
+        there on three counts, and the one that matters to these cells is the
+        second: it keeps TARGET-FLYBY's leaves-the-target-SOI ASSERT-FAIL
+        semantically true (leaving Jool really does read Sun) instead of
+        comparing the target against itself."""
+        base = park_at_parent_params(targetBodyName="Jool",
+                                     returnBodyName="Sun",
+                                     viaBodyNames=["Sun"])
+        base.update(overrides)
+        return base
+
+    def _parent_arrival(self, params):
+        """Drive ONE COAST-TO-TARGET frame that reads the parent's SOI at
+        relay_stage 0, returning (state, actions)."""
+        p = mlib.b5_params_from_dict(params)
+        st = mlib._b5_enter(mlib.b5_initial_state(p), mlib.B5_COAST_TO_TARGET,
+                            PARK_UT, None)
+        st = mlib.replace(st, relay_stage=mlib.RELAY_STAGE_ESCAPE)
+        return mlib.b5_decide(st, snap(ut=PARK_UT + 1.0, situation="ORBITING",
+                                       **self.JOOL_ARRIVAL))
+
+    # --- (a) INERTNESS -----------------------------------------------------
+
+    def test_absent_keys_default_to_the_inert_shape(self):
+        self.assertFalse(mlib.b5_params_from_dict({}).relay_park_at_parent)
+        self.assertFalse(
+            mlib.b5_params_from_dict(relay_params()).relay_park_at_parent)
+        # ... and the committed relay lane that DOES fly stays off too.
+        mp = _spec("B26-laythe-vall-transfer.toml")["driver"]["missionParams"]
+        self.assertNotIn("relayParkAtParent", mp)
+        self.assertFalse(mlib.b5_params_from_dict(mp).relay_park_at_parent)
+
+    def test_every_param_is_byte_identical_with_the_key_absent_or_false(self):
+        """EVERY FIELD, not just the new one: B5Params is a frozen dataclass, so
+        equality IS the whole-params statement, and a future field that read the
+        modifier by accident would red here rather than on a flight."""
+        mp = _spec("B26-laythe-vall-transfer.toml")["driver"]["missionParams"]
+        for name, params in (("committed B26", mp), ("fixture", relay_params()),
+                             ("bare", {})):
+            explicit = dict(params)
+            explicit["relayParkAtParent"] = False
+            self.assertEqual(mlib.b5_params_from_dict(params),
+                             mlib.b5_params_from_dict(explicit), name)
+
+    def test_the_stage_two_hand_off_still_fires_for_a_flag_off_relay_lane(self):
+        """THE SHARPEST INERTNESS STATEMENT AVAILABLE for this modifier, and it
+        is `ParentRelayInertnessTests`' ORBIT-edge cell's method exactly: the
+        parent-arrival frame is the one edge the flag moves, so a flag-off lane
+        taking it unchanged -- stage advanced, MOON Hohmann planned, target
+        re-pointed -- is the whole claim."""
+        mp = _spec("B26-laythe-vall-transfer.toml")["driver"]["missionParams"]
+        for name, params in (("committed B26", mp),
+                             ("fixture", relay_params()),
+                             ("explicit False",
+                              relay_params(relayParkAtParent=False))):
+            st, actions = self._parent_arrival(params)
+            self.assertEqual(mlib.B5_PLAN_TRANSFER, st.phase, name)
+            self.assertEqual(mlib.RELAY_STAGE_TRANSFER, st.relay_stage, name)
+            kinds = [a.kind for a in actions]
+            self.assertIn(mlib.ACTION_SET_TARGET_BODY, kinds, name)
+            self.assertIn(mlib.ACTION_MJ_PLAN_TRANSFER, kinds, name)
+
+    def test_no_row_changes_for_a_flag_off_relay_lane(self):
+        """LITERAL ROW IDENTITY, against the FROZEN pre-modifier shape, and the
+        frozen dict is the point of the cell (review). The claim the B28 spec
+        makes for this modifier is that with the key absent every assertion row
+        is BYTE-IDENTICAL, and it names THIS class as what pins it -- so an
+        assertion on the values of the keys the modifier ADDED would have been
+        the claim restating itself. B26 is a FLOWN lane whose result JSONs are
+        artifacts; a row that silently grows two keys is a shape change in
+        those artifacts, which is why `provenBy` / `relayParkAtParent` are
+        emitted only on a park-at-parent lane. Nothing is lost by that: with
+        the flag off `parked_proof` is False by construction, so `provenBy`
+        would be exactly `"relayStageAdvanced" if met else None` -- a
+        restatement of `met` -- and `relayParkAtParent` the constant False."""
+        mp = _spec("B26-laythe-vall-transfer.toml")["driver"]["missionParams"]
+        p = mlib.b5_params_from_dict(mp)
+        st = mlib.replace(mlib.b5_initial_state(p),
+                          relay_stage=mlib.RELAY_STAGE_TRANSFER)
+        row = _escape_row(mlib.evaluate_b5_assertions(
+            (), p, phases_reached=(mlib.B5_ESCAPE, mlib.B5_COAST_TO_TARGET),
+            state=st))
+        self.assertTrue(row.met)
+        self.assertEqual(mlib.RELAY_STAGE_TRANSFER, row.value)
+        # THE WHOLE DETAIL DICT, key set and values, written out rather than
+        # sampled: `assertEqual` on the dict is what makes an ADDED key red.
+        self.assertEqual(
+            {"required": mlib.B5_ESCAPE, "homeBody": "Laythe",
+             "parentBody": "Jool", "relayStage": mlib.RELAY_STAGE_TRANSFER,
+             "escapeNodeUt": None, "escapeNodeDvMps": None,
+             "targetSoiSpeedMps": p.escape_soi_speed, "lastRefusal": None},
+            row.detail)
+        # ... and the same for the UNMET shape, since `met` is not the only
+        # thing an operator diffs between two runs of B26.
+        unmet = _escape_row(mlib.evaluate_b5_assertions(
+            (), p, phases_reached=(mlib.B5_PRELAUNCH, mlib.B5_ORBIT),
+            state=mlib.b5_initial_state(p)))
+        self.assertFalse(unmet.met)
+        self.assertIsNone(unmet.value)
+        self.assertEqual(
+            {"required": mlib.B5_ESCAPE, "homeBody": "Laythe",
+             "parentBody": "Jool", "relayStage": mlib.RELAY_STAGE_ESCAPE,
+             "escapeNodeUt": None, "escapeNodeDvMps": None,
+             "targetSoiSpeedMps": p.escape_soi_speed, "lastRefusal": None},
+            unmet.detail)
+
+    # --- (b) THE THREE LOAD-TIME GATES -------------------------------------
+
+    def test_the_modifier_requires_the_mode_it_modifies(self):
+        """INERT WITHOUT THE RELAY: all the flag does is drop a conjunct from
+        the relay's stage-2 hand-off, so on a lane with no relay it changes
+        nothing and the spec would fly the ordinary transfer machine while
+        reading as though it had asked to park at a parent."""
+        with self.assertRaises(ValueError) as ctx:
+            mlib.b5_params_from_dict(
+                park_at_parent_params(parentRelayTransfer=False))
+        self.assertIn("requires parentRelayTransfer", str(ctx.exception))
+
+    def test_the_modifier_requires_capture(self):
+        """THE LANE'S WHOLE PRODUCT is a parked, COMMITTED recording at the
+        parent. With capture off the arrival takes TARGET-FLYBY's
+        not-capture_enabled exit straight to RETURN -- a terminal with verdict
+        None and no tree-commit seam anywhere on the path -- so the craft coasts
+        back out having committed nothing while the flyby rows still read
+        met."""
+        with self.assertRaises(ValueError) as ctx:
+            mlib.b5_params_from_dict(
+                park_at_parent_params(captureEnabled=False))
+        self.assertIn("requires captureEnabled", str(ctx.exception))
+        # The premise checked at the branch rather than asserted in prose: a
+        # capture-off TARGET-FLYBY frame in the EXIT body's SOI really is
+        # terminal, verdict-less, and commits nothing. (Driven on the two-stage
+        # fixture, whose exit body IS Jool, because a park-at-parent lane cannot
+        # be parsed with capture off -- which is the gate above.)
+        p = mlib.b5_params_from_dict(relay_params())
+        st = mlib._b5_enter(mlib.b5_initial_state(p), mlib.B5_TARGET_FLYBY,
+                            PARK_UT, None)
+        st, actions = mlib.b5_decide(st, snap(ut=PARK_UT + 1.0,
+                                              situation="ORBITING",
+                                              **self.JOOL_ARRIVAL))
+        self.assertEqual(mlib.B5_RETURN, st.phase)
+        self.assertTrue(st.done)
+        self.assertIsNone(st.verdict)
+        self.assertNotIn(mlib.ACTION_PARSEK_COMMIT_TREE,
+                         [a.kind for a in actions])
+
+    def test_the_modifier_inverts_the_stage_two_apoapsis_floor(self):
+        """THE INVERSION, and it is not a relaxation: on a two-stage relay lane
+        `transferMinApoapsisMeters` is the ONLY stage-2 burn-done evidence there
+        is, so it must be POSITIVE; on a park-at-parent lane stage 2 is
+        unreachable, so a positive value is a spec claiming a threshold no frame
+        of the mission can ever read."""
+        with self.assertRaises(ValueError) as ctx:
+            mlib.b5_params_from_dict(
+                park_at_parent_params(transferMinApoapsisMeters=36_000_000))
+        self.assertIn("EXACTLY 0", str(ctx.exception))
+        # ABSENT IS NOT 0: the key defaults to a POSITIVE 10,000,000 m in the
+        # constructor, so a spec that says nothing would carry a live-looking
+        # floor into the machine. The gate reads key PRESENCE for exactly this,
+        # and the next assertion is that default measured rather than recited.
+        missing = park_at_parent_params()
+        del missing["transferMinApoapsisMeters"]
+        with self.assertRaises(ValueError) as ctx:
+            mlib.b5_params_from_dict(missing)
+        self.assertIn("EXACTLY 0", str(ctx.exception))
+        self.assertGreater(mlib.b5_params_from_dict({}).transfer_min_apoapsis,
+                           0.0,
+                           "the absent-key default is the reason this gate "
+                           "reads presence rather than params.get(key, 0.0)")
+        # ... and the POSITIVE requirement still stands on a two-stage lane.
+        with self.assertRaises(ValueError) as ctx:
+            mlib.b5_params_from_dict(relay_params(transferMinApoapsisMeters=0))
+        self.assertIn("requires a positive", str(ctx.exception))
+        # The armed shape parses, and carries the explicit 0 through.
+        self.assertEqual(0.0, mlib.b5_params_from_dict(
+            park_at_parent_params()).transfer_min_apoapsis)
+
+    # --- (c) THE STRUCTURAL SUPPRESSION ------------------------------------
+
+    def test_the_stage_two_hand_off_does_not_fire_with_the_flag_on(self):
+        """THE CONJUNCT, ISOLATED FROM THE BRANCH ORDER. This lane's target is
+        VALL, not the parent, so the target-body hop one branch earlier does NOT
+        match and the only thing standing between this frame and a stage-2
+        Hohmann is `not relay_park_at_parent`. That isolation is the whole
+        reason the suppression is written as a conjunct: branch order is a
+        property of two adjacent blocks that a later edit can reorder, the
+        conjunct is a property of the flag."""
+        st, actions = self._parent_arrival(park_at_parent_params())
+        self.assertEqual(mlib.B5_COAST_TO_TARGET, st.phase)
+        self.assertEqual(mlib.RELAY_STAGE_ESCAPE, st.relay_stage)
+        kinds = [a.kind for a in actions]
+        self.assertNotIn(mlib.ACTION_MJ_PLAN_TRANSFER, kinds)
+        self.assertNotIn(mlib.ACTION_MJ_PLAN_INTERPLANETARY_TRANSFER, kinds)
+        self.assertNotIn(mlib.ACTION_SET_TARGET_BODY, kinds)
+        self.assertIsNone(st.verdict)
+
+    def test_the_real_lane_shape_takes_the_target_hop_into_target_flyby(self):
+        """THE COMMITTED B28 SHAPE: targetBodyName IS the parent, so the same
+        arrival frame is the ARRIVAL and hops to TARGET-FLYBY with the stage
+        still 0 -- which is the whole routing claim the modifier rests on, and
+        the reason no new phase or burn machinery was needed.
+
+        WHAT THIS CELL DOES AND DOES NOT PROVE: the ARRIVAL HOP and the stage,
+        which is what this modifier is responsible for. It does NOT drive the
+        capture tail past that hop -- PLAN-CAPTURE onward is B11/B12 machinery
+        this change does not touch, and its cells live with it."""
+        st, _ = self._parent_arrival(self._b28_shape())
+        self.assertEqual(mlib.B5_TARGET_FLYBY, st.phase)
+        self.assertEqual(mlib.RELAY_STAGE_ESCAPE, st.relay_stage)
+        self.assertIsNone(st.verdict)
+
+    # --- (d) THE ASSERTION ROW ---------------------------------------------
+
+    def test_the_escape_row_is_proved_by_the_reached_phase_pair(self):
+        """The row's evidence on a park-at-parent lane, and it is POSITIVE:
+        ESCAPE RAN and TARGET-FLYBY was REACHED. TARGET-FLYBY is entered from
+        exactly one place -- the coast frame that read `body == target_body` --
+        and on this lane the target IS the parent, so the pair is a MEASURED
+        reading of the craft inside the parent's SOI. Without the disjunct the
+        row would read met=False forever (the stage never advances on a lane
+        with no stage 2) and turn a good flight into MISSION-ASSERT-FAIL."""
+        p = mlib.b5_params_from_dict(self._b28_shape())
+        row = _escape_row(mlib.evaluate_b5_assertions(
+            (), p, phases_reached=(mlib.B5_ESCAPE, mlib.B5_COAST_TO_TARGET,
+                                   mlib.B5_TARGET_FLYBY),
+            state=mlib.b5_initial_state(p)))
+        self.assertTrue(row.met)
+        self.assertEqual("parkAtParentTargetSoiReached", row.detail["provenBy"])
+        self.assertTrue(row.detail["relayParkAtParent"])
+        self.assertEqual(mlib.RELAY_STAGE_ESCAPE, row.detail["relayStage"])
+        # THE REPORTED PARENT FOLLOWS THE MODE (review). On this lane the TARGET
+        # is the parent by the flag's own definition and `returnBodyName` is the
+        # EXIT SOI one level further out -- "Sun" here, deliberately -- so a row
+        # reporting the return body names the wrong frame on the exact row whose
+        # subject IS that frame. The FLOWN B28 run read `parentBody=Sun`; this
+        # is the pin that keeps it reading Jool.
+        self.assertEqual("Jool", row.detail["parentBody"])
+        self.assertEqual("Sun", p.return_body)
+        self.assertEqual("Laythe", row.detail["homeBody"])
+
+    def test_the_row_cannot_certify_a_craft_that_never_left_home(self):
+        """THE BELT UNDER THE LOAD-TIME GATE, on BOTH arms (review, DRIVEN).
+        The primary guard is `b5_params_from_dict`'s body-identity gates, which
+        raise by name at spec load; this cell drives the evaluator with a
+        `B5Params` built AROUND that validator -- which is not hypothetical,
+        `test_mlib.py` constructs `mlib.B5Params(...)` directly in five places
+        -- and asserts the row fails CLOSED rather than certifying the one
+        thing it exists to prove.
+
+        Note what makes each arm a real trap and not a typo: the phase list and
+        the stage are exactly the ones a GOOD flight produces. Only the body
+        identity differs, and that is invisible to every conjunct that reads
+        phases or stages."""
+        good = mlib.b5_params_from_dict(self._b28_shape())
+        # ARM ONE, park-at-parent: target == home, so the coast's target hop
+        # matches on a frame still inside the home SOI.
+        bad_target = mlib.replace(good, target_body=good.home_body)
+        row = _escape_row(mlib.evaluate_b5_assertions(
+            (), bad_target,
+            phases_reached=(mlib.B5_ESCAPE, mlib.B5_COAST_TO_TARGET,
+                            mlib.B5_TARGET_FLYBY),
+            state=mlib.b5_initial_state(bad_target)))
+        self.assertFalse(row.met)
+        self.assertIsNone(row.detail["provenBy"])
+        self.assertIsNone(row.value)
+        # ... and the SAME phase list on the SAME params with the target put
+        # back is met, so the cell is measuring the body identity and nothing
+        # else about the shape.
+        self.assertTrue(_escape_row(mlib.evaluate_b5_assertions(
+            (), good,
+            phases_reached=(mlib.B5_ESCAPE, mlib.B5_COAST_TO_TARGET,
+                            mlib.B5_TARGET_FLYBY),
+            state=mlib.b5_initial_state(good))).met)
+        # ARM TWO, the two-stage lane: return_body == home, so the stage-2
+        # hand-off advances the stage on a frame still inside the home SOI.
+        two_stage = mlib.b5_params_from_dict(relay_params())
+        bad_return = mlib.replace(two_stage,
+                                  return_body=two_stage.home_body)
+        staged = mlib.replace(mlib.b5_initial_state(bad_return),
+                              relay_stage=mlib.RELAY_STAGE_TRANSFER)
+        row = _escape_row(mlib.evaluate_b5_assertions(
+            (), bad_return,
+            phases_reached=(mlib.B5_ESCAPE, mlib.B5_COAST_TO_TARGET),
+            state=staged))
+        self.assertFalse(row.met)
+        self.assertIsNone(row.value)
+        # ... same phase list, same stage, real return body: met.
+        self.assertTrue(_escape_row(mlib.evaluate_b5_assertions(
+            (), two_stage,
+            phases_reached=(mlib.B5_ESCAPE, mlib.B5_COAST_TO_TARGET),
+            state=mlib.replace(mlib.b5_initial_state(two_stage),
+                               relay_stage=mlib.RELAY_STAGE_TRANSFER))).met)
+
+    def test_the_escape_conjunct_is_a_belt_because_escape_always_precedes(self):
+        """WHAT THE ROW'S TWO CONJUNCTS ARE WORTH, measured rather than argued
+        (review detail (a)). The mlib comment used to read as a two-part proof;
+        on a park-at-parent lane the ESCAPE conjunct CANNOT be False whenever
+        TARGET-FLYBY is in a phase list this machine produced, so the live
+        evidence is the TARGET-FLYBY observation and ESCAPE is a fail-closed
+        belt. The mechanism: `_b5_enter_transfer_stage` diverts the post-ORBIT
+        hand-off into ESCAPE while `relay_stage` is RELAY_STAGE_ESCAPE (forever,
+        on this lane), and `_b5_enter_plan_transfer`'s only other caller is the
+        stage-2 door the flag closes -- so PLAN-TRANSFER is UNREACHABLE and
+        every route into the coast runs through ESCAPE.
+
+        Driven on the committed B28 shape from PRELAUNCH, which is also why the
+        cell is worth having: it is the claim the docstring makes, checked."""
+        p = mlib.b5_params_from_dict(
+            _spec("B28-laythe-jool-return.toml")["driver"]["missionParams"])
+        st = mlib.b5_initial_state(p)
+        ut = [PARK_UT]
+
+        def step(**kw):
+            nonlocal st
+            st, _ = mlib.b5_decide(st, relay_snap(ut=ut[0], **kw))
+
+        for _ in range(3):                        # PRELAUNCH entry-gate debounce
+            ut[0] += 1.0
+            step()
+        ut[0] += 1.0
+        step()                                    # ORBIT -> ?
+        self.assertEqual(mlib.B5_ESCAPE, st.phase,
+                         "the post-ORBIT hand-off must divert into ESCAPE")
+        ut[0] += 1.0
+        step()                                    # ESCAPE authors the node
+        ut[0] += 1.0
+        step(node_count=1, node_ut=ut[0] + 800.0)  # -> TRANSFER-BURN
+        ut[0] += 200.0
+        step(node_count=0, eccentricity=1.03418, apoapsis=-1.0)   # -> COAST
+        ut[0] += 5000.0
+        step(**self.JOOL_ARRIVAL)                 # -> TARGET-FLYBY
+        self.assertEqual(mlib.B5_TARGET_FLYBY, st.phase)
+        self.assertIn(mlib.B5_ESCAPE, st.phases_reached)
+        self.assertNotIn(mlib.B5_PLAN_TRANSFER, st.phases_reached,
+                         "PLAN-TRANSFER is unreachable on a park-at-parent lane")
+        self.assertEqual(mlib.RELAY_STAGE_ESCAPE, st.relay_stage)
+        # TARGET-FLYBY reached => ESCAPE reached, on every ordering the machine
+        # can produce: the conjunct adds nothing a live frame can falsify.
+        self.assertLess(st.phases_reached.index(mlib.B5_ESCAPE),
+                        st.phases_reached.index(mlib.B5_TARGET_FLYBY))
+
+    def test_the_same_phase_pair_proves_nothing_with_the_flag_off(self):
+        """THE OTHER HALF, and it is what keeps the disjunct from being a
+        weakening: on a TWO-STAGE lane the identical phase list still reads
+        met=False, because a B26 flight that reached Vall's SOI without ever
+        advancing the stage did not do what the row claims."""
+        p = mlib.b5_params_from_dict(relay_params())
+        row = _escape_row(mlib.evaluate_b5_assertions(
+            (), p, phases_reached=(mlib.B5_ESCAPE, mlib.B5_COAST_TO_TARGET,
+                                   mlib.B5_TARGET_FLYBY),
+            state=mlib.b5_initial_state(p)))
+        self.assertFalse(row.met)
+        self.assertIsNone(row.value)
+        # ... and the two modifier keys are ABSENT rather than present-and-
+        # falsey, which is the literal-row-identity contract the flag-off cell
+        # above pins. Asserting absence here keeps the two statements one.
+        self.assertNotIn("provenBy", row.detail)
+        self.assertNotIn("relayParkAtParent", row.detail)
+
+    def test_the_row_still_fails_closed_without_the_escape_phase(self):
+        """BOTH disjuncts require B5_ESCAPE, so a lane that somehow reached the
+        parent WITHOUT flying its own escape node cannot report met -- the
+        modifier drops the stage conjunct, never the escape one."""
+        p = mlib.b5_params_from_dict(self._b28_shape())
+        row = _escape_row(mlib.evaluate_b5_assertions(
+            (), p, phases_reached=(mlib.B5_ORBIT, mlib.B5_TARGET_FLYBY),
+            state=mlib.b5_initial_state(p)))
+        self.assertFalse(row.met)
+        self.assertIsNone(row.detail["provenBy"])
+
+    def test_no_row_is_added_for_a_non_relay_lane(self):
+        """The flag cannot be armed off a relay lane (the load-time gate above),
+        so every non-relay lane's row list is untouched -- the
+        `ParentRelayInertnessTests` statement, restated for the modifier."""
+        p = mlib.b5_params_from_dict({"targetBodyName": "Mun",
+                                      "homeBodyName": "Kerbin"})
+        rows = mlib.evaluate_b5_assertions(
+            (), p, phases_reached=(mlib.B5_ORBIT, mlib.B5_TARGET_FLYBY),
+            state=mlib.b5_initial_state(p))
+        self.assertNotIn("escapedHomeSoi", [r.name for r in rows])
 
 
 class _FakeNode(object):
