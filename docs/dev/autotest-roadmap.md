@@ -1284,8 +1284,10 @@ must never carry them.
 | Kerbin -> planet, transfer admitted | re-aim | V5, V8/V8T, V9, V10, V11/V11A, V12/V12A, V13/V13A | YES |
 | Kerbin -> planet, classifier-declined profile | faithful | none | NO (see note) |
 | Moon -> sibling moon | faithful | V17M/V17T | PARTIAL - G4 |
+| Return leg, moon -> its own parent | faithful | V19M/V19T | YES (map + TS) |
+| Return leg, planet -> Kerbin | unmeasured | none | NO - G2 |
 
-Four scoping notes the table cannot carry without becoming a status doc:
+Six scoping notes the table cannot carry without becoming a status doc:
 
 - The phase-lock row's scene coverage is its ARMED halves - V6M/V6T, V14T,
   V15T, V16T. It does NOT include V7T, which is RED BY FINDING and
@@ -1296,6 +1298,19 @@ Four scoping notes the table cannot carry without becoming a status doc:
 - V9 sits on the re-aim row because after the `dres-split-cohesion` fix it
   classifies ENGAGED re-aim and is the armed regression floor for that fix.
   Its pre-fix FAITHFUL runs are history, not a class representative.
+- The two RETURN-LEG rows are the INVERTED direction and are a separate class
+  from the outbound rows above them, not a re-reading of those:
+  `IsSameParentTarget` asks only whether the target is a direct CHILD of the
+  launch body, so the relation is DIRECTIONAL BY CONSTRUCTION.
+- The moon-to-parent row's YES is scoped to TWO of the three render hosts - the
+  flight map and the Tracking Station - and its "Confirmed?" column says so,
+  because the KSC host is STRUCTURALLY VACUOUS on V19's Laythe-rooted subject
+  rather than merely unflown. Its road reads `faithful` because that is what
+  V19M MEASURED (R3), not because the classifier was read. The planet-to-Kerbin
+  row's road reads `unmeasured` deliberately: nothing has flown it, and writing
+  `faithful` there because the moon-to-parent row came back faithful would
+  extrapolate one direction's measurement onto a different class, which is
+  exactly what the mirror-direction lesson forbids.
 - The classifier-declined faithful row has NO subject. V3F and V8F are
   KNOB-FORCED (`forceFaithfulLoopPlayback`) A/B controls, not classifier
   declines. The only flown decline at this class was the
@@ -1328,7 +1343,24 @@ which of the two lenses it pins, and why that is the right one for its shape.
 must state why a render-token inversion is structurally impossible for that
 lane. The standing shared inversion - a temporary `rewind.supersedeRows`
 minimum - proves the `saveParse` EVALUATOR can red; it proves nothing about
-whether the render pins can. Every V pair to date shares that one inversion.
+whether the render pins can.
+
+**FIRST DISCHARGED 2026-08-21 BY THE V19 PAIR**, which until then every V pair
+had failed: each half inverted a required RENDER token of its OWN, and each
+red'd on exactly that token with `saveParse` still PASS and
+`driverValidity` / `anomalySweep` clean - so the red is provably on the render
+pin rather than on the evaluator. V19M `2026-08-21_0855`:
+`logContracts.required not matched: phase=body-orbit surface=ProtoOrbitLine
+.*body=Vall`. V19T `2026-08-21_0858`: `logContracts.required not matched:
+phase=GhostCreated surface=ProtoIcon pid=\d+ .*body=Vall scene=TRACKSTATION`.
+Both inverted the destination body to `Vall`, a body their subject never
+visits, and both were reverted after the control. **TWO CONTROLS, NOT ONE
+SHARED, IS PART OF THE DISCHARGE AND NOT REDUNDANCY:** the halves pin DIFFERENT
+LENSES - the proto orbit line on the flight map, the proto icon in the Tracking
+Station - so a single shared inversion would have proven exactly one of them.
+A pair whose halves pin the same lens may share one; a pair whose halves pin
+different lenses owes one each. Every OTHER committed V pair still shares the
+`rewind.supersedeRows` inversion and still owes this.
 
 **(c) A documented-limitation escape under clause (b) of the definition of done
 must CITE A FLOWN RUN ID.** Limitations of this system are discovered by
@@ -1340,12 +1372,24 @@ a limitation's clothes.
 
 Ranked by supply-run value per flight-hour. Each entry names the class, why it
 matters, the cheapest representative, the expected-but-unmeasured routing, and
-what counts as confirmation. Scenario ids B27-B30 and V18-V21 are RESERVED HERE
+what counts as confirmation. Scenario ids B27-B31 and V18-V21 are RESERVED HERE
 (V18-V21 across all their suffixes: the established `M` player/flight-map and
 `T` tracking-station lanes, plus `K` for a KSC-host lane, which G2's correction
 below reserves as `V20K` - there is no committed `K` lane yet)
 - this section is their only home - so sibling PRs do not collide; check open
 PRs before authoring and renumber only if one already claims an id.
+
+THE B-RANGE ROSTER, because it is now full enough that the next author cannot
+pick a free id by eye: **B27** G1 (`B27-station-route`), **B28** G2 moon-to-parent
+(`B28-laythe-jool-return`, FLOWN 2026-08-20 and committed), **B29** G2
+planet-to-Kerbin (`B29-duna-kerbin-return`), **B30** G4
+(`B30-mun-minmus-transfer`). **B31 IS RESERVED HERE AND NEW: the Kerbin -> Duna
+SETUP lane B29 needs and does not have.** B29 departs a Duna-orbit fixture, and
+every committed Duna-parked fixture carries the DD1 probe with only ~1,180 m/s -
+short of a Kerbin capture - so B29 needs a subject flown to a Duna park with
+enough margin to come back. That setup flight is a lane in its own right and had
+no id; it has one now, so B29's author does not silently reuse B29 for two
+flights or invent a colliding number. Nothing for B31 is built.
 
 **G1 - Route-driven rendering.** One committed SAME-BODY supply route over the
 BDOCK station fixture, driving a real looped ghost (`B27-station-route`, lanes
@@ -1385,6 +1429,30 @@ V19M/V19T over B28's recording, V20M/V20T over B29's, plus **V20K** - the KSC
 host lane, reserved here by the correction below. Confirmation:
 destination-frame render tokens at derived epochs on the flight map, the TS,
 and the KSC host; armed, with a control that inverts a render token.
+
+**STATUS 2026-08-21: HALF CLOSED. DO NOT BOOK THE GAP.** The MOON-TO-PARENT half
+is done and meets the confirmation bar in full: `B28-laythe-jool-return` flew
+green on its first attempt (`2026-08-20_2330`) and was harvested as
+`fixtures/saves/jool-return-recorded`, and the `V19M`/`V19T` pair over those bytes
+is LIVE-PROVEN AND ARMED on BOTH the flight map and the Tracking Station, each
+half with its OWN negative control inverting a required RENDER token
+(`2026-08-21_0855` and `_0858`) - the first discharge of criterion (b) in this
+program. THE ROUTING CAME BACK **R3, FAITHFUL**: Parsek neither re-aims nor
+phase-locks a moon-to-parent return, it replays verbatim. This entry called that
+routing "genuinely open" and it is now measured, INCLUDING THE ASYMMETRY THE
+MIRROR-DIRECTION LESSON WARNED ABOUT: the decline that fires here is one no
+outbound subject can reach, because Jool is a strict ANCESTOR of Laythe, so the
+Jool park satisfies `helioIdx`, the missing-heliocentric-leg decline every prior
+V lane printed cannot fire, and the arrival scan instead finds no body that is
+neither Jool nor Laythe. Per-lane detail lives in `autotest-status.md`.
+
+The PLANET-TO-KERBIN half - `B29-duna-kerbin-return`, `V20M`/`V20T`, and the
+`V20K` KSC lane - DOES NOT EXIST. No subject, no lanes, and (per the correction
+below) the KSC payoff this entry was ranked for is still UNPROVEN rather than
+delivered, since V19's subject is Laythe-rooted and cannot enter the KSC host at
+all. So: two of the three hosts confirmed at ONE of the two directions. G2 stays
+OPEN, and closing it is B29 + V20M/V20T + V20K, with the `B31` Kerbin -> Duna
+setup lane above ahead of them.
 
 **CORRECTION TO THIS ENTRY'S KSC PREMISE (2026-08-21) - AN INSPECTION, NOT A
 MEASUREMENT.** The sentence above claims the return direction "is the ONLY thing

@@ -4994,16 +4994,23 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
         # The V19 pair, tier=operator by the same calibration discipline and for
         # the same reason as every V lane before them: their windows were DERIVED
         # from B28's harvested bytes and the first run was a calibration reading.
-        # NOT debt and no human call is owed - what they owe is the remainder of
-        # the three-run reading -> armed -> negative-control sequence, which is a
-        # flight schedule rather than a decision. BOTH READING RUNS ARE NOW FLOWN
-        # AND GREEN and both lanes are ARMED off their own bytes (see
-        # ARMED_ALLOWLIST in this file); what is still outstanding is the armed
-        # re-flights plus one shared negative control. Re-classify when the
-        # discipline completes: at that point this becomes the ordinary
-        # operator -> nightly promotion call, the shape H34/H35 above record.
-        "V19M-laythe-jool-player-loop.toml": "tier=operator by the calibration discipline (derived windows, first run is a calibration reading), NOT debt; committed 2026-08-21, READING RUN FLOWN `2026-08-21_0746` PASS attempt 1 and ARMED off its own bytes the same day - what remains is the armed re-flight plus the pair's shared negative control, a flight schedule rather than a human decision",
-        "V19T-laythe-jool-ts-arrival.toml":  "tier=operator by the calibration discipline (derived windows, first run is a calibration reading), NOT debt; committed 2026-08-21, READING RUN FLOWN `2026-08-21_0750` PASS attempt 1 and ARMED off its own bytes the same day - what remains is the armed re-flight plus the pair's shared negative control, a flight schedule rather than a human decision",
+        # NOT debt and no human call is owed. **THE DISCIPLINE IS COMPLETE AS OF
+        # 2026-08-21 AND NOTHING REMAINS**: both reading runs flew green, both
+        # lanes are ARMED off their own bytes (see ARMED_ALLOWLIST in this file),
+        # both flew ARMED re-flights, and EACH RAN ITS OWN NEGATIVE CONTROL.
+        # An earlier draft of this comment said what remained was "the armed
+        # re-flights plus one shared negative control", which was wrong twice
+        # over: nothing remains, and the controls were NOT shared. They could not
+        # be - the halves pin DIFFERENT LENSES (V19M the proto ORBIT LINE on the
+        # flight map, V19T the proto ICON in TRACKSTATION), so one shared
+        # inversion would have proven exactly one of them. That is also why this
+        # pair is the FIRST in the program to discharge roadmap confirmation
+        # criterion (b), the required-RENDER-token inversion, rather than reusing
+        # the shared `rewind.supersedeRows` evaluator inversion. So what is open
+        # here is now only the ordinary operator -> nightly PROMOTION call, the
+        # shape H34/H35 above record.
+        "V19M-laythe-jool-player-loop.toml": "tier=operator by the calibration discipline (derived windows, first run is a calibration reading), NOT debt; committed 2026-08-21 and DISCIPLINE-COMPLETE the same day - reading `2026-08-21_0746` PASS attempt 1 (wall 98 s), ARMED off its own bytes, armed re-flight `_0852` PASS with saveParse gating and 0 mismatches, and its OWN negative control `_0855` PARSEK-FAIL(expectation) on 1 mismatch (`surface=ProtoOrbitLine .*body=Vall`) with saveParse still PASS, then reverted; what is open is the ordinary operator -> nightly PROMOTION call, the H34/H35 shape",
+        "V19T-laythe-jool-ts-arrival.toml":  "tier=operator by the calibration discipline (derived windows, first run is a calibration reading), NOT debt; committed 2026-08-21 and DISCIPLINE-COMPLETE the same day - reading `2026-08-21_0750` PASS attempt 1 (wall 60 s), ARMED off its own bytes, armed re-flight `_0854` PASS, its OWN negative control `_0858` PARSEK-FAIL(expectation) on 1 mismatch (`surface=ProtoIcon ... body=Vall scene=TRACKSTATION`) with saveParse still PASS, and revert confirmation `_0859` PASS; `_0857` was an ATTEMPTED control that PASSED because a mis-escaped regex made no edit, so it is an extra armed confirmation and NOT a control; what is open is the ordinary operator -> nightly PROMOTION call, the H34/H35 shape",
         "H5-invariants-corpus.toml":        "discharged - 'resolving the former PENDING-OPERATOR check'",
         "H6-route-rewind-timeline.toml":    "discharged - 'The former PENDING-OPERATOR ...'",
         "M1-mission-loop-unit.toml":        "discharged - 'CLOSED by the 2026-07-26 flights'",
@@ -5748,8 +5755,36 @@ class SaveStructureVerifierWiringTests(unittest.TestCase):
                        # V17T had retired that forbid because init-ZERO was the
                        # correct product outcome on ITS segment-less-tail subject,
                        # and this subject's jump lands inside a SEGMENTED coast).
-                       # NOT YET DISCHARGED: the armed re-flights and the shared
-                       # negative control are the next runs, not this edit.
+                       # **DISCHARGED 2026-08-21, AND NOT BY A SHARED CONTROL.**
+                       # An earlier draft of this comment said what remained was
+                       # "the armed re-flights and the shared negative control";
+                       # that was wrong on both counts and is corrected here.
+                       # V19M: armed re-flight `2026-08-21_0852` PASS with both
+                       # blocks gating and 0 mismatches, then its OWN negative
+                       # control `2026-08-21_0855` PARSEK-FAIL(expectation) on
+                       # ONE mismatch - `logContracts.required not matched:
+                       # phase=body-orbit surface=ProtoOrbitLine .*body=Vall` -
+                       # with saveParse still PASS and driverValidity /
+                       # anomalySweep clean, then reverted.
+                       # V19T: armed re-flight `2026-08-21_0854` PASS, its OWN
+                       # negative control `2026-08-21_0858` PARSEK-FAIL
+                       # (expectation) on ONE mismatch - `phase=GhostCreated
+                       # surface=ProtoIcon pid=\d+ .*body=Vall
+                       # scene=TRACKSTATION` - again with saveParse PASS, and
+                       # revert confirmation `2026-08-21_0859` PASS. Its
+                       # `2026-08-21_0857` is recorded as an EXTRA ARMED
+                       # CONFIRMATION and NOT a control: it was attempted as one
+                       # and PASSED, because a mis-escaped regex in the editing
+                       # script silently made no edit at all. A control that
+                       # passes is a FAILED control.
+                       # WHY TWO CONTROLS RATHER THAN THE FAMILY'S USUAL ONE:
+                       # the halves pin DIFFERENT LENSES (proto ORBIT LINE on the
+                       # flight map, proto ICON in TRACKSTATION), so one shared
+                       # inversion would have proven exactly one of them. Both
+                       # inverted a required RENDER token rather than the
+                       # standing `rewind.supersedeRows` evaluator minimum, which
+                       # makes this pair the FIRST in the program to discharge
+                       # roadmap confirmation criterion (b).
                        "V19M-laythe-jool-player-loop.toml",
                        "V19T-laythe-jool-ts-arrival.toml",
                        "GS-1-auto-chute-booster.toml", "GS-2-orbital-probe-deploy.toml",
