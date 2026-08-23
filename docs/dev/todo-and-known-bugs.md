@@ -73,14 +73,19 @@ drift was invisible. Closing the gap means either adding the three suites to
 NuGet, and they run in ~54 s total) or accepting by policy that they are a
 local-only gate and saying so where the tiers are documented.
 
-NOTE FOR WHOEVER ADDS THEM TO CI: two cells fail as ROOT and would need
-addressing first - `test_run_smoke.MachineLockWiringTests
-.test_a_reclaim_that_cannot_complete_refuses_instead_of_looping` and
-`test_machinelock.AcquireBasicsTests.test_unwritable_location_refuses_rather_than_raising`.
-Both assert on a refusal that cannot occur for uid 0 (root ignores the `chmod`
-the second one relies on, and takes a different branch), so they pass for a
-normal user and fail in a root container. That is a property of the runner, not
-of the code under test.
+NOTE FOR WHOEVER ADDS THEM TO CI: two lock cells fail in this Linux container
+and would need addressing first -
+`test_machinelock.AcquireBasicsTests.test_unwritable_location_refuses_rather_than_raising`
+and `test_run_smoke.MachineLockWiringTests
+.test_a_reclaim_that_cannot_complete_refuses_instead_of_looping`. For the FIRST,
+the cause is verified: the cell makes a directory unwritable with `chmod` and
+asserts the refusal, but the container runs as uid 0, root ignores the mode, the
+write succeeds and the code takes the `refused-live` branch instead of
+`refused-io`. For the SECOND, the cause is NOT verified here - it is reported
+elsewhere as a Windows-rename-semantics assumption, and this entry does not
+adjudicate between that and a root effect. Either way both are properties of the
+RUNNER rather than of the code under test, which is exactly why they have to be
+settled before the suites can gate in Actions.
 
 ## SYNTHETIC-CONTRACT-FAIL-PENALTY-CLAMPED-BY-DRAWDOWN-GUARD: `PrePass` synthesizes the expired-deadline `ContractFail` and the reconstruction spends its penalties correctly, but `KspStatePatcher`'s guarded-drawdown protection refuses to write either pool back, so the debit never reaches the live career [MEASURED 2026-08-20 by `L5-career-contract-complete`'s green flight (run `2026-08-20_2240`), the FIRST run ever to drive `ContractsModule.PrePass`'s injection under a gate. REPORT-ONLY and GATED AS MEASURED: no product change is proposed by this lane, and the clamp is pinned so a change of behaviour has to be taken deliberately]
 
@@ -2146,7 +2151,7 @@ separation from V7M's teardown NRE, and the named experiment that would move it.
 
 ---
 
-## MAPRENDER-ICON-OFF-ORBIT-CREATION-FRAME-AFTER-JUMP: a ghost's proto ICON sits tens of degrees around its own orbit line on the CREATION frame, after a single large TimeJump onto an epoch just inside a foreign moon's SOI [MEASURED 2026-08-18 by `V14T-ike-ts-arrival`, REPRODUCED on its armed run, shown PARENT-INDEPENDENT by `V15T-gilly-ts-arrival`, and measured at a THIRD parent 2026-08-19 by `V16T-laythe-ts-arrival` (Jool/Laythe, 129.15 deg) - which also produced the FIRST count > 1 reading (TWO raises, one frame, two proto pids) and a SECOND LENS showing the same creation-frame binding gap. **RECURRED AT COUNT 2 ON V16T's ARMED RUN `2026-08-19_2212` (PASS attempt 1, the tolerance doing its job)**, alongside the second lens - both deterministic on the armed run. REPORT-ONLY: self-correcting, DETERMINISTIC for the single-jump shape at all three bodies, tolerated by name in all three specs; NO product change is proposed]
+## MAPRENDER-ICON-OFF-ORBIT-CREATION-FRAME-AFTER-JUMP: a ghost's proto ICON sits tens of degrees around its own orbit line on the CREATION frame, after a single large TimeJump onto an epoch just inside a foreign moon's SOI [MEASURED 2026-08-18 by `V14T-ike-ts-arrival`, REPRODUCED on its armed run, shown PARENT-INDEPENDENT by `V15T-gilly-ts-arrival`, and measured at a THIRD parent 2026-08-19 by `V16T-laythe-ts-arrival` (Jool/Laythe, 129.15 deg) - which also produced the FIRST count > 1 reading (TWO raises, one frame, two proto pids) and a SECOND LENS showing the same creation-frame binding gap. **RECURRED AT COUNT 2 ON V16T's ARMED RUN `2026-08-19_2212` (PASS attempt 1, the tolerance doing its job)**. **THEN TWICE SILENT: `V17T-laythe-vall-ts-arrival` 2026-08-20 and `V19T-laythe-jool-ts-arrival` 2026-08-21, so the raise is DETERMINISTIC ONLY WITHIN THE V14T/V15T/V16T SUBJECT SHAPE and NOT across the family** - an earlier version of this bracket named only those three lanes and called the behaviour deterministic full stop, which the body has now contradicted twice. V19T was authored as the discriminator between V17T's two simultaneous variables and NARROWS THE CAUSE: nested-SOI is EXCLUDED, self-overlap is the surviving candidate, no mechanism claimed (see the table in the body). REPORT-ONLY: self-correcting, tolerated by name in the three specs that raise it, `allowedAnomalies` deliberately EMPTY on the two silent lanes; NO product change is proposed]
 
 `V14T-ike-ts-arrival` run `2026-08-18_2337` came back PARSEK-FAIL(anomaly) on
 attempt 1 with **all sixteen steps green** - every tracking-station route line
@@ -2417,6 +2422,34 @@ despite a step shape IDENTICAL to V14T/V15T/V16T. The subject differs in two
 ways at once (first self-overlapping loop; first nested-SOI recording whose
 ProtoOrbitLine fail-closes to a root-frame verbatim render), so WHICH one breaks
 the trigger is an open reading - no mechanism claimed.
+
+**THAT OPEN READING IS NARROWED TO ONE CANDIDATE** (`V19T-laythe-jool-ts-arrival`
+reading run `2026-08-21_0750`, PASS, `anomalySweep hits=[] counts={}`). V19T was
+authored as the DISCRIMINATOR for exactly this question: it is
+self-overlapping like V17T but NOT nested-SOI - its subject visits only
+{Laythe, Jool}, so `NestedSoiSubtree.FindNestedRoot` needs a non-root parent
+with >= 2 visited children, neither Jool nor Sun supplies one, and the
+proto-orbit-line lens stays intact rather than fail-closing to the root frame.
+It came back SILENT. The family now reads:
+
+| Lane(s) | Runs | Self-overlapping | Nested-SOI | `icon-off-orbit` |
+|---|---|---|---|---|
+| V14T / V15T / V16T | 6 at 3 parents | NO | NO | RAISED 6/6 |
+| V17T | 1 | YES | YES | silent |
+| V19T | 1 | YES | NO | silent |
+
+**SO NESTED-SOI IS EXCLUDED** - it is absent on V19T and the raise still did not
+happen - **AND SELF-OVERLAP IS THE SURVIVING CANDIDATE**: present in both silent
+runs, absent in all six raising ones. **NO MECHANISM IS CLAIMED.** This narrows
+a two-candidate reading to one; it does not explain how self-overlap would
+suppress the raise, and a THIRD variable nobody has named would defeat the
+inference outright. What would settle it is a NON-self-overlapping,
+non-nested-SOI TS lane that raises, or a self-overlapping one that raises.
+
+`allowedAnomalies` STAYS EMPTY on V19T and this stays REPORT-ONLY. One silent
+run is not a licence to pre-tolerate a token that has raised on six of this
+family's nine runs to date, and pre-tolerating it would destroy the very signal
+the next discriminating lane needs to read.
 
 ---
 

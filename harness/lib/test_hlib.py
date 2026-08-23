@@ -4981,6 +4981,36 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
         # todo entry, not a debt this tag can carry. (Flown as
         # `H33-logistics-route-proof`; renamed H35 for the same collision.)
         "H35-logistics-route-proof.toml":   "FLOWN 3x 2026-08-11 (reading + two confirms, all PASS attempt 1) and PINNED WHOLE; operator tier is an open PROMOTION call, not debt",
+        # tier=operator by the CALIBRATION DISCIPLINE, the whole B18-B26 family's
+        # tier, and NOT a debt: a first-flight B lane is operator because its
+        # windows are derived rather than measured and the first run is a
+        # calibration reading, exactly the disposition B23/B24/B25/B26 carry.
+        # IT HAS NOW FLOWN: run 2026-08-20_2330, PASS attempt 1, and its row in
+        # autotest-status.md says LIVE-PROVEN. So the re-classification an earlier
+        # draft of this comment asked a future reader to make is DONE, and what
+        # remains open is the ordinary operator -> nightly PROMOTION call, which
+        # is the shape H34/H35 above already record. Nothing technical is owed.
+        "B28-laythe-jool-return.toml":      "tier=operator by the calibration discipline (the B18-B26 family's tier), NOT debt; FLOWN 2026-08-20_2330 PASS attempt 1 (the full chain through ORBIT-COMMITTED, all eight assertions met, every verifier green) - what is open is the ordinary operator -> nightly PROMOTION call, the H34/H35 shape",
+        # The V19 pair, tier=operator by the same calibration discipline and for
+        # the same reason as every V lane before them: their windows were DERIVED
+        # from B28's harvested bytes and the first run was a calibration reading.
+        # NOT debt and no human call is owed. **THE DISCIPLINE IS COMPLETE AS OF
+        # 2026-08-21 AND NOTHING REMAINS**: both reading runs flew green, both
+        # lanes are ARMED off their own bytes (see ARMED_ALLOWLIST in this file),
+        # both flew ARMED re-flights, and EACH RAN ITS OWN NEGATIVE CONTROL.
+        # An earlier draft of this comment said what remained was "the armed
+        # re-flights plus one shared negative control", which was wrong twice
+        # over: nothing remains, and the controls were NOT shared. They could not
+        # be - the halves pin DIFFERENT LENSES (V19M the proto ORBIT LINE on the
+        # flight map, V19T the proto ICON in TRACKSTATION), so one shared
+        # inversion would have proven exactly one of them. That is also why this
+        # pair is the FIRST in the program to discharge roadmap confirmation
+        # criterion (b), the required-RENDER-token inversion, rather than reusing
+        # the shared `rewind.supersedeRows` evaluator inversion. So what is open
+        # here is now only the ordinary operator -> nightly PROMOTION call, the
+        # shape H34/H35 above record.
+        "V19M-laythe-jool-player-loop.toml": "tier=operator by the calibration discipline (derived windows, first run is a calibration reading), NOT debt; committed 2026-08-21 and DISCIPLINE-COMPLETE the same day - reading `2026-08-21_0746` PASS attempt 1 (wall 98 s), ARMED off its own bytes, armed re-flight `_0852` PASS with saveParse gating and 0 mismatches, and its OWN negative control `_0855` PARSEK-FAIL(expectation) on 1 mismatch (`surface=ProtoOrbitLine .*body=Vall`) with saveParse still PASS, then reverted; what is open is the ordinary operator -> nightly PROMOTION call, the H34/H35 shape",
+        "V19T-laythe-jool-ts-arrival.toml":  "tier=operator by the calibration discipline (derived windows, first run is a calibration reading), NOT debt; committed 2026-08-21 and DISCIPLINE-COMPLETE the same day - reading `2026-08-21_0750` PASS attempt 1 (wall 60 s), ARMED off its own bytes, armed re-flight `_0854` PASS, its OWN negative control `_0858` PARSEK-FAIL(expectation) on 1 mismatch (`surface=ProtoIcon ... body=Vall scene=TRACKSTATION`) with saveParse still PASS, and revert confirmation `_0859` PASS; `_0857` was an ATTEMPTED control that PASSED because a mis-escaped regex made no edit, so it is an extra armed confirmation and NOT a control; what is open is the ordinary operator -> nightly PROMOTION call, the H34/H35 shape",
         "H5-invariants-corpus.toml":        "discharged - 'resolving the former PENDING-OPERATOR check'",
         "H6-route-rewind-timeline.toml":    "discharged - 'The former PENDING-OPERATOR ...'",
         "M1-mission-loop-unit.toml":        "discharged - 'CLOSED by the 2026-07-26 flights'",
@@ -5711,6 +5741,70 @@ class SaveStructureVerifierWiringTests(unittest.TestCase):
                        # nowhere else, then reverted).
                        "V17M-laythe-vall-player-loop.toml",
                        "V17T-laythe-vall-ts-arrival.toml",
+                       # V19M / V19T, the first RETURN-DIRECTION loop pair (G2),
+                       # armed 2026-08-21 EACH OFF ITS OWN green reading run:
+                       # `2026-08-21_0746` (V19M, PASS attempt 1, wall 98 s) and
+                       # `2026-08-21_0750` (V19T, PASS attempt 1, wall 60 s).
+                       # Both blocks on both lanes: `rewind` (all max 0 - the
+                       # family's replay-observation claim, now on the inverted
+                       # same-parent direction, and worth most on V19T for V5's
+                       # reason since that lane writes a save mid-run and reads it
+                       # back through a SECOND scene load) + `structure` (trees
+                       # {1,2} for V2's duplicate-writer hazard, everything else
+                       # pinned at the measured 1/1 with terminalStates
+                       # {Orbiting: 1}; `recordings` {1,1} is the sharp form of the
+                       # reading-era {1,2} count window, whose admitted load-time
+                       # optimizer split at the ONE body-change seam did not
+                       # materialize - both runs printed
+                       # `exoCoastBodyChangeKept=1 splittableButRejected=0`).
+                       # BOTH lanes measured 0/0/0/0 and 1/1/1 {Orbiting: 1} with
+                       # points 201/201/201 BEFORE arming, so the arming re-pinned
+                       # NOTHING and moved NO verdict on either lane, and the two
+                       # gating saveParse payloads are byte-identical - the pair's
+                       # determinism statement, the V17M/V17T shape.
+                       # Two additive gates landed in the same pass and are NOT
+                       # part of the saveParse arming: V19M promotes the measured
+                       # `Split summary: .*exoCoastBodyChangeKept=1
+                       # splittableButRejected=0` into `required` (the V14M
+                       # precedent, so the optimizer-cohesion answer regresses
+                       # loudly rather than silently), and V19T adds the
+                       # `created 0 ghost vessel\(s\)` forbid now that its own run
+                       # measured `created 1` with `noOrbit=0` (the S1.4 rule;
+                       # V17T had retired that forbid because init-ZERO was the
+                       # correct product outcome on ITS segment-less-tail subject,
+                       # and this subject's jump lands inside a SEGMENTED coast).
+                       # **DISCHARGED 2026-08-21, AND NOT BY A SHARED CONTROL.**
+                       # An earlier draft of this comment said what remained was
+                       # "the armed re-flights and the shared negative control";
+                       # that was wrong on both counts and is corrected here.
+                       # V19M: armed re-flight `2026-08-21_0852` PASS with both
+                       # blocks gating and 0 mismatches, then its OWN negative
+                       # control `2026-08-21_0855` PARSEK-FAIL(expectation) on
+                       # ONE mismatch - `logContracts.required not matched:
+                       # phase=body-orbit surface=ProtoOrbitLine .*body=Vall` -
+                       # with saveParse still PASS and driverValidity /
+                       # anomalySweep clean, then reverted.
+                       # V19T: armed re-flight `2026-08-21_0854` PASS, its OWN
+                       # negative control `2026-08-21_0858` PARSEK-FAIL
+                       # (expectation) on ONE mismatch - `phase=GhostCreated
+                       # surface=ProtoIcon pid=\d+ .*body=Vall
+                       # scene=TRACKSTATION` - again with saveParse PASS, and
+                       # revert confirmation `2026-08-21_0859` PASS. Its
+                       # `2026-08-21_0857` is recorded as an EXTRA ARMED
+                       # CONFIRMATION and NOT a control: it was attempted as one
+                       # and PASSED, because a mis-escaped regex in the editing
+                       # script silently made no edit at all. A control that
+                       # passes is a FAILED control.
+                       # WHY TWO CONTROLS RATHER THAN THE FAMILY'S USUAL ONE:
+                       # the halves pin DIFFERENT LENSES (proto ORBIT LINE on the
+                       # flight map, proto ICON in TRACKSTATION), so one shared
+                       # inversion would have proven exactly one of them. Both
+                       # inverted a required RENDER token rather than the
+                       # standing `rewind.supersedeRows` evaluator minimum, which
+                       # makes this pair the FIRST in the program to discharge
+                       # roadmap confirmation criterion (b).
+                       "V19M-laythe-jool-player-loop.toml",
+                       "V19T-laythe-jool-ts-arrival.toml",
                        "GS-1-auto-chute-booster.toml", "GS-2-orbital-probe-deploy.toml",
                        "GS-3-switch-nudge-deployed.toml",
                        # B17: rewind (all max 0 - a clean single-launch flight

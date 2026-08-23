@@ -1,0 +1,65 @@
+version = 0
+recordingSchemaGeneration = 4
+GAME_ACTION
+{
+	ut = 28817025.877051547
+	type = 4
+	actionId = act_590e87a14e4c4ed393876385578c603e
+	seq = 1
+	milestoneId = Orbit
+	milestoneFundsAwarded = 12000
+	milestoneRepAwarded = 2
+	milestoneSciAwarded = 1
+}
+GAME_ACTION
+{
+	ut = 0
+	type = 21
+	actionId = act_e41462c767744da9ba2fb2f616e55697
+	initialScience = 0
+}
+GAME_ACTION
+{
+	ut = 0
+	type = 22
+	actionId = act_4fefa6290ba0428c817b17cc3b38503f
+	initialReputation = 0
+}
+GAME_ACTION
+{
+	ut = 28823386.197673805
+	type = 4
+	actionId = act_312678af38c049ca921b4929f6cc4d98
+	recordingId = 28f5cc0158c8461eb995ea1e505aa67e
+	seq = 1
+	milestoneId = Laythe/Escape
+	milestoneFundsAwarded = 22320
+	milestoneRepAwarded = 1
+	milestoneSciAwarded = 0
+}
+GAME_ACTION
+{
+	ut = 28823386.197673805
+	type = 4
+	actionId = act_893424b98b754a5dafe40d0be110d152
+	recordingId = 28f5cc0158c8461eb995ea1e505aa67e
+	seq = 2
+	milestoneId = Jool/Flyby
+	milestoneFundsAwarded = 25000
+	milestoneRepAwarded = 1
+	milestoneSciAwarded = 0
+}
+GAME_ACTION
+{
+	ut = 28817026.557051532
+	type = 11
+	actionId = act_741d117971b04676b98ccb4d9a693f20
+	recordingId = 28f5cc0158c8461eb995ea1e505aa67e
+	seq = 1
+	kerbalName = Valentina Kerman
+	kerbalRole = Pilot
+	startUT = 28817026
+	endUT = 28829018
+	endState = 0
+	xpGained = 0
+}

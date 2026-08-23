@@ -3441,6 +3441,32 @@ class B5Params:
                                            # and a non-empty return_body (the
                                            # PARENT frame IS the whole premise).
                                            # Spec key parentRelayTransfer.
+    relay_park_at_parent: bool = False     # True: THIS RELAY LANE HAS NO
+                                           # STAGE 2 -- the escape IS the whole
+                                           # transfer. targetBodyName IS the
+                                           # parent, so the coast's arrival in
+                                           # the PARENT SOI is the ARRIVAL: it
+                                           # takes COAST-TO-TARGET's target-body
+                                           # hop into TARGET-FLYBY and then the
+                                           # ordinary capture tail
+                                           # (PLAN-CAPTURE's circularize at the
+                                           # next periapsis -> CAPTURE-BURN ->
+                                           # PARK -> ORBIT-COMMIT), and the
+                                           # stage-2 hand-off is suppressed
+                                           # STRUCTURALLY rather than left to
+                                           # the order of two adjacent
+                                           # branches. REQUIRES
+                                           # parent_relay_transfer (this
+                                           # modifies that mode and nothing
+                                           # else) and capture_enabled (a
+                                           # parked, COMMITTED recording at the
+                                           # parent is the lane's entire
+                                           # product); INVERTS the stage-2
+                                           # transfer_min_apoapsis gate to
+                                           # "must be exactly 0", because no
+                                           # frame can ever read that floor.
+                                           # Lane: b28_laythe_jool.
+                                           # Spec key relayParkAtParent.
     escape_soi_speed: float = 0.0          # m/s. The relative speed the escape
                                            # should carry ACROSS THE HOME BODY'S
                                            # SOI BOUNDARY -- which is where KSP's
@@ -3910,17 +3936,28 @@ def b5_params_from_dict(params: Dict) -> B5Params:
             "startInOrbit enters at the ORBIT waypoint and never launches at "
             "all -- a spec asking for both is asking the machine to align a pad "
             "it will not use")
+    if bool(params.get("relayParkAtParent", False)) \
+            and not bool(params.get("parentRelayTransfer", False)):
+        raise ValueError(
+            "relayParkAtParent requires parentRelayTransfer: it is a MODIFIER "
+            "on the relay mode and nothing else -- all it does is suppress the "
+            "stage-2 hand-off, which only the relay mode has -- so on a lane "
+            "with no relay to modify it is INERT and the spec would silently "
+            "fly the ordinary transfer machine while reading as if it had "
+            "asked to park at a parent")
     if bool(params.get("parentRelayTransfer", False)):
-        # THE FOUR IMPLICATIONS THE RELAY MODE RESTS ON, asserted rather than
+        # THE FIVE IMPLICATIONS THE RELAY MODE RESTS ON, asserted rather than
         # documented. Each one is a silent-degradation risk, not a style point:
         # without (1) the correction domain stops narrowing to the parent SOI
         # and the stage-1 burn-done evidence falls back to an apoapsis floor an
         # ESCAPE drives NEGATIVE; without (2) the stage-2 hand-off has no body
         # to wait for and the machine coasts to its budget inside the parent
-        # SOI; (3) is the pad/no-pad contradiction PAD-ALIGN already rejects
-        # against startInOrbit; and without (4) the node is computed from a
-        # gravity constant that does not exist, mid-flight, on the one frame
-        # that matters.
+        # SOI; without (3) the mode's ONE claim -- the craft left home -- is
+        # certifiable by a frame that never left it; (4) is the pad/no-pad
+        # contradiction PAD-ALIGN already rejects against startInOrbit; and
+        # without (5) the node is computed from a gravity constant that does not
+        # exist, mid-flight, on the one frame that matters.
+        relay_home = str(params.get("homeBodyName", "Kerbin"))
         if not bool(params.get("interplanetaryTransfer", False)):
             raise ValueError(
                 "parentRelayTransfer requires interplanetaryTransfer: the "
@@ -3935,6 +3972,40 @@ def b5_params_from_dict(params: Dict) -> B5Params:
                 "PARENT body is the frame the relay escapes INTO and the SOI "
                 "whose arrival triggers stage 2, so with it empty the machine "
                 "has nothing to hand stage 2 off on")
+        # THE TWO BODY-IDENTITY FACTS THE ESCAPE CLAIM RESTS ON, and they are
+        # gated here because NOTHING downstream re-checks them. `escapedHomeSoi`
+        # is the one row this mode adds and the one thing no other row can
+        # express -- every other row is satisfiable by a flight that never left
+        # home -- and BOTH of its disjuncts are proofs by OBSERVED SOI BODY. An
+        # observation only proves departure while the body observed is not the
+        # body departed from, and that is a property of the SPEC rather than of
+        # any frame, so it belongs at load. Driven, both arms green a craft that
+        # never left: with the two equal a single COAST-TO-TARGET frame reading
+        # the home body certifies the row. NOTE the target default -- an ABSENT
+        # targetBodyName parses to "Mun", so a relay lane departing Mun and
+        # naming no target is caught by the first gate too.
+        if str(params.get("targetBodyName", "Mun")) == relay_home:
+            raise ValueError(
+                "parentRelayTransfer requires targetBodyName != homeBodyName: "
+                "COAST-TO-TARGET's FIRST test is `snapshot.body == "
+                "target_body`, so with the two equal it matches on a frame "
+                "still INSIDE the home SOI -- the craft hops into TARGET-FLYBY "
+                "without having gone anywhere, reachedTargetSoi reads met on "
+                "the home body, and on a relayParkAtParent lane escapedHomeSoi "
+                "is carried by its park-at-parent disjunct (ESCAPE ran AND "
+                "TARGET-FLYBY was reached) at relayStage 0 -- the ONE row whose "
+                "entire purpose is to prove the craft left home, certifying a "
+                "flight that never did")
+        if str(params.get("returnBodyName", "")) == relay_home:
+            raise ValueError(
+                "parentRelayTransfer requires returnBodyName != homeBodyName: "
+                "returnBodyName is the PARENT frame the escape delivers into "
+                "and the SOI whose arrival advances relay_stage, so with the "
+                "two equal the stage-2 hand-off fires on a coast frame still "
+                "INSIDE the home SOI and escapedHomeSoi's STAGE evidence reads "
+                "met on a craft that never left -- the same silent green as the "
+                "target arm above, through the other disjunct (and it is the "
+                "arm the two-stage lanes are judged by)")
         if bool(params.get("padAlignEjection", False)):
             raise ValueError(
                 "parentRelayTransfer and padAlignEjection are mutually "
@@ -3942,7 +4013,6 @@ def b5_params_from_dict(params: Dict) -> B5Params:
                 "ascent, while the relay departs an existing park around a MOON "
                 "-- a spec asking for both is asking the machine to align a pad "
                 "it will not use for a frame it is not in")
-        relay_home = str(params.get("homeBodyName", "Kerbin"))
         _body_gravity(relay_home)   # raises, with the add-a-cited-row message
         if float(params.get("escapeSoiSpeedMps", 0.0)) <= 0.0:
             raise ValueError(
@@ -3951,12 +4021,47 @@ def b5_params_from_dict(params: Dict) -> B5Params:
                 "boundary, which is where KSP's patched conic hands the vessel "
                 "to the parent frame, and at 0 there is nothing to size the "
                 "node against")
-        if float(params.get("transferMinApoapsisMeters", 0.0)) <= 0.0:
+        if bool(params.get("relayParkAtParent", False)):
+            # PARK-AT-PARENT INVERTS THE STAGE-2 GATE BELOW, so the two arms are
+            # written as explicit branches rather than one predicate that
+            # happens to cover both: on this lane stage 2 is UNREACHABLE (the
+            # COAST hand-off carries `not relay_park_at_parent`), so the sibling
+            # apoapsis floor is not merely unnecessary, it is a claim about
+            # burn-done evidence that NO FRAME OF THIS MISSION CAN EVER READ.
+            # A spec carrying a positive one is a spec written against the
+            # two-stage lane, and the number would sit in the params reading
+            # like a live threshold for whoever debugs the flight next.
+            if not bool(params.get("captureEnabled", False)):
+                raise ValueError(
+                    "relayParkAtParent requires captureEnabled: the lane's "
+                    "whole product is a PARKED, COMMITTED recording at the "
+                    "parent, and the capture tail is the only door to it -- "
+                    "with capture off the arrival in the parent SOI takes "
+                    "TARGET-FLYBY's not-capture_enabled exit straight to "
+                    "RETURN (terminal, verdict None, no tree-commit seam on "
+                    "the path), so the craft coasts back out having committed "
+                    "nothing while every flyby assertion row still reads met")
+            if ("transferMinApoapsisMeters" not in params
+                    or float(params["transferMinApoapsisMeters"]) != 0.0):
+                # ABSENT IS NOT 0 HERE, and that is the whole reason this reads
+                # the key's presence rather than `params.get(key, 0.0)`: an
+                # absent key parses to the constructor's own positive default
+                # (`transferMinApoapsisMeters` -> 10,000,000 m below), so a
+                # spec that says nothing would carry a live-looking floor into
+                # the machine -- the exact silent shape this gate closes.
+                raise ValueError(
+                    "relayParkAtParent requires transferMinApoapsisMeters "
+                    "EXACTLY 0, stated explicitly (an absent key parses to the "
+                    "positive default, so it is not 0): this lane has no stage "
+                    "2, the parent-frame apoapsis floor is burn-done evidence "
+                    "no frame can ever read, and a positive value is a spec "
+                    "claiming a threshold the machine will never judge against")
+        elif float(params.get("transferMinApoapsisMeters", 0.0)) <= 0.0:
             # THE SIBLING OF THE ABOVE, and the same silent-degradation shape.
             # On every non-relay lane this floor is allowed to be the inert 0;
-            # on a relay lane it is the ONLY stage-2 burn-done evidence there
-            # is (`_b5_transfer_burn_done` takes the apoapsis arm at
-            # relay_stage >= RELAY_STAGE_TRANSFER and reads nothing else), so
+            # on a TWO-STAGE relay lane it is the ONLY stage-2 burn-done
+            # evidence there is (`_b5_transfer_burn_done` takes the apoapsis arm
+            # at relay_stage >= RELAY_STAGE_TRANSFER and reads nothing else), so
             # at 0 the TRANSFER-BURN exit reduces to "a node was consumed" and
             # a no-op sibling burn would certify as a transfer.
             raise ValueError(
@@ -4031,6 +4136,7 @@ def b5_params_from_dict(params: Dict) -> B5Params:
         correction_trigger_time_to_soi=tuple(
             float(t) for t in params.get("correctionTriggerTimeToSoiSeconds", ())),
         parent_relay_transfer=bool(params.get("parentRelayTransfer", False)),
+        relay_park_at_parent=bool(params.get("relayParkAtParent", False)),
         escape_soi_speed=float(params.get("escapeSoiSpeedMps", 0.0)),
         escape_max_dv=float(params.get("escapeMaxDeltaVMps", 0.0)),
         escape_node_min_lead=float(params.get("escapeNodeMinLeadSeconds", 300.0)),
@@ -12488,7 +12594,19 @@ def b5_decide(state: B5State, snapshot: TelemetrySnapshot) -> Tuple[B5State, Lis
                              "(allowed %r, target %r)"
                              % (snapshot.body, _b5_coast_bodies(state.params),
                                 state.params.target_body))), []
+        # THE PARK-AT-PARENT CONJUNCT IS STRUCTURAL, and that is the point of
+        # writing it here rather than resting on the branch above. On a
+        # relay_park_at_parent lane the target IS the parent, so the target-body
+        # hop at the top of this phase matches on the SAME frame this one would
+        # and already carries the craft into TARGET-FLYBY -- but that is a
+        # property of TWO ADJACENT BRANCHES and their order, which any later
+        # edit may reorder or insert between without noticing. The conjunct is
+        # a property of the FLAG, so it survives the reorder. The failure it
+        # closes is silent rather than loud: with the branches swapped the
+        # machine would plan and fly a sibling Hohmann nobody asked for, out of
+        # a park it was supposed to keep.
         if (state.params.parent_relay_transfer
+                and not state.params.relay_park_at_parent
                 and state.relay_stage == RELAY_STAGE_ESCAPE
                 and snapshot.body == _b5_return_body(state.params)):
             # PARENT-RELAY STAGE 2. The escape has delivered the craft into the
@@ -15804,20 +15922,91 @@ def evaluate_b5_assertions(frames, params: B5Params,
     # a node that was merely planned. The node's own numbers ride the detail for
     # the operator comparison against the spec's derived figure; a missing stamp
     # leaves them None and does not affect ``met`` (the stage IS the claim).
+    #
+    # THE PARK-AT-PARENT DISJUNCT (relay_park_at_parent lanes only). Those lanes
+    # have NO stage 2 by construction -- the COAST hand-off above carries `not
+    # relay_park_at_parent` -- so ``relay_stage`` stays at RELAY_STAGE_ESCAPE
+    # for the whole flight and the stage evidence would read met=False forever,
+    # turning a perfectly flown escape-and-park into MISSION-ASSERT-FAIL through
+    # resolve_flight_verdict. The replacement evidence is POSITIVE and specific
+    # rather than a relaxation: the ESCAPE phase RAN (the node was authored and
+    # flown) AND TARGET-FLYBY was REACHED, and TARGET-FLYBY is entered from
+    # exactly one place -- the coast frame that observed `snapshot.body ==
+    # target_body`. On this lane the target IS the parent, so a reached
+    # TARGET-FLYBY is a MEASURED reading of the craft inside the parent's SOI,
+    # which is the same claim `relay_stage` carries on a two-stage lane.
+    #
+    # WHICH HALF OF THAT PAIR IS ACTUALLY LOAD-BEARING, stated because the
+    # two-part reading over-sells it (review, and DRIVEN rather than argued):
+    # on a park-at-parent lane the ESCAPE conjunct CANNOT be False whenever
+    # TARGET-FLYBY is in a phase list this machine produced.
+    # ``_b5_enter_transfer_stage`` diverts the post-ORBIT hand-off into ESCAPE
+    # whenever the relay is armed and ``relay_stage`` is still
+    # RELAY_STAGE_ESCAPE -- which on this lane it is forever -- and
+    # ``_b5_enter_plan_transfer``'s only other caller is the stage-2 door the
+    # flag closes, so PLAN-TRANSFER is unreachable and EVERY route into
+    # COAST-TO-TARGET (and hence into TARGET-FLYBY) runs through ESCAPE. Driving
+    # the committed B28 shape reaches (PRELAUNCH, ORBIT, ESCAPE, TRANSFER-BURN,
+    # COAST-TO-TARGET, TARGET-FLYBY) and the FLOWN run's phasesReached agrees.
+    # So the row's live evidence is the TARGET-FLYBY observation, and the ESCAPE
+    # conjunct is a fail-CLOSED belt against a phase list this machine could not
+    # have produced -- not an independent second measurement.
+    #
+    # AND THE OBSERVATION ONLY PROVES DEPARTURE BECAUSE TARGET != HOME. That is
+    # a property of the SPEC, not of any frame: with the two equal the coast's
+    # target-body test matches inside the home SOI and this disjunct certifies a
+    # craft that never left (the stage disjunct has the mirror hole on
+    # return_body == home_body). Both are REJECTED AT SPEC LOAD by
+    # b5_params_from_dict's parent-relay body-identity gates, which is the
+    # primary guard; the conjuncts below are the fail-closed belt for a
+    # B5Params built without that validator. The disjunct is gated on the flag,
+    # so a two-stage lane (B26) is judged by the stage and nothing else.
     relay_rows: List[AssertionOutcome] = []
     if params.parent_relay_transfer:
         relay_stage = int(getattr(state, "relay_stage", RELAY_STAGE_ESCAPE) or 0)
-        relay_met = (relay_stage >= RELAY_STAGE_TRANSFER
-                     and B5_ESCAPE in phases)
+        staged_proof = (relay_stage >= RELAY_STAGE_TRANSFER
+                        and B5_ESCAPE in phases
+                        and _b5_return_body(params) != params.home_body)
+        parked_proof = (params.relay_park_at_parent
+                        and B5_ESCAPE in phases
+                        and B5_TARGET_FLYBY in phases
+                        and params.target_body != params.home_body)
+        relay_met = staged_proof or parked_proof
+        detail = {
+            "required": B5_ESCAPE, "homeBody": params.home_body,
+            # THE FRAME THE ESCAPE DELIVERED INTO, and it FOLLOWS THE MODE. On a
+            # two-stage lane that is return_body (B26: Jool really is Laythe's
+            # parent). On a park-at-parent lane the TARGET is the parent by the
+            # flag's own definition, and return_body is the EXIT SOI one level
+            # further out -- B28 sets it to "Sun" deliberately -- so reporting
+            # return_body there names the wrong body on the exact row whose
+            # subject is that frame (the flown B28 row read parentBody=Sun).
+            "parentBody": (params.target_body if params.relay_park_at_parent
+                           else _b5_return_body(params)),
+            "relayStage": relay_stage,
+            "escapeNodeUt": getattr(state, "escape_node_ut", None),
+            "escapeNodeDvMps": getattr(state, "escape_node_dv", None),
+            "targetSoiSpeedMps": params.escape_soi_speed,
+            "lastRefusal": (getattr(state, "escape_refusal", "") or None)}
+        if params.relay_park_at_parent:
+            # WHICH DISJUNCT PROVED IT, and the two keys are GATED ON THE FLAG
+            # rather than emitted always, because the flag-off contract in this
+            # file is LITERAL row identity (PAD-ALIGN's and ORBIT-START's
+            # precedent) and B26 is a flown lane whose result JSONs are
+            # artifacts. Nothing is lost by gating: with the flag off
+            # `parked_proof` is False by construction, so `provenBy` would be
+            # exactly `"relayStageAdvanced" if met else None` -- a restatement
+            # of `met` carrying no information -- and `relayParkAtParent` would
+            # be the constant False. On a park-at-parent lane the pair IS
+            # informative: `relayStageAdvanced` there would mean a stage
+            # advanced that the flag makes structurally unreachable.
+            detail["provenBy"] = ("relayStageAdvanced" if staged_proof
+                                  else ("parkAtParentTargetSoiReached"
+                                        if parked_proof else None))
+            detail["relayParkAtParent"] = True
         relay_rows = [AssertionOutcome(
             "escapedHomeSoi", relay_met, (relay_stage if relay_met else None),
-            {"required": B5_ESCAPE, "homeBody": params.home_body,
-             "parentBody": _b5_return_body(params),
-             "relayStage": relay_stage,
-             "escapeNodeUt": getattr(state, "escape_node_ut", None),
-             "escapeNodeDvMps": getattr(state, "escape_node_dv", None),
-             "targetSoiSpeedMps": params.escape_soi_speed,
-             "lastRefusal": (getattr(state, "escape_refusal", "") or None)})]
+            detail)]
 
     # PAD-ALIGN row (pad_align_ejection lanes only; every flown lane's row
     # list is unchanged with the flag off). The claim is the recording-

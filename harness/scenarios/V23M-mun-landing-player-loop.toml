@@ -163,12 +163,18 @@ id = "V23M-mun-landing-player-loop"
 # -------------------------------------------------------------------------------------
 # 5. THE NEGATIVE CONTROL - IT MUST INVERT A REQUIRED RENDER TOKEN
 # -------------------------------------------------------------------------------------
-# Confirmation criterion (b), and the criterion this family has been weakest on: every
-# V pair to date shares one inversion, a temporary `rewind.supersedeRows` minimum,
-# which proves the saveParse EVALUATOR can red and NOTHING about whether the render
-# pins can. Designed at ARMING off the reading run's own bytes, then REVERTED.
+# **CRITERION (b) WAS FIRST DISCHARGED BY THE V19 PAIR ON 2026-08-21, AND IT
+# ESTABLISHED A RULE THIS LANE FOLLOWS: THE CONTROL IS PER-LANE, NOT PER-PAIR.**
+# Every V pair BEFORE V19 shared one inversion - a temporary `rewind.supersedeRows`
+# minimum - which proves the saveParse EVALUATOR can red and NOTHING about whether
+# the render pins can. V19M and V19T each ran their OWN control on their OWN lens
+# (`2026-08-21_0855` red on `surface=ProtoOrbitLine .*body=Vall`, `_0858` on
+# `surface=ProtoIcon pid=\d+ .*body=Vall scene=TRACKSTATION`), BECAUSE the two
+# halves pin different lenses and a shared control would have proven exactly one of
+# them. G3a's lanes diverge FURTHER than V19's did, so each of the five owes its own.
+# Designed at ARMING off the reading run's own bytes, then REVERTED.
 #
-# The inversion of record for the V23 pair:
+# THE INVERSION OF RECORD FOR THIS LANE:
 #     required: "Orbit line decision: pid=\\d+ reason=polyline-owns-phase .*iconSuppressed=True belowAtmosphere=False"
 #     inverted: "... .*iconSuppressed=False belowAtmosphere=False"
 #

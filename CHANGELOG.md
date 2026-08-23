@@ -8,6 +8,35 @@ All notable changes to Parsek are documented here.
 
 ### Dev
 
+- The automated-testing suite can now check that a recorded flight still draws
+  correctly when it is played back in the RETURN direction - a spacecraft coming
+  home rather than setting out. Every looped recording the suite had was outbound,
+  which mattered because a supply run is a round trip and nothing had ever
+  confirmed that the map, the icons and the orbit lines behave the same way on the
+  leg back. A new automated mission flies a crewed nuclear ship out of Laythe's
+  sphere of influence on a single burn and parks it around Jool - the moon's own
+  parent - and its produced save is committed as a test subject. Two new test
+  cases read that subject back, one watching the flight map and one watching the
+  Tracking Station.
+  What they measured is worth stating plainly, because it was genuinely unknown:
+  Parsek neither re-plans nor re-times a moon-to-parent return. It replays the
+  recording faithfully, exactly as flown. That had been measured before in the
+  outward direction only, and the two directions turn out NOT to be mirror images
+  - the internal reason the planner declines is a different one on the way home,
+  reachable only by a recording whose destination is its own starting point's
+  parent. Both new cases pass with their checks armed, and each one was separately
+  proven able to FAIL, by deliberately pointing its check at the wrong planet and
+  confirming it goes red for that reason and no other - the first time in this
+  family of tests that the failure proof exercised the render check itself rather
+  than a neighbouring one.
+  A second reading came out of it: a long-standing intermittent map-render report
+  in the internal notes had two candidate explanations, and the new Tracking
+  Station case was built to tell them apart. It narrows the field to one. No
+  explanation is claimed, and nothing is suppressed on the strength of it.
+  Also here: an opt-in flag for the mission library that lets a flight park at its
+  starting body's parent instead of transferring onward, off by default and
+  inert unless a scenario asks for it. Test-tooling only; no gameplay change.
+
 - A check in the automated-testing harness that silently did nothing now does its
   job. Each automated mission declares what type every one of its parameters must
   be, and the validator understands a closed list of type names; three of those
