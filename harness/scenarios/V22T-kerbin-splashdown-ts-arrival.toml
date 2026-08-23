@@ -1,0 +1,234 @@
+schema = 1
+id = "V22T-kerbin-splashdown-ts-arrival"
+# =====================================================================================
+# *** COMMITTED AHEAD OF ITS SUBJECT. THE FIXTURE DOES NOT EXIST YET. ***
+# Same posture as V22M: `fixtures/saves/kerbin-splashdown-recorded` must be harvested
+# from a `B4-reentry-splashdown` re-fly first. ZERO placeholder tree id, one
+# CALIBRATION-SEED jump UT. Tracked by `PENDING_FIXTURE_LANES`; delete that entry in
+# the same commit that re-pins this spec. V22M's header sections 0-3 carry the
+# derivation and the re-pin recipe and are NOT restated here.
+# =====================================================================================
+#
+# -------------------------------------------------------------------------------------
+# 0. WHAT THIS LANE ADDS OVER V22M
+# -------------------------------------------------------------------------------------
+# The Tracking-Station half of the Kerbin surface-arrival pair. V22M reads the
+# below-atmosphere arrival from the FLIGHT map; whether the TS host - a DIFFERENT
+# render host with its own init walk and its own dynamic overlap path
+# (`ParsekTrackingStation`, not `ParsekUI.DrawMapMarkers`) - assembles the same
+# descent polyline and the same suppressed-icon marker for a subject with NO CONIC AT
+# THE ARRIVAL is this lane's own measurement.
+#
+# ITS SINGLE JUMP UT IS V22M's THIRD CYCLE-1 BRACKET, REUSED VERBATIM. That is
+# deliberate and it is what makes the pair a pair: both lanes observe the SAME INSTANT
+# of the same loop from two scenes, so a divergence between them is attributable to
+# the HOST rather than to the epoch. Re-pin both together or neither.
+#
+# -------------------------------------------------------------------------------------
+# 1. ROUTING - INHERITED, UNGATED
+# -------------------------------------------------------------------------------------
+# Identical pre-registration to V22M section 1: a LAUNCH-BODY-ONLY subject starves
+# both roads (no same-parent target for phase-lock, no transfer run for the re-aim
+# classifier), so FAITHFUL FIXED CADENCE is the plausible outcome and BOTH roads stay
+# UNREQUIRED AND UNFORBIDDEN. Nothing here gates on the answer.
+#
+# -------------------------------------------------------------------------------------
+# 2. THE LENS, AND THE TWO TS-SPECIFIC CHOICES
+# -------------------------------------------------------------------------------------
+# The arrival lens is V22M's - the owned descent polyline plus the suppressed-icon
+# fallback, NOT a proto orbit line, for the reason V22M section 2 gives at length (on
+# this subject a proto pin is VACUOUS rather than unsatisfiable, because the harness
+# searches the whole log and the loop's Kerbin-orbit coast satisfies it). Two things
+# change for the TS host:
+#
+# (a) `Polyline frame:` IS SCENE-STAMPED, so the TS form is `scene=TRACKSTATION`.
+#     Copying V22M's `scene=FLIGHT` line into this lane would be unsatisfiable - a
+#     mistake that costs a flight and looks like a product defect.
+#
+# (b) THE MARKER-DECISION TRACER LINE IS DELIBERATELY NOT REQUIRED HERE.
+#     `phase=MarkerDecision surface=AtmosphericMarker ...` is the TS marker surface
+#     (`ParsekTrackingStation.cs:444` / `:1038`), but it is emitted through
+#     `EmitMarkerDecisionOnChange` - CHANGE-ONLY. The flight half can rely on a
+#     change line because it crosses the descent onset live; this lane enters TS
+#     already past it, on a single dwell, so the line may legitimately never fire.
+#     The per-second `Director TracedPath suppress` line carries the same claim and
+#     repeats, so it is required instead. (Note also that `MapRenderTrace.Bool()`
+#     lowercases - `iconSuppressed=true`, not `True` - in that ONE emitter and
+#     nowhere else, which is its own reason not to reach for it casually.)
+#
+# THE TS DESTINATION-FRAME PIN is the Tier-A structural creation event,
+# `phase=GhostCreated surface=ProtoIcon pid=\d+ .*body=Kerbin scene=TRACKSTATION`. It
+# is emitted at Info (so it survives even a verbose-off run) and it proves a
+# Kerbin-frame ghost actually materialized in the TS scene. Note what it does and does
+# not say: a proto ICON being CREATED is not a claim that a proto LINE is drawn at the
+# arrival - the suppression pins carry that - and the two must not be conflated.
+#
+# -------------------------------------------------------------------------------------
+# 3. THE FORTY-TICK TS DWELL IS NOT OPTIONAL, AND V17T PAID FOR THAT LESSON
+# -------------------------------------------------------------------------------------
+# V17T's run 1 red on an UNPREDICTED surface and the reading is directly load-bearing
+# here: on a loop-armed subject the TS init walk contributes ZERO ghosts when the tail
+# is segment-less (it skips `noOrbit=1`), and the real ghosts arrive on the DYNAMIC
+# OVERLAP PATH at `MaxSpawnsPerFrame = 2`, newest-cycle-first. The arrival-leg
+# instance is therefore the LAST to spawn, and V17T's original two-tick TS phase cut
+# the census off at 6 of 20 instances. The forty-tick dwell exists to let the throttle
+# finish filling.
+#
+# IT MATTERS AT LEAST AS MUCH ON THIS SUBJECT, and for an additional reason: a
+# splashdown recording ENDS below atmosphere, so its tail is exactly the kind the init
+# walk has no orbit source for. Expect the init walk to contribute little or nothing
+# and the dwell to do the work. `ParsekTrackingStation initialized: created N ghost
+# vessel(s)` is therefore NOT required with a nonzero N - V17T retired that forbid for
+# this reason, and repeating it here would re-litigate a settled reading.
+#
+# -------------------------------------------------------------------------------------
+# 4. THE RE-KILL PAIR BEFORE THE TS LOAD IS NOT BELT-AND-BRACES
+# -------------------------------------------------------------------------------------
+# `SaveGame` -> `StopRecording` -> `DiscardTree` -> `LoadGame scene=trackstation` is
+# V5's precondition, kept verbatim across every TS lane in the family. V5 run 1
+# attempt 1 established why: without the second kill the re-entry carries live
+# recorder state into the TS load. This is a DOUBLE-ENTRY spec (it writes a save
+# mid-run and re-enters), which is also why the `rewind` facets are worth reading here
+# even though nothing is armed.
+#
+# -------------------------------------------------------------------------------------
+# 5. THE NEGATIVE CONTROL
+# -------------------------------------------------------------------------------------
+# Shared with V22M and flown on the M half, per the V16 / V17 precedent (both halves
+# gate through the same saveParse evaluator, so one control discharges the pair).
+# V22M section 5 carries the design: a REQUIRED RENDER TOKEN inversion
+# (`body=Kerbin` -> `body=Eeloo` on the owned-leg draw), not the family's shared
+# `rewind.supersedeRows` inversion, which proves only that the evaluator can red.
+#
+# -------------------------------------------------------------------------------------
+# 6. POSTURE
+# -------------------------------------------------------------------------------------
+# NOTHING IS ARMED - no `gating = true`; the `rewind` and `structure` blocks are
+# report-only so the reading run prints their facets without gating on unmeasured
+# values. `terminalStates` is not declared, for V22M's reason (B4 accepts LANDED or
+# SPLASHED and the evaluator reports observed facets regardless).
+# `allowedAnomalies = []` on purpose. Two raises are pre-registered as POSSIBLE and
+# neither is pre-tolerated: `rigid-seam-tangent-discontinuity` at the owned descent
+# draw (gated, once per onset), and `icon-off-orbit`, which the single-jump TS shape
+# raised on six runs at three parents before V17T's subject went silent on it twice -
+# a discriminator nobody has explained, so this lane is a fourth data point on an open
+# reading rather than a test of a settled one.
+# -------------------------------------------------------------------------------------
+tier = "operator"
+description = "**PENDING ITS FIXTURE - COMMITTED AHEAD OF THE SUBJECT** under the re-armed `PENDING_FIXTURE_LANES` exemption, with a ZERO placeholder tree id and ONE calibration-seed jump UT reused verbatim from V22M's third cycle-1 bracket so the two lanes observe the SAME INSTANT of the same loop from two scenes - which is what makes a divergence attributable to the HOST rather than the epoch. The Tracking-Station half of the Kerbin surface-arrival pair (roadmap gap G3a); V22M's header carries the seed derivation, the re-pin recipe and the routing pre-registration and they are not restated. TWO TS-SPECIFIC LENS CHOICES, both of which would cost a flight if got wrong: (a) `Polyline frame:` is SCENE-STAMPED, so this lane pins `scene=TRACKSTATION` and copying V22M's `scene=FLIGHT` form would be unsatisfiable; (b) the `phase=MarkerDecision surface=AtmosphericMarker` tracer line is deliberately NOT required, because it is emitted CHANGE-ONLY and this lane enters TS already PAST the descent onset on a single dwell, so it may legitimately never fire - the per-second `Director TracedPath suppress` line carries the same claim and repeats, so it is required instead (that emitter is also the one place `MapRenderTrace.Bool()` lowercases its bools, another reason not to reach for it casually). The TS destination-frame pin is the Tier-A structural `phase=GhostCreated surface=ProtoIcon ... body=Kerbin scene=TRACKSTATION`, emitted at Info; note what it does NOT say - a proto icon being CREATED is not a claim that a proto LINE is drawn at the arrival, and the suppression pins carry that separately. THE FORTY-TICK TS DWELL IS NOT OPTIONAL and V17T paid for the lesson: on a loop-armed subject the init walk contributes zero ghosts when the tail is segment-less, the real ghosts arrive on the DYNAMIC overlap path at `MaxSpawnsPerFrame = 2` newest-cycle-first, and V17T's two-tick phase cut the census off at 6 of 20 instances. It matters more here because a splashdown recording ENDS below atmosphere - exactly the tail the init walk has no orbit source for - so `ParsekTrackingStation initialized: created N` is NOT required with a nonzero N (V17T retired that forbid and repeating it would re-litigate a settled reading). The V5 re-kill pair before the TS load is kept verbatim. Negative control is shared with V22M and flown on the M half per the V16/V17 precedent: a REQUIRED RENDER TOKEN inversion, not the family's shared `rewind.supersedeRows` one. `allowedAnomalies = []` on purpose with TWO possible raises pre-registered and neither pre-tolerated - `rigid-seam-tangent-discontinuity` at the owned descent draw, and `icon-off-orbit`, which the single-jump TS shape raised on six runs at three parents before V17T's subject went silent on it twice, an unexplained discriminator this lane adds a fourth data point to. NOTHING IS ARMED."
+instanceProfile = "stock-minimal"
+tags = ["V22", "tracking-station", "loop-arrival", "surface-endpoint", "splashdown",
+        "kerbin", "launch-body-only", "map-render", "pending-fixture"]
+
+[fixture]
+saveTemplate       = "fixtures/saves/kerbin-splashdown-recorded"
+injectedRecordings = "none"
+craft              = []
+
+[driver]
+kind = "seam"
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  { cmd = "StopRecording",                                                   expect = "OK" },
+  { cmd = "DiscardTree",                                                     expect = "OK" },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "mapRenderTracing", value = "true" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "verboseLogging",   value = "true" }, expect = "OK" },
+  { cmd = "MissionConfig", args = { tree = "00000000000000000000000000000000", loop = "true" }, expect = "OK" },
+  { cmd = "StartLoopPlayback", args = { tree = "00000000000000000000000000000000" }, expect = "OK", budget = 300 },
+  { cmd = "TimeJump", args = { ut = "12174" }, expect = "OK", budget = 300 },
+  { cmd = "SaveGame",   args = { name = "persistent" },                      expect = "OK" },
+  { cmd = "StopRecording",                                                   expect = "OK" },
+  { cmd = "DiscardTree",                                                     expect = "OK" },
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent", scene = "trackstation" }, expect = "OK", budget = 300 },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "FlushAndQuit",                                                    expect = "OK" },
+]
+
+[dimensionsCovered]
+D14 = ["kerbin", "scene-ts", "sandbox"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+count = { min = 1, max = 12 }
+
+[expectations.logContracts]
+required  = [
+  "missionconfig applied:",
+  "SetLoopEnabled: loop ON",
+  "startloopplayback initiated:",
+  "FastForwardToEventUT: jumping to UT=",
+  "loadgame trackstation route: booting to TRACKSTATION save=",
+  "loadgame complete scene=TRACKSTATION save=.* game-loaded=true expected=TrackingStation",
+  "phase=GhostCreated surface=ProtoIcon pid=\\d+ .*body=Kerbin scene=TRACKSTATION",
+  "Polyline frame: scene=TRACKSTATION drawn=[1-9]\\d* warp=",
+  "TracedPath OWNS leg pid=\\d+ .*body=Kerbin drawn=True",
+  "Director TracedPath suppress pid=\\d+ frame=\\d+ \\(polyline owns the leg, proto icon hidden\\)",
+  "faithful-parity summary sampled=\\d+ overTolerance=\\d+",
+  "seam-endpoint summary evaluated=\\d+ outsideSoi=\\d+",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "timejump refused reason=backward-jump",
+  "faithful-parity summary sampled=\\d+ overTolerance=[1-9][0-9]*",
+]
+
+[expectations.rewind]
+rewindPoints  = { max = 0 }
+supersedeRows = { max = 0 }
+tombstones    = { max = 0 }
+
+[expectations.recordings.structure]
+trees          = { min = 1, max = 2 }
+committedTrees = { min = 1, max = 1 }
+recordings     = { min = 1, max = 12 }
+
+[runtime]
+budgetSeconds = 2400
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

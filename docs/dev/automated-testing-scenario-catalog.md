@@ -289,6 +289,24 @@ HARD = hand-build; IMPRACTICAL = human needed.
   direction; this catalog gains the scenario blocks as lanes are authored).
   Tier 4's S4.4 above (station rendezvous phase-locked loop) is subsumed by
   that program's first gap - track it there, not under both ids.
+  - **G3a surface endpoints, authored 2026-08-21, PENDING THEIR FIXTURES.**
+    The first loop subjects in the suite that do not end at an ORBIT; below
+    atmosphere there is no conic, so these lanes pin the owned descent
+    polyline and the suppressed-icon marker fallback rather than a proto
+    orbit line. Neither needs a new B id - both producers are committed and
+    live-proven, and what is missing is a HARVEST, not a flight capability.
+    - V22M / V22T / V22K - Kerbin surface arrival over
+      `kerbin-splashdown-recorded` (harvest `--keep-parsek` from a
+      `B4-reentry-splashdown` re-fly). A launch-body-only loop, so the
+      pre-registered road is faithful fixed cadence and the lane gates on
+      nothing there. **V22K is the first V lane ever to use the KSC render
+      host**, whose Kerbin gate a surface subject is the first to make
+      non-vacuous.
+    - V23M / V23T - Mun landing over `mun-landing-recorded` (harvest from a
+      `B13-mun-landing` re-fly). V6 with the endpoint moved from orbit to
+      surface: the same Kerbin -> Mun phase-lock road, one shape dimension
+      changed, and its own A/B control. No KSC half - that host is vacuous
+      for a non-Kerbin subject.
 
 ## 4. Regression replay list (R1-R26)
 

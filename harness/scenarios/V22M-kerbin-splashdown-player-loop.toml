@@ -1,0 +1,428 @@
+schema = 1
+id = "V22M-kerbin-splashdown-player-loop"
+# =====================================================================================
+# *** COMMITTED AHEAD OF ITS SUBJECT. THE FIXTURE DOES NOT EXIST YET. ***
+# `fixtures/saves/kerbin-splashdown-recorded` must be harvested from a
+# `B4-reentry-splashdown` re-fly before this lane can fly. The tree id below is the
+# ZERO PLACEHOLDER and every jump UT is a CALIBRATION SEED (section 3). Tracked by
+# the self-retiring `SharedShipsManifestTests.PENDING_FIXTURE_LANES` exemption in
+# `harness/lib/test_hlib.py`; DELETE that entry in the same commit that re-pins this
+# spec off the harvested bytes. The V15 and V17 pairs shipped this way and both
+# exemptions retired on schedule, each firing red first exactly as designed.
+#
+# WHAT IT IS WAITING FOR IS NOT A CAPABILITY. `B4-reentry-splashdown` is committed
+# and LIVE-PROVEN (2026-07-20). Nothing needs to be built. What the suite has never
+# done is HARVEST a landed or splashed produced save: fourteen orbit and transfer
+# fixtures are committed and not one surface one is, which is the whole reason every
+# loop subject in the suite ends at an ORBIT and why this gap exists at all.
+# =====================================================================================
+#
+# -------------------------------------------------------------------------------------
+# 0. WHAT THIS LANE MEASURES
+# -------------------------------------------------------------------------------------
+# **THE FIRST LOOP SUBJECT IN THE SUITE THAT DOES NOT END AT AN ORBIT**, and the
+# flight-map half of roadmap gap G3a (`docs/dev/autotest-roadmap.md` -> "The
+# loop-render coverage program" -> G3, which is this lane's authority).
+#
+# Every committed V lane loops a recording that ends in orbit, so every one of them
+# reads its arrival through a conic. A recording that ends SPLASHED has no conic at
+# the arrival at all: below atmosphere the proto orbit line is suppressed and the map
+# truth is the OWNED DESCENT POLYLINE, with the marker riding the suppressed-icon
+# fallback. The product claims (v0.10.1) that "looped landings after destination
+# parking render connected". No lane has ever checked it.
+#
+# -------------------------------------------------------------------------------------
+# 1. THE ROUTING PRE-REGISTRATION - AND THIS LANE GATES ON NONE OF IT
+# -------------------------------------------------------------------------------------
+# This subject is a LAUNCH-BODY-ONLY loop: a Kerbin ascent, a Kerbin orbit, a deorbit
+# and a Kerbin splashdown. There is no transfer and no second body anywhere in it.
+# That is a shape no committed V lane has looped before, and it starves BOTH roads:
+#
+#   phase-lock  needs a same-parent TARGET to quantize the cadence against
+#               (`Orbital(<target>) same-parent`, `support=Supported`). There is no
+#               target. Expect `support=Unsupported...` or no phase-lock line at all.
+#   re-aim      needs a transfer RUN for the classifier to admit. There is no
+#               transfer run to gather, so expect `plan.Supported=False` with a
+#               "no member yields a re-aim transfer"-shaped reason, or silence.
+#
+# **SO THE PRE-REGISTERED PLAUSIBLE OUTCOME IS FAITHFUL FIXED CADENCE** - verbatim
+# replay on the raw span, the V9-dres / V17 shape. That is a PREDICTION, not a pin.
+# Both roads are left UNREQUIRED AND UNFORBIDDEN below, for V17M's reason: when the
+# routing is the thing you are reading, requiring either road's artifacts gates the
+# reading on the answer. If a road engages anyway, that is a finding this lane should
+# RECORD rather than red on.
+#
+# -------------------------------------------------------------------------------------
+# 2. WHICH LENS CARRIES THE ARRIVAL, AND WHY IT IS NOT THE PROTO LINE
+# -------------------------------------------------------------------------------------
+# Confirmation criterion (a) requires a spec to name its lens and justify it for its
+# subject's SHAPE. V17M learned this the expensive way across four reading runs: its
+# `body=Vall` proto-line pin was STRUCTURALLY UNSATISFIABLE on a nested-SOI subject.
+#
+# **HERE THE FAILURE MODE IS DIFFERENT AND SUBTLER, AND IT IS WORTH STATING PRECISELY
+# BECAUSE IT WOULD NOT LOOK LIKE A FAILURE.** A `surface=Proto(Icon|OrbitLine)
+# .*body=Kerbin` pin - V6M's arrival pin - WOULD match here. It would just not mean
+# what a reader thinks. The harness matches `re.search(pat, WHOLE log text)` with no
+# flags (`hlib.py:3897`), so ANY occurrence anywhere in the run satisfies a required
+# pin, and this loop spends most of every cycle in a Kerbin ORBIT that draws a proto
+# line perfectly well. The pin would therefore be satisfied by the COAST and say
+# nothing whatever about the SPLASHDOWN. Not unsatisfiable: VACUOUS. That is the
+# harder mistake to catch, because it goes green.
+#
+# The arrival claim therefore rests only on tokens that the below-atmosphere state
+# ALONE can emit:
+#
+#   `Polyline frame: scene=FLIGHT drawn=[1-9]\d* warp=`
+#       `GhostTrajectoryPolylineRenderer`, VerboseRateLimited 5.0 s on a SHARED key,
+#       so it prints throughout a dwell regardless of pid churn. A nonzero `drawn=`
+#       is the anti-vacuity floor: a polyline was actually drawn this frame.
+#   `TracedPath OWNS leg pid=\d+ .*body=Kerbin drawn=True`
+#       `TracedPathTreatment.TryDrawOwnedLeg` (`TracedPathTreatment.cs:74`),
+#       VerboseRateLimited 2.0 s per pid, emitted on the OWNED-leg draw. This is the
+#       descent leg being drawn in the Kerbin frame, which is the destination frame.
+#   `Director TracedPath suppress pid=\d+ frame=\d+ \(polyline owns the leg, proto icon hidden\)`
+#       `GhostOrbitLinePatch.cs:180`, VerboseRateLimited 1.0 s per pid. THE MARKER
+#       LENS. Chosen over the `phase=MarkerDecision` tracer line and over the
+#       `Orbit line decision:` line because both of those are CHANGE-ONLY (they fire
+#       at onset and then go silent), whereas this one repeats every second and so
+#       survives a forty-tick dwell that lands after the transition.
+#   `Orbit line decision: pid=\d+ reason=below-atmosphere .*iconSuppressed=True belowAtmosphere=True`
+#       The reason token, carrying WHY the icon is suppressed.
+#
+# **THE REASON TOKEN IS BODY-DEPENDENT AND THIS IS THE ATMOSPHERIC BRANCH.**
+# `belowAtmosphere = body != null && body.atmosphere && orbit.altitude <
+# body.atmosphereDepth` (`GhostOrbitLinePatch.cs:903-906`). Kerbin HAS an atmosphere,
+# so this subject takes the `below-atmosphere` branch with `belowAtmosphere=True`.
+# The V23 Mun pair CANNOT share this pin - an airless body never reaches that branch
+# and suppresses under `polyline-owns-phase` with `belowAtmosphere=False` instead.
+# Copying this line into an airless lane would be structurally unsatisfiable; the two
+# specs differ here on purpose.
+#
+# NOT PINNED, DELIBERATELY: `AssertDrawnRecordingsAccounted` /
+# `unaccounted-drawn-recording`. It is tempting as an anti-vacuity line and it is the
+# wrong one - `GhostMapPresence.cs:9724` invokes its callback ONLY per UNACCOUNTED
+# recording and emits NOTHING on the clean path, and the raise itself is report-only
+# (`hlib.py:344`). Requiring it would demand an instrumentation gap in order to pass.
+#
+# -------------------------------------------------------------------------------------
+# 3. THE SEED TABLE, AND THE RE-PIN RECIPE
+# -------------------------------------------------------------------------------------
+# EVERY NUMBER BELOW IS A SEED. None of them is measured, because the subject does
+# not exist. They are grounded rather than invented: the producer fixture
+# `b2-lko-craft` sits at UT 33.82, and the comparable `mun-orbit-recorded` recording
+# runs explicitStartUT 34.42 -> explicitEndUT 21,742.54. A B4 profile (ascent 420 s
+# cap, circularize 300 s, deorbit 600 s, reentry 3,600 s cap, descent 600 s cap, with
+# warp hops) plausibly spans a few thousand seconds, so the table assumes:
+#
+#     UT0    = 34         (seed; the recording's explicitStartUT)
+#     span   = 6,000 s    (seed)
+#     anchor = 6,034      (seed; spanEnd, where MissionLoopUnitBuilder floors it)
+#
+# Under the pre-registered FAITHFUL road the cadence is the span itself, so:
+#
+#     cycle-1 arrival replay = anchor + span     = 12,034   (seed)
+#     cycle-2 arrival replay = anchor + 2*span   = 18,034   (seed)
+#
+# The bracket around each arrival is the family's -180 / -60 / +140, measured off
+# V6M's committed table (296,370 / 296,490 / 296,690 around a 296,550 seam). The
+# fourth jump of each cycle is a post-arrival SETTLE dwell, seeded at +1,200 s; its
+# real offset is re-pinned off the measured clock and its job is to hold the ghost in
+# the landed state well clear of the transition, so the suppressed-icon lens is read
+# in steady state rather than mid-onset.
+#
+# THE RE-PIN RECIPE, for whoever harvests the fixture:
+#
+#   1. Tree id, recording id and the explicit stamps:
+#        grep -nE "^\s+(id|recordingId|explicitStartUT|explicitEndUT|pointCount|terminalState|tOrbBody) = " \
+#          harness/fixtures/saves/kerbin-splashdown-recorded/persistent.sfs
+#      Take the `id` INSIDE `RECORDING_TREE` - the ids further down the file are
+#      GROUP ids and substituting one of those produces a lane that loops nothing.
+#   2. UT0 is `explicitStartUT`, NOT segment 0's `startUT`. The two differ (2.700 s
+#      apart on the vall fixture) and `test_the_v6m_convention_is_used_and_it_matters`
+#      exists to pin that distinction.
+#   3. Seam UTs come from the `.prec.txt` ORBIT_SEGMENT chain, parsed rather than
+#      string-matched: Parsek writes floats round-trip ("R"), so a padded rendering
+#      never appears in the file. The canonical parser is
+#      `harness/missions/lib/test_b26_laythe_vall.py:806-849`.
+#   4. Read the LOOP UNIT's span from the run log, not from the explicit stamps - it
+#      is first-POINT to last-POINT and differs from both by up to ~1 s.
+#   5. Delete this spec's `PENDING_FIXTURE_LANES` entry in the same commit.
+#
+# A RUN-1 THAT DWELLS NOWHERE IS AN ACCEPTED OUTCOME, NOT A LANE FAILURE. V17M's
+# first reading run put every bracket in the wrong leg because its seeded anchor sat
+# 97 ks from the real one, and that run still carried the measurement it was flown
+# for. Re-pin off the measured clock and re-fly.
+#
+# -------------------------------------------------------------------------------------
+# 4. THE FORTY-TICK CENSUS-PACING BLOCK
+# -------------------------------------------------------------------------------------
+# Carried forward from V16M, where it is PROVEN machinery rather than a precaution:
+# it measured both cycles 11.502 wall-seconds apart where V15M's three runs printed
+# one. The mechanism it defeats is the 5.0 s `ParsekLog.VerboseRateLimited` window.
+# A short dwell issues its census, the window swallows the second emission, and the
+# lane reads a single sample as though it were the steady state.
+#
+# IT MATTERS MORE HERE THAN ON ANY PREDECESSOR, because three of this lane's four
+# render pins are rate-limited per pid (2.0 s on the owned-leg draw, 1.0 s on the
+# suppressed-icon line) and one is change-only. Forty seam round-trips at run.py's
+# ~0.25 s pacing is ~10 wall-seconds of dwell, which clears the 5.0 s shared window
+# twice and gives every per-pid limiter room to print.
+#
+# -------------------------------------------------------------------------------------
+# 5. THE NEGATIVE CONTROL - IT MUST INVERT A REQUIRED RENDER TOKEN
+# -------------------------------------------------------------------------------------
+# Confirmation criterion (b), and the criterion the family has been WEAKEST on: every
+# V pair to date shares one inversion, a temporary `rewind.supersedeRows` minimum,
+# which proves the saveParse EVALUATOR can red and proves NOTHING about whether the
+# render pins can. This pair owes a render-token inversion and this is its design.
+#
+# DESIGNED AT ARMING, OFF THE READING RUN'S OWN BYTES, then REVERTED in the same
+# session. The inversion of record for the V22 pair:
+#
+#     required: "TracedPath OWNS leg pid=\\d+ .*body=Kerbin drawn=True"
+#     inverted: "TracedPath OWNS leg pid=\\d+ .*body=Eeloo drawn=True"
+#
+# `Eeloo` is chosen because this subject can never visit it, so the inverted pin is
+# unsatisfiable for a REASON rather than by a typo, and the run must red on EXACTLY
+# that token and nothing else. A control that reds on two tokens has changed
+# something structural and is not a control.
+#
+# -------------------------------------------------------------------------------------
+# 6. POSTURE - FIRST-RUN READING, AND TWO DIMENSIONS MOVE AT ONCE
+# -------------------------------------------------------------------------------------
+# NOTHING IS ARMED. No `gating = true` on any block; the `rewind` and `structure`
+# blocks are declared REPORT-ONLY so the reading run measures and prints their facets
+# without gating on values nobody has seen. Arming is a separate, post-flight
+# operator decision that also owes an `ARMED_ALLOWLIST` entry citing the run id.
+#
+# **TWO SHAPE DIMENSIONS MOVE AT ONCE AND THAT IS PRE-REGISTERED RATHER THAN HIDDEN.**
+# The induction caveat asks a new lane to extend ONE dimension where possible, and
+# names V17T as the cautionary case: it changed two at once and its icon-off-orbit
+# non-recurrence is consequently UNATTRIBUTABLE. Here it is not possible. This lane
+# changes (i) the endpoint type, orbit -> surface, and (ii) the recording count, from
+# the family's single-recording subjects to B4's 8-9 members including debris
+# children. There is no single-recording landed subject in existence to avoid (ii)
+# with, and manufacturing one would cost its own flight. So both are declared up
+# front: if this lane surprises, the surprise is attributable to at most these two,
+# and the V23 Mun pair - which moves ONE dimension against V6M - is the control that
+# separates them.
+#
+# `terminalStates` IS DELIBERATELY NOT DECLARED. B4's own
+# `landedSituations = ["LANDED", "SPLASHED"]` accepts EITHER, so the terminal this
+# harvest carries is genuinely unknown; the phase is named SPLASHDOWN and a water
+# landing is expected, but a shoreline touchdown is a legal B4 pass. The saveParse
+# evaluator reports observed facets whether or not they are declared, so omitting the
+# window loses no information and avoids pinning a guess. The ARMING pass declares
+# the measured value.
+#
+# `allowedAnomalies = []` ON PURPOSE, AND ONE RAISE IS EXPECTED. Tier-C
+# `rigid-seam-tangent-discontinuity` raises at the owned descent draw
+# (`CrossMemberSeamStitcher.cs:409`) and IS in the gated set (`hlib.py:247`, position
+# 5 of `ANOMALY_TOKENS`), so a raise reds this spec `PARSEK-FAIL(anomaly)` with every
+# step green - the PRE-REGISTERED CORRECT CATCH. It fires ONCE PER ONSET per
+# (pid, signature) per scene session, so expect a single line rather than a stream.
+# If it raises, the token is added BARE, with the flight that showed it - never as a
+# count budget, which would let a second, different raise hide behind the first.
+# -------------------------------------------------------------------------------------
+tier = "operator"
+description = "**PENDING ITS FIXTURE - COMMITTED AHEAD OF THE SUBJECT** under the re-armed `PENDING_FIXTURE_LANES` exemption (the V15 / V17 precedent), with a ZERO placeholder tree id and eight CALIBRATION-SEED jump UTs. `fixtures/saves/kerbin-splashdown-recorded` must be harvested `--keep-parsek` from a `B4-reentry-splashdown` re-fly first; B4 is LIVE-PROVEN 2026-07-20 and needs no new capability, which is exactly the point - what the suite has never done is HARVEST a landed or splashed save (fourteen orbit and transfer fixtures are committed, zero surface ones), and that is why every loop subject in the suite ends at an ORBIT. **THE FIRST LOOP SUBJECT THAT DOES NOT**, and the flight-map half of roadmap gap G3a. ROUTING IS ITSELF A READING AND THE LANE GATES ON NONE OF IT: a LAUNCH-BODY-ONLY loop starves both roads - phase-lock has no same-parent TARGET to quantize against and the re-aim classifier has no transfer RUN to admit - so FAITHFUL FIXED CADENCE is the pre-registered plausible outcome, with both roads left UNREQUIRED AND UNFORBIDDEN on V17M's reasoning that requiring either gates the reading on its own answer. WHY THE LENS MOVES, and the failure mode here is subtler than V17M's: a `surface=Proto(Icon|OrbitLine) .*body=Kerbin` pin (V6M's arrival pin) would MATCH - the harness searches the WHOLE log, and this loop spends most of every cycle in a Kerbin orbit drawing a proto line perfectly well - so it would be satisfied by the COAST and say nothing about the SPLASHDOWN. Not unsatisfiable: VACUOUS, which is the harder mistake because it goes green. The arrival claim therefore rests only on tokens the below-atmosphere state alone emits: the shared-key `Polyline frame: ... drawn=[1-9]` floor, the owned-leg `TracedPath OWNS leg ... body=Kerbin drawn=True` draw, the per-second `Director TracedPath suppress` marker line (chosen over the change-only `MarkerDecision` and `Orbit line decision` lines because it repeats through a dwell), and the ATMOSPHERIC reason token `below-atmosphere` with `belowAtmosphere=True` - which the V23 Mun pair CANNOT share, since an airless body never reaches that branch and suppresses under `polyline-owns-phase` instead. `AssertDrawnRecordingsAccounted` is deliberately NOT pinned: it emits nothing on the clean path, so requiring it would demand an instrumentation gap in order to pass. TWO SHAPE DIMENSIONS MOVE AT ONCE - endpoint type AND, for the first time, a multi-recording debris tree of 8-9 members - which the induction caveat asks to be PRE-REGISTERED rather than avoided, because no single-recording landed subject exists to avoid it with; the V23 pair, which moves ONE dimension against V6M, is the control that separates them. `terminalStates` is deliberately NOT declared because B4's `landedSituations = [\"LANDED\", \"SPLASHED\"]` accepts either and the evaluator reports observed facets anyway. Ships `allowedAnomalies = []` on purpose and EXPECTS to read the gated Tier-C `rigid-seam-tangent-discontinuity` raise at the owned descent draw - once per onset, so a single line, added BARE with the flight that shows it and never as a count budget. Watch mode is NOT driven: the program scopes it out, and `EnterWatchMode`'s outcome is a separation-dependent prediction this subject cannot make. NOTHING IS ARMED."
+instanceProfile = "stock-minimal"
+tags = ["V22", "player-loop", "loop-playback", "surface-endpoint", "splashdown",
+        "kerbin", "launch-body-only", "map-render", "census-pacing", "pending-fixture"]
+
+[fixture]
+saveTemplate       = "fixtures/saves/kerbin-splashdown-recorded"
+injectedRecordings = "none"
+craft              = []
+
+[driver]
+kind = "seam"
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  { cmd = "StopRecording",                                                   expect = "OK" },
+  { cmd = "DiscardTree",                                                     expect = "OK" },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "ghostRenderTracing", value = "true" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "mapRenderTracing",   value = "true" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "verboseLogging",     value = "true" }, expect = "OK" },
+  { cmd = "MissionConfig", args = { tree = "00000000000000000000000000000000", loop = "true" }, expect = "OK" },
+  { cmd = "StartLoopPlayback", args = { tree = "00000000000000000000000000000000" }, expect = "OK", budget = 300 },
+  { cmd = "TimeJump", args = { ut = "11854" }, expect = "OK", budget = 300 },
+  { cmd = "TimeJump", args = { ut = "11974" }, expect = "OK", budget = 300 },
+  { cmd = "TimeJump", args = { ut = "12174" }, expect = "OK", budget = 300 },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "TimeJump", args = { ut = "13374" }, expect = "OK", budget = 300 },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "StartLoopPlayback", args = { tree = "00000000000000000000000000000000" }, expect = "OK", budget = 300 },
+  { cmd = "TimeJump", args = { ut = "17854" }, expect = "OK", budget = 300 },
+  { cmd = "TimeJump", args = { ut = "17974" }, expect = "OK", budget = 300 },
+  { cmd = "TimeJump", args = { ut = "18174" }, expect = "OK", budget = 300 },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "TimeJump", args = { ut = "19374" }, expect = "OK", budget = 300 },
+  { cmd = "FlushAndQuit",                                                    expect = "OK" },
+]
+
+[dimensionsCovered]
+D9  = ["fast-forward"]
+D14 = ["kerbin", "scene-flight", "sandbox"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+count = { min = 1, max = 12 }
+
+[expectations.logContracts]
+required  = [
+  "missionconfig applied:",
+  "SetLoopEnabled: loop ON",
+  "startloopplayback initiated:",
+  "FastForwardToEventUT: jumping to UT=",
+  "Polyline frame: scene=FLIGHT drawn=[1-9]\\d* warp=",
+  "TracedPath OWNS leg pid=\\d+ .*body=Kerbin drawn=True",
+  "Director TracedPath suppress pid=\\d+ frame=\\d+ \\(polyline owns the leg, proto icon hidden\\)",
+  "Orbit line decision: pid=\\d+ reason=below-atmosphere .*iconSuppressed=True belowAtmosphere=True",
+  "faithful-parity summary sampled=\\d+ overTolerance=\\d+",
+  "seam-endpoint summary evaluated=\\d+ outsideSoi=\\d+",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "timejump refused reason=backward-jump",
+  "faithful-parity summary sampled=\\d+ overTolerance=[1-9][0-9]*",
+]
+
+[expectations.rewind]
+rewindPoints  = { max = 0 }
+supersedeRows = { max = 0 }
+tombstones    = { max = 0 }
+
+[expectations.recordings.structure]
+trees          = { min = 1, max = 2 }
+committedTrees = { min = 1, max = 1 }
+recordings     = { min = 1, max = 12 }
+
+[runtime]
+budgetSeconds = 2400
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

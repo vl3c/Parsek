@@ -14,6 +14,74 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## KSC-SURFACE-RESOLVED-TWO-EMITTERS-SHARE-ONE-RATE-LIMIT-KEY: the KSC host logs `KSC SURFACE playback resolved` from two sites with DIFFERENT field sets under ONE rate-limit key, so the only variant carrying `body=` can be silently suppressed by the one that does not [FOUND BY AUDIT 2026-08-21 while authoring `V22K-kerbin-splashdown-ksc-arrival`, the first lane ever to pin the KSC render host. OBSERVABILITY FINDING, REPORT-ONLY: no product change is proposed, nothing gates it, and the lane routes around it. Filed because it silently degrades a diagnostic and because the next author to pin that line will otherwise design an unsatisfiable pin]
+
+`ParsekKSC.Playback.cs` resolves a KSC surface pose on two paths and both log the
+same prefix:
+
+- `:340`, in `TryResolveKscPointPose` (a single exact recorded point):
+  `KSC SURFACE playback resolved: recording={DebugName} ut={ut:F2} body={bodyName} branch={Branch}`
+- `:438`, in `TryResolveKscSegmentPose` (interpolation between a before/after pair):
+  `KSC SURFACE playback resolved: recording={DebugName} targetUT={targetUT:F2} branch={Branch}`
+
+Both call `ParsekLog.VerboseRateLimited("KSCGhost", $"ksc-surface-position-{rec.RecordingId}", ..., 2.0)`
+- THE SAME KEY - so inside a 2.0 s window whichever fires first suppresses the other.
+During ordinary playback the ghost is interpolating between samples, so the
+dominant emitter is `:438`, the variant with NO `body=` field. A reader grepping
+for `body=` therefore sees an intermittent line whose absence means nothing.
+
+WHY IT DID NOT COST A PIN: the `body != "Kerbin"` gate is UPSTREAM of both emits
+(`:288-296` for the point path, `:362-372` for the segment path), each returning
+false before its success line. So REACHING EITHER LINE IS ALREADY THE
+KERBIN-FRAME PROOF, and V22K pins the body-agnostic
+`KSC SURFACE playback resolved: recording=.* branch=` plus a forbid on the two
+skip lines. The field is redundant where present and absent where it would
+matter, which is exactly why the obvious pin is the wrong one.
+
+IF IT IS EVER FIXED, the cheap shape is to give the two sites distinct rate-limit
+keys and add `body=` to the segment variant. That would make the two paths
+independently observable and let a future lane pin the frame directly. Any such
+change must be taken deliberately: V22K's pin is written against today's
+behaviour and its header says so.
+
+## HARNESS-PYTHON-SUITES-NEVER-RUN-IN-CI: GitHub Actions runs only the xUnit suite, so the three `harness/` unittest suites are unguarded on `main` - and one of them is RED there today [FOUND 2026-08-21 while establishing a pre-authoring baseline for the G3 lanes. REPORT-ONLY and DELIBERATELY NOT FIXED HERE: the red belongs to another lane's committed fixture and rebuilding it could move pins that lane measured. Filed so the gap is visible rather than rediscovered]
+
+`.github/workflows/tests.yml` runs `scripts/cloud-test.sh` and nothing else, and
+that script never invokes `python -m unittest`. So `harness/lib`,
+`harness/missions/lib` and `harness/provision` - which include the four cells
+that deliberately read OUTSIDE `harness/` to keep the C# and the harness in step
+(the BATCH tally, the doc sync, the `pointCount` writer, the career-earned-pad
+drift) - are only ever run by hand. A drift can therefore sit on `main`
+indefinitely, which is precisely what has happened:
+
+    FAIL: test_science_bench_recover.CareerSciencePadFixtureDriftTests
+          .test_the_committed_fixture_is_byte_identical_to_a_fresh_rebuild
+    career-science-pad has drifted from what build_career_science_pad.py
+    produces from the current career-pad-craft; re-run the builder and commit,
+    or explain the divergence. First difference at byte 52151
+    (committed 93594 bytes, rebuilt 93591 bytes)
+
+Three bytes, on `main`, at HEAD `b0edd17` with a clean working tree. The cell's
+own message names the two acceptable resolutions and this entry takes neither -
+that is the owning lane's call, since the fixture is `L3-career-science-recover`'s
+measured subject.
+
+TWO SEPARATE THINGS ARE FILED HERE and they should not be conflated: the DRIFT is
+one lane's bookkeeping, while the CI GAP is structural and is the reason the
+drift was invisible. Closing the gap means either adding the three suites to
+`tests.yml` (they need only a stdlib interpreter - no ksp-refs, no mono, no
+NuGet, and they run in ~54 s total) or accepting by policy that they are a
+local-only gate and saying so where the tiers are documented.
+
+NOTE FOR WHOEVER ADDS THEM TO CI: two cells fail as ROOT and would need
+addressing first - `test_run_smoke.MachineLockWiringTests
+.test_a_reclaim_that_cannot_complete_refuses_instead_of_looping` and
+`test_machinelock.AcquireBasicsTests.test_unwritable_location_refuses_rather_than_raising`.
+Both assert on a refusal that cannot occur for uid 0 (root ignores the `chmod`
+the second one relies on, and takes a different branch), so they pass for a
+normal user and fail in a root container. That is a property of the runner, not
+of the code under test.
+
 ## SYNTHETIC-CONTRACT-FAIL-PENALTY-CLAMPED-BY-DRAWDOWN-GUARD: `PrePass` synthesizes the expired-deadline `ContractFail` and the reconstruction spends its penalties correctly, but `KspStatePatcher`'s guarded-drawdown protection refuses to write either pool back, so the debit never reaches the live career [MEASURED 2026-08-20 by `L5-career-contract-complete`'s green flight (run `2026-08-20_2240`), the FIRST run ever to drive `ContractsModule.PrePass`'s injection under a gate. REPORT-ONLY and GATED AS MEASURED: no product change is proposed by this lane, and the clamp is pinned so a change of behaviour has to be taken deliberately]
 
 **What fires, and it all fires correctly.** `career-contract-pad` carries two

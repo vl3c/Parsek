@@ -1447,9 +1447,17 @@ transfer fixtures have.
   (`TestCommandLoadGame.RequestedBootScene.SpaceCenter`), used by exactly one
   committed spec before this (`H34-logistics-inter-body.toml:84`), with
   `ParsekKSC.cs:282` driving the same `DriveMissionLoopUnits` seam as the other
-  two hosts. A Kerbin-frame SURFACE subject is the first subject that makes that
-  host non-vacuous, so the KSC coverage the definition of done requires arrives
-  here rather than with the return legs.
+  two hosts. The reason it is reachable NOW is narrower than "the host was
+  vacuous", and the loose version is wrong: there are TWO Kerbin gates and they
+  differ. `IsKscStructurallyEligible` (`ParsekKSC.cs:1483`) admits a recording on
+  `Points[0].bodyName == "Kerbin"` - the FIRST point only, terminal state not
+  consulted - so a Kerbin-LAUNCHED outbound recording is eligible and its ascent
+  leg renders. It is the per-frame POSE resolvers that gate EVERY point, so what
+  an outbound subject loses is not the host but the ARRIVAL: the per-point gate
+  discards exactly the epoch a loop-render lane measures. A Kerbin-frame SURFACE
+  subject is the first whose ARRIVAL this host can render at all, so the KSC
+  coverage the definition of done requires arrives here rather than with the
+  return legs.
 - **V23M/V23T** loop `mun-landing-recorded`, harvested from `B13-mun-landing`
   (live-proven full PASS on flight 1, 2026-07-25). **THE MISSION LIBRARY ALREADY
   LANDS**: `landingEnabled` is a flag-gated, inert-by-default phase driving
@@ -1459,9 +1467,11 @@ transfer fixtures have.
   harvest, not a new mission mode. Kerbin -> its own moon is the PHASE-LOCK road
   measured five times over, and V6M/V6T are Kerbin -> Mun exactly, so V23 is V6
   WITH THE ENDPOINT MOVED FROM ORBIT TO SURFACE - the clean single-dimension
-  extension, and its own A/B control. NO KSC HALF: `ParsekKSC` hard-gates to
-  Kerbin-frame points (skip reason `non-kerbin`), so that host is vacuous for a
-  Mun subject.
+  extension, and its own A/B control. NO KSC HALF - and for the narrow reason
+  above rather than the loose one: the recording launches from Kerbin, so the KSC
+  host admits it and renders its ascent leg, but the per-point gate skips every
+  Mun-frame sample, which is the whole descent and touchdown. The ARRIVAL is what
+  that host cannot show, and an arrival lane is what a KSC half would have to be.
 
 Confirmation: destination-frame render tokens at epochs derived from the MEASURED
 loop clock, on the flight map, the TS, and - for V22 only - the KSC host; armed,
