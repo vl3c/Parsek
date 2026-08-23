@@ -82,15 +82,115 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void CurrencyOperationFundsMultiplier_IsNotCaptured()
+        public void CurrencyOperationFundsMultiplier_IsCaptured_OnANominalChannelReason()
         {
-            // A reward multiplier on a funds transaction: input != 0, so the net
-            // event-driven channel already sees the modified value. Capturing here
-            // would double-count it.
+            // A reward multiplier on a funds transaction under ContractReward: input != 0,
+            // and this cell used to assert Empty on the premise that "the event-driven
+            // channel already sees the modified value". It does NOT under this reason -
+            // ContractComplete carries the contract's configured FundsCompletion through
+            // TransformedFundsReward, which RecalculationEngine assigns straight from
+            // FundsReward - so the uplift had no reporter and the reconstruction ran LOW.
+            // Stock's Leadership Initiative scales milestone funds gains 1.00..2.50 under
+            // Progression and contract gains 1.00..0.25 under the Contract* trio, so both
+            // signs of this shape occur.
             var legs = StrategyConversionCapture.EvaluateLegs(
                 Query(inF: 10000.0, dF: 2000.0, reason: "ContractReward"));
 
-            Assert.Empty(legs);
+            var funds = legs.Single(l => l.Currency == StrategyConversionCurrency.Funds);
+            Assert.Equal(2000.0, funds.Delta, 6);
+        }
+
+        [Theory]
+        [InlineData("ContractReward")]
+        [InlineData("ContractAdvance")]
+        [InlineData("Progression")]
+        public void NonZeroInputFunds_UnderANominalChannelReason_IsCaptured(string reason)
+        {
+            // THE THREE REASONS WHERE PARSEK'S FUNDS CHANNEL RECORDS A CONFIGURED GROSS
+            // NOMINAL rather than an observed pool movement:
+            //   ContractReward  -> ContractComplete.TransformedFundsReward (= FundsReward,
+            //                      the contract's own FundsCompletion)
+            //   ContractAdvance -> the FundsEarning built from contract.FundsAdvance
+            //   Progression     -> MilestoneAchievement.MilestoneFundsAwarded, captured by
+            //                      ProgressRewardPatch from the AwardProgress ARGUMENTS
+            // Under those, a converter's diversion (Appreciation Campaign funds ->
+            // reputation, Outsourced R&D funds -> science) has no other reporter, so it
+            // must be captured in BOTH directions.
+            var debit = StrategyConversionCapture.EvaluateLegs(
+                Query(inF: 100000.0, dF: -5000.0, reason: reason));
+            Assert.Equal(-5000.0,
+                debit.Single(l => l.Currency == StrategyConversionCurrency.Funds).Delta, 6);
+
+            var credit = StrategyConversionCapture.EvaluateLegs(
+                Query(inF: 100000.0, dF: 7500.0, reason: reason));
+            Assert.Equal(7500.0,
+                credit.Single(l => l.Currency == StrategyConversionCurrency.Funds).Delta, 6);
+        }
+
+        [Theory]
+        [InlineData("VesselRollout")]
+        [InlineData("RnDPartPurchase")]
+        [InlineData("StructureRepair")]
+        [InlineData("StructureConstruction")]
+        [InlineData("StrategyOutput")]
+        public void NonZeroInputFunds_UnderAnEventDerivedReason_IsNotCaptured(string reason)
+        {
+            // THE OTHER HALF OF THE QUALIFICATION, AND THE ONE THAT MUST NOT MOVE. Under
+            // these five reasons Parsek's funds channel is EVENT-DERIVED: it records the
+            // OBSERVED FundsChanged delta, which is already net of the modifier. A row here
+            // would be counted twice - once inside the observed amount and once as this
+            // door's leg - which is exactly what stock's AgressiveNegotiations launch /
+            // purchase discount (a CurrencyOperation on Funds under VesselRollout +
+            // RnDPartPurchase) would produce. This is the suppression the in-game negative
+            // control used to carry before its own reason turned out to be a nominal one.
+            Assert.Empty(StrategyConversionCapture.EvaluateLegs(
+                Query(inF: -50000.0, dF: 5000.0, reason: reason)));
+            Assert.Empty(StrategyConversionCapture.EvaluateLegs(
+                Query(inF: 50000.0, dF: -5000.0, reason: reason)));
+        }
+
+        [Theory]
+        [InlineData("VesselRecovery")]
+        [InlineData("ScienceTransmission")]
+        [InlineData("ContractPenalty")]
+        [InlineData("None")]
+        [InlineData("")]
+        [InlineData(null)]
+        [InlineData("contractreward")]
+        [InlineData("ContractReward, Progression")]
+        public void NonZeroInputFunds_UnderAnUnrecognisedReason_KeepsTheZeroInputRule(string reason)
+        {
+            // THE DEFAULT IS SUPPRESSION, and deliberately so: the reason set is an
+            // ALLOWLIST of channels whose gross-nominal shape has been read, not a
+            // denylist of known-bad ones. A reason nobody has classified - including a
+            // case-shifted or comma-combined spelling that could only come from a
+            // TransactionReasons rendering this door has never seen - keeps the historical
+            // behaviour rather than guessing that some unexamined channel records gross.
+            Assert.Empty(StrategyConversionCapture.EvaluateLegs(
+                Query(inF: 100000.0, dF: -5000.0, reason: reason)));
+
+            // ... and the ZERO-input arm is untouched by all of this: a cross-currency
+            // yield with no funds transaction of its own is still captured everywhere.
+            var yieldLegs = StrategyConversionCapture.EvaluateLegs(
+                Query(inS: 5.0, dS: -1.0, dF: 60.526316, reason: reason));
+            Assert.Equal(60.526316,
+                yieldLegs.Single(l => l.Currency == StrategyConversionCurrency.Funds).Delta, 6);
+        }
+
+        [Fact]
+        public void IsNominalChannelFundsReason_MatchesExactlyTheThreeNames()
+        {
+            Assert.True(StrategyConversionCapture.IsNominalChannelFundsReason("ContractReward"));
+            Assert.True(StrategyConversionCapture.IsNominalChannelFundsReason("ContractAdvance"));
+            Assert.True(StrategyConversionCapture.IsNominalChannelFundsReason("Progression"));
+
+            Assert.False(StrategyConversionCapture.IsNominalChannelFundsReason(null));
+            Assert.False(StrategyConversionCapture.IsNominalChannelFundsReason(""));
+            Assert.False(StrategyConversionCapture.IsNominalChannelFundsReason("VesselRollout"));
+            // Case-sensitive and whole-string: TransactionReasons.ToString() renders the
+            // exact member name, so anything else is a spelling this door has not read.
+            Assert.False(StrategyConversionCapture.IsNominalChannelFundsReason("progression"));
+            Assert.False(StrategyConversionCapture.IsNominalChannelFundsReason("ContractRewardX"));
         }
 
         [Fact]
@@ -132,7 +232,8 @@ namespace Parsek.Tests
         {
             // The SIGN is preserved through the pure evaluation; what each sign becomes is
             // BuildStrategyConversionAction's decision (positive -> a nominal
-            // ReputationEarning, negative -> a loud refusal). Both are pinned below.
+            // ReputationEarning, negative -> a nominal ReputationPenalty sourced
+            // StrategyConverter). Both are pinned below.
             var legs = StrategyConversionCapture.EvaluateLegs(Query(dR: -3.0));
 
             var rep = legs.Single(l => l.Currency == StrategyConversionCurrency.Reputation);
@@ -140,11 +241,58 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void NonZeroInputReputation_IsNotCaptured()
+        public void NonZeroInputReputation_IsCaptured_UnlikeFunds()
         {
-            var legs = StrategyConversionCapture.EvaluateLegs(Query(inR: 10.0, dR: 2.0));
+            // THE ASYMMETRY, PINNED AS ONE CELL because the two halves are only meaningful
+            // together. Reputation is captured at ANY input; funds is captured only at
+            // zero input. That is not an inconsistency - it is the decompiled mechanism:
+            //
+            //   Funding.AddFunds       -> funds += v;  then  funds += GetEffectDelta(Funds)
+            //   Reputation.AddReputation -> rep += granular(v);
+            //                               then rep += granular(GetEffectDelta(Rep))
+            //
+            // For FUNDS the ordinary channel watches the transaction and sees the value net
+            // of the modifier ONLY where it is EVENT-DERIVED - VesselRollout,
+            // RnDPartPurchase, StructureRepair, StructureConstruction, StrategyOutput - and
+            // there a row would double-count. That is what the funds half below drives: the
+            // default reason on Query() is ScienceTransmission, which is not a nominal-
+            // channel funds reason, so the zero-input rule still applies to it. Under
+            // ContractReward / ContractAdvance / Progression the funds channel records a
+            // CONFIGURED GROSS nominal and IS captured now
+            // (NonZeroInputFunds_UnderANominalChannelReason_IsCaptured); the remaining
+            // asymmetry is that reputation needs no reason gate at all, because NO
+            // reputation channel anywhere is observed-derived. For
+            // REPUTATION every Parsek channel records a CONFIGURED NOMINAL - the contract's
+            // ReputationCompletion, the progress node's award - and nothing anywhere is
+            // derived from the observed pool delta, so the second granular call has no
+            // channel at all. Capturing it is the only way the reconstruction can follow.
+            //
+            // This cell replaces NonZeroInputReputation_IsNotCaptured, which asserted the
+            // opposite and was the rule that hid STRATEGY-REP-DEBIT-CONVERTERS-UNCAPTURED:
+            // every stock reputation-INPUT converter has GetInput(Reputation) != 0 by
+            // construction, so the old rule excluded the entire family. MEASURED live at
+            // 1.0000572204589844 reputation of uncaptured pool movement on run
+            // 2026-08-20_2052_L3-strategy-currency-conversion.
+            var repLegs = StrategyConversionCapture.EvaluateLegs(Query(inR: 10.0, dR: 2.0));
+            var rep = repLegs.Single(l => l.Currency == StrategyConversionCurrency.Reputation);
+            Assert.Equal(2.0, rep.Delta, 6);
 
-            Assert.Empty(legs);
+            var fundsLegs = StrategyConversionCapture.EvaluateLegs(Query(inF: 10.0, dF: 2.0));
+            Assert.Empty(fundsLegs);
+        }
+
+        [Fact]
+        public void NonZeroInputNegativeReputation_IsCaptured_TheDebitFamily()
+        {
+            // The shape every stock reputation-INPUT converter actually produces:
+            // FundraisingCampaign / UnpaidResearchProgram compute
+            // GetInput(Reputation) * share and write it back as a NEGATIVE delta, so the
+            // input is nonzero by construction. This is the exact query the old scoping
+            // rule dropped on the floor.
+            var legs = StrategyConversionCapture.EvaluateLegs(Query(inR: 20.0, dR: -1.0));
+
+            var rep = legs.Single(l => l.Currency == StrategyConversionCurrency.Reputation);
+            Assert.Equal(-1.0, rep.Delta, 6);
         }
 
         // ================================================================
@@ -240,20 +388,112 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void NegativeFundsLeg_IsRefusedAndWarned()
+        public void NegativeFundsLeg_BuildsANominalStrategyConverterSpending()
         {
+            // THE DEBIT ARM, which used to return null and WARN. It is reached only for a
+            // leg EvaluateLegs admitted - a zero funds input, or one of the three
+            // nominal-channel reasons - so by the time the mapper sees it the "no other
+            // channel carries this" question is already answered. FundsSpent carries the
+            // POSITIVE magnitude; the sign is in the action type.
             var action = LedgerOrchestrator.BuildStrategyConversionAction(
                 123.0,
                 new StrategyConversionLeg
                 {
                     Currency = StrategyConversionCurrency.Funds,
-                    Delta = -50.0
+                    Delta = -5000.0
                 },
-                "ScienceTransmission");
+                "ContractReward");
 
-            Assert.Null(action);
+            Assert.NotNull(action);
+            Assert.Equal(GameActionType.FundsSpending, action.Type);
+            Assert.Equal(FundsSpendingSource.StrategyConverter, action.FundsSpendingSource);
+            Assert.Equal(5000.0, (double)action.FundsSpent, 3);
+            Assert.Null(action.RecordingId);
             Assert.Contains(logLines, l =>
-                l.Contains("[WARN]") && l.Contains("NEGATIVE zero-input funds delta"));
+                l.Contains("[INFO]") && l.Contains("funds DEBIT captured"));
+        }
+
+        [Fact]
+        public void NegativeFundsLeg_DoesNotTakeTheExchangersReasonKeyedSource()
+        {
+            // FundsSpendingSource.Strategy is the EXCHANGER family's input leg, captured
+            // from a real FundsChanged(StrategyInput) event; KscActionExpectationClassifier
+            // skips it under a different stated reason (Phase E1.5) and a future capture of
+            // that family would pair against that event. The query family has no event of
+            // its own, so the two must stay distinguishable at the row.
+            var action = LedgerOrchestrator.BuildStrategyConversionAction(
+                123.0,
+                new StrategyConversionLeg
+                {
+                    Currency = StrategyConversionCurrency.Funds,
+                    Delta = -5000.0
+                },
+                "Progression");
+
+            Assert.NotEqual(FundsSpendingSource.Strategy, action.FundsSpendingSource);
+        }
+
+        [Fact]
+        public void StrategyConverterFundsSpendingRows_DedupKeyDisambiguatesByAmount()
+        {
+            // The general FundsSpending key is RecordingId + DedupKey, and this door
+            // populates NEITHER - every converter debit would collapse onto ":" and onto
+            // the exchanger's own StrategyInput spending, which carries the same two nulls.
+            // Same two honest limitations as the science and reputation siblings: equal
+            // amounts at one FROZEN KSC UT still collapse, and no strategy identity exists
+            // at this seam to invent an ordinal from.
+            var first = LedgerOrchestrator.BuildStrategyConversionAction(
+                123.0,
+                new StrategyConversionLeg
+                {
+                    Currency = StrategyConversionCurrency.Funds,
+                    Delta = -5000.0
+                },
+                "ContractReward");
+            var second = LedgerOrchestrator.BuildStrategyConversionAction(
+                123.0,
+                new StrategyConversionLeg
+                {
+                    Currency = StrategyConversionCurrency.Funds,
+                    Delta = -2500.0
+                },
+                "ContractReward");
+
+            Assert.NotEqual(
+                LedgerOrchestrator.GetActionKey(first),
+                LedgerOrchestrator.GetActionKey(second));
+
+            // Every other spending row keeps the historical RecordingId + DedupKey key, so
+            // this narrows nothing that was previously unique.
+            var partPurchase = new GameAction
+            {
+                UT = 123.0,
+                Type = GameActionType.FundsSpending,
+                FundsSpent = 5000f,
+                DedupKey = "mk1pod",
+                FundsSpendingSource = FundsSpendingSource.Other
+            };
+            Assert.Equal(":mk1pod", LedgerOrchestrator.GetActionKey(partPurchase));
+        }
+
+        [Fact]
+        public void StrategyConverterFundsSpending_RoundTrips()
+        {
+            var original = new GameAction
+            {
+                UT = 42.5,
+                Type = GameActionType.FundsSpending,
+                FundsSpent = 5000.25f,
+                FundsSpendingSource = FundsSpendingSource.StrategyConverter
+            };
+
+            var parent = new ConfigNode("ACTIONS");
+            original.SerializeInto(parent);
+            var loaded = GameAction.DeserializeFrom(parent.GetNode("GAME_ACTION"));
+
+            Assert.Equal(GameActionType.FundsSpending, loaded.Type);
+            Assert.Equal(5000.25, (double)loaded.FundsSpent, 3);
+            Assert.Equal(FundsSpendingSource.StrategyConverter, loaded.FundsSpendingSource);
         }
 
         [Fact]
@@ -286,12 +526,13 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void NegativeReputationLeg_IsRefusedAndWarned()
+        public void NegativeReputationLeg_IsANominalStrategyConverterPenalty()
         {
-            // Structurally unreachable through EvaluateLegs (every stock reputation-INPUT
-            // converter has a nonzero GetInput(Currency.Reputation), which the scoping
-            // rule excludes), so reaching it means an unmodelled mechanism. Refuse loudly
-            // rather than guess a debit shape - the same stance as the negative funds arm.
+            // THE MIRROR IMAGE of the credit cell above, and the row shape the debit
+            // family lands as. NominalPenalty carries the POSITIVE magnitude (the sign is
+            // in the action type) and the source is StrategyConverter, NOT Strategy -
+            // pinned separately below because conflating the two is the one mistake that
+            // would silently break the arithmetic.
             var action = LedgerOrchestrator.BuildStrategyConversionAction(
                 123.0,
                 new StrategyConversionLeg
@@ -301,9 +542,76 @@ namespace Parsek.Tests
                 },
                 "ContractReward");
 
-            Assert.Null(action);
+            Assert.NotNull(action);
+            Assert.Equal(GameActionType.ReputationPenalty, action.Type);
+            Assert.Equal(ReputationPenaltySource.StrategyConverter, action.RepPenaltySource);
+            Assert.Equal(3.0f, action.NominalPenalty);
+            Assert.Equal(123.0, action.UT);
+            // UNTAGGED, like the science / funds / credit siblings on this path.
+            Assert.Null(action.RecordingId);
             Assert.Contains(logLines, l =>
-                l.Contains("[WARN]") && l.Contains("NEGATIVE zero-input reputation delta"));
+                l.Contains("reputation DEBIT captured pre-curve"));
+        }
+
+        [Fact]
+        public void NegativeReputationLeg_DoesNotTakeTheExchangersPreCurvedSource()
+        {
+            // MUTATION GUARD. ReputationPenaltySource.Strategy is the EXCHANGER family's
+            // capture: it reads a POST-curve magnitude off a ReputationChanged event and
+            // ReputationModule.ProcessRepPenalty gives it a no-recurve shortcut. Routing
+            // the query family's PRE-curve delta through it would apply the curve's INPUT
+            // as if it were the curve's OUTPUT. This cell reds the moment the two are
+            // conflated, in either direction.
+            var action = LedgerOrchestrator.BuildStrategyConversionAction(
+                123.0,
+                new StrategyConversionLeg
+                {
+                    Currency = StrategyConversionCurrency.Reputation,
+                    Delta = -1.0
+                },
+                "ContractReward");
+
+            Assert.NotEqual(ReputationPenaltySource.Strategy, action.RepPenaltySource);
+        }
+
+        [Fact]
+        public void StrategyReputationPenaltyRows_DedupKeyDisambiguatesByAmount()
+        {
+            // Same shape and same two honest limitations as the credit sibling: no
+            // strategy identity is available at this seam and the KSC clock is FROZEN, so
+            // the pre-curve magnitude is the only disambiguator between two conversions at
+            // one UT.
+            var first = LedgerOrchestrator.BuildStrategyConversionAction(
+                123.0,
+                new StrategyConversionLeg
+                {
+                    Currency = StrategyConversionCurrency.Reputation,
+                    Delta = -1.0
+                },
+                "ContractReward");
+            var second = LedgerOrchestrator.BuildStrategyConversionAction(
+                123.0,
+                new StrategyConversionLeg
+                {
+                    Currency = StrategyConversionCurrency.Reputation,
+                    Delta = -2.0
+                },
+                "ContractReward");
+
+            Assert.NotEqual(
+                LedgerOrchestrator.GetActionKey(first),
+                LedgerOrchestrator.GetActionKey(second));
+
+            // A non-converter reputation penalty keeps the historical empty key, so this
+            // narrows nothing that was previously unique.
+            var unrelated = new GameAction
+            {
+                UT = 123.0,
+                Type = GameActionType.ReputationPenalty,
+                NominalPenalty = 1.0f,
+                RepPenaltySource = ReputationPenaltySource.KerbalDeath
+            };
+            Assert.Equal("", LedgerOrchestrator.GetActionKey(unrelated));
         }
 
         [Fact]
@@ -782,11 +1090,17 @@ namespace Parsek.Tests
             Assert.Contains("ConverterStrategy_ScienceYield_CapturesCredit", src);
             Assert.Contains("OutsourcedResearchCfg", src);
 
-            Assert.Contains("OperationStrategy_RewardMultiplier_IsNotCaptured", src);
+            Assert.Contains("OperationStrategy_RewardMultiplier_IsCapturedOnNominalReason", src);
             Assert.Contains("LeadershipInitiative", src);
 
             Assert.Contains("ConverterStrategy_ReputationLeg_CapturesEarning", src);
             Assert.Contains("OpenSourceTechProgramCfg", src);
+
+            Assert.Contains("ConverterStrategy_ReputationDebitLeg_CapturesPenalty", src);
+            Assert.Contains("FundraisingCampaignCfg", src);
+
+            Assert.Contains("ConverterStrategy_FundsDebitLeg_CapturesSpending", src);
+            Assert.Contains("AppreciationCampaignCfg", src);
         }
 
         [Fact]
@@ -808,6 +1122,26 @@ namespace Parsek.Tests
             Assert.Equal(1, repYieldAwards);
             Assert.Equal(1, contractRewardAwards);
             Assert.Equal(1, progressionAwards);
+
+            // THE MEASUREMENT CELLS FIRE TWICE BY DESIGN, and the pair is what makes them
+            // model-free: the SAME award under a reason the strategy's AffectReasons
+            // EXCLUDE (the control, suppressed and restored) and under one it masks (the
+            // treatment). Counted with their own award constants so a third firing of
+            // either - which would double the diversion and break the exactly-one-row
+            // assertions - reds here.
+            int fundsDebitTreatment = Regex.Matches(
+                src, @"AddFunds\(\s*FundsDebitLegAward, TransactionReasons\.ContractReward\)").Count;
+            int fundsDebitControl = Regex.Matches(
+                src, @"AddFunds\(\s*FundsDebitLegAward, TransactionReasons\.VesselRecovery\)").Count;
+            Assert.Equal(1, fundsDebitTreatment);
+            Assert.Equal(1, fundsDebitControl);
+
+            int repDebitTreatment = Regex.Matches(
+                src, @"AddReputation\(\s*ReputationDebitLegAward, TransactionReasons\.ContractReward\)").Count;
+            int repDebitControl = Regex.Matches(
+                src, @"AddReputation\(\s*ReputationDebitLegAward, TransactionReasons\.VesselRecovery\)").Count;
+            Assert.Equal(1, repDebitTreatment);
+            Assert.Equal(1, repDebitControl);
         }
 
         [Fact]
@@ -825,18 +1159,48 @@ namespace Parsek.Tests
             // WARNs "no matching FundsChanged event keyed 'Other'" on every recalc.
             Assert.Contains("FundsSource = FundsEarningSource.Strategy", src);
 
-            // EVERY fixture row this category writes is stamped in the PAST, so none of
-            // them sits inside the 0.1s window the KSC reconcilers pair against - at the
-            // frozen KSC clock a row at "now" would net against the very award under
-            // test. Counted as an EQUALITY over the StrategyLifecycle region rather than
-            // against a hardcoded number, so a fifth cell that adds a fixture row is
+            Assert.Contains("WriteLedgerVisibleReputationRow", src);
+
+            // EVERY FUNDS / SCIENCE fixture row this category writes is stamped in the
+            // PAST, so none of them sits inside the 0.1s window the KSC reconcilers pair
+            // against - at the frozen KSC clock a row at "now" would net against the very
+            // award under test. Counted as an EQUALITY over the StrategyLifecycle region
+            // rather than against a hardcoded number, so a cell that adds a fixture row is
             // checked rather than merely changing a total.
+            //
+            // REPUTATION IS THE ONE DELIBERATE EXCEPTION, and it is asserted POSITIVELY
+            // rather than carved out of the count. Reputation has no KSC pairing window
+            // and no pending adjuster, so there is nothing for a backdate to protect it
+            // from; what it DOES have is a state-dependent curve, which makes ORDER decide
+            // the arithmetic. A backdated reputation row sorts ahead of the strategy's own
+            // StrategyActivate setup charge and the walk applies the award at the
+            // pre-charge reputation - measured ~0.002 off KSP's pool, a quarter of the
+            // reputation guard's 0.01 epsilon spent on a stamping artefact. At "now" it
+            // sorts after the activation and, at the same UT as the conversion's debit
+            // row, ahead of it via SortActions' earnings-before-spendings secondary key,
+            // which is the order stock applied them in.
             string region = StrategyLifecycleRegion(src);
             int fixtureRows = Regex.Matches(region, @"Ledger\.AddAction\(new GameAction").Count;
             int pastStamped = Regex.Matches(
                 region, @"UT = Planetarium\.GetUniversalTime\(\) - 1\.0").Count;
+            int nowStamped = Regex.Matches(
+                region, @"UT = Planetarium\.GetUniversalTime\(\),").Count;
             Assert.True(fixtureRows > 0, "the StrategyLifecycle region writes no fixture ledger row at all");
-            Assert.Equal(fixtureRows, pastStamped);
+            Assert.Equal(fixtureRows, pastStamped + nowStamped);
+
+            // Exactly one now-stamped row, and it must be the reputation one: a funds or
+            // science helper that stopped backdating would land in this count and red
+            // here rather than silently netting itself against its own award.
+            Assert.Equal(1, nowStamped);
+            int repHelperStart = src.IndexOf(
+                "private static void WriteLedgerVisibleReputationRow", StringComparison.Ordinal);
+            Assert.True(repHelperStart >= 0,
+                "WriteLedgerVisibleReputationRow has moved or been renamed");
+            int repHelperEnd = src.IndexOf("private static void", repHelperStart + 20, StringComparison.Ordinal);
+            Assert.True(repHelperEnd > repHelperStart, "cannot bound WriteLedgerVisibleReputationRow");
+            string repHelper = src.Substring(repHelperStart, repHelperEnd - repHelperStart);
+            Assert.Contains("UT = Planetarium.GetUniversalTime(),", repHelper);
+            Assert.Contains("ReputationSource.Other", repHelper);
         }
 
         /// <summary>

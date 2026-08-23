@@ -295,6 +295,8 @@ namespace Parsek
                 case FundsSpendingSource.KerbalHire:      return "Hire";
                 case FundsSpendingSource.ContractPenalty:  return "Contract penalty";
                 case FundsSpendingSource.Strategy:        return "Strategy";
+                case FundsSpendingSource.StrategyConverter:
+                    return "Strategy converter";
                 case FundsSpendingSource.Other:           return "Part";
                 default:                                  return "Expense";
             }
@@ -319,6 +321,8 @@ namespace Parsek
                 case ReputationPenaltySource.ContractDecline: return "Contract decline";
                 case ReputationPenaltySource.KerbalDeath:     return "Kerbal death";
                 case ReputationPenaltySource.Strategy:        return "Strategy";
+                case ReputationPenaltySource.StrategyConverter:
+                    return "Strategy converter";
                 default:                                      return "Penalty";
             }
         }

@@ -230,6 +230,13 @@ namespace Parsek.Tests
         [Theory]
         [InlineData(ReputationPenaltySource.Strategy)]
         [InlineData(ReputationPenaltySource.Other)]
+        // StrategyConverter: the QUERY family's debit leg. The converter mutates a
+        // CurrencyModifierQuery in place and the ReputationChanged that follows carries the
+        // ORIGINAL transaction reason, not a strategy-keyed one - so there is no
+        // reason-keyed event to pair against, exactly as for ReputationSource.Strategy on
+        // the earning side. Without this row the new case in ClassifyPostWalk has a
+        // rationale comment and no pin.
+        [InlineData(ReputationPenaltySource.StrategyConverter)]
         public void ClassifyPostWalk_ReputationPenalty_DirectlyCapturedSources_NotReconciled(
             ReputationPenaltySource source)
         {

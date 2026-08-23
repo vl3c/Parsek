@@ -367,6 +367,21 @@ namespace Parsek
         /// every contract. The Effective-gated cases (ContractComplete, MilestoneAchievement,
         /// ScienceEarning, FundsEarning) mirror the module-side skip on duplicates.
         /// </para>
+        /// <para><b>SECOND KNOWN FALSE-POSITIVE, the query-family one.</b> The strategy door
+        /// writes its rows straight through <c>Ledger.AddAction</c> from
+        /// <see cref="OnStrategyCurrencyConversion"/>, so they are never in
+        /// <c>newActions</c>. When a MODIFIED transaction falls inside a commit window - a
+        /// contract reward diverted by Appreciation Campaign, a milestone scaled by
+        /// Leadership Initiative - the store side sums the observed NET
+        /// <c>FundsChanged</c>/<c>ReputationChanged</c> event while the emitted side carries
+        /// the CONFIGURED GROSS row, and this walk WARNs "missing earning channel?" by
+        /// exactly the diverted magnitude. The ledger is CORRECT in that state (the
+        /// diverted half is a separate row this walk cannot see); the WARN is the
+        /// comparison's blind spot, and it predates the capture - before it, the row was
+        /// missing outright and the same WARN fired for the same amount. Closing it means
+        /// folding untagged in-window <c>StrategyConverter</c>-sourced rows into the
+        /// emitted tally, which is the same "account for pre-existing in-window actions"
+        /// problem the recovery false-positive above is parked on.</para>
         /// </summary>
         internal static void ReconcileEarningsWindow(
             IReadOnlyList<GameStateEvent> events,
@@ -972,12 +987,32 @@ namespace Parsek
                         when a.RepSource == ReputationSource.Strategy:
                     return (a.RecordingId ?? "") + ":" +
                            a.NominalRep.ToString("R", CultureInfo.InvariantCulture);
+                // The query-family reputation DEBIT leg, same shape and same standing as
+                // its credit sibling directly above. Non-converter reputation penalties
+                // keep the historical "" key (they fall through to the default), so this
+                // narrows nothing that was previously unique.
+                case GameActionType.ReputationPenalty
+                        when a.RepPenaltySource == ReputationPenaltySource.StrategyConverter:
+                    return (a.RecordingId ?? "") + ":" +
+                           a.NominalPenalty.ToString("R", CultureInfo.InvariantCulture);
                 case GameActionType.FundsEarning: return a.RecordingId ?? "";
                 // FundsSpending: RecordingId alone collides when multiple KSC part
                 // purchases share a null/empty RecordingId. DedupKey is the part name
                 // (populated by ConvertPartPurchased) so each part disambiguates.
                 // VesselBuild spending has RecordingId set and DedupKey null, so the
                 // composite key stays unique there.
+                // The query-family funds DEBIT leg, keyed like its reputation and science
+                // siblings above: RecordingId (always null here) plus the magnitude. The
+                // general FundsSpending key below is RecordingId + DedupKey, and this door
+                // populates NEITHER - every converter debit would collapse onto the single
+                // key ":" and onto the exchanger's own StrategyInput spending, which
+                // carries the same two nulls. Discriminating by source rather than
+                // widening the general key leaves every other spending row's key
+                // untouched.
+                case GameActionType.FundsSpending
+                        when a.FundsSpendingSource == FundsSpendingSource.StrategyConverter:
+                    return (a.RecordingId ?? "") + ":" +
+                           a.FundsSpent.ToString("R", CultureInfo.InvariantCulture);
                 case GameActionType.FundsSpending: return (a.RecordingId ?? "") + ":" + (a.DedupKey ?? "");
                 case GameActionType.MilestoneAchievement: return a.MilestoneId ?? "";
                 case GameActionType.FacilityUpgrade:
@@ -3210,18 +3245,38 @@ namespace Parsek
         /// <c>ReputationModule.ProcessRepPenalty</c>'s no-recurve arm). Do not merge the
         /// two: each is faithful only through its own arm.</para>
         ///
-        /// <para>Negative reputation legs are logged and dropped, for the same reason as
-        /// negative funds: every stock reputation-INPUT converter has a nonzero
-        /// <c>GetInput(Currency.Reputation)</c>, which the scoping rule excludes, so a
-        /// negative zero-input reputation delta is an unmodelled mechanism rather than a
-        /// row shape to guess at.</para>
+        /// <para>REPUTATION DEBIT legs land as a NOMINAL <c>ReputationPenalty</c> row
+        /// (<c>ReputationPenaltySource.StrategyConverter</c>) - the mirror image of the
+        /// credit arm, and nominal for the identical reason. Decompiled
+        /// <c>Reputation.AddReputation</c> applies the transaction's own amount and the
+        /// converter's diversion as TWO separate <c>addReputation_granular</c> calls, so
+        /// two nominal rows reproduce exactly what stock did. Do NOT route this through
+        /// <c>ReputationPenaltySource.Strategy</c>: that member is the EXCHANGER family's
+        /// post-curve capture and bypasses the curve.</para>
         ///
-        /// <para>NEGATIVE funds legs are logged and dropped too: a converter's funds
-        /// OUTPUT is positive by construction and a funds INPUT necessarily has a
-        /// nonzero <c>GetInput</c>, which the scoping rule already excludes. A negative
-        /// zero-input funds delta would mean the mechanism does something this door was
-        /// not built against, and guessing a row shape for it is worse than saying so
-        /// loudly.</para>
+        /// <para><b>ORDERING CAVEAT on "reproduce exactly".</b> The curve is
+        /// STATE-DEPENDENT, so the two rows only reproduce stock when the walk applies
+        /// them in stock's order. That is GUARANTEED for an EARNING-type transaction:
+        /// <c>RecalculationEngine.SortActions</c>' earnings-before-spendings secondary
+        /// key puts the transaction's own credit ahead of the converter's debit at the
+        /// shared UT, which is the order stock used. It is NOT guaranteed when BOTH rows
+        /// are non-earning - a <c>ContractFail</c> penalty diverted by a reputation
+        /// converter at the same UT - because the secondary key ties and the
+        /// <c>Sequence</c> tertiary then applies the CONVERTER row first, the reverse of
+        /// stock. The resulting error is bounded and small: ~1e-4 for a -10 nominal
+        /// pair, an order of magnitude under the reputation guard's 0.01 epsilon, so it
+        /// cannot clamp. Recorded as a KNOWN BOUNDED IMPRECISION in the walk's ordering,
+        /// not a defect in this row shape - a fix would be a sort-key change, and one
+        /// should not be made without a measurement showing the pair actually occurs
+        /// live.</para>
+        ///
+        /// <para>NEGATIVE funds legs land as a nominal <c>FundsSpending</c> row sourced
+        /// <see cref="FundsSpendingSource.StrategyConverter"/>, and they reach this
+        /// method only under a NOMINAL-channel reason (see
+        /// <c>StrategyConversionCapture.IsNominalChannelFundsReason</c>) - the three
+        /// reasons where Parsek's funds channel recorded a CONFIGURED GROSS amount and
+        /// this row is the missing diverted half. Funds carry no curve, so the row is
+        /// exact in any walk order.</para>
         /// </summary>
         internal static void OnStrategyCurrencyConversion(
             double ut,
@@ -3290,12 +3345,13 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Pure row-shape mapper for <see cref="OnStrategyCurrencyConversion"/>.
-        /// Returns null for the two deliberately-unwritten cases (negative funds,
-        /// negative reputation) after logging why - both are shapes the scoping rule in
-        /// <see cref="StrategyConversionCapture.EvaluateLegs"/> already excludes, so
-        /// reaching them means the mechanism did something this door was not built
-        /// against. Internal static for testability.
+        /// Pure row-shape mapper for <see cref="OnStrategyCurrencyConversion"/>. EVERY
+        /// leg the scoping rule admits now returns a row - science either direction,
+        /// funds either direction, reputation either direction. The one null is a funds
+        /// leg of magnitude exactly zero, which
+        /// <see cref="StrategyConversionCapture.EvaluateLegs"/>' MinCaptureMagnitude
+        /// filter makes unreachable; it is logged rather than silently shaped into a
+        /// zero-value row. Internal static for testability.
         /// </summary>
         internal static GameAction BuildStrategyConversionAction(
             double ut,
@@ -3325,16 +3381,76 @@ namespace Parsek
                     };
 
                 case StrategyConversionCurrency.Funds:
-                    if (leg.Delta <= 0.0)
+                    if (leg.Delta < 0.0)
                     {
-                        ParsekLog.Warn(Tag,
-                            $"Strategy conversion: unexpected NEGATIVE zero-input funds delta=" +
+                        // THE DEBIT ARM. A funds-INPUT converter (Appreciation Campaign
+                        // funds -> reputation, Outsourced R&D funds -> science) or a
+                        // funds-DOWN CurrencyOperation (Leadership Initiative's
+                        // 1.00..0.25 multiplier on contract gains) diverting part of an
+                        // ordinary transaction out of the pool.
+                        //
+                        // REACHED ONLY UNDER A NOMINAL-CHANNEL REASON. The leg exists at
+                        // all only because StrategyConversionCapture.EvaluateLegs either
+                        // saw a zero funds input (no transaction of its own) or matched
+                        // StrategyConversionCapture.IsNominalChannelFundsReason - and on
+                        // those three reasons the ordinary funds channel recorded the
+                        // CONFIGURED GROSS amount (contract.FundsCompletion /
+                        // FundsAdvance, the AwardProgress arguments), never an observed
+                        // delta. So this row is the missing second half of the pool move
+                        // rather than a second count of the first half; under the
+                        // event-derived reasons (VesselRollout, RnDPartPurchase,
+                        // StructureRepair, StructureConstruction, StrategyOutput) no leg
+                        // is emitted and no row is written.
+                        //
+                        // NO CURVE ANYWHERE, which is what makes this simpler than its
+                        // reputation sibling: Funding.AddFunds moves the pool by the raw
+                        // value both times (funds += value, then funds += effect delta),
+                        // so FundsModule.ProcessFundsSpending subtracting the magnitude
+                        // reproduces stock exactly, in any order, with no state
+                        // dependence at all.
+                        //
+                        // FundsSpent carries the POSITIVE magnitude - the sign is in the
+                        // action type - and the row is UNTAGGED like its siblings on this
+                        // path: irreversible global economy, not recording-owned economy.
+                        ParsekLog.Info(Tag,
+                            $"Strategy conversion: funds DEBIT captured nominal=" +
                             $"{leg.Delta.ToString("R", CultureInfo.InvariantCulture)} at " +
                             $"UT={ut.ToString("F1", CultureInfo.InvariantCulture)} " +
-                            $"(reason={reason ?? "(none)"}) - not captured, see " +
-                            "OnStrategyCurrencyConversion's contract");
+                            $"(reason={reason ?? "(none)"}) - the ordinary channel carries " +
+                            "this transaction's CONFIGURED GROSS amount, so this row is the " +
+                            "diverted half of the pool movement");
+                        return new GameAction
+                        {
+                            UT = ut,
+                            Type = GameActionType.FundsSpending,
+                            RecordingId = null,
+                            FundsSpent = (float)(-leg.Delta),
+                            FundsSpendingSource = FundsSpendingSource.StrategyConverter
+                        };
+                    }
+                    if (leg.Delta == 0.0)
+                    {
+                        // Unreachable through EvaluateLegs (MinCaptureMagnitude filters
+                        // it), and a zero-magnitude row would be pure noise either way.
+                        ParsekLog.Warn(Tag,
+                            $"Strategy conversion: zero funds delta at " +
+                            $"UT={ut.ToString("F1", CultureInfo.InvariantCulture)} " +
+                            $"(reason={reason ?? "(none)"}) - not captured");
                         return null;
                     }
+                    // THE CREDIT ARM, and it now serves TWO populations that share a row
+                    // shape. (1) The zero-input cross-currency YIELD a converter pays into
+                    // funds (Fundraising Campaign reputation -> funds, Patents Licensing
+                    // science -> funds): no transaction of its own, captured under the
+                    // historical zero-input rule. (2) A NONZERO-input positive delta under
+                    // a nominal-channel reason - stock's Leadership Initiative scales
+                    // MILESTONE funds gains 1.00..2.50 under Progression, where
+                    // MilestoneAchievement carries the AwardProgress argument and nothing
+                    // records the uplift. Both are FundsEarning/Strategy: the source names
+                    // the query-family door, and the two reconcile identically (the KSC
+                    // classifier skips every FundsEarning, and the post-walk reconciler
+                    // skips FundsEarningSource.Strategy explicitly), so no discriminator
+                    // is owed between them.
                     return new GameAction
                     {
                         UT = ut,
@@ -3359,13 +3475,21 @@ namespace Parsek
                     // pre-curve 0.33540129661560059 -> pool move 0.33515101671218872,
                     // which the curve reproduces to ~1e-7.
                     //
-                    // NO DOUBLE-COUNT. StrategyConversionCapture.EvaluateLegs only emits a
-                    // reputation leg when InputReputation == 0, i.e. when the transaction
-                    // itself put no reputation in and therefore no ordinary channel
-                    // (TransformedRepReward, MilestoneRepAwarded, the reason-keyed
-                    // exchanger door) is watching it. That scoping rule is what makes this
-                    // row safe; do not relax it. Pinned by
-                    // StrategyConversionCaptureTests.NonZeroInputReputation_IsNotCaptured.
+                    // NO DOUBLE-COUNT, and the reason is the MECHANISM rather than a
+                    // scoping rule. StrategyConversionCapture.EvaluateLegs emits a
+                    // reputation leg for ANY nonzero delta, input or not (it stopped
+                    // gating on InputReputation == 0 when the DEBIT arm was measured -
+                    // that gate excluded every stock reputation-INPUT converter). What
+                    // keeps this row safe is that stock applies the transaction's own
+                    // amount and the effect delta as TWO separate addReputation_granular
+                    // calls, and every ordinary channel (TransformedRepReward,
+                    // MilestoneRepAwarded, the reason-keyed exchanger door) records a
+                    // CONFIGURED NOMINAL - the first call - never an observed pool delta.
+                    // Pinned by StrategyConversionCaptureTests
+                    // .NonZeroInputReputation_IsCaptured_UnlikeFunds, which states the
+                    // reputation-vs-funds asymmetry as one cell. The invariant to
+                    // re-check before adding any reputation channel is that no channel
+                    // starts recording a POST-modifier amount.
                     //
                     // UNTAGGED, like its science / funds siblings on this path:
                     // irreversible global economy, not recording-owned economy.
@@ -3387,22 +3511,45 @@ namespace Parsek
                         };
                     }
 
-                    // THE DEBIT ARM IS DELIBERATELY NOT BUILT. Every stock rep-INPUT
-                    // converter (FundraisingCampaign, UnpaidResearchProgram) diverts a
-                    // fraction of a reputation transaction, so InputReputation != 0 and the
-                    // scoping rule above excludes it before this method is ever called - a
-                    // negative zero-input reputation leg means the mechanism does something
-                    // this door was not built against. Guessing a row shape for it is worse
-                    // than saying so loudly. Same stance as the negative funds arm.
-                    // See STRATEGY-REP-DEBIT-CONVERTERS-UNCAPTURED in
-                    // docs/dev/todo-and-known-bugs.md.
-                    ParsekLog.Warn(Tag,
-                        $"Strategy conversion: unexpected NEGATIVE zero-input reputation delta=" +
-                        $"{leg.Delta.ToString("R", CultureInfo.InvariantCulture)} at " +
+                    // THE DEBIT ARM. Symmetric with the credit arm above and nominal for
+                    // the identical reason: decompiled Reputation.AddReputation moves the
+                    // pool TWICE - addReputation_granular(input) first, then
+                    // addReputation_granular(GetEffectDelta(Reputation)) from
+                    // Reputation.OnCurrenciesModified against the already-moved pool - so
+                    // this leg is the curve's own input argument for the SECOND of those
+                    // two calls, and ReputationModule.ProcessRepPenalty's ordinary arm
+                    // re-derives it at the reconstruction's running rep.
+                    //
+                    // ReputationPenaltySource.StrategyConverter, NOT ...Strategy: that one
+                    // is the EXCHANGER family's post-curve capture and takes a no-recurve
+                    // shortcut in ProcessRepPenalty, which would apply this pre-curve
+                    // magnitude as if it were already effective. The two mechanisms share a
+                    // word and nothing else.
+                    //
+                    // NominalPenalty carries the POSITIVE magnitude - the sign is in the
+                    // action type - and the row is UNTAGGED like its siblings on this path.
+                    //
+                    // MEASURED live, model-free, on run
+                    // 2026-08-20_2052_L3-strategy-currency-conversion: Fundraising Campaign
+                    // at the stock default Factor 0.05 diverted 1.0000572204589844
+                    // reputation out of a 20-point ContractReward award (the same award
+                    // under the cfg-excluded VesselRecovery reason moved the pool
+                    // 19.999963760375977; under ContractReward it moved 18.999906539916992),
+                    // and before this arm existed no ledger row carried any of it.
+                    ParsekLog.Info(Tag,
+                        $"Strategy conversion: reputation DEBIT captured pre-curve " +
+                        $"nominal={leg.Delta.ToString("R", CultureInfo.InvariantCulture)} at " +
                         $"UT={ut.ToString("F1", CultureInfo.InvariantCulture)} " +
-                        $"(reason={reason ?? "(none)"}) - not captured, see " +
-                        "OnStrategyCurrencyConversion's contract");
-                    return null;
+                        $"(reason={reason ?? "(none)"}) - ReputationModule applies KSP's " +
+                        "granular curve to it at the reconstruction's own running rep");
+                    return new GameAction
+                    {
+                        UT = ut,
+                        Type = GameActionType.ReputationPenalty,
+                        RecordingId = null,
+                        NominalPenalty = (float)(-leg.Delta),
+                        RepPenaltySource = ReputationPenaltySource.StrategyConverter
+                    };
             }
         }
 

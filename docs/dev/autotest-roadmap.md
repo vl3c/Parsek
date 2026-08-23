@@ -225,7 +225,7 @@ and are kept so the remaining work is legible against the original list:
 | `Watch` | 2 | D6 `watch-mode-retarget-explosion-hold` |
 | ~~`LedgerGroundTruth`~~ | 2 | DRIVEN since the career-ledger lane by `L2-ledger-groundtruth-career` (live-proven 2026-08-17, armed run `2026-08-17_2233`). D8 `ground-truth-harness`. The count was 1 here and is 2: `KerbalExperienceReassertTest.SurvivingCareerLogEntriesAreOnTheLiveRoster` (P9a) also declares this category |
 | `Contracts` | 2 | D8 `contracts` |
-| ~~`StrategyLifecycle`~~ | 7 | DRIVEN since the career-ledger lane by `L3-strategy-currency-conversion` (live-proven 2026-08-18, green runs `2026-08-18_2039` and, for the capture matrix, `2026-08-18_2140`). D8 `strategies` |
+| ~~`StrategyLifecycle`~~ | 9 | DRIVEN since the career-ledger lane by `L3-strategy-currency-conversion` (live-proven 2026-08-18, green runs `2026-08-18_2039` and, for the capture matrix, `2026-08-18_2140`), and from 2026-08-20 by the complementary `L3-strategy-exchanger-floor` at the opposite reputation. Took 7 -> 9 on the `rep-debit-capture` wave: a reputation-INPUT converter measurement/gate cell and the high-reputation curve adjudicator (green runs `2026-08-20_2115` and `2026-08-20_2117`). D8 `strategies` |
 | `SpawnRotation` + 7 more | 29 | D13, all 11 cells |
 | ~~`CrewReservation`~~ | 15 | DRIVEN since wave-2 by `H31` on b2-lko-craft (live-proven 2026-08-04, 14 of 15 executing). D12 `seat-matching`, `rescue-marker`; the rest of D12 has no producer in the category |
 

@@ -236,6 +236,15 @@ namespace Parsek
                             // from the ReputationChanged(StrategyInput) event as an
                             // already-effective literal (no curve). Intentionally not
                             // reconciled (no paired "Other"-reason event), so skip.
+                        case ReputationPenaltySource.StrategyConverter:
+                            // The QUERY family's reputation debit (Fundraising Campaign
+                            // and siblings). The converter mutates a CurrencyModifierQuery
+                            // IN PLACE and the ReputationChanged that follows carries the
+                            // ORIGINAL transaction reason, not a strategy-keyed one - and
+                            // GameStateRecorder's ReputationThreshold is 1.0f, so a
+                            // sub-point diversion emits nothing at all. There is no
+                            // reason-keyed event to pair against, exactly as for
+                            // ReputationSource.Strategy on the earning side above.
                         case ReputationPenaltySource.Other:
                         default:
                             return exp; // not reconciled (synthetic, or directly captured)

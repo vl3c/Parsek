@@ -13,6 +13,42 @@ namespace Parsek.Tests
         // ================================================================
 
         [Fact]
+        public void UndefinedEnumValue_KeepsTheDefaultAndSaysSo()
+        {
+            // A save written by a NEWER build carries an enum member this one does not
+            // define. The field keeps default(T) - member 0 - so the row silently changes
+            // meaning: a StrategyConverter funds debit (source 7) reads back as an
+            // untagged VesselBuild spending, which the editor-revert prune treats as a
+            // launch boundary. The value cannot be preserved (there is no member to hold
+            // it), so the WARN is the whole mitigation: it is what tells a rolled-back
+            // reader that the save is ahead of the build rather than corrupt.
+            var logLines = new List<string>();
+            ParsekLog.TestSinkForTesting = line => logLines.Add(line);
+            try
+            {
+                var node = new ConfigNode("GAME_ACTION");
+                node.AddValue("ut", "42.5");
+                node.AddValue("type", ((int)GameActionType.FundsSpending).ToString());
+                node.AddValue("actionId", "act_from_the_future");
+                node.AddValue("fundsSpent", "5000");
+                node.AddValue("fundsSpendingSource", "99");
+
+                var loaded = GameAction.DeserializeFrom(node);
+
+                Assert.Equal(GameActionType.FundsSpending, loaded.Type);
+                Assert.Equal(default(FundsSpendingSource), loaded.FundsSpendingSource);
+                Assert.Contains(logLines, l =>
+                    l.Contains("[WARN]") && l.Contains("[GameAction]")
+                    && l.Contains("99") && l.Contains("FundsSpendingSource")
+                    && l.Contains("fundsSpendingSource"));
+            }
+            finally
+            {
+                ParsekLog.ResetTestOverrides();
+            }
+        }
+
+        [Fact]
         public void ScienceEarning_RoundTrip()
         {
             var original = new GameAction
@@ -869,6 +905,7 @@ namespace Parsek.Tests
         [InlineData(FundsSpendingSource.ContractPenalty)]
         [InlineData(FundsSpendingSource.Strategy)]
         [InlineData(FundsSpendingSource.Other)]
+        [InlineData(FundsSpendingSource.StrategyConverter)]
         public void FundsSpendingSource_AllValues_RoundTrip(FundsSpendingSource source)
         {
             var original = new GameAction
@@ -916,6 +953,10 @@ namespace Parsek.Tests
         [InlineData(ReputationPenaltySource.KerbalDeath)]
         [InlineData(ReputationPenaltySource.Strategy)]
         [InlineData(ReputationPenaltySource.Other)]
+        // The query-family reputation DEBIT leg. ALL VALUES means all of them: a member
+        // added without a row here leaves the theory silently incomplete even though its
+        // name promises coverage.
+        [InlineData(ReputationPenaltySource.StrategyConverter)]
         public void ReputationPenaltySource_AllValues_RoundTrip(ReputationPenaltySource source)
         {
             var original = new GameAction

@@ -14,6 +14,183 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## SYNTHETIC-CONTRACT-FAIL-PENALTY-CLAMPED-BY-DRAWDOWN-GUARD: `PrePass` synthesizes the expired-deadline `ContractFail` and the reconstruction spends its penalties correctly, but `KspStatePatcher`'s guarded-drawdown protection refuses to write either pool back, so the debit never reaches the live career [MEASURED 2026-08-20 by `L5-career-contract-complete`'s green flight (run `2026-08-20_2240`), the FIRST run ever to drive `ContractsModule.PrePass`'s injection under a gate. REPORT-ONLY and GATED AS MEASURED: no product change is proposed by this lane, and the clamp is pinned so a change of behaviour has to be taken deliberately]
+
+**What fires, and it all fires correctly.** `career-contract-pad` carries two
+fixture-authored `type = 5` rows and no terminal row; B's `deadlineUT = 100` sits
+between the cold-load walk's clock (B's own accept UT, 6) and the commit-time walk's
+(the flight's rows out to ~348). The commit-time recalc produced, in one burst:
+
+```
+PrePass: injected synthetic ContractFail for contractId='c47d0a91-...' at deadlineUT=100 fundsPenalty=9000 repPenalty=1 (nowUT=345.59999999997564 source=lastActionUT)
+DeadlineExpired: contractId='c47d0a91-...' deadline passed at currentUT=100, slot freed, activeSlots=1/2
+Fail: contractId='c47d0a91-...' fundsPenalty=9000 repPenalty=1 wasActive=False activeSlots=1/2
+```
+
+and the RECONSTRUCTION really did spend the pack - `running=527558` against
+`live=536558` for funds, `running=0.99999749660491943` against `live=1.9999988079071045`
+for reputation, i.e. exactly the 9000 and the 1.
+
+**Where it stops.** Neither reaches KSP:
+
+```
+PatchFunds: GUARDED DRAWDOWN clamped resource=Funds running=527558 live=536558 wouldBeTarget=527558 clampedTo=536558 (no time-travel context) - earned value preserved; ledger may be missing an earning channel
+PatchReputation: GUARDED DRAWDOWN clamped resource=Reputation running=0.99999749660491943 live=1.9999988079071045 wouldBeTarget=0.99999749660491943 clampedTo=1.9999988079071045 (no time-travel context) - earned value preserved; ledger may be missing an earning channel
+```
+
+**Why the guard clamps HERE, and why that does not generalise.** In THIS fixture the
+save's stock `CONTRACTS` node is EMPTY BY CONSTRUCTION - `career-contract-pad` splices
+nothing into `ContractSystem`, and both contracts exist only as fixture-authored
+`type = 5` rows in `Parsek/GameState/ledger.pgld`. Stock therefore never debited the
+live pools for B's failure, because stock never knew B existed. The reconstruction
+spends the penalty pack and the live pool does not follow, so the recalc arrives at
+the patcher as a bare drawdown with no time-travel context - which is exactly the
+missing-earning-channel signature the guard exists to refuse. The drawdown direction
+here is an artifact of the fixture's shape, guaranteed by construction, and not
+evidence about how the guard treats contract penalties in general.
+
+**A REAL stock contract fail is a different shape, and it is UNTESTED rather than
+measured to clamp.** When stock fails a live contract it applies the penalty to the
+live pool ITSELF at fail time, and Parsek captures the terminal `ContractFail` row
+through `GameStateEventConverter.ConvertContractFailed`
+(`Source/Parsek/GameActions/GameStateEventConverter.cs` ~:811-828) into `FundsModule`
+and the reputation module. Both sides then move together: the reconstruction's running
+value and the live pool step down by the same pack, so the patcher sees no unexplained
+drawdown and there is nothing to clamp. No committed run has ever flown that shape, so
+the real-stock-fail signature is an OPEN question, not a demonstrated clamp. **Do NOT
+relax the PR #1097 earned-value guard on this entry's evidence** - this entry measures
+a synthetic fixture in which the guard is behaving correctly.
+
+**The policy question, and why it is parked.** IF a real-stock-fail scenario is ever
+flown and IT measures a clamp, then there is a genuine policy decision to take about
+the drawdown guard, with a real argument on each side: a contract failure is a debit a
+player would expect to feel; equally, a guard that lets any recalc reduce a career's
+funds is exactly the protection PR #1097 exists to provide. Until such a run exists
+that question is not live, and nothing in this lane proposes a product change. The
+honest interim state is: on this synthetic fixture the ledger reconstruction is
+CORRECT and the live career is UNCHANGED, and both halves are now measured rather than
+assumed. `L5-career-contract-complete` pins
+`PatchFunds: GUARDED DRAWDOWN clamped resource=Funds` as a required token precisely
+so a change in either direction reds and forces the decision to be taken on purpose.
+The numbers are deliberately NOT in the token: `running=` moves during the recalc
+burst (the same run logged an earlier clamp at `running=522200 live=531200`, before
+the recovery credit landed) and `live=` is the flight's own earnings, which
+`L3-career-science-recover` owns.
+
+**Note for whoever takes it: the synthetic row is WALK-LOCAL, and that property is
+OBSERVED but UNGATED.** The same run measured that the produced `ledger.pgld` carries
+the two accepts and NO `type = 7` row, so the injection re-derives on every walk
+rather than being persisted once. That is what makes the token stable across runs, and
+it also means any fix has to keep working on a re-derived row rather than on a stored
+one. It is structurally true today - `RecalculationEngine.SortActions` returns a NEW
+list ("the input is not modified"), and `PrePassAllModules` hands the modules that
+copy (`Source/Parsek/GameActions/RecalculationEngine.cs` ~:709), so an injected row
+lives and dies inside one walk. But NOTHING GATES IT. Residual risk, one line: a
+refactor that passed the LIVE action list to `PrePass` instead of the copy would
+persist the synthetic row and this spec would still be green, because every run
+re-copies the committed fixture over the previous run's save.
+
+**Evidence, and it is quoted rather than pointed at.** The durable record is what is
+already reproduced VERBATIM above: the three measured lines (`PrePass: injected
+synthetic ContractFail ...` / `DeadlineExpired: ...` / `Fail: ...`), the two
+`GUARDED DRAWDOWN clamped` lines, and the pool comparisons `running=527558` against
+`live=536558` for funds and `running=0.99999749660491943` against
+`live=1.9999988079071045` for reputation. They are quoted in full BECAUSE the green
+run's artifacts (`2026-08-20_2240_L5-career-contract-complete.*` under
+`harness/results/`) are generated and gitignored - nothing outside this entry preserves
+them. Do NOT cite `logs/2026-08-21_0124_L5-career-contract-complete/` for THIS finding:
+that folder is flight 1, whose ledger loaded `actions=1` and which logged ZERO
+injection lines, so it contradicts rather than supports this entry. It is the correct
+pointer for the Progress-node finding below, and only there.
+
+## SAVE-AUTHORED-PROGRESS-NODE-DOES-NOT-RESTORE: a `Progress { FirstLaunch }` node written into a file-constructed career save is not read back, and it silently kills any save-authored Active `PartTest` [MEASURED 2026-08-20 by `L5-career-contract-complete`'s first flight (run `2026-08-20_2217`). HARNESS-FIXTURE FINDING, REPORT-ONLY: no product change is proposed, and nothing gates it. It is filed because it BLOCKS a specific class of fixture and because the next author to try one will otherwise spend the same flight]
+
+**What was tried.** `career-contract-pad` v1 spliced two nodes into
+`career-science-pad`'s save so the `science_bench_recover` flight would COMPLETE a
+real stock contract live: a `state = Active` `PartTest` on `solidBooster.sm.v2` at
+`sit = PRELAUNCH`, and `Progress { FirstLaunch { completedManned = 4 } }`. The
+completion mechanism was derived from the decompiled KSP 1.12.5
+`Assembly-CSharp.dll` before flying, and every link still holds:
+`ModuleTestSubject.OnActive()` fires `onTestRun` on a staging activation with no
+situation filter of its own; `solidBoosterRT-5_v2.cfg` declares `useStaging = True`
+and `situationMask = 60`, which includes `PRELAUNCH`; the mission emits its single
+`ACTION_ACTIVATE_STAGE` on the first decision frame, from PRELAUNCH; and
+`Contracts.Parameters.PartTest.OnPartRunTest` completes when the part name matches
+and `AllChildParametersComplete()`.
+
+**What happened.** The flight was textbook - MISSION-OK, all nine phases, analyzer
+`red=0`, zero `[Parsek][ERROR]`, zero Unity exceptions, 2 recordings, 463 s wall -
+and the completion never fired. The contract was gone from `ContractSystem` before
+the mission's first frame, and stock re-OFFERED a fresh contract with the identical
+subject 8 s later:
+
+```
+01:17:50.992 PatchContracts: ledger has 1 active contracts, ... KSP has 0 current contracts, 0 finished contracts
+01:17:57.243 Game state: ContractOffered 'Test RT-5 "Flea" Solid Fuel Booster at the Launch Site.' (diagnostic, not stored)
+```
+
+**The cause, read off two stock log lines rather than inferred.** The same run
+logged BOTH of these at 01:17:57, i.e. DURING the flight:
+
+```
+[Progress Node Reached]: FirstLaunch
+[Progress Node Complete]: FirstLaunch
+```
+
+`KSPAchievements.FirstLaunch.TestFlight` guards its award with
+`if (!base.IsComplete) { Complete(); ... }`, and `ProgressNode.Complete()` calls
+`Reach()` only when `!reached`. `ProgressNode.Load` sets `reached = true` on its
+FIRST line and `complete = true` in its `completedManned` branch. Both lines
+appearing therefore proves both flags were false at launch: **the spliced
+`FirstLaunch` node was never `Load`ed.** From there the contract's fate is
+mechanical - `Contracts.Templates.PartTest.MeetRequirements()` is
+`if (!ProgressTracking.Instance.NodeComplete("FirstLaunch")) return false;`, and
+`Contract.Update()` re-checks `MeetRequirements()` on EVERY tick of an ACTIVE
+contract, retiring it to `OfferExpired`, which is removed outright rather than kept
+in `ContractsFinished` - matching the observed `0 current, 0 finished`.
+
+**It is NOT "authored ScenarioModule children are lost".** The same run's produced
+save grew `ResearchAndDevelopment`'s `Tech` node from 13 `part =` lines to 23, so
+that module's child node loaded and was written back. It is also not a shape
+problem: the spliced `Progress` and `CONTRACT` blocks are byte-identical in
+structure and indentation to the ones `Source/Parsek.Tests/Fixtures/C2CareerPostFix/`
+carries, the save's brace balance is clean, there are no duplicate `ProgressTracking`
+or `ContractSystem` SCENARIO nodes, and the two saves carry the SAME 22 scenario
+modules with the same `scene` lists. Nor is it a staging failure: `career-earned-pad`
+- derived from a REAL KSP-written save - splices an Active `PartTest` the same way,
+and `L4-ledger-groundtruth-strict` measures all 9 of its contracts loading and
+surviving (`KSP has 9 current contracts`), which is itself proof that
+`MeetRequirements()` reads TRUE there and therefore that ProgressTracking DID restore
+in that lineage.
+
+**What is not known** is why the same node restores from one save and not from the
+other. `ProgressTracking.OnLoad` is `if (!node.HasNode("Progress")) return;` then
+`achievementTree.Load(node.GetNode("Progress"))`, `ProgressTree.Load` matches by
+`progressNode.Id`, and `OnAwake` populates the tree before either - so on the code
+alone it should work. The difference that remains unexamined is LINEAGE:
+`career-contract-pad` descends from the file-constructed `fresh-career`,
+`career-earned-pad` from a save KSP itself wrote.
+
+**Consequence, and why the lane routed around it rather than through it.** Until
+this is explained, a save-authored Active `PartTest` cannot be made to survive into a
+flight in the `fresh-career` lineage, so the LIVE `ContractComplete` gate this wave
+set out to build is not reachable from a file-constructed fixture. Re-flying a second
+guessed node shape would spend a flight on a hypothesis. `career-contract-pad` was
+therefore rebuilt with every claim in the LEDGER instead - two `type = 5` rows, one
+with a deadline sized to lapse mid-flight - and `L5-career-contract-complete` now
+gates `ContractsModule.PrePass`'s synthetic-fail injection, `CheckDeadlines`'s
+retirement and `ProcessFail`'s penalty application, none of which had a committed gate
+either. `ContractComplete` and `ContractCancel` remain ungated.
+
+**Where to start if someone picks this up.** The cheapest next experiment is a
+fixture derived from a KSP-WRITTEN career (the `career-earned-pad` lineage) carrying
+an Active `PartTest` whose part is on ITS craft and whose `sit` is the situation that
+craft is in when it stages - which would separate "lineage" from "authored node" in
+one flight. `harness/tools/build_career_contract_pad.py`'s module docstring carries
+the full derivation, and the collected evidence is
+`logs/2026-08-21_0124_L5-career-contract-complete/`.
+
+
 ## ~~TOOLTIP-ECHO-SIZES-FROM-LAST-FRAMES-TEXT: every window's bottom hover-help strip was measured during Layout from the PREVIOUS text and painted during Repaint with the NEW one, and Real Spawn Control's variant also changed its control COUNT between the two passes~~ [FOUND 2026-08-20 from an in-game observation of a one-frame dark sliver at the window bottom; FIXED the same day on branch `tooltip-echo-sizing`]
 
 IMGUI sizes a control during the Layout event and reuses that cached rect during
@@ -1492,6 +1669,82 @@ masking the log contract exists to prevent. Fix the capture; leave the level.
 
 ---
 
+## ~~REP-CURVE-HIGH-REP-UNADJUDICATED: the residual-step fix closed two low-rep fixtures and moved c1 AWAY from KSP's pool, and c1 alone cannot say which is right~~ [FILED and ADJUDICATED 2026-08-20 on `rep-debit-capture`. VERDICT: the SHIPPING formula, bit-exact against KSP's own pool at rep 60-100. The c1 divergence is a capture-era artifact]
+
+Commit `817773dcb` (CAREER-MILESTONE-REP-AWARD-RECONSTRUCTS-LOW, below) closed
+reputation reconstruction on the two C2 career fixtures - |rep| roughly 2 and 5 -
+to ~1e-7 each. On the SAME change the c1 fixture, whose |rep| is 45.5, moved from
+a float32 match (delta ~4.9e-08 on 2026-08-09) to `+0.047119190039062175` ABOVE
+KSP's own saved pool. `C1CareerLedgerReplayTests`' REPUTATION block records that
+plainly and refuses to adjudicate it, correctly: c1's rep-bearing rows (40
+`MilestoneAchievement`, 11 `ContractComplete`) were captured in early 2026-08,
+before the fix wave, so a capture-era defect of that period is FULLY consistent
+with the numbers and is indistinguishable from a curve defect from that fixture
+alone. The fix's own commit message notes the pre-fix error grows with |rep|,
+which is exactly why c1 is the fixture that NOTICES the question.
+
+**The adjudicator does not need a fixture at all.** KSP's own pool is the oracle:
+hand `Reputation.AddReputation` a series of INTEGER awards from a HIGH starting
+reputation, read the pool after each, and run BOTH candidate formulas over the
+same nominals from the same start. Integer nominals are the discriminator - for an
+integer award the pre-fix residual (`nominal - delta * num`) is identically zero
+so the top-up never fires, while the shipping residual (`nominal - accumulated`)
+tops the award back up; the two therefore separate by the whole residual per
+award, which is orders of magnitude above float32 noise. The pool lands on exactly
+one of them, and that is the verdict.
+
+`ReputationCurve_HighRep_AgreesWithStocksGranularPool` (StrategyLifecycle,
+SPACECENTER) is that experiment: ten awards (nine +5 and one -5, so the
+subtraction curve's residual is on the same walk) from reputation 60, both chains
+computed, a grep-stable `RepCurveHighRep VERDICT: agreesWith=<current|pre-fix|neither>`
+line, and an assertion that the walk DISCRIMINATES before it asserts which side
+won. It is ledger-neutral by construction - every KSP call is inside
+`SuppressionGuard.Resources()`, so no door fires, no row is written and no pool
+guard can clamp - and it restores the pool exactly in a `finally`.
+
+**What each verdict means, decided before the run so the reading could not drift.**
+`current` closes the c1 question as a capture-era artifact and this entry with it
+(the c1 pin stays a regression floor, which is what it already says it is).
+`pre-fix` or `neither` would have been a REAL curve defect at high reputation - in
+which case the finding gets filed with the numbers and `ReputationModule` is NOT
+touched on that lane, because such a fix moves armed oracles
+(`harness/lib/oracle.py`'s ported curve, `CL-2-pod-impact-ledger`'s exact-digit
+stock-award pins, both C2 replay suites) and is a separate decision taken with
+those in view.
+
+**THE VERDICT IS `current`, and it is not close.** Run
+`2026-08-20_2052_L3-strategy-currency-conversion`, PASS attempt 1, 65 s wall,
+fully unattended:
+
+    RepCurveHighRep VERDICT: agreesWith=current startRep=60 awards=10
+      kspFinal=99.9952545 currentModelFinal=99.9952545 preFixModelFinal=99.30036
+      errCurrent=0 errPreFix=0.69489288330078125
+      separation=0.69489288330078125 tolerance=0.01
+
+Per step, `errCurrent` was **exactly 0** at eight of the ten awards and
+`7.62939453E-06` - one float32 ulp at that magnitude - at the other two, while the
+pre-fix chain fell behind monotonically (0.0187 after the first +5, 0.127 by the
+fifth, 0.695 by the tenth). KSP's own pool and the shipping
+`ApplyReputationCurve` are the same arithmetic at |rep| 60-100, including across
+the `-5` step, which exercises the subtraction curve's residual.
+
+**So c1 is exonerated as a curve question and re-read as a capture question.** Its
+rep-bearing rows were captured before the 2026-08 fix wave, and the +0.047 it
+reconstructs high is consistent with a capture-era defect of that period. Nothing
+in `ReputationModule` is changed; `C1CareerLedgerReplayTests`' pin stays a
+regression floor on the arithmetic, which is exactly what it already declares
+itself to be, and its REPUTATION comment now cites this run instead of saying the
+corroboration does not exist yet.
+
+The instrument stays in the batch as a standing gate: it re-adjudicates on every
+`StrategyLifecycle` flight, and its assertion (1) re-checks each run that the two
+formulas are still separated by far more than the tolerance, so it cannot decay
+into a vacuous pass. Its agreement tolerance is `1e-4`, MEASURED headroom rather
+than a guess: 13x the largest per-step error observed, and ~7000x below the
+separation it has to resolve.
+
+---
+
 ## ~~CAREER-MILESTONE-REP-AWARD-RECONSTRUCTS-LOW: two +1 milestone reputation awards replay to 1.9985 instead of 2~~ [**FIXED 2026-08-20** on `career-closes-to-zero`. NARROWED 2026-08-19 by the post-fix fixture harvested from `L3-career-science-recover` flight 3 (run `2026-08-19_1912`); CAUSE FOUND 2026-08-19 during the `career-capture-fixes` wave and verified against the decompiled `Reputation.addReputation_granular`; fix deliberately deferred out of that wave so the capture-side re-harvest would read unambiguously - see "Why the fix was deferred"]
 
 ### The fix, and what it measured (2026-08-20)
@@ -2275,7 +2528,8 @@ fully unattended, every verifier PASS or REPORT, GUARDED census ZERO, unityExcep
 pinning `BATCH_COMPLETE v1 total=7 passed=6 failed=0 skipped=1` with the OPPOSITE named
 skip: `ExchangerStrategy_OneShot_CapturesBothLegs` PASSED (`sciDelta=-14.5 take=14.5
 fundsDelta=609.46632729616249 factor=0.05`) and
-`OperationStrategy_RewardMultiplier_IsNotCaptured` is the skip. Between the two specs all
+`OperationStrategy_RewardMultiplier_IsNotCaptured` (renamed
+`..._IsCapturedOnNominalReason` by the 2026-08-21 funds wave) is the skip. Between the two specs all
 seven declarations are gated nightly, each pinning its own MEASURED split with its own
 NAMED skip, at the cost of one extra ~55 s nightly flight. The stock constraint below is
 unchanged and still true - it is not dissolved, it is covered from both sides.
@@ -2285,7 +2539,7 @@ The rest of this entry stands as the record of why one batch could not do it.
 Not a bug in Parsek and not fixable by a fixture. Two `StrategyLifecycle`
 declarations have mutually exclusive reputation preconditions:
 
-- `OperationStrategy_RewardMultiplier_IsNotCaptured` needs **rep >= 14.5**.
+- `OperationStrategy_RewardMultiplier_IsCapturedOnNominalReason` needs **rep >= 14.5**.
   Both stock `CurrencyOperation` strategies (`LeadershipInitiative`,
   `AgressiveNegotiations`) lerp `initialCostReputation` 10..100 at
   `factorSliderDefault = 0.05`, and `Strategy.CanBeActivated` compares the
@@ -2405,53 +2659,258 @@ reputation <= 0.
 Strategy source must NOT take `ReputationPenaltySource.Strategy`'s no-recurve
 shortcut - that one captures a POST-curve magnitude off a `ReputationChanged`
 event and is a different mechanism), and in `StrategyConversionCaptureTests` the
-inverted row-shape cell plus `NegativeReputationLeg_IsRefusedAndWarned` and the
-dedup-key cell. `NonZeroInputReputation_IsNotCaptured` is untouched and is what
-keeps the row from double-counting against `TransformedRepReward` /
-`MilestoneRepAwarded` / the reason-keyed exchanger door.
+inverted row-shape cell and the dedup-key cell.
 
-**Residual, filed separately:** the reputation DEBIT direction is still
-uncaptured - see STRATEGY-REP-DEBIT-CONVERTERS-UNCAPTURED below. Appreciation
+**One paragraph of this entry was SUPERSEDED the same day**, and is corrected here
+rather than left to be read as current. It said `NonZeroInputReputation_IsNotCaptured`
+was untouched and was what kept this row from double-counting against
+`TransformedRepReward` / `MilestoneRepAwarded` / the reason-keyed exchanger door. The
+DEBIT lane measured that premise and found it false for reputation: stock applies the
+transaction's own amount and the converter's effect delta as TWO separate
+`addReputation_granular` calls, and every ordinary reputation channel records a
+CONFIGURED NOMINAL - the first call - never an observed pool delta. So the zero-input
+gate was not what made this row safe; the MECHANISM is. That gate is gone (it was
+excluding every stock reputation-INPUT converter), `NegativeReputationLeg_IsRefusedAndWarned`
+became `NegativeReputationLeg_IsANominalStrategyConverterPenalty`, and the asymmetry
+is now stated as `NonZeroInputReputation_IsCaptured_UnlikeFunds`. See
+STRATEGY-REP-DEBIT-CONVERTERS-UNCAPTURED below.
+
+**Residual, filed separately and now CLOSED:** the reputation DEBIT direction was
+also uncaptured - see STRATEGY-REP-DEBIT-CONVERTERS-UNCAPTURED below, fixed the
+same day on `rep-debit-capture` once the diversion was measured. Appreciation
 Campaign (funds -> reputation) is the larger-magnitude CREDIT sibling and now
 routes through this same arm, though it has not been driven.
 
-## STRATEGY-REP-DEBIT-CONVERTERS-UNCAPTURED: a reputation-INPUT converter's diversion has no capture channel at all, and drifts the reconstruction the other way [FILED 2026-08-20 off the `strategy-rep-leg` lane. UNMEASURED - filed because closing the credit arm made the asymmetry visible]
+## ~~STRATEGY-REP-DEBIT-CONVERTERS-UNCAPTURED: a reputation-INPUT converter's diversion has no capture channel at all, and drifts the reconstruction the other way~~ [FILED 2026-08-20 off the `strategy-rep-leg` lane. MEASURED and FIXED 2026-08-20 on `rep-debit-capture` - the scoping rule's premise was FALSE for reputation, and the decompile says why]
 
-The credit arm above is closed. The DEBIT arm is not, and it is not merely
-unwritten - it is unreachable, which is why it needs its own entry rather than a
-line in that one.
+The credit arm above is closed. The DEBIT arm was not, and the entry as first
+filed got the REASON wrong in a way worth keeping on the record, because the wrong
+reason is what had kept the arm shut.
 
-`StrategyConversionCapture.EvaluateLegs` emits a reputation leg ONLY when
-`InputReputation == 0`. That scoping rule is load-bearing and correct: a nonzero
-input means an ordinary event-driven channel is already watching the transaction
-and reports it NET of the modifier, so capturing there would double-count. But
-every stock reputation-INPUT converter - `FundraisingCampaign` (reputation ->
-funds), `UnpaidResearchProgram` (reputation -> science) - works by diverting a
-fraction of a reputation transaction, so `GetInput(Currency.Reputation) != 0` by
-construction and the rule excludes it before the row-shape mapper is ever called.
-`BuildStrategyConversionAction`'s negative arm therefore refuses loudly (a WARN
-naming an unmodelled mechanism) rather than guessing a debit shape, and that is
-the right behaviour for a leg that should not have arrived.
+**THE MEASUREMENT, MODEL-FREE.**
+`ConverterStrategy_ReputationDebitLeg_CapturesPenalty` (StrategyLifecycle,
+SPACECENTER) activates `FundraisingCampaignCfg` - stock `input = Reputation`,
+`output = Funds`, `minShare 0.0 maxShare 1.0` so `share == Factor == 0.05` at the
+cfg default, and a lerped `initialCostReputation` of 4..70 that comes to 7.3,
+which the `strategy-career` fixture's rep 25 affords (`UnpaidResearchProgramCfg`'s
+30..130 does not, which is why Fundraising is the subject). It then hands KSP the
+SAME 20-point award at the SAME reputation with the SAME strategy active, once
+under `VesselRecovery` - which the cfg's `AffectReasons` deliberately EXCLUDE
+("ignoring reputation from recovery atm") - and once under `ContractReward`, which
+it masks. Run `2026-08-20_2052_L3-strategy-currency-conversion`, PASS attempt 1,
+65 s wall, fully unattended:
 
-What has NO channel is the diversion itself. The exchanger family's rep leg is
-captured post-curve off `ReputationChanged`/`StrategyInput`
-(`ConvertStrategyExchangeReputation` -> `ProcessRepPenalty`'s no-recurve arm), but
-the query family emits no such reason-keyed event, and `GameStateRecorder`'s
-`ReputationThreshold = 1.0f` means the echo it does emit is suppressed for any
-sub-point diversion anyway. So a career running Fundraising Campaign drifts the
-OPPOSITE way from the one this lane just fixed: the reconstruction runs ABOVE
-live, which is the **GUARDED UPLIFT** direction.
+| | pool movement from rep 17.697382 |
+|---|---|
+| control, `VesselRecovery` (excluded) | `19.999963760375977` |
+| treatment, `ContractReward` (masked) | `18.999906539916992` |
+| **diverted** | **`1.0000572204589844`** |
 
-**Unmeasured, deliberately.** No committed spec has driven either strategy, and
-nothing here should be built on an inference. What closing it needs, in order:
-(1) a driven cell activating `FundraisingCampaign` on a reputation-seeded fixture -
-`strategy-career` (rep 25) now exists and both converters need positive reputation
-to have anything to divert; (2) the MEASURED pair (the query's `inR`/`dR` against
-the actual pool movement) to establish whether the ordinary channel really does
-report the transaction net, which is the assumption the scoping rule rests on;
-(3) only then a decision. Do NOT relax the scoping rule to "capture negative
-reputation legs too" - that is the double-count the rule exists to prevent, and
-the measurement above is what would say whether a narrower exception is safe.
+with the door observing `inR=20 dR=-1`, the funds output leg landing correctly as
+one `FundsEarning`/`Strategy` of `1015.0841674804688`, and **zero** reputation
+rows. The diversion is **100x** the reputation guard's 0.01 epsilon, so the drift
+it causes is not a rounding artefact. No curve replica appears anywhere in that
+number - the two readings differ only in the transaction reason.
+
+**THE PREMISE WAS FALSE FOR REPUTATION, AND THE DECOMPILE SAYS SO IN ONE METHOD.**
+The old rule read "a nonzero input means an ordinary event-driven channel is
+already watching the transaction and reports it NET of the modifier". Decompiled
+`Reputation.AddReputation(r, reason)` (KSP 1.12.5) moves the pool TWICE:
+
+    rep += addReputation_granular(r);                       // stage 1, the RAW input
+    // ... OnCurrencyModifierQuery fires; converters mutate the query ...
+    // Reputation.OnCurrenciesModified:
+    rep += addReputation_granular(GetEffectDelta(Reputation));   // stage 2
+
+Two SEPARATE curve applications, the second against the already-moved pool. And
+every Parsek reputation channel records a CONFIGURED NOMINAL, never an observed
+pool delta: `ContractComplete` carries the contract's `ReputationCompletion`
+(`StrategiesModule.TransformContractReward` is a documented identity no-op),
+`MilestoneAchievement` carries the progress node's award, and
+`GameStateEventConverter` converts a `ReputationChanged` event ONLY under
+`TransactionReasons.StrategyInput`. So nothing reported stage 2 - the zero-input
+rule was excluding a whole family of real movements rather than preventing a
+double count. (It remains correct for FUNDS only where that channel is
+EVENT-DERIVED - `VesselRollout`, `RnDPartPurchase`, the two structure reasons,
+`StrategyOutput` - and was FALSE on the three NOMINAL-channel reasons, which the
+2026-08-21 funds-debit wave measured and closed with a reason-set gate; see
+STRATEGY-FUNDS-DEBIT-CONVERTERS-UNCAPTURED. The remaining asymmetry - reputation
+needs no reason gate at all, because NO reputation channel anywhere is
+observed-derived - is stated as one cell,
+`NonZeroInputReputation_IsCaptured_UnlikeFunds`.)
+
+**THE FIX.** `StrategyConversionCapture.EvaluateLegs` captures any nonzero
+reputation delta, input or not - the same unconditional rule the SCIENCE arm has
+always had, and for the same decomposition reason.
+`BuildStrategyConversionAction`'s negative arm now writes a NOMINAL
+`ReputationPenalty` carrying the raw pre-curve magnitude as a positive
+`NominalPenalty`, sourced by a new `ReputationPenaltySource.StrategyConverter`
+member. `ReputationModule.ProcessRepPenalty` needed no change: its equality test
+against `ReputationPenaltySource.Strategy` - the EXCHANGER family's POST-curve
+capture, which takes a no-recurve shortcut - does not match the new member, so the
+debit falls through to the ordinary curve arm and is re-derived at the
+reconstruction's own running rep. Two nominal rows for one transaction is not a
+workaround; it is the shape stock itself applies.
+`GameActionDisplay.FormatRepPenaltySource` labels it, `PostWalkActionReconciler`
+treats it as unpaired (the query family leaves no reason-keyed event), and
+`GetActionKey` gained the same amount-disambiguated key its credit sibling has.
+
+**WHAT ALSO CHANGES, NAMED because it is the un-flown half.** The rule is
+sign-symmetric, so a POSITIVE reputation delta with a nonzero input is now
+captured too - and the residual is WIDER than "one un-flown positive branch", because
+`LeadershipInitiative` carries **TWO** reputation `CurrencyOperation`s, not one:
+
+- **`Progression`, multiplier 1.00..2.50 by Factor.** A milestone rep award scaled
+  UP, so the effect delta is POSITIVE and the new row is a `ReputationEarning`. This
+  is the branch the paragraph originally named.
+- **`ContractAdvance` / `ContractPenalty` / `ContractReward`, multiplier 1.00..0.25
+  by Factor.** Scaled DOWN, so at anything below the top of the Factor slider a
+  POSITIVE input yields a NEGATIVE delta - a `StrategyConverter`-sourced
+  `ReputationPenalty` row produced by a `CurrencyOperation`, NOT by a
+  `CurrencyConverter`. The enum member's name says converter and its doc named only
+  the two converters; the producing family is wider than the name suggests.
+- **And the corner inside that corner:** under `ContractPenalty` the INPUT is
+  negative (a contract failure docking reputation), so scaling it down makes the
+  delta POSITIVE - a newly-captured Strategy **CREDIT arising from a contract
+  FAILURE**. Arithmetically correct (stock really does hand the reconstruction less
+  penalty than the nominal), but it is the row shape most likely to read as a defect
+  in a ledger dump, so it is written down here before anyone finds it live.
+
+None of the four is driven by a committed spec - the funds-operation cell
+`OperationStrategy_RewardMultiplier_IsCapturedOnNominalReason` (the category's
+negative control until the 2026-08-21 funds wave) deliberately fires a FUNDS-only
+transaction, so its reputation and science legs contribute exactly zero delta and it
+is unaffected. All of them ride the identical stock line (stage 2 above) and are
+correct by the same argument, but none has been flown; if a future lane drives ANY
+reputation transaction under Leadership Initiative, this is the paragraph to read
+first.
+
+**Gates.** Live: the cell above, which now leaves the reputation pool MOVED
+through the door's deferred recalc and asserts exactly one
+`StrategyConverter`-sourced penalty carrying the raw `dR`, plus a no-GUARDED-clamp
+scan split by pool - so a regression that stops writing the row, writes it
+post-curve, or routes it through the exchanger's no-recurve source clamps there
+and reds. Headless: `ApplyReputationCurve_StrategyConverterDiversion_ReproducesTheMeasuredPoolMove`
+is the ABSOLUTE stock-agreement anchor, pinning BOTH stages of the measured pair
+above; `ProcessRepPenalty_StrategyConverterSource_AppliesTheCurveLikeAnyNominalPenalty`
+pins that the source does not take the pre-curved shortcut;
+`NegativeReputationLeg_IsANominalStrategyConverterPenalty`,
+`NegativeReputationLeg_DoesNotTakeTheExchangersPreCurvedSource`,
+`StrategyReputationPenaltyRows_DedupKeyDisambiguatesByAmount` and
+`NonZeroInputNegativeReputation_IsCaptured_TheDebitFamily` pin the row shape, the
+mutation guard, the key and the scoping.
+
+## ~~STRATEGY-FUNDS-DEBIT-CONVERTERS-UNCAPTURED: on the three NOMINAL-channel funds reasons the scoping rule's premise was false, so a funds-INPUT converter's diversion had no capture channel~~ [FILED 2026-08-20 off the #1515 review as a PREDICTION. MEASURED LIVE 2026-08-21 and FIXED in the same wave]
+
+**MEASURED FIRST, THEN FIXED - the entry below is now a record of both.** The
+prediction was written from the decompile and from Parsek's own channel shapes with
+no live run behind it, and it said so. Run
+`2026-08-20_2327_L3-strategy-currency-conversion` (collected logs
+`2026-08-21_0228_L3-strategy-currency-conversion`) drove the reading on a
+deliberately PRE-FIX build - the shipped tree with the reason gate forced off - and
+measured every number the prediction named, including the drift magnitude and the
+guard clamps. The gate run on the shipping build is
+`2026-08-20_2329_L3-strategy-currency-conversion`.
+
+**The mechanism.** Decompiled `Funding.AddFunds(v, reason)` moves the pool TWICE,
+exactly like `Reputation.AddReputation`: `funds += value` first, then - from
+`OnCurrenciesModified`, after the query has run - `funds += GetEffectDelta(Currency.Funds)`.
+Two stock effect kinds divert funds that way: `CurrencyConverter` with
+`input = Funds` (`AppreciationCampaignCfg` funds -> reputation,
+`OutsourcedResearchCfg` funds -> science) and `CurrencyOperation` on Funds
+(`LeadershipInitiative`, scaling 1.00..2.50 on milestone gains under `Progression`
+and 1.00..0.25 on contract gains under the `Contract*` trio). All of them carry
+`AffectReasons` covering `ContractReward`, `ContractAdvance` and `Progression`.
+
+**AND ON EXACTLY THOSE THREE REASONS PARSEK'S FUNDS CHANNEL RECORDS GROSS.** The
+scoping rule in `StrategyConversionCapture.EvaluateLegs` suppressed a funds leg
+whenever `GetInput(Funds) != 0`, on the stated premise that "the ordinary channel is
+already watching that transaction and reports the value NET of the modifier". That
+premise is REASON-QUALIFIED:
+
+- **TRUE** where the funds channel is EVENT-DERIVED, i.e. derived from the observed
+  pool movement: `VesselRollout`, `RnDPartPurchase`, `StructureRepair`,
+  `StructureConstruction`, `StrategyOutput`. A row there really would double-count,
+  and the gate still suppresses every one of them.
+- **FALSE** on `ContractReward` / `ContractAdvance` / `Progression`, where the
+  channel records a CONFIGURED GROSS nominal instead: `contract.FundsCompletion`
+  (through `TransformedFundsReward`, which `RecalculationEngine` assigns straight
+  from `FundsReward` because `StrategiesModule.TransformContractReward` is the
+  documented identity no-op), `contract.FundsAdvance`, and the
+  `ProgressNode.AwardProgress` arguments `ProgressRewardPatch` captures. Nothing
+  there reads the observed delta, so the modifier's half had NO capture channel.
+
+**WHAT THE PRE-FIX RUN MEASURED.** Three separate diversions in one batch, each
+model-free (the same award at the same pool with the same strategy active, once
+under a reason the cfg EXCLUDES and once under one it masks), and each with the
+matching guard clamp in the same log:
+
+| subject | reason | award | pool moved | uncaptured | guard |
+|---|---|---:|---:|---:|---|
+| `AppreciationCampaignCfg` (funds -> rep) | `ContractReward` | 100000 | 95000 | **5000** | `GUARDED UPLIFT clamped ... running=529250 live=524250` (x3) |
+| `OutsourcedResearchCfg` (funds -> sci) | `ContractReward` | 250000 | 237500 | **12500** | `GUARDED UPLIFT clamped ... running=673900 live=661400` (x3) |
+| `LeadershipInitiative` (Multiply 1.00..2.50) | `Progression` | 100000 | 107500.0048828125 | **7500.0048828125** | `GUARDED DRAWDOWN clamped ... running=563750 live=571250.0048828125` |
+
+The control arm read `controlDelta=100000` against `treatDelta=95000` for the first
+row - the whole difference is the converter's take, with no model in the number -
+and the ledger carried `converterFundsSpendRows=0 converterFundsSpent=0` while the
+same conversion's reputation OUTPUT leg landed correctly
+(`strategyRepRows=1 strategyRepNominal=0.80793797969818115`). Half-captured
+conversions, in both directions: the two converters ran the reconstruction HIGH and
+the multiplier ran it LOW.
+
+**THE FIX: a REASON-SET GATE, not an unconditional lift.** `EvaluateLegs` now emits a
+funds leg when the funds input is zero (unchanged) OR when
+`StrategyConversionCapture.IsNominalChannelFundsReason(reason)` matches one of the
+three names EXACTLY. Anything else - an unclassified reason, a null, a combined flags
+spelling - keeps the historical suppression, because the set is an allowlist of
+channels whose shape has been read rather than a denylist of known-bad ones. The
+DEBIT lands as a nominal `FundsSpending` sourced by the new
+`FundsSpendingSource.StrategyConverter` (distinct from `...Strategy`, which is the
+exchanger family's reason-keyed leg and skips reconciliation for a different stated
+reason); the CREDIT keeps the existing `FundsEarning`/`Strategy` shape. Funds carry no
+curve, so unlike its reputation sibling the row is exact in any walk order and no
+ordering caveat attaches.
+
+**GATE RUN, MEASURED.** `2026-08-20_2329_L3-strategy-currency-conversion`: PASS
+attempt 1, 59 s wall, fully unattended, every verifier PASS/REPORT
+(`batchComplete failed=0`, analyzer red=0, `anomalySweep hits=[]`,
+`unityExceptions total=0`, `expectations mismatches=0`,
+`ledgerOracle hardDivergences=0 reportOnly=4`, saveParse REPORT clean, recordings 0),
+**GUARDED CENSUS ZERO** across the whole KSP.log, and
+`BATCH_COMPLETE v1 total=10 passed=9 failed=0 skipped=1`. The three diversions now
+read `funds DEBIT captured nominal=-5000`, `nominal=-12500`, and
+`fundsRows=1 funds=7500.0048828125`. The complementary rep-0 spec flew green in the
+same wave - `2026-08-20_2340_L3-strategy-exchanger-floor`, PASS attempt 1, 55 s,
+GUARDED census ZERO, `BATCH_COMPLETE v1 total=10 passed=8 failed=0 skipped=2` - and
+the new cell RAN there too (its subject's setup charge is funds-only), capturing the
+same 5000 at reputation 0 that the sibling captures at 25. BOTH were RE-FLOWN GREEN
+after the branch-review pass - `2026-08-21_0001` and `2026-08-21_0002`, same tallies,
+GUARDED census ZERO on both - so the pins are measured against the shipping DLL.
+
+**THE STRUCTURAL BLINDNESS THAT HID IT, and the lesson that transfers.** Both funds
+converter cells compensated their fixture with `WriteLedgerVisibleFundsRow` handed
+`fundsDelta` - the pool movement read back AFTER the strategy took its share - so the
+reconstruction tracked the live pool BY CONSTRUCTION and their no-GUARDED scans could
+not clamp no matter what the door did. Every funds cell in the category now writes
+the GROSS nominal, which is what a contract or milestone channel actually carries.
+The same asymmetry is worth checking on any future compensating helper: a stand-in
+that mirrors the OBSERVED pool cannot fail, and a cell that cannot fail is not a gate.
+
+**Cells.** `ConverterStrategy_FundsDebitLeg_CapturesSpending` (new; Appreciation
+Campaign, control `VesselRecovery` vs treatment `ContractReward`, runs on BOTH L3
+fixtures because its setup charge is funds-only),
+`ConverterStrategy_ScienceYield_CapturesCredit` (now also asserts the funds debit
+row), and `OperationStrategy_RewardMultiplier_IsNotCaptured` renamed
+`OperationStrategy_RewardMultiplier_IsCapturedOnNominalReason`. The category lost its
+in-game NEGATIVE CONTROL in that rename - the suppression that remains is a nonzero
+funds input under an EVENT-DERIVED reason, and no stock strategy offers that shape on
+a cell this category can activate without a second strategy and a spend-shaped
+transaction. It is pinned headlessly instead by
+`StrategyConversionCaptureTests.NonZeroInputFunds_UnderAnEventDerivedReason_IsNotCaptured`
+(all five reasons, both directions) plus the unrecognised-reason and exact-match
+cells beside it. A future wave wanting the in-game control back should drive
+`AgressiveNegotiations` under `VesselRollout`.
 
 ## STRATEGY-PREFIX-HOLDBACK-PERMANENT: on a pre-fix save, an exchanger event with no matching row holds back the pending science adjustment forever [FILED 2026-08-19 off the strategy-multi-live session. NOT FIXED - small follow-up]
 
@@ -6821,7 +7280,7 @@ three directions are still dropped, unchanged by this fix:
   reputation INPUT leg IS captured by `ConvertStrategyExchangeReputation`, so the
   reconstruction lands reputation correctly and runs science LOW by exactly the
   granted amount - the mirror image of the c2 defect.
-- A funds-INPUT strategy (Fundraising Campaign: funds in, reputation out) leaks
+- A funds-INPUT strategy (Appreciation Campaign: funds in, reputation out) leaks
   BOTH legs: its funds leg is dropped by `ConvertStrategyExchangeFunds`'s
   `StrategyOutput`-only gate and its reputation OUT leg by
   `ConvertStrategyExchangeReputation`'s `StrategyInput`-only gate.
@@ -15985,7 +16444,7 @@ option (c)'s empty-cut) remain true and load-bearing.
 **What WOULD cover it - filed precisely, decision left to the human.**
 
 - **(a) LAUNCH-SIDE loiter, reachable today with NO code change.** A NEW spec (do NOT modify B17 - its `padAlignEjection=true` shape is what four other lanes' fixtures and arithmetic depend on) declaring `padAlignEjection = false` puts the craft in LKO waiting for the Kerbin->Duna ejection window: ~4.3e6 s of wait against the 1,957.0 s park period is ~2,200 whole revolutions, which is `loiterCuts=1` with `cutSeconds ~4.3e6`. **COST, stated honestly because it is the whole reason `padAlignEjection` exists:** that wait is ~4.3e6 game-seconds of IN-FLIGHT autowarp - ~199 Kerbin days - and it is the wall-clock the pad-align jump was built to avoid. Nobody has measured what that costs unattended on this rig. Sizing that, and deciding whether one registry cell is worth it, is a human call.
-- **(b) DESTINATION loiter (`dest-trim`) - NOT flyable today; two concrete gaps.** (i) **There is no interplanetary LANDING lane.** `b17_duna_direct.schema.toml` declares `captureEnabled` plus the whole `park*` family and NO `landingEnabled` / descent params, while the machine already supports the combination (`missions/lib/mlib.py:13118`, `if params.capture_enabled and params.landing_enabled:`). LATENT TRAP to fix in the same change if this is built: `hlib._validate_mission_params` (`harness/lib/hlib.py:2479-2515`) checks only DECLARED keys - there is no unknown-key rejection - so an undeclared `landingEnabled` in a spec's `missionParams` would pass validation AND take effect via `params.get("landingEnabled", False)` (`mlib.py:3472`), i.e. silently run a different mission than the schema describes. (ii) **There is no warp-through-park knob.** The trim needs `WholeRevs >= 2` at the destination, and the Duna park period on this fixture is ~12,107 s (SMA 1,038,214.95, mu_Duna 3.0136e11), so ~24,220 game-seconds must elapse in the park. Held at 1x that is ~6.7 h of wall clock; the mission machine has no verb that warps through a park dwell.
+- **(b) DESTINATION loiter (`dest-trim`) - NOT flyable today; two concrete gaps.** (i) **There is no interplanetary LANDING lane.** `b17_duna_direct.schema.toml` declares `captureEnabled` plus the whole `park*` family and NO `landingEnabled` / descent params, while the machine already supports the combination (`missions/lib/mlib.py:15870`, `if params.capture_enabled and params.landing_enabled:`). LATENT TRAP to fix in the same change if this is built: `hlib._validate_mission_params` (`harness/lib/hlib.py:2760-2798`) checks only DECLARED keys - there is no unknown-key rejection - so an undeclared `landingEnabled` in a spec's `missionParams` would pass validation AND take effect via `params.get("landingEnabled", False)` (`mlib.py:4069`), i.e. silently run a different mission than the schema describes. NOTE the DECLARATION side of that same silent-hole class is now gated (branch `mission-schema-bool-type-gate`): a declared `type` hlib does not understand rejects instead of falling through unchecked (`hlib.MISSION_PARAM_TYPES`), and `test_hlib.MissionSchemaDeclaredTypeTests` sweeps every committed `harness/missions/*.schema.toml` for both an unknown type and a facet key hlib never reads. The SPEC side described here - an UNDECLARED key in a spec's `missionParams` - is still unrejected, so the trap above stands. (ii) **There is no warp-through-park knob.** The trim needs `WholeRevs >= 2` at the destination, and the Duna park period on this fixture is ~12,107 s (SMA 1,038,214.95, mu_Duna 3.0136e11), so ~24,220 game-seconds must elapse in the park. Held at 1x that is ~6.7 h of wall clock; the mission machine has no verb that warps through a park dwell.
 - **(c) HELIOCENTRIC PARKING DEPARTURE is not a route to this cell.** It is not flyable today either, and even if it were it would NOT cover `loiter-compression`: that departure shape is empty-cut by design.
 
 **Filed as a coverage FACT, not a backlog item to be quietly closed.** Do not mark D11 `loiter-compression` covered off M1/M2 (both explicitly disclaim it - the solver specs plan a unit, they never advance a clock) or off any moon lane.

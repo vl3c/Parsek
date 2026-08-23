@@ -648,6 +648,15 @@ class CommittedFixtureSweepTests(unittest.TestCase):
         "bdock-station-craft": True,
         "bdock-station-pad": True,
         "career-pad-craft": True,
+        # `career-contract-pad` BELONGS HERE DESPITE CARRYING A `Parsek/` TREE.
+        # It ships one `Parsek/GameState/ledger.pgld` (two fixture-carried
+        # `type = 5` ContractAccept rows), but this map is about the ParsekScenario
+        # node INSIDE `persistent.sfs`, and there that node is as inert as its
+        # donor's: zero trees, zero supersedes, zero tombstones, zero rewind
+        # points. A ledger SIDECAR is not a `LEDGER` node, which is the same
+        # distinction `career-earned-pad` sits on the other side of only because
+        # IT also carries recordings.
+        "career-contract-pad": True,
         "career-science-pad": True,
         # THE ONE ENTRY DERIVED FROM A RECORDED FIXTURE RATHER THAN FORGED.
         # `duna-park-probe` is `duna-direct-recorded` with Parsek's own state

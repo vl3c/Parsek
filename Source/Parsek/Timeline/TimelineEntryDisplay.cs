@@ -358,6 +358,8 @@ namespace Parsek
                         case FundsSpendingSource.KerbalHire:      source = "Hire"; break;
                         case FundsSpendingSource.ContractPenalty:  source = "Contract penalty"; break;
                         case FundsSpendingSource.Strategy:        source = "Strategy"; break;
+                        case FundsSpendingSource.StrategyConverter:
+                            source = "Strategy converter"; break;
                         default:                                  source = "Expense"; break;
                     }
                     string label = string.Format(IC, "{0} -{1:0}", source, action.FundsSpent);

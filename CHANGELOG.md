@@ -8,6 +8,34 @@ All notable changes to Parsek are documented here.
 
 ### Dev
 
+- A check in the automated-testing harness that silently did nothing now does its
+  job. Each automated mission declares what type every one of its parameters must
+  be, and the validator understands a closed list of type names; three of those
+  declarations had written `boolean` where the list says `bool`. That is not an
+  error - it is a fall-through: the declaration matched no check at all, so the
+  parameter accepted any value whatsoever, a string or a list or 7. It was inert as
+  it stood, because every committed scenario either passes a genuine true/false
+  there or leaves the parameter out, but a parameter that looks type-checked and is
+  checked by nothing is worse than one that was never declared. The three are
+  corrected; an unrecognised type name now rejects loudly instead of passing
+  whatever a scenario hands it; and a new guard in the harness's own test suite
+  sweeps all 1,169 parameter declarations across every committed mission - reaching
+  even the ones no scenario ever sets, which validation alone never inspects -
+  reading the list of accepted names out of the validator itself rather than
+  keeping a second copy that could drift, so another misspelling cannot slip in
+  unnoticed. Sibling guards close the same hole in its other directions, since the
+  bug shape is a declaration nobody reads rather than that one key: a misspelled
+  facet name (`minimum` where the validator reads `min`) would silently drop a
+  range bound; a whole block parked under a misspelled heading would leave a
+  *required* parameter silently never required; and a bound attached to a kind of
+  parameter that never consults one reads as checked and is not. All three are at
+  zero today, and the guards are what keep them there. Those guards read their
+  reference lists out of the validator's own syntax tree rather than its source
+  text, which matters more than it sounds: a text search also reads comments, so a
+  branch that had merely been commented out would still look present, and the check
+  would pass while that type quietly went back to accepting anything. Test-tooling
+  only; no gameplay change.
+
 - GitHub Actions CI: every PR and every push to `main` now builds the mod and runs
   the xUnit suite on `ubuntu-latest` via `scripts/cloud-test.sh`
   (`.github/workflows/tests.yml`). The private `vl3c/ksp-refs` DLL repo is cloned
@@ -193,7 +221,11 @@ All notable changes to Parsek are documented here.
 
 - The experience your crew earns from a recovered flight is now recorded in your career history, so re-flying that mission takes it back. Parsek watched the game hand out that experience and wrote down what happened, but it filed the note without saying which flight it belonged to - and a note that belongs to no flight can never be undone by re-flying one. So it deliberately kept the note and recorded nothing in the career history, on the grounds that a permanent entry nothing could reverse would be worse than a missing one. It now works out which recorded flight the recovery belongs to, exactly the way the recovery's refund and its science already do, and files the experience against that flight - which means re-flying the mission retires the experience along with the refund and the science, all together, rather than leaving your crew credited for a flight that no longer happened. A recovery Parsek cannot match to a recorded flight is still left uncredited rather than filed loose. Recovering a craft with several crew aboard now records every one of them, where an earlier version of this would have kept only the first.
 
-- Reputation paid out by a strategy is now recorded in your career history. Strategies like Open-Source Tech Program quietly hand you reputation as a side effect of something else you did - transmitting science, recovering a craft - and Parsek watched that happen and then wrote nothing down, so its reconstruction of your career drifted a little further from the game's own figure with every payout. It is recorded now, using the game's own reputation curve, so the two stay in step. Strategies that take reputation from you rather than paying it out are unchanged and still unrecorded.
+- Reputation paid out by a strategy is now recorded in your career history. Strategies like Open-Source Tech Program quietly hand you reputation as a side effect of something else you did - transmitting science, recovering a craft - and Parsek watched that happen and then wrote nothing down, so its reconstruction of your career drifted a little further from the game's own figure with every payout. It is recorded now, using the game's own reputation curve, so the two stay in step.
+
+- Reputation a strategy takes from you is now recorded too, which fixes a drift on any career running Fundraising Campaign or Unpaid Research Program. Those strategies work by skimming a share of every reputation award you earn and turning it into funds or science, and Parsek was writing down the award you were promised while the game handed you the smaller amount that was left after the skim - so its reconstruction of your career ran steadily ahead of the game's own reputation. Measured on a career running Fundraising Campaign at its default commitment, a 20-point contract award lost a full point of reputation that nothing recorded. Parsek had been leaving it out on the reasoning that some other part of it must already be watching the transaction; it turned out the game applies the award and the skim as two separate steps, and nothing was watching the second one. Both are recorded now, as two entries, which is exactly how the game does it.
+
+- Funds a strategy skims from your income are now recorded in your career history too. Appreciation Campaign and Outsourced R&D work by taking a share of every contract payout and milestone award and turning it into reputation or science, and Leadership Initiative scales those same payouts up or down - and Parsek was writing down the payout you were promised while the game credited you the modified amount, so its reconstruction of your funds drifted further from the game's own figure with every contract. Measured on a career running Appreciation Campaign at its default commitment, a 100,000-fund contract reward quietly lost 5,000 funds that nothing recorded, and Outsourced R&D lost 12,500 out of 250,000. Parsek had been leaving all of it out on the reasoning that whatever recorded the payout must already have seen the modified figure; that turns out to be true for launch costs and part purchases, where it watches your balance move, and false for contract rewards, advances and milestone awards, where it writes down the amount the contract or milestone was configured to pay. It now records the skim - or the bonus - alongside the payout on exactly those three, and still leaves the others alone.
 
 - The one-time safety backup Parsek makes of an existing save now recognises more careers as "already played". Parsek only skips that backup for a save it can positively identify as brand new and untouched, and one of the things it looks for is whether any mission milestone has been completed. It was reading only one of the three ways the game records a completed milestone, so a career whose milestones were all reached with a crew aboard - which is most of them - looked to Parsek as though it had completed none. A long-played career could therefore be mistaken for a fresh one and skip its backup, if it also happened to have no craft in flight, no gathered science and no active contracts. All three spellings are now read, along with the achievements the game files underneath each world rather than at the top level.
 

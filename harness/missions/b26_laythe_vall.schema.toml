@@ -622,9 +622,19 @@ max = 3600.0
 # --- PAD-ALIGN group (the duna-direct no-loiter contract; all optional so
 # the schema stays a superset of B16's -- the B17 spec sets all four).
 
+# TYPE SPELLING: `bool`, NOT `boolean`. The accepted spellings are exactly
+# `hlib.MISSION_PARAM_TYPES`, and that list is CLOSED -- it is deliberately NOT
+# restated here, so there is nothing to leave stale when it changes. `boolean` fell
+# through the entire if/elif chain and returned no errors, so the declaration
+# validated ANY value -- a string, a list, 7. That is worse than no declaration,
+# because it LOOKS checked. Guarded by test_hlib.MissionSchemaDeclaredTypeTests.
+# Inert on the committed B26 spec, which keeps this key ABSENT by mandate (an
+# optional param that is never set is never type-checked) -- but a flag whose whole
+# job is to be rejected in combination with three others is the last one that should
+# be unchecked if a later spec does set it.
 [params.padAlignEjection]
 required = false
-type = "boolean"
+type = "bool"
 
 [params.padAlignMarginSeconds]
 required = false

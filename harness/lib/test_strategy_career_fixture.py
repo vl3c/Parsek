@@ -3,9 +3,12 @@
 WHAT THIS FILE GUARDS. `strategy-career` exists for ONE reason: it is
 `fresh-career` with a reputation seed large enough to let stock
 `LeadershipInitiative` activate, which is what lets
-`OperationStrategy_RewardMultiplier_IsNotCaptured` - the `StrategyLifecycle`
-category's NEGATIVE CONTROL - run at all instead of self-skipping on
-"Cannot afford Setup Cost: Not enough Reputation".
+`OperationStrategy_RewardMultiplier_IsCapturedOnNominalReason` run at all
+instead of self-skipping on "Cannot afford Setup Cost: Not enough Reputation".
+(That cell WAS the category's negative control until the funds gate was
+reason-qualified on 2026-08-21; its own reason - Progression - turned out to be
+a NOMINAL-channel one, so it now asserts capture. The seed requirement it
+imposes is unchanged, which is why this fixture still exists.)
 
 Every fact that makes the fixture the right one is a number read off stock
 config or stock code, and every one of them is a cell here, so a change to any
@@ -51,8 +54,8 @@ BASE_META = os.path.join(SAVES, "fresh-career", "persistent.loadmeta")
 SPEC_PATH = os.path.join(_HARNESS, "scenarios",
                          "L3-strategy-currency-conversion.toml")
 
-# The cell the whole fixture exists for.
-NEGATIVE_CONTROL = "OperationStrategy_RewardMultiplier_IsNotCaptured"
+# The cell whose stock activation charge the seed exists to clear.
+FUNDS_OPERATION_CELL = "OperationStrategy_RewardMultiplier_IsCapturedOnNominalReason"
 
 
 def _load_builder():
@@ -179,7 +182,8 @@ class StrategyCareerCellExclusivityTests(unittest.TestCase):
     Two cells in the `StrategyLifecycle` category have MUTUALLY EXCLUSIVE
     reputation preconditions, and no fixture seed can satisfy both:
 
-      OperationStrategy_RewardMultiplier_IsNotCaptured needs rep >= 14.5.
+      OperationStrategy_RewardMultiplier_IsCapturedOnNominalReason needs
+        rep >= 14.5.
         Both stock CurrencyOperation strategies (LeadershipInitiative,
         AgressiveNegotiations) lerp initialCostReputation 10..100 at
         factorSliderDefault 0.05, and Strategy.CanBeActivated compares the
@@ -223,7 +227,7 @@ class FreshCareerStaysUnseededTests(unittest.TestCase):
 
     Seeding `fresh-career` itself would have propagated through
     `build_career_pad_craft.py` into `career-pad-craft` and on into
-    `career-science-pad`, re-opening thirteen committed specs. CL-2 pins KSP's
+    `career-science-pad`, re-opening fourteen committed specs. CL-2 pins KSP's
     own post-curve digits as an EXACT-DIGIT logContract regex, and KSP's granular
     reputation curve is STATE-DEPENDENT: `oracle.apply_rep_curve` - post PR
     #1508's residual-step port, which reproduces CL-2's `+1` Progression pin to
@@ -269,12 +273,27 @@ class L3SpecStagesTheSeededFixtureTests(unittest.TestCase):
                          self.spec["fixture"]["saveTemplate"])
 
     def test_the_spec_pins_the_measured_tally(self):
-        # MEASURED on run `2026-08-20_1817`, not predicted. Still passed=6
-        # skipped=1, because the seed TRADED which cell skips rather than
-        # eliminating the skip - see StrategyCareerCellExclusivityTests.
+        # The split has been MEASURED at every step of this spec's life, most
+        # recently on run `2026-08-20_1817` (passed=6 skipped=1 at total=7: the
+        # rep-25 seed TRADED which cell skips rather than eliminating the skip -
+        # see StrategyCareerCellExclusivityTests).
+        #
+        # The `rep-debit-capture` wave took the category from 7 declarations to 9
+        # and the split moves with it: the reputation-INPUT converter cell
+        # (`ConverterStrategy_ReputationDebitLeg_*`) activates
+        # `FundraisingCampaignCfg`, whose lerped reputation setup cost is 7.3 at
+        # the default Factor, so THIS fixture's rep-25 seed affords it and the cell
+        # RUNS here while self-skipping on the rep-0 sibling; the high-rep curve
+        # cell sets its own reputation and runs in both.
+        #
+        # The `funds-debit-capture` wave then took the category from 9 to 10 with
+        # `ConverterStrategy_FundsDebitLeg_CapturesSpending`, whose subject
+        # (`AppreciationCampaignCfg`) charges FUNDS ONLY to activate - so it runs
+        # on BOTH fixtures and lifts `passed` without touching the skip. Hence
+        # passed=9 skipped=1, still the SAME named skip.
         required = self.spec["expectations"]["logContracts"]["required"]
         self.assertIn(
-            "BATCH_COMPLETE v1 total=7 passed=6 failed=0 skipped=1 "
+            "BATCH_COMPLETE v1 total=10 passed=9 failed=0 skipped=1 "
             "category=StrategyLifecycle scene=SPACECENTER",
             required)
 
@@ -286,7 +305,7 @@ class L3SpecStagesTheSeededFixtureTests(unittest.TestCase):
     def test_the_spec_still_names_the_cell_the_fixture_exists_for(self):
         # The prose that explains WHY this spec does not stage `fresh-career`
         # like its six siblings has to keep naming its subject.
-        self.assertIn(NEGATIVE_CONTROL, self.text)
+        self.assertIn(FUNDS_OPERATION_CELL, self.text)
 
 
 if __name__ == "__main__":

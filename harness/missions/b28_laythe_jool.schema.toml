@@ -59,23 +59,25 @@
 # Every value here is a tolerance / threshold / budget, never a golden trajectory
 # (design "Determinism guardrails").
 #
-# EXACTLY TWO INHERITED DECLARATIONS ARE NOT B26's VERBATIM, both argued at their
-# own keys below and both named here so a diff of the two files has no unexplained
-# lines:
+# EXACTLY ONE INHERITED DECLARATION IS NOT B26's VERBATIM, argued at its own key
+# below and named here so a diff of the two files has no unexplained lines:
 #
 #   soiLeadSeconds    max 3,600 -> 1,000,000. B21/B22's bound, adopted because this
 #                     lane's arrival is at JOOL, the distant-arrival family that
 #                     bound was raised for. Moved HERE with its own comment rather
 #                     than by pushing a spec value past it.
-#   padAlignEjection  type "boolean" -> "bool". THE ACCEPTED `type` SPELLINGS ARE
-#                     hlib._check_param_type's AND THE LIST IS CLOSED: float, int,
-#                     number, window, list, string, bool. Anything else falls
-#                     through the whole if/elif chain and is checked by NOTHING --
-#                     so a misspelled type is not a load error, it is a declaration
-#                     that silently validates everything, which is worse than no
-#                     declaration because it LOOKS checked. A flag whose entire job
-#                     is to be rejected in combination with three others is the last
-#                     one that should be unchecked.
+#
+# IT WAS TWO WHEN THIS LANE WAS AUTHORED. The second was padAlignEjection, declared
+# `bool` here against B26's `boolean` -- a spelling hlib._check_param_type did not
+# know, so on B26 it fell through the whole if/elif chain and was checked by
+# NOTHING: a misspelled type is not a load error, it is a declaration that silently
+# validates everything, which is worse than no declaration because it LOOKS checked.
+# origin/main commit a79060a41 corrected B26 (and b17_duna_direct and
+# m3_loop_arrival_dwell) to `bool`, closed the accepted spellings behind
+# hlib.MISSION_PARAM_TYPES so an unknown one now rejects loudly instead of checking
+# nothing, and added an AST-derived sweep over every declaration in
+# harness/missions/*.schema.toml. That key is B26's verbatim again and the hazard it
+# documented cannot recur unnoticed.
 #
 # NOTE the validator only checks DECLARED keys: an undeclared param in a spec is
 # neither rejected nor read.
@@ -792,13 +794,15 @@ max = 3600.0
 # are -- so this file stays a superset of B16's and a reader diffing it against
 # b26's finds one added key and nothing removed.
 #
-# TYPE SPELLING CORRECTED, and it is the only declaration here that is not B26's
-# verbatim. B26 declares this key `type = "boolean"`, which is not one of
-# hlib._check_param_type's six spellings, so it falls through the whole if/elif
-# chain and validates ANY value -- a string, a list, 7. That is inert on B26 (the
-# spec never sets the key) but it is precisely backwards: a flag whose entire job
-# is to be rejected in combination with three others is the last one that should be
-# type-unchecked. "bool" here rejects a non-bool and accepts everything B26 accepts.
+# TYPE SPELLING `bool`, which is B26's VERBATIM. It was NOT when this lane was
+# authored: B26 then declared `type = "boolean"`, which is not one of
+# hlib._check_param_type's spellings, so it fell through the whole if/elif chain and
+# validated ANY value -- a string, a list, 7. That was inert on B26 (the spec never
+# sets the key) but precisely backwards, a flag whose entire job is to be rejected
+# in combination with three others being the last one that should be type-unchecked.
+# origin/main commit a79060a41 corrected B26 to `bool`, closed the accepted set
+# behind hlib.MISSION_PARAM_TYPES so an unknown spelling rejects loudly instead of
+# checking nothing, and swept every declaration in harness/missions/*.schema.toml.
 [params.padAlignEjection]
 required = false
 type = "bool"

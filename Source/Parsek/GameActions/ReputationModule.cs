@@ -121,6 +121,14 @@ namespace Parsek
             // post-curve magnitude KSP applied. Re-running ApplyReputationCurve here would
             // double-apply the curve, so this source is treated as already-effective and
             // bypasses the curve. See docs/dev/plans/fix-bailout-grant-currency-exchange-capture.md.
+            //
+            // ReputationPenaltySource.StrategyConverter DELIBERATELY DOES NOT MATCH HERE.
+            // That source is the QUERY family's debit leg and carries the query's
+            // PRE-curve effect delta - the argument stock's
+            // Reputation.OnCurrenciesModified hands to addReputation_granular - so it
+            // must fall through to the ordinary curve arm below and be re-derived at the
+            // reconstruction's own running rep. The equality test is what keeps the two
+            // apart; widening it to a source SET would silently break the debit leg.
             if (action.RepPenaltySource == ReputationPenaltySource.Strategy)
             {
                 float effective = -action.NominalPenalty; // already-effective (negative)

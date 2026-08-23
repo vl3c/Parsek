@@ -278,22 +278,35 @@ class SchemaTests(unittest.TestCase):
                          {"relayParkAtParent"})
         self.assertEqual(set(self.b26_declared) - set(self.declared), set())
 
-    def test_exactly_two_inherited_declarations_are_re_argued(self):
+    def test_exactly_one_inherited_declaration_is_re_argued(self):
         """The other half of the claim: every INHERITED declaration is B26's
-        verbatim except two, each argued at its own key and named in the schema
-        header so a diff of the two files has no unexplained line.
+        verbatim except the ones argued at their own key and named in the schema
+        header, so a diff of the two files has no unexplained line.
 
-        MUTATION: re-value any third bound and this reds -- which is the point.
+        MUTATION: re-value any further bound and this reds -- which is the point.
         The house rule is "raise a bound HERE with its own comment, never push a
         value past it and never quietly relax one" (B21's header), and a silent
-        third relaxation is exactly what that rule forbids."""
+        extra relaxation is exactly what that rule forbids.
+
+        THIS CELL PRE-REGISTERED **TWO** DIVERGENCES AND NOW HOLDS AT ONE. The
+        second was `padAlignEjection`, declared `bool` here against B26's
+        `boolean` -- a spelling `hlib._check_param_type` did not know, so on B26
+        it fell through the whole if/elif chain and validated ANY value.
+        origin/main commit `a79060a41` corrected B26 (and b17_duna_direct and
+        m3_loop_arrival_dwell) to `bool`, gated the accepted spellings behind
+        `hlib.MISSION_PARAM_TYPES` so an unknown one rejects loudly, and added an
+        AST-derived sweep over every declaration in `harness/missions/*.schema.toml`.
+        The divergence was therefore CLOSED BY THE OTHER SIDE, not abandoned here:
+        the key is B26's verbatim again and the hazard cannot recur unnoticed.
+        Recorded rather than deleted, because a divergence that vanishes without a
+        reason is indistinguishable from one quietly relaxed."""
         diverged = {k for k in set(self.declared) & set(self.b26_declared)
                     if self.declared[k] != self.b26_declared[k]}
-        self.assertEqual(diverged, {"padAlignEjection", "soiLeadSeconds"})
-        # (1) The type-spelling correction. "boolean" is not one of
-        # `hlib._check_param_type`'s six, so B26's declaration validates ANYTHING.
+        self.assertEqual(diverged, {"soiLeadSeconds"})
+        # (1) The type spelling that USED to diverge, pinned on both sides so a
+        # regression of either file reds here and not only in hlib's own sweep.
         self.assertEqual(self.declared["padAlignEjection"]["type"], "bool")
-        self.assertEqual(self.b26_declared["padAlignEjection"]["type"], "boolean")
+        self.assertEqual(self.b26_declared["padAlignEjection"]["type"], "bool")
         # (2) The SOI-lead bound, adopted from B21/B22 rather than invented: B26's
         # 3,600 is a short-moon-hop number and this lane arrives at JOOL.
         self.assertEqual(self.declared["soiLeadSeconds"]["max"], 1_000_000.0)
@@ -316,7 +329,11 @@ class SchemaTests(unittest.TestCase):
         its six spellings -- so it is a declaration that silently validates
         everything, which is strictly worse than no declaration at all because it
         LOOKS checked. Pinned for the whole file, not just the one key."""
-        accepted = {"float", "int", "number", "window", "list", "string", "bool"}
+        # Read from hlib rather than carrying a second copy: origin/main made
+        # `MISSION_PARAM_TYPES` the closed set `_check_param_type` gates on, and a
+        # duplicated literal here would be free to drift away from what actually
+        # checks.
+        accepted = set(hlib.MISSION_PARAM_TYPES)
         for name, decl in sorted(self.declared.items()):
             with self.subTest(param=name):
                 self.assertIn(
