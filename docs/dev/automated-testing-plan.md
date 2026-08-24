@@ -506,6 +506,7 @@ plan/build/review cycle; phase mapping in parentheses):
 | M-C3 L3-L4 + timeline layering | (Ph 4) | M-B3, M-C2 |
 | M-C4 Non-orbital parity oracle | headless half then in-game wiring (Ph 0 + 4) | M-A1 |
 | M-D1 Routes + Tier 5 + L5 grand oracle | (Ph 5) | M-C1..C3 |
+| M-A7 Render composition manifest + verifier | gated manifest recorder + export verb, ratified-discontinuity rule set, `renderCompose` row + warp-matrix lanes (`design-autotest-render-composition.md`) | M-A2, M-A3, M-A5 |
 
 Independent start lanes: {M-A1, M-A2, M-A3, M-A6} have no dependencies
 and can begin in parallel worktrees immediately after ratification.

@@ -1,6 +1,11 @@
 # Silent full-fidelity auto-commit
 
-Status: IMPLEMENTED on branch `automerge-full-fidelity` (design revised after review panel, 2026-07-13)
+Status: IMPLEMENTED on branch `automerge-full-fidelity` (design revised after review panel, 2026-07-13).
+The gated follow-up (§6/§8/§10) landed 2026-08-24 on branch
+`claude/auto-merge-recording-default-ry0v5g`: after operator verification the default was
+flipped ON in `ParsekSettings.autoMerge` + `SettingsWindowPresentation.BuildDefaults`.
+Every "default stays OFF" statement below describes THIS PR's scope, not the shipping
+default.
 Author: 2026-07-13
 Scope: reimplement the `autoMerge` ON path so it commits recordings to the timeline
 silently **with full spawn-at-end fidelity**, instead of the current lossy ghost-only
