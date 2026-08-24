@@ -1109,7 +1109,8 @@ Clusters, in the design doc's phase order:
   probe (V2); always-collect + HTML contact sheets (V3); `Screenshot`/
   `MapCamera` seam verbs (V4); the self-consistency double-render pixel oracle
   (V5); pixel-free geometric invariants (V6); the `UiSmokeRender` window sweep
-  (V7).
+  (V7); the render composition manifest + verifier (V8, module M-A7 -
+  design authority `design-autotest-render-composition.md`).
 - **Mode-axis expansion**: a science-mode spec lane; seam-forged career fixtures
   (`KscAction` progression -> harvest, the FORGE pattern applied to career state);
   the templated mid-career matrix; `LedgerGroundTruthHarness` wired to a career

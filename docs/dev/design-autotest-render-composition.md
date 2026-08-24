@@ -26,9 +26,11 @@ Today the only way to know a composed render is right is to watch it, and at
 20+ concurrent supply routes that is not a validation strategy. The existing
 observability (MapRenderTrace / MapRenderProbe / the parity oracles) validates
 FLICKER and PRESENCE, not composition: every anomaly predicate is a
-discontinuity detector, every in-game parity assertion samples one frame, high
-warp is untested by any automated lane, the route overview line surface has
-zero scenario declarers, and the one lens that catches "the arc dead-ends one
+discontinuity detector, every in-game parity assertion samples one frame, no
+automated lane asserts composition or continuity ACROSS TIME at warp (V1
+dwells a rails-warp stair under the armed anomaly gate, but that gate sees
+flicker, not composition, and the warp step-up canary is batch-excluded), the
+route overview line surface has zero scenario declarers, and the one lens that catches "the arc dead-ends one
 SOI radius short while the icon arrives" is report-only with known-broken
 calibration. A ghost drawn smoothly along a wrong-but-continuous arc, a leg
 that never draws, a hold that lasts three cycles, a cut that is not a whole
@@ -114,9 +116,19 @@ and no check today):
    enforced by convention only.
 5. The `PadAlignLaunch` -> `DestinationArrivalAlign` composition ordering is
    flagged "a real bug if got wrong" with no named test.
-6. Nothing asserts continuity ACROSS TIME (all parity is one-frame), nothing
-   runs at high warp in any automated lane, and the route overview line
+6. Nothing asserts continuity ACROSS TIME (all parity is one-frame), no
+   automated lane asserts composition at warp, and the route overview line
    (registry cell D10) has zero declarers.
+
+Carve-outs, so this module's pitch stays honest: gaps 1, 2 and 5 each have a
+cheap independent closure (a Tier-C hold-duration bound, a whole-period-cut
+unit assertion, a `PadAlignLaunch` -> `DestinationArrivalAlign` ordering unit
+test) that should land ahead of M-A7 rather than wait for it, and gap 4 is a
+save-side property whose natural home is the existing R9 `saveParse` row or a
+unit test, not a render manifest. M-A7 still re-verifies 1, 2 and 5 in the
+composed live context (RC-HOLD / RC-CUT), but its unique value is what only a
+manifest delivers: cross-time coverage, per-cycle accounting, the warp
+matrix, and the RC-QUAL trend record.
 
 ---
 
@@ -166,16 +178,23 @@ hook), though harness lanes will typically arm both.
 
 Capture points (all are existing seams; no new render-path branching):
 
-1. **Plan**: when a host pushes loop units (`ParsekFlight` / `ParsekKSC` /
-   `ParsekTrackingStation` `SetLoopUnits` seams), serialize each unit's plan
+1. **Plan**: when a host pushes loop units (the three byte-identical
+   `DriveMissionLoopUnits` host seams in `ParsekFlight` / `ParsekKSC` /
+   `ParsekTrackingStation`; the engine-level `SetLoopUnits` sits below
+   them), serialize each unit's plan
    once per builder signature: member indices with `MemberStartUT`/
    `MemberEndUT`, `CadenceSeconds`, `OverlapCadenceSeconds`, `PhaseAnchorUT`,
-   `LoopCuts`, arrival-hold fields (`ArrivalHoldSeconds`, `ArrivalHoldAtUT`,
+   `LoiterCuts`, arrival-hold fields (`ArrivalHoldSeconds`, `ArrivalHoldAtUT`,
    `ArrivalAlignPeriodSeconds`, joint fields, `ArrivalAmberReason`),
    launch-hold fields (`LaunchBodyRotationPeriodSeconds`,
    `LaunchHoldEngaged`, `RecordedSoiExitUT`), descent-trigger fields
    (`DescentMemberIndices`, `RecordedDeorbitUT`, `DescentEndUT`,
-   captureShift), `IsReaim` + the re-aim window schedule, and for route-backed
+   captureShift), `IsReaim` + the re-aim window schedule INCLUDING the
+   re-timed seam instant per window (the probe's own
+   `skip.reaimed-seam-instant-unknown` refusal documents that the recorded
+   seam UT is the wrong measurement instant for a re-timed window; without
+   the re-timed instant RC-SEAM cannot evaluate re-aimed crossings), and for
+   route-backed
    units the `Route` identity, `BackingMissionTreeId`, `RecordedDockUT`,
    `RecordedOriginUndockUT`, excluded interval keys, and
    `ClassifyRouteScope` result. Also the PRIMITIVE inputs the clock math was
@@ -183,8 +202,12 @@ Capture points (all are existing seams; no new render-path branching):
    UTs) so Layer 3 can recompute independently.
 2. **Chain**: at `ShadowRenderDriver.GetOrBuildChain`, on each build
    (cache-keyed, so once per signature + window index): the `PhaseChain`
-   phases with `PhaseKind`, provenance, body, UT bounds, seam kinds, and
-   `chainHasReaimedSegments`.
+   phases with `PhaseKind`, provenance, body, UT bounds, seam kinds,
+   `chainHasReaimedSegments`, and a chain-provenance flag recording whether
+   the spine drove the typed `PhaseChain` or fell back to the legacy
+   assembler chain (a factory throw caches a null `PhaseChain` and
+   `RunFrame` falls back loudly; a dwell accounted against a chain the
+   renderer did not use is a wrong proof).
 3. **Dwells and transitions**: at the Director stamp in
    `ShadowRenderDriver.RunFrame` (intent change per pid), at the polyline
    Driver's actual-draw ownership publish, at the `GhostOrbitLinePatch`
@@ -203,8 +226,14 @@ Capture points (all are existing seams; no new render-path branching):
    of `RecordedDockUT`.
 5. **Route overview line**: per `RouteTrajectoryLineRenderer` rebuild
    (signature-gated, so rare): member legs kept/clipped/dropped counts, scope,
-   endpoint bodies, dock-clip boundary, and per-frame-aggregate skip counts
-   (`IsRenderingNonOrbitalLeg` deferrals).
+   endpoint bodies, dock-clip boundary, per-frame-aggregate skip counts
+   (`IsRenderingNonOrbitalLeg` deferrals), and an explicit co-draw
+   VIOLATION record appended on any frame where one member's leg is drawn
+   by both the overview line and the ghost polyline - recorded on the event
+   only, so the per-frame cost lands on the defect, and RC-ROUTE's
+   no-double-draw clause becomes checkable as "zero violation records"
+   (aggregate skip counts alone cannot prove the absence of a co-draw
+   frame).
 6. **Aggregates inside a dwell**: frame count, warp-rate histogram (bucketed:
    1x, physics warp, <=100x rails, <=1000x, >1000x), min/max sampled head UT,
    anomaly echoes raised during the dwell (reason + count, from the tracer's
@@ -230,15 +259,24 @@ parser instead of a second parser.
 
 The catalog is encoded twice, deliberately in different forms:
 
-- **Numeric contracts ride the manifest header.** The C# exporter writes the
-  live values of every tolerance the verifier needs, keyed by their code
-  names: `PhaseSeamClassifier.DefaultTangentToleranceRadians`,
-  `SeamEndpointOracle` ratio tolerance, the four bridge bands +
-  `BridgeMaxSeamGapSeconds`, `AnchorMaxResidualKm` / `AnchorMaxRelResidual`,
-  `SeedFreshnessFrames`, descent member-selection epsilon, loiter-run
-  detection thresholds, joint-hold whole-period budget. The Python verifier
-  NEVER hardcodes these numbers; it reads them from the header. A C#-side
-  source-sync test pins the exported name set against the constants (the
+- **Numeric contracts: the header is TRANSPORT, the verifier is AUTHORITY.**
+  The C# exporter writes the live values of every tolerance the rules need,
+  keyed by their code names: `PhaseSeamClassifier.DefaultTangentToleranceRadians`,
+  the `SeamEndpointOracle` ratio tolerance, the bridge constants
+  (`BridgeMaxAngleRadians`, `BridgeMinAngleRadians`,
+  `BridgeChordMinAngleRadians`, `BridgeMaxSeamGapSeconds`,
+  `BridgeSeamSharedBoundaryToleranceSeconds`, `BridgeMergeSampleCount`),
+  `AnchorMaxResidualKm` / `AnchorMaxRelResidual`, `SeedFreshnessFrames`, the
+  descent member-selection epsilon, the loiter-run detection thresholds, and
+  the joint-hold whole-period budget (Phase 1 extracts a named constant for
+  any of these that is an inline literal today). The Python verifier carries
+  its own RATIFIED-VALUE TABLE for these numbers, updated only deliberately
+  and with a citation, and checks that the header MATCHES it: a header value
+  that drifted from the ratified table is itself a finding. Without this, a
+  one-line C# tolerance change would silently re-tune every armed gate - the
+  subject defining its own gate, the exact circularity the
+  oracle-independence constraint forbids. A C#-side source-sync test
+  additionally pins the exported NAME set against the constants (the
   `CommittedBatchTallySourceSyncTests` pattern), so a renamed or retired
   constant reds at build time instead of silently desynchronizing the
   verifier.
@@ -259,8 +297,10 @@ evaluate the rule set, return findings + measured facets. Wired into
   mismatch, never a silent pass.
 - REPORT-ONLY by default. Gating via a new spec surface
   `[expectations.renderComposition]` with the R9 `gating = true` opt-in,
-  admitted to `RESERVED_EXPECTATION_BLOCKS` alongside `route`/`loop` until
-  the first declarer lands, and armed only through the established
+  admitted to `RESERVED_EXPECTATION_BLOCKS` alongside `route`/`loop` and
+  leaving that tuple when the EVALUATOR ships with the sole-owner rule (the
+  R9 `rewind` precedent: reservation tracks evaluator ownership, not the
+  first declarer), and armed only through the established
   three-run workflow (report-only reading, armed run, negative control) with
   the `ARMED_ALLOWLIST` pin in `harness/lib/test_hlib.py`. Verdict on armed
   mismatch: `PARSEK-FAIL(render-composition)`.
@@ -278,7 +318,17 @@ honest, mirroring M-B2:
    index) using the formulas the design docs state, and checks BOTH
    directions: C#'s planned values match the recomputation (solver drift),
    and observed matches planned (render drift). A disagreement in either leg
-   is a finding naming which leg.
+   is a finding naming which leg. The primitives themselves get a second
+   source: body rotation and orbital periods are static stock constants
+   pinned directly in the Python verifier, and recorded boundary UTs /
+   member windows are read independently from the produced save and
+   sidecars through the same `saveparse.py` machinery Layer 3 already
+   imports. A plan primitive that disagrees with either independent source
+   is a finding BEFORE any clock math runs - without this leg, a C# bug
+   feeding the wrong period into the plan would be faithfully recomputed in
+   Python and both legs would agree (M-B2 earned its independence by
+   diffing against KSP's own on-disk save; this module copies that move,
+   not just the file format).
 2. **The observed side is truth-derived**, not intent-derived: dwell
    open/close events come from actual-draw publishes and the line patch's
    truth-stamped branches wherever a truth surface exists; the Director
@@ -296,24 +346,45 @@ Rule ids are stable; levels are the defaults before arming decisions.
 
 **RC-COVER (FAIL)** - per unit per observed cycle: the union of visible
 dwells, cataloged holds, loiter cuts, the inter-cycle tail, ratified hidden
-windows (below-atmosphere, member trims, dock clip) and InteriorGap holds
-must equal the planned span. Any residual dark window is unexplained.
-CitedContract: `GhostPlaybackLogic.DecideUnitMemberRender`,
-render-architecture section 11.3.
+windows (below-atmosphere, member trims, dock clip, and the count-dependent
+overlap spawn throttle and soft-cap suppressions - which activate exactly at
+the 20+-route scale this module targets and must classify as ratified, never
+as unknown) and InteriorGap holds must equal the planned span, evaluated in
+UT with a per-dwell quantization tolerance derived from that dwell's own
+warp histogram: at high rails warp one frame steps thousands of UT seconds,
+so a dark window narrower than the observed maximum UT step at that point is
+UNRESOLVABLE at that warp - reported as below-resolution, never red. Any
+residual dark window wider than the local resolution is unexplained. Dwells
+accounted against an assembler-fallback chain are flagged via the
+chain-provenance record. CitedContract:
+`GhostPlaybackLogic.DecideUnitMemberRender`, render-architecture section
+11.3.
 
 **RC-SEAM (FAIL)** - every transition classifies into exactly one catalog
 item and satisfies its numbers: Rigid within the tangent tolerance;
-FlexibleSoi endpoint-vs-SOI-sphere ratio within tolerance AT THE HANDOFF UT
-(evaluated per seam kind and per epoch, which retires the single-global-ratio
-calibration problem the standalone oracle has); bridges within their band
+FlexibleSoi endpoint-vs-SOI-sphere ratio within tolerance at the seam
+instant THE PLAN EXPORTS for that window (for a re-timed re-aim window the
+recorded seam UT is the wrong measurement instant - the probe's own
+`skip.reaimed-seam-instant-unknown` refusal documents this - so a crossing
+whose re-timed instant is absent is a defined unevaluable, never a silent
+pass), discriminating on unit MODE and seed provenance - which is what
+actually retires the standalone oracle's calibration problem, since the
+measured record shows benign faithful ratios STRADDLING a defect reading
+(a ratio alone cannot separate the populations; `harness/lib/hlib.py`'s own
+calibration note); bridges within their band
 and never across a body change; SwitchContinuation exempt from position
 match by contract. CitedContract: `PhaseSeamClassifier`,
 `CrossMemberSeamStitcher`, `SeamEndpointOracle`, render-architecture 6.1/9.1.
 
 **RC-HOLD (FAIL)** - each observed hold matches the recomputed per-cycle
 value (arrival hold realigned by the align period; launch borrow repaid at
-the recorded SOI exit, netting to zero); a hold is stationary (position at
-engage vs release within the float-grid tolerance for that frame); and every
+the recorded SOI exit, netting to zero); a hold is stationary in its OWN
+declared frame - the DRAWN/decision position at engage vs release (never a
+trajectory re-sample at the held UT, which trivially agrees and proves only
+the sampler), compared body-fixed for body-fixed treatments and inertially
+for conic treatments, within a tolerance model derived for map-scale double
+math in Phase 2 (not the flight-scene `SceneFloatGridToleranceMeters`,
+which answers a different question); and every
 InteriorGap hold is bounded (default bound: the longest planned seam gap in
 the chain plus one reseed interval; exceeding it is the "held forever"
 defect the current instruments cannot see). CitedContract:
@@ -322,8 +393,10 @@ periodicity arrival-flex rules, `design-reaim-launch-hold-seam.md` 2-4,
 
 **RC-CUT (FAIL)** - every loiter cut is an exact whole multiple of the run
 period; no dwell samples inside a cut; a partial trim appears only in the
-flexible SOI-edge region. CitedContract: `ReaimLoiterCompressor`,
-periodicity 258-268.
+flexible SOI-edge region. CitedContract: `ReaimLoiterCompressor`; the
+destination pre-landing trim and flexible-SOI-edge partial-trim rules in
+`design-mission-periodicity.md` (the arrival flex-point section; cited by
+rule, not line number - that doc is living and line numbers rot).
 
 **RC-DESCENT (FAIL)** - trigger UT congruent to the recorded deorbit
 rotation phase; descent head monotone and never before `RecordedDeorbitUT`;
@@ -331,19 +404,29 @@ at most one descent member rendering at any instant; the landing dwell's
 terminal position within tolerance of the recorded site. CitedContract:
 `DescentTrigger`, the S4 recorded-site invariant (ratified 2026-07-07).
 
-**RC-CYCLE (FAIL)** - cycle N and cycle N+1 have isomorphic dwell/transition
-structure (same sequence of segment ids, treatments, seam kinds) and
-zero accumulated per-cycle drift in the clock checks; boundary-overlap
+**RC-CYCLE (FAIL)** - cycles compared WITHIN the same warp bucket have
+isomorphic dwell/transition structure, with segment identity by ROLE
+(member index + `PhaseKind`), never by chain or segment id: chains rebuild
+per signature + window index, and a re-aim unit's synthesized transfer
+differs per synodic window BY DESIGN - structure recurs, geometry does not.
+A short dwell legitimately vanishes when a warp step lands inside it (the
+InteriorGap hold contract), so cross-bucket structure comparisons are
+report-only. Zero accumulated per-cycle drift in the clock checks;
+boundary-overlap
 secondary appears only when the plan's raw delta exceeds the capped advance,
 and hands off to the next primary without a gap. CitedContract: periodicity
 zero-drift rules, `ComputeBoundaryOverlapAdvanceSeconds`.
 
-**RC-ROUTE (FAIL)** - nothing renders past `RecordedDockUT`; the overview
-line's kept/dropped leg accounting matches the scope classification
-(same-body draws all non-orbital legs, inter-body drops exactly the
-non-endpoint-body legs, round-trip stands down, malformed draws nothing); no
-frame where both the overview line and the ghost polyline drew one member's
-leg. CitedContract: logistics section 0, `RouteTrajectoryLineRenderer`.
+**RC-ROUTE (FAIL)** - scoped per surface: overview-line legs are clipped at
+`RecordedDockUT` (`LegWithinDockClip`; a zero/absent clip means no clip) and
+ghost dwells stay inside the trimmed member windows the dock-derived
+excluded interval keys produce; the overview line's kept/dropped leg
+accounting matches the scope classification (same-body draws all
+non-orbital legs; inter-body drops exactly the non-endpoint-body legs; on a
+round trip the endpoint FILTER stands down and EVERY leg is kept -
+stand-down means keep-all, not draw-nothing; malformed draws nothing); and
+zero co-draw violation records (capture point 5). CitedContract: logistics
+section 0, `RouteTrajectoryLineRenderer`.
 
 **RC-OWN (FAIL)** - exactly one treatment per pid per dwell; ownership
 conservation both directions (a published ownership implies a draw record
@@ -405,9 +488,9 @@ observed clock event no rule above claimed.
   `rigid-seam-tangent-discontinuity` (live raise; RC-SEAM re-evaluates the
   same numbers offline).
 - **Supersedes in role**: the standalone `seam-endpoint-outside-soi`
-  calibration problem (RC-SEAM evaluates per seam kind at the recorded
-  handoff epoch, with the plan in hand); the "watch it and squint" operator
-  step for composed renders.
+  calibration problem (RC-SEAM discriminates on unit mode and seed
+  provenance and evaluates at the plan-exported seam instant, with the plan
+  in hand); the "watch it and squint" operator step for composed renders.
 - **Out of scope but adjacent**: the two dead gated tokens (`gap-vs-retire`,
   `decision-vs-old-truth`) routing through the unwired reconciler should be
   removed from `ANOMALY_TOKENS` in a separate cleanup PR; noted here so the
@@ -468,7 +551,12 @@ observed clock event no rule above claimed.
 - Row: SKIPPED on driver-INVALID; absent-manifest mismatch; gating reachable
   only via the armed allowlist; `--dry-run` enumerates the row armed /
   report-only / facets-only.
-- In-game: one `RenderComposition` category cell that arms the env flag,
-  plays a synthetic loop fixture for two cycles at 1x, exports, and asserts
-  the manifest parses and RC-COVER holds - the smoke path that keeps the
-  C# half honest between harness flights.
+- In-game: one `RenderComposition` category cell that arms the recorder via
+  a `ForceEnabledForTesting` override (the env var is read once at Awake,
+  so a mid-session cell cannot arm it; the override mirrors
+  `MapRenderTrace.ForceEnabledForTesting`), plays a synthetic loop fixture
+  for two cycles at 1x, exports, and asserts the manifest parses, each
+  section is present, and record counts are sane - WELL-FORMEDNESS ONLY.
+  The RC-* rules are evaluated in Python alone; asserting RC-COVER in C#
+  would encode the coverage rule twice in two languages, the exact
+  second-copy drift this doc forbids for the catalog itself.
