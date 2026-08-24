@@ -1,16 +1,27 @@
 schema = 1
 id = "V23M-mun-landing-player-loop"
 # =====================================================================================
-# *** COMMITTED AHEAD OF ITS SUBJECT. THE FIXTURE DOES NOT EXIST YET. ***
-# `fixtures/saves/mun-landing-recorded` must be harvested from a `B13-mun-landing`
-# re-fly before this lane can fly. ZERO placeholder tree id, eight CALIBRATION-SEED
-# jump UTs (section 3). Tracked by the self-retiring `PENDING_FIXTURE_LANES`
-# exemption; DELETE that entry in the same commit that re-pins this spec.
+# *** ITS SUBJECT EXISTS. RE-PINNED 2026-08-24 OFF THE HARVESTED BYTES. ***
+# `fixtures/saves/mun-landing-recorded` was harvested `--keep-parsek` from
+# `B13-mun-landing` run **2026-08-24_1449**, PASS attempt 1 (wall 2,811 s, mission
+# wall 2,764.1 s - the suite's most expensive scenario - MISSION-OK across the full
+# twenty-one-phase chain through SURFACE-COMMITTED). The tree id below is REAL and the
+# `PENDING_FIXTURE_LANES` entry is deleted in the same commit.
 #
-# **AND THE THING IT IS WAITING FOR IS ONLY A HARVEST.** `B13-mun-landing` is
+# THE EIGHT JUMP UTs ARE STILL CALIBRATION SEEDS, and the handoff's instruction to
+# take the anchor and applied `k` from the run's own `PhaseLock APPLIED` line COULD
+# NOT BE FOLLOWED: a harvest flight records, it does not loop, so B13's KSP.log
+# carries zero `PhaseLock APPLIED` and zero `missionconfig applied:` lines (grepped).
+# What section 3 does instead is compute the schedule from V6M's published formula
+# over this fixture's MEASURED UT0 and span - and the k-series it produces reproduces
+# V6M's measured 13 / 26 / 45 / 58 / 71 / 84 exactly, which is a real corroboration
+# rather than a substitute for the flight.
+#
+# **AND THE THING IT WAS WAITING FOR WAS ONLY A HARVEST.** `B13-mun-landing` was
 # committed and LIVE-PROVEN - full PASS on flight 1, 2026-07-25, measured wall
 # 2,747.9 s, terminal `CommitTreeFlight terminal: rec=... terminalState=Landed
-# terminalOrbitBody=Mun`. THE MISSION LIBRARY HAS BEEN ABLE TO LAND SINCE WELL BEFORE
+# terminalOrbitBody=Mun` - and the 2026-08-24 re-fly reproduced that on attempt 1.
+# THE MISSION LIBRARY HAS BEEN ABLE TO LAND SINCE WELL BEFORE
 # THE PARENT-RELAY MODE EXISTED: `landingEnabled` is a flag-gated, inert-by-default
 # phase (`mlib.py:3891-3895`, B5_DESCENT at `mlib.py:464`) driving MechJeb's
 # `LandingAutopilot.LandUntargeted` through
@@ -104,50 +115,90 @@ id = "V23M-mun-landing-player-loop"
 # in order to pass.
 #
 # -------------------------------------------------------------------------------------
-# 3. THE SEED TABLE, AND THE RE-PIN RECIPE
+# 3. THE MEASURED BYTES, AND WHAT IS STILL A SEED
 # -------------------------------------------------------------------------------------
-# EVERY NUMBER BELOW IS A SEED, and unlike V22M's these are seeded ON A KNOWN ROAD,
-# which makes them better than V17M's were: the anchor formula is not in question,
-# only the fixture's span is. Grounded on:
+# **RE-PINNED 2026-08-24 OFF `mun-landing-recorded`'s REAL BYTES.**
 #
-#     UT0      = 34            (seed; the producer fixture `b2-lko-craft` sits at UT 33.82)
-#     span     = 23,000 s      (seed; `mun-orbit-recorded` runs 34.42 -> 21,742.54 for
-#                               the ORBIT-only profile, and B13 adds a measured
-#                               1,353.9 game-s descent)
-#     T_anchor = 21,549.425 s  (Rotation(Kerbin), V6M's MEASURED phase-lock anchor)
+# MEASURED (persistent.sfs `RECORDING_TREE` + the main recording's `.prec.txt`):
 #
-# Phase-lock quantizes the cadence to multiples of T_anchor, so the arrival replays
-# land on k*T_anchor rather than on span multiples:
+#     tree             0da22482a8a648c6835b7bcd6b0f200d
+#     main recording   61f3775361fe4130a66a69b1425b7209
+#     UT0              34.5199999999998        (`explicitStartUT` - V6M convention)
+#     explicitEndUT    23,256.9452936296
+#     span             **23,222.425293630 s**  (the 23,000 s seed was within 1%)
+#     pointCount       1442   terminalState 1 = Landed   endpointBodyName Mun
+#     save clock       23,258.405293629632     (FLIGHTSTATE UT)
+#     structure        1 tree / 1 committed / **8 recordings** (1 subject + 7 debris),
+#                      5 JointBreak branch points, terminals 1 Landed + 7 Destroyed
+#     ELEVEN ORBIT_SEGMENTs: `Kerbin` 0-7 then `Mun` 8-10, ONE body-change seam at the
+#                      adjacent `endUT == startUT` pair **16,425.168889** - a seam
+#                      offset of **16,390.648889 s** off UT0, which is the number
+#                      `Orbital(Mun) same-parent ... off=` should reproduce (compare
+#                      V6M's 16,370.562 on the orbit-only sibling: 20 s apart, which
+#                      is the shape agreement this A/B wants).
+#                      The chain ENDS at 20,966.465294, so the recording closes with a
+#                      **2,290.480 s SEGMENT-LESS DESCENT-AND-LANDED TAIL** - the part
+#                      this lane exists to read, and five times the Kerbin sibling's.
 #
-#     cycle-1 arrival replay  k=3  ->  64,648   (seed)
-#     cycle-2 arrival replay  k=6  -> 129,297   (seed)
+# **UT0 vs SEGMENT 0 MATTERS MORE HERE THAN ANYWHERE IN THE CORPUS.** Segment 0 starts
+# at 230.013733, a **195.494 s** gap off `explicitStartUT` - against the vall fixture's
+# 2.700 s. Anchoring on the wrong one would move every bracket by 195 s, wider than
+# the -180 bracket itself. `test_the_v6m_convention_is_used_and_it_matters` exists for
+# exactly this.
 #
-# Brackets are the family's -180 / -60 / +140, read off V6M's committed table
-# (296,370 / 296,490 / 296,690 around a 296,550 seam). The fourth jump of each cycle
-# is a post-touchdown SETTLE dwell at +1,200 s, so the suppressed-icon lens is read in
-# steady state rather than mid-onset.
+# STILL A SEED - THE PHASE-LOCK SCHEDULE. The handoff asked for the anchor and applied
+# `k` to be taken from the run's own `PhaseLock APPLIED` line rather than recomputed.
+# THAT LINE DOES NOT EXIST: B13 is a RECORDING flight, nothing loops in it, and its
+# KSP.log carries zero `PhaseLock APPLIED` and zero `missionconfig applied:` lines
+# (grepped). So the schedule below is COMPUTED from V6M's published formula over this
+# fixture's measured UTs, and it is offered as a better-grounded seed, not as a
+# measurement:
 #
-# **THE CADENCE IS NON-UNIFORM BY CONSTRUCTION and the k values above are the weakest
+#     T_anchor = Rotation(Kerbin)  21,549.425183089825 s
+#     other    = Orbital(Mun)      P 138,984.37657447575 s, tol SOI/v_orb = 4,478.5 s
+#     filter   = CircularPhaseError(k*T_anchor, P_Mun) <= tol   (purely periodic)
+#     floorUT  = save clock 23,258.405  ->  kFloor = ceil((23,258.405-34.520)/T) = 2
+#     first k >= 2 passing = **k = 13** (residual 2,173.774)
+#         L1 = 34.520 + 13*T = **280,177.047**
+#     kFloor2 = ceil((L1 + span - UT0)/T) = 15; first k >= 15 passing = **k = 26**
+#         (residual 4,347.548)  ->  L2 = 34.520 + 26*T = **560,319.575**
+#
+# **THE k-SERIES REPRODUCES V6M's MEASURED ONE EXACTLY** - 13, 26, 45, 58, 71, 84,
+# with V6M's own residuals to the decimal - which is the strongest corroboration this
+# derivation can have short of a flight, and follows because this fixture's kFloor is
+# also 2. It is still NOT a measurement: V6M's `fixedCadenceWithinTol=no` beside
+# `scheduleWithinTol=yes` is the kind of thing only the run prints.
+#
+# THE JUMP TABLE, on V6M's press-driven model (each `StartLoopPlayback` press resolves
+# `NextLaunchAfter(now)` to a relaunch epoch L; the jump target is L + offset, and the
+# arrival offset here is the SPAN because this recording ends at the touchdown):
+#
+#     cycle-1 arrival  L1 + span = **303,399.47**  -> 303,219 / 303,339 / 303,539
+#                                                     settle +1,200 -> 304,739
+#     press 2 at ~304,739 -> L2 = NextLaunchAfter(304,739) = 560,319.575 (k=26)
+#     cycle-2 arrival  L2 + span = **583,542.00**  -> 583,362 / 583,482 / 583,682
+#                                                     settle +1,200 -> 584,882
+#
+# Brackets are the family's -180 / -60 / +140, off V6M's committed table (296,370 /
+# 296,490 / 296,690 around a 296,550 seam). The +1,200 settle is KEPT here (unlike
+# V22M, which had to rescale to +300): this span is 23,222 s, so a 1,200 s settle is
+# 5% of a cycle and every jump stays strictly increasing.
+#
+# ONE CORRECTION TO THE OLD SEED TABLE, recorded rather than silently fixed: it read
+# the arrivals as bare `k*T_anchor` (64,648 / 129,297), which is neither a launch nor
+# an arrival - it omitted UT0 and the arrival offset both. The rows above are
+# launch + span on the measured clock.
+#
+# **THE CADENCE IS NON-UNIFORM BY CONSTRUCTION and the k values remain the weakest
 # part of this table.** V6M section "WINDOW ARITHMETIC" records that cycle 2 is NOT
 # anchor + P: the throttle skips to `ceil((L0 + span - ut0)/T_anchor)` and then takes
 # the next k that satisfies the phase filter, so consecutive cycles are not evenly
-# spaced. A seeded k is a guess at where that filter lands. Re-pin cycle 2 off the
-# MEASURED cycle-1 clock rather than by doubling it.
+# spaced. Re-pin cycle 2 off the MEASURED cycle-1 clock rather than by doubling it.
 #
-# THE RE-PIN RECIPE:
-#   1. grep -nE "^\s+(id|recordingId|explicitStartUT|explicitEndUT|pointCount|terminalState|tOrbBody) = " \
-#        harness/fixtures/saves/mun-landing-recorded/persistent.sfs
-#      Take the `id` INSIDE `RECORDING_TREE`; the ids further down are GROUP ids.
-#   2. UT0 is `explicitStartUT`, NOT segment 0's `startUT`
-#      (`test_the_v6m_convention_is_used_and_it_matters` pins the distinction).
-#   3. Seam UTs from the `.prec.txt` ORBIT_SEGMENT chain, PARSED not string-matched -
-#      Parsek writes floats round-trip ("R"). Parser:
-#      `harness/missions/lib/test_b26_laythe_vall.py:806-849`.
-#   4. Take the phase-lock anchor and the applied k from the run's own
-#      `PhaseLock APPLIED` line rather than recomputing them.
-#   5. Delete this spec's `PENDING_FIXTURE_LANES` entry in the same commit.
-#
-# A dwell-nowhere run 1 is an accepted outcome, not a lane failure (V17M's precedent).
+# WHAT RUN 1 STILL OWES: read `phaseAnchorUt=` off `missionconfig applied:` and each
+# cycle's `relaunchUt=` off `startloopplayback initiated:`, confirm or correct the two
+# anchors above, and re-fly. A dwell-nowhere run 1 is an accepted outcome, not a lane
+# failure (V17M's precedent).
 #
 # -------------------------------------------------------------------------------------
 # 4. THE FORTY-TICK CENSUS-PACING BLOCK
@@ -216,12 +267,47 @@ id = "V23M-mun-landing-player-loop"
 # **AN AIRLESS DESCENT IS A DIFFERENT GEOMETRY FROM V22M's ATMOSPHERIC ONE** - no
 # chute phase, a powered suicide-burn-shaped profile - so whether the two lanes agree
 # on this raise is itself a reading the pair produces for free.
+#
+# -------------------------------------------------------------------------------------
+# 7. FLIGHT LEDGER
+# -------------------------------------------------------------------------------------
+# THIS LANE HAS NOT FLOWN. Ledgered here is the PRODUCER flight that made its subject
+# exist, verdict-neutrally, because it is the provenance section 3 rests on.
+#
+#   `B13-mun-landing` run **2026-08-24_1449** - **PASS, attempt 1**.
+#     wall 2,811 s (mission wall 2,764.1 s - the suite's most expensive scenario, and
+#     within 0.6% of the 2,747.9 s flight-1 measurement), tier nightly, instance
+#     stock-minimal, kspExit clean. MISSION-OK across twenty-one phases: PRELAUNCH ->
+#     MJ-ASCENT -> CIRCULARIZE -> ORBIT -> PLAN-TRANSFER -> TRANSFER-BURN ->
+#     COAST-TO-TARGET -> PLAN-CORRECTION -> CORRECTION-BURN (x2 more rounds) ->
+#     TARGET-FLYBY -> PLAN-CAPTURE -> CAPTURE-BURN -> PARK -> DESCENT ->
+#     LANDED-SETTLE -> SURFACE-COMMIT -> SURFACE-COMMITTED, with `landedOnTargetBody
+#     value=Mun met=True` and `landedStable value=SURFACE-COMMIT met=True` (twenty
+#     consecutive settled windows at alt 2.944 m, hspd 0.002 m/s). Verifier chain all
+#     PASS/SKIPPED: analyzer RED=0, `anomalySweep hits=[]`, driverValidity PASS,
+#     expectations `recordings.count = 8` against B13's own {8,8} window, ledgerOracle,
+#     logValidate, missionOutcome, saveParse REPORT (supersedeRows 0, tombstones 0,
+#     rewindPoints 0, pointsTotal 1871, largest 1442, smallest 44, unparsed 0,
+#     mismatches 0), testResults, unityExceptions.
+#     Produced save harvested `--keep-parsek` as `fixtures/saves/mun-landing-recorded`
+#     and registered in `test_saveparse.RECORDED_FIXTURES` with its full provenance.
+#     DLL provenance: the post-#1523 auto-merge-ON build, deployed hash prefix
+#     27f5f31907efce27.
+#
+#   WHAT DID NOT COME BACK, and section 3 says so where it matters: a `PhaseLock
+#   APPLIED` line. A recording flight does not loop, so the anchor and applied `k`
+#   could not be read off it and remain derived. Also worth one line because it is a
+#   population fact nobody had looked at: the tree's FIRST branch point (UT 34.52,
+#   `debrisCount = 3`) carries NO `childId` rows - three launch-clamp children
+#   coalesced away without minting recordings - which is why 5 branch points yield 7
+#   debris rather than 10. Verdict-neutral; the auto-merge-ON default is the obvious
+#   suspect and nothing here tests it.
 # -------------------------------------------------------------------------------------
 tier = "operator"
-description = "**PENDING ITS FIXTURE - COMMITTED AHEAD OF THE SUBJECT** under the re-armed `PENDING_FIXTURE_LANES` exemption, with a ZERO placeholder tree id and eight CALIBRATION-SEED jump UTs. `fixtures/saves/mun-landing-recorded` must be harvested from a `B13-mun-landing` re-fly first - and THAT IS ALL IT WAITS ON: B13 is LIVE-PROVEN full PASS on flight 1 (2026-07-25, wall 2,747.9 s, `terminalState=Landed terminalOrbitBody=Mun`), and THE MISSION LIBRARY HAS BEEN ABLE TO LAND SINCE WELL BEFORE THE PARENT-RELAY MODE EXISTED (`landingEnabled` is a flag-gated inert-by-default phase driving MechJeb `LandingAutopilot.LandUntargeted` through `mission_runner._perform_land_untargeted`, verified against the INSTALLED darchambault KRPC.MechJeb v0.8.1 pin rather than inferred). No new mission mode, no new mlib phase, no runner seam. **THIS LANE IS V6 WITH THE ENDPOINT MOVED FROM ORBIT TO SURFACE**: same launch body, target, parent, road, craft family and fixture ancestry as V6M/V6T, with EXACTLY ONE shape dimension moved. That is the form the induction caveat asks for and which V17T could not have (it moved two and its icon-off-orbit non-recurrence is unattributable), and which the sibling V22M cannot have either (a Kerbin splashdown moves the endpoint AND the recording count, because no single-recording landed subject exists) - **so this pair is the CONTROL THAT SEPARATES V22's TWO VARIABLES**, which is a reason to fly it despite the Mun being the more expensive subject. ROUTING IS REQUIRED HERE, WHICH IS A DEPARTURE FROM V17M AND V22M and is justified rather than assumed: on those lanes the routing IS the measurement so requiring a road gates the reading on its own answer, whereas Kerbin -> its own moon is the phase-lock road measured five times at four parents and V6M/V6T are Kerbin -> Mun exactly - the routing is the control variable, not the question. So the phase-lock artifacts are required in V6M's own vocabulary (including `zeroDrift=yes` and `scheduleWithinTol=yes`, the QUALITY assertions a landed arrival is the first thing ever asked to satisfy) and V6M's re-aim trio is forbidden; if a surface endpoint perturbs the solver, this lane reds on the artifact that moved instead of quietly reporting a fallback nobody asked about. THE ONE PIN THAT MUST NOT BE COPIED FROM V6M is its `surface=Proto(Icon|OrbitLine) .*body=Mun` arrival pin - not because it would fail but because it would PASS, satisfied by the Mun-ORBIT coast the same loop spends most of every cycle in, saying nothing about the touchdown. Vacuous, not unsatisfiable, and worse for it: a vacuous green prompts no second look. AND THE MUN IS AIRLESS, so the suppression reason token is `polyline-owns-phase` with `belowAtmosphere=False` - `below-atmosphere` never fires here and copying V22M's Kerbin line would be structurally unsatisfiable. The two sibling lanes pin different reason tokens ON PURPOSE. NO KSC HALF EXISTS and that is a scoping fact rather than a gap - though the reason is narrower than \"the host is vacuous\", and the loose version is wrong: this recording LAUNCHES FROM KERBIN, so `IsKscStructurallyEligible` (which gates on `Points[0].bodyName`, the FIRST point only) ADMITS it and the KSC host would render its Kerbin ascent leg. What it cannot render is the part this pair measures - the per-frame pose resolvers gate EVERY point, so the whole Mun-frame descent and touchdown are skipped. THE ARRIVAL is vacuous on that host, not the recording, and an arrival lane is what a KSC half would have to be; the asymmetry with V22K, whose subject is Kerbin-frame END TO END, is the gate working. `allowedAnomalies = []` on purpose, expecting the gated Tier-C `rigid-seam-tangent-discontinuity` raise at the owned descent draw; whether an AIRLESS powered descent agrees with V22M's atmospheric one on that raise is a reading the pair produces for free. NOTHING IS ARMED."
+description = "**RE-PINNED 2026-08-24 OFF ITS FIXTURE'S REAL BYTES**, `PENDING_FIXTURE_LANES` entry retired in the same commit. `fixtures/saves/mun-landing-recorded` EXISTS, harvested `--keep-parsek` from `B13-mun-landing` run 2026-08-24_1449 - PASS attempt 1, wall 2,811 s / mission wall 2,764.1 s, MISSION-OK across all twenty-one phases through SURFACE-COMMITTED, `landedOnTargetBody value=Mun` and `landedStable value=SURFACE-COMMIT` both met, every verifier PASS/SKIPPED, anomalySweep clean. Real tree id; measured UT0 34.520 / span 23,222.425 / seam 16,425.169 (offset 16,390.649) / 8 recordings / terminal Landed on Mun / a 2,290.5 s segment-less descent-and-landed tail. THE EIGHT JUMP UTs REMAIN CALIBRATION SEEDS AND THE HANDOFF'S RECIPE FOR THEM COULD NOT BE FOLLOWED: it asked for the anchor and applied `k` to come off the run's own `PhaseLock APPLIED` line, and a RECORDING flight emits none (grepped: zero in B13's KSP.log) - so the schedule is COMPUTED from V6M's published formula over the measured UTs, giving k=13 -> L1 280,177.047 and k=26 -> L2 560,319.575, and the k-series it produces (13/26/45/58/71/84, V6M's residuals to the decimal) reproduces V6M's MEASURED series exactly, which corroborates the derivation without substituting for the flight. B13 was already LIVE-PROVEN full PASS on flight 1 (2026-07-25, wall 2,747.9 s, `terminalState=Landed terminalOrbitBody=Mun`) and THE MISSION LIBRARY HAS BEEN ABLE TO LAND SINCE WELL BEFORE THE PARENT-RELAY MODE EXISTED (`landingEnabled` is a flag-gated inert-by-default phase driving MechJeb `LandingAutopilot.LandUntargeted` through `mission_runner._perform_land_untargeted`, verified against the INSTALLED darchambault KRPC.MechJeb v0.8.1 pin rather than inferred). No new mission mode, no new mlib phase, no runner seam. **THIS LANE IS V6 WITH THE ENDPOINT MOVED FROM ORBIT TO SURFACE**: same launch body, target, parent, road, craft family and fixture ancestry as V6M/V6T, with EXACTLY ONE shape dimension moved. That is the form the induction caveat asks for and which V17T could not have (it moved two and its icon-off-orbit non-recurrence is unattributable), and which the sibling V22M cannot have either (a Kerbin splashdown moves the endpoint AND the recording count, because no single-recording landed subject exists) - **so this pair is the CONTROL THAT SEPARATES V22's TWO VARIABLES**, which is a reason to fly it despite the Mun being the more expensive subject. ROUTING IS REQUIRED HERE, WHICH IS A DEPARTURE FROM V17M AND V22M and is justified rather than assumed: on those lanes the routing IS the measurement so requiring a road gates the reading on its own answer, whereas Kerbin -> its own moon is the phase-lock road measured five times at four parents and V6M/V6T are Kerbin -> Mun exactly - the routing is the control variable, not the question. So the phase-lock artifacts are required in V6M's own vocabulary (including `zeroDrift=yes` and `scheduleWithinTol=yes`, the QUALITY assertions a landed arrival is the first thing ever asked to satisfy) and V6M's re-aim trio is forbidden; if a surface endpoint perturbs the solver, this lane reds on the artifact that moved instead of quietly reporting a fallback nobody asked about. THE ONE PIN THAT MUST NOT BE COPIED FROM V6M is its `surface=Proto(Icon|OrbitLine) .*body=Mun` arrival pin - not because it would fail but because it would PASS, satisfied by the Mun-ORBIT coast the same loop spends most of every cycle in, saying nothing about the touchdown. Vacuous, not unsatisfiable, and worse for it: a vacuous green prompts no second look. AND THE MUN IS AIRLESS, so the suppression reason token is `polyline-owns-phase` with `belowAtmosphere=False` - `below-atmosphere` never fires here and copying V22M's Kerbin line would be structurally unsatisfiable. The two sibling lanes pin different reason tokens ON PURPOSE. NO KSC HALF EXISTS and that is a scoping fact rather than a gap - though the reason is narrower than \"the host is vacuous\", and the loose version is wrong: this recording LAUNCHES FROM KERBIN, so `IsKscStructurallyEligible` (which gates on `Points[0].bodyName`, the FIRST point only) ADMITS it and the KSC host would render its Kerbin ascent leg. What it cannot render is the part this pair measures - the per-frame pose resolvers gate EVERY point, so the whole Mun-frame descent and touchdown are skipped. THE ARRIVAL is vacuous on that host, not the recording, and an arrival lane is what a KSC half would have to be; the asymmetry with V22K, whose subject is Kerbin-frame END TO END, is the gate working. `allowedAnomalies = []` on purpose, expecting the gated Tier-C `rigid-seam-tangent-discontinuity` raise at the owned descent draw; whether an AIRLESS powered descent agrees with V22M's atmospheric one on that raise is a reading the pair produces for free. NOTHING IS ARMED."
 instanceProfile = "stock-minimal"
 tags = ["V23", "player-loop", "loop-playback", "surface-endpoint", "landing",
-        "mun", "airless", "phase-lock", "map-render", "census-pacing", "pending-fixture"]
+        "mun", "airless", "phase-lock", "map-render", "census-pacing"]
 
 [fixture]
 saveTemplate       = "fixtures/saves/mun-landing-recorded"
@@ -238,11 +324,11 @@ steps = [
   { cmd = "SetSetting", args = { name = "ghostRenderTracing", value = "true" }, expect = "OK" },
   { cmd = "SetSetting", args = { name = "mapRenderTracing",   value = "true" }, expect = "OK" },
   { cmd = "SetSetting", args = { name = "verboseLogging",     value = "true" }, expect = "OK" },
-  { cmd = "MissionConfig", args = { tree = "00000000000000000000000000000000", loop = "true" }, expect = "OK" },
-  { cmd = "StartLoopPlayback", args = { tree = "00000000000000000000000000000000" }, expect = "OK", budget = 300 },
-  { cmd = "TimeJump", args = { ut = "64468" }, expect = "OK", budget = 300 },
-  { cmd = "TimeJump", args = { ut = "64588" }, expect = "OK", budget = 300 },
-  { cmd = "TimeJump", args = { ut = "64788" }, expect = "OK", budget = 300 },
+  { cmd = "MissionConfig", args = { tree = "0da22482a8a648c6835b7bcd6b0f200d", loop = "true" }, expect = "OK" },
+  { cmd = "StartLoopPlayback", args = { tree = "0da22482a8a648c6835b7bcd6b0f200d" }, expect = "OK", budget = 300 },
+  { cmd = "TimeJump", args = { ut = "303219" }, expect = "OK", budget = 300 },
+  { cmd = "TimeJump", args = { ut = "303339" }, expect = "OK", budget = 300 },
+  { cmd = "TimeJump", args = { ut = "303539" }, expect = "OK", budget = 300 },
   { cmd = "RecordingState",                                                  expect = "OK" },
   { cmd = "RecordingState",                                                  expect = "OK" },
   { cmd = "RecordingState",                                                  expect = "OK" },
@@ -283,7 +369,7 @@ steps = [
   { cmd = "RecordingState",                                                  expect = "OK" },
   { cmd = "RecordingState",                                                  expect = "OK" },
   { cmd = "RecordingState",                                                  expect = "OK" },
-  { cmd = "TimeJump", args = { ut = "65988" }, expect = "OK", budget = 300 },
+  { cmd = "TimeJump", args = { ut = "304739" }, expect = "OK", budget = 300 },
   { cmd = "RecordingState",                                                  expect = "OK" },
   { cmd = "RecordingState",                                                  expect = "OK" },
   { cmd = "RecordingState",                                                  expect = "OK" },
@@ -324,10 +410,10 @@ steps = [
   { cmd = "RecordingState",                                                  expect = "OK" },
   { cmd = "RecordingState",                                                  expect = "OK" },
   { cmd = "RecordingState",                                                  expect = "OK" },
-  { cmd = "StartLoopPlayback", args = { tree = "00000000000000000000000000000000" }, expect = "OK", budget = 300 },
-  { cmd = "TimeJump", args = { ut = "129117" }, expect = "OK", budget = 300 },
-  { cmd = "TimeJump", args = { ut = "129237" }, expect = "OK", budget = 300 },
-  { cmd = "TimeJump", args = { ut = "129437" }, expect = "OK", budget = 300 },
+  { cmd = "StartLoopPlayback", args = { tree = "0da22482a8a648c6835b7bcd6b0f200d" }, expect = "OK", budget = 300 },
+  { cmd = "TimeJump", args = { ut = "583362" }, expect = "OK", budget = 300 },
+  { cmd = "TimeJump", args = { ut = "583482" }, expect = "OK", budget = 300 },
+  { cmd = "TimeJump", args = { ut = "583682" }, expect = "OK", budget = 300 },
   { cmd = "RecordingState",                                                  expect = "OK" },
   { cmd = "RecordingState",                                                  expect = "OK" },
   { cmd = "RecordingState",                                                  expect = "OK" },
@@ -368,7 +454,7 @@ steps = [
   { cmd = "RecordingState",                                                  expect = "OK" },
   { cmd = "RecordingState",                                                  expect = "OK" },
   { cmd = "RecordingState",                                                  expect = "OK" },
-  { cmd = "TimeJump", args = { ut = "130637" }, expect = "OK", budget = 300 },
+  { cmd = "TimeJump", args = { ut = "584882" }, expect = "OK", budget = 300 },
   { cmd = "FlushAndQuit",                                                    expect = "OK" },
 ]
 

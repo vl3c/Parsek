@@ -1675,6 +1675,156 @@ class CommittedFixtureSweepTests(unittest.TestCase):
                              "5436a7e8840b4c5885afcbaedc9dc037"],
             "schemaGeneration": 4,
         },
+        # --- THE FIRST SURFACE-ENDPOINT SUBJECT (ATMOSPHERIC) ------------
+        # PROVENANCE: kerbin-splashdown-recorded <- B4-reentry-splashdown, run
+        # 2026-08-24_1431, PASS attempt 1 (wall 1,065 s, mission wall 989.2 s,
+        # MISSION-OK across PRELAUNCH -> MJ-ASCENT -> CIRCULARIZE -> ORBIT ->
+        # DEORBIT -> REENTRY -> SPLASHDOWN, both telemetry assertions met),
+        # --keep-parsek. DLL provenance: the post-#1523 auto-merge-ON build,
+        # deployed hash prefix 27f5f31907efce27.
+        #
+        # **THE SUITE'S FIRST COMMITTED RECORDING THAT DOES NOT END AT AN
+        # ORBIT.** Fourteen orbit and transfer fixtures preceded it and not one
+        # landed or splashed save existed, which is the whole reason every V
+        # loop lane before G3a reads its arrival through a conic. V22M / V22T /
+        # V22K consume this one.
+        #
+        # THE TERMINAL IS `Landed`, NOT `Splashed`, AND THAT IS A MEASUREMENT.
+        # B4's own `landedSituations = ["LANDED", "SPLASHED"]` accepts either and
+        # the phase is NAMED splashdown, so the terminal this harvest carries was
+        # genuinely unknown until the bytes existed. The mission asserted
+        # `landedSituation value=LANDED met=True` at alt 0.687 m, the tree's
+        # `terminalState = 1` decodes to `TerminalState.Landed`, the save's own
+        # active Ship VESSEL reads `sit = LANDED splashed = False`, and
+        # `TERMINAL_POSITION` sits at lat -0.120 / lon 86.698 / alt 152.476
+        # against `terrainHeightAtEnd = 151.923` - dry land on Kerbin's equatorial
+        # continent east of KSC, a shoreline touchdown rather than a water one.
+        # A legal B4 pass, and V22's `terminalStates` window is declared from it.
+        #
+        # THE TOPOLOGY IS SEVEN, WHICH IS NOT THE NINE THE COMMIT-BLIND COUNT
+        # READS. `run.py count_recordings` observed 9 and B4's own count window
+        # is {8,9}; the committed tree carries SEVEN recordings (1 subject + 6
+        # booster debris) over THREE JointBreak branch points. The two are not in
+        # conflict - the count is commit-blind by design - and the difference was
+        # exactly two UNCOMMITTED single-POINT sidecar stubs the harvest brought
+        # across (91c0ea09... at UT 650.254 and fc56a5b8... at UT 649.414, both
+        # `sectionAuthoritative = False`, neither named anywhere in
+        # persistent.sfs, and one of them with no `_vessel.craft` at all).
+        #
+        # THOSE SEVEN FILES WERE PRUNED BY HAND before this fixture was committed,
+        # and the reason is a real invariant rather than tidiness:
+        # `CommittedFixtureMirrorTests.test_the_authoritative_snapshot_binaries_
+        # are_still_committed` requires every committed `.prec` to keep its
+        # authoritative `_vessel.craft`, and an orphan stub cannot. They are
+        # harvest exhaust of a class no prior recorded fixture produced, because
+        # every prior one carried 1-2 recordings, so
+        # `harvest_bdock_station.py` has no "sidecar with no RECORDING row" prune
+        # to catch them (it prunes readable mirrors, backup dirs and
+        # `Parsek/Saves`). Worth adding there before the next multi-recording
+        # harvest; nothing about it is a Parsek finding.
+        #
+        # `branchPoints` = 3 JointBreak and `terminalStates` = 6 Destroyed + 1
+        # Landed ARE the contract: the Kerbal X sheds three booster pairs at UT
+        # 48.48 / 64.12 / 83.16 and every one of those six children is destroyed
+        # on impact while the pod alone survives to the surface.
+        #
+        # THE BYTES V22M/V22T/V22K ANCHOR ON:
+        #   tree             c05c834cd2754892b4588e7ce9220c3f
+        #   main recording   28b6e543d67c4d1c9e4763b451c01df5
+        #   explicitStartUT  34.5399999999998      (UT0 - the V6M convention)
+        #   explicitEndUT    1,274.6835614006252
+        #   span             **1,240.143561401 s** (and here first-POINT to
+        #                    last-POINT equals the explicit stamps exactly, which
+        #                    is NOT true of every fixture - vall-transfer's differ)
+        #   FOUR ORBIT_SEGMENTs, ALL `Kerbin`, and **ZERO body-change seams** -
+        #     the launch-body-only shape V22M pre-registers as starving both
+        #     routing roads. The last segment ends at 853.723561, so the
+        #     recording closes with a **420.960 s SEGMENT-LESS DESCENT TAIL**,
+        #     which is the part V22 exists to read.
+        #   save clock (FLIGHTSTATE UT)  1,276.6235614006234
+        #   pointCount 1285, endpointBodyName Kerbin, endpointPhase 1
+        "kerbin-splashdown-recorded": {
+            "trees": 1, "committedTrees": 1, "recordings": 7,
+            "supersedes": 0, "tombstones": 0, "rewind_points": 0,
+            "rewind_retirements": 0,
+            "terminalStates": {"Landed": 1, "Destroyed": 6},
+            "branchPoints": {"JointBreak": 3},
+            # 28 = seven recordings x (.prec + .pann + _vessel.craft +
+            # _ghost.craft), which after the orphan prune above is also the exact
+            # committed count. Stated against the COMMITTED payload on purpose.
+            "minAuthoritativeSidecars": 28,
+            "recordingIds": ["095aea3ad69949deb610d178576d15d2",
+                             "28b6e543d67c4d1c9e4763b451c01df5",
+                             "3bebe6f76d8d4422a4780a472aee25f3",
+                             "538e778897a24beba12baf394415d029",
+                             "b3cd21d7ca2a45a986f27c368a26dca7",
+                             "bc1ee56e2d584fcabe45e25d32ca2ee3",
+                             "d2226a5d9a4947b5889ec273aead95a7"],
+            "schemaGeneration": 4,
+        },
+        # --- THE FIRST SURFACE-ENDPOINT SUBJECT (AIRLESS) ----------------
+        # PROVENANCE: mun-landing-recorded <- B13-mun-landing, run
+        # 2026-08-24_1449, PASS attempt 1 (wall 2,811 s, mission wall 2,764.1 s -
+        # the suite's most expensive scenario - MISSION-OK across the full
+        # twenty-one-phase chain through SURFACE-COMMITTED, `landedOnTargetBody
+        # value=Mun` and `landedStable value=SURFACE-COMMIT` both met),
+        # --keep-parsek. DLL provenance: the post-#1523 auto-merge-ON build,
+        # deployed hash prefix 27f5f31907efce27.
+        #
+        # WHY IT EXISTS ALONGSIDE `kerbin-splashdown-recorded`: this is **V6 WITH
+        # THE ENDPOINT MOVED FROM ORBIT TO SURFACE** - same launch body, target,
+        # parent, road, craft family and fixture ancestry as `mun-orbit-recorded`,
+        # with EXACTLY ONE shape dimension moved. That makes it the control that
+        # separates the two dimensions V22 moves at once (endpoint type AND a
+        # multi-recording debris tree). It is also AIRLESS, so its ghost suppresses
+        # under `polyline-owns-phase` / `belowAtmosphere=False` where the Kerbin
+        # sibling takes the `below-atmosphere` branch - the two fixtures pin
+        # different reason tokens on purpose.
+        #
+        # THE TOPOLOGY IS EIGHT AND THE COMMIT-BLIND COUNT AGREES (both 8, against
+        # B13's own {8,8} window) - no orphan stubs here, unlike the Kerbin
+        # sibling. FIVE JointBreak branch points, and note that the FIRST of them
+        # (UT 34.52, `debrisCount = 3`) carries NO `childId` rows at all: three
+        # launch-clamp children coalesced away without minting recordings. Seven
+        # Destroyed + one Landed.
+        #
+        # THE BYTES V23M/V23T ANCHOR ON:
+        #   tree             0da22482a8a648c6835b7bcd6b0f200d
+        #   main recording   61f3775361fe4130a66a69b1425b7209
+        #   explicitStartUT  34.5199999999998      (UT0 - the V6M convention;
+        #                    segment 0's startUT is 230.013733, a **195.494 s**
+        #                    gap, by far the widest in the corpus and the one that
+        #                    would move every bracket if the wrong one were used)
+        #   explicitEndUT    23,256.9452936296
+        #   span             **23,222.425293630 s**
+        #   ELEVEN ORBIT_SEGMENTs: `Kerbin` 0-7 then `Mun` 8-10, with ONE
+        #     body-change seam at the adjacent `endUT == startUT` pair
+        #     **16,425.168889** - a seam offset of **16,390.648889 s** off UT0,
+        #     the number `Orbital(Mun) same-parent ... off=` should reproduce.
+        #   The last segment ends at 20,966.465294, so the recording closes with a
+        #     **2,290.480 s SEGMENT-LESS DESCENT-AND-LANDED TAIL** - the part V23
+        #     exists to read, and five times longer than the Kerbin sibling's.
+        #   save clock (FLIGHTSTATE UT)  23,258.405293629632
+        #   pointCount 1442, endpointBodyName Mun, endpointPhase 1
+        "mun-landing-recorded": {
+            "trees": 1, "committedTrees": 1, "recordings": 8,
+            "supersedes": 0, "tombstones": 0, "rewind_points": 0,
+            "rewind_retirements": 0,
+            "terminalStates": {"Landed": 1, "Destroyed": 7},
+            "branchPoints": {"JointBreak": 5},
+            # 32 = eight recordings x (.prec + .pann + _vessel.craft +
+            # _ghost.craft), which is also the exact committed count here.
+            "minAuthoritativeSidecars": 32,
+            "recordingIds": ["2927d112f61743be94e431e91dd79830",
+                             "5c4faaf2d48345138df2620561d9c38f",
+                             "61f3775361fe4130a66a69b1425b7209",
+                             "940b1f5a759347bb8b44e9cab7da089c",
+                             "9697229f1b644c948dce380c64b133ca",
+                             "cee839f75a824bc2b65a8e2350ab1993",
+                             "d3a8c31ace604370b474d04a4584bf7f",
+                             "d9b5675fc64f439aa5fff170f72d6ad4"],
+            "schemaGeneration": 4,
+        },
     }
 
     def test_fixture_set_is_exactly_the_committed_set(self):

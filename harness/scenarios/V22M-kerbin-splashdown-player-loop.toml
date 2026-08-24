@@ -1,20 +1,22 @@
 schema = 1
 id = "V22M-kerbin-splashdown-player-loop"
 # =====================================================================================
-# *** COMMITTED AHEAD OF ITS SUBJECT. THE FIXTURE DOES NOT EXIST YET. ***
-# `fixtures/saves/kerbin-splashdown-recorded` must be harvested from a
-# `B4-reentry-splashdown` re-fly before this lane can fly. The tree id below is the
-# ZERO PLACEHOLDER and every jump UT is a CALIBRATION SEED (section 3). Tracked by
-# the self-retiring `SharedShipsManifestTests.PENDING_FIXTURE_LANES` exemption in
-# `harness/lib/test_hlib.py`; DELETE that entry in the same commit that re-pins this
-# spec off the harvested bytes. The V15 and V17 pairs shipped this way and both
-# exemptions retired on schedule, each firing red first exactly as designed.
+# *** ITS SUBJECT EXISTS. RE-PINNED 2026-08-24 OFF THE HARVESTED BYTES. ***
+# `fixtures/saves/kerbin-splashdown-recorded` was harvested `--keep-parsek` from
+# `B4-reentry-splashdown` run **2026-08-24_1431**, PASS attempt 1 (wall 1,065 s,
+# mission wall 989.2 s, MISSION-OK across PRELAUNCH -> MJ-ASCENT -> CIRCULARIZE ->
+# ORBIT -> DEORBIT -> REENTRY -> SPLASHDOWN, both telemetry assertions met, zero
+# anomaly hits, analyzer RED=0). The tree id below is REAL, the zero placeholder is
+# gone, and the `PENDING_FIXTURE_LANES` exemption was deleted in the same commit -
+# it fired red first, as designed, in all three of its arms. The V15 and V17 pairs
+# shipped this way before it.
 #
-# WHAT IT IS WAITING FOR IS NOT A CAPABILITY. `B4-reentry-splashdown` is committed
-# and LIVE-PROVEN (2026-07-20). Nothing needs to be built. What the suite has never
-# done is HARVEST a landed or splashed produced save: fourteen orbit and transfer
-# fixtures are committed and not one surface one is, which is the whole reason every
-# loop subject in the suite ends at an ORBIT and why this gap exists at all.
+# WHAT COULD NOT BE RE-PINNED TO A MEASUREMENT, and section 3 says so at the point
+# of use: the LOOP CLOCK. The anchor is resolved at run time by
+# `MissionLoopUnitBuilder`, the harvest flight does not loop, and its KSP.log
+# carries zero `missionconfig applied:` / `PhaseLock APPLIED` lines (grepped). The
+# eight jump UTs are therefore still CALIBRATION SEEDS - but now seeded off this
+# fixture's REAL UT0, span and save clock instead of off a guessed profile.
 # =====================================================================================
 #
 # -------------------------------------------------------------------------------------
@@ -105,53 +107,85 @@ id = "V22M-kerbin-splashdown-player-loop"
 # (`hlib.py:344`). Requiring it would demand an instrumentation gap in order to pass.
 #
 # -------------------------------------------------------------------------------------
-# 3. THE SEED TABLE, AND THE RE-PIN RECIPE
+# 3. THE MEASURED BYTES, AND WHAT IS STILL A SEED
 # -------------------------------------------------------------------------------------
-# EVERY NUMBER BELOW IS A SEED. None of them is measured, because the subject does
-# not exist. They are grounded rather than invented: the producer fixture
-# `b2-lko-craft` sits at UT 33.82, and the comparable `mun-orbit-recorded` recording
-# runs explicitStartUT 34.42 -> explicitEndUT 21,742.54. A B4 profile (ascent 420 s
-# cap, circularize 300 s, deorbit 600 s, reentry 3,600 s cap, descent 600 s cap, with
-# warp hops) plausibly spans a few thousand seconds, so the table assumes:
+# **RE-PINNED 2026-08-24 OFF `kerbin-splashdown-recorded`'s REAL BYTES.** Everything
+# in the first block below is READ FROM THE FIXTURE. Everything in the second block
+# is still DERIVED, because the loop clock does not exist until a loop runs.
 #
-#     UT0    = 34         (seed; the recording's explicitStartUT)
-#     span   = 6,000 s    (seed)
-#     anchor = 6,034      (seed; spanEnd, where MissionLoopUnitBuilder floors it)
+# MEASURED (persistent.sfs `RECORDING_TREE` + the main recording's `.prec.txt`):
 #
-# Under the pre-registered FAITHFUL road the cadence is the span itself, so:
+#     tree             c05c834cd2754892b4588e7ce9220c3f
+#     main recording   28b6e543d67c4d1c9e4763b451c01df5
+#     UT0              34.5399999999998        (`explicitStartUT` - V6M convention)
+#     explicitEndUT    1,274.6835614006252
+#     span             **1,240.143561401 s**
+#     pointCount       1285   terminalState 1 = Landed   endpointBodyName Kerbin
+#     save clock       1,276.6235614006234     (FLIGHTSTATE UT)
+#     ORBIT_SEGMENTs   FOUR, ALL `Kerbin`, **ZERO body-change seams** - the
+#                      launch-body-only shape section 1 pre-registers, now measured
+#                      rather than assumed. Segments (startUT -> endUT):
+#                        0  229.953741 ->  266.353766
+#                        1  653.093766 ->  771.292629
+#                        2  773.612629 ->  790.538942
+#                        3  773.612629 ->  853.723561
+#                      The chain ENDS at 853.723561, so the recording closes with a
+#                      **420.960 s SEGMENT-LESS DESCENT TAIL**. That tail is the
+#                      whole subject of this lane, and it is 34% of the replay.
 #
-#     cycle-1 arrival replay = anchor + span     = 12,034   (seed)
-#     cycle-2 arrival replay = anchor + 2*span   = 18,034   (seed)
+# TWO MEASUREMENTS WORTH NAMING BECAUSE THEY WERE OPEN QUESTIONS:
+#   (a) **THE TERMINAL IS `Landed`, NOT `Splashed`.** Section 6 declined to declare
+#       `terminalStates` precisely because B4's `landedSituations` accepts either and
+#       nobody had seen the bytes. The mission asserted `landedSituation value=LANDED
+#       met=True` at alt 0.687 m; `TERMINAL_POSITION` reads lat -0.120 / lon 86.698 /
+#       alt 152.476 against `terrainHeightAtEnd = 151.923`, and the save's active
+#       Ship VESSEL reads `sit = LANDED splashed = False`. A DRY-LAND touchdown on
+#       Kerbin's equatorial continent east of KSC - a legal B4 pass, and the window
+#       is declared from it below rather than left open.
+#   (b) **THE TREE CARRIES SEVEN RECORDINGS, NOT THE 8-9 THIS HEADER PREDICTED.**
+#       The commit-blind `run.py count_recordings` did read 9 (B4's own window is
+#       {8,9} and it passed), but the COMMITTED tree is 1 subject + 6 booster debris
+#       over 3 JointBreak branch points. The difference is two UNCOMMITTED
+#       single-POINT sidecar stubs at UT 649.414 / 650.254 that the harvest brought
+#       across and persistent.sfs names nowhere. Section 6's induction caveat is
+#       therefore restated with the measured number: two dimensions still move at
+#       once, and the second one is SEVEN members rather than 8-9.
 #
-# The bracket around each arrival is the family's -180 / -60 / +140, measured off
-# V6M's committed table (296,370 / 296,490 / 296,690 around a 296,550 seam). The
-# fourth jump of each cycle is a post-arrival SETTLE dwell, seeded at +1,200 s; its
-# real offset is re-pinned off the measured clock and its job is to hold the ghost in
-# the landed state well clear of the transition, so the suppressed-icon lens is read
-# in steady state rather than mid-onset.
+# STILL A SEED - THE LOOP CLOCK, AND WHY IT COULD NOT BE MEASURED HERE. The anchor
+# is `max(LoopAnchorUT, spanEndUT)` resolved at run time; the harvest flight never
+# loops, so its KSP.log carries no `missionconfig applied:` and no `PhaseLock
+# APPLIED` line to read one off (grepped: zero occurrences). The table below is
+# DERIVED from the measured bytes under the pre-registered FAITHFUL road, using
+# V6M's press-driven model (each `StartLoopPlayback` press resolves
+# `NextLaunchAfter(now)` to a relaunch epoch L; the jump target is L + offset):
 #
-# THE RE-PIN RECIPE, for whoever harvests the fixture:
+#     anchor / launch 1  L1 = 1,276.62   (the save clock - the live UT at load, and
+#                                         the floor no relaunch can precede)
+#     cadence            P  = span = 1,240.14  (faithful: the span itself)
+#     launches           1,276.62 / 2,516.77 / 3,756.91 / 4,997.06 / ...
+#     arrival offset     = span (this recording ENDS at the touchdown)
+#     cycle-1 arrival    L1 + span            = **2,516.77**
+#     press 2 at ~2,957 -> L2 = NextLaunchAfter(2,957) = **3,756.91**
+#     cycle-2 arrival    L2 + span            = **4,997.06**
 #
-#   1. Tree id, recording id and the explicit stamps:
-#        grep -nE "^\s+(id|recordingId|explicitStartUT|explicitEndUT|pointCount|terminalState|tOrbBody) = " \
-#          harness/fixtures/saves/kerbin-splashdown-recorded/persistent.sfs
-#      Take the `id` INSIDE `RECORDING_TREE` - the ids further down the file are
-#      GROUP ids and substituting one of those produces a lane that loops nothing.
-#   2. UT0 is `explicitStartUT`, NOT segment 0's `startUT`. The two differ (2.700 s
-#      apart on the vall fixture) and `test_the_v6m_convention_is_used_and_it_matters`
-#      exists to pin that distinction.
-#   3. Seam UTs come from the `.prec.txt` ORBIT_SEGMENT chain, parsed rather than
-#      string-matched: Parsek writes floats round-trip ("R"), so a padded rendering
-#      never appears in the file. The canonical parser is
-#      `harness/missions/lib/test_b26_laythe_vall.py:806-849`.
-#   4. Read the LOOP UNIT's span from the run log, not from the explicit stamps - it
-#      is first-POINT to last-POINT and differs from both by up to ~1 s.
-#   5. Delete this spec's `PENDING_FIXTURE_LANES` entry in the same commit.
+# ONE CORRECTION TO THE OLD SEED TABLE'S ARITHMETIC, recorded rather than silently
+# fixed: it read cycle 2 as `anchor + 2*span`, which under the press-driven model is
+# launch 3's START, not an arrival. The rows above bracket ARRIVALS on both cycles.
+#
+# THE BRACKET is the family's -180 / -60 / +140, off V6M's committed table
+# (296,370 / 296,490 / 296,690 around a 296,550 seam). THE SETTLE DWELL IS RESCALED
+# FROM +1,200 TO +300 s AND THAT IS FORCED, not a preference: the measured span is
+# 1,240 s where the seed assumed 6,000, so a +1,200 settle would overrun the next
+# cycle's first bracket and answer `timejump refused reason=backward-jump` - a
+# forbidden token on this very spec. +300 keeps every jump strictly increasing
+# (2,337 < 2,457 < 2,657 < 2,957 < 4,817 < 4,937 < 5,137 < 5,437) while still
+# holding the ghost in the landed state clear of the onset.
 #
 # A RUN-1 THAT DWELLS NOWHERE IS AN ACCEPTED OUTCOME, NOT A LANE FAILURE. V17M's
 # first reading run put every bracket in the wrong leg because its seeded anchor sat
 # 97 ks from the real one, and that run still carried the measurement it was flown
-# for. Re-pin off the measured clock and re-fly.
+# for. Read `phaseAnchorUt=` off `missionconfig applied:` and each cycle's
+# `relaunchUt=` off `startloopplayback initiated:`, re-pin, and re-fly.
 #
 # -------------------------------------------------------------------------------------
 # 4. THE FORTY-TICK CENSUS-PACING BLOCK
@@ -205,20 +239,23 @@ id = "V22M-kerbin-splashdown-player-loop"
 # names V17T as the cautionary case: it changed two at once and its icon-off-orbit
 # non-recurrence is consequently UNATTRIBUTABLE. Here it is not possible. This lane
 # changes (i) the endpoint type, orbit -> surface, and (ii) the recording count, from
-# the family's single-recording subjects to B4's 8-9 members including debris
-# children. There is no single-recording landed subject in existence to avoid (ii)
-# with, and manufacturing one would cost its own flight. So both are declared up
-# front: if this lane surprises, the surprise is attributable to at most these two,
-# and the V23 Mun pair - which moves ONE dimension against V6M - is the control that
-# separates them.
+# the family's single-recording subjects to this tree's **SEVEN** members including
+# debris children (MEASURED 2026-08-24; this paragraph predicted 8-9, which is what
+# the commit-blind count reads - see section 3(b)). There is no single-recording
+# landed subject in existence to avoid (ii) with, and manufacturing one would cost
+# its own flight. So both are declared up front: if this lane surprises, the surprise
+# is attributable to at most these two, and the V23 Mun pair - which moves ONE
+# dimension against V6M - is the control that separates them.
 #
-# `terminalStates` IS DELIBERATELY NOT DECLARED. B4's own
+# `terminalStates` WAS DELIBERATELY NOT DECLARED, AND NOW IS - because the ambiguity
+# it was protecting has been MEASURED. B4's own
 # `landedSituations = ["LANDED", "SPLASHED"]` accepts EITHER, so the terminal this
-# harvest carries is genuinely unknown; the phase is named SPLASHDOWN and a water
-# landing is expected, but a shoreline touchdown is a legal B4 pass. The saveParse
-# evaluator reports observed facets whether or not they are declared, so omitting the
-# window loses no information and avoids pinning a guess. The ARMING pass declares
-# the measured value.
+# harvest would carry was genuinely unknown when this spec was authored; the phase is
+# named SPLASHDOWN and a water landing was expected, but a shoreline touchdown is a
+# legal B4 pass. **IT CAME BACK `Landed`** (section 3(a): dry land at lat -0.120 /
+# lon 86.698, alt 152.476 against terrain 151.923, `splashed = False`), so the
+# window below states the measured value instead of a guess. Declaring is NOT arming:
+# the block stays REPORT-ONLY like every other facet on this lane.
 #
 # `allowedAnomalies = []` ON PURPOSE, AND ONE RAISE IS EXPECTED. Tier-C
 # `rigid-seam-tangent-discontinuity` raises at the owned descent draw
@@ -228,12 +265,48 @@ id = "V22M-kerbin-splashdown-player-loop"
 # (pid, signature) per scene session, so expect a single line rather than a stream.
 # If it raises, the token is added BARE, with the flight that showed it - never as a
 # count budget, which would let a second, different raise hide behind the first.
+#
+# -------------------------------------------------------------------------------------
+# 7. FLIGHT LEDGER
+# -------------------------------------------------------------------------------------
+# THIS LANE HAS NOT FLOWN. What is ledgered here is the PRODUCER flight that made its
+# subject exist, recorded verdict-neutrally because it is the provenance every number
+# in section 3 rests on.
+#
+#   `B4-reentry-splashdown` run **2026-08-24_1431** - **PASS, attempt 1**.
+#     wall 1,065 s (mission wall 989.2 s), tier nightly, instance stock-minimal,
+#     kspExit clean. MISSION-OK: PRELAUNCH -> MJ-ASCENT -> CIRCULARIZE -> ORBIT ->
+#     DEORBIT -> REENTRY -> SPLASHDOWN, `reachedOrbit value=SPLASHDOWN met=True` and
+#     `landedSituation value=LANDED met=True`. Verifier chain all PASS/SKIPPED:
+#     analyzer RED=0 / failNonBaselined 0, `anomalySweep hits=[]`, driverValidity
+#     PASS, expectations `recordings.count = 9` inside B4's own {8,9} window,
+#     ledgerOracle, logValidate, missionOutcome, saveParse REPORT (non-gating:
+#     supersedeRows 0, tombstones 0, rewindPoints 0, pointsTotal 1618, largest 1285,
+#     smallest 44, unparsed 0, mismatches 0), testResults, unityExceptions.
+#     Produced save harvested `--keep-parsek` as
+#     `fixtures/saves/kerbin-splashdown-recorded` and registered in
+#     `test_saveparse.RECORDED_FIXTURES` with its full provenance.
+#     DLL provenance: the post-#1523 auto-merge-ON build, deployed hash prefix
+#     27f5f31907efce27.
+#
+#   ONE OBSERVATION FROM THE HARVEST, recorded because it is new and because nothing
+#   in the pipeline catches it: the produced save carried TWO sidecar sets
+#   (91c0ea09... at UT 650.254, fc56a5b8... at UT 649.414) that persistent.sfs names
+#   nowhere - single-POINT, `sectionAuthoritative = False`, one of them without the
+#   `_vessel.craft` every committed trajectory is supposed to keep. Those seven files
+#   were PRUNED BY HAND before the fixture was committed, because
+#   `CommittedFixtureMirrorTests` requires the pairing and an orphan stub cannot
+#   satisfy it. `harvest_bdock_station.py` prunes readable mirrors, backup dirs and
+#   `Parsek/Saves` but has no "sidecar with no RECORDING row" prune, because no prior
+#   recorded fixture carried more than two recordings - worth adding there before the
+#   next multi-recording harvest. VERDICT-NEUTRAL: it is harvest exhaust, not a
+#   Parsek finding, and it touches nothing this lane loops.
 # -------------------------------------------------------------------------------------
 tier = "operator"
-description = "**PENDING ITS FIXTURE - COMMITTED AHEAD OF THE SUBJECT** under the re-armed `PENDING_FIXTURE_LANES` exemption (the V15 / V17 precedent), with a ZERO placeholder tree id and eight CALIBRATION-SEED jump UTs. `fixtures/saves/kerbin-splashdown-recorded` must be harvested `--keep-parsek` from a `B4-reentry-splashdown` re-fly first; B4 is LIVE-PROVEN 2026-07-20 and needs no new capability, which is exactly the point - what the suite has never done is HARVEST a landed or splashed save (fourteen orbit and transfer fixtures are committed, zero surface ones), and that is why every loop subject in the suite ends at an ORBIT. **THE FIRST LOOP SUBJECT THAT DOES NOT**, and the flight-map half of roadmap gap G3a. ROUTING IS ITSELF A READING AND THE LANE GATES ON NONE OF IT: a LAUNCH-BODY-ONLY loop starves both roads - phase-lock has no same-parent TARGET to quantize against and the re-aim classifier has no transfer RUN to admit - so FAITHFUL FIXED CADENCE is the pre-registered plausible outcome, with both roads left UNREQUIRED AND UNFORBIDDEN on V17M's reasoning that requiring either gates the reading on its own answer. WHY THE LENS MOVES, and the failure mode here is subtler than V17M's: a `surface=Proto(Icon|OrbitLine) .*body=Kerbin` pin (V6M's arrival pin) would MATCH - the harness searches the WHOLE log, and this loop spends most of every cycle in a Kerbin orbit drawing a proto line perfectly well - so it would be satisfied by the COAST and say nothing about the SPLASHDOWN. Not unsatisfiable: VACUOUS, which is the harder mistake because it goes green. The arrival claim therefore rests only on tokens the below-atmosphere state alone emits: the shared-key `Polyline frame: ... drawn=[1-9]` floor, the owned-leg `TracedPath OWNS leg ... body=Kerbin drawn=True` draw, the per-second `Director TracedPath suppress` marker line (chosen over the change-only `MarkerDecision` and `Orbit line decision` lines because it repeats through a dwell), and the ATMOSPHERIC reason token `below-atmosphere` with `belowAtmosphere=True` - which the V23 Mun pair CANNOT share, since an airless body never reaches that branch and suppresses under `polyline-owns-phase` instead. `AssertDrawnRecordingsAccounted` is deliberately NOT pinned: it emits nothing on the clean path, so requiring it would demand an instrumentation gap in order to pass. TWO SHAPE DIMENSIONS MOVE AT ONCE - endpoint type AND, for the first time, a multi-recording debris tree of 8-9 members - which the induction caveat asks to be PRE-REGISTERED rather than avoided, because no single-recording landed subject exists to avoid it with; the V23 pair, which moves ONE dimension against V6M, is the control that separates them. `terminalStates` is deliberately NOT declared because B4's `landedSituations = [\"LANDED\", \"SPLASHED\"]` accepts either and the evaluator reports observed facets anyway. Ships `allowedAnomalies = []` on purpose and EXPECTS to read the gated Tier-C `rigid-seam-tangent-discontinuity` raise at the owned descent draw - once per onset, so a single line, added BARE with the flight that shows it and never as a count budget. Watch mode is NOT driven: the program scopes it out, and `EnterWatchMode`'s outcome is a separation-dependent prediction this subject cannot make. NOTHING IS ARMED."
+description = "**RE-PINNED 2026-08-24 OFF ITS FIXTURE'S REAL BYTES**, with its `PENDING_FIXTURE_LANES` exemption (the V15 / V17 precedent) retired in the same commit. `fixtures/saves/kerbin-splashdown-recorded` EXISTS - harvested `--keep-parsek` from `B4-reentry-splashdown` run 2026-08-24_1431, PASS attempt 1 (wall 1,065 s, mission wall 989.2 s, MISSION-OK through SPLASHDOWN, zero anomaly hits, analyzer RED=0) - and it is THE SUITE'S FIRST HARVESTED SURFACE SAVE, against fourteen committed orbit and transfer fixtures, which is exactly why every loop subject in the suite until now ends at an ORBIT. The tree id is REAL; the eight jump UTs REMAIN CALIBRATION SEEDS by design, because the loop anchor is a run-time artifact and a harvest flight does not loop (zero `PhaseLock APPLIED` / `missionconfig applied:` lines in its KSP.log) - they are now derived off the fixture's MEASURED UT0 34.540 / span 1,240.144 / save clock 1,276.624 rather than off a guessed profile, and the settle dwell is rescaled +1,200 -> +300 s because the real span is a fifth of the seeded one and +1,200 would have answered `backward-jump`. **THE FIRST LOOP SUBJECT THAT DOES NOT END AT AN ORBIT**, and the flight-map half of roadmap gap G3a. ROUTING IS ITSELF A READING AND THE LANE GATES ON NONE OF IT: a LAUNCH-BODY-ONLY loop starves both roads - phase-lock has no same-parent TARGET to quantize against and the re-aim classifier has no transfer RUN to admit - so FAITHFUL FIXED CADENCE is the pre-registered plausible outcome, with both roads left UNREQUIRED AND UNFORBIDDEN on V17M's reasoning that requiring either gates the reading on its own answer. WHY THE LENS MOVES, and the failure mode here is subtler than V17M's: a `surface=Proto(Icon|OrbitLine) .*body=Kerbin` pin (V6M's arrival pin) would MATCH - the harness searches the WHOLE log, and this loop spends most of every cycle in a Kerbin orbit drawing a proto line perfectly well - so it would be satisfied by the COAST and say nothing about the SPLASHDOWN. Not unsatisfiable: VACUOUS, which is the harder mistake because it goes green. The arrival claim therefore rests only on tokens the below-atmosphere state alone emits: the shared-key `Polyline frame: ... drawn=[1-9]` floor, the owned-leg `TracedPath OWNS leg ... body=Kerbin drawn=True` draw, the per-second `Director TracedPath suppress` marker line (chosen over the change-only `MarkerDecision` and `Orbit line decision` lines because it repeats through a dwell), and the ATMOSPHERIC reason token `below-atmosphere` with `belowAtmosphere=True` - which the V23 Mun pair CANNOT share, since an airless body never reaches that branch and suppresses under `polyline-owns-phase` instead. `AssertDrawnRecordingsAccounted` is deliberately NOT pinned: it emits nothing on the clean path, so requiring it would demand an instrumentation gap in order to pass. TWO SHAPE DIMENSIONS MOVE AT ONCE - endpoint type AND, for the first time, a multi-recording debris tree of SEVEN members (MEASURED; the commit-blind `count` reads 9 and the two uncommitted single-POINT stubs behind that difference are named in section 3) - which the induction caveat asks to be PRE-REGISTERED rather than avoided, because no single-recording landed subject exists to avoid it with; the V23 pair, which moves ONE dimension against V6M, is the control that separates them. `terminalStates` WAS deliberately NOT declared while B4's `landedSituations = [\"LANDED\", \"SPLASHED\"]` left the terminal genuinely unknown; THE HARVEST MEASURED `Landed` - a DRY-LAND shoreline touchdown east of KSC (lat -0.120 / lon 86.698, alt 152.476 against terrain 151.923, `splashed = False`), not the water landing the phase name suggests - so the window is now declared from the bytes and stays REPORT-ONLY. Ships `allowedAnomalies = []` on purpose and EXPECTS to read the gated Tier-C `rigid-seam-tangent-discontinuity` raise at the owned descent draw - once per onset, so a single line, added BARE with the flight that shows it and never as a count budget. Watch mode is NOT driven: the program scopes it out, and `EnterWatchMode`'s outcome is a separation-dependent prediction this subject cannot make. NOTHING IS ARMED."
 instanceProfile = "stock-minimal"
 tags = ["V22", "player-loop", "loop-playback", "surface-endpoint", "splashdown",
-        "kerbin", "launch-body-only", "map-render", "census-pacing", "pending-fixture"]
+        "kerbin", "launch-body-only", "map-render", "census-pacing"]
 
 [fixture]
 saveTemplate       = "fixtures/saves/kerbin-splashdown-recorded"
@@ -250,11 +323,11 @@ steps = [
   { cmd = "SetSetting", args = { name = "ghostRenderTracing", value = "true" }, expect = "OK" },
   { cmd = "SetSetting", args = { name = "mapRenderTracing",   value = "true" }, expect = "OK" },
   { cmd = "SetSetting", args = { name = "verboseLogging",     value = "true" }, expect = "OK" },
-  { cmd = "MissionConfig", args = { tree = "00000000000000000000000000000000", loop = "true" }, expect = "OK" },
-  { cmd = "StartLoopPlayback", args = { tree = "00000000000000000000000000000000" }, expect = "OK", budget = 300 },
-  { cmd = "TimeJump", args = { ut = "11854" }, expect = "OK", budget = 300 },
-  { cmd = "TimeJump", args = { ut = "11974" }, expect = "OK", budget = 300 },
-  { cmd = "TimeJump", args = { ut = "12174" }, expect = "OK", budget = 300 },
+  { cmd = "MissionConfig", args = { tree = "c05c834cd2754892b4588e7ce9220c3f", loop = "true" }, expect = "OK" },
+  { cmd = "StartLoopPlayback", args = { tree = "c05c834cd2754892b4588e7ce9220c3f" }, expect = "OK", budget = 300 },
+  { cmd = "TimeJump", args = { ut = "2337" }, expect = "OK", budget = 300 },
+  { cmd = "TimeJump", args = { ut = "2457" }, expect = "OK", budget = 300 },
+  { cmd = "TimeJump", args = { ut = "2657" }, expect = "OK", budget = 300 },
   { cmd = "RecordingState",                                                  expect = "OK" },
   { cmd = "RecordingState",                                                  expect = "OK" },
   { cmd = "RecordingState",                                                  expect = "OK" },
@@ -295,7 +368,7 @@ steps = [
   { cmd = "RecordingState",                                                  expect = "OK" },
   { cmd = "RecordingState",                                                  expect = "OK" },
   { cmd = "RecordingState",                                                  expect = "OK" },
-  { cmd = "TimeJump", args = { ut = "13374" }, expect = "OK", budget = 300 },
+  { cmd = "TimeJump", args = { ut = "2957" }, expect = "OK", budget = 300 },
   { cmd = "RecordingState",                                                  expect = "OK" },
   { cmd = "RecordingState",                                                  expect = "OK" },
   { cmd = "RecordingState",                                                  expect = "OK" },
@@ -336,10 +409,10 @@ steps = [
   { cmd = "RecordingState",                                                  expect = "OK" },
   { cmd = "RecordingState",                                                  expect = "OK" },
   { cmd = "RecordingState",                                                  expect = "OK" },
-  { cmd = "StartLoopPlayback", args = { tree = "00000000000000000000000000000000" }, expect = "OK", budget = 300 },
-  { cmd = "TimeJump", args = { ut = "17854" }, expect = "OK", budget = 300 },
-  { cmd = "TimeJump", args = { ut = "17974" }, expect = "OK", budget = 300 },
-  { cmd = "TimeJump", args = { ut = "18174" }, expect = "OK", budget = 300 },
+  { cmd = "StartLoopPlayback", args = { tree = "c05c834cd2754892b4588e7ce9220c3f" }, expect = "OK", budget = 300 },
+  { cmd = "TimeJump", args = { ut = "4817" }, expect = "OK", budget = 300 },
+  { cmd = "TimeJump", args = { ut = "4937" }, expect = "OK", budget = 300 },
+  { cmd = "TimeJump", args = { ut = "5137" }, expect = "OK", budget = 300 },
   { cmd = "RecordingState",                                                  expect = "OK" },
   { cmd = "RecordingState",                                                  expect = "OK" },
   { cmd = "RecordingState",                                                  expect = "OK" },
@@ -380,7 +453,7 @@ steps = [
   { cmd = "RecordingState",                                                  expect = "OK" },
   { cmd = "RecordingState",                                                  expect = "OK" },
   { cmd = "RecordingState",                                                  expect = "OK" },
-  { cmd = "TimeJump", args = { ut = "19374" }, expect = "OK", budget = 300 },
+  { cmd = "TimeJump", args = { ut = "5437" }, expect = "OK", budget = 300 },
   { cmd = "FlushAndQuit",                                                    expect = "OK" },
 ]
 
@@ -422,6 +495,13 @@ tombstones    = { max = 0 }
 trees          = { min = 1, max = 2 }
 committedTrees = { min = 1, max = 1 }
 recordings     = { min = 1, max = 12 }
+# DECLARED 2026-08-24 FROM THE HARVESTED BYTES, and it is the ONE facet this spec
+# deliberately left open until the subject existed: B4's `landedSituations` accepts
+# LANDED or SPLASHED and the harvest came back **Landed** (a dry-land touchdown at
+# lat -0.120 / lon 86.698, terrain 151.923 m). Still REPORT-ONLY - declaring is not
+# arming. `Destroyed` (measured 6, the three shed booster pairs) is left to the
+# arming pass, which sharpens every window off its own green reading run.
+terminalStates = { Landed = { min = 1, max = 1 } }
 
 [runtime]
 budgetSeconds = 2400
