@@ -59,7 +59,10 @@ After reverting (or aborting a mission to the Space Center with a recording pend
 - **Merge to Timeline** - Recording is merged; if the vessel is intact, it will appear in the game world when the ghost finishes playing
 - **Discard** - Recording is thrown away. Every career effect captured during the discarded flight — contracts accepted or completed, tech researched, crew changes, milestones achieved, funds/science/reputation deltas — is rolled back as if the flight never happened. (Career actions unrelated to a recording, e.g. unlocking a tech node at KSC, stay.)
 
-If **Auto-merge recordings** is enabled in Settings, the merge happens silently without a dialog.
+**Auto-merge recordings** is on by default, so the merge normally happens silently without
+this dialog; turn it off in Settings to confirm every recording. Two exits always ask
+regardless: concluding a Rewind to Separation attempt, and quitting to the main menu
+with an uncommitted mission.
 
 ### Rewind to Separation (v0.9+)
 
@@ -254,7 +257,7 @@ Recording:
 |---------|---------|-------------|
 | Auto-record on launch | On | Start recording when a vessel leaves the pad or runway |
 | Auto-record on EVA | On | Start recording when a kerbal goes EVA from the pad |
-| Auto-merge recordings | Off | When on, recordings commit to the timeline silently on revert; when off, the merge dialog appears |
+| Auto-merge recordings | On | When on, recordings commit to the timeline silently when you leave the flight scene; when off, the merge dialog appears. Saves made before 0.10.4 keep whatever value they stored, which for almost all of them is Off |
 
 Looping:
 

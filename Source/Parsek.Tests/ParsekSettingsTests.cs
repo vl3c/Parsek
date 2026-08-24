@@ -29,6 +29,24 @@ namespace Parsek.Tests
             Assert.True(settings.autoRecordOnFirstModificationAfterSwitch);
         }
 
+        /// <summary>
+        /// Pins the shipping default of the auto-merge toggle. Defaults ON since
+        /// 0.10.4: the silent auto-commit path now commits with full spawn-at-end
+        /// fidelity (it used to be lossy, which is what kept the default OFF), so a
+        /// finished mission goes to the timeline without a per-flight confirmation
+        /// dialog. Flipping this back is a user-visible behaviour change and must be
+        /// intentional.
+        ///
+        /// Fails if: the autoMerge field default is flipped off.
+        /// </summary>
+        [Fact]
+        public void AutoMerge_DefaultOn()
+        {
+            var settings = new ParsekSettings();
+
+            Assert.True(settings.autoMerge);
+        }
+
         [Fact]
         public void AutoRecordOnSwitchSettings_UseCustomParameterUiAttribute()
         {
