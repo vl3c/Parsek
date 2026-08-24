@@ -61,7 +61,9 @@ namespace Parsek
                 AutoRecordOnLaunch = true,
                 AutoRecordOnEva = true,
                 AutoRecordOnFirstModificationAfterSwitch = true,
-                AutoMerge = false,
+                // Must stay in step with the ParsekSettings.autoMerge field default
+                // (ON since 0.10.4); pinned by SettingsWindowPresentationTests.
+                AutoMerge = true,
                 VerboseLogging = true,
                 WriteReadableSidecarMirrors = true,
                 AutoBackupExistingSaves = true,

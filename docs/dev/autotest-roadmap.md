@@ -1109,7 +1109,8 @@ Clusters, in the design doc's phase order:
   probe (V2); always-collect + HTML contact sheets (V3); `Screenshot`/
   `MapCamera` seam verbs (V4); the self-consistency double-render pixel oracle
   (V5); pixel-free geometric invariants (V6); the `UiSmokeRender` window sweep
-  (V7).
+  (V7); the render composition manifest + verifier (V8, module M-A7 -
+  design authority `design-autotest-render-composition.md`).
 - **Mode-axis expansion**: a science-mode spec lane; seam-forged career fixtures
   (`KscAction` progression -> harvest, the FORGE pattern applied to career state);
   the templated mid-career matrix; `LedgerGroundTruthHarness` wired to a career
@@ -1659,6 +1660,24 @@ many instances alive.
 adds the inclined-and-eccentric MOON target the way Moho did for planets), plus
 deep-space return shapes. Breadth work; schedule opportunistically behind
 G1-G5.
+
+**Cross-cutting instrument, not a gap: M-A7, the render composition manifest +
+verifier** (design authority `design-autotest-render-composition.md`; indexed
+as V8 of the visual program in `design-testing-unified.md` section 6 and in
+Tier 5 above). Every entry in this register confirms a CLASS through required
+render-token pins on one lens at derived epochs; M-A7 raises what a
+confirmation can SAY: a per-run structured manifest of everything the
+composition rendered (plan, chains, dwells, seams, holds, cuts, clock events,
+route-line accounting), verified as an accounting proof - coverage cycle
+after cycle, every discontinuity matched to its ratified contract, nothing
+outside the catalog - through a `renderCompose` chain row on the R9 arming
+discipline, across a declared warp matrix. It reserves NO scenario ids here:
+composition lanes extend committed V specs with a manifest step and an
+`[expectations.renderComposition]` block, and the route surfaces ride G1's
+B27 / V18M / V18T when those fly. Sequencing: independent of G2-G9; its
+Phase 3 wants one committed loop lane per road (phase-lock, re-aim,
+faithful), all of which exist today, so it can start any time and every gap
+entry above gets a stronger confirmation bar once it lands.
 
 ### The induction caveat (why classes must be flown, not argued)
 
