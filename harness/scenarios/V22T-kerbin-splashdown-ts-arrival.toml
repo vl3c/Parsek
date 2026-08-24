@@ -33,19 +33,47 @@ id = "V22T-kerbin-splashdown-ts-arrival"
 # the HOST rather than to the epoch. Re-pin both together or neither.
 #
 # RE-PINNED 2026-08-24 to **2,657**, which is V22M's cycle-1 arrival 2,516.77 plus the
-# family's +140 bracket, all three lanes of the trio moved together. The derivation:
-# UT0 34.540, span 1,240.144 and save clock 1,276.624 read off the fixture; the
-# faithful-road launch series 1,276.62 / 2,516.77 / 3,756.91; arrival = launch + span
-# because this recording ENDS at the touchdown. Still a SEED - the anchor is only
-# knowable at run time - so a run 1 that dwells nowhere is an accepted outcome.
+# family's +140 bracket, all three lanes of the trio moved together. That round-1
+# derivation assumed a FAITHFUL cadence and it was wrong on both the road and the
+# clock.
+#
+# **ROUND 2, 2026-08-24: RE-PINNED TO 22,964 OFF THE MEASURED CLOCK.** Reading run 1
+# (`2026-08-24_1619`, retry `_1620`) red INVALID(driver-rewind) on `timejump refused
+# reason=backward-jump` - the spec's own forbid working as designed - and printed
+# what the fixture bytes could not:
+#
+#     L1 (cycle-1 `relaunchUt=`) = **21,583.965183089826**
+#     touchdown offset           = **1,240.1436**   (the last trajectory point)
+#     cycle-1 arrival            = 22,824.11 ; +140 bracket -> **22,964**
+#
+# TWO MECHANICS RUN 1 MEASURED THAT THIS HALF MUST RESPECT: the loop unit's span is
+# the TRACK_SECTION ENVELOPE (1,241.8836, 1.740 s past `explicitEndUT`, so never
+# derive a replay length from the explicit stamps), and `StartLoopPlayback` issues its
+# OWN forward jump to `relaunchUt - 15 s` - so the single bracket must clear 21,569,
+# which 22,964 does. A run-2 that dwells nowhere is still an accepted outcome.
 #
 # -------------------------------------------------------------------------------------
-# 1. ROUTING - INHERITED, UNGATED
+# 1. ROUTING - INHERITED, UNGATED, AND **MEASURED AS PHASE-LOCK**
 # -------------------------------------------------------------------------------------
-# Identical pre-registration to V22M section 1: a LAUNCH-BODY-ONLY subject starves
-# both roads (no same-parent target for phase-lock, no transfer run for the re-aim
-# classifier), so FAITHFUL FIXED CADENCE is the plausible outcome and BOTH roads stay
-# UNREQUIRED AND UNFORBIDDEN. Nothing here gates on the answer.
+# **THE PRE-REGISTRATION THIS LANE INHERITED IS REFUTED.** Run 1 measured
+# `constraints=1 [Rotation(Kerbin) P=21549.425183089825 off=0]` with
+# `method=single-rotation`, `fixedCadenceResidual=0`, `fixedCadenceWithinTol=yes`,
+# `zeroDrift=no`: a launch-body-only loop starves only the TARGET side, while the
+# LAUNCH SITE supplies its own rotation constraint, so the cadence quantizes to
+# Kerbin's ROTATION period (every replay leaves the same pad position under the sky)
+# rather than to the faithful span. V22M section 1 carries the full reading and the
+# historical pre-registration.
+#
+# ---- AS WRITTEN BEFORE THE FLIGHT (HISTORICAL, REFUTED) --------------------------
+# | Identical pre-registration to V22M section 1: a LAUNCH-BODY-ONLY subject starves
+# | both roads (no same-parent target for phase-lock, no transfer run for the re-aim
+# | classifier), so FAITHFUL FIXED CADENCE is the plausible outcome.
+# ----------------------------------------------------------------------------------
+#
+# BOTH ROADS STAY UNREQUIRED AND UNFORBIDDEN, unchanged - which is precisely why run
+# 1's refutation cost nothing: no routing pin fired in either direction and the red
+# was the jump table alone. Re-arming the routing as a gate off one observation would
+# convert a measurement into an assumption. Nothing here gates on the answer.
 #
 # -------------------------------------------------------------------------------------
 # 2. THE LENS, AND THE TWO TS-SPECIFIC CHOICES
@@ -144,7 +172,21 @@ id = "V22T-kerbin-splashdown-ts-arrival"
 # -------------------------------------------------------------------------------------
 # 7. FLIGHT LEDGER
 # -------------------------------------------------------------------------------------
-# THIS LANE HAS NOT FLOWN. Ledgered here is the PRODUCER flight its subject came from,
+#   **READING RUN 1** - `2026-08-24_1619`, **INVALID(driver-rewind), attempt 1**;
+#     retry `_1620` **INVALID(driver-rewind), attempt 2** (deterministic, identical).
+#     wall 54 s each. THE SPEC'S OWN FORBID WORKING, NOT A PRODUCT FINDING: the single
+#     `TimeJump` at the round-1 seed 2,657 answered `timejump refused
+#     reason=backward-jump` against a live clock already past 21,569, because
+#     `StartLoopPlayback` had jumped itself to `relaunchUt - 15 s`. No TS render pin
+#     was reached, so nothing about the LENS - the polyline, the suppressed icon, the
+#     `GhostCreated` proto icon, `icon-off-orbit` - is measured yet.
+#     WHAT IT MEASURED ANYWAY: the loop clock (L1 = 21,583.965183089826) and THE
+#     ROUTING - `method=single-rotation` on `constraints=1 [Rotation(Kerbin)]`, which
+#     REFUTES the faithful hypothesis this lane inherited (section 1). No gate fired
+#     on that refutation, because both roads were unrequired and unforbidden. The jump
+#     UT was re-pinned to 22,964 in the same commit, together with V22M's and V22K's.
+#
+# WHAT IS LEDGERED BELOW is the PRODUCER flight its subject came from,
 # verdict-neutrally: `B4-reentry-splashdown` run **2026-08-24_1431**, **PASS attempt
 # 1**, wall 1,065 s / mission wall 989.2 s, MISSION-OK through SPLASHDOWN with
 # `landedSituation value=LANDED met=True`, every verifier PASS/SKIPPED, `anomalySweep
@@ -154,7 +196,7 @@ id = "V22T-kerbin-splashdown-ts-arrival"
 # the full ledger including the harvest-exhaust observation.
 # -------------------------------------------------------------------------------------
 tier = "operator"
-description = "**RE-PINNED 2026-08-24 OFF ITS FIXTURE'S REAL BYTES**, `PENDING_FIXTURE_LANES` entry retired in the same commit. `fixtures/saves/kerbin-splashdown-recorded` EXISTS, harvested `--keep-parsek` from `B4-reentry-splashdown` run 2026-08-24_1431 (PASS attempt 1). Real tree id; ONE jump UT, now 2,657, still a CALIBRATION SEED (the loop anchor is a run-time artifact and a harvest flight does not loop) but derived off the fixture's measured UT0 34.540 / span 1,240.144 / save clock 1,276.624, and reused verbatim from V22M's third cycle-1 bracket so the two lanes observe the SAME INSTANT of the same loop from two scenes - which is what makes a divergence attributable to the HOST rather than the epoch. THE TERMINAL MEASURED `Landed`, NOT `Splashed` - a dry-land shoreline touchdown east of KSC - so the previously-open `terminalStates` facet is declared from the bytes and stays report-only; the tree measures SEVEN recordings against the 8-9 this pair predicted. The Tracking-Station half of the Kerbin surface-arrival pair (roadmap gap G3a); V22M's header carries the seed derivation, the re-pin recipe and the routing pre-registration and they are not restated. TWO TS-SPECIFIC LENS CHOICES, both of which would cost a flight if got wrong: (a) `Polyline frame:` is SCENE-STAMPED, so this lane pins `scene=TRACKSTATION` and copying V22M's `scene=FLIGHT` form would be unsatisfiable; (b) the `phase=MarkerDecision surface=AtmosphericMarker` tracer line is deliberately NOT required, because it is emitted CHANGE-ONLY and this lane enters TS already PAST the descent onset on a single dwell, so it may legitimately never fire - the per-second `Director TracedPath suppress` line carries the same claim and repeats, so it is required instead (that emitter is also the one place `MapRenderTrace.Bool()` lowercases its bools, another reason not to reach for it casually). The TS destination-frame pin is the Tier-A structural `phase=GhostCreated surface=ProtoIcon ... body=Kerbin scene=TRACKSTATION`, emitted at Info; note what it does NOT say - a proto icon being CREATED is not a claim that a proto LINE is drawn at the arrival, and the suppression pins carry that separately. THE FORTY-TICK TS DWELL IS NOT OPTIONAL and V17T paid for the lesson: on a loop-armed subject the init walk contributes zero ghosts when the tail is segment-less, the real ghosts arrive on the DYNAMIC overlap path at `MaxSpawnsPerFrame = 2` newest-cycle-first, and V17T's two-tick phase cut the census off at 6 of 20 instances. It matters more here because a splashdown recording ENDS below atmosphere - exactly the tail the init walk has no orbit source for - so `ParsekTrackingStation initialized: created N` is NOT required with a nonzero N (V17T retired that forbid and repeating it would re-litigate a settled reading). The V5 re-kill pair before the TS load is kept verbatim. THIS LANE RUNS ITS OWN CONTROL rather than sharing V22M's, per the rule the V19 pair established on 2026-08-21 when it first discharged criterion (b): each half inverts a token on its OWN lens (`_0855` / `_0858`), because the halves pin different lenses and one shared control proves exactly one of them. `allowedAnomalies = []` on purpose with TWO possible raises pre-registered and neither pre-tolerated - `rigid-seam-tangent-discontinuity` at the owned descent draw, and `icon-off-orbit`, whose family V19T has since NARROWED: six raises at three parents, then V17T silent with two variables moving at once, then V19T silent with self-overlap YES and nested-SOI NO - which EXCLUDES nested-SOI and leaves self-overlap the surviving candidate, with no mechanism claimed. This lane is a further data point on that open reading, not a test of a settled one. NOTHING IS ARMED."
+description = "**RE-PINNED 2026-08-24 OFF ITS FIXTURE'S REAL BYTES**, `PENDING_FIXTURE_LANES` entry retired in the same commit. `fixtures/saves/kerbin-splashdown-recorded` EXISTS, harvested `--keep-parsek` from `B4-reentry-splashdown` run 2026-08-24_1431 (PASS attempt 1). Real tree id; ONE jump UT, **RE-DERIVED IN ROUND 2 TO 22,964 OFF THE MEASURED LOOP CLOCK** after reading run 1 (`2026-08-24_1619`, retry `_1620`) red INVALID(driver-rewind) on `timejump refused reason=backward-jump` - the spec's own forbid working as pre-registered, with no TS render pin reached and nothing about the lens measured yet. It is L1 = 21,583.965183089826 (`startloopplayback initiated: relaunchUt=`) plus the 1,240.1436 s touchdown offset plus the family's +140 bracket, reused verbatim from V22M's third cycle-1 bracket so the two lanes observe the SAME INSTANT of the same loop from two scenes - which is what makes a divergence attributable to the HOST rather than the epoch. **THE ROUTING PRE-REGISTRATION THIS LANE INHERITED IS REFUTED**: run 1 measured `constraints=1 [Rotation(Kerbin) P=21549.425183089825 off=0]` with `method=single-rotation` - a launch-body-only loop starves only the TARGET side while the launch SITE supplies its own constraint, quantizing the cadence to Kerbin's ROTATION period, not the faithful span. No gate fired on it, because both roads were left unrequired AND unforbidden, and they stay that way. Run 1 also measured two mechanics this half must respect: the loop unit's span is the TRACK_SECTION ENVELOPE (1,241.8836, 1.740 s past `explicitEndUT`), and `StartLoopPlayback` issues its OWN forward jump to relaunch-15 s. THE TERMINAL MEASURED `Landed`, NOT `Splashed` - a dry-land shoreline touchdown east of KSC - so the previously-open `terminalStates` facet is declared from the bytes and stays report-only; the tree measures SEVEN recordings against the 8-9 this pair predicted. The Tracking-Station half of the Kerbin surface-arrival pair (roadmap gap G3a); V22M's header carries the seed derivation, the re-pin recipe and the routing pre-registration and they are not restated. TWO TS-SPECIFIC LENS CHOICES, both of which would cost a flight if got wrong: (a) `Polyline frame:` is SCENE-STAMPED, so this lane pins `scene=TRACKSTATION` and copying V22M's `scene=FLIGHT` form would be unsatisfiable; (b) the `phase=MarkerDecision surface=AtmosphericMarker` tracer line is deliberately NOT required, because it is emitted CHANGE-ONLY and this lane enters TS already PAST the descent onset on a single dwell, so it may legitimately never fire - the per-second `Director TracedPath suppress` line carries the same claim and repeats, so it is required instead (that emitter is also the one place `MapRenderTrace.Bool()` lowercases its bools, another reason not to reach for it casually). The TS destination-frame pin is the Tier-A structural `phase=GhostCreated surface=ProtoIcon ... body=Kerbin scene=TRACKSTATION`, emitted at Info; note what it does NOT say - a proto icon being CREATED is not a claim that a proto LINE is drawn at the arrival, and the suppression pins carry that separately. THE FORTY-TICK TS DWELL IS NOT OPTIONAL and V17T paid for the lesson: on a loop-armed subject the init walk contributes zero ghosts when the tail is segment-less, the real ghosts arrive on the DYNAMIC overlap path at `MaxSpawnsPerFrame = 2` newest-cycle-first, and V17T's two-tick phase cut the census off at 6 of 20 instances. It matters more here because a splashdown recording ENDS below atmosphere - exactly the tail the init walk has no orbit source for - so `ParsekTrackingStation initialized: created N` is NOT required with a nonzero N (V17T retired that forbid and repeating it would re-litigate a settled reading). The V5 re-kill pair before the TS load is kept verbatim. THIS LANE RUNS ITS OWN CONTROL rather than sharing V22M's, per the rule the V19 pair established on 2026-08-21 when it first discharged criterion (b): each half inverts a token on its OWN lens (`_0855` / `_0858`), because the halves pin different lenses and one shared control proves exactly one of them. `allowedAnomalies = []` on purpose with TWO possible raises pre-registered and neither pre-tolerated - `rigid-seam-tangent-discontinuity` at the owned descent draw, and `icon-off-orbit`, whose family V19T has since NARROWED: six raises at three parents, then V17T silent with two variables moving at once, then V19T silent with self-overlap YES and nested-SOI NO - which EXCLUDES nested-SOI and leaves self-overlap the surviving candidate, with no mechanism claimed. This lane is a further data point on that open reading, not a test of a settled one. NOTHING IS ARMED."
 instanceProfile = "stock-minimal"
 tags = ["V22", "tracking-station", "loop-arrival", "surface-endpoint", "splashdown",
         "kerbin", "launch-body-only", "map-render"]
@@ -175,7 +217,7 @@ steps = [
   { cmd = "SetSetting", args = { name = "verboseLogging",   value = "true" }, expect = "OK" },
   { cmd = "MissionConfig", args = { tree = "c05c834cd2754892b4588e7ce9220c3f", loop = "true" }, expect = "OK" },
   { cmd = "StartLoopPlayback", args = { tree = "c05c834cd2754892b4588e7ce9220c3f" }, expect = "OK", budget = 300 },
-  { cmd = "TimeJump", args = { ut = "2657" }, expect = "OK", budget = 300 },
+  { cmd = "TimeJump", args = { ut = "22964" }, expect = "OK", budget = 300 },
   { cmd = "SaveGame",   args = { name = "persistent" },                      expect = "OK" },
   { cmd = "StopRecording",                                                   expect = "OK" },
   { cmd = "DiscardTree",                                                     expect = "OK" },

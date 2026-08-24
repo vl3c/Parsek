@@ -35,22 +35,47 @@ id = "V23T-mun-landing-ts-arrival"
 # observe the SAME INSTANT of the same loop from two scenes and a divergence is
 # attributable to the HOST rather than the epoch. Re-pin both together or neither.
 #
-# RE-PINNED 2026-08-24 to **303,539** = V23M's computed cycle-1 arrival 303,399.47 +
-# the family's +140 bracket. The derivation, in V23M section 3: UT0 34.520 and span
-# 23,222.425 read off the fixture; T_anchor = Rotation(Kerbin) 21,549.425183, the Mun
-# phase filter picking k=13 for L1 = 280,177.047; arrival = launch + span because this
-# recording ends at the touchdown. The k-series reproduces V6M's MEASURED 13/26/45/
-# 58/71/84 exactly, which corroborates the derivation - but it is a DERIVATION, and
-# run 1 still owes the measured `phaseAnchorUt=` / `relaunchUt=`.
+# RE-PINNED TWICE ON 2026-08-24. Round 1 put it at 303,539 off a DERIVED phase-lock
+# clock. Reading run 1 (`2026-08-24_1626`, retry `_1627`) red INVALID(driver-rewind)
+# on `timejump refused reason=backward-jump` - the spec's own forbid working as
+# designed - and printed the real clock, so **ROUND 2 PINS IT AT 1,273,133**, still
+# V23M's third cycle-1 bracket, both halves moved together:
+#
+#     L1 (cycle-1 `relaunchUt=`) = **1,249,901.1806192098**
+#     touchdown offset           = **23,091.405**  (MEASURED from the trajectory:
+#                                  altitude settles to 3,854.15 m over 3,850.03 m
+#                                  terrain at UT 23,125.925 - NOT the span)
+#     cycle-1 arrival            = 1,272,992.59 ; +140 bracket -> **1,273,133**
+#
+# ROUND 1's DERIVED ANCHOR WAS WRONG BY ~970 ks even though its derived CADENCE was
+# right to the digit: `firstLaunch` is picked by a zero-drift scheduler over ALL THREE
+# constraints, not by the two-constraint k filter. V23M section 3 carries that in
+# full, together with the A/B against the orbit-ending sibling that came with it.
+#
+# TWO MECHANICS THIS HALF MUST RESPECT: the unit's `spanDur` is the TRACK_SECTION
+# ENVELOPE, 23,123.425 - 99.0 s SHORTER than the recording, the OPPOSITE SIGN to the
+# V22 sibling's, so never substitute one for the other - and `StartLoopPlayback`
+# issues its OWN forward jump to `relaunchUt - 15 s`, so the single bracket must clear
+# 1,249,886, which 1,273,133 does.
 #
 # -------------------------------------------------------------------------------------
-# 1. ROUTING - REQUIRED, AS ON V23M
+# 1. ROUTING - REQUIRED, AS ON V23M, AND **CONFIRMED BY RUN 1**
 # -------------------------------------------------------------------------------------
 # Kerbin -> its own moon is the phase-lock road and the routing is the control
 # variable, not the question, so the phase-lock artifacts are REQUIRED and the re-aim
 # trio is FORBIDDEN. V23M section 1 carries the full justification and the contrast
 # with V17M/V22M, where the routing IS the measurement and requiring a road would gate
 # the reading on its own answer.
+#
+# **RUN 1 CONFIRMED THE ROAD** - `PhaseLock APPLIED ... method=joint-best-fit`,
+# `support=Supported`, `constraints=3` including `Orbital(Mun) same-parent
+# P=138984.37657447575 off=16390.648888550266`, `zeroDrift=yes`,
+# `scheduleWithinTol=yes`, and no `[ReaimDiag]` line anywhere. So the required
+# artifacts DO emit on this subject and the forbidden trio stays absent; that is the
+# opposite outcome to the V22 trio, whose faithful pre-registration was refuted, and
+# it is why requiring a road was defensible HERE and would not have been there. The
+# pins were never reached as GATES on run 1 (the driver red before the log-contract
+# chain), so this is a reading from the log rather than a green verifier row.
 #
 # ONE DIFFERENCE FROM V23M, FOLLOWING V6T's OWN PRECEDENT: `zeroDrift=yes` and
 # `scheduleWithinTol=yes` are NOT required here. V6M requires them and V6T does not,
@@ -152,7 +177,24 @@ id = "V23T-mun-landing-ts-arrival"
 # -------------------------------------------------------------------------------------
 # 7. FLIGHT LEDGER
 # -------------------------------------------------------------------------------------
-# THIS LANE HAS NOT FLOWN. Ledgered here is the PRODUCER flight its subject came from,
+#   **READING RUN 1** - `2026-08-24_1626`, **INVALID(driver-rewind), attempt 1**;
+#     retry `_1627` **INVALID(driver-rewind), attempt 2** (deterministic, identical).
+#     wall 55 s / 54 s. THE SPEC'S OWN FORBID WORKING, NOT A PRODUCT FINDING: the
+#     single `TimeJump` at the round-1 seed 303,539 answered `timejump refused
+#     reason=backward-jump` against a live clock already past 1,249,886, because
+#     `StartLoopPlayback` had jumped itself to `relaunchUt - 15 s`. No TS render pin
+#     was reached, so the LENS - the TS-stamped polyline, `polyline-owns-phase` with
+#     `belowAtmosphere=False`, the `GhostCreated` proto icon in the Mun frame,
+#     `factory chain ... reaimed=False`, and the open `icon-off-orbit` question - is
+#     entirely unmeasured, and so is the V6T A/B on what the TS scene assembles.
+#     WHAT IT MEASURED ANYWAY: the loop clock (L1 = 1,249,901.1806192098) and the
+#     ROUTING, which came back CONFIRMED rather than refuted - `method=joint-best-fit`
+#     over `constraints=3` with `zeroDrift=yes` and `scheduleWithinTol=yes`, no
+#     `[ReaimDiag]` - the opposite outcome to the V22 trio's, and the reason requiring
+#     a road was defensible here. V23M section 3 carries the full line and the
+#     surface-vs-orbit A/B. The jump UT was re-pinned to 1,273,133 in the same commit.
+#
+# WHAT IS LEDGERED BELOW is the PRODUCER flight its subject came from,
 # verdict-neutrally: `B13-mun-landing` run **2026-08-24_1449**, **PASS attempt 1**,
 # wall 2,811 s / mission wall 2,764.1 s (the suite's most expensive scenario, within
 # 0.6% of the 2,747.9 s flight-1 measurement), MISSION-OK across all twenty-one phases
@@ -166,7 +208,7 @@ id = "V23T-mun-landing-ts-arrival"
 # exists on a recording flight, and the first branch point's three childless debris).
 # -------------------------------------------------------------------------------------
 tier = "operator"
-description = "**RE-PINNED 2026-08-24 OFF ITS FIXTURE'S REAL BYTES**, `PENDING_FIXTURE_LANES` entry retired in the same commit. `fixtures/saves/mun-landing-recorded` EXISTS, harvested `--keep-parsek` from `B13-mun-landing` run 2026-08-24_1449 (PASS attempt 1, wall 2,811 s / mission wall 2,764.1 s, MISSION-OK through SURFACE-COMMITTED). Real tree id; ONE jump UT, now 303,539, reused verbatim from V23M's third cycle-1 bracket so both halves observe the SAME INSTANT from two scenes and a divergence is attributable to the HOST rather than the epoch. IT IS STILL A CALIBRATION SEED and the handoff's recipe for it could not be followed: the anchor was to come off the run's own `PhaseLock APPLIED` line, and a RECORDING flight emits none - so V23M computes the schedule from V6M's formula over the measured UT0 34.520 / span 23,222.425, and its k-series reproduces V6M's MEASURED 13/26/45/58/71/84 exactly. The Tracking-Station half of the Mun landing pair (roadmap gap G3a); V23M's header carries the A/B framing, the measured byte table and the derivation. IT HAS A SHARPER JOB THAN ITS V22 COUNTERPART: V6T is its direct A/B - same subject, host, road and epoch shape, differing ONLY in that V6T's recording ends in Mun ORBIT and this one ends LANDED - and four TS lanes (V6T/V14T/V15T/V16T) have pinned `factory chain ... reaimed=False` on same-parent subjects and got the same answer four times, so if a SURFACE endpoint changes what the TS scene assembles, this lane shows it against a four-run baseline rather than against nothing. ROUTING IS REQUIRED as on V23M (the phase-lock road is the control variable, not the question), with ONE difference following V6T's own precedent: `zeroDrift=yes` and `scheduleWithinTol=yes` are NOT required here, because they are FLIGHT-side solver-quality artifacts rather than TS render facts - V6M requires them and V6T does not, and the pair still gates them on the M half where they belong. THE LENS IS AIRLESS AND SCENE-STAMPED: the suppression reason token is `polyline-owns-phase` with `belowAtmosphere=False` (`below-atmosphere` never fires on a body with no atmosphere, and the V22 Kerbin lanes pin the other branch on purpose), and `Polyline frame:` takes the `scene=TRACKSTATION` form because copying the `scene=FLIGHT` one would be unsatisfiable. The `phase=MarkerDecision surface=AtmosphericMarker` tracer line is deliberately NOT required - it is CHANGE-ONLY and this lane enters TS already past the descent onset on a single dwell, so it may legitimately never fire. `phase=GhostCreated surface=ProtoIcon ... body=Mun scene=TRACKSTATION` IS required, but as a PRESENCE claim only: a proto icon being CREATED says nothing about whether a proto LINE is drawn at the touchdown, and on this subject it is not - the suppression pins carry that and the two must not be read as one statement. The forty-tick TS dwell is not optional (V17T's spawn-throttle reading: init walk contributes zero on a segment-less tail, real ghosts arrive newest-cycle-first at `MaxSpawnsPerFrame = 2`, and a landed recording's tail is exactly that shape), so `ParsekTrackingStation initialized: created N` is NOT required with a nonzero N. NO KSC HALF EXISTS and that is a scoping fact, not an omission - see V23M for the precise reason, which is narrower than \"the host is vacuous\": the recording LAUNCHES FROM KERBIN so `IsKscStructurallyEligible` admits it on `Points[0].bodyName` and its ascent leg renders; it is the per-frame pose gate that skips every Mun-frame point, so THE ARRIVAL is what the KSC host cannot show, and an arrival lane is what a KSC half would have to be. `allowedAnomalies = []` on purpose with TWO possible raises pre-registered and neither pre-tolerated: `rigid-seam-tangent-discontinuity`, and `icon-off-orbit`, whose family V19T has since NARROWED - six raises at three parents, V17T silent with two variables moving, V19T silent with self-overlap YES and nested-SOI NO, which excludes nested-SOI and leaves self-overlap the surviving candidate with no mechanism claimed - so this lane is a further data point on an open reading rather than a test of a settled one. NOTHING IS ARMED."
+description = "**RE-PINNED 2026-08-24 OFF ITS FIXTURE'S REAL BYTES**, `PENDING_FIXTURE_LANES` entry retired in the same commit. `fixtures/saves/mun-landing-recorded` EXISTS, harvested `--keep-parsek` from `B13-mun-landing` run 2026-08-24_1449 (PASS attempt 1, wall 2,811 s / mission wall 2,764.1 s, MISSION-OK through SURFACE-COMMITTED). Real tree id; ONE jump UT, **RE-DERIVED IN ROUND 2 TO 1,273,133 OFF THE MEASURED PHASE-LOCK CLOCK** - reused verbatim from V23M's third cycle-1 bracket so both halves observe the SAME INSTANT from two scenes and a divergence is attributable to the HOST rather than the epoch - after reading run 1 (`2026-08-24_1626`, retry `_1627`) red INVALID(driver-rewind) on `timejump refused reason=backward-jump`, the spec's own forbid working as pre-registered, with no TS render pin reached and the lens entirely unmeasured. It is L1 = 1,249,901.1806192098 plus the MEASURED 23,091.405 s touchdown offset plus the family's +140 bracket. Round 1's derived anchor was wrong by ~970 ks even though its derived cadence was right to the digit. **THE ROUTING CAME BACK CONFIRMED HERE** (unlike the V22 trio, whose faithful pre-registration was refuted): `method=joint-best-fit` over `constraints=3` including `Orbital(Mun) same-parent off=16390.648888550266`, `zeroDrift=yes`, `scheduleWithinTol=yes`, no `[ReaimDiag]` - which is why requiring a road was defensible on this pair. V23M section 3 carries the surface-vs-orbit A/B that came with it. The Tracking-Station half of the Mun landing pair (roadmap gap G3a); V23M's header carries the A/B framing, the measured byte table and the derivation. IT HAS A SHARPER JOB THAN ITS V22 COUNTERPART: V6T is its direct A/B - same subject, host, road and epoch shape, differing ONLY in that V6T's recording ends in Mun ORBIT and this one ends LANDED - and four TS lanes (V6T/V14T/V15T/V16T) have pinned `factory chain ... reaimed=False` on same-parent subjects and got the same answer four times, so if a SURFACE endpoint changes what the TS scene assembles, this lane shows it against a four-run baseline rather than against nothing. ROUTING IS REQUIRED as on V23M (the phase-lock road is the control variable, not the question), with ONE difference following V6T's own precedent: `zeroDrift=yes` and `scheduleWithinTol=yes` are NOT required here, because they are FLIGHT-side solver-quality artifacts rather than TS render facts - V6M requires them and V6T does not, and the pair still gates them on the M half where they belong. THE LENS IS AIRLESS AND SCENE-STAMPED: the suppression reason token is `polyline-owns-phase` with `belowAtmosphere=False` (`below-atmosphere` never fires on a body with no atmosphere, and the V22 Kerbin lanes pin the other branch on purpose), and `Polyline frame:` takes the `scene=TRACKSTATION` form because copying the `scene=FLIGHT` one would be unsatisfiable. The `phase=MarkerDecision surface=AtmosphericMarker` tracer line is deliberately NOT required - it is CHANGE-ONLY and this lane enters TS already past the descent onset on a single dwell, so it may legitimately never fire. `phase=GhostCreated surface=ProtoIcon ... body=Mun scene=TRACKSTATION` IS required, but as a PRESENCE claim only: a proto icon being CREATED says nothing about whether a proto LINE is drawn at the touchdown, and on this subject it is not - the suppression pins carry that and the two must not be read as one statement. The forty-tick TS dwell is not optional (V17T's spawn-throttle reading: init walk contributes zero on a segment-less tail, real ghosts arrive newest-cycle-first at `MaxSpawnsPerFrame = 2`, and a landed recording's tail is exactly that shape), so `ParsekTrackingStation initialized: created N` is NOT required with a nonzero N. NO KSC HALF EXISTS and that is a scoping fact, not an omission - see V23M for the precise reason, which is narrower than \"the host is vacuous\": the recording LAUNCHES FROM KERBIN so `IsKscStructurallyEligible` admits it on `Points[0].bodyName` and its ascent leg renders; it is the per-frame pose gate that skips every Mun-frame point, so THE ARRIVAL is what the KSC host cannot show, and an arrival lane is what a KSC half would have to be. `allowedAnomalies = []` on purpose with TWO possible raises pre-registered and neither pre-tolerated: `rigid-seam-tangent-discontinuity`, and `icon-off-orbit`, whose family V19T has since NARROWED - six raises at three parents, V17T silent with two variables moving, V19T silent with self-overlap YES and nested-SOI NO, which excludes nested-SOI and leaves self-overlap the surviving candidate with no mechanism claimed - so this lane is a further data point on an open reading rather than a test of a settled one. NOTHING IS ARMED."
 instanceProfile = "stock-minimal"
 tags = ["V23", "tracking-station", "loop-arrival", "surface-endpoint", "landing",
         "mun", "airless", "phase-lock", "map-render"]
@@ -187,7 +229,7 @@ steps = [
   { cmd = "SetSetting", args = { name = "verboseLogging",   value = "true" }, expect = "OK" },
   { cmd = "MissionConfig", args = { tree = "0da22482a8a648c6835b7bcd6b0f200d", loop = "true" }, expect = "OK" },
   { cmd = "StartLoopPlayback", args = { tree = "0da22482a8a648c6835b7bcd6b0f200d" }, expect = "OK", budget = 300 },
-  { cmd = "TimeJump", args = { ut = "303539" }, expect = "OK", budget = 300 },
+  { cmd = "TimeJump", args = { ut = "1273133" }, expect = "OK", budget = 300 },
   { cmd = "SaveGame",   args = { name = "persistent" },                      expect = "OK" },
   { cmd = "StopRecording",                                                   expect = "OK" },
   { cmd = "DiscardTree",                                                     expect = "OK" },
