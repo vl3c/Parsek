@@ -217,7 +217,7 @@ steps = [
   { cmd = "SetSetting", args = { name = "verboseLogging",   value = "true" }, expect = "OK" },
   { cmd = "MissionConfig", args = { tree = "c05c834cd2754892b4588e7ce9220c3f", loop = "true" }, expect = "OK" },
   { cmd = "StartLoopPlayback", args = { tree = "c05c834cd2754892b4588e7ce9220c3f" }, expect = "OK", budget = 300 },
-  { cmd = "TimeJump", args = { ut = "22964" }, expect = "OK", budget = 300 },
+  { cmd = "TimeJump", args = { ut = "22825" }, expect = "OK", budget = 300 },
   { cmd = "SaveGame",   args = { name = "persistent" },                      expect = "OK" },
   { cmd = "StopRecording",                                                   expect = "OK" },
   { cmd = "DiscardTree",                                                     expect = "OK" },
@@ -275,6 +275,20 @@ allowedAnomalies = []
 count = { min = 1, max = 12 }
 
 [expectations.logContracts]
+# ---------------------------------------------------------------------------------
+# RUN 2 LEDGER (2026-08-24, PARSEK-FAIL(expectations) attempt 1, driver green).
+# The TS entered at the +140 epoch - PAST the replay window end (touchdown
+# offset 1,240.14, window 1,241.88) - and the init walk read `created=0 ...
+# skipped: debris=6 ... loopMemberHidden=3`: the three mains were HIDDEN as
+# out-of-window, so nothing could render and every map-lens pin was
+# unreachable. ROUND 3 MOVES THE JUMP INTO THE IN-WINDOW LANDED SLIVER
+# (22,825 = L1 + 1,241.0; the window ends 22,825.85) so TS entry lands with
+# the member in-window and landed, keeps the GhostCreated pin as THE open
+# question (can the TS materialize a proto for an in-window LANDED member at
+# all - unmeasured either way), adds the init-walk presence pin, and drops
+# the polyline/TracedPath family + the parity/census presence pins with
+# V22M's structural documentation (no map camera; summaries ride map protos).
+# ---------------------------------------------------------------------------------
 required  = [
   "missionconfig applied:",
   "SetLoopEnabled: loop ON",
@@ -282,17 +296,12 @@ required  = [
   "FastForwardToEventUT: jumping to UT=",
   "loadgame trackstation route: booting to TRACKSTATION save=",
   "loadgame complete scene=TRACKSTATION save=.* game-loaded=true expected=TrackingStation",
+  "CreateGhostVesselsFromCommittedRecordings: created=\\d+ from \\d+ recordings",
   "phase=GhostCreated surface=ProtoIcon pid=\\d+ .*body=Kerbin scene=TRACKSTATION",
-  "Polyline frame: scene=TRACKSTATION drawn=[1-9]\\d* warp=",
-  "TracedPath OWNS leg pid=\\d+ .*body=Kerbin drawn=True",
-  "Director TracedPath suppress pid=\\d+ frame=\\d+ \\(polyline owns the leg, proto icon hidden\\)",
-  "faithful-parity summary sampled=\\d+ overTolerance=\\d+",
-  "seam-endpoint summary evaluated=\\d+ outsideSoi=\\d+",
 ]
 forbidden = [
   "\\[Parsek\\]\\[ERROR\\]",
   "timejump refused reason=backward-jump",
-  "faithful-parity summary sampled=\\d+ overTolerance=[1-9][0-9]*",
 ]
 
 [expectations.rewind]

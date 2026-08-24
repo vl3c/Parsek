@@ -229,7 +229,7 @@ steps = [
   { cmd = "SetSetting", args = { name = "verboseLogging",   value = "true" }, expect = "OK" },
   { cmd = "MissionConfig", args = { tree = "0da22482a8a648c6835b7bcd6b0f200d", loop = "true" }, expect = "OK" },
   { cmd = "StartLoopPlayback", args = { tree = "0da22482a8a648c6835b7bcd6b0f200d" }, expect = "OK", budget = 300 },
-  { cmd = "TimeJump", args = { ut = "1273133" }, expect = "OK", budget = 300 },
+  { cmd = "TimeJump", args = { ut = "1272996" }, expect = "OK", budget = 300 },
   { cmd = "SaveGame",   args = { name = "persistent" },                      expect = "OK" },
   { cmd = "StopRecording",                                                   expect = "OK" },
   { cmd = "DiscardTree",                                                     expect = "OK" },
@@ -287,6 +287,16 @@ allowedAnomalies = []
 count = { min = 1, max = 12 }
 
 [expectations.logContracts]
+# ---------------------------------------------------------------------------------
+# RUN 2 LEDGER (2026-08-24, PARSEK-FAIL(expectations) attempt 1, driver green).
+# Same mechanism as V22T: TS entry at +140 sat past the replay window
+# (touchdown offset 23,091.4, window 23,123.4), members hidden, nothing
+# assembled - `factory chain` itself could not print. ROUND 3 MOVES THE JUMP
+# INTO THE IN-WINDOW LANDED TAIL (1,272,996 = L1 + 23,095; 28 s of landed
+# in-window time), keeps GhostCreated + factory chain as the open questions,
+# adds the init-walk presence pin, and drops the map-lens family + parity /
+# census presence pins with the structural documentation in V22M/V23M.
+# ---------------------------------------------------------------------------------
 required  = [
   "missionconfig applied:",
   "SetLoopEnabled: loop ON",
@@ -297,14 +307,9 @@ required  = [
   "PhaseLock APPLIED: mission=",
   "loadgame trackstation route: booting to TRACKSTATION save=",
   "loadgame complete scene=TRACKSTATION save=.* game-loaded=true expected=TrackingStation",
+  "CreateGhostVesselsFromCommittedRecordings: created=\\d+ from \\d+ recordings",
   "phase=GhostCreated surface=ProtoIcon pid=\\d+ .*body=Mun scene=TRACKSTATION",
   "factory chain rec=\\w+ idx=\\d+ inst=\\d+ phases=\\d+ reaimed=False",
-  "Polyline frame: scene=TRACKSTATION drawn=[1-9]\\d* warp=",
-  "TracedPath OWNS leg pid=\\d+ .*body=Mun drawn=True",
-  "Director TracedPath suppress pid=\\d+ frame=\\d+ \\(polyline owns the leg, proto icon hidden\\)",
-  "Orbit line decision: pid=\\d+ reason=polyline-owns-phase .*iconSuppressed=True belowAtmosphere=False",
-  "faithful-parity summary sampled=\\d+ overTolerance=\\d+",
-  "seam-endpoint summary evaluated=\\d+ outsideSoi=\\d+",
 ]
 forbidden = [
   "\\[Parsek\\]\\[ERROR\\]",
@@ -312,7 +317,6 @@ forbidden = [
   "ENGAGED re-aim",
   "FORCED FAITHFUL",
   "timejump refused reason=backward-jump",
-  "faithful-parity summary sampled=\\d+ overTolerance=[1-9][0-9]*",
 ]
 
 [expectations.rewind]

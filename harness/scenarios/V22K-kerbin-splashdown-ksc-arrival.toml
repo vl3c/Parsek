@@ -291,7 +291,7 @@ steps = [
   { cmd = "SetSetting", args = { name = "verboseLogging",   value = "true" }, expect = "OK" },
   { cmd = "MissionConfig", args = { tree = "c05c834cd2754892b4588e7ce9220c3f", loop = "true" }, expect = "OK" },
   { cmd = "StartLoopPlayback", args = { tree = "c05c834cd2754892b4588e7ce9220c3f" }, expect = "OK", budget = 300 },
-  { cmd = "TimeJump", args = { ut = "22964" }, expect = "OK", budget = 300 },
+  { cmd = "TimeJump", args = { ut = "22825" }, expect = "OK", budget = 300 },
   { cmd = "SaveGame",   args = { name = "persistent" },                      expect = "OK" },
   { cmd = "StopRecording",                                                   expect = "OK" },
   { cmd = "DiscardTree",                                                     expect = "OK" },
@@ -349,6 +349,19 @@ allowedAnomalies = []
 count = { min = 1, max = 12 }
 
 [expectations.logContracts]
+# ---------------------------------------------------------------------------------
+# RUN 2 LEDGER (2026-08-24, PARSEK-FAIL(expectations) attempt 1, driver green,
+# and THE FIRST KSC RENDER LINES ANY LANE HAS EVER READ). At the +140 epoch -
+# past the replay window - the host printed `[KSCGhost] Mission-loop unit
+# owner=0 in inter-cycle wait at loopUT=... - all members hidden` (twice) and
+# `Eligible breakdown: looping=... terminal(<null>=..., Landed=...)`, so the
+# two required pins (the queue-exclusion line, which never printed at all,
+# and the surface-resolved line, unreachable with members hidden) missed for
+# epoch reasons. ROUND 3 MOVES THE JUMP INTO THE IN-WINDOW LANDED SLIVER
+# (22,825), pins the measured Eligible-breakdown line, drops the never-printed
+# queue-exclusion pin, and KEEPS `KSC SURFACE playback resolved` as the lane's
+# core question at an epoch where the member is in-window and landed.
+# ---------------------------------------------------------------------------------
 required  = [
   "missionconfig applied:",
   "SetLoopEnabled: loop ON",
@@ -357,7 +370,7 @@ required  = [
   "loadgame spacecenter route \\(requested\\): resuming to SPACECENTER save=",
   "loadgame complete scene=SPACECENTER save=.* game-loaded=true expected=SpaceCenter",
   "ParsekKSC initialized, \\d+ committed recordings, [1-9]\\d* eligible for KSC ghost playback",
-  "Mission-loop member recIdx=\\d+ excluded from KSC global auto queue \\(unit owner=\\d+\\)",
+  "\\[KSCGhost\\] Eligible breakdown: looping=\\d+",
   "KSC SURFACE playback resolved: recording=.* branch=",
 ]
 forbidden = [

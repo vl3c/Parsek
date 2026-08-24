@@ -560,22 +560,38 @@ allowedAnomalies = []
 count = { min = 1, max = 12 }
 
 [expectations.logContracts]
+# ---------------------------------------------------------------------------------
+# RUN 2 LEDGER (2026-08-24, PARSEK-FAIL(expectations) attempt 1, DRIVER FULLY
+# GREEN - the round-2 clock re-pin PROVEN). All six source-derived map-lens
+# tokens missed, and the log carries the mechanism as PRODUCT POLICY, not a
+# defect: `[Policy] Skipped ghost map for #2 "Kerbal X" - terminal=Landed` (the
+# product deliberately creates NO map/TS proto for a landed-terminal member),
+# zero `Created ghost vessel` lines, zero MapRenderTrace phase lines, and the
+# polyline Driver awake but never drawing (its surface is the map camera, and
+# no seam verb opens map view in an unattended lane). The FLIGHT scene is the
+# only render surface this class has, and it measured cleanly: MeshSpawned
+# reason=ghost-created at the -180 brackets (both cycles), ActivationDecision
+# callSite=RenderInRangeGhost through the descent dwells, MeshDestroyed
+# reason=chain-loop unit member outside its window at +140 (both cycles - the
+# post-touchdown teardown measured AT the epoch). ROUND 3 RE-CUTS THE PINS TO
+# THAT MEASURED SET and drops the map-lens family with the structural
+# documentation criterion (b) requires; the faithful-parity / seam-endpoint
+# summaries printed ZERO lines (they ride map protos, of which this class has
+# none), so their presence pins AND the now-inert overTolerance forbid go too.
+# ---------------------------------------------------------------------------------
 required  = [
   "missionconfig applied:",
   "SetLoopEnabled: loop ON",
   "startloopplayback initiated:",
   "FastForwardToEventUT: jumping to UT=",
-  "Polyline frame: scene=FLIGHT drawn=[1-9]\\d* warp=",
-  "TracedPath OWNS leg pid=\\d+ .*body=Kerbin drawn=True",
-  "Director TracedPath suppress pid=\\d+ frame=\\d+ \\(polyline owns the leg, proto icon hidden\\)",
-  "Orbit line decision: pid=\\d+ reason=below-atmosphere .*iconSuppressed=True belowAtmosphere=True",
-  "faithful-parity summary sampled=\\d+ overTolerance=\\d+",
-  "seam-endpoint summary evaluated=\\d+ outsideSoi=\\d+",
+  "Skipped ghost map for #\\d+ .*terminal=Landed",
+  "phase=MeshSpawned .*reason=ghost-created",
+  "phase=MeshDestroyed .*reason=chain-loop unit",
+  "phase=ActivationDecision .*callSite=RenderInRangeGhost",
 ]
 forbidden = [
   "\\[Parsek\\]\\[ERROR\\]",
   "timejump refused reason=backward-jump",
-  "faithful-parity summary sampled=\\d+ overTolerance=[1-9][0-9]*",
 ]
 
 [expectations.rewind]

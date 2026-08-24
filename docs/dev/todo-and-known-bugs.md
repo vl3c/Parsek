@@ -14,6 +14,41 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## LANDED-TERMINAL-LOOP-HAS-NO-MAP-PRESENCE-OUTSIDE-THE-FLIGHT-SCENE: a looped recording whose terminal is Landed renders ONLY as the flight-scene mesh during its replay window - the map/TS/KSC surfaces are deliberately empty [MEASURED 2026-08-24 by the V22/V23 round-2 reading runs, the first landed-terminal loop subjects. REPORT-ONLY: every mechanism below is a deliberate product gate, not a defect; filed because it decides which lenses a surface-endpoint lane can pin, and because it is the measured render answer for surface-base supply routes]
+
+Three independent gates, each read from its own line on the round-2 logs:
+
+- FLIGHT map protos: `[Policy] Skipped ghost map for #2 "Kerbal X" - terminal=Landed`
+  (V22M) - the policy layer deliberately creates no map proto for a
+  landed-terminal member. V23M's subject shows the same absence WITHOUT the
+  Policy line (zero `Skipped ghost map` lines there), so the two subjects reach
+  the same emptiness through different sites - unattributed, stated as read.
+- TRACKING STATION: `CreateGhostVesselsFromCommittedRecordings: created=0 from 9
+  recordings ... loopMemberHidden=3` (V22T, at a post-window epoch) - loop
+  members outside their replay window are hidden from the init walk; whether an
+  IN-window landed member materializes a TS proto is being measured by the
+  round-3 landed-sliver epochs.
+- KSC scene: `[KSCGhost] Mission-loop unit owner=0 in inter-cycle wait at
+  loopUT=... - all members hidden` (V22K) - same window gating at the third
+  host.
+
+CONSEQUENCES. (1) The map-view polyline / TracedPath / orbit-line-decision
+lenses are unreachable for this class in an unattended lane: no proto exists to
+drive them, and additionally NO SEAM VERB OPENS MAP VIEW, so even the always-on
+polyline Driver never draws (awake, zero draws, both round-2 logs). Filed as a
+coverage-program instrument gap; the M-A7 render-composition manifest is the
+design-space answer. (2) The faithful-parity and seam-endpoint censuses ride
+map protos, so they print NOTHING on this class (zero summary lines in both
+logs) - their presence pins are structurally vacuous here and were dropped.
+(3) For supply routes to surface bases, the measured product behavior is: the
+route's ghost is visible ONLY in the flight scene, only during the replay
+window, and the window on a landed-terminal subject ends essentially AT
+touchdown (1.7 s of landed time for V22's subject, 32 s for V23's) - the map
+shows nothing between cycles. Whether that is the WANTED product behavior for
+routes is a product question this entry deliberately does not answer.
+
+---
+
 ## KSC-SURFACE-RESOLVED-TWO-EMITTERS-SHARE-ONE-RATE-LIMIT-KEY: the KSC host logs `KSC SURFACE playback resolved` from two sites with DIFFERENT field sets under ONE rate-limit key, so the only variant carrying `body=` can be silently suppressed by the one that does not [FOUND BY AUDIT 2026-08-21 while authoring `V22K-kerbin-splashdown-ksc-arrival`, the first lane ever to pin the KSC render host. OBSERVABILITY FINDING, REPORT-ONLY: no product change is proposed, nothing gates it, and the lane routes around it. Filed because it silently degrades a diagnostic and because the next author to pin that line will otherwise design an unsatisfiable pin]
 
 `ParsekKSC.Playback.cs` resolves a KSC surface pose on two paths and both log the
