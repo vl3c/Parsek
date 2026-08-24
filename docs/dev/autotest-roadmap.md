@@ -1488,10 +1488,17 @@ the product's v0.10.1 claim that "looped landings after destination parking
 render connected" has never had a lane. THE GAP SPLITS IN TWO, and the split is
 load-bearing because the halves have different owners:
 
-- **G3a, the MISSION-LOOP form** - a landed/splashed loop subject rendered
-  through the same mission-loop front door every committed V lane uses. Lanes
-  V22M/V22T/V22K (Kerbin surface arrival) and V23M/V23T (Mun landing); ids
-  reserved here 2026-08-21.
+- **G3a, the MISSION-LOOP form - CLOSED 2026-08-24.** All five lanes
+  (V22M/V22T/V22K over a Kerbin surface arrival, V23M/V23T over a Mun landing)
+  completed the reading -> armed -> per-lane render-token control discipline in
+  one day. THE MEASURED CLASS ANSWER moved the lens model: a landed-terminal
+  loop member gets NO map/TS proto at ANY epoch (deliberate policy - see
+  LANDED-TERMINAL-LOOP-HAS-NO-MAP-PRESENCE-OUTSIDE-THE-FLIGHT-SCENE), so the
+  class's lenses are the FLIGHT-scene mesh lifecycle, the TS init-walk hidden
+  declaration in value form, and the KSC surface-resolution line - V22K, the
+  first KSC lane ever flown, answered the surface-resolution question YES at an
+  in-window landed epoch. The pre-flight lens sketch below is KEPT as the
+  record of what inspection predicted and flight refuted.
 - **G3b, the route-level endpoint resolution** - `RouteEndpointResolver` prefers
   the recorded PID and falls back to ONE nearest compatible stock vessel within
   `RouteOrchestrator.SurfaceProximityRadiusMeters` = 500 m. That fallback is
