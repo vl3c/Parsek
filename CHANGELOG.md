@@ -53,6 +53,16 @@ All notable changes to Parsek are documented here.
   conclusion, since it is only the fourth of its kind. The produced save is now
   committed as the subject the two new test cases read back, and both have been
   re-aimed at its real contents.
+  Both of those test cases have now had their first run, and the headline is that the
+  earlier result repeated: playing the recording back on a loop, Parsek did not re-plan
+  or re-time the hop, at Kerbin any more than at Jool. The Tracking Station case came
+  back clean. The flight-map case reported a failure on a single word of a single
+  expected log line - it had been told to look for one style of drawn path, and this
+  flight's approach to Minmus is a steeper curve that the map draws in a different
+  style. The map drew it correctly; the check was describing the wrong one, and has
+  been corrected against what was measured. Both cases also had their jump-in times
+  re-derived from the real clock the run reported, which moved them by two to three
+  seconds.
 
 - The automated-testing suite can now check that a recorded flight still draws
   correctly when it is played back in the RETURN direction - a spacecraft coming

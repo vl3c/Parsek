@@ -1509,9 +1509,24 @@ committed; the only `mlib` change the lane needed is one cited
 ORBIT-COMMITTED with all eight assertions met) and its product is committed as
 `fixtures/saves/mun-minmus-recorded`; the V21 pair is RE-PINNED off that
 fixture's real bytes and both `PENDING_FIXTURE_LANES` entries are retired.
-**BUT THE GAP STAYS OPEN, because the thing G4 exists to measure is the ROUTING
-and only the SUBJECT exists so far.** The class-matrix row above stays
-`PARTIAL - G4` until the V21 pair flies and both parents confirm.
+**AND THE V21 PAIR HAS NOW READ IT: H3 REPLICATED AT A SECOND PARENT.** V21M
+(`2026-08-24_1639`) and V21T (`2026-08-24_1642_a2`) both measured `reaimed=False`
+x41 with `MissionLoopUnit: ... not re-aim (no member yields a re-aim transfer);
+faithful` and `PhaseLock SKIPPED ... support=UnsupportedCrossParent` - so the
+research doc's section-11.3 statement that the mechanism belongs to the FLIGHT
+PROFILE rather than to the pair is a MEASUREMENT at a second parent rather than a
+prediction, and the `IsHeliocentricParkingDeparture` door B30's lane left open did
+NOT open at Kerbin. **THE GAP NEVERTHELESS STAYS OPEN UNTIL THE PAIR IS ARMED AND
+ITS TWO NEGATIVE CONTROLS ARE DISCHARGED**: V21T is green and armable but owes a
+re-fly at a jump UT that moved 3 s when V21M re-derived off its logged anchor, and
+V21M itself red PARSEK-FAIL(expectations) on ONE WORD of one required token (its
+shadow pin asked for `treatment=TracedPath` where this subject's hyperbolic Minmus
+approach - `sma=-113900 ecc=4.1888` - renders `treatment=StockConic`; 238 measured
+lines carry the Minmus frame, zero `TracedPath` lines exist anywhere in the log, and
+V21T's log agrees from the other scene). **THAT IS A LENS-VARIANT READING, NOT A
+DEFECT AND NOT AN EPOCH MISS** - the coverage program's lens-per-shape criterion
+gains a third variant - and the pin is corrected off the measured word. The
+class-matrix row above stays `PARTIAL - G4` until the armed re-flights land.
 
 **WHAT B30's FLIGHT MEASURED, against the five targets it pre-registered.**
 Three landed on their derivation. The escape node read 146.9262076658111 m/s
