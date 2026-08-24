@@ -381,14 +381,21 @@ forbidden = [
 ]
 
 [expectations.rewind]
+# ARMED 2026-08-24 off this lane OWN green reading run `2026-08-24_2053`
+# (PASS attempt 1): every rewind facet measured 0, so the arming re-pinned
+# nothing and moved no verdict.
+gating = true
 rewindPoints  = { max = 0 }
 supersedeRows = { max = 0 }
 tombstones    = { max = 0 }
 
 [expectations.recordings.structure]
+# ARMED 2026-08-24, same reading run: recordings pinned at the measured 9,
+# the FIRST armed structure pins on a multi-recording debris-tree loop subject.
+gating = true
 trees          = { min = 1, max = 2 }
 committedTrees = { min = 1, max = 1 }
-recordings     = { min = 1, max = 12 }
+recordings     = { min = 9, max = 9 }
 # DECLARED 2026-08-24 FROM THE HARVESTED BYTES, and it is the ONE facet this spec
 # deliberately left open until the subject existed: B4's `landedSituations` accepts
 # LANDED or SPLASHED and the harvest came back **Landed** (a dry-land touchdown at

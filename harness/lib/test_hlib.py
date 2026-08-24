@@ -5849,6 +5849,22 @@ class SaveStructureVerifierWiringTests(unittest.TestCase):
                        # four things) recorded in the spec ledgers.
                        "V21M-mun-minmus-player-loop.toml",
                        "V21T-mun-minmus-ts-arrival.toml",
+                       # V22M/V22T/V22K + V23M/V23T: the G3a surface-endpoint
+                       # five, armed 2026-08-24 off their OWN green reading runs
+                       # (`_2050`/`_2057`/`_2053`/`_2054`/`_2058`, all PASS
+                       # attempt 1 after the three-round lens calibration that
+                       # measured the landed-terminal render policy - see the
+                       # todo entry and the spec ledgers). `rewind` all max 0;
+                       # `structure` pinned at the measured MULTI-RECORDING
+                       # debris-tree values (9/9 with points 1619 at V22, 11/11
+                       # with 1841 at V23; terminal Landed=1, plus Destroyed
+                       # min 1 on the M halves - the measured M-vs-T save
+                       # asymmetry). V22K is the first armed KSC-scene lane.
+                       "V22M-kerbin-splashdown-player-loop.toml",
+                       "V22T-kerbin-splashdown-ts-arrival.toml",
+                       "V22K-kerbin-splashdown-ksc-arrival.toml",
+                       "V23M-mun-landing-player-loop.toml",
+                       "V23T-mun-landing-ts-arrival.toml",
                        "GS-1-auto-chute-booster.toml", "GS-2-orbital-probe-deploy.toml",
                        "GS-3-switch-nudge-deployed.toml",
                        # B17: rewind (all max 0 - a clean single-launch flight

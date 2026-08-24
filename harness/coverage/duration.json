@@ -1472,6 +1472,56 @@
         "2026-08-24T20:32:39Z": 60.0
       }
     },
+    "V22K-kerbin-splashdown-ksc-arrival": {
+      "last": 62.0,
+      "lastVsP50": 1.0,
+      "n": 1,
+      "p50": 62.0,
+      "p95": 62.0,
+      "samples": {
+        "2026-08-24T20:54:07Z": 62.0
+      }
+    },
+    "V22M-kerbin-splashdown-player-loop": {
+      "last": 85.0,
+      "lastVsP50": 1.0,
+      "n": 1,
+      "p50": 85.0,
+      "p95": 85.0,
+      "samples": {
+        "2026-08-24T20:51:55Z": 85.0
+      }
+    },
+    "V22T-kerbin-splashdown-ts-arrival": {
+      "last": 61.0,
+      "lastVsP50": 1.0,
+      "n": 1,
+      "p50": 61.0,
+      "p95": 61.0,
+      "samples": {
+        "2026-08-24T20:58:56Z": 61.0
+      }
+    },
+    "V23M-mun-landing-player-loop": {
+      "last": 83.0,
+      "lastVsP50": 1.0,
+      "n": 1,
+      "p50": 83.0,
+      "p95": 83.0,
+      "samples": {
+        "2026-08-24T20:55:30Z": 83.0
+      }
+    },
+    "V23T-mun-landing-ts-arrival": {
+      "last": 62.0,
+      "lastVsP50": 1.0,
+      "n": 1,
+      "p50": 62.0,
+      "p95": 62.0,
+      "samples": {
+        "2026-08-24T20:59:59Z": 62.0
+      }
+    },
     "V3C-flight-arrival-companion": {
       "last": 950.0,
       "lastVsP50": 1.041,

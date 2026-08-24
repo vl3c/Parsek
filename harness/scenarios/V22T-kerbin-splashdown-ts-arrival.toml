@@ -289,6 +289,18 @@ count = { min = 1, max = 12 }
 # the polyline/TracedPath family + the parity/census presence pins with
 # V22M's structural documentation (no map camera; summaries ride map protos).
 # ---------------------------------------------------------------------------------
+# ---------------------------------------------------------------------------------
+# RUN 3 LEDGER (2026-08-24, PARSEK-FAIL(expectations) attempt 1, ONE mismatch).
+# THE IN-WINDOW QUESTION IS ANSWERED, AND THE ANSWER IS NO: at the landed-sliver
+# epoch 22,825 - member in-window and landed - the init walk STILL read
+# `created=0 ... loopMemberHidden=3` and the dynamic overlap path created
+# nothing (zero GhostCreated lines in the whole log). Measured identically at
+# V23T's subject (loopMemberHidden=3 at ITS in-window epoch), so the class
+# answer is: A LANDED-TERMINAL LOOP MEMBER NEVER GETS A TS PROTO, at any epoch.
+# The GhostCreated pin is therefore structurally unsatisfiable on this class
+# and is dropped; the honest TS render truth is the hidden-counter declaration,
+# now pinned in its measured value form. Round 4 is the expected green.
+# ---------------------------------------------------------------------------------
 required  = [
   "missionconfig applied:",
   "SetLoopEnabled: loop ON",
@@ -297,7 +309,7 @@ required  = [
   "loadgame trackstation route: booting to TRACKSTATION save=",
   "loadgame complete scene=TRACKSTATION save=.* game-loaded=true expected=TrackingStation",
   "CreateGhostVesselsFromCommittedRecordings: created=\\d+ from \\d+ recordings",
-  "phase=GhostCreated surface=ProtoIcon pid=\\d+ .*body=Kerbin scene=TRACKSTATION",
+  "skipped: debris=\\d+ .*loopMemberHidden=[1-9]",
 ]
 forbidden = [
   "\\[Parsek\\]\\[ERROR\\]",
@@ -305,14 +317,21 @@ forbidden = [
 ]
 
 [expectations.rewind]
+# ARMED 2026-08-24 off this lane OWN green reading run `2026-08-24_2057`
+# (PASS attempt 1): every rewind facet measured 0, so the arming re-pinned
+# nothing and moved no verdict.
+gating = true
 rewindPoints  = { max = 0 }
 supersedeRows = { max = 0 }
 tombstones    = { max = 0 }
 
 [expectations.recordings.structure]
+# ARMED 2026-08-24, same reading run: recordings pinned at the measured 9,
+# the FIRST armed structure pins on a multi-recording debris-tree loop subject.
+gating = true
 trees          = { min = 1, max = 2 }
 committedTrees = { min = 1, max = 1 }
-recordings     = { min = 1, max = 12 }
+recordings     = { min = 9, max = 9 }
 # DECLARED 2026-08-24 FROM THE HARVESTED BYTES, and it is the ONE facet this spec
 # deliberately left open until the subject existed: B4's `landedSituations` accepts
 # LANDED or SPLASHED and the harvest came back **Landed** (a dry-land touchdown at

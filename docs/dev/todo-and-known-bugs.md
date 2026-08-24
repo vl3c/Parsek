@@ -24,10 +24,12 @@ Three independent gates, each read from its own line on the round-2 logs:
   Policy line (zero `Skipped ghost map` lines there), so the two subjects reach
   the same emptiness through different sites - unattributed, stated as read.
 - TRACKING STATION: `CreateGhostVesselsFromCommittedRecordings: created=0 from 9
-  recordings ... loopMemberHidden=3` (V22T, at a post-window epoch) - loop
-  members outside their replay window are hidden from the init walk; whether an
-  IN-window landed member materializes a TS proto is being measured by the
-  round-3 landed-sliver epochs.
+  recordings ... loopMemberHidden=3` (V22T) - AND THE IN-WINDOW QUESTION IS NOW
+  ANSWERED: the round-3 landed-sliver epochs (member in-window and landed, both
+  subjects, both parents) read the SAME `created=0 ... loopMemberHidden=3` with
+  zero GhostCreated lines from the dynamic path, so a landed-terminal loop
+  member NEVER gets a TS proto at any epoch. The `factory chain` line cannot
+  print in the TS for this class either (no proto-driven unit assembles).
 - KSC scene: `[KSCGhost] Mission-loop unit owner=0 in inter-cycle wait at
   loopUT=... - all members hidden` (V22K) - same window gating at the third
   host.
