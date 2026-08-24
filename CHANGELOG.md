@@ -253,9 +253,12 @@ All notable changes to Parsek are documented here.
   confirmation dialog for every mission you fly - the recording is simply committed,
   the way it would have been if you had clicked Merge. The setting is unchanged and
   still there: turn it off in Settings (or the stock difficulty tab) and the
-  per-mission dialog comes back exactly as before, and a save that already has an
-  explicit choice stored keeps it - only saves that never touched the toggle pick up
-  the new default.
+  per-mission dialog comes back exactly as before.
+  Worth knowing if you are upgrading: this changes NEW saves only. KSP writes every
+  Parsek setting into a save each time it saves, so any career you have already
+  played with Parsek installed has `autoMerge = False` stored in it and will keep
+  asking - flip the toggle yourself once if you want the new behaviour there. A save
+  started from here on gets it out of the box.
   The reason it stayed off until now was that the automatic path used to be lossy:
   it committed the mission ghost-only and threw away the vessel's final state, so a
   craft you left alive in orbit or on a surface never re-appeared as a real vessel at
@@ -352,7 +355,7 @@ All notable changes to Parsek are documented here.
 - The plain go-back rewind (Rewind to Launch / warp back) now reconciles supply routes the same way a Re-Fly rewind does: routes created after the rewind target go dormant instead of continuing to run before their own creation point, and surviving routes correctly re-deliver re-played cycles instead of silently skipping them.
 - After a rewind, surviving supply routes now restore their timeline-correct paused or active state, their completed and skipped cycle counters, and drop any armed Send Once or pause-after-cycle one-shot; a Send Once route recovering from a crash mid-delivery also pauses correctly now instead of staying active and sending a second cycle.
 - Science gathered after a rewind point is no longer paid out when that timeline is undone by a Re-Fly: experiment results captured between the rewind point and the rewind itself are now discarded with the rest of the abandoned future, instead of being silently credited at the merge for an experiment that never happened on the surviving timeline.
-- With Auto-merge recordings turned on (Settings), a vessel you leave surviving at the end of a mission (in orbit, landed, or splashed) now stays a real, controllable vessel on the timeline instead of becoming a visual-only ghost, and landed or splashed missions no longer interrupt with a confirmation prompt. Auto-merge is still off by default.
+- With Auto-merge recordings turned on (Settings), a vessel you leave surviving at the end of a mission (in orbit, landed, or splashed) now stays a real, controllable vessel on the timeline instead of becoming a visual-only ghost, and landed or splashed missions no longer interrupt with a confirmation prompt. (Closing that gap is what allowed Auto-merge to become the default later in this same release - see Settings, above.)
 - New recordings no longer store two overlapping trajectory sections for the same time span around time-warp seams, which made the ghost's playback position ambiguous in those windows. Existing recordings are left untouched.
 - A flight that ends in a crash before its recording is committed no longer saves overlapping trajectory sections at each booster-separation boundary; the recorder now closes and reopens sections at the exact same instant, so crashed-flight saves pass the same integrity checks as surviving flights.
 - Supply-route inventory delivery now uses every cargo container on the destination vessel: when the first container is full, items are delivered into the next container with a free slot instead of being reported as undelivered. Pickup already worked this way; delivery now matches it.

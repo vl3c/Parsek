@@ -242,12 +242,23 @@ Before capturing any release bundle, verify that the deployed
 ## Scene Transitions
 
 ### Exit To Space Center (deferred merge dialog)
-1. Record a flight, then Esc → Space Center (without reverting)
-2. Verify: the deferred `ParsekMerge` dialog appears because the shipped
-   default is `Auto-merge recordings = off`
-3. Choose `Merge to Timeline` once and verify the pending tree commits
-4. Repeat on a disposable run and choose `Discard` once, verifying the pending
+1. Turn `Auto-merge recordings` OFF in Settings first - it is ON by default since
+   0.10.4, and with it on this exit commits silently and no dialog appears (that
+   silent path is the next block)
+2. Record a flight, then Esc → Space Center (without reverting)
+3. Verify: the deferred `ParsekMerge` dialog appears
+4. Choose `Merge to Timeline` once and verify the pending tree commits
+5. Repeat on a disposable run and choose `Discard` once, verifying the pending
    tree clears without a new committed recording
+
+### Exit To Space Center (silent auto-commit, the default)
+1. With `Auto-merge recordings` ON (the shipped default), record a flight that
+   ends with the vessel intact - in orbit, landed, or splashed - then Esc → Space
+   Center
+2. Verify: NO dialog appears and the recording commits on its own
+3. Verify the surviving vessel is spawn-at-end eligible: let its ghost play to the
+   end and confirm it becomes a real, controllable vessel rather than staying a
+   visual-only ghost
 
 ### Missed EndUT
 1. Merge a recording with "Keep Vessel"

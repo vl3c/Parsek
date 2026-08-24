@@ -49,9 +49,13 @@ namespace Parsek
         /// (it committed ghost-only and dropped the terminal vessel snapshot, so a
         /// surviving vessel never re-materialised at its recording end), which is
         /// why the default was OFF; the silent full-fidelity auto-commit work
-        /// (`docs/dev/plans/silent-full-fidelity-autocommit.md`) closed that gap
-        /// and routes the ON path through the dialog's own commit + per-leaf vessel
-        /// decisions. Re-Fly exits and MAINMENU still show their dialog regardless.</para>
+        /// (`docs/dev/plans/silent-full-fidelity-autocommit.md`) closed that gap for
+        /// the path that matters, routing a <c>Finalized</c> pending tree through the
+        /// dialog's own commit + per-leaf vessel decisions. Note the qualifier: a
+        /// non-<c>Finalized</c> (Limbo) tree or a live re-fly marker still falls to
+        /// <c>AutoCommitTreeGhostOnly</c> by design (plan §4.4 / §10), so "ON is no
+        /// longer lossy" is a statement about the Finalized path, not a universal one.
+        /// Re-Fly exits and MAINMENU still show their dialog regardless.</para>
         ///
         /// <para>The reset-to-defaults value lives in
         /// <see cref="SettingsWindowPresentation.BuildDefaults"/>; the two are pinned
