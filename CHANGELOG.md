@@ -37,8 +37,22 @@ All notable changes to Parsek are documented here.
   Also here: a new starting save, made by taking a committed Mun-orbit flight and
   stripping Parsek's own bookkeeping out of it so the new mission records a clean
   flight of its own rather than appending to an old one. Test-tooling only; no
-  gameplay change. The mission is authored and its checks pass, but it has not
-  been flown yet.
+  gameplay change.
+  The mission has now flown, and it worked on the first try: the ship left the Mun,
+  crossed to Minmus and parked there, and the whole 79-hour flight came back as one
+  unbroken recording. Five questions had been written down in advance so the answers
+  could not be invented afterwards. Three landed where the arithmetic said they
+  would - most precisely the departure burn, predicted at 146.93 m/s and flown at
+  146.9262. Two did not, and both are the sort of thing this kind of flight exists
+  to find out. The transfer burn cost about 14% more than the widest estimate, which
+  is exactly the ambiguity that was flagged in advance: this flight changed the
+  planet AND added a tilted destination at the same time, so there is no way to say
+  which of the two the extra cost belongs to. And the arrival came in higher than
+  asked for rather than lower, which is the opposite of what five earlier flights
+  had suggested for a target this size - reported as a reading, not as a
+  conclusion, since it is only the fourth of its kind. The produced save is now
+  committed as the subject the two new test cases read back, and both have been
+  re-aimed at its real contents.
 
 - The automated-testing suite can now check that a recorded flight still draws
   correctly when it is played back in the RETURN direction - a spacecraft coming

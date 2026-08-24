@@ -5036,8 +5036,8 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
         # DURATION - dominated by a stage-2 transfer-window wait uniform on
         # [0, 159,570.7 s] and seeded at its midpoint. A dwell-nowhere run 1 is
         # the accepted pre-registered outcome, exactly as V17M's was.
-        "V21M-mun-minmus-player-loop.toml": "tier=operator by the calibration discipline (derived windows, first run is a calibration reading), NOT debt; AUTHORED 2026-08-23 ahead of its subject with a ZERO placeholder tree id and eight calibration-seed jump UTs, tracked by the self-retiring PENDING_FIXTURE_LANES exemption in this file; what is open is B30's FLIGHT, not a human review call",
-        "V21T-mun-minmus-ts-arrival.toml":  "tier=operator by the calibration discipline (derived windows, first run is a calibration reading), NOT debt; AUTHORED 2026-08-23 ahead of its subject with a ZERO placeholder tree id and ONE calibration-seed jump UT (V21M's third cycle-1 bracket, reused so the pair observes the same instant from two scenes), tracked by the self-retiring PENDING_FIXTURE_LANES exemption in this file; what is open is B30's FLIGHT, not a human review call",
+        "V21M-mun-minmus-player-loop.toml": "tier=operator by the calibration discipline (derived windows, first run is a calibration reading), NOT debt; AUTHORED 2026-08-23 ahead of its subject, then RE-PINNED 2026-08-24 off `mun-minmus-recorded`'s real bytes the day B30 flew it (run `2026-08-24_1536`, PASS attempt 1) - the ZERO placeholder tree id is replaced by 029afab30803454894b02be12567af81, the span envelope / both seam offsets / the segment-less tail are byte facts, and the PENDING_FIXTURE_LANES exemption is RETIRED (that map is empty again; its self-retirement cell fired red first). The eight jump UTs REMAIN calibration seeds because the anchor `A` is one, but their error term is now seconds rather than the ~100 Ms span miss the S1 seed carried; what is open is this lane's own FLIGHT",
+        "V21T-mun-minmus-ts-arrival.toml":  "tier=operator by the calibration discipline (derived windows, first run is a calibration reading), NOT debt; AUTHORED 2026-08-23 ahead of its subject, then RE-PINNED 2026-08-24 off the same real bytes (tree id 029afab30803454894b02be12567af81; the single jump moved to 587226, still V21M's third cycle-1 bracket reused so the pair observes the same instant from two scenes). The PENDING_FIXTURE_LANES exemption is RETIRED. The jump REMAINS a calibration seed because the anchor `A` is one, though the seam offset behind it (+267,230.864 s from ut0) is now a byte fact; what is open is this lane's own FLIGHT",
         "H5-invariants-corpus.toml":        "discharged - 'resolving the former PENDING-OPERATOR check'",
         "H6-route-rewind-timeline.toml":    "discharged - 'The former PENDING-OPERATOR ...'",
         "M1-mission-loop-unit.toml":        "discharged - 'CLOSED by the 2026-07-26 flights'",
@@ -11637,17 +11637,18 @@ class SharedShipsManifestTests(unittest.TestCase):
     # so the two entries were deleted in the same commit - which is exactly the
     # discipline the cell below enforces, and it DID fire red first.
     # RE-ARMED 2026-08-23 by the G4 pair, which is exactly the case this
-    # mechanism exists for: `V21M`/`V21T` are the DOWNSTREAM half of a two-stage
-    # program whose UPSTREAM lane (`B30-mun-minmus-transfer`) is authored but
-    # NOT FLOWN, so the fixture they name cannot exist yet - and their whole
-    # value is that their predictions are written DOWN BEFORE the flight. Both
-    # carry a NOT FLYABLE banner, the ZERO placeholder tree id, and calibration
-    # -seed jump UTs derived from a stated hypothesis (V21M header section 3).
-    # DELETE BOTH in the same commit that re-pins the pair off the harvested
-    # bytes; the cell below reds until then, in both directions.
+    # mechanism exists for: `V21M`/`V21T` were the DOWNSTREAM half of a two-stage
+    # program whose UPSTREAM lane (`B30-mun-minmus-transfer`) was authored but
+    # NOT FLOWN, so the fixture they named could not exist yet - and their whole
+    # value was that their predictions were written DOWN BEFORE the flight.
+    # RETIRED 2026-08-24 by B30 flight 1 (run
+    # `2026-08-24_1536_B30-mun-minmus-transfer`, PASS attempt 1):
+    # `mun-minmus-recorded` EXISTS, is registered in
+    # `test_saveparse.RECORDED_FIXTURES`, and BOTH lanes are re-pinned off its
+    # bytes (tree id, span envelope, both seam offsets, the segment-less tail),
+    # so the two entries were deleted in the same commit - the discipline this
+    # cell enforces, and it DID fire red first, for the second time.
     PENDING_FIXTURE_LANES = {
-        "V21M-mun-minmus-player-loop.toml": "mun-minmus-recorded",
-        "V21T-mun-minmus-ts-arrival.toml": "mun-minmus-recorded",
     }
 
     def test_the_pending_fixture_exemption_retires_itself(self):

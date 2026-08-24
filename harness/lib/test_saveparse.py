@@ -1087,6 +1087,71 @@ class CommittedFixtureSweepTests(unittest.TestCase):
             "recordingIds": ["625d63e022c449d6a44b5269c8b54a21"],
             "schemaGeneration": 4,
         },
+        # --- THE SECOND CROSS-PARENT (MOON-TO-MOON) SUBJECT --------------
+        # PROVENANCE: mun-minmus-recorded <- B30-mun-minmus-transfer, run
+        # 2026-08-24_1536_B30-mun-minmus-transfer (2026-08-24), PASS attempt 1
+        # (mission wall 2,320 s / run wall 2,377 s - the full twenty-phase chain
+        # through ORBIT-COMMITTED with all eight telemetry assertions met),
+        # harvested --keep-parsek. DLL PROVENANCE: flown on the post-PR-#1523
+        # DLL with **auto-merge recordings ON**, deployed hash prefix
+        # 27f5f31907efce27.
+        #
+        # WHY IT EXISTS ALONGSIDE vall-transfer-recorded, its sibling directly
+        # above: roadmap gap G4 wanted the SECOND moon-to-moon transfer and a
+        # REPLICATION of B26's shape at a SECOND parent. Mun and Minmus are
+        # sibling moons of Kerbin, so `IsSameParentTarget` classifies this
+        # CROSS-PARENT exactly as Laythe/Vall. It was flown via B26's flag-gated
+        # PARENT-RELAY mode (`parentRelayTransfer`), inherited verbatim; the only
+        # code the lane needed was one cited `mlib.STOCK_BODY_GRAVITY` row for
+        # Mun. What DIFFERS from the Jool subject is worth stating, because it is
+        # what makes this a replication rather than a duplicate: a DIFFERENT
+        # parent (Kerbin, whose SOI is only 7.01x Mun's orbital radius against
+        # Jool's 90.35x Laythe's) and an INCLINED target (Minmus ~6 deg, where
+        # Laythe/Vall are coplanar). **THE ROUTING IS UNMEASURED** - this fixture
+        # is the subject, not the answer; V21M/V21T read it and gate on nothing.
+        #
+        # THE ONE-RECORDING TOPOLOGY IS THE CONTRACT, not an accident: B30 ran
+        # against the Parsek-stripped `mun-park-kerbalx` for exactly that reason.
+        # `branchPoints` is EMPTY and must stay so - one craft, no separation
+        # event anywhere in the profile. Both body-change seams were SUPPRESSED
+        # in tree mode by the recorder (`SOI change boundary suppressed in tree
+        # mode: Mun to Kerbin` and `... Kerbin to Minmus`), so the recording
+        # stayed cohesive across both.
+        #
+        # THE BYTES V21M/V21T ANCHOR ON, read off this fixture:
+        #   tree id          029afab30803454894b02be12567af81
+        #   recordingId      a219b5a47df14988987b1f02a976fc0b
+        #   explicitStartUT  21,747.140307940532
+        #   explicitEndUT    305,651.766077061360
+        #   TRACK_SECTION envelope (THE SPAN, per the span-end trap - NOT the
+        #     point list): 21,747.100307940530 -> 305,654.546077063950,
+        #     spanDur **283,907.445769123 s**, 36 sections
+        #   THIRTEEN ORBIT_SEGMENTs, body roster Mun x3 / Kerbin x7 / Minmus x3,
+        #   and TWO body-change seams:
+        #     ESCAPE  Mun->Kerbin    at 38,842.400559838  (offset from envelope
+        #       start 17,095.300251898)
+        #     ARRIVAL Kerbin->Minmus at 288,977.964167143 (offset 267,230.863859202)
+        #     both are exact adjacent endUT == startUT pairs
+        #   last ORBIT_SEGMENT ends at 304,859.806076324, so the recording closes
+        #     with a **794.740000740 s SEGMENT-LESS PARKED TAIL** (the
+        #     B25/V16M/V17M shape; the three Minmus segments are the approach
+        #     hyperbola and the captured park carries no closed segment of its
+        #     own). V21M's park epoch is based on that TAIL.
+        #   save clock (FLIGHTSTATE UT)  305,655.666077064990
+        #   pointCount 1444, endpointBodyName Minmus, endpointPhase 3,
+        #     terminalState 0 (Orbiting)
+        #   authoritative sidecars: 4 (.pann, .prec, _ghost.craft, _vessel.craft)
+        #     plus the committed .prec.txt mirror
+        "mun-minmus-recorded": {
+            "trees": 1, "committedTrees": 1, "recordings": 1,
+            "supersedes": 0, "tombstones": 0, "rewind_points": 0,
+            "rewind_retirements": 0,
+            "terminalStates": {"Orbiting": 1},
+            "branchPoints": {},
+            "minAuthoritativeSidecars": 4,
+            "recordingIds": ["a219b5a47df14988987b1f02a976fc0b"],
+            "schemaGeneration": 4,
+        },
         # --- THE FIRST RETURN-DIRECTION SUBJECT --------------------------
         # PROVENANCE: jool-return-recorded <- B28-laythe-jool-return, run
         # 2026-08-20_2330, PASS attempt 1 (mission wall 474.6 s, the full chain

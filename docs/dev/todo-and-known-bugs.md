@@ -3287,6 +3287,32 @@ Minmus +-0.9%) EXCEPT Duna, which spans 230.9 - 718.2 km on an identical 300 km 
 a factor of 3.1. Any sizing built on this must be built against a ~3x spread rather than
 a point estimate.
 
+**UPDATE 2026-08-24 - THE COLLAPSE IS NOW UNCONFIRMED ABOVE 10%, AND THE POINT THAT
+UNCONFIRMED IT IS THE SIXTH IN THE CORPUS.** `B30-mun-minmus-transfer` flight 1 (run
+`2026-08-24_1536`, PASS attempt 1) delivered an arrival periapsis of **303,202.380 m
+against the 250,000 m request - k = 1.213 at req/SOI 11.12%** (delivered/SOI 13.49%
+against Minmus's 2,247,428.4 m SOI). That sits between the Mun row (10.290%, k
+0.545-0.563) and Jool (24.430%, k 0.974) on the `req/SOI` axis and is HIGHER than
+either - so the monotone collapse the table reads out is NOT reproduced at the next
+point measured. Read carefully, and do not over-read it in either direction:
+- The `req/SOI >= 4%` regime is now **n = 4**, up from the n = 3 the paragraph above
+  already flags as an honesty limit. Four points do not establish a shape; they
+  establish that the shape three points suggested is not safe to size against.
+- **THIS k FOLLOWED A SIGN-CHANGE RESCUE**, which no other corpus point did. Round 0
+  (2.782 m/s) corrected a predicted periapsis of **-59,552.9 m** - a Minmus IMPACT -
+  to +186,943.2 m, which is k 0.748 and INSIDE the collapse's prediction; only round 1
+  (0.701 m/s) carried it to 296,532.8 and thence to 303,202.4 at SOI entry. Whether a
+  k read after two rounds from a negative start is the same measurement as a k read
+  off a single in-family correction is OPEN, and this entry does not assert that it is.
+- `Minmus` ALREADY appears in the table at req/SOI **0.890%** with k 1.89-1.92. That is
+  the SAME BODY in the other regime; the two rows must be kept distinct, and a future
+  re-cut of the table must not merge them.
+**PRACTICAL CONSEQUENCE, unchanged in direction:** the fix remains target MARGIN with
+the arrival gate as the closed-loop guard. What changes is that a high-`req/SOI` lane
+may now arrive EITHER side of its request, so a sizing that assumed under-delivery and
+leaned on the request as an upper bound is no longer supported - check the FLOOR
+against k ~ 0.5 and the ceiling against k ~ 1.3.
+
 **THE NINE SITES CARRYING THE MIS-DENOMINATED BAND** (measured with
 `grep -rn "956" harness/scenarios/*.toml docs/dev/autotest-status.md`, not listed from
 memory. **ALL NINE ARE NOW CORRECTED (2026-08-18), together with the two framing sites

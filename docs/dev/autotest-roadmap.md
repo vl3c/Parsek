@@ -1500,14 +1500,47 @@ V17 - the relay coast will again miss the whole-revolution conjunct unless
 deliberately flown to close a revolution, and that variant is G7, not this
 lane.
 
-**STATUS 2026-08-23: AUTHORED, NOT FLOWN.** `B30-mun-minmus-transfer`,
-`b30_mun_minmus` (+ schema + unit cells), the Parsek-stripped
-`fixtures/saves/mun-park-kerbalx` and the `V21M`/`V21T` pair are committed; the
-only `mlib` change the lane needed is one cited `STOCK_BODY_GRAVITY` row for
-Mun. **NOTHING IS MEASURED YET** - a cloud session cannot fly, so B30's five
-pre-registered observation targets and the V21 pair's routing read are both
-outstanding, and this gap stays OPEN. The class-matrix row above stays
-`PARTIAL - G4` until both parents confirm.
+**STATUS 2026-08-24: THE SUBJECT IS FLOWN; THE ROUTING READ IS NOT.**
+`B30-mun-minmus-transfer`, `b30_mun_minmus` (+ schema + unit cells), the
+Parsek-stripped `fixtures/saves/mun-park-kerbalx` and the `V21M`/`V21T` pair are
+committed; the only `mlib` change the lane needed is one cited
+`STOCK_BODY_GRAVITY` row for Mun. **B30 FLEW GREEN ON ATTEMPT 1** (run
+`2026-08-24_1536`, mission wall 2,320 s, the full twenty-phase chain through
+ORBIT-COMMITTED with all eight assertions met) and its product is committed as
+`fixtures/saves/mun-minmus-recorded`; the V21 pair is RE-PINNED off that
+fixture's real bytes and both `PENDING_FIXTURE_LANES` entries are retired.
+**BUT THE GAP STAYS OPEN, because the thing G4 exists to measure is the ROUTING
+and only the SUBJECT exists so far.** The class-matrix row above stays
+`PARTIAL - G4` until the V21 pair flies and both parents confirm.
+
+**WHAT B30's FLIGHT MEASURED, against the five targets it pre-registered.**
+Three landed on their derivation. The escape node read 146.9262076658111 m/s
+against a derived 146.93, leaving the BOUND Mun orbit the corrected escape
+contract intends (ecc 0.783858 against 0.7836, apoapsis 15.35% past the SOI
+against 15.2%); the delivered Kerbin orbit read a = 9.09 Mm, INSIDE the derived
+6.41-49.2 Mm band and STILL BOUND, so (1)'s lane-ending parent-escape tail did
+not materialise and the deliberate UNDER-sizing was right; and MechJeb's
+moon-path `OperationTransfer` PLANNED ON THE FIRST ASK from an ECCENTRIC
+(ecc 0.302) Kerbin orbit toward the inclined target, which was the ranked-#1
+predicted failure and did not occur.
+TWO CAME BACK OUT OF BAND, and both are this entry's own predictions being
+tested rather than defects. **(2)'s attribution problem is now concrete:** the
+stage-2 node read 212.700 m/s against an 18.8/129.2/186.6 band - 14.0% above the
+worst corner - and because the lane changes the parent AND adds an inclined
+target in one step, THERE IS NO WAY TO SAY WHICH OF THE TWO THE OVERAGE BELONGS
+TO. The spec said so before the flight; the flight has not made it decidable,
+and nothing in this entry may later cite 212.700 as a parent effect.
+**And the arrival periapsis inverted the finding-16d expectation**, delivering
+303,202 m against a 250,000 m request (k = 1.213 at req/SOI 11.12%) where the
+corpus's monotone collapse predicted 0.5-0.7. Recorded as a reading with no
+mechanism claimed: it is only the fourth point in that regime and it followed a
+sign-change rescue.
+**AND THE THIRD ESCAPE-BOUNDARY OPTIMIZER DATA POINT WAS NOT COLLECTED.** The
+recorder suppressed both SOI boundaries in tree mode and the produced count came
+back at 1, but the load-time optimizer pass never ran on the subject (the only
+`Optimization pass:` line is `skipped (no recordings)`), and the flight ran with
+AUTO-MERGE RECORDINGS ON, under which a count of 1 cannot distinguish 'never
+split' from 'split then merged'. That measurement is OWED TO V21's LoadGame.
 
 **WHAT AUTHORING IT ALREADY ESTABLISHED, because it is not what this entry
 assumed.** This entry priced G4 as a cheap replication ("at a fraction of V17's

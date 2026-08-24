@@ -4,7 +4,9 @@ id = "V21M-mun-minmus-player-loop"
 # *** NOT FLYABLE YET. *** Committed AHEAD OF ITS SUBJECT: `saveTemplate` names
 # `fixtures/saves/mun-minmus-recorded`, which DOES NOT EXIST until
 # `B30-mun-minmus-transfer` flies green and its produced save is harvested with
-# `--keep-parsek`. THE TREE ID IS THE ZERO PLACEHOLDER
+# `--keep-parsek`. **RE-PINNED 2026-08-24 OFF THAT FIXTURE'S REAL BYTES - SEE
+# HEADER 3.7.** What follows describes the PRE-FLIGHT state and is kept as the
+# record of what was seeded: THE TREE ID WAS THE ZERO PLACEHOLDER
 # (`00000000000000000000000000000000`) and ALL EIGHT TimeJump UTs are CALIBRATION
 # SEEDS derived from B30's PLANNED numbers under the hypothesis stated in section
 # 3 - not from any flight. This is the V17M/V17T disposition verbatim, one gap
@@ -156,6 +158,8 @@ id = "V21M-mun-minmus-player-loop"
 # The offsets in 3.4 are measured from **ut0 = the span START**, on that rule.
 #
 # ### 3.3 THE SEED HYPOTHESIS **S1**: every wait at its EXPECTED value
+# **SUPERSEDED BY 3.7 (the 2026-08-24 re-pin). KEPT AS THE PRE-FLIGHT RECORD,
+# because which terms S1 got right and which it missed is itself a reading.**
 # The fixture `mun-park-kerbalx` sits at UT **21,745.960307940506** and B30 opens
 # its recording within a frame of the seam `StartRecording`, so:
 #   ut0 (seed)                                            **21,746**
@@ -222,6 +226,7 @@ id = "V21M-mun-minmus-player-loop"
 # named here so a large span miss reads as this term rather than as a defect.
 #
 # ### 3.4 THE JUMP TABLE (whole seconds, the V14M/V15M/V16M/V17M convention)
+# **SUPERSEDED BY 3.7. The steps below carry 3.7's numbers, not these.**
 #   overlapCadence = 383,810.4 / 20 = **19,190.52**, AND IT IS CARRIED AT FULL
 #     PRECISION BELOW. The first cut of this table truncated it to 19,190.5, which is
 #     0.02 s per step; over the twenty-one steps to instance 21 that accumulates to
@@ -268,6 +273,78 @@ id = "V21M-mun-minmus-player-loop"
 #     offsets and the segment-less tail start, measured from **ut0** (3.2)
 # Then re-cut the eight UTs and re-cut V21T's single jump to the new +140 bracket.
 #
+# ### 3.7 **THE RE-PIN, 2026-08-24 - OFF `mun-minmus-recorded`'s REAL BYTES**
+# B30 flew green on attempt 1 (`2026-08-24_1536_B30-mun-minmus-transfer`) and its
+# product is committed. THREE of 3.6's four numbers are now BYTE FACTS rather than
+# seeds, and the fourth is not:
+#   * **ut0 AND spanDur ARE READ FROM THE SIDECAR'S `TRACK_SECTION` ENVELOPE**, which
+#     IS what `MissionLoopUnit` reports (3.2's trap is about reading the POINT list
+#     instead, and the point list is 0.040 s late at the head and 2.780 s short at the
+#     tail on this subject - the same shape V17M and V19M measured).
+#   * **THE TWO SEAM OFFSETS AND THE SEGMENT-LESS TAIL ARE READ FROM THE COMMITTED
+#     `ORBIT_SEGMENT` LIST**, exactly as 3.6 prescribes.
+#   * **`A` IS STILL A SEED.** The anchor is the UT `MissionConfig loop=true` is
+#     issued at DURING THIS LANE'S OWN RUN, which is the fixture's save clock plus
+#     however long the LoadGame + stub-kill + tracer-arm prologue takes. The save
+#     clock is 305,655.666077065; **A is seeded at 305,660**, the same round-up
+#     convention S1 used. Run 1 confirms it off `missionconfig applied:` /
+#     `SetLoopEnabled ... anchorUT=`, and every bracket below moves rigidly with it.
+#     **SO THE TABLE IS STILL A CALIBRATION SEED, BUT ITS ERROR TERM IS NOW SECONDS
+#     RATHER THAN THE ~100 KILOSECOND SPAN MISS S1 CARRIED.**
+#
+# THE BYTES:
+#   tree id                 **029afab30803454894b02be12567af81**
+#   recordingId             a219b5a47df14988987b1f02a976fc0b
+#   explicitStartUT         21,747.140307940532   (the V6M convention's UT0 is NOT
+#     this: the TRACK_SECTION envelope opens 0.040 s EARLIER, at 21,747.100307940530,
+#     and THAT is the span start every offset below is measured from)
+#   explicitEndUT           305,651.766077061360
+#   span (envelope)         **[21,747.100307940530, 305,654.546077063950]**
+#   spanDur                 **283,907.445769123 s**   (S1 seeded 383,810.4: **-26.0%**)
+#   overlapCadence = spanDur / 20 = **14,195.372288456**  (carried at full precision;
+#     3.4's truncation lesson applies unchanged - 0.02 s per step over 21 steps was
+#     enough to floor four cycle-2 UTs one second early last time)
+#   THIRTEEN ORBIT_SEGMENTs, Mun 0-2 / Kerbin 3-9 / Minmus 10-12, TWO body-change
+#     seams, both exact adjacent `endUT == startUT` pairs:
+#       ESCAPE  Mun->Kerbin    38,842.400559838   offset **17,095.300251897**
+#         (S1 seeded 16,494.7 - within 3.6%)
+#       ARRIVAL Kerbin->Minmus 288,977.964167143  offset **267,230.863859202**
+#         (S1 seeded 364,133.4 - **96,902.5 s high**, and B30's flight ledger
+#         attributes the miss to the TRANSFER LEG, not to the transfer-window wait
+#         S1 named as its dominant error term)
+#   last ORBIT_SEGMENT ends 304,859.806076324, so the **SEGMENT-LESS PARKED TAIL IS
+#     794.740000740 s** - LONGER than S1's 600 s seed, which is the good direction:
+#     3.3's "shorter than ~424 s makes the park pin UNSATISFIABLE" case did NOT
+#     materialise.
+#   inbound leg (arrival seam -> tail start) = 15,881.841909181
+#   PARK OFFSET = 267,230.863859202 + 15,881.841909181 + 0.707 * 794.740000740
+#               = **283,674.586948907**, and it is now on V17M's DEFINITION as well
+#     as its formula: the 0.707 multiplies the SEGMENT-LESS TAIL, not a quantity that
+#     still contains segmented time. The C3 drift 3.3 named is therefore CLOSED.
+#
+# THE JUMP TABLE, re-cut (whole seconds, floored, the standing convention):
+#   cycle-1 relaunch     = A +  1 * overlapCadence  =   319,855.372288
+#   cycle-1 arrival seam = relaunch + 267,230.863859 = 587,086.236148
+#     bracket -180 / -60 / +140  ->  **586906 / 587026 / 587226**
+#   cycle-1 park         = relaunch + 283,674.586949 ->  **603529**
+#   cycle-2 relaunch     = A + 21 * overlapCadence  =   603,762.818058
+#   cycle-2 arrival seam = relaunch + 267,230.863859 = 870,993.681917
+#     bracket -180 / -60 / +140  ->  **870813 / 870933 / 871133**
+#   cycle-2 park         = relaunch + 283,674.586949 ->  **887437**
+# Every jump is strictly forward, and the cycle-1 park (603,529) precedes the
+# cycle-2 relaunch (603,762.82) by **232.86 s** - which is the same number as the
+# census margin below, and not a coincidence: both are `0.293 * tail`.
+#
+# **THE CENSUS MARGIN IS NOW MEASURED RATHER THAN SEEDED: 232.86 s.** The honest
+# ledger from section 4 stands and this lane keeps its place in it, second-thinnest
+# but by a wider margin than the seed suggested: **V16M 104.54 s, THIS LANE 232.86 s
+# (measured), V17M 244.5 s.**
+#
+# **WHAT IS STILL A SEED AFTER THIS RE-PIN, said plainly:** `A`, and therefore every
+# UT above rigidly. Nothing here is a measurement of the CLOCK SHAPE - cadence,
+# overlapCadence and the self-overlap are still V17M's measurement carried forward as
+# a prediction (3.1), and run 1 is what tests whether it replicates at this parent.
+#
 # ---------------------------------------------------------------------------------
 # 4. THE FORTY-TICK CENSUS-PACING BLOCK, at the cycle-1 park epoch
 # ---------------------------------------------------------------------------------
@@ -280,13 +357,15 @@ id = "V21M-mun-minmus-player-loop"
 #
 # WHAT IT COSTS: ~10-22 wall s and ~10-22 GAME seconds of 1x playback at the
 # cycle-1 park epoch, against a SEEDED 600 s parked tail with the epoch 70.7% into
-# it - i.e. **175.8 s** of recorded tail left. **THAT IS THE SECOND-THINNEST MARGIN
+# it - i.e. **232.86 s** of recorded tail left (MEASURED at the 2026-08-24 re-pin;
+# the figure was 175.8 s while the tail was a 600 s seed). **THAT IS THE
+# SECOND-THINNEST MARGIN
 # ANY LANE CARRYING THIS BLOCK HAS HAD, NOT THE THINNEST**, and the superlative that
 # stood here rested on two wrong numbers, one inherited and one this file's own:
 #   * **V16M RAN THIS EXACT FORTY-TICK BLOCK INSIDE 104.54 s OF RECORDED TAIL** - its
 #     own header says so twice (lines 264 and 729: "95.9% into the destination phase
 #     and 104.54 s clear of the recording's end"), and V19M line 449 states it as the
-#     family ledger. 175.8 s is 1.68x that, so V16M holds the record and this lane is
+#     family ledger. 232.86 s is 2.23x that, so V16M holds the record and this lane is
 #     second, not first.
 #   * **V17M's "~1,296 s" IS V17M's OWN ARITHMETIC ERROR, not a real margin.** Its
 #     park offset applies the 0.707 to the TAIL ALONE (834.560 s, measured to the
@@ -294,7 +373,8 @@ id = "V21M-mun-minmus-player-loop"
 #     **244.5 s** - not 1,296 s, and 11x the block rather than 60x. The 1,296 figure
 #     is 29.3% of the whole ~4,425 s destination phase, which is not where that
 #     formula parks the epoch.
-# **SO THE HONEST LEDGER IS: V16M 104.54 s, THIS LANE 175.8 s (seeded), V17M 244.5 s.**
+# **SO THE HONEST LEDGER IS: V16M 104.54 s, THIS LANE 232.86 s (MEASURED),
+# V17M 244.5 s.**
 # The margin is still thin, and it is thin for a reason none of those three share -
 # the 600 s tail is a SEED rather than a measurement, and 3.3 names a second way that
 # seed can bite. If the re-pin measures a shorter tail, MOVE THE PARK EPOCH EARLIER
@@ -608,7 +688,7 @@ id = "V21M-mun-minmus-player-loop"
 # `tier = "operator"` on the calibration discipline.
 # =====================================================================================
 tier = "operator"
-description = "**AUTHORED 2026-08-23, NOT FLYABLE YET.** The flight-map half of the SECOND moon-to-moon loop pair, at a SECOND parent, and it is a REPLICATION - roadmap gap G4. Committed AHEAD of its subject exactly as V17M/V17T were: `saveTemplate` names `fixtures/saves/mun-minmus-recorded`, which does not exist until `B30-mun-minmus-transfer` flies green and is harvested with `--keep-parsek`; the tree id is the ZERO PLACEHOLDER `00000000000000000000000000000000` and all EIGHT TimeJump UTs are CALIBRATION SEEDS under the hypothesis in header section 3. The pair OWES `harness/lib/test_hlib.py` two `PENDING_FIXTURE_LANES` entries, and until they land `test_every_spec_saveTemplate_names_a_real_fixture` reds on both lanes - that is the guard working. **WHAT IS BEING REPLICATED:** `B26-laythe-vall-transfer` + V17M/V17T answered M-MIS-7 once, at one parent, on one pair of moons - the classifier is reached and DECLINES on the PARKING-ORBIT / MID-COURSE structural check (`ReaimClassifier.cs:270-277`), phase-lock declines too (`support=UnsupportedCrossParent`), and a moon-to-moon hop replays PLAIN FIXED-CADENCE FAITHFUL. The research doc states that mechanism as a property of the FLIGHT PROFILE rather than of the pair (section 11.3, 'THE MECHANISM IS THE FLIGHT PROFILE'S, NOT THE PAIR'S') - but that is a PREDICTION, and G4 exists to convert it into a measurement at a second parent. **THE SEED WEAKNESS HAS MOVED, AND THAT IS THE INTERESTING PART:** V17M's seeds were weak because the ROUTING was unknown (two roads, two planners, two anchors); that uncertainty is GONE - the clock SHAPE is now predicted from V17M's own measurement (cadence = span, overlapCadence = span/20, self-overlapping, instance 21 exactly one span after instance 1) - and what is unknown here is instead the FLIGHT DURATION, because B30 has not flown and its span is the sum of six waits of which only two are tight. The dominant error term is the stage-2 transfer-window wait, uniform on [0, 159,570.7 s] and seeded at its midpoint (box +/- 79,785 s), with a second unmodelled term named rather than guessed: the stage-2 burn happens at the delivered Kerbin orbit's periapsis and that orbit's own period runs ~51 ks to ~517 ks. Every jump is `anchor + k*(span/20) + offset`, so a span error scales into every bracket. **RUN 1 IS A CLOCK READ FIRST AND A BRACKET CALIBRATION SECOND, and a dwell-nowhere run 1 is the accepted pre-registered outcome** - V17M's landed 21,967 s past its real arrival seam and still carried the measurement the whole pair existed for. Section 3 gives the full S1 derivation off the G4 number set (ut0 21,746; escape node +2,735.7; Mun SOI exit +13,759; stage-2 wait +79,785.3; transfer leg +267,853.4; arrival coast +19,077; park tail +600; arrival-seam offset 364,133.4; spanDur 383,810.4; anchor seed 405,560; overlapCadence 19,190.52) and a four-number re-pin recipe. It also carries V19M's **SPAN-END TRAP**: the unit's span is the TRACK_SECTION ENVELOPE, not the first/last POINT - V17M measured 0.020 s / 1.060 s and V19M 0.020 s / 1.360 s - so every offset is measured from the span START and the re-pin must read `span=[...]` off the product's own `MissionLoopUnit:` line rather than off the sidecar's point list. **THREE THINGS ARE NEW AT THIS PAIR AND ARE NAMED SO THE READINGS ARE ATTRIBUTED:** (i) a different parent, the replication's purpose; (ii) **MUN AND MINMUS ARE NOT RESONANT** - B26's pair sits in Jool's 1:2:4 chain, which put P_Vall and the Laythe-Vall synodic 0.6615 s apart and made V17's two candidate jump tables IDENTICAL on cycle 1, whereas P_Minmus/P_Mun = 7.7513, so nothing here is rescued by a coincidence of the system; (iii) **THE SEAM MAGNITUDE IS WORSE, NOT BETTER** - Mun is 20.25% of its own orbit against Laythe's 13.70% and Minmus 4.78% against Vall's 5.58%, so section 5.2's physical objection to re-aiming a moon hop is STRONGER at this pair than at the one where it was written. **THE LENS CHOICE IS THE SHARPEST THING IN THE FILE (coverage criterion (a)), AND THE ARGUMENT FOR IT IS NARROWER THAN THE FIRST CUT CLAIMED.** The CLASSIFICATION is a code fact: visited bodies are {Mun, Kerbin, Minmus}, **MUN AND MINMUS ARE SIBLINGS UNDER KERBIN**, `NestedSoiSubtree.FindNestedRoot` finds a non-root parent with >= 2 visited children, and the walk returns root=Kerbin with visited=3 / crossings=2. **THE CAUSAL STORY BUILT ON IT WAS NOT, AND IS RETRACTED**: `phase=body-orbit surface=ProtoOrbitLine ... body=Minmus` is NOT pinned, but not because the fail-closed classifier makes it unsatisfiable - `PhaseFactory.cs:122-127` and `MapRenderTrace.cs:99-111` both call that block DEFINE-ONLY and GEOMETRY-NEUTRAL ('reads the already-built chain inputs and emits a log line, never mutating geometry'), and it is gated on `MapRenderTrace.IsEnabled` so it does not execute at all with tracing off. The disproof is inside V21T's own header: V17T's TS logs DID print `phase=body-orbit ... body=Vall` on the SAME recording V17M's flight scene could not, and a property of a recording's body set cannot be true in one scene and false in the other. What is actually known is a MEASUREMENT - V17M's runs 2-4 dwelt 10.3 s at +140 and the on-change proto line printed nothing across it - a flight-scene, lens-specific, one-subject negative with NO mechanism claimed. V19M's contrasting 85 prints (Jool 44 / Laythe 41) on a {Laythe, Jool} chain with no sibling pair is the correlate, not the cause. **THE PIN IS THEREFORE ONE TOKEN, NOT TWO.** `shadow ... coverage=InSegment segIdx=\\d+ treatment=TracedPath visible=True ... body=Minmus` is EPOCH-DEPENDENT and is **the only thing in this file that catches a forward jump at the wrong epoch**, because every seeded UT sits hundreds of kiloseconds in the future and the backward-jump guard is near-inert here; the site that satisfies it is the SEGMENT-LESS PARKED TAIL, not the approach conic (`ChainAssembler` assigns an above-surface OrbitSegment to `StockConic`, and V17M's own three Vall segments 'are all the approach hyperbola', which is why it re-based its park epoch on the 833.5 s segment-less tail). `segIdx` is left as `\\d+` rather than seeded at V17M's 11, because it indexes the ASSEMBLED RENDER CHAIN (`GhostRenderChain.Segments`, `ChainAssembler.cs`) rather than the recorded ORBIT_SEGMENT list and the family has measured the mapping moving - V7M read segIdx=7 on a 10-phase chain, V17M segIdx=11 on 13 recorded segments with `phases=12`; if a fixed index is ever re-armed, its denominator comes off `factory chain rec=... phases=N` and it is expressed as the LAST index (`phases - 1`), which is both the likelier fact and a re-pin that survives a changed segment count. **AND THE `fail-closed-to-faithful ... root=Kerbin ... bodies=Mun/Kerbin/Minmus` DECLARATION IS KEPT AS THE LINE TO READ BUT IS DELIBERATELY *NOT* REQUIRED ON RUN 1** - the most serious correction in this pass. Its emit site, `PhaseFactory.EmitFailClosedDecisionTraceIfEnabled`, returns early on `if (isReaimedMember) return;`, so it is a FAITHFUL-ROAD-ONLY line: if re-aim engages at Kerbin - the door this spec deliberately leaves open and itself calls THE FINDING OF THE LANE - the required token could not print and the run would red PARSEK-FAIL(expectation) on the finding, i.e. a lane silently gating on the faithful road while claiming to gate on neither. V17M carries the same token but ARMED IT AFTER measuring `reaimed=False`; that is the S1.4 rule, and it is the disposition to repeat at the arming pass with the run that shows it - the same treatment V21T already gives `created 0 ghost vessel(s)`. **THE RE-AIM TRIO STAYS BOTH UNREQUIRED AND UNFORBIDDEN and NO D11 CELL IS CLAIMED**, sharper here than anywhere: a lane that required the measured answer could not report a NON-replication, which is the one outcome worth the flight. One structural door is genuinely open and is written down before the flight: `IsHeliocentricParkingDeparture` missed by 15.13% at Laythe (0.8686 rev of a 49,717.82 s period), and at Kerbin the pre-transfer coast is a different shape entirely, so whether it closes a whole revolution here is open - if it does, this subject re-aims, and THAT would be the finding of the lane. **IT CARRIES NO `EnterWatchMode` STEP, WHICH IS A DELIBERATE DEPARTURE FROM SIX PREDECESSORS.** At Minmus specifically the verdict is a die roll on an unmeasured phase: V7M pinned REJECTED at two park epochs and got it (rdist 144,349 m / 191,497 m), but its calibration run `2026-08-08_1607` walked cycles 3/4/5 and ALL THREE ENTERED, the cycle-3 park measuring anchorDist=51,503 m - both verdicts on the record at this body, differing only in co-orbital phase, with the refusing boundary an open interval (51.5 km, 144.3 km) whose refusing term has never been identified. **AND THE ARITHMETIC IS RE-CAST AGAINST WHAT V7M MEASURED RATHER THAN AGAINST THE 300 km CONSTANT, because the paragraph that stood here mixed two constants and then leaned on a model V7M's own header says its measurements killed.** It computed ~91 deg from the 300,000 m `WatchEnterCutoffMeters` gate but called that 'roughly a fifth of the phase circle', which is the 120,000 m `GhostVisualRangeMeters` figure; 300 km is 50.7% of the circle, so the risk over two steps was ~76%, not 1-in-3 - and 'inside 300 km therefore watchable' is falsified outright, since BOTH of V7M's refusals sat at 144.3 km and 191.5 km, INSIDE 300 km. Re-cast at r ~ 210 km against V7M's MEASURED open interval (51.5 km, 144.3 km), where separation is `2r sin(t/2)`: the pair ENTERS below ~14.1 deg (7.8% of the circle, V7M's `anchorDist=51503m zone=Visual`), REFUSES above ~40.2 deg (77.7%, its `rdist=144349m zone=Beyond`), and is UNKNOWN in the 14.5% between - so a pinned REJECTED is measurably right on ~77.7% of single draws, measurably wrong on ~7.8%, and unbacked on the rest, which over two steps is ~60% both provably refused, ~15% at least one provably entering, ~25% at least one unbacked. **THE CLOSEST ANALOGUE IS V19M, NOT V7M**: it is the only other SELF-OVERLAPPING subject the family has watched, and BOTH its watch steps returned REJECTED on `reason=no-watchable-ghost committed=1 tree=(any)` - the selector never reached `IsWithinWatchEntryRange` at all, which is evidence a REJECTED pin is safer on a 20-instance loop than V7M's phase-locked data suggests, without making it backed. Nothing is lost: V7M already measured the watch question at Minmus in both directions, and a watch step can be added at arming with its verdict derived from the run's own `anchorDist=` / `rdist=` lines. The two park-epoch jumps STAY - they are the census block's site and the cycle-2 counterpart sample. Carries V16M's PROVEN forty-tick census-pacing block at the cycle-1 park epoch (it measured both arrivals 11.502 wall-s apart where V15M's three runs printed one) plus V17M's +140 dwell blocks at both arrival brackets, and prices the census margin at the **SECOND-thinnest** any lane carrying the block has had - 175.8 s of seeded recorded tail against a ~10-22 game-second block - correcting BOTH halves of the superlative the first cut claimed: **V16M ran this exact forty-tick block inside 104.54 s** of recorded tail (its own header lines 264 and 729; V19M line 449 states it as the family ledger), and **V17M's cited ~1,296 s is V17M's own arithmetic error** - its park offset applies the 0.707 to the TAIL alone (834.560 s), so its true remainder is `0.293 * 834.560` = **244.5 s**, not 1,296. The honest ledger is V16M 104.54 s, this lane 175.8 s (seeded), V17M 244.5 s. The margin is thin because the 600 s park tail is a seed; if the re-pin measures a shorter tail, move the park epoch earlier rather than shrinking the block. **A SECOND, LARGER RISK FROM THE SAME SEED IS NAMED RATHER THAN LEFT SILENT (C3):** V17M's park formula multiplies 0.707 by the SEGMENT-LESS TAIL, with the capture burn and circularization inside the INBOUND LEG term, whereas this table multiplies a 600 s quantity that still contains segmented time - so the seeded park epoch may land in a conic or a burn where the pinned TracedPath cannot print, and if the real tail is shorter than ~424 s the park jump overshoots the recording end into `OutsideWindow` and the pin becomes unsatisfiable outright. The re-pin recipe already names the right anchor, so only the SEED drifted. The cycle-2 park epoch additionally carries a 12-tick dwell block, because dropping `EnterWatchMode` there left `TimeJump` immediately followed by `FlushAndQuit` and nothing to read at an epoch this spec calls the counterpart sample. **THE NEGATIVE CONTROL OWED BY CRITERION (b) IS OWED AND NOT YET FLOWN, AND THIS PAIR OWES TWO, NOT ONE SHARED** - sharper than V19's reason for the same rule: V19's halves pinned different LENSES, while this pair's halves pin different lenses AND different PRODUCERS AND different SCENES (the nested-SOI fail-closed declaration plus the Director TracedPath drive here, the Tracking Station's dynamic overlap-path proto ICON there), so one shared inversion would prove one of four things at most. The design is pre-registered - invert one character-run inside the required array only, `body=Minmus` -> `body=Vall`, a body this recording never visits - but is deliberately CUT AT ARMING off the reading bytes rather than now, because inverting a token whose measured text does not yet exist would be inverting a guess; a control that PASSES is a FAILED control (V19T's `_0857` passed on a mis-escaped regex that made no edit at all). NOTHING IS ARMED: `allowedAnomalies = []` so the creation-frame family V17M measured is reported as data rather than pre-tolerated, `[expectations.rewind]` is REPORT-ONLY, `[expectations.recordings.structure]` is ABSENT, and the recordings count window {1,4} is a DERIVED RANGE matching B30's own - the load-time optimizer walk fires for the FIRST time on this lane's LoadGame, so a split at either body-change seam or at the stage-2 propulsive sandwich would show HERE. **THE WINDOW'S COST IS STATED RATHER THAN LEFT SILENT (C4):** a split at either body-change seam leaves each resulting recording seeing ONE body, `NestedSoiSubtree` returns null on its `distinct.Count < 2` guard, the `bodies=Mun/Kerbin/Minmus` form can never print, and the surviving `segIdx=\\d+` shadow pin shifts with the truncated chain - so a green count with a red render pin is itself THE READING (the optimizer split a subject the family has twice measured it keeping cohesive), and neither the window nor the pins should be widened to absorb it. Both body-change seams are ON RAILS, which is the case rule 3 keeps cohesive: the Mun->Kerbin crossing happens 13,759 s of coast after the periapsis escape burn, past `soiLeadSeconds` and into native warp, and the Kerbin->Minmus arrival is a rails coast."
+description = "**RE-PINNED 2026-08-24 OFF ITS FIXTURE'S REAL BYTES, NOT YET FLOWN.** The flight-map half of the SECOND moon-to-moon loop pair, at a SECOND parent, and it is a REPLICATION - roadmap gap G4. Committed AHEAD of its subject exactly as V17M/V17T were, and RE-PINNED the day its subject flew: `saveTemplate` names `fixtures/saves/mun-minmus-recorded`, which `B30-mun-minmus-transfer` produced on 2026-08-24 (run `2026-08-24_1536`, PASS attempt 1) and which is now committed and registered in `test_saveparse.RECORDED_FIXTURES`. The tree id is that fixture's own `029afab30803454894b02be12567af81` - the ZERO PLACEHOLDER IS GONE - and both `PENDING_FIXTURE_LANES` entries are DELETED, that map empty again. **WHAT THE RE-PIN MADE A BYTE FACT AND WHAT IT DID NOT (header 3.7):** ut0 and spanDur come off the sidecar's TRACK_SECTION ENVELOPE (span [21,747.100307940530, 305,654.546077063950], spanDur **283,907.446 s** against S1's seeded 383,810.4 - **-26.0%**), and both seam offsets and the segment-less tail come off the committed ORBIT_SEGMENT list (escape Mun->Kerbin +17,095.300 against a seeded 16,494.7; arrival Kerbin->Minmus **+267,230.864** against a seeded 364,133.4; tail **794.740 s** against a seeded 600, which is the GOOD direction because 3.3's 'shorter than ~424 s makes the park pin unsatisfiable' case did not materialise). **`A` IS STILL A SEED** - it is the UT this lane's own MissionConfig is issued at, seeded at 305,660 off the fixture's 305,655.666 save clock - so ALL EIGHT UTs REMAIN CALIBRATION SEEDS, but their error term is now SECONDS rather than the ~100 Ms span miss S1 carried. The park offset is additionally back on V17M's DEFINITION (0.707 x the SEGMENT-LESS tail), which CLOSES the C3 drift this file named, and the census margin is now MEASURED at **232.86 s** rather than seeded at 175.8 - the honest ledger reading V16M 104.54 s, this lane 232.86 s, V17M 244.5 s, so the second-thinnest claim survives with more room than the seed suggested. **NOTHING ABOUT THE CLOCK SHAPE IS MEASURED YET**: cadence = span, overlapCadence = span/20 and the self-overlap are still V17M's measurement carried forward as a PREDICTION, and run 1 is what tests whether it replicates at this parent. **WHAT IS BEING REPLICATED:** `B26-laythe-vall-transfer` + V17M/V17T answered M-MIS-7 once, at one parent, on one pair of moons - the classifier is reached and DECLINES on the PARKING-ORBIT / MID-COURSE structural check (`ReaimClassifier.cs:270-277`), phase-lock declines too (`support=UnsupportedCrossParent`), and a moon-to-moon hop replays PLAIN FIXED-CADENCE FAITHFUL. The research doc states that mechanism as a property of the FLIGHT PROFILE rather than of the pair (section 11.3, 'THE MECHANISM IS THE FLIGHT PROFILE'S, NOT THE PAIR'S') - but that is a PREDICTION, and G4 exists to convert it into a measurement at a second parent. **THE SEED WEAKNESS HAS MOVED, AND THAT IS THE INTERESTING PART:** V17M's seeds were weak because the ROUTING was unknown (two roads, two planners, two anchors); that uncertainty is GONE - the clock SHAPE is now predicted from V17M's own measurement (cadence = span, overlapCadence = span/20, self-overlapping, instance 21 exactly one span after instance 1) - and what is unknown here is instead the FLIGHT DURATION, because B30 has not flown and its span is the sum of six waits of which only two are tight. The dominant error term is the stage-2 transfer-window wait, uniform on [0, 159,570.7 s] and seeded at its midpoint (box +/- 79,785 s), with a second unmodelled term named rather than guessed: the stage-2 burn happens at the delivered Kerbin orbit's periapsis and that orbit's own period runs ~51 ks to ~517 ks. Every jump is `anchor + k*(span/20) + offset`, so a span error scales into every bracket. **RUN 1 IS A CLOCK READ FIRST AND A BRACKET CALIBRATION SECOND, and a dwell-nowhere run 1 is the accepted pre-registered outcome** - V17M's landed 21,967 s past its real arrival seam and still carried the measurement the whole pair existed for. Section 3 gives the full S1 derivation off the G4 number set (ut0 21,746; escape node +2,735.7; Mun SOI exit +13,759; stage-2 wait +79,785.3; transfer leg +267,853.4; arrival coast +19,077; park tail +600; arrival-seam offset 364,133.4; spanDur 383,810.4; anchor seed 405,560; overlapCadence 19,190.52) and a four-number re-pin recipe. It also carries V19M's **SPAN-END TRAP**: the unit's span is the TRACK_SECTION ENVELOPE, not the first/last POINT - V17M measured 0.020 s / 1.060 s and V19M 0.020 s / 1.360 s - so every offset is measured from the span START and the re-pin must read `span=[...]` off the product's own `MissionLoopUnit:` line rather than off the sidecar's point list. **THREE THINGS ARE NEW AT THIS PAIR AND ARE NAMED SO THE READINGS ARE ATTRIBUTED:** (i) a different parent, the replication's purpose; (ii) **MUN AND MINMUS ARE NOT RESONANT** - B26's pair sits in Jool's 1:2:4 chain, which put P_Vall and the Laythe-Vall synodic 0.6615 s apart and made V17's two candidate jump tables IDENTICAL on cycle 1, whereas P_Minmus/P_Mun = 7.7513, so nothing here is rescued by a coincidence of the system; (iii) **THE SEAM MAGNITUDE IS WORSE, NOT BETTER** - Mun is 20.25% of its own orbit against Laythe's 13.70% and Minmus 4.78% against Vall's 5.58%, so section 5.2's physical objection to re-aiming a moon hop is STRONGER at this pair than at the one where it was written. **THE LENS CHOICE IS THE SHARPEST THING IN THE FILE (coverage criterion (a)), AND THE ARGUMENT FOR IT IS NARROWER THAN THE FIRST CUT CLAIMED.** The CLASSIFICATION is a code fact: visited bodies are {Mun, Kerbin, Minmus}, **MUN AND MINMUS ARE SIBLINGS UNDER KERBIN**, `NestedSoiSubtree.FindNestedRoot` finds a non-root parent with >= 2 visited children, and the walk returns root=Kerbin with visited=3 / crossings=2. **THE CAUSAL STORY BUILT ON IT WAS NOT, AND IS RETRACTED**: `phase=body-orbit surface=ProtoOrbitLine ... body=Minmus` is NOT pinned, but not because the fail-closed classifier makes it unsatisfiable - `PhaseFactory.cs:122-127` and `MapRenderTrace.cs:99-111` both call that block DEFINE-ONLY and GEOMETRY-NEUTRAL ('reads the already-built chain inputs and emits a log line, never mutating geometry'), and it is gated on `MapRenderTrace.IsEnabled` so it does not execute at all with tracing off. The disproof is inside V21T's own header: V17T's TS logs DID print `phase=body-orbit ... body=Vall` on the SAME recording V17M's flight scene could not, and a property of a recording's body set cannot be true in one scene and false in the other. What is actually known is a MEASUREMENT - V17M's runs 2-4 dwelt 10.3 s at +140 and the on-change proto line printed nothing across it - a flight-scene, lens-specific, one-subject negative with NO mechanism claimed. V19M's contrasting 85 prints (Jool 44 / Laythe 41) on a {Laythe, Jool} chain with no sibling pair is the correlate, not the cause. **THE PIN IS THEREFORE ONE TOKEN, NOT TWO.** `shadow ... coverage=InSegment segIdx=\\d+ treatment=TracedPath visible=True ... body=Minmus` is EPOCH-DEPENDENT and is **the only thing in this file that catches a forward jump at the wrong epoch**, because every seeded UT sits hundreds of kiloseconds in the future and the backward-jump guard is near-inert here; the site that satisfies it is the SEGMENT-LESS PARKED TAIL, not the approach conic (`ChainAssembler` assigns an above-surface OrbitSegment to `StockConic`, and V17M's own three Vall segments 'are all the approach hyperbola', which is why it re-based its park epoch on the 833.5 s segment-less tail). `segIdx` is left as `\\d+` rather than seeded at V17M's 11, because it indexes the ASSEMBLED RENDER CHAIN (`GhostRenderChain.Segments`, `ChainAssembler.cs`) rather than the recorded ORBIT_SEGMENT list and the family has measured the mapping moving - V7M read segIdx=7 on a 10-phase chain, V17M segIdx=11 on 13 recorded segments with `phases=12`; if a fixed index is ever re-armed, its denominator comes off `factory chain rec=... phases=N` and it is expressed as the LAST index (`phases - 1`), which is both the likelier fact and a re-pin that survives a changed segment count. **AND THE `fail-closed-to-faithful ... root=Kerbin ... bodies=Mun/Kerbin/Minmus` DECLARATION IS KEPT AS THE LINE TO READ BUT IS DELIBERATELY *NOT* REQUIRED ON RUN 1** - the most serious correction in this pass. Its emit site, `PhaseFactory.EmitFailClosedDecisionTraceIfEnabled`, returns early on `if (isReaimedMember) return;`, so it is a FAITHFUL-ROAD-ONLY line: if re-aim engages at Kerbin - the door this spec deliberately leaves open and itself calls THE FINDING OF THE LANE - the required token could not print and the run would red PARSEK-FAIL(expectation) on the finding, i.e. a lane silently gating on the faithful road while claiming to gate on neither. V17M carries the same token but ARMED IT AFTER measuring `reaimed=False`; that is the S1.4 rule, and it is the disposition to repeat at the arming pass with the run that shows it - the same treatment V21T already gives `created 0 ghost vessel(s)`. **THE RE-AIM TRIO STAYS BOTH UNREQUIRED AND UNFORBIDDEN and NO D11 CELL IS CLAIMED**, sharper here than anywhere: a lane that required the measured answer could not report a NON-replication, which is the one outcome worth the flight. One structural door is genuinely open and is written down before the flight: `IsHeliocentricParkingDeparture` missed by 15.13% at Laythe (0.8686 rev of a 49,717.82 s period), and at Kerbin the pre-transfer coast is a different shape entirely, so whether it closes a whole revolution here is open - if it does, this subject re-aims, and THAT would be the finding of the lane. **IT CARRIES NO `EnterWatchMode` STEP, WHICH IS A DELIBERATE DEPARTURE FROM SIX PREDECESSORS.** At Minmus specifically the verdict is a die roll on an unmeasured phase: V7M pinned REJECTED at two park epochs and got it (rdist 144,349 m / 191,497 m), but its calibration run `2026-08-08_1607` walked cycles 3/4/5 and ALL THREE ENTERED, the cycle-3 park measuring anchorDist=51,503 m - both verdicts on the record at this body, differing only in co-orbital phase, with the refusing boundary an open interval (51.5 km, 144.3 km) whose refusing term has never been identified. **AND THE ARITHMETIC IS RE-CAST AGAINST WHAT V7M MEASURED RATHER THAN AGAINST THE 300 km CONSTANT, because the paragraph that stood here mixed two constants and then leaned on a model V7M's own header says its measurements killed.** It computed ~91 deg from the 300,000 m `WatchEnterCutoffMeters` gate but called that 'roughly a fifth of the phase circle', which is the 120,000 m `GhostVisualRangeMeters` figure; 300 km is 50.7% of the circle, so the risk over two steps was ~76%, not 1-in-3 - and 'inside 300 km therefore watchable' is falsified outright, since BOTH of V7M's refusals sat at 144.3 km and 191.5 km, INSIDE 300 km. Re-cast at r ~ 210 km against V7M's MEASURED open interval (51.5 km, 144.3 km), where separation is `2r sin(t/2)`: the pair ENTERS below ~14.1 deg (7.8% of the circle, V7M's `anchorDist=51503m zone=Visual`), REFUSES above ~40.2 deg (77.7%, its `rdist=144349m zone=Beyond`), and is UNKNOWN in the 14.5% between - so a pinned REJECTED is measurably right on ~77.7% of single draws, measurably wrong on ~7.8%, and unbacked on the rest, which over two steps is ~60% both provably refused, ~15% at least one provably entering, ~25% at least one unbacked. **THE CLOSEST ANALOGUE IS V19M, NOT V7M**: it is the only other SELF-OVERLAPPING subject the family has watched, and BOTH its watch steps returned REJECTED on `reason=no-watchable-ghost committed=1 tree=(any)` - the selector never reached `IsWithinWatchEntryRange` at all, which is evidence a REJECTED pin is safer on a 20-instance loop than V7M's phase-locked data suggests, without making it backed. Nothing is lost: V7M already measured the watch question at Minmus in both directions, and a watch step can be added at arming with its verdict derived from the run's own `anchorDist=` / `rdist=` lines. The two park-epoch jumps STAY - they are the census block's site and the cycle-2 counterpart sample. Carries V16M's PROVEN forty-tick census-pacing block at the cycle-1 park epoch (it measured both arrivals 11.502 wall-s apart where V15M's three runs printed one) plus V17M's +140 dwell blocks at both arrival brackets, and prices the census margin at the **SECOND-thinnest** any lane carrying the block has had - 175.8 s of seeded recorded tail against a ~10-22 game-second block - correcting BOTH halves of the superlative the first cut claimed: **V16M ran this exact forty-tick block inside 104.54 s** of recorded tail (its own header lines 264 and 729; V19M line 449 states it as the family ledger), and **V17M's cited ~1,296 s is V17M's own arithmetic error** - its park offset applies the 0.707 to the TAIL alone (834.560 s), so its true remainder is `0.293 * 834.560` = **244.5 s**, not 1,296. The honest ledger is V16M 104.54 s, this lane 175.8 s (seeded), V17M 244.5 s. The margin is thin because the 600 s park tail is a seed; if the re-pin measures a shorter tail, move the park epoch earlier rather than shrinking the block. **A SECOND, LARGER RISK FROM THE SAME SEED IS NAMED RATHER THAN LEFT SILENT (C3):** V17M's park formula multiplies 0.707 by the SEGMENT-LESS TAIL, with the capture burn and circularization inside the INBOUND LEG term, whereas this table multiplies a 600 s quantity that still contains segmented time - so the seeded park epoch may land in a conic or a burn where the pinned TracedPath cannot print, and if the real tail is shorter than ~424 s the park jump overshoots the recording end into `OutsideWindow` and the pin becomes unsatisfiable outright. The re-pin recipe already names the right anchor, so only the SEED drifted. The cycle-2 park epoch additionally carries a 12-tick dwell block, because dropping `EnterWatchMode` there left `TimeJump` immediately followed by `FlushAndQuit` and nothing to read at an epoch this spec calls the counterpart sample. **THE NEGATIVE CONTROL OWED BY CRITERION (b) IS OWED AND NOT YET FLOWN, AND THIS PAIR OWES TWO, NOT ONE SHARED** - sharper than V19's reason for the same rule: V19's halves pinned different LENSES, while this pair's halves pin different lenses AND different PRODUCERS AND different SCENES (the nested-SOI fail-closed declaration plus the Director TracedPath drive here, the Tracking Station's dynamic overlap-path proto ICON there), so one shared inversion would prove one of four things at most. The design is pre-registered - invert one character-run inside the required array only, `body=Minmus` -> `body=Vall`, a body this recording never visits - but is deliberately CUT AT ARMING off the reading bytes rather than now, because inverting a token whose measured text does not yet exist would be inverting a guess; a control that PASSES is a FAILED control (V19T's `_0857` passed on a mis-escaped regex that made no edit at all). NOTHING IS ARMED: `allowedAnomalies = []` so the creation-frame family V17M measured is reported as data rather than pre-tolerated, `[expectations.rewind]` is REPORT-ONLY, `[expectations.recordings.structure]` is ABSENT, and the recordings count window {1,4} is a DERIVED RANGE matching B30's own - the load-time optimizer walk fires for the FIRST time on this lane's LoadGame, so a split at either body-change seam or at the stage-2 propulsive sandwich would show HERE. **THE WINDOW'S COST IS STATED RATHER THAN LEFT SILENT (C4):** a split at either body-change seam leaves each resulting recording seeing ONE body, `NestedSoiSubtree` returns null on its `distinct.Count < 2` guard, the `bodies=Mun/Kerbin/Minmus` form can never print, and the surviving `segIdx=\\d+` shadow pin shifts with the truncated chain - so a green count with a red render pin is itself THE READING (the optimizer split a subject the family has twice measured it keeping cohesive), and neither the window nor the pins should be widened to absorb it. Both body-change seams are ON RAILS, which is the case rule 3 keeps cohesive: the Mun->Kerbin crossing happens 13,759 s of coast after the periapsis escape burn, past `soiLeadSeconds` and into native warp, and the Kerbin->Minmus arrival is a rails coast."
 instanceProfile = "stock-minimal"
 tags = ["V21", "player-loop", "loop-playback", "re-aim", "cross-parent",
         "moon-to-moon", "minmus", "mun", "kerbin", "kerbin-moon", "nested-soi",
@@ -684,20 +764,21 @@ steps = [
   # **THIS IS THE STEP THE WHOLE LANE HANGS ON**: it is where a CROSS-PARENT tree
   # either reaches ApplyReaim or does not, and its Info line echoes the anchor the
   # bracket arithmetic needs. Read it before anything else in the log.
-  # TREE ID: **ZERO PLACEHOLDER.** Replace with B30's committed tree id at the re-pin.
-  { cmd = "MissionConfig", args = { tree = "00000000000000000000000000000000", loop = "true" }, expect = "OK" },
+  # TREE ID: **B30's COMMITTED TREE**, re-pinned 2026-08-24 off `mun-minmus-recorded`.
+  { cmd = "MissionConfig", args = { tree = "029afab30803454894b02be12567af81", loop = "true" }, expect = "OK" },
   # STEP 2: "Warp to..." -> the resolved relaunch UT -> FastForwardToEventUT, an
   # INSTANTANEOUS Planetarium clock set. CYCLE 1. Its `relaunchUt=` echo is the ONE
   # number the re-pin recipe (header 3.6) hangs off, and it is emitted whichever
   # road the unit took.
-  { cmd = "StartLoopPlayback", args = { tree = "00000000000000000000000000000000" }, expect = "OK", budget = 300 },
+  { cmd = "StartLoopPlayback", args = { tree = "029afab30803454894b02be12567af81" }, expect = "OK", budget = 300 },
   # CYCLE-1 ARRIVAL BRACKET, strictly forward, straddling the SEEDED Kerbin->Minmus
-  # SOI seam 788,883.9 at -180 / -60 / +140 s. CALIBRATION SEEDS under hypothesis S1
-  # (header 3.3) - expect them to move, and see 3.5 for why a mis-seeded FORWARD
-  # jump greens the steps and is caught only by the section-5 render pin.
-  { cmd = "TimeJump", args = { ut = "788703" }, expect = "OK", budget = 300 },
-  { cmd = "TimeJump", args = { ut = "788823" }, expect = "OK", budget = 300 },
-  { cmd = "TimeJump", args = { ut = "789023" }, expect = "OK", budget = 300 },
+  # SOI seam 587,086.24 at -180 / -60 / +140 s. The SEAM OFFSET is a BYTE FACT now
+  # (header 3.7); what remains seeded is the anchor `A`, so these move rigidly with
+  # it. See 3.5 for why a mis-seeded FORWARD jump greens the steps and is caught
+  # only by the section-5 render pin.
+  { cmd = "TimeJump", args = { ut = "586906" }, expect = "OK", budget = 300 },
+  { cmd = "TimeJump", args = { ut = "587026" }, expect = "OK", budget = 300 },
+  { cmd = "TimeJump", args = { ut = "587226" }, expect = "OK", budget = 300 },
   # ============================================================================
   # +140 DWELL BLOCK, V17M's verbatim. Its run 3 established what it is for: the
   # on-change proto-line lens printing NOTHING through a 10.3-wall-second dwell is
@@ -745,15 +826,16 @@ steps = [
   { cmd = "RecordingState",                                                  expect = "OK" },
   { cmd = "RecordingState",                                                  expect = "OK" },
   { cmd = "RecordingState",                                                  expect = "OK" },
-  # CYCLE-1 PARK EPOCH: relaunch + 383,634.6, i.e. 70.7% into the SEEDED 600 s
+  # CYCLE-1 PARK EPOCH: relaunch + 283,674.587, i.e. 70.7% into the MEASURED 794.74 s
   # parked tail. **THE SECOND-THINNEST MARGIN ANY LANE CARRYING THE CENSUS BLOCK HAS
-  # HAD** - 175.8 s of recorded tail against a ~10-22 game-second block, against
+  # HAD** - **232.86 s** of MEASURED recorded tail against a ~10-22 game-second block,
+  # against
   # V16M's measured 104.54 s and V17M's real 244.5 s (header section 4 corrects both
   # halves of the superlative that used to stand here). It is thin because the tail
   # is a SEED - if the re-pin measures a shorter one, move THIS EPOCH earlier rather
   # than shrinking the block, and see header 3.3 for the shorter-than-~424 s case,
   # which does not crowd the pin but makes it unsatisfiable.
-  { cmd = "TimeJump", args = { ut = "808385" }, expect = "OK", budget = 300 },
+  { cmd = "TimeJump", args = { ut = "603529" }, expect = "OK", budget = 300 },
   # ============================================================================
   # THE CENSUS-PACING DWELL BLOCK - 40 x RecordingState, V16M's verbatim and PROVEN
   # machinery: its reading run emitted the census MEASURING line at BOTH arrivals,
@@ -805,18 +887,18 @@ steps = [
   { cmd = "RecordingState",                                                  expect = "OK" },
   { cmd = "RecordingState",                                                  expect = "OK" },
   # STEP 3: "Warp to..." AGAIN. Under the predicted H3 clock this resolves the
-  # INSTANCE-21 relaunch at a seeded 808,560.92 - exactly one span after instance 1,
+  # INSTANCE-21 relaunch at 603,762.82 - exactly one span after instance 1,
   # which is what makes cycle 2 both a full-cycle-later observation and a real
   # relaunch epoch (header 3.1). The two `relaunchUt=` echoes differing by exactly
   # spanDur is the single cheapest confirmation that the clock shape replicated.
-  { cmd = "StartLoopPlayback", args = { tree = "00000000000000000000000000000000" }, expect = "OK", budget = 300 },
+  { cmd = "StartLoopPlayback", args = { tree = "029afab30803454894b02be12567af81" }, expect = "OK", budget = 300 },
   # CYCLE-2 ARRIVAL BRACKET, the same -180 / -60 / +140 offsets about the seeded
-  # cycle-2 seam 1,172,694.32. These three (and the cycle-2 relaunch they hang off)
-  # were each ONE SECOND EARLY in the first cut, from an overlapCadence truncated to
-  # 19,190.5 - header 3.4 carries the arithmetic and the reason cycle 1 escaped it.
-  { cmd = "TimeJump", args = { ut = "1172514" }, expect = "OK", budget = 300 },
-  { cmd = "TimeJump", args = { ut = "1172634" }, expect = "OK", budget = 300 },
-  { cmd = "TimeJump", args = { ut = "1172834" }, expect = "OK", budget = 300 },
+  # cycle-2 seam 870,993.68. The full-precision overlapCadence 14,195.372288456 is
+  # carried through all 21 steps - header 3.4's truncation lesson (0.02 s/step floored
+  # four cycle-2 UTs one second early last time) applies to this cut unchanged.
+  { cmd = "TimeJump", args = { ut = "870813" }, expect = "OK", budget = 300 },
+  { cmd = "TimeJump", args = { ut = "870933" }, expect = "OK", budget = 300 },
+  { cmd = "TimeJump", args = { ut = "871133" }, expect = "OK", budget = 300 },
   # The same +140 dwell block for cycle 2 - the instance-21 = instance-1 + span
   # identity makes this epoch the second sample of the SAME leg, so both cycles
   # carry the same instrument.
@@ -860,10 +942,10 @@ steps = [
   { cmd = "RecordingState",                                                  expect = "OK" },
   { cmd = "RecordingState",                                                  expect = "OK" },
   { cmd = "RecordingState",                                                  expect = "OK" },
-  # CYCLE-2 PARK EPOCH: the same +383,634.6 offset off the cycle-2 relaunch. It is
+  # CYCLE-2 PARK EPOCH: the same +283,674.587 offset off the cycle-2 relaunch. It is
   # the counterpart sample of the cycle-1 park and is READ from the collected log
   # rather than asserted - nothing below pins anything at this epoch.
-  { cmd = "TimeJump", args = { ut = "1192195" }, expect = "OK", budget = 300 },
+  { cmd = "TimeJump", args = { ut = "887437" }, expect = "OK", budget = 300 },
   # ============================================================================
   # TWELVE DWELL TICKS - **THE THING THAT MAKES THE CYCLE-2 PARK AN EPOCH RATHER THAN
   # A CLOCK SET.** V17M and V19M both held this epoch open with an `EnterWatchMode`
@@ -1115,8 +1197,8 @@ tombstones    = { max = 0 }
 #   * this lane is **151** steps (139 as first committed, plus section 4's 12-tick
 #     cycle-2 park dwell), so "identical shape" was wrong in both directions.
 #   * the game time traversed is measured from the epoch the run STARTS at - the
-#     produced save's own UT, A = 405,560 - to the last jump at 1,192,195, i.e.
-#     **~0.79 Ms**. The ~1.17 Ms figure that stood here is measured from ut0 (21,746),
+#     produced save's own UT, A = 305,660 - to the last jump at 887,437, i.e.
+#     **~0.58 Ms**. The larger figure that stood here is measured from ut0 (21,747),
 #     which is where the RECORDING starts, not where the LoadGame lands.
 # The point survives all three: every jump is an instantaneous clock set, so the game
 # time costs no wall clock, and 2400 s is many times the measured envelope of the
