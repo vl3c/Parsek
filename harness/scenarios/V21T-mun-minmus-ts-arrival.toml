@@ -712,22 +712,36 @@ forbidden = [
 ]
 
 [expectations.rewind]
-# REPORT-ONLY (the ARMED_ALLOWLIST discipline). The claim is the family's: a pure
-# replay-observation workflow must author NOTHING durable. It is worth MORE on this
-# shape than on a single-scene dwell, for V5's reason - this spec writes a save
-# mid-run and reads it back through a SECOND scene load, the shape in which a stray
-# durable write is easiest to miss, and here the second load also drives the dynamic
-# overlap path through a full 20-instance fill-in. Arm it at the arming pass, off
-# THIS lane's own bytes.
+# ARMED 2026-08-24 off this lane's OWN green reading run `2026-08-24_1705`
+# (PASS via retry; the armable green is attempt 2, `_1642_a2`-style, all steps
+# met), whose saveParse REPORT measured rewindPoints=0, supersedeRows=0,
+# tombstones=0, rewindRetirements=0 - every window already met, so the arming
+# re-pinned nothing. The claim is worth MORE on this shape than a single-scene
+# dwell, for V5's reason: this spec writes a save mid-run and reads it back
+# through a SECOND scene load - the shape where a stray durable write is
+# easiest to miss - and the second load also drives the dynamic overlap path
+# through a full 20-instance fill-in.
+gating = true
 rewindPoints  = { max = 0 }
 supersedeRows = { max = 0 }
 tombstones    = { max = 0 }
 
-# [expectations.recordings.structure] and the points facets are DELIBERATELY ABSENT
-# on a first run: a report-only block of PREDICTED numbers reads like a measurement,
-# and this pair's predicted topology is unmeasured. Author it from run 1's own
-# saveParse facets and arm it there - and note V5's rule that a DOUBLE-ENTRY spec
-# owes the TIGHTER pin.
+[expectations.recordings.structure]
+# ARMED 2026-08-24, same reading run, which measured trees=1, committedTrees=1,
+# recordings=1, terminalStates {Orbiting: 1}, branchPoints {},
+# duplicateRecordingIds [], points 1444/1444/1444 - byte-identical to V21M's
+# armed payload, the pair's determinism statement (the V17/V19 shape). `trees`
+# keeps V2's max = 2; everything else pinned at the measured value.
+gating = true
+trees          = { min = 1, max = 2 }
+committedTrees = { min = 1, max = 1 }
+recordings     = { min = 1, max = 1 }
+terminalStates = { Orbiting = { min = 1 } }
+
+# The structure block above WAS deliberately absent on the first run (a report-only
+# block of predicted numbers reads like a measurement); it was authored AND armed
+# 2026-08-24 from run 1's own saveParse facets, per V5's rule that a DOUBLE-ENTRY
+# spec owes the tighter pin.
 
 [runtime]
 # 300 LoadGame + 300 StartLoopPlayback + 300 TimeJump + 300 LoadGame(TS) + 40

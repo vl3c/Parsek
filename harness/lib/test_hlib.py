@@ -5814,6 +5814,23 @@ class SaveStructureVerifierWiringTests(unittest.TestCase):
                        # roadmap confirmation criterion (b).
                        "V19M-laythe-jool-player-loop.toml",
                        "V19T-laythe-jool-ts-arrival.toml",
+                       # V21M / V21T: `rewind` (all max 0 - the family's
+                       # replay-observation claim at a SECOND moon-to-moon
+                       # parent) + `structure` (trees {1,2} for V2's
+                       # duplicate-writer hazard, everything else pinned at the
+                       # measured 1/1 with terminalStates {Orbiting: 1}, points
+                       # 1444/1444/1444) armed 2026-08-24 off their OWN green
+                       # reading runs `2026-08-24_1704` (V21M, PASS attempt 1,
+                       # the StockConic-lens re-pin round) and `_1705` (V21T,
+                       # PASS attempt 1 at the moved 587,223 epoch). Both
+                       # measured byte-identical facets before arming, so the
+                       # arming re-pinned nothing - the pair's determinism
+                       # statement. Armed re-flights + the pair's TWO
+                       # render-token controls (different lenses, producers and
+                       # scenes - one inversion would prove at most one of
+                       # four things) recorded in the spec ledgers.
+                       "V21M-mun-minmus-player-loop.toml",
+                       "V21T-mun-minmus-ts-arrival.toml",
                        "GS-1-auto-chute-booster.toml", "GS-2-orbital-probe-deploy.toml",
                        "GS-3-switch-nudge-deployed.toml",
                        # B17: rewind (all max 0 - a clean single-launch flight

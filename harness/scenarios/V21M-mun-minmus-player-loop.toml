@@ -795,10 +795,9 @@ id = "V21M-mun-minmus-player-loop"
 # epoch (report-only under MAPRENDER-ICON-OFF-ORBIT-CREATION-FRAME-AFTER-JUMP). This
 # subject is the same class, so the same family is live, and a raise here is DATA.
 #
-# `[expectations.rewind]` is REPORT-ONLY and `[expectations.recordings.structure]`
-# is ABSENT: a report-only block of PREDICTED numbers reads like a measurement, and
-# this lane's predicted topology is unmeasured. Author and arm both from run 1's own
-# saveParse facets.
+# `[expectations.rewind]` and `[expectations.recordings.structure]` are both
+# ARMED 2026-08-24 off run `2026-08-24_1704`'s own saveParse facets (they shipped
+# report-only/absent until the reading run measured the topology).
 #
 # `tier = "operator"` on the calibration discipline.
 # =====================================================================================
@@ -1295,15 +1294,32 @@ forbidden = [
 # that spec).
 
 [expectations.rewind]
-# REPORT-ONLY (the ARMED_ALLOWLIST discipline). The claim is the family's on the
-# moon-to-moon axis: a pure replay-observation workflow (arm -> Warp-to -> stepped
-# arrival brackets -> dwells -> parks, twice over) must author NOTHING durable,
-# across a SELF-OVERLAPPING 20-instance loop whose re-arms the jumps repeatedly
-# cross. V4/V6M/V14M/V15M/V16M/V17M/V19M all measured 0/0/0. Arm it at the arming
-# pass, off THIS lane's own bytes.
+# ARMED 2026-08-24 (the V2/B17/V4/V14-V17/V19 arming discipline) off this lane's
+# OWN green reading run `2026-08-24_1704` (PASS attempt 1), whose saveParse
+# REPORT measured rewindPoints=0, supersedeRows=0, tombstones=0,
+# rewindRetirements=0 - every window below already met, so the arming re-pinned
+# nothing and moved no verdict. The claim is the family's on the moon-to-moon
+# axis at a SECOND parent: a pure replay-observation workflow must author
+# NOTHING durable, across a self-overlapping loop whose re-arms the jumps cross.
+gating = true
 rewindPoints  = { max = 0 }
 supersedeRows = { max = 0 }
 tombstones    = { max = 0 }
+
+[expectations.recordings.structure]
+# ARMED 2026-08-24, same reading run (`2026-08-24_1704`), which measured
+# trees=1, committedTrees=1, recordings=1, terminalStates {Orbiting: 1},
+# branchPoints {}, duplicateRecordingIds [], points 1444/1444/1444 - the
+# fixture's own on-disk point count, so the loop replayed without authoring or
+# splitting anything, and the payload is byte-identical to the sibling lane's -
+# the pair's determinism statement, the V17/V21 shape. `trees` keeps V2's
+# max = 2 (the duplicate-tree writer hazard), everything else pinned at the
+# measured value.
+gating = true
+trees          = { min = 1, max = 2 }
+committedTrees = { min = 1, max = 1 }
+recordings     = { min = 1, max = 1 }
+terminalStates = { Orbiting = { min = 1 } }
 
 # [expectations.recordings.structure] and the points facets are DELIBERATELY ABSENT
 # on a first run: a report-only block of PREDICTED numbers reads like a measurement,
