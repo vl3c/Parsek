@@ -14,6 +14,106 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## CAREER-SCIENCE-PAD-DRIFT-CELL-CANNOT-PASS-OFF-THE-BUILD-MACHINE: the byte-identity guard compares a value the builder derives through `math.cos`, so it reds on any platform whose libm differs by one ULP from the one that committed the fixture [MEASURED 2026-08-24 while baselining the harness suites during the auto-merge default-flip PR (#1523). NOT caused by that PR - it touched zero harness files, and the red reproduces on a stashed clean tree. A HARNESS-TOOLING defect, not a product defect and not real fixture drift]
+
+`missions/lib/test_science_bench_recover.CareerSciencePadFixtureDriftTests.test_the_committed_fixture_is_byte_identical_to_a_fresh_rebuild`
+fails on Linux with `committed 93594 bytes, rebuilt 93591 bytes`, first difference
+at byte 52151. The whole divergence is two `rotation` lines out of 4412, differing
+in the last digit:
+
+```
+-  rotation = -5.30330085e-09,0.990180484,-0.139795096,-4.17193001e-08   (committed)
++  rotation = -5.30330084e-09,0.990180484,-0.139795096,-4.17193e-08      (rebuilt here)
+-  rotation = 0.139795096,4.17193001e-08,-5.30330085e-09,0.990180484     (committed)
++  rotation = 0.139795096,4.17193001e-08,-5.30330087e-09,0.990180484     (rebuilt here)
+```
+
+**Cause, proven rather than inferred.** `build_career_science_pad.py`'s
+`yaw_pose_about_y` builds a yaw quaternion from `math.sin` / `math.cos` and
+Hamilton-multiplies it into the donor rotation; `_format_float` then renders the
+result with `"%.9g"` applied to a **double**, which keeps enough significant digits
+to expose a 1-ULP difference in the trig. Monkeypatching `math.cos` down by exactly
+one ULP and rebuilding reproduces the committed bytes **exactly** - the search over
++/-2 ULP on both `sin` and `cos` returns the single hit `(sin 0, cos -1)`. So the
+committed fixture was produced on a machine whose `cos(pi/4)` is one ULP below this
+one's, and nothing has drifted.
+
+Corroborating: the builder has not been touched since the fixture was committed in a
+way that could move the math - the one later commit (`abdf18e`) changed only the
+`mid`/`launchID` derivation. `build_career_science_pad.py` is also the ONLY one of
+the five fixture builders that uses trig or carries its own `_format_float`, so the
+exposure is confined to this single fixture and this single cell.
+
+**Fix direction (not applied here).** `_format_float`'s own docstring already states
+the right contract - *"KSP writes Unity floats; round to float precision"* - but
+`"%.9g"` on a double does not do that. Rounding through a true float32
+(`struct.unpack('<f', struct.pack('<f', v))[0]`) before formatting collapses the
+1-ULP double difference below float32 precision: both platforms then render
+`-5.30330091e-09` and `-4.17193e-08` identically. Verified by direct experiment.
+Applying it CHANGES the committed fixture's bytes, so it is a deliberate
+re-run-the-builder-and-commit change that wants its own review, not a drive-by.
+
+**Why it matters even though CI is green.** `.github/workflows/tests.yml` runs only
+`scripts/cloud-test.sh` (the xUnit suite), so this red gates nothing. It bites the
+documented cloud workflow instead: an agent following `.claude/CLAUDE.md`'s
+`python -m unittest discover -s missions/lib -q` sees a drift failure naming a
+fixture and a builder, and the honest reading of that message is "someone
+re-harvested a career and forgot to re-run the builder" - which is exactly wrong.
+
+## TWO-MACHINE-LOCK-CELLS-ARE-UNPASSABLE-ON-THE-LINUX-CLOUD-PATH: one asserts a Windows-only filesystem behaviour, the other is defeated by running as root [MEASURED 2026-08-24 alongside the entry above, same baselining pass. Both reproduce on a stashed clean tree. NOT defects in the lock - the lock's real contract is untested on this path, which is the actual cost]
+
+Running the harness suites the way `.claude/CLAUDE.md` documents them shows **three**
+red cells on a Linux cloud container, none of which is a regression. The third is the
+drift cell above; these are the other two, and they have different causes:
+
+- `lib/test_run_smoke.MachineLockWiringTests.test_a_reclaim_that_cannot_complete_refuses_instead_of_looping`
+  is **Windows-only by construction**, and says so in its own docstring: *"an open
+  handle blocks the rename on Windows, so acquire takes the reclaim branch, cannot
+  move the stale lock aside, exhausts its bounded retries, and must then refuse"*.
+  On POSIX an open handle blocks neither rename nor unlink, so the reclaim succeeds,
+  `acquire_run_lock` returns a path, and `assertIsNone` fails. The cell cannot pass
+  here and cannot be made to without a different way to make the reclaim fail.
+
+- `provision/test_machinelock.AcquireBasicsTests.test_unwritable_location_refuses_rather_than_raising`
+  fails `'refused-live' not found in ('refused-io', 'refused-lost-race')`. The setup
+  makes the lock directory unwritable and expects `REFUSED_IO`; the cloud container
+  runs as **root**, which ignores permission bits, so the write succeeds and the code
+  refuses for an unrelated reason. Any non-root Linux run would pass this one.
+
+**What this costs, and it is not zero.** The machine lock is the guard that stops a
+`provision.py` run from overwriting `Parsek.dll` underneath a sibling's in-flight
+`run.py` - `harness/README.md`'s "The machine lock". Two of its cells are dark on the
+platform where agents actually execute the suite, so its reclaim-refusal and
+IO-refusal contracts are verified only on the author's Windows box. Worth either a
+POSIX-equivalent mechanism (a read-only parent directory, an `unlink`-blocking mount,
+or an injected failing rename) or an explicit skip that states the platform, so the
+suite's output distinguishes "cannot run here" from "broken".
+
+## AUTOMERGE-ON-BY-DEFAULT: is any player flow reachable that now auto-commits GHOST-ONLY where the dialog used to ask? [RAISED 2026-08-24 by the review panel on the default-flip PR (#1523) as PLAUSIBLE-not-confirmed. OPEN QUESTION, no defect demonstrated. The behaviour itself is by design and predates the flip; what changed is that it is now the DEFAULT answer]
+
+`ParsekScenario.AutoCommitPendingTreeOutsideFlight` routes through the dialog's own
+`MergeDialog.MergeCommit` + `BuildDefaultVesselDecisions` only when
+`ShouldSilentFullFidelityCommit` qualifies. With a non-`Finalized` pending tree (Limbo
+/ LimboVesselSwitch) or a live re-fly marker it falls to `AutoCommitTreeGhostOnly`,
+which nulls **every** `VesselSnapshot`. Before the flip, that same state under the
+shipped default showed a dialog offering full-fidelity Merge or Discard; now the
+silent ghost-only commit is what a default install does.
+
+The review could not construct a reachable player flow and neither can this entry, so
+nothing is claimed: a saved pending tree restores as `Finalized`
+(`TryRestorePendingTreeNode`), the cold-start Limbo restore is written on the
+assumption that a cold start lands in FLIGHT, and the auto-commit block is gated
+`LoadedScene != FLIGHT`. The path is also deliberate - `silent-full-fidelity-autocommit.md`
+§4.4 keeps resume-flow stashes from being heavier-committed, and §10 keeps re-fly
+ghost-only on purpose.
+
+**What would close it:** either a demonstration that no non-`Finalized` tree can reach
+that site outside FLIGHT (in which case the branch is dead code worth saying so about),
+or one that can, in which case the flip made it the default and it wants the dialog
+back. Related: the in-game coverage gap recorded on the default-flip entry below - the
+cell that would exercise the ON path live does not exist, so neither question has a
+driven answer today.
+
 ## SYNTHETIC-CONTRACT-FAIL-PENALTY-CLAMPED-BY-DRAWDOWN-GUARD: `PrePass` synthesizes the expired-deadline `ContractFail` and the reconstruction spends its penalties correctly, but `KspStatePatcher`'s guarded-drawdown protection refuses to write either pool back, so the debit never reaches the live career [MEASURED 2026-08-20 by `L5-career-contract-complete`'s green flight (run `2026-08-20_2240`), the FIRST run ever to drive `ContractsModule.PrePass`'s injection under a gate. REPORT-ONLY and GATED AS MEASURED: no product change is proposed by this lane, and the clamp is pinned so a change of behaviour has to be taken deliberately]
 
 **What fires, and it all fires correctly.** `career-contract-pad` carries two
