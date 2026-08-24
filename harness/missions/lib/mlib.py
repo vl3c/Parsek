@@ -1906,6 +1906,25 @@ STOCK_BODY_GRAVITY: Dict[str, Tuple[float, float, float]] = {
     # parent-relative speed - 3.12x the intent - because 3.72 Mm out, Laythe's
     # well is still deep. See escape_node_plan for the corrected contract.
     "Laythe": (1.962e12, 500_000.0, 3_723_645.81113302),  # B26 spec header
+    #
+    # MUN, added for `B30-mun-minmus-transfer` (G4). Every number has an
+    # in-repo source, per this table's own rule:
+    #   mu 6.5138398e10 and R 200,000 - `Source/Parsek.Tests/SpawnSafetyNetTests.cs:1083`
+    #     (`TestBodyRegistry.Install(..., ("Mun", 200000.0, 6.5138398e10))`), the same
+    #     pair `scripts/reaim_sim.py:22` and `ReaimClassifierTests.cs:46` carry.
+    #     `B11-mun-orbit.toml:184` quotes the rounded "mu 6.514e10, R 200 km";
+    #     the full-precision pair is used here because the escape burn is sized
+    #     from it and rounding mu at 4 figures is a free 0.0012% error.
+    #   SOI 2,429,559.1 - `harness/scenarios/V6M-mun-player-loop.toml:45`, restated in
+    #     `V15M-gilly-player-loop.toml:60` and the SOI/SMA table of
+    #     `docs/dev/research/same-parent-reaim-jool-system.md` section 5.2.
+    #
+    # THE THIRD NUMBER MATTERS MORE HERE THAN AT LAYTHE, and in the OTHER
+    # direction. Kerbin's SOI is only 7.01x Mun's orbital radius (84,159,286 /
+    # 12,000,000) where Jool's is 90.35x Laythe's, so the unaimed escape's
+    # high-energy tail does not merely overshoot the target - it LEAVES THE
+    # PARENT SYSTEM. See B30's escapeSoiSpeedMps derivation.
+    "Mun": (6.5138398e10, 200_000.0, 2_429_559.1),
 }
 STOCK_HELIO_ELEMENTS: Dict[str, Tuple[float, float, float, float]] = {
     "Kerbin": (13_599_840_256.0, 0.0, 3.14, 0.0),
