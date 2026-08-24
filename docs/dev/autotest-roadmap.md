@@ -1284,7 +1284,7 @@ must never carry them.
 | Planet -> its own moon | phase-lock | V6M/V6T, V7M/V7T, V14M/V14T, V15M/V15T, V16M/V16T | YES |
 | Kerbin -> planet, transfer admitted | re-aim | V5, V8/V8T, V9, V10, V11/V11A, V12/V12A, V13/V13A | YES |
 | Kerbin -> planet, classifier-declined profile | faithful | none | NO (see note) |
-| Moon -> sibling moon | faithful | V17M/V17T | PARTIAL - G4 |
+| Moon -> sibling moon | faithful | V17M/V17T, V21M/V21T | YES |
 | Return leg, moon -> its own parent | faithful | V19M/V19T | YES (map + TS) |
 | Return leg, planet -> Kerbin | unmeasured | none | NO - G2 |
 
@@ -1526,7 +1526,11 @@ lines carry the Minmus frame, zero `TracedPath` lines exist anywhere in the log,
 V21T's log agrees from the other scene). **THAT IS A LENS-VARIANT READING, NOT A
 DEFECT AND NOT AN EPOCH MISS** - the coverage program's lens-per-shape criterion
 gains a third variant - and the pin is corrected off the measured word. The
-class-matrix row above stays `PARTIAL - G4` until the armed re-flights land.
+class-matrix row above moved to YES on 2026-08-24: both lanes armed off their
+green readings, armed re-flights PASS attempt 1 (`_2030`/`_2031`), and TWO
+render-token controls red exactly on their inverted tokens (`_2036`/`_2038`),
+then reverted - G4 is CLOSED; H3 is a property of the class, measured at two
+parents.
 
 **WHAT B30's FLIGHT MEASURED, against the five targets it pre-registered.**
 Three landed on their derivation. The escape node read 146.9262076658111 m/s
