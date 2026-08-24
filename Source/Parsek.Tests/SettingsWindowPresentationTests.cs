@@ -63,7 +63,7 @@ namespace Parsek.Tests
             Assert.True(defaults.AutoRecordOnLaunch);
             Assert.True(defaults.AutoRecordOnEva);
             Assert.True(defaults.AutoRecordOnFirstModificationAfterSwitch);
-            Assert.False(defaults.AutoMerge);
+            Assert.True(defaults.AutoMerge);
             Assert.True(defaults.VerboseLogging);
             Assert.True(defaults.WriteReadableSidecarMirrors);
             Assert.Equal(SamplingDensity.Medium, defaults.SamplingDensityLevel);
@@ -71,6 +71,25 @@ namespace Parsek.Tests
             Assert.Equal(LoopTimeUnit.Sec, defaults.AutoLoopDisplayUnit);
             Assert.True(defaults.ShowCommittedFutureOverlays);
             Assert.True(defaults.BlockCommittedActions);
+        }
+
+        /// <summary>
+        /// The shipping default for a setting lives in TWO places: the
+        /// <see cref="ParsekSettings"/> field initializer (what a save with no stored
+        /// key resolves to) and <see cref="SettingsWindowPresentation.BuildDefaults"/>
+        /// (what the Settings window's Defaults button writes). Flipping one and not
+        /// the other makes "Defaults" silently disagree with a fresh install, so pin
+        /// them together.
+        ///
+        /// Fails if: either autoMerge default is flipped without the other.
+        /// </summary>
+        [Fact]
+        public void BuildDefaults_AutoMerge_MatchesSettingsFieldDefault()
+        {
+            SettingsWindowPresentation.SettingsDefaults defaults =
+                SettingsWindowPresentation.BuildDefaults();
+
+            Assert.Equal(new ParsekSettings().autoMerge, defaults.AutoMerge);
         }
     }
 }

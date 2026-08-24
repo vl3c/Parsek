@@ -41,9 +41,25 @@ namespace Parsek
             toolTip = "Automatically arm after switching to a real vessel and start recording on the first meaningful physical change")]
         public bool autoRecordOnFirstModificationAfterSwitch = true;
 
+        /// <summary>
+        /// Commit finished recordings to the timeline without the per-mission
+        /// "Merge to Timeline / Discard" confirmation dialog.
+        ///
+        /// <para>Defaults <b>ON</b> since 0.10.4. The ON path used to be lossy
+        /// (it committed ghost-only and dropped the terminal vessel snapshot, so a
+        /// surviving vessel never re-materialised at its recording end), which is
+        /// why the default was OFF; the silent full-fidelity auto-commit work
+        /// (`docs/dev/plans/silent-full-fidelity-autocommit.md`) closed that gap
+        /// and routes the ON path through the dialog's own commit + per-leaf vessel
+        /// decisions. Re-Fly exits and MAINMENU still show their dialog regardless.</para>
+        ///
+        /// <para>The reset-to-defaults value lives in
+        /// <see cref="SettingsWindowPresentation.BuildDefaults"/>; the two are pinned
+        /// together by <c>SettingsWindowPresentationTests</c>.</para>
+        /// </summary>
         [GameParameters.CustomParameterUI("Auto-merge recordings",
             toolTip = "When enabled, recordings are committed to the timeline automatically. When disabled, a confirmation dialog appears after each recording.")]
-        public bool autoMerge = false;
+        public bool autoMerge = true;
 
         [GameParameters.CustomParameterUI("Verbose logging",
             toolTip = "When enabled, write detailed diagnostics to KSP.log (default for development)")]

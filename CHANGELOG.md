@@ -246,6 +246,26 @@ All notable changes to Parsek are documented here.
 
 - The Missions tab now says what each mission IS, at a glance. Every mission's dark header bar carries a second line telling the mission's story - where it went ("Kerbin → Mun → Kerbin"), how long it took, who flew (crew named, up to three, "+N" for the rest), how it finished, how often it loops, and when it launches next - so a collapsed mission no longer reads as a bare name and eight buttons. The facts the narrative dropped (exact start and end dates, the vessel count, the full roster) sit in the line's hover text, and a mission whose journey cannot be derived falls back to showing its dates. The countdown column, previously the three-letter "TTL", now reads "Next launch", and the countdown also appears on that summary line, so you can see a mission's schedule without expanding it. Inside the mission, the rows read as a story instead of an inventory: a stage that comes off is now named on the row that follows it ("after decouple: Kerbal X Booster left") rather than repeating the ship's name a third time, and docking with another ship recorded in the same mission finally names it - "Docked with Munport Station" - instead of silently growing the part counts. Hovering explains the controls that used to explain nothing: the row checkbox now says that it chooses what the LOOP replays and does NOT hide the ghost (which is what everyone assumed it did), the loop period says which of its four states you are looking at, and the two schedule words "not aligned" and "continuous" say what they mean. Turning on one mission's loop, which can switch off another's because one recording tree can only loop once, now says so on screen and names the mission that lost it, instead of quietly unticking a box on a row you may not be looking at. The cross-tree row is now labelled "Docked partner:" rather than "Partner journey -". Presentation only: no recording, playback, loop or save behaviour changes.
 
+### Settings
+
+- Finished missions now go onto the timeline on their own. "Auto-merge recordings"
+  ships ON, so leaving a flight no longer opens the "Merge to Timeline / Discard"
+  confirmation dialog for every mission you fly - the recording is simply committed,
+  the way it would have been if you had clicked Merge. The setting is unchanged and
+  still there: turn it off in Settings (or the stock difficulty tab) and the
+  per-mission dialog comes back exactly as before, and a save that already has an
+  explicit choice stored keeps it - only saves that never touched the toggle pick up
+  the new default.
+  The reason it stayed off until now was that the automatic path used to be lossy:
+  it committed the mission ghost-only and threw away the vessel's final state, so a
+  craft you left alive in orbit or on a surface never re-appeared as a real vessel at
+  the end of its recording. That was fixed earlier this release - the automatic
+  commit now runs the same full-fidelity path the dialog's Merge button always ran,
+  keeping surviving vessels spawnable - and this flips the default over to it. Two
+  dialogs deliberately stay: a Re-Fly (Rewind-to-Separation) exit still asks, because
+  it can supersede history rather than add to it, and quitting to the main menu with
+  an uncommitted mission still asks.
+
 ### Fixes
 
 - The experience your crew earns from a recovered flight is now recorded in your career history, so re-flying that mission takes it back. Parsek watched the game hand out that experience and wrote down what happened, but it filed the note without saying which flight it belonged to - and a note that belongs to no flight can never be undone by re-flying one. So it deliberately kept the note and recorded nothing in the career history, on the grounds that a permanent entry nothing could reverse would be worse than a missing one. It now works out which recorded flight the recovery belongs to, exactly the way the recovery's refund and its science already do, and files the experience against that flight - which means re-flying the mission retires the experience along with the refund and the science, all together, rather than leaving your crew credited for a flight that no longer happened. A recovery Parsek cannot match to a recorded flight is still left uncredited rather than filed loose. Recovering a craft with several crew aboard now records every one of them, where an earlier version of this would have kept only the first.
