@@ -1,0 +1,99 @@
+version = 1
+MILESTONE
+{
+	id = 61a347810868446881180a94c6cc09a4
+	startUT = 0
+	endUT = 364.89376647939537
+	recordingId = 
+	committed = True
+	lastReplayedIdx = 8
+	GAME_STATE_EVENT
+	{
+		ut = 37.840000000000316
+		type = 18
+		key = RecordsSpeed
+		detail = funds=19200;rep=2;sci=0
+		recordingId = 28b6e543d67c4d1c9e4763b451c01df5
+	}
+	GAME_STATE_EVENT
+	{
+		ut = 39.860000000000632
+		type = 18
+		key = FirstLaunch
+		detail = funds=800;rep=0;sci=0
+		recordingId = 28b6e543d67c4d1c9e4763b451c01df5
+	}
+	GAME_STATE_EVENT
+	{
+		ut = 44.480000000001354
+		type = 18
+		key = RecordsAltitude
+		detail = funds=24000;rep=3;sci=1
+		recordingId = 28b6e543d67c4d1c9e4763b451c01df5
+	}
+	GAME_STATE_EVENT
+	{
+		ut = 56.440000000003224
+		type = 18
+		key = RecordsDistance
+		detail = funds=24000;rep=3;sci=1
+		recordingId = 28b6e543d67c4d1c9e4763b451c01df5
+	}
+	GAME_STATE_EVENT
+	{
+		ut = 76.860000000001847
+		type = 18
+		key = Kerbin/Landing
+		detail = funds=800;rep=0;sci=0
+		recordingId = 28b6e543d67c4d1c9e4763b451c01df5
+	}
+	GAME_STATE_EVENT
+	{
+		ut = 176.91988891600812
+		type = 18
+		key = RecordsDistance
+		detail = funds=0;rep=0;sci=0
+		recordingId = 28b6e543d67c4d1c9e4763b451c01df5
+	}
+	GAME_STATE_EVENT
+	{
+		ut = 212.15988891600111
+		type = 18
+		key = RecordsAltitude
+		detail = funds=0;rep=0;sci=0
+		recordingId = 28b6e543d67c4d1c9e4763b451c01df5
+	}
+	GAME_STATE_EVENT
+	{
+		ut = 212.1998889160011
+		type = 18
+		key = ReachedSpace
+		detail = funds=8000;rep=1;sci=0
+		recordingId = 28b6e543d67c4d1c9e4763b451c01df5
+	}
+	GAME_STATE_EVENT
+	{
+		ut = 292.61376647946111
+		type = 18
+		key = Orbit
+		detail = funds=12000;rep=2;sci=1
+		recordingId = 28b6e543d67c4d1c9e4763b451c01df5
+	}
+}
+MILESTONE
+{
+	id = 9a376a2e4536410f970759903e679321
+	startUT = 364.89376647939537
+	endUT = 1276.4235614006236
+	recordingId = c05c834cd2754892b4588e7ce9220c3f
+	committed = True
+	lastReplayedIdx = 0
+	GAME_STATE_EVENT
+	{
+		ut = 1273.9235614006259
+		type = 18
+		key = Kerbin/ReturnFromOrbit
+		detail = funds=12000;rep=2;sci=1
+		recordingId = 28b6e543d67c4d1c9e4763b451c01df5
+	}
+}

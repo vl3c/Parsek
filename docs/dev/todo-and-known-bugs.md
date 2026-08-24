@@ -14,6 +14,115 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## LANDED-TERMINAL-LOOP-HAS-NO-MAP-PRESENCE-OUTSIDE-THE-FLIGHT-SCENE: a looped recording whose terminal is Landed renders ONLY as the flight-scene mesh during its replay window - the map/TS/KSC surfaces are deliberately empty [MEASURED 2026-08-24 by the V22/V23 round-2 reading runs, the first landed-terminal loop subjects. REPORT-ONLY: every mechanism below is a deliberate product gate, not a defect; filed because it decides which lenses a surface-endpoint lane can pin, and because it is the measured render answer for surface-base supply routes]
+
+Three independent gates, each read from its own line on the round-2 logs:
+
+- FLIGHT map protos: `[Policy] Skipped ghost map for #2 "Kerbal X" - terminal=Landed`
+  (V22M) - the policy layer deliberately creates no map proto for a
+  landed-terminal member. V23M's subject shows the same absence WITHOUT the
+  Policy line (zero `Skipped ghost map` lines there), so the two subjects reach
+  the same emptiness through different sites - unattributed, stated as read.
+- TRACKING STATION: `CreateGhostVesselsFromCommittedRecordings: created=0 from 9
+  recordings ... loopMemberHidden=3` (V22T) - AND THE IN-WINDOW QUESTION IS NOW
+  ANSWERED: the round-3 landed-sliver epochs (member in-window and landed, both
+  subjects, both parents) read the SAME `created=0 ... loopMemberHidden=3` with
+  zero GhostCreated lines from the dynamic path, so a landed-terminal loop
+  member NEVER gets a TS proto at any epoch. The `factory chain` line cannot
+  print in the TS for this class either (no proto-driven unit assembles).
+- KSC scene: `[KSCGhost] Mission-loop unit owner=0 in inter-cycle wait at
+  loopUT=... - all members hidden` (V22K) - same window gating at the third
+  host.
+
+CONSEQUENCES. (1) The map-view polyline / TracedPath / orbit-line-decision
+lenses are unreachable for this class in an unattended lane: no proto exists to
+drive them, and additionally NO SEAM VERB OPENS MAP VIEW, so even the always-on
+polyline Driver never draws (awake, zero draws, both round-2 logs). Filed as a
+coverage-program instrument gap; the M-A7 render-composition manifest is the
+design-space answer. (2) The faithful-parity and seam-endpoint censuses ride
+map protos, so they print NOTHING on this class (zero summary lines in both
+logs) - their presence pins are structurally vacuous here and were dropped.
+(3) For supply routes to surface bases, the measured product behavior is: the
+route's ghost is visible ONLY in the flight scene, only during the replay
+window, and the window on a landed-terminal subject ends essentially AT
+touchdown (1.7 s of landed time for V22's subject, 32 s for V23's) - the map
+shows nothing between cycles. Whether that is the WANTED product behavior for
+routes is a product question this entry deliberately does not answer.
+
+---
+
+## KSC-SURFACE-RESOLVED-TWO-EMITTERS-SHARE-ONE-RATE-LIMIT-KEY: the KSC host logs `KSC SURFACE playback resolved` from two sites with DIFFERENT field sets under ONE rate-limit key, so the only variant carrying `body=` can be silently suppressed by the one that does not [FOUND BY AUDIT 2026-08-21 while authoring `V22K-kerbin-splashdown-ksc-arrival`, the first lane ever to pin the KSC render host. OBSERVABILITY FINDING, REPORT-ONLY: no product change is proposed, nothing gates it, and the lane routes around it. Filed because it silently degrades a diagnostic and because the next author to pin that line will otherwise design an unsatisfiable pin]
+
+`ParsekKSC.Playback.cs` resolves a KSC surface pose on two paths and both log the
+same prefix:
+
+- `:340`, in `TryResolveKscPointPose` (a single exact recorded point):
+  `KSC SURFACE playback resolved: recording={DebugName} ut={ut:F2} body={bodyName} branch={Branch}`
+- `:438`, in `TryResolveKscSegmentPose` (interpolation between a before/after pair):
+  `KSC SURFACE playback resolved: recording={DebugName} targetUT={targetUT:F2} branch={Branch}`
+
+Both call `ParsekLog.VerboseRateLimited("KSCGhost", $"ksc-surface-position-{rec.RecordingId}", ..., 2.0)`
+- THE SAME KEY - so inside a 2.0 s window whichever fires first suppresses the other.
+During ordinary playback the ghost is interpolating between samples, so the
+dominant emitter is `:438`, the variant with NO `body=` field. A reader grepping
+for `body=` therefore sees an intermittent line whose absence means nothing.
+
+WHY IT DID NOT COST A PIN: the `body != "Kerbin"` gate is UPSTREAM of both emits
+(`:288-296` for the point path, `:362-372` for the segment path), each returning
+false before its success line. So REACHING EITHER LINE IS ALREADY THE
+KERBIN-FRAME PROOF, and V22K pins the body-agnostic
+`KSC SURFACE playback resolved: recording=.* branch=` plus a forbid on the two
+skip lines. The field is redundant where present and absent where it would
+matter, which is exactly why the obvious pin is the wrong one.
+
+IF IT IS EVER FIXED, the cheap shape is to give the two sites distinct rate-limit
+keys and add `body=` to the segment variant. That would make the two paths
+independently observable and let a future lane pin the frame directly. Any such
+change must be taken deliberately: V22K's pin is written against today's
+behaviour and its header says so.
+
+## HARNESS-PYTHON-SUITES-NEVER-RUN-IN-CI: GitHub Actions runs only the xUnit suite, so the three `harness/` unittest suites are unguarded on `main` - and one of them is RED there today [FOUND 2026-08-21 while establishing a pre-authoring baseline for the G3 lanes. REPORT-ONLY and DELIBERATELY NOT FIXED HERE: the red belongs to another lane's committed fixture and rebuilding it could move pins that lane measured. Filed so the gap is visible rather than rediscovered]
+
+`.github/workflows/tests.yml` runs `scripts/cloud-test.sh` and nothing else, and
+that script never invokes `python -m unittest`. So `harness/lib`,
+`harness/missions/lib` and `harness/provision` - which include the four cells
+that deliberately read OUTSIDE `harness/` to keep the C# and the harness in step
+(the BATCH tally, the doc sync, the `pointCount` writer, the career-earned-pad
+drift) - are only ever run by hand. A drift can therefore sit on `main`
+indefinitely, which is precisely what has happened:
+
+    FAIL: test_science_bench_recover.CareerSciencePadFixtureDriftTests
+          .test_the_committed_fixture_is_byte_identical_to_a_fresh_rebuild
+    career-science-pad has drifted from what build_career_science_pad.py
+    produces from the current career-pad-craft; re-run the builder and commit,
+    or explain the divergence. First difference at byte 52151
+    (committed 93594 bytes, rebuilt 93591 bytes)
+
+Three bytes, on `main`, at HEAD `b0edd17` with a clean working tree. The cell's
+own message names the two acceptable resolutions and this entry takes neither -
+that is the owning lane's call, since the fixture is `L3-career-science-recover`'s
+measured subject.
+
+TWO SEPARATE THINGS ARE FILED HERE and they should not be conflated: the DRIFT is
+one lane's bookkeeping, while the CI GAP is structural and is the reason the
+drift was invisible. Closing the gap means either adding the three suites to
+`tests.yml` (they need only a stdlib interpreter - no ksp-refs, no mono, no
+NuGet, and they run in ~54 s total) or accepting by policy that they are a
+local-only gate and saying so where the tiers are documented.
+
+NOTE FOR WHOEVER ADDS THEM TO CI: two lock cells fail in this Linux container
+and would need addressing first -
+`test_machinelock.AcquireBasicsTests.test_unwritable_location_refuses_rather_than_raising`
+and `test_run_smoke.MachineLockWiringTests
+.test_a_reclaim_that_cannot_complete_refuses_instead_of_looping`. For the FIRST,
+the cause is verified: the cell makes a directory unwritable with `chmod` and
+asserts the refusal, but the container runs as uid 0, root ignores the mode, the
+write succeeds and the code takes the `refused-live` branch instead of
+`refused-io`. For the SECOND, the cause is NOT verified here - it is reported
+elsewhere as a Windows-rename-semantics assumption, and this entry does not
+adjudicate between that and a root effect. Either way both are properties of the
+RUNNER rather than of the code under test, which is exactly why they have to be
+settled before the suites can gate in Actions.
 ## CAREER-SCIENCE-PAD-DRIFT-CELL-CANNOT-PASS-OFF-THE-BUILD-MACHINE: the byte-identity guard compares a value the builder derives through `math.cos`, so it reds on any platform whose libm differs by one ULP from the one that committed the fixture [MEASURED 2026-08-24 while baselining the harness suites during the auto-merge default-flip PR (#1523). NOT caused by that PR - it touched zero harness files, and the red reproduces on a stashed clean tree. A HARNESS-TOOLING defect, not a product defect and not real fixture drift]
 
 `missions/lib/test_science_bench_recover.CareerSciencePadFixtureDriftTests.test_the_committed_fixture_is_byte_identical_to_a_fresh_rebuild`

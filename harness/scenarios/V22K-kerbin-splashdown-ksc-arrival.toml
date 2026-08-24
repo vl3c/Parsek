@@ -1,0 +1,414 @@
+schema = 1
+id = "V22K-kerbin-splashdown-ksc-arrival"
+# =====================================================================================
+# *** ITS SUBJECT EXISTS. RE-PINNED 2026-08-24 OFF THE HARVESTED BYTES. ***
+# Same posture as V22M / V22T: `fixtures/saves/kerbin-splashdown-recorded` was
+# harvested `--keep-parsek` from `B4-reentry-splashdown` run **2026-08-24_1431**, PASS
+# attempt 1. Tree id `c05c834cd2754892b4588e7ce9220c3f` is REAL and the
+# `PENDING_FIXTURE_LANES` entry is deleted in the same commit. The single jump UT is
+# re-pinned to **2,657** together with V22M's and V22T's - still a CALIBRATION SEED,
+# because the loop anchor is a run-time artifact, but now derived off the fixture's
+# measured UT0 34.540 / span 1,240.144 / save clock 1,276.624. V22M's header sections
+# 0-3 carry the measured byte table and the derivation.
+#
+# TWO MEASUREMENTS THIS LANE INHERITS: the terminal is **`Landed`** (a dry-land
+# touchdown east of KSC at lat -0.120 / lon 86.698, `splashed = False`), which is what
+# the `terminalStates` window below now declares; and **the gate reading holds** - the
+# recording's `Points[0].bodyName` is Kerbin (`startBodyName = Kerbin`, launch site
+# Launch Pad) and all four of its ORBIT_SEGMENTs are Kerbin-framed with zero
+# body-change seams, so this subject is Kerbin-frame END TO END and clears both
+# `IsKscStructurallyEligible` and the per-frame pose gate. That is the fact section 0
+# argued from source; it is now read off the bytes rather than predicted.
+# =====================================================================================
+#
+# -------------------------------------------------------------------------------------
+# 0. THE FIRST COMMITTED KSC LANE - AND THE ONLY ONE WHOSE SUBJECT CLEARS THE GATE
+# -------------------------------------------------------------------------------------
+# The program names THREE render hosts, not two: the flight map, the Tracking Station,
+# and the KSC scene. `ParsekKSC` owns its own ghost dictionary, its own overlap-ghost
+# model and its own route push seam. Every committed V lane has exercised the first
+# two. NONE HAS EVER FLOWN THE THIRD, and the definition of done requires it
+# "wherever the Kerbin gate makes it non-vacuous".
+#
+# `V20K` IS RESERVED AHEAD OF THIS LANE and neither has flown, so "first" here means
+# the first COMMITTED and flyable K lane, not the first reserved. **AND ON G2's OWN
+# CORRECTION (roadmap, 2026-08-21) THIS IS THE ONLY PROPOSED KSC SUBJECT THAT CAN
+# CLEAR THE STRUCTURAL GATE.** That correction establishes that
+# `IsKscStructurallyEligible` rejects a recording outright on
+# `Points[0].bodyName != "Kerbin"` and notes that BOTH G2 representatives are rooted
+# at a foreign body - B28's recording starts at Laythe, B29's would start at Duna -
+# so V20K may be excluded from the host WHOLE and G2's KSC payoff is UNPROVEN. A
+# Kerbin ascent-to-splashdown subject is Kerbin-rooted AND Kerbin-frame end to end,
+# so it clears the structural gate and the per-point one alike. That makes this lane
+# the cheapest available MEASUREMENT of a paragraph that, under criterion (c), may
+# not be written up as a limitation anywhere until a KSC lane has actually flown -
+# which is also why nothing in this spec claims one.
+#
+# **WHY IT COULD NOT BE EXERCISED BEFORE, AND WHY IT CAN NOW - STATED PRECISELY,
+# BECAUSE THE LOOSE VERSION OF THIS CLAIM IS WRONG.** There are TWO Kerbin gates and
+# they are not the same gate:
+#
+#   `IsKscStructurallyEligible` (`ParsekKSC.cs:1483`) admits a recording on
+#       `rec.Points[0].bodyName == "Kerbin"` - the FIRST point only, plus a >= 2 point
+#       floor. Terminal state is NOT consulted, so a Landed or Splashed terminal
+#       disqualifies nothing.
+#   The per-frame POSE resolvers gate EVERY point: `TryResolveKscPointPose` returns
+#       false at `point.bodyName != "Kerbin"` (`ParsekKSC.Playback.cs:288-296`) and
+#       `TryResolveKscSegmentPose` at `before.bodyName != "Kerbin" || after.bodyName
+#       != "Kerbin"` (`:362-372`), both ahead of every other branch.
+#
+# So a Kerbin-LAUNCHED outbound recording IS structurally eligible, and the KSC host
+# does render its Kerbin ascent leg before the SOI change - it is not silent. WHAT IS
+# VACUOUS FOR AN OUTBOUND SUBJECT IS NOT THE HOST BUT THE ARRIVAL: the per-point gate
+# throws away exactly the epoch a loop-render lane measures, so a lane pinning an
+# outbound arrival here would be pinning `KSC point skipped`. **A KERBIN-FRAME SURFACE
+# ARRIVAL IS THE FIRST SUBJECT WHOSE ARRIVAL THIS HOST CAN RENDER AT ALL** - and this
+# subject is Kerbin-frame end to end, which is why its forbid on the two skip lines is
+# safe rather than optimistic.
+#
+# **AND THE PLUMBING DID NOT WAIT ON THE RETURN-LEG PROGRAM.** The seam verb has
+# existed since R12: `LoadGame` accepts `scene = "spacecenter"`
+# (`TestCommandLoadGame.RequestedBootScene.SpaceCenter`, parsed fail-closed and
+# case-sensitive at `:117-131`), and exactly one committed spec has ever used it -
+# `H34-logistics-inter-body.toml:84`, for an in-game batch rather than a render
+# reading. `ParsekKSC.cs:282` calls `DriveMissionLoopUnits(committed)`, the same seam
+# `ParsekFlight` and `ParsekTrackingStation` call. So the mission-loop front door
+# reaches this host today and nothing needed building.
+#
+# -------------------------------------------------------------------------------------
+# 1. ROUTING - INHERITED, UNGATED
+# -------------------------------------------------------------------------------------
+# Identical to V22M section 1 and not restated: a LAUNCH-BODY-ONLY subject starves
+# both roads, FAITHFUL FIXED CADENCE is the pre-registered plausible outcome, and both
+# roads stay UNREQUIRED AND UNFORBIDDEN.
+#
+# -------------------------------------------------------------------------------------
+# 2. THE LENS - A THIRD SURFACE, AND *NOT* THE POLYLINE
+# -------------------------------------------------------------------------------------
+# **THE OWNED DESCENT POLYLINE - V22M's AND V22T's LENS - DOES NOT EXIST IN THIS
+# SCENE.** `GhostTrajectoryPolylineRenderer` hard-returns unless the scene is FLIGHT or
+# TRACKSTATION (`:3860`, `:3973`). Copying either sibling's `Polyline frame:` pin into
+# this lane would be STRUCTURALLY UNSATISFIABLE - the V17M failure exactly, in a third
+# costume. The KSC host does not draw a trajectory at all; it RESOLVES A POSE per
+# frame and places its own ghost. So this lane's lens is the pose resolution itself:
+#
+#     KSC SURFACE playback resolved: recording=.* branch=
+#
+# **AND THE OBVIOUS FORM OF THAT PIN IS THE WRONG ONE.** There are TWO emitters with
+# that prefix and they DIFFER:
+#
+#     ParsekKSC.Playback.cs:340  (TryResolveKscPointPose, a single exact point)
+#         "... recording={DebugName} ut={ut:F2} body={bodyName} branch={Branch}"
+#     ParsekKSC.Playback.cs:438  (TryResolveKscSegmentPose, before/after INTERPOLATION)
+#         "... recording={DebugName} targetUT={targetUT:F2} branch={Branch}"
+#
+# Only the first carries `body=`. Both are `VerboseRateLimited` on the SAME KEY
+# (`ksc-surface-position-{RecordingId}`, 2.0 s), so within a window whichever fires
+# first SUPPRESSES the other - and during a dwell the ghost is normally interpolating
+# between samples, so the DOMINANT emitter is the one with no `body=` field at all. A
+# `body=Kerbin` pin is therefore both flaky and usually unsatisfiable.
+#
+# **IT COSTS NOTHING TO DROP THE FIELD, BECAUSE THE KERBIN GATE IS UPSTREAM OF BOTH
+# EMITS.** Each function returns false on a non-Kerbin body BEFORE reaching its
+# success line, so REACHING EITHER LINE AT ALL IS THE KERBIN-FRAME PROOF. The
+# body-agnostic pin carries the full claim. Filed as
+# KSC-SURFACE-RESOLVED-TWO-EMITTERS-SHARE-ONE-RATE-LIMIT-KEY in
+# `docs/dev/todo-and-known-bugs.md` (report-only; no product change proposed, and this
+# lane routes around it rather than waiting on it).
+#
+# THE GATE'S OWN NEGATIVES ARE FORBIDDEN, which is what makes the positive pin sharp:
+# `KSC point skipped: recording=.* body=` and `KSC segment skipped: beforeBody=` are
+# the two lines the non-Kerbin path emits. On a Kerbin-frame subject neither may
+# appear. Note that neither MESSAGE contains the literal token `non-kerbin` - that is
+# the internal `KscPoseResolution.Failure` reason, not the log text, and forbidding
+# the token itself would forbid nothing.
+#
+# TWO ANTI-VACUITY PINS, both proving the loop actually reached this host:
+#   `ParsekKSC initialized, \d+ committed recordings, [1-9]\d* eligible for KSC ghost playback`
+#       Info, emitted on every KSC entry. A nonzero ELIGIBLE count is the floor: the
+#       host found something it is willing to play.
+#   `Mission-loop member recIdx=\d+ excluded from KSC global auto queue \(unit owner=\d+\)`
+#       This is the sharpest line in the lane. It proves the MISSION LOOP UNIT took
+#       ownership of the recording in the KSC host - the member is excluded from the
+#       flat global auto-stagger precisely because `UpdateUnitMemberKsc` is driving it
+#       instead. Without it, a green run could mean the KSC scene rendered the
+#       recording through the ordinary global queue and never touched the loop front
+#       door at all, which is the thing this lane exists to reach.
+#
+# DELIBERATELY NOT REQUIRED: `faithful-parity summary` and `seam-endpoint summary`.
+# Both are flight/TS render instruments and neither is known to emit in SPACECENTER;
+# requiring an unverified emitter is how a lane spends a flight discovering its own
+# pin was unsatisfiable. If the reading run shows them, the arming pass adds them.
+#
+# -------------------------------------------------------------------------------------
+# 3. SEEDS
+# -------------------------------------------------------------------------------------
+# The single jump UT is V22M's third cycle-1 bracket, reused verbatim so all THREE
+# lanes of this trio observe the SAME INSTANT of the same loop from three hosts. That
+# is the whole point of the trio: a divergence between them is attributable to the
+# HOST. Re-pin all three together. V22M section 3 carries the derivation and the
+# recipe.
+#
+# RE-PINNED 2026-08-24 to **2,657** = V22M's cycle-1 arrival 2,516.77 + the family's
+# +140 bracket, all three lanes moved in the same commit. It is STILL A SEED: the
+# anchor is `max(LoopAnchorUT, spanEndUT)` resolved at run time and the harvest flight
+# never loops, so no `missionconfig applied:` line exists to read one off. What
+# changed is the grounding - UT0 34.540, span 1,240.144 and save clock 1,276.624 are
+# now the fixture's own bytes rather than a guessed B4 profile.
+#
+# **ROUND 2, 2026-08-24: RE-PINNED TO 22,964 OFF THE MEASURED CLOCK.** Reading run 1
+# (`2026-08-24_1621`, retry `_1622`) red INVALID(driver-rewind) on `timejump refused
+# reason=backward-jump` - the spec's own forbid working as designed - and printed
+# what no byte table could:
+#
+#     L1 (cycle-1 `relaunchUt=`) = **21,583.965183089826**
+#     touchdown offset           = **1,240.1436**   (the last trajectory point)
+#     cycle-1 arrival            = 22,824.11 ; +140 bracket -> **22,964**
+#
+# TWO MECHANICS IT MEASURED: the loop unit's span is the TRACK_SECTION ENVELOPE
+# (1,241.8836, 1.740 s past `explicitEndUT`, so never derive a replay length from the
+# explicit stamps), and `StartLoopPlayback` issues its OWN forward jump to
+# `relaunchUt - 15 s` - which is why the round-1 seed at 2,657 met a live clock of
+# 21,569 and why 22,964 clears it.
+#
+# **AND THE ROUTING CAME BACK REFUTED**, which matters to this lane more than to
+# either sibling. Run 1 measured `constraints=1 [Rotation(Kerbin)
+# P=21549.425183089825 off=0]` with `method=single-rotation`, `fixedCadenceResidual=0`,
+# `fixedCadenceWithinTol=yes`, `zeroDrift=no`: a launch-body-only loop starves only
+# the TARGET side, and the LAUNCH SITE supplies its own constraint, so the cadence
+# quantizes to Kerbin's ROTATION period - every replay leaves the pad at the same
+# position under the sky. V22M section 1 carries the full reading and the historical
+# pre-registration; no gate fired on the refutation here either, because both roads
+# were left unrequired AND unforbidden. For the host that WATCHES FROM THAT VERY SITE
+# this is the most favourable clock the reading could have returned - stated as a
+# measurement, not as a prediction about what the KSC host will draw, which no flight
+# has yet shown.
+#
+# -------------------------------------------------------------------------------------
+# 4. THE DWELL
+# -------------------------------------------------------------------------------------
+# Forty ticks, for V16M's proven reason (the 5.0 s `VerboseRateLimited` window
+# swallows a short dwell's second emission). It matters specifically here because the
+# lane's central pin is rate-limited at 2.0 s per recording and shares its key with a
+# sibling emitter, so a thin dwell could read a single suppressed sample as absence.
+#
+# -------------------------------------------------------------------------------------
+# 5. THE NEGATIVE CONTROL
+# -------------------------------------------------------------------------------------
+# **THIS LANE MUST RUN ITS OWN CONTROL, AND OF THE FIVE IT IS THE ONE WHERE A SHARED
+# CONTROL WOULD BE WORTH LEAST.** The V19 pair established the rule when it first
+# discharged criterion (b) on 2026-08-21: each half ran its own inversion on its own
+# lens, because a shared one proves exactly one of them. V22M and V22T at least share
+# the polyline and suppressed-icon pair; THIS lane's lens is a KSC pose resolution
+# that exists in neither of them, so a control flown on either sibling would say
+# nothing whatever about the host nobody has ever gated.
+#
+# THE INVERSION OF RECORD, designed at arming off this lane's own reading run and
+# then REVERTED - flip the pose line to a recording the run cannot produce:
+#
+#     required: "KSC SURFACE playback resolved: recording=.* branch="
+#     inverted: "KSC SURFACE playback resolved: recording=NoSuchRecording branch="
+#
+# It must red on exactly that token and nothing else. A control that reds on two has
+# changed something structural and is not a control.
+#
+# -------------------------------------------------------------------------------------
+# 6. POSTURE
+# -------------------------------------------------------------------------------------
+# NOTHING IS ARMED. No `gating = true`; `rewind` and `structure` are report-only.
+# `terminalStates` WAS not declared, for V22M's reason (B4's `landedSituations`
+# accepts LANDED or SPLASHED and the evaluator reports observed facets regardless);
+# THE HARVEST MEASURED `Landed`, so it is declared from the bytes as of 2026-08-24 and
+# stays REPORT-ONLY. `allowedAnomalies = []` on purpose. The tangent-discontinuity raise V22M expects is
+# a POLYLINE-draw anomaly and cannot fire here, since the polyline does not run in
+# this scene - so a raise of ANY kind in this lane would be genuinely unexpected and
+# worth reading closely rather than absorbing.
+#
+# THIS IS A FIRST-CONTACT READING RUN IN THE STRONGEST SENSE IN THE FAMILY. Every
+# other V lane inherited a host that fifteen predecessors had calibrated. This one
+# inherits nothing: no prior lane has read a single KSC render line, so the emitters
+# above are known from SOURCE rather than from any flight, and the reading run's job
+# is to convert that into measurement. A red on a mis-calibrated pin here is the
+# expected cost of going first, not a product finding.
+#
+# -------------------------------------------------------------------------------------
+# 7. FLIGHT LEDGER
+# -------------------------------------------------------------------------------------
+#   **READING RUN 1** - `2026-08-24_1621`, **INVALID(driver-rewind), attempt 1**;
+#     retry `_1622` **INVALID(driver-rewind), attempt 2** (deterministic, identical).
+#     wall 56 s / 55 s. THE SPEC'S OWN FORBID WORKING, NOT A PRODUCT FINDING: the
+#     single `TimeJump` at the round-1 seed 2,657 answered `timejump refused
+#     reason=backward-jump` against a live clock already past 21,569, because
+#     `StartLoopPlayback` had jumped itself to `relaunchUt - 15 s`.
+#     **THE FIRST-CONTACT QUESTION IS STILL OPEN.** Section 6 says this lane's
+#     emitters are known from SOURCE rather than from any flight; run 1 did not change
+#     that by one line. It never reached SPACECENTER's render path, so `ParsekKSC
+#     initialized`, the mission-loop exclusion line and `KSC SURFACE playback resolved`
+#     remain unobserved and every KSC pin remains unvalidated. NO KSC RENDER LINE HAS
+#     STILL EVER BEEN READ BY ANY LANE.
+#     WHAT IT MEASURED ANYWAY: the loop clock (L1 = 21,583.965183089826) and THE
+#     ROUTING - `method=single-rotation` on `constraints=1 [Rotation(Kerbin) off=0]`,
+#     which REFUTES the faithful hypothesis this lane inherited (section 3). No gate
+#     fired on it, both roads being unrequired and unforbidden. The jump UT was
+#     re-pinned to 22,964 in the same commit, with V22M's and V22T's.
+#
+# WHAT IS LEDGERED BELOW is the PRODUCER flight its subject came from,
+# verdict-neutrally: `B4-reentry-splashdown` run
+# **2026-08-24_1431**, **PASS attempt 1**, wall 1,065 s / mission wall 989.2 s,
+# MISSION-OK through SPLASHDOWN with `landedSituation value=LANDED met=True`, every
+# verifier PASS/SKIPPED, `anomalySweep hits=[]`, analyzer RED=0, saveParse REPORT
+# (rewind facets 0/0/0, 1618 points over 7 recordings, 0 unparsed, 0 mismatches). DLL
+# provenance: the post-#1523 auto-merge-ON build, deployed hash prefix
+# 27f5f31907efce27.
+#
+# WHAT THAT FLIGHT SETTLED FOR THIS LANE SPECIFICALLY: the subject really is
+# Kerbin-frame end to end - `startBodyName = Kerbin`, launch site Launch Pad, four
+# ORBIT_SEGMENTs all `body = Kerbin`, zero body-change seams, terminal on Kerbin at
+# lat -0.120 / lon 86.698. Both gates section 0 reasoned about from source therefore
+# admit it, and the two forbidden skip lines are forbidden against a subject that
+# genuinely cannot produce them. What is still UNMEASURED is everything downstream of
+# that: no flight has yet emitted a KSC render line at all.
+# -------------------------------------------------------------------------------------
+tier = "operator"
+description = "**DISCIPLINE-COMPLETE 2026-08-24 - THE FIRST KSC-SCENE LANE EVER FLOWN, GREEN, ARMED AND CONTROLLED.** Reading `_2053` PASS attempt 1 at the in-window landed-sliver epoch (the KSC SURFACE playback resolved pin satisfied - the surface-resolution question answered YES), ARMED, armed re-flight `_2105` PASS attempt 1, own control `_2112` red EXACTLY on `recording=NoSuchRecording` (saveParse PASS), reverted. **THE FIRST COMMITTED KSC LANE** (`V20K` is reserved ahead of it and neither has flown, so this is first-committed rather than first-reserved), **RE-PINNED 2026-08-24 OFF ITS FIXTURE'S REAL BYTES** with its `PENDING_FIXTURE_LANES` entry retired in the same commit: `fixtures/saves/kerbin-splashdown-recorded` EXISTS, harvested `--keep-parsek` from `B4-reentry-splashdown` run 2026-08-24_1431 (PASS attempt 1), the tree id is real, and the one jump UT is **RE-DERIVED IN ROUND 2 TO 22,964 OFF THE MEASURED LOOP CLOCK** - reused from V22M so all three lanes of the trio observe the SAME INSTANT from three hosts - after reading run 1 (`2026-08-24_1621`, retry `_1622`) red INVALID(driver-rewind) on `timejump refused reason=backward-jump`, the spec's own forbid working as pre-registered. It is L1 = 21,583.965183089826 plus the 1,240.1436 s touchdown offset plus the family's +140 bracket. **THE FIRST-CONTACT QUESTION IS UNTOUCHED BY THAT RUN**: it never reached SPACECENTER's render path, so no KSC render line has still ever been read by any lane and every KSC pin here remains source-derived. **THE ROUTING PRE-REGISTRATION IS REFUTED**: run 1 measured `constraints=1 [Rotation(Kerbin) P=21549.425183089825 off=0]` with `method=single-rotation` - the LAUNCH-SITE rotation constraint quantizing the cadence so every replay leaves the pad at the same position under the sky, which for the host that watches from that very site is the most favourable clock the reading could have returned. No gate fired on it, both roads being unrequired AND unforbidden, and they stay so. THE HARVEST ALSO SETTLED TWO OPEN FACETS: the terminal measured `Landed` rather than `Splashed` (a dry-land touchdown east of KSC), now declared report-only; and the subject is confirmed KERBIN-FRAME END TO END from the bytes - `startBodyName = Kerbin`, four ORBIT_SEGMENTs all Kerbin, zero body-change seams - so both gates below admit it as reasoned and the two forbidden skip lines are forbidden against a subject that genuinely cannot produce them. The program names THREE render hosts and every committed V lane has exercised only two; NO KSC LANE HAS EVER FLOWN, and the definition of done requires that host wherever the Kerbin gate makes it non-vacuous. **ON G2's OWN CORRECTION THIS IS THE ONLY PROPOSED KSC SUBJECT THAT CAN CLEAR THE STRUCTURAL GATE**: `IsKscStructurallyEligible` rejects outright on `Points[0].bodyName != \"Kerbin\"`, and both G2 representatives are foreign-rooted (B28 starts at Laythe, B29 would start at Duna), so V20K may be excluded from the host whole and G2's KSC payoff is UNPROVEN - whereas a Kerbin ascent-to-splashdown subject is Kerbin-rooted and Kerbin-frame end to end. This lane is therefore the cheapest available MEASUREMENT of that paragraph, which under criterion (c) may not be written up as a limitation until a KSC lane has flown - so nothing here claims one. WHY IT COULD NOT BE DONE BEFORE, stated precisely because the loose version is wrong: there are TWO Kerbin gates and they differ - `IsKscStructurallyEligible` admits on `Points[0].bodyName == \"Kerbin\"` (the FIRST point only; terminal state is not consulted, so Landed/Splashed disqualifies nothing), while the per-frame POSE resolvers gate EVERY point (`ParsekKSC.Playback.cs:288-296` and `:362-372`). So a Kerbin-LAUNCHED outbound recording IS eligible and its Kerbin ascent leg DOES render; what is vacuous for an outbound subject is not the host but the ARRIVAL, because the per-point gate throws away exactly the epoch a loop-render lane measures. A Kerbin-frame SURFACE arrival is the first subject whose ARRIVAL this host can render at all, and being Kerbin-frame end to end is what makes this lane's forbid on the two skip lines safe rather than optimistic. AND THE PLUMBING DID NOT WAIT ON THE RETURN-LEG PROGRAM: R12's `LoadGame scene=spacecenter` has existed all along, used by exactly one committed spec (`H34-logistics-inter-body.toml:84`, for an in-game batch rather than a render reading), and `ParsekKSC.cs:282` calls the same `DriveMissionLoopUnits` seam as the other two hosts. THE LENS IS A THIRD SURFACE AND NOT THE POLYLINE: `GhostTrajectoryPolylineRenderer` hard-returns unless the scene is FLIGHT or TRACKSTATION (`:3860`, `:3973`), so copying either sibling's `Polyline frame:` pin here would be STRUCTURALLY UNSATISFIABLE - the V17M failure in a third costume. The KSC host draws no trajectory; it RESOLVES A POSE and places its own ghost, so the lens is the resolution itself. AND THE OBVIOUS FORM OF THAT PIN IS ALSO WRONG: two emitters share the prefix `KSC SURFACE playback resolved` with different field sets (`:340` carries `body=`, the INTERPOLATION path at `:438` does not) under ONE rate-limit key at 2.0 s, and during a dwell the interpolating one dominates and suppresses the other - so a `body=Kerbin` pin is both flaky and usually unsatisfiable. Dropping the field costs nothing because the Kerbin gate is UPSTREAM of both emits: reaching either line at all IS the Kerbin-frame proof. Filed as KSC-SURFACE-RESOLVED-TWO-EMITTERS-SHARE-ONE-RATE-LIMIT-KEY, report-only. The gate's own negatives are FORBIDDEN, which is what makes the positive pin sharp (and neither message contains the literal token `non-kerbin` - that is the internal Failure reason, not the log text). The sharpest line in the lane is `Mission-loop member recIdx=... excluded from KSC global auto queue`, which proves the MISSION LOOP UNIT took ownership rather than the flat global auto-stagger - without it a green run could mean the scene rendered through the ordinary queue and never touched the loop front door this lane exists to reach. `faithful-parity` and `seam-endpoint` summaries are deliberately NOT required: both are flight/TS instruments not known to emit in SPACECENTER, and requiring an unverified emitter is how a lane spends a flight discovering its own pin was unsatisfiable. A FIRST-CONTACT READING RUN IN THE STRONGEST SENSE - no prior lane has read a single KSC render line, so every emitter here is known from SOURCE rather than from any flight, and a red on a mis-calibrated pin is the expected cost of going first. NOTHING IS ARMED."
+instanceProfile = "stock-minimal"
+tags = ["V22", "ksc-scene", "loop-arrival", "surface-endpoint", "splashdown",
+        "kerbin", "launch-body-only", "map-render", "first-contact"]
+
+[fixture]
+saveTemplate       = "fixtures/saves/kerbin-splashdown-recorded"
+injectedRecordings = "none"
+craft              = []
+
+[driver]
+kind = "seam"
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  { cmd = "StopRecording",                                                   expect = "OK" },
+  { cmd = "DiscardTree",                                                     expect = "OK" },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "mapRenderTracing", value = "true" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "verboseLogging",   value = "true" }, expect = "OK" },
+  { cmd = "MissionConfig", args = { tree = "c05c834cd2754892b4588e7ce9220c3f", loop = "true" }, expect = "OK" },
+  { cmd = "StartLoopPlayback", args = { tree = "c05c834cd2754892b4588e7ce9220c3f" }, expect = "OK", budget = 300 },
+  { cmd = "TimeJump", args = { ut = "22825" }, expect = "OK", budget = 300 },
+  { cmd = "SaveGame",   args = { name = "persistent" },                      expect = "OK" },
+  { cmd = "StopRecording",                                                   expect = "OK" },
+  { cmd = "DiscardTree",                                                     expect = "OK" },
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent", scene = "spacecenter" }, expect = "OK", budget = 300 },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "FlushAndQuit",                                                    expect = "OK" },
+]
+
+[dimensionsCovered]
+D14 = ["kerbin", "scene-ksc", "sandbox"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+count = { min = 1, max = 12 }
+
+[expectations.logContracts]
+# ---------------------------------------------------------------------------------
+# RUN 2 LEDGER (2026-08-24, PARSEK-FAIL(expectations) attempt 1, driver green,
+# and THE FIRST KSC RENDER LINES ANY LANE HAS EVER READ). At the +140 epoch -
+# past the replay window - the host printed `[KSCGhost] Mission-loop unit
+# owner=0 in inter-cycle wait at loopUT=... - all members hidden` (twice) and
+# `Eligible breakdown: looping=... terminal(<null>=..., Landed=...)`, so the
+# two required pins (the queue-exclusion line, which never printed at all,
+# and the surface-resolved line, unreachable with members hidden) missed for
+# epoch reasons. ROUND 3 MOVES THE JUMP INTO THE IN-WINDOW LANDED SLIVER
+# (22,825), pins the measured Eligible-breakdown line, drops the never-printed
+# queue-exclusion pin, and KEEPS `KSC SURFACE playback resolved` as the lane's
+# core question at an epoch where the member is in-window and landed.
+# ---------------------------------------------------------------------------------
+required  = [
+  "missionconfig applied:",
+  "SetLoopEnabled: loop ON",
+  "startloopplayback initiated:",
+  "FastForwardToEventUT: jumping to UT=",
+  "loadgame spacecenter route \\(requested\\): resuming to SPACECENTER save=",
+  "loadgame complete scene=SPACECENTER save=.* game-loaded=true expected=SpaceCenter",
+  "ParsekKSC initialized, \\d+ committed recordings, [1-9]\\d* eligible for KSC ghost playback",
+  "\\[KSCGhost\\] Eligible breakdown: looping=\\d+",
+  "KSC SURFACE playback resolved: recording=.* branch=",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "timejump refused reason=backward-jump",
+  "KSC point skipped: recording=.* body=",
+  "KSC segment skipped: beforeBody=",
+]
+
+[expectations.rewind]
+# ARMED 2026-08-24 off this lane OWN green reading run `2026-08-24_2053`
+# (PASS attempt 1): every rewind facet measured 0, so the arming re-pinned
+# nothing and moved no verdict.
+gating = true
+rewindPoints  = { max = 0 }
+supersedeRows = { max = 0 }
+tombstones    = { max = 0 }
+
+[expectations.recordings.structure]
+# ARMED 2026-08-24, same reading run: recordings pinned at the measured 9,
+# the FIRST armed structure pins on a multi-recording debris-tree loop subject.
+gating = true
+trees          = { min = 1, max = 2 }
+committedTrees = { min = 1, max = 1 }
+recordings     = { min = 9, max = 9 }
+# DECLARED 2026-08-24 FROM THE HARVESTED BYTES, and it is the ONE facet this spec
+# deliberately left open until the subject existed: B4's `landedSituations` accepts
+# LANDED or SPLASHED and the harvest came back **Landed** (a dry-land touchdown at
+# lat -0.120 / lon 86.698, terrain 151.923 m). Still REPORT-ONLY - declaring is not
+# arming. `Destroyed` (measured 6, the three shed booster pairs) is left to the
+# arming pass, which sharpens every window off its own green reading run.
+terminalStates = { Landed = { min = 1, max = 1 } }
+
+[runtime]
+budgetSeconds = 2400
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

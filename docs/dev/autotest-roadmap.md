@@ -1373,10 +1373,10 @@ a limitation's clothes.
 
 Ranked by supply-run value per flight-hour. Each entry names the class, why it
 matters, the cheapest representative, the expected-but-unmeasured routing, and
-what counts as confirmation. Scenario ids B27-B31 and V18-V21 are RESERVED HERE
-(V18-V21 across all their suffixes: the established `M` player/flight-map and
-`T` tracking-station lanes, plus `K` for a KSC-host lane, which G2's correction
-below reserves as `V20K` - there is no committed `K` lane yet)
+what counts as confirmation. Scenario ids B27-B31 and V18-V23 are RESERVED HERE
+(across all their suffixes: the established `M` player/flight-map and `T`
+tracking-station lanes, plus `K` for a KSC-host lane - G2's correction below
+reserves `V20K`, and G3a reserves `V22K`, which is the first committed `K` lane)
 - this section is their only home - so sibling PRs do not collide; check open
 PRs before authoring and renumber only if one already claims an id.
 
@@ -1412,7 +1412,11 @@ the pin is a grep-checkable claim rather than a gate). So this lane's arrival
 truth is THE FAITHFUL FALLBACK AT A STATION ENDPOINT - a deliberate policy
 worth pinning as such - and NOT "the ghost renders at the station's current
 position". The catalog's Tier-4 intent S4.4 (station rendezvous phase-locked
-loop) is this lane; track it here, not under both ids.
+loop) is this lane; track it here, not under both ids. G3b - the surface
+`RouteEndpointResolver` nearest-vessel fallback - is DEFERRED INTO THIS
+ENTRY: it is route front-door work needing the driver, the status gate and
+the route clock this lane stands up, so it rides G1 rather than a mission
+loop.
 
 **G2 - Return legs (moon -> its parent; planet -> Kerbin).** A supply run is a
 round trip and every committed loop subject is outbound. The return direction
@@ -1478,15 +1482,127 @@ anywhere - not here, not in a spec, not in a status row. `V20K` (over B29's
 Kerbin-arrival recording) is where it gets MEASURED, and only that run can
 convert this paragraph into either a closed payoff or a cited limitation.
 
-**G3 - Surface endpoints.** A landed-arrival loop, plus the endpoint resolution
-path nobody has render-tested: `RouteEndpointResolver` prefers the recorded
-PID and falls back to ONE nearest compatible stock vessel within
-`RouteOrchestrator.SurfaceProximityRadiusMeters` = 500 m. That fallback is
-headlessly unit-tested (`RouteEndpointResolverTests`) and reached transitively
-by a delivery test, but no loop, map or render lane has ever exercised it - so
-"the ghost renders at the substituted endpoint" is untested at the surface.
-No scenario ids reserved yet; author against whichever landed fixture is
-cheapest when the lane is scheduled.
+**G3 - Surface endpoints.** Every committed loop lane ends at an ORBIT. A loop
+whose recording ENDS LANDED OR SPLASHED exercises a different render stack, and
+the product's v0.10.1 claim that "looped landings after destination parking
+render connected" has never had a lane. THE GAP SPLITS IN TWO, and the split is
+load-bearing because the halves have different owners:
+
+- **G3a, the MISSION-LOOP form - CLOSED 2026-08-24.** All five lanes
+  (V22M/V22T/V22K over a Kerbin surface arrival, V23M/V23T over a Mun landing)
+  completed the reading -> armed -> per-lane render-token control discipline in
+  one day. THE MEASURED CLASS ANSWER moved the lens model: a landed-terminal
+  loop member gets NO map/TS proto at ANY epoch (deliberate policy - see
+  LANDED-TERMINAL-LOOP-HAS-NO-MAP-PRESENCE-OUTSIDE-THE-FLIGHT-SCENE), so the
+  class's lenses are the FLIGHT-scene mesh lifecycle, the TS init-walk hidden
+  declaration in value form, and the KSC surface-resolution line - V22K, the
+  first KSC lane ever flown, answered the surface-resolution question YES at an
+  in-window landed epoch. The pre-flight lens sketch below is KEPT as the
+  record of what inspection predicted and flight refuted.
+- **G3b, the route-level endpoint resolution** - `RouteEndpointResolver` prefers
+  the recorded PID and falls back to ONE nearest compatible stock vessel within
+  `RouteOrchestrator.SurfaceProximityRadiusMeters` = 500 m. That fallback is
+  headlessly unit-tested (`RouteEndpointResolverTests`) and reached transitively
+  by a delivery test, but no loop, map or render lane has ever exercised it, so
+  "the ghost renders at the SUBSTITUTED endpoint" is untested at the surface.
+  This is ROUTE FRONT-DOOR work and it is **DEFERRED WITH G1**: it needs the
+  route ghost driver, the status gate and the route clock that G1 stands up
+  first, and measuring it through a mission loop would measure the wrong door.
+
+**WHAT THE LENS IS FOR THIS CLASS, per confirmation criterion (a).** Below
+atmosphere there is NO CONIC, so the proto orbit line is NOT the lens - pinning
+`surface=ProtoOrbitLine ... body=<destination>` on a landed subject is the V17M
+mistake in a new costume. The destination frame is carried by (i) the OWNED
+DESCENT POLYLINE (`GhostTrajectoryPolylineRenderer`, the
+`TracedPathTreatment.TryDrawOwnedLeg` / `ShadowRenderDriver` shadow-drive pair),
+(ii) the SUPPRESSED-ICON marker fallback (`ghostsWithSuppressedIcon` /
+`IsIconSuppressed` - the only marker signal for below-atmosphere and no-bounds
+ghosts), and (iii) the terminal state itself (`Landed` / `Splashed`). Tier-C
+`rigid-seam-tangent-discontinuity` raises at the owned descent draw
+(tracing-gated, once per onset) and is in the GATED anomaly set, so a lane
+shipping `allowedAnomalies = []` should expect to read it.
+
+**THE ICON-SUPPRESSION REASON TOKEN IS BODY-DEPENDENT, and getting it wrong
+makes a pin structurally unsatisfiable.** `belowAtmosphere` is
+`body.atmosphere && orbit.altitude < body.atmosphereDepth`
+(`GhostOrbitLinePatch.cs:903-906`), so an ATMOSPHERIC arrival (Kerbin, Eve,
+Laythe, Duna) suppresses under `reason=below-atmosphere` with
+`belowAtmosphere=True`, while an AIRLESS one (Mun, Minmus, Vall, Ike, Gilly)
+never takes that branch at all and suppresses under `reason=polyline-owns-phase`
+with `belowAtmosphere=False`. A spec must pin the token that matches its body.
+
+**NO NEW B IDS ARE NEEDED, and that is the cheapest thing about this gap.** Both
+subjects come from B lanes that are already committed and already LIVE-PROVEN;
+what is missing is not a flight capability but a HARVEST - no landed or splashed
+save has ever been harvested into a committed fixture, while fourteen orbit and
+transfer fixtures have.
+
+- **V22M/V22T/V22K** loop `kerbin-splashdown-recorded`, harvested `--keep-parsek`
+  from `B4-reentry-splashdown` (live-proven 2026-07-20, deterministic SPLASHED
+  terminal). Routing is itself a reading: a LAUNCH-BODY-ONLY loop has no
+  same-parent target and no transfer run for the classifier, so the plausible
+  outcome is FAITHFUL FIXED CADENCE and the lane gates on nothing there. Two
+  shape dimensions move at once (surface endpoint AND a multi-recording debris
+  tree), which the induction caveat asks to be pre-registered rather than
+  avoided, because no single-recording landed subject exists to avoid it with.
+  **V22K IS THE FIRST COMMITTED KSC LANE - AND, ON G2's OWN CORRECTION, THE ONLY
+  ONE PROPOSED SO FAR WHOSE SUBJECT CAN CLEAR THE STRUCTURAL GATE.** `V20K` is
+  reserved ahead of it and neither has flown, so "first" here means committed and
+  flyable rather than first reserved. The correction above establishes that
+  `IsKscStructurallyEligible` rejects on `Points[0].bodyName != "Kerbin"` - the
+  recording's FIRST point - and notes that BOTH G2 representatives are rooted at
+  a foreign body (B28's recording starts at Laythe; B29's would start at Duna),
+  so V20K may be excluded from the host WHOLE and its KSC payoff is unproven. A
+  Kerbin ascent-to-splashdown subject is rooted at Kerbin and stays Kerbin-frame
+  END TO END, so it clears both that gate and the per-point one. That makes this
+  lane the cheapest available MEASUREMENT of the paragraph above - which, per
+  criterion (c), may not be written up as a limitation anywhere until a KSC lane
+  has actually flown. Its plumbing
+  already exists and did not wait on G2: R12's `LoadGame scene=spacecenter`
+  (`TestCommandLoadGame.RequestedBootScene.SpaceCenter`), used by exactly one
+  committed spec before this (`H34-logistics-inter-body.toml:84`), with
+  `ParsekKSC.cs:282` driving the same `DriveMissionLoopUnits` seam as the other
+  two hosts. The reason it is reachable NOW is narrower than "the host was
+  vacuous", and the loose version is wrong: there are TWO Kerbin gates and they
+  differ. `IsKscStructurallyEligible` (`ParsekKSC.cs:1483`) admits a recording on
+  `Points[0].bodyName == "Kerbin"` - the FIRST point only, terminal state not
+  consulted - so a Kerbin-LAUNCHED outbound recording is eligible and its ascent
+  leg renders. It is the per-frame POSE resolvers that gate EVERY point, so what
+  an outbound subject loses is not the host but the ARRIVAL: the per-point gate
+  discards exactly the epoch a loop-render lane measures. A Kerbin-frame SURFACE
+  subject is the first whose ARRIVAL this host can render at all, so the KSC
+  coverage the definition of done requires arrives here rather than with the
+  return legs.
+- **V23M/V23T** loop `mun-landing-recorded`, harvested from `B13-mun-landing`
+  (live-proven full PASS on flight 1, 2026-07-25). **THE MISSION LIBRARY ALREADY
+  LANDS**: `landingEnabled` is a flag-gated, inert-by-default phase driving
+  MechJeb's `LandingAutopilot.LandUntargeted` through
+  `mission_runner._perform_land_untargeted`, verified against the installed
+  darchambault KRPC.MechJeb v0.8.1 pin - so this lane costs a re-fly and a
+  harvest, not a new mission mode. Kerbin -> its own moon is the PHASE-LOCK road
+  measured five times over, and V6M/V6T are Kerbin -> Mun exactly, so V23 is V6
+  WITH THE ENDPOINT MOVED FROM ORBIT TO SURFACE - the clean single-dimension
+  extension, and its own A/B control. NO KSC HALF - and for the narrow reason
+  above rather than the loose one: the recording launches from Kerbin, so the KSC
+  host admits it and renders its ascent leg, but the per-point gate skips every
+  Mun-frame sample, which is the whole descent and touchdown. The ARRIVAL is what
+  that host cannot show, and an arrival lane is what a KSC half would have to be.
+
+Confirmation: destination-frame render tokens at epochs derived from the MEASURED
+loop clock, on the flight map, the TS, and - for V22 only - the KSC host; armed,
+with a control that inverts a REQUIRED RENDER TOKEN.
+
+**THE CONTROL RULE G2 ESTABLISHED APPLIES HERE IN FULL, AND IT IS PER-LANE, NOT
+PER-PAIR.** Criterion (b) was first discharged by the V19 pair on 2026-08-21,
+each half running its OWN control on its OWN lens (`_0855` red on
+`surface=ProtoOrbitLine .*body=Vall`, `_0858` on `surface=ProtoIcon ... body=Vall
+scene=TRACKSTATION`) rather than one shared inversion for the pair, BECAUSE the
+two halves pin different lenses and a shared control would have proven exactly
+one of them. G3a's lanes pin lenses that diverge FURTHER than V19's did - the
+flight and TS halves share the polyline and suppressed-icon pair, but V22K's
+lens is a KSC pose resolution that exists in neither - so each of the five lanes
+owes its own control. A shared one would leave the host nobody has ever gated
+ungated.
 
 **G4 - Second moon-to-moon point: Mun -> Minmus** (`B30-mun-minmus-transfer`,
 lanes V21M/V21T). Confirms H3 is a property of the CLASS rather than of the
