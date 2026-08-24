@@ -1415,7 +1415,13 @@ class ParentRelayLoadTimeTests(unittest.TestCase):
         and follows its rule - only bodies whose values appear in a committed,
         reviewed spec. A row added from memory is a wrongly sized burn that the
         dv cap bounds but does not correct."""
-        self.assertEqual(["Laythe"], sorted(mlib.STOCK_BODY_GRAVITY))
+        # MUN JOINED THE TABLE for `B30-mun-minmus-transfer` (G4), under the
+        # same rule: its mu / radius pair is `SpawnSafetyNetTests.cs:1083`'s
+        # committed `("Mun", 200000.0, 6.5138398e10)` and its SOI radius is
+        # `V6M-mun-player-loop.toml:45`'s pin. The list stays CLOSED and
+        # asserted so a row added from memory still reds here - the guard is
+        # "every row is cited", not "the table never grows".
+        self.assertEqual(["Laythe", "Mun"], sorted(mlib.STOCK_BODY_GRAVITY))
         mu, radius, soi = mlib.STOCK_BODY_GRAVITY["Laythe"]
         self.assertEqual(MU_LAYTHE, mu)
         self.assertEqual(R_LAYTHE, radius)
@@ -1423,6 +1429,10 @@ class ParentRelayLoadTimeTests(unittest.TestCase):
         # decorative: it is what makes the escape target the HAND-OFF speed
         # instead of an asymptotic one that KSP never reaches.
         self.assertAlmostEqual(SOI_LAYTHE, soi, delta=1.0)
+        mu_mun, r_mun, soi_mun = mlib.STOCK_BODY_GRAVITY["Mun"]
+        self.assertEqual(6.5138398e10, mu_mun)
+        self.assertEqual(200_000.0, r_mun)
+        self.assertAlmostEqual(2_429_559.1, soi_mun, delta=1.0)
 
 
 class EscapeNodePlanTests(unittest.TestCase):

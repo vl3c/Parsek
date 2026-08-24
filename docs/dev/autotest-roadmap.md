@@ -1284,7 +1284,7 @@ must never carry them.
 | Planet -> its own moon | phase-lock | V6M/V6T, V7M/V7T, V14M/V14T, V15M/V15T, V16M/V16T | YES |
 | Kerbin -> planet, transfer admitted | re-aim | V5, V8/V8T, V9, V10, V11/V11A, V12/V12A, V13/V13A | YES |
 | Kerbin -> planet, classifier-declined profile | faithful | none | NO (see note) |
-| Moon -> sibling moon | faithful | V17M/V17T | PARTIAL - G4 |
+| Moon -> sibling moon | faithful | V17M/V17T, V21M/V21T | YES |
 | Return leg, moon -> its own parent | faithful | V19M/V19T | YES (map + TS) |
 | Return leg, planet -> Kerbin | unmeasured | none | NO - G2 |
 
@@ -1608,6 +1608,97 @@ is the sibling relation, not the seam count. Expected routing: identical to
 V17 - the relay coast will again miss the whole-revolution conjunct unless
 deliberately flown to close a revolution, and that variant is G7, not this
 lane.
+
+**STATUS 2026-08-24: THE SUBJECT IS FLOWN; THE ROUTING READ IS NOT.**
+`B30-mun-minmus-transfer`, `b30_mun_minmus` (+ schema + unit cells), the
+Parsek-stripped `fixtures/saves/mun-park-kerbalx` and the `V21M`/`V21T` pair are
+committed; the only `mlib` change the lane needed is one cited
+`STOCK_BODY_GRAVITY` row for Mun. **B30 FLEW GREEN ON ATTEMPT 1** (run
+`2026-08-24_1536`, mission wall 2,320 s, the full twenty-phase chain through
+ORBIT-COMMITTED with all eight assertions met) and its product is committed as
+`fixtures/saves/mun-minmus-recorded`; the V21 pair is RE-PINNED off that
+fixture's real bytes and both `PENDING_FIXTURE_LANES` entries are retired.
+**AND THE V21 PAIR HAS NOW READ IT: H3 REPLICATED AT A SECOND PARENT.** V21M
+(`2026-08-24_1639`) and V21T (`2026-08-24_1642_a2`) both measured `reaimed=False`
+x41 with `MissionLoopUnit: ... not re-aim (no member yields a re-aim transfer);
+faithful` and `PhaseLock SKIPPED ... support=UnsupportedCrossParent` - so the
+research doc's section-11.3 statement that the mechanism belongs to the FLIGHT
+PROFILE rather than to the pair is a MEASUREMENT at a second parent rather than a
+prediction, and the `IsHeliocentricParkingDeparture` door B30's lane left open did
+NOT open at Kerbin. **THE GAP NEVERTHELESS STAYS OPEN UNTIL THE PAIR IS ARMED AND
+ITS TWO NEGATIVE CONTROLS ARE DISCHARGED**: V21T is green and armable but owes a
+re-fly at a jump UT that moved 3 s when V21M re-derived off its logged anchor, and
+V21M itself red PARSEK-FAIL(expectations) on ONE WORD of one required token (its
+shadow pin asked for `treatment=TracedPath` where this subject's hyperbolic Minmus
+approach - `sma=-113900 ecc=4.1888` - renders `treatment=StockConic`; 238 measured
+lines carry the Minmus frame, zero `TracedPath` lines exist anywhere in the log, and
+V21T's log agrees from the other scene). **THAT IS A LENS-VARIANT READING, NOT A
+DEFECT AND NOT AN EPOCH MISS** - the coverage program's lens-per-shape criterion
+gains a third variant - and the pin is corrected off the measured word. The
+class-matrix row above moved to YES on 2026-08-24: both lanes armed off their
+green readings, armed re-flights PASS attempt 1 (`_2030`/`_2031`), and TWO
+render-token controls red exactly on their inverted tokens (`_2036`/`_2038`),
+then reverted - G4 is CLOSED; H3 is a property of the class, measured at two
+parents.
+
+**WHAT B30's FLIGHT MEASURED, against the five targets it pre-registered.**
+Three landed on their derivation. The escape node read 146.9262076658111 m/s
+against a derived 146.93, leaving the BOUND Mun orbit the corrected escape
+contract intends (ecc 0.783858 against 0.7836, apoapsis 15.35% past the SOI
+against 15.2%); the delivered Kerbin orbit read a = 9.09 Mm, INSIDE the derived
+6.41-49.2 Mm band and STILL BOUND, so (1)'s lane-ending parent-escape tail did
+not materialise and the deliberate UNDER-sizing was right; and MechJeb's
+moon-path `OperationTransfer` PLANNED ON THE FIRST ASK from an ECCENTRIC
+(ecc 0.302) Kerbin orbit toward the inclined target, which was the ranked-#1
+predicted failure and did not occur.
+TWO CAME BACK OUT OF BAND, and both are this entry's own predictions being
+tested rather than defects. **(2)'s attribution problem is now concrete:** the
+stage-2 node read 212.700 m/s against an 18.8/129.2/186.6 band - 14.0% above the
+worst corner - and because the lane changes the parent AND adds an inclined
+target in one step, THERE IS NO WAY TO SAY WHICH OF THE TWO THE OVERAGE BELONGS
+TO. The spec said so before the flight; the flight has not made it decidable,
+and nothing in this entry may later cite 212.700 as a parent effect.
+**And the arrival periapsis inverted the finding-16d expectation**, delivering
+303,202 m against a 250,000 m request (k = 1.213 at req/SOI 11.12%) where the
+corpus's monotone collapse predicted 0.5-0.7. Recorded as a reading with no
+mechanism claimed: it is only the fourth point in that regime and it followed a
+sign-change rescue.
+**AND THE THIRD ESCAPE-BOUNDARY OPTIMIZER DATA POINT WAS NOT COLLECTED.** The
+recorder suppressed both SOI boundaries in tree mode and the produced count came
+back at 1, but the load-time optimizer pass never ran on the subject (the only
+`Optimization pass:` line is `skipped (no recordings)`), and the flight ran with
+AUTO-MERGE RECORDINGS ON, under which a count of 1 cannot distinguish 'never
+split' from 'split then merged'. That measurement is OWED TO V21's LoadGame.
+
+**WHAT AUTHORING IT ALREADY ESTABLISHED, because it is not what this entry
+assumed.** This entry priced G4 as a cheap replication ("at a fraction of V17's
+cost ... existing craft"), and the craft and fixture halves of that held. The
+PHYSICS half did not: three properties of Kerbin's moons make the lane a
+different measurement rather than a re-scaled one. All three are DERIVED rather
+than flown, so they are predictions this entry now owns.
+(1) **The parent envelope is 12.9x tighter and it INVERTS the escape's binding
+constraint.** Kerbin's SOI is 7.01x Mun's orbital radius where Jool's is 90.35x
+Laythe's, and Minmus sits at 55.8% of Kerbin's SOI where Vall sits at 1.8% of
+Jool's. B26 had to OVER-size its escape (450 m/s against a 347.245 ideal) to
+clear a geometric reachability floor; B30 has to UNDER-size its escape (110
+against a 142.257 ideal), because an unaimed departure at the ideal puts 4.0% of
+its delivered band OUTSIDE KERBIN'S SOI entirely - a lane-ending outcome B26
+never had to size against. Same mode, opposite constraint.
+(2) **Minmus is inclined ~6 deg** where Laythe and Vall are coplanar, so this
+lane unavoidably BENDS the induction caveat's one-dimension-at-a-time rule: it
+changes the parent AND adds an inclined target in one step. That is stated in
+the spec rather than discovered later, and the consequence is named - a stage-2
+node above the derived band cannot be attributed to the parent change alone. It
+is unavoidable because a coplanar sibling pair under a second parent DOES NOT
+EXIST in the stock system; Kerbin has exactly two moons and one is inclined.
+(3) **The pair is NOT resonant**, where B26's sits in Jool's 1:2:4 chain. That
+chain put P_Vall and the Laythe-Vall synodic 0.6615 s apart and made V17's two
+candidate jump tables identical on cycle 1; P_Minmus/P_Mun = 7.7513, so V21's
+seed calibration is genuinely harder than V17's was and a dwell-nowhere first
+reading run is the expected outcome rather than an edge case.
+A fourth, owed to the V21 lanes rather than to B30: the SEAM MAGNITUDE is WORSE
+at this pair, not better - section 5.2's table already carries Mun at 20.25% of
+its orbit against Laythe's 13.70%.
 
 **G5 - Moon -> foreign body (Laythe -> Kerbin, or Mun -> Duna).** NOT a
 fail-closed measurement: a single-level cross-SOI chain is explicitly

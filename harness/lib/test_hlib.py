@@ -5011,6 +5011,33 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
         # shape H34/H35 above record.
         "V19M-laythe-jool-player-loop.toml": "tier=operator by the calibration discipline (derived windows, first run is a calibration reading), NOT debt; committed 2026-08-21 and DISCIPLINE-COMPLETE the same day - reading `2026-08-21_0746` PASS attempt 1 (wall 98 s), ARMED off its own bytes, armed re-flight `_0852` PASS with saveParse gating and 0 mismatches, and its OWN negative control `_0855` PARSEK-FAIL(expectation) on 1 mismatch (`surface=ProtoOrbitLine .*body=Vall`) with saveParse still PASS, then reverted; what is open is the ordinary operator -> nightly PROMOTION call, the H34/H35 shape",
         "V19T-laythe-jool-ts-arrival.toml":  "tier=operator by the calibration discipline (derived windows, first run is a calibration reading), NOT debt; committed 2026-08-21 and DISCIPLINE-COMPLETE the same day - reading `2026-08-21_0750` PASS attempt 1 (wall 60 s), ARMED off its own bytes, armed re-flight `_0854` PASS, its OWN negative control `_0858` PARSEK-FAIL(expectation) on 1 mismatch (`surface=ProtoIcon ... body=Vall scene=TRACKSTATION`) with saveParse still PASS, and revert confirmation `_0859` PASS; `_0857` was an ATTEMPTED control that PASSED because a mis-escaped regex made no edit, so it is an extra armed confirmation and NOT a control; what is open is the ordinary operator -> nightly PROMOTION call, the H34/H35 shape",
+        # THE G4 REPLICATION LANE, tier=operator by the same calibration
+        # discipline the whole B18-B28 family carries: its windows are DERIVED
+        # (from the fixture's own bytes, from cited stock constants and from
+        # mlib's own formulas) rather than measured, and the first run is a
+        # calibration reading. NOT debt.
+        # IT HAS NOT FLOWN. That is the honest state and it is not a
+        # classification problem: what is open is the FLIGHT, which a cloud
+        # session cannot run, not a human review call. The lane exists to convert
+        # the research doc's PREDICTION - that H3 is a property of the flight
+        # profile rather than of the Jool system - into a measurement at a second
+        # parent, and its five observation targets are pre-registered in the spec
+        # header precisely so the post-flight paragraph cannot be written after
+        # the fact.
+        "B30-mun-minmus-transfer.toml":     "tier=operator by the calibration discipline (derived windows, first run is a calibration reading), NOT debt; AUTHORED 2026-08-23 and NOT YET FLOWN - the G4 replication of B26's moon-to-moon hop at a second parent (Mun -> Minmus under Kerbin), with five observation targets pre-registered in the header; what is open is the FLIGHT itself, not a human review call",
+        # The V21 pair, tier=operator by the same calibration discipline and for
+        # the same reason as every V lane before them: their windows are DERIVED
+        # and the first run is a calibration reading. NOT debt.
+        # NEITHER HAS FLOWN, and neither CAN from a cloud session. What is open
+        # is the flight, not a human review call - and on this pair run 1 is
+        # expected to be a CLOCK READ rather than a green: the seed weakness has
+        # MOVED relative to V17's (whose routing was unknown), because the
+        # routing shape is now predicted and what is unknown is B30's FLIGHT
+        # DURATION - dominated by a stage-2 transfer-window wait uniform on
+        # [0, 159,570.7 s] and seeded at its midpoint. A dwell-nowhere run 1 is
+        # the accepted pre-registered outcome, exactly as V17M's was.
+        "V21M-mun-minmus-player-loop.toml": "tier=operator by the calibration discipline (derived windows, first run is a calibration reading), NOT debt; AUTHORED 2026-08-23 ahead of its subject, then RE-PINNED 2026-08-24 off `mun-minmus-recorded`'s real bytes the day B30 flew it (run `2026-08-24_1536`, PASS attempt 1) - the ZERO placeholder tree id is replaced by 029afab30803454894b02be12567af81, the span envelope / both seam offsets / the segment-less tail are byte facts, and the PENDING_FIXTURE_LANES exemption is RETIRED (that map is empty again; its self-retirement cell fired red first). The eight jump UTs REMAIN calibration seeds because the anchor `A` is one, but their error term is now seconds rather than the ~100 Ms span miss the S1 seed carried. READING RUN FLOWN 2026-08-24 (`2026-08-24_1639`): PARSEK-FAIL(expectations) on EXACTLY ONE WORD - its shadow pin asked for `treatment=TracedPath` where this subject's hyperbolic Minmus approach (ecc 4.1888) renders `treatment=StockConic` in all 238 measured lines - with all 61 steps met, anomalySweep completely silent and every other verifier green. **H3 REPLICATED AT A SECOND PARENT** (`reaimed=False` x41, `support=UnsupportedCrossParent`, `not re-aim ...; faithful`) and the clock shape reproduced the logged relaunch UTs to the last digit, the only seed error being the 2.814 s anchor; the pin is corrected off the measured word and the eight UTs re-derived off the logged clock (each 2-3 s earlier). What is open is the ARMING PASS and this pair's two negative controls, not a human review call",
+        "V21T-mun-minmus-ts-arrival.toml":  "tier=operator by the calibration discipline (derived windows, first run is a calibration reading), NOT debt; AUTHORED 2026-08-23 ahead of its subject, then RE-PINNED 2026-08-24 off the same real bytes (tree id 029afab30803454894b02be12567af81; the single jump moved to 587226, still V21M's third cycle-1 bracket reused so the pair observes the same instant from two scenes). The PENDING_FIXTURE_LANES exemption is RETIRED. The jump REMAINS a calibration seed because the anchor `A` is one, though the seam offset behind it (+267,230.864 s from ut0) is now a byte fact. READING RUN FLOWN AND GREEN 2026-08-24 (`2026-08-24_1642_a2`, PASS attempt 2, `flakedThenPassed`; attempt 1 INVALID on the transient TS-re-entry `LoadGame REJECTED` V17T's attempt 1 also hit, which is what `[retry]` is for): all 54 steps met, all ten required tokens matched, analyzer RED=0. THREE READINGS - `icon-off-orbit` SILENT (strengthening the surviving self-overlap candidate to 3-silent/6-raising), `seam-endpoint-outside-soi` RECURRED report-only against the pre-registered expectation but at a 1.91% hairline ratio rather than V16T's 157x, and the init walk measured `created 1 ghost vessel(s)` rather than zero, which makes that forbid armable by this lane's own stated rule. The jump moved 587226 -> 587223 with V21M's re-derived table, so this lane OWES A RE-FLY at the new value before arming. What is open is the arming pass, not a human review call",
         "H5-invariants-corpus.toml":        "discharged - 'resolving the former PENDING-OPERATOR check'",
         "H6-route-rewind-timeline.toml":    "discharged - 'The former PENDING-OPERATOR ...'",
         "M1-mission-loop-unit.toml":        "discharged - 'CLOSED by the 2026-07-26 flights'",
@@ -5805,6 +5832,23 @@ class SaveStructureVerifierWiringTests(unittest.TestCase):
                        # roadmap confirmation criterion (b).
                        "V19M-laythe-jool-player-loop.toml",
                        "V19T-laythe-jool-ts-arrival.toml",
+                       # V21M / V21T: `rewind` (all max 0 - the family's
+                       # replay-observation claim at a SECOND moon-to-moon
+                       # parent) + `structure` (trees {1,2} for V2's
+                       # duplicate-writer hazard, everything else pinned at the
+                       # measured 1/1 with terminalStates {Orbiting: 1}, points
+                       # 1444/1444/1444) armed 2026-08-24 off their OWN green
+                       # reading runs `2026-08-24_1704` (V21M, PASS attempt 1,
+                       # the StockConic-lens re-pin round) and `_1705` (V21T,
+                       # PASS attempt 1 at the moved 587,223 epoch). Both
+                       # measured byte-identical facets before arming, so the
+                       # arming re-pinned nothing - the pair's determinism
+                       # statement. Armed re-flights + the pair's TWO
+                       # render-token controls (different lenses, producers and
+                       # scenes - one inversion would prove at most one of
+                       # four things) recorded in the spec ledgers.
+                       "V21M-mun-minmus-player-loop.toml",
+                       "V21T-mun-minmus-ts-arrival.toml",
                        "GS-1-auto-chute-booster.toml", "GS-2-orbital-probe-deploy.toml",
                        "GS-3-switch-nudge-deployed.toml",
                        # B17: rewind (all max 0 - a clean single-launch flight
@@ -11665,6 +11709,19 @@ class SharedShipsManifestTests(unittest.TestCase):
     # (grepped: zero occurrences in both). The jump tables therefore stay
     # CALIBRATION SEEDS through run 1 exactly as each spec's section 3 says, now
     # seeded off the fixtures' real UT0 / span / seam rather than off guesses.
+    #
+    # RE-ARMED 2026-08-23 by the G4 pair, which is exactly the case this
+    # mechanism exists for: `V21M`/`V21T` were the DOWNSTREAM half of a two-stage
+    # program whose UPSTREAM lane (`B30-mun-minmus-transfer`) was authored but
+    # NOT FLOWN, so the fixture they named could not exist yet - and their whole
+    # value was that their predictions were written DOWN BEFORE the flight.
+    # RETIRED 2026-08-24 by B30 flight 1 (run
+    # `2026-08-24_1536_B30-mun-minmus-transfer`, PASS attempt 1):
+    # `mun-minmus-recorded` EXISTS, is registered in
+    # `test_saveparse.RECORDED_FIXTURES`, and BOTH lanes are re-pinned off its
+    # bytes (tree id, span envelope, both seam offsets, the segment-less tail),
+    # so the two entries were deleted in the same commit - the discipline this
+    # cell enforces, and it DID fire red first, for the second time.
     PENDING_FIXTURE_LANES = {
     }
 
