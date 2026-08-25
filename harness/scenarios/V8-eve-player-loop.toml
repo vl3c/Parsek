@@ -80,9 +80,14 @@
 #                endpoint/SOI ratio 0.116651686 over 272 record(s)". Zero
 #                WARN, zero FAIL. Header `mapRenderTracingOn=true` here,
 #                while the V14M sibling read FALSE on the same drive shape
-#                (that spec's section 6 observation (a); the bit reads the
-#                EXPORT INSTANT, and the sticky was-ever-on follow-up is
-#                filed under M-A7-RENDER-COMPOSITION-PHASES-3-AND-4).
+#                (that spec's section 6 observation (a): the bit READ the
+#                EXPORT INSTANT, so it could disagree with itself across two
+#                runs that both flew with the tracer armed). FIXED
+#                2026-08-25 in the arming pass - the bit is now STICKY
+#                (was-ever-on, cleared only with the records it describes),
+#                which changes nothing for THIS lane's census (it already
+#                read true) and removes one spurious unevaluable from
+#                V14M's.
 #              `cut-run-period-absent: 1` IS THE ONE TO CARRY INTO ARMING.
 #                This lane owns the corpus's only non-zero loiter cut
 #                (loiterCuts=1 cutSeconds=11,819,849 - the D11 cell below),
@@ -98,15 +103,54 @@
 #                flush after `FlushAndQuit` rewrote the same path. Benign -
 #                accumulation runs from Awake, so the later file is a
 #                superset - but worth one question at arming.
-#   ARMING DECISION PENDING OPERATOR: the three-run workflow still owes the
-#            ARMED re-flight and the NEGATIVE CONTROL, exactly as this
-#            lane's two save-structure blocks were armed above. The block
-#            stays BARE until that call is taken.
-#   renderComposition  Declared, NOT
-#            armed, so verifier row 7c reports facets and findings and can
-#            move no verdict (run.py writes
-#            `verifiers["render_composition_mismatch"]` only under
-#            `if rc.gating`). This lane is the second Phase-3 subject named
+#   ARMED    2026-08-25 by operator decision, off the reading facets above
+#            and nothing else. THREE assertions, margins argued at the block
+#            itself ([expectations.renderComposition], near the end of this
+#            file):
+#              dwells           = { min = 1, max = 32 }  measured 2
+#              unevaluable      = { max = 250 }          measured 76
+#              requireSeamKinds = ["rigid", "flexible-soi"]
+#                                                        measured {rigid 6,
+#                                                                  flexible-soi 4}
+#            `cycles` is DELIBERATELY OMITTED: this subject closed ZERO cycles
+#            (one rollover, bounding none), so a floor would red the very run
+#            it was armed off and a `{min = 0}` pin can never red at all. The
+#            anti-vacuity floor here is `dwells`. `warpBuckets` is not declared
+#            and never may be on this lane. RC-CUT stays unarmed for the
+#            measured reason recorded three paragraphs up
+#            (`cut-run-period-absent`), and RC-HOLD because one observed pair
+#            is not a window. NOTHING IN THE FLOWN SHAPE MOVED at arming.
+#            Registered in `RENDERCOMPOSE_ARMED_SPECS` (harness/lib/test_hlib.py).
+#   ARMED RE-FLIGHT  2026-08-25_1051 PASS - this shape flown green in the armed
+#            direction: `renderCompose status=PASS gating=True
+#            armedBlocks=['renderComposition'] mismatches=0`, one INFO RC-QUAL,
+#            zero WARN, zero FAIL. Facets: dwells 2 (openDwells 1), cycles 0,
+#            seamKinds {rigid 6, flexible-soi 4}, unevaluable 78
+#            (seam-endpoint-skipped 75, no-cycle-rollover-events 2,
+#            cut-run-period-absent 1), warp 1x-only (295),
+#            `mapRenderTracingOn=true`. THE READING RUN'S HEADLINE REPRODUCED:
+#            the `hold-engage`/`hold-release` pair and the `reaim-window` clock
+#            event are both present again, so the program's first observed hold
+#            pair was the subject and not a one-run accident. The two unarmed
+#            surfaces stayed unarmable for the SAME measured reasons -
+#            `cut-run-period-absent` again, and still one hold pair, not a window.
+#   NEG CONTROL      2026-08-25_1054 PARSEK-FAIL(render-composition) - one
+#            temporarily inverted window, `dwells = { min = 50 }`, red-ing on
+#            exactly that clause and nowhere else: the single mismatch was
+#            `renderComposition.dwells 2 < min 50`, and saveParse / anomalySweep /
+#            driverValidity / logValidate / analyzer ALL stayed PASS. Control
+#            reverted in the same change. THE CONTROL WAS NOT SHARED with the
+#            V14M sibling after all, and that is the stronger discharge: that lane
+#            inverted `cycles`, this one `dwells`, so each red lands on its OWN
+#            armed clause rather than re-proving the shared `rendercompose`
+#            evaluator - and the key sets differ anyway (this block has no
+#            `cycles` floor to invert).
+#   renderComposition  ARMED (above), so verifier row 7c now moves the
+#            verdict: run.py writes
+#            `verifiers["render_composition_mismatch"]` under
+#            `if rc.gating`, and a miss classifies
+#            `PARSEK-FAIL(render-composition)`. This lane is the second
+#            Phase-3 subject named
 #            by docs/dev/design-autotest-render-composition.md ->
 #            "Harness integration and lanes": the "re-aim interplanetary
 #            landing loop (V8/V13 class, exercising re-aim + descent
@@ -121,15 +165,19 @@
 #            which no other committed loop lane does. RC-ROUTE is NOT a
 #            subject here - no route line exists on this lane; that rides
 #            G1's B27/V18 in Phase 4.
-#            THE BLOCK IS BARE ON PURPOSE. `rendercompose`'s docstring:
-#            the facets are "Recorded UNCONDITIONALLY on a parseable
-#            manifest: that is how a lane earns its first honest window off
-#            a green report-only run". Declaring `dwells` / `cycles` /
-#            `unevaluable` before the first flight would be writing a
-#            prediction and reading it back as a measurement - the mistake
-#            this lane's own arming ledger above refuses for the two
-#            save-structure blocks ("arming re-pinned NOTHING"). Windows
-#            get authored FROM the first report-only manifest.
+#            THE BLOCK WAS BARE THROUGH THE READING RUN, ON PURPOSE, AND
+#            THAT IS WHERE ITS WINDOWS CAME FROM. `rendercompose`'s
+#            docstring: the facets are "Recorded UNCONDITIONALLY on a
+#            parseable manifest: that is how a lane earns its first honest
+#            window off a green report-only run". Declaring `dwells` /
+#            `cycles` / `unevaluable` BEFORE that flight would have been
+#            writing a prediction and reading it back as a measurement - the
+#            mistake this lane's own arming ledger above refuses for the two
+#            save-structure blocks ("arming re-pinned NOTHING"). The
+#            2026-08-25 arming holds to it literally: the three declared
+#            windows are the reading run's own numbers with stated margins,
+#            and `cycles` is omitted because that run measured zero closed
+#            cycles.
 #            NOTHING IN THE FLOWN SHAPE MOVED: no jump UT, no pacing
 #            spacer, no budget, no expectation - only one INERT export step
 #            before FlushAndQuit and the declaration itself. The pacing
@@ -500,24 +548,96 @@ committedTrees = { min = 1, max = 1 }
 trees          = { min = 1, max = 2 }
 
 [expectations.renderComposition]
-# M-A7 Phase 3, DECLARED REPORT-ONLY. Full rationale in the header's
-# RENDER COMPOSITION ledger entry; the two facts that matter here:
+# M-A7 Phase 3, ARMED 2026-08-25 by operator decision, off THIS lane's own
+# report-only reading run `2026-08-25_0956` (PASS attempt 1, `renderCompose
+# status=REPORT gating=false armedBlocks=[] mismatches=[]`, one INFO finding,
+# zero WARN, zero FAIL). Every window is written FROM that run's facets - the
+# header's RENDER COMPOSITION ledger carries them in full - and NOTHING IN THE
+# FLOWN SHAPE MOVED at arming: no jump UT, no pacing spacer, no budget, no
+# other expectation. That is the S4.1 rule, held here for the third time on
+# this lane.
 #
-#   1. NO `gating` KEY - declared, not armed. Row 7c reports and gates
-#      nothing, and `test_no_committed_spec_arms_render_composition_gating`
-#      pins this lane's absence from `RENDERCOMPOSE_ARMED_SPECS`.
-#   2. NO ASSERTION KEY - `hlib.validate_spec` accepts a bare declaration and
-#      emits an inert-declaration WARNING, which is the reading-run state the
-#      arming workflow mandates. Windows are authored FROM the first
-#      report-only manifest's facets, never before it. That manifest HAS now
-#      flown - reading run 2026-08-25_0956, facets in the header ledger - and
-#      the block is still bare on purpose: authoring the windows is the
-#      operator's arming call, not a consequence of the run being green.
+# WHAT ARMING BUYS: `run.py` writes `verifiers["render_composition_mismatch"]`
+# only `if rc.gating`, so from here a window miss, a required seam kind absent
+# from the chain records, or ANY FAIL-level rule finding classifies the run
+# `PARSEK-FAIL(render-composition)`. The lane is registered in
+# `RENDERCOMPOSE_ARMED_SPECS` (harness/lib/test_hlib.py).
+#
+# THE WINDOWS, each against its measurement:
+#
+#   dwells = { min = 1, max = 32 }   MEASURED 2 (1 open at export).
+#     `min` is the ANTI-VACUITY floor - a manifest that observed no dwell at all
+#     greened while measuring nothing, the shape this module exists to refuse.
+#     `max` is an order-of-magnitude runaway guard, not a pin: the count follows
+#     how many Director segments the replay walks, which a legitimate render
+#     change may move by a few. Deliberately IDENTICAL to the V14M sibling's, so
+#     the pair states ONE claim about the product rather than two claims about
+#     two subjects.
+#
+#   unevaluable = { max = 250 }      MEASURED 76.
+#     CEILING ONLY, ~3.3x the reading. 73 of the 76 are `seam-endpoint-skipped`,
+#     which scales with the endpoint population (272 records here - 2.5x V14M's,
+#     which is why this ceiling is 250 against that lane's 200: the same
+#     ratio-to-measurement, not a different standard). That count moves with
+#     frame timing rather than correctness, so a tight pin would red on a fast
+#     machine. What the ceiling catches is the COLLAPSE case - an instrument that
+#     stops measuring turns clauses into unevaluables wholesale. NO `min`: an
+#     unevaluable count is not a thing to require.
+#
+#   requireSeamKinds = ["rigid", "flexible-soi"]
+#     MEASURED {rigid: 6, flexible-soi: 4}. Both present, so this arms an
+#     existing fact. Sharpest clause in the block: an interplanetary re-aimed
+#     replay that stopped carrying a cross-SOI flexible seam would green every
+#     count above and red exactly here. Vocabulary is
+#     `rendercompose.SEAM_KINDS_REQUIRABLE`, which admits no other token.
+#
+# `cycles` IS DELIBERATELY OMITTED, and the omission is a MEASUREMENT, not an
+# oversight. The reading counted cycles 0 with `clockEvents {cycle-rollover: 1,
+# ...}`: RC-CYCLE counts CLOSED cycles, and this subject's single rollover
+# bounds no completed one (`no-cycle-rollover-events: 2` is the matching
+# unevaluable). A `min = 1` floor would red the very run it was armed off, which
+# is dishonest; a `{ min = 0 }` pin can never red at all (counts are never
+# negative - `_validate_armed_unreddable` refuses exactly that shape without a
+# `max`, and a `max` over a facet measured at zero asserts nothing worth having).
+# The anti-vacuity floor this block needs is `dwells`. V14M owns the cycles
+# clause; this lane owns the re-aim and the loiter cut.
+#
+# ALSO NOT DECLARED:
+#   * `warpBuckets` - every clock move here is an instantaneous TimeJump, so
+#     RC-WARP's histogram is 1x-only BY CONSTRUCTION (measured {warp1x: 296}).
+#     Declaring it would pin the drive shape as though it were the product.
+#   * any RC-CUT surface, and this is the MEASURED CONSTRAINT the header ledger
+#     flagged for arming: this lane owns the corpus's only non-zero loiter cut
+#     (loiterCuts=1, cutSeconds=11,819,849) and RC-CUT's whole-ratio check STILL
+#     could not evaluate it - the manifest carried no run period to divide by, so
+#     `cutWholeRatios` came back empty and `cut-run-period-absent: 1` landed in
+#     the census. An RC-CUT window armed off that reading would arm a clause that
+#     never fires. It waits for a manifest that carries the period.
+#   * any RC-HOLD clause - the `hold-engage`/`hold-release` pair observed at 1x is
+#     this reading's headline, but it is ONE pair on ONE run, and the design's own
+#     note says sizing that half wants a lane that dwells through a hold at a
+#     known warp. One observation is not a window (S4.1's `rewindPoints` lesson).
+#
+# DISCIPLINE-COMPLETE 2026-08-25: the three-run workflow closed the same day. ARMED
+# RE-FLIGHT `2026-08-25_1051` PASS (gating=True, zero mismatches; the reading run's
+# `hold-engage`/`hold-release` pair and `reaim-window` event both reproduced);
+# NEGATIVE CONTROL `2026-08-25_1054` red on exactly
+# `PARSEK-FAIL(render-composition)` through a temporary `dwells = { min = 50 }`
+# (single mismatch `renderComposition.dwells 2 < min 50`, every sibling verifier row
+# PASS), reverted in the same change. The control was NOT shared with the V14M
+# sibling: each lane inverted a window of its own (that one `cycles`, this one
+# `dwells`), which proves each block rather than re-proving the shared
+# `rendercompose` evaluator. Run ids also recorded in `RENDERCOMPOSE_ARMED_SPECS`
+# and in the header ledger.
 #
 # The DECLARATION (not the arming) is what sets `PARSEK_RENDER_MANIFEST=1` at
 # launch, which arms the C# recorder at Awake; without it the export step
 # answers `REJECTED msg=manifest-not-armed`. That coupling is enforced
 # pre-launch by `hlib.validate_spec`'s verb/block rule.
+gating = true
+dwells = { min = 1, max = 32 }
+unevaluable = { max = 250 }
+requireSeamKinds = ["rigid", "flexible-soi"]
 
 [runtime]
 budgetSeconds = 2400

@@ -1474,6 +1474,22 @@ namespace Parsek.MapRender
             internal string SaveName { get; }
             internal bool EnvArmed { get; }
             internal bool ForceArmed { get; }
+
+            /// <summary>
+            /// STICKY: "map-render tracing was enabled at SOME point while the records in this
+            /// manifest accumulated", NOT "tracing is on at the export instant". Serialized under the
+            /// header key <c>mapRenderTracingOn</c>, whose SPELLING is kept for schema stability.
+            ///
+            /// <para>The was-ever-on reading is the only one a consumer can act on. The instantaneous
+            /// read it replaced disagreed with itself across two runs of the same drive shape: a
+            /// teardown export taken while the live setting read false stamped <c>False</c> onto a
+            /// manifest carrying 107 tracing-gated seam-endpoint records, and the Python verifier
+            /// counted that as a <c>seam-data-unavailable-tracing-off</c> unevaluable against
+            /// evidence that the tracer had plainly been on in flight. The recorder latches the bit
+            /// per armed frame and clears it only in <c>RenderCompositionRecorder.Reset</c> - exactly
+            /// the boundary at which the accumulated records are dropped too, so the bit can never
+            /// outlive the records it describes.</para>
+            /// </summary>
             internal bool MapRenderTracingOn { get; }
         }
 

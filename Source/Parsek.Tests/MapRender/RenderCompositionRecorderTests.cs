@@ -7,11 +7,24 @@ namespace Parsek.Tests.MapRender
 {
     /// <summary>
     /// M-A7 RECORDER-level decisions that are pure enough to drive headlessly: the auto-flush
-    /// clobber guard and the enum token tables that keep the armed per-frame path off
-    /// <c>Enum.ToString()</c>.
+    /// clobber guard, the enum token tables that keep the armed per-frame path off
+    /// <c>Enum.ToString()</c>, and the STICKY map-render-tracing header bit.
     /// </summary>
-    public class RenderCompositionRecorderTests
+    [Collection("Sequential")]
+    public class RenderCompositionRecorderTests : IDisposable
     {
+        public RenderCompositionRecorderTests()
+        {
+            MapRenderTrace.ForceEnabledForTesting = false;
+            RenderCompositionRecorder.Reset();
+        }
+
+        public void Dispose()
+        {
+            MapRenderTrace.ForceEnabledForTesting = false;
+            RenderCompositionRecorder.Reset();
+        }
+
         // =====================================================================================
         //  Auto-flush clobber guard
         // =====================================================================================
@@ -55,6 +68,80 @@ namespace Parsek.Tests.MapRender
             // The skip is logged, not silent: a run whose manifest looks stale must be diagnosable
             // from KSP.log without attaching a debugger.
             Assert.Equal("no-new-observation", RenderCompositionRecorder.AutoFlushSkipReason);
+        }
+
+        // =====================================================================================
+        //  The STICKY map-render-tracing header bit
+        // =====================================================================================
+        //
+        // The header key `mapRenderTracingOn` exists so a consumer can tell "no seam records were
+        // captured" apart from "the instrument that captures them was off". Read at the EXPORT
+        // instant it answered neither question: V14M's 2026-08-25_0953 reading run stamped False
+        // onto a teardown manifest carrying 107 tracing-gated seam-endpoint records, and the Python
+        // verifier duly counted a `seam-data-unavailable-tracing-off` unevaluable against evidence
+        // that the tracer had been on for the whole flight. The bit is now WAS-EVER-ON.
+
+        [Fact]
+        public void StickyTracingBit_StartsFalseAndLatchesOnceTracingIsSeenOn()
+        {
+            Assert.False(RenderCompositionRecorder.MapRenderTracingWasEverOn);
+
+            RenderCompositionRecorder.LatchMapRenderTracing();
+            Assert.False(RenderCompositionRecorder.MapRenderTracingWasEverOn);
+
+            MapRenderTrace.ForceEnabledForTesting = true;
+            RenderCompositionRecorder.LatchMapRenderTracing();
+            Assert.True(RenderCompositionRecorder.MapRenderTracingWasEverOn);
+        }
+
+        [Fact]
+        public void StickyTracingBit_SurvivesTheTracerGoingQuietAgain()
+        {
+            // THE CELL THAT NAMES THE BUG. A late export - the teardown flush, or any frame after a
+            // setting flip - must not wash out a tracing period the armed frames already recorded.
+            MapRenderTrace.ForceEnabledForTesting = true;
+            RenderCompositionRecorder.LatchMapRenderTracing();
+
+            MapRenderTrace.ForceEnabledForTesting = false;
+            for (int frame = 0; frame < 5; frame++)
+                RenderCompositionRecorder.LatchMapRenderTracing();
+
+            Assert.True(RenderCompositionRecorder.MapRenderTracingWasEverOn);
+        }
+
+        [Fact]
+        public void StickyTracingBit_ClearsWithTheRecordsItDescribes()
+        {
+            // Reset is the record-dropping boundary (scene partition / game-state load), so the bit
+            // must die with them: a manifest built after a Reset describes a fresh population and may
+            // not inherit the previous one's instrument state.
+            MapRenderTrace.ForceEnabledForTesting = true;
+            RenderCompositionRecorder.LatchMapRenderTracing();
+            Assert.True(RenderCompositionRecorder.MapRenderTracingWasEverOn);
+
+            MapRenderTrace.ForceEnabledForTesting = false;
+            RenderCompositionRecorder.Reset();
+            Assert.False(RenderCompositionRecorder.MapRenderTracingWasEverOn);
+        }
+
+        /// <summary>
+        /// The header key SPELLING is load-bearing across the language boundary: the Python reader
+        /// (<c>harness/lib/rendercompose.py</c> -&gt; <c>_flag(root, "mapRenderTracingOn")</c>) keys off
+        /// it verbatim, and the semantics change here deliberately did NOT rename it.
+        /// </summary>
+        [Fact]
+        public void StickyTracingBit_IsSerializedUnderTheUnchangedHeaderKey()
+        {
+            var m = new RenderCompositionManifest();
+            ConfigNode root = m.BuildFileNode(new RenderCompositionManifest.ManifestHeader(
+                    1000.0, "verb", "FLIGHT", "test-save", true, false, true))
+                .GetNode(RenderCompositionManifest.RootNodeName);
+            Assert.Equal("True", root.GetValue("mapRenderTracingOn"));
+
+            root = m.BuildFileNode(new RenderCompositionManifest.ManifestHeader(
+                    1000.0, "verb", "FLIGHT", "test-save", true, false, false))
+                .GetNode(RenderCompositionManifest.RootNodeName);
+            Assert.Equal("False", root.GetValue("mapRenderTracingOn"));
         }
 
         // =====================================================================================
