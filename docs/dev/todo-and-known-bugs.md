@@ -498,11 +498,12 @@ constructed per scene by `ParsekFlight` / `ParsekKSC`, so a skin-scoped style ne
 outlives its scene (only the DDOL `TestRunnerShortcut` has that problem).
 
 Follow-up (`singleline-tooltip-strips`): the strip height stopped being universally two
-lines. The four wide windows whose entire help corpus fits one wrapped line at their
-first-open width - Career State (820px), Timeline (820px), Logistics (1556px) and Real
-Spawn Control (750px) - now construct `TooltipEchoBox(SpacingSmall,
-TooltipEchoBox.SingleLine)`; `NormalizeLines`/`ProbeText` clamp any other request back
-to two. The budget gate grew a per-row strip-height column that is SOURCE-CHECKED
+lines. The wide windows whose entire help corpus fits one wrapped line at their
+first-open width - Career State (820px), Timeline (820px), Logistics (1556px), Real
+Spawn Control (750px) and Recordings (1355px, which also HOSTS the Missions tab, so
+that file's row is budgeted at the host's width and height) - now construct
+`TooltipEchoBox(SpacingSmall, TooltipEchoBox.SingleLine)`; `NormalizeLines`/`ProbeText`
+clamp any other request back to two. The budget gate grew a per-row strip-height column that is SOURCE-CHECKED
 against each window's actual constructor argument
 (`StripHeightColumn_MatchesTheWindowConstructor`), and the literal scan also resolves
 same-file `const string` tooltips (e.g. Logistics' 216-char `DormantSectionTooltip`),
@@ -528,7 +529,16 @@ binder for the Nx cell), and `StatusCellTooltip` reads "Enum - clause" on one li
 instead of spending a hard newline. All are pinned in `TooltipEchoBudgetTests` (the
 status gate feeds real `DescribeHold` productions; clauses interpolating user-chosen
 names are unbounded by design - the marquee is their recovery path, so only
-newline-freedom is asserted).
+newline-freedom is asserted). Recordings was trimmed the same way: its over-budget
+texts (the 204-char loop-period header, STASH's 252-char group tooltip,
+`MissionPresentation.VesselIncludeCheckboxTooltip` at 302) now fit the 189-char
+one-line budget, and `RecordingsTableUI.CombineTooltipText` joins its clauses with
+" - " rather than "\n" (as does MissionsWindowUI's "Aboard:" suffix and
+`RewindInvoker`'s scene-transition reason) - a hard newline on a one-line strip clips
+whatever follows it onto a row no horizontal scroll can reach. The same pass gave the
+window broad hover-tip coverage - sort headers, bulk and per-row toggles, folder and
+flight-chain buttons, the Archive FILTER, the period unit button, the tab bar - which
+is why its `minTooltips` floor rose from 3 to 40 (48 literals found today).
 
 ## ~~SAME-TREE-DOCK-INVISIBLE-FROM-ABSORBED-SIDE: a cross-session dock inside one tree named nobody and was derivable from neither side~~ [FOUND by the 2026-08-12 dock/loop-coherence analysis (I2-ii); FIXED 2026-08-12/13, branches `same-tree-dock-claims` + `dock-event-graph` (design `docs/dev/design-dock-event-graph.md` 6.2 / 6.3-6.5, PR sequence steps 2-3)]
 

@@ -32,10 +32,12 @@ namespace Parsek
     /// and its bottom row no longer shuffles, when the pointer crosses a control.</para>
     ///
     /// <para><b>One vs two lines.</b> A window whose every help text fits ONE wrapped
-    /// line at its width (wide windows: Career State, Timeline, Logistics, Real Spawn
-    /// Control) constructs the box with <see cref="SingleLine"/>; narrower windows keep
-    /// <see cref="DoubleLine"/> because their texts genuinely wrap. TooltipEchoBudgetTests
-    /// pins which windows use which height alongside the per-window text budgets.</para>
+    /// line at its width (the wide windows: Career State, Timeline, Logistics, Real Spawn
+    /// Control and Recordings - the last of which also hosts the Missions tab, whose
+    /// tooltips echo in the same strip) constructs the box with <see cref="SingleLine"/>;
+    /// narrower windows keep <see cref="DoubleLine"/> because their texts genuinely wrap.
+    /// TooltipEchoBudgetTests pins which windows use which height alongside the per-window
+    /// text budgets.</para>
     ///
     /// <para><b>The overflow marquee.</b> Text the strip cannot fully display does not
     /// clip silently: the strip renders it through the NOWRAP style as one long line

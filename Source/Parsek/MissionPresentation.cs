@@ -42,10 +42,8 @@ namespace Parsek
         /// keys (loop-unit membership, no cascade onto separated children, no ghost hiding).
         /// </summary>
         internal const string VesselIncludeCheckboxTooltip =
-            "Include this vessel's segments in the mission's loop unit (writes each segment's " +
-            "own include key). A partially-included vessel is first completed; click again to " +
-            "exclude it all. Expand the row to pick individual segments. Does not hide the " +
-            "ghost - playback is controlled per recording (Recordings tab).";
+            "Include this vessel's segments in the mission's loop unit. A partly-included " +
+            "vessel is completed first; click again to exclude it all. Does not hide the ghost.";
 
         internal const string LoopToggleTooltip =
             "Loop this mission as one unit. At most one looping mission per recording tree - " +

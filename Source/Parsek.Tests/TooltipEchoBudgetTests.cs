@@ -28,13 +28,14 @@ namespace Parsek.Tests
     /// EARLY, so this is an upper bound on what L lines hold, which is exactly the
     /// direction a guard wants.</para>
     ///
-    /// <para><b>Which windows are single-line.</b> The four wide windows whose ENTIRE
-    /// help corpus fits one wrapped line at their first-open width - Career State,
-    /// Timeline, Logistics and Real Spawn Control - construct their
-    /// <see cref="TooltipEchoBox"/> with <see cref="TooltipEchoBox.SingleLine"/> and are
-    /// budgeted at L=1 below; every other window keeps the two-line strip. A copy edit
-    /// that pushes any literal past ITS OWN window's line count fails here, and a
-    /// switch of a window's strip height without re-budgeting its texts fails too.</para>
+    /// <para><b>Which windows are single-line.</b> The wide windows whose ENTIRE help
+    /// corpus fits one wrapped line at their first-open width - Career State, Timeline,
+    /// Logistics, Real Spawn Control and Recordings (with the Missions tab it hosts) -
+    /// construct their <see cref="TooltipEchoBox"/> with
+    /// <see cref="TooltipEchoBox.SingleLine"/> and are budgeted at L=1 below; every other
+    /// window keeps the two-line strip. A copy edit that pushes any literal past ITS OWN
+    /// window's line count fails here, and a switch of a window's strip height without
+    /// re-budgeting its texts fails too.</para>
     ///
     /// <para><b>What this gate covers.</b> Every <c>new GUIContent(label, tooltip)</c>
     /// in the strip-hosting windows whose tooltip argument is a plain string
@@ -92,15 +93,17 @@ namespace Parsek.Tests
             // at 77 ("No active ghost - recording is in the past/future ...").
             yield return new object[] { "UI/TimelineWindowUI.cs", 820f, 14, TooltipEchoBox.SingleLine };
             // Recordings: DefaultCollapsedWindowWidth = 1205 + ColW_Rewind(60) + ColW_ReFly(90).
-            // Two lines: the 204-char loop-period header tooltip genuinely wraps once.
-            yield return new object[] { "UI/RecordingsTableUI.cs", 1355f, 3, TooltipEchoBox.DoubleLine };
+            // Single-line strip: the window's whole help corpus was trimmed to fit one
+            // wrapped line at 1355px = 189 chars (the loop-period header tooltip, formerly
+            // 204, is the text that used to need the second line).
+            yield return new object[] { "UI/RecordingsTableUI.cs", 1355f, 40, TooltipEchoBox.SingleLine };
             // Missions is not its own window: MissionsWindowUI.DrawMissionsTabContent draws
             // INSIDE the Recordings window, so its tooltips echo in that window's strip and
-            // are budgeted at that window's width and height. Floor 0 on purpose - every
-            // tooltip it renders today comes from MissionPresentation (a const or a runtime
-            // build), so the scan finds none; the row exists to budget the first literal
-            // added here.
-            yield return new object[] { "UI/MissionsWindowUI.cs", 1355f, 0, TooltipEchoBox.DoubleLine };
+            // are budgeted at that window's width and height - including its SINGLE-line
+            // height. Floor 0 on purpose - every tooltip it renders today comes from
+            // MissionPresentation (a const or a runtime build), so the scan finds none; the
+            // row exists to budget the first literal added here.
+            yield return new object[] { "UI/MissionsWindowUI.cs", 1355f, 0, TooltipEchoBox.SingleLine };
             // Logistics: first-open default new Rect(..., 1556, 500). Single-line strip:
             // the composed Supply-Run cost tooltip was rewritten constant-length (no
             // embedded funds amounts), the Nx cadence tooltip and the status-cell hold

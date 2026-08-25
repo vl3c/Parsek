@@ -127,7 +127,15 @@ namespace Parsek
         internal const int TabMissions = 0;
         internal const int TabRecordings = 1;
         private int selectedTab = TabMissions;
-        internal static readonly string[] TabLabels = new[] { "Missions", "Recordings" };
+        // GUIContent (not bare strings) so each tab explains itself in the bottom help
+        // strip on hover; static readonly so the toolbar allocates nothing per draw pass.
+        internal static readonly GUIContent[] TabLabels = new[]
+        {
+            new GUIContent("Missions",
+                "Your flights grouped as whole missions - the higher-level view."),
+            new GUIContent("Recordings",
+                "The raw table of every recorded vessel, one row each.")
+        };
 
         // Read-only test seam for the transient tab selection (section 4.1/4.1a guards).
         // Settable so an in-game test can restore the tab it moved (mirrors
@@ -274,8 +282,12 @@ namespace Parsek
         private GUIStyle tooltipLabelStyle;
         private Rect scrollViewRect;
         // Bottom "hovered control help text" strip. See TooltipEchoBox for why it is a
-        // permanently visible box of constant height.
-        private readonly TooltipEchoBox tooltipEcho = new TooltipEchoBox(SpacingSmall);
+        // permanently visible box of constant height. SINGLE line: this window is 1355 px
+        // wide, so its whole help corpus fits one wrapped line; anything that overflows
+        // (a long runtime-composed status or hold text) marquee-scrolls. The line count is
+        // pinned against this constructor by TooltipEchoBudgetTests.
+        private readonly TooltipEchoBox tooltipEcho =
+            new TooltipEchoBox(SpacingSmall, TooltipEchoBox.SingleLine);
         // Window-computed hover text that outranks GUI.tooltip for the strip (the
         // clamped loop-period cell resolves its own string from a rect hit test).
         // Cleared at the top of every pass; set during the row draw, i.e. BEFORE
@@ -1063,11 +1075,6 @@ namespace Parsek
             return clicked;
         }
 
-        private bool DrawBodyCenteredButton(string text, float cellWidth)
-        {
-            return DrawBodyCenteredButton(new GUIContent(text), cellWidth);
-        }
-
         private bool DrawRewindColumnButton(GUIContent content)
         {
             return DrawBodyCenteredButton(content, ColW_Rewind, bodyCellButtonCompact);
@@ -1079,16 +1086,6 @@ namespace Parsek
         // the single-button version exactly — otherwise twin-button rows would
         // have a different fixed-width sum from single-button rows and
         // Name.ExpandWidth would absorb the difference unevenly.
-        private void DrawBodyCenteredTwoButtons(
-            string firstText, string secondText, float cellWidth,
-            out bool firstClicked, out bool secondClicked)
-        {
-            DrawBodyCenteredTwoButtons(
-                new GUIContent(firstText), true,
-                new GUIContent(secondText), true,
-                cellWidth, out firstClicked, out secondClicked);
-        }
-
         private void DrawBodyCenteredTwoButtons(
             GUIContent firstContent, bool firstEnabled,
             GUIContent secondContent, bool secondEnabled,
@@ -1131,7 +1128,10 @@ namespace Parsek
             GUILayout.BeginHorizontal(colHdrCellContainerStyle,
                 GUILayout.Width(ColW_Enable + ColW_Index + 8f),
                 GUILayout.Height(ColHeaderHeight));
-            bool newAllEnabled = GUILayout.Toggle(allEnabled, "", GUILayout.Width(ColW_Enable));
+            bool newAllEnabled = GUILayout.Toggle(allEnabled,
+                new GUIContent("",
+                    "Turn ghost playback on or off for every recording in the list at once."),
+                GUILayout.Width(ColW_Enable));
             if (newAllEnabled != allEnabled)
             {
                 for (int i = 0; i < committed.Count; i++)
@@ -1142,7 +1142,10 @@ namespace Parsek
             // already supplies it; otherwise we'd double-box).
             string hashArrow = (sortColumn == SortColumn.Index)
                 ? (sortAscending ? " \u25b2" : " \u25bc") : "";
-            if (GUILayout.Button("#" + hashArrow, boldHeaderInnerLabel, GUILayout.Width(ColW_Index)))
+            if (GUILayout.Button(
+                    new GUIContent("#" + hashArrow,
+                        "Sort by recording number - the order the recordings were captured in. Click again to reverse."),
+                    boldHeaderInnerLabel, GUILayout.Width(ColW_Index)))
             {
                 if (sortColumn == SortColumn.Index) sortAscending = !sortAscending;
                 else { sortColumn = SortColumn.Index; sortAscending = true; }
@@ -1152,32 +1155,52 @@ namespace Parsek
             GUILayout.EndHorizontal();
             if (alignmentDebugArmed && !alignmentDebugHeaderCaptured) AlignDebugLogLastRect(alignmentDebugHeaderLog, "hdrMerged");
 
-            DrawSortableHeader("Name", SortColumn.Name, 0, true);
+            DrawSortableHeader("Name", SortColumn.Name, 0, true,
+                "Sort the list by vessel name. Click again to reverse the order.");
             if (alignmentDebugArmed && !alignmentDebugHeaderCaptured) AlignDebugLogLastRect(alignmentDebugHeaderLog, "hdrName");
-            DrawSortableHeader("Phase", SortColumn.Phase, ColW_Phase);
+            DrawSortableHeader("Phase", SortColumn.Phase, ColW_Phase, false,
+                "Sort by flight phase - whether the flight ends in atmosphere, in space, on approach, or on a surface.");
             if (alignmentDebugArmed && !alignmentDebugHeaderCaptured) AlignDebugLogLastRect(alignmentDebugHeaderLog, "hdrPhase");
-            DrawSortableHeader("Site", SortColumn.LaunchSite, ColW_Site);
+            DrawSortableHeader("Site", SortColumn.LaunchSite, ColW_Site, false,
+                "Sort by launch site - where each flight started from.");
             if (alignmentDebugArmed && !alignmentDebugHeaderCaptured) AlignDebugLogLastRect(alignmentDebugHeaderLog, "hdrSite");
-            DrawSortableHeader("Launch", SortColumn.LaunchTime, ColW_Launch);
-            DrawSortableHeader("Duration", SortColumn.Duration, ColW_Dur);
+            DrawSortableHeader("Launch", SortColumn.LaunchTime, ColW_Launch, false,
+                "Sort by launch date - when each flight started.");
+            DrawSortableHeader("Duration", SortColumn.Duration, ColW_Dur, false,
+                "Sort by how long each flight lasted.");
             if (alignmentDebugArmed && !alignmentDebugHeaderCaptured) AlignDebugLogLastRect(alignmentDebugHeaderLog, "hdrDur");
 
             var colHdr = parentUI.GetColumnHeaderStyle();
             if (showExpandedStats)
             {
-                GUILayout.Label("MaxAlt", colHdr, GUILayout.Width(ColW_MaxAlt), GUILayout.Height(ColHeaderHeight));
-                GUILayout.Label("MaxSpd", colHdr, GUILayout.Width(ColW_MaxSpd), GUILayout.Height(ColHeaderHeight));
-                GUILayout.Label("Dist", colHdr, GUILayout.Width(ColW_Dist), GUILayout.Height(ColHeaderHeight));
-                GUILayout.Label("Pts", colHdr, GUILayout.Width(ColW_Pts), GUILayout.Height(ColHeaderHeight));
-                GUILayout.Label("Start", colHdr, GUILayout.Width(ColW_StartPos), GUILayout.Height(ColHeaderHeight));
-                GUILayout.Label("End", colHdr, GUILayout.Width(ColW_EndPos), GUILayout.Height(ColHeaderHeight));
+                GUILayout.Label(new GUIContent("MaxAlt",
+                    "Highest altitude this flight reached."),
+                    colHdr, GUILayout.Width(ColW_MaxAlt), GUILayout.Height(ColHeaderHeight));
+                GUILayout.Label(new GUIContent("MaxSpd",
+                    "Highest speed this flight reached."),
+                    colHdr, GUILayout.Width(ColW_MaxSpd), GUILayout.Height(ColHeaderHeight));
+                GUILayout.Label(new GUIContent("Dist",
+                    "Total distance this flight travelled."),
+                    colHdr, GUILayout.Width(ColW_Dist), GUILayout.Height(ColHeaderHeight));
+                GUILayout.Label(new GUIContent("Pts",
+                    "How many trajectory points were recorded - a rough measure of how detailed and how large the recording is."),
+                    colHdr, GUILayout.Width(ColW_Pts), GUILayout.Height(ColHeaderHeight));
+                GUILayout.Label(new GUIContent("Start",
+                    "Where this flight starts: body and site, or the parent vessel it separated from."),
+                    colHdr, GUILayout.Width(ColW_StartPos), GUILayout.Height(ColHeaderHeight));
+                GUILayout.Label(new GUIContent("End",
+                    "Where this flight ends up: body and site, or the parent vessel it is attached to."),
+                    colHdr, GUILayout.Width(ColW_EndPos), GUILayout.Height(ColHeaderHeight));
             }
 
-            DrawSortableHeader("Status", SortColumn.Status, ColW_Status);
+            DrawSortableHeader("Status", SortColumn.Status, ColW_Status, false,
+                "Sort by status - counting down to launch, flying now, or finished.");
             if (alignmentDebugArmed && !alignmentDebugHeaderCaptured) AlignDebugLogLastRect(alignmentDebugHeaderLog, "hdrStatus");
 
             // Group column header
-            GUILayout.Label("Group", colHdr, GUILayout.Width(ColW_Group), GUILayout.Height(ColHeaderHeight));
+            GUILayout.Label(new GUIContent("Group",
+                "Folders each recording belongs to. Use the G button on a row to change them."),
+                colHdr, GUILayout.Width(ColW_Group), GUILayout.Height(ColHeaderHeight));
             if (alignmentDebugArmed && !alignmentDebugHeaderCaptured) AlignDebugLogLastRect(alignmentDebugHeaderLog, "hdrGroup");
 
             // Select-all loop header + checkbox. Non-loopable recordings (debris
@@ -1191,12 +1214,17 @@ namespace Parsek
             // commit guard below blocks the bulk write even if the wrap is dropped.
             bool headerRouteBound = AnyRecordingRouteBound(committed, indices: null);
             var headerLoopAgg = ComputeLoopAggregate(committed);
+            // Label and toggle carry the SAME text: the header cell reads as one control,
+            // and the pointer lands on either half depending on where it enters.
+            const string loopHeaderTooltip =
+                "Replay every recording in the list on a repeating schedule. Greyed out when any recording is driven by a supply route.";
             GUILayout.BeginHorizontal(colHdrCellContainerStyle, GUILayout.Width(ColW_Loop), GUILayout.Height(ColHeaderHeight));
             GUILayout.FlexibleSpace();
-            GUILayout.Label("Loop", boldHeaderInnerLabel);
+            GUILayout.Label(new GUIContent("Loop", loopHeaderTooltip), boldHeaderInnerLabel);
             bool prevAllLoopEnabled = GUI.enabled;
             if (headerRouteBound) GUI.enabled = false;
-            bool newAllLoop = GUILayout.Toggle(headerLoopAgg.AllLoop, "");
+            bool newAllLoop = GUILayout.Toggle(headerLoopAgg.AllLoop,
+                new GUIContent("", loopHeaderTooltip));
             GUI.enabled = prevAllLoopEnabled;
             GUILayout.FlexibleSpace();
             GUILayout.EndHorizontal();
@@ -1216,25 +1244,36 @@ namespace Parsek
             }
 
             GUILayout.Label(new GUIContent("Period",
-                "Launch-to-launch period: how often the ghost relaunches. Shorter than the recording duration means launches overlap. Click the unit to cycle sec / min / hr / auto; 'auto' inherits from Settings > Looping."),
+                "Launch-to-launch period: how often the ghost relaunches. Shorter than the flight means launches overlap. Click the unit to cycle sec / min / hr / auto; auto follows Settings > Looping."),
                 colHdr, GUILayout.Width(ColW_Period), GUILayout.Height(ColHeaderHeight));
             if (alignmentDebugArmed && !alignmentDebugHeaderCaptured) AlignDebugLogLastRect(alignmentDebugHeaderLog, "hdrPeriod");
 
             if (parentUI.InFlightMode)
             {
-                GUILayout.Label("Watch", colHdr, GUILayout.Width(ColW_Watch), GUILayout.Height(ColHeaderHeight));
+                GUILayout.Label(new GUIContent("Watch",
+                    "Follow a ghost with the camera. Only available in flight, for ghosts on the same body and within 300 km."),
+                    colHdr, GUILayout.Width(ColW_Watch), GUILayout.Height(ColHeaderHeight));
                 if (alignmentDebugArmed && !alignmentDebugHeaderCaptured) AlignDebugLogLastRect(alignmentDebugHeaderLog, "hdrWatch");
             }
-            GUILayout.Label("Rewind", colHdr, GUILayout.Width(ColW_Rewind), GUILayout.Height(ColHeaderHeight));
+            GUILayout.Label(new GUIContent("Rewind",
+                "Jump the game clock back to a flight's launch, or forward to a launch that has not happened yet."),
+                colHdr, GUILayout.Width(ColW_Rewind), GUILayout.Height(ColHeaderHeight));
             if (alignmentDebugArmed && !alignmentDebugHeaderCaptured) AlignDebugLogLastRect(alignmentDebugHeaderLog, "hdrRewind");
-            GUILayout.Label("Re-Fly", colHdr, GUILayout.Width(ColW_ReFly), GUILayout.Height(ColHeaderHeight));
+            GUILayout.Label(new GUIContent("Re-Fly",
+                "Take control of a flight that ended badly and fly it again from the moment it separated."),
+                colHdr, GUILayout.Width(ColW_ReFly), GUILayout.Height(ColHeaderHeight));
             if (alignmentDebugArmed && !alignmentDebugHeaderCaptured) AlignDebugLogLastRect(alignmentDebugHeaderLog, "hdrReFly");
 
-            // Hide column header + toggle
+            // Hide column header + toggle. Both halves carry the same text, which says
+            // FILTER: this toggle sits where every other header toggle is a select-all,
+            // and it is the one that writes nothing to any recording.
+            const string archiveHeaderTooltip =
+                "Filter: hide archived recordings from this list. It archives nothing - use each row's Archive box for that.";
             GUILayout.BeginHorizontal(colHdrCellContainerStyle, GUILayout.Width(ColW_Hide), GUILayout.Height(ColHeaderHeight));
             GUILayout.FlexibleSpace();
-            GUILayout.Label("Archive", boldHeaderInnerLabel);
-            bool newHideActive = GUILayout.Toggle(GroupHierarchyStore.HideActive, "");
+            GUILayout.Label(new GUIContent("Archive", archiveHeaderTooltip), boldHeaderInnerLabel);
+            bool newHideActive = GUILayout.Toggle(GroupHierarchyStore.HideActive,
+                new GUIContent("", archiveHeaderTooltip));
             GUILayout.FlexibleSpace();
             GUILayout.EndHorizontal();
             if (alignmentDebugArmed && !alignmentDebugHeaderCaptured) AlignDebugLogLastRect(alignmentDebugHeaderLog, "hdrArchive");
@@ -1276,7 +1315,10 @@ namespace Parsek
             if (committed.Count > 0)
             {
                 string statsLabel = showExpandedStats ? "Info \u25c0" : "Info \u25b6";
-                if (GUILayout.Button(statsLabel, GUILayout.Width(65)))
+                if (GUILayout.Button(
+                        new GUIContent(statsLabel,
+                            "Show or hide the extra statistics columns. Turning them on widens the window."),
+                        GUILayout.Width(65)))
                 {
                     showExpandedStats = !showExpandedStats;
                     ParsekLog.Verbose("UI", $"Recordings Info toggled: {(showExpandedStats ? "expanded" : "collapsed")}");
@@ -1287,7 +1329,10 @@ namespace Parsek
                 }
             }
 
-            if (GUILayout.Button("New Group", GUILayout.Width(80)))
+            if (GUILayout.Button(
+                    new GUIContent("New Group",
+                        "Create an empty folder and name it. Put recordings in it with the G button on each row."),
+                    GUILayout.Width(80)))
             {
                 string newName = GenerateUniqueGroupName();
                 KnownEmptyGroups.Add(newName);
@@ -1365,7 +1410,10 @@ namespace Parsek
                     + TimeRangeFilterLogic.FormatSliderLabel(filter.MaxUT ?? 0);
             }
             GUILayout.Label(label, GUILayout.ExpandWidth(true));
-            if (GUILayout.Button("Clear", GUILayout.Width(50)))
+            if (GUILayout.Button(
+                    new GUIContent("Clear",
+                        "Clear the time-range filter so every recording is listed again. Also resets the Timeline window's range sliders."),
+                    GUILayout.Width(50)))
             {
                 filter.Clear();
                 parentUI.GetTimelineUI()?.ResetTimeRangeSliders();
@@ -1695,7 +1743,10 @@ namespace Parsek
             bool captureThisRow = alignmentDebugArmed && !alignmentDebugRowCaptured;
 
             // Enable checkbox (always at column 0)
-            bool enabled = GUILayout.Toggle(rec.PlaybackEnabled, "", GUILayout.Width(ColW_Enable));
+            bool enabled = GUILayout.Toggle(rec.PlaybackEnabled,
+                new GUIContent("",
+                    "Play this recording back as a ghost. Unticked, the flight stays recorded but no ghost appears."),
+                GUILayout.Width(ColW_Enable));
             if (captureThisRow) AlignDebugLogLastRect(alignmentDebugRowLog, "rowToggle");
             if (enabled != rec.PlaybackEnabled)
             {
@@ -1818,6 +1869,10 @@ namespace Parsek
                     GetRecordingVisualStatusTooltip(visualKind),
                     chainStatusTooltip),
                 ResolveDockPartnerTooltip(rec));
+            // Fall back to the column's own explanation when this row composed nothing
+            // specific, so the cell is never a silent hover.
+            if (string.IsNullOrEmpty(statusTooltip))
+                statusTooltip = "How this flight is doing: counting down to launch, flying now, or how it ended.";
             var statusContent = new GUIContent(statusText, statusTooltip);
             GUILayout.Label(statusContent, statusStyle, GUILayout.Width(ColW_Status));
             if (captureThisRow) AlignDebugLogLastRect(alignmentDebugRowLog, "rowStatus");
@@ -1826,7 +1881,10 @@ namespace Parsek
             if (rec.IsGhostOnly && CanOfferGhostOnlyDelete(parentUI.Mode))
             {
                 bool ghostGClicked, ghostXClicked;
-                DrawBodyCenteredTwoButtons("G", "X", ColW_Group, out ghostGClicked, out ghostXClicked);
+                DrawBodyCenteredTwoButtons(
+                    new GUIContent("G", "Choose which folders this recording belongs to."), true,
+                    new GUIContent("X", "Delete this ghost-only recording permanently. It carries no real flight data to keep."), true,
+                    ColW_Group, out ghostGClicked, out ghostXClicked);
                 if (ghostGClicked)
                 {
                     var mousePos = GUIUtility.GUIToScreenPoint(Event.current.mousePosition);
@@ -1841,7 +1899,9 @@ namespace Parsek
             }
             else
             {
-                if (DrawBodyCenteredButton("G", ColW_Group))
+                if (DrawBodyCenteredButton(
+                        new GUIContent("G", "Choose which folders this recording belongs to."),
+                        ColW_Group))
                 {
                     var mousePos = GUIUtility.GUIToScreenPoint(Event.current.mousePosition);
                     groupPicker.OpenForRecording(ri, mousePos);
@@ -1874,7 +1934,8 @@ namespace Parsek
                     rec.LoopPlayback,
                     rowRouteBound
                         ? new GUIContent("", $"Looped by route: {RouteBindingTooltipName(rec)}")
-                        : GUIContent.none);
+                        : new GUIContent("",
+                            "Replay this flight on a repeating schedule. Set how often in the Period column."));
                 GUI.enabled = prevRowLoopEnabled;
                 GUILayout.FlexibleSpace();
                 GUILayout.EndHorizontal();
@@ -1971,7 +2032,9 @@ namespace Parsek
             // Hide checkbox
             GUILayout.BeginHorizontal(GUILayout.Width(ColW_Hide));
             GUILayout.FlexibleSpace();
-            bool hidden = GUILayout.Toggle(rec.Hidden, "");
+            bool hidden = GUILayout.Toggle(rec.Hidden,
+                new GUIContent("",
+                    "Archive this recording so it drops out of the list while the Archive filter is on. Nothing is deleted."));
             GUILayout.FlexibleSpace();
             GUILayout.EndHorizontal();
             if (captureThisRow) AlignDebugLogLastRect(alignmentDebugRowLog, "rowArchive");
@@ -2067,7 +2130,10 @@ namespace Parsek
                 // under an expanded group/chain caret. Mirrors the Kerbals window
                 // roster-tree style. Top-level rows pass a null connector.
                 string nameLabel = (treeConnector ?? "") + name;
-                if (GUILayout.Button(nameLabel, GUI.skin.label, GUILayout.ExpandWidth(true)))
+                if (GUILayout.Button(
+                        new GUIContent(nameLabel,
+                            "Click to select; double-click to rename this recording."),
+                        GUI.skin.label, GUILayout.ExpandWidth(true)))
                 {
                     float now2 = Time.realtimeSinceStartup;
                     if (lastClickedRecIdx == ri && now2 - lastClickTime < DoubleClickThreshold)
@@ -2265,7 +2331,10 @@ namespace Parsek
             foreach (int idx in descendants)
                 if (committed[idx].PlaybackEnabled) enabledCount++;
             bool allEnabled = memberCount > 0 && enabledCount == memberCount;
-            bool newEnabled = GUILayout.Toggle(allEnabled, "", GUILayout.Width(ColW_Enable));
+            bool newEnabled = GUILayout.Toggle(allEnabled,
+                new GUIContent("",
+                    "Turn ghost playback on or off for every recording in this folder and its subfolders."),
+                GUILayout.Width(ColW_Enable));
             if (newEnabled != allEnabled)
             {
                 foreach (int idx in descendants)
@@ -2316,7 +2385,9 @@ namespace Parsek
             }
             else
             {
-                if (GUILayout.Button($"{treeConnector ?? ""}{arrow} {groupName} ({memberCount})",
+                if (GUILayout.Button(
+                    new GUIContent($"{treeConnector ?? ""}{arrow} {groupName} ({memberCount})",
+                        "Click to expand or collapse this folder; double-click to rename it."),
                     GUI.skin.label, GUILayout.ExpandWidth(true)))
                 {
                     float t = Time.realtimeSinceStartup;
@@ -2399,11 +2470,16 @@ namespace Parsek
             bool grpXClicked = false;
             if (canDisbandGroup)
             {
-                DrawBodyCenteredTwoButtons("G", "X", ColW_Group, out grpGClicked, out grpXClicked);
+                DrawBodyCenteredTwoButtons(
+                    new GUIContent("G", "Choose which folder this folder sits inside."), true,
+                    new GUIContent("X", "Disband this folder. Its recordings and subfolders move up to the parent - nothing is deleted."), true,
+                    ColW_Group, out grpGClicked, out grpXClicked);
             }
             else
             {
-                grpGClicked = DrawBodyCenteredButton("G", ColW_Group);
+                grpGClicked = DrawBodyCenteredButton(
+                    new GUIContent("G", "Choose which folder this folder sits inside."),
+                    ColW_Group);
             }
             if (grpGClicked)
             {
@@ -2440,7 +2516,8 @@ namespace Parsek
                     grpLoopAgg.AllLoop,
                     grpRouteBound
                         ? new GUIContent("", "Looped by route")
-                        : GUIContent.none);
+                        : new GUIContent("",
+                            "Replay every recording in this folder on a repeating schedule."));
                 GUI.enabled = prevGrpLoopEnabled;
                 GUILayout.FlexibleSpace();
                 GUILayout.EndHorizontal();
@@ -2663,7 +2740,9 @@ namespace Parsek
             bool allHidden = memberCount > 0 && hiddenCount == memberCount;
             GUILayout.BeginHorizontal(GUILayout.Width(ColW_Hide));
             GUILayout.FlexibleSpace();
-            bool newAllHidden = GUILayout.Toggle(allHidden, "");
+            bool newAllHidden = GUILayout.Toggle(allHidden,
+                new GUIContent("",
+                    "Archive every recording in this folder, so the whole folder drops out while the Archive filter is on."));
             GUILayout.FlexibleSpace();
             GUILayout.EndHorizontal();
             if (newAllHidden != allHidden)
@@ -2887,7 +2966,10 @@ namespace Parsek
             foreach (int idx in descendants)
                 if (committed[idx].PlaybackEnabled) enabledCount++;
             bool allEnabled = memberCount > 0 && enabledCount == memberCount;
-            bool newEnabled = GUILayout.Toggle(allEnabled, "", GUILayout.Width(ColW_Enable));
+            bool newEnabled = GUILayout.Toggle(allEnabled,
+                new GUIContent("",
+                    "Turn ghost playback on or off for every unfinished flight in STASH."),
+                GUILayout.Width(ColW_Enable));
             if (newEnabled != allEnabled)
             {
                 foreach (int idx in descendants)
@@ -3886,7 +3968,10 @@ namespace Parsek
             for (int m = 0; m < members.Count; m++)
                 if (committed[members[m]].PlaybackEnabled) blockEnabledCount++;
             bool blockAllEnabled = members.Count > 0 && blockEnabledCount == members.Count;
-            bool blockNewEnabled = GUILayout.Toggle(blockAllEnabled, "", GUILayout.Width(ColW_Enable));
+            bool blockNewEnabled = GUILayout.Toggle(blockAllEnabled,
+                new GUIContent("",
+                    "Turn ghost playback on or off for every segment of this flight."),
+                GUILayout.Width(ColW_Enable));
             if (string.IsNullOrEmpty(blockName)) blockName = logKind;
             string logId = !string.IsNullOrEmpty(chainIdForPopup) ? chainIdForPopup : blockName;
             if (blockNewEnabled != blockAllEnabled)
@@ -3917,7 +4002,9 @@ namespace Parsek
                 if (mr.EndUT > blockEnd) blockEnd = mr.EndUT;
             }
 
-            if (GUILayout.Button($"{treeConnector ?? ""}{arrow} {blockName} ({members.Count})",
+            if (GUILayout.Button(
+                new GUIContent($"{treeConnector ?? ""}{arrow} {blockName} ({members.Count})",
+                    "Click to expand or collapse the individual segments of this flight."),
                 GUI.skin.label, GUILayout.ExpandWidth(true)))
             {
                 if (expanded) expandedChains.Remove(blockId);
@@ -3956,7 +4043,9 @@ namespace Parsek
             GUILayout.Label(blockStatusText, blockStatusStyle, GUILayout.Width(ColW_Status));
 
             // Aggregated blocks expose group assignment but no disband button.
-            if (DrawBodyCenteredButton("G", ColW_Group))
+            if (DrawBodyCenteredButton(
+                    new GUIContent("G", "Choose which folders every segment of this flight belongs to."),
+                    ColW_Group))
             {
                 var mousePos = GUIUtility.GUIToScreenPoint(Event.current.mousePosition);
                 if (!string.IsNullOrEmpty(chainIdForPopup))
@@ -3988,7 +4077,8 @@ namespace Parsek
                     blockLoopAgg.AllLoop,
                     blockRouteBound
                         ? new GUIContent("", "Looped by route")
-                        : GUIContent.none);
+                        : new GUIContent("",
+                            "Replay every segment of this flight together on a repeating schedule."));
                 GUI.enabled = prevBlockLoopEnabled;
                 GUILayout.FlexibleSpace();
                 GUILayout.EndHorizontal();
@@ -4405,13 +4495,14 @@ namespace Parsek
             return mode != UIMode.TrackingStation;
         }
 
-        private void DrawSortableHeader(string label, SortColumn col, float width, bool expand = false)
+        private void DrawSortableHeader(string label, SortColumn col, float width,
+            bool expand = false, string tooltip = null)
         {
             parentUI.DrawSortableHeaderCore(label, col, ref sortColumn, ref sortAscending, width, expand, () =>
             {
                 InvalidateSort();
                 ParsekLog.Verbose("UI", $"Sort column changed: {sortColumn} {(sortAscending ? "asc" : "desc")}");
-            }, ColHeaderHeight);
+            }, ColHeaderHeight, tooltip);
         }
 
         private void InvalidateSort()
@@ -4598,7 +4689,9 @@ namespace Parsek
             bool hasSecondary = !string.IsNullOrEmpty(secondary);
             if (!hasPrimary) return hasSecondary ? secondary : "";
             if (!hasSecondary) return primary;
-            return primary + "\n" + secondary;
+            // " - ", never "\n": the help strip is ONE line, and a hard newline spends it
+            // on the first clause with no horizontal scroll able to reveal the second.
+            return primary + " - " + secondary;
         }
 
         /// <summary>
@@ -5570,7 +5663,10 @@ namespace Parsek
                 }
                 GUILayout.TextField(disabledText, bodyCellTextFieldFlush, GUILayout.Width(valueBtnW));
                 GUILayout.Space(4f);
-                GUILayout.Button(ParsekUI.UnitLabel(rec.LoopTimeUnit), bodyCellButtonFlush, GUILayout.Width(unitBtnW));
+                GUILayout.Button(
+                    new GUIContent(ParsekUI.UnitLabel(rec.LoopTimeUnit),
+                        "Period unit for this recording. Enable Loop to change it."),
+                    bodyCellButtonFlush, GUILayout.Width(unitBtnW));
                 GUI.enabled = true;
                 return;
             }
@@ -5660,7 +5756,10 @@ namespace Parsek
 
             // Unit cycling button (shared by both auto and manual modes)
             GUILayout.Space(4f);
-            if (GUILayout.Button(ParsekUI.UnitLabel(rec.LoopTimeUnit), bodyCellButtonFlush, GUILayout.Width(unitBtnW)))
+            if (GUILayout.Button(
+                    new GUIContent(ParsekUI.UnitLabel(rec.LoopTimeUnit),
+                        "Click to cycle the period unit: seconds, minutes, hours, then auto. Auto follows the interval set in Settings > Looping."),
+                    bodyCellButtonFlush, GUILayout.Width(unitBtnW)))
             {
                 var newUnit = CycleRecordingUnit(rec.LoopTimeUnit);
                 rec.LoopTimeUnit = newUnit;
