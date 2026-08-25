@@ -150,6 +150,7 @@ ASCII only; stdlib only.
 
 from __future__ import annotations
 
+import copy
 import math
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Sequence, Tuple
@@ -3915,6 +3916,19 @@ def declared_composition_blocks(expectations: Optional[Dict]) -> Tuple[str, ...]
     return ()
 
 
+def declared_composition_block(expectations: Optional[Dict]
+                               ) -> Optional[Dict[str, Any]]:
+    """The declared block's KEY/VALUES (a copy), or ``None`` when undeclared.
+
+    The audit surface behind ``RenderComposeResult.declared``, exposed
+    separately so a caller that never reaches an evaluation (``run.py``'s
+    driver-INVALID skip) still records WHAT the run was carrying rather than
+    only the block's name."""
+    expectations = expectations or {}
+    block = expectations.get(RENDER_COMPOSITION_BLOCK)
+    return copy.deepcopy(block) if isinstance(block, dict) else None
+
+
 def armed_composition_blocks(expectations: Optional[Dict]) -> Tuple[str, ...]:
     """The declared subset carrying ``gating = true``. Arming is PER-BLOCK."""
     expectations = expectations or {}
@@ -4123,6 +4137,21 @@ class RenderComposeResult:
     identical to ``mismatches`` while there is exactly one block, and kept as a
     separate field because the shape must survive a second block being added.
     ``findings`` carries every level, including the INFO trend rows.
+
+    ``declared`` is the BLOCK THAT WAS ACTUALLY EVALUATED - the key/values, not
+    just the block NAME that ``blocks`` / ``armed_blocks`` carry. It exists
+    because of a real incident (2026-08-25, run `2026-08-25_1811`): an operator
+    applied a negative control to the V24W spec by substring-replacing
+    ``warpBuckets = ["warp100", "warp1000"]``, the spec quotes that exact literal
+    in two RATIONALE COMMENTS ahead of the real key, the replace hit the first
+    comment, and the flight evaluated the UNINVERTED block. The run's PASS was
+    correct and the clause was never fail-open - but NOTHING on disk recorded
+    WHICH block had been evaluated, so the flight's own artifacts could not tell
+    "the control was refuted" from "the control was never loaded", and the
+    question took a five-version offline replay to settle. A negative control
+    whose own result cannot say what it asserted is not a control. Recorded
+    whenever a block is declared (``None`` otherwise), and a COPY, so a later
+    mutation of the spec dict cannot rewrite the record of what ran.
     """
 
     status: str
@@ -4136,6 +4165,7 @@ class RenderComposeResult:
     parsed: Optional[bool]        # None = manifest not read at all
     parse_error: str
     unevaluable: Dict[str, int]
+    declared: Optional[Dict[str, Any]] = None
 
     @property
     def fail_findings(self) -> Tuple[RenderComposeFinding, ...]:
@@ -4244,7 +4274,12 @@ def evaluate_render_composition(
         status=status, gating=bool(armed), findings=findings,
         mismatches=mismatches_t, armed_mismatches=armed_mismatches,
         observed=observed, blocks=blocks, armed_blocks=armed,
-        parsed=parsed, parse_error=parse_error, unevaluable=dict(unevaluable))
+        parsed=parsed, parse_error=parse_error, unevaluable=dict(unevaluable),
+        # The audit record of WHAT was evaluated (see the dataclass docstring).
+        # Recorded on EVERY path, including the unreadable-manifest one: a
+        # control flight that lost its manifest still has to be able to say
+        # which assertion it was carrying.
+        declared=declared_composition_block(expectations))
 
 
 

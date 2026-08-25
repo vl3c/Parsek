@@ -72,10 +72,11 @@ All notable changes to Parsek are documented here.
   from the recorded plan and reports every gap, seam, hold and cut that the
   written composition catalog does not explain, plus anything observed that no
   rule claims at all. It rides the verifier chain as a new `renderCompose` row,
-  REPORT-ONLY everywhere except the two lanes it is now armed on: two committed
-  lanes (`V14M-ike-player-loop`, `V8-eve-player-loop`) declared the
+  REPORT-ONLY everywhere except the three lanes it is now armed on: three
+  committed lanes (`V14M-ike-player-loop`, `V8-eve-player-loop`,
+  `V24W-duna-one-warp-stair`) declared the
   `[expectations.renderComposition]` block bare, flew their report-only reading
-  runs on 2026-08-25 (both PASS; facets recorded in the spec arming ledgers and
+  runs on 2026-08-25 (facets recorded in the spec arming ledgers and
   `autotest-status.md`), and were then ARMED off exactly those measurements -
   each lane's declared windows are the numbers its own run produced, with stated
   margins, and a miss now fails the run with
@@ -86,9 +87,21 @@ All notable changes to Parsek are documented here.
   reading could say "off" on a file full of measurements only a running tracer
   can produce. Plus one in-game test category (`RenderComposition`) asserting
   only that the exported file is well-formed, and the manifest is collected into
-  each run's artifacts beside KSP.log. The armed lanes still owe their
-  confirmation flights; warp-schedule lanes and the route surfaces are the next
-  phases. Test-tooling only; no gameplay change.
+  each run's artifacts beside KSP.log. Every armed lane has since flown its
+  confirmation flights: each one re-flew the armed shape and passed, and each one
+  was then deliberately mis-declared once to prove the check can actually fail,
+  with the deliberate break reverted immediately. The third lane is the reason
+  this is worth saying. The checker has always insisted that a map view claiming
+  to cover fast-forwarded time must actually have been watched while time ran
+  fast - and until now nothing in the automated suite could satisfy that, because
+  every other test drive jumps the clock instantly rather than running it at
+  speed. A new lane replays a hand-flown Kerbin-to-Duna loop and steps time-warp
+  up a ladder and back down at each of the three moments it watches, so the check
+  is now backed by a real fast-forward instead of standing unused; its window was
+  written from two independently measured runs whose readings matched, and a run
+  whose fast-forward never happened now fails. That closes the last of this
+  phase's work, and the route-drawing surfaces are what remains.
+  Test-tooling only; no gameplay change.
 
 - The automated-testing suite gained a second moon-to-moon subject, so a result
   measured once can be checked at a different planet. Last time, a crewed ship

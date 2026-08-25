@@ -2526,6 +2526,10 @@ def run_verifiers(spec: Dict, instance_dir: str, run_save_name: str,
         detail["renderCompose"] = {
             "status": "SKIPPED", "reason": "driver-invalid", "gating": False,
             "blocks": [], "armedBlocks": [], "mismatches": [],
+            # Recorded on the SKIPPED path too: a driver-INVALID control flight
+            # still has to say which assertion it was carrying, otherwise the
+            # retry is flown blind.
+            "declared": rendercompose.declared_composition_block(expectations),
             "observed": rendercompose.observed_composition_facets(rc_snapshot),
             "parsed": rc_parsed, "parseError": rc_error,
             "findings": [], "unevaluable": {}}
@@ -2539,6 +2543,15 @@ def run_verifiers(spec: Dict, instance_dir: str, run_save_name: str,
         detail["renderCompose"] = {
             "status": rc.status, "reason": "", "gating": rc.gating,
             "blocks": list(rc.blocks), "armedBlocks": list(rc.armed_blocks),
+            # `declared` is the block's KEY/VALUES as evaluated, not just its
+            # name. A negative-control flight has to be able to say what it
+            # asserted from its OWN artifacts: run `2026-08-25_1811` armed a
+            # control by substring-replacing the spec's `warpBuckets` line, the
+            # replace hit a rationale COMMENT that quotes the same literal ahead
+            # of the real key, and the flight silently evaluated the uninverted
+            # block - a question that took an offline replay across five module
+            # versions to settle because nothing on disk recorded the block.
+            "declared": rc.declared,
             "mismatches": list(rc.mismatches), "observed": dict(rc.observed),
             "parsed": rc_parsed, "parseError": rc_error,
             "findings": [{"ruleId": f.rule_id, "level": f.level, "target": f.target,
@@ -2550,12 +2563,17 @@ def run_verifiers(spec: Dict, instance_dir: str, run_save_name: str,
                           for lvl in rendercompose.LEVELS}
         logger.info("Verify", "verify renderCompose status=%s gating=%s blocks=%s armed=%s "
                               "parsed=%s dwells=%s cycles=%s unevaluable=%s "
-                              "findings=%s mismatches=%d"
+                              "findings=%s mismatches=%d declared=%s"
                     % (rc.status, rc.gating, list(rc.blocks) or "-",
                        list(rc.armed_blocks) or "-", rc_parsed,
                        rc_facets.get("dwells", "-"), rc_facets.get("cycles", "-"),
                        rc_facets.get("unevaluable", "-"), finding_levels,
-                       len(rc.mismatches)))
+                       len(rc.mismatches),
+                       # The evaluated assertion, in the LOG as well as the JSON:
+                       # the harness log is what an operator reads first, and the
+                       # one thing this incident proved missing was a line that
+                       # says which block the run was actually carrying.
+                       rc.declared if rc.declared is not None else "-"))
         rc_report_only = [m for m in rc.mismatches if m not in rc.armed_mismatches]
         if rc_report_only:
             logger.warn("Verify", "renderCompose recorded %d report-only mismatch(es) "
@@ -3802,14 +3820,26 @@ def print_dry_run_plan(selected: Sequence[Dict], instance_root_fn, logger: Harne
         # row runs on every driver-valid run, so the plan must distinguish "armed"
         # (can move the verdict) from "declared" (report-only) from "no block".
         rc_armed = rendercompose.armed_composition_blocks(exp)
+        # The plan prints the block's KEY/VALUES, not only its name. A negative
+        # control is applied by EDITING this block, and an edit can miss it - run
+        # `2026-08-25_1811` inverted `warpBuckets` by substring replace, hit a
+        # rationale COMMENT quoting the same literal, and flew the uninverted
+        # block for 48 minutes. `--dry-run` is the cheap pre-flight read that
+        # settles "is my control actually loaded?" before the machine lock.
+        rc_block = rendercompose.declared_composition_block(exp)
+        # `is not None`, not truthiness: a declared-but-EMPTY block is the inert
+        # declaration, and `declared: {}` says that out loud instead of reading
+        # as "no block".
+        rc_assertions = "" if rc_block is None else "; declared: %s" % (rc_block,)
         if rc_armed:
             verify_line += (", renderCompose(armed: %s -> PARSEK-FAIL(render-composition) "
-                            "on a mismatch or a FAIL-level finding; report-only: %s)"
+                            "on a mismatch or a FAIL-level finding; report-only: %s%s)"
                             % (", ".join(rc_armed),
                                ", ".join(b for b in rc_declared if b not in rc_armed)
-                               or "none"))
+                               or "none", rc_assertions))
         elif rc_declared:
-            verify_line += ", renderCompose(report-only: %s)" % ", ".join(rc_declared)
+            verify_line += (", renderCompose(report-only: %s%s)"
+                            % (", ".join(rc_declared), rc_assertions))
         else:
             verify_line += ", renderCompose(facets only, no block declared)"
         if ledger_block is not None or world_block is not None:
