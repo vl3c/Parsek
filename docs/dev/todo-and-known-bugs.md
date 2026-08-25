@@ -14,6 +14,129 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## RECORDER-SUSPECTED-DOUBLE-EMIT-AT-SOI-SEAM: at every SOI crossing of one recorded interplanetary transfer the recorder wrote TWO `TrackSection`s covering the IDENTICAL span - a frame-less Absolute shell beside the OrbitalCheckpoint - and `Inv2NoDoubleCover` FAILs on each [FOUND 2026-08-25 while harvesting `duna-one-recorded` from the operator's free-play save. SUSPECTED, NOT CONFIRMED: the pattern is measured, the CAUSE is not, and no product change is proposed here]
+
+**What was measured**, on recording `61e9177193444e329247d0e8288cf91e` (the Kerbin
+-> Duna transfer in `harness/fixtures/saves/duna-one-recorded`, recorded during the
+operator's 2026-05..07 free-play session on the DLL of that era). Its 75
+`TrackSection`s carried six pairs of duplicated coverage, and FOUR of the six sit
+at exactly the recording's four body-change seams - every seam it has, none
+missed:
+
+| section | span | what it is |
+|---|---|---|
+| 34 / 35 | `[64044032.725027621, 65004886.739419721]` | Kerbin -> Sun seam |
+| 43 / 44 | `[70898646.0584081, 70912683.547375381]` | Sun -> Duna seam |
+| 47 / 48 | `[70956143.35894987, 70956471.231831044]` | Duna -> Ike seam |
+| 51 / 52 | `[70958360.7066507, 70958731.38776888]` | Ike -> Duna seam |
+
+In each pair the two sections have BYTE-EQUAL `startUT` and `endUT`, and differ
+only in kind: the lower index is `env=ExoBallistic ref=Absolute src=Active` with
+**zero** `frames` and **zero** `bodyFixedFrames` - an empty shell - and the higher
+is `env=ExoBallistic ref=OrbitalCheckpoint src=Checkpoint` carrying that span's
+`ORBIT_SEGMENT`. The remaining two (60, 62) are a different shape at the Duna
+capture: section 61 spans `[70960696.459866241, 70962487.1269182]` and 60 + 62
+partition that span exactly, with 62's nested `ORBIT_SEGMENT` element-for-element
+identical to 61's (same sma / ecc / inc / lan / argPe / mna / epoch) - one conic
+re-clipped, not a second orbit.
+
+**Why four-for-four is the reason this is filed.** One duplicate at one seam is a
+glitch; a duplicate at every seam and nowhere else in a 75-section, 18.4-million-
+second recording is a code path. The natural reading is that the SOI-crossing
+close path emits its Absolute section AND lets the checkpoint path emit one over
+the same span, instead of the two dividing the timeline.
+
+**The top-level `ORBIT_SEGMENT` list is CLEAN** - 22 entries, disjoint, no
+duplicate spans - so this is a `TrackSection` duplication, not an orbit-segment
+one. That matters for where to look and for how visible the defect is.
+
+**Why it survived unseen**: it is RENDER-BENIGN. The duplicate covers exactly the
+span its partner already covers, so playback resolves the same position either
+way and nothing on screen is wrong. `Inv2NoDoubleCover` is the only thing that
+objects, and it only runs on an OFFLINE ANALYZER pass - which no free-play save
+ever gets. The first analyzer run over this recording (2026-08-25) turned up six
+FAILs on a recording nobody had any reason to doubt.
+
+**OPEN QUESTION - does the CURRENT recorder still do this?** Unknown, and it is
+the only thing worth doing next. The evidence above is from a mid-2026 recording;
+`FlightRecorder` / `BackgroundRecorder` and
+`RecordingStore.EnsureCheckpointSectionsForTopLevelOrbitSegments` have all moved
+since. Two ways to answer it, either sufficient:
+
+1. **Read the code**: the SOI-crossing section-close path in `FlightRecorder.cs`
+   plus the checkpoint-section producer, asking whether the two can both claim one
+   `[startUT,endUT]`.
+2. **Fly one**: any fresh recording that crosses an SOI, then
+   `scripts/analyze-recordings.ps1` over the produced save. No committed
+   RECORDED fixture reproduces the shape - the SOI-crossing siblings
+   (`vall-transfer-recorded`, `mun-minmus-recorded`) analyze clean - which is
+   itself weak evidence the path has changed, but they are DRIVEN flights on a
+   different profile, so it is not proof.
+
+**What was done instead, and its limit.** `harness/tools/build_duna_one_recorded.py`
+drops the six redundant sections from the committed fixture so the lane's
+fresh-save gate can be green. That is a FIXTURE repair on one file, not a fix: it
+changes no product code, and if the recorder still double-emits, the next
+free-play harvest will carry the same six.
+
+## FIXTURE-DUNA-ONE-RECORDED-LANE-PENDING: the M-A7 RC-WARP subject is harvested, repaired and registered, but no scenario has flown against it yet [OPENED 2026-08-25 on branch `duna-one-fixture`. TODO, not a defect]
+
+`harness/fixtures/saves/duna-one-recorded` is committed: the operator's own
+free-play Duna One mission (log snapshot
+`logs/2026-08-25_1537_s15-duna-one-manifest-run2`, visually validated
+2026-08-25), harvested `--keep-parsek` and stripped to one tree / one mission / 13
+recordings by `harness/tools/build_duna_one_recorded.py`. It is the FIRST
+committed subject whose provenance is a hand-played session rather than a driven
+harness run, and the first to carry a four-segment vessel chain, an EVA branch
+point and a loop-ARMED `MISSION` row. Pins live in
+`test_saveparse.RECORDED_FIXTURES["duna-one-recorded"]`; the strip recipe is
+guarded by `DunaOneRecordedFixtureDriftTests`.
+
+It reads GREEN under `analyze-recordings.ps1 -FailOnRed -FreshSaveGate`
+(`FAIL=0 WARN=15 RED=0`) after the INV2 repair described in the entry above.
+
+**Two residuals, both deliberate, both non-gating:**
+
+- **15 `INV8-LEDGER dangling-recording-ref ... kind=phantom-attribution` WARNs.**
+  The restored `Parsek/GameState/ledger.pgld` is the free-play career's WHOLE
+  ledger and still carries `GAME_ACTION` rows attributed to the 34 recordings the
+  strip dropped. The ledger was kept verbatim rather than pruned because pruning
+  rows moves the reconstruction's arithmetic, and this is a SANDBOX save where the
+  rows buy nothing. WARNs do not red the gate. A lane that ever wants a clean
+  INV8 reading here must prune the ledger deliberately and re-measure.
+- **No `Ships/VAB` craft.** The operator's dev-instance save carries none, so any
+  consumer calling `launch_vessel` against this fixture would fail to resolve a
+  `.craft`. Harmless for a replay/render lane; a launching lane must add a
+  `shared-ships.toml` row.
+
+**What is still owed**: the RC-WARP lane itself
+(`harness/scenarios/V24W-duna-one-warp-stair.toml` at the time of writing) has to
+fly against it and report. Until it does, nothing reads these bytes.
+
+## M-A7-SEAM-ENDPOINT-SKIP-REASON-CENSUS: `seam-endpoint-skipped` dominates every renderCompose unevaluable count and DOUBLED between two flights of the same lane with no explanation on record [FOUND 2026-08-25 reading the V14M reading-vs-armed facets (53 vs 106 skips) and the s15 free-play manifest (512 at the cap). IMPROVEMENT, REPORT-ONLY]
+
+Every SEAM_ENDPOINT record carries a `skipReason`, but `observed_composition_facets`
+aggregates them into one opaque `seam-endpoint-skipped` count. A per-reason census
+(the `SeamEndpointOracle.FormatPassSummary` shape, which already exists on the C#
+log side) would explain the run-to-run variance for free and tell an arming pass
+which skips are structural vs incidental. Python-only change in
+`harness/lib/rendercompose.py`; no schema move needed.
+
+## M-A7-ONE-MANIFEST-PER-PROCESS: two rich scenes in one KSP session still end as last-flush-wins - the auto-flush clobber guard only protects a dwell-bearing manifest from a DWELL-FREE later flush [FOUND 2026-08-25 during the operator's s15 free-play ground-truthing (single-subject sessions, so no data was lost). LIMITATION, REPORT-ONLY]
+
+Fine for harness lanes (one scene, one export). Lossy for multi-subject free-play
+ground-truthing: watching two different loop subjects in two flight scenes of one
+session keeps only the second manifest. A per-scene partition suffix
+(`parsek-render-manifest.<n>.txt`) or an append-partition inside one file would
+preserve both; the harness reader would take the newest/richest. Deliberately not
+built until a session actually needs it.
+
+## COLLECT-LOGS-SAVE-COPY-IS-ANALYZER-INCOMPLETE: `scripts/collect-logs.py` copies `Parsek/Recordings` but not `Parsek/Saves` or `Parsek/GameState`, so an analyzer run over a COLLECTED save always WARNs INV9 (missing rewind saves) and loses the GameState sidecars a fixture harvest needs [FOUND 2026-08-25: the s15 collection WARNed INV9 on four recordings whose rewind saves exist in the live save, and the duna-one-recorded harvest had to reach into the separately-collected `parsek/` dir for GameState. TOOLING IMPROVEMENT, REPORT-ONLY]
+
+Copy `Parsek/Saves` and `Parsek/GameState` alongside `Parsek/Recordings` in the
+save-copy leg (both are small: s15's are 1.3 MB + 64 KB). That makes a collected
+save analyzer-faithful and harvest-complete without touching the live save twice.
+
 ## ROUTE-DELIVERY-CLOCK-OMITS-THE-HOLD-ARGS: `RouteLoopClock.TryGetRouteLoopState` threads only the relaunch schedule and the loiter cuts into the span clock, so on a hold-carrying or launch-aligned route-backed unit the DELIVERY clock and the RENDER clock are not the same clock [FOUND BY READING 2026-08-25 while scouting the M-A7 render-composition plan surface, from the source alone - NOT measured on a flight. LATENT on every committed route today (v0 same-body routes carry no holds). REPORT-ONLY and DELIBERATELY NOT FIXED IN THE M-A7 PR: that PR is observation-only, and changing what the delivery clock computes is a product decision of its own]
 
 `Source/Parsek/Logistics/RouteLoopClock.cs:255-278` forwards exactly two of the
@@ -174,6 +297,34 @@ REMAINING PHASES.
   re-shaped drive) rather than a re-pin of these two. CONFIRMED FOUR TIMES: the
   histograms came back 1x-only on both reading runs (173 samples on V14M, 296 on
   V8) and on both armed re-flights (177 and 295), every other bucket zero.
+  **IN PROGRESS 2026-08-25 - THE LANE IS AUTHORED, THE MEASUREMENT IS NOT TAKEN.**
+  ~~which wants a third lane~~ the third lane exists:
+  `harness/scenarios/V24W-duna-one-warp-stair.toml`, a loop-arrival map dwell
+  over `fixtures/saves/duna-one-recorded` (the harvest of the first free-play
+  ground-truth session - the one whose histogram, `warp100 4727 / warp1000 15488
+  / warpHigh 11446` with zero 1x, is what proved this subject exists outside a
+  hypothesis) driving a COMMANDED rails stair
+  (10x/50x/100x/1000x/100x/50x/10x, up and back down, each step held 10 poll
+  frames) at each of its three span-clock windows. `V24` is reserved in
+  `autotest-roadmap.md`'s register and MINTS the `W` warp-schedule suffix
+  alongside `M`/`T`/`K` - `W` names a drive shape rather than a render host,
+  which is why the lane may share the flight map with V2 and still be a separate
+  id. The stair is a FLAG-GATED extension of `m3_loop_arrival_dwell`
+  (`dwellRampFactors` empty by default = the pre-RC-WARP machine, byte-identical
+  action stream / state / assertion rows, pinned by
+  `M3WarpStairInertnessTests`), so V2 / V3F / V3R and both armed composition
+  lanes are untouched. WHAT IS STILL OWED, and it is the whole measuring half:
+  the report-only READING run has not flown (the lane's fixture is landing in
+  the same wave), no `warpBuckets` window is declared anywhere yet - this lane
+  is the only one entitled to declare it, and the window must be written FROM a
+  measured histogram, never predicted - and the armed re-flight plus a negative
+  control inverting a required token of this lane's own are both outstanding.
+  ONE RED IS PRE-REGISTERED AS LIKELY AND DELIBERATELY NOT BUDGETED AWAY: the
+  spec ships `allowedAnomalies = []` although the free-play session behind its
+  fixture raised `icon-teleport` 95 times on a render the operator called
+  visually correct (the entry below). If the reading run reds
+  `PARSEK-FAIL(anomaly)` on that token, that red is the measurement the
+  icon-teleport calibration pass needs, not a lane defect.
 - **The manifest header's `mapRenderTracingOn` bit should be STICKY
   (was-ever-on), not export-instant** [OPENED 2026-08-25 off the two Phase-3
   reading runs. Small, C#-side, verifier-facing]. `TryExportNow`

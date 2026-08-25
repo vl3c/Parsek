@@ -465,10 +465,31 @@ observed clock event no rule above claimed.
   `B27-station-route` / V18M/V18T land, the same manifest + row covers the
   route front door and the D10 overview-line surface; this module does not
   duplicate G1's lane reservations, it consumes them.
-- **Scenario ids**: none reserved here; composition lanes extend existing V
-  specs with a manifest step + `[expectations.renderComposition]` block
-  rather than minting a parallel lane family. New ids, if ever needed, get
-  reserved in the roadmap's register like everything else.
+- **The warp-schedule subject, added 2026-08-25**: a
+  **free-play-validated Kerbin -> Duna re-aim loop** over
+  `fixtures/saves/duna-one-recorded`, driven by `m3_loop_arrival_dwell` with a
+  rails stair at each of its three span-clock windows
+  (`V24W-duna-one-warp-stair`). It is listed separately from the three above
+  because the three above CANNOT carry the warp-schedule bullet: every one of
+  them moves the clock with instantaneous `TimeJump`s, so their histograms are
+  1x-only by construction and RC-WARP is unsatisfiable on them (measured on
+  four flights). Two things make this subject the right one. Its provenance is
+  a session a HUMAN played and visually validated, so the composition it
+  produces is one somebody has already called correct - the only subject in the
+  program with that property. And its measured free-play histogram
+  (`warp100 4727 / warp1000 15488 / warpHigh 11446`, zero 1x, zero physics) is
+  the shape RC-WARP was written for, so the rule's subject is demonstrated
+  rather than assumed. The stair is FLAG-GATED on the mission and inert by
+  default, so the lanes already armed on this row keep their flown shape
+  byte-identically.
+- **Scenario ids**: composition lanes normally extend existing V specs with a
+  manifest step + `[expectations.renderComposition]` block rather than minting
+  a parallel lane family, and the two first subjects did exactly that. The
+  warp-schedule lane is the ONE exception and needed a new id, because what it
+  changes is the DRIVE SHAPE rather than the expectations - it could not be
+  added to a committed lane without moving that lane's flown shape, which the
+  S4.1 rule forbids. It is reserved in the roadmap's register like everything
+  else (`V24`, and it mints the `W` warp-schedule suffix alongside `M`/`T`/`K`).
 - **Negative controls** (confirmation criterion b): each armed spec inverts a
   required COMPOSITION token of its own - e.g. temporarily declare an
   expected hold 60 s longer than planned, or require a seam kind the chain

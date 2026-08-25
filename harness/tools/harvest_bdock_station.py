@@ -108,6 +108,19 @@ _PRUNE_MIRROR_SUFFIXES = ("_vessel.craft.txt", "_ghost.craft.txt")
 # confused with `RewindPoints`, which IS payload -
 # `RewindInvoker.PartLoaderPrecondition.Check` deep-parses those.
 _PRUNE_PARSEK_SUBDIRS = ("Saves",)
+# Directories under Parsek/Recordings/ that a fixture must never carry.
+# `_quarantine` is `RecordingStore.OrphanQuarantineDirName`: where
+# `CleanOrphanFiles` PARKS orphaned sidecars instead of deleting them, so a
+# long-lived hand-played save accumulates every sidecar whose recording the
+# store could no longer resolve. It is recovery exhaust by construction - the
+# store's own top-level-only scans never descend into it (see the doc comment on
+# `OrphanQuarantineDirName`), so nothing a fixture consumer reads can reach it.
+# Found by `duna-one-recorded` (the first harvest of an operator's free-play
+# save, 2026-08-25), which carried 12 MB over 375 files of it - larger than the
+# whole recorded payload the fixture exists for. Mirrors the `Parsek/Saves`
+# clause below and is gated the same way, by
+# `CommittedFixtureQuarantineTests` in harness/lib/test_hlib.py.
+_PRUNE_RECORDINGS_SUBDIRS = ("_quarantine",)
 
 
 def log(msg: str) -> None:
@@ -491,7 +504,8 @@ def _ignore_pruned(directory, names):
 
 def _ignore_pruned_keep_parsek(directory, names):
     """--keep-parsek copytree filter: the backup-staging dirs are pruned, and so
-    are the readable snapshot mirrors; the Parsek dir (the recording sidecars) is
+    are the readable snapshot mirrors, `Parsek/Saves` and
+    `Parsek/Recordings/_quarantine`; the Parsek dir (the recording sidecars) is
     otherwise the fixture's payload.
 
     WHY THE MIRRORS ARE PRUNED. Parsek writes a readable text mirror beside each
@@ -513,6 +527,14 @@ def _ignore_pruned_keep_parsek(directory, names):
     # is untouched.
     if os.path.basename(directory) == "Parsek":
         pruned |= set(n for n in names if n in _PRUNE_PARSEK_SUBDIRS)
+    # Drop Parsek/Recordings/_quarantine wholesale (see
+    # _PRUNE_RECORDINGS_SUBDIRS). Matched on BOTH path components rather than on
+    # the leaf name alone, exactly as the Parsek/Saves clause above is: a
+    # same-named directory elsewhere in the tree is untouched.
+    parent = os.path.dirname(directory)
+    if (os.path.basename(directory) == "Recordings"
+            and os.path.basename(parent) == "Parsek"):
+        pruned |= set(n for n in names if n in _PRUNE_RECORDINGS_SUBDIRS)
     return pruned
 
 

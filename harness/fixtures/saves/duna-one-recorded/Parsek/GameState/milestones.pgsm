@@ -1,0 +1,33 @@
+version = 1
+MILESTONE
+{
+	id = 5dfbcd51b13c471ab0d4d6300c75db23
+	startUT = 0
+	endUT = 5259201329.5224495
+	recordingId = 
+	committed = True
+	lastReplayedIdx = 0
+	GAME_STATE_EVENT
+	{
+		ut = 5259201328.3824234
+		type = 18
+		key = Orbit
+		detail = funds=12000;rep=2;sci=1
+	}
+}
+MILESTONE
+{
+	id = a90e87d93f8a4310a7bf3758b975c2dc
+	startUT = 5259201329.5224495
+	endUT = 5259201860.1945953
+	recordingId = 
+	committed = True
+	lastReplayedIdx = 0
+	GAME_STATE_EVENT
+	{
+		ut = 5259201860.1945953
+		type = 18
+		key = FirstCrewToSurvive
+		detail = funds=800;rep=0;sci=0
+	}
+}

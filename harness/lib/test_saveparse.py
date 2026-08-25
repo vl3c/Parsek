@@ -1919,6 +1919,124 @@ class CommittedFixtureSweepTests(unittest.TestCase):
                              "d9b5675fc64f439aa5fff170f72d6ad4"],
             "schemaGeneration": 4,
         },
+        # --- THE FIRST FREE-PLAY SUBJECT (A NEW PROVENANCE CLASS) --------
+        # PROVENANCE: duna-one-recorded <- THE OPERATOR'S OWN HAND-PLAYED
+        # SESSION, snapshot `logs/2026-08-25_1537_s15-duna-one-manifest-run2`
+        # (save `s15`), VISUALLY VALIDATED BY THE OPERATOR 2026-08-25. Harvested
+        # `--save-dir <log copy>/saves/s15 --target-name duna-one-recorded
+        # --expect-situation PRELAUNCH --keep-parsek` (the gate passed on
+        # 'Jumping Flea' PRELAUNCH, vessels=13), then stripped and repaired by
+        # `harness/tools/build_duna_one_recorded.py`.
+        #
+        # WHY THAT PROVENANCE IS DIFFERENT FROM EVERY ENTRY ABOVE, and why it
+        # matters more than the usual run id: all fourteen siblings are the
+        # product of a DRIVEN harness run - one scenario, one craft, one
+        # committed tree, harvested verbatim out of the produced save. This one is
+        # a real mission a human flew for its own sake, so it carries shapes a
+        # synthesised profile does not reach: a four-segment vessel CHAIN across
+        # an interplanetary transfer, a controlled-decoupled probe, an EVA branch
+        # point, six pieces of ascent debris, a loop-ARMED MISSION row
+        # (`loopPlayback = True`), and a save clock five billion seconds in. That
+        # is what the M-A7 RC-WARP lane needs to read.
+        #
+        # IT IS NOT THE HARVEST'S RAW OUTPUT, and the difference is a recipe, not
+        # a hand-edit. A free-play save carries a career, not a subject: this one
+        # held FOUR unrelated RECORDING_TREEs, 47 sidecar families, five stand-in
+        # kerbal slots, one orphan RECORDING_SUPERSEDES row, 12 MB of orphan-sweep
+        # `_quarantine`, and twelve analyzer INV2 FAILs. Everything kept or
+        # dropped is spelled out in `build_duna_one_recorded.py`, which also has a
+        # `--check` mode wired to `DunaOneRecordedFixtureDriftTests` in
+        # `test_build_duna_one_recorded.py`, so a hand-edit of these bytes reds in
+        # the harness suite rather than in a live flight. The committed save reads
+        # GREEN under `analyze-recordings.ps1 -FailOnRed -FreshSaveGate`
+        # (`FAIL=0 WARN=15 RED=0`; the 15 are INV8 phantom-attribution WARNs from
+        # the restored `ledger.pgld`, which still records the whole free-play
+        # career - see the todo entry).
+        #
+        # THE INV2 REPAIR, named here because it is the one place the committed
+        # bytes differ from what Parsek wrote. The main transfer recording
+        # `61e9177193444e329247d0e8288cf91e` carried SIX redundant TrackSections,
+        # each a duplicate of coverage a neighbour already owned, and
+        # `Inv2NoDoubleCover` FAILs on every one. The builder dropped exactly
+        # these six (index, span) and NOTHING ELSE - no trajectory point moved, no
+        # other recording was touched, and the top-level 22-entry ORBIT_SEGMENT
+        # list is byte-untouched:
+        #   34  [64044032.725027621, 65004886.739419721]  Kerbin->Sun seam
+        #   43  [70898646.0584081,   70912683.547375381]  Sun->Duna seam
+        #   47  [70956143.35894987,  70956471.231831044]  Duna->Ike seam
+        #   51  [70958360.7066507,   70958731.38776888]   Ike->Duna seam
+        #   60  [70960696.459866241, 70960923.929514691]  contained in 61
+        #   62  [70960923.929514691, 70962487.1269182]    contained in 61
+        # Sections 34/43/47/51 are the frame-less `ref=0 src=0` shells of an
+        # EXACT-span pair whose other half is the `ref=2 src=2` OrbitalCheckpoint
+        # carrying that span's ORBIT_SEGMENT; 60 and 62 partition section 61
+        # exactly, and 62's nested segment is element-for-element identical to
+        # 61's. Coverage is therefore invariant, which the builder asserts rather
+        # than assumes. The four seam positions are NOT a coincidence - see
+        # todo-and-known-bugs.md -> RECORDER-SUSPECTED-DOUBLE-EMIT-AT-SOI-SEAM.
+        #
+        # THE BYTES THE RC-WARP LANE ANCHORS ON, all re-measured off THESE
+        # COMMITTED BYTES:
+        #   tree id          1ccdb19215034ac19f3a8e31697b05ed
+        #     root group "Duna One", MISSION 0aad5325bcfb4ea1a147d8691ec26443
+        #     name "Duna One", loopPlayback True, loopAnchorUT 5180683162.3895044
+        #   main transfer    61e9177193444e329247d0e8288cf91e (chainIndex 1 of the
+        #     four-segment chain aff63064eefd4ee0a099f5c57728bb55)
+        #   explicitStartUT  52,569,490.911798075   (UT0 - the V6M convention;
+        #                    ORBIT_SEGMENT 0's startUT is 52,569,494.685523860,
+        #                    a 3.774 s gap that would put every bracket off)
+        #   explicitEndUT    70,963,652.639611751   span 18,394,161.727813676 s
+        #   TWENTY-TWO top-level ORBIT_SEGMENTs, body roster Kerbin x9 (0-8),
+        #     Sun x3 (9-11), Duna x2 (12-13), Ike x2 (14-15), Duna x6 (16-21),
+        #     and FOUR body-change seams - more than any other committed subject -
+        #     each an exact adjacent `endUT == startUT` pair. Offsets from
+        #     explicitStartUT, quoted as the Python repr of the subtraction:
+        #       Kerbin->Sun at 64,044,032.725027621  off 11474541.813229546
+        #       Sun->Duna   at 70,898,646.0584081    off 18329155.14661002
+        #       Duna->Ike   at 70,956,143.35894987   off 18386652.447151795
+        #       Ike->Duna   at 70,958,360.7066507    off 18388869.79485263
+        #     The Duna->Ike->Duna pair is a 2,217.348 s Ike SOI GRAZE on the way
+        #     in, not a moon capture; the destination is Duna.
+        #   save clock (FLIGHTSTATE UT)  5,336,112,610.6518345, activeVessel 8
+        #     ('Jumping Flea', PRELAUNCH), 13 VESSEL nodes, Mode SANDBOX
+        #   pointCount total 1921 over the 13 recordings (largest 681 = the
+        #     transfer, smallest 18 = the landing tail)
+        #
+        # `terminalStates` SUMS TO 9, NOT 13, AND THAT IS CORRECT: the four
+        # members of the chain (5d68d429 / 61e91771 / 0b91670c / 7609b87b) carry
+        # NO `terminalState` key at all, so `observed_structure_facets` counts
+        # none for them. Landed 2 = the landed Kerbal X `cead1f22` plus
+        # Valentina's EVA `f9caa140`; Orbiting 1 = the decoupled `Kerbal X Probe`
+        # `6561c8eb`; Destroyed 6 = the six ascent debris. `branchPoints` carries
+        # the suite's FIRST `EVA` entry alongside 4 `JointBreak`.
+        #
+        # `minAuthoritativeSidecars` IS 50, NOT 52 (13 x 4), and that is also
+        # correct: `61e91771` and `0b91670c` are chain CONTINUATIONS and reuse the
+        # chain head's `_vessel.craft` rather than carrying one - which is why
+        # `CommittedFixtureMirrorTests` grew its chain-continuation exemption for
+        # this fixture. The committed count is exactly 50.
+        "duna-one-recorded": {
+            "trees": 1, "committedTrees": 1, "recordings": 13,
+            "supersedes": 0, "tombstones": 0, "rewind_points": 0,
+            "rewind_retirements": 0,
+            "terminalStates": {"Orbiting": 1, "Landed": 2, "Destroyed": 6},
+            "branchPoints": {"EVA": 1, "JointBreak": 4},
+            "minAuthoritativeSidecars": 50,
+            "recordingIds": ["0b91670cf8334780a2b78687e80d6923",
+                             "4ed6e4f2767d455685b64b488704a023",
+                             "5d68d429060b429987bc8be7bb930bd2",
+                             "61e9177193444e329247d0e8288cf91e",
+                             "6561c8eb97dd48d6825e9d6c7c04d22a",
+                             "6dae41d1b2584f0cbc49afdd587cbdfe",
+                             "70e9c28bd20947d0afeaa1deb9215e34",
+                             "7609b87bc4fa44788ecd180e177b8475",
+                             "7c92064d5d0640a1a18126bc2aab2cc7",
+                             "b06a8b5f81274995879f42b67d24eae8",
+                             "cead1f22d40443f48d1bd955ad072257",
+                             "efe1ab5e2fbd48dd868c724f3ab56344",
+                             "f9caa140787248f3b67d48dfcf494c7b"],
+            "schemaGeneration": 4,
+        },
     }
 
     def test_fixture_set_is_exactly_the_committed_set(self):
