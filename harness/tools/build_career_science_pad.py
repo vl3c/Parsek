@@ -97,6 +97,7 @@ import argparse
 import math
 import os
 import shutil
+import struct
 import sys
 from typing import List, Optional, Sequence, Tuple
 
@@ -301,8 +302,16 @@ def _parse_quaternion(text: str) -> Tuple[float, float, float, float]:
 
 
 def _format_float(value: float) -> str:
-    """KSP writes Unity floats; round to float precision and drop -0.0."""
-    rounded = float("%.9g" % value)
+    """KSP writes Unity floats; round through a true float32 and drop -0.0.
+
+    The float32 round-trip is load-bearing rather than cosmetic: `"%.9g"`
+    applied straight to a double keeps enough significant digits to expose a
+    1-ULP libm difference in the trig above between platforms (measured on
+    cos(pi/4), 2026-08-24). Collapsing to float precision first puts that
+    difference below the float32 mantissa, so every libm renders the same
+    bytes."""
+    value32 = struct.unpack("<f", struct.pack("<f", value))[0]
+    rounded = float("%.9g" % value32)
     if rounded == 0.0:
         rounded = 0.0
     text = repr(rounded)

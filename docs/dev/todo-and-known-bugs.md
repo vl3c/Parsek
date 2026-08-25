@@ -512,7 +512,7 @@ elsewhere as a Windows-rename-semantics assumption, and this entry does not
 adjudicate between that and a root effect. Either way both are properties of the
 RUNNER rather than of the code under test, which is exactly why they have to be
 settled before the suites can gate in Actions.
-## CAREER-SCIENCE-PAD-DRIFT-CELL-CANNOT-PASS-OFF-THE-BUILD-MACHINE: the byte-identity guard compares a value the builder derives through `math.cos`, so it reds on any platform whose libm differs by one ULP from the one that committed the fixture [MEASURED 2026-08-24 while baselining the harness suites during the auto-merge default-flip PR (#1523). NOT caused by that PR - it touched zero harness files, and the red reproduces on a stashed clean tree. A HARNESS-TOOLING defect, not a product defect and not real fixture drift]
+## ~~CAREER-SCIENCE-PAD-DRIFT-CELL-CANNOT-PASS-OFF-THE-BUILD-MACHINE: the byte-identity guard compares a value the builder derives through `math.cos`, so it reds on any platform whose libm differs by one ULP from the one that committed the fixture~~ [MEASURED 2026-08-24 while baselining the harness suites during the auto-merge default-flip PR (#1523). NOT caused by that PR - it touched zero harness files, and the red reproduces on a stashed clean tree. A HARNESS-TOOLING defect, not a product defect and not real fixture drift; FIXED 2026-08-25, branch `science-pad-float32`]
 
 `missions/lib/test_science_bench_recover.CareerSciencePadFixtureDriftTests.test_the_committed_fixture_is_byte_identical_to_a_fresh_rebuild`
 fails on Linux with `committed 93594 bytes, rebuilt 93591 bytes`, first difference
@@ -542,14 +542,25 @@ way that could move the math - the one later commit (`abdf18e`) changed only the
 the five fixture builders that uses trig or carries its own `_format_float`, so the
 exposure is confined to this single fixture and this single cell.
 
-**Fix direction (not applied here).** `_format_float`'s own docstring already states
-the right contract - *"KSP writes Unity floats; round to float precision"* - but
-`"%.9g"` on a double does not do that. Rounding through a true float32
-(`struct.unpack('<f', struct.pack('<f', v))[0]`) before formatting collapses the
-1-ULP double difference below float32 precision: both platforms then render
-`-5.30330091e-09` and `-4.17193e-08` identically. Verified by direct experiment.
-Applying it CHANGES the committed fixture's bytes, so it is a deliberate
-re-run-the-builder-and-commit change that wants its own review, not a drive-by.
+**~~Fix~~ FIXED 2026-08-25:** `_format_float` now does what its docstring always
+claimed - it rounds through a true float32 (`struct.unpack('<f',
+struct.pack('<f', v))[0]`) BEFORE formatting with the existing `"%.9g"`, which on
+its own collapses the 1-ULP double difference below float32 precision, so every
+libm renders identical bytes. This deliberately changes the fixture's committed
+bytes, and the blast radius is wider than this entry predicted: the drift cell
+only guards `career-science-pad`, but TWO downstream fixtures EMBED its save -
+`build_career_contract_pad.py` restamps its `Title` onto a copy, and
+`build_career_earned_pad.py` splices its `VESSEL` node into the harvested C2
+career - so their own byte-identity cells red until they are regenerated from the
+updated input. All three were rebuilt with a double-run determinism gate (two
+consecutive builds byte-compared before committing). Each diff is exactly 4
+lines, all last-digit float changes in spliced-part `position`/`rotation`
+values: the two rotation lines quoted above plus the third batteryPack's
+position + rotation; nothing else moves. One pre-existing wart surfaced by the
+rebuild and deliberately NOT fixed here: these fixtures' committed
+`AddOns/DistantObject/Settings.cfg` blobs carry CRLF while their builders
+copytree the base's LF bytes verbatim on every run (`gs1-two-stage-pad` has the
+same divergence), so any full rebuild flips them - left for a dedicated chore.
 
 **Why it matters even though CI is green.** `.github/workflows/tests.yml` runs only
 `scripts/cloud-test.sh` (the xUnit suite), so this red gates nothing. It bites the
