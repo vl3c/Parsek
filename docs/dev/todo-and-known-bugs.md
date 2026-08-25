@@ -63,25 +63,78 @@ G1's B27/V18) before proposing a fix.
 
 Phases 1-2 shipped the C# recorder (env-gated, `ExportRenderManifest` verb,
 scene-exit flush), the pure Python verifier `harness/lib/rendercompose.py`, and
-the `renderCompose` verifier row REPORT-ONLY. NO committed scenario declares
-`[expectations.renderComposition]`, nothing is armed, and no manifest has been
-captured from a live game yet.
+the `renderCompose` verifier row REPORT-ONLY. Two committed scenarios now
+DECLARE `[expectations.renderComposition]` (see the Phase-3 bullet), and BOTH
+flew their report-only reading runs green on 2026-08-25 - so the module is
+live-proven on real game manifests. Nothing is armed, and arming is still an
+operator call owing an armed re-flight and a negative control per lane.
 
 REMAINING PHASES.
 
-- **Phase 3 (lanes).** Extend two committed V lanes with a warp schedule and an
-  `[expectations.renderComposition]` block, then take each through the standard
-  three-run arming workflow (report-only reading run -> armed run -> negative
-  control), and add the per-criterion negative controls. TWO pins have to move
-  deliberately, both in `harness/lib/test_hlib.py` and both empty today:
-  `test_no_committed_spec_declares_the_block_yet` (DECLARING the block is what
-  sets `PARSEK_RENDER_MANIFEST=1` at launch, so a spec picking it up by accident
-  would change what its KSP boots with) and `RENDERCOMPOSE_ARMED_SPECS`, the
-  arming roster - deliberately NOT named `*ARMED_ALLOWLIST`, because the
-  save-structure roster is scraped out of that file's source by a first-match
-  regex on that name. Arming stays an operator decision taken only after a
-  report-only reading run whose facets match the declared windows, exactly as
-  R9's `[expectations.rewind]` arming was.
+- **Phase 3 (lanes).** ~~Extend two committed V lanes with an
+  `[expectations.renderComposition]` block~~ LANE EXTENSIONS AUTHORED 2026-08-25:
+  `harness/scenarios/V14M-ike-player-loop.toml` (the phase-lock moon loop,
+  V6/V14 class) and `harness/scenarios/V8-eve-player-loop.toml` (the re-aim
+  interplanetary landing loop, V8/V13 class) each gained ONE
+  `ExportRenderManifest` step immediately before `FlushAndQuit`, plus a BARE
+  report-only block - no `gating`, no assertion key - so the windows get authored
+  FROM the first manifests' facets instead of predicted. Both lanes already armed
+  the three tracers the seam capture needs (`ghostRenderTracing` /
+  `mapRenderTracing` / `verboseLogging`), and NOTHING ELSE in either flown shape
+  moved: no jump UT, no pacing spacer, no budget, no expectation. The DECLARER
+  pin moved with them - `test_no_committed_spec_declares_the_block_yet` became
+  `RenderComposeVerifierWiringTests.RENDERCOMPOSE_DECLARER_SPECS` naming both
+  files, joined by three cells pinning that no declarer arms gating, that every
+  declarer arms the three tracers, and that every declarer exports immediately
+  before teardown. `RENDERCOMPOSE_ARMED_SPECS` is still EMPTY on purpose -
+  deliberately NOT named `*ARMED_ALLOWLIST`, because the save-structure roster is
+  scraped out of that file's source by a first-match regex on that name.
+  ~~STILL OWED: the report-only READING RUN for each lane (nothing has yet flown
+  with `PARSEK_RENDER_MANIFEST=1`)~~ BOTH READING RUNS FLOWN 2026-08-25, BOTH
+  PASS, BOTH REPORT-ONLY - the module is live-proven on real game manifests:
+  `2026-08-25_0953_V14M-ike-player-loop` (PASS attempt 1, wall 68 s, 22/22 steps)
+  and `2026-08-25_0956_V8-eve-player-loop` (PASS attempt 1, wall 53 s, 31/31
+  steps), each `renderCompose status=REPORT gating=false armedBlocks=[]
+  mismatches=[]` with exactly ONE INFO finding (RC-QUAL's endpoint-ratio trend
+  line) and zero WARN / zero FAIL. Facets and the two instrument observations are
+  recorded in `docs/dev/autotest-status.md` -> M-A7 and in each spec's own arming
+  ledger; the headline pair is V8's `hold-engage`/`hold-release` observed at 1x
+  (the program's first) and V14M's all-`StockConic`, 1x-only, 107-endpoint
+  reading.
+  STILL OWED: the rest of the three-run arming workflow per lane (armed
+  re-flight -> negative control) and the per-criterion negative controls.
+  ARMING DECISION PENDING OPERATOR - no window has been authored off the reading
+  facets and both blocks stay BARE. Arming stays an operator decision taken only
+  after a report-only reading run whose facets match the declared windows,
+  exactly as R9's `[expectations.rewind]` arming was. One MEASURED constraint on
+  that decision: V8's reading returned `cut-run-period-absent: 1`, so RC-CUT's
+  whole-ratio check could not evaluate the corpus's only non-zero loiter cut (no
+  run period to divide by; `cutWholeRatios` came back empty). An RC-CUT window
+  armed off that reading would arm a clause that never fires - the arming window
+  must account for the unevaluable.
+  DELIBERATELY NOT DONE in the lane-extension pass: the design's **warp
+  schedule** bullet. Both subjects move the clock with instantaneous `TimeJump`s,
+  so their warp histogram is 1x-only by construction and `warpBuckets` must never
+  be declared on either. RC-WARP is satisfiable only by the V1/autopilot
+  rails-warp ladder shape, which wants a third lane (or a re-shaped drive) rather
+  than a re-pin of these two. CONFIRMED by both reading runs: the histograms came
+  back 1x-only (173 samples on V14M, 296 on V8), every other bucket zero.
+- **The manifest header's `mapRenderTracingOn` bit should be STICKY
+  (was-ever-on), not export-instant** [OPENED 2026-08-25 off the two Phase-3
+  reading runs. Small, C#-side, verifier-facing]. `TryExportNow`
+  (`Source/Parsek/MapRender/RenderCompositionRecorder.cs`) stamps the header from
+  `MapRenderTrace.IsEnabled` AT THE EXPORT INSTANT, so the bit describes one moment rather than the run. Measured: V14M's
+  `2026-08-25_0953` manifest says `mapRenderTracingOn=false` while carrying 107
+  seam endpoint records that only exist because tracing was on in flight, while
+  the V8 sibling read `true` off the same drive shape - the two disagree about
+  runs that both flew with the tracer armed (both manifests were the
+  `exportReason=process-teardown` write). It is not cosmetic: the false reading
+  is what put `seam-data-unavailable-tracing-off: 1` into V14M's unevaluable
+  census, so a lane can look tracer-off to the verifier while its seam numbers
+  are real. Fix: accumulate a was-ever-on flag in the recorder (set on any frame
+  the tracer is enabled) and stamp THAT, keeping the export-instant value only if
+  it earns a second key. Until it lands, do not read the bit as evidence about a
+  lane's tracer arming.
 - **Phase 4 (routes + product).** Ride G1's B27/V18 for the route surfaces so
   RC-ROUTE evaluates against a real route line, and start the RC-QUAL trend
   record (kink angles, endpoint ratios, hold durations) that feeds
