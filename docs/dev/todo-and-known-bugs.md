@@ -253,13 +253,45 @@ DEFERRALS TAKEN IN PHASES 1-2, each of which a lane author must know.
   both directions. Two consequences a lane author has to know. (1) Pairing is on
   `(ownerIndex, cycleIndex, detailA)` where `detailA` is the run's 0-based
   ORDINAL - it used to repeat the cycle index. (2) The plan predicts ONE arrival
-  hold per cycle, so exactly one run per cycle is compared (the longest, the only
-  candidate the single prediction can be about) and the rest are counted
-  `hold-run-not-attributable-to-planned-hold`. Picking the longest cannot hide a
-  defect - a clock frozen longer than planned is the one compared, and a planned
-  hold that never happened reds against the short runs - but it also cannot
-  ATTRIBUTE the extras, so a lane that wants the second stall adjudicated needs
-  the frozen-loopUT-vs-hold-position join the manifest does not carry yet.
+  hold per cycle, so exactly one run per cycle is compared and the rest are
+  counted `hold-run-not-attributable-to-planned-hold`.
+  ~~a lane that wants the second stall adjudicated needs the
+  frozen-loopUT-vs-hold-position join the manifest does not carry yet~~ **DONE
+  2026-08-25 (leg-2 attribution by frozen loopUT), forced by the first free-play
+  ground-truth manifest.** The join the old note said the manifest did not carry
+  was already there: `ObserveUnitHoldRun` stamps `StallStartLoopUT` into
+  `detailB` on BOTH hold events, and the plan says where the arrival hold freezes
+  the clock - `rendercompose.arrival_hold_frozen_loop_ut`, composed the way
+  `SpanClock` composes it
+  (`decompress_span_ut(spanStartUT + (compress_span_ut(arrivalHoldAtUT, cuts) -
+  spanStartUT), cuts)`; NOT plain `arrivalHoldAtUT`, which is the identity only
+  when the hold instant sits past the end of every cut before it). A release is
+  now compared only when its frozen loopUT sits within `max(2 s, 2 * local
+  maxUtStep)` of that position; longest-per-cycle survives only WITHIN the
+  attributable set.
+  WHY IT COULD NOT WAIT: on `.scout/s15-duna-manifest.txt` - the first free-play
+  session, operator-eyeballed as correct - the old rule manufactured a FAIL. One
+  unit carried three engages: a 12.346 s launch-repay stall in cycle 6 frozen at
+  the span end (`detailB` 70964232.983), the GENUINE arrival hold in cycle 7
+  frozen exactly at `arrivalHoldAtUT` (70898646.058, observed 55400 s against a
+  55581.371 s prediction - agreeing to 181 s inside a 40000 s tolerance), and a
+  third engage still open at scene exit. Cycle 6's only release was the repay
+  stall, so longest-per-cycle compared it against cycle 6's 53299.326 s
+  arrival-hold prediction and red at delta -53286.98 s. With positions compared
+  it is 65586.92 s away from where the arrival hold freezes and is simply not the
+  run the prediction is about. Post-fix that manifest yields ZERO RC-HOLD
+  findings, one `hold-run-not-attributable-to-planned-hold` and one
+  `hold-engaged-never-released`.
+  TWO FALLBACKS, so a schema-poor manifest does not silently stop being checked:
+  when the plan carries no `arrivalHoldAtUT`, or when NO release on the unit
+  carries a frozen position, attribution is undecidable and the rule reverts to
+  the pre-calibration longest-per-cycle pick. A release missing `detailB` on a
+  unit where others carry it is NOT attributable.
+  NEW COUNTED UNEVALUABLE: `hold-engaged-never-released`, for an engage the
+  manifest never releases. Deliberately NOT the FAIL a release-with-no-engage
+  gets - a release is only ever emitted by a run the detector already engaged, so
+  a release alone means the record lost a row, while an engage owes nothing yet
+  and a scene exit mid-hold produces exactly this.
 - **The InteriorGap duration bound uses the unit CADENCE.** The design's
   seam-gap-plus-reseed bound is the Phase-3 tightening; the module docstring
   says so.
@@ -273,6 +305,32 @@ DEFERRALS TAKEN IN PHASES 1-2, each of which a lane author must know.
   benign population exists. The MIRROR direction, a draw with no publish, stays
   FAIL. A lane that wants this armed should first read `ownPublishWithoutDraw`
   off a report-only run and confirm it sits at zero.
+  CALIBRATION DATA, 2026-08-25, from the first free-play ground-truth manifest
+  (`.scout/s15-duna-manifest.txt`, a Kerbin-Duna re-aim loop the operator
+  visually validated as correct): `ownPublishWithoutDraw = 2`, and read out of
+  the record BOTH turned out to be the SAME population - and it is not "a publish
+  with no draw". Both are a RENDER-ENTRY LEAD-IN: an ownership window that closes
+  a fraction of a second BEFORE that recording's FIRST `DWELL` record opens.
+  * `61e9177193444e329247d0e8288cf91e` (transfer member, pid 3445082362, 18
+    dwells): publish `[5329053994.561617, 5329053997.561617]`, first dwell opens
+    5329053998.061617 - a 0.5 s gap, under that dwell's own 2.5 s `maxUtStep`.
+    Its other EIGHT publishes all intersect a dwell and raise nothing.
+  * `6561c8eb97dd48d6825e9d6c7c04d22a` (member 27, pid 650833675, exactly ONE
+    dwell, still open at export): publish `[5329057525.398653,
+    5329057531.898653]`, its only dwell opens 5329057532.898653 - a 1.0 s gap.
+  MECHANISM: `drewNonOrbitalLegRecordings` publishes on the frame the Director
+  actually draws, while the `DWELL` record for that ghost opens on a later
+  classification frame, so a sub-frame publish window sits ahead of the
+  recording's first dwell. Neither ratified exemption can see it - (a) wants NO
+  dwell anywhere and both recIds have dwells; (b) wants a CONCURRENT `StockConic`
+  dwell and the dwell starts just after the window closes.
+  NO RULE CHANGE was made off this. Both shapes are now pinned as fixtures in
+  `harness/lib/test_rendercompose.py` (`test_s15_shape_a_...`,
+  `test_s15_shape_b_...`, plus the one-second-later control that IS claimed by
+  exemption (b)), so a later pass that ratifies a lead-in exemption - or promotes
+  the rest of deviation #5 to FAIL - has to move them deliberately instead of
+  rediscovering the population from another live run. A lane arming this
+  direction today would still red on a correct session, so it stays WARN.
 - **RC-COVER counts only VISIBLE dwells as coverage.** An invisible dwell whose
   coverage is `InInteriorGap` or `OutsideWindow` is a RATIFIED hidden window and
   still explains its span (counted as `coverRatifiedHiddenSpans`); an invisible
@@ -280,11 +338,68 @@ DEFERRALS TAKEN IN PHASES 1-2, each of which a lane author must know.
   existed and the leg still did not draw, which is the defect class the rule
   exists for. A lane reading a high `coverRatifiedHiddenSpans` is reading a run
   whose "coverage" is mostly cataloged darkness, not drawn line.
-- **The Phase-1 tail is still open:** one manual armed play session producing a
-  manifest over a committed loop fixture. Every manifest exercised so far is
-  either synthetic (Python fixtures) or written by the C# writer under test.
-  Until that session happens, nothing proves the recorder's hooks fire in the
-  shapes the rules expect on real geometry.
+- ~~**The Phase-1 tail is still open:** one manual armed play session producing a
+  manifest over a committed loop fixture.~~ **DONE 2026-08-25.** The session flew
+  (Kerbin-Duna re-aim loop, `exportReason=scene-exit`, warp100 / warp1000 /
+  warpHigh all covered, operator-eyeballed as correct); the manifest is
+  `.scout/s15-duna-manifest.txt` (495 KB) and the collected run is
+  `logs/2026-08-25_1537_s15-duna-one-manifest-run2`. The recorder's hooks DO fire
+  in the shapes the rules expect on real geometry: 1 plan unit, 2 chain builds,
+  17 closed + 2 open dwells, 17 transitions, 10 clock events (3 hold-engage /
+  2 hold-release), 20 line branches, 30 ownership changes, 1024 seam endpoints.
+  Everything the reading disagreed with the operator about was the INSTRUMENT's
+  fault and is calibrated in this section (leg-2 attribution, the two RC-OWN
+  lead-ins, the seam-endpoint volume, the `icon-teleport` entry below).
+- **Free-play SEAM_ENDPOINT volume: the per-pid cap is a CLIFF over a long
+  session, so the section now DECIMATES above half of it** [OPENED and FIXED
+  2026-08-25 off the first free-play manifest]. A harness flight is minutes long
+  and never reaches `MaxSeamRecordsPerPid = 512`; a free-play session reaches it
+  in minutes and everything after it is dropped, so the section describes the
+  HEAD of the session and is silent about the rest. Measured on
+  `.scout/s15-duna-manifest.txt`: 1024 endpoints admitted against 28985 dropped
+  (`truncated-section-seam_endpoint`) - 3% of the session, all of it at the
+  front. FIX: `RenderCompositionManifest.TryPassSeamEndpointDecimation` counts
+  per-pid OFFERS (not accepts - an accept-keyed rate stalls the moment the cap
+  bites and reproduces the cliff) and, above
+  `SeamEndpointDecimationThreshold = MaxSeamRecordsPerPid / 2`, admits one offer
+  in `SeamEndpointDecimationKeepEveryNth = 8`. The caps stay the FINAL bound;
+  decimation only changes WHICH offers reach them, so a pid now spans ~2304
+  offers before the cliff instead of 512. Thinned drops are counted like any
+  other drop but under their own TRUNCATED kind, `seam-endpoint-decimated`, so
+  the Python ledger can tell a thinned section (trend intact, rate reduced) from
+  a cut-off one: `decimated-section-<section>` instead of
+  `truncated-section-<section>`, a `decimatedSections` facet, and an RC-QUAL
+  INFO trend row. SEAM_TANGENT passes the gate untouched (shares the caps, not
+  the volume problem). Below the threshold nothing changes at all, which is why
+  `Source/Parsek.Tests/Fixtures/RenderManifest/sample-manifest.txt` is byte-
+  identical. Cross-language token pin:
+  `test_the_decimated_kind_token_is_the_one_the_writer_declares` reads the C#
+  declaration, so a rename on either side reds instead of silently degrading
+  every thinned section back into a cliff.
+- **`MapRenderProbe`'s `icon-jump` / `icon-teleport` threshold looks
+  over-sensitive above warp1000 and needs its own calibration pass**
+  [OPENED 2026-08-25 off the first free-play ground-truth manifest. FILE-ONLY:
+  the probe was deliberately NOT changed. Owner: whoever owns `MapRenderProbe`].
+  The s15 session was played by hand and visually validated as CORRECT by the
+  operator, and current code raised `icon-teleport` **95 times** during it
+  (evidence: `logs/2026-08-25_1537_s15-duna-one-manifest-run2` plus the
+  manifest's own `anomalyEchoes` census, which reports exactly
+  `{"icon-teleport": 95}` and no other reason). 95 raises on a session with no
+  observed defect is either a real render defect the operator could not see or a
+  threshold that does not survive rails warp - and the manifest carries the
+  discriminator for telling those apart: its warp histogram over the same frames
+  is `warp1x 0 / warpPhys 0 / warp100 4727 / warp1000 15488 / warpHigh 11446`,
+  i.e. the session is ENTIRELY above warp100 and mostly at warp1000+. The
+  calibration pass owed is a per-raise warp attribution: bucket the 95 raises by
+  the warp regime of the frame that raised them, and if they concentrate at
+  warp1000+ the threshold is the suspect rather than the render. NOTE what is
+  already known not to be the cause: the delta is already measured in the orbit's
+  OWN reference-body frame precisely so a body's world motion cannot dominate at
+  high warp (see the `MapRenderProbe` entry in `.claude/CLAUDE.md`), so this is
+  not the raw-world-delta mistake being re-made. `icon-teleport` is a GATED token
+  (`hlib.ANOMALY_TOKENS`, promoted 2026-08-04) with a `maxCount` budget, so an
+  over-sensitive threshold costs real lanes real reds - which is why this is
+  filed rather than left as a curiosity.
 
 ---
 

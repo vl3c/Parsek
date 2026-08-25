@@ -167,6 +167,119 @@ namespace Parsek.Tests.MapRender
                 truncated.GetValue("droppedCount"));
         }
 
+        // ---- SEAM_ENDPOINT decimation (free-play volume) ----
+
+        [Fact]
+        public void SeamEndpoint_BelowTheDecimationThreshold_IsUnchanged()
+        {
+            // The harness-length case, and the reason the sample fixture's bytes do not move: a
+            // flight that offers fewer than the threshold keeps EVERY endpoint and emits no marker.
+            var m = new RenderCompositionManifest();
+            int offers = RenderCompositionManifest.SeamEndpointDecimationThreshold;
+            for (int i = 0; i < offers; i++)
+            {
+                m.AppendSeamEndpoint(new RenderCompositionManifest.SeamEndpointRecord
+                { Pid = 4u, UT = 100.0 + i });
+            }
+            Assert.Equal(offers, m.SeamEndpointCount);
+            Assert.Equal(offers, m.SeamEndpointsKeptForPid(4u));
+            Assert.Equal(0, m.TruncationCount);
+        }
+
+        [Fact]
+        public void SeamEndpoint_AboveTheThreshold_KeepsOneInN_AndCountsTheDecimatedDrops()
+        {
+            // The free-play case. Past the threshold the family thins instead of running headlong
+            // into the per-pid cap, so a long session's endpoints keep SPANNING it. The drops are
+            // counted under their own TRUNCATED kind: a thinned section and a truncated one say
+            // different things, and a reader that could not tell them apart would read a live trend
+            // as a dead cliff.
+            var m = new RenderCompositionManifest();
+            int threshold = RenderCompositionManifest.SeamEndpointDecimationThreshold;
+            int n = RenderCompositionManifest.SeamEndpointDecimationKeepEveryNth;
+            int offers = threshold + (8 * n);          // 8 more admissions past the threshold
+            for (int i = 0; i < offers; i++)
+            {
+                m.AppendSeamEndpoint(new RenderCompositionManifest.SeamEndpointRecord
+                { Pid = 4u, UT = 100.0 + i });
+            }
+            Assert.Equal(offers, m.SeamEndpointsOfferedForPid(4u));
+            Assert.Equal(threshold + 8, m.SeamEndpointCount);
+            Assert.Equal(threshold + 8, m.SeamEndpointsKeptForPid(4u));
+
+            ConfigNode root = m.BuildFileNode(Header()).GetNode(RenderCompositionManifest.RootNodeName);
+            ConfigNode truncated = Assert.Single(root.GetNode("OBSERVED").GetNodes("TRUNCATED"));
+            // Per-pid section token + the REAL pid: the thinning is a property of one ghost's
+            // record stream, exactly like the per-pid cap marker.
+            Assert.Equal(RenderCompositionManifest.SeamEndpointSection, truncated.GetValue("section"));
+            Assert.Equal("4", truncated.GetValue("pid"));
+            Assert.Equal(RenderCompositionManifest.SeamEndpointDecimatedKind, truncated.GetValue("kind"));
+            Assert.Equal(((8 * n) - 8).ToString(CultureInfo.InvariantCulture),
+                truncated.GetValue("droppedCount"));
+
+            // And the kept records still SPAN the offered range rather than stopping at the
+            // threshold - that span IS the trend coverage the decimation buys.
+            ConfigNode[] kept = root.GetNode("OBSERVED").GetNodes("SEAM_ENDPOINT");
+            double last = double.Parse(kept[kept.Length - 1].GetValue("ut"), CultureInfo.InvariantCulture);
+            Assert.True(last > 100.0 + threshold,
+                "the last kept endpoint is at " + last.ToString(CultureInfo.InvariantCulture)
+                + ", no further than the threshold: decimation bought no extra span");
+        }
+
+        [Fact]
+        public void SeamEndpoint_DecimationIsPerPid_AndLeavesSeamTangentsAlone()
+        {
+            // Two independent statements the rule must keep. (1) The counter is per pid, so a busy
+            // ghost never thins a quiet one's records. (2) SEAM_TANGENT shares the seam CAPS but not
+            // the volume problem, so it passes the gate untouched - thinning a family by a sibling's
+            // offer rate would drop evidence nobody measured a surplus of.
+            var m = new RenderCompositionManifest();
+            int threshold = RenderCompositionManifest.SeamEndpointDecimationThreshold;
+            for (int i = 0; i < threshold + 4; i++)
+            {
+                m.AppendSeamEndpoint(new RenderCompositionManifest.SeamEndpointRecord
+                { Pid = 4u, UT = 100.0 + i });
+            }
+            for (int i = 0; i < 6; i++)
+            {
+                m.AppendSeamEndpoint(new RenderCompositionManifest.SeamEndpointRecord
+                { Pid = 5u, UT = 900.0 + i });
+                m.AppendSeamTangent(new RenderCompositionManifest.SeamTangentRecord
+                { Pid = 4u, UT = 900.0 + i });
+            }
+            Assert.Equal(6, m.SeamEndpointsKeptForPid(5u));
+            Assert.Equal(6, m.SeamTangentCount);
+            Assert.Equal(threshold, m.SeamEndpointsKeptForPid(4u));   // 4 offers thinned away
+        }
+
+        [Fact]
+        public void SeamEndpoint_TheCapsRemainTheFinalBound_AboveTheDecimationGate()
+        {
+            // Decimation changes WHICH offers reach the caps, never how many records the file can
+            // hold. Offer far past what the per-pid cap allows even at the thinned rate and the cap
+            // must still be the number that stops it.
+            var m = new RenderCompositionManifest();
+            int threshold = RenderCompositionManifest.SeamEndpointDecimationThreshold;
+            int n = RenderCompositionManifest.SeamEndpointDecimationKeepEveryNth;
+            int perPid = RenderCompositionManifest.MaxSeamRecordsPerPid;
+            int offers = threshold + (n * (perPid - threshold)) + (4 * n);
+            for (int i = 0; i < offers; i++)
+            {
+                m.AppendSeamEndpoint(new RenderCompositionManifest.SeamEndpointRecord
+                { Pid = 4u, UT = 100.0 + i });
+            }
+            Assert.Equal(perPid, m.SeamEndpointCount);
+            // Both markers exist and are distinguishable: the thinned drops under the decimated
+            // kind, the post-cap drops under the plain seam-endpoint kind.
+            ConfigNode root = m.BuildFileNode(Header()).GetNode(RenderCompositionManifest.RootNodeName);
+            ConfigNode[] rows = root.GetNode("OBSERVED").GetNodes("TRUNCATED");
+            Assert.Equal(2, rows.Length);
+            Assert.Contains(rows, r =>
+                r.GetValue("kind") == RenderCompositionManifest.SeamEndpointDecimatedKind);
+            Assert.Contains(rows, r =>
+                r.GetValue("kind") == RenderCompositionManifest.SeamEndpointKind);
+        }
+
         [Fact]
         public void ClockEvent_CapHit_CountsATruncation()
         {

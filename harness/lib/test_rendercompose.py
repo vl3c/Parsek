@@ -633,7 +633,7 @@ RENDER_MANIFEST
 			cycleIndex = 0
 			ut = 10500.0
 			detailA = 0.0
-			detailB = 1150.0
+			detailB = 1800.0
 			detailC = 0.0
 			detailS = 
 		}
@@ -644,7 +644,7 @@ RENDER_MANIFEST
 			cycleIndex = 0
 			ut = 10600.0
 			detailA = 0.0
-			detailB = 1150.0
+			detailB = 1800.0
 			detailC = 100.0
 			detailS = 
 		}
@@ -811,6 +811,40 @@ UNKNOWN_OBSERVED_RECORD = """\
 		{
 			pid = 5001
 			ut = 11000.0
+		}
+		ROUTE_LEG_DEFER
+"""
+
+# The s15 deviation-#5 calibration shape B: a recording whose ONLY dwell is
+# StockConic and still open at export, opening 1 s after its ownership publish
+# closed. See `RuleBehaviourTests`' calibration block for what the real manifest
+# showed. openUT sits after every other unit's cycle windows so it perturbs
+# nothing else; closeUT is the fixture's exportUT, which is what the C# writer
+# stamps on a dwell that was still open when the scene exited.
+S15_LEAD_IN_OPEN_DWELL = """\
+		DWELL
+		{
+			pid = 6100
+			recId = recS15
+			committedIndex = 9
+			chainSignature = sigS15
+			segmentIndex = 1
+			phaseKind = DepartureLoiter
+			treatment = StockConic
+			visible = True
+			coverage = InSegment
+			frameBody = Kerbin
+			openUT = 23203.0
+			closeUT = 24000.0
+			openAtExport = True
+			frames = 40
+			warp1x = 0
+			warpPhys = 0
+			warp100 = 40
+			warp1000 = 0
+			warpHigh = 0
+			maxUtStep = 8.0
+			markerDecision = True
 		}
 		ROUTE_LEG_DEFER
 """
@@ -1418,6 +1452,30 @@ class CSharpWriterFixtureTests(unittest.TestCase):
         self.assertIn("truncated-section-dwell", unevaluable)
         self.assertEqual([], fails(findings, rc.RULE_UNKNOWN))
 
+    def test_the_decimated_kind_token_is_the_one_the_writer_declares(self):
+        # A CROSS-LANGUAGE token, so it needs a cross-language pin: the C# writer
+        # stamps the kind and the Python ledger reads it to tell a thinned section
+        # from a cut-off one. A rename on either side alone silently degrades every
+        # decimated section back into a cliff, and nothing else would notice.
+        #
+        # The match is anchored on the DECLARATION (`const string <name> = "..."`),
+        # not on the bare identifier, so the doc comments that name the constant in
+        # `<see cref="..."/>` cannot satisfy it.
+        import os
+        import re
+        lib_dir = os.path.dirname(os.path.abspath(__file__))
+        repo_root = os.path.dirname(os.path.dirname(lib_dir))
+        path = os.path.join(repo_root, "Source", "Parsek", "MapRender",
+                            "RenderCompositionManifest.cs")
+        with open(path, "r", encoding="utf-8") as fh:
+            source = fh.read()
+        declared = re.findall(
+            r'const\s+string\s+SeamEndpointDecimatedKind\s*=\s*"([^"]+)"', source)
+        self.assertEqual(1, len(declared),
+                         "expected exactly one SeamEndpointDecimatedKind "
+                         "declaration in %s, found %r" % (path, declared))
+        self.assertIn(declared[0], rc.TRUNCATED_DECIMATED_KINDS)
+
     def test_the_descent_event_owner_index_is_the_member_not_the_unit(self):
         # Shipped convention: a descent-phase CLOCK_EVENT names its DESCENT
         # MEMBER index in ownerIndex (6 here) while the unit's ownerIndex is 4.
@@ -1643,6 +1701,63 @@ class RuleViolationTests(unittest.TestCase):
         self.assertEqual([], fails(findings, rc.RULE_COVER))
         self.assertEqual(17, unevaluable["truncated-section-dwell"])
 
+    def test_a_decimated_section_is_counted_apart_from_a_truncated_one(self):
+        # Free-play volume (fix 3). The writer THINS SEAM_ENDPOINT above half the
+        # per-pid cap instead of running into the cap and going silent, and marks
+        # the thinned drops with their own kind. Both are drops and both are
+        # counted - but a reader must be able to tell a section that still spans
+        # the session at a coarser rate from one that stopped partway through.
+        _s, (findings, unevaluable, metrics) = rules_for(
+            variant((ANCHOR_ROUTE_LEG_DEFER,
+                     truncated_record("SEAM_ENDPOINT", pid=5001,
+                                      kind="seam-endpoint-decimated", dropped=2100))))
+        self.assertEqual([], fails(findings, rc.RULE_UNKNOWN))
+        self.assertEqual(2100, unevaluable["decimated-section-seam_endpoint"])
+        self.assertNotIn("truncated-section-seam_endpoint", unevaluable)
+        self.assertEqual({"SEAM_ENDPOINT": 2100},
+                         metrics["decimatedDropsBySection"])
+        # RC-QUAL reports the thinning as a trend row, never as a finding level
+        # that could gate.
+        quals = [f for f in findings if f.rule_id == rc.RULE_QUAL
+                 and f.target == "decimation.SEAM_ENDPOINT"]
+        self.assertEqual(1, len(quals))
+        self.assertEqual(rc.LEVEL_INFO, quals[0].level)
+        self.assertIn("thinned rather than cut off", quals[0].message)
+
+    def test_a_capped_seam_section_still_reads_as_truncated(self):
+        # The control: the SAME section, dropped by the CAP rather than thinned,
+        # keeps the truncated reason and raises no decimation row. Without this
+        # the cell above would pass on a rule that simply renamed every drop.
+        _s, (findings, unevaluable, metrics) = rules_for(
+            variant((ANCHOR_ROUTE_LEG_DEFER,
+                     truncated_record("SEAM_ENDPOINT", pid=5001,
+                                      kind="seam-endpoint", dropped=2100))))
+        self.assertEqual(2100, unevaluable["truncated-section-seam_endpoint"])
+        self.assertNotIn("decimated-section-seam_endpoint", unevaluable)
+        self.assertEqual({}, metrics["decimatedDropsBySection"])
+        self.assertEqual([], [f for f in findings if f.rule_id == rc.RULE_QUAL
+                              and f.target.startswith("decimation.")])
+
+    def test_the_decimated_section_reaches_the_reported_facets(self):
+        snap = build(variant((ANCHOR_ROUTE_LEG_DEFER,
+                              truncated_record("SEAM_ENDPOINT", pid=5001,
+                                               kind="seam-endpoint-decimated",
+                                               dropped=2100))))
+        facets = rc.observed_composition_facets(snap)[rc.RENDER_COMPOSITION_BLOCK]
+        self.assertEqual({"SEAM_ENDPOINT": 2100}, facets["decimatedSections"])
+        # A section can be BOTH thinned and later capped, so the two lists are
+        # reported separately rather than one being derived from the other.
+        self.assertIn("SEAM_ENDPOINT", facets["truncatedSections"])
+
+    def test_the_decimated_kind_vocabulary_matches_the_c_sharp_writer(self):
+        # The kind token is the discriminator, so a writer-side rename must red
+        # HERE rather than silently degrading every thinned section back into a
+        # cliff. Pinned against the shipped C# constant's spelling.
+        self.assertEqual(("seam-endpoint-decimated",), rc.TRUNCATED_DECIMATED_KINDS)
+        self.assertTrue(rc.truncation_is_decimation("seam-endpoint-decimated"))
+        self.assertFalse(rc.truncation_is_decimation("seam-endpoint"))
+        self.assertFalse(rc.truncation_is_decimation(""))
+
     def test_rc_own_reds_on_two_concurrent_treatments_for_one_pid(self):
         _s, (findings, _u, _m) = rules_for(
             variant(("openUT = 14000.0", "openUT = 11000.0")))
@@ -1666,6 +1781,92 @@ class RuleViolationTests(unittest.TestCase):
                         + "\n\t\t}\n\t\tOWNERSHIP_CHANGE\n\t\t{"
                         + "\n\t\t\trecId = %s\n\t\t\tut = %r\n\t\t\tevent = disappear"
                           % (rec_id, disappear_ut)))
+
+    # --- deviation #5 calibration data: the two s15 free-play WARN shapes ----
+    #
+    # The FIRST free-play ground-truth manifest (.scout/s15-duna-manifest.txt, a
+    # Kerbin->Duna re-aim loop the operator visually validated as correct) raised
+    # exactly two publish-without-draw WARNs. Read out of the record, BOTH turned
+    # out to be the SAME population, and it is not "a publish with no draw":
+    #
+    #   recId 61e9177193444e329247d0e8288cf91e (transfer member, pid 3445082362,
+    #     18 dwells) - publish [5329053994.561617, 5329053997.561617], and that
+    #     recording's FIRST dwell opens at 5329053998.061617. Gap: 0.5 s, under
+    #     that dwell's own 2.5 s maxUtStep. Its other EIGHT publishes all
+    #     intersect a dwell and raise nothing.
+    #   recId 6561c8eb97dd48d6825e9d6c7c04d22a (member 27, pid 650833675, ONE
+    #     dwell, still open at export) - publish [5329057525.398653,
+    #     5329057531.898653], and its only dwell opens at 5329057532.898653.
+    #     Gap: 1.0 s.
+    #
+    # So the shape is a RENDER-ENTRY LEAD-IN: ownership is published on the frame
+    # the Director actually draws, while the DWELL record for that ghost opens on
+    # a later classification frame, leaving a sub-frame publish window ahead of
+    # the recording's first dwell. Neither exemption can see it - (a) wants NO
+    # dwell anywhere and both recIds have dwells; (b) wants a CONCURRENT
+    # StockConic dwell and the dwell starts just after the window closes.
+    #
+    # These cells are CALIBRATION DATA, not a rule change: they pin that both
+    # shapes still land on WARN, so a later pass that ratifies a lead-in
+    # exemption (or promotes the rest of deviation #5 to FAIL) has to move them
+    # deliberately instead of discovering the population again from a live run.
+
+    def test_s15_shape_a_publish_just_ahead_of_a_recordings_first_dwell(self):
+        # recB1's first dwell opens at 21000 and its dwells are all StockConic -
+        # structurally the 61e91 shape, at fixture scale. The publish closes 1 s
+        # earlier, which is inside the 8 s maxUtStep those dwells carry.
+        _s, (findings, _u, metrics) = rules_for(
+            self._with_extra_ownership("recB1", 20997.0, 20999.0))
+        self.assertEqual([], fails(findings, rc.RULE_OWN))
+        warns = [f for f in findings
+                 if f.level == rc.LEVEL_WARN and f.rule_id == rc.RULE_OWN
+                 and "implies a draw" in f.message]
+        self.assertEqual(1, len(warns))
+        self.assertIn("recB1", warns[0].target)
+        self.assertEqual(1, metrics["ownPublishWithoutDraw"])
+        self.assertEqual(0, metrics["ownPublishExemptStockConic"])
+        self.assertEqual(0, metrics["ownPublishExemptProtoless"])
+
+    def test_s15_shape_b_publish_ahead_of_a_single_dwell_open_at_export(self):
+        # The 6561c8 shape: a recording whose ONLY dwell is StockConic and still
+        # open when the scene exited, published 1 s before that dwell opens. An
+        # open dwell is deliberately part of the shape - the s15 export reason was
+        # scene-exit, and open dwells are the population a verb export never sees.
+        text = variant(
+            (ANCHOR_LAST_OWNERSHIP,
+             ANCHOR_LAST_OWNERSHIP
+             + "\n\t\t}\n\t\tOWNERSHIP_CHANGE\n\t\t{"
+             + "\n\t\t\trecId = recS15\n\t\t\tut = 23200.0\n\t\t\tevent = appear"
+             + "\n\t\t}\n\t\tOWNERSHIP_CHANGE\n\t\t{"
+             + "\n\t\t\trecId = recS15\n\t\t\tut = 23202.0\n\t\t\tevent = disappear"),
+            (ANCHOR_ROUTE_LEG_DEFER, S15_LEAD_IN_OPEN_DWELL))
+        _s, (findings, _u, metrics) = rules_for(text)
+        self.assertEqual([], fails(findings, rc.RULE_OWN))
+        warns = [f for f in findings
+                 if f.level == rc.LEVEL_WARN and f.rule_id == rc.RULE_OWN
+                 and "implies a draw" in f.message]
+        self.assertEqual(1, len(warns))
+        self.assertIn("recS15", warns[0].target)
+        self.assertEqual(1, metrics["ownPublishWithoutDraw"])
+        # NOT the proto-less exemption: the recording DOES have a dwell. Pinning
+        # this is what stops a future "just exempt recordings with one dwell"
+        # from being mistaken for the lead-in fix.
+        self.assertEqual(0, metrics["ownPublishExemptProtoless"])
+
+    def test_the_same_publish_one_second_later_is_the_ratified_stockconic_draw(self):
+        # The control that makes the two cells above about the LEAD-IN and
+        # nothing else: slide the identical publish forward so it touches the
+        # dwell, and exemption (b) claims it. The population is separated by a
+        # sub-frame offset, which is exactly why it is calibration data rather
+        # than a defect.
+        _s, (findings, _u, metrics) = rules_for(
+            self._with_extra_ownership("recB1", 20997.0, 21000.0))
+        self.assertEqual([], fails(findings, rc.RULE_OWN))
+        self.assertEqual([], [f for f in findings
+                              if f.rule_id == rc.RULE_OWN
+                              and "implies a draw" in f.message])
+        self.assertEqual(0, metrics["ownPublishWithoutDraw"])
+        self.assertEqual(1, metrics["ownPublishExemptStockConic"])
 
     def test_rc_own_warns_when_a_published_ownership_has_no_draw(self):
         # An extra recA0 publish over [30000, 32000], where recA0 has no dwell of
@@ -2228,7 +2429,7 @@ DESCENT_CYCLE0_TAIL = ("detailB = 10400.0\n\t\t\tdetailC = 0.0\n"
 def _hold_block(kind, ut, held):
     return ("\t\tCLOCK_EVENT\n\t\t{\n\t\t\tkind = %s\n\t\t\townerIndex = 0\n"
             "\t\t\tcycleIndex = 0\n\t\t\tut = %s\n\t\t\tdetailA = 0.0\n"
-            "\t\t\tdetailB = 1150.0\n\t\t\tdetailC = %s\n\t\t\tdetailS = \n\t\t}\n"
+            "\t\t\tdetailB = 1800.0\n\t\t\tdetailC = %s\n\t\t\tdetailS = \n\t\t}\n"
             % (kind, ut, held))
 
 
@@ -2356,9 +2557,9 @@ class SchemaV11ClauseTests(unittest.TestCase):
         for spelling in ("-1.0", "0.5"):
             with self.subTest(detail_a=spelling):
                 _s, (findings, _u, _m) = rules_for(
-                    variant(("detailA = 0.0\n\t\t\tdetailB = 1150.0\n"
+                    variant(("detailA = 0.0\n\t\t\tdetailB = 1800.0\n"
                              "\t\t\tdetailC = 100.0",
-                             "detailA = %s\n\t\t\tdetailB = 1150.0\n"
+                             "detailA = %s\n\t\t\tdetailB = 1800.0\n"
                              "\t\t\tdetailC = 100.0" % spelling)))
                 unknown = fails(findings, rc.RULE_UNKNOWN)
                 self.assertEqual(1, len(unknown))
@@ -2394,6 +2595,126 @@ class SchemaV11ClauseTests(unittest.TestCase):
         self.assertEqual(1, len(hold))
         self.assertIn("run ordinal", hold[0].message)
         self.assertIn("run=1", hold[0].target)
+
+    # --- leg-2 attribution by frozen loopUT (free-play calibration) ---------
+
+    def test_the_planned_hold_freeze_position_is_composed_the_way_the_clock_is(self):
+        # Unit A: spanStart 1000, one cut [1200, +300), arrivalHoldAtUT 1800.
+        # compress(1800) = 1500, pos = 500, decompress(1000 + 500) = 1800 - the
+        # round trip IS the identity here because the hold instant sits past the
+        # cut's END, which is the ordinary case and the one the s15 free-play
+        # manifest shows (its expected freeze lands exactly on arrivalHoldAtUT).
+        cuts = (rc.LoiterCut(start_ut=1200.0, length_seconds=300.0),)
+        self.assertEqual(1800.0, rc.arrival_hold_frozen_loop_ut(1000.0, 1800.0, cuts))
+        # And the case that makes "just use arrivalHoldAtUT" wrong: an instant
+        # INSIDE a compressed-away run maps to the run's start and re-inflates to
+        # its FAR side, naming a loopUT 200 s from the raw instant.
+        self.assertEqual(1500.0, rc.arrival_hold_frozen_loop_ut(1000.0, 1300.0, cuts))
+        # No hold instant = no knowable position. NaN, never 0.
+        self.assertTrue(math.isnan(
+            rc.arrival_hold_frozen_loop_ut(1000.0, float("nan"), cuts)))
+
+    def test_a_stall_frozen_somewhere_else_is_counted_not_red(self):
+        # THE s15 SHAPE, and the false FAIL this calibration exists to kill. The
+        # real free-play manifest carried, on ONE unit: a 12.3 s launch-repay
+        # stall frozen at the span END in cycle 6, the genuine arrival hold in
+        # cycle 7 frozen exactly at arrivalHoldAtUT, and a third engage still
+        # open at scene exit. The old longest-per-cycle rule compared cycle 6's
+        # repay stall against cycle 6's 53 299 s arrival-hold prediction and red.
+        #
+        # Mirrored here: cycle 0 keeps the attributable pair (frozen at 1800, the
+        # planned position, 100 s exactly as predicted); cycle 1 gets a 12 s stall
+        # frozen at 2000 (the span end, 200 s away - the tolerance is 10 s) plus
+        # an engage that never releases.
+        stall = (_hold_block("hold-engage", "13000.0", "0.0")
+                 .replace("cycleIndex = 0", "cycleIndex = 1")
+                 .replace("detailB = 1800.0", "detailB = 2000.0")
+                 + _hold_block("hold-release", "13012.0", "12.0")
+                 .replace("cycleIndex = 0", "cycleIndex = 1")
+                 .replace("detailB = 1800.0", "detailB = 2000.0")
+                 + _hold_block("hold-engage", "13500.0", "0.0")
+                 .replace("cycleIndex = 0", "cycleIndex = 1")
+                 .replace("detailA = 0.0", "detailA = 1.0")
+                 .replace("detailB = 1800.0", "detailB = 2000.0"))
+        text = POSITIVE_MANIFEST.replace(HOLD_RELEASE_BLOCK,
+                                         HOLD_RELEASE_BLOCK + stall, 1)
+        self.assertNotEqual(text, POSITIVE_MANIFEST)
+        _s, (findings, unevaluable, metrics) = rules_for(text)
+        self.assertEqual([], fails(findings, rc.RULE_HOLD),
+                         [f.as_text() for f in fails(findings, rc.RULE_HOLD)])
+        self.assertEqual([], fails(findings, rc.RULE_UNKNOWN))
+        self.assertEqual(1, unevaluable[rc.UNEVAL_HOLD_RUN_UNATTRIBUTED])
+        self.assertEqual(1, unevaluable[rc.UNEVAL_HOLD_ENGAGED_NEVER_RELEASED])
+        # The measurement is still REPORTED - counted-unevaluable is not deleted.
+        self.assertEqual([100.0, 12.0], metrics["observedHoldSeconds"])
+
+    def test_the_same_shape_red_under_the_pre_calibration_longest_rule(self):
+        # Anti-vacuity for the cell above: without the position test, cycle 1's
+        # 12 s stall IS the longest (only) release in its cycle, so it would be
+        # compared against W_1 = 100 s and red at delta 88 s against a 10 s
+        # tolerance. Asserting that arithmetic directly keeps the fix honest - if
+        # the fixture ever stopped being a case the old rule got wrong, the cell
+        # above would pass for the wrong reason.
+        w1 = rc.per_loop_arrival_hold(100.0, 1, 4000.0, 500.0)
+        self.assertEqual(100.0, w1)
+        self.assertGreater(abs(12.0 - w1), 10.0)
+
+    def test_an_attributable_release_with_the_wrong_duration_still_reds(self):
+        # The true-defect control. Position agrees (detailB is the planned freeze
+        # at 1800) so the run IS the arrival hold; the duration does not. That is
+        # a genuine render-clock drift and attribution must not swallow it.
+        _s, (findings, unevaluable, _m) = rules_for(
+            variant(("detailC = 100.0", "detailC = 400.0")))
+        hold = fails(findings, rc.RULE_HOLD)
+        self.assertEqual(1, len(hold))
+        self.assertIn("leg 2 (render drift)", hold[0].message)
+        self.assertNotIn(rc.UNEVAL_HOLD_RUN_UNATTRIBUTED, unevaluable)
+
+    def test_attribution_falls_back_when_the_plan_cannot_place_the_hold(self):
+        # A unit with no arrivalHoldAtUT cannot say WHERE the clock should freeze.
+        # Undecidable attribution must not silently retire leg 2 - the fallback is
+        # the pre-calibration longest-per-cycle pick, so the drift still reds.
+        text = variant(("\t\t\tarrivalHoldAtUT = 1800.0\n", ""),
+                       ("detailC = 100.0", "detailC = 400.0"))
+        _s, (findings, unevaluable, _m) = rules_for(text)
+        self.assertEqual(1, len(fails(findings, rc.RULE_HOLD)))
+        self.assertNotIn(rc.UNEVAL_HOLD_RUN_UNATTRIBUTED, unevaluable)
+
+    def test_attribution_falls_back_when_no_release_carries_a_position(self):
+        # The other half of the fallback: the plan CAN place the hold but the
+        # manifest carries no frozen loopUT on any release (a schema-poor or
+        # hand-trimmed export). Same rule - fall back rather than stop checking.
+        text = variant(("detailA = 0.0\n\t\t\tdetailB = 1800.0\n"
+                        "\t\t\tdetailC = 100.0",
+                        "detailA = 0.0\n\t\t\tdetailC = 400.0"))
+        _s, (findings, unevaluable, _m) = rules_for(text)
+        self.assertEqual(1, len(fails(findings, rc.RULE_HOLD)))
+        self.assertNotIn(rc.UNEVAL_HOLD_RUN_UNATTRIBUTED, unevaluable)
+
+    def test_an_engage_that_never_releases_is_counted_not_a_lost_pair(self):
+        # Asymmetry with `a release with no engage`, which IS a FAIL: a release is
+        # only ever emitted by a run the detector already engaged, so a release
+        # alone means the record lost a row. An engage owes nothing yet - a scene
+        # exit mid-hold produces exactly this and is not a defect.
+        extra = (_hold_block("hold-engage", "13500.0", "0.0")
+                 .replace("detailA = 0.0", "detailA = 1.0"))
+        text = POSITIVE_MANIFEST.replace(HOLD_ENGAGE_BLOCK,
+                                         HOLD_ENGAGE_BLOCK + extra, 1)
+        self.assertNotEqual(text, POSITIVE_MANIFEST)
+        _s, (findings, unevaluable, _m) = rules_for(text)
+        self.assertEqual([], fails(findings, rc.RULE_HOLD))
+        self.assertEqual(1, unevaluable[rc.UNEVAL_HOLD_ENGAGED_NEVER_RELEASED])
+
+    def test_a_unit_with_no_release_at_all_ledgers_one_fact_once(self):
+        # The boundary between the two reasons. With NO release anywhere on the
+        # unit, `hold-release-absent-below-resolution` already says the run never
+        # closed; adding a per-engage count on top would ledger the same fact
+        # twice and inflate the unevaluable total for one event.
+        text = POSITIVE_MANIFEST.replace(HOLD_RELEASE_BLOCK, "", 1)
+        self.assertNotEqual(text, POSITIVE_MANIFEST)
+        _s, (_f, unevaluable, _m) = rules_for(text)
+        self.assertEqual(1, unevaluable[rc.UNEVAL_HOLD_RELEASE_ABSENT])
+        self.assertNotIn(rc.UNEVAL_HOLD_ENGAGED_NEVER_RELEASED, unevaluable)
 
     # --- decision 3: RC-DESCENT head ---------------------------------------
 

@@ -8,6 +8,33 @@ All notable changes to Parsek are documented here.
 
 ### Dev
 
+- The new map-composition checker was calibrated against its first FREE-PLAY
+  session - a long Kerbin-to-Duna looped mission played by hand and eyeballed as
+  correct - and disagreed with the human in one place, which turned out to be the
+  checker's fault rather than the game's. When a loop's clock deliberately stands
+  still, the checker used to assume the longest pause in a lap was the one the
+  plan predicted. In a real session that is not safe: a lap can hold the clock
+  still for more than one reason, and this one did - a brief twelve-second pause
+  belonging to the launch-alignment mechanism was measured against the
+  arrival-alignment mechanism's fifteen-hour prediction and reported as a defect,
+  while the genuine arrival hold (which agreed with its own prediction to within
+  three minutes) sat in the next lap. Pauses now carry WHERE on the loop clock
+  they froze, so each is matched to the mechanism that actually produced it; a
+  pause the plan cannot account for is recorded and counted rather than blamed,
+  and a pause still running when the scene exits is no longer read as a lost
+  record. A pause that IS the predicted one and has the wrong length still fails,
+  which is the case that matters.
+  Two smaller results from the same session. The checker's two remaining
+  advisories both turned out to be one benign shape - a drawing claim published a
+  fraction of a second before the record of that drawing opens - and are now
+  pinned as such, so a later pass has to move them deliberately instead of
+  rediscovering the population. And a long session used to lose its seam
+  measurements entirely partway through, because the per-object limit is reached
+  in minutes and everything after it was dropped; above half that limit the
+  exporter now thins the stream instead, keeping one reading in eight so the
+  measurements still span the whole session. Short automated flights never reach
+  the threshold and are unaffected. Test-tooling only; no gameplay change.
+
 - The automated-testing system can now check that a looped mission's map view is
   COMPOSED correctly, not merely that it does not flicker. A rendered loop is
   never one trajectory: it is a run of member recordings sequenced by the loop
