@@ -305,14 +305,20 @@ allowedAnomalies = []
 # 24 is a runaway guard: a per-frame recording leak would be in the hundreds.
 #
 # THE FLOOR, 10, and it is deliberately BELOW the fixture's 13 rather than equal to
-# it. Two of these recordings are CHAIN-CONTINUATION segments (they reuse the chain
-# head's `_vessel.craft` and own no snapshot of their own - the fact that earned the
-# fixture-mirror sweep its chain-continuation exemption), and chain segments are
-# exactly the population `RecordingOptimizer.CanAutoMerge` may legally collapse at
-# load. A floor of 13 would therefore red on a legitimate auto-merge. 10 keeps the
-# anti-vacuity half that matters - a dwell that observed one or two recordings has
-# stopped being a dwell over this subject - without asserting an optimizer outcome
-# nobody has measured. The reading run re-pins both halves from what it reads.
+# it - but NOT because anything here can auto-merge. That was this comment's first
+# draft, and it was traced and REFUTED against the fixture's own chain before the
+# reading run: `RecordingOptimizer.CanAutoMerge` considers ADJACENT pairs of one
+# chain (chain aff63064 has four members, three pairs), and every one of those
+# pairs crosses a phase boundary (surface/Kerbin -> exo/Kerbin -> atmo/Duna ->
+# surface/Duna); the only different-phase escape hatch is the EVA-identity merge,
+# which these vessel recordings cannot satisfy, and the other nine recordings
+# carry no chainId at all. So 13 is STABLE under auto-merge, and a sub-13 count on
+# a run of this fixture is a REAL finding (a recording lost or merged illegally),
+# not a benign optimizer outcome. 10 is margin for the UNKNOWN - this is the first
+# flight of a free-play-harvested fixture - while keeping the anti-vacuity half
+# that matters: a dwell that observed one or two recordings has stopped being a
+# dwell over this subject. The reading run re-pins both halves from what it reads,
+# and if it reads below 13 the number is to be INVESTIGATED, not window-widened.
 count = { min = 10, max = 24 }
 
 [expectations.renderComposition]
