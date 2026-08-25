@@ -313,18 +313,72 @@ REMAINING PHASES.
   (`dwellRampFactors` empty by default = the pre-RC-WARP machine, byte-identical
   action stream / state / assertion rows, pinned by
   `M3WarpStairInertnessTests`), so V2 / V3F / V3R and both armed composition
-  lanes are untouched. WHAT IS STILL OWED, and it is the whole measuring half:
-  the report-only READING run has not flown (the lane's fixture is landing in
-  the same wave), no `warpBuckets` window is declared anywhere yet - this lane
-  is the only one entitled to declare it, and the window must be written FROM a
-  measured histogram, never predicted - and the armed re-flight plus a negative
-  control inverting a required token of this lane's own are both outstanding.
+  lanes are untouched.
+  **READING FLIGHT 1 FLEW 2026-08-25 (run `2026-08-25_1415`, PASS/REPORT) AND
+  MEASURED AN EMPTY OBSERVATION.** Zero `GhostCreated` lines in the collected
+  KSP.log, zero dwells / seams / histogram buckets in the manifest, while the
+  recorder's own clock events (two cycle-rollovers, a hold-engage, two
+  inter-cycle-tail entries) proved the unit clock ran. TWO ROOT CAUSES, both
+  fixed, neither in Parsek's render pipeline:
+  (1) **The dwell windows rode the RECORDED clock while the loop clock
+  COMPRESSES.** A re-aim unit excises whole-period loiter intervals
+  (`GhostPlaybackLogic.CompressSpanUT`); this unit logged `loiterCuts=1
+  cutSeconds=11393869 compressedSpan=7001129/18394999`, and all three declared
+  offsets (11.47M / 18.33M / 18.39M) exceeded the 7.00M compressed span, so
+  every dwell sat in the inter-cycle tail where the clock parks at spanEnd and
+  nothing renders. The cycle advance itself was correct - `phaseAnchorUt` was
+  forward-advanced by the C# - so the arithmetic looked right and was not.
+  ~~Fix~~ FIXED: the `MissionConfig` seam now publishes the unit's cut list and
+  clock primitives (`loiterCutCount`, `loiterCuts` as `startOffset:length`
+  pairs relative to `spanStartUt`, `compressedSpanSeconds`, `spanSeconds`), and
+  `m3_loop_arrival_dwell` compresses every recorded offset through them at the
+  single seam where an offset becomes a live UT (`_m3_window_ut`). Spec params
+  stay on the RECORDED clock by design - mapping them is the machine's job.
+  An offset that lands INSIDE a cut, or at/past the compressed span, is now a
+  NAMED give-up at ARM time (a spec authoring error, refused rather than
+  silently clamped: the cut collapses to one compressed instant, so clamping
+  would green a run that dwelled somewhere other than the instant its own
+  ledger claims). An older DLL that publishes no cut keys behaves exactly as
+  before, pinned by a cell. **V2 / V3F / V3R were NOT latently affected** and
+  this is a measurement, not an assumption: their subject
+  `duna-direct-recorded` logs `loiterCuts=0 cutSeconds=0
+  compressedSpan=4506891/4506891` on all nine collected flights, and V2's own
+  logs carry 362 `ghosts=1` probe frames plus `body=Duna` x1421 /
+  `body=Sun` x740 / `body=Kerbin` x392 - real observations, not vacuous
+  passes. A direct transfer never parks long enough for
+  `ReaimLoiterCompressor.ComputeCuts` to detect a >1-rev loiter run, which is
+  why V24W is the first affected lane.
+  (2) **The three "1x holds" never left rails warp**, so the mission cost 455
+  wall seconds against the ~2,850 its own spec sized. `ACTION_CANCEL_WARP` in
+  `harness/missions/mission_runner.py` zeroed the warp factors only through
+  `WarpService.cancel`, and `self._warp` is created ONLY by
+  `ACTION_WARP_TO_UT`. `m3_loop_arrival_dwell` moves the clock with seam
+  `TimeJump` epoch shifts by design, so it had no warp service and the handler
+  was a no-op: 128 consecutive `warp=RAILSx10.000` telemetry frames per hold,
+  all four issued cancels logging nothing, `allow_rails_warp=True` tolerating
+  the residual state, and a PASS that never once dwelled at 1x. It is the first
+  mission in the suite to pair `SET_RAILS_WARP` with `CANCEL_WARP` without
+  `WARP_TO_UT`, which is why a latent runner gap surfaced here and nowhere
+  before. ~~Fix~~ FIXED: the primary-connection factor reset is now
+  unconditional, which is what the handler's own comment already claimed;
+  idempotent with `WarpService.cancel` where a service does exist.
+  WHAT IS STILL OWED: a RE-FLY of the reading run (flight 1's observation
+  measured nothing about Parsek), then `warpBuckets` written FROM that run's
+  histogram, the armed re-flight, and a negative control inverting a required
+  token of this lane's own.
   ONE RED IS PRE-REGISTERED AS LIKELY AND DELIBERATELY NOT BUDGETED AWAY: the
   spec ships `allowedAnomalies = []` although the free-play session behind its
   fixture raised `icon-teleport` 95 times on a render the operator called
   visually correct (the entry below). If the reading run reds
   `PARSEK-FAIL(anomaly)` on that token, that red is the measurement the
-  icon-teleport calibration pass needs, not a lane defect.
+  icon-teleport calibration pass needs, not a lane defect. Flight 1 could not
+  speak to it - it rendered nothing to teleport.
+  ONE THIRD-PARTY ANOMALY, FILED AND NOT ACTIONABLE: flight 1's single
+  `NullReferenceException` (17:22:29.551) is `MuMech.MechJebCore.OnDestroy`
+  reading `vessel.isActiveVessel` after `FlightGlobals` teardown during
+  `Application.Quit`. Zero Parsek frames in the stack, unique in a 3.8 MB log,
+  0.6 s after `FlushAndQuit` returned OK and the save was written, `kspExit
+  code=0`. MechJeb quit noise; no Parsek work owed.
 - **The manifest header's `mapRenderTracingOn` bit should be STICKY
   (was-ever-on), not export-instant** [OPENED 2026-08-25 off the two Phase-3
   reading runs. Small, C#-side, verifier-facing]. `TryExportNow`

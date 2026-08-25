@@ -40,9 +40,27 @@ id = "V24W-duna-one-warp-stair"
 # ---------------------------------------------------------------------------------
 # 1. ARMING LEDGER, renderComposition - READING RUN PENDING, NOTHING ARMED
 # ---------------------------------------------------------------------------------
-#   READING  **PENDING.** This lane has never flown. The
-#            `[expectations.renderComposition]` block near the end of this file is
-#            BARE by construction: no `gating`, no assertion key, no `warpBuckets`.
+#   READING  **FLIGHT 1 FLEW 2026-08-25 (`2026-08-25_1415`, PASS/REPORT) AND
+#            MEASURED NOTHING. RE-FLY OWED; STILL PENDING as a reading.** Zero
+#            `GhostCreated` lines, zero dwells / seams / histogram buckets, while
+#            the recorder's own clock events (two cycle-rollovers, a hold-engage,
+#            two inter-cycle-tail entries) proved the unit clock ran. Two root
+#            causes, both OUTSIDE Parsek's render pipeline and both fixed before
+#            this re-pin - header section 4a carries the arithmetic:
+#              (1) the three dwell windows were built as `phaseAnchorUt +
+#                  RECORDED offset` against a unit that COMPRESSES an
+#                  11,393,869 s loiter out of its 18,394,999 s span, so all three
+#                  offsets exceeded the 7,001,129 s compressed span and sat in the
+#                  inter-cycle tail, where the clock parks at spanEnd and nothing
+#                  renders;
+#              (2) the three "1x holds" never left rails warp - a `mission_runner`
+#                  `ACTION_CANCEL_WARP` that was a no-op for a mission with no
+#                  native warp service - so the mission cost 455 wall seconds
+#                  against the ~2,850 section 5 sizes, and PASSed having never
+#                  once dwelled at 1x.
+#            The `[expectations.renderComposition]` block near the end of this file
+#            is STILL BARE, and deliberately: no `gating`, no assertion key, no
+#            `warpBuckets`. Flight 1 measured no histogram to write one FROM.
 #            The facets are recorded UNCONDITIONALLY on a parseable manifest, which
 #            is how a lane earns its first honest window; declaring one here would
 #            be declaring a PREDICTION and reading it back as a measurement.
@@ -139,6 +157,10 @@ id = "V24W-duna-one-warp-stair"
 #   arrive  18,329,155.146610025   the Duna arrival seam
 #   park    18,390,509.0           arrive + 61,354
 #
+# THEY STAY ON THE RECORDED CLOCK ON PURPOSE - see section 4a, which is the whole
+# reason flight 1 saw nothing and is the thing to read before touching these three
+# numbers.
+#
 # THE PARK OFFSET IS A SUPERVISOR DECISION AND IS DELIBERATELY NOT THE RECORDING'S
 # TAIL: it sits 61,354 s past the arrival seam, AFTER the Ike return, so the
 # arrive -> park leg's own TimeJump crosses BOTH Ike seams. Those crossings are taken
@@ -154,6 +176,55 @@ id = "V24W-duna-one-warp-stair"
 # two), so it is 1800 rather than V2's 600.
 #
 # ---------------------------------------------------------------------------------
+# 4a. THE WINDOW ARITHMETIC - RECORDED offsets against a COMPRESSED clock
+#     (re-written 2026-08-25 from reading flight 1, which measured it the hard way)
+# ---------------------------------------------------------------------------------
+# The three offsets above are RECORDED-UT deltas. The live loop does NOT run on the
+# recorded clock: a re-aim unit EXCISES whole-period loiter intervals from its
+# timeline (`GhostPlaybackLogic.LoopCut` / `CompressSpanUT`), because the recorded
+# mission parks for months waiting on the transfer window and replaying that wait
+# would make the loop unwatchable. This subject's own arm line says so:
+#
+#   MissionLoopUnit: ... ENGAGED re-aim Kerbin->Duna via Sun; ...
+#     loiterCuts=1 cutSeconds=11393869 compressedSpan=7001129/18394999
+#
+# So the ACTIVE span is 7,001,129 s, and ALL THREE offsets above are larger than it.
+# Flight 1 built `window = phaseAnchorUt + RECORDED offset`, landed every dwell past
+# the compressed span, and sat in the INTER-CYCLE TAIL (`isInInterCycleTail`), where
+# the clock parks at spanEnd and nothing renders. The cycle advance itself was
+# correct - `phaseAnchorUt` came back forward-advanced by eight cadences - which is
+# exactly why the arithmetic looked right: `5348663714.30 + 11474541.81 - 300 =
+# 5360137956.1`, the target the log shows, and nothing about it is wrong except the
+# clock it is expressed in.
+#
+# THE MACHINE NOW DOES THE MAPPING, so these params stay recorded-clock. The
+# `MissionConfig` seam publishes the unit's cut list and clock primitives
+# (`loiterCutCount`, `loiterCuts` as `startOffset:length` pairs relative to
+# `spanStartUt`, `compressedSpanSeconds`, `spanSeconds`) and
+# `m3_loop_arrival_dwell` compresses every offset through them at the ONE place an
+# offset becomes a live UT. The cut here lies wholly before the departure, so all
+# three compress by the full 11,393,869 s and land inside the active span with
+# room to spare:
+#
+#   depart   11,474,541.8 -> 80,672.8      (1.2 % of the compressed span)
+#   arrive   18,329,155.1 -> 6,935,286.1   (99.06 %)
+#   park     18,390,509.0 -> 6,996,640.0   (99.94 %, 4,489 s of headroom)
+#
+# THE PARK WINDOW IS THE THIN ONE and is now the number to re-check first if this
+# fixture is ever re-harvested: 4,489 s of headroom against a compressed span the
+# cut length dominates. It is not a guess any more - the machine REFUSES at arm
+# time, by name, on each of the three distinguishable faults, so a bad re-pin fails
+# in seconds instead of after three empty dwells:
+#   - past the RAW span      -> the offset belongs to a different recording;
+#   - INSIDE a loiter cut    -> that recorded instant has no live UT at all, the
+#                               cut collapses to one compressed instant (refused
+#                               rather than clamped: a clamp would green a run that
+#                               dwelled somewhere other than the instant this spec
+#                               names);
+#   - at/past the COMPRESSED span -> the right recording read on the wrong clock,
+#                               i.e. flight 1's exact fault.
+#
+# ---------------------------------------------------------------------------------
 # 5. BUDGET ARITHMETIC, stated because it is the one number that could only ever
 #    have expired if copied from V2
 # ---------------------------------------------------------------------------------
@@ -161,6 +232,16 @@ id = "V24W-duna-one-warp-stair"
 # game time IS real time), plus ~105 s of stair, plus the arm round trip, the camera
 # gate and three instantaneous legs. The mission phase budget is 3000 s and the run
 # budget 3600 s. V2's 1500 / 2100 are for 300-second holds and do not transfer.
+#
+# FLIGHT 1 COST 455 WALL SECONDS, AND THAT WAS THE SECOND DEFECT, not slack in this
+# arithmetic. Each "1x hold" ran its full 900 GAME seconds at RAILSx10 (128
+# consecutive `warp=RAILSx10.000` telemetry frames per hold) because
+# `mission_runner`'s `ACTION_CANCEL_WARP` zeroed the warp factors only through a
+# native `WarpService` this mission never creates - its legs are seam `TimeJump`
+# epoch shifts, so it never issues `ACTION_WARP_TO_UT`. Measured per hold: 126.7
+# wall s = 35.0 s of stair + 90.3 s of 900-game-second hold at 10x. Fixed
+# 2026-08-25 (the reset is now unconditional); the re-fly should land near the
+# ~2,850 s this section sizes, INSIDE the unchanged 3000 / 3600 budgets.
 #
 # ---------------------------------------------------------------------------------
 # 6. `allowedAnomalies = []` IS A DELIBERATE, PRE-REGISTERED CHOICE

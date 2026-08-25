@@ -8,6 +8,26 @@ All notable changes to Parsek are documented here.
 
 ### Dev
 
+- The automated dwell tests can now aim at the right moment in a looped mission
+  whose playback SKIPS its parking wait. A re-aimed loop deliberately cuts the
+  months a recorded mission spends parked waiting for its transfer window, so
+  the loop plays faster than it was recorded and a moment named by its recorded
+  time is not where the loop actually shows it. A test lane whose subject did
+  that pointed all three of its observation windows past the end of the
+  shortened lap, watched an empty map for the whole run, and still reported
+  success - the emptiness was the finding. The mission-configuration test hook
+  now hands out the loop's cut list and its shortened duration, and the dwell
+  machine converts every recorded time through them, so a lane can keep naming
+  moments the way the recording does and still land on them. A window that lands
+  inside a cut interval, or past the end of the shortened lap, is now refused by
+  name the moment the loop is armed - those are authoring mistakes in the test
+  lane, and refusing them takes seconds where the old behaviour took a full
+  flight to notice. Lanes over recordings with nothing cut out behave exactly as
+  before. The same run also found that a test drive shape which steps time-warp
+  up and back down was never actually returning to normal speed afterwards, so
+  its hold-and-watch stretches were being watched at ten times speed; that is
+  fixed too. Test-tooling only; no gameplay change.
+
 - The new map-composition checker was calibrated against its first FREE-PLAY
   session - a long Kerbin-to-Duna looped mission played by hand and eyeballed as
   correct - and disagreed with the human in one place, which turned out to be the
