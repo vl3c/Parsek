@@ -5509,6 +5509,15 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
         "V8-eve-player-loop.toml":          "FLOWN GREEN 2026-08-11 through four reading iterations on the new eve-orbit-recorded fixture - the program's first ENGAGED inward transfer and its first span>synodic loop unit (_0802 arm-and-read; _0807 brackets, PASS, and the FIRST-EVER seam-endpoint-outside-soi raise, ratio 4.6216 on the Sun->Eve seam after the tilt gate declined all 27 tof candidates to a faithful window; _0810 and _0814 PARSEK-FAIL(anomaly) on a line-blink detector gap at back-to-back seam-straddling TimeJumps, both filed with artifacts in todo-and-known-bugs.md, spec re-paced with RecordingState spacers rather than any anomaly exemption; _0818 and _0819 both PASS attempt 1 with clean sweeps - two consecutive flights of the final shape, the raise reproducing bit-identically at ratio=4.6216 on every bracketed run). ARMED on both save-structure blocks (armed run 2026-08-11_0828 PASS attempt 1, gating=True mismatches=0; negative control _0830 PARSEK-FAIL(save-structure) on the single inverted window `rewind.supersedeRows 0 < min 1`, reverted). The finding trio (tilt-decline, faithful window, the seam-endpoint raise) plus the D11 cut token are REQUIRED - the GS-3-style regression floor: a change that un-declines Eve's windows or moves the arrival geometry reds this lane and forces a re-read. FIX ERA (2026-08-11, branch reaim-inclined-targets): the tilt-retention fix red the floor BY DESIGN (_1242, exactly the three trio mismatches) and the lane was re-pinned to the healthy state (re-aimed transfer ready devFromRecorded=0s, state=retained, census outsideSoi=0; readings _1244/_1245, control _1246) with the old trio inverted into forbidden. Operator tier is calibration discipline, not debt",
         "V8T-eve-ts-arrival.toml":          "FLOWN GREEN 2026-08-11 (reading _0835 a1 INVALID on the TS-LOADGAME-RECORDING-ACTIVE-RACE, sighting 3, filed; _0836 a2 PASS clean; armed _0843 PASS attempt 1, gating=True mismatches=0; control shared with V8's _0830). First TS observation of a looped inward-transfer arrival: Eve-framed inbound materialized (created 1 ghost vessel(s), body=Eve TS token gates the D14 eve claim), factory reaimed=False (V5's Duna pin inverted - the tilt-declined faithful-window shape), census structural zero told from blindness, and the parity pair V5 omitted carried here. Surfaced + filed TS-FLUSHED-SAVE-DROPS-DEBRIS-TERMINALSTATE (byte-verified). FIX ERA (2026-08-11): the tilt-retention fix flipped the TS chain to genuinely re-aimed (baseline _1247 red on the reaimed=False pin; live reaimed=True phases=11); re-pinned to reaimed=True with fallback tokens forbidden (readings _1252/_1253). Operator tier is calibration discipline, not debt",
         "V8F-eve-loop-faithful.toml":       "FLOWN GREEN 2026-08-11 (iteration 1 PARSEK-FAIL on the author's own unescaped-parens regex, fixed; then two consecutive PASS runs with the five-raise set reproducing (four of five ratios to four decimals, the fifth 1 ulp: 138.2108/138.2109); armed same day, control shared with V8's _0830). The deliberate-faithful A/B half: FORCED FAITHFUL required + ENGAGED forbidden, the forced unit measured SELF-OVERLAPPING (overlapCadence = span/20, where the ENGAGED unit reads overlaps=no), and the hlib promotion blocker (2) population measured and PINNED - the first outsideSoi=[1-9] census pin, four per-instance Sun->Eve arrival raises (52.70-203.20) plus a Kerbin->Mun transit-seam raise (4.80). Calibration fact filed: benign ratios straddle V8's 4.6216 defect reading, so ratio cannot separate the classes. FIX ERA (2026-08-11): confirmed BYTE-IDENTICAL on the tilt-retention-fixed DLL (_1250 PASS - forced faithful bypasses the synth, the knob isolation held). Operator tier is calibration discipline, not debt",
+        # The M-A7 RC-WARP lane, operator by the SAME calibration discipline as
+        # V1/V2/V3: it has never flown, its first flight is a deliberately
+        # under-gated REPORT-ONLY reading run, and its most likely red
+        # (`icon-teleport` under a rails histogram, the token the first free-play
+        # ground-truth session raised 95 times on a render the operator called
+        # visually correct) is EVIDENCE rather than debt - which is why its
+        # `allowedAnomalies` is empty on purpose. Nothing here is a human call
+        # somebody has forgotten; the arming call simply does not exist yet.
+        "V24W-duna-one-warp-stair.toml":    "operator by the calibration discipline (V1/V2 precedent); AUTHORED 2026-08-25, NEVER FLOWN, reading run PENDING and nothing armed. It is the RC-WARP lane - the last M-A7 Phase-3 debt - and the only spec in the suite entitled to declare `warpBuckets`, which it deliberately does not until a reading run measures the histogram it would be written from. Promotion past operator is not on the table before the three-run arming workflow it owes",
     }
 
     def _specs(self):
@@ -6325,8 +6334,25 @@ class RenderComposeVerifierWiringTests(unittest.TestCase):
     # KEY-SET pins - because a declarer that flies with the tracer off, or exports at
     # the wrong instant, greens while measuring nothing, and an armed block that
     # GROWS a window silently arms a clause no reading run stands behind.
+    #
+    # THE THIRD DECLARER, added 2026-08-25 and DELIBERATELY UNARMED:
+    #
+    #   V24W-duna-one-warp-stair.toml - the RC-WARP lane. Reading run PENDING;
+    #       this spec has never flown. It declares the block from its very first
+    #       commit because DECLARING is what sets PARSEK_RENDER_MANIFEST=1 at
+    #       launch, and a lane whose whole purpose is the warp histogram must be
+    #       capturing a manifest on its first flight or that flight measures
+    #       nothing. The block is BARE for the same reason the other two were
+    #       before their arming pass: the facets are recorded unconditionally on
+    #       a parseable manifest, so the first honest window is written FROM a
+    #       green report-only run rather than predicted. It is the ONLY lane in
+    #       the suite entitled to declare `warpBuckets` at arming - both armed
+    #       lanes' headers say that key may NEVER appear on them, their clocks
+    #       being instantaneous TimeJumps - and the arming pass owes it the same
+    #       three-run workflow as everyone else.
     RENDERCOMPOSE_DECLARER_SPECS = {"V14M-ike-player-loop.toml",
-                                    "V8-eve-player-loop.toml"}
+                                    "V8-eve-player-loop.toml",
+                                    "V24W-duna-one-warp-stair.toml"}
 
     def test_render_composition_declarers_are_the_recorded_roster(self):
         """Pinned so a declarer is always a deliberate edit, in BOTH directions. A
@@ -12317,7 +12343,12 @@ class CommittedFixtureMirrorTests(unittest.TestCase):
     The TRAJECTORY mirror (`.prec.txt`) is deliberately NOT gated: four scenario
     headers cite values read straight out of one, so it stays committed. This test
     asserts BOTH halves, so a later sweep cannot quietly take the cited surface
-    with it."""
+    with it.
+
+    ONE EXEMPTION, and it is a fact about what Parsek WRITES rather than a
+    concession: a chain CONTINUATION recording (`chainIndex > 0`) is the same
+    physical vessel as its chain head and never gets a `_vessel.craft` of its
+    own. See `_chain_continuations_without_own_snapshot`."""
 
     SNAPSHOT_MIRROR_SUFFIXES = ("_vessel.craft.txt", "_ghost.craft.txt")
 
@@ -12346,11 +12377,77 @@ class CommittedFixtureMirrorTests(unittest.TestCase):
         vessels = [f for f in committed if f.endswith("_vessel.craft")]
         self.assertTrue(precs, "no committed .prec trajectory sidecars remain")
         self.assertTrue(vessels, "no committed _vessel.craft snapshot sidecars remain")
-        # Every recording with a trajectory must keep its authoritative snapshot.
+        # Every recording with a trajectory must keep its authoritative snapshot,
+        # UNLESS it is a chain continuation that never had one (see
+        # _chain_continuations_without_own_snapshot).
+        exempt = self._chain_continuations_without_own_snapshot(committed)
         for prec in precs:
             stem = prec[:-len(".prec")]
+            if stem in exempt:
+                continue
             self.assertIn(stem + "_vessel.craft", committed,
                           "%s lost its authoritative vessel snapshot" % prec)
+
+    # A RECORDING node's own `chainId` / `chainIndex`, read off the first
+    # occurrence inside each block. Deliberately a local regex parse rather than
+    # a saveparse call: `RecordingRow` models neither field, and the two things
+    # this cell needs to correlate are a FILE SET and a SAVE, so it already owns
+    # both halves.
+    _RECORDING_BLOCK_RE = re.compile(r"\n\t{3}RECORDING\n")
+    _CHAIN_ID_RE = re.compile(r"^\s*chainId = (\S+)\s*$", re.MULTILINE)
+    _CHAIN_INDEX_RE = re.compile(r"^\s*chainIndex = (\d+)\s*$", re.MULTILINE)
+    _RECORDING_ID_RE = re.compile(r"^\s*recordingId = (\S+)\s*$", re.MULTILINE)
+
+    def _chain_continuations_without_own_snapshot(self, committed):
+        """Stems a missing `_vessel.craft` is LEGITIMATE for.
+
+        Parsek writes ONE `_vessel.craft` per chain, on the chain HEAD: a
+        continuation segment (`chainIndex > 0`) is the same physical vessel and
+        reuses the head's snapshot, so it is written with a `_ghost.craft` and no
+        vessel snapshot of its own. Measured on the source of `duna-one-recorded`
+        (the first free-play harvest, whose mission runs a four-segment chain
+        across a Kerbin -> Duna transfer): the recordings with no
+        `_vessel.craft` on disk are EXACTLY the six with `chainIndex >= 1`, in
+        three different trees. No file was deleted to make that true.
+
+        The exemption is therefore a POSITIVE fact read out of the fixture's own
+        save, not a name list, and it is deliberately narrow in both directions:
+        a chain HEAD must still carry its snapshot, and a continuation is exempt
+        only when SOME EARLIER MEMBER OF ITS OWN CHAIN carries one in the same
+        fixture. A fixture that lost the head's snapshot therefore still reds -
+        which is the claim this cell exists to make, since the pruned
+        `_vessel.craft.txt` mirrors are rebuilt from exactly those binaries."""
+        exempt = set()
+        for name in sorted(os.listdir(FIXTURE_SAVES_DIR)):
+            sfs = os.path.join(FIXTURE_SAVES_DIR, name, "persistent.sfs")
+            if not os.path.isfile(sfs):
+                continue
+            with open(sfs, encoding="utf-8", errors="replace") as fh:
+                text = fh.read()
+            by_chain = {}
+            rows = []
+            for block in self._RECORDING_BLOCK_RE.split(text)[1:]:
+                rid = self._RECORDING_ID_RE.search(block)
+                cid = self._CHAIN_ID_RE.search(block)
+                cix = self._CHAIN_INDEX_RE.search(block)
+                if rid is None or cid is None or cix is None:
+                    continue
+                row = (rid.group(1), cid.group(1), int(cix.group(1)))
+                rows.append(row)
+                by_chain.setdefault(row[1], []).append(row)
+            prefix = "%s/Parsek/Recordings/" % name
+            for rid, cid, index in rows:
+                if index <= 0:
+                    continue
+                # An earlier member of this chain must carry the snapshot both
+                # this recording and the pruned mirrors are rebuilt from.
+                head_has_snapshot = any(
+                    other_index < index
+                    and (prefix + other_rid + "_vessel.craft") in committed
+                    for other_rid, _cid, other_index in by_chain[cid])
+                if head_has_snapshot:
+                    exempt.add(prefix + rid)
+        return exempt
 
     def test_every_committed_trajectory_keeps_its_readable_mirror(self):
         """`.prec.txt` is a LIVE TEST INPUT, and the gate has to be per-file.
@@ -12371,6 +12468,41 @@ class CommittedFixtureMirrorTests(unittest.TestCase):
         self.assertEqual([], missing,
                          "these recordings lost the readable trajectory mirror that "
                          "OptimizerTransferCohesionTests globs: %s" % (missing,))
+
+
+class CommittedFixtureQuarantineTests(unittest.TestCase):
+    """No fixture may carry `Parsek/Recordings/_quarantine`.
+
+    `RecordingStore.OrphanQuarantineDirName` is where `CleanOrphanFiles` PARKS a
+    sidecar whose recording the store could no longer resolve, instead of
+    deleting it - non-destructive by design, so a save that has been played for a
+    while accumulates every such file forever. It is unreachable by construction:
+    the store's own directory scans are top-level-only and never descend into it
+    (its doc comment says so), so no fixture consumer, no spec and no analyzer
+    rule can read a byte of it.
+
+    The sibling of `CommittedFixtureRewindSaveTests` below, and it exists for the
+    same reason: harvest exhaust arrives by accident rather than by decision and
+    nothing downstream notices. Measured on the first free-play harvest
+    (`duna-one-recorded`, 2026-08-25): 12 MB over 375 files, LARGER than the
+    recorded payload the fixture is for. `harvest_bdock_station.py` prunes it via
+    `_PRUNE_RECORDINGS_SUBDIRS`; this cell is what keeps a future harvest from
+    re-introducing it."""
+
+    QUARANTINE_DIR_NAME = "_quarantine"
+
+    def test_no_fixture_commits_a_quarantine_directory(self):
+        offenders = []
+        for dirpath, dirnames, _filenames in os.walk(FIXTURE_SAVES_DIR):
+            for d in dirnames:
+                if d == self.QUARANTINE_DIR_NAME:
+                    offenders.append(
+                        os.path.relpath(os.path.join(dirpath, d),
+                                        FIXTURE_SAVES_DIR).replace("\\", "/"))
+        self.assertEqual([], sorted(offenders),
+                         "Parsek/Recordings/_quarantine is orphan-sweep exhaust "
+                         "nothing reads (RecordingStore's scans never descend "
+                         "into it); harvest_bdock_station.py prunes it")
 
 
 class CommittedFixtureRewindSaveTests(unittest.TestCase):

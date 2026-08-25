@@ -7,7 +7,15 @@ The Tier-2 playback half of the looped-interplanetary arrival-validation lane
 SOLVER and S1.8 gates segment position RESOLUTION; this mission is the first
 thing in the suite that makes a looped interplanetary mission actually REPLAY
 under observation. It flies nothing (no MechJeb): one seam round trip, three
-camera actions, three seam TimeJump epoch-shift legs, three 1x holds. The
+camera actions, three seam TimeJump epoch-shift legs, three 1x holds.
+
+OPTIONALLY, and OFF unless the spec asks (`dwellRampFactors`, M-A7 RC-WARP):
+each of the three windows climbs and descends a COMMANDED rails warp stair
+before its 1x hold. That is the only drive shape in the suite that can put
+anything but `warp1x` in the render-composition manifest's warp histogram -
+every other committed subject moves the clock with instantaneous TimeJumps.
+With the parameter omitted the machine is byte-identically the one that flew
+V2 / V3F / V3R. The
 RENDER truth (ghost
 sampled frames, parity counters, anomaly raises, the [ReaimDiag]/ENGAGED mode
 evidence) rides the spec's log contracts over the probe/tracer lines; the
@@ -63,8 +71,10 @@ SPEC = mission_runner.MissionSpec(
     # The three inter-window legs are seam TimeJump epoch shifts (rails
     # rates are capped by the parked vessel's altitude - flight 3); the
     # holds are 1x. allow_rails_warp stays True so the runner's watchdog
-    # tolerates the game's own residual warp state around the jumps. No
-    # physics warp anywhere.
+    # tolerates the game's own residual warp state around the jumps - and,
+    # on an RC-WARP lane, the DELIBERATE rails stair inside each window.
+    # max_physics_warp stays 1.0: the stair is RAILS-ONLY, and physics warp
+    # is not a target of RC-WARP at all.
     allow_rails_warp=True,
     max_physics_warp=1.0,
     settle_frames=0,

@@ -1373,12 +1373,30 @@ a limitation's clothes.
 
 Ranked by supply-run value per flight-hour. Each entry names the class, why it
 matters, the cheapest representative, the expected-but-unmeasured routing, and
-what counts as confirmation. Scenario ids B27-B31 and V18-V23 are RESERVED HERE
+what counts as confirmation. Scenario ids B27-B31 and V18-V24 are RESERVED HERE
 (across all their suffixes: the established `M` player/flight-map and `T`
 tracking-station lanes, plus `K` for a KSC-host lane - G2's correction below
 reserves `V20K`, and G3a reserves `V22K`, which is the first committed `K` lane)
 - this section is their only home - so sibling PRs do not collide; check open
 PRs before authoring and renumber only if one already claims an id.
+
+**V24 IS RESERVED HERE AND NEW, AND IT MINTS THE `W` SUFFIX**, which is the part
+worth reading twice. Every suffix so far names the RENDER HOST the lane observes
+from: `M` the player flight map, `T` the tracking station, `K` the KSC. `W` names
+a DRIVE SHAPE instead - a **warp-schedule lane**, one that moves the game clock
+with a real rails ladder rather than with instantaneous `TimeJump`s. It exists
+because M-A7's RC-WARP rule is satisfiable ONLY by that shape: both armed
+render-composition lanes drive `TimeJump`s exclusively, so their warp histograms
+are 1x-only by construction (confirmed on four flights) and `warpBuckets` may
+never be declared on either. A `W` lane may therefore SHARE a host with an
+existing lane - `V24W-duna-one-warp-stair` observes the same flight map V2 does -
+because what distinguishes it is not where it watches from but how its clock
+moves. **The first committed `W` lane is `V24W-duna-one-warp-stair`** (authored
+2026-08-25, never flown, reading run pending; status row in
+`autotest-status.md`), over `fixtures/saves/duna-one-recorded`, the harvest of
+the first free-play ground-truth session. `V24M` / `V24T` / `V24K` are reserved
+alongside it and unused; a second warp-schedule subject should take the next free
+number with a `W`, not a second suffix letter.
 
 THE B-RANGE ROSTER, because it is now full enough that the next author cannot
 pick a free id by eye: **B27** G1 (`B27-station-route`), **B28** G2 moon-to-parent

@@ -18810,6 +18810,30 @@ def evaluate_gs2_assertions(frames, params: Gs2Params, phases_reached=(),
 # lines in the collected log are the mode evidence, and which mode this
 # fixture classifies into is a MEASUREMENT the first flight makes, not an
 # input the machine assumes.
+#
+# THE RAILS WARP STAIR (M-A7 RC-WARP), ADDED 2026-08-25 AND INERT BY DEFAULT.
+# When `dwellRampFactors` is non-empty, each of the three HOLD windows becomes
+# stair-then-hold: the window's first frame stamps its arrival UT and commands
+# factor 0, `_m3_ramp_step` walks the COMMANDED ladder (V1's DWELL-WARP-RAMP,
+# transcribed with its exit ORDER intact), the stair cancels warp at its end,
+# and the existing 1x hold then runs from there. The guard on each stair is
+# the NEXT window's leg target, so the ladder can never carry the clock into
+# the following dwell. The LAST window has no next leg and therefore no guard.
+#
+# WHY THE STAIR IS HERE AND NOT ON A COMMITTED LANE: RC-WARP is the one M-A7
+# rule no committed subject can satisfy. V14M and V8 move the clock with
+# INSTANTANEOUS TimeJumps, so their warp histograms are 1x-only BY
+# CONSTRUCTION (confirmed four times: 173/296 samples on the reading runs,
+# 177/295 on the armed re-flights, every other bucket zero) and `warpBuckets`
+# may never be declared on either. A rails ladder is a different DRIVE SHAPE,
+# not a re-pin, which is why it arrives as a flag on this machine.
+#
+# AND WHY IT IS FLAG-GATED RATHER THAN JUST TURNED ON (the `startInOrbit`
+# precedent): V2, V3F and V3R are armed lanes that fly this machine today. An
+# empty `dwellRampFactors` leaves `ramp_active` unsettable, so their action
+# stream, their state and their three assertion rows are byte-identical to
+# the pre-stair machine -- pinned by `M3WarpStairInertnessTests`, which
+# replays a scripted window sequence against both readings of the code.
 # ---------------------------------------------------------------------------
 
 M3_ARM_LOOP = "ARM-LOOP"
@@ -18825,6 +18849,22 @@ M3_PHASES: Tuple[str, ...] = (
     M3_WARP_ARRIVE, M3_HOLD_ARRIVE, M3_HOLD_PARK, M3_DONE)
 
 M3_TAG_ARM = "m3arm"
+
+# How one dwell window's warp stair ended; carried evidence for the
+# warpStairDriven row (which only exists when a stair was configured at all).
+# `completed` is V1's spelling deliberately - this stair IS V1's
+# DWELL-WARP-RAMP moved inside an m3 hold window, and a reader who knows one
+# should not have to learn a second vocabulary for the other. The guard reason
+# is renamed because the guard itself is different: V1 protects a recorded SOI
+# crossing, this protects the NEXT window's leg.
+#
+# There is deliberately NO empty-stair reason here (V1 has one). V1 must record
+# `no-factors-configured` because its stair is a PHASE it can legally skip, and
+# the row must not claim a stair "completed" that never ran. Here an empty
+# stair means the stair BRANCH never existed, and the warpStairDriven row does
+# not exist either - which is what keeps the no-stair path inert.
+M3_RAMP_ENDED_COMPLETED = "completed"
+M3_RAMP_ENDED_WINDOW_GUARD = "next-window-guard"
 
 
 @dataclass(frozen=True)
@@ -18854,6 +18894,28 @@ class M3Params:
     arm_timeout: float = 300.0
     camera_timeout: float = 120.0
     hold_timeout: float = 600.0
+    # --- THE RAILS WARP STAIR (M-A7 RC-WARP), FLAG-GATED AND INERT BY DEFAULT ---
+    # An EMPTY tuple is the default and means "no stair at all": the machine
+    # never enters the stair branch, emits not one extra action, and touches
+    # not one extra state field, so V2 / V3F / V3R keep their flown shape
+    # BYTE-IDENTICALLY (pinned by M3WarpStairInertnessTests). This mirrors the
+    # `startInOrbit` precedent: a new capability arrives switched off, and the
+    # only lane that pays for it is the lane that asks for it.
+    #
+    # WHY IT EXISTS: RC-WARP is the one M-A7 rule no committed subject can
+    # satisfy - V14M and V8 move the clock with INSTANTANEOUS TimeJumps, so
+    # their warp histograms are 1x-only by construction and `warpBuckets` may
+    # never be declared on either. The rule needs a subject that actually
+    # climbs and descends the rails ladder while the render pipeline composes,
+    # which is V1's DWELL-WARP-RAMP shape - transcribed here so a loop-arrival
+    # dwell can carry it.
+    #
+    # COMMANDED factor indices (KSP rails: 0=1x, 1=5x, 2=10x, 3=50x, 4=100x,
+    # 5=1000x, ...). The server clamps to legality; the machine never gates on
+    # an ACHIEVED rate, exactly as V1 does not.
+    dwell_ramp_factors: Tuple[int, ...] = ()
+    dwell_ramp_step_frames: int = 10   # poll frames each step is HELD
+    dwell_ramp_frames: int = 600       # per-window stall budget for the stair
 
 
 def m3_params_from_dict(params: Dict) -> M3Params:
@@ -18862,6 +18924,12 @@ def m3_params_from_dict(params: Dict) -> M3Params:
     if not tree:
         raise ValueError("m3_loop_arrival_dwell requires treeId (the committed "
                          "RECORDING_TREE id the fixture pins)")
+    # DEFAULT EMPTY, deliberately unlike V1 (whose absent-key default is its own
+    # non-empty stair): here an unset key must mean "the pre-RC-WARP machine",
+    # not "some stair the spec never asked for".
+    raw_factors = params.get("dwellRampFactors", None)
+    factors: Tuple[int, ...] = (
+        () if raw_factors is None else tuple(int(v) for v in raw_factors))
     return M3Params(
         tree_id=tree,
         depart_offset=float(params.get("departOffsetSeconds", 0.0)),
@@ -18878,6 +18946,9 @@ def m3_params_from_dict(params: Dict) -> M3Params:
         arm_timeout=float(params.get("armTimeoutSeconds", 300.0)),
         camera_timeout=float(params.get("cameraTimeoutSeconds", 120.0)),
         hold_timeout=float(params.get("holdTimeoutSeconds", 600.0)),
+        dwell_ramp_factors=factors,
+        dwell_ramp_step_frames=int(params.get("dwellRampStepFrames", 10)),
+        dwell_ramp_frames=int(params.get("dwellRampFrames", 600)),
     )
 
 
@@ -18900,6 +18971,17 @@ class M3State:
     depart_window_ut: Optional[float] = None
     arrive_window_ut: Optional[float] = None
     park_window_ut: Optional[float] = None
+    # --- warp-stair bookkeeping (all inert while dwell_ramp_factors is empty) ---
+    # `ramp_active` is the ONLY branch key: it can never be set when no factors
+    # are configured, which is what makes the empty-stair path byte-identical
+    # to the pre-RC-WARP machine.
+    ramp_active: bool = False
+    ramp_index: int = 0
+    ramp_step_frame: int = 0
+    ramp_frames_used: int = 0
+    # One entry per dwell window whose stair ENDED, in window order; the
+    # warpStairDriven row's carried evidence.
+    ramp_ended_reasons: Tuple[str, ...] = ()
     phases_reached: Tuple[str, ...] = (M3_ARM_LOOP,)
     verdict: Optional[str] = None
     flake_phase: Optional[str] = None
@@ -18936,12 +19018,92 @@ def _m3_window_ut(state: M3State, offset: float) -> float:
     return (state.anchor_ut or 0.0) + offset
 
 
+def _m3_ramp_guard_ut(state: M3State, guard_offset: Optional[float]) -> float:
+    """The stair's early-exit guard: the UT the NEXT window's leg would jump
+    to (that window's instant minus the shared dwell lead). NaN on the LAST
+    window, which has no next leg to protect - V1's `_v1_soi_target` shape,
+    where an unobservable guard is NaN and simply never fires.
+
+    WHY THE NEXT LEG'S TARGET rather than the raw next window instant: the
+    stair must never carry the live clock past the point where the following
+    dwell begins, or that dwell opens already inside its own window with the
+    approach unobserved."""
+    if guard_offset is None:
+        return float("nan")
+    return _m3_window_ut(state, guard_offset) - state.params.dwell_lead
+
+
+def _m3_ramp_end(state: M3State, snapshot: TelemetrySnapshot,
+                 reason: str) -> M3State:
+    """Close this window's stair and RE-STAMP the 1x hold clock.
+
+    The re-stamp is deliberate and is the one place this differs from a
+    literal transcription of V1 (whose stair follows its hold rather than
+    preceding it). `hold_started_ut` is the 1x ACCUMULATOR, not the window
+    evidence - the window stamp went into depart/arrive/park_window_ut on the
+    phase's first frame and is untouched here - and `hold_timeout` is a
+    STALL DETECTOR measured off that accumulator. Letting a legitimate
+    multi-hundred-game-second stair count against it would make a working
+    stair read as a frozen clock. So the window's 1x hold runs its full
+    dwell_hold from the stair's end."""
+    return replace(
+        state, ramp_active=False,
+        ramp_ended_reasons=state.ramp_ended_reasons + (reason,),
+        hold_started_ut=(float(snapshot.ut) if _is_finite(snapshot.ut)
+                         else state.hold_started_ut))
+
+
+def _m3_ramp_step(state: M3State, snapshot: TelemetrySnapshot,
+                  guard_offset: Optional[float]
+                  ) -> Tuple[M3State, List[Action]]:
+    """One frame of the rails warp stair: V1's DWELL-WARP-RAMP (mlib
+    `v1_map_dwell_decide`, phase V1_RAMP) transcribed for an m3 dwell window.
+    Same three exits in the same order - guard first, then the stair advance,
+    then the frame budget - because the ORDER is the contract: the guard is
+    checked BEFORE the stair advances so the high-factor steps can never
+    overshoot, and the end is honestly named rather than always "completed"."""
+    guard = _m3_ramp_guard_ut(state, guard_offset)
+    if (_is_finite(guard) and _is_finite(snapshot.ut)
+            and snapshot.ut >= guard):
+        return (_m3_ramp_end(state, snapshot, M3_RAMP_ENDED_WINDOW_GUARD),
+                [Action(ACTION_CANCEL_WARP)])
+    used = state.ramp_frames_used + 1
+    step_frame = state.ramp_step_frame + 1
+    factors = state.params.dwell_ramp_factors
+    if step_frame >= state.params.dwell_ramp_step_frames:
+        nxt = state.ramp_index + 1
+        stepped = replace(state, ramp_index=nxt, ramp_step_frame=0,
+                          ramp_frames_used=used)
+        if nxt >= len(factors):
+            return (_m3_ramp_end(stepped, snapshot, M3_RAMP_ENDED_COMPLETED),
+                    [Action(ACTION_CANCEL_WARP)])
+        return stepped, [Action(ACTION_SET_RAILS_WARP, float(factors[nxt]))]
+    held = replace(state, ramp_step_frame=step_frame, ramp_frames_used=used)
+    if used > held.params.dwell_ramp_frames:
+        return _m3_flake(
+            held,
+            "phase %s: the warp stair never finished within %d frames "
+            "(stair index %d of %d)"
+            % (held.phase, held.params.dwell_ramp_frames, held.ramp_index,
+               len(factors))), []
+    return held, []
+
+
 def _m3_hold_step(state: M3State, snapshot: TelemetrySnapshot,
-                  next_phase: str, stamp_field: str
+                  next_phase: str, stamp_field: str,
+                  guard_offset: Optional[float] = None
                   ) -> Tuple[M3State, List[Action]]:
     """Shared 1x hold: cancel any residual warp on entry, hold dwell_hold
     game-seconds, then advance. The window-arrival stamp is taken on the
-    FIRST held frame (the machine-carried assertion evidence)."""
+    FIRST held frame (the machine-carried assertion evidence).
+
+    WITH A STAIR CONFIGURED (`dwellRampFactors` non-empty, M-A7 RC-WARP) the
+    window becomes stair-then-hold: the first frame stamps AND commands
+    factor 0, `_m3_ramp_step` walks the ladder, and the 1x hold below runs
+    from the stair's cancel. With the default EMPTY stair not one line of
+    that executes - `ramp_active` cannot be set, so this function's action
+    stream is byte-identical to the pre-RC-WARP machine (the inertness cells
+    pin exactly that)."""
     actions: List[Action] = []
     stayed = state
     if state.hold_started_ut is None:
@@ -18949,7 +19111,14 @@ def _m3_hold_step(state: M3State, snapshot: TelemetrySnapshot,
             actions.append(Action(ACTION_CANCEL_WARP))
         stamps = {stamp_field: float(snapshot.ut)} if stamp_field else {}
         stayed = replace(state, hold_started_ut=float(snapshot.ut), **stamps)
+        factors = stayed.params.dwell_ramp_factors
+        if factors:
+            stayed = replace(stayed, ramp_active=True, ramp_index=0,
+                             ramp_step_frame=0, ramp_frames_used=0)
+            actions.append(Action(ACTION_SET_RAILS_WARP, float(factors[0])))
         return stayed, actions
+    if stayed.ramp_active:
+        return _m3_ramp_step(stayed, snapshot, guard_offset)
     if (snapshot.ut - stayed.hold_started_ut) >= stayed.params.dwell_hold:
         return _m3_enter(stayed, next_phase, snapshot.ut), []
     # The stall budget runs from the HOLD STAMP, deliberately not from phase
@@ -19083,16 +19252,20 @@ def m3_decide(state: M3State, snapshot: TelemetrySnapshot
                             M3_HOLD_DEPART, "m3jumpdepart")
 
     if state.phase == M3_HOLD_DEPART:
+        # Stair guard = the ARRIVE leg's own jump target.
         return _m3_hold_step(state, snapshot, M3_WARP_ARRIVE,
-                             "depart_window_ut")
+                             "depart_window_ut",
+                             guard_offset=state.params.arrive_offset)
 
     if state.phase == M3_WARP_ARRIVE:
         return _m3_jump_leg(state, snapshot, state.params.arrive_offset,
                             M3_HOLD_ARRIVE, "m3jumparrive")
 
     if state.phase == M3_HOLD_ARRIVE:
+        # Stair guard = the PARK leg's own jump target.
         return _m3_hold_step(state, snapshot, M3_HOLD_PARK,
-                             "arrive_window_ut")
+                             "arrive_window_ut",
+                             guard_offset=state.params.park_offset)
 
     if state.phase == M3_HOLD_PARK:
         # The parked-tail window doubles as the terminal: jump, stamp, hold,
@@ -19104,6 +19277,8 @@ def m3_decide(state: M3State, snapshot: TelemetrySnapshot
             return _m3_jump_leg(state, snapshot, state.params.park_offset,
                                 M3_HOLD_PARK, "m3jumppark",
                                 enter_on_arrival=False)
+        # No guard_offset: the parked tail is the LAST window, so there is no
+        # next leg for the stair to overshoot (NaN guard, never fires).
         stayed, actions = _m3_hold_step(state, snapshot, M3_DONE,
                                         "park_window_ut")
         if stayed.phase == M3_DONE:
@@ -19148,4 +19323,19 @@ def evaluate_m3_assertions(frames, params: M3Params, phases_reached=(),
         [d, a, pk],
         {"required": M3_DONE, "departWindowUt": d, "arriveWindowUt": a,
          "parkWindowUt": pk})
-    return [armed, cam, dwelled]
+    rows = [armed, cam, dwelled]
+    if params.dwell_ramp_factors:
+        # ONLY when a stair was configured. A lane that did not ask for one
+        # must not grow a row it can neither meet nor fail - that is the same
+        # inertness the action stream keeps, applied to the evidence surface,
+        # and it is what leaves V2 / V3F / V3R's three rows exactly three.
+        reasons = tuple(getattr(state, "ramp_ended_reasons", ()) or ())
+        legal = (M3_RAMP_ENDED_COMPLETED, M3_RAMP_ENDED_WINDOW_GUARD)
+        rows.append(AssertionOutcome(
+            "warpStairDriven",
+            len(reasons) == 3 and all(r in legal for r in reasons),
+            list(reasons),
+            {"required": "one stair ended per dwell window (3)",
+             "factors": list(params.dwell_ramp_factors),
+             "stepFrames": params.dwell_ramp_step_frames}))
+    return rows
