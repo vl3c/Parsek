@@ -192,7 +192,21 @@ IMPLEMENTED_SEAM_VERBS: Tuple[str, ...] = (
     # a silent-failing toggle). 24 total, mirroring the C#
     # TestCommandVerbs.ImplementedVerbs set exactly.
     "StartLoopPlayback", "EnterWatchMode",
+    # M-A7 (design-autotest-render-composition.md). ADDITIVE, the SaveGame / EVA shape
+    # rather than a promotion: the reserved envelope never carried an export verb. An
+    # OBSERVATION verb -- it flushes the armed render-composition recorder's accumulation
+    # to parsek-render-manifest.txt in the KSP root and reports the record counts, so a
+    # lane can take the manifest at a chosen instant instead of provoking the scene-exit /
+    # teardown auto-flush (which would change the very composition being measured). 25
+    # total, mirroring the C# TestCommandVerbs.ImplementedVerbs set exactly.
+    "ExportRenderManifest",
 )
+
+# The M-A7 export verb, named once. Referenced by the verb/block coupling rule in
+# `validate_spec`, which is the only place a verb SPELLING has to agree with an
+# expectations-block name.
+RENDER_MANIFEST_EXPORT_VERB = "ExportRenderManifest"
+
 # The remaining SEVEN stay RESERVED (SimulateStockSwitchClick left this set in R12;
 # MissionConfig left it for the arrival-validation lane; StartLoopPlayback and
 # EnterWatchMode left it for the player-workflow lane). StopPlayback deliberately
@@ -342,8 +356,24 @@ ANOMALY_TOKENS: Tuple[str, ...] = (
 # that it stays silent on real geometry, plus a reason to call a raise a defect.
 ANOMALY_REASONS_RAISED_UNGATED: Tuple[Tuple[str, str], ...] = (
     ("unaccounted-drawn-recording", "Source/Parsek/MapRenderProbe.cs:544"),
-    ("factory-parity", "Source/Parsek/MapRender/ShadowRenderDriver.cs:709"),
-    ("seam-endpoint-outside-soi", "Source/Parsek/MapRenderProbe.cs:2288"),
+    # Both pointers moved with the M-A7 recorder hooks landing above them in the same
+    # two files. Nothing about either instrument changed: this is the pointer-rot the
+    # gate below exists to catch, re-derived from the source rather than nudged.
+    #
+    # The two rows are pinned by DIFFERENT rules, and the difference is the whole
+    # reason the gate carries a `wrapper_routed_pointer` exemption (test_hlib.py,
+    # `test_the_ungated_list_is_the_settled_instrument_set`):
+    #   * `seam-endpoint-outside-soi` names the EmitAnomaly call the C# scan finds,
+    #     so the gate checks it against the scan directly.
+    #   * `factory-parity` reaches EmitAnomaly through a thin MapRenderTrace wrapper
+    #     (EmitFactoryParity), which the scan does not attribute to this reason. Its
+    #     pointer is therefore the DECISION SITE, per that convention: the
+    #     `if (!result.IsMatch)` guard inside ShadowRenderDriver.AssertFactoryParity,
+    #     which is where the raise is decided. It is NOT the wrapper call's own line
+    #     and is not derived by shifting the previous number - read the guard out of
+    #     the source when re-pinning it.
+    ("factory-parity", "Source/Parsek/MapRender/ShadowRenderDriver.cs:726"),
+    ("seam-endpoint-outside-soi", "Source/Parsek/MapRenderProbe.cs:2303"),
 )
 
 # RETIRED tokens: gated once, raised by nothing, REMOVED from ANOMALY_TOKENS
@@ -570,6 +600,13 @@ SEAM_VERB_TAIL_ROLE: Dict[str, str] = {
     #     UNMET tail skips both roles anyway, so the honest label costs nothing.
     "StartLoopPlayback": TAIL_ROLE_WORLD_MUTATING,
     "EnterWatchMode": TAIL_ROLE_WORLD_MUTATING,
+    # M-A7. ExportRenderManifest is INERT, and this one is not a borderline call: it
+    # reads the recorder's own in-memory accumulation and writes ONE file in the KSP
+    # root. It touches no vessel, no save, no career, and no Parsek persisted state --
+    # the RecordingState / MissionMark class exactly, except that its output is a file
+    # rather than a log line. On an UNMET tail it is the kind of step worth still
+    # driving: the manifest is forensics for the flight that just failed.
+    "ExportRenderManifest": TAIL_ROLE_INERT,
 }
 
 # ---------------------------------------------------------------------------
@@ -661,6 +698,12 @@ SEAM_VERB_POST_MISSION_ROLE: Dict[str, str] = {
     #     flight that failed after the handoff.
     "StartLoopPlayback": POST_MISSION_ROLE_RECORDING,
     "EnterWatchMode": POST_MISSION_ROLE_RECORDING,
+    # M-A7. `recording`: ExportRenderManifest's OK means "the manifest was written", a
+    # statement about Parsek's own instrumentation, not about a kerbal's physical
+    # in-world state. Whether the composition it records is CORRECT is the renderCompose
+    # verifier row's job, which is the original carve-out exactly -- a good flight whose
+    # manifest disagrees with the plan is a PARSEK-FAIL, never a retryable driver-INVALID.
+    "ExportRenderManifest": POST_MISSION_ROLE_RECORDING,
 }
 
 
@@ -3404,6 +3447,47 @@ def validate_spec(spec: Dict, registry: Dict, bug_ids: Optional[Sequence[str]] =
     # inside the validators above).
     warnings.extend(saveparse.save_structure_expectation_warnings(expectations))
 
+    # M-A7 render-composition verifier spec surface:
+    # [expectations.renderComposition]. Same rationale as the two blocks above -
+    # a malformed window, a non-bool gating key, an unknown warp-bucket / seam-kind
+    # token, or an ARMED block with nothing assertable must be a pre-launch
+    # rejection, never a block that silently evaluates as a no-op. The unarmed
+    # assertion-less declaration is a WARNING, not an error: it still arms
+    # PARSEK_RENDER_MANIFEST at launch and reports the measured facets, which is
+    # exactly the reading run the arming workflow requires.
+    if rendercompose.RENDER_COMPOSITION_BLOCK in expectations:
+        errors.extend(rendercompose.validate_render_composition_expectations(
+            expectations.get(rendercompose.RENDER_COMPOSITION_BLOCK)))
+    warnings.extend(rendercompose.render_composition_expectation_warnings(expectations))
+
+    # VERB / BLOCK COUPLING. `PARSEK_RENDER_MANIFEST` is armed at launch by the
+    # DECLARATION of [expectations.renderComposition] and by nothing else, so a
+    # spec that drives ExportRenderManifest expecting OK without declaring the
+    # block asks a recorder that was never armed to write a manifest, and then
+    # nobody reads the result. Every symptom of that is quiet: the export either
+    # refuses (reading as a driver-arg problem) or writes something the run JSON
+    # carries no row for, while the verifier that exists to read it stays a blank
+    # REPORT. Rejected PRE-LAUNCH, with the two fixes named.
+    #
+    # `expect = "REJECTED"` stays LEGAL - that is the negative-control shape, a
+    # lane proving the verb declines while the recorder is unarmed, and it asserts
+    # something precisely BECAUSE no block is declared.
+    if rendercompose.RENDER_COMPOSITION_BLOCK not in expectations:
+        for i, step in enumerate(steps):
+            step = step or {}
+            if step.get("cmd") != RENDER_MANIFEST_EXPORT_VERB:
+                continue
+            if step.get("expect") != "OK":
+                continue
+            errors.append(
+                "driver.steps[%d] %s expects OK but the spec declares no "
+                "[expectations.%s] block: the recorder is armed by that "
+                "declaration alone, so this run exports nothing and no verifier "
+                "reads it - declare the block, or expect REJECTED (the "
+                "unarmed-recorder negative control)"
+                % (i, RENDER_MANIFEST_EXPORT_VERB,
+                   rendercompose.RENDER_COMPOSITION_BLOCK))
+
     # An [expectations.ledger] block cannot be modeled across an in-run rewind or a
     # merge-dialog answer: InvokeRewind rewrites the career pools (funds/science/rep)
     # from a quicksave the seed + manifest contract cannot reconstruct, and
@@ -3515,6 +3599,7 @@ if _PROVISION_DIR not in _sys.path:
     _sys.path.insert(0, _PROVISION_DIR)
 import provlib  # noqa: E402  (the M-A6 pure sibling; admission reuse, design)
 import saveparse  # noqa: E402  (the M-C2/R9 pure sibling; save-parse spec-surface validation lives there so validator + evaluator share one vocabulary)
+import rendercompose  # noqa: E402  (the M-A7 pure sibling; same reason - the render-composition spec surface is validated by the module that evaluates it)
 
 
 def build_expected_admission(
@@ -5418,6 +5503,14 @@ PARSEK_FAIL_SUBKINDS: Tuple[str, ...] = (
     # 2026-07-31 after its report-only reading run), and the allowlist sweep
     # `test_no_committed_spec_arms_gating` keeps that set deliberate.
     "save-structure",
+    # M-A7: a GATING-armed [expectations.renderComposition] mismatch, or any
+    # FAIL-level RC-* rule finding under an armed block
+    # (rendercompose.evaluate_render_composition). Its own failure class for the
+    # same reason save-structure is - a composition red names WHAT THE MAP DREW,
+    # which no expectation regex over the log can state. Ships REPORT-ONLY with
+    # NO committed spec arming it; the RENDERCOMPOSE_ARMED_SPECS sweep in
+    # test_hlib.py keeps that set deliberate.
+    "render-composition",
 )
 
 # Subkinds a bugId-ONLY expectedFail key may NOT demote to EXPECTED-FAIL. An
@@ -5641,7 +5734,7 @@ def classify_verdict(driver: Dict, verifiers: Dict, expected_fail: Dict,
       analyzer RED=1 real fail -> PARSEK-FAIL; stale-only/baseline-only -> INVALID
       post-mission outcome step unmet -> PARSEK-FAIL(mission-outcome)
       log-contract / results / anomaly / unity-exception / expectation /
-          save-structure / ledger -> PARSEK-FAIL
+          save-structure / render-composition / ledger -> PARSEK-FAIL
       else -> PASS
     ``retryable`` is a recommendation; ``should_retry`` is the authority
     combining attempt + policy.
@@ -5722,6 +5815,17 @@ def classify_verdict(driver: Dict, verifiers: Dict, expected_fail: Dict,
                 # so this branch is inert for every committed spec today.
                 base = V(VERDICT_PARSEK_FAIL, "save-structure",
                          "gating save-structure expectations mismatch")
+            elif verifiers.get("render_composition_mismatch", False):
+                # Only reachable for a scenario that DECLARED
+                # [expectations.renderComposition] with gating = true; the M-A7
+                # render-composition verifier is report-only otherwise, so this
+                # branch is inert for every committed spec today (pinned by the
+                # RENDERCOMPOSE_ARMED_SPECS sweep). Placed after save-structure and
+                # before ledger: a composition red is a claim about what the MAP
+                # DREW, which is downstream of the save's structure and upstream of
+                # the career ledger.
+                base = V(VERDICT_PARSEK_FAIL, "render-composition",
+                         "gating render-composition expectations mismatch")
             elif verifiers.get("ledger_drift", False):
                 base = V(VERDICT_PARSEK_FAIL, "ledger", "world/ledger oracle drift")
             else:

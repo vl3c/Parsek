@@ -513,6 +513,85 @@ observed clock event no rule above claimed.
   begin the RC-QUAL trend record that feeds promote-to-fixed decisions on
   the ratified visual artifacts.
 
+## Implementation notes (2026-08-25, Phases 1-2)
+
+Phases 1 and 2 shipped together. Where the implementation departed from what
+this document specifies, the deviation is RATIFIED and recorded here; the
+prose above is otherwise unchanged and still binding. Status (what is shipped,
+what is armed) lives in `autotest-status.md`, not here.
+
+1. **`ExportRenderManifest` landed SINGLE-PHASE.** This document called for a
+   deferred-completion verb. The export is synchronous - one flush plus one
+   safe-write, with nothing to wait for - so the honest shape under the seam's
+   own discipline is a single-phase verb answering OK with the written path and
+   the record counts in the same dispatch (the `MissionConfig` /
+   `SimulateStockSwitchClick` shape). Its one refusal is
+   `REJECTED msg=manifest-not-armed`, deliberately not a defer: the arm gate is
+   the env var read once at Awake, so waiting could never turn it into a
+   success.
+2. **Chain-record seam kinds are sourced from the LEGACY ASSEMBLER chain.**
+   Production `PhaseChain` seams are always null (`PhaseFactory` builds them
+   that way), so a manifest keyed to them would carry nothing. The `CHAIN_BUILD`
+   record therefore stamps `seamSource = assembler` and takes its per-boundary
+   `SEAM` kinds from `RenderSegment.LeadingSeam` / `TrailingSeam` (the 2-value
+   `SeamKind`), while its `PHASE` list still comes from the typed chain when the
+   spine drove one. When the spine's own Phase-3 seam work lands, this is the
+   record kind to re-point - and RC-SEAM's classification with it.
+3. **Seam TANGENT and ENDPOINT measurements require `mapRenderTracing` armed
+   ALONGSIDE the env var.** The evaluation sites
+   (`ShouldEvaluateTangentSeamAtDraw` and the probe's per-pid gate) are
+   tracing-gated, and Phase 1 did NOT widen them: widening a predicate to feed a
+   diagnostic changes what the product measures, which is the one thing this
+   module must not do. Consequences, both deliberate: a composition lane that
+   wants RC-SEAM / RC-QUAL numbers must arm BOTH `PARSEK_RENDER_MANIFEST=1` and
+   the `mapRenderTracing` setting; and when tracing was off, the manifest header
+   says so (`mapRenderTracingOn = False`) and the verifier reports
+   `seam-data-unavailable-tracing-off` as a DEFINED unevaluable that lands in the
+   facets, never as a silent pass.
+4. **Transition and dwell endpoint TRUTH POSITIONS come from the
+   `MapRenderProbe` truth push**, which runs only when tracing is armed (the
+   same coupling as note 3, for the same reason). The recorder keeps one latest
+   sample per pid and stamps dwell open/close positions from it; with tracing
+   off the position keys are omitted entirely and every position clause is
+   defined-unevaluable.
+
+5. **RC-OWN's publish->draw direction is capped at LEVEL_WARN pending live
+   calibration; the draw->publish direction stays FAIL.** The rule set above
+   states ownership conservation without naming a level per direction. The two
+   directions turned out to rest on very different evidence.
+   `drewNonOrbitalLegRecordings` is the SOLE ownership source and is published
+   only on an ACTUAL draw, so a TracedPath dwell that drew with no publish
+   covering it is a genuine conservation defect and keeps FAIL. The mirror
+   question - "this recording published ownership, where is its draw?" - has two
+   RATIFIED populations that legitimately publish without a TracedPath dwell:
+   (a) proto-less pid-0 recordings, for which the polyline Driver walk is the
+   only renderer and the Director never opens a dwell at all, and (b) the
+   Driver-direct bridge / forward-leg population, whose concurrent dwell carries
+   the `StockConic` treatment. Both are exempted by name and counted
+   (`ownPublishExemptProtoless` / `ownPublishExemptStockConic`). What remains is
+   REPORTED at WARN and counted (`ownPublishWithoutDraw`) rather than red,
+   because no live composition run has yet calibrated whether a third benign
+   population exists. Re-point this to FAIL once a reading run shows the counter
+   sitting at zero across the lanes. (Wave-1 shipped this exemption keyed on
+   pid-0 DWELLS, which by construction never exist - it was dead code, and the
+   proto-less population would have red'd.)
+
+Two further facts a reader of this design needs about what shipped:
+
+- **The manifest is `schemaVersion = 1` and stayed there.** The v1.1 pass added
+  only OPTIONAL keys, absent when not measured, which the Python reader already
+  tolerated: re-aim launch/destination body names on `PLAN.UNIT`, `detailD` on
+  `CLOCK_EVENT` (today only the `descent-phase` head UT), `ownerIndex` and the
+  recorded-clock stamps `openLoopUT` / `closeLoopUT` on `DWELL`, and the
+  observation-derived `hold-engage` / `hold-release` clock-event kinds. No
+  version bump, because absence was already a defined state.
+- **`renderComposition` never entered `RESERVED_EXPECTATION_BLOCKS`.** Its
+  evaluator ships in the same change as the block (the M-B2 `world` and R9
+  `rewind` sole-owner rule), so there is no window in which a spec can declare a
+  block nothing reads. DECLARING the block is also what makes the harness set
+  `PARSEK_RENDER_MANIFEST=1` at launch, so the declarer set is pinned alongside
+  the armed set.
+
 ## Risks and open questions
 
 1. **Manifest volume on 20+ routes.** Event-driven capture should hold, but

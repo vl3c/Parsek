@@ -69,12 +69,25 @@ namespace Parsek.Tests
             public readonly Dictionary<long, int> BuildCountByWindow = new Dictionary<long, int>();
             public readonly List<long> BuiltWindows = new List<long>();
 
+            /// <summary>The capture shift every built window reports (0 unless a cell sets it).</summary>
+            public double CaptureShift;
+
+            /// <summary>When true the builder returns null, modelling a WINDOW MISS: the entry is still
+            /// cached (Resolved, Segments == null) so the resolver declines to faithful.</summary>
+            public bool ReturnNull;
+
             public List<OrbitSegment> Build(
                 string memberId, IReadOnlyList<OrbitSegment> memberSegments, ReaimMissionPlan plan,
                 ReaimWindowPlanner.ReaimWindowSchedule schedule, long window, out double captureShiftSeconds)
             {
-                captureShiftSeconds = 0.0;
+                captureShiftSeconds = CaptureShift;
                 BuiltWindows.Add(window);
+                if (ReturnNull)
+                {
+                    BuildCountByWindow.TryGetValue(window, out int misses);
+                    BuildCountByWindow[window] = misses + 1;
+                    return null;
+                }
                 BuildCountByWindow.TryGetValue(window, out int n);
                 BuildCountByWindow[window] = n + 1;
                 // Distinct geometry per window: encode the window in the sma so two windows never compare equal.
@@ -249,6 +262,102 @@ namespace Parsek.Tests
                 out _, out long w2));
             Assert.Equal(w, w2);
             Assert.Equal(2, fake.BuildCountByWindow[w]); // rebuilt after Clear
+        }
+
+        // =====================================================================================
+        //  TryGetWindowRetimedArrivalUT - the M-A7 reaim-window clock-event accessor
+        // =====================================================================================
+        //
+        // The render-composition manifest emits `RecordedArrivalUT + CaptureShiftSeconds` per observed
+        // window as a `reaim-window` clock event; without it RC-SEAM cannot evaluate a re-timed
+        // crossing at all. The accessor is read-only and must NEVER build a window - so both its guard
+        // branches (nothing cached; a cached WINDOW MISS) have to answer false rather than resolve.
+
+        [Fact]
+        public void RetimedArrival_ReturnsFalseForAnEmptyMemberId_WithoutTouchingTheCache()
+        {
+            var fake = new FakeBuilder();
+            var resolver = NewResolverWith(fake);
+            var schedule = PlanSchedule();
+            resolver.TryResolveWindowSegments(
+                "mA", HeliocentricMemberSegments(), SupportedPlan(), schedule,
+                schedule.PhaseAnchorUT, SpanStart, SpanEnd, schedule.CadenceSeconds,
+                schedule.FirstDepartureUT + 10.0, out _, out long w);
+
+            Assert.False(resolver.TryGetWindowRetimedArrivalUT(null, w, out double a, out double s));
+            Assert.True(double.IsNaN(a));
+            Assert.Equal(0.0, s);
+            Assert.False(resolver.TryGetWindowRetimedArrivalUT("", w, out a, out s));
+            Assert.True(double.IsNaN(a));
+        }
+
+        [Fact]
+        public void RetimedArrival_ReturnsFalseForAnUncachedMemberOrWindow_AndBuildsNothing()
+        {
+            var fake = new FakeBuilder();
+            var resolver = NewResolverWith(fake);
+            var schedule = PlanSchedule();
+            resolver.TryResolveWindowSegments(
+                "mA", HeliocentricMemberSegments(), SupportedPlan(), schedule,
+                schedule.PhaseAnchorUT, SpanStart, SpanEnd, schedule.CadenceSeconds,
+                schedule.FirstDepartureUT + 10.0, out _, out long w);
+            int buildsBefore = fake.BuiltWindows.Count;
+
+            // A member nobody resolved, and a window this member never reached.
+            Assert.False(resolver.TryGetWindowRetimedArrivalUT("mZ", w, out double a, out double s));
+            Assert.True(double.IsNaN(a));
+            Assert.False(resolver.TryGetWindowRetimedArrivalUT("mA", w + 7, out a, out s));
+            Assert.True(double.IsNaN(a));
+
+            // READ-ONLY: the accessor never builds a window to answer.
+            Assert.Equal(buildsBefore, fake.BuiltWindows.Count);
+        }
+
+        [Fact]
+        public void RetimedArrival_ReturnsFalseForACachedWindowMiss()
+        {
+            // The builder declines this window (returns null). The entry IS cached and Resolved, so
+            // only the Segments == null test separates it from a real window - and a re-timed arrival
+            // for a window that rendered nothing would be a fabricated measurement instant.
+            var fake = new FakeBuilder { ReturnNull = true, CaptureShift = 123.0 };
+            var resolver = NewResolverWith(fake);
+            var schedule = PlanSchedule();
+            Assert.False(resolver.TryResolveWindowSegments(
+                "mA", HeliocentricMemberSegments(), SupportedPlan(), schedule,
+                schedule.PhaseAnchorUT, SpanStart, SpanEnd, schedule.CadenceSeconds,
+                schedule.FirstDepartureUT + 10.0, out _, out long w));
+            Assert.Single(fake.BuiltWindows);
+
+            Assert.False(resolver.TryGetWindowRetimedArrivalUT("mA", w, out double a, out double s));
+            Assert.True(double.IsNaN(a));
+            Assert.Equal(0.0, s);
+        }
+
+        [Theory]
+        [InlineData(0.0)]
+        [InlineData(-450.5)]
+        [InlineData(900.25)]
+        public void RetimedArrival_IsRecordedArrivalPlusCaptureShiftExactly(double captureShift)
+        {
+            // The ONE arithmetic contract: the instant the rendered heliocentric leg actually ends on
+            // the re-timed clock. The RECORDED arrival is the wrong measurement instant for a re-timed
+            // window, which is exactly what MapRenderProbe's `reaimed-seam-instant-unknown` skip
+            // documents, so the shift has to be applied here and reported alongside.
+            var fake = new FakeBuilder { CaptureShift = captureShift };
+            var resolver = NewResolverWith(fake);
+            var schedule = PlanSchedule();
+            Assert.True(resolver.TryResolveWindowSegments(
+                "mA", HeliocentricMemberSegments(), SupportedPlan(), schedule,
+                schedule.PhaseAnchorUT, SpanStart, SpanEnd, schedule.CadenceSeconds,
+                schedule.FirstDepartureUT + 10.0, out _, out long w));
+
+            Assert.True(resolver.TryGetWindowRetimedArrivalUT(
+                "mA", w, out double retimed, out double shift));
+            Assert.Equal(captureShift, shift, 9);
+            Assert.Equal(RecordedArrival + captureShift, retimed, 9);
+
+            // Still read-only: answering did not build anything.
+            Assert.Single(fake.BuiltWindows);
         }
     }
 }

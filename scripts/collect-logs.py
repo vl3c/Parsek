@@ -347,6 +347,9 @@ def main():
     if player_log:
         copy_file(player_log, out_dir)
     copy_file(ksp_dir / "parsek-test-results.txt", out_dir)
+    # M-A7: the render-composition manifest is a KSP-root artifact like the test
+    # results file; absent unless PARSEK_RENDER_MANIFEST armed the recorder.
+    copy_file(ksp_dir / "parsek-render-manifest.txt", out_dir)
     copy_file(ksp_dir / "Logs" / "ModuleManager" / "ModuleManager.log", out_dir)
     copy_file(ksp_dir / "Logs" / "ModuleManager" / "MMPatch.log", out_dir)
     print()

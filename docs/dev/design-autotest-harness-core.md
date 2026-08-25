@@ -613,6 +613,7 @@ guessing.
     "anomalySweep":   { "status": "PASS", "hits": 0 },
     "expectations":   { "status": "PASS", "mismatches": [], "reserved": [], "observed": { "recordings": { "count": 7 } } },
     "saveParse":      { "status": "REPORT", "reason": "", "gating": false, "blocks": [], "armedBlocks": [], "mismatches": [], "observed": { "rewind": { "supersedeRows": 0, "tombstones": 0, "rewindPoints": 0, "rewindRetirements": 0 }, "recordings": { "structure": { "trees": 1, "committedTrees": 1, "recordings": 3, "terminalStates": { "Destroyed": 1 }, "branchPoints": { "Undock": 1 }, "duplicateRecordingIds": [] }, "points": { "total": 412, "largest": 300, "smallest": 5, "trivialRecordings": 0, "recordings": 3, "unparsed": 0 } } }, "parsed": true, "parseError": "", "scenarioFound": true },
+    "renderCompose":  { "status": "REPORT", "reason": "", "gating": false, "blocks": [], "armedBlocks": [], "mismatches": [], "observed": {}, "parsed": null, "parseError": "missing parsek-render-manifest.txt", "findings": [], "unevaluable": {} },
     "ledgerOracle":   { "status": "SKIPPED", "reason": "no-actions-or-mb2-not-landed" }
   },
   "expectedFail": { "bugId": "", "matched": false },
@@ -633,6 +634,21 @@ recorded. Only `recordings.count` is observed HERE - it is the facet this verifi
 (the one derived from the `.prec` FILE listing). The `recordings.structure` and
 `recordings.points` sub-blocks are observed by verifier 7b, which parses the
 save; one owner per facet.
+
+`verifiers.renderCompose` (row 7c, M-A7) is the render-composition row. It reads
+the produced `parsek-render-manifest.txt` off the KSP root and evaluates
+`[expectations.renderComposition]` through `rendercompose.py`. It carries the
+saveParse key set plus two of its own: `findings` (the structured RC-* rule
+records, each with `ruleId` / `level` / `target` / `message` / `citedContract`)
+and `unevaluable` (the DEFINED-unevaluable ledger, by reason). The full key set
+is emitted on EVERY branch - REPORT, PASS, FAIL, `SKIPPED(driver-invalid)` and
+`SKIPPED(killed)` - so a consumer never KeyErrors on the row shape, and the
+measured facets ride the driver-invalid SKIPPED branch the way saveParse's do.
+`parsed` is `null` when the manifest was absent (the recorder is armed at launch
+only for a spec that DECLARES the block, via `PARSEK_RENDER_MANIFEST=1`), `false`
+on a torn or non-manifest text, `true` otherwise. The row ships REPORT-ONLY: it
+moves a verdict only for a spec whose block declares `gating = true`, which no
+committed spec does.
 
 THREE CONDITIONAL fields exist, all tied to "The unmet-mission tail" and all emitted
 only in the case each names, so a record from any other run is byte-identical to the

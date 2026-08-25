@@ -1056,7 +1056,8 @@ namespace Parsek
                     // all share ONE re-anchored clip and ONE trigger, each rendering only its own window
                     // slice. Identification is pure (DescentTrigger.SelectDescentMemberIndices); the EPS
                     // tolerates sub-second seam jitter.
-                    const double descentSeamEpsSeconds = 1.0;
+                    const double descentSeamEpsSeconds =
+                        Parsek.Reaim.DescentTrigger.DefaultSeamEpsSeconds;
                     var descentArrivalInfos =
                         new List<Parsek.Reaim.DescentTrigger.MemberArrivalInfo>(memberIndices.Count);
                     for (int mi2 = 0; mi2 < memberIndices.Count; mi2++)

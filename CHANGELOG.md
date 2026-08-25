@@ -8,6 +8,31 @@ All notable changes to Parsek are documented here.
 
 ### Dev
 
+- The automated-testing system can now check that a looped mission's map view is
+  COMPOSED correctly, not merely that it does not flicker. A rendered loop is
+  never one trajectory: it is a run of member recordings sequenced by the loop
+  clock, with deliberate holds, whole-period trims, re-aimed transfers and three
+  competing draw surfaces arbitrated every frame, and until now the only way to
+  know a composed render was right was for a human to watch it. Parsek can now
+  export what it actually drew. An opt-in recorder - off unless the launching
+  environment sets `PARSEK_RENDER_MANIFEST=1`, so an ordinary game does zero
+  extra work per frame and writes nothing anywhere - accumulates one bounded
+  record per rendered interval, per composition plan, per assembled chain and
+  per clock event, and writes them to `parsek-render-manifest.txt` on demand
+  through a new `ExportRenderManifest` command-seam verb or automatically when
+  the scene exits. The harness reads that file back through a new pure verifier
+  (`harness/lib/rendercompose.py`), which re-derives the intended composition
+  from the recorded plan and reports every gap, seam, hold and cut that the
+  written composition catalog does not explain, plus anything observed that no
+  rule claims at all. It rides the verifier chain as a new `renderCompose` row,
+  REPORT-ONLY: no committed scenario declares the `[expectations.renderComposition]`
+  block yet, so nothing can red on it today, and a scenario that arms one gets
+  `PARSEK-FAIL(render-composition)`. Also here: one in-game test category
+  (`RenderComposition`) asserting only that the exported file is well-formed,
+  and the manifest is collected into each run's artifacts beside KSP.log.
+  Lanes, arming and the route surfaces are the next phases. Test-tooling only;
+  no gameplay change.
+
 - The automated-testing suite gained a second moon-to-moon subject, so a result
   measured once can be checked at a different planet. Last time, a crewed ship
   hopped between two of Jool's moons and the suite learned something specific:

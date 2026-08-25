@@ -904,6 +904,11 @@ namespace Parsek
                     $"KSC Mission loop units rebuilt (signature changed): committed={committed?.Count ?? 0} " +
                     $"routeMissions={routeMissions.Count}");
             }
+            // M-A7 render-composition PLAN capture (mirrors ParsekFlight / ParsekTrackingStation).
+            // Every frame so the recorder holds the live unit set; the plan RECORD is signature-deduped
+            // inside NotePlan. Instant no-op when the manifest env gate is unarmed.
+            Parsek.MapRender.RenderCompositionRecorder.NotePlan(
+                "KSC", signature, cachedLoopUnits, committed, unioned);
             currentLoopUnits = cachedLoopUnits;
         }
 

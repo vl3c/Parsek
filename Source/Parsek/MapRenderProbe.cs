@@ -954,6 +954,15 @@ namespace Parsek
             {
                 Vector3d bodyRelPos = worldPos - body.position;
 
+                // M-A7 render-composition TRUTH capture (H18): push the latest body-relative truth
+                // position to the manifest recorder, which keeps ONE struct per pid (no allocation) and
+                // stamps it onto dwell open/close endpoints. Instant no-op when the manifest env gate
+                // is unarmed. The probe itself runs only when tracing is on, so a manifest-only lane
+                // simply carries no positions and the verifier treats position clauses as
+                // defined-unevaluable.
+                Parsek.MapRender.RenderCompositionRecorder.NoteProbeTruth(
+                    pid, recId, currentUT, bodyName, bodyRelPos);
+
                 // Reference-body change (e.g. SOI crossing Kerbin -> Sun): the
                 // previous body-relative position was measured in the OLD body's
                 // frame, so its delta against this frame is a frame mismatch.
@@ -2234,6 +2243,12 @@ namespace Parsek
 
             SeamEndpointSample sample = ComputeSeamEndpointGeometry(
                 renderedOrbit, renderedBody, loopShift, currentUT, recId, intendedSeed);
+
+            // M-A7 render-composition SEAM-ENDPOINT capture: recorded BEFORE the skip / no-measurement
+            // returns below, so the manifest carries the SKIPS too (a skip is the defined-unevaluable
+            // RC-SEAM needs to see; silently dropping it would read as a pass). Instant no-op when the
+            // manifest env gate is unarmed.
+            Parsek.MapRender.RenderCompositionRecorder.NoteSeamEndpoint(pid, recId, currentUT, in sample);
 
             // Pass accounting (house batch-counting convention: count in the loop, one summary after
             // it - see the LateUpdate emit). EXACTLY ONE bucket is incremented per ghost-frame offered

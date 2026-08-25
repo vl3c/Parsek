@@ -1,0 +1,503 @@
+RENDER_MANIFEST
+{
+	schemaVersion = 1
+	exportUT = 123456.75
+	exportReason = verb
+	scene = TRACKSTATION
+	saveName = Sample Save
+	envArmed = True
+	forceArmed = False
+	mapRenderTracingOn = True
+	CONSTANTS
+	{
+		PhaseSeamClassifier.DefaultTangentToleranceRadians = 0.1
+		CrossMemberSeamStitcher.TangentToleranceRadians = 0.1
+		SeamEndpointOracle.DefaultRatioTolerance = 1.005
+		GhostTrajectoryPolylineRenderer.BridgeMergeSampleCount = 60
+		GhostTrajectoryPolylineRenderer.BridgeMaxAngleRadians = 0.78539816339744828
+		GhostTrajectoryPolylineRenderer.BridgeMinAngleRadians = 0.087266462599716474
+		GhostTrajectoryPolylineRenderer.BridgeChordMinAngleRadians = 0.0087266462599716477
+		GhostTrajectoryPolylineRenderer.BridgeMaxSeamGapSeconds = 120
+		GhostTrajectoryPolylineRenderer.BridgeSeamSharedBoundaryToleranceSeconds = 1
+		GhostTrajectoryPolylineRenderer.AnchorMaxResidualKm = 50
+		GhostTrajectoryPolylineRenderer.AnchorMaxRelResidual = 0.05
+		ShadowRenderDriver.SeedFreshnessFrames = 2
+		GhostOrbitLinePatch.PolylineReleaseGraceSeconds = 1.5
+		GhostTrajectoryPolylineRenderer.TangentSeamConicSampleDtSeconds = 1
+		DescentTrigger.DefaultSeamEpsSeconds = 1
+		ReaimLoiterCompressor.DefaultKeepRevs = 1
+		ReaimLoiterCompressor.DefaultAStepRelThreshold = 0.05
+		ReaimLoiterCompressor.DefaultContiguityEpsilonSeconds = 1
+		ReaimLoiterCompressor.DefaultSameOrbitRelThreshold = 0.001
+		DestinationArrivalSolver.MaxJointHoldWholePeriods = 64
+	}
+	PLAN
+	{
+		UNIT
+		{
+			host = TrackingStation
+			planSeq = 0
+			signatureHash = 1761994506415037998
+			ownerIndex = 4
+			spanStartUT = 1000
+			spanEndUT = 9000
+			cadenceSeconds = 8000
+			overlapCadenceSeconds = 8000
+			phaseAnchorUT = 1000
+			isReaim = True
+			hasRelaunchSchedule = False
+			arrivalHoldSeconds = 1200
+			arrivalHoldAtUT = 6000
+			arrivalAlignPeriodSeconds = 21549.425
+			arrivalJointSecondaryPeriodSeconds = 5400
+			arrivalJointSecondaryToleranceSeconds = 60
+			arrivalJointMaxWholeHoldPeriods = 64
+			arrivalAmberReason = joint-residual-above-tolerance
+			launchBodyName = Kerbin
+			destinationBodyName = Duna
+			launchBodyRotationPeriodSeconds = 21549.425
+			launchHoldEngaged = True
+			recordedSoiExitUT = 2500
+			descentMemberIndices = 6,7
+			recordedDeorbitUT = 7200
+			descentEndUT = 8100
+			destinationBodyRotationPeriodSeconds = 88642.6
+			loiterPeriodSeconds = 1800
+			captureShiftSeconds = -450.5
+			parkingConicEndUT = 6749.5
+			transferMemberIndex = 5
+			firstDeorbitLegStartUT = 7100
+			transferMemberRecordingId = rec-transfer
+			MEMBER
+			{
+				index = 4
+				recId = rec-launch
+				startUT = 1000
+				endUT = 2600
+			}
+			MEMBER
+			{
+				index = 5
+				recId = rec-transfer
+				startUT = 2600
+				endUT = 7200
+			}
+			MEMBER
+			{
+				index = 6
+				recId = rec-descent
+				startUT = 7200
+				endUT = 8100
+			}
+			LOITER_CUT
+			{
+				startUT = 3000
+				lengthSeconds = 3600
+			}
+			REAIM_SCHEDULE
+			{
+				firstDepartureUT = 1200
+				synodicPeriodSeconds = 19367900
+				tofSeconds = 4600
+				phaseAnchorUT = 1000
+				cadenceSeconds = 19367900
+				prograde = True
+			}
+			ROUTE
+			{
+				routeId = route-0001
+				backingMissionTreeId = tree-0001
+				recordedDockUT = 6800
+				recordedOriginUndockUT = -1
+				dispatchWindowPeriod = 0
+				scope = SameBody
+				excludedIntervalKeys = keyA;keyB
+			}
+		}
+	}
+	CHAIN
+	{
+		CHAIN_BUILD
+		{
+			pid = 100000
+			recId = rec-launch
+			committedIndex = 4
+			ut = 1500
+			signature = rec-launch|1000|2600|3|420|w2
+			windowIndex = 2
+			provenance = spine
+			hasReaimedSegments = True
+			seamSource = assembler
+			PHASE
+			{
+				kind = ascent
+				provenance = recorded
+				body = Kerbin
+				startUT = 1000
+				endUT = 1400
+			}
+			PHASE
+			{
+				kind = soi-departure
+				provenance = recorded
+				body = Kerbin
+				startUT = 1400
+				endUT = 2500
+			}
+			PHASE
+			{
+				kind = heliocentric-transfer
+				provenance = synthesized
+				body = Sun
+				startUT = 2500
+				endUT = 7100
+			}
+			SEAM
+			{
+				boundaryIndex = 1
+				kind = rigid
+			}
+			SEAM
+			{
+				boundaryIndex = 2
+				kind = flexible-soi
+			}
+		}
+	}
+	OBSERVED
+	{
+		DWELL
+		{
+			pid = 100000
+			recId = rec-launch
+			committedIndex = 4
+			ownerIndex = 4
+			chainSignature = rec-launch|1000|2600|3|420|w2
+			segmentIndex = 0
+			phaseKind = ascent
+			treatment = TracedPath
+			visible = True
+			coverage = InSegment
+			frameBody = Kerbin
+			openUT = 1000
+			closeUT = 1020
+			openLoopUT = 1000
+			closeLoopUT = 1010
+			frames = 2
+			warp1x = 1
+			warpPhys = 0
+			warp100 = 1
+			warp1000 = 0
+			warpHigh = 0
+			minHeadUT = 1000
+			maxHeadUT = 1010
+			maxUtStep = 10
+			openBody = Kerbin
+			openX = 100.5
+			openY = -200.25
+			openZ = 300.125
+			closeBody = Kerbin
+			closeX = 150.5
+			closeY = -200.25
+			closeZ = 300.125
+			markerDecision = True
+			markerTracedPath = True
+			markerPolyline = False
+			markerIconSuppressed = False
+			ANOMALY_ECHO
+			{
+				reason = rigid-seam-tangent-discontinuity
+				count = 1
+			}
+		}
+		DWELL
+		{
+			pid = 100000
+			recId = rec-launch
+			committedIndex = 4
+			ownerIndex = 4
+			chainSignature = rec-launch|1000|2600|3|420|w2
+			segmentIndex = 1
+			phaseKind = soi-departure
+			treatment = StockConic
+			visible = True
+			coverage = InSegment
+			frameBody = Kerbin
+			openUT = 1020
+			closeUT = 1030
+			openLoopUT = 1020
+			closeLoopUT = 1020
+			frames = 1
+			warp1x = 0
+			warpPhys = 0
+			warp100 = 0
+			warp1000 = 1
+			warpHigh = 0
+			minHeadUT = 1020
+			maxHeadUT = 1020
+			maxUtStep = 0
+			openBody = Kerbin
+			openX = 900.5
+			openY = -200.25
+			openZ = 300.125
+			closeBody = Kerbin
+			closeX = 900.5
+			closeY = -200.25
+			closeZ = 300.125
+			markerDecision = True
+			markerTracedPath = True
+			markerPolyline = False
+			markerIconSuppressed = False
+			openAtExport = True
+		}
+		TRANSITION
+		{
+			pid = 100000
+			ut = 1020
+			fromPhaseKind = ascent
+			toPhaseKind = soi-departure
+			fromTreatment = TracedPath
+			toTreatment = StockConic
+			fromBody = Kerbin
+			toBody = Kerbin
+			fromSegmentIndex = 0
+			toSegmentIndex = 1
+			chainSignature = rec-launch|1000|2600|3|420|w2
+		}
+		SEAM_TANGENT
+		{
+			pid = 100000
+			recId = rec-descent
+			legIndex = 3
+			ut = 7250
+			continuous = False
+			angleRad = 0.2345
+			toleranceRadians = 0.1
+		}
+		SEAM_ENDPOINT
+		{
+			pid = 100000
+			recId = rec-transfer
+			ut = 7100
+			sampled = True
+			skipReason = 
+			ratio = 1.0125
+			endpointDistanceMeters = 84000000
+			soiRadiusMeters = 82900000
+			ratioTolerance = 1.005
+			outsideSoi = True
+			fromBody = Sun
+			toBody = Duna
+			recordedSeamUT = 7100
+			seamUT = 7098.5
+			clockConvention = baked
+			seedKind = matched
+		}
+		CLOCK_EVENT
+		{
+			kind = cycle-rollover
+			ownerIndex = 4
+			cycleIndex = 0
+			ut = 1000
+			detailA = 0
+			detailB = 1000
+			detailC = 0
+			detailS = 
+		}
+		CLOCK_EVENT
+		{
+			kind = inter-cycle-tail
+			ownerIndex = 4
+			cycleIndex = 0
+			ut = 8900
+			detailA = 0
+			detailB = 9000
+			detailC = 0
+			detailS = 
+		}
+		CLOCK_EVENT
+		{
+			kind = boundary-overlap-secondary
+			ownerIndex = 4
+			cycleIndex = 0
+			ut = 8950
+			detailA = 1
+			detailB = 1005
+			detailC = 0
+			detailS = secondary-live
+		}
+		CLOCK_EVENT
+		{
+			kind = descent-phase
+			ownerIndex = 6
+			cycleIndex = 0
+			ut = 7300
+			detailA = 7250
+			detailB = 6800
+			detailC = 0.0004
+			detailS = Descent
+			detailD = 7250
+		}
+		CLOCK_EVENT
+		{
+			kind = route-dock-crossing
+			ownerIndex = 4
+			cycleIndex = 0
+			ut = 6800
+			detailA = 0
+			detailB = 0
+			detailC = 0
+			detailS = route-0001
+		}
+		CLOCK_EVENT
+		{
+			kind = reaim-window
+			ownerIndex = 4
+			cycleIndex = 2
+			ut = 1500
+			detailA = 2
+			detailB = 6749.5
+			detailC = -450.5
+			detailS = rec-transfer
+		}
+		CLOCK_EVENT
+		{
+			kind = hold-engage
+			ownerIndex = 4
+			cycleIndex = 1
+			ut = 8000
+			detailA = 0
+			detailB = 5000
+			detailC = 0
+			detailS = 
+		}
+		CLOCK_EVENT
+		{
+			kind = hold-release
+			ownerIndex = 4
+			cycleIndex = 1
+			ut = 11600
+			detailA = 0
+			detailB = 5000
+			detailC = 3600
+			detailS = 
+		}
+		CLOCK_EVENT
+		{
+			kind = hold-engage
+			ownerIndex = 4
+			cycleIndex = 1
+			ut = 12800
+			detailA = 1
+			detailB = 6200
+			detailC = 0
+			detailS = 
+		}
+		CLOCK_EVENT
+		{
+			kind = hold-release
+			ownerIndex = 4
+			cycleIndex = 1
+			ut = 13700
+			detailA = 1
+			detailB = 6200
+			detailC = 900
+			detailS = 
+		}
+		LINE_BRANCH
+		{
+			pid = 100000
+			recId = rec-launch
+			ut = 1000
+			reason = director-traced-path-suppress
+			lineActive = False
+			drawIcons = 0
+			iconSuppressed = True
+			coverage = Unknown
+		}
+		LINE_BRANCH
+		{
+			pid = 100000
+			recId = rec-launch
+			ut = 1020
+			reason = director-stockconic-visible
+			lineActive = True
+			drawIcons = 2
+			iconSuppressed = False
+			coverage = Inside
+		}
+		OWNERSHIP_CHANGE
+		{
+			recId = rec-launch
+			ut = 1000
+			event = appear
+		}
+		OWNERSHIP_CHANGE
+		{
+			recId = rec-launch
+			ut = 1020
+			event = disappear
+		}
+		RATIFIED_SKIP
+		{
+			pid = 100000
+			reason = reaim-segment-skip
+			firstUT = 2600
+			lastUT = 2700
+			count = 2
+		}
+		ANOMALY_ECHO
+		{
+			pidKey = 100000
+			recId = rec-launch
+			reason = rigid-seam-tangent-discontinuity
+			ut = 1010
+		}
+		ANOMALY_ECHO
+		{
+			pidKey = route-0001
+			recId = rec-descent
+			reason = polyline-orbit-overlap
+			ut = 7300
+		}
+		CLOCK_DEFER
+		{
+			firstUT = 0.5
+			lastUT = 0.75
+			count = 2
+		}
+		ROUTE_LINE_BUILD
+		{
+			routeId = route-0001
+			signature = 8123456789
+			dockClipUT = 6800
+			dispatchWindowPeriod = 0
+			scope = SameBody
+			resolvableMembers = 3
+			groups = 3
+			totalLegs = 11
+			transferLegsDropped = 0
+			ut = 1500
+		}
+		ROUTE_LEG_DEFER
+		{
+			routeId = route-0001
+			recId = rec-launch
+			count = 2
+		}
+		ROUTE_CODRAW_VIOLATION
+		{
+			routeId = route-0001
+			recId = rec-descent
+			ut = 7300
+			frame = 4242
+		}
+		TRUNCATED
+		{
+			section = DWELL
+			pid = 100001
+			kind = dwell
+			droppedCount = 1
+		}
+	}
+}

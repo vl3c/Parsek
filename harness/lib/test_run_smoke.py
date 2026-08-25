@@ -34,6 +34,7 @@ import copy
 import inspect
 import json
 import os
+import re
 import shutil
 import sys
 import tempfile
@@ -49,6 +50,7 @@ for _p in (HARNESS_ROOT, HERE):
 
 import hlib  # noqa: E402
 import oracle  # noqa: E402
+import rendercompose  # noqa: E402
 import run  # noqa: E402
 import status  # noqa: E402
 
@@ -69,8 +71,15 @@ class FakeRuntime(run.Runtime):
 
     def __init__(self, mode, mission_mode="ok", venv_ok=True, seed_mode="ok",
                  career_funds=25000.0, career_science=0.0, career_rep=0.0,
-                 analyzer_fail_calls=0, produced_parsed=True, inject_noop=False):
+                 analyzer_fail_calls=0, produced_parsed=True, inject_noop=False,
+                 render_manifest_text=None):
         self.mode = mode
+        # M-A7: the text the fake KSP "writes" as its render manifest, dropped at
+        # LAUNCH time - i.e. AFTER staging, which is where the real recorder's
+        # scene-exit / teardown flush lands. Writing it before run_attempt would
+        # place it ahead of the stage rotation and would test nothing about the
+        # artifact this attempt produced.
+        self.render_manifest_text = render_manifest_text
         # HARNESS-INJECT-FAILS-OPEN seam: when True, run_inject exits 0 having
         # written NOTHING - the measured `--no-build`-against-a-never-built-assembly
         # shape (and the KSP.log lock-probe refusal, which exits the same way).
@@ -100,6 +109,9 @@ class FakeRuntime(run.Runtime):
         self.seed_analyzer_count = 0
         self.launch_count = 0
         self.mission_spawn_count = 0
+        # M-A7: the env dict run.py handed the launch, so a test can assert the
+        # CONDITIONAL PARSEK_RENDER_MANIFEST arming rather than only the log line.
+        self.last_launch_env = {}
 
     def _career_block_json(self, produced=False):
         # produced=True is the PRODUCED-save block (run_analyzer). Only it honors
@@ -127,6 +139,11 @@ class FakeRuntime(run.Runtime):
     def launch(self, exe, args, env, cwd):
         import subprocess
         self.launch_count += 1
+        self.last_launch_env = dict(env)
+        if self.render_manifest_text is not None:
+            with open(os.path.join(cwd, run.RENDER_MANIFEST_FILENAME),
+                      "w", encoding="utf-8") as fh:
+                fh.write(self.render_manifest_text)
         return subprocess.Popen(
             [exe, FAKE_KSP, "--root", cwd, "--mode", self.mode],
             env=env, cwd=cwd,
@@ -279,6 +296,74 @@ def _make_ledger_spec(save_template, run_tests_budget=30, run_budget=600, manife
         "seedFrom": "template", "tolerances": "default", "rec3CarveOut": False,
         "manifest": manifest or [],
     }
+    return spec
+
+
+# A minimal but PRODUCTION-SHAPED render manifest (M-A7). Authored here as a
+# literal rather than imported from test_rendercompose so this file's smoke legs
+# stay a statement about run.py's ROW WIRING and never about the parser's rule
+# coverage - and so a rule-fixture edit next door cannot red the harness smoke
+# suite. It deliberately carries NO CONSTANTS node: the RC-CONST findings that
+# omission raises are exactly what a REPORT-only row must record and carry into
+# results/<runId>.json without moving the verdict, which is the wiring claim.
+_RENDER_MANIFEST_TEXT = """RENDER_MANIFEST
+{
+\tschemaVersion = 1
+\texportUT = 1000
+\texportReason = verb
+\tscene = FLIGHT
+\tsaveName = smoke
+\tenvArmed = True
+\tforceArmed = False
+\tmapRenderTracingOn = False
+\tOBSERVED
+\t{
+\t\tDWELL
+\t\t{
+\t\t\tpid = 100
+\t\t\trecId = smoke-rec-a
+\t\t\tcommittedIndex = 0
+\t\t\tchainSignature = sig-a
+\t\t\tsegmentIndex = 0
+\t\t\tphaseKind = ascent
+\t\t\ttreatment = TracedPath
+\t\t\tvisible = True
+\t\t\tcoverage = InSegment
+\t\t\tframeBody = Kerbin
+\t\t\topenUT = 1000
+\t\t\tcloseUT = 1010
+\t\t\tframes = 100
+\t\t\twarp1x = 100
+\t\t\tminHeadUT = 1000
+\t\t\tmaxHeadUT = 1010
+\t\t\tmaxUtStep = 0.2
+\t\t}
+\t\tOWNERSHIP_CHANGE
+\t\t{
+\t\t\trecId = smoke-rec-a
+\t\t\tut = 1000
+\t\t\tevent = appear
+\t\t}
+\t\tOWNERSHIP_CHANGE
+\t\t{
+\t\t\trecId = smoke-rec-a
+\t\t\tut = 1010
+\t\t\tevent = disappear
+\t\t}
+\t}
+}
+"""
+
+
+def _make_render_compose_spec(save_template, block=None, run_tests_budget=30,
+                              run_budget=600):
+    """A seam scenario declaring [expectations.renderComposition] - the surface
+    that arms PARSEK_RENDER_MANIFEST at launch and activates row 7c. ``block``
+    defaults to the bare reading-run declaration (declared, unarmed)."""
+    spec = _make_spec(save_template, run_tests_budget, run_budget)
+    spec["id"] = "SMOKE-rendercompose"
+    spec["expectations"][rendercompose.RENDER_COMPOSITION_BLOCK] = (
+        {} if block is None else copy.deepcopy(block))
     return spec
 
 
@@ -507,6 +592,154 @@ class FakeKspSmokeTests(unittest.TestCase):
         self.assertEqual(hlib.VERDICT_PASS, result["verdict"])
         self.assertEqual("PASS", result["verifiers"]["saveParse"]["status"])
 
+    # ---- M-A7 renderCompose (row 7c) ------------------------------------
+
+    def _drop_render_manifest(self, text=None):
+        """Place a parsek-render-manifest.txt in the fake KSP root RIGHT NOW.
+
+        Used only to simulate a STALE artifact left behind by a previous run -
+        the instance is reused, so this is what run B finds when it stages. A
+        manifest this attempt is supposed to have PRODUCED goes through
+        ``FakeRuntime.render_manifest_text`` instead, which drops it at launch,
+        after staging."""
+        path = os.path.join(self.instance, run.RENDER_MANIFEST_FILENAME)
+        with open(path, "w", encoding="utf-8") as fh:
+            fh.write(_RENDER_MANIFEST_TEXT if text is None else text)
+        return path
+
+    def _run_render_compose(self, block=None, drop_manifest=True, manifest_text=None):
+        spec = _make_render_compose_spec(self.template, block)
+        produced = None
+        if drop_manifest:
+            produced = _RENDER_MANIFEST_TEXT if manifest_text is None else manifest_text
+        rt = FakeRuntime("pass", render_manifest_text=produced)
+        result = run.run_attempt(spec, self.instance, self.tmp, rt, attempt=1,
+                                 prior_boot_crashed=False, logger=self.logger)
+        return result, rt
+
+    def test_render_compose_row_reports_on_a_clean_pass_with_no_block(self):
+        """The default state of every committed spec today: no block declared, so
+        the recorder is never armed, no manifest exists, and the row lands
+        REPORT-ONLY with the absence NAMED in parseError rather than silently read
+        as zero records. It must not move the verdict."""
+        result, rt = self._run("pass")
+        self.assertEqual(hlib.VERDICT_PASS, result["verdict"])
+        rc = result["verifiers"]["renderCompose"]
+        self.assertEqual("REPORT", rc["status"])
+        self.assertFalse(rc["gating"])
+        self.assertEqual([], rc["blocks"])
+        self.assertEqual([], rc["armedBlocks"])
+        # No block declared => an absent manifest is NOT a mismatch (the saveparse
+        # degrade rule: the fault stays visible in parsed/parseError instead).
+        self.assertEqual([], rc["mismatches"])
+        self.assertIsNone(rc["parsed"])
+        self.assertIn("missing parsek-render-manifest.txt", rc["parseError"])
+        self.assertEqual({}, rc["observed"])
+        self.assertEqual([], rc["findings"])
+        self.assertEqual({}, rc["unevaluable"])
+        # ... and the env var is NOT set: arming is by DECLARATION.
+        self.assertNotIn("PARSEK_RENDER_MANIFEST", rt.last_launch_env)
+
+    def test_declared_block_arms_the_env_var_and_reports_the_facets(self):
+        """Leg (a): a DECLARED block arms PARSEK_RENDER_MANIFEST=1 at launch, and
+        a produced manifest lands as a REPORT row carrying the measured facets +
+        the structured findings, with the verdict untouched. This is the reading
+        run the arming workflow mandates, end to end."""
+        result, rt = self._run_render_compose()
+        self.assertEqual(hlib.VERDICT_PASS, result["verdict"])
+        self.assertEqual("1", rt.last_launch_env.get("PARSEK_RENDER_MANIFEST"),
+                         "a declared block must arm the recorder at launch")
+        rc = result["verifiers"]["renderCompose"]
+        self.assertEqual("REPORT", rc["status"])
+        self.assertFalse(rc["gating"])
+        self.assertEqual(["renderComposition"], rc["blocks"])
+        self.assertEqual([], rc["armedBlocks"])
+        self.assertIs(True, rc["parsed"])
+        self.assertEqual("", rc["parseError"])
+        facets = rc["observed"]["renderComposition"]
+        self.assertEqual(1, facets["dwells"])
+        self.assertEqual(1, facets["schemaVersion"])
+        self.assertEqual("verb", facets["exportReason"])
+        self.assertEqual(100, facets["warpBuckets"]["warp1x"])
+        self.assertEqual({"TracedPath": 1}, facets["treatments"])
+        # The structured M-A1-model findings ride the row, every one citing a
+        # contract (the discipline the rule module enforces at construction).
+        self.assertTrue(rc["findings"], "the fixture omits CONSTANTS; RC-CONST must raise")
+        self.assertTrue(all(f["citedContract"] for f in rc["findings"]))
+        self.assertIn("RC-CONST", {f["ruleId"] for f in rc["findings"]})
+        # FAIL-level findings become mismatches - RECORDED, not gating.
+        self.assertTrue(rc["mismatches"])
+        # ... and the whole row round-trips into results/<runId>.json, which is the
+        # ONLY durable home of a green run's composition numbers.
+        with open(os.path.join(run.RESULTS_DIR, "%s.json" % result["runId"]),
+                  "r", encoding="utf-8") as fh:
+            persisted = json.load(fh)
+        self.assertEqual(rc, persisted["verifiers"]["renderCompose"])
+
+    def test_declared_block_with_no_manifest_is_a_defined_mismatch_not_a_pass(self):
+        """Leg (b): the absent-artifact-is-a-defined-mismatch rule. A spec that
+        DECLARED the block booted with the recorder armed, so no manifest means the
+        recorder never armed, never flushed, or the export never ran - never a
+        silent pass. Still REPORT (unarmed), so the verdict is untouched."""
+        result, rt = self._run_render_compose(drop_manifest=False)
+        self.assertEqual(hlib.VERDICT_PASS, result["verdict"],
+                         "a report-only mismatch must not move the verdict")
+        self.assertEqual("1", rt.last_launch_env.get("PARSEK_RENDER_MANIFEST"))
+        rc = result["verifiers"]["renderCompose"]
+        self.assertEqual("REPORT", rc["status"])
+        self.assertEqual(["renderComposition"], rc["blocks"])
+        self.assertEqual(1, len(rc["mismatches"]))
+        self.assertIn("manifest absent", rc["mismatches"][0])
+        self.assertIsNone(rc["parsed"])
+        self.assertEqual({}, rc["observed"])
+
+    def test_a_stale_manifest_from_a_previous_run_is_rotated_at_stage(self):
+        """The instance is REUSED across runs, so run A's manifest is sitting in
+        the KSP root when run B stages. Staging rotates it exactly as it rotates
+        parsek-test-results.txt: without that, a run B that produced NO manifest
+        reads run A's file and reports a composition belonging to a different
+        flight - the absent-manifest mismatch silently replaced by a green
+        reading of stale evidence."""
+        stale = self._drop_render_manifest()
+        self.assertTrue(os.path.isfile(stale))
+        # Run B declares the block (so the recorder arms) but produces nothing.
+        result, rt = self._run_render_compose(drop_manifest=False)
+        self.assertEqual("1", rt.last_launch_env.get("PARSEK_RENDER_MANIFEST"))
+        rc = result["verifiers"]["renderCompose"]
+        self.assertIsNone(rc["parsed"], "run A's manifest was still readable")
+        self.assertEqual(1, len(rc["mismatches"]))
+        self.assertIn("manifest absent", rc["mismatches"][0])
+        self.assertEqual({}, rc["observed"])
+        self.assertFalse(os.path.isfile(stale))
+
+    def test_torn_manifest_is_a_defined_mismatch_never_zero_records(self):
+        """The other structural fault: a zero-byte manifest is trivially
+        brace-balanced and WOULD read as a clean all-zero composition. It must fail
+        loud with parsed=False instead."""
+        result, _ = self._run_render_compose(manifest_text="")
+        self.assertEqual(hlib.VERDICT_PASS, result["verdict"])
+        rc = result["verifiers"]["renderCompose"]
+        self.assertIs(False, rc["parsed"])
+        self.assertIn("RENDER_MANIFEST", rc["parseError"])
+        self.assertEqual(1, len(rc["mismatches"]))
+        self.assertIn("unreadable", rc["mismatches"][0])
+        self.assertEqual({}, rc["observed"], "an unparsed manifest measures NOTHING")
+
+    def test_armed_block_mismatch_reds_render_composition(self):
+        """gating = true + an unsatisfiable floor -> PARSEK-FAIL(render-composition)
+        across the real run.py -> hlib boundary (the flag name is exercised end to
+        end, not injected). No committed spec does this; the shape must work before
+        the first lane is promoted."""
+        result, _ = self._run_render_compose(
+            {"gating": True, "dwells": {"min": 5}})
+        self.assertEqual(hlib.VERDICT_PARSEK_FAIL, result["verdict"])
+        self.assertEqual("render-composition", result["subkind"])
+        rc = result["verifiers"]["renderCompose"]
+        self.assertEqual("FAIL", rc["status"])
+        self.assertTrue(rc["gating"])
+        self.assertEqual(["renderComposition"], rc["armedBlocks"])
+        self.assertTrue(any("dwells" in m for m in rc["mismatches"]))
+
     def test_hang_is_killed_within_budget(self):
         """KILLED: the stub wedges on RunTests; the run-budget watchdog must kill
         the process tree within budget and classify KILLED with the killed-run
@@ -550,6 +783,21 @@ class FakeKspSmokeTests(unittest.TestCase):
         self.assertFalse(sp["gating"])
         self.assertIsNone(sp["parsed"])
         self.assertEqual({}, sp["observed"])
+        # M-A7: the render-composition row is SKIPPED on a torn (killed) run for
+        # the same reason - the export flushes at scene exit / teardown, so a
+        # watchdog-killed process leaves no manifest or a half-written one. FULL
+        # KEY SET on this branch too, so a consumer never KeyErrors on the shape.
+        rc = result["verifiers"]["renderCompose"]
+        self.assertEqual({"status", "reason", "gating", "blocks", "armedBlocks",
+                          "mismatches", "observed", "parsed", "parseError",
+                          "findings", "unevaluable"}, set(rc))
+        self.assertEqual("SKIPPED", rc["status"])
+        self.assertEqual("killed", rc["reason"])
+        self.assertFalse(rc["gating"])
+        self.assertIsNone(rc["parsed"])
+        self.assertEqual({}, rc["observed"])
+        self.assertEqual([], rc["findings"])
+        self.assertEqual({}, rc["unevaluable"])
         # Non-PASS snapshots diagnostics.
         self.assertTrue(result["collectLogs"]["ran"])
 
@@ -3001,9 +3249,10 @@ class AlwaysCollectAndContactSheetSmokeTests(unittest.TestCase):
         self.logger.close()
         shutil.rmtree(self.tmp, ignore_errors=True)
 
-    def _run(self, mode="pass", run_tests_budget=30, run_budget=600):
+    def _run(self, mode="pass", run_tests_budget=30, run_budget=600,
+             render_manifest_text=None):
         spec = _make_spec(self.template, run_tests_budget, run_budget)
-        rt = FakeRuntime(mode)
+        rt = FakeRuntime(mode, render_manifest_text=render_manifest_text)
         result = run.run_attempt(spec, self.instance, self.tmp, rt, attempt=1,
                                  prior_boot_crashed=False, logger=self.logger)
         return result, rt
@@ -3038,6 +3287,52 @@ class AlwaysCollectAndContactSheetSmokeTests(unittest.TestCase):
             persisted = json.load(fh)
         self.assertTrue(persisted["artifacts"]["kspLog"])
         self.assertEqual(hlib.SCHEMA_VERSION, persisted["schema"])
+
+    def test_pass_run_copies_the_render_manifest_into_the_shots_dir(self):
+        """M-A7: a PASS runs no collect-logs and the next boot overwrites the KSP
+        root, so without this leg a green run's manifest - the ONE artifact a
+        report-only composition row exists to produce - dies with that boot. The
+        key is ADDITIVE and False when no manifest was produced."""
+        # Baseline: no manifest produced -> the flag reads False, not absent.
+        result, _ = self._run("pass")
+        self.assertEqual(hlib.VERDICT_PASS, result["verdict"])
+        self.assertFalse(result["artifacts"]["renderManifest"])
+
+        # With one produced, it rides into results/<runId>_shots/ verbatim. It is
+        # dropped at LAUNCH, after the stage rotation, because that is where a
+        # real export lands - a pre-stage drop would be rotated away.
+        result, _ = self._run("pass", render_manifest_text=_RENDER_MANIFEST_TEXT)
+        self.assertEqual(hlib.VERDICT_PASS, result["verdict"])
+        self.assertTrue(result["artifacts"]["renderManifest"])
+        copied = os.path.join(run.RESULTS_DIR, "%s_shots" % result["runId"],
+                              run.RENDER_MANIFEST_FILENAME)
+        self.assertTrue(os.path.isfile(copied))
+        with open(copied, "r", encoding="utf-8") as fh:
+            self.assertEqual(_RENDER_MANIFEST_TEXT, fh.read())
+        # No tmp file left behind by the tmp+rename write.
+        self.assertFalse(os.path.isfile(copied + ".harness-tmp"))
+        # ... and the flag round-trips into the durable result JSON.
+        with open(os.path.join(run.RESULTS_DIR, "%s.json" % result["runId"]),
+                  "r", encoding="utf-8") as fh:
+            self.assertTrue(json.load(fh)["artifacts"]["renderManifest"])
+
+    def test_render_manifest_copy_is_bounded(self):
+        """The copy is byte-bounded like the KSP.log leg: an oversize export keeps
+        a HEAD slice with an explicit marker rather than busting the cap."""
+        orig = run.ARTIFACT_RENDER_MANIFEST_CAP_BYTES
+        run.ARTIFACT_RENDER_MANIFEST_CAP_BYTES = 128
+        try:
+            result, _ = self._run("pass",
+                                  render_manifest_text=_RENDER_MANIFEST_TEXT)
+            copied = os.path.join(run.RESULTS_DIR, "%s_shots" % result["runId"],
+                                  run.RENDER_MANIFEST_FILENAME)
+            with open(copied, "r", encoding="utf-8") as fh:
+                body = fh.read()
+        finally:
+            run.ARTIFACT_RENDER_MANIFEST_CAP_BYTES = orig
+        self.assertIn("TRUNCATED at the 128-byte cap", body)
+        self.assertTrue(body.startswith("RENDER_MANIFEST"))
+        self.assertLess(len(body), len(_RENDER_MANIFEST_TEXT) + 200)
 
     def test_killed_run_still_collects_artifacts(self):
         """The unconditional step is unconditional: a budget-killed run's shots
@@ -3362,6 +3657,66 @@ class DryRunPlanVerifierEnumerationTests(unittest.TestCase):
         missing = [s["id"] for s in self._all_specs()
                    if "saveParse(" not in self._plan(s["id"])]
         self.assertEqual([], missing, "dry-run plan omitted the saveParse row")
+
+    # -- renderCompose (row 7c, M-A7): the SAME three states and the SAME staleness
+    # class as the saveParse block above, pinned from the day the row lands rather
+    # than on the day the first lane arms. Both of its non-default states are
+    # SYNTHETIC today - no committed spec declares the block at all - so without
+    # these cells `rc_armed` and `rc_declared` would be indistinguishable over the
+    # corpus and a regression advertising a declared block as an armed gate would
+    # pass every cell.
+
+    def test_an_armed_render_composition_spec_names_the_gate_and_subkind(self):
+        line = self._render({"id": "SYNTH-rc-armed", "driver": {"steps": []},
+                             "expectations": {"renderComposition": {
+                                 "gating": True, "dwells": {"min": 1}}}})
+        self.assertIn("renderCompose(armed: renderComposition", line)
+        self.assertIn("PARSEK-FAIL(render-composition)", line)
+
+    def test_a_declared_but_unarmed_render_composition_block_renders_report_only(self):
+        line = self._render({"id": "SYNTH-rc-declared", "driver": {"steps": []},
+                             "expectations": {"renderComposition": {"dwells": {"min": 1}}}})
+        self.assertIn("renderCompose(report-only: renderComposition)", line)
+        self.assertNotIn("render-composition", line)
+
+    def test_an_armed_render_composition_block_renders_differently_from_declared(self):
+        declared_only = {"id": "SYNTH-rc-a", "driver": {"steps": []},
+                         "expectations": {"renderComposition": {"dwells": {"min": 1}}}}
+        armed = {"id": "SYNTH-rc-b", "driver": {"steps": []},
+                 "expectations": {"renderComposition": {"gating": True,
+                                                        "dwells": {"min": 1}}}}
+        self.assertNotEqual(self._render(declared_only), self._render(armed))
+
+    def test_a_spec_declaring_no_render_composition_block_says_facets_only(self):
+        line = self._plan("B1-pad-hop")
+        self.assertIn("renderCompose(facets only, no block declared)", line)
+        self.assertNotIn("render-composition", line)
+
+    def test_every_scenario_plan_names_rendercompose(self):
+        """The row runs on every driver-valid run, so no spec's plan may omit it."""
+        missing = [s["id"] for s in self._all_specs()
+                   if "renderCompose(" not in self._plan(s["id"])]
+        self.assertEqual([], missing, "dry-run plan omitted the renderCompose row")
+
+    def test_the_launch_line_names_the_render_manifest_env_var_only_when_declared(self):
+        """The LAUNCH line, not the VERIFY line: the recorder is armed by the
+        DECLARATION, and a lane whose manifest never gets written reads as a
+        product defect unless the plan says the env var was never set."""
+        def _launch(spec):
+            import io
+            import contextlib
+            buf = io.StringIO()
+            with contextlib.redirect_stdout(buf):
+                run.print_dry_run_plan([spec], lambda _p: "C:/instance",
+                                       run.HarnessLogger(None))
+            return next(l for l in buf.getvalue().splitlines() if "[LAUNCH " in l)
+
+        declared = _launch({"id": "SYNTH-rc-launch", "driver": {"steps": []},
+                            "expectations": {"renderComposition": {}}})
+        self.assertIn("PARSEK_RENDER_MANIFEST=1", declared)
+        bare = _launch({"id": "SYNTH-no-rc", "driver": {"steps": []},
+                        "expectations": {}})
+        self.assertNotIn("PARSEK_RENDER_MANIFEST", bare)
 
     # -- unityExceptions (row 6b): the SAME staleness class as the saveParse row
     # above, found the day it mattered. The [VERIFY] line hard-coded
@@ -4107,3 +4462,46 @@ class SharedShipOverlayStagingTests(unittest.TestCase):
         self.assertTrue(ok)
         with open(self.logger.log_path, encoding="utf-8") as fh:
             self.assertIn("shared-ship overlay: no rows for save=ships-fixture", fh.read())
+
+
+# ---------------------------------------------------------------------------
+# Cross-language filename pin.
+# ---------------------------------------------------------------------------
+
+
+class RenderManifestFilenamePinTests(unittest.TestCase):
+    """The manifest filename is a CONTRACT spelled in three languages.
+
+    The C# recorder WRITES it, run.py READS and ROTATES it, and collect-logs.py
+    COPIES it. Nothing links the three: a rename on the C# side leaves the two
+    Python readers looking for a file nobody writes, and the harness's only
+    symptom is "manifest absent" - the same reading a genuinely unarmed recorder
+    produces. So the drift is caught here instead, the
+    `test_the_c_sharp_writer_still_emits_pointcount` precedent (hlib cells that
+    read OUTSIDE harness/ to keep a cross-language pin honest).
+    """
+
+    def setUp(self):
+        lib_dir = os.path.dirname(os.path.abspath(__file__))
+        self.repo_root = os.path.dirname(os.path.dirname(lib_dir))
+
+    def _read(self, *parts):
+        path = os.path.join(self.repo_root, *parts)
+        self.assertTrue(os.path.isfile(path), "missing %s" % path)
+        with open(path, "r", encoding="utf-8") as fh:
+            return fh.read()
+
+    def test_the_csharp_recorder_declares_the_filename_run_py_reads(self):
+        source = self._read("Source", "Parsek", "MapRender",
+                            "RenderCompositionRecorder.cs")
+        declared = re.findall(
+            r'ManifestFileName\s*=\s*"([^"]+)"\s*;', source)
+        self.assertEqual(1, len(declared),
+                         "expected exactly one ManifestFileName declaration, "
+                         "found %r" % (declared,))
+        self.assertEqual(run.RENDER_MANIFEST_FILENAME, declared[0])
+
+    def test_collect_logs_copies_the_same_filename(self):
+        source = self._read("scripts", "collect-logs.py")
+        self.assertIn('"%s"' % run.RENDER_MANIFEST_FILENAME, source,
+                      "collect-logs.py no longer names the manifest run.py reads")

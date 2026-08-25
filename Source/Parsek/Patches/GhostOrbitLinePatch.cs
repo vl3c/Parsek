@@ -760,6 +760,15 @@ namespace Parsek.Patches
                         belowAtmosphere, hasBounds, currentUT, startUT, endUT));
             }
 
+            // M-A7 render-composition LINE-BRANCH capture (capture point 3): this is the SINGLE funnel
+            // every one of the eleven Postfix branches passes through, so one call here records the
+            // whole decision surface. Placed OUTSIDE the tracing gate above so the manifest works
+            // tracing-off; the recorder change-debounces per pid and serializes the coverage stamp via
+            // .ToString() on the parameter (it never spells the enum members - source gate).
+            Parsek.MapRender.RenderCompositionRecorder.NoteLineBranch(
+                vesselPid, reason, lineActive, (int)drawIcons, iconSuppressed,
+                currentUT, startUT, endUT, windowCoverage);
+
             ParsekLog.VerboseOnChange(Tag,
                 "pid-" + vesselPid.ToString(CultureInfo.InvariantCulture),
                 BuildGhostOrbitLineDecisionStateKey(

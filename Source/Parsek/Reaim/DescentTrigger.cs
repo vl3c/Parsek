@@ -28,6 +28,21 @@ namespace Parsek.Reaim
     internal static class DescentTrigger
     {
         /// <summary>
+        /// Default seam epsilon (seconds) for descent MEMBER SELECTION: a member qualifies when its
+        /// window starts at/after the transfer member's last target-body conic end within this
+        /// tolerance, which absorbs sub-second seam jitter. Extracted from the method-local const in
+        /// <c>MissionLoopUnitBuilder</c> (M-A7) so the render-composition manifest can export it by
+        /// name and the Python verifier can pin it. It is the DEFAULT for
+        /// <see cref="SelectDescentMemberIndices"/> / <see cref="EvaluateEngage"/>, both of which
+        /// still take the epsilon as a parameter.
+        ///
+        /// <para>NOTE: the sibling 1.0 s literals at <c>MissionLoopUnitBuilder.FindLegStartUT</c> and
+        /// in <c>CrossMemberSeamStitcher</c> are deliberately NOT unified onto this constant yet -
+        /// whether they are one tolerance or three is an open audit (M-A7 follow-up).</para>
+        /// </summary>
+        internal const double DefaultSeamEpsSeconds = 1.0;
+
+        /// <summary>
         /// The first live UT at or after <paramref name="entryUT"/> (loiter entry) whose destination-body
         /// rotation phase equals the recorded deorbit rotation phase, i.e. the smallest
         /// <c>t &gt;= entryUT</c> with <c>t ≡ recordedDeorbitUT (mod rotationPeriod)</c>. The result lies in
@@ -697,6 +712,24 @@ namespace Parsek.Reaim
                 double r = ((triggerUT - recordedDeorbitUT) % rotationPeriod + rotationPeriod) % rotationPeriod;
                 rotResidualDeg = 360.0 * Math.Min(r, rotationPeriod - r) / rotationPeriod;
             }
+            // M-A7 render-composition CLOCK-EVENT capture (capture point 4, descent half): this
+            // classification is already exactly-once-per-cycle-event, and rotResidualDeg is exactly
+            // RC-DESCENT's trigger-congruence measurement. One guarded call; instant no-op when the
+            // manifest env gate is unarmed.
+            //
+            // The resolved head is NOT passed down to this trace by the resolver, so it is recomputed
+            // HERE from the three values the trace already holds, through the SAME pure helper the
+            // resolver's Descent branch uses (DescentTrigger.ComputeDescentEffectiveHeadUT ==
+            // recordedDeorbitUT + (currentUT - triggerUT), NaN before the trigger). That is a
+            // re-evaluation of one pure expression on identical inputs, not a second derivation.
+            // Only the DESCENT phase actually has a head - in Inert/Loiter the member is hidden and in
+            // Done the clip has ended, so those events carry no detailD at all rather than a
+            // plausible-looking extrapolation past the end of the clip.
+            double headUT = phase == DescentTrigger.DescentHeadPhase.Descent
+                ? DescentTrigger.ComputeDescentEffectiveHeadUT(currentUT, triggerUT, recordedDeorbitUT)
+                : double.NaN;
+            Parsek.MapRender.RenderCompositionRecorder.NoteDescentPhaseEvent(
+                member, cycle, currentUT, phase.ToString(), triggerUT, entryUT, rotResidualDeg, headUT);
             switch (ev)
             {
                 case DescentTrigger.DescentRenderEvent.WindowOpened:

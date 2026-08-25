@@ -18,6 +18,10 @@ Everything the harness fetches or generates lives UNDER `harness/`:
   `[expectations.recordings.structure]`, and the gate-12
   `[expectations.recordings.points]` block that asserts recordings actually
   RECORDED something rather than merely existing as `.prec` files),
+  + `rendercompose.py`, the M-A7 pure render-composition parser / clock-math
+  re-derivation / RC-* rule set behind the `renderCompose` verifier row
+  (`[expectations.renderComposition]`, evaluated over the produced
+  `parsek-render-manifest.txt`; REPORT-ONLY, no committed spec arms it),
   `provision/` (`provlib.py` pure, `provision.py`
   shell), `missions/` (M-B1: mission shells + `lib/mlib.py` pure mission
   decisions + `bootstrap_venv.py`), and their `test_*.py`. run.py drives

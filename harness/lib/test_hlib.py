@@ -25,6 +25,7 @@ import tomllib
 import unittest
 
 import hlib
+import rendercompose
 import saveparse
 
 
@@ -985,8 +986,86 @@ class SpecValidationRejectTests(unittest.TestCase):
             with self.subTest(verb=verb):
                 self.assertIn(verb, hlib.IMPLEMENTED_SEAM_VERBS)
                 self.assertNotIn(verb, hlib.RESERVED_SEAM_VERBS)
-        self.assertEqual(len(hlib.IMPLEMENTED_SEAM_VERBS), 24)
+        # 25 after M-A7's ExportRenderManifest, which is ADDITIVE (never in the RESERVED
+        # envelope, like SaveGame and the EVA family), so reserved stays at 7.
+        self.assertEqual(len(hlib.IMPLEMENTED_SEAM_VERBS), 25)
         self.assertEqual(len(hlib.RESERVED_SEAM_VERBS), 7)
+
+    def test_ma7_export_render_manifest_implemented_not_reserved(self):
+        # M-A7: ExportRenderManifest is a NEW implemented verb (never in the RESERVED
+        # envelope) - the additive SaveGame / EVA shape, not a promotion.
+        self.assertIn("ExportRenderManifest", hlib.IMPLEMENTED_SEAM_VERBS)
+        self.assertNotIn("ExportRenderManifest", hlib.RESERVED_SEAM_VERBS)
+
+    def test_ma7_export_render_manifest_step_accepted(self):
+        # A spec step using ExportRenderManifest is not flagged RESERVED / unknown.
+        # The block is DECLARED alongside it because the verb and the block are
+        # COUPLED (cells below); a bare verb is now its own rejection and would
+        # mask the reserved/unknown check this cell is actually about.
+        def m(s):
+            s.get("expectations", {}).pop("ledger", None)
+            s.setdefault("expectations", {})["renderComposition"] = {
+                "dwells": {"min": 1}}
+            s["driver"]["steps"].insert(
+                1, {"cmd": "ExportRenderManifest", "expect": "OK"})
+        v = self._reject(m)
+        self.assertFalse(
+            any("ExportRenderManifest" in e for e in v.errors),
+            "ExportRenderManifest wrongly flagged: %s" % list(v.errors))
+
+    def test_ma7_export_verb_expecting_ok_without_the_block_is_rejected(self):
+        # The recorder is armed by the DECLARATION and by nothing else, so this
+        # spec exports nothing and reads nobody - and every symptom of that is
+        # quiet. Refused before KSP boots, naming both fixes.
+        def m(s):
+            s.get("expectations", {}).pop("ledger", None)
+            s.get("expectations", {}).pop("renderComposition", None)
+            s["driver"]["steps"].insert(
+                1, {"cmd": "ExportRenderManifest", "expect": "OK"})
+        v = self._reject(m)
+        hits = [e for e in v.errors if "ExportRenderManifest" in e]
+        self.assertEqual(1, len(hits), list(v.errors))
+        self.assertIn("renderComposition", hits[0])
+        self.assertIn("REJECTED", hits[0])
+
+    def test_ma7_export_verb_expecting_rejected_is_a_legal_negative_control(self):
+        # The unarmed-recorder negative control: a lane proving the verb declines
+        # when nothing armed it. It asserts something precisely BECAUSE the block
+        # is absent, so the coupling rule must leave it alone.
+        def m(s):
+            s.get("expectations", {}).pop("ledger", None)
+            s.get("expectations", {}).pop("renderComposition", None)
+            s["driver"]["steps"].insert(
+                1, {"cmd": "ExportRenderManifest", "expect": "REJECTED"})
+        v = self._reject(m)
+        self.assertFalse(any("ExportRenderManifest" in e for e in v.errors),
+                         list(v.errors))
+
+    def test_no_committed_spec_trips_the_export_verb_coupling_rule(self):
+        # Repo-wide, DISCOVERED rather than hardcoded: a rule the committed corpus
+        # cannot satisfy on the day it lands is a rule nobody can satisfy.
+        checked = 0
+        for name in sorted(os.listdir(SCENARIOS_DIR)):
+            if not name.endswith(".toml"):
+                continue
+            spec = load_spec(name)
+            declared = "renderComposition" in (spec.get("expectations", {}) or {})
+            steps = (spec.get("driver", {}) or {}).get("steps", []) or []
+            offenders = [s for s in steps
+                         if (s or {}).get("cmd") == hlib.RENDER_MANIFEST_EXPORT_VERB
+                         and (s or {}).get("expect") == "OK"]
+            if not offenders:
+                continue
+            checked += 1
+            self.assertTrue(
+                declared,
+                "%s drives %s expecting OK with no "
+                "[expectations.renderComposition] block"
+                % (name, hlib.RENDER_MANIFEST_EXPORT_VERB))
+        # No committed spec drives the verb yet (wave 2 wires the first lane), so
+        # `checked == 0` is the CURRENT truth and is recorded rather than asserted
+        # away - the sweep starts biting the moment one lands.
+        self.assertGreaterEqual(checked, 0)
 
     def test_r12_verbs_implemented_not_reserved(self):
         # R12 landed TWO verbs of DIFFERENT shapes, and the distinction is the point:
@@ -4387,6 +4466,31 @@ class EvaluateExpectationsTests(unittest.TestCase):
         # ledger was never reserved (it is a tolerated-unknown block slot 7 ignores).
         self.assertNotIn("ledger", hlib.RESERVED_EXPECTATION_BLOCKS)
 
+    def test_rendercomposition_never_reserved_because_the_evaluator_ships(self):
+        """M-A7 takes the LEDGER shape, not the world/rewind one.
+
+        RESERVED_EXPECTATION_BLOCKS is for a block with NO evaluator: slot 7
+        records it as `reserved` so a spec declaring it does not silently assert
+        nothing. `renderComposition` never enters the tuple because its evaluator
+        (rendercompose.evaluate_render_composition, row 7c) lands in the SAME
+        change - exactly as `ledger` never entered it. Slot 7 tolerates unknown
+        blocks, so the block validates, arms PARSEK_RENDER_MANIFEST at launch, is
+        evaluated by its own sole owner, and is NOT double-counted as reserved.
+
+        Were this to invert - the block entering the tuple while row 7c also owns
+        it - a declaring spec would carry the block in `expectations.reserved`
+        (reading as "nothing evaluates this") while it was in fact gating."""
+        exp = {rendercompose.RENDER_COMPOSITION_BLOCK: {"dwells": {"min": 1}},
+               "recordings": {"count": {"min": 0, "max": 0}}}
+        r = hlib.evaluate_expectations(exp, 0, "")
+        self.assertNotIn(rendercompose.RENDER_COMPOSITION_BLOCK, r.reserved)
+        self.assertNotIn(rendercompose.RENDER_COMPOSITION_BLOCK,
+                         hlib.RESERVED_EXPECTATION_BLOCKS)
+        # The tuple itself is unchanged by M-A7: route/loop still have no owner.
+        self.assertEqual(("route", "loop"), hlib.RESERVED_EXPECTATION_BLOCKS)
+        # ... and slot 7 does not red the run for the unknown block either.
+        self.assertEqual("PASS", r.status)
+
 
 class ObservedExpectationFacetsTests(unittest.TestCase):
     """Guards the MEASURED-facet record verifier 7 now carries. The gap it closes:
@@ -5986,6 +6090,155 @@ class SaveStructureVerifierWiringTests(unittest.TestCase):
                          "every armed window needs its own report-only reading run first")
 
 
+class RenderComposeVerifierWiringTests(unittest.TestCase):
+    """The M-A7 render-composition verifier's hlib-side wiring: spec-surface
+    validation routes through validate_spec, the gating flag classifies its own
+    PARSEK-FAIL subkind at the right precedence, and - the SAFETY PROPERTY,
+    mirroring the save-structure precedent above - arming stays a deliberate,
+    per-scenario, live-proven act.
+
+    The guarantee AS SHIPPED is the strong form the save-structure row shipped
+    with in 2026-07: NO committed spec arms `gating = true`, so landing row 7c
+    cannot move any nightly's verdict. When the first lane is promoted on
+    evidence (a report-only reading run whose facets match the declared windows),
+    the guarantee becomes the next one along - the armed set is an ALLOWLIST, and
+    a spec joining it needs an explicit edit here citing its run ids.
+
+    NAMING: the roster below is deliberately NOT called `*ARMED_ALLOWLIST`.
+    `harness/missions/lib/test_cl3_refly_crew_tombstone.py` scrapes the
+    save-structure roster out of THIS FILE'S SOURCE with a first-match
+    `ARMED_ALLOWLIST\\s*=\\s*\\{([^}]*)\\}` regex; a second symbol whose name ends
+    in `ARMED_ALLOWLIST` would be a coin-flip on file order. A distinct name is
+    the fix that does not depend on staying below the other one."""
+
+    # No committed spec arms render-composition gating. Empty ON PURPOSE - see
+    # the class docstring. A spec joining this set needs its run ids cited here in
+    # the same commit that arms it.
+    RENDERCOMPOSE_ARMED_SPECS = set()
+
+    def test_no_committed_spec_arms_render_composition_gating(self):
+        armed = []
+        for name in sorted(n for n in os.listdir(SCENARIOS_DIR) if n.endswith(".toml")):
+            with open(os.path.join(SCENARIOS_DIR, name), "rb") as fh:
+                spec = tomllib.load(fh)
+            if rendercompose.gating_armed(spec.get("expectations") or {}):
+                armed.append(name)
+        self.assertEqual(sorted(self.RENDERCOMPOSE_ARMED_SPECS), armed,
+                         "the set of specs arming render-composition gating changed; arming "
+                         "is a per-scenario operator decision taken only after a report-only "
+                         "reading run whose facets match the declared windows - add the spec "
+                         "here in the same commit that arms it, citing the run id")
+
+    def test_gating_mismatch_classifies_render_composition_parsek_fail(self):
+        d, v = _clean_pass_facts()
+        v["render_composition_mismatch"] = True
+        verdict = hlib.classify_verdict(d, v, {"bugId": ""}, 1, "once")
+        self.assertEqual(("PARSEK-FAIL", "render-composition"),
+                         (verdict.verdict, verdict.subkind))
+        self.assertIn("render-composition", hlib.PARSEK_FAIL_SUBKINDS)
+
+    def test_absent_flag_is_a_pass_not_a_fail(self):
+        """The report-only default in the classifier: with the flag ABSENT (every
+        run today, since run.py only sets it under `if rc.gating:`) the verdict is
+        an ordinary PASS. A `verifiers.get(..., True)` slip would red every run."""
+        d, v = _clean_pass_facts()
+        self.assertNotIn("render_composition_mismatch", v)
+        self.assertEqual("PASS", hlib.classify_verdict(d, v, {"bugId": ""}, 1, "once").verdict)
+        # False is likewise a PASS: a GATING row that evaluated clean.
+        v["render_composition_mismatch"] = False
+        self.assertEqual("PASS", hlib.classify_verdict(d, v, {"bugId": ""}, 1, "once").verdict)
+
+    def test_precedence_after_save_structure_and_before_ledger(self):
+        """Placement is the claim: a run that reds BOTH structurally and
+        compositionally is named by the SAVE-structure subkind (the structure is
+        upstream of what the map drew), and a run that reds BOTH compositionally
+        and on the ledger is named by render-composition."""
+        d, v = _clean_pass_facts()
+        v["save_structure_mismatch"] = True
+        v["render_composition_mismatch"] = True
+        self.assertEqual("save-structure",
+                         hlib.classify_verdict(d, v, {"bugId": ""}, 1, "once").subkind)
+        d, v = _clean_pass_facts()
+        v["render_composition_mismatch"] = True
+        v["ledger_drift"] = True
+        self.assertEqual("render-composition",
+                         hlib.classify_verdict(d, v, {"bugId": ""}, 1, "once").subkind)
+
+    def test_parsek_fail_is_never_retried(self):
+        verdict = hlib.Verdict("PARSEK-FAIL", "render-composition", False, "x")
+        self.assertFalse(hlib.should_retry(verdict, 1, "once"))
+
+    # -- validate_spec routing -------------------------------------------------
+
+    def _spec_with(self, block):
+        spec = copy.deepcopy(load_spec("B1-pad-hop.toml"))
+        spec["expectations"][rendercompose.RENDER_COMPOSITION_BLOCK] = block
+        return spec
+
+    def test_malformed_block_rejects_pre_launch(self):
+        """A malformed window must never launch KSP: the run would green having
+        evaluated a no-op. Routed through rendercompose's own validator so the
+        validator and the evaluator share one vocabulary."""
+        res = hlib.validate_spec(self._spec_with({"dwells": "lots"}), load_registry())
+        self.assertFalse(res.ok)
+        self.assertTrue(any("renderComposition" in e for e in res.errors), res.errors)
+
+    def test_unknown_key_rejects_pre_launch(self):
+        res = hlib.validate_spec(self._spec_with({"minDwells": 3}), load_registry())
+        self.assertFalse(res.ok)
+        self.assertTrue(any("unknown key" in e for e in res.errors), res.errors)
+
+    def test_unknown_warp_bucket_token_rejects_pre_launch(self):
+        res = hlib.validate_spec(self._spec_with({"warpBuckets": ["warp1x", "warpNope"]}),
+                                 load_registry())
+        self.assertFalse(res.ok)
+        self.assertTrue(any("warpBuckets" in e for e in res.errors), res.errors)
+
+    def test_armed_with_no_assertion_rejects_pre_launch(self):
+        """Anti-vacuity: an ARMED block asserting nothing is a gate that can never
+        red - the most expensive kind of green."""
+        res = hlib.validate_spec(self._spec_with({"gating": True}), load_registry())
+        self.assertFalse(res.ok)
+
+    def test_unarmed_assertionless_block_is_a_warning_not_an_error(self):
+        """The reading-run state the arming workflow MANDATES: a bare
+        `[expectations.renderComposition]` declares nothing, arms the recorder at
+        launch, and reports the measured facets. Hard-rejecting it would make the
+        prescribed first step impossible."""
+        res = hlib.validate_spec(self._spec_with({}), load_registry())
+        self.assertTrue(res.ok, res.errors)
+        self.assertTrue(any("renderComposition" in w for w in res.warnings), res.warnings)
+
+    def test_a_well_formed_report_only_block_validates(self):
+        block = {"dwells": {"min": 1}, "unevaluable": {"max": 4},
+                 "warpBuckets": ["warp1x"], "requireSeamKinds": ["rigid"]}
+        spec = self._spec_with(block)
+        res = hlib.validate_spec(spec, load_registry())
+        self.assertTrue(res.ok, res.errors)
+        # ... and it is DECLARED without being ARMED: the two are distinct facts,
+        # and only the second can move a verdict.
+        exp = spec["expectations"]
+        self.assertEqual(("renderComposition",),
+                         rendercompose.declared_composition_blocks(exp))
+        self.assertFalse(rendercompose.gating_armed(exp))
+
+    def test_no_committed_spec_declares_the_block_yet(self):
+        """Phase-2 landing state, pinned so the first declarer is a deliberate
+        edit. DECLARING (not arming) is what sets PARSEK_RENDER_MANIFEST=1 at
+        launch, so a spec picking the block up by accident would silently change
+        what its KSP does at boot."""
+        declarers = []
+        for name in sorted(n for n in os.listdir(SCENARIOS_DIR) if n.endswith(".toml")):
+            with open(os.path.join(SCENARIOS_DIR, name), "rb") as fh:
+                spec = tomllib.load(fh)
+            if rendercompose.declared_composition_blocks(spec.get("expectations") or {}):
+                declarers.append(name)
+        self.assertEqual([], declarers,
+                         "a committed spec now declares [expectations.renderComposition]; "
+                         "that spec's KSP boots with PARSEK_RENDER_MANIFEST=1 - record the "
+                         "decision here in the same commit")
+
+
 class WorldRosterDeclarerTests(unittest.TestCase):
     """The world ROSTER sub-facet is HARD (a declared claim reds the run), so its
     declarer set is a deliberate, reviewed list exactly like the save-structure
@@ -6246,8 +6499,8 @@ class IngameCategoryInventoryDocTests(unittest.TestCase):
         # with the `ReFlyWorldPreservation` category (S4.2), 100 -> 101 with
         # `RecordedSignals` (H33), 101 -> 102 with `SnapshotBaseline` (H32),
         # 102 -> 103 with `PlaybackFidelity` (H36), 103 -> 104 with
-        # `PartEventFidelity` (H37).
-        self.assertIn("**104 categories / %d declarations**" % stated_decls, body,
+        # `PartEventFidelity` (H37), 104 -> 105 with `RenderComposition` (M-A7).
+        self.assertIn("**105 categories / %d declarations**" % stated_decls, body,
                       "the triage totals line disagrees with the table it summarises "
                       "(table sums to %d declarations across %d categories)"
                       % (stated_decls, len(self.rows)))
@@ -6392,7 +6645,9 @@ class AnomalyGroundTruthEnumerationTests(unittest.TestCase):
         # Anti-vacuity for the scanner itself: an empty / near-empty walk would make
         # every set assertion below trivially true.
         self.assertGreaterEqual(len(self.raised), 15)
-        self.assertIn("Source/Parsek/MapRenderProbe.cs:1012",
+        # 1012 -> 1021 when the M-A7 recorder hooks landed above it in the same file;
+        # the raise site itself is unchanged.
+        self.assertIn("Source/Parsek/MapRenderProbe.cs:1021",
                       self.raised.get("icon-teleport", []))
         self.assertIn("Source/Parsek/GameActions/FacilityStatePatcher.cs:158",
                       self.raised.get("ledger-vs-truth", []))
@@ -6434,8 +6689,8 @@ class AnomalyGroundTruthEnumerationTests(unittest.TestCase):
         # the contract - the membership is.
         self.assertEqual(
             [("unaccounted-drawn-recording", "Source/Parsek/MapRenderProbe.cs:544"),
-             ("factory-parity", "Source/Parsek/MapRender/ShadowRenderDriver.cs:709"),
-             ("seam-endpoint-outside-soi", "Source/Parsek/MapRenderProbe.cs:2288")],
+             ("factory-parity", "Source/Parsek/MapRender/ShadowRenderDriver.cs:726"),
+             ("seam-endpoint-outside-soi", "Source/Parsek/MapRenderProbe.cs:2303")],
             list(hlib.ANOMALY_REASONS_RAISED_UNGATED),
             "the report-only instrument list changed - that is a calibration "
             "decision (defect signal vs instrument), not a bookkeeping edit")

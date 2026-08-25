@@ -402,6 +402,19 @@ journal, verdicts) is designed once and the later commands slot in without a for
 > `driver-arg` either way, because `hlib._SEAM_REFUSAL_SUBKINDS` maps the msg token and
 > never reads the verdict.
 
+> Update (M-A7): one further verb, `ExportRenderManifest`, added the ADDITIVE way (never
+> in the reserved list above, like `SaveGame` and the EVA family), bringing the table to
+> **25 implemented / 7 reserved**. It flushes the armed render-composition recorder's
+> accumulation to `parsek-render-manifest.txt` in the KSP root and answers OK with the
+> written path plus the record counts, so a lane can take the manifest at a MEASURED
+> instant instead of provoking a scene bounce to reach the auto-flush - which would change
+> the very composition being measured. SINGLE-PHASE (the flush plus one safe-write are
+> synchronous, so there is nothing to wait for), no args, precondition `AnyScene` because
+> the recorder is a DontDestroyOnLoad addon that accumulates in every scene. Its one
+> refusal is `REJECTED msg=manifest-not-armed`, deliberately not a defer: the arm gate is
+> the `PARSEK_RENDER_MANIFEST` env var read once at Awake, so waiting could never turn it
+> into a success. See `design-autotest-render-composition.md`.
+
 #### R12/A1 - `LoadGame scene=<spacecenter|trackstation>`
 
 **Contract.** `LoadGame` gains one optional argument. ABSENT is the pre-R12 contract

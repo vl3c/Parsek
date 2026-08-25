@@ -448,6 +448,44 @@ namespace Parsek.Display
         }
 
         /// <summary>
+        /// M-A7 co-draw probe: is ANY cached ghost leg for <paramref name="recordingId"/> STILL SHOWING
+        /// a mesh right now - i.e. does it have a <c>VectorLine</c> whose <c>active</c> is true?
+        ///
+        /// <para>The <c>active</c> read ALONE is the measurement, deliberately. The route draw pass
+        /// runs after the ghost path's deactivation sweep, so by the time this is asked, every leg the
+        /// ghost path did NOT draw this frame has already been deactivated. A leg still reading
+        /// <c>active</c> here is therefore exactly the defect the probe exists for: a mesh painted on
+        /// an earlier frame that nothing retired, about to be overpainted by the route overview line.
+        /// A <c>lastDrawnFrame &gt;= frame - 1</c> disjunct would ADD the legitimate case - a leg the
+        /// ghost path drew normally this frame or last - and report it as a violation, so it is not
+        /// used here. (<c>EmitRenderedPolylineSnapshot</c> keeps that convention because it is
+        /// answering the different question "what did we draw recently", from the onPreCull slot.)</para>
+        ///
+        /// <para>This is NOT the ownership signal (<see cref="IsRenderingNonOrbitalLeg"/> is, and the
+        /// route line's no-double-draw arbitration keeps consulting that one). It exists so the
+        /// render-composition manifest can record an explicit CO-DRAW VIOLATION on the one frame shape
+        /// the ownership set cannot see: the LateUpdate walk early-returned after the -50 clear
+        /// (controller defer / map not enabled), leaving the drew-set empty while a prior frame's
+        /// ghost leg mesh is still active, so the route overview line paints a second identical line
+        /// over it. Aggregate skip counts alone cannot prove the absence of such a frame; a violation
+        /// RECORD can. Read-only; Unity-coupled (reads <c>VectorLine.active</c>), so it is called only
+        /// from the live route draw path.</para>
+        /// </summary>
+        internal static bool IsAnyLegActiveForRecording(string recordingId)
+        {
+            if (string.IsNullOrEmpty(recordingId)) return false;
+            if (!polylineCache.TryGetValue(recordingId, out LegPolylineSet cached)) return false;
+            LegPolyline[] legs = cached.legs;
+            if (legs == null) return false;
+            for (int i = 0; i < legs.Length; i++)
+            {
+                LegPolyline leg = legs[i];
+                if (leg.vectorLine != null && leg.vectorLine.active) return true;
+            }
+            return false;
+        }
+
+        /// <summary>
         /// PURE set diff for the polyline render-EVENT appear/disappear emit: given the recordings drawn on
         /// the PREVIOUS frame (<paramref name="previous"/>) and the recordings drawn on the CURRENT frame
         /// (<paramref name="current"/>), fills <paramref name="appeared"/> (in current, not previous) and
@@ -4646,6 +4684,14 @@ namespace Parsek.Display
                         MapRenderTrace.RenderSurface.Polyline,
                         previousDrewNonOrbitalLegRecordings, drewNonOrbitalLegRecordings,
                         Planetarium.GetUniversalTime());
+
+                // M-A7 render-composition OWNERSHIP capture (capture point 3, truth half): the
+                // actual-draw publish set. The recorder keeps its OWN previous set and runs the same
+                // pure DiffDrawnSets, so it never shares this tracing-gated diff's state. Instant
+                // no-op when the manifest env gate is unarmed - the recorder reads the UT itself,
+                // BEHIND that gate, so the unarmed path pays no Unity call for this line.
+                Parsek.MapRender.RenderCompositionRecorder.NoteOwnershipPublish(
+                    drewNonOrbitalLegRecordings);
             }
 
             /// <summary>
@@ -4896,7 +4942,9 @@ namespace Parsek.Display
             }
 
             // The UT step used to sample the leaving (capture-conic) tangent just before the seam.
-            private const double TangentSeamConicSampleDtSeconds = 1.0;
+            // internal (not private) so the M-A7 render-composition manifest can export it in the
+            // CONSTANTS header block; the Python verifier's ratified table pins the value.
+            internal const double TangentSeamConicSampleDtSeconds = 1.0;
 
             /// <summary>
             /// Phase 5b: the Tier-C <c>rigid-seam-tangent-discontinuity</c> production raise, wired at
@@ -4982,6 +5030,14 @@ namespace Parsek.Display
                     leaving, entering);
                 double angleRad = Parsek.MapRender.CrossMemberSeamStitcher.TangentSeamAngleRadians(
                     leaving, entering);
+
+                // M-A7 render-composition SEAM capture: record EVERY evaluation (not just the
+                // once-per-onset discontinuous ones) - RC-QUAL's trend record needs the PASSING angles
+                // too. Instant no-op when the manifest env gate is unarmed.
+                Parsek.MapRender.RenderCompositionRecorder.NoteSeamTangent(
+                    p.ghostPid, p.recordingId, p.legIndex, Planetarium.GetUniversalTime(),
+                    continuous, angleRad,
+                    Parsek.MapRender.CrossMemberSeamStitcher.TangentToleranceRadians);
 
                 // Once-per-onset: feed the state through the signature gate in BOTH states (a healed seam
                 // re-arms the next onset); only a CHANGED discontinuous state emits the anomaly.

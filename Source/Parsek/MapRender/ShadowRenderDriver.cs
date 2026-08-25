@@ -314,6 +314,8 @@ namespace Parsek.MapRender
             if (!IsLiveClockReady(currentUT))
             {
                 MapRenderTrace.EmitClockNotReady(currentUT, pids?.Count ?? 0);
+                // M-A7: a RATIFIED whole-frame dark window (the spine deferred, nothing rendered).
+                RenderCompositionRecorder.NoteClockDefer(currentUT, pids?.Count ?? 0);
                 ParsekLog.VerboseRateLimited("MapRender", "spine-clock-not-ready",
                     string.Format(CultureInfo.InvariantCulture,
                         "spine deferred: live clock not ready (liveUT={0:R} <= 0 / non-finite); rendering nothing this frame",
@@ -379,6 +381,12 @@ namespace Parsek.MapRender
                         sample = ChainSampler.Sample(chain, currentUT, units);
                         intent = GhostRenderDirector.Decide(sample, prior, traj.VesselName);
                     }
+                    // M-A7 render-composition DWELL capture (capture point 3): the Director stamp is
+                    // the dwell open/close driver. One guarded call, no new branching; instant no-op
+                    // when the manifest env gate is unarmed.
+                    RenderCompositionRecorder.NoteDirectorIntent(
+                        pid, traj.RecordingId, idx, currentUT, in prior, in intent,
+                        sample.Coverage, sample.SegmentIndex, spineDroveTypedChain: phaseChain != null);
                     priorIntentByPid[pid] = intent;
 
                     // C1 RETIRE-NOT-HELD raise (design §6.4 / §10.7): a member whose sample resolved
@@ -416,6 +424,9 @@ namespace Parsek.MapRender
                             memberIsReaimOwner, chainHasReaimedSegments, sampleInSegment))
                     {
                         skipReaim++;
+                        // M-A7: a RATIFIED hidden window (the re-aim segment skip). Recording it is
+                        // what keeps RC-COVER from reading this deliberate gap as unexplained dark.
+                        RenderCompositionRecorder.NoteRatifiedSkip(pid, currentUT, "reaim-segment-skip");
                         continue;
                     }
 
@@ -607,6 +618,14 @@ namespace Parsek.MapRender
                 PhaseChain = phaseChain,
                 HasReaimedSegments = chainHasReaimedSegments,
             };
+            // M-A7 render-composition CHAIN capture (capture point 2): inside the BUILD-only path, so
+            // it fires once per (pid, chain signature) - a cache hit returned above. A null phaseChain
+            // IS the chain-provenance flag (the factory threw and RunFrame falls back to the assembler
+            // chain), which the manifest records so a dwell is never accounted against a chain the
+            // renderer did not use. Instant no-op when the manifest env gate is unarmed.
+            RenderCompositionRecorder.NoteChainBuild(
+                pid, traj?.RecordingId, idx, sig, windowIndex, currentUT,
+                phaseChain, chain, chainHasReaimedSegments);
             return chain;
         }
 

@@ -800,6 +800,15 @@ namespace Parsek.Logistics
                 unit, loopUT, cycleIndex, route.RecordedDockUT,
                 route.LastObservedLoopCycleIndex, out RouteLoopClock.OwedDockCrossing owedCrossing);
             long dockCycleIndex = owedCrossing.DockCycleIndex;
+            // M-A7 render-composition CLOCK-EVENT capture (capture point 4, route half). NOTE: this is
+            // the DELIVERY clock, which is NOT the render clock - TryGetRouteLoopState forwards only
+            // the relaunch schedule and the loiter cuts, so on a hold-carrying unit the two diverge.
+            // Recording it is what makes that divergence checkable. Instant no-op when unarmed.
+            if (crossing)
+            {
+                Parsek.MapRender.RenderCompositionRecorder.NoteRouteDockCrossing(
+                    unit.OwnerIndex, dockCycleIndex, currentUT, route.Id);
+            }
             if (!crossing)
             {
                 skipped++;
