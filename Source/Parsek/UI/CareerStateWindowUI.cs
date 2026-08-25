@@ -1366,7 +1366,7 @@ namespace Parsek
             // Bottom "hovered control help text" strip (shared house helper), drawn after
             // the tab body (so the live GUI.tooltip read sees a hovered column header or
             // row) and directly above the Close button - the house ordering every Parsek
-            // window uses. Fixed two-line height, always present.
+            // window uses. Fixed single-line height here, always present.
             tooltipEcho.Draw();
 
             if (GUILayout.Button("Close"))

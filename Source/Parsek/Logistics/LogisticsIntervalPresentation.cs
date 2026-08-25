@@ -32,8 +32,11 @@ namespace Parsek.Logistics
                     basisLabel ?? string.Empty);
             }
 
+            // "N" binds the arithmetic to the "Nx" cell the player is hovering - it is
+            // the multiplier readout's own symbol, not filler (a copy trim once
+            // replaced it with the word "cadence", defining cadence as itself).
             return string.Format(CultureInfo.InvariantCulture,
-                "Dispatch cadence = cadence x run duration (transit {0}). Type an interval (30m, 2h, 1d, or plain seconds) or use -/+; it snaps up to a whole run-multiple.",
+                "Dispatch cadence = N x run duration (transit {0}). Type an interval (30m, 2h, 1d, or plain seconds) or use -/+; it snaps up to a whole run-multiple.",
                 formattedTransit ?? "-");
         }
     }

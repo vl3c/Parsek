@@ -37,13 +37,21 @@ namespace Parsek
     /// <see cref="DoubleLine"/> because their texts genuinely wrap. TooltipEchoBudgetTests
     /// pins which windows use which height alongside the per-window text budgets.</para>
     ///
-    /// <para><b>The overflow marquee.</b> Text wider than the laid-out strip does not
-    /// clip silently: on Repaint the rendered line shifts left over time (via the
-    /// style's <c>contentOffset</c>, set BEFORE the label draws, so both IMGUI passes
-    /// still emit identical controls and reserve the identical rect). The motion curve
-    /// lives in the pure <see cref="TooltipMarquee"/>; this class only owns the clock -
-    /// realtime seconds accumulated against the CURRENT text, reset whenever the text
-    /// changes so a new tooltip always starts readable from its left edge.</para>
+    /// <para><b>The overflow marquee.</b> Text the strip cannot fully display does not
+    /// clip silently: the strip renders it through the NOWRAP style as one long line
+    /// (word wrap would push the tail onto a vertically-clipped extra line, where no
+    /// horizontal shift could ever reveal it) and shifts it left over time via that
+    /// style's <c>contentOffset</c>. The label keeps the same control count and the
+    /// same reserved rect in marquee mode: explicit height as always, and the width
+    /// pinned to the previously measured strip width so the unwrapped text's huge
+    /// minimum width can never widen the window. Whether a text overflows is decided
+    /// by the pure <see cref="TooltipMarquee.NeedsMarquee"/> from the WRAPPED height
+    /// (a text that wraps fully inside a two-line strip is visible and must not
+    /// scroll); the decision and both measurements are cached and recomputed only when
+    /// the text or the strip width changes. The clock accumulates realtime seconds
+    /// against the current text's digit-free <see cref="TooltipMarquee.ScrollKeyFor"/>
+    /// key, so live countdown tooltips keep their cycle across per-second re-renders
+    /// while any real text change still restarts readable from the left edge.</para>
     ///
     /// <para>One instance per window (styles are built from <see cref="GUI.skin"/>, so
     /// a window whose skin is scene-scoped must call <see cref="ResetStyles"/> on a
@@ -72,20 +80,33 @@ namespace Parsek
         private readonly int lines;
 
         private GUIStyle wrappedTooltipStyle;
-        private GUIStyle nowrapMeasureStyle;
+        private GUIStyle nowrapScrollStyle;
         private float fixedStripHeight;
+        private float oneLineProbeHeight;
 
-        // Marquee state. Elapsed accumulates realtime deltas while the SAME text shows
-        // (numbers stay small forever, unlike a raw Time.realtimeSinceStartup whose
-        // float precision decays over long sessions); any text change resets it so the
-        // new tooltip starts readable from its left edge.
+        // Marquee state. Elapsed accumulates realtime deltas while the text's
+        // digit-free ScrollKeyFor key is unchanged (so countdown tooltips keep their
+        // cycle across per-second re-renders); a key change resets it so a new tooltip
+        // starts readable from its left edge.
         private string scrollText;
+        private string scrollKey;
         private double scrollElapsedSeconds;
         private float lastRealtime;
 
         // The strip width measured on the previous Repaint. One frame stale after a
         // resize - invisible at marquee speeds.
         private float cachedStripWidth;
+
+        // Cached overflow measurements + decision, recomputed only when the text or
+        // the laid-out strip width changes (never per frame): the text's unwrapped
+        // single-line advance, the width both were measured against, and whether the
+        // current text must marquee-scroll. marqueeActive is a FIELD (not a per-pass
+        // derivation) so Layout and Repaint of one frame agree on the label's style
+        // and options even while the decision is changing.
+        private float nowrapTextWidth;
+        private float measuredStripWidth;
+        private bool measurementsDirty;
+        private bool marqueeActive;
 
         internal TooltipEchoBox() : this(DefaultSpacing)
         {
@@ -147,12 +168,18 @@ namespace Parsek
         internal void ResetStyles()
         {
             wrappedTooltipStyle = null;
-            nowrapMeasureStyle = null;
+            nowrapScrollStyle = null;
             fixedStripHeight = 0f;
+            oneLineProbeHeight = 0f;
             scrollText = null;
+            scrollKey = null;
             scrollElapsedSeconds = 0.0;
             lastRealtime = 0f;
             cachedStripWidth = 0f;
+            nowrapTextWidth = 0f;
+            measuredStripWidth = 0f;
+            measurementsDirty = false;
+            marqueeActive = false;
         }
 
         /// <summary>
@@ -190,35 +217,64 @@ namespace Parsek
             string text = ResolveCapturedText(manualOverride, GUI.tooltip);
             bool repaint = Event.current.type == EventType.Repaint;
 
-            // contentOffset is a paint-time shift only: Layout never sees a nonzero
-            // value, and on Repaint it is set BEFORE the label draws, so the label both
-            // reserves and paints in the same call with the same rect as always.
-            float shiftX = repaint ? AdvanceScroll(text) : 0f;
-            wrappedTooltipStyle.contentOffset = new Vector2(-shiftX, 0f);
+            // The scroll shift is paint-time only (contentOffset never affects layout);
+            // it is computed BEFORE the label so the same call reserves and paints.
+            // AdvanceScroll also refreshes marqueeActive, but only ON REPAINT - the
+            // field is what the style/option choice below reads, so Layout and Repaint
+            // of one frame always pick the same control shape.
+            if (repaint)
+            {
+                float shiftX = AdvanceScroll(text);
+                nowrapScrollStyle.contentOffset = new Vector2(-shiftX, 0f);
+            }
 
             GUILayout.Space(spacing);
-            GUILayout.Label(
-                text,
-                wrappedTooltipStyle,
-                GUILayout.Height(fixedStripHeight),
-                GUILayout.ExpandWidth(true));
+            if (marqueeActive && cachedStripWidth > 0f)
+            {
+                // Marquee mode: render as ONE unwrapped line (the wrapped render would
+                // hide the tail on a vertically-clipped extra line) inside the exact
+                // rect the strip always occupies. Width is PINNED to the measured strip
+                // width - never ExpandWidth - because the unwrapped text's minimum
+                // width would otherwise widen the whole window during Layout.
+                GUILayout.Label(
+                    text,
+                    nowrapScrollStyle,
+                    GUILayout.Height(fixedStripHeight),
+                    GUILayout.Width(cachedStripWidth));
+            }
+            else
+            {
+                GUILayout.Label(
+                    text,
+                    wrappedTooltipStyle,
+                    GUILayout.Height(fixedStripHeight),
+                    GUILayout.ExpandWidth(true));
+            }
 
             if (repaint)
                 cachedStripWidth = GUILayoutUtility.GetLastRect().width;
         }
 
         /// <summary>
-        /// Advances the marquee clock against <paramref name="text"/> and returns how far
-        /// the rendered line should shift LEFT this frame (0 when the text fits or no
-        /// width has been laid out yet). REPAINT ONLY - it reads the realtime clock.
+        /// Advances the marquee clock against <paramref name="text"/>, refreshes the
+        /// cached overflow measurements + <see cref="marqueeActive"/> when the text or
+        /// the laid-out strip width changed, and returns how far the rendered line
+        /// should shift LEFT this frame (0 when the text fits or no width has been
+        /// laid out yet). REPAINT ONLY - it reads the realtime clock.
         /// </summary>
         private float AdvanceScroll(string text)
         {
             float now = Time.realtimeSinceStartup;
             if (!string.Equals(text, scrollText, StringComparison.Ordinal))
             {
+                // Clock identity is the digit-free key: a countdown tooltip re-rendering
+                // each second keeps its cycle; any other change restarts it.
+                string key = TooltipMarquee.ScrollKeyFor(text);
+                if (!string.Equals(key, scrollKey, StringComparison.Ordinal))
+                    scrollElapsedSeconds = 0.0;
                 scrollText = text;
-                scrollElapsedSeconds = 0.0;
+                scrollKey = key;
+                measurementsDirty = true;
             }
             else if (lastRealtime > 0f && now > lastRealtime)
             {
@@ -226,18 +282,34 @@ namespace Parsek
             }
             lastRealtime = now;
 
-            if (string.IsNullOrEmpty(text) || cachedStripWidth <= 0f || nowrapMeasureStyle == null)
+            if (string.IsNullOrEmpty(text) || cachedStripWidth <= 0f || nowrapScrollStyle == null)
+            {
+                marqueeActive = false;
                 return 0f;
+            }
 
-            // Single-line advance width (wordWrap off): the marquee reveals horizontally,
-            // so wrapping is irrelevant to whether the text overflows the strip.
-            float textWidth = nowrapMeasureStyle.CalcSize(new GUIContent(text)).x;
-            if (!TooltipMarquee.ShouldScroll(textWidth, cachedStripWidth))
+            // Measure ONLY when the text or the strip width changed - never per frame.
+            // The unwrapped advance says how far there is to scroll; the WRAPPED height
+            // against the actual strip width feeds the overflow decision (a text that
+            // wraps fully inside a two-line strip is visible and must not scroll).
+            if (measurementsDirty || measuredStripWidth != cachedStripWidth)
+            {
+                var content = new GUIContent(text);
+                nowrapTextWidth = nowrapScrollStyle.CalcSize(content).x;
+                float wrappedHeight = wrappedTooltipStyle.CalcHeight(content, cachedStripWidth);
+                marqueeActive = TooltipMarquee.NeedsMarquee(
+                    nowrapTextWidth, cachedStripWidth,
+                    wrappedHeight, fixedStripHeight, oneLineProbeHeight);
+                measuredStripWidth = cachedStripWidth;
+                measurementsDirty = false;
+            }
+
+            if (!marqueeActive)
                 return 0f;
 
             return TooltipMarquee.OffsetFor(
                 scrollElapsedSeconds,
-                textWidth - cachedStripWidth,
+                nowrapTextWidth - cachedStripWidth,
                 TooltipMarquee.SpeedPxPerSecond,
                 TooltipMarquee.HoldSeconds);
         }
@@ -257,9 +329,13 @@ namespace Parsek
                 };
             }
 
-            if (nowrapMeasureStyle == null)
+            if (nowrapScrollStyle == null)
             {
-                nowrapMeasureStyle = new GUIStyle(wrappedTooltipStyle)
+                // Doubles as the overflow MEASURING style (unwrapped advance width)
+                // and the marquee DRAW style (one long clipped line, shifted via its
+                // contentOffset). Kept a clone of the wrapped style so font/padding
+                // edits there keep applying to both roles.
+                nowrapScrollStyle = new GUIStyle(wrappedTooltipStyle)
                 {
                     wordWrap = false
                 };
@@ -269,6 +345,8 @@ namespace Parsek
             {
                 fixedStripHeight = wrappedTooltipStyle.CalcHeight(
                     new GUIContent(ProbeText(lines)), NoWrapMeasureWidth);
+                oneLineProbeHeight = wrappedTooltipStyle.CalcHeight(
+                    new GUIContent(OneLineProbeText), NoWrapMeasureWidth);
             }
         }
     }

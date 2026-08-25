@@ -19,19 +19,60 @@ namespace Parsek.Tests
         private const double Hold = TooltipMarquee.HoldSeconds;
 
         // ------------------------------------------------------------------
-        // ShouldScroll
+        // NeedsMarquee
         // ------------------------------------------------------------------
 
+        // Reference geometry for these cells: one text line measures 20px, so a
+        // one-line strip is 20px tall and a two-line strip 40px. Wrapped height is
+        // what the text measures at the box width; nowrap width is its unwrapped
+        // single-line advance.
         [Theory]
-        [InlineData(200f, 150f, true)]   // text wider than box: scroll
-        [InlineData(151f, 150f, true)]   // 1px over: still scroll
-        [InlineData(150f, 150f, false)]  // exact fit: static
-        [InlineData(100f, 150f, false)]  // slack: static
-        [InlineData(200f, 0f, false)]    // nothing laid out yet: never scroll
-        [InlineData(200f, -5f, false)]   // degenerate width guard
-        public void ShouldScroll_OnlyWhenTextExceedsALaidOutBox(float textWidth, float boxWidth, bool expected)
+        // Fits on one line: never scrolls, in either strip height.
+        [InlineData(200f, 300f, 20f, 20f, false)]
+        [InlineData(200f, 300f, 20f, 40f, false)]
+        // One-line strip, multi-word overflow: wraps to 2 lines, the 2nd is clipped
+        // vertically - marquee.
+        [InlineData(400f, 300f, 40f, 20f, true)]
+        // One-line strip, unbreakable token: renders as ONE clipped line - marquee.
+        [InlineData(400f, 300f, 20f, 20f, true)]
+        // Two-line strip, text wraps to EXACTLY two visible lines: fully readable,
+        // must NOT scroll even though its unwrapped width exceeds the box (the
+        // regression the wrapped-height predicate exists to prevent).
+        [InlineData(400f, 300f, 40f, 40f, false)]
+        // Two-line strip, wraps to three lines: the 3rd is clipped - marquee.
+        [InlineData(700f, 300f, 60f, 40f, true)]
+        // Two-line strip, unbreakable token on one line: clips horizontally - marquee.
+        [InlineData(400f, 300f, 20f, 40f, true)]
+        // Nothing laid out yet / degenerate box: never scroll.
+        [InlineData(400f, 0f, 40f, 20f, false)]
+        [InlineData(400f, -5f, 40f, 20f, false)]
+        public void NeedsMarquee_OnlyWhenTheStripCannotShowTheWholeText(
+            float nowrapWidth, float boxWidth, float wrappedHeight, float stripHeight, bool expected)
         {
-            Assert.Equal(expected, TooltipMarquee.ShouldScroll(textWidth, boxWidth));
+            const float OneLine = 20f;
+            Assert.Equal(expected, TooltipMarquee.NeedsMarquee(
+                nowrapWidth, boxWidth, wrappedHeight, stripHeight, OneLine));
+        }
+
+        // ------------------------------------------------------------------
+        // ScrollKeyFor - the clock identity
+        // ------------------------------------------------------------------
+
+        // catches: the clock resetting on every tick of a countdown tooltip (the text
+        // changes each second, so a full reset would hold the marquee at offset 0
+        // forever), while still resetting for a genuinely different tooltip.
+        [Fact]
+        public void ScrollKeyFor_IsStableAcrossCountdownTicks_AndDistinctAcrossTexts()
+        {
+            string t1 = "Warp to Big Freighter Seven (spawns in 4m 32s)";
+            string t2 = "Warp to Big Freighter Seven (spawns in 4m 31s)";
+            string other = "Warp to Little Lander (spawns in 4m 31s)";
+            Assert.Equal(TooltipMarquee.ScrollKeyFor(t1), TooltipMarquee.ScrollKeyFor(t2));
+            Assert.NotEqual(TooltipMarquee.ScrollKeyFor(t1), TooltipMarquee.ScrollKeyFor(other));
+            // Digit-free text keys as itself; null/empty collapse to empty.
+            Assert.Equal("plain text", TooltipMarquee.ScrollKeyFor("plain text"));
+            Assert.Equal(string.Empty, TooltipMarquee.ScrollKeyFor(null));
+            Assert.Equal(string.Empty, TooltipMarquee.ScrollKeyFor(string.Empty));
         }
 
         // ------------------------------------------------------------------

@@ -67,10 +67,10 @@ namespace Parsek.Logistics
         }
 
         /// <summary>
-        /// The detail-line hover tooltip: explains net = launch - recovered,
-        /// that recovered is the actual distance-scaled payout, and the timing
-        /// (gross fronted at dispatch, recovered credited back one cycle later).
-        /// On a no-recovery run it also appends the recover-to-reduce hint.
+        /// The detail-line hover tooltip: explains net = launch - recovered, that
+        /// recovered is the distance-scaled payout, and that it is credited one
+        /// cycle later. On a no-recovery run it also appends the (inline)
+        /// recover-to-reduce hint. Constant length by contract - no funds amounts.
         /// </summary>
         internal static string FormatDetailTooltip(RouteRunCostCalculator.RouteRunCost cost)
         {

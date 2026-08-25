@@ -502,20 +502,33 @@ lines. The four wide windows whose entire help corpus fits one wrapped line at t
 first-open width - Career State (820px), Timeline (820px), Logistics (1556px) and Real
 Spawn Control (750px) - now construct `TooltipEchoBox(SpacingSmall,
 TooltipEchoBox.SingleLine)`; `NormalizeLines`/`ProbeText` clamp any other request back
-to two. The budget gate grew a per-row strip-height column, so a window cannot switch
-height without re-budgeting its texts. Because a shorter strip turns "clips silently"
-into "clips sooner", the strip gained an overflow marquee: text wider than the laid-out
-strip pauses ~1.6s, scrolls left at 60 px/s until its tail is revealed, holds again and
-wraps (pure curve in `TooltipMarquee.cs`, pinned by `TooltipMarqueeTests`; the IMGUI
-glue shifts the label via `contentOffset` set before it draws on Repaint only, so the
-invariant control count and fixed reserved rect are untouched). The clock accumulates
-realtime deltas against the CURRENT text and resets when the text changes. Logistics was
-trimmed to honestly fit one line: `FormatDetailTooltip` is constant-length (funds
-amounts no longer embedded; the candidate row no longer prefixes `FormatDetailLine`),
-the Nx cadence tooltip moved to pure `LogisticsIntervalPresentation.BuildNxCellTooltip`
-(shortened), and `StatusCellTooltip` reads "Enum - clause" on one line instead of
-spending a `\n`. All three are pinned under the 218-char single-line budget in
-`TooltipEchoBudgetTests`.
+to two. The budget gate grew a per-row strip-height column that is SOURCE-CHECKED
+against each window's actual constructor argument
+(`StripHeightColumn_MatchesTheWindowConstructor`), and the literal scan also resolves
+same-file `const string` tooltips (e.g. Logistics' 216-char `DormantSectionTooltip`),
+so neither a height switch nor a const-tooltip copy edit can drift past the gate.
+Because a shorter strip turns "clips silently" into "clips sooner", the strip gained an
+overflow marquee: text the strip cannot fully show pauses ~1.6s, scrolls left at
+60 px/s until its tail is revealed, holds again and wraps. Whether a text overflows is
+the pure `TooltipMarquee.NeedsMarquee` on the WRAPPED height (a text that wraps fully
+inside a two-line strip is visible and must not scroll); an overflowing text renders
+through the NOWRAP style as one long clipped line shifted via `contentOffset` - a
+wrapped render would hide the tail on a vertically-clipped extra line no horizontal
+shift could reveal - with the label's width pinned to the measured strip width so the
+unwrapped text cannot widen the window (control count and reserved rect unchanged).
+The clock keys on the text's digit-free `ScrollKeyFor` skeleton, so countdown tooltips
+(Real Spawn Control's per-second "spawns in Xs") keep their cycle across re-renders;
+measurements are cached per text/width change, never per frame. Logistics was trimmed
+to honestly fit one line: `FormatDetailTooltip` is constant-length (funds amounts no
+longer embedded; the candidate row no longer prefixes `FormatDetailLine`, and the
+launch/recovered breakdown now draws as a "Cost/run:" line in the EXPANDED candidate
+detail so it stays reachable pre-creation), the Nx cadence tooltip moved to pure
+`LogisticsIntervalPresentation.BuildNxCellTooltip` (shortened, keeping the "N x"
+binder for the Nx cell), and `StatusCellTooltip` reads "Enum - clause" on one line
+instead of spending a hard newline. All are pinned in `TooltipEchoBudgetTests` (the
+status gate feeds real `DescribeHold` productions; clauses interpolating user-chosen
+names are unbounded by design - the marquee is their recovery path, so only
+newline-freedom is asserted).
 
 ## ~~SAME-TREE-DOCK-INVISIBLE-FROM-ABSORBED-SIDE: a cross-session dock inside one tree named nobody and was derivable from neither side~~ [FOUND by the 2026-08-12 dock/loop-coherence analysis (I2-ii); FIXED 2026-08-12/13, branches `same-tree-dock-claims` + `dock-event-graph` (design `docs/dev/design-dock-event-graph.md` 6.2 / 6.3-6.5, PR sequence steps 2-3)]
 

@@ -538,7 +538,7 @@ namespace Parsek
 
             GUILayout.EndScrollView();
 
-            // Tooltip echo strip (shared house helper). Fixed two-line height, always
+            // Tooltip echo strip (shared house helper). Fixed single-line height, always
             // present, and drawn AFTER every cell / button so the live GUI.tooltip read
             // inside Draw() sees the hovered control's text - but directly ABOVE the
             // Close button, which is the house ordering: Close is always last.
@@ -1034,7 +1034,7 @@ namespace Parsek
             // displayable hold is recorded, the non-Paused cell carries the
             // compact SPECIFIC reason ("Held: origin out of LiquidFuel",
             // truncated) instead of the generic per-status sentence; the full
-            // clause rides the tooltip's second line under the raw enum name.
+            // clause follows the raw enum name in the tooltip ("Enum - clause").
             if (section == RouteSection.Paused)
             {
                 GUIStyle pausedStyle = leg.PausedLabel == LogisticsDeliveryPresentation.PausedRouteLabel.New
@@ -1235,8 +1235,11 @@ namespace Parsek
             // Pure builder in LogisticsIntervalPresentation: the flat variant is the
             // window's longest runtime-composed tooltip, so its length is pinned by
             // TooltipEchoBudgetTests against the single-line strip budget.
+            // Transit is formatted only for the flat branch - the windowed wording
+            // never reads it, so a windowed row should not pay the string.Format.
             string nxTooltip = LogisticsIntervalPresentation.BuildNxCellTooltip(
-                windowed, n, leg.BasisLabel ?? string.Empty, FormatDuration(route.TransitDuration));
+                windowed, n, leg.BasisLabel ?? string.Empty,
+                windowed ? null : FormatDuration(route.TransitDuration));
             GUILayout.Label(
                 new GUIContent(
                     string.Format(CultureInfo.InvariantCulture, "{0}x", n),
@@ -1464,10 +1467,12 @@ namespace Parsek
                 && candCost.Applicable && candCost.CostKnown)
             {
                 wouldDeliverText += LogisticsCostPresentation.FormatCandidateSuffix(candCost);
-                // Single-line strip: the exact figures stay in the visible "Cost/run:"
-                // detail line (FormatDetailLine) and the candidate suffix on the cell
-                // itself; the tooltip carries only the fixed-length explanation, which
-                // fits the one-line budget with the numbers no longer embedded.
+                // Single-line strip: the tooltip carries only the fixed-length
+                // explanation, which fits the one-line budget with the numbers no
+                // longer embedded. The exact figures stay visible on the cell itself
+                // (the net-cost candidate suffix) and in the expanded candidate
+                // detail's "Cost/run:" line (DrawCandidateDetail), which carries the
+                // launch/recovered breakdown a net figure alone cannot convey.
                 wouldDeliverTip = LogisticsCostPresentation.FormatDetailTooltip(candCost);
             }
             GUILayout.Label(
@@ -2238,6 +2243,21 @@ namespace Parsek
             GUILayout.BeginVertical(GUI.skin.box);
             DetailLine($"Would deliver per cycle: {FormatManifest(candidate.Analysis.ResourceDeliveryManifest, candidate.Analysis.InventoryDeliveryManifest)}");
             DetailLine($"Transit: {FormatDuration(CandidateTransit(candidate))}");
+
+            // Run-cost breakdown, mirroring the route detail's line: the candidate row
+            // cell shows only the NET suffix, so this is the one pre-creation surface
+            // carrying "launch X - recovered Y" / the not-recovered caption - the split
+            // a player needs to judge whether a cheap-looking net hides a recovery.
+            // Same gate and cache as the row (never computed on the draw path).
+            if (candidateRunCostCache.TryGetValue(
+                    candidate.Tree?.Id ?? "<no-tree>",
+                    out RouteRunCostCalculator.RouteRunCost candCost)
+                && candCost.Applicable && candCost.CostKnown)
+            {
+                DetailLine(new GUIContent(
+                    LogisticsCostPresentation.FormatDetailLine(candCost),
+                    LogisticsCostPresentation.FormatDetailTooltip(candCost)));
+            }
 
             // H5: the candidate already holds its source Recording + owning Tree in
             // hand, so resolve display names directly (no store lookup needed). Short

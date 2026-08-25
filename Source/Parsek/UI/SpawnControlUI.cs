@@ -350,7 +350,7 @@ namespace Parsek
                 ? SelectiveSpawnUI.FormatNextSpawnTooltip(next, currentUT) : "";
 
             // Bottom "hovered control help text" strip (shared house helper). Fixed
-            // two-line height, always present, drawn directly above the button row so
+            // single-line height, always present, drawn directly above the button row so
             // Close stays the window's last content row.
             //
             // "Warp to Next Spawn" is the ONLY tooltipped control in this window and it

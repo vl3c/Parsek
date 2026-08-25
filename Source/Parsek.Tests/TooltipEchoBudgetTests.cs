@@ -38,12 +38,18 @@ namespace Parsek.Tests
     ///
     /// <para><b>What this gate covers.</b> Every <c>new GUIContent(label, tooltip)</c>
     /// in the strip-hosting windows whose tooltip argument is a plain string
-    /// literal (or a concatenation of them) - the population that a copy edit can
-    /// actually regress. Tooltips assembled at runtime from data (recording names,
-    /// hold reasons, in-game test descriptions) cannot be pinned by a source scan;
-    /// the pure builders that feed the longest of them are asserted directly below
+    /// literal (or a concatenation of them), or a bare identifier naming a same-file
+    /// <c>const string</c> whose initializer is such a literal run (the shape long
+    /// tooltips use to stay off the draw path, e.g. Logistics'
+    /// <c>DormantSectionTooltip</c>) - the population a copy edit can actually
+    /// regress. Tooltips assembled at runtime from data (recording names, hold
+    /// reasons, in-game test descriptions) cannot be pinned by a source scan; the
+    /// pure builders that feed the longest of them are asserted directly below
     /// instead. A parser regression that silently matched nothing would make this
-    /// gate vacuous, so each file also pins a minimum literal-tooltip count.</para>
+    /// gate vacuous, so each file also pins a minimum literal-tooltip count.
+    /// The per-row strip-height column is itself source-checked: each row's declared
+    /// line count must match the <c>new TooltipEchoBox(...)</c> argument in the
+    /// window it budgets (<c>StripHeightColumn_MatchesTheWindowConstructor</c>).</para>
     ///
     /// <para>Hard newlines are rejected outright: an explicit <c>\n</c> spends one of
     /// the strip's lines regardless of how short the text is, so a two-clause tooltip
@@ -107,11 +113,6 @@ namespace Parsek.Tests
             // Test runner (Settings-launched) and the global Ctrl+Shift+T twin: 440.
             yield return new object[] { "UI/TestRunnerUI.cs", 440f, 3, TooltipEchoBox.DoubleLine };
             yield return new object[] { "InGameTests/TestRunnerShortcut.cs", 440f, 2, TooltipEchoBox.DoubleLine };
-        }
-
-        internal static int BudgetChars(float windowWidthPx)
-        {
-            return BudgetChars(windowWidthPx, TooltipEchoBox.DoubleLine);
         }
 
         internal static int BudgetChars(float windowWidthPx, int stripLines)
@@ -230,18 +231,75 @@ namespace Parsek.Tests
                     + "single-line Logistics help-strip budget: \"{2}\"",
                     windowedNx.Length, budget, windowedNx));
 
-            // Status-cell hold tooltip: a representative LONG hold clause (the
-            // unresolved-pickup-source family, the longest fixed wording the builder
-            // emits) plus enum name and separator still fits one line.
+            // Status-cell hold tooltip, fed REAL DescribeHold productions - a
+            // hand-typed clause can drift from what the builder actually emits (it
+            // once omitted the raw token DescribeHold appends in parentheses). The
+            // unresolved-pickup-source family is the longest FIXED wording and must
+            // fit the one-line budget outright.
+            string unresolvedClause = LogisticsHoldPresentation.DescribeHold(
+                RouteDispatchEvaluator.EligibilityFailureKind.OriginLacksCargo,
+                "pickup-source-unresolved:origin", 0.0);
+            Assert.Contains("could not be found", unresolvedClause);
             string statusTip = LogisticsHoldPresentation.StatusCellTooltip(
-                RouteStatus.Active,
-                "a pickup source vessel could not be found - it may have moved, "
-                + "been recovered, or been destroyed");
+                RouteStatus.Active, unresolvedClause);
             Assert.DoesNotContain("\n", statusTip);
             Assert.True(statusTip.Length <= budget,
-                string.Format("StatusCellTooltip with a long clause is {0} chars, over the "
-                    + "{1}-char single-line Logistics help-strip budget: \"{2}\"",
+                string.Format("StatusCellTooltip with the unresolved-source clause is {0} "
+                    + "chars, over the {1}-char single-line Logistics help-strip budget: \"{2}\"",
                     statusTip.Length, budget, statusTip));
+
+            // Hold clauses that interpolate USER-CHOSEN names (source vessel,
+            // reserving route) are unbounded - no fixed budget can pin them, and the
+            // strip's overflow marquee is the recovery path for that long tail. What
+            // MUST hold for them is newline-freedom: a \n pushes the clause onto a
+            // clipped line no horizontal scroll can ever reveal.
+            string reservedClause = LogisticsHoldPresentation.DescribeHold(
+                RouteDispatchEvaluator.EligibilityFailureKind.OriginLacksCargo,
+                "origin-lacks-source-reserved:12345:Minmus Flats Refinery Complex Alpha"
+                + ":Ore:Duna Transfer Window Resupply Run 3",
+                0.0);
+            Assert.Contains("Minmus Flats Refinery Complex Alpha", reservedClause);
+            string reservedTip = LogisticsHoldPresentation.StatusCellTooltip(
+                RouteStatus.Active, reservedClause);
+            Assert.DoesNotContain("\n", reservedTip);
+        }
+
+        // catches: a window switching its TooltipEchoBox construction to a different
+        // strip height without updating its StripWindows row - the dangerous
+        // direction (constructor goes SingleLine, row stays DoubleLine) would keep
+        // budgeting that window's texts at TWICE the real strip capacity with the
+        // suite green, which is exactly the drift this gate exists to prevent.
+        [Theory]
+        [MemberData(nameof(StripWindows))]
+        public void StripHeightColumn_MatchesTheWindowConstructor(
+            string relPath, float windowWidthPx, int minTooltips, int stripLines)
+        {
+            string src = ReadParsekSource(relPath);
+            List<int> constructed = ExtractTooltipEchoBoxLineArgs(src);
+
+            if (relPath == "UI/MissionsWindowUI.cs")
+            {
+                // Hosted content: draws inside the Recordings window and owns no
+                // TooltipEchoBox of its own. If one ever appears here, this row's
+                // hand-me-down height stops being derived from the host - re-point
+                // the row at the strip the file actually constructs.
+                Assert.True(constructed.Count == 0,
+                    relPath + " now constructs its own TooltipEchoBox - update its "
+                    + "StripWindows row to that strip's height instead of the host's.");
+                return;
+            }
+
+            Assert.True(constructed.Count == 1,
+                string.Format(
+                    "{0} ({1}px, floor {2}): expected exactly one 'new TooltipEchoBox(' "
+                    + "construction, found {3} - the strip-height column cannot be "
+                    + "cross-checked.",
+                    relPath, windowWidthPx, minTooltips, constructed.Count));
+            Assert.True(stripLines == constructed[0],
+                string.Format(
+                    "{0}: the StripWindows row budgets {1} line(s) but the window constructs "
+                    + "a {2}-line strip - re-budget the row (and its texts) to match.",
+                    relPath, stripLines, constructed[0]));
         }
 
         // ------------------------------------------------------------------
@@ -280,7 +338,8 @@ namespace Parsek.Tests
                 if (args.Count < 2)
                     continue;
                 string text;
-                if (!TryDecodeLiteralRun(args[1], out text))
+                if (!TryDecodeLiteralRun(args[1], out text)
+                    && !TryResolveSameFileConst(src, args[1], out text))
                     continue;
 
                 result.Add(new LiteralTooltip
@@ -441,6 +500,124 @@ namespace Parsek.Tests
             if (!any) return false;
             text = sb.ToString();
             return true;
+        }
+
+        /// <summary>
+        /// Resolves <paramref name="arg"/> when it is a bare identifier naming a
+        /// <c>const string</c> declared in the same file whose initializer is a plain
+        /// literal run. Method calls, member accesses and cross-file consts still
+        /// cannot be scanned.
+        /// </summary>
+        private static bool TryResolveSameFileConst(string src, string arg, out string text)
+        {
+            text = null;
+            string id = StripLineComments(arg).Trim();
+            if (id.Length == 0 || (!char.IsLetter(id[0]) && id[0] != '_'))
+                return false;
+            foreach (char c in id)
+            {
+                if (!char.IsLetterOrDigit(c) && c != '_')
+                    return false;
+            }
+
+            string decl = "const string " + id;
+            int at = 0;
+            while (true)
+            {
+                at = src.IndexOf(decl, at, StringComparison.Ordinal);
+                if (at < 0)
+                    return false;
+                int after = at + decl.Length;
+                // Reject a longer identifier that merely starts with ours.
+                if (after < src.Length
+                    && (char.IsLetterOrDigit(src[after]) || src[after] == '_'))
+                {
+                    at = after;
+                    continue;
+                }
+                int eq = src.IndexOf('=', after);
+                if (eq < 0)
+                    return false;
+                int semi = FindStatementEnd(src, eq + 1);
+                if (semi < 0)
+                    return false;
+                return TryDecodeLiteralRun(src.Substring(eq + 1, semi - eq - 1), out text);
+            }
+        }
+
+        /// <summary>Index of the ';' ending the initializer at <paramref name="from"/>, string-aware.</summary>
+        private static int FindStatementEnd(string src, int from)
+        {
+            bool inString = false, verbatim = false, escaped = false;
+            for (int k = from; k < src.Length; k++)
+            {
+                char c = src[k];
+                if (inString)
+                {
+                    if (verbatim)
+                    {
+                        if (c == '"')
+                        {
+                            if (k + 1 < src.Length && src[k + 1] == '"') { k++; continue; }
+                            inString = false;
+                            verbatim = false;
+                        }
+                    }
+                    else if (escaped) { escaped = false; }
+                    else if (c == '\\') { escaped = true; }
+                    else if (c == '"') { inString = false; }
+                    continue;
+                }
+                if (c == '"')
+                {
+                    inString = true;
+                    escaped = false;
+                    verbatim = k > from && src[k - 1] == '@';
+                }
+                else if (c == ';')
+                    return k;
+            }
+            return -1;
+        }
+
+        /// <summary>
+        /// The strip height of every <c>new TooltipEchoBox(...)</c> in
+        /// <paramref name="src"/>: the (spacing, lines) overload's second argument read
+        /// by its SingleLine/DoubleLine token; the zero- and one-argument overloads
+        /// default to <see cref="TooltipEchoBox.DoubleLine"/>; anything unclassifiable
+        /// yields -1 so the cross-check fails loudly instead of guessing.
+        /// </summary>
+        internal static List<int> ExtractTooltipEchoBoxLineArgs(string src)
+        {
+            var result = new List<int>();
+            string code = StripLineComments(src);
+            const string Needle = "new TooltipEchoBox(";
+            int i = 0;
+            while (true)
+            {
+                int start = code.IndexOf(Needle, i, StringComparison.Ordinal);
+                if (start < 0)
+                    break;
+                int open = start + Needle.Length;
+                int end = FindMatchingParen(code, open);
+                if (end < 0)
+                    break;
+                i = end + 1;
+                List<string> args = SplitTopLevelArgs(code.Substring(open, end - open));
+                if (args.Count < 2)
+                {
+                    result.Add(TooltipEchoBox.DoubleLine);
+                    continue;
+                }
+                string lineArg = args[1].Trim();
+                if (lineArg.EndsWith("SingleLine", StringComparison.Ordinal))
+                    result.Add(TooltipEchoBox.SingleLine);
+                else if (lineArg.EndsWith("DoubleLine", StringComparison.Ordinal))
+                    result.Add(TooltipEchoBox.DoubleLine);
+                else
+                    result.Add(-1);
+            }
+            return result;
         }
 
         private static string StripLineComments(string s)
