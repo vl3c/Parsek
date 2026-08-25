@@ -293,6 +293,24 @@ G1's B27/V18) before proposing a fix.
 
 ## M-A7-RENDER-COMPOSITION-PHASES-3-AND-4: what the render-composition manifest still owes after Phases 1-2 landed, plus the four deferrals those phases took deliberately [OPENED 2026-08-25 with the M-A7 Phases 1-2 PR. TODO, not a defect. Status authority for the module is `docs/dev/autotest-status.md`; the design is `docs/dev/design-autotest-render-composition.md`]
 
+**PHASE 3C - THE CORPUS-WIDE DECLARATION WAVE (the operator's stated architecture,
+recorded 2026-08-26).** The B-flights generate recordings, the V-lanes loop them
+synthetically at new UTs, and the composition manifest audits the composed render -
+so the rollout is declaration, not new machinery. Plan, in waves: (A) batch-declare
+the bare `[expectations.renderComposition]` block + export step + tracer steps
+(where missing) across the eligible V-M lanes (V7M, V9-V13, V15M, V16M, V17M, V19M,
+V21M, V22M, V23M) plus the first T-host lane (`V14T`, the TS pilot - NO tracking-
+station-host manifest has ever been captured) and the K-host lane (`V22K`); each
+declaration changes that lane's anomaly exposure where tracers were previously off,
+which is why nothing arms at declaration. (B) readings accumulate FOR FREE via
+normal tier cadence once declared - every flight of a declared lane produces facets
+into its results JSON; targeted flights only where cadence is too slow. (C) arm in
+batches off accumulated readings with per-lane windows, the established three-run
+discipline per lane. Gates that must exist first for specific lanes: the map-open
+seam verb (RC-OWN-DRAW-HALF-IS-MAP-GATED) before any lane whose subject carries
+TracedPath phases arms the ownership clauses.
+
+
 Phases 1-2 shipped the C# recorder (env-gated, `ExportRenderManifest` verb,
 scene-exit flush), the pure Python verifier `harness/lib/rendercompose.py`, and
 the `renderCompose` verifier row REPORT-ONLY. FOUR committed scenarios now
