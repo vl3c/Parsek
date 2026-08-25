@@ -419,13 +419,7 @@ namespace Parsek.Display
 
                     RouteLineSet set = RefreshForRoute(route, ResolveRecording);
 
-                    // Same-body routes get a defensive member-body consistency cross-check
-                    // (period 0 with mixed bodies is malformed); inter-body routes are expected
-                    // to span bodies, so skip the per-frame member-body collection entirely
-                    // (ClassifyRouteScope ignores it for a non-zero period).
-                    RouteLineScope scope = ClassifyRouteScope(
-                        route.DispatchWindowPeriod,
-                        route.DispatchWindowPeriod == 0.0 ? CollectMemberBodies(set) : null);
+                    RouteLineScope scope = ResolveScope(route, set);
 
                     var skip = ClassifyRouteLineSkip(
                         route, enabled: true, scope,
@@ -444,7 +438,14 @@ namespace Parsek.Display
                         // leg when its playback head is on it; skip it here so the static overview
                         // never paints a second identical line over the live ghost trajectory.
                         if (GhostTrajectoryPolylineRenderer.IsRenderingNonOrbitalLeg(group.memberRecordingId))
-                        { skippedOwned++; continue; }
+                        {
+                            skippedOwned++;
+                            // M-A7: the deferral is a RATIFIED skip (the ghost owns this member's leg
+                            // this frame); aggregated per (route, member) by the recorder.
+                            Parsek.MapRender.RenderCompositionRecorder.NoteRouteLegDeferred(
+                                route.Id, group.memberRecordingId);
+                            continue;
+                        }
 
                         LegPolyline[] legs = group.legs; // array ref shared with the cached set
                         string keyBase = "route:" + route.Id + ":" + group.memberRecordingId;
@@ -460,6 +461,20 @@ namespace Parsek.Display
                             {
                                 legsDrawn++;
                                 anyDrawn = true;
+                                // M-A7 CO-DRAW VIOLATION: the ownership set said nobody owned this
+                                // member (we got past the skip above) yet a ghost leg mesh for the same
+                                // recording is still live - the one frame shape aggregate skip counts
+                                // cannot see (the -50 walk early-returned after clearing the drew set
+                                // while last frame's mesh is still active). Recorded on the EVENT only,
+                                // so the per-frame cost lands on the defect. Instant no-op when the
+                                // manifest env gate is unarmed.
+                                if (Parsek.MapRender.RenderCompositionRecorder.IsEnabled
+                                    && GhostTrajectoryPolylineRenderer.IsAnyLegActiveForRecording(
+                                        group.memberRecordingId))
+                                {
+                                    Parsek.MapRender.RenderCompositionRecorder.NoteRouteCoDrawViolation(
+                                        route.Id, group.memberRecordingId, frame);
+                                }
                             }
                         }
                     }
@@ -480,6 +495,19 @@ namespace Parsek.Display
 
         private static Recording ResolveRecording(string recordingId)
             => RecordingStore.TryFindCommittedRecordingById(recordingId);
+
+        /// <summary>
+        /// THE single owner of the route-scope expression. Same-body routes get a defensive member-body
+        /// consistency cross-check (period 0 with mixed bodies is malformed); inter-body routes are
+        /// expected to span bodies, so the per-frame member-body collection is skipped entirely
+        /// (<see cref="ClassifyRouteScope"/> ignores it for a non-zero period). Both the draw pass and
+        /// the render-composition build capture call this rather than restating it, so the two can
+        /// never classify one route two different ways.
+        /// </summary>
+        private static RouteLineScope ResolveScope(Route route, RouteLineSet set)
+            => ClassifyRouteScope(
+                route.DispatchWindowPeriod,
+                route.DispatchWindowPeriod == 0.0 ? CollectMemberBodies(set) : null);
 
         private static List<string> CollectMemberBodies(RouteLineSet set)
         {
@@ -511,6 +539,17 @@ namespace Parsek.Display
             var set = new RouteLineSet { groups = groups.ToArray(), signature = sig };
             routeCache[route.Id] = set;
             BuildInvocationCountForTesting++;
+            // M-A7 render-composition ROUTE-LINE capture (capture point 5): signature-gated, so this
+            // fires only on an actual rebuild. The WHOLE hook sits behind the arm gate - the scope
+            // resolution walks every member's recording to collect body names, which is real work the
+            // unarmed path must not do just to build an argument nothing reads.
+            if (Parsek.MapRender.RenderCompositionRecorder.IsEnabled)
+            {
+                Parsek.MapRender.RenderCompositionRecorder.NoteRouteLineBuild(
+                    route.Id, sig, route.RecordedDockUT, route.DispatchWindowPeriod,
+                    (int)ResolveScope(route, set),
+                    resolvable, set.groups.Length, totalLegs, transferDropped);
+            }
             ParsekLog.VerboseRateLimited(Tag, "route-build." + route.Id,
                 string.Format(CultureInfo.InvariantCulture,
                     "Route line build: route={0} members={1} groups={2} legs={3} transferDropped={4}",

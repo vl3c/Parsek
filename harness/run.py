@@ -47,6 +47,7 @@ import hlib  # noqa: E402
 import machinelock  # noqa: E402  (shared lock I/O; pure decisions live in provlib)
 import oracle  # noqa: E402
 import provlib  # noqa: E402
+import rendercompose  # noqa: E402  (the M-A7 pure sibling behind the renderCompose row)
 import saveparse  # noqa: E402
 
 # ---------------------------------------------------------------------------
@@ -1023,6 +1024,22 @@ def stage_fixture(spec: Dict, instance_dir: str, runtime: Runtime,
             results_rotated = True
         except OSError:
             pass
+    # The M-A7 render manifest is rotated on EXACTLY the same contract, and for
+    # exactly the same reason: the recorder writes it to the instance root and
+    # the instance is REUSED across runs, so a manifest left by run A is sitting
+    # there when run B stages. Without this, a run B that never armed the
+    # recorder (or armed it and never flushed) would read run A's file as its own
+    # and evaluate a composition that belongs to a different flight - the one
+    # fault `evaluate_render_composition`'s absent-manifest mismatch exists to
+    # report, silently converted into a green reading of stale evidence.
+    manifest_rotated = False
+    manifest_path = os.path.join(instance_dir, RENDER_MANIFEST_FILENAME)
+    if os.path.isfile(manifest_path):
+        try:
+            os.remove(manifest_path)
+            manifest_rotated = True
+        except OSError:
+            pass
 
     # (6) pin the instance-wide Parsek settings sidecar to the tracers-OFF
     # baseline so this run starts from a DECLARED tracer state instead of
@@ -1030,8 +1047,10 @@ def stage_fixture(spec: Dict, instance_dir: str, runtime: Runtime,
     # teardown write lives in run_attempt's finally.
     reset_settings_sidecar(instance_dir, logger, "stage")
 
-    logger.info("Stage", "stage save=%s template=%s inject=%s craft=%d results-rotated=%s"
-                % (run_save_name, save_template, inj, len(craft), results_rotated))
+    logger.info("Stage", "stage save=%s template=%s inject=%s craft=%d "
+                         "results-rotated=%s manifest-rotated=%s"
+                % (run_save_name, save_template, inj, len(craft), results_rotated,
+                   manifest_rotated))
     return True, run_save_name, ""
 
 
@@ -1598,6 +1617,25 @@ def read_save_structure(save_dir: str) -> Optional["saveparse.ParsekSaveSnapshot
     try:
         with open(sfs_path, "r", encoding="utf-8", errors="replace") as fh:
             return saveparse.parse_parsek_scenario(fh.read())
+    except OSError:
+        return None
+
+
+RENDER_MANIFEST_FILENAME = "parsek-render-manifest.txt"
+
+
+def read_render_manifest(instance_dir: str) -> Optional["rendercompose.ManifestSnapshot"]:
+    """Read + parse the produced ``parsek-render-manifest.txt`` off the KSP root
+    for the M-A7 render-composition verifier. Thin I/O only - every parse
+    decision is rendercompose.py. Returns None when the file is missing/
+    unreadable (a DEFINED fault the evaluator names; never read an absent
+    manifest as zero records)."""
+    path = os.path.join(instance_dir, RENDER_MANIFEST_FILENAME)
+    if not os.path.isfile(path):
+        return None
+    try:
+        with open(path, "r", encoding="utf-8", errors="replace") as fh:
+            return rendercompose.parse_render_manifest(fh.read())
     except OSError:
         return None
 
@@ -2219,6 +2257,15 @@ def run_verifiers(spec: Dict, instance_dir: str, run_save_name: str,
             "status": "SKIPPED", "reason": "killed", "gating": False,
             "blocks": [], "armedBlocks": [], "mismatches": [], "observed": {},
             "parsed": None, "parseError": "", "scenarioFound": None}
+        # M-A7: the render-composition row is SKIPPED on any KILLED attempt for the
+        # same reason - the export is flushed at scene exit / process teardown, so a
+        # watchdog-killed process leaves either no manifest at all or a half-written
+        # one, and neither is ground truth. Full key set on every branch so a
+        # consumer never KeyErrors on the row shape.
+        detail["renderCompose"] = {
+            "status": "SKIPPED", "reason": "killed", "gating": False,
+            "blocks": [], "armedBlocks": [], "mismatches": [], "observed": {},
+            "parsed": None, "parseError": "", "findings": [], "unevaluable": {}}
         # The raw-Unity-exception scan DOES run on a killed attempt, triage-only. What
         # a watchdog kill tears is the SAVE, not the log - and an exception storm is a
         # leading suspect for the hang that got the process killed, so this is the run
@@ -2454,6 +2501,67 @@ def run_verifiers(spec: Dict, instance_dir: str, run_save_name: str,
                                   "(not gating; arm with gating = true inside the "
                                   "declared block after reading report-only runs): %s"
                         % (len(report_only), report_only))
+
+    # 7c. Render-composition verifier (M-A7). Parses the produced
+    # parsek-render-manifest.txt off the KSP root and evaluates
+    # [expectations.renderComposition]. REPORT-ONLY by default and by intent: the
+    # row ships with NO committed spec arming it (guarded by the
+    # RENDERCOMPOSE_ARMED_SPECS sweep in test_hlib.py), so landing it cannot move
+    # any nightly's verdict; arming is a per-scenario operator decision taken only
+    # after a report-only reading run whose facets match the declared windows.
+    # Like the saveParse row above it runs independent of the later-verifier
+    # short-circuit (a composition read is its own triage signal) but only over a
+    # driver-VALID run - a driver-INVALID run never got the render moment the
+    # manifest describes, so the row stays SKIPPED with the facets still recorded.
+    # The manifest is read UNCONDITIONALLY (not only when a block is declared):
+    # PARSEK_RENDER_MANIFEST is set at launch iff the block was declared, so an
+    # undeclared spec simply finds no file and reports the absence, while a stale
+    # manifest from a previous run stays visible in the facets rather than being
+    # silently skipped.
+    rc_snapshot = read_render_manifest(instance_dir)
+    rc_parsed = None if rc_snapshot is None else bool(rc_snapshot.parsed)
+    rc_error = ("missing %s" % RENDER_MANIFEST_FILENAME) if rc_snapshot is None \
+        else rc_snapshot.error
+    if not driver_valid:
+        detail["renderCompose"] = {
+            "status": "SKIPPED", "reason": "driver-invalid", "gating": False,
+            "blocks": [], "armedBlocks": [], "mismatches": [],
+            "observed": rendercompose.observed_composition_facets(rc_snapshot),
+            "parsed": rc_parsed, "parseError": rc_error,
+            "findings": [], "unevaluable": {}}
+        logger.info("Verify", "verify renderCompose status=SKIPPED reason=driver-invalid")
+    else:
+        rc = rendercompose.evaluate_render_composition(expectations, rc_snapshot)
+        if rc.gating:
+            verifiers["render_composition_mismatch"] = (
+                rc.status == rendercompose.STATUS_FAIL)
+        rc_facets = (rc.observed.get(rendercompose.RENDER_COMPOSITION_BLOCK) or {})
+        detail["renderCompose"] = {
+            "status": rc.status, "reason": "", "gating": rc.gating,
+            "blocks": list(rc.blocks), "armedBlocks": list(rc.armed_blocks),
+            "mismatches": list(rc.mismatches), "observed": dict(rc.observed),
+            "parsed": rc_parsed, "parseError": rc_error,
+            "findings": [{"ruleId": f.rule_id, "level": f.level, "target": f.target,
+                          "message": f.message, "citedContract": f.cited_contract}
+                         for f in rc.findings],
+            "unevaluable": dict(rc.unevaluable),
+        }
+        finding_levels = {lvl: sum(1 for f in rc.findings if f.level == lvl)
+                          for lvl in rendercompose.LEVELS}
+        logger.info("Verify", "verify renderCompose status=%s gating=%s blocks=%s armed=%s "
+                              "parsed=%s dwells=%s cycles=%s unevaluable=%s "
+                              "findings=%s mismatches=%d"
+                    % (rc.status, rc.gating, list(rc.blocks) or "-",
+                       list(rc.armed_blocks) or "-", rc_parsed,
+                       rc_facets.get("dwells", "-"), rc_facets.get("cycles", "-"),
+                       rc_facets.get("unevaluable", "-"), finding_levels,
+                       len(rc.mismatches)))
+        rc_report_only = [m for m in rc.mismatches if m not in rc.armed_mismatches]
+        if rc_report_only:
+            logger.warn("Verify", "renderCompose recorded %d report-only mismatch(es) "
+                                  "(not gating; arm with gating = true inside the "
+                                  "declared block after reading report-only runs): %s"
+                        % (len(rc_report_only), rc_report_only))
 
     # 8. Ledger oracle (M-B2). Active iff the scenario declares [expectations.ledger]
     # OR [expectations.world]; else SKIPPED(no-ledger-block-declared), the reserved
@@ -2905,14 +3013,23 @@ def run_attempt(spec: Dict, instance_dir: str, umbrella_root: str, runtime: Runt
             # on the step itself (validate_spec forbids declaring both).
             if autorun.get(hlib.BATCH_ISOLATED_KEY):
                 env["PARSEK_AUTORUN_ISOLATED"] = "1"
+        # M-A7 (SPEC decision 5): the render-composition recorder is armed ONLY for
+        # a spec that declares [expectations.renderComposition]. Conditional rather
+        # than unconditional on purpose - the accumulation core costs per-frame work
+        # and writes a KSP-root artifact, and a lane that declares nothing has no
+        # consumer for either. The DECLARATION is the arming surface; `gating` only
+        # decides whether the row can move the verdict.
+        if rendercompose.declared_composition_blocks(spec.get("expectations") or {}):
+            env["PARSEK_RENDER_MANIFEST"] = "1"
         env.pop("PARSEK_ANALYZER_BASELINE_MODE", None)  # never set at KSP launch
         run_budget = float((spec.get("runtime", {}) or {}).get("budgetSeconds", 600))
         exe = runtime.resolve_exe(instance_dir)
         proc = runtime.launch(exe, [], env, instance_dir)
-        logger.info("Launch", "launch exe=%s pid=%s env=[TEST_COMMANDS=1 AUTORUN=%s EXIT=%s ISOLATED=%s] batchIsolated=%s budget=%ds"
+        logger.info("Launch", "launch exe=%s pid=%s env=[TEST_COMMANDS=1 AUTORUN=%s EXIT=%s ISOLATED=%s RENDER_MANIFEST=%s] batchIsolated=%s budget=%ds"
                     % (exe, proc.pid, env.get("PARSEK_AUTORUN_TESTS", "unset"),
                        env.get("PARSEK_AUTORUN_EXIT", "0"),
                        env.get("PARSEK_AUTORUN_ISOLATED", "0"),
+                       env.get("PARSEK_RENDER_MANIFEST", "0"),
                        hlib.spec_batch_isolated(spec), int(run_budget)))
 
         # ---- DRIVE + BUDGET ----------------------------------------------
@@ -2988,7 +3105,13 @@ def _terminal_result(spec, profile, attempt, started, start_wall, runtime, verdi
 
 _EMPTY_ARTIFACTS: Dict = {"ran": False, "shotsDir": None, "kspLog": False,
                           "kspLogTruncated": False, "screenshots": 0,
-                          "screenshotsSkipped": 0}
+                          "screenshotsSkipped": 0, "renderManifest": False}
+
+# M-A7: the produced render manifest is a KSP-root artifact like the results file.
+# The cap is deliberately far below the KSP.log cap - the accumulation core's own
+# record caps hold a real export to a few hundred KB, so anything past this is a
+# runaway export and the head is the diagnostic part of it.
+ARTIFACT_RENDER_MANIFEST_CAP_BYTES = 4 * 1024 * 1024
 
 
 def _copy_bounded(src, out, limit: int) -> int:
@@ -3097,9 +3220,29 @@ def _collect_run_artifacts(run_id: str, instance_dir: Optional[str],
                 logger.verbose("Artifacts", "screenshots skipped: %d prior-run, %d over-cap, %d copy-failed"
                                % (prior, over_cap, copy_missed))
 
-        logger.info("Artifacts", "artifacts collected run=%s kspLog=%s truncated=%s screenshots=%d -> %s"
+        # (2b) The M-A7 render manifest, bounded + tmp+rename like the log copy.
+        # A PASS runs no collect-logs and the instance root is overwritten by the
+        # next boot, so without this leg a green run's manifest - the ONE artifact
+        # a report-only composition row exists to produce - dies with that boot.
+        manifest_src = os.path.join(instance_dir, RENDER_MANIFEST_FILENAME)
+        if os.path.isfile(manifest_src):
+            dst = os.path.join(shots_dir, RENDER_MANIFEST_FILENAME)
+            tmp = dst + ".harness-tmp"
+            with open(manifest_src, "rb") as src, open(tmp, "wb") as out:
+                _copy_bounded(src, out, ARTIFACT_RENDER_MANIFEST_CAP_BYTES)
+                if src.read(1):
+                    out.write(("\n[harness-artifact] %s TRUNCATED at the %d-byte "
+                               "cap; the copy is a HEAD slice, not the whole "
+                               "export\n" % (RENDER_MANIFEST_FILENAME,
+                                             ARTIFACT_RENDER_MANIFEST_CAP_BYTES))
+                              .encode("utf-8"))
+            os.replace(tmp, dst)
+            artifacts["renderManifest"] = True
+
+        logger.info("Artifacts", "artifacts collected run=%s kspLog=%s truncated=%s screenshots=%d renderManifest=%s -> %s"
                     % (run_id, artifacts["kspLog"], artifacts["kspLogTruncated"],
-                       artifacts["screenshots"], shots_dir))
+                       artifacts["screenshots"], artifacts["renderManifest"],
+                       shots_dir))
     except Exception as exc:  # noqa: BLE001 - failure isolation by design (V3)
         logger.warn("Artifacts", "artifact collection FAILED run=%s (%s: %s); "
                                  "snapshot degraded, verdict unaffected"
@@ -3593,8 +3736,14 @@ def print_dry_run_plan(selected: Sequence[Dict], instance_root_fn, logger: Harne
         if ledger_block is not None and (ledger_block.get("seedFrom", "template") == "template"):
             print("  [SEED   ] analyzer over staged template -> seed baseline "
                   "(careerSave block; redirect out of save tree; terminal INVALID on edge-15 fixture/tooling fault)")
-        print("  [LAUNCH ] %s/KSP_x64.exe budget=%ss"
-              % (inst, (spec.get("runtime", {}) or {}).get("budgetSeconds")))
+        # M-A7: the render-composition recorder is armed by the DECLARATION, so the
+        # plan must say whether this spec's KSP boots with PARSEK_RENDER_MANIFEST
+        # set - a lane whose manifest never gets written reads as a product defect
+        # otherwise.
+        rc_declared = rendercompose.declared_composition_blocks(exp)
+        print("  [LAUNCH ] %s/KSP_x64.exe budget=%ss env=[PARSEK_TEST_COMMANDS=1%s]"
+              % (inst, (spec.get("runtime", {}) or {}).get("budgetSeconds"),
+                 " PARSEK_RENDER_MANIFEST=1" if rc_declared else ""))
         for i, step in enumerate(steps):
             if step.get("phase") == "mission":
                 # M-B1 handoff: spawn the mission SUBPROCESS with the venv python
@@ -3649,6 +3798,20 @@ def print_dry_run_plan(selected: Sequence[Dict], instance_root_fn, logger: Harne
             verify_line += ", saveParse(report-only: %s)" % ", ".join(sp_declared)
         else:
             verify_line += ", saveParse(facets only, no block declared)"
+        # renderCompose (row 7c) - the SAME three states, and the same lesson: the
+        # row runs on every driver-valid run, so the plan must distinguish "armed"
+        # (can move the verdict) from "declared" (report-only) from "no block".
+        rc_armed = rendercompose.armed_composition_blocks(exp)
+        if rc_armed:
+            verify_line += (", renderCompose(armed: %s -> PARSEK-FAIL(render-composition) "
+                            "on a mismatch or a FAIL-level finding; report-only: %s)"
+                            % (", ".join(rc_armed),
+                               ", ".join(b for b in rc_declared if b not in rc_armed)
+                               or "none"))
+        elif rc_declared:
+            verify_line += ", renderCompose(report-only: %s)" % ", ".join(rc_declared)
+        else:
+            verify_line += ", renderCompose(facets only, no block declared)"
         if ledger_block is not None or world_block is not None:
             verify_line += (", ledgerOracle(manifest-capture + oracle diff -> PARSEK-FAIL(ledger) on hard drift)")
         print(verify_line)

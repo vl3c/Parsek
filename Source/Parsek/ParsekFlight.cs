@@ -18748,6 +18748,12 @@ namespace Parsek
                     $"Mission loop units rebuilt (signature changed): committed={committed?.Count ?? 0} " +
                     $"routeMissions={routeMissions.Count}");
             }
+            // M-A7 render-composition PLAN capture (capture point 1). Called every frame so the
+            // recorder always holds the live unit set for its per-frame clock sampling; the plan
+            // RECORD itself is signature-deduped inside NotePlan, so it is appended once per builder
+            // signature per host. Instant no-op when the manifest env gate is unarmed.
+            Parsek.MapRender.RenderCompositionRecorder.NotePlan(
+                "Flight", signature, cachedLoopUnits, committed, unioned);
             engine.SetLoopUnits(cachedLoopUnits);
 
             // If the player is WATCHING a member of a mission loop and the new selection just

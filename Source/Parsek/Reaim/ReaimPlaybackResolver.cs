@@ -103,6 +103,36 @@ namespace Parsek.Reaim
         }
 
         /// <summary>
+        /// The RE-TIMED ARRIVAL INSTANT for window (<paramref name="memberId"/>,
+        /// <paramref name="window"/>) - the instant the rendered heliocentric leg actually ends on the
+        /// re-timed clock, which is <c>RecordedArrivalUT + CaptureShiftSeconds</c> exactly (the
+        /// clamped <c>newArrivalUT</c> <c>BuildWindowSegments</c> computed). False when the window is
+        /// not cached / declined to faithful.
+        ///
+        /// <para>M-A7: the render-composition manifest emits this per observed window as a
+        /// <c>reaim-window</c> clock event. Without it RC-SEAM cannot evaluate a re-timed crossing at
+        /// all - the RECORDED seam UT is the wrong measurement instant for a re-timed window, which is
+        /// exactly what <c>MapRenderProbe</c>'s own <c>reaimed-seam-instant-unknown</c> skip
+        /// documents. The cache is lazy (populated on the frames a window resolves) and evicted
+        /// outside a +/-1 window band, so this is a PER-WINDOW read at observation time, never a
+        /// plan-time precompute. Read-only; never builds a window.</para>
+        /// </summary>
+        internal bool TryGetWindowRetimedArrivalUT(
+            string memberId, long window, out double retimedArrivalUT, out double captureShiftSeconds)
+        {
+            retimedArrivalUT = double.NaN;
+            captureShiftSeconds = 0.0;
+            if (string.IsNullOrEmpty(memberId))
+                return false;
+            if (!cacheByMemberWindow.TryGetValue((memberId, window), out CacheEntry entry)
+                || !entry.Resolved || entry.Segments == null)
+                return false;
+            captureShiftSeconds = entry.CaptureShiftSeconds;
+            retimedArrivalUT = entry.RecordedArrivalUT + entry.CaptureShiftSeconds;
+            return true;
+        }
+
+        /// <summary>
         /// Test-only: stamps the S4 rotation onto an ALREADY-RESOLVED cache entry so headless tests
         /// can exercise the trigger-offset threading without the Unity-bound BuildWindowSegments
         /// (which is the only production writer). No-op when the (member, window) entry is absent.

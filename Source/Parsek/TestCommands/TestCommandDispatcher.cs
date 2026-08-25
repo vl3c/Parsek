@@ -177,6 +177,9 @@ namespace Parsek.TestCommands
         // ----- Player-workflow lane (the third + fourth promoted reserved verbs) -----
         void StartLoopPlayback(ParsedCommand cmd);
         void EnterWatchMode(ParsedCommand cmd);
+
+        // ----- M-A7 (render composition manifest export; additive) -----
+        void ExportRenderManifest(ParsedCommand cmd);
     }
 
     /// <summary>The scene/state a verb requires before it may execute.</summary>
@@ -271,6 +274,15 @@ namespace Parsek.TestCommands
                 // that never gets there.
                 ["StartLoopPlayback"] = VerbSceneRequirement.RequiresFlight,
                 ["EnterWatchMode"] = VerbSceneRequirement.RequiresFlight,
+                // M-A7. ExportRenderManifest flushes the render-composition accumulation to
+                // a file in the KSP root. The recorder is a DontDestroyOnLoad addon that
+                // accumulates across FLIGHT / KSC / TRACKSTATION alike, so there is no scene
+                // it cannot honestly export from - AnyScene, like RecordingState and
+                // RunTests. It reads no game state beyond the header's scene / save name,
+                // and its ONE refusal (the recorder was never armed) is executor-side and
+                // typed REJECTED: a defer would burn the budget waiting for an arm that only
+                // an Awake-time env var (or an in-game cell's force flag) can ever set.
+                ["ExportRenderManifest"] = VerbSceneRequirement.AnyScene,
             };
 
         /// <summary>

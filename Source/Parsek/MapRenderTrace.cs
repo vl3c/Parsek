@@ -1512,6 +1512,14 @@ namespace Parsek
             string details,
             string recId = null)
         {
+            // M-A7 render-composition ANOMALY ECHO, deliberately ABOVE the tracing gate so the echo
+            // survives a tracing-off manifest lane (most RAISE sites are themselves tracing-gated,
+            // which is fine - the echo is best-effort and the manifest header records the tracing
+            // state). Raises are rare and onset-gated, so the cost is negligible; the recorder's own
+            // IsEnabled check makes it an instant no-op when the manifest env gate is unarmed.
+            Parsek.MapRender.RenderCompositionRecorder.NoteAnomalyRaise(
+                pidKey, reason, currentUT, effUT, recId);
+
             if (!IsEnabled)
                 return;
 

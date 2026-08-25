@@ -42,6 +42,7 @@ namespace Parsek.Tests
             public void MissionConfig(ParsedCommand cmd) => Calls.Add("MissionConfig");
             public void StartLoopPlayback(ParsedCommand cmd) => Calls.Add("StartLoopPlayback");
             public void EnterWatchMode(ParsedCommand cmd) => Calls.Add("EnterWatchMode");
+            public void ExportRenderManifest(ParsedCommand cmd) => Calls.Add("ExportRenderManifest");
         }
 
         [Fact]
@@ -87,6 +88,10 @@ namespace Parsek.Tests
         // in-flight "Warp to..." fast-forward and the flight camera's watch entry).
         [InlineData("StartLoopPlayback", "RequiresFlight")]
         [InlineData("EnterWatchMode", "RequiresFlight")]
+        // M-A7: the recorder accumulates across every scene as a DontDestroyOnLoad addon,
+        // so the export is honest from any settled scene (the RecordingState / RunTests
+        // shape). Its only refusal - the recorder was never armed - is executor-side.
+        [InlineData("ExportRenderManifest", "AnyScene")]
         public void RequirementFor_MatchesTable(string verb, string expected)
         {
             Assert.Equal(expected, TestCommandDispatcher.RequirementFor(verb).ToString());
@@ -121,6 +126,7 @@ namespace Parsek.Tests
             fake.MissionConfig(cmd);
             fake.StartLoopPlayback(cmd);
             fake.EnterWatchMode(cmd);
+            fake.ExportRenderManifest(cmd);
 
             // One interface method per implemented v1 verb, no more, no less.
             var interfaceMethods = typeof(ITestCommandExecutor).GetMethods();

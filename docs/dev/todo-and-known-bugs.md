@@ -14,6 +14,122 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## ROUTE-DELIVERY-CLOCK-OMITS-THE-HOLD-ARGS: `RouteLoopClock.TryGetRouteLoopState` threads only the relaunch schedule and the loiter cuts into the span clock, so on a hold-carrying or launch-aligned route-backed unit the DELIVERY clock and the RENDER clock are not the same clock [FOUND BY READING 2026-08-25 while scouting the M-A7 render-composition plan surface, from the source alone - NOT measured on a flight. LATENT on every committed route today (v0 same-body routes carry no holds). REPORT-ONLY and DELIBERATELY NOT FIXED IN THE M-A7 PR: that PR is observation-only, and changing what the delivery clock computes is a product decision of its own]
+
+`Source/Parsek/Logistics/RouteLoopClock.cs:255-278` forwards exactly two of the
+span clock's optional arguments:
+
+```
+GhostPlaybackLogic.TryComputeSpanLoopUT(
+    currentUT, unit.PhaseAnchorUT, unit.SpanStartUT, unit.SpanEndUT, unit.CadenceSeconds,
+    out loopUT, out cycleIndex, out isInInterCycleTail,
+    schedule: unit.RelaunchSchedule,
+    loiterCuts: unit.LoiterCuts);
+```
+
+Nine further arguments keep their defaults: `arrivalHoldSeconds`,
+`arrivalHoldAtUT`, `arrivalHoldAlignPeriod`, `launchBodyRotationPeriod`,
+`launchHoldEngaged`, `soiExitAtUT`, `arrivalJointSecondaryPeriod`,
+`arrivalJointSecondaryTolerance` and `arrivalJointMaxWholeHoldPeriods` - every
+one of which the RENDER side passes from the same `LoopUnit`. The span clock
+FREEZES `loopUT` for the duration of an engaged hold and pays the frozen time
+back out of the cycle, so on a unit that carries one the two clocks diverge by
+the held seconds: the delivery clock's `loopUT` runs ahead of the rendered one,
+and the `cycleIndex` a dock crossing is attributed to can be off by one once the
+divergence exceeds the remaining span. The Phase 6 hardening comment at the call
+site is accurate about what it DID thread and silent about what it did not.
+
+WHY IT IS LATENT, NOT DEAD. A v0 same-body route's backing mission is faithful
+(`bodyInfo = null`), so every hold field is zero / NaN and the omission is
+byte-identical to threading them. The moment an inter-body or launch-aligned
+route is backed by a mission that engages a launch hold or an arrival hold - the
+same population the re-aim work already produces - the two clocks part.
+
+WHAT M-A7 CHANGES ABOUT IT. Nothing in behavior; it makes the divergence
+MEASURABLE for the first time. The render-composition manifest exports the
+unit's hold fields on `PLAN.UNIT` (`arrivalHoldSeconds` / `arrivalHoldAtUT` /
+`arrivalAlignPeriodSeconds` / `launchBodyRotationPeriodSeconds` /
+`launchHoldEngaged` / `recordedSoiExitUT` and the three joint keys), the route's
+`recordedDockUT` + dispatch window on `PLAN.UNIT.ROUTE`, the observed
+`hold-engage` / `hold-release` clock events, and the `route-dock-crossing`
+events with the cycle index the delivery side attributed them to. RC-ROUTE
+therefore has both clocks in one file and can state the divergence as a number
+rather than as this reading. Do that on a hold-carrying route lane (Phase 4,
+G1's B27/V18) before proposing a fix.
+
+---
+
+## M-A7-RENDER-COMPOSITION-PHASES-3-AND-4: what the render-composition manifest still owes after Phases 1-2 landed, plus the four deferrals those phases took deliberately [OPENED 2026-08-25 with the M-A7 Phases 1-2 PR. TODO, not a defect. Status authority for the module is `docs/dev/autotest-status.md`; the design is `docs/dev/design-autotest-render-composition.md`]
+
+Phases 1-2 shipped the C# recorder (env-gated, `ExportRenderManifest` verb,
+scene-exit flush), the pure Python verifier `harness/lib/rendercompose.py`, and
+the `renderCompose` verifier row REPORT-ONLY. NO committed scenario declares
+`[expectations.renderComposition]`, nothing is armed, and no manifest has been
+captured from a live game yet.
+
+REMAINING PHASES.
+
+- **Phase 3 (lanes).** Extend two committed V lanes with a warp schedule and an
+  `[expectations.renderComposition]` block, then take each through the standard
+  three-run arming workflow (report-only reading run -> armed run -> negative
+  control), and add the per-criterion negative controls. TWO pins have to move
+  deliberately, both in `harness/lib/test_hlib.py` and both empty today:
+  `test_no_committed_spec_declares_the_block_yet` (DECLARING the block is what
+  sets `PARSEK_RENDER_MANIFEST=1` at launch, so a spec picking it up by accident
+  would change what its KSP boots with) and `RENDERCOMPOSE_ARMED_SPECS`, the
+  arming roster - deliberately NOT named `*ARMED_ALLOWLIST`, because the
+  save-structure roster is scraped out of that file's source by a first-match
+  regex on that name. Arming stays an operator decision taken only after a
+  report-only reading run whose facets match the declared windows, exactly as
+  R9's `[expectations.rewind]` arming was.
+- **Phase 4 (routes + product).** Ride G1's B27/V18 for the route surfaces so
+  RC-ROUTE evaluates against a real route line, and start the RC-QUAL trend
+  record (kink angles, endpoint ratios, hold durations) that feeds
+  promote-to-fixed decisions on the ratified visual artifacts.
+
+DEFERRALS TAKEN IN PHASES 1-2, each of which a lane author must know.
+
+- **Seam measurement is double-gated.** The tangent and endpoint evaluation
+  sites are `mapRenderTracing`-gated and were NOT widened, so a manifest lane
+  that wants RC-SEAM / RC-QUAL numbers must arm BOTH `PARSEK_RENDER_MANIFEST=1`
+  and the `mapRenderTracing` setting. With tracing off the header says so and
+  the verifier reports `seam-data-unavailable-tracing-off` as a DEFINED
+  unevaluable - never a silent pass.
+- **Transition endpoint positions ride the same gate.** They come from the
+  `MapRenderProbe` truth push, and the probe runs only when tracing is on; with
+  it off the position clauses are defined-unevaluable.
+- **RC-HOLD's marker half is capped pending V6.** Leg 2 compares the observed
+  `hold-release` accumulated seconds against the recomputed value with a
+  tolerance of `max(2 s, 2 * local maxUtStep)`, and a hold whose accumulated
+  stall never reaches the C# detector's `HoldMinStallSeconds = 5.0` emits no
+  engage/release pair at all (below-resolution, not a mismatch). Sizing that
+  half wants a V6-class lane that actually dwells through a hold at a known
+  warp. UPDATED 2026-08-25 with the C# review pass, which replaced the
+  frame-step stationarity test with STALL ACCUMULATION: the resolution floor is
+  now that 5 s constant rather than one live frame step (the old test could not
+  see a 1x hold at all, and misread a mid-hold warp drop as a release plus a
+  second engage), and MORE THAN ONE run per `(ownerIndex, cycleIndex)` is a legal
+  shape. Two consequences a lane author has to know. (1) Pairing is on
+  `(ownerIndex, cycleIndex, detailA)` where `detailA` is the run's 0-based
+  ORDINAL - it used to repeat the cycle index. (2) The plan predicts ONE arrival
+  hold per cycle, so exactly one run per cycle is compared (the longest, the only
+  candidate the single prediction can be about) and the rest are counted
+  `hold-run-not-attributable-to-planned-hold`. Picking the longest cannot hide a
+  defect - a clock frozen longer than planned is the one compared, and a planned
+  hold that never happened reds against the short runs - but it also cannot
+  ATTRIBUTE the extras, so a lane that wants the second stall adjudicated needs
+  the frozen-loopUT-vs-hold-position join the manifest does not carry yet.
+- **The InteriorGap duration bound uses the unit CADENCE.** The design's
+  seam-gap-plus-reseed bound is the Phase-3 tightening; the module docstring
+  says so.
+- **The Phase-1 tail is still open:** one manual armed play session producing a
+  manifest over a committed loop fixture. Every manifest exercised so far is
+  either synthetic (Python fixtures) or written by the C# writer under test.
+  Until that session happens, nothing proves the recorder's hooks fire in the
+  shapes the rules expect on real geometry.
+
+---
+
 ## LANDED-TERMINAL-LOOP-HAS-NO-MAP-PRESENCE-OUTSIDE-THE-FLIGHT-SCENE: a looped recording whose terminal is Landed renders ONLY as the flight-scene mesh during its replay window - the map/TS/KSC surfaces are deliberately empty [MEASURED 2026-08-24 by the V22/V23 round-2 reading runs, the first landed-terminal loop subjects. REPORT-ONLY: every mechanism below is a deliberate product gate, not a defect; filed because it decides which lenses a surface-endpoint lane can pin, and because it is the measured render answer for surface-base supply routes]
 
 Three independent gates, each read from its own line on the round-2 logs:
@@ -13294,7 +13410,7 @@ Ground truth, DERIVED FROM SOURCE (not hand-listed): `hlib.ANOMALY_REASONS_RAISE
 | `polyline-orbit-overlap` | yes | `MapRenderProbe.cs:709` |
 | `rigid-seam-tangent-discontinuity` | yes | `MapRender/CrossMemberSeamStitcher.cs:419` |
 | `ledger-vs-truth` | yes | `GameActions/KspStatePatcher.cs` x6, `FacilityStatePatcher.cs:158` |
-| `icon-teleport` | yes (promoted 2026-08-04) | `MapRenderProbe.cs:1012` |
+| `icon-teleport` | yes (promoted 2026-08-04) | `MapRenderProbe.cs:1021` |
 | `icon-off-orbit` | yes (promoted 2026-08-04) | `MapRenderProbe.cs:1093` |
 | `unaccounted-drawn-recording` | **NO** (report-only instrument) | `MapRenderProbe.cs:544` |
 | `gap-vs-retire` | yes (promoted 2026-08-04) | `MapRender/GhostRenderReconciler.cs:240` |
@@ -13302,8 +13418,8 @@ Ground truth, DERIVED FROM SOURCE (not hand-listed): `hlib.ANOMALY_REASONS_RAISE
 | `clock-not-ready` | yes (promoted 2026-08-04) | `MapRender/ShadowRenderDriver.cs:316` -> `MapRenderTrace.EmitClockNotReady` (`:1417`) |
 | `retire-not-held` | yes (promoted 2026-08-04) | `MapRender/ShadowRenderDriver.cs:394` -> `MapRenderTrace.EmitRetireNotHeld` (`:1440`) |
 | `anchor-resolve-fail` | yes (promoted 2026-08-04) | `MapRender/AnchorFrameResolver.cs:87` -> `MapRenderTrace.EmitAnchorResolveFail` (`:1465`) |
-| `factory-parity` | **NO** (report-only instrument) | `MapRender/ShadowRenderDriver.cs:709` -> `MapRenderTrace.EmitFactoryParity` (`:1495`) |
-| `seam-endpoint-outside-soi` | **NO** (report-only instrument, added with the ENCOUNTER-GEOMETRY lens) | `MapRenderProbe.cs:2288` (`TrySampleAndEmitSeamEndpoint`; decision core `MapRender/SeamEndpointOracle.cs`). READ THE PASS SUMMARY BEFORE READING THE SILENCE: `seam-endpoint summary evaluated=<n> outsideSoi=<n> skip.<reason>=<n>` (Verbose, `[Parsek][VERBOSE][MapRenderTrace]`, one per probe pass, 5 s rate-limited) says how many destination-approach checks actually ran; a zero-raise run with `evaluated=0` measured nothing at all. WHY REPORT-ONLY, because this one differs from the two instruments above: a raise WOULD be a real finding, and it took the same report-only first lap the seven promoted tokens each took. (This clause used to read "but the lens has never flown"; the 2026-08-09 census below retired that, and left the clause standing inside the very row that records the retirement. Corrected: flight is no longer a blocker - `hlib.ANOMALY_REASONS_RAISED_UNGATED`'s comment block names the three that are.) It measures the RENDERED conic at a recorded cross-body SOI handoff against the destination body's sphere - both terms propagated to the seam UT via `getTruePositionAtUT`, never a current-anchored position - and raises on `dist/soi > 1.005`. That tolerance is calibrated between two MEASURED populations: healthy = the S1.8 seam continuity, 10,146.3 m (Kerbin->Sun) and 7,284.0 m (Sun->Duna), i.e. 1.2e-4 / 1.5e-4 of the crossed sphere against a 25 km pin; defect = the 2026-06-15 looped re-aim, 1.027 (Duna) / 1.043 (Kerbin - a CALIBRATION reference only; that quantity is unproducible by the field capture, see limit (1) in the M-06 entry). KNOWN BENIGN POPULATION still to be measured: a FAITHFUL loop replay of an interplanetary transfer reads far above 1.0 by design (the destination has moved on in inertial space by the loop shift), so a raise needs the line's `seed=` / `loopShift=` fields read before it is called a defect. Deliberately NOT re-aim-gated - the whole point is that the parity oracle skips exactly those members. **FIRST REAL-GEOMETRY CENSUS 2026-08-09, and it FALSIFIED the offline derivation on two of five lanes** (full write-up + the UT arithmetic under the M-06 re-aim entry). The five V-lanes re-flown with the census on read: V4 `evaluated=1 outsideSoi=0` (Sun->Duna arrival seam - the geometry class the 1.027 defect lived in, measured INSIDE the sphere, on a frame where the faithful-parity sibling stood down `skip.reaimed-or-foreign-seed=1`), V7M `evaluated=1 outsideSoi=0` (Kerbin->Minmus arrival seam, faithful / phase-locked / same-parent, also inside), and V6M / V6T / V7T all `evaluated=0 outsideSoi=0 skip.no-cross-body-successor=1`. ZERO raises anywhere and no verdict moved (V7T's red is its own `icon-off-orbit` finding), so the report-only registration behaves. The lens is therefore NO LONGER UNPROVEN on real geometry - two healthy readings, each reproduced bit-identically on three consecutive flights, and `evaluated=[1-9]` is now REQUIRED on V4 + V7M. STILL NOT MEASURED, and both are why this stays report-only: the RATIO (printed only on a raise, so `outsideSoi=0` proves reach but not margin) and the RAISE itself |
+| `factory-parity` | **NO** (report-only instrument) | `MapRender/ShadowRenderDriver.cs:726` -> `MapRenderTrace.EmitFactoryParity` (`:1644`). POINTER CONVENTION, because this is the only live row the source-derived gate exempts by name (`wrapper_routed_pointer` in `test_hlib.py`): the raise is WRAPPER-ROUTED, so the C# `EmitAnomaly` scan attributes no call site to this reason and the pinned line is the **decision site** - the `if (!result.IsMatch)` guard inside `ShadowRenderDriver.AssertFactoryParity`. It is NOT the wrapper call's own line, and it is NOT obtained by shifting the previous pin: re-read the guard out of the source when re-pinning it |
+| `seam-endpoint-outside-soi` | **NO** (report-only instrument, added with the ENCOUNTER-GEOMETRY lens) | `MapRenderProbe.cs:2303` (`TrySampleAndEmitSeamEndpoint`; decision core `MapRender/SeamEndpointOracle.cs`). READ THE PASS SUMMARY BEFORE READING THE SILENCE: `seam-endpoint summary evaluated=<n> outsideSoi=<n> skip.<reason>=<n>` (Verbose, `[Parsek][VERBOSE][MapRenderTrace]`, one per probe pass, 5 s rate-limited) says how many destination-approach checks actually ran; a zero-raise run with `evaluated=0` measured nothing at all. WHY REPORT-ONLY, because this one differs from the two instruments above: a raise WOULD be a real finding, and it took the same report-only first lap the seven promoted tokens each took. (This clause used to read "but the lens has never flown"; the 2026-08-09 census below retired that, and left the clause standing inside the very row that records the retirement. Corrected: flight is no longer a blocker - `hlib.ANOMALY_REASONS_RAISED_UNGATED`'s comment block names the three that are.) It measures the RENDERED conic at a recorded cross-body SOI handoff against the destination body's sphere - both terms propagated to the seam UT via `getTruePositionAtUT`, never a current-anchored position - and raises on `dist/soi > 1.005`. That tolerance is calibrated between two MEASURED populations: healthy = the S1.8 seam continuity, 10,146.3 m (Kerbin->Sun) and 7,284.0 m (Sun->Duna), i.e. 1.2e-4 / 1.5e-4 of the crossed sphere against a 25 km pin; defect = the 2026-06-15 looped re-aim, 1.027 (Duna) / 1.043 (Kerbin - a CALIBRATION reference only; that quantity is unproducible by the field capture, see limit (1) in the M-06 entry). KNOWN BENIGN POPULATION still to be measured: a FAITHFUL loop replay of an interplanetary transfer reads far above 1.0 by design (the destination has moved on in inertial space by the loop shift), so a raise needs the line's `seed=` / `loopShift=` fields read before it is called a defect. Deliberately NOT re-aim-gated - the whole point is that the parity oracle skips exactly those members. **FIRST REAL-GEOMETRY CENSUS 2026-08-09, and it FALSIFIED the offline derivation on two of five lanes** (full write-up + the UT arithmetic under the M-06 re-aim entry). The five V-lanes re-flown with the census on read: V4 `evaluated=1 outsideSoi=0` (Sun->Duna arrival seam - the geometry class the 1.027 defect lived in, measured INSIDE the sphere, on a frame where the faithful-parity sibling stood down `skip.reaimed-or-foreign-seed=1`), V7M `evaluated=1 outsideSoi=0` (Kerbin->Minmus arrival seam, faithful / phase-locked / same-parent, also inside), and V6M / V6T / V7T all `evaluated=0 outsideSoi=0 skip.no-cross-body-successor=1`. ZERO raises anywhere and no verdict moved (V7T's red is its own `icon-off-orbit` finding), so the report-only registration behaves. The lens is therefore NO LONGER UNPROVEN on real geometry - two healthy readings, each reproduced bit-identically on three consecutive flights, and `evaluated=[1-9]` is now REQUIRED on V4 + V7M. STILL NOT MEASURED, and both are why this stays report-only: the RATIO (printed only on a raise, so `outsideSoi=0` proves reach but not margin) and the RAISE itself |
 | `loop-seam-teleport` | yes (gated at birth 2026-08-07, flight-arrival lane) | `ParsekFlight.cs` `TrackLoopSeamTeleport` -> `GhostRenderTrace.EmitAnomaly` (the third tracer signature; walker taught in the same change). SENSITIVITY, because silence gets cited as evidence: it raises on a SINGLE-FRAME world delta above `max(GhostRenderTrace.LoopSeamTeleportFloorMeters = 1,000,000 m, expected motion * dt * multiplier)`, so a clean sweep excludes discontinuities over 1,000 km between consecutive frames and nothing finer |
 
 That WAS nine ungated reasons, not five (seven now gated per the RESOLUTION below; the table's per-row flags carry the current truth). **The first version of this table listed five**, and the four it missed are the wrapper-routed rows: the cutover-hardening raises, which reach `EmitAnomaly` through thin once-per-event `MapRenderTrace` wrappers instead of calling it at the guard site, so a grep for `EmitAnomaly` call sites does not land on them. They emit the same `phase=Anomaly ... reason=<token>` line as any direct raise (all four route through `MapRenderTrace`'s shared `EmitRaw(true, "Anomaly", ...)`), so all four were genuinely ungated then (three are promoted now; `factory-parity` stays the declared instrument). Understating the ungated count understates the size of the fail-open, which is the one thing this entry existed to size, hence the source-derived gate above. `clock-not-ready` in particular is the cold-load UT<=0 defer - a defect class this project already tracks separately.

@@ -1,4 +1,4 @@
-# In-game test category inventory (all 100 categories)
+# In-game test category inventory (all 105 categories)
 
 Machine-derived from `Source/Parsek` by `hlib.parse_ingame_test_declarations` +
 `hlib.derive_batch_tally`. Do NOT hand-edit the table: re-derive it. The generator
@@ -151,6 +151,7 @@ Two limits of this table, stated so nobody over-reads it:
 | `RecordingInvariants` | 2 | 2 | 0 | 0 | 0 | 0 | H5 | B |
 | `RecordingStore` | 2 | 2 | 2 | 2 | 0 | 0 | - | B |
 | `ReentryFx` | 3 | 3 | 0 | 0 | 0 | 1 | - | B |
+| `RenderComposition` | 1 | 1 | 0 | 0 | 0 | 1 | - | B |
 | `ResourceManifest` | 1 | 1 | 0 | 0 | 0 | 0 | - | B |
 | `ResourceReconciliation` | 1 | 0 | 1 | 0 | 0 | 0 | - | B |
 | `ResourceTopBar` | 2 | 0 | 2 | 0 | 0 | 2 | - | B |
@@ -194,14 +195,14 @@ Two limits of this table, stated so nobody over-reads it:
 
 ## Triage
 
-Totals, re-derived: **104 categories / 592 declarations**. Buckets **A 33 categories
-(231 declarations)**, **B 71 categories (361 declarations)**, **C 0 categories (0
-declarations)**. Driven by a committed spec: **43 of 104 categories**, up from 35
+Totals, re-derived: **105 categories / 593 declarations**. Buckets **A 33 categories
+(231 declarations)**, **B 72 categories (362 declarations)**, **C 0 categories (0
+declarations)**. Driven by a committed spec: **43 of 105 categories**, up from 35
 across six waves - `ReFlyWorldPreservation` via S4.2, `RecordedSignals` via H33,
 `SnapshotBaseline` via H32, and `Logistics` via H34 all landed together in one merge
 (the S1.8 SoiCrossingPlayback wave had taken it to 35 from 34, and 28 and 8 the waves
 before), then `PlaybackFidelity` via H36 and `PartEventFidelity` via H37. Measured
-against declarations rather than categories, that is 408 of 592 inside a driven
+against declarations rather than categories, that is 408 of 593 inside a driven
 category (was 318 before these waves: 324 after S4.2, 327 after H33, 334 after H32,
 381 once `Logistics` counted, 388 with `PlaybackFidelity`, 393 with
 `PartEventFidelity`, and 401 once L3's capture matrix took `StrategyLifecycle` from 3
@@ -214,6 +215,19 @@ corroboration cell to the same L3 pair, and 408 when the `funds-debit-capture`
 wave took it from 9 to 10 with the funds-INPUT converter measurement cell). `H35-logistics-route-proof` (2026-08-11) moves NEITHER number -
 it is the second spec on a category H34 already counted - which is exactly the
 distortion the paragraph after next is about.
+
+`RenderComposition` (1 declaration, M-A7) is the 105th category and moves the DRIVEN
+numbers not at all: it ships undriven, in bucket B, waiting on the `renderCompose`
+verifier row's lanes (Phase 3+ of `design-autotest-render-composition.md`). The one
+cell is a WELL-FORMEDNESS gate - it force-arms the render-composition recorder, lets
+the live flight scene drive the real capture path, exports, and asserts the manifest
+parses with every section present and record counts matching the export payload. It
+deliberately encodes no RC-* composition rule: those are evaluated in Python alone,
+because a rule written in both languages is the second-copy drift that design
+forbids for its own constant catalog. Scene = FLIGHT, batch-allowed, and it
+self-skips with a named requirement when there is no active vessel or when the
+session is already env-armed (running then would Reset the session's own
+accumulation), so it is safe in any batch.
 
 `ReFlyWorldPreservation` (6, driven by `S4.2-refly-world-preservation`) arrived with
 its driver rather than as an undriven category: it was authored for the

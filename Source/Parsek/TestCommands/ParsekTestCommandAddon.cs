@@ -1129,6 +1129,11 @@ namespace Parsek.TestCommands
         void ITestCommandExecutor.StartLoopPlayback(ParsedCommand cmd) => StartLoopPlaybackImpl(cmd);
         void ITestCommandExecutor.EnterWatchMode(ParsedCommand cmd) => EnterWatchModeImpl(cmd);
 
+        // M-A7: the body lives in the sibling ParsekTestCommandAddon.ExportRenderManifest.cs
+        // partial. Single-phase - the flush + safe-write complete inside the call - so it has
+        // no TryComplete* counterpart in TryCompleteTwoPhaseCore.
+        void ITestCommandExecutor.ExportRenderManifest(ParsedCommand cmd) => ExportRenderManifestImpl(cmd);
+
         private void InvokeExecutor(ParsedCommand cmd)
         {
             ITestCommandExecutor exec = this;
@@ -1158,6 +1163,7 @@ namespace Parsek.TestCommands
                 case "MissionConfig": exec.MissionConfig(cmd); break;
                 case "StartLoopPlayback": exec.StartLoopPlayback(cmd); break;
                 case "EnterWatchMode": exec.EnterWatchMode(cmd); break;
+                case "ExportRenderManifest": exec.ExportRenderManifest(cmd); break;
                 default:
                     // Unreachable: DecideDispatch rejects unknown/reserved verbs before Execute.
                     SetExecResult("ERROR", null, "unknown-command");
