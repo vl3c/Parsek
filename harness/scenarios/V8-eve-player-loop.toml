@@ -40,6 +40,115 @@
 #            temporarily re-required dead token ("faithful this window");
 #            reverted. Red in the red direction.
 #
+# RENDER COMPOSITION (M-A7 Phase 3) - DECLARED REPORT-ONLY:
+#   READING  2026-08-25_0956 PASS attempt 1, wall 53 s, all 31 steps met
+#            (both EnterWatchMode attempts REJECTED as pinned,
+#            `ExportRenderManifest` OK). renderCompose status=REPORT
+#            gating=false armedBlocks=[] mismatches=[] - the row read the
+#            manifest and moved no verdict, which is what a reading run is
+#            for. MEASURED FACETS, off
+#            `verifiers.renderCompose.observed.renderComposition` (CANDIDATE
+#            windows only - nothing below is declared today):
+#              planUnits 1, chainBuilds 1, dwells 2 (openDwells 1),
+#                transitions 2, treatments {StockConic: 2}, coverages
+#                {InSegment: 2}, lineBranches 5, ownershipChanges 0,
+#                ratifiedSkips 0, routeLineBuilds 0, truncatedSections [],
+#                anomalyEchoes {}.
+#              cycles 0, clockEvents {cycle-rollover: 1, hold-engage: 1,
+#                hold-release: 1, reaim-window: 1}. THE HOLD PAIR IS THE
+#                HEADLINE: an engage/release pair OBSERVED at 1x
+#                (holdsAboveOneX 0), which is precisely the shape the C#
+#                review pass's RELATIVE stationarity predicate was rebuilt
+#                to see - the old absolute 0.25 s window could not observe a
+#                1x hold's release at all. `reaim-window` is this lane's
+#                engaged re-aim, the axis the V14M sibling structurally
+#                cannot reach.
+#              seamEndpoints 272, seamKinds {flexible-soi: 4, rigid: 6},
+#                seamTangents 0; 73 of the 272 endpoint records counted
+#                `seam-endpoint-skipped`.
+#              unevaluable 76 = seam-endpoint-skipped 73 +
+#                no-cycle-rollover-events 2 + cut-run-period-absent 1.
+#              warpBuckets {warp1x: 296}, every other bucket 0 - the 1x-only
+#                histogram this ledger predicts below, CONFIRMED off the run.
+#              quality: maxEndpointRatio 0.116651686 (against V14M's
+#                0.999975253 - two very different endpoint populations under
+#                the same rule), maxUtStepSeconds 3,742,999.28,
+#                holdsAboveOneX 0, seamsAboveOneX 0, empty cutWholeRatios,
+#                no descent residuals, no observed/plan hold seconds,
+#                maxTangentAngleRad and maxInteriorGapSeconds null.
+#              findings: ONE INFO only - RC-QUAL "max FlexibleSoi
+#                endpoint/SOI ratio 0.116651686 over 272 record(s)". Zero
+#                WARN, zero FAIL. Header `mapRenderTracingOn=true` here,
+#                while the V14M sibling read FALSE on the same drive shape
+#                (that spec's section 6 observation (a); the bit reads the
+#                EXPORT INSTANT, and the sticky was-ever-on follow-up is
+#                filed under M-A7-RENDER-COMPOSITION-PHASES-3-AND-4).
+#              `cut-run-period-absent: 1` IS THE ONE TO CARRY INTO ARMING.
+#                This lane owns the corpus's only non-zero loiter cut
+#                (loiterCuts=1 cutSeconds=11,819,849 - the D11 cell below),
+#                and RC-CUT's whole-ratio check still could not evaluate it:
+#                the manifest carried no RUN PERIOD to divide by, so
+#                `cutWholeRatios` came back empty. An RC-CUT window armed
+#                off this reading would be arming a clause that never fires;
+#                the arming window must account for that unevaluable (or
+#                wait for a manifest that carries the period).
+#              `exportReason=process-teardown` on the manifest the verifier
+#                read, NOT the chosen-instant export the step placement is
+#                argued for: the export step answered OK and the teardown
+#                flush after `FlushAndQuit` rewrote the same path. Benign -
+#                accumulation runs from Awake, so the later file is a
+#                superset - but worth one question at arming.
+#   ARMING DECISION PENDING OPERATOR: the three-run workflow still owes the
+#            ARMED re-flight and the NEGATIVE CONTROL, exactly as this
+#            lane's two save-structure blocks were armed above. The block
+#            stays BARE until that call is taken.
+#   renderComposition  Declared, NOT
+#            armed, so verifier row 7c reports facets and findings and can
+#            move no verdict (run.py writes
+#            `verifiers["render_composition_mismatch"]` only under
+#            `if rc.gating`). This lane is the second Phase-3 subject named
+#            by docs/dev/design-autotest-render-composition.md ->
+#            "Harness integration and lanes": the "re-aim interplanetary
+#            landing loop (V8/V13 class, exercising re-aim + descent
+#            trigger + holds)". It is the RICHER of the two subjects, and
+#            specifically so on the axes the V14M sibling structurally
+#            cannot reach: this lane ENGAGES re-aim (V14M's phase-locked
+#            same-parent mission never enters ApplyReaim's engaged branch
+#            at all), and it carries the corpus's ONLY non-zero loiter cut
+#            (loiterCuts=1 cutSeconds=11819849 - the D11 cell below), which
+#            is the one subject RC-CUT's compress/decompress map has. It
+#            also renders a Mun-frame slice INSIDE an interplanetary replay,
+#            which no other committed loop lane does. RC-ROUTE is NOT a
+#            subject here - no route line exists on this lane; that rides
+#            G1's B27/V18 in Phase 4.
+#            THE BLOCK IS BARE ON PURPOSE. `rendercompose`'s docstring:
+#            the facets are "Recorded UNCONDITIONALLY on a parseable
+#            manifest: that is how a lane earns its first honest window off
+#            a green report-only run". Declaring `dwells` / `cycles` /
+#            `unevaluable` before the first flight would be writing a
+#            prediction and reading it back as a measurement - the mistake
+#            this lane's own arming ledger above refuses for the two
+#            save-structure blocks ("arming re-pinned NOTHING"). Windows
+#            get authored FROM the first report-only manifest.
+#            NOTHING IN THE FLOWN SHAPE MOVED: no jump UT, no pacing
+#            spacer, no budget, no expectation - only one INERT export step
+#            before FlushAndQuit and the declaration itself. The pacing
+#            spacers that this lane's _0810/_0814 line-blink findings paid
+#            for are untouched, and the new step follows a watch attempt
+#            rather than a TimeJump, so it straddles no boundary.
+#            WHAT THIS LANE CANNOT MEASURE: RC-WARP. Every clock move here
+#            is an instantaneous TimeJump, so the warp histogram is 1x-only
+#            by construction and `warpBuckets` must never be declared here
+#            (RC-WARP is satisfiable only by the V1/autopilot rails-warp
+#            ladder shape). The design's "warp schedule" bullet is
+#            deliberately NOT honoured in this pass.
+#            The three tracer SetSetting steps below are load-bearing for
+#            this row as well as for the [ReaimDiag]/[ReaimSeam] lines:
+#            the seam tangent/endpoint capture predicates are
+#            `mapRenderTracing`-gated, so a manifest taken with the tracer
+#            off carries no seam numbers and every RC-SEAM numeric clause
+#            counts as `seam-data-unavailable-tracing-off` unevaluable.
+#
 # ITERATION HISTORY: _0802 iteration 1 (under-gated arm-and-read); _0807
 # iteration 2 (brackets; the instrument's FIRST RAISE); _0810/_0814
 # PARSEK-FAIL(anomaly) on the line-blink jump-straddle detector gap (filed,
@@ -258,6 +367,25 @@ steps = [
   # INVALID(driver-verdict-mismatch) and would itself be a measurement worth
   # having - record the separation either way.
   { cmd = "EnterWatchMode",                                                  expect = "REJECTED" },
+  # M-A7 RENDER-COMPOSITION CAPTURE (Phase 3). The recorder accumulates from
+  # Awake, so placement decides only how much of this lane's observation is
+  # already inside the exported manifest - and on this lane that argument
+  # points at exactly one slot. Here, everything is in: the cycle-0 re-aim
+  # engagement and its loiter cut (built at unit build, before the first
+  # jump), the Mun-transit slice, the Kerbin->Sun escape bracket, the
+  # Sun->Eve arrival bracket, the parked tail INSIDE the rendered window,
+  # and both watch decisions. Exporting any earlier drops one of the three
+  # brackets and with it whichever seam record RC-SEAM would have measured.
+  # BEFORE FlushAndQuit, so the manifest is taken at a CHOSEN instant rather
+  # than provoked by the scene-exit / teardown auto-flush - which is
+  # `hlib`'s stated reason for the verb existing (the teardown composition
+  # is not the one the twenty-nine steps above it built).
+  # INERT by construction (`hlib.SEAM_VERB_TAIL_ROLE` = inert): it reads the
+  # recorder's in-memory accumulation and writes one file in the KSP root,
+  # touching no vessel, no save and no Parsek persisted state - so it cannot
+  # perturb the two save-structure blocks this lane already gates on, and it
+  # adds no TimeJump adjacency for the line-blink detector to see.
+  { cmd = "ExportRenderManifest",                        expect = "OK", budget = 120 },
   { cmd = "FlushAndQuit",                                                    expect = "OK" },
 ]
 
@@ -370,6 +498,26 @@ tombstones    = { max = 0 }
 gating = true
 committedTrees = { min = 1, max = 1 }
 trees          = { min = 1, max = 2 }
+
+[expectations.renderComposition]
+# M-A7 Phase 3, DECLARED REPORT-ONLY. Full rationale in the header's
+# RENDER COMPOSITION ledger entry; the two facts that matter here:
+#
+#   1. NO `gating` KEY - declared, not armed. Row 7c reports and gates
+#      nothing, and `test_no_committed_spec_arms_render_composition_gating`
+#      pins this lane's absence from `RENDERCOMPOSE_ARMED_SPECS`.
+#   2. NO ASSERTION KEY - `hlib.validate_spec` accepts a bare declaration and
+#      emits an inert-declaration WARNING, which is the reading-run state the
+#      arming workflow mandates. Windows are authored FROM the first
+#      report-only manifest's facets, never before it. That manifest HAS now
+#      flown - reading run 2026-08-25_0956, facets in the header ledger - and
+#      the block is still bare on purpose: authoring the windows is the
+#      operator's arming call, not a consequence of the run being green.
+#
+# The DECLARATION (not the arming) is what sets `PARSEK_RENDER_MANIFEST=1` at
+# launch, which arms the C# recorder at Awake; without it the export step
+# answers `REJECTED msg=manifest-not-armed`. That coupling is enforced
+# pre-launch by `hlib.validate_spec`'s verb/block rule.
 
 [runtime]
 budgetSeconds = 2400

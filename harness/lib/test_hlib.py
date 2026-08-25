@@ -1062,10 +1062,13 @@ class SpecValidationRejectTests(unittest.TestCase):
                 "%s drives %s expecting OK with no "
                 "[expectations.renderComposition] block"
                 % (name, hlib.RENDER_MANIFEST_EXPORT_VERB))
-        # No committed spec drives the verb yet (wave 2 wires the first lane), so
-        # `checked == 0` is the CURRENT truth and is recorded rather than asserted
-        # away - the sweep starts biting the moment one lands.
-        self.assertGreaterEqual(checked, 0)
+        # Phase 3 (2026-08-25) landed the first two drivers - V14M-ike-player-loop
+        # and V8-eve-player-loop - so the sweep now actually bites. The floor is
+        # asserted at that count rather than left at `>= 0`: a lane losing its
+        # export step would otherwise slip past this cell silently, and the
+        # roster that names both lanes lives in
+        # `RenderComposeVerifierWiringTests.RENDERCOMPOSE_DECLARER_SPECS`.
+        self.assertGreaterEqual(checked, 2)
 
     def test_r12_verbs_implemented_not_reserved(self):
         # R12 landed TWO verbs of DIFFERENT shapes, and the distinction is the point:
@@ -6222,21 +6225,99 @@ class RenderComposeVerifierWiringTests(unittest.TestCase):
                          rendercompose.declared_composition_blocks(exp))
         self.assertFalse(rendercompose.gating_armed(exp))
 
-    def test_no_committed_spec_declares_the_block_yet(self):
-        """Phase-2 landing state, pinned so the first declarer is a deliberate
-        edit. DECLARING (not arming) is what sets PARSEK_RENDER_MANIFEST=1 at
-        launch, so a spec picking the block up by accident would silently change
-        what its KSP does at boot."""
+    # The DECLARER roster - distinct from the ARMED roster above, and a strictly
+    # wider set: DECLARING is what sets PARSEK_RENDER_MANIFEST=1 at launch, ARMING
+    # is what lets the row move a verdict. Phase 3 (2026-08-25) wired the two lanes
+    # the design names as first subjects in "Harness integration and lanes":
+    #
+    #   V14M-ike-player-loop.toml - the phase-lock moon loop (V6/V14 class).
+    #   V8-eve-player-loop.toml   - the re-aim interplanetary landing loop
+    #                               (V8/V13 class: re-aim + descent trigger + holds).
+    #
+    # Both are BARE declarations: no assertion key, no `gating`. Their report-only
+    # reading runs FLEW 2026-08-25 (`2026-08-25_0953_V14M-ike-player-loop` and
+    # `2026-08-25_0956_V8-eve-player-loop`, both PASS, both `renderCompose
+    # status=REPORT gating=false`), and the blocks are still bare because authoring a
+    # window off those facets is the OPERATOR's arming call - the armed re-flight and
+    # the negative control are still owed per lane. Facets live in each spec's arming
+    # ledger and in docs/dev/autotest-status.md -> M-A7. Both already arm the three tracers the seam capture
+    # needs, and both drive ExportRenderManifest once after their last observation
+    # step and immediately before FlushAndQuit. FOUR cells stand on this roster: the
+    # roster itself, that no declarer arms gating, that every declarer arms the three
+    # tracers, and that every declarer exports immediately before teardown - because a
+    # declarer that flies with the tracer off, or exports at the wrong instant, greens
+    # while measuring nothing.
+    RENDERCOMPOSE_DECLARER_SPECS = {"V14M-ike-player-loop.toml",
+                                    "V8-eve-player-loop.toml"}
+
+    def test_render_composition_declarers_are_the_recorded_roster(self):
+        """Pinned so a declarer is always a deliberate edit, in BOTH directions. A
+        spec picking the block up by accident silently changes what its KSP does at
+        boot; a spec LOSING the block silently stops writing the manifest its own
+        ExportRenderManifest step expects (which the coupling rule then refuses
+        pre-launch, but by then the roster here has already gone stale)."""
         declarers = []
         for name in sorted(n for n in os.listdir(SCENARIOS_DIR) if n.endswith(".toml")):
             with open(os.path.join(SCENARIOS_DIR, name), "rb") as fh:
                 spec = tomllib.load(fh)
             if rendercompose.declared_composition_blocks(spec.get("expectations") or {}):
                 declarers.append(name)
-        self.assertEqual([], declarers,
-                         "a committed spec now declares [expectations.renderComposition]; "
-                         "that spec's KSP boots with PARSEK_RENDER_MANIFEST=1 - record the "
-                         "decision here in the same commit")
+        self.assertEqual(sorted(self.RENDERCOMPOSE_DECLARER_SPECS), declarers,
+                         "the set of specs declaring [expectations.renderComposition] "
+                         "changed; those specs' KSP boots with PARSEK_RENDER_MANIFEST=1 - "
+                         "record the decision here in the same commit")
+
+    def test_no_declarer_arms_gating_yet(self):
+        """The declarer roster and the armed roster are different facts, and today
+        the second is empty. Stated against the roster above rather than against the
+        scenario directory so it keeps meaning the same thing after a third lane
+        lands: every DECLARER is report-only."""
+        for name in sorted(self.RENDERCOMPOSE_DECLARER_SPECS):
+            with open(os.path.join(SCENARIOS_DIR, name), "rb") as fh:
+                spec = tomllib.load(fh)
+            self.assertFalse(
+                rendercompose.gating_armed(spec.get("expectations") or {}),
+                "%s arms render-composition gating; add it to "
+                "RENDERCOMPOSE_ARMED_SPECS citing its run ids" % name)
+
+    def test_every_declarer_arms_the_tracers_the_seam_capture_needs(self):
+        """The declaration alone buys a manifest with NO seam numbers in it: the
+        tangent/endpoint capture predicates are `mapRenderTracing`-gated (SPEC
+        decision 2), so on a tracer-off lane every RC-SEAM numeric clause counts as
+        `seam-data-unavailable-tracing-off` unevaluable. A lane that declares the
+        block without arming the tracer flies, greens, and measures nothing - the
+        exact shape a reading run must not have. `verboseLogging` is load-bearing
+        beside it (the V1 lesson: tracer truth is emitted at Verbose)."""
+        for name in sorted(self.RENDERCOMPOSE_DECLARER_SPECS):
+            with open(os.path.join(SCENARIOS_DIR, name), "rb") as fh:
+                spec = tomllib.load(fh)
+            steps = (spec.get("driver", {}) or {}).get("steps", []) or []
+            armed = {((s or {}).get("args") or {}).get("name")
+                     for s in steps
+                     if (s or {}).get("cmd") == "SetSetting"
+                     and ((s or {}).get("args") or {}).get("value") == "true"}
+            for setting in ("ghostRenderTracing", "mapRenderTracing", "verboseLogging"):
+                self.assertIn(setting, armed,
+                              "%s declares [expectations.renderComposition] without "
+                              "arming %s" % (name, setting))
+
+    def test_every_declarer_exports_immediately_before_teardown(self):
+        """Placement rule, pinned. The recorder accumulates from Awake, so the only
+        thing placement decides is how much of the lane's observation is already
+        inside the exported manifest - an export taken earlier silently drops
+        whatever the lane observed after it, and no export at all leaves the
+        composition to the scene-exit auto-flush, i.e. to the teardown moment rather
+        than the one the lane spent its steps building (`hlib`'s stated reason for
+        the verb existing)."""
+        for name in sorted(self.RENDERCOMPOSE_DECLARER_SPECS):
+            with open(os.path.join(SCENARIOS_DIR, name), "rb") as fh:
+                spec = tomllib.load(fh)
+            cmds = [(s or {}).get("cmd")
+                    for s in ((spec.get("driver", {}) or {}).get("steps", []) or [])]
+            self.assertEqual([hlib.RENDER_MANIFEST_EXPORT_VERB, "FlushAndQuit"],
+                             cmds[-2:],
+                             "%s: expected the manifest export immediately before "
+                             "FlushAndQuit, got %s" % (name, cmds[-2:]))
 
 
 class WorldRosterDeclarerTests(unittest.TestCase):

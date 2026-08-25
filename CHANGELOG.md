@@ -25,13 +25,16 @@ All notable changes to Parsek are documented here.
   from the recorded plan and reports every gap, seam, hold and cut that the
   written composition catalog does not explain, plus anything observed that no
   rule claims at all. It rides the verifier chain as a new `renderCompose` row,
-  REPORT-ONLY: no committed scenario declares the `[expectations.renderComposition]`
-  block yet, so nothing can red on it today, and a scenario that arms one gets
+  REPORT-ONLY: two committed lanes (`V14M-ike-player-loop`,
+  `V8-eve-player-loop`) declare the `[expectations.renderComposition]` block
+  bare and flew their report-only reading runs on 2026-08-25 (both PASS;
+  facets recorded in the spec arming ledgers and `autotest-status.md`),
+  nothing is armed, and a scenario that arms a block gets
   `PARSEK-FAIL(render-composition)`. Also here: one in-game test category
   (`RenderComposition`) asserting only that the exported file is well-formed,
   and the manifest is collected into each run's artifacts beside KSP.log.
-  Lanes, arming and the route surfaces are the next phases. Test-tooling only;
-  no gameplay change.
+  Arming, warp-schedule lanes and the route surfaces are the next phases.
+  Test-tooling only; no gameplay change.
 
 - The automated-testing suite gained a second moon-to-moon subject, so a result
   measured once can be checked at a different planet. Last time, a crewed ship
