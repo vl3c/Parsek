@@ -66,8 +66,12 @@ scene-exit flush), the pure Python verifier `harness/lib/rendercompose.py`, and
 the `renderCompose` verifier row REPORT-ONLY. Two committed scenarios now
 DECLARE `[expectations.renderComposition]` (see the Phase-3 bullet), and BOTH
 flew their report-only reading runs green on 2026-08-25 - so the module is
-live-proven on real game manifests. Nothing is armed, and arming is still an
-operator call owing an armed re-flight and a negative control per lane.
+live-proven on real game manifests. BOTH BLOCKS WERE ARMED 2026-08-25 off those
+readings (windows in the Phase-3 bullet), AND THE THREE-RUN WORKFLOW CLOSED THE
+SAME DAY on both lanes: armed re-flight plus negative control each, six runs
+total. WHAT REMAINS OWED for this module is the warp-schedule lane family
+(RC-WARP, which neither committed subject can satisfy) and Phase 4's route
+surfaces.
 
 REMAINING PHASES.
 
@@ -101,24 +105,75 @@ REMAINING PHASES.
   ledger; the headline pair is V8's `hold-engage`/`hold-release` observed at 1x
   (the program's first) and V14M's all-`StockConic`, 1x-only, 107-endpoint
   reading.
-  STILL OWED: the rest of the three-run arming workflow per lane (armed
-  re-flight -> negative control) and the per-criterion negative controls.
-  ARMING DECISION PENDING OPERATOR - no window has been authored off the reading
-  facets and both blocks stay BARE. Arming stays an operator decision taken only
+  ~~ARMING DECISION PENDING OPERATOR - no window has been authored off the
+  reading facets and both blocks stay BARE~~ ~~ARMING IN PROGRESS: BOTH BLOCKS
+  ARMED 2026-08-25, ARMED RE-FLIGHT + NEGATIVE CONTROL STILL OWED~~ **ARMING
+  DONE AND VALIDATED 2026-08-25: both blocks armed AND both lanes discharged the
+  full three-run workflow the same day.** The operator
+  took the call off exactly the reading facets, nothing else, and nothing in
+  either flown shape moved (the S4.1 rule).
+    * V14M: `dwells {1,32}` (measured 3), `cycles {1,16}` (measured 1 CLOSED
+      cycle), `unevaluable {max 200}` (measured 56), `requireSeamKinds
+      ["rigid","flexible-soi"]` (measured rigid 14 / flexible-soi 2).
+    * V8: `dwells {1,32}` (measured 2), `unevaluable {max 250}` (measured 76 over
+      a 272-record endpoint population - 2.5x V14M's, hence the proportionally
+      higher ceiling), `requireSeamKinds ["rigid","flexible-soi"]` (measured
+      rigid 6 / flexible-soi 4). `cycles` DELIBERATELY OMITTED: that subject
+      closed ZERO cycles, so a floor would red the run it was armed off and a
+      `{min = 0}` pin can never red at all.
+    The count floors plus `requireSeamKinds` are the anti-vacuity halves; the
+    ceilings are runaway guards, not pins, because dwell and endpoint counts move
+    with frame timing. `warpBuckets` on neither, ever. Rosters and per-lane armed
+    KEY-SET pins: `RENDERCOMPOSE_ARMED_SPECS` +
+    `test_v14m_declares_the_render_composition_block_armed` /
+    `test_v8_declares_the_render_composition_block_armed_without_a_cycles_floor`
+    / `test_every_armed_block_keeps_an_anti_vacuity_floor` in
+    `harness/lib/test_hlib.py`, where `test_no_declarer_arms_gating_yet` was
+    replaced (per its own docstring discipline) by
+    `test_every_declarers_arming_state_matches_the_recorded_rosters`.
+  ~~STILL OWED: the rest of the three-run arming workflow per lane (armed
+  re-flight -> negative control, the latter shareable across the pair per the
+  V4/V5/V14 shared-evaluator precedent) and the per-criterion negative
+  controls.~~ **DISCHARGED 2026-08-25 - six runs, both lanes:**
+    * V14M: reading `2026-08-25_0953` -> armed re-flight `2026-08-25_1050` PASS
+      (gating=True, ZERO mismatches; dwells 3, cycles 1, seamKinds rigid 14 /
+      flexible-soi 2, unevaluable 108, one INFO RC-QUAL) -> negative control
+      `2026-08-25_1052` `PARSEK-FAIL(render-composition)` off a temporary
+      `cycles = { min = 5 }`, single mismatch
+      `renderComposition.cycles 1 < min 5`, reverted in the same change.
+    * V8: reading `2026-08-25_0956` -> armed re-flight `2026-08-25_1051` PASS
+      (ZERO mismatches; dwells 2, cycles 0, seamKinds rigid 6 / flexible-soi 4,
+      unevaluable 78, one INFO RC-QUAL; the `hold-engage`/`hold-release` pair
+      and the `reaim-window` event both REPRODUCED) -> negative control
+      `2026-08-25_1054` `PARSEK-FAIL(render-composition)` off a temporary
+      `dwells = { min = 50 }`, single mismatch
+      `renderComposition.dwells 2 < min 50`, reverted in the same change.
+    The controls were NOT shared: each lane inverted a window of its OWN, so
+    each red lands on that lane's armed clause rather than re-proving the shared
+    `rendercompose` evaluator, and on both controls every sibling verifier row
+    (saveParse / anomalySweep / driverValidity / logValidate / analyzer) stayed
+    PASS. Also measured: V14M's armed run confirmed the sticky-bit fix
+    (`mapRenderTracingOn=true`, `seam-data-unavailable-tracing-off` gone) while
+    its unevaluable TOTAL rose 56 -> 108 on `seam-endpoint-skipped` variance
+    (106 vs 53) - inside the `{max 200}` runaway guard by design.
+  Arming stays an operator decision taken only
   after a report-only reading run whose facets match the declared windows,
   exactly as R9's `[expectations.rewind]` arming was. One MEASURED constraint on
-  that decision: V8's reading returned `cut-run-period-absent: 1`, so RC-CUT's
+  that decision, HONOURED IN THE ARMING: V8's reading returned
+  `cut-run-period-absent: 1`, so RC-CUT's
   whole-ratio check could not evaluate the corpus's only non-zero loiter cut (no
   run period to divide by; `cutWholeRatios` came back empty). An RC-CUT window
-  armed off that reading would arm a clause that never fires - the arming window
-  must account for the unevaluable.
-  DELIBERATELY NOT DONE in the lane-extension pass: the design's **warp
-  schedule** bullet. Both subjects move the clock with instantaneous `TimeJump`s,
-  so their warp histogram is 1x-only by construction and `warpBuckets` must never
-  be declared on either. RC-WARP is satisfiable only by the V1/autopilot
-  rails-warp ladder shape, which wants a third lane (or a re-shaped drive) rather
-  than a re-pin of these two. CONFIRMED by both reading runs: the histograms came
-  back 1x-only (173 samples on V14M, 296 on V8), every other bucket zero.
+  armed off that reading would arm a clause that never fires, so NO RC-CUT
+  surface was armed - nor any RC-HOLD clause, one observed engage/release pair
+  not being a window.
+  STILL OWED AFTER THE ARMING, and the ONLY Phase-3 debt left: the design's
+  **warp schedule** bullet (RC-WARP). Both subjects move the clock with
+  instantaneous `TimeJump`s, so their warp histogram is 1x-only by construction
+  and `warpBuckets` must never be declared on either. RC-WARP is satisfiable only
+  by the V1/autopilot rails-warp ladder shape, which wants a third lane (or a
+  re-shaped drive) rather than a re-pin of these two. CONFIRMED FOUR TIMES: the
+  histograms came back 1x-only on both reading runs (173 samples on V14M, 296 on
+  V8) and on both armed re-flights (177 and 295), every other bucket zero.
 - **The manifest header's `mapRenderTracingOn` bit should be STICKY
   (was-ever-on), not export-instant** [OPENED 2026-08-25 off the two Phase-3
   reading runs. Small, C#-side, verifier-facing]. `TryExportNow`
@@ -131,10 +186,33 @@ REMAINING PHASES.
   `exportReason=process-teardown` write). It is not cosmetic: the false reading
   is what put `seam-data-unavailable-tracing-off: 1` into V14M's unevaluable
   census, so a lane can look tracer-off to the verifier while its seam numbers
-  are real. Fix: accumulate a was-ever-on flag in the recorder (set on any frame
-  the tracer is enabled) and stamp THAT, keeping the export-instant value only if
-  it earns a second key. Until it lands, do not read the bit as evidence about a
-  lane's tracer arming.
+  are real. ~~Fix: accumulate a was-ever-on flag in the recorder (set on any
+  frame the tracer is enabled) and stamp THAT~~ FIXED 2026-08-25 in the arming
+  pass. `RenderCompositionRecorder.mapRenderTracingWasEverOn` is latched by
+  `LatchMapRenderTracing()` once per ARMED frame (from `Update`, after the
+  `IsEnabled` gate) plus once more at export, and cleared ONLY in `Reset()` -
+  the same boundary at which the accumulated records are dropped, so the bit can
+  never describe a population it did not accumulate with. The header KEY
+  `mapRenderTracingOn` is unchanged (the Python reader keys off that spelling
+  verbatim); its semantics are documented on
+  `RenderCompositionManifest.ManifestHeader.MapRenderTracingOn` and in
+  `rendercompose.py`'s unevaluable-discipline docstring. No second export-instant
+  key was added - nothing consumes one. Cells:
+  `RenderCompositionRecorderTests.StickyTracingBit_*` (four: starts false and
+  latches, survives the tracer going quiet, clears with the records, still
+  serializes under the unchanged key). PYTHON SEMANTICS RE-CHECKED and unchanged:
+  `seam-data-unavailable-tracing-off` still raises only on "record family empty
+  AND header false", which the sticky bit makes honest in BOTH directions - the
+  complementary reading (header true, empty seam family) is now a MEASURED
+  absence rather than an unknown instrument, and correctly raises nothing.
+  CONSEQUENCE FOR THE LANES, predicted then MEASURED on V14M's armed re-flight
+  `2026-08-25_1050`: the bit read `true` and
+  `seam-data-unavailable-tracing-off` is gone from the census, so the fix is
+  CONFIRMED - but the predicted 56 -> 55 total did not land, because
+  `seam-endpoint-skipped` independently ran 106 against the reading run's 53 and
+  the total read 108. The prediction was about the one reason and held; the total
+  is not a controlled quantity, which is exactly why the armed
+  `unevaluable = { max = 200 }` window is a runaway guard rather than a pin.
 - **Phase 4 (routes + product).** Ride G1's B27/V18 for the route surfaces so
   RC-ROUTE evaluates against a real route line, and start the RC-QUAL trend
   record (kink angles, endpoint ratios, hold durations) that feeds

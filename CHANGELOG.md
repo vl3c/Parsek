@@ -25,16 +25,23 @@ All notable changes to Parsek are documented here.
   from the recorded plan and reports every gap, seam, hold and cut that the
   written composition catalog does not explain, plus anything observed that no
   rule claims at all. It rides the verifier chain as a new `renderCompose` row,
-  REPORT-ONLY: two committed lanes (`V14M-ike-player-loop`,
-  `V8-eve-player-loop`) declare the `[expectations.renderComposition]` block
-  bare and flew their report-only reading runs on 2026-08-25 (both PASS;
-  facets recorded in the spec arming ledgers and `autotest-status.md`),
-  nothing is armed, and a scenario that arms a block gets
-  `PARSEK-FAIL(render-composition)`. Also here: one in-game test category
-  (`RenderComposition`) asserting only that the exported file is well-formed,
-  and the manifest is collected into each run's artifacts beside KSP.log.
-  Arming, warp-schedule lanes and the route surfaces are the next phases.
-  Test-tooling only; no gameplay change.
+  REPORT-ONLY everywhere except the two lanes it is now armed on: two committed
+  lanes (`V14M-ike-player-loop`, `V8-eve-player-loop`) declared the
+  `[expectations.renderComposition]` block bare, flew their report-only reading
+  runs on 2026-08-25 (both PASS; facets recorded in the spec arming ledgers and
+  `autotest-status.md`), and were then ARMED off exactly those measurements -
+  each lane's declared windows are the numbers its own run produced, with stated
+  margins, and a miss now fails the run with
+  `PARSEK-FAIL(render-composition)`. Every other scenario keeps reporting and
+  gates nothing. Also here: the exported file's "map-render tracing was on" flag
+  became STICKY - it now records whether tracing was on while the records were
+  being gathered rather than at the instant the file was written, because the old
+  reading could say "off" on a file full of measurements only a running tracer
+  can produce. Plus one in-game test category (`RenderComposition`) asserting
+  only that the exported file is well-formed, and the manifest is collected into
+  each run's artifacts beside KSP.log. The armed lanes still owe their
+  confirmation flights; warp-schedule lanes and the route surfaces are the next
+  phases. Test-tooling only; no gameplay change.
 
 - The automated-testing suite gained a second moon-to-moon subject, so a result
   measured once can be checked at a different planet. Last time, a crewed ship

@@ -56,6 +56,14 @@ in ``["unevaluable"]``. The three populations Phase 2 has:
   predicates are tracing-gated (SPEC decision 2), so a manifest-only lane
   carries no seam numbers. A lane must arm ``mapRenderTracing`` beside
   ``PARSEK_RENDER_MANIFEST`` to make RC-SEAM numeric clauses evaluable.
+  RAISED ONLY when the record family is empty AND the header bit is false, and
+  the header bit ``mapRenderTracingOn`` is STICKY on the writer side (was-ever-on
+  across the accumulated records, cleared only with them; the instantaneous read
+  it replaced stamped ``False`` onto a teardown manifest carrying 107 tracing-
+  gated seam records and manufactured this unevaluable out of nothing). So the
+  complementary reading is now load-bearing too: header true with an empty seam
+  family is a MEASURED absence - the instrument was armed and captured nothing -
+  and correctly raises no unevaluable at all.
 - ``truncated-section-*`` - a ``TRUNCATED`` record means the accumulation core
   dropped records at a cap, so every count derived from that section is a floor.
   Affected sections become unevaluable, NOT unknown (SPEC RC-UNKNOWN).

@@ -6100,12 +6100,13 @@ class RenderComposeVerifierWiringTests(unittest.TestCase):
     mirroring the save-structure precedent above - arming stays a deliberate,
     per-scenario, live-proven act.
 
-    The guarantee AS SHIPPED is the strong form the save-structure row shipped
-    with in 2026-07: NO committed spec arms `gating = true`, so landing row 7c
-    cannot move any nightly's verdict. When the first lane is promoted on
-    evidence (a report-only reading run whose facets match the declared windows),
-    the guarantee becomes the next one along - the armed set is an ALLOWLIST, and
-    a spec joining it needs an explicit edit here citing its run ids.
+    The guarantee AS SHIPPED was the strong form the save-structure row shipped
+    with in 2026-07: NO committed spec arms `gating = true`. THAT PHASE ENDED
+    2026-08-25, when the operator armed both Phase-3 declarers off their own
+    report-only reading runs, so the guarantee is now the next one along - the
+    armed set is an ALLOWLIST, and a spec joining it needs an explicit edit here
+    citing its run ids. Row 7c can move a verdict from here on, which is the point
+    of arming it.
 
     NAMING: the roster below is deliberately NOT called `*ARMED_ALLOWLIST`.
     `harness/missions/lib/test_cl3_refly_crew_tombstone.py` scrapes the
@@ -6114,10 +6115,82 @@ class RenderComposeVerifierWiringTests(unittest.TestCase):
     in `ARMED_ALLOWLIST` would be a coin-flip on file order. A distinct name is
     the fix that does not depend on staying below the other one."""
 
-    # No committed spec arms render-composition gating. Empty ON PURPOSE - see
-    # the class docstring. A spec joining this set needs its run ids cited here in
-    # the same commit that arms it.
-    RENDERCOMPOSE_ARMED_SPECS = set()
+    # THE ARMED ROSTER. Entries follow the save-structure ARMED_ALLOWLIST
+    # convention: name the READING run that the windows were authored from, then
+    # the ARMED RE-FLIGHT and the NEGATIVE CONTROL that discharge the three-run
+    # workflow (filled in the commit that flies them, not before). A spec joining
+    # this set needs its edit here in the same commit that arms it. BOTH ENTRIES
+    # BELOW ARE DISCHARGED as of 2026-08-25 - all six runs flew that day.
+    RENDERCOMPOSE_ARMED_SPECS = {
+        # V14M: ARMED 2026-08-25 off its OWN report-only reading run
+        # `2026-08-25_0953` (PASS attempt 1, `renderCompose status=REPORT
+        # gating=false armedBlocks=[] mismatches=[]`, one INFO finding, zero WARN,
+        # zero FAIL). Windows written FROM that run's facets: dwells {1,32}
+        # (measured 3), cycles {1,16} (measured 1 CLOSED cycle), unevaluable
+        # {max 200} (measured 56), requireSeamKinds
+        # ["rigid","flexible-soi"] (measured rigid 14 / flexible-soi 2). The two
+        # floors are the anti-vacuity halves; the ceilings are runaway guards, not
+        # pins, because dwell and endpoint counts move with frame timing.
+        # `warpBuckets` is NOT declared and never may be on this lane (every clock
+        # move is an instantaneous TimeJump, so the histogram is 1x-only by
+        # construction). Arming re-pinned NOTHING in the flown shape.
+        # ONE PRICED-IN SHIFT: the sticky `mapRenderTracingOn` fix that landed in
+        # the same pass removes this lane's spurious
+        # `seam-data-unavailable-tracing-off`, so the next run reads 55 rather
+        # than 56 unevaluable - inside the declared ceiling by design.
+        # ARMED RE-FLIGHT: `2026-08-25_1050` PASS, gating=True,
+        # armedBlocks=['renderComposition'], ZERO mismatches - dwells 3, cycles 1,
+        # seamKinds {rigid 14, flexible-soi 2}, one INFO RC-QUAL, zero WARN/FAIL.
+        # It CONFIRMED the sticky-bit fix (`mapRenderTracingOn=true`, and
+        # `seam-data-unavailable-tracing-off` gone from the census). The predicted
+        # 55 did NOT land: unevaluable read 108 (seam-endpoint-skipped 106,
+        # no-cycle-rollover-events 1, warp-hold-traversal-evidence-absent 1),
+        # because seam-endpoint-skipped itself ran 106 against the reading run's
+        # 53 - run-to-run endpoint variance, not a regression, and exactly the
+        # movement the `{max 200}` runaway-guard ceiling (not a pin) was written to
+        # absorb. NEGATIVE CONTROL: `2026-08-25_1052`, temporary
+        # `cycles = { min = 5 }`, red on exactly
+        # `PARSEK-FAIL(render-composition)` with the single mismatch
+        # `renderComposition.cycles 1 < min 5`; every sibling row stayed clean
+        # (saveParse / anomalySweep / driverValidity / logValidate / analyzer all
+        # PASS), so the red is on THIS lane's own armed clause and not on the
+        # shared evaluator. Control reverted in the same change. V8 flew its OWN
+        # control rather than sharing this one - see that entry.
+        "V14M-ike-player-loop.toml",
+        # V8: ARMED 2026-08-25 off its OWN report-only reading run
+        # `2026-08-25_0956` (PASS attempt 1, same REPORT/zero-FAIL shape). Windows:
+        # dwells {1,32} (measured 2), unevaluable {max 250} (measured 76 - 73 of
+        # them `seam-endpoint-skipped` over a 272-record endpoint population, 2.5x
+        # V14M's, which is why the ceiling is 250 against that lane's 200 at the
+        # same ratio-to-measurement), requireSeamKinds ["rigid","flexible-soi"]
+        # (measured rigid 6 / flexible-soi 4).
+        # `cycles` DELIBERATELY OMITTED: this subject closed ZERO cycles (one
+        # rollover bounding none, `no-cycle-rollover-events: 2`), so a floor would
+        # red the run it was armed off and a `{min = 0}` pin can never red at all.
+        # `dwells` is this block's anti-vacuity floor. RC-CUT stays unarmed for a
+        # MEASURED reason - `cut-run-period-absent: 1`, the manifest carried no run
+        # period so the corpus's only loiter cut could not be evaluated - and
+        # RC-HOLD because one observed engage/release pair is not a window.
+        # `warpBuckets` never, same 1x-only-by-construction reason as V14M.
+        # ARMED RE-FLIGHT: `2026-08-25_1051` PASS, gating=True,
+        # armedBlocks=['renderComposition'], ZERO mismatches - dwells 2,
+        # unevaluable 78 (seam-endpoint-skipped 75, no-cycle-rollover-events 2,
+        # cut-run-period-absent 1), seamKinds {rigid 6, flexible-soi 4},
+        # `mapRenderTracingOn=true`, one INFO RC-QUAL, zero WARN/FAIL. The reading
+        # run's headline reproduced: the `hold-engage`/`hold-release` pair and the
+        # `reaim-window` clock event are both there again, so that observation was
+        # the subject and not a one-run accident. NEGATIVE CONTROL:
+        # `2026-08-25_1054`, temporary `dwells = { min = 50 }`, red on exactly
+        # `PARSEK-FAIL(render-composition)` with the single mismatch
+        # `renderComposition.dwells 2 < min 50`; every sibling row stayed clean
+        # (saveParse / anomalySweep / driverValidity / logValidate / analyzer all
+        # PASS). Control reverted in the same change. THE PAIR DID NOT SHARE ONE
+        # CONTROL after all: each lane inverted a window of its OWN (V14M `cycles`,
+        # this lane `dwells`), which is the stronger discharge - a shared inversion
+        # would have re-proven the `rendercompose` evaluator rather than these two
+        # blocks, and the two lanes do not even arm the same key set.
+        "V8-eve-player-loop.toml",
+    }
 
     def test_no_committed_spec_arms_render_composition_gating(self):
         armed = []
@@ -6234,19 +6307,24 @@ class RenderComposeVerifierWiringTests(unittest.TestCase):
     #   V8-eve-player-loop.toml   - the re-aim interplanetary landing loop
     #                               (V8/V13 class: re-aim + descent trigger + holds).
     #
-    # Both are BARE declarations: no assertion key, no `gating`. Their report-only
-    # reading runs FLEW 2026-08-25 (`2026-08-25_0953_V14M-ike-player-loop` and
+    # Both were BARE declarations through their report-only reading runs, which FLEW
+    # 2026-08-25 (`2026-08-25_0953_V14M-ike-player-loop` and
     # `2026-08-25_0956_V8-eve-player-loop`, both PASS, both `renderCompose
-    # status=REPORT gating=false`), and the blocks are still bare because authoring a
-    # window off those facets is the OPERATOR's arming call - the armed re-flight and
-    # the negative control are still owed per lane. Facets live in each spec's arming
-    # ledger and in docs/dev/autotest-status.md -> M-A7. Both already arm the three tracers the seam capture
+    # status=REPORT gating=false`). BOTH ARE NOW ARMED off exactly those facets - the
+    # operator's call, taken 2026-08-25 - and both appear in
+    # RENDERCOMPOSE_ARMED_SPECS above with their windows and with the armed
+    # re-flight + negative control that DISCHARGED the three-run workflow the same
+    # day (V14M `_1050` / `_1052`, V8 `_1051` / `_1054`; each lane inverted a
+    # window of its own). Facets live in each spec's arming ledger and in
+    # docs/dev/autotest-status.md -> M-A7. Both arm the three tracers the seam capture
     # needs, and both drive ExportRenderManifest once after their last observation
-    # step and immediately before FlushAndQuit. FOUR cells stand on this roster: the
-    # roster itself, that no declarer arms gating, that every declarer arms the three
-    # tracers, and that every declarer exports immediately before teardown - because a
-    # declarer that flies with the tracer off, or exports at the wrong instant, greens
-    # while measuring nothing.
+    # step and immediately before FlushAndQuit. FIVE cells stand on this roster: the
+    # roster itself, that the declarer set and the armed set agree with the two
+    # recorded rosters, that every declarer arms the three tracers, that every
+    # declarer exports immediately before teardown, and the two per-lane armed
+    # KEY-SET pins - because a declarer that flies with the tracer off, or exports at
+    # the wrong instant, greens while measuring nothing, and an armed block that
+    # GROWS a window silently arms a clause no reading run stands behind.
     RENDERCOMPOSE_DECLARER_SPECS = {"V14M-ike-player-loop.toml",
                                     "V8-eve-player-loop.toml"}
 
@@ -6267,18 +6345,108 @@ class RenderComposeVerifierWiringTests(unittest.TestCase):
                          "changed; those specs' KSP boots with PARSEK_RENDER_MANIFEST=1 - "
                          "record the decision here in the same commit")
 
-    def test_no_declarer_arms_gating_yet(self):
-        """The declarer roster and the armed roster are different facts, and today
-        the second is empty. Stated against the roster above rather than against the
-        scenario directory so it keeps meaning the same thing after a third lane
-        lands: every DECLARER is report-only."""
+    def test_every_declarers_arming_state_matches_the_recorded_rosters(self):
+        """REPLACES `test_no_declarer_arms_gating_yet`, per that cell's own stated
+        discipline: it asserted "today the second roster is empty", and 2026-08-25 is
+        the day that stopped being true - both declarers were armed off their own
+        report-only reading runs. Weakening the cell to nothing, or deleting it, would
+        drop the only statement tying the two rosters together, so it becomes the
+        NEXT guarantee along: a declarer is armed IF AND ONLY IF it is named in
+        RENDERCOMPOSE_ARMED_SPECS, and no non-declarer may be listed there at all.
+
+        The roster IS the arming record now, which is why this is stated against the
+        two rosters rather than against the scenario directory (the directory sweep is
+        `test_no_committed_spec_arms_render_composition_gating`'s job, and it is the
+        cell that catches an arming with no roster edit)."""
+        self.assertLessEqual(
+            set(self.RENDERCOMPOSE_ARMED_SPECS), set(self.RENDERCOMPOSE_DECLARER_SPECS),
+            "a spec is in RENDERCOMPOSE_ARMED_SPECS without declaring the block; "
+            "arming without a declaration cannot happen - the block IS the declaration")
         for name in sorted(self.RENDERCOMPOSE_DECLARER_SPECS):
             with open(os.path.join(SCENARIOS_DIR, name), "rb") as fh:
                 spec = tomllib.load(fh)
-            self.assertFalse(
-                rendercompose.gating_armed(spec.get("expectations") or {}),
-                "%s arms render-composition gating; add it to "
-                "RENDERCOMPOSE_ARMED_SPECS citing its run ids" % name)
+            armed = rendercompose.gating_armed(spec.get("expectations") or {})
+            self.assertEqual(
+                name in self.RENDERCOMPOSE_ARMED_SPECS, armed,
+                "%s: `gating` in the spec and membership of RENDERCOMPOSE_ARMED_SPECS "
+                "disagree; arming is a per-scenario operator decision and the roster "
+                "entry (with its reading-run id and its armed-run / negative-control "
+                "run ids) is where that decision is recorded" % name)
+
+    # -- the per-lane ARMED KEY-SET pins --------------------------------------
+    #
+    # `test_s41_declares_the_rewind_block_armed`'s shape, and for its reason: pinning
+    # only the VALUES leaves a gap where APPENDING a window passes every guard cell
+    # while arming a gating clause that no reading run stands behind. Pin the KEY SET
+    # so growing an armed block is as deliberate as arming it was. The values are
+    # pinned beside them because the arming commit must not smuggle in a re-pin
+    # either (the S4.1 rule, stated in both spec headers).
+
+    def _armed_block(self, name):
+        spec = load_spec(name)
+        exp = spec["expectations"]
+        self.assertEqual(("renderComposition",),
+                         rendercompose.declared_composition_blocks(exp))
+        self.assertTrue(rendercompose.gating_armed(exp))
+        return exp[rendercompose.RENDER_COMPOSITION_BLOCK]
+
+    def test_v14m_declares_the_render_composition_block_armed(self):
+        """V14M, ARMED 2026-08-25 off reading run `2026-08-25_0953`: dwells 3,
+        cycles 1 closed, unevaluable 56, seamKinds {rigid 14, flexible-soi 2}. Every
+        window below is that measurement with a stated margin."""
+        block = self._armed_block("V14M-ike-player-loop.toml")
+        self.assertEqual({"gating", "dwells", "cycles", "unevaluable",
+                          "requireSeamKinds"}, set(block),
+                         "a window was added to (or removed from) V14M's ARMED "
+                         "render-composition block; every armed window needs its own "
+                         "report-only reading run behind it")
+        self.assertEqual({"min": 1, "max": 32}, block["dwells"])
+        self.assertEqual({"min": 1, "max": 16}, block["cycles"])
+        self.assertEqual({"max": 200}, block["unevaluable"])
+        self.assertEqual(["rigid", "flexible-soi"], block["requireSeamKinds"])
+        # `warpBuckets` may NEVER be declared here: every clock move on this lane is
+        # an instantaneous TimeJump, so RC-WARP's histogram is 1x-only by
+        # construction and the key would pin the drive shape, not the product.
+        self.assertNotIn("warpBuckets", block)
+
+    def test_v8_declares_the_render_composition_block_armed_without_a_cycles_floor(self):
+        """V8, ARMED 2026-08-25 off reading run `2026-08-25_0956`: dwells 2,
+        unevaluable 76, seamKinds {rigid 6, flexible-soi 4} - and cycles 0.
+
+        THE OMISSION IS THE POINT and is pinned as such. This subject closed ZERO
+        cycles (one `cycle-rollover` bounding none), so a `min = 1` floor would red
+        the run the block was armed off, and a `{ min = 0 }` pin can never red at all
+        (`_validate_armed_unreddable` refuses that shape). `dwells` carries the
+        anti-vacuity floor instead. A later edit that "completes" the block by adding
+        a cycles window must come with a reading run that measured one."""
+        block = self._armed_block("V8-eve-player-loop.toml")
+        self.assertEqual({"gating", "dwells", "unevaluable", "requireSeamKinds"},
+                         set(block),
+                         "a window was added to (or removed from) V8's ARMED "
+                         "render-composition block; every armed window needs its own "
+                         "report-only reading run behind it")
+        self.assertEqual({"min": 1, "max": 32}, block["dwells"])
+        self.assertEqual({"max": 250}, block["unevaluable"])
+        self.assertEqual(["rigid", "flexible-soi"], block["requireSeamKinds"])
+        self.assertNotIn("cycles", block)
+        self.assertNotIn("warpBuckets", block)
+
+    def test_every_armed_block_keeps_an_anti_vacuity_floor(self):
+        """The property both key-set pins exist to protect, stated once against the
+        roster so a THIRD armed lane inherits it: an armed block whose every
+        assertion is a ceiling passes green off a manifest that observed nothing.
+        A floor is a `min` on a count window or a `requireSeamKinds` list (a kind
+        that must be PRESENT); `unevaluable` is a ceiling by nature and never counts.
+        The grammar's `_validate_armed_empty` notch only refuses a block with NO
+        assertion key at all, so this is the sharper statement."""
+        for name in sorted(self.RENDERCOMPOSE_ARMED_SPECS):
+            block = self._armed_block(name)
+            floors = [k for k in ("dwells", "cycles")
+                      if isinstance(block.get(k), dict) and block[k].get("min", 0) > 0]
+            floors += ["requireSeamKinds"] if block.get("requireSeamKinds") else []
+            self.assertTrue(floors,
+                            "%s arms render-composition with ceilings only; a manifest "
+                            "that observed nothing would pass it" % name)
 
     def test_every_declarer_arms_the_tracers_the_seam_capture_needs(self):
         """The declaration alone buys a manifest with NO seam numbers in it: the

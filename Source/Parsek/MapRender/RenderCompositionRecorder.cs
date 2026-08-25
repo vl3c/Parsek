@@ -67,6 +67,39 @@ namespace Parsek.MapRender
         /// <summary>True when the env var was armed at Awake (recorded in the manifest header).</summary>
         internal static bool EnvArmed => envArmed;
 
+        /// <summary>
+        /// STICKY was-ever-on latch behind the manifest header's <c>mapRenderTracingOn</c> key: true
+        /// once <c>MapRenderTrace.IsEnabled</c> has been observed true on ANY armed frame since the
+        /// last <see cref="Reset"/>, and never cleared by the tracer going quiet again.
+        ///
+        /// <para>WHY STICKY. Two of the manifest's capture families - the rigid tangent evaluation
+        /// and the probe's seam-endpoint sampling - are tracing-gated at their own sites, so the
+        /// header bit exists to tell a consumer whether the ABSENCE of those records is evidence or a
+        /// missing instrument. Read at the export instant it answered the wrong question: a teardown
+        /// export can land after the setting was cleared (or after a scene bounce re-read it) and
+        /// stamp <c>False</c> onto a manifest full of tracing-gated records, which the Python
+        /// verifier then reads as <c>seam-data-unavailable-tracing-off</c>. The latch is cleared in
+        /// <see cref="Reset"/> alongside the records themselves, so it never describes a population
+        /// it did not accumulate with.</para>
+        /// </summary>
+        private static bool mapRenderTracingWasEverOn;
+
+        /// <summary>The sticky bit's current value (header input + test seam).</summary>
+        internal static bool MapRenderTracingWasEverOn => mapRenderTracingWasEverOn;
+
+        /// <summary>
+        /// Latches <see cref="MapRenderTracingWasEverOn"/>. Called once per ARMED frame (and once
+        /// more at export, so a manifest taken before the first armed Update still reports honestly).
+        /// Cost on an already-latched frame is one static bool read and a predicted branch; the
+        /// unlatched case adds <c>MapRenderTrace.IsEnabled</c>, itself a static bool plus a settings
+        /// field read. Nothing here touches Unity, so the headless cells can drive it directly.
+        /// </summary>
+        internal static void LatchMapRenderTracing()
+        {
+            if (!mapRenderTracingWasEverOn && MapRenderTrace.IsEnabled)
+                mapRenderTracingWasEverOn = true;
+        }
+
         /// <summary>PURE fail-closed env gate: ONLY the literal <c>"1"</c> arms the recorder.</summary>
         internal static bool IsArmed(string envValue) => envValue == ArmValue;
 
@@ -289,6 +322,8 @@ namespace Parsek.MapRender
             ownerIndexByCommittedIndex.Clear();
             ownerIndexMapValid = false;
             lineBranchDecisionByPid.Clear();
+            // The sticky tracing bit describes the records above, so it dies with them.
+            mapRenderTracingWasEverOn = false;
         }
 
         /// <summary>Test-only: the accumulation core the hooks feed.</summary>
@@ -366,6 +401,9 @@ namespace Parsek.MapRender
             // Provably inert when unarmed: return on the cached bool before any work.
             if (!IsEnabled)
                 return;
+            // Sticky was-ever-on tracing latch: sampled here rather than at export because the
+            // export instant is not when the tracing-gated records were captured (see the field).
+            LatchMapRenderTracing();
             SampleUnitClocks();
         }
 
@@ -1401,6 +1439,11 @@ namespace Parsek.MapRender
             // live dwell instead of on one the failed export already retired.
             double exportUT = CurrentUT();
 
+            // One last latch so an export taken before this process's first armed Update (or from a
+            // scene whose Update never ran) still reports honestly; the bit is STICKY, so this can
+            // only ever turn it on, never wash out a tracing period the frames already recorded.
+            LatchMapRenderTracing();
+
             var header = new RenderCompositionManifest.ManifestHeader(
                 exportUT,
                 reason ?? ReasonVerb,
@@ -1408,7 +1451,7 @@ namespace Parsek.MapRender
                 CurrentSaveName(),
                 envArmed,
                 ForceEnabledForTesting,
-                MapRenderTrace.IsEnabled);
+                mapRenderTracingWasEverOn);
 
             ConfigNode file;
             try

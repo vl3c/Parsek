@@ -3659,21 +3659,26 @@ class DryRunPlanVerifierEnumerationTests(unittest.TestCase):
         self.assertEqual([], missing, "dry-run plan omitted the saveParse row")
 
     # -- renderCompose (row 7c, M-A7): the SAME three states and the SAME staleness
-    # class as the saveParse block above, pinned from the day the row lands rather
-    # than on the day the first lane arms. Both of its non-default states are
-    # SYNTHETIC today - no committed spec declares the block at all - so without
-    # these cells `rc_armed` and `rc_declared` would be indistinguishable over the
-    # corpus and a regression advertising a declared block as an armed gate would
-    # pass every cell.
+    # class as the saveParse block above, pinned from the day the row landed rather
+    # than on the day the first lane armed.
+    #
+    # THE SYNTHETIC/COMMITTED SPLIT MOVED ON 2026-08-25, the same way saveParse's
+    # did. The ARMED state now has committed subjects - V14M and V8 were armed off
+    # their own report-only reading runs - so that cell is stated against a REAL
+    # spec, which is the strictly stronger fixture: it also proves a committed block
+    # actually reaches the armed branch of the renderer. The DECLARED-BUT-UNARMED
+    # state has NO committed subject any more (every declarer is armed), so it stays
+    # SYNTHETIC for saveParse's stated reason - a real-spec fixture there would have
+    # silently stopped covering the branch on the day the lane armed.
 
     def test_an_armed_render_composition_spec_names_the_gate_and_subkind(self):
-        line = self._render({"id": "SYNTH-rc-armed", "driver": {"steps": []},
-                             "expectations": {"renderComposition": {
-                                 "gating": True, "dwells": {"min": 1}}}})
+        """COMMITTED subject (V14M, armed 2026-08-25)."""
+        line = self._plan("V14M-ike-player-loop")
         self.assertIn("renderCompose(armed: renderComposition", line)
         self.assertIn("PARSEK-FAIL(render-composition)", line)
 
     def test_a_declared_but_unarmed_render_composition_block_renders_report_only(self):
+        """SYNTHETIC, and must stay so: every committed declarer is now ARMED."""
         line = self._render({"id": "SYNTH-rc-declared", "driver": {"steps": []},
                              "expectations": {"renderComposition": {"dwells": {"min": 1}}}})
         self.assertIn("renderCompose(report-only: renderComposition)", line)
