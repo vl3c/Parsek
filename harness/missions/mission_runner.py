@@ -1568,8 +1568,33 @@ class KrpcMissionControl(MissionControl):
             # Hard-cancel the native warp: drop the warp socket (server
             # discards the continuation next FixedUpdate) + zero both warp
             # factors from THIS primary connection. Idempotent when idle.
+            #
+            # THE FACTOR RESET IS UNCONDITIONAL, and it was not until
+            # 2026-08-25. `self._warp` is created ONLY by ACTION_WARP_TO_UT
+            # (`_ensure_warp_service`), so a mission that climbs the rails
+            # ladder with ACTION_SET_RAILS_WARP but never issues a native
+            # warp_to had NO warp service, and this whole handler was a no-op
+            # that reset a stall counter. `m3_loop_arrival_dwell` is exactly
+            # that mission - its legs are seam TimeJump epoch shifts by design
+            # - and it is the first in the suite to pair SET_RAILS_WARP with
+            # CANCEL_WARP without WARP_TO_UT, which is why a latent runner gap
+            # surfaced on V24W's first flight and nowhere before. MEASURED,
+            # run 2026-08-25_1415: all four issued cancels logged nothing, all
+            # three "1x holds" ran their full 900 game-seconds at RAILSx10
+            # (128 consecutive `warp=RAILSx10.000` telemetry frames per hold),
+            # and the mission cost 455 wall seconds against the ~2,850 its own
+            # spec sized. `SPEC.allow_rails_warp=True` on that lane, so the
+            # residual rails state was tolerated and the run PASSed having
+            # never once dwelled at 1x.
+            #
+            # Behaviour-preserving where a warp service DOES exist:
+            # `WarpService.cancel` sets these same two properties to 0 on this
+            # same primary connection, so the two are idempotent rather than
+            # additive.
             if self._warp is not None:
                 self._warp.cancel(sc)
+            sc.rails_warp_factor = 0
+            sc.physics_warp_factor = 0
             self._warp_stall.reset()
         elif kind == mlib.ACTION_CAMERA_SET_MAP:
             # V1 map-dwell camera staging: switch the game camera to MAP view

@@ -550,3 +550,404 @@ class M3WarpStairEmissionTests(unittest.TestCase):
         self.assertFalse(rows["warpStairDriven"].met)
         self.assertEqual([], rows["warpStairDriven"].value)
 
+
+
+# ---------------------------------------------------------------------------
+# SPAN-CLOCK COMPRESSION (2026-08-25). The V24W reading flight measured an
+# EMPTY observation: three windows built as `phaseAnchorUt + RECORDED offset`
+# against a unit logging `loiterCuts=1 cutSeconds=11393869
+# compressedSpan=7001129/18394999`, so all three offsets (11.47M / 18.33M /
+# 18.39M) sat past the 7.00M compressed span in the inter-cycle tail, where the
+# clock parks at spanEnd and nothing renders. Zero GhostCreated lines, empty
+# manifest, PASS/REPORT.
+#
+# The V24W numbers are used verbatim throughout so a reader can check the cells
+# against the game's own logged line rather than against invented arithmetic.
+# ---------------------------------------------------------------------------
+
+# span=[52569234.178200819, 70964232.983117744] -> 18,394,998.8 raw.
+V24W_SPAN = 18394998.804916926
+V24W_CUT_LENGTH = 11393869.0
+V24W_COMPRESSED_SPAN = V24W_SPAN - V24W_CUT_LENGTH        # 7,001,129.8
+# The cut is the pre-departure parking loiter, so it lies wholly before the
+# departure offset (which is what makes all three compressed offsets land
+# inside the span - the arithmetic the fix turns on).
+V24W_CUT_START = 30000.0
+V24W_DEPART = 11474541.813229546
+V24W_ARRIVE = 18329155.146610025
+V24W_PARK = 18390509.0
+V24W_ANCHOR = 5348663714.300271
+
+V24W_CUT_WIRE = "%r:%r" % (V24W_CUT_START, V24W_CUT_LENGTH)
+
+
+def v24w_params(**over):
+    base = {
+        "treeId": "1ccdb19215034ac19f3a8e31697b05ed",
+        "departOffsetSeconds": V24W_DEPART,
+        "arriveOffsetSeconds": V24W_ARRIVE,
+        "parkOffsetSeconds": V24W_PARK,
+        "dwellLeadSeconds": 300.0,
+        "dwellHoldSeconds": 900.0,
+        # The spec's own value, and it MUST exceed dwellHoldSeconds: the stall
+        # detector fires between the two, so the 600 s default would flake a
+        # 900 s hold by construction.
+        "holdTimeoutSeconds": 1800.0,
+    }
+    base.update(over)
+    return mlib.m3_params_from_dict(base)
+
+
+def arm_payload(cut_count=None, cuts=None, compressed_span=None,
+                anchor=V24W_ANCHOR, span_seconds=None):
+    """The MissionConfig OK payload, with the cut keys OPTIONAL so a cell can
+    reproduce an older DLL (keys absent) as easily as a current one."""
+    kv = [("anchorUt", "1.0"), ("unitBuilt", "true"),
+          ("phaseAnchorUt", repr(anchor))]
+    if cut_count is not None:
+        kv.append(("loiterCutCount", str(cut_count)))
+        kv.append(("loiterCuts", cuts if cuts is not None else ""))
+    if compressed_span is not None:
+        kv.append(("compressedSpanSeconds", repr(compressed_span)))
+    if span_seconds is not None:
+        kv.append(("spanSeconds", repr(span_seconds)))
+    return tuple(kv)
+
+
+def arm(p, payload):
+    st, _ = mlib.m3_decide(mlib.m3_initial_state(p), snap(ut=1.0))
+    return mlib.m3_decide(st, snap(
+        ut=2.0, seam_command_result="OK", seam_command_tag=mlib.M3_TAG_ARM,
+        seam_command_payload=payload))
+
+
+class M3LoiterCutParseTests(unittest.TestCase):
+    def test_an_absent_count_key_is_the_older_dll_identity(self):
+        """The backward-compatibility contract: a Parsek DLL that never learned
+        to publish cuts must leave this machine behaving exactly as before.
+        `_b5_seam_payload` spells an absent key as "", so BOTH spellings."""
+        for absent in (None, "", "   "):
+            cuts, err = mlib.m3_parse_loiter_cuts(absent, None)
+            self.assertEqual((), cuts)
+            self.assertEqual("", err)
+
+    def test_a_measured_zero_is_also_the_identity(self):
+        # duna-direct-recorded's own answer, on nine collected flights:
+        # `loiterCuts=0 cutSeconds=0 compressedSpan=4506891/4506891`.
+        cuts, err = mlib.m3_parse_loiter_cuts("0", "")
+        self.assertEqual((), cuts)
+        self.assertEqual("", err)
+
+    def test_one_cut_parses_into_offsets(self):
+        cuts, err = mlib.m3_parse_loiter_cuts("1", "30000:11393869")
+        self.assertEqual("", err)
+        self.assertEqual(1, len(cuts))
+        self.assertAlmostEqual(30000.0, cuts[0].start_offset, places=6)
+        self.assertAlmostEqual(11393869.0, cuts[0].length, places=6)
+        self.assertAlmostEqual(11423869.0, cuts[0].end_offset, places=6)
+
+    def test_several_cuts_parse_in_order(self):
+        cuts, err = mlib.m3_parse_loiter_cuts("2", "100:50,400:25")
+        self.assertEqual("", err)
+        self.assertEqual([(100.0, 50.0), (400.0, 25.0)],
+                         [(c.start_offset, c.length) for c in cuts])
+
+    def test_a_nonzero_count_with_an_empty_list_is_refused_not_guessed(self):
+        """The C# side is fail-empty rather than fail-partial, so this pair is
+        exactly 'there ARE cuts and I could not be told what they are'.
+        Compressing anyway would land the dwell somewhere plausible and wrong."""
+        cuts, err = mlib.m3_parse_loiter_cuts("1", "")
+        self.assertIsNone(cuts)
+        self.assertIn("1 loiter cut", err)
+
+    def test_malformed_payloads_are_refused_by_name(self):
+        for count, text, needle in (
+                ("bogus", "", "loiterCutCount"),
+                ("-1", "", "negative"),
+                ("1", "30000", "malformed"),
+                ("1", "30000:11:22", "malformed"),
+                ("1", "a:b", "malformed"),
+                ("1", "nan:5", "non-finite"),
+                ("1", "10:0", "non-positive"),
+                ("1", "10:-5", "non-positive"),
+                ("2", "10:5", "lists 1 cut"),
+                ("2", "400:25,100:50", "ascending"),
+                ("2", "100:500,400:25", "ascending"),
+        ):
+            cuts, err = mlib.m3_parse_loiter_cuts(count, text)
+            self.assertIsNone(cuts, (count, text))
+            self.assertIn(needle, err, (count, text))
+
+
+class M3CompressOffsetTests(unittest.TestCase):
+    """`m3_compress_offset` IS `GhostPlaybackLogic.CompressSpanUT`
+    (SpanClock.cs:691) in offset space; these cells walk one cut end to end."""
+
+    CUTS = (mlib.M3LoopCut(start_offset=100.0, length=50.0),)
+
+    def test_an_empty_cut_list_is_the_identity(self):
+        for offset in (0.0, 120.0, 1e9):
+            self.assertEqual((offset, None), mlib.m3_compress_offset(offset, ()))
+
+    def test_before_the_cut_is_unchanged(self):
+        self.assertEqual((0.0, None), mlib.m3_compress_offset(0.0, self.CUTS))
+        self.assertEqual((99.0, None), mlib.m3_compress_offset(99.0, self.CUTS))
+
+    def test_the_cut_start_is_a_boundary_not_an_inside(self):
+        # `t <= cut.StartUT` is the C#'s own `continue`, so the start compresses
+        # to itself and is dwellable.
+        self.assertEqual((100.0, None), mlib.m3_compress_offset(100.0, self.CUTS))
+
+    def test_inside_the_cut_collapses_and_is_flagged(self):
+        for offset in (100.5, 125.0, 149.9):
+            compressed, inside = mlib.m3_compress_offset(offset, self.CUTS)
+            self.assertAlmostEqual(100.0, compressed, places=6)
+            self.assertIsNotNone(inside, offset)
+            self.assertEqual(100.0, inside.start_offset)
+
+    def test_the_cut_end_is_the_resume_instant_not_an_inside(self):
+        # DecompressSpanUT maps the collapse point back to the cut END, so the
+        # end is a real renderable instant.
+        self.assertEqual((100.0, None), mlib.m3_compress_offset(150.0, self.CUTS))
+
+    def test_after_the_cut_loses_the_whole_cut(self):
+        compressed, inside = mlib.m3_compress_offset(1000.0, self.CUTS)
+        self.assertAlmostEqual(950.0, compressed, places=6)
+        self.assertIsNone(inside)
+
+    def test_two_cuts_accumulate(self):
+        cuts = (mlib.M3LoopCut(100.0, 50.0), mlib.M3LoopCut(400.0, 25.0))
+        self.assertAlmostEqual(925.0,
+                               mlib.m3_compress_offset(1000.0, cuts)[0], places=6)
+        self.assertAlmostEqual(250.0,
+                               mlib.m3_compress_offset(300.0, cuts)[0], places=6)
+
+    def test_the_v24w_offsets_land_inside_the_compressed_span(self):
+        """The measurement the fix exists for. Uncompressed, all three offsets
+        exceed the 7,001,129 s compressed span; compressed, all three fit."""
+        cuts = (mlib.M3LoopCut(V24W_CUT_START, V24W_CUT_LENGTH),)
+        for offset in (V24W_DEPART, V24W_ARRIVE, V24W_PARK):
+            self.assertGreater(offset, V24W_COMPRESSED_SPAN,
+                               "the raw offset must be the tail case")
+            compressed, inside = mlib.m3_compress_offset(offset, cuts)
+            self.assertIsNone(inside)
+            self.assertLess(compressed, V24W_COMPRESSED_SPAN,
+                            "compressed %r must be dwellable" % offset)
+        # And the numbers themselves: depart 11,474,541.8 - 11,393,869 = 80,672.8
+        self.assertAlmostEqual(
+            V24W_DEPART - V24W_CUT_LENGTH,
+            mlib.m3_compress_offset(V24W_DEPART, cuts)[0], places=3)
+
+
+class M3CutAwareWindowTests(unittest.TestCase):
+    def test_the_arm_reads_the_cuts_and_the_compressed_span(self):
+        st, _ = arm(v24w_params(), arm_payload(
+            cut_count=1, cuts=V24W_CUT_WIRE,
+            compressed_span=V24W_COMPRESSED_SPAN))
+        self.assertEqual(mlib.M3_CAMERA, st.phase)
+        self.assertEqual(1, len(st.loiter_cuts))
+        self.assertAlmostEqual(V24W_CUT_LENGTH, st.loiter_cuts[0].length, 3)
+        self.assertAlmostEqual(V24W_COMPRESSED_SPAN, st.compressed_span, 3)
+
+    def test_the_depart_leg_jumps_to_the_compressed_window(self):
+        """The whole fix, at the one place a recorded offset becomes a live UT.
+        Flight 1 jumped to 5,360,137,956.1 (= anchor + the RAW 11,474,541.8 -
+        300); the compressed target is 11,393,869 s earlier."""
+        st, _ = arm(v24w_params(), arm_payload(
+            cut_count=1, cuts=V24W_CUT_WIRE,
+            compressed_span=V24W_COMPRESSED_SPAN))
+        st, _ = mlib.m3_decide(st, snap(ut=3.0, camera_mode="Map"))
+        st, acts = mlib.m3_decide(st, snap(ut=3.5))
+        target = float(dict(acts[-1].seam_args)["ut"])
+        self.assertAlmostEqual(
+            V24W_ANCHOR + (V24W_DEPART - V24W_CUT_LENGTH) - 300.0, target, 1)
+        self.assertAlmostEqual(5360137956.1, V24W_ANCHOR + V24W_DEPART - 300.0,
+                               1, "the flight-1 target, for the contrast")
+
+    def test_an_older_dll_payload_keeps_the_uncompressed_window(self):
+        """BACKWARD COMPATIBILITY, pinned. No cut keys at all -> the machine
+        must build exactly the window it built before this change."""
+        st, _ = arm(v24w_params(), arm_payload())
+        self.assertEqual((), st.loiter_cuts)
+        self.assertIsNone(st.compressed_span)
+        st, _ = mlib.m3_decide(st, snap(ut=3.0, camera_mode="Map"))
+        st, acts = mlib.m3_decide(st, snap(ut=3.5))
+        self.assertAlmostEqual(V24W_ANCHOR + V24W_DEPART - 300.0,
+                               float(dict(acts[-1].seam_args)["ut"]), 1)
+
+    def test_a_measured_zero_cut_unit_keeps_the_uncompressed_window(self):
+        # V2 / V3F / V3R's subject, through the CURRENT payload.
+        st, _ = arm(v24w_params(), arm_payload(
+            cut_count=0, cuts="", compressed_span=V24W_SPAN))
+        st, _ = mlib.m3_decide(st, snap(ut=3.0, camera_mode="Map"))
+        st, acts = mlib.m3_decide(st, snap(ut=3.5))
+        self.assertAlmostEqual(V24W_ANCHOR + V24W_DEPART - 300.0,
+                               float(dict(acts[-1].seam_args)["ut"]), 1)
+
+    def test_an_unmappable_cut_payload_flakes_by_name(self):
+        st, _ = arm(v24w_params(), arm_payload(
+            cut_count=1, cuts="", compressed_span=V24W_COMPRESSED_SPAN))
+        self.assertTrue(st.done)
+        self.assertEqual(mlib.MISSION_FLAKE, st.verdict)
+        self.assertIn("loiter-cut payload", st.flake_reason)
+
+    def test_an_offset_inside_a_cut_is_a_named_spec_authoring_error(self):
+        """DECISION, deliberately not a silent clamp: the cut collapses to one
+        compressed instant, so the requested recorded moment never plays. A
+        clamp would green a run that dwelled somewhere other than the instant
+        its own ledger claims."""
+        inside = V24W_CUT_START + V24W_CUT_LENGTH / 2.0
+        st, _ = arm(v24w_params(departOffsetSeconds=inside), arm_payload(
+            cut_count=1, cuts=V24W_CUT_WIRE,
+            compressed_span=V24W_COMPRESSED_SPAN))
+        self.assertTrue(st.done)
+        self.assertEqual(mlib.MISSION_FLAKE, st.verdict)
+        self.assertIn("depart window offset", st.flake_reason)
+        self.assertIn("INSIDE", st.flake_reason)
+        self.assertIn("spec authoring error", st.flake_reason)
+
+    def test_each_window_names_itself_when_it_is_the_one_inside_a_cut(self):
+        inside = V24W_CUT_START + 1.0
+        for key, label in (("departOffsetSeconds", "depart"),
+                           ("arriveOffsetSeconds", "arrive"),
+                           ("parkOffsetSeconds", "park")):
+            st, _ = arm(v24w_params(**{key: inside}), arm_payload(
+                cut_count=1, cuts=V24W_CUT_WIRE,
+                compressed_span=V24W_COMPRESSED_SPAN))
+            self.assertIn("%s window offset" % label, st.flake_reason)
+
+    def test_a_window_past_the_compressed_span_is_refused_before_it_flies(self):
+        """The V24W flight-1 failure itself, now caught at the arm instead of
+        after three empty dwells: an offset that compresses to at-or-past the
+        active span sits in the inter-cycle tail where nothing renders."""
+        st, _ = arm(v24w_params(parkOffsetSeconds=V24W_PARK * 2.0), arm_payload(
+            cut_count=1, cuts=V24W_CUT_WIRE,
+            compressed_span=V24W_COMPRESSED_SPAN))
+        self.assertTrue(st.done)
+        self.assertEqual(mlib.MISSION_FLAKE, st.verdict)
+        self.assertIn("park window offset", st.flake_reason)
+        self.assertIn("inter-cycle tail", st.flake_reason)
+
+    def test_the_uncompressed_v24w_offsets_would_have_been_refused(self):
+        """Stated as its own cell because it is the counterfactual: had this
+        guard existed on 2026-08-25, flight 1 would have named the fault in
+        seconds instead of burning 455 wall seconds on an empty map."""
+        st, _ = arm(v24w_params(), arm_payload(
+            cut_count=0, cuts="", compressed_span=V24W_COMPRESSED_SPAN))
+        self.assertTrue(st.done)
+        self.assertIn("depart window offset", st.flake_reason)
+        self.assertIn("inter-cycle tail", st.flake_reason)
+
+    def test_an_older_dll_cannot_run_the_past_the_span_guard(self):
+        # No compressedSpanSeconds -> the guard is skipped rather than guessed.
+        st, _ = arm(v24w_params(), arm_payload())
+        self.assertEqual(mlib.M3_CAMERA, st.phase)
+        self.assertIsNone(st.verdict)
+
+    def test_the_armed_row_carries_the_mapping_only_when_cuts_exist(self):
+        with_cuts, _ = arm(v24w_params(), arm_payload(
+            cut_count=1, cuts=V24W_CUT_WIRE,
+            compressed_span=V24W_COMPRESSED_SPAN))
+        rows = {r.name: r for r in mlib.evaluate_m3_assertions(
+            (), with_cuts.params, with_cuts.phases_reached, with_cuts)}
+        self.assertIn("compressedWindowOffsets", rows["loopArmed"].detail)
+        self.assertEqual(
+            3, len(rows["loopArmed"].detail["compressedWindowOffsets"]))
+
+        none, _ = arm(v24w_params(), arm_payload(cut_count=0, cuts=""))
+        rows = {r.name: r for r in mlib.evaluate_m3_assertions(
+            (), none.params, none.phases_reached, none)}
+        # BYTE-IDENTICAL to the pre-compression detail dict for a lane whose
+        # subject does not compress (V2 / V3F / V3R).
+        self.assertEqual(
+            {"tree": none.params.tree_id, "required": mlib.M3_CAMERA},
+            rows["loopArmed"].detail)
+
+    def test_the_whole_v24w_dwell_completes_on_the_compressed_clock(self):
+        """End to end: arm, camera, three legs, three holds, DONE - with every
+        window inside the compressed span."""
+        p = v24w_params()
+        cut = V24W_CUT_LENGTH
+        st, _ = arm(p, arm_payload(cut_count=1, cuts=V24W_CUT_WIRE,
+                                   compressed_span=V24W_COMPRESSED_SPAN))
+        st, _ = mlib.m3_decide(st, snap(ut=3.0, camera_mode="Map"))
+        depart = V24W_ANCHOR + V24W_DEPART - cut
+        arrive = V24W_ANCHOR + V24W_ARRIVE - cut
+        park = V24W_ANCHOR + V24W_PARK - cut
+        ut = 3.5
+        jumped = set()
+        for _ in range(4000):
+            st, acts = mlib.m3_decide(st, snap(ut=ut))
+            if st.done:
+                break
+            for a in acts:
+                if a.seam_verb == "TimeJump" and a.seam_tag not in jumped:
+                    jumped.add(a.seam_tag)
+                    ut = float(dict(a.seam_args)["ut"])
+            ut += 100.0
+        self.assertTrue(st.done, st.flake_reason)
+        self.assertIsNone(st.verdict, st.flake_reason)
+        # Each window opened INSIDE its lead: at or after the leg's jump target
+        # (window - dwellLead) and before the window instant itself, which is
+        # what "arrive early and watch the approach" means. The exact stamp
+        # depends on the poll step, so the cell states the interval, not a
+        # frame count.
+        for label, window, stamp in (
+                ("depart", depart, st.depart_window_ut),
+                ("arrive", arrive, st.arrive_window_ut),
+                ("park", park, st.park_window_ut)):
+            self.assertGreaterEqual(stamp, window - 300.0, label)
+            self.assertLess(stamp, window, label)
+        rows = {r.name: r for r in mlib.evaluate_m3_assertions(
+            (), p, st.phases_reached, st)}
+        self.assertTrue(rows["dwelledAllWindows"].met)
+
+
+class M3RawSpanGuardTests(unittest.TestCase):
+    """The COARSEST authoring fault, and it is deliberately its own refusal:
+    past the recording's RAW span means the offset is pinned against a
+    different recording, which no clock arithmetic fixes. Past the COMPRESSED
+    span means the right recording read on the wrong clock. Same symptom on a
+    flight (an empty map), different repair."""
+
+    def test_an_offset_past_the_raw_span_names_the_raw_span(self):
+        st, _ = arm(v24w_params(parkOffsetSeconds=V24W_SPAN + 1.0), arm_payload(
+            cut_count=1, cuts=V24W_CUT_WIRE,
+            compressed_span=V24W_COMPRESSED_SPAN, span_seconds=V24W_SPAN))
+        self.assertTrue(st.done)
+        self.assertEqual(mlib.MISSION_FLAKE, st.verdict)
+        self.assertIn("park window offset", st.flake_reason)
+        self.assertIn("raw span", st.flake_reason)
+        self.assertIn("different recording", st.flake_reason)
+
+    def test_the_v24w_offsets_pass_the_raw_span_guard(self):
+        """All three ARE inside the raw span - the fixture is right, only the
+        clock they were read on was wrong."""
+        st, _ = arm(v24w_params(), arm_payload(
+            cut_count=1, cuts=V24W_CUT_WIRE,
+            compressed_span=V24W_COMPRESSED_SPAN, span_seconds=V24W_SPAN))
+        self.assertEqual(mlib.M3_CAMERA, st.phase)
+        self.assertIsNone(st.verdict)
+        self.assertAlmostEqual(V24W_SPAN, st.span_seconds, 3)
+
+    def test_an_older_dll_cannot_run_the_raw_span_guard(self):
+        st, _ = arm(v24w_params(parkOffsetSeconds=V24W_SPAN + 1.0), arm_payload())
+        self.assertEqual(mlib.M3_CAMERA, st.phase)
+        self.assertIsNone(st.span_seconds)
+
+
+class M3OptionalSeamFloatTests(unittest.TestCase):
+    def test_absent_unreadable_and_non_finite_all_read_as_none(self):
+        for value in ("", "bogus", "nan", "inf", "-inf"):
+            st = snap(ut=2.0, seam_command_result="OK",
+                      seam_command_tag=mlib.M3_TAG_ARM,
+                      seam_command_payload=(("spanSeconds", value),))
+            self.assertIsNone(
+                mlib._m3_optional_seam_float(st, "spanSeconds"), value)
+
+    def test_a_readable_finite_value_reads_through(self):
+        st = snap(ut=2.0, seam_command_result="OK",
+                  seam_command_tag=mlib.M3_TAG_ARM,
+                  seam_command_payload=(("spanSeconds", "18394998.8"),))
+        self.assertAlmostEqual(
+            18394998.8, mlib._m3_optional_seam_float(st, "spanSeconds"), 3)

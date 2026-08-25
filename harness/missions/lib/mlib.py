@@ -18834,6 +18834,31 @@ def evaluate_gs2_assertions(frames, params: Gs2Params, phases_reached=(),
 # stream, their state and their three assertion rows are byte-identical to
 # the pre-stair machine -- pinned by `M3WarpStairInertnessTests`, which
 # replays a scripted window sequence against both readings of the code.
+#
+# THE SPAN CLOCK COMPRESSES, AND UNTIL 2026-08-25 THIS MACHINE DID NOT KNOW IT.
+# A re-aim loop EXCISES whole-period loiter intervals from its recorded timeline
+# (`GhostPlaybackLogic.LoopCut` / `CompressSpanUT`, SpanClock.cs:691): the
+# recorded parking wait for the transfer window is removed from the loop's ACTIVE
+# duration, so a recorded offset and a live loop PHASE offset are two different
+# quantities the moment `loiterCuts > 0`. The old `phaseAnchorUt + recorded
+# offset` is the identity ONLY on an uncompressed unit.
+#
+# MEASURED, run 2026-08-25_1415 (V24W, the first lane whose subject loiters):
+# the unit built `loiterCuts=1 cutSeconds=11393869 compressedSpan=7001129/
+# 18394999`, and all three declared offsets (11.47M / 18.33M / 18.39M) were
+# LARGER than the 7.00M compressed span. Every window therefore sat in the
+# inter-cycle tail (`isInInterCycleTail`, SpanClock.cs:1749), where the clock
+# parks at spanEnd and NOTHING renders. The flight was PASS/REPORT with zero
+# `GhostCreated` lines and an empty manifest while the recorder's own clock
+# events proved the unit clock ran - an empty observation that looked green.
+#
+# WHY V2 / V3F / V3R WERE NEVER AFFECTED, and this is a measurement not an
+# assumption: their subject `duna-direct-recorded` logs `loiterCuts=0
+# cutSeconds=0 compressedSpan=4506891/4506891` on all nine collected flights.
+# A direct transfer never parks long enough for `ReaimLoiterCompressor` to
+# detect a >1-rev loiter run, so its compressed span IS its raw span and the old
+# formula was exactly right there. With an empty cut list the compression below
+# is the identity, which is what keeps those three lanes byte-identical.
 # ---------------------------------------------------------------------------
 
 M3_ARM_LOOP = "ARM-LOOP"
@@ -18865,6 +18890,130 @@ M3_TAG_ARM = "m3arm"
 # not exist either - which is what keeps the no-stair path inert.
 M3_RAMP_ENDED_COMPLETED = "completed"
 M3_RAMP_ENDED_WINDOW_GUARD = "next-window-guard"
+
+
+@dataclass(frozen=True)
+class M3LoopCut:
+    """One loiter interval the re-aim span clock EXCISES, expressed in offsets
+    from the unit's SpanStartUT - the SAME frame the spec's dwell offsets are
+    already in, so no absolute UT is needed to compress one against the other.
+    The C# seam serializes exactly this (`TestCommandMissionConfig
+    .FormatLoiterCuts`, `start:length` pairs joined by commas)."""
+    start_offset: float
+    length: float
+
+    @property
+    def end_offset(self) -> float:
+        return self.start_offset + self.length
+
+
+def m3_parse_loiter_cuts(count_raw: Optional[str], list_raw: Optional[str]
+                         ) -> Tuple[Optional[Tuple[M3LoopCut, ...]], str]:
+    """Read the MissionConfig seam's cut payload.
+
+    Returns ``(cuts, "")`` on success or ``(None, reason)`` on any payload the
+    machine cannot honestly compress against. THREE distinct inputs, and the
+    difference between the first two is the whole backward-compatibility
+    contract:
+
+    - ``count_raw`` is None or empty -- the key is ABSENT, i.e. a Parsek DLL
+      older than 2026-08-25 that never learned to publish cuts. (Empty is the
+      absent spelling that actually arrives: ``_b5_seam_payload`` answers "" for
+      a key the response does not carry. A current DLL always writes an integer
+      here, so "" can only mean absent.) Returns the empty tuple: the
+      compression below is then the identity and this machine behaves EXACTLY
+      as it did before, which is what lets an older deployed DLL keep flying
+      V2 / V3F / V3R unchanged.
+    - ``count_raw == "0"`` -- a current DLL saying the unit has no cuts (the
+      measured `duna-direct-recorded` answer). Also the empty tuple, same
+      identity, but now on a MEASUREMENT rather than on an absence.
+    - a nonzero count -- the list must parse into exactly that many finite,
+      positive-length, non-overlapping, ascending cuts. Anything else is a
+      REFUSAL, never a guess. The C# side is fail-empty by construction (it
+      emits the empty string rather than a truncated list beside a nonzero
+      count), and that pair arrives here as "there ARE cuts and I could not be
+      told what they are" - the one state where compressing anyway would land
+      the dwell somewhere plausible and wrong.
+    """
+    if count_raw is None or not str(count_raw).strip():
+        return (), ""
+    try:
+        count = int(str(count_raw).strip())
+    except (TypeError, ValueError):
+        return None, ("the loiterCutCount payload was unreadable: %r"
+                      % (count_raw,))
+    if count < 0:
+        return None, "the loiterCutCount payload was negative: %d" % count
+    text = str(list_raw or "").strip()
+    if count == 0:
+        return (), ""
+    if not text:
+        return None, ("the unit reports %d loiter cut(s) but the loiterCuts "
+                      "payload is empty; the span clock compresses by an "
+                      "amount this machine cannot reconstruct" % count)
+    cuts: List[M3LoopCut] = []
+    for token in text.split(","):
+        parts = token.split(":")
+        if len(parts) != 2:
+            return None, ("the loiterCuts payload is malformed (expected "
+                          "start:length pairs, got %r)" % (text,))
+        try:
+            start = float(parts[0])
+            length = float(parts[1])
+        except (TypeError, ValueError):
+            return None, ("the loiterCuts payload is malformed (expected "
+                          "start:length pairs, got %r)" % (text,))
+        if not (_is_finite(start) and _is_finite(length)):
+            return None, ("the loiterCuts payload carries a non-finite cut: "
+                          "%r" % (text,))
+        if length <= 0.0:
+            return None, ("the loiterCuts payload carries a non-positive cut "
+                          "length: %r" % (text,))
+        cuts.append(M3LoopCut(start_offset=start, length=length))
+    if len(cuts) != count:
+        return None, ("the loiterCuts payload lists %d cut(s) but "
+                      "loiterCutCount says %d" % (len(cuts), count))
+    # CompressSpanUT's own precondition (SpanClock.cs:711, "must be sorted by
+    # StartUT ascending"). Its arithmetic would still run over an unsorted or
+    # overlapping list and would still remove the right TOTAL, but the
+    # inside-a-cut detection below would name the wrong cut, and a producer
+    # emitting either shape has changed a contract this machine is reading.
+    for i in range(1, len(cuts)):
+        if cuts[i].start_offset < cuts[i - 1].end_offset:
+            return None, ("the loiterCuts payload is not ascending / "
+                          "non-overlapping: %r" % (text,))
+    return tuple(cuts), ""
+
+
+def m3_compress_offset(offset: float, cuts: Tuple[M3LoopCut, ...]
+                       ) -> Tuple[float, Optional[M3LoopCut]]:
+    """RECORDED-span offset -> live loop PHASE offset.
+
+    The `GhostPlaybackLogic.CompressSpanUT` transcription (SpanClock.cs:691),
+    done in SpanStartUT-relative coordinates because both sides of the
+    subtraction are already offsets: ``offset - sum of the parts of each cut
+    at or before offset``. Monotonic non-decreasing; the IDENTITY for an empty
+    cut list, which is the whole inertness guarantee for uncompressed subjects.
+
+    Also returns the cut STRICTLY containing ``offset`` (``start < offset <
+    end``) or None. A recorded instant inside a cut has no live UT at all - the
+    whole interval collapses to one compressed instant - so the caller must
+    refuse rather than silently dwell on the collapse point. Boundary hits are
+    deliberately NOT "inside": ``offset == start`` compresses to itself, and
+    ``offset == end`` compresses to the cut start, which is the loop's honest
+    resume instant (`DecompressSpanUT` maps it back to the cut end)."""
+    if not cuts or not _is_finite(offset):
+        return offset, None
+    removed = 0.0
+    inside: Optional[M3LoopCut] = None
+    for cut in cuts:
+        if offset <= cut.start_offset:
+            continue
+        end = cut.end_offset
+        removed += (offset if offset < end else end) - cut.start_offset
+        if offset < end:
+            inside = cut
+    return offset - removed, inside
 
 
 @dataclass(frozen=True)
@@ -18967,6 +19116,19 @@ class M3State:
     jump_issued_for: str = ""
     camera_commanded: bool = False
     hold_started_ut: Optional[float] = None
+    # --- span-clock compression, read off the arm payload (2026-08-25) ---
+    # EMPTY is both the no-cuts answer and the older-DLL answer, and in both
+    # cases every window formula below is byte-identical to the pre-compression
+    # machine (`m3_compress_offset` is the identity on an empty tuple).
+    loiter_cuts: Tuple[M3LoopCut, ...] = ()
+    # The unit's ACTIVE span; None when the payload did not carry it (older
+    # DLL), which is the ONLY reason the past-the-span guard can be skipped.
+    compressed_span: Optional[float] = None
+    # The unit's RAW recorded span. Separate from the above because the two
+    # catch DIFFERENT authoring errors with different fixes: past the RAW span
+    # means the offset is pinned against a different recording, past the
+    # COMPRESSED span means the right recording read on the wrong clock.
+    span_seconds: Optional[float] = None
     # Window arrival stamps (the machine-carried assertion evidence).
     depart_window_ut: Optional[float] = None
     arrive_window_ut: Optional[float] = None
@@ -19014,8 +19176,95 @@ def _m3_over_budget(state: M3State, snapshot: TelemetrySnapshot,
 
 
 def _m3_window_ut(state: M3State, offset: float) -> float:
-    """anchorUt + recorded offset: the span-clock identity under measurement."""
-    return (state.anchor_ut or 0.0) + offset
+    """anchorUt + the recorded offset COMPRESSED through the unit's loiter cuts.
+
+    The offsets a spec declares are RECORDED-UT deltas (that is the contract
+    `M3Params` states and the frame a fixture's own segment table is read in);
+    the live clock runs on the COMPRESSED span. On an uncompressed unit the two
+    coincide and this is the pre-2026-08-25 formula unchanged - which is what
+    keeps V2 / V3F / V3R, whose subject measures `loiterCuts=0`, byte-identical.
+    On a unit that loiters they differ by the excised parking, and the
+    uncompressed formula walks straight into the inter-cycle tail (V24W, run
+    2026-08-25_1415: three windows, zero ghosts). Every window, every jump
+    target and every stair guard goes through here, so there is exactly one
+    place where a recorded offset becomes a live UT."""
+    compressed, _inside = m3_compress_offset(offset, state.loiter_cuts)
+    return (state.anchor_ut or 0.0) + compressed
+
+
+def _m3_optional_seam_float(snapshot: TelemetrySnapshot, key: str
+                            ) -> Optional[float]:
+    """One optional numeric field of the arm payload, or None when the key is
+    absent / unreadable. None is the OLDER-DLL answer and every guard that
+    reads one of these skips itself on None rather than guessing a value."""
+    try:
+        value = float(_b5_seam_payload(snapshot, M3_TAG_ARM, key))
+    except (TypeError, ValueError):
+        return None
+    return value if _is_finite(value) else None
+
+
+def _m3_validate_window_offsets(state: M3State) -> str:
+    """Check the three declared offsets against the unit's span clock ONCE, at
+    arm time, and return a named give-up reason (or "" when all three are
+    dwellable). Three refusals, all SPEC AUTHORING ERRORS about numbers a spec
+    pinned rather than intermittent conditions:
+
+    PAST THE RAW SPAN. Checked first because it is the coarsest fault and has a
+    different fix from the other two: an offset larger than the recording's own
+    duration is pinned against a DIFFERENT recording (a re-harvested fixture, a
+    copied lane), and no clock arithmetic makes it dwellable.
+
+    INSIDE A CUT. The cut interval collapses to a single compressed instant, so
+    the requested recorded moment has no live UT at all - the loop never plays
+    it. Clamping to the cut start is the tempting silent fix and is refused
+    deliberately: it would hand back a green run that dwelled on the loiter's
+    edge while the spec's ledger claims it dwelled on the instant it named, and
+    a lane whose whole product is a render OBSERVATION must never quietly
+    observe a different moment than the one it declared. Naming it instead
+    hands the author the cut interval and lets them re-pin the offset.
+
+    PAST THE COMPRESSED SPAN. The exact V24W failure: the phase runs past
+    `effectiveSpan`, the clock parks at spanEnd, `isInInterCycleTail` latches
+    and nothing renders (SpanClock.cs:1745-1749). Checked only when the payload
+    carried a readable compressed span, so an older DLL simply skips it.
+
+    BOTH ARE MISSION-FLAKE -> INVALID(autopilot-flake), which is the same shape
+    the neighbouring `unitBuilt=false` and unreadable-anchor give-ups already
+    take, and it costs one retry that reproduces the identical named reason -
+    itself the tell that separates an authoring error from a real flake."""
+    cuts = state.loiter_cuts
+    limit = state.compressed_span
+    raw_span = state.span_seconds
+    for label, offset in (("depart", state.params.depart_offset),
+                          ("arrive", state.params.arrive_offset),
+                          ("park", state.params.park_offset)):
+        if raw_span is not None and offset > raw_span:
+            return ("the %s window offset %.3f is past the recording's own raw "
+                    "span of %.3f s: no clock arithmetic makes it dwellable, so "
+                    "the offset is pinned against a different recording (this "
+                    "is a spec authoring error, not a flake)"
+                    % (label, offset, raw_span))
+        compressed, inside = m3_compress_offset(offset, cuts)
+        if inside is not None:
+            return ("the %s window offset %.3f falls INSIDE the loop's excised "
+                    "loiter cut [%.3f, %.3f] (length %.3f s), which the span "
+                    "clock collapses to a single instant: that recorded moment "
+                    "never plays, so it cannot be dwelled on. Re-pin the offset "
+                    "outside the cut (this is a spec authoring error, not a "
+                    "flake)"
+                    % (label, offset, inside.start_offset, inside.end_offset,
+                       inside.length))
+        if limit is not None and compressed >= limit:
+            return ("the %s window offset %.3f compresses to %.3f, at or past "
+                    "the unit's compressed span of %.3f s (the loop excises "
+                    "%.3f s of loiter across %d cut(s)): the window would sit "
+                    "in the inter-cycle tail, where the clock parks at spanEnd "
+                    "and nothing renders. Re-pin the offset (this is a spec "
+                    "authoring error, not a flake)"
+                    % (label, offset, compressed, limit,
+                       sum(c.length for c in cuts), len(cuts)))
+    return ""
 
 
 def _m3_ramp_guard_ut(state: M3State, guard_offset: Optional[float]) -> float:
@@ -19211,7 +19460,25 @@ def m3_decide(state: M3State, snapshot: TelemetrySnapshot
                 return _m3_flake(state, "MissionConfig answered OK but the "
                                         "phaseAnchorUt payload was unreadable: "
                                         "%r" % (anchor_raw,)), []
-            armed = replace(state, anchor_ut=anchor)
+            cuts, cut_err = m3_parse_loiter_cuts(
+                _b5_seam_payload(snapshot, M3_TAG_ARM, "loiterCutCount"),
+                _b5_seam_payload(snapshot, M3_TAG_ARM, "loiterCuts"))
+            if cuts is None:
+                return _m3_flake(state, "MissionConfig answered OK but the "
+                                        "loiter-cut payload cannot be mapped "
+                                        "onto the span clock: %s" % cut_err), []
+            armed = replace(
+                state, anchor_ut=anchor, loiter_cuts=cuts,
+                compressed_span=_m3_optional_seam_float(
+                    snapshot, "compressedSpanSeconds"),
+                span_seconds=_m3_optional_seam_float(snapshot, "spanSeconds"))
+            bad = _m3_validate_window_offsets(armed)
+            if bad:
+                # Flake from the ARMED state deliberately: the cut list and the
+                # compressed span it was judged against then ride the result
+                # JSON beside the give-up, so a post-mortem does not have to
+                # re-derive them from the game log.
+                return _m3_flake(armed, bad), []
             if not state.params.map_camera:
                 # FLIGHT-scene variant: no camera work at all; straight to
                 # the first leg.
@@ -19303,9 +19570,23 @@ def evaluate_m3_assertions(frames, params: M3Params, phases_reached=(),
     del frames
     phases = tuple(phases_reached or ())
     anchor = getattr(state, "anchor_ut", None)
+    armed_detail = {"tree": params.tree_id, "required": M3_CAMERA}
+    cuts = tuple(getattr(state, "loiter_cuts", ()) or ())
+    if cuts:
+        # ONLY when the unit actually compresses. A lane whose subject carries
+        # no cuts keeps a byte-identical detail dict, the same inertness the
+        # action stream and the row list already keep - and when cuts DO exist
+        # the mapping that produced the windows is on the record beside them,
+        # which is what an empty-observation post-mortem needed and did not have.
+        armed_detail["loiterCuts"] = [[c.start_offset, c.length] for c in cuts]
+        armed_detail["compressedSpanSeconds"] = getattr(
+            state, "compressed_span", None)
+        armed_detail["compressedWindowOffsets"] = [
+            m3_compress_offset(o, cuts)[0]
+            for o in (params.depart_offset, params.arrive_offset,
+                      params.park_offset)]
     armed = AssertionOutcome(
-        "loopArmed", anchor is not None, anchor,
-        {"tree": params.tree_id, "required": M3_CAMERA})
+        "loopArmed", anchor is not None, anchor, armed_detail)
     cam = AssertionOutcome(
         "mapCameraObserved" if params.map_camera else "flightSceneDirect",
         M3_WARP_DEPART in phases,
